@@ -1,0 +1,45 @@
+name: 🐞 Bug Report
+description: Found something that doesn't work as expected?
+body:
+  - type: dropdown
+    id: Environment
+    attributes:
+      label: Environment
+      description: How are you using Ch-UI?
+      options:
+        - NPM build
+        - Docker
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How did you encounter the bug?
+      description: How can this bug be reproduced? Please provide steps to reproduce.
+      placeholder: |-
+        1. Run Docker container... 
+        2. npm run build...
+        3. Go to...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: What it supposed to happen? What did you expect to see?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Result
+      description: What was the accual result?
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |-
+        ### Great, just submit the issue and I will do my best to take care of it!  🙏
+    validations:
+      required: false
