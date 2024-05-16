@@ -77,7 +77,7 @@ export default function Sidebar() {
             onClick={() => {
               // new blank window with the url
               window.open(
-                "https://github.com/caioricciuti/click-house-ui",
+                "https://github.com/caioricciuti/ch-ui",
                 "_blank"
               );
             }}
