@@ -39,9 +39,13 @@ jobs:
           push: true
           tags: ghcr.io/${{ github.repository }}:latest
           labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.source=https://github.com/${{github.actor}}/${{ github.repository }}
             org.opencontainers.image.description=A simple UI for using ClickHouse self-hosted
             org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.created=${{ steps.meta.outputs.created }}
+            org.opencontainers.image.revision=${{ steps.meta.outputs.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.tag }}
+
 
       - name: Log out from GitHub Container Registry
         run: docker logout ghcr.io
