@@ -34,7 +34,7 @@ export default function SettingsPage() {
   const handleSubmit = async () => {
     setIsLoading(true);
     try {
-      if (!clickHouseUrl || !clickHouseUser || !clickHousePassword) {
+      if (!clickHouseUrl || !clickHouseUser) {
         toast.error("Please fill all fields");
         setIsLoading(false);
         return;

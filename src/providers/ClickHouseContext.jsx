@@ -60,7 +60,7 @@ const ClickHouseProvider = ({ children }) => {
         setIsLoading(false);
       }
     };
-    if (credentials.url && credentials.username && credentials.password) {
+    if (credentials.url && credentials.username) {
       initializeClient();
     } else {
       setIsLoading(false);
