@@ -56,4 +56,4 @@ jobs:
           body: "Automated release for tag ${{ steps.vars.outputs.new_tag }}"
           draft: false
           prerelease: false
-          token: ${{ secrets.GHCR_PAT }}
+          token: ${{ secrets.GHCR_PAT_PUB_RELEASE }}
