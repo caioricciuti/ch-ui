@@ -69,26 +69,28 @@ const ClickHouseProvider = ({ children }) => {
 
   const getDataAnalytics = useCallback(async () => {
     setIsLoading(true);
+
     try {
-      analyticsQueries.forEach(async (element) => {
-        const response = await clickHouseClient.current.query({
-          query: element.query,
-          format: element.format,
-        });
-        const data = await response.json();
-        const formatForArray = {
-          data: data,
-          title: element.title,
-          plot: element.plot,
-          description: element.description,
-          data_format: element.data_format,
-          query: element.query,
-          format: element.format,
-        };
-        setAnalyticsData((prev) => {
-          return [...prev, formatForArray];
-        });
-      });
+      const newAnalyticsData = await Promise.all(
+        analyticsQueries.map(async (element) => {
+          const response = await clickHouseClient.current.query({
+            query: element.query,
+            format: element.format,
+          });
+          const data = await response.json();
+          return {
+            data: data,
+            title: element.title,
+            plot: element.plot,
+            description: element.description,
+            data_format: element.data_format,
+            query: element.query,
+            format: element.format,
+          };
+        })
+      );
+
+      setAnalyticsData(newAnalyticsData);
     } catch (error) {
       setError(`Data analytics fetch failed: ${error.message}`);
       toast.error(error.message);

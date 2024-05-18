@@ -18,21 +18,14 @@ import { toast } from "sonner";
 
 export default function InstanceMetricsPage() {
   const { theme } = useTheme();
-  const {
-    isServerAvailable,
-    isLoading,
-    setIsLoading,
-    getDataAnalytics,
-    analyticsData,
-  } = useClickHouseState();
+  const { isServerAvailable, isLoading, getDataAnalytics, analyticsData } =
+    useClickHouseState();
 
   useEffect(() => {
-    setIsLoading(true);
-    if (isServerAvailable && !analyticsData.length) {
+    if (isServerAvailable && !isLoading && !analyticsData.length) {
       getDataAnalytics();
     }
-    setIsLoading(false);
-  }, [isServerAvailable, analyticsData.length]);
+  }, [isServerAvailable, isLoading, analyticsData.length]);
 
   const formatNumber = (number) => new Intl.NumberFormat().format(number);
   const formatTime = (seconds) =>
