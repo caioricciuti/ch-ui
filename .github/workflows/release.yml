@@ -12,11 +12,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.GHCR_PAT }}
 
       - name: Set up Git
         run: |
-          git config --global user.name caioricciuti
-          git config --global user.email caio.ricciuti@outlook.com
+          git config --global user.name ${{ secrets.GIT_USER_NAME }}
+          git config --global user.email ${{ secrets.GIT_USER_EMAIL }}
 
       - name: Get current version
         run: |
@@ -33,7 +35,7 @@ jobs:
           minor=${parts[1]}
           patch=${parts[2]}
 
-          # Increment the patch version2
+          # Increment the patch version
           new_patch=$((patch + 1))
           new_tag="v$major.$minor.$new_patch"
           echo "New tag: $new_tag"
@@ -48,10 +50,11 @@ jobs:
 
       - name: Create GitHub release
         uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHCR_PAT }}
         with:
           tag_name: ${{ env.new_tag }}
           release_name: ${{ env.new_tag }}
           body: "Automated release for tag ${{ env.new_tag }}"
           draft: false
           prerelease: false
-          token: ${{ secrets.GHCR_PAT }}
