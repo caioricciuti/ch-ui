@@ -33,7 +33,7 @@ jobs:
           minor=${parts[1]}
           patch=${parts[2]}
 
-          # Increment the patch version
+          # Increment the patch version2
           new_patch=$((patch + 1))
           new_tag="v$major.$minor.$new_patch"
           echo "New tag: $new_tag"
