@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect,useState } from "react";
 import Editor from "@monaco-editor/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,11 @@ import { suggestions } from "@/providers/AutoCompleteMonaco";
 export default function QueryTabContent({ tab }) {
   const { theme } = useTheme();
   const { saveTab, updateQueryTab, runQuery, isLoadingQuery } = useTabState();
+  const [monacoEditorContent, setMonacoEditorContent] = useState("");
+
+  useEffect(() => {
+    setMonacoEditorContent(tab.tab_content);
+  }, [tab.tab_content]);
 
   useEffect(() => {
     const handleRunQueryShortCut = (event) => {
@@ -173,7 +178,7 @@ export default function QueryTabContent({ tab }) {
             <Editor
               className="w-full h-full"
               language="sql"
-              value={tab.tab_content}
+              value={tab.tab_content || monacoEditorContent || ""}
               theme={theme === "dark" ? "vs-dark" : "vs-light"}
               onMount={handleEditorDidMount}
               options={{

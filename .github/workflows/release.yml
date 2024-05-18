@@ -1,0 +1,59 @@
+name: Create Tag and Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Git
+        run: |
+          git config --global user.name caioricciuti
+          git config --global user.email caio.ricciuti@outlook.com
+
+      - name: Get current version
+        id: vars
+        run: |
+          set -e  # Fail on first error
+
+          # Extract the latest tag, or default to v0.0.0
+          latest_tag=$(git describe --tags `git rev-list --tags --max-count=1` || echo "v0.0.0")
+          echo "Latest tag: $latest_tag"
+          echo "::set-output name=latest_tag::$latest_tag"
+
+          # Split the tag into parts
+          IFS='.' read -r -a parts <<< "${latest_tag//v/}"
+          major=${parts[0]}
+          minor=${parts[1]}
+          patch=${parts[2]}
+
+          # Increment the patch version
+          new_patch=$((patch + 1))
+          new_tag="v$major.$minor.$new_patch"
+          echo "New tag: $new_tag"
+          echo "::set-output name=new_tag::$new_tag"
+
+      - name: Create new tag
+        run: |
+          set -e  # Fail on first error
+
+          new_tag=${{ steps.vars.outputs.new_tag }}
+          git tag $new_tag
+          git push origin $new_tag
+
+      - name: Create GitHub release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ steps.vars.outputs.new_tag }}
+          release_name: ${{ steps.vars.outputs.new_tag }}
+          body: "Automated release for tag ${{ steps.vars.outputs.new_tag }}"
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GHCR_PAT }}

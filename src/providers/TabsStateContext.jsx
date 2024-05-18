@@ -86,6 +86,7 @@ export const TabsStateProvider = ({ children }) => {
         tab_results: null,
         order: tabs.length,
       };
+      saveTab(newTab);
       setTabs((prevTabs) => [...prevTabs, newTab]);
       setActiveTab(newTab.tab_id);
     },
@@ -160,6 +161,12 @@ export const TabsStateProvider = ({ children }) => {
 
   const runQuery = async (tabId, query) => {
     setIsLoadingQuery(true);
+    // Timeout function
+    const timeout = (ms) =>
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Query timed out")), ms)
+      );
+
     try {
       if (!query) {
         toast.error("Invalid query. Please enter a valid query.");
@@ -172,42 +179,54 @@ export const TabsStateProvider = ({ children }) => {
         query.toLowerCase().includes("insert") ||
         query.toLowerCase().includes("alter") ||
         query.toLowerCase().includes("drop");
+
       let result;
+      let data;
+
+      // Use Promise.race to set a timeout for the query execution
       if (isCreateOrInsert) {
-        result = await clickHouseClient.current.command({
-          query,
-          clickhouse_settings: {
-            wait_end_of_query: 0,
-          },
-          format: "JSON",
-        });
-        const data = result;
-        updateQueryTab(tabId, {
-          last_run: new Date().toISOString(),
-          tab_results: [
-            {
-              success: "true",
-              message: JSON.stringify(data),
+        result = await Promise.race([
+          clickHouseClient.current.command({
+            query,
+            clickhouse_settings: {
+              wait_end_of_query: 0,
             },
-          ],
-          tab_results_statistics: [],
-          tab_errors: null,
-        });
+            format: "JSON",
+          }),
+          timeout(20000), // 20 seconds timeout
+        ]);
+        data = result;
       } else {
-        result = await clickHouseClient.current.query({
-          query,
-          format: "JSON",
-        });
-        const data = await result.json();
-        updateQueryTab(tabId, {
-          last_run: new Date().toISOString(),
-          tab_results: data.data,
-          tab_results_statistics: data.statistics,
-          tab_errors: null,
-        });
+        result = await Promise.race([
+          clickHouseClient.current.query({
+            query,
+            format: "JSON",
+          }),
+          timeout(20000), // 20 seconds timeout
+        ]);
+        data = await result.json();
       }
+
+      // If the result is successful before timeout
+      updateQueryTab(tabId, {
+        last_run: new Date().toISOString(),
+        tab_results: isCreateOrInsert
+          ? [
+              {
+                success: "true",
+                message: JSON.stringify(data),
+              },
+            ]
+          : data.data,
+        tab_results_statistics: isCreateOrInsert ? [] : data.statistics,
+        tab_errors: null,
+      });
     } catch (error) {
-      toast.error("Error running query: " + error.message);
+      if (error.message === "Query timed out") {
+        toast.error("Query timed out after 20 seconds.");
+      } else {
+        toast.error("Error running query: " + error.message);
+      }
       updateQueryTab(tabId, {
         last_run: new Date().toISOString(),
         tab_results: null,

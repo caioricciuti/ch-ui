@@ -15,7 +15,7 @@ import TableTabContent from "@/TabContents/TableTabContent";
 import QueryTabContent from "@/TabContents/QueryTabContent";
 
 export default function TabsManager() {
-  const { tabs, activeTab, setActiveTab, isLoading, addQueryTab, deleteTab, queryTabContent } =
+  const { tabs, activeTab, setActiveTab, isLoading, addQueryTab, deleteTab } =
     useTabState(); // Use context to manage tabs and related state
 
   if (isLoading) {

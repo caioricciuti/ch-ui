@@ -8,19 +8,20 @@ import {
 } from "react";
 import { createClient } from "@clickhouse/client-web";
 import { toast } from "sonner";
+import { analyticsQueries } from "@/helpers/instanceAnalyticsQueries";
 
 const ClickHouseContext = createContext();
 
 const ClickHouseProvider = ({ children }) => {
   const clickHouseClient = useRef(null);
   const [credentials, setCredentials] = useState(
-    () => JSON.parse(localStorage.getItem("chCredentials")) || {},
+    () => JSON.parse(localStorage.getItem("chCredentials")) || {}
   );
   const [isServerAvailable, setIsServerAvailable] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [version, setVersion] = useState("");
   const [error, setError] = useState("");
-  const [clusterOverviewData, setClusterOverviewData] = useState([]);
+  const [analyticsData, setAnalyticsData] = useState([]);
 
   const checkServerStatus = useCallback(async () => {
     try {
@@ -40,7 +41,6 @@ const ClickHouseProvider = ({ children }) => {
       setIsServerAvailable(false);
       setError(`Server status check failed: ${error.message}`);
       setVersion("-");
-      setClusterOverviewData([]);
       toast.error(`Server status check failed: ${error.message}`);
     }
   }, []);
@@ -67,18 +67,30 @@ const ClickHouseProvider = ({ children }) => {
     }
   }, [credentials, checkServerStatus]);
 
-  const clusterOverview = useCallback(async () => {
+  const getDataAnalytics = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await clickHouseClient.current.query({
-        query: "SELECT * FROM system.clusters",
-        format: "JSONEachRow",
+      analyticsQueries.forEach(async (element) => {
+        const response = await clickHouseClient.current.query({
+          query: element.query,
+          format: element.format,
+        });
+        const data = await response.json();
+        const formatForArray = {
+          data: data,
+          title: element.title,
+          plot: element.plot,
+          description: element.description,
+          data_format: element.data_format,
+          query: element.query,
+          format: element.format,
+        };
+        setAnalyticsData((prev) => {
+          return [...prev, formatForArray];
+        });
       });
-      const data = await response.json();
-      setClusterOverviewData(data);
     } catch (error) {
-      setError(`Cluster overview fetch failed: ${error.message}`);
-      setClusterOverviewData([]);
+      setError(`Data analytics fetch failed: ${error.message}`);
       toast.error(error.message);
     } finally {
       setIsLoading(false);
@@ -91,12 +103,12 @@ const ClickHouseProvider = ({ children }) => {
     isLoading,
     setIsLoading,
     version,
-    clusterOverviewData,
-    clusterOverview,
     credentials,
     setCredentials,
     error,
     setError,
+    getDataAnalytics,
+    analyticsData,
   };
 
   return (
@@ -110,7 +122,7 @@ const useClickHouseState = () => {
   const context = useContext(ClickHouseContext);
   if (!context) {
     throw new Error(
-      "useClickHouseState must be used within a ClickHouseProvider",
+      "useClickHouseState must be used within a ClickHouseProvider"
     );
   }
   return context;
