@@ -12,8 +12,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-        with:
-          token: ${{ secrets.GHCR_PAT }}
 
       - name: Set up Git
         run: |
@@ -24,7 +22,7 @@ jobs:
         run: |
           set -e  # Fail on first error
 
-          # Extract the latest tag, or default to v1.0.0
+          # Extract the latest tag, or default to v1.0.0 if no tags exist
           latest_tag=$(git describe --tags `git rev-list --tags --max-count=1` || echo "v1.0.0")
           echo "Latest tag: $latest_tag"
           echo "latest_tag=$latest_tag" >> $GITHUB_ENV
@@ -40,6 +38,24 @@ jobs:
           new_tag="v$major.$minor.$new_patch"
           echo "New tag: $new_tag"
           echo "new_tag=$new_tag" >> $GITHUB_ENV
+
+      - name: Check if tag exists
+        id: tag_check
+        run: |
+          set -e  # Fail on first error
+
+          if git rev-parse "refs/tags/${{ env.new_tag }}" >/dev/null 2>&1; then
+            echo "Tag already exists."
+
+            # Increment the minor version instead
+            new_minor=$((minor + 1))
+            new_patch=0
+            new_tag="v$major.$new_minor.$new_patch"
+            echo "New incremented tag: $new_tag"
+            echo "new_tag=$new_tag" >> $GITHUB_ENV
+          else
+            echo "Tag does not exist."
+            echo "new_tag=$new_tag" >> $GITHUB_ENV
 
       - name: Create new tag
         run: |
