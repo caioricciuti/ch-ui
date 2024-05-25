@@ -60,11 +60,13 @@ jobs:
           fi
 
       - name: Create new tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHCR_PAT }}
         run: |
           set -e  # Fail on first error
 
           git tag "${{ env.new_tag }}"
-          git push origin "${{ env.new_tag }}"
+          git push https://x-access-token:${{ secrets.GHCR_PAT }}@github.com/${{ github.repository }} "${{ env.new_tag }}"
 
       - name: Create GitHub release
         uses: actions/create-release@v1
