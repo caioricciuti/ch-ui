@@ -161,6 +161,7 @@ export const TabsStateProvider = ({ children }) => {
 
   const runQuery = async (tabId, query) => {
     setIsLoadingQuery(true);
+
     // Timeout function
     const timeout = (ms) =>
       new Promise((_, reject) =>
@@ -173,18 +174,31 @@ export const TabsStateProvider = ({ children }) => {
         return;
       }
 
-      // if query has create or insert statements, show a warning
-      const isCreateOrInsert =
-        query.toLowerCase().includes("create") ||
-        query.toLowerCase().includes("insert") ||
-        query.toLowerCase().includes("alter") ||
-        query.toLowerCase().includes("drop");
+      // Function to check if the query is a create or insert statement
+      const isCreateOrInsert = (query) => {
+        const lowerQuery = query.toLowerCase();
+        const createTableRegex = /\bcreate\s+table\b/;
+        const insertRegex = /\binsert\b/;
+        const alterRegex = /\balter\b/;
+        const dropTableRegex = /\bdrop\s+table\b/;
+        const dropColumnRegex = /\bdrop\s+column\b/;
+        const dropIndexRegex = /\bdrop\s+index\b/;
+
+        return (
+          createTableRegex.test(lowerQuery) ||
+          insertRegex.test(lowerQuery) ||
+          alterRegex.test(lowerQuery) ||
+          dropTableRegex.test(lowerQuery) ||
+          dropColumnRegex.test(lowerQuery) ||
+          dropIndexRegex.test(lowerQuery)
+        );
+      };
 
       let result;
       let data;
 
       // Use Promise.race to set a timeout for the query execution
-      if (isCreateOrInsert) {
+      if (isCreateOrInsert(query)) {
         result = await Promise.race([
           clickHouseClient.current.command({
             query,
@@ -210,7 +224,7 @@ export const TabsStateProvider = ({ children }) => {
       // If the result is successful before timeout
       updateQueryTab(tabId, {
         last_run: new Date().toISOString(),
-        tab_results: isCreateOrInsert
+        tab_results: isCreateOrInsert(query)
           ? [
               {
                 success: "true",
@@ -218,7 +232,7 @@ export const TabsStateProvider = ({ children }) => {
               },
             ]
           : data.data,
-        tab_results_statistics: isCreateOrInsert ? [] : data.statistics,
+        tab_results_statistics: isCreateOrInsert(query) ? [] : data.statistics,
         tab_errors: null,
       });
     } catch (error) {
