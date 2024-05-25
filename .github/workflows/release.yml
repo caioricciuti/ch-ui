@@ -57,6 +57,7 @@ jobs:
           else
             echo "Tag does not exist."
             echo "new_tag=${{ env.new_tag }}" >> $GITHUB_ENV
+          fi
 
       - name: Create new tag
         run: |
