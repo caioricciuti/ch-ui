@@ -24,7 +24,7 @@ jobs:
           set -e  # Fail on first error
 
           # Extract the latest tag, or default to v1.0.0 if no tags exist
-          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.1")
+          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
           echo "Latest tag: $latest_tag"
           echo "latest_tag=$latest_tag" >> $GITHUB_ENV
 
@@ -61,17 +61,17 @@ jobs:
 
       - name: Create new tag
         env:
-          GITHUB_TOKEN: ${{ secrets.GHCR_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e  # Fail on first error
 
           git tag "${{ env.new_tag }}"
-          git push https://${{ secrets.GHCR_PAT }}@github.com/${{ github.repository }} "${{ env.new_tag }}"
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} "${{ env.new_tag }}"
 
       - name: Create GitHub release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GHCR_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.new_tag }}
           release_name: ${{ env.new_tag }}
