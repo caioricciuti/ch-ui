@@ -23,8 +23,8 @@ jobs:
         run: |
           set -e  # Fail on first error
 
-          # Extract the latest tag, or default to v1.0.0 if no tags exist
-          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
+          # Extract the latest tag, or default to v1.0.1 if no tags exist
+          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.1")
           echo "Latest tag: $latest_tag"
           echo "latest_tag=$latest_tag" >> $GITHUB_ENV
 
