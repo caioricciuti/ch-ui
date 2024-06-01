@@ -23,8 +23,8 @@ jobs:
         run: |
           set -e  # Fail on first error
 
-          # Extract the latest tag, or default to v1.0.1 if no tags exist
-          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.1")
+          # Extract the latest tag, or default to v1.0.0 if no tags exist
+          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
           echo "Latest tag: $latest_tag"
           echo "latest_tag=$latest_tag" >> $GITHUB_ENV
 
@@ -40,24 +40,22 @@ jobs:
           echo "New tag: $new_tag"
           echo "new_tag=$new_tag" >> $GITHUB_ENV
 
-      - name: Check if tag exists
+      - name: Check if tag exists and increment if necessary
         id: tag_check
         run: |
           set -e  # Fail on first error
 
-          if git rev-parse "refs/tags/${{ env.new_tag }}" >/dev/null 2>&1; then
-            echo "Tag already exists."
+          while git rev-parse "refs/tags/${{ env.new_tag }}" >/dev/null 2>&1; do
+            echo "Tag ${{ env.new_tag }} already exists."
 
-            # Increment the minor version instead
-            new_minor=$((minor + 1))
-            new_patch=0
-            new_tag="v$major.$new_minor.$new_patch"
+            # Increment the patch version
+            new_patch=$((new_patch + 1))
+            new_tag="v$major.$minor.$new_patch"
             echo "New incremented tag: $new_tag"
-            echo "new_tag=$new_tag" >> $GITHUB_ENV
-          else
-            echo "Tag does not exist."
-            echo "new_tag=${{ env.new_tag }}" >> $GITHUB_ENV
-          fi
+          done
+
+          echo "Final new tag: $new_tag"
+          echo "new_tag=$new_tag" >> $GITHUB_ENV
 
       - name: Create new tag
         env:
