@@ -22,9 +22,11 @@ This project aims to create a nice and updated UI for ClickHouse databases. It p
 ```bash
 git https://github.com/caioricciuti/ch-ui.git
 cd ch-ui
-cp .env.example .env (and fill the variables)
 npm install
-npm start
+npm run build
+
+** preview **
+npm run preview
 
 ** debug **
 npm run dev
