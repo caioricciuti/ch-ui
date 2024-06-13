@@ -21,11 +21,16 @@ jobs:
       - name: Determine version strategy
         id: determine_version
         run: |
-          if git rev-parse "refs/tags/" >/dev/null 2>&1; then
-            # Tags exist, use existing strategy
-            latest_tag=$(git describe --tags --abbrev=0)
-            echo "Latest tag: $latest_tag"
+          latest_tag=$(git describe --tags $(git rev-list --tags --max-count=1))
+          echo "Latest tag: $latest_tag"
 
+          if [ -z "$latest_tag" ]; then
+            # No tags, start with initial version
+            major=0
+            minor=1
+            patch=0
+          else
+            # Tags exist, use existing strategy
             IFS='.' read -r -a parts <<< "${latest_tag//v/}"
             major=${parts[0]}
             minor=${parts[1]}
@@ -33,15 +38,12 @@ jobs:
 
             # Increment the patch version
             new_patch=$((patch + 1))
-            new_tag="v$major.$minor.$new_patch"
-          else
-            # No tags, start with initial version
-            major=0
-            minor=1
-            patch=0
-            new_tag="v$major.$minor.$patch"
+            major=${major:-0}
+            minor=${minor:-0}
+            patch=${patch:-0}
           fi
 
+          new_tag="v$major.$minor.$new_patch"
           echo "New tag: $new_tag"
           echo "new_tag=$new_tag" >> $GITHUB_ENV
 
@@ -50,8 +52,7 @@ jobs:
         run: |
           while git rev-parse "refs/tags/${{ env.new_tag }}" >/dev/null 2>&1; do
             echo "Tag ${{ env.new_tag }} already exists."
-            
-            # Increment the patch version
+
             IFS='.' read -r -a parts <<< "${new_tag//v/}"
             major=${parts[0]}
             minor=${parts[1]}
@@ -67,7 +68,7 @@ jobs:
       - name: Create new tag
         run: |
           git tag "${{ env.new_tag }}"
-          git push --tags
+          git push origin "${{ env.new_tag }}"
 
       - name: Create GitHub release
         uses: actions/create-release@v1
