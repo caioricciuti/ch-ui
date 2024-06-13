@@ -21,16 +21,19 @@ jobs:
       - name: Determine version strategy
         id: determine_version
         run: |
-          latest_tag=$(git describe --tags $(git rev-list --tags --max-count=1))
-          echo "Latest tag: $latest_tag"
-
-          if [ -z "$latest_tag" ]; then
+          # Check if there are any tags
+          tag_count=$(git tag -l | wc -l)
+          if [ "$tag_count" -eq 0 ]; then
             # No tags, start with initial version
             major=0
             minor=1
             patch=0
+            new_tag="v$major.$minor.$patch"
           else
             # Tags exist, use existing strategy
+            latest_tag=$(git describe --tags $(git rev-list --tags --max-count=1))
+            echo "Latest tag: $latest_tag"
+
             IFS='.' read -r -a parts <<< "${latest_tag//v/}"
             major=${parts[0]}
             minor=${parts[1]}
@@ -38,12 +41,9 @@ jobs:
 
             # Increment the patch version
             new_patch=$((patch + 1))
-            major=${major:-0}
-            minor=${minor:-0}
-            patch=${patch:-0}
+            new_tag="v$major.$minor.$new_patch"
           fi
 
-          new_tag="v$major.$minor.$new_patch"
           echo "New tag: $new_tag"
           echo "new_tag=$new_tag" >> $GITHUB_ENV
 
