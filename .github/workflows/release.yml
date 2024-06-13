@@ -9,7 +9,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Added permission to allow pushing the tag
+      contents: write # Allow pushing the tag
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -21,10 +21,16 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           default_bump: patch # Start with patch, customizable with inputs
 
+      - name: Push new tag to the repository
+        run: |
+          git push origin ${{ steps.tag_version.outputs.new_tag }}
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1 # Alternative release action
         with:
           body: Automated release for tag ${{ steps.tag_version.outputs.new_tag }}
           files: | # Optionally attach release artifacts (e.g., binaries)
             path/to/your/artifacts/*
-          prerelease: ${{ steps.tag_version.outputs.tag == 'pre' }} 
+          prerelease: ${{ steps.tag_version.outputs.tag == 'pre' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
