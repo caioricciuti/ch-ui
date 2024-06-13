@@ -8,75 +8,23 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write # Added permission to allow pushing the tag
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Set up Git
-        run: |
-          git config --global user.name "${{ secrets.GIT_USER_NAME }}"
-          git config --global user.email "${{ secrets.GIT_USER_EMAIL }}"
-
-      - name: Determine version strategy
-        id: determine_version
-        run: |
-          # Check if there are any tags
-          tag_count=$(git tag -l | wc -l)
-          if [ "$tag_count" -eq 0 ]; then
-            # No tags, start with initial version
-            major=0
-            minor=1
-            patch=0
-            new_tag="v$major.$minor.$patch"
-          else
-            # Tags exist, use existing strategy
-            latest_tag=$(git describe --tags $(git rev-list --tags --max-count=1))
-            echo "Latest tag: $latest_tag"
-
-            IFS='.' read -r -a parts <<< "${latest_tag//v/}"
-            major=${parts[0]}
-            minor=${parts[1]}
-            patch=${parts[2]}
-
-            # Increment the patch version
-            new_patch=$((patch + 1))
-            new_tag="v$major.$minor.$new_patch"
-          fi
-
-          echo "New tag: $new_tag"
-          echo "new_tag=$new_tag" >> $GITHUB_ENV
-
-      - name: Check if tag exists and increment if necessary
-        id: tag_check
-        run: |
-          while git rev-parse "refs/tags/${{ env.new_tag }}" >/dev/null 2>&1; do
-            echo "Tag ${{ env.new_tag }} already exists."
-
-            IFS='.' read -r -a parts <<< "${new_tag//v/}"
-            major=${parts[0]}
-            minor=${parts[1]}
-            patch=${parts[2]}
-            new_patch=$((patch + 1))
-            new_tag="v$major.$minor.$new_patch"
-            echo "New incremented tag: $new_tag"
-          done
-
-          echo "Final new tag: $new_tag"
-          echo "new_tag=$new_tag" >> $GITHUB_ENV
-
-      - name: Create new tag
-        run: |
-          git tag "${{ env.new_tag }}"
-          git push origin "${{ env.new_tag }}"
-
-      - name: Create GitHub release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Bump version and tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.1 # More robust tag/release action
         with:
-          tag_name: ${{ env.new_tag }}
-          release_name: ${{ env.new_tag }}
-          body: "Automated release for tag ${{ env.new_tag }}"
-          draft: false
-          prerelease: false
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: patch # Start with patch, customizable with inputs
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1 # Alternative release action
+        with:
+          body: Automated release for tag ${{ steps.tag_version.outputs.new_tag }}
+          files: | # Optionally attach release artifacts (e.g., binaries)
+            path/to/your/artifacts/*
+          prerelease: ${{ steps.tag_version.outputs.tag == 'pre' }} 
