@@ -32,7 +32,7 @@ npm run preview
 npm run dev
 ```
 
-### Using using Docker
+### Using Docker
 
 ```bash
 docker run -p 5521:5521 ghcr.io/caioricciuti/ch-ui:latest
