@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const errorResponse = require("../utils/errorResponse");
+require("dotenv").config();
 
 const isAuthenticated = async (req, res, next) => {
   const accessToken = req.cookies.accessToken;
@@ -18,7 +19,7 @@ const isAuthenticated = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(accessToken, process.env.ACCESS_TOKEN_SECRET);
-    const user = await User.findById(decoded.id);
+    const user = await User.findById(decoded.id).populate("activeOrganization");
 
     if (!user) {
       return errorResponse(res, 401, 3008, "User not found", "isAuthenticated");
@@ -58,7 +59,7 @@ const isAuthenticated = async (req, res, next) => {
         const newAccessToken = jwt.sign(
           { id: user._id, role: user.role },
           process.env.ACCESS_TOKEN_SECRET,
-          { expiresIn: "15m" }
+          { expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN }
         );
 
         res.cookie("accessToken", newAccessToken, {

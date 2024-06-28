@@ -13,8 +13,19 @@ const clickHouseCredentialSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    slug: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+    },
     host: {
       type: String,
+      required: true,
+    },
+    port: {
+      type: Number,
+      default: 8123,
       required: true,
     },
     username: {

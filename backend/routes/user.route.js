@@ -7,14 +7,10 @@ const {
   createUser,
   updateUser,
   deleteUser,
-  login,
-  register,
-  activateAccount,
-  forgotPassword,
-  resetPassword,
-  refreshToken,
-  logout,
   setCurrentOrganizationForUser,
+  getCurrentUser,
+  updateUserRole,
+  setCurrentCredentialsForUser,
 } = require("../controllers/user.controller");
 
 // Middleware for checking JWT and Authorization
@@ -22,32 +18,29 @@ const isAuthenticated = require("../middleware/isAuthenticated");
 const isAdmin = require("../middleware/isAdmin");
 const isAuthorized = require("../middleware/isAuthorized");
 
-// Public routes
-router.post("/login", login);
-router.post("/register", register);
-router.post("/activate", activateAccount);
-router.post("/forgot-password", forgotPassword);
-router.post("/reset-password", resetPassword);
-
-// Admin routes
-router.get("/users", isAuthenticated, isAdmin, getUsers);
-router.get("/users/:id", isAuthenticated, isAdmin, getUserById);
-router.post("/users", isAuthenticated, isAdmin, createUser);
-router.put("/users", isAuthenticated, isAuthorized("updateUser"), updateUser);
+router.get("/", isAuthenticated, isAdmin, getUsers);
+router.get("/me", isAuthenticated, getCurrentUser);
+router.put("/update/role", isAuthenticated, isAdmin, updateUserRole);
+router.get("/:id", isAuthenticated, getUserById);
+router.post("/", isAuthenticated, isAdmin, createUser);
+router.put("/", isAuthenticated, isAuthorized("updateUser"), updateUser);
 router.post(
-  "/users/set-current-organization",
+  "/set-current-organization",
   isAuthenticated,
   setCurrentOrganizationForUser
 );
+
+router.post(
+  "/set-current-credential",
+  isAuthenticated,
+  setCurrentCredentialsForUser
+);
+
 router.delete(
   "/users",
   isAuthenticated,
   isAuthorized("deleteUser"),
   deleteUser
 );
-
-// Token management routes
-router.post("/refresh-token", refreshToken);
-router.post("/logout", isAuthenticated, logout);
 
 module.exports = router;

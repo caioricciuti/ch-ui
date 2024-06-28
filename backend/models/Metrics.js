@@ -33,6 +33,15 @@ const metricsSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    active: {
+      type: Boolean,
+      default: true,
+    },
+    chart_type: {
+      type: String,
+      enum: ["line", "bar", "pie", "table"],
+      default: "line",
+    },
   },
   { timestamps: true }
 );

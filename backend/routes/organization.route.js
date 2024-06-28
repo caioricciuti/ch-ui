@@ -13,23 +13,40 @@ const {
 
 // Middleware for checking JWT
 const isAuthenticated = require("../middleware/isAuthenticated");
+const isAuthorized = require("../middleware/isAuthorized");
 
 // Public routes
-router.get("/organizations", getOrganizations);
-router.get("/organizations/:id", getOrganizationById);
+router.get("/", isAuthenticated, getOrganizations);
+router.get("/:id", isAuthenticated, getOrganizationById);
 
 // Protected routes
-router.post("/organizations", isAuthenticated, createOrganization);
+router.post("/", isAuthenticated, createOrganization);
 
-router.put("/organizations", isAuthenticated, updateOrganization);
+router.put(
+  "/",
+  isAuthenticated,
+  isAuthorized("updateOrganization"),
+  updateOrganization
+);
 
-router.delete("/organizations", isAuthenticated, deleteOrganization);
-
-router.post("/organizations/addUser", isAuthenticated, addUserToOrganization);
+router.delete(
+  "/",
+  isAuthenticated,
+  isAuthorized("deleteOrganization"),
+  deleteOrganization
+);
 
 router.post(
-  "/organizations/removeUser",
+  "/add-member",
   isAuthenticated,
+  isAuthorized("AddMemberToOrganization"),
+  addUserToOrganization
+);
+
+router.post(
+  "/remove-member",
+  isAuthenticated,
+  isAuthorized("RemoveMemberFromOrganization"),
   removeUserFromOrganization
 );
 

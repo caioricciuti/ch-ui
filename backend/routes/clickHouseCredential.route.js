@@ -17,10 +17,11 @@ const isAuthenticated = require("../middleware/isAuthenticated");
 const isAdmin = require("../middleware/isAdmin");
 
 // Routes
-router.post("/create", isAuthenticated, createClickHouseCredential);
+router.post("/", isAuthenticated, createClickHouseCredential);
+
 router.get("/:id", isAuthenticated, getClickHouseCredentialById);
-router.put("/update/:id", isAuthenticated, updateClickHouseCredential);
-router.delete("/delete/:id", isAuthenticated, deleteClickHouseCredential);
+router.put("/:id", isAuthenticated, updateClickHouseCredential);
+router.delete("/:id", isAuthenticated, deleteClickHouseCredential);
 router.post(
   "/assign-organization",
   isAuthenticated,

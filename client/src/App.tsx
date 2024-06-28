@@ -1,10 +1,8 @@
-function App() {
+import React from "react";
+import Routes from "@/routes";
 
-  return (
-    <>
-      <h1>App</h1>
-    </>
-  )
-}
+const App: React.FC = () => {
+  return <Routes />;
+};
 
-export default App
+export default App;

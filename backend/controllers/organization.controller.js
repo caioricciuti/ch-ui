@@ -1,15 +1,19 @@
 const Organization = require("../models/Organization");
+const User = require("../models/User");
 const { body, validationResult } = require("express-validator");
 const mongoose = require("mongoose");
 const errorResponse = require("../utils/errorResponse");
 const slugify = require("../utils/slugify");
+
 // get all organizations
 exports.getOrganizations = async (req, res) => {
   try {
-    const organizations = await Organization.find({})
+    const organizations = await Organization.find({
+      // where the user is a member
+      members: req.user.id,
+    })
       .populate({
-        path: "members", // Populate the members field
-        // only select id, name, and email
+        path: "members",
         select: "id name email",
       })
       .populate({
@@ -64,6 +68,18 @@ exports.getOrganizationById = async (req, res) => {
         404,
         2002,
         "Organization not found",
+        "getOrganizationById"
+      );
+    }
+
+    // if user is not a member of the organization return 403
+    if (!organization.members.includes(req.user.id)) {
+      organizationOwner = organization.owner?.name || "Unknown";
+      return errorResponse(
+        res,
+        403,
+        2005,
+        `This organization belongs to ${organizationOwner}, contact him/her to get access`,
         "getOrganizationById"
       );
     }
@@ -135,7 +151,6 @@ exports.createOrganization = [
 exports.updateOrganization = [
   body("organizationId").isMongoId(),
   body("name").optional().isString().isLength({ max: 32 }).trim(),
-  body("slug").optional().isString().trim(),
   body("owner").optional().isMongoId(),
 
   async (req, res) => {
@@ -163,7 +178,10 @@ exports.updateOrganization = [
         );
       }
 
-      organization.set(req.body);
+      organization.set({
+        name: req.body.name,
+        slug: slugify(req.body.name),
+      });
       await organization.save();
       res.json(organization);
     } catch (error) {
@@ -225,8 +243,8 @@ exports.deleteOrganization = [
 
 // add user to organization
 exports.addUserToOrganization = [
-  body("organizationId").isMongoId(),
-  body("userId").isMongoId(),
+  body("organizationId").isMongoId().withMessage("Invalid organization ID"),
+  body("userId").isMongoId().withMessage("Invalid user ID"),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -237,12 +255,18 @@ exports.addUserToOrganization = [
         2005,
         "Validation errors",
         "addUserToOrganization",
-        errors
+        errors.array()
       );
     }
 
+    const { organizationId, userId } = req.body;
+
     try {
-      const organization = await Organization.findById(req.body.organizationId);
+      const [organization, userToAdd] = await Promise.all([
+        Organization.findById(organizationId),
+        User.findById(userId),
+      ]);
+
       if (!organization) {
         return errorResponse(
           res,
@@ -253,17 +277,46 @@ exports.addUserToOrganization = [
         );
       }
 
-      organization.members.push(req.body.userId);
+      if (!userToAdd) {
+        return errorResponse(
+          res,
+          404,
+          1002,
+          "User with the given ID not found",
+          "addUserToOrganization"
+        );
+      }
+
+      if (organization.members.includes(userId)) {
+        return errorResponse(
+          res,
+          400,
+          2005,
+          "User already exists in the organization",
+          "addUserToOrganization"
+        );
+      }
+
+      organization.members.push(userId);
       await organization.save();
-      res.json(organization);
+
+      res.status(200).json({
+        message: `${userToAdd.name} added to organization ${organization.name} successfully`,
+        organization: {
+          id: organization._id,
+          name: organization.name,
+          memberCount: organization.members.length,
+        },
+      });
     } catch (error) {
+      console.error("Error in addUserToOrganization:", error);
       errorResponse(
         res,
         500,
         2009,
         "Failed to add user to organization",
         "addUserToOrganization",
-        error
+        error.message
       );
     }
   },
@@ -271,8 +324,8 @@ exports.addUserToOrganization = [
 
 // remove user from organization
 exports.removeUserFromOrganization = [
-  body("organizationId").isMongoId(),
-  body("userId").isMongoId(),
+  body("organizationId").isMongoId().withMessage("Invalid organization ID"),
+  body("userId").isMongoId().withMessage("Invalid user ID"),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -283,12 +336,18 @@ exports.removeUserFromOrganization = [
         2005,
         "Validation errors",
         "removeUserFromOrganization",
-        errors
+        errors.array()
       );
     }
 
+    const { organizationId, userId } = req.body;
+
     try {
-      const organization = await Organization.findById(req.body.organizationId);
+      const [organization, userToRemove] = await Promise.all([
+        Organization.findById(organizationId),
+        User.findById(userId),
+      ]);
+
       if (!organization) {
         return errorResponse(
           res,
@@ -299,17 +358,48 @@ exports.removeUserFromOrganization = [
         );
       }
 
-      organization.members.pull(req.body.userId);
+      if (!userToRemove) {
+        return errorResponse(
+          res,
+          404,
+          1002,
+          "User not found",
+          "removeUserFromOrganization"
+        );
+      }
+
+      if (!organization.members.includes(userId)) {
+        return errorResponse(
+          res,
+          400,
+          2006,
+          "User is not a member of this organization",
+          "removeUserFromOrganization"
+        );
+      }
+
+      organization.members = organization.members.filter(
+        (memberId) => memberId.toString() !== userId
+      );
       await organization.save();
-      res.json(organization);
+
+      res.status(200).json({
+        message: "User successfully removed from the organization",
+        organization: {
+          id: organization._id,
+          name: organization.name,
+          memberCount: organization.members.length,
+        },
+      });
     } catch (error) {
+      console.error("Error in removeUserFromOrganization:", error);
       errorResponse(
         res,
         500,
         2010,
         "Failed to remove user from organization",
         "removeUserFromOrganization",
-        error
+        error.message
       );
     }
   },
