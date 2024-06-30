@@ -7,11 +7,14 @@ export default defineConfig({
   plugins: [react()],
   esm: true,
   build: {
-    target: 'esnext'
+    target: "esnext",
   },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+    },
+    define: {
+      "process.env": {},
     },
   },
 });

@@ -113,6 +113,7 @@ const ClickHouseProvider = ({ children }) => {
 
   const value = {
     clickHouseClient,
+    checkServerStatus,
     isServerAvailable,
     isLoading,
     setIsLoading,

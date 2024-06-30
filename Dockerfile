@@ -28,8 +28,16 @@ RUN npm install -g serve
 # Copy the build directory from the first stage to the second stage
 COPY --from=build /app/dist /app
 
+# Copy a script to inject environment variables
+COPY inject-env.js /app/inject-env.js
+
 # Expose port 5521 to have it mapped by the Docker daemon
 EXPOSE 5521
 
-# Define the command to run the app using a static server
-CMD ["serve", "-s", "-l", "5521"]
+# Define environment variables
+ENV VITE_CLICKHOUSE_URL=""
+ENV VITE_CLICKHOUSE_USER=""
+ENV VITE_CLICKHOUSE_PASS=""
+
+# Use a shell script to inject environment variables and then serve the app
+CMD ["/bin/sh", "-c", "node inject-env.js && serve -s -l 5521"]

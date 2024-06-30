@@ -38,6 +38,24 @@ npm run dev
 docker run -p 5521:5521 ghcr.io/caioricciuti/ch-ui:latest
 ```
 
+### Using Environment Variables with Docker
+CH-UI now supports setting ClickHouse connection details using environment variables when running with Docker. You can use the following variables:
+
+VITE_CLICKHOUSE_URL: The URL of your ClickHouse server
+VITE_CLICKHOUSE_USER: The username for ClickHouse authentication
+VITE_CLICKHOUSE_PASS: The password for ClickHouse authentication
+
+Example:
+```
+docker run -p 5521:5521 \
+  -e VITE_CLICKHOUSE_URL=http://your-clickhouse-server:8123 \
+  -e VITE_CLICKHOUSE_USER=your-username \
+  -e VITE_CLICKHOUSE_PASS=your-password \
+  ghcr.io/caioricciuti/ch-ui:latest
+```
+
+When these environment variables are set, CH-UI will automatically use them to configure the ClickHouse connection, bypassing the need for manual setup in the UI.
+
 ### Prerequisites
 
 What things you need to install the software and how to install them:

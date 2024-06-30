@@ -1,9 +1,10 @@
-import { useState, Fragment } from "react";
-import { Settings, Loader2, Eye, EyeOff } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Settings, Loader2, Eye, EyeOff, ContainerIcon } from "lucide-react";
 import { useClickHouseState } from "@/providers/ClickHouseContext";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button"; // Assuming you have a Button component
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { deleteDatabase } from "@/lib/tablesIndexedDB";
@@ -16,6 +17,7 @@ export default function SettingsPage() {
     isLoading,
     setIsLoading,
     isServerAvailable,
+    checkServerStatus,
   } = useClickHouseState();
 
   // Local state for form inputs
@@ -30,6 +32,39 @@ export default function SettingsPage() {
   const [isResetting, setIsResetting] = useState(false);
   const [resetProgress, setResetProgress] = useState(0);
   const [resetStep, setResetStep] = useState("");
+  const [credentialsSource, setCredentialsSource] = useState("manual");
+
+  const handleDockerSubmit = async (url, user, pass) => {
+    try {
+      setClickHouseUrl(url);
+      setClickHouseUser(user);
+      setClickHousePassword(pass);
+      setCredentialsSource("docker");
+      await setCredentials({
+        url,
+        username: user,
+        password: pass,
+      });
+      toast.success("Credentials were set from Docker environment variables");
+    } catch (error) {
+      toast.error("Error saving credentials: " + error);
+    }
+  };
+
+  useEffect(() => {
+    // Check if credentials are set from environment variables
+    const envUrl = window.env?.VITE_CLICKHOUSE_URL;
+    const envUser = window.env?.VITE_CLICKHOUSE_USER;
+    const envPass = window.env?.VITE_CLICKHOUSE_PASS;
+
+    if (envUrl && envUser) {
+      setClickHouseUrl(envUrl);
+      setClickHouseUser(envUser);
+      setClickHousePassword(envPass || "");
+      setCredentialsSource("docker");
+      handleDockerSubmit(envUrl, envUser, envPass);
+    }
+  }, []);
 
   const handleSubmit = async () => {
     setIsLoading(true);
@@ -134,12 +169,31 @@ export default function SettingsPage() {
           <h1 className="text-2xl font-bold">Settings Page</h1>
           <Settings className="ml-4" size={24} />
         </div>
+
+        {credentialsSource === "docker" && (
+          <Alert variant="waring" className="mt-4 max-w-lg text-amber-500">
+            <AlertTitle className="flex items-center">
+              <ContainerIcon className="mr-4" /> Credentials Set from Docker (or
+              Environment Variables)
+            </AlertTitle>
+            <AlertDescription className="text-xs mt-4 text-amber-500">
+              Your credentials were set using Docker environment variables. You
+              can't change them here. If you want to change them, you need to
+              restart the app with new environment variables. Please note that
+              if you don't set the environment variables, the app will use the
+              manual credentials.
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="flex flex-col mt-4">
           <Label htmlFor="clickhouseUrl" className="text-sm font-semibold">
             ClickHouse URL
           </Label>
           <Input
-            disabled={isLoading || isResetting}
+            disabled={
+              isLoading || isResetting || credentialsSource === "docker"
+            }
             id="clickhouseUrl"
             type="url"
             className="mt-2 max-w-md"
@@ -154,7 +208,9 @@ export default function SettingsPage() {
             Username
           </Label>
           <Input
-            disabled={isLoading || isResetting}
+            disabled={
+              isLoading || isResetting || credentialsSource === "docker"
+            }
             id="clickhouseUser"
             type="text"
             className="mt-2 max-w-md"
@@ -170,7 +226,9 @@ export default function SettingsPage() {
           </Label>
           <div className="relative flex items-center max-w-md">
             <Input
-              disabled={isLoading || isResetting}
+              disabled={
+                isLoading || isResetting || credentialsSource === "docker"
+              }
               id="clickhousePassword"
               type={showPassword ? "text" : "password"}
               autoComplete="password"
@@ -194,7 +252,9 @@ export default function SettingsPage() {
             )}
           </div>
           <Button
-            disabled={isLoading || isResetting}
+            disabled={
+              isLoading || isResetting || credentialsSource === "docker"
+            }
             type="submit"
             onClick={(e) => handleSubmit(e)}
             className="mt-4 max-w-md"
