@@ -46,7 +46,7 @@ VITE_CLICKHOUSE_USER: The username for ClickHouse authentication
 VITE_CLICKHOUSE_PASS: The password for ClickHouse authentication
 
 Example:
-```
+``` bash
 docker run -p 5521:5521 \
   -e VITE_CLICKHOUSE_URL=http://your-clickhouse-server:8123 \
   -e VITE_CLICKHOUSE_USER=your-username \
