@@ -20,7 +20,7 @@ This project aims to create a nice and updated UI for ClickHouse databases. It p
 ### Using npm and building from scratch
 
 ```bash
-git https://github.com/caioricciuti/ch-ui.git
+git clone https://github.com/caioricciuti/ch-ui.git
 cd ch-ui
 npm install
 npm run build
