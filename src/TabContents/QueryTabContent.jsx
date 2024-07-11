@@ -1,4 +1,4 @@
-import { useEffect,useState } from "react";
+import { useEffect, useState } from "react";
 import Editor from "@monaco-editor/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,7 @@ export default function QueryTabContent({ tab }) {
   const { theme } = useTheme();
   const { saveTab, updateQueryTab, runQuery, isLoadingQuery } = useTabState();
   const [monacoEditorContent, setMonacoEditorContent] = useState("");
+  const [editorInstance, setEditorInstance] = useState(null);
 
   useEffect(() => {
     setMonacoEditorContent(tab.tab_content);
@@ -39,7 +40,7 @@ export default function QueryTabContent({ tab }) {
   useEffect(() => {
     const handleRunQueryShortCut = (event) => {
       if (event.metaKey && event.key === "Enter") {
-        const query = tab.tab_content;
+        const query = getSelectedText(editorInstance) || tab.tab_content;
         runQuery(tab.tab_id, query);
       }
     };
@@ -57,7 +58,7 @@ export default function QueryTabContent({ tab }) {
       document.removeEventListener("keydown", handleRunQueryShortCut);
       document.removeEventListener("keydown", handleSaveQueryShortCut);
     };
-  }, [tab]);
+  }, [tab, editorInstance]);
 
   function formatBytes(bytes, decimals = 2) {
     if (bytes === 0) return "0 Bytes";
@@ -75,6 +76,8 @@ export default function QueryTabContent({ tab }) {
     window.sqlCompletionProviderRegistered || false;
 
   const handleEditorDidMount = (editor, monaco) => {
+    setEditorInstance(editor);
+
     editor.addAction({
       id: "format-sql",
       label: "Format SQL",
@@ -95,6 +98,7 @@ export default function QueryTabContent({ tab }) {
         ];
       },
     });
+
     if (!window.sqlCompletionProviderRegistered) {
       monaco.languages.registerCompletionItemProvider("sql", {
         provideCompletionItems: (model, position) => {
@@ -124,7 +128,7 @@ export default function QueryTabContent({ tab }) {
       contextMenuGroupId: "navigation",
       contextMenuOrder: 1.5,
       run: function (ed) {
-        const query = ed.getValue();
+        const query = getSelectedText(ed) || ed.getValue();
         runQuery(tab.tab_id, query);
       },
     });
@@ -133,6 +137,12 @@ export default function QueryTabContent({ tab }) {
       const tab_content = editor.getValue();
       updateQueryTab(tab.tab_id, { tab_content });
     });
+  };
+
+  const getSelectedText = (editor) => {
+    if (!editor) return "";
+    const selection = editor.getSelection();
+    return editor.getModel().getValueInRange(selection);
   };
 
   return (
@@ -161,7 +171,8 @@ export default function QueryTabContent({ tab }) {
             <Button
               variant=""
               onClick={() => {
-                runQuery(tab.tab_id, tab.tab_content);
+                const query = getSelectedText(editorInstance) || tab.tab_content;
+                runQuery(tab.tab_id, query);
               }}
               className="h-8 hover:bg-secondary hover:text-white"
               disabled={isLoadingQuery}
@@ -217,8 +228,8 @@ export default function QueryTabContent({ tab }) {
               <div className="w-full p-2 overflow-auto flex flex-col">
                 <div
                   className={`${theme === "dark"
-                    ? "ag-theme-alpine-dark"
-                    : "ag-theme-alpine"
+                      ? "ag-theme-alpine-dark"
+                      : "ag-theme-alpine"
                     }  w-full flex-grow`}
                 >
                   {isLoadingQuery ? (
