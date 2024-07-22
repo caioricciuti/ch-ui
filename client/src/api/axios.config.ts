@@ -1,11 +1,9 @@
-// src/api/axios.config.ts
-
 import axios from "axios";
 import useAuthStore from "../stores/user.store";
 
 const api = axios.create({
   baseURL: "http://localhost:5124/api/v1",
-  withCredentials: true, // This ensures cookies are sent with every request
+  withCredentials: true,
 });
 
 api.interceptors.response.use(
@@ -15,9 +13,9 @@ api.interceptors.response.use(
     if (error.response.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
-        // Try to refresh the token
+        // Attempt to refresh the token
         await axios.post(
-          "/api/auth/refresh-token",
+          api.defaults.baseURL + "/auth/refresh-token",
           {},
           { withCredentials: true }
         );
@@ -26,7 +24,7 @@ api.interceptors.response.use(
       } catch (refreshError) {
         // If refresh fails, log out the user
         useAuthStore.getState().logout();
-        return Promise.reject(refreshError);
+        throw refreshError;
       }
     }
     return Promise.reject(error);

@@ -1,20 +1,18 @@
-// src/components/Layout/Layout.tsx
-
 import React from "react";
 import { Outlet } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import useAuthStore from "@/stores/user.store";
 
 const Layout: React.FC = () => {
-  const { isAuthenticated } = useAuthStore();
+  const { user } = useAuthStore();
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {isAuthenticated && <Navbar />}
-      <main className="container mx-auto p-4">
+    <main>
+      {user && <Navbar />}
+      <section className="max-w-screen-xl mx-auto">
         <Outlet />
-      </main>
-    </div>
+      </section>
+    </main>
   );
 };
 

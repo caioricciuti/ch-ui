@@ -1,7 +1,18 @@
 const jwt = require("jsonwebtoken");
+const { promisify } = require("util");
 const User = require("../models/User");
 const errorResponse = require("../utils/errorResponse");
 require("dotenv").config();
+
+const verifyJWT = promisify(jwt.verify);
+
+const generateNewAccessToken = (user) => {
+  return jwt.sign(
+    { id: user._id, role: user.role },
+    process.env.ACCESS_TOKEN_SECRET,
+    { expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN }
+  );
+};
 
 const isAuthenticated = async (req, res, next) => {
   const accessToken = req.cookies.accessToken;
@@ -18,15 +29,26 @@ const isAuthenticated = async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(accessToken, process.env.ACCESS_TOKEN_SECRET);
-    const user = await User.findById(decoded.id).populate("activeOrganization");
+    const decoded = await verifyJWT(
+      accessToken,
+      process.env.ACCESS_TOKEN_SECRET
+    );
+    const user = await User.findById(decoded.id)
+      .select("+active")
+      .populate("activeOrganization");
 
-    if (!user) {
-      return errorResponse(res, 401, 3008, "User not found", "isAuthenticated");
+    if (!user || !user.active) {
+      return errorResponse(
+        res,
+        401,
+        3008,
+        "User not found or inactive",
+        "isAuthenticated"
+      );
     }
 
     req.user = user;
-    next();
+    return next();
   } catch (err) {
     if (err.name === "TokenExpiredError") {
       if (!refreshToken) {
@@ -40,44 +62,40 @@ const isAuthenticated = async (req, res, next) => {
       }
 
       try {
-        const refreshDecoded = jwt.verify(
+        const refreshDecoded = await verifyJWT(
           refreshToken,
           process.env.REFRESH_TOKEN_SECRET
         );
-        const user = await User.findById(refreshDecoded.id);
+        const user = await User.findById(refreshDecoded.id).select("+active");
 
-        if (!user) {
+        if (!user || !user.active) {
           return errorResponse(
             res,
             401,
             3008,
-            "User not found",
+            "User not found or inactive",
             "isAuthenticated"
           );
         }
 
-        const newAccessToken = jwt.sign(
-          { id: user._id, role: user.role },
-          process.env.ACCESS_TOKEN_SECRET,
-          { expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN }
-        );
+        const newAccessToken = generateNewAccessToken(user);
 
         res.cookie("accessToken", newAccessToken, {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
+          sameSite: "strict",
           maxAge: 15 * 60 * 1000, // 15 minutes
         });
 
         req.user = user;
-        next();
+        return next();
       } catch (refreshErr) {
         return errorResponse(
           res,
           401,
           3006,
           "Invalid refresh token",
-          "isAuthenticated",
-          refreshErr
+          "isAuthenticated"
         );
       }
     } else {
@@ -86,8 +104,7 @@ const isAuthenticated = async (req, res, next) => {
         401,
         3007,
         "Invalid access token",
-        "isAuthenticated",
-        err
+        "isAuthenticated"
       );
     }
   }

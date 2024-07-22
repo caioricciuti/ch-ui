@@ -1,8 +1,9 @@
-
-function Main() {
+function MainPage() {
   return (
-    <div>Main</div>
-  )
+    <div className="">
+      <h1>Main Page</h1>
+    </div>
+  );
 }
 
-export default Main
+export default MainPage;

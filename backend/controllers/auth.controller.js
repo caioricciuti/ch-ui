@@ -1,32 +1,63 @@
-const bcrypt = require("bcrypt");
 const User = require("../models/User");
 const crypto = require("crypto");
 const { body, validationResult } = require("express-validator");
 const jwt = require("jsonwebtoken");
 const errorResponse = require("../utils/errorResponse");
-const isAdmin = require("../middleware/isAdmin");
+const { promisify } = require("util");
 require("dotenv").config();
 
 // Helper function to generate JWT tokens
 const generateTokens = (user) => {
-  const accessToken = jwt.sign(
-    { id: user._id, role: user.role },
-    process.env.ACCESS_TOKEN_SECRET,
-    { expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN }
-  );
+  try {
+    const accessToken = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.ACCESS_TOKEN_SECRET,
+      { expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN }
+    );
 
-  const refreshToken = jwt.sign(
-    { id: user._id, role: user.role },
-    process.env.REFRESH_TOKEN_SECRET,
-    { expiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN }
-  );
+    const refreshToken = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.REFRESH_TOKEN_SECRET,
+      { expiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN }
+    );
 
-  return { accessToken, refreshToken };
+    return { accessToken, refreshToken };
+  } catch (error) {
+    console.error("Token generation error:", error);
+    throw new Error("Failed to generate tokens");
+  }
 };
 
+// Helper function for setting cookies
+const setCookies = (res, { accessToken, refreshToken }) => {
+  const secureCookie = process.env.NODE_ENV === "production";
+  res.cookie("accessToken", accessToken, {
+    httpOnly: true,
+    secure: secureCookie,
+    sameSite: "strict",
+    maxAge: 15 * 60 * 1000, // 15 minutes
+  });
+
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: secureCookie,
+    sameSite: "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  });
+};
+
+// Helper function for password validation
+const passwordValidation = body("password")
+  .isString()
+  .isLength({ min: 8 })
+  .matches(/^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])/)
+  .withMessage(
+    "Password must be at least 8 characters long, contain at least one uppercase letter, one number, and one special character"
+  );
+
 exports.login = [
-  body("email").isEmail().trim().notEmpty(),
-  body("password").isString().notEmpty(),
+  body("email").isEmail().normalizeEmail().trim(),
+  body("password").isString(),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -37,7 +68,7 @@ exports.login = [
         1005,
         "Validation errors",
         "login",
-        errors
+        errors.array()
       );
     }
 
@@ -45,47 +76,37 @@ exports.login = [
       const { email, password } = req.body;
       const user = await User.findOne({ email }).select("+password");
 
-      if (!user) {
-        return errorResponse(res, 400, 1009, "User does not exist", "login");
+      if (!user || !(await user.matchPassword(password))) {
+        return errorResponse(res, 401, 1010, "Invalid credentials", "login");
       }
 
-      const isMatch = await user.matchPassword(password);
-      if (!isMatch) {
-        return errorResponse(res, 400, 1010, "Incorrect password", "login");
+      if (!user.active) {
+        return errorResponse(res, 403, 1020, "Account not activated", "login");
       }
 
-      const { accessToken, refreshToken } = generateTokens(user);
+      const tokens = generateTokens(user);
+      setCookies(res, tokens);
 
-      res.cookie("accessToken", accessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 15 * 60 * 1000, // 15 minutes USING SERVER TIME
+      res.json({
+        message: "Login successful",
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
       });
-
-      res.cookie("refreshToken", refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
-
-      res.json({ message: "Login successful" });
     } catch (error) {
-      errorResponse(res, 500, 1011, "Failed to login", "login", error);
+      console.error("Login error:", error);
+      errorResponse(res, 500, 1011, "Failed to login", "login");
     }
   },
 ];
 
 exports.register = [
-  body("name").isString().isLength({ max: 32 }).trim().notEmpty(),
-  body("email").isEmail().trim().notEmpty(),
-  body("password")
-    .isString()
-    .isLength({ min: 8 })
-    .matches(/[A-Z]/)
-    .withMessage("Password must contain at least one uppercase letter")
-    .matches(/\W/)
-    .withMessage("Password must contain at least one special character")
-    .notEmpty(),
+  body("name").isString().trim().isLength({ min: 2, max: 50 }),
+  body("email").isEmail().normalizeEmail().trim(),
+  passwordValidation,
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -96,55 +117,45 @@ exports.register = [
         1005,
         "Validation errors",
         "register",
-        errors
+        errors.array()
       );
     }
 
     try {
       const { name, email, password } = req.body;
-      const user = await User.findOne({ email });
 
-      if (user) {
-        return errorResponse(res, 400, 1012, "User already exists", "register");
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        return errorResponse(res, 409, 1012, "User already exists", "register");
       }
 
-      const newUser = new User({ name, email, password });
-      const activationToken = crypto.randomBytes(20).toString("hex");
-      newUser.activationToken = activationToken;
-      newUser.activationTokenExpire = Date.now() + 3600000; // 1 hour
+      const newUser = new User({
+        name,
+        email,
+        password,
+        activationToken: crypto.randomBytes(32).toString("hex"),
+        activationTokenExpire: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
+      });
 
       await newUser.save();
 
-      const { accessToken, refreshToken } = generateTokens(newUser);
+      // TODO: Send activation email
 
-      res.cookie("accessToken", accessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 15 * 60 * 1000,
-      });
-
-      res.cookie("refreshToken", refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
-
-      res.status(201).json({ message: "User registered successfully" });
+      res
+        .status(201)
+        .json({
+          message:
+            "User registered successfully. Please check your email to activate your account.",
+        });
     } catch (error) {
-      errorResponse(
-        res,
-        500,
-        1013,
-        "Failed to register user",
-        "register",
-        error
-      );
+      console.error("Registration error:", error);
+      errorResponse(res, 500, 1013, "Failed to register user", "register");
     }
   },
 ];
 
 exports.forgotPassword = [
-  body("email").isEmail().trim().notEmpty(),
+  body("email").isEmail().normalizeEmail().trim(),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -155,7 +166,7 @@ exports.forgotPassword = [
         1005,
         "Validation errors",
         "forgotPassword",
-        errors
+        errors.array()
       );
     }
 
@@ -164,44 +175,40 @@ exports.forgotPassword = [
       const user = await User.findOne({ email });
 
       if (!user) {
-        return errorResponse(
-          res,
-          400,
-          1009,
-          "User does not exist",
-          "forgotPassword"
-        );
+        // Don't reveal user existence, return a generic message
+        return res.json({
+          message:
+            "If a user with that email exists, a password reset link has been sent.",
+        });
       }
 
-      const resetToken = crypto.randomBytes(20).toString("hex");
-      user.resetPasswordToken = resetToken;
-      user.resetPasswordExpire = Date.now() + 3600000; // 1 hour
+      user.resetPasswordToken = crypto.randomBytes(32).toString("hex");
+      user.resetPasswordExpire = Date.now() + 60 * 60 * 1000; // 1 hour
 
       await user.save();
-      res.json({ message: "Reset password email sent", resetToken });
+
+      // TODO: Send password reset email
+
+      res.json({
+        message:
+          "If a user with that email exists, a password reset link has been sent.",
+      });
     } catch (error) {
+      console.error("Forgot password error:", error);
       errorResponse(
         res,
         500,
         1014,
-        "Failed to send reset password email",
-        "forgotPassword",
-        error
+        "Failed to process forgot password request",
+        "forgotPassword"
       );
     }
   },
 ];
 
 exports.resetPassword = [
-  body("resetToken").isString().notEmpty(),
-  body("password")
-    .isString()
-    .isLength({ min: 8 })
-    .matches(/[A-Z]/)
-    .withMessage("Password must contain at least one uppercase letter")
-    .matches(/\W/)
-    .withMessage("Password must contain at least one special character")
-    .notEmpty(),
+  body("resetToken").isString().trim(),
+  passwordValidation,
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -212,7 +219,7 @@ exports.resetPassword = [
         1005,
         "Validation errors",
         "resetPassword",
-        errors
+        errors.array()
       );
     }
 
@@ -240,21 +247,20 @@ exports.resetPassword = [
       await user.save();
       res.json({ message: "Password reset successfully" });
     } catch (error) {
+      console.error("Reset password error:", error);
       errorResponse(
         res,
         500,
         1015,
         "Failed to reset password",
-        "resetPassword",
-        error
+        "resetPassword"
       );
     }
   },
 ];
 
 exports.activateAccount = [
-  body("activationToken").isString().notEmpty(),
-  body("email").isEmail().trim().notEmpty(),
+  body("activationToken").isString().trim(),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -265,16 +271,15 @@ exports.activateAccount = [
         1005,
         "Validation errors",
         "activateAccount",
-        errors
+        errors.array()
       );
     }
 
     try {
-      const { activationToken, email } = req.body;
+      const { activationToken } = req.body;
       const user = await User.findOne({
-        email,
         activationToken,
-        // activationTokenExpire: { $gt: Date.now() },
+        activationTokenExpire: { $gt: Date.now() },
       });
 
       if (!user) {
@@ -282,21 +287,7 @@ exports.activateAccount = [
           res,
           400,
           1009,
-          "Invalid or expired token",
-          "activateAccount"
-        );
-      }
-
-      if (user.activationTokenExpire < Date.now()) {
-        // delete the token and expire time
-        user.activationToken = null;
-        user.activationTokenExpire = null;
-        await user.save();
-        return errorResponse(
-          res,
-          400,
-          1009,
-          "Invalid or expired token - Any tokens you had are now deleted for your safety. Please request a new one.",
+          "Invalid or expired activation token",
           "activateAccount"
         );
       }
@@ -308,13 +299,13 @@ exports.activateAccount = [
       await user.save();
       res.json({ message: "Account activated successfully" });
     } catch (error) {
+      console.error("Account activation error:", error);
       errorResponse(
         res,
         500,
         1016,
         "Failed to activate account",
-        "activateAccount",
-        error
+        "activateAccount"
       );
     }
   },
@@ -333,7 +324,10 @@ exports.refreshToken = async (req, res) => {
   }
 
   try {
-    const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+    const decoded = await promisify(jwt.verify)(
+      refreshToken,
+      process.env.REFRESH_TOKEN_SECRET
+    );
     const user = await User.findById(decoded.id);
     if (!user) {
       return errorResponse(
@@ -345,47 +339,32 @@ exports.refreshToken = async (req, res) => {
       );
     }
 
-    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user);
-
-    res.cookie("accessToken", accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 15 * 60 * 1000,
-    });
-
-    res.cookie("refreshToken", newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    const tokens = generateTokens(user);
+    setCookies(res, tokens);
 
     res.json({ message: "Token refreshed successfully" });
   } catch (error) {
-    errorResponse(
-      res,
-      401,
-      1018,
-      "Failed to refresh token",
-      "refreshToken",
-      error
-    );
+    console.error("Refresh token error:", error);
+    errorResponse(res, 401, 1018, "Failed to refresh token", "refreshToken");
   }
 };
 
 exports.logout = async (req, res) => {
-  res.cookie("accessToken", "", { maxAge: 0 });
-  res.cookie("refreshToken", "", { maxAge: 0 });
+  res.cookie("accessToken", "", {
+    maxAge: 0,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+  });
+  res.cookie("refreshToken", "", {
+    maxAge: 0,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+  });
   res.json({ message: "Logged out successfully" });
 };
 
-// TO-DO Implement:
-
-/* 
-1. Add controller to re-generate activation token (if user did not receive the email, or the token expired)
-*/
-
 exports.resetActivationToken = [
-  body("email").isEmail().trim().notEmpty(),
+  body("email").isEmail().normalizeEmail().trim(),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -396,49 +375,41 @@ exports.resetActivationToken = [
         1005,
         "Validation errors",
         "resetActivationToken",
-        errors
+        errors.array()
       );
     }
 
     try {
       const { email } = req.body;
-      const user = await User.findOne({ email });
+      const user = await User.findOne({ email, active: false });
 
       if (!user) {
-        return errorResponse(
-          res,
-          400,
-          1009,
-          "User does not exist",
-          "resetActivationToken"
-        );
+        // Don't reveal user existence, return a generic message
+        return res.json({
+          message:
+            "If a non-activated user with that email exists, a new activation link has been sent.",
+        });
       }
 
-      //if user is already active, return error
-      if (user.active) {
-        return errorResponse(
-          res,
-          400,
-          1019,
-          "User is already active",
-          "resetActivationToken"
-        );
-      }
-
-      const activationToken = crypto.randomBytes(20).toString("hex");
-      user.activationToken = activationToken;
-      user.activationTokenExpire = Date.now() + 3600000; // 1 hour
+      user.activationToken = crypto.randomBytes(32).toString("hex");
+      user.activationTokenExpire = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
 
       await user.save();
-      res.json({ message: "Activation token reset successfully" });
+
+      // TODO: Send new activation email
+
+      res.json({
+        message:
+          "If a non-activated user with that email exists, a new activation link has been sent.",
+      });
     } catch (error) {
+      console.error("Reset activation token error:", error);
       errorResponse(
         res,
         500,
         1019,
         "Failed to reset activation token",
-        "resetActivationToken",
-        error
+        "resetActivationToken"
       );
     }
   },

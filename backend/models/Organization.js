@@ -4,13 +4,16 @@ const organizationSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: true,
-      maxlength: 32,
+      required: [true, "Organization name is required"],
+      trim: true,
+      maxlength: [32, "Name cannot be more than 32 characters"],
     },
     slug: {
       type: String,
-      required: true,
+      required: [true, "Slug is required"],
       unique: true,
+      trim: true,
+      lowercase: true,
     },
     members: [
       {
@@ -21,17 +24,12 @@ const organizationSchema = new mongoose.Schema(
     owner: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-    updatedAt: {
-      type: Date,
-      default: Date.now,
+      required: true,
     },
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model("Organization", organizationSchema);
+const Organization = mongoose.model("Organization", organizationSchema);
+
+module.exports = Organization;

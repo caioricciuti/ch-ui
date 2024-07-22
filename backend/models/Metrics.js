@@ -1,5 +1,3 @@
-// metrics mongoose schema
-
 const mongoose = require("mongoose");
 
 const metricsSchema = new mongoose.Schema(
@@ -16,22 +14,16 @@ const metricsSchema = new mongoose.Schema(
     },
     query: {
       type: String,
-      required: true,
+      required: [true, "Query is required"],
     },
     name: {
       type: String,
-      required: true,
+      required: [true, "Name is required"],
+      trim: true,
     },
     description: {
       type: String,
-    },
-    updatedAt: {
-      type: Date,
-      default: Date.now,
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
+      trim: true,
     },
     active: {
       type: Boolean,
@@ -39,11 +31,13 @@ const metricsSchema = new mongoose.Schema(
     },
     chart_type: {
       type: String,
-      enum: ["line", "bar", "pie", "table"],
+      enum: ["line", "bar", "pie", "table", "area", "radar", "radial"],
       default: "line",
     },
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model("Metrics", metricsSchema);
+const Metric = mongoose.model("Metric", metricsSchema);
+
+module.exports = Metric;

@@ -1,6 +1,7 @@
 import { create } from "zustand";
-import { devtools, persist } from "zustand/middleware";
+import { devtools } from "zustand/middleware";
 import api from "../api/axios.config";
+import axios from "axios";
 
 interface User {
   _id: string;
@@ -13,7 +14,6 @@ interface User {
 
 interface AuthState {
   user: User | null;
-  isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
@@ -22,134 +22,124 @@ interface AuthState {
   getCurrentUser: () => Promise<void>;
   setCurrentOrganization: (organizationId: string) => Promise<void>;
   setCurrentCredential: (credentialId: string) => Promise<void>;
+  checkAuth: () => Promise<boolean>;
+  admin: () => boolean;
 }
 
 const useAuthStore = create<AuthState>()(
-  devtools(
-    persist(
-      (set, get) => ({
-        user: null,
-        isAuthenticated: false,
-        isLoading: false,
-        error: null,
+  devtools((set, get) => ({
+    user: null,
+    isLoading: false,
+    error: null,
 
-        login: async (email, password) => {
-          set({ isLoading: true, error: null });
-          try {
-            console.log("Attempting login...");
-            await api.post("/auth/login", { email, password });
-            console.log("Login successful, fetching user data...");
-            await get().getCurrentUser();
-            set({ isAuthenticated: true, isLoading: false });
-            console.log("Login and user fetch complete");
-          } catch (error) {
-            console.error("Login failed:", error);
+    login: async (email, password) => {
+      set({ isLoading: true, error: null });
+      try {
+        await api.post("/auth/login", { email, password });
+        await get().getCurrentUser();
+      } catch (error) {
+        console.error("Login failed, store: ", error);
+        if (axios.isAxiosError(error) && error.response) {
+          if (
+            error.response.status === 403 &&
+            error.response.data.internalCode === 1020
+          ) {
             set({
-              error: "Login failed",
-              isLoading: false,
-              isAuthenticated: false,
-            });
-          }
-        },
-
-        register: async (name, email, password) => {
-          set({ isLoading: true, error: null });
-          try {
-            console.log("Attempting registration...");
-            await api.post("/auth/register", { name, email, password });
-            set({ isLoading: false });
-            console.log("Registration successful");
-          } catch (error) {
-            console.error("Registration failed:", error);
-            set({ error: "Registration failed", isLoading: false });
-          }
-        },
-
-        logout: async () => {
-          set({ isLoading: true, error: null });
-          try {
-            console.log("Attempting logout...");
-            await api.post("/auth/logout");
-            set({ user: null, isAuthenticated: false, isLoading: false });
-            console.log("Logout successful");
-          } catch (error) {
-            console.error("Logout failed:", error);
-            set({ error: "Logout failed", isLoading: false });
-          }
-        },
-
-        getCurrentUser: async () => {
-          set({ isLoading: true, error: null });
-          try {
-            console.log("Fetching current user...");
-            const response = await api.get("/users/me");
-            console.log("Current user data:", response.data);
-            set({
-              user: response.data,
-              isAuthenticated: true,
+              error:
+                "Account not activated. Please check your email to activate your account.",
               isLoading: false,
             });
-          } catch (error) {
-            console.error("Failed to fetch current user:", error);
+          } else {
             set({
-              error: "Failed to fetch current user",
-              isLoading: false,
-              isAuthenticated: false,
-              user: null,
-            });
-          }
-        },
-
-        setCurrentOrganization: async (organizationId) => {
-          set({ isLoading: true, error: null });
-          try {
-            console.log("Setting current organization...");
-            await api.post("/users/set-current-organization", {
-              organizationId,
-            });
-            await get().getCurrentUser();
-            console.log("Current organization updated");
-          } catch (error) {
-            console.error("Failed to set current organization:", error);
-            set({
-              error: "Failed to set current organization",
+              error: error.response.data.message || "Login failed",
               isLoading: false,
             });
           }
-        },
-
-        setCurrentCredential: async (credentialId) => {
-          set({ isLoading: true, error: null });
-          try {
-            console.log("Setting current credential...");
-            await api.post("/users/set-current-credential", { credentialId });
-            await get().getCurrentUser();
-            console.log("Current credential updated");
-          } catch (error) {
-            console.error("Failed to set current credential:", error);
-            set({
-              error: "Failed to set current credential",
-              isLoading: false,
-            });
-          }
-        },
-      }),
-      {
-        name: "auth-storage",
-        storage: {
-          getItem: (name) => {
-            const str = localStorage.getItem(name);
-            if (!str) return null;
-            return JSON.parse(str);
-          },
-          setItem: (name, value) => {
-            localStorage.setItem(name, JSON.stringify(value));
-          },
-          removeItem: (name) => localStorage.removeItem(name),
-        },
+        } else {
+          set({ error: "An unexpected error occurred", isLoading: false });
+        }
+        throw error;
       }
-    )
-  )
+    },
+
+    register: async (name, email, password) => {
+      set({ isLoading: true, error: null });
+      try {
+        await api.post("/auth/register", { name, email, password });
+        set({ isLoading: false });
+      } catch (error) {
+        console.error("Registration failed:", error);
+        if (axios.isAxiosError(error) && error.response) {
+          set({
+            error: error.response.data.message || "Registration failed",
+            isLoading: false,
+          });
+        } else {
+          set({
+            error: "An unexpected error occurred during registration",
+            isLoading: false,
+          });
+        }
+        throw error;
+      }
+    },
+
+    admin: () => get().user?.role === "admin",
+
+    logout: async () => {
+      set({ isLoading: true, error: null });
+      try {
+        await api.post("/auth/logout");
+        set({ user: null, isLoading: false });
+        localStorage.removeItem("auth-storage"); // Clear local storage
+      } catch (error) {
+        console.error("Logout failed:", error);
+        set({ error: "Logout failed", isLoading: false });
+      }
+    },
+
+    getCurrentUser: async () => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await api.get("/users/me");
+        set({ user: response.data, isLoading: false });
+      } catch (error) {
+        set({ user: null, isLoading: false });
+        throw error;
+      }
+    },
+
+    setCurrentOrganization: async (organizationId) => {
+      set({ isLoading: true, error: null });
+      try {
+        await api.post("/users/set-current-organization", { organizationId });
+        await get().getCurrentUser();
+      } catch (error) {
+        console.error("Failed to set current organization:", error);
+        set({ error: "Failed to set current organization", isLoading: false });
+      }
+    },
+
+    setCurrentCredential: async (credentialId) => {
+      set({ isLoading: true, error: null });
+      try {
+        await api.post("/users/set-current-credential", { credentialId });
+        await get().getCurrentUser();
+      } catch (error) {
+        console.error("Failed to set current credential:", error);
+        set({ error: "Failed to set current credential", isLoading: false });
+      }
+    },
+
+    checkAuth: async () => {
+      try {
+        await get().getCurrentUser();
+        return true;
+      } catch (error) {
+        return false;
+      }
+    },
+  }))
 );
 
 export default useAuthStore;

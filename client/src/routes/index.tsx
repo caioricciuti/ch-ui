@@ -5,10 +5,17 @@ import {
   RouterProvider,
   Navigate,
 } from "react-router-dom";
-import Login from "@/pages/Login";
-import Main from "@/pages/Main";
-import Layout from "@/components/Layout/Layout";
+import LoginPage from "@/Pages/Login";
+import Main from "@/Pages/Main";
+import Layout from "@/Layout/Layout";
 import AuthGuard from "@/components/AuthGuard";
+import RegisterPage from "@/Pages/Register";
+import DashboardPage from "@/Pages/Dashboard";
+import OrganizationsPage from "@/Pages/Organizations";
+import WorkspacePage from "@/Pages/Workspace";
+import AdminPage from "@/Pages/Admin";
+import MetricsPage from "@/Pages/Metrics";
+import ProfilePage from "@/Pages/Profile";
 
 const router = createBrowserRouter([
   {
@@ -17,7 +24,11 @@ const router = createBrowserRouter([
     children: [
       {
         path: "login",
-        element: <Login />,
+        element: <LoginPage />,
+      },
+      {
+        path: "register",
+        element: <RegisterPage />,
       },
       {
         element: <AuthGuard />,
@@ -26,12 +37,39 @@ const router = createBrowserRouter([
             path: "/",
             element: <Main />,
           },
-          // Add other protected routes here
+          {
+            path: "dashboard",
+            element: <DashboardPage />,
+          },
+          {
+            path: "organizations",
+            element: <OrganizationsPage />,
+          },
+          {
+            path: "workspace",
+            element: <WorkspacePage />,
+          },
+          {
+            path: "admin",
+            element: <AdminPage />,
+          },
+          {
+            path: "metrics",
+            element: <MetricsPage />,
+          },
+          {
+            path: "profile",
+            element: <ProfilePage />,
+          },
+          {
+            path: "*",
+            element: <Navigate to="/dashboard" />,
+          },
         ],
       },
       {
         path: "*",
-        element: <Navigate to="/" replace />,
+        element: <Navigate to="/login" replace />,
       },
     ],
   },

@@ -23,10 +23,18 @@ const handleValidation = (req, res, next) => {
 
 // Create ClickHouse credential
 exports.createClickHouseCredential = [
-  body("name").notEmpty().withMessage("Name is required"),
-  body("host").notEmpty().isURL().withMessage("Valid host URL is required"),
-  body("username").notEmpty().withMessage("Username is required"),
-  body("password").notEmpty().withMessage("Password is required"),
+  body("name").trim().notEmpty().withMessage("Name is required"),
+  body("host")
+    .trim()
+    .notEmpty()
+    .isURL()
+    .withMessage("Valid host URL is required"),
+  body("port")
+    .optional()
+    .isInt({ min: 1, max: 65535 })
+    .withMessage("Valid port number is required"),
+  body("username").trim().notEmpty().withMessage("Username is required"),
+  body("password").trim().notEmpty().withMessage("Password is required"),
   body("users")
     .optional()
     .isArray()
@@ -44,6 +52,7 @@ exports.createClickHouseCredential = [
     const {
       name,
       host,
+      port,
       username,
       password,
       users = [],
@@ -51,11 +60,14 @@ exports.createClickHouseCredential = [
     } = req.body;
 
     try {
-      // Check if organizations exist
-      const organizationsExist = await Organization.countDocuments({
-        _id: { $in: allowedOrganizations },
-      });
-      if (organizationsExist !== allowedOrganizations.length) {
+      const [organizationsCount, usersCount] = await Promise.all([
+        Organization.countDocuments({ _id: { $in: allowedOrganizations } }),
+        User.countDocuments({
+          _id: { $in: [...new Set([...users, req.user._id.toString()])] },
+        }),
+      ]);
+
+      if (organizationsCount !== allowedOrganizations.length) {
         return errorResponse(
           res,
           400,
@@ -65,12 +77,8 @@ exports.createClickHouseCredential = [
         );
       }
 
-      // Check if users exist (excluding req.user)
       const uniqueUsers = [...new Set([...users, req.user._id.toString()])];
-      const usersExist = await User.countDocuments({
-        _id: { $in: uniqueUsers },
-      });
-      if (usersExist !== uniqueUsers.length) {
+      if (usersCount !== uniqueUsers.length) {
         return errorResponse(
           res,
           400,
@@ -85,6 +93,7 @@ exports.createClickHouseCredential = [
         name,
         slug: slugify(name),
         host,
+        port: port || 8123,
         username,
         password,
         allowedOrganizations,
@@ -93,7 +102,6 @@ exports.createClickHouseCredential = [
 
       await credential.save();
 
-      // Remove sensitive information from the response
       const responseCredential = credential.toObject();
       delete responseCredential.password;
 
@@ -108,8 +116,7 @@ exports.createClickHouseCredential = [
         500,
         4001,
         "Failed to create ClickHouse credential",
-        "createClickHouseCredential",
-        error.message
+        "createClickHouseCredential"
       );
     }
   },
@@ -121,12 +128,11 @@ exports.getClickHouseCredentialById = [
   handleValidation,
 
   async (req, res) => {
-    const { id } = req.params;
-
     try {
-      const credential = await ClickHouseCredential.findById(id)
+      const credential = await ClickHouseCredential.findById(req.params.id)
         .populate("users", "id name email")
-        .populate("allowedOrganizations", "id name slug");
+        .populate("allowedOrganizations", "id name slug")
+        .select("-password");
 
       if (!credential) {
         return errorResponse(
@@ -146,8 +152,7 @@ exports.getClickHouseCredentialById = [
         500,
         4003,
         "Failed to fetch ClickHouse credential",
-        "getClickHouseCredentialById",
-        error.message
+        "getClickHouseCredentialById"
       );
     }
   },
@@ -156,14 +161,24 @@ exports.getClickHouseCredentialById = [
 // Update ClickHouse credential
 exports.updateClickHouseCredential = [
   param("id").isMongoId().withMessage("Invalid ClickHouse credential ID"),
-  body("name").optional().notEmpty().withMessage("Name cannot be empty"),
-  body("host").optional().isURL().withMessage("Valid host URL is required"),
+  body("name").optional().trim().notEmpty().withMessage("Name cannot be empty"),
+  body("host")
+    .optional()
+    .trim()
+    .isURL()
+    .withMessage("Valid host URL is required"),
+  body("port")
+    .optional()
+    .isInt({ min: 1, max: 65535 })
+    .withMessage("Valid port number is required"),
   body("username")
     .optional()
+    .trim()
     .notEmpty()
     .withMessage("Username cannot be empty"),
   body("password")
     .optional()
+    .trim()
     .notEmpty()
     .withMessage("Password cannot be empty"),
   body("users")
@@ -181,18 +196,8 @@ exports.updateClickHouseCredential = [
   handleValidation,
 
   async (req, res) => {
-    const { id } = req.params;
-    const updateFields = [
-      "name",
-      "host",
-      "username",
-      "password",
-      "users",
-      "allowedOrganizations",
-    ];
-
     try {
-      const credential = await ClickHouseCredential.findById(id);
+      const credential = await ClickHouseCredential.findById(req.params.id);
 
       if (!credential) {
         return errorResponse(
@@ -204,18 +209,27 @@ exports.updateClickHouseCredential = [
         );
       }
 
-      // Update only the fields that are present in the request body
+      const updateFields = [
+        "name",
+        "host",
+        "port",
+        "username",
+        "password",
+        "users",
+        "allowedOrganizations",
+      ];
       updateFields.forEach((field) => {
         if (req.body[field] !== undefined) {
           credential[field] = req.body[field];
         }
       });
 
-      credential.slug = slugify(credential.name);
+      if (req.body.name) {
+        credential.slug = slugify(req.body.name);
+      }
 
       await credential.save();
 
-      // Remove sensitive information from the response
       const responseCredential = credential.toObject();
       delete responseCredential.password;
 
@@ -230,8 +244,7 @@ exports.updateClickHouseCredential = [
         500,
         4004,
         "Failed to update ClickHouse credential",
-        "updateClickHouseCredential",
-        error.message
+        "updateClickHouseCredential"
       );
     }
   },
@@ -243,10 +256,10 @@ exports.deleteClickHouseCredential = [
   handleValidation,
 
   async (req, res) => {
-    const { id } = req.params;
-
     try {
-      const credential = await ClickHouseCredential.findByIdAndDelete(id);
+      const credential = await ClickHouseCredential.findByIdAndDelete(
+        req.params.id
+      );
 
       if (!credential) {
         return errorResponse(
@@ -266,8 +279,7 @@ exports.deleteClickHouseCredential = [
         500,
         4005,
         "Failed to delete ClickHouse credential",
-        "deleteClickHouseCredential",
-        error.message
+        "deleteClickHouseCredential"
       );
     }
   },
@@ -290,22 +302,12 @@ exports.assignCredentialToOrganization = [
         Organization.findById(organizationId),
       ]);
 
-      if (!credential) {
-        return errorResponse(
-          res,
-          404,
-          4002,
-          "ClickHouse credential not found",
-          "assignCredentialToOrganization"
-        );
-      }
-
-      if (!organization) {
+      if (!credential || !organization) {
         return errorResponse(
           res,
           404,
           4006,
-          "Organization not found",
+          "ClickHouse credential or organization not found",
           "assignCredentialToOrganization"
         );
       }
@@ -326,8 +328,7 @@ exports.assignCredentialToOrganization = [
         500,
         4006,
         "Failed to assign ClickHouse credential to organization",
-        "assignCredentialToOrganization",
-        error.message
+        "assignCredentialToOrganization"
       );
     }
   },
@@ -374,8 +375,7 @@ exports.revokeCredentialFromOrganization = [
         500,
         4007,
         "Failed to revoke ClickHouse credential from organization",
-        "revokeCredentialFromOrganization",
-        error.message
+        "revokeCredentialFromOrganization"
       );
     }
   },
@@ -398,37 +398,22 @@ exports.assignUserToCredential = [
         User.findById(userId),
       ]);
 
-      if (!credential) {
-        return errorResponse(
-          res,
-          404,
-          4002,
-          "ClickHouse credential not found",
-          "assignUserToCredential"
-        );
-      }
-
-      if (!user) {
+      if (!credential || !user) {
         return errorResponse(
           res,
           404,
           4008,
-          "User not found",
+          "ClickHouse credential or user not found",
           "assignUserToCredential"
         );
       }
 
-      // Fetch all allowed organizations for this credential
       const allowedOrganizations = await Organization.find({
         _id: { $in: credential.allowedOrganizations },
+        members: userId,
       });
 
-      // Check if the user is a member of any of the allowed organizations
-      const isUserMemberOfAllowedOrg = allowedOrganizations.some((org) =>
-        org.members.includes(userId)
-      );
-
-      if (!isUserMemberOfAllowedOrg) {
+      if (allowedOrganizations.length === 0) {
         return errorResponse(
           res,
           403,
@@ -454,12 +439,12 @@ exports.assignUserToCredential = [
         500,
         4008,
         "Failed to assign user to ClickHouse credential",
-        "assignUserToCredential",
-        error.message
+        "assignUserToCredential"
       );
     }
   },
 ];
+
 // Revoke user from ClickHouse credential
 exports.revokeUserFromCredential = [
   body("credentialId")
@@ -487,7 +472,6 @@ exports.revokeUserFromCredential = [
       credential.users = credential.users.filter(
         (id) => id.toString() !== userId
       );
-
       await credential.save();
 
       res.json({
@@ -501,9 +485,10 @@ exports.revokeUserFromCredential = [
         500,
         4009,
         "Failed to revoke user from ClickHouse credential",
-        "revokeUserFromCredential",
-        error.message
+        "revokeUserFromCredential"
       );
     }
   },
 ];
+
+module.exports = exports;

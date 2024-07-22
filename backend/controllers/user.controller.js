@@ -1,48 +1,68 @@
 const User = require("../models/User");
 const Organization = require("../models/Organization");
 const ClickHouseCredential = require("../models/ClickHouseCredential");
-const { body, validationResult } = require("express-validator");
+const { body, param, validationResult } = require("express-validator");
 const mongoose = require("mongoose");
 const errorResponse = require("../utils/errorResponse");
 
+const validateObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
 exports.getUsers = async (req, res) => {
   try {
-    const users = await User.find({});
+    const users = await User.find({}).select("-password");
     res.json(users);
   } catch (error) {
-    errorResponse(res, 500, 1001, "Failed to fetch users", "getUsers", error);
+    console.error("getUsers error:", error);
+    errorResponse(res, 500, 1001, "Failed to fetch users", "getUsers");
   }
 };
 
-exports.getUserById = async (req, res) => {
-  try {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return errorResponse(res, 400, 1004, "Invalid user ID", "getUserById");
+exports.getUserById = [
+  param("id").custom(validateObjectId).withMessage("Invalid user ID"),
+
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return errorResponse(
+        res,
+        400,
+        1004,
+        "Invalid user ID",
+        "getUserById",
+        errors.array()
+      );
     }
 
-    const user = await User.findById(req.params.id);
-    if (!user) {
-      return errorResponse(res, 404, 1002, "User not found", "getUserById");
+    try {
+      const user = await User.findById(req.params.id).select("-password");
+      if (!user) {
+        return errorResponse(res, 404, 1002, "User not found", "getUserById");
+      }
+      res.json(user);
+    } catch (error) {
+      console.error("getUserById error:", error);
+      errorResponse(res, 500, 1003, "Failed to fetch user", "getUserById");
     }
-    res.json(user);
-  } catch (error) {
-    errorResponse(res, 500, 1003, "Failed to fetch user", "getUserById", error);
-  }
-};
+  },
+];
 
 exports.createUser = [
-  body("name").isString().isLength({ max: 32 }).trim().notEmpty(),
-  body("email").isEmail().trim().notEmpty(),
+  body("name")
+    .trim()
+    .isLength({ min: 2, max: 32 })
+    .withMessage("Name must be between 2 and 32 characters"),
+  body("email").isEmail().normalizeEmail(),
   body("password")
-    .isString()
     .isLength({ min: 8 })
-    .matches(/[A-Z]/)
-    .withMessage("Password must contain at least one uppercase letter")
-    .matches(/\W/)
-    .withMessage("Password must contain at least one special character")
-    .notEmpty(),
+    .matches(/^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/)
+    .withMessage(
+      "Password must be at least 8 characters long, contain an uppercase letter, a number, and a special character"
+    ),
   body("role").optional().isIn(["admin", "user", "viewer"]),
-  body("organization").optional().isMongoId(),
+  body("organization")
+    .optional()
+    .custom(validateObjectId)
+    .withMessage("Invalid organization ID"),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -53,54 +73,68 @@ exports.createUser = [
         1005,
         "Validation errors",
         "createUser",
-        errors
+        errors.array()
       );
     }
 
     try {
+      const { email } = req.body;
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        return errorResponse(
+          res,
+          409,
+          1023,
+          "Email already in use",
+          "createUser"
+        );
+      }
+
       const user = new User(req.body);
       await user.save();
-      res.status(201).json(user);
+
+      const userResponse = user.toObject();
+      delete userResponse.password;
+
+      res.status(201).json(userResponse);
     } catch (error) {
-      errorResponse(
-        res,
-        500,
-        1006,
-        "Failed to create user",
-        "createUser",
-        error
-      );
+      console.error("createUser error:", error);
+      errorResponse(res, 500, 1006, "Failed to create user", "createUser");
     }
   },
 ];
 
 exports.getCurrentUser = (req, res) => {
   try {
-    const user = req.user;
+    const user = req.user.toObject();
+    delete user.password;
     res.json(user);
   } catch (error) {
+    console.error("getCurrentUser error:", error);
     errorResponse(
       res,
       500,
       1018,
       "Failed to fetch current user",
-      "getCurrentUser",
-      error
+      "getCurrentUser"
     );
   }
 };
 
 exports.updateUser = [
-  body("userId").isMongoId(),
-  body("name").optional().isString().isLength({ max: 32 }).trim(),
+  body("userId").custom(validateObjectId).withMessage("Invalid user ID"),
+  body("name")
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 32 })
+    .withMessage("Name must be between 2 and 32 characters"),
   body("password")
     .optional()
-    .isString()
     .isLength({ min: 8 })
-    .matches(/[A-Z]/)
-    .withMessage("Password must contain at least one uppercase letter")
-    .matches(/\W/)
-    .withMessage("Password must contain at least one special character"),
+    .matches(/^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/)
+    .withMessage(
+      "Password must be at least 8 characters long, contain an uppercase letter, a number, and a special character"
+    ),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -111,7 +145,7 @@ exports.updateUser = [
         1005,
         "Validation errors",
         "updateUser",
-        errors
+        errors.array()
       );
     }
 
@@ -121,24 +155,26 @@ exports.updateUser = [
         return errorResponse(res, 404, 1002, "User not found", "updateUser");
       }
 
-      user.set(req.body);
+      const updates = { ...req.body };
+      delete updates.userId;
+      delete updates.email; // Prevent email updates through this route
+
+      user.set(updates);
       await user.save();
-      res.json(user);
+
+      const userResponse = user.toObject();
+      delete userResponse.password;
+
+      res.json(userResponse);
     } catch (error) {
-      errorResponse(
-        res,
-        500,
-        1007,
-        "Failed to update user",
-        "updateUser",
-        error
-      );
+      console.error("updateUser error:", error);
+      errorResponse(res, 500, 1007, "Failed to update user", "updateUser");
     }
   },
 ];
 
 exports.deleteUser = [
-  body("userId").isMongoId(),
+  body("userId").custom(validateObjectId).withMessage("Invalid user ID"),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -149,7 +185,7 @@ exports.deleteUser = [
         1005,
         "Validation errors",
         "deleteUser",
-        errors
+        errors.array()
       );
     }
 
@@ -158,22 +194,18 @@ exports.deleteUser = [
       if (!user) {
         return errorResponse(res, 404, 1002, "User not found", "deleteUser");
       }
-      res.json({ message: "User deleted successfully", user });
+      res.json({ message: "User deleted successfully", userId: user._id });
     } catch (error) {
-      errorResponse(
-        res,
-        500,
-        1008,
-        "Failed to delete user",
-        "deleteUser",
-        error
-      );
+      console.error("deleteUser error:", error);
+      errorResponse(res, 500, 1008, "Failed to delete user", "deleteUser");
     }
   },
 ];
 
 exports.setCurrentOrganizationForUser = [
-  body("organizationId").isMongoId(),
+  body("organizationId")
+    .custom(validateObjectId)
+    .withMessage("Invalid organization ID"),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -184,22 +216,12 @@ exports.setCurrentOrganizationForUser = [
         1005,
         "Validation errors",
         "setCurrentOrganizationForUser",
-        errors
+        errors.array()
       );
     }
 
     try {
       const user = req.user;
-      if (!user) {
-        return errorResponse(
-          res,
-          404,
-          1002,
-          "User not found",
-          "setCurrentOrganizationForUser"
-        );
-      }
-
       const organization = await Organization.findById(req.body.organizationId);
 
       if (!organization) {
@@ -212,12 +234,11 @@ exports.setCurrentOrganizationForUser = [
         );
       }
 
-      // if user is not member of the organization return error
-      if (!organization.members.includes(user._id.toString())) {
+      if (!organization.members.includes(user._id)) {
         return errorResponse(
           res,
           403,
-          3002,
+          3003,
           "You are not a member of this organization",
           "setCurrentOrganizationForUser"
         );
@@ -227,22 +248,23 @@ exports.setCurrentOrganizationForUser = [
       await user.save();
       res.json({
         message: `${organization.name} is now set as current organization`,
+        organizationId: organization._id,
       });
     } catch (error) {
+      console.error("setCurrentOrganizationForUser error:", error);
       errorResponse(
         res,
         500,
         1019,
         "Failed to set current organization",
-        "setCurrentOrganizationForUser",
-        error
+        "setCurrentOrganizationForUser"
       );
     }
   },
 ];
 
 exports.updateUserRole = [
-  body("userId").isMongoId(),
+  body("userId").custom(validateObjectId).withMessage("Invalid user ID"),
   body("role").isIn(["admin", "user", "viewer"]),
 
   async (req, res) => {
@@ -254,7 +276,7 @@ exports.updateUserRole = [
         1005,
         "Validation errors",
         "updateUserRole",
-        errors
+        errors.array()
       );
     }
 
@@ -272,22 +294,28 @@ exports.updateUserRole = [
 
       user.role = req.body.role;
       await user.save();
-      res.json({ message: "User role updated successfully" });
+      res.json({
+        message: "User role updated successfully",
+        userId: user._id,
+        newRole: user.role,
+      });
     } catch (error) {
+      console.error("updateUserRole error:", error);
       errorResponse(
         res,
         500,
         1020,
         "Failed to update user role",
-        "updateUserRole",
-        error
+        "updateUserRole"
       );
     }
   },
 ];
 
 exports.setCurrentCredentialsForUser = [
-  body("credentialId").isMongoId(),
+  body("credentialId")
+    .custom(validateObjectId)
+    .withMessage("Invalid credential ID"),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -298,22 +326,12 @@ exports.setCurrentCredentialsForUser = [
         1005,
         "Validation errors",
         "setCurrentCredentialsForUser",
-        errors
+        errors.array()
       );
     }
 
     try {
       const user = req.user;
-      if (!user) {
-        return errorResponse(
-          res,
-          404,
-          1002,
-          "User not found",
-          "setCurrentCredentialsForUser"
-        );
-      }
-
       const credentials = await ClickHouseCredential.findById(
         req.body.credentialId
       );
@@ -328,8 +346,7 @@ exports.setCurrentCredentialsForUser = [
         );
       }
 
-      // if user is not allowed to use the credentials return error
-      if (!credentials.users.includes(user._id.toString())) {
+      if (!credentials.users.includes(user._id)) {
         return errorResponse(
           res,
           403,
@@ -342,17 +359,20 @@ exports.setCurrentCredentialsForUser = [
       user.activeClickhouseCredential = req.body.credentialId;
       await user.save();
       res.json({
-        message: `Credentials are now set as current credentials`,
+        message: "Credentials are now set as current credentials",
+        credentialId: credentials._id,
       });
     } catch (error) {
+      console.error("setCurrentCredentialsForUser error:", error);
       errorResponse(
         res,
         500,
         1021,
         "Failed to set current credentials",
-        "setCurrentCredentialsForUser",
-        error
+        "setCurrentCredentialsForUser"
       );
     }
   },
 ];
+
+module.exports = exports;

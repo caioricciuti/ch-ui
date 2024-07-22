@@ -3,10 +3,38 @@ const Organization = require("../models/Organization");
 const ClickHouseCredential = require("../models/ClickHouseCredential");
 const errorResponse = require("../utils/errorResponse");
 
+const determineQueryType = (query) => {
+  const upperQuery = query.trim().toUpperCase();
+  if (upperQuery.startsWith("SELECT")) return "select";
+  if (upperQuery.startsWith("INSERT")) return "insert";
+  if (
+    upperQuery.startsWith("CREATE") ||
+    upperQuery.startsWith("ALTER") ||
+    upperQuery.startsWith("DROP")
+  )
+    return "ddl";
+  return "other";
+};
+
+const executeClickHouseQuery = async (client, query, queryType) => {
+  switch (queryType) {
+    case "select":
+      return client.query({ query, format: "JSON" });
+    case "insert":
+    case "ddl":
+      return client.command({
+        query,
+        clickhouse_settings: { wait_end_of_query: 1 },
+      });
+    default:
+      return client.query({ query, format: "JSON" });
+  }
+};
+
 exports.executeQuery = async (req, res) => {
   try {
-    const user = req.user;
-    const activeOrganization = user.activeOrganization;
+    const { user } = req;
+    const { activeOrganization, activeClickhouseCredential } = user;
 
     if (!activeOrganization) {
       return errorResponse(
@@ -29,7 +57,7 @@ exports.executeQuery = async (req, res) => {
       );
     }
 
-    if (!user.activeClickhouseCredential) {
+    if (!activeClickhouseCredential) {
       return errorResponse(
         res,
         403,
@@ -40,17 +68,21 @@ exports.executeQuery = async (req, res) => {
     }
 
     const clickHouseCredential = await ClickHouseCredential.findById(
-      user.activeClickhouseCredential
+      activeClickhouseCredential
     );
-
     if (!clickHouseCredential) {
       return errorResponse(
         res,
         403,
         6003,
-        "No ClickHouse credentials found for this organization and user",
+        "ClickHouse credentials not found",
         "executeQuery"
       );
+    }
+
+    const { query } = req.body;
+    if (!query || typeof query !== "string") {
+      return errorResponse(res, 400, 6005, "Invalid query", "executeQuery");
     }
 
     const clickhouseClient = createClient({
@@ -60,39 +92,12 @@ exports.executeQuery = async (req, res) => {
       password: clickHouseCredential.password,
     });
 
-    const { query } = req.body;
     const queryType = determineQueryType(query);
-
-    let result;
-    switch (queryType) {
-      case "select":
-        result = await clickhouseClient.query({
-          query,
-          format: "JSON",
-        });
-        break;
-      case "insert":
-        result = await clickhouseClient.command({
-          query,
-          clickhouse_settings: {
-            wait_end_of_query: 1,
-          },
-        });
-        break;
-      case "ddl":
-        result = await clickhouseClient.command({
-          query,
-          clickhouse_settings: {
-            wait_end_of_query: 1,
-          },
-        });
-        break;
-      default:
-        result = await clickhouseClient.query({
-          query,
-          format: "JSON",
-        });
-    }
+    const result = await executeClickHouseQuery(
+      clickhouseClient,
+      query,
+      queryType
+    );
 
     let queryResult;
     if (queryType === "insert" || queryType === "ddl") {
@@ -112,25 +117,9 @@ exports.executeQuery = async (req, res) => {
       500,
       6004,
       "Failed to execute query",
-      "executeQuery",
-      error.message
+      "executeQuery"
     );
   }
 };
 
-function determineQueryType(query) {
-  const upperQuery = query.trim().toUpperCase();
-  if (upperQuery.startsWith("SELECT")) {
-    return "select";
-  } else if (upperQuery.startsWith("INSERT")) {
-    return "insert";
-  } else if (
-    upperQuery.startsWith("CREATE") ||
-    upperQuery.startsWith("ALTER") ||
-    upperQuery.startsWith("DROP")
-  ) {
-    return "ddl";
-  } else {
-    return "other";
-  }
-}
+module.exports = exports;

@@ -1,105 +1,92 @@
 const Organization = require("../models/Organization");
 const User = require("../models/User");
-const { body, validationResult } = require("express-validator");
+const { body, param, validationResult } = require("express-validator");
 const mongoose = require("mongoose");
 const errorResponse = require("../utils/errorResponse");
 const slugify = require("../utils/slugify");
 
-// get all organizations
+const validateObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
+
 exports.getOrganizations = async (req, res) => {
   try {
-    const organizations = await Organization.find({
-      // where the user is a member
-      members: req.user.id,
-    })
-      .populate({
-        path: "members",
-        select: "id name email",
-      })
-      .populate({
-        path: "owner",
-        select: "id name email",
-      });
+    const organizations = await Organization.find({ members: req.user.id })
+      .populate("members", "id name email")
+      .populate("owner", "id name email");
     res.json(organizations);
   } catch (error) {
+    console.error("getOrganizations error:", error);
     errorResponse(
       res,
       500,
       2001,
       "Failed to fetch organizations",
-      "getOrganizations",
-      error
+      "getOrganizations"
     );
   }
 };
 
-// get organization by id
-exports.getOrganizationById = async (req, res) => {
-  try {
-    const organizationId = req.params.id;
+exports.getOrganizationById = [
+  param("id").custom(validateObjectId).withMessage("Invalid organization ID"),
 
-    // Validate the ObjectId format
-    if (!mongoose.Types.ObjectId.isValid(organizationId)) {
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
       return errorResponse(
         res,
         400,
         2004,
         "Invalid organization ID",
-        "getOrganizationById"
+        "getOrganizationById",
+        errors.array()
       );
     }
 
-    // Fetch the organization with populated members and owner
-    const organization = await Organization.findById(organizationId)
-      .populate({
-        path: "members", // Populate the members field
-        // only select id, name, and email
-        select: "id name email",
-      })
-      .populate({
-        path: "owner", // Populate the owner field
-        // only select id, name, and email
-        select: "id name email",
-      });
+    try {
+      const organization = await Organization.findById(req.params.id)
+        .populate("members", "id name email")
+        .populate("owner", "id name email");
 
-    if (!organization) {
-      return errorResponse(
+      if (!organization) {
+        return errorResponse(
+          res,
+          404,
+          2002,
+          "Organization not found",
+          "getOrganizationById"
+        );
+      }
+
+      if (
+        !organization.members.some((member) => member._id.equals(req.user.id))
+      ) {
+        return errorResponse(
+          res,
+          403,
+          2005,
+          "Access denied",
+          "getOrganizationById"
+        );
+      }
+
+      res.json(organization);
+    } catch (error) {
+      console.error("getOrganizationById error:", error);
+      errorResponse(
         res,
-        404,
-        2002,
-        "Organization not found",
+        500,
+        2003,
+        "Failed to fetch organization",
         "getOrganizationById"
       );
     }
+  },
+];
 
-    // if user is not a member of the organization return 403
-    if (!organization.members.includes(req.user.id)) {
-      organizationOwner = organization.owner?.name || "Unknown";
-      return errorResponse(
-        res,
-        403,
-        2005,
-        `This organization belongs to ${organizationOwner}, contact him/her to get access`,
-        "getOrganizationById"
-      );
-    }
-
-    res.json(organization);
-  } catch (error) {
-    errorResponse(
-      res,
-      500,
-      2003,
-      "Failed to fetch organization",
-      "getOrganizationById",
-      error
-    );
-  }
-};
-
-// create organization
 exports.createOrganization = [
-  body("name").isString().isLength({ max: 32 }).trim().notEmpty(),
+  body("name")
+    .trim()
+    .isLength({ min: 2, max: 32 })
+    .withMessage("Name must be between 2 and 32 characters"),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -108,50 +95,56 @@ exports.createOrganization = [
         res,
         400,
         2005,
-        `Validation errors, ${JSON.stringify(errors.array())}`,
-        "createOrganization"
+        "Validation errors",
+        "createOrganization",
+        errors.array()
       );
     }
 
     try {
-      // check if organization with the same slug exists
-      const organizationExists = await Organization.findOne({
-        slug: slugify(req.body.name),
-      });
+      const slug = slugify(req.body.name);
+      const organizationExists = await Organization.findOne({ slug });
       if (organizationExists) {
         return errorResponse(
           res,
-          400,
+          409,
           2005,
           "Organization with the same name already exists",
           "createOrganization"
         );
       }
 
-      let organization = new Organization(req.body);
-      organization.owner = req.user.id;
-      organization.slug = slugify(req.body.name);
-      organization.members.push(req.user.id);
+      const organization = new Organization({
+        name: req.body.name,
+        slug,
+        owner: req.user.id,
+        members: [req.user.id],
+      });
+
       await organization.save();
       res.status(201).json(organization);
     } catch (error) {
+      console.error("createOrganization error:", error);
       errorResponse(
         res,
         500,
         2006,
         "Failed to create organization",
-        "createOrganization",
-        error
+        "createOrganization"
       );
     }
   },
 ];
 
-// update organization
 exports.updateOrganization = [
-  body("organizationId").isMongoId(),
-  body("name").optional().isString().isLength({ max: 32 }).trim(),
-  body("owner").optional().isMongoId(),
+  body("organizationId")
+    .custom(validateObjectId)
+    .withMessage("Invalid organization ID"),
+  body("name")
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 32 })
+    .withMessage("Name must be between 2 and 32 characters"),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -162,7 +155,7 @@ exports.updateOrganization = [
         2005,
         "Validation errors",
         "updateOrganization",
-        errors
+        errors.array()
       );
     }
 
@@ -178,28 +171,40 @@ exports.updateOrganization = [
         );
       }
 
-      organization.set({
-        name: req.body.name,
-        slug: slugify(req.body.name),
-      });
+      if (!organization.owner.equals(req.user.id)) {
+        return errorResponse(
+          res,
+          403,
+          2007,
+          "Only the owner can update the organization",
+          "updateOrganization"
+        );
+      }
+
+      if (req.body.name) {
+        organization.name = req.body.name;
+        organization.slug = slugify(req.body.name);
+      }
+
       await organization.save();
       res.json(organization);
     } catch (error) {
+      console.error("updateOrganization error:", error);
       errorResponse(
         res,
         500,
         2007,
         "Failed to update organization",
-        "updateOrganization",
-        error
+        "updateOrganization"
       );
     }
   },
 ];
 
-// delete organization
 exports.deleteOrganization = [
-  body("organizationId").isMongoId(),
+  body("organizationId")
+    .custom(validateObjectId)
+    .withMessage("Invalid organization ID"),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -210,14 +215,12 @@ exports.deleteOrganization = [
         2005,
         "Validation errors",
         "deleteOrganization",
-        errors
+        errors.array()
       );
     }
 
     try {
-      const organization = await Organization.findByIdAndDelete(
-        req.body.organizationId
-      );
+      const organization = await Organization.findById(req.body.organizationId);
       if (!organization) {
         return errorResponse(
           res,
@@ -227,24 +230,40 @@ exports.deleteOrganization = [
           "deleteOrganization"
         );
       }
-      res.json({ message: "Organization deleted successfully", organization });
+
+      if (!organization.owner.equals(req.user.id)) {
+        return errorResponse(
+          res,
+          403,
+          2008,
+          "Only the owner can delete the organization",
+          "deleteOrganization"
+        );
+      }
+
+      await Organization.findByIdAndDelete(req.body.organizationId);
+      res.json({
+        message: "Organization deleted successfully",
+        organizationId: organization._id,
+      });
     } catch (error) {
+      console.error("deleteOrganization error:", error);
       errorResponse(
         res,
         500,
         2008,
         "Failed to delete organization",
-        "deleteOrganization",
-        error
+        "deleteOrganization"
       );
     }
   },
 ];
 
-// add user to organization
 exports.addUserToOrganization = [
-  body("organizationId").isMongoId().withMessage("Invalid organization ID"),
-  body("userId").isMongoId().withMessage("Invalid user ID"),
+  body("organizationId")
+    .custom(validateObjectId)
+    .withMessage("Invalid organization ID"),
+  body("userId").custom(validateObjectId).withMessage("Invalid user ID"),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -282,7 +301,17 @@ exports.addUserToOrganization = [
           res,
           404,
           1002,
-          "User with the given ID not found",
+          "User not found",
+          "addUserToOrganization"
+        );
+      }
+
+      if (!organization.owner.equals(req.user.id)) {
+        return errorResponse(
+          res,
+          403,
+          2009,
+          "Only the owner can add members to the organization",
           "addUserToOrganization"
         );
       }
@@ -290,9 +319,9 @@ exports.addUserToOrganization = [
       if (organization.members.includes(userId)) {
         return errorResponse(
           res,
-          400,
-          2005,
-          "User already exists in the organization",
+          409,
+          2010,
+          "User is already a member of this organization",
           "addUserToOrganization"
         );
       }
@@ -300,7 +329,7 @@ exports.addUserToOrganization = [
       organization.members.push(userId);
       await organization.save();
 
-      res.status(200).json({
+      res.json({
         message: `${userToAdd.name} added to organization ${organization.name} successfully`,
         organization: {
           id: organization._id,
@@ -309,23 +338,23 @@ exports.addUserToOrganization = [
         },
       });
     } catch (error) {
-      console.error("Error in addUserToOrganization:", error);
+      console.error("addUserToOrganization error:", error);
       errorResponse(
         res,
         500,
         2009,
         "Failed to add user to organization",
-        "addUserToOrganization",
-        error.message
+        "addUserToOrganization"
       );
     }
   },
 ];
 
-// remove user from organization
 exports.removeUserFromOrganization = [
-  body("organizationId").isMongoId().withMessage("Invalid organization ID"),
-  body("userId").isMongoId().withMessage("Invalid user ID"),
+  body("organizationId")
+    .custom(validateObjectId)
+    .withMessage("Invalid organization ID"),
+  body("userId").custom(validateObjectId).withMessage("Invalid user ID"),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -343,10 +372,7 @@ exports.removeUserFromOrganization = [
     const { organizationId, userId } = req.body;
 
     try {
-      const [organization, userToRemove] = await Promise.all([
-        Organization.findById(organizationId),
-        User.findById(userId),
-      ]);
+      const organization = await Organization.findById(organizationId);
 
       if (!organization) {
         return errorResponse(
@@ -358,12 +384,22 @@ exports.removeUserFromOrganization = [
         );
       }
 
-      if (!userToRemove) {
+      if (!organization.owner.equals(req.user.id)) {
         return errorResponse(
           res,
-          404,
-          1002,
-          "User not found",
+          403,
+          2011,
+          "Only the owner can remove members from the organization",
+          "removeUserFromOrganization"
+        );
+      }
+
+      if (organization.owner.equals(userId)) {
+        return errorResponse(
+          res,
+          403,
+          2012,
+          "Cannot remove the owner from the organization",
           "removeUserFromOrganization"
         );
       }
@@ -371,19 +407,19 @@ exports.removeUserFromOrganization = [
       if (!organization.members.includes(userId)) {
         return errorResponse(
           res,
-          400,
-          2006,
+          404,
+          2013,
           "User is not a member of this organization",
           "removeUserFromOrganization"
         );
       }
 
       organization.members = organization.members.filter(
-        (memberId) => memberId.toString() !== userId
+        (memberId) => !memberId.equals(userId)
       );
       await organization.save();
 
-      res.status(200).json({
+      res.json({
         message: "User successfully removed from the organization",
         organization: {
           id: organization._id,
@@ -392,15 +428,16 @@ exports.removeUserFromOrganization = [
         },
       });
     } catch (error) {
-      console.error("Error in removeUserFromOrganization:", error);
+      console.error("removeUserFromOrganization error:", error);
       errorResponse(
         res,
         500,
         2010,
         "Failed to remove user from organization",
-        "removeUserFromOrganization",
-        error.message
+        "removeUserFromOrganization"
       );
     }
   },
 ];
+
+module.exports = exports;

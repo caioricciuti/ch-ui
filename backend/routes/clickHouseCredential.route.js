@@ -12,29 +12,37 @@ const {
   revokeUserFromCredential,
 } = require("../controllers/clickHouseCredential.controller");
 
-// Middleware for checking JWT and Authorization
 const isAuthenticated = require("../middleware/isAuthenticated");
 const isAdmin = require("../middleware/isAdmin");
+const isAuthorized = require("../middleware/isAuthorized");
 
-// Routes
-router.post("/", isAuthenticated, createClickHouseCredential);
+// Apply authentication middleware to all routes
+router.use(isAuthenticated);
 
-router.get("/:id", isAuthenticated, getClickHouseCredentialById);
-router.put("/:id", isAuthenticated, updateClickHouseCredential);
-router.delete("/:id", isAuthenticated, deleteClickHouseCredential);
-router.post(
-  "/assign-organization",
-  isAuthenticated,
-  isAdmin,
-  assignCredentialToOrganization
+// CRUD operations
+router.post("/", isAdmin, createClickHouseCredential);
+router.get(
+  "/:id",
+  isAuthorized("viewClickHouseCredential"),
+  getClickHouseCredentialById
 );
-router.post(
-  "/revoke-organization",
-  isAuthenticated,
+router.put(
+  "/:id",
+  isAuthorized("updateClickHouseCredential"),
+  updateClickHouseCredential
+);
+router.delete("/:id", isAdmin, deleteClickHouseCredential);
+
+// Organization assignment operations
+router.post("/:id/organizations", isAdmin, assignCredentialToOrganization);
+router.delete(
+  "/:id/organizations/:organizationId",
   isAdmin,
   revokeCredentialFromOrganization
 );
-router.post("/assign-user", isAuthenticated, isAdmin, assignUserToCredential);
-router.post("/revoke-user", isAuthenticated, isAdmin, revokeUserFromCredential);
+
+// User assignment operations
+router.post("/:id/users", isAdmin, assignUserToCredential);
+router.delete("/:id/users/:userId", isAdmin, revokeUserFromCredential);
 
 module.exports = router;

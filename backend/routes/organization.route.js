@@ -11,42 +11,28 @@ const {
   removeUserFromOrganization,
 } = require("../controllers/organization.controller");
 
-// Middleware for checking JWT
 const isAuthenticated = require("../middleware/isAuthenticated");
 const isAuthorized = require("../middleware/isAuthorized");
 
-// Public routes
-router.get("/", isAuthenticated, getOrganizations);
-router.get("/:id", isAuthenticated, getOrganizationById);
+// Apply authentication middleware to all routes
+router.use(isAuthenticated);
 
-// Protected routes
-router.post("/", isAuthenticated, createOrganization);
+// Organization CRUD operations
+router.get("/", getOrganizations);
+router.get("/:id", getOrganizationById);
+router.post("/", createOrganization);
+router.put("/", isAuthorized("updateOrganization"), updateOrganization);
+router.delete("/", isAuthorized("deleteOrganization"), deleteOrganization);
 
-router.put(
-  "/",
-  isAuthenticated,
-  isAuthorized("updateOrganization"),
-  updateOrganization
-);
-
-router.delete(
-  "/",
-  isAuthenticated,
-  isAuthorized("deleteOrganization"),
-  deleteOrganization
-);
-
+// Member management
 router.post(
-  "/add-member",
-  isAuthenticated,
-  isAuthorized("AddMemberToOrganization"),
+  "/:id/members",
+  isAuthorized("addMemberToOrganization"),
   addUserToOrganization
 );
-
-router.post(
-  "/remove-member",
-  isAuthenticated,
-  isAuthorized("RemoveMemberFromOrganization"),
+router.delete(
+  "/:id/members/:userId",
+  isAuthorized("removeMemberFromOrganization"),
   removeUserFromOrganization
 );
 

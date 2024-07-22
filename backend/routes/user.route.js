@@ -13,34 +13,31 @@ const {
   setCurrentCredentialsForUser,
 } = require("../controllers/user.controller");
 
-// Middleware for checking JWT and Authorization
 const isAuthenticated = require("../middleware/isAuthenticated");
 const isAdmin = require("../middleware/isAdmin");
 const isAuthorized = require("../middleware/isAuthorized");
 
-router.get("/", isAuthenticated, isAdmin, getUsers);
-router.get("/me", isAuthenticated, getCurrentUser);
-router.put("/update/role", isAuthenticated, isAdmin, updateUserRole);
-router.get("/:id", isAuthenticated, getUserById);
-router.post("/", isAuthenticated, isAdmin, createUser);
-router.put("/", isAuthenticated, isAuthorized("updateUser"), updateUser);
-router.post(
-  "/set-current-organization",
-  isAuthenticated,
-  setCurrentOrganizationForUser
-);
+// Public routes
+// None in this router
 
-router.post(
-  "/set-current-credential",
-  isAuthenticated,
-  setCurrentCredentialsForUser
-);
+// Protected routes
+router.use(isAuthenticated);
 
-router.delete(
-  "/users",
-  isAuthenticated,
-  isAuthorized("deleteUser"),
-  deleteUser
-);
+// Current user routes
+router.get("/me", getCurrentUser);
+router.put("/me", isAuthorized("updateUser"), updateUser);
+router.post("/me/organization", setCurrentOrganizationForUser);
+router.post("/me/credential", setCurrentCredentialsForUser);
+
+// Admin routes
+router.get("/", isAdmin, getUsers);
+router.post("/", isAdmin, createUser);
+router.put("/role", isAdmin, updateUserRole);
+
+// General user routes
+router.get("/:id", getUserById);
+
+// Sensitive operations
+router.delete("/", isAuthorized("deleteUser"), deleteUser);
 
 module.exports = router;

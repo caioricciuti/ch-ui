@@ -8,78 +8,84 @@ const errorResponse = require("../utils/errorResponse");
 const isAuthorized = (action) => {
   return async (req, res, next) => {
     try {
-      const user = await User.findById(req.user.id);
-      let organization;
-      let clickHouseCredential;
-      let editor;
-      let metrics;
-
-      if (!user) {
-        return errorResponse(res, 401, 3001, "User not found", "isAuthorized");
+      if (!req.user) {
+        return errorResponse(
+          res,
+          401,
+          3001,
+          "User not authenticated",
+          "isAuthorized"
+        );
       }
 
-      // Check if the user is an admin
-      /*
+      const user = await User.findById(req.user.id).select("+role");
+      if (!user) {
+        return errorResponse(res, 404, 3002, "User not found", "isAuthorized");
+      }
+
       if (user.role === "admin") {
         return next();
       }
-        */
 
-      if (
-        action === "updateOrganization" ||
-        action === "deleteOrganization" ||
-        action === "AddMemberToOrganization" ||
-        action === "RemoveMemberFromOrganization"
-      ) {
-        organization = await Organization.findById(req.body.organizationId);
-        if (!organization) {
-          return errorResponse(
-            res,
-            404,
-            3002,
-            "Organization not found",
-            "isAuthorized"
-          );
-        }
+      let organization, clickHouseCredential, editor, metrics;
+
+      // Fetch necessary data based on the action
+      switch (action) {
+        case "updateOrganization":
+        case "deleteOrganization":
+        case "addMemberToOrganization":
+        case "removeMemberFromOrganization":
+          organization = await Organization.findById(
+            req.body.organizationId
+          ).select("owner");
+          if (!organization) {
+            return errorResponse(
+              res,
+              404,
+              3003,
+              "Organization not found",
+              "isAuthorized"
+            );
+          }
+          break;
+        // Add more cases for other actions that require fetching data
       }
 
       // Define permissions
       const permissions = {
-        // User permissions
-        updateUser: user._id.toString() === req.body.userId,
-        deleteUser: user._id.toString() === req.body.userId,
-
-        // Organization permissions
-        updateOrganization:
-          user._id.toString() === organization.owner._id.toString(),
-        deleteOrganization:
-          user._id.toString() === organization.owner._id.toString(),
-        AddMemberToOrganization:
-          user._id.toString() === organization.owner._id.toString(),
-        RemoveMemberFromOrganization:
-          user._id.toString() === organization.owner._id.toString(),
+        updateUser: (reqUserId) => user._id.toString() === reqUserId,
+        deleteUser: (reqUserId) => user._id.toString() === reqUserId,
+        updateOrganization: () =>
+          user._id.toString() === organization.owner.toString(),
+        deleteOrganization: () =>
+          user._id.toString() === organization.owner.toString(),
+        addMemberToOrganization: () =>
+          user._id.toString() === organization.owner.toString(),
+        removeMemberFromOrganization: () =>
+          user._id.toString() === organization.owner.toString(),
+        // Add more permission checks as needed
       };
 
       // Check if the user is authorized to perform the action
-      if (permissions[action]) {
+      if (permissions[action] && permissions[action](req.body.userId)) {
         return next();
       }
 
       return errorResponse(
         res,
         403,
-        3002,
-        `Sorry, ${user.name}, you don't have permissions to ${action}`,
+        3004,
+        `You don't have permission to perform this action`,
         "isAuthorized"
       );
     } catch (error) {
-      errorResponse(
+      console.error("isAuthorized middleware error:", error);
+      return errorResponse(
         res,
         500,
-        3003,
+        3005,
         "Internal server error",
-        "isAuthorized",
-        error
+        "isAuthorized"
       );
     }
   };
