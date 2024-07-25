@@ -30,8 +30,13 @@ const clickHouseCredentialSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, "Password is required"],
+      // required: [true, "Password is required"], 
       select: false, // Don't return password by default in queries
+    },
+    owner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: [true, "Owner is required"],
     },
     users: [
       {

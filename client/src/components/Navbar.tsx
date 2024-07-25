@@ -1,4 +1,4 @@
-import React from "react";
+import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -7,17 +7,40 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Menu, X, User, LogOut, User2 } from "lucide-react";
+import { CommandShortcut } from "@/components/ui/command";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import {
+  Menu,
+  LogOut,
+  CogIcon,
+  Users,
+  Layers,
+  BarChart3,
+  Shield,
+  Key,
+  SearchCode,
+} from "lucide-react";
 import Logo from "/logo.png";
 import useAuthStore from "@/stores/user.store";
-import { Separator } from "@/components/ui/separator";
+import OrganizationCombobox from "@/components/OrganizationSelector";
+import CredentialSelector from "@/components/CredentialSelector";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { getInitials, bgColorsByInitials } from "@/lib/helpers";
 
 const Navbar = () => {
-  const [isOpen, setIsOpen] = React.useState(false);
   const { user, logout, admin } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
+  const [isOpen, setIsOpen] = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -30,124 +53,152 @@ const Navbar = () => {
     }
   };
 
-  const handleLinkClick = () => {
-    setIsOpen(false);
-  };
-
   const navItems = [
-    { to: "/dashboard", label: "Dashboard" },
-    { to: "/organizations", label: "Organizations" },
-    { to: "/workspace", label: "Workspace" },
-    { to: "/metrics", label: "Metrics" },
+    { to: "/credentials", label: "Credentials", icon: Key },
+    { to: "/organizations", label: "Organizations", icon: Users },
+    { to: "/workspace", label: "Workspace", icon: Layers },
+    { to: "/metrics", label: "Metrics", icon: BarChart3 },
   ];
 
-  const isActive = (path: string) => {
-    return location.pathname === path;
-  };
+  const isActive = (path: string) => location.pathname === path;
+
+  const NavContent = ({ mobile = false, onItemClick = () => {} }) => (
+    <>
+      {admin() && (
+        <Link
+          to="/admin"
+          className={`flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+            isActive("/admin")
+              ? "bg-secondary text-secondary-foreground"
+              : "hover:bg-secondary/80"
+          } ${mobile ? "w-full" : ""}`}
+          onClick={onItemClick}
+        >
+          <Shield className="xl:mr-2 h-4 w-4" />
+          <span className="hidden xl:block">Admin</span>
+        </Link>
+      )}
+      {navItems.map((item) => (
+        <Link
+          key={item.to}
+          to={item.to}
+          className={`flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+            isActive(item.to)
+              ? "bg-secondary text-secondary-foreground"
+              : "hover:bg-secondary/80"
+          } ${mobile ? "w-full" : ""}`}
+          onClick={onItemClick}
+        >
+          <item.icon className="mr-2 h-4 w-4" />
+          {item.label}
+        </Link>
+      ))}
+    </>
+  );
 
   return (
-    <nav className="shadow-lg border-b mb-4 items-center">
-      <div className="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-14">
-          <div className="flex">
-            <Link to="/" className="flex-shrink-0 flex items-center gap-2">
-              <img src={Logo} alt="Logo" className="h-8 w-8" />
-              <span className="text-xl font-bold">ch-ui</span>
-            </Link>
-          </div>
-
-          {/* Desktop menu */}
-          <div className="hidden sm:flex sm:items-center sm:ml-6">
-            {admin() && (
-              <Link
-                to="/admin"
-                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                  isActive("/admin")
-                    ? "border border-secondary bg-secondary/50"
-                    : ""
-                }`}
-              >
-                Admin
-              </Link>
-            )}
-            {navItems.map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={`px-3 py-1  rounded-md text-sm font-medium transition-colors ${
-                  isActive(item.to)
-                    ? "border border-secondary bg-secondary/50"
-                    : ""
-                }`}
-              >
-                {item.label}
-              </Link>
-            ))}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="ml-3">
-                  <User className="mr-2 h-4 w-4" />
-                  {user?.name || "Account"}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onSelect={() => {
-                    navigate("/profile");
-                  }}
-                >
-                  <User2 className="mr-2 h-4 w-4" />
-                  Profile
-                </DropdownMenuItem>
-                <Separator />
-                <DropdownMenuItem onSelect={handleLogout}>
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Logout
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          {/* Mobile menu button */}
-          <div className="sm:hidden flex items-center">
-            <Button variant="ghost" onClick={() => setIsOpen(!isOpen)}>
-              {isOpen ? (
-                <X className="h-6 w-6" />
-              ) : (
-                <Menu className="h-6 w-6" />
-              )}
+    <nav className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="container flex h-16 items-center justify-between lg:justify-between">
+        <Sheet open={isOpen} onOpenChange={setIsOpen}>
+          <SheetTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon"
+              className="lg:hidden"
+              aria-label="Open menu"
+            >
+              <Menu className="h-5 w-5" />
             </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="w-[300px] sm:w-[400px]">
+            <SheetHeader>
+              <SheetTitle>Menu</SheetTitle>
+            </SheetHeader>
+            <ScrollArea className="my-4 h-[calc(100vh-8rem)] pb-10 pl-6">
+              <div className="flex flex-col space-y-3">
+                <NavContent mobile onItemClick={() => setIsOpen(false)} />
+              </div>
+              <div className="mt-6 space-y-3">
+                <OrganizationCombobox />
+                <CredentialSelector />
+              </div>
+            </ScrollArea>
+          </SheetContent>
+        </Sheet>
+
+        <div className="flex items-center lg:hidden">
+          <Link to="/" className="flex items-center space-x-2">
+            <img src={Logo} alt="Logo" className="h-8 w-8 min-h-8 min-w-8" />
+            <span className="font-bold text-lg">CH-UI</span>
+          </Link>
+        </div>
+
+        <div className="hidden lg:flex items-center xl:space-x-4">
+          <Link to="/">
+            <img src={Logo} alt="Logo" className="h-8 w-8" />
+          </Link>
+          <nav className="flex items-center space-x-4 text-sm font-medium">
+            <NavContent />
+          </nav>
+        </div>
+
+        <div className="flex items-center space-x-4">
+          <div className="hidden lg:flex space-x-2">
+            <OrganizationCombobox />
+            <CredentialSelector />
           </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className="relative h-8 w-8 rounded-full"
+                aria-label="User menu"
+              >
+                <Avatar>
+                  <AvatarFallback
+                    className={`h-10 w-10 font-bold ${bgColorsByInitials(
+                      getInitials(user?.name || "")
+                    )}`}
+                  >
+                    {getInitials(user?.name || "")}
+                  </AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56" align="end" forceMount>
+              <DropdownMenuItem className="flex flex-col items-start">
+                <div className="text-sm font-medium">{user?.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {user?.email}
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => navigate("/settings")}>
+                <CogIcon className="mr-2 h-4 w-4" />
+                Settings
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() =>
+                  document.dispatchEvent(
+                    new KeyboardEvent("keydown", {
+                      key: "k",
+                      metaKey: true,
+                      bubbles: true,
+                    })
+                  )
+                }
+              >
+                <SearchCode className="mr-2 h-4 w-4" />
+                Search <CommandShortcut>⌘K</CommandShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleLogout}>
+                <LogOut className="mr-2 h-4 w-4" />
+                Log out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
-
-      {/* Mobile menu */}
-      {isOpen && (
-        <div className="sm:hidden">
-          <div className="px-2 pt-2 pb-3 space-y-1">
-            {navItems.map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={`block px-3 py-2 rounded-md text-base font-medium hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${
-                  isActive(item.to) ? "border-b-2 border-blue-500" : ""
-                }`}
-                onClick={handleLinkClick}
-              >
-                {item.label}
-              </Link>
-            ))}
-            <Button
-              variant="ghost"
-              onClick={handleLogout}
-              className="w-full justify-start"
-            >
-              <LogOut className="mr-2 h-4 w-4" />
-              Logout
-            </Button>
-          </div>
-        </div>
-      )}
     </nav>
   );
 };

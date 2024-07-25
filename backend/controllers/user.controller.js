@@ -293,6 +293,7 @@ exports.updateUserRole = [
       }
 
       user.role = req.body.role;
+      
       await user.save();
       res.json({
         message: "User role updated successfully",

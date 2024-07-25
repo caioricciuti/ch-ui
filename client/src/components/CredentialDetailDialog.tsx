@@ -23,15 +23,18 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import useClickHouseCredentialStore from "@/stores/clickHouseCredentials.store";
+import useAuthStore from "@/stores/user.store";
 import useOrganizationStore from "@/stores/organization.store";
 import {
-  Building2,
+  DatabaseZap,
   Users,
-  User,
+  Building,
   Calendar,
   Hash,
   AtSign,
   Mail,
+  GlobeIcon,
 } from "lucide-react";
 
 import {
@@ -40,18 +43,20 @@ import {
   bgGradientByInitials,
 } from "@/lib/helpers";
 
-interface OrganizationDetailDialogProps {
+interface CredentialDetailDialogProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const OrganizationDetailDialog: React.FC<OrganizationDetailDialogProps> = ({
+const CredentialDetailDialog: React.FC<CredentialDetailDialogProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { selectedOrganization } = useOrganizationStore();
+  const { selectedCredential } = useClickHouseCredentialStore();
+  const { allUsers } = useAuthStore();
+  const { organizations } = useOrganizationStore();
 
-  if (!selectedOrganization) return null;
+  if (!selectedCredential) return null;
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString(undefined, {
@@ -63,43 +68,59 @@ const OrganizationDetailDialog: React.FC<OrganizationDetailDialogProps> = ({
     });
   };
 
+  // Extract the IDs from selectedCredential.users
+  const selectedUserIds = selectedCredential.users.map((user) => user._id);
+
+  const credentialUsers = allUsers.filter((user) =>
+    selectedUserIds.includes(user._id)
+  );
+
+  // Extract the IDs from selectedCredential.allowedOrganizations
+  const selectedOrganizationIds = selectedCredential.allowedOrganizations.map(
+    (org) => org._id
+  );
+
+  const credentialOrganizations = organizations.filter((org) =>
+    selectedOrganizationIds.includes(org._id)
+  );
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
         className="sm:max-w-[600px]"
         onOpenAutoFocus={(e) => e.preventDefault()}
-        aria-describedby="organization-details"
-        aria-description="Detailed information about the organization"
+        aria-describedby="credential-details"
+        aria-description="Detailed information about the ClickHouse credential"
       >
         <DialogHeader>
           <DialogTitle
             className={`text-2xl font-bold items-center gap-2 ${bgGradientByInitials(
-              getInitials(selectedOrganization.name)
-            )} text-transparent bg-clip-text
-            `}
+              getInitials(selectedCredential.name)
+            )} text-transparent bg-clip-text`}
           >
-            {selectedOrganization.name}
+            {selectedCredential.name}
           </DialogTitle>
           <DialogDescription
-            aria-description="Details about the organization"
-            id="organization-details"
+            aria-description="Details about the ClickHouse credential"
+            id="credential-details"
           >
-            Detailed information about {selectedOrganization.name} organization.
+            Detailed information about {selectedCredential.name} ClickHouse
+            credential.
           </DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[70vh] pr-4">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center space-x-4 mb-4">
-                <Building2 className="h-10 w-10 text-gray-500" />
+                <DatabaseZap className="h-10 w-10 text-blue-500" />
                 <div>
                   <h3 className="text-lg font-semibold">
-                    {selectedOrganization.name}
+                    {selectedCredential.name}
                   </h3>
                   <div className="text-sm text-muted-foreground flex items-center gap-1">
                     <AtSign className="h-4 w-4" aria-hidden="true" />
-                    <span aria-label="Organization slug">
-                      {selectedOrganization.slug}
+                    <span aria-label="Credential host and port">
+                      {selectedCredential.host}:{selectedCredential.port}
                     </span>
                   </div>
                 </div>
@@ -113,53 +134,46 @@ const OrganizationDetailDialog: React.FC<OrganizationDetailDialogProps> = ({
                     <TooltipTrigger asChild>
                       <div className="flex items-center gap-2 text-sm cursor-help">
                         <Hash className="h-4 w-4" aria-hidden="true" />
-                        <span aria-label="Organization ID">
-                          ID: {selectedOrganization._id}
+                        <span aria-label="Credential ID">
+                          ID: {selectedCredential._id}
                         </span>
                       </div>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>Unique identifier for the organization</p>
+                      <p>Unique identifier for the credential</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
 
                 <div className="flex items-center gap-2 text-sm">
                   <Users className="h-4 w-4" aria-hidden="true" />
-                  <span aria-label="Number of members">Members: </span>
+                  <span aria-label="Number of users">Users: </span>
                   <Badge variant="secondary">
-                    {selectedOrganization.members.length}
+                    {selectedCredential.users.length}
                   </Badge>
                 </div>
 
                 <div className="flex items-center gap-2 text-sm">
-                  <User className="h-4 w-4" aria-hidden="true" />
-                  <span aria-label="Owner">Owner: </span>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="font-medium cursor-help">
-                          {selectedOrganization.owner.name}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{selectedOrganization.owner.email}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                  <Building className="h-4 w-4" aria-hidden="true" />
+                  <span aria-label="Number of allowed organizations">
+                    Allowed Organizations:{" "}
+                  </span>
+                  <Badge variant="secondary">
+                    {selectedCredential.allowedOrganizations.length}
+                  </Badge>
                 </div>
 
                 <div className="flex items-center gap-2 text-sm">
                   <Calendar className="h-4 w-4" aria-hidden="true" />
                   <span aria-label="Creation date">
-                    Created: {formatDate(selectedOrganization.createdAt)}
+                    Created: {formatDate(selectedCredential.createdAt)}
                   </span>
                 </div>
 
                 <div className="flex items-center gap-2 text-sm">
                   <Calendar className="h-4 w-4" aria-hidden="true" />
                   <span aria-label="Last update date">
-                    Updated: {formatDate(selectedOrganization.updatedAt)}
+                    Updated: {formatDate(selectedCredential.updatedAt)}
                   </span>
                 </div>
               </div>
@@ -167,41 +181,71 @@ const OrganizationDetailDialog: React.FC<OrganizationDetailDialogProps> = ({
               <Separator className="my-4" />
 
               <Accordion type="single" collapsible className="w-full">
-                <AccordionItem value="members">
+                <AccordionItem value="users">
                   <AccordionTrigger>
                     <div className="flex items-center gap-2">
                       <Users className="h-4 w-4" />
-                      Members ({selectedOrganization.members.length})
+                      Users ({credentialUsers.length})
                     </div>
                   </AccordionTrigger>
                   <AccordionContent>
                     <div className="space-y-4">
-                      {selectedOrganization.members.map((member) => (
+                      {credentialUsers.map((user) => (
                         <div
-                          key={member._id}
+                          key={user._id}
                           className="flex items-center gap-3 border p-2.5 rounded-md"
                         >
                           <Avatar>
                             <AvatarFallback
                               className={`h-10 w-10 font-bold ${bgColorsByInitials(
-                                getInitials(member?.name || "")
+                                getInitials(user?.name || "")
                               )}`}
                             >
-                              {getInitials(member?.name || "")}
+                              {getInitials(user?.name || "")}
                             </AvatarFallback>
                           </Avatar>
                           <div>
-                            <p className="text-sm font-medium">{member.name}</p>
+                            <p className="text-sm font-medium">{user.name}</p>
                             <p className="text-xs text-muted-foreground flex items-center gap-1">
                               <Mail className="h-3 w-3" />
-                              {member.email}
+                              {user.email}
                             </p>
                           </div>
-                          {member._id === selectedOrganization.owner._id && (
-                            <Badge variant="secondary" className="ml-auto">
-                              Owner
-                            </Badge>
-                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+                <AccordionItem value="organizations">
+                  <AccordionTrigger>
+                    <div className="flex items-center gap-2">
+                      <Building className="h-4 w-4" />
+                      Allowed Organizations ({credentialOrganizations.length})
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="space-y-4">
+                      {credentialOrganizations.map((org) => (
+                        <div
+                          key={org._id}
+                          className="flex items-center gap-3 border p-2.5 rounded-md"
+                        >
+                          <Avatar>
+                            <AvatarFallback
+                              className={`h-10 w-10 font-bold ${bgColorsByInitials(
+                                getInitials(org?.name || "")
+                              )}`}
+                            >
+                              {getInitials(org?.name || "")}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="text-sm font-medium">{org.name}</p>
+                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                              <GlobeIcon className="h-3 w-3" />
+                              {org.slug}
+                            </p>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -216,4 +260,4 @@ const OrganizationDetailDialog: React.FC<OrganizationDetailDialogProps> = ({
   );
 };
 
-export default OrganizationDetailDialog;
+export default CredentialDetailDialog;

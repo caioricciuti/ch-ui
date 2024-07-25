@@ -7,6 +7,13 @@ const slugify = require("../utils/slugify");
 
 const validateObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 
+const isAdminOrOwner = (user, organization) => {
+  return (
+    user.role === "admin" ||
+    (organization && organization.owner.equals(user.id))
+  );
+};
+
 exports.getOrganizations = async (req, res) => {
   try {
     const organizations = await Organization.find({ members: req.user.id })
@@ -57,7 +64,10 @@ exports.getOrganizationById = [
       }
 
       if (
-        !organization.members.some((member) => member._id.equals(req.user.id))
+        !organization.members.some((member) =>
+          member._id.equals(req.user.id)
+        ) &&
+        req.user.role !== "admin"
       ) {
         return errorResponse(
           res,
@@ -260,9 +270,6 @@ exports.deleteOrganization = [
 ];
 
 exports.addUserToOrganization = [
-  body("organizationId")
-    .custom(validateObjectId)
-    .withMessage("Invalid organization ID"),
   body("userId").custom(validateObjectId).withMessage("Invalid user ID"),
 
   async (req, res) => {
@@ -278,7 +285,8 @@ exports.addUserToOrganization = [
       );
     }
 
-    const { organizationId, userId } = req.body;
+    const { organizationId } = req.params;
+    const { userId } = req.body;
 
     try {
       const [organization, userToAdd] = await Promise.all([
@@ -306,12 +314,12 @@ exports.addUserToOrganization = [
         );
       }
 
-      if (!organization.owner.equals(req.user.id)) {
+      if (!isAdminOrOwner(req.user, organization)) {
         return errorResponse(
           res,
           403,
           2009,
-          "Only the owner can add members to the organization",
+          "Only the owner or admin can add members to the organization",
           "addUserToOrganization"
         );
       }
@@ -351,11 +359,6 @@ exports.addUserToOrganization = [
 ];
 
 exports.removeUserFromOrganization = [
-  body("organizationId")
-    .custom(validateObjectId)
-    .withMessage("Invalid organization ID"),
-  body("userId").custom(validateObjectId).withMessage("Invalid user ID"),
-
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -369,7 +372,8 @@ exports.removeUserFromOrganization = [
       );
     }
 
-    const { organizationId, userId } = req.body;
+    const organizationId = req.params.organizationId;
+    const userId = req.params.userId;
 
     try {
       const organization = await Organization.findById(organizationId);
@@ -384,17 +388,17 @@ exports.removeUserFromOrganization = [
         );
       }
 
-      if (!organization.owner.equals(req.user.id)) {
+      if (!isAdminOrOwner(req.user, organization)) {
         return errorResponse(
           res,
           403,
           2011,
-          "Only the owner can remove members from the organization",
+          "Only the owner or admin can remove members from the organization",
           "removeUserFromOrganization"
         );
       }
 
-      if (organization.owner.equals(userId)) {
+      if (organization.owner.equals(userId) && req.user.role !== "admin") {
         return errorResponse(
           res,
           403,

@@ -3,37 +3,9 @@ const Organization = require("../models/Organization");
 const ClickHouseCredential = require("../models/ClickHouseCredential");
 const errorResponse = require("../utils/errorResponse");
 
-const determineQueryType = (query) => {
-  const upperQuery = query.trim().toUpperCase();
-  if (upperQuery.startsWith("SELECT")) return "select";
-  if (upperQuery.startsWith("INSERT")) return "insert";
-  if (
-    upperQuery.startsWith("CREATE") ||
-    upperQuery.startsWith("ALTER") ||
-    upperQuery.startsWith("DROP")
-  )
-    return "ddl";
-  return "other";
-};
-
-const executeClickHouseQuery = async (client, query, queryType) => {
-  switch (queryType) {
-    case "select":
-      return client.query({ query, format: "JSON" });
-    case "insert":
-    case "ddl":
-      return client.command({
-        query,
-        clickhouse_settings: { wait_end_of_query: 1 },
-      });
-    default:
-      return client.query({ query, format: "JSON" });
-  }
-};
-
-exports.executeQuery = async (req, res) => {
+const getDatabasesAndTables = async (req, res) => {
   try {
-    const { user } = req;
+    const user = req.user;
     const { activeOrganization, activeClickhouseCredential } = user;
 
     // Check if user has an active organization
@@ -43,7 +15,7 @@ exports.executeQuery = async (req, res) => {
         400,
         6000,
         "No active organization",
-        "executeQuery"
+        "getDatabasesAndTables"
       );
     }
 
@@ -55,7 +27,7 @@ exports.executeQuery = async (req, res) => {
         404,
         6001,
         "Active organization not found",
-        "executeQuery"
+        "getDatabasesAndTables"
       );
     }
 
@@ -66,7 +38,7 @@ exports.executeQuery = async (req, res) => {
         403,
         6006,
         "User is not a member of the active organization",
-        "executeQuery"
+        "getDatabasesAndTables"
       );
     }
 
@@ -77,7 +49,7 @@ exports.executeQuery = async (req, res) => {
         403,
         6002,
         "No active ClickHouse credentials found for this user",
-        "executeQuery"
+        "getDatabasesAndTables"
       );
     }
 
@@ -92,7 +64,7 @@ exports.executeQuery = async (req, res) => {
         403,
         6003,
         "ClickHouse credentials not found",
-        "executeQuery"
+        "getDatabasesAndTables"
       );
     }
 
@@ -103,7 +75,7 @@ exports.executeQuery = async (req, res) => {
         403,
         6007,
         "The active credential is not associated with the active organization",
-        "executeQuery"
+        "getDatabasesAndTables"
       );
     }
 
@@ -114,59 +86,65 @@ exports.executeQuery = async (req, res) => {
         403,
         6008,
         "User is not allowed to use this credential",
-        "executeQuery"
-      );
-    }
-
-    const { query } = req.body;
-    if (!query || typeof query !== "string") {
-      return errorResponse(res, 400, 6005, "Invalid query", "executeQuery");
-    }
-
-    const queryType = determineQueryType(query);
-
-    // Check user's permission to execute this type of query
-    const userPermissions = user.role; // Assuming user roles are 'admin', 'user', or 'viewer'
-    if (
-      (queryType === "insert" || queryType === "ddl") &&
-      userPermissions === "viewer"
-    ) {
-      return errorResponse(
-        res,
-        403,
-        6009,
-        "User does not have permission to execute this type of query",
-        "executeQuery"
+        "getDatabasesAndTables"
       );
     }
 
     const clickhouseClient = createClient({
-      url: `http://${clickHouseCredential.host}:${clickHouseCredential.port}`,
+      url: new URL(`${clickHouseCredential.host}:${clickHouseCredential.port}`),
       username: clickHouseCredential.username,
       password: clickHouseCredential.password,
     });
 
-    const result = await executeClickHouseQuery(
-      clickhouseClient,
-      query,
-      queryType
-    );
+    const query = `
+      SELECT
+        databases.name AS database_name,
+        tables.name AS table_name,
+        tables.engine AS table_type
+      FROM system.databases AS databases
+      JOIN system.tables AS tables
+        ON databases.name = tables.database
+      ORDER BY database_name, table_name;
+    `;
 
-    let queryResult;
-    if (queryType === "insert" || queryType === "ddl") {
-      queryResult = {
-        message: "Query executed successfully",
-        query_id: result.query_id,
-      };
-    } else {
-      queryResult = await result.json();
-    }
+    const result = await clickhouseClient.query({ query, format: "JSON" });
+    const resultJSON = await result.json();
 
-    return res.status(200).json(queryResult);
+    const databases = {};
+    resultJSON.data.forEach((row) => {
+      const { database_name, table_name, table_type } = row;
+      const table_type_mapped =
+        table_type.toLowerCase() === "view" ? "view" : "table";
+
+      if (!databases[database_name]) {
+        databases[database_name] = {
+          name: database_name,
+          type: "database",
+          children: [],
+        };
+      }
+
+      databases[database_name].children.push({
+        name: table_name,
+        type: table_type_mapped,
+      });
+    });
+
+    const mockDatabaseData = Object.values(databases);
+
+    return res.status(200).json(mockDatabaseData);
   } catch (error) {
-    console.error("Error in executeQuery:", error);
-    return errorResponse(res, 500, 6004, error.message, "executeQuery");
+    console.error("Error in getDatabasesAndTables:", error);
+    return errorResponse(
+      res,
+      500,
+      6004,
+      error.message,
+      "getDatabasesAndTables"
+    );
   }
 };
 
-module.exports = exports;
+module.exports = {
+  getDatabasesAndTables,
+};

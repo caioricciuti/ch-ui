@@ -27,23 +27,25 @@ exports.createClickHouseCredential = [
   body("host")
     .trim()
     .notEmpty()
-    .isURL()
+    .isURL({ require_tld: false })
     .withMessage("Valid host URL is required"),
   body("port")
     .optional()
     .isInt({ min: 1, max: 65535 })
     .withMessage("Valid port number is required"),
   body("username").trim().notEmpty().withMessage("Username is required"),
-  body("password").trim().notEmpty().withMessage("Password is required"),
+  //body("password").trim().notEmpty().withMessage("Password is required"),
   body("users")
     .optional()
     .isArray()
     .withMessage("Users must be an array of user IDs"),
-  body("users.*").isMongoId().withMessage("Invalid user ID"),
+  body("users.*").optional().isMongoId().withMessage("Invalid user ID"),
   body("allowedOrganizations")
+    .optional()
     .isArray()
     .withMessage("Allowed organizations must be an array of organization IDs"),
   body("allowedOrganizations.*")
+    .optional()
     .isMongoId()
     .withMessage("Invalid organization ID"),
   handleValidation,
@@ -56,46 +58,53 @@ exports.createClickHouseCredential = [
       username,
       password,
       users = [],
-      allowedOrganizations,
+      allowedOrganizations = [],
     } = req.body;
 
     try {
-      const [organizationsCount, usersCount] = await Promise.all([
-        Organization.countDocuments({ _id: { $in: allowedOrganizations } }),
-        User.countDocuments({
-          _id: { $in: [...new Set([...users, req.user._id.toString()])] },
-        }),
-      ]);
+      const uniqueUsers = [...new Set([...users, req.user._id.toString()])];
 
-      if (organizationsCount !== allowedOrganizations.length) {
-        return errorResponse(
-          res,
-          400,
-          4002,
-          "One or more organizations do not exist",
-          "createClickHouseCredential"
-        );
+      // Check if organizations exist (if provided)
+      if (allowedOrganizations.length > 0) {
+        const organizationsCount = await Organization.countDocuments({
+          _id: { $in: allowedOrganizations },
+        });
+        if (organizationsCount !== allowedOrganizations.length) {
+          return errorResponse(
+            res,
+            400,
+            4002,
+            "One or more organizations do not exist",
+            "createClickHouseCredential"
+          );
+        }
       }
 
-      const uniqueUsers = [...new Set([...users, req.user._id.toString()])];
-      if (usersCount !== uniqueUsers.length) {
-        return errorResponse(
-          res,
-          400,
-          4003,
-          "One or more users do not exist",
-          "createClickHouseCredential"
-        );
+      // Check if users exist (if provided)
+      if (uniqueUsers.length > 1) {
+        const usersCount = await User.countDocuments({
+          _id: { $in: uniqueUsers },
+        });
+        if (usersCount !== uniqueUsers.length) {
+          return errorResponse(
+            res,
+            400,
+            4003,
+            "One or more users do not exist",
+            "createClickHouseCredential"
+          );
+        }
       }
 
       const credential = new ClickHouseCredential({
+        owner: req.user._id,
         users: uniqueUsers,
         name,
         slug: slugify(name),
         host,
         port: port || 8123,
         username,
-        password,
+        password: password || "",
         allowedOrganizations,
         createdBy: req.user._id,
       });
@@ -121,6 +130,29 @@ exports.createClickHouseCredential = [
     }
   },
 ];
+
+// Get all ClickHouse credentials
+exports.getAllClickHouseCredentials = async (req, res) => {
+  try {
+    const credentials = await ClickHouseCredential.find({
+      users: req.user.id,
+    })
+      .populate("users", "id name email")
+      .populate("allowedOrganizations", "id name slug")
+      .select("-password");
+
+    res.json(credentials);
+  } catch (error) {
+    console.error("Error in getAllClickHouseCredentials:", error);
+    errorResponse(
+      res,
+      500,
+      4002,
+      "Failed to fetch ClickHouse credentials",
+      "getAllClickHouseCredentials"
+    );
+  }
+};
 
 // Get ClickHouse credential by ID
 exports.getClickHouseCredentialById = [
@@ -165,7 +197,7 @@ exports.updateClickHouseCredential = [
   body("host")
     .optional()
     .trim()
-    .isURL()
+    .isURL({ require_tld: false })
     .withMessage("Valid host URL is required"),
   body("port")
     .optional()
@@ -176,11 +208,6 @@ exports.updateClickHouseCredential = [
     .trim()
     .notEmpty()
     .withMessage("Username cannot be empty"),
-  body("password")
-    .optional()
-    .trim()
-    .notEmpty()
-    .withMessage("Password cannot be empty"),
   body("users")
     .optional()
     .isArray()
@@ -197,7 +224,9 @@ exports.updateClickHouseCredential = [
 
   async (req, res) => {
     try {
-      const credential = await ClickHouseCredential.findById(req.params.id);
+      const credential = await ClickHouseCredential.findById(
+        req.params.id
+      ).select("+password");
 
       if (!credential) {
         return errorResponse(
@@ -209,6 +238,16 @@ exports.updateClickHouseCredential = [
         );
       }
 
+      // Prevent changing the owner
+      if (req.body.owner) {
+        delete req.body.owner;
+      }
+
+      // check if updatedfields has a value for password
+      if (!req.body.password) {
+        req.body.password = credential.password;
+      }
+
       const updateFields = [
         "name",
         "host",
@@ -218,6 +257,8 @@ exports.updateClickHouseCredential = [
         "users",
         "allowedOrganizations",
       ];
+
+      // Update only the fields that are provided in the request
       updateFields.forEach((field) => {
         if (req.body[field] !== undefined) {
           credential[field] = req.body[field];
@@ -226,6 +267,11 @@ exports.updateClickHouseCredential = [
 
       if (req.body.name) {
         credential.slug = slugify(req.body.name);
+      }
+
+      // Ensure the owner is always in the users array
+      if (!credential.users.includes(credential.owner.toString())) {
+        credential.users.push(credential.owner);
       }
 
       await credential.save();
@@ -287,14 +333,13 @@ exports.deleteClickHouseCredential = [
 
 // Assign ClickHouse credential to an organization
 exports.assignCredentialToOrganization = [
-  body("credentialId")
-    .isMongoId()
-    .withMessage("Invalid ClickHouse credential ID"),
+  param("id").isMongoId().withMessage("Invalid ClickHouse credential ID"),
   body("organizationId").isMongoId().withMessage("Invalid organization ID"),
   handleValidation,
 
   async (req, res) => {
-    const { credentialId, organizationId } = req.body;
+    const credentialId = req.params.id;
+    const { organizationId } = req.body;
 
     try {
       const [credential, organization] = await Promise.all([
@@ -302,12 +347,22 @@ exports.assignCredentialToOrganization = [
         Organization.findById(organizationId),
       ]);
 
-      if (!credential || !organization) {
+      if (!credential) {
         return errorResponse(
           res,
           404,
           4006,
-          "ClickHouse credential or organization not found",
+          "ClickHouse credential not found",
+          "assignCredentialToOrganization"
+        );
+      }
+
+      if (!organization) {
+        return errorResponse(
+          res,
+          404,
+          4007,
+          "Organization not found",
           "assignCredentialToOrganization"
         );
       }
@@ -317,16 +372,19 @@ exports.assignCredentialToOrganization = [
         await credential.save();
       }
 
+      const responseCredential = credential.toObject();
+      delete responseCredential.password;
+
       res.json({
         message: "ClickHouse credential assigned to organization successfully",
-        credential: credential.toObject(),
+        credential: responseCredential,
       });
     } catch (error) {
       console.error("Error in assignCredentialToOrganization:", error);
       errorResponse(
         res,
         500,
-        4006,
+        4008,
         "Failed to assign ClickHouse credential to organization",
         "assignCredentialToOrganization"
       );
@@ -336,14 +394,13 @@ exports.assignCredentialToOrganization = [
 
 // Revoke ClickHouse credential from an organization
 exports.revokeCredentialFromOrganization = [
-  body("credentialId")
-    .isMongoId()
-    .withMessage("Invalid ClickHouse credential ID"),
-  body("organizationId").isMongoId().withMessage("Invalid organization ID"),
+  param("id").isMongoId().withMessage("Invalid ClickHouse credential ID"),
+  param("organizationId").isMongoId().withMessage("Invalid organization ID"),
   handleValidation,
 
   async (req, res) => {
-    const { credentialId, organizationId } = req.body;
+    const credentialId = req.params.id;
+    const organizationId = req.params.organizationId;
 
     try {
       const credential = await ClickHouseCredential.findById(credentialId);
@@ -364,9 +421,12 @@ exports.revokeCredentialFromOrganization = [
 
       await credential.save();
 
+      const responseCredential = credential.toObject();
+      delete responseCredential.password;
+
       res.json({
         message: "ClickHouse credential revoked from organization successfully",
-        credential: credential.toObject(),
+        credential: responseCredential,
       });
     } catch (error) {
       console.error("Error in revokeCredentialFromOrganization:", error);
@@ -383,14 +443,13 @@ exports.revokeCredentialFromOrganization = [
 
 // Assign user to ClickHouse credential
 exports.assignUserToCredential = [
-  body("credentialId")
-    .isMongoId()
-    .withMessage("Invalid ClickHouse credential ID"),
+  param("id").isMongoId().withMessage("Invalid ClickHouse credential ID"),
   body("userId").isMongoId().withMessage("Invalid user ID"),
   handleValidation,
 
   async (req, res) => {
-    const { credentialId, userId } = req.body;
+    const credentialId = req.params.id;
+    const { userId } = req.body;
 
     try {
       const [credential, user] = await Promise.all([
@@ -428,9 +487,12 @@ exports.assignUserToCredential = [
         await credential.save();
       }
 
+      const responseCredential = credential.toObject();
+      delete responseCredential.password;
+
       res.json({
         message: "User assigned to ClickHouse credential successfully",
-        credential: credential.toObject(),
+        credential: responseCredential,
       });
     } catch (error) {
       console.error("Error in assignUserToCredential:", error);
@@ -447,14 +509,13 @@ exports.assignUserToCredential = [
 
 // Revoke user from ClickHouse credential
 exports.revokeUserFromCredential = [
-  body("credentialId")
-    .isMongoId()
-    .withMessage("Invalid ClickHouse credential ID"),
-  body("userId").isMongoId().withMessage("Invalid user ID"),
+  param("id").isMongoId().withMessage("Invalid ClickHouse credential ID"),
+  param("userId").isMongoId().withMessage("Invalid user ID"),
   handleValidation,
 
   async (req, res) => {
-    const { credentialId, userId } = req.body;
+    const credentialId = req.params.id;
+    const userId = req.params.userId;
 
     try {
       const credential = await ClickHouseCredential.findById(credentialId);
@@ -469,14 +530,28 @@ exports.revokeUserFromCredential = [
         );
       }
 
+      // Prevent removing the owner
+      if (credential.owner.toString() === userId) {
+        return errorResponse(
+          res,
+          403,
+          4010,
+          "Cannot remove the owner from the credential",
+          "revokeUserFromCredential"
+        );
+      }
+
       credential.users = credential.users.filter(
         (id) => id.toString() !== userId
       );
       await credential.save();
 
+      const responseCredential = credential.toObject();
+      delete responseCredential.password;
+
       res.json({
         message: "User revoked from ClickHouse credential successfully",
-        credential: credential.toObject(),
+        credential: responseCredential,
       });
     } catch (error) {
       console.error("Error in revokeUserFromCredential:", error);

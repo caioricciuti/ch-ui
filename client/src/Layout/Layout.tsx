@@ -2,6 +2,7 @@ import React from "react";
 import { Outlet } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import useAuthStore from "@/stores/user.store";
+import { CommandMenu } from "@/components/CommandMenu";
 
 const Layout: React.FC = () => {
   const { user } = useAuthStore();
@@ -9,8 +10,9 @@ const Layout: React.FC = () => {
   return (
     <main>
       {user && <Navbar />}
-      <section className="max-w-screen-xl mx-auto">
+      <section className="mx-auto">
         <Outlet />
+        <CommandMenu />
       </section>
     </main>
   );

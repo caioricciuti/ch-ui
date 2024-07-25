@@ -16,7 +16,7 @@ app.use(cookieParser());
 //cors
 app.use(
   cors({
-    origin: "http://localhost:5173", // process.env.CLIENT_URL,
+    origin: ["http://localhost:5173"], // process.env.CLIENT_URL,
     credentials: true,
   })
 );
@@ -25,10 +25,14 @@ app.use(
 app.use("/api/v1/auth", require("./routes/auth.route")); // Added auth routes
 app.use("/api/v1/users", require("./routes/user.route"));
 app.use("/api/v1/organizations", require("./routes/organization.route")); // Added organization routes
-app.use("/api/v1/credentials", require("./routes/clickHouseCredential.route")); // Added clickHouseCredential routes
-app.use("/api/v1/query", require("./routes/query.route")); // Added query routes
+app.use(
+  "/api/v1/clickhouse-credentials",
+  require("./routes/clickHouseCredential.route")
+);
+app.use("/api/v1/query", require("./routes/query.route"));
 // app.use("/api/v1/editors", require("./routes/editors.route")); // Added editors routes
 app.use("/api/v1/metrics", require("./routes/metric.route")); // Added metrics routes
+app.use("/api/v1/ch-queries/", require("./routes/chUiQueries.route")); // Added queries routes
 
 app.listen(process.env.PORT || 5124, () => {
   console.log(`Server is running on port ${process.env.PORT}`);

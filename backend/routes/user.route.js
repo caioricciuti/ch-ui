@@ -30,7 +30,7 @@ router.post("/me/organization", setCurrentOrganizationForUser);
 router.post("/me/credential", setCurrentCredentialsForUser);
 
 // Admin routes
-router.get("/", isAdmin, getUsers);
+router.get("/", isAuthenticated, getUsers);
 router.post("/", isAdmin, createUser);
 router.put("/role", isAdmin, updateUserRole);
 

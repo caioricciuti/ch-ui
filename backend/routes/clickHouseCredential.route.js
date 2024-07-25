@@ -10,6 +10,7 @@ const {
   revokeCredentialFromOrganization,
   assignUserToCredential,
   revokeUserFromCredential,
+  getAllClickHouseCredentials,
 } = require("../controllers/clickHouseCredential.controller");
 
 const isAuthenticated = require("../middleware/isAuthenticated");
@@ -26,6 +27,7 @@ router.get(
   isAuthorized("viewClickHouseCredential"),
   getClickHouseCredentialById
 );
+router.get("/", isAuthenticated, getAllClickHouseCredentials);
 router.put(
   "/:id",
   isAuthorized("updateClickHouseCredential"),

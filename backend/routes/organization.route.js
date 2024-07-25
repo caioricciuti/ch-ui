@@ -26,12 +26,12 @@ router.delete("/", isAuthorized("deleteOrganization"), deleteOrganization);
 
 // Member management
 router.post(
-  "/:id/members",
+  "/:organizationId/members",
   isAuthorized("addMemberToOrganization"),
   addUserToOrganization
 );
 router.delete(
-  "/:id/members/:userId",
+  "/:organizationId/members/:userId",
   isAuthorized("removeMemberFromOrganization"),
   removeUserFromOrganization
 );

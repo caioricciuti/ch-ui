@@ -5,17 +5,18 @@ import {
   RouterProvider,
   Navigate,
 } from "react-router-dom";
-import LoginPage from "@/Pages/Login";
-import Main from "@/Pages/Main";
+import LoginPage from "@/pages/Login";
+import Main from "@/pages/Main";
 import Layout from "@/Layout/Layout";
 import AuthGuard from "@/components/AuthGuard";
-import RegisterPage from "@/Pages/Register";
-import DashboardPage from "@/Pages/Dashboard";
-import OrganizationsPage from "@/Pages/Organizations";
-import WorkspacePage from "@/Pages/Workspace";
-import AdminPage from "@/Pages/Admin";
-import MetricsPage from "@/Pages/Metrics";
-import ProfilePage from "@/Pages/Profile";
+import RegisterPage from "@/pages/Register";
+import OrganizationsPage from "@/pages/Organizations";
+import WorkspacePage from "@/pages/Workspace";
+import AdminPage from "@/pages/Admin";
+import MetricsPage from "@/pages/Metrics";
+import ActivateAccount from "@/pages/ActivateAccount";
+import SettingsPage from "@/pages/Settings";
+import CredentialsPage from "@/pages/Credentials";
 
 const router = createBrowserRouter([
   {
@@ -31,15 +32,15 @@ const router = createBrowserRouter([
         element: <RegisterPage />,
       },
       {
+        path: "activate-account/:activationToken",
+        element: <ActivateAccount />,
+      },
+      {
         element: <AuthGuard />,
         children: [
           {
             path: "/",
             element: <Main />,
-          },
-          {
-            path: "dashboard",
-            element: <DashboardPage />,
           },
           {
             path: "organizations",
@@ -58,12 +59,16 @@ const router = createBrowserRouter([
             element: <MetricsPage />,
           },
           {
-            path: "profile",
-            element: <ProfilePage />,
+            path: "Settings",
+            element: <SettingsPage />,
+          },
+          {
+            path: "credentials",
+            element: <CredentialsPage />,
           },
           {
             path: "*",
-            element: <Navigate to="/dashboard" />,
+            element: <Navigate to="/" />,
           },
         ],
       },

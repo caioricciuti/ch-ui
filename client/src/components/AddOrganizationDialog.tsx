@@ -23,7 +23,10 @@ import {
 import useOrganizationStore from "@/stores/organization.store";
 
 const formSchema = z.object({
-  name: z.string().min(1, "Organization name is required"),
+  name: z
+    .string()
+    .min(1, "Organization name is required")
+    .max(32, "Organization name is too long (max 32 characters)"),
 });
 
 interface AddOrganizationDialogProps {

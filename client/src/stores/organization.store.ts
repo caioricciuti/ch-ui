@@ -1,4 +1,3 @@
-// src/stores/organization.store.ts
 import { create } from "zustand";
 import api from "@/api/axios.config";
 import { toast } from "sonner";
@@ -29,6 +28,14 @@ interface OrganizationState {
   addOrganization: (name: string) => Promise<void>;
   updateOrganization: (id: string, name: string) => Promise<void>;
   deleteOrganization: (id: string) => Promise<void>;
+  addUserToOrganization: (
+    organizationId: string,
+    userId: string
+  ) => Promise<void>;
+  removeUserFromOrganization: (
+    organizationId: string,
+    userId: string
+  ) => Promise<void>;
 }
 
 const useOrganizationStore = create<OrganizationState>((set, get) => ({
@@ -55,29 +62,26 @@ const useOrganizationStore = create<OrganizationState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       await api.post("/organizations", { name });
-      // Refetch all organizations after adding
       await get().fetchOrganizations();
       toast.success(`Organization ${name} added successfully`);
     } catch (error) {
       set({ error: "Failed to add organization", isLoading: false });
+      toast.error("Failed to add organization");
     }
   },
 
   updateOrganization: async (id, name) => {
     set({ isLoading: true, error: null });
     try {
-      const response = await api.put(`/organizations`, {
+      await api.put(`/organizations`, {
         name,
         organizationId: id,
       });
-      set((state) => ({
-        organizations: state.organizations.map((org) =>
-          org._id === id ? response.data : org
-        ),
-        isLoading: false,
-      }));
+      await get().fetchOrganizations();
+      toast.success(`Organization ${name} updated successfully`);
     } catch (error) {
       set({ error: "Failed to update organization", isLoading: false });
+      toast.error("Failed to update organization");
     }
   },
 
@@ -85,10 +89,39 @@ const useOrganizationStore = create<OrganizationState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       await api.delete(`/organizations`, { data: { organizationId: id } });
-      // Refetch all organizations after deleting
       await get().fetchOrganizations();
+      toast.info(`Organization deleted successfully`);
     } catch (error) {
       set({ error: "Failed to delete organization", isLoading: false });
+      toast.error("Failed to delete organization");
+    }
+  },
+
+  addUserToOrganization: async (organizationId, userId) => {
+    set({ isLoading: true, error: null });
+    try {
+      console.log(organizationId, userId);
+      await api.post(`/organizations/${organizationId}/members`, { userId });
+      await get().fetchOrganizations();
+      toast.success("User added to organization successfully");
+    } catch (error) {
+      set({ error: "Failed to add user to organization", isLoading: false });
+      toast.error("Failed to add user to organization");
+    }
+  },
+
+  removeUserFromOrganization: async (organizationId, userId) => {
+    set({ isLoading: true, error: null });
+    try {
+      await api.delete(`/organizations/${organizationId}/members/${userId}`);
+      await get().fetchOrganizations();
+      toast.success("User removed from organization successfully");
+    } catch (error) {
+      set({
+        error: "Failed to remove user from organization",
+        isLoading: false,
+      });
+      toast.error("Failed to remove user from organization");
     }
   },
 }));

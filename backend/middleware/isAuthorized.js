@@ -27,47 +27,48 @@ const isAuthorized = (action) => {
         return next();
       }
 
-      let organization, clickHouseCredential, editor, metrics;
+      let organization;
 
-      // Fetch necessary data based on the action
-      switch (action) {
-        case "updateOrganization":
-        case "deleteOrganization":
-        case "addMemberToOrganization":
-        case "removeMemberFromOrganization":
-          organization = await Organization.findById(
-            req.body.organizationId
-          ).select("owner");
-          if (!organization) {
-            return errorResponse(
-              res,
-              404,
-              3003,
-              "Organization not found",
-              "isAuthorized"
-            );
-          }
-          break;
-        // Add more cases for other actions that require fetching data
+      // Fetch organization data for all actions
+      const organizationId =
+        req.body.organizationId || req.params.organizationId;
+      if (organizationId) {
+        organization = await Organization.findById(organizationId).select(
+          "owner members"
+        );
+        if (!organization) {
+          return errorResponse(
+            res,
+            404,
+            3003,
+            "Organization not found",
+            "isAuthorized"
+          );
+        }
       }
 
       // Define permissions
       const permissions = {
         updateUser: (reqUserId) => user._id.toString() === reqUserId,
         deleteUser: (reqUserId) => user._id.toString() === reqUserId,
-        updateOrganization: () =>
-          user._id.toString() === organization.owner.toString(),
-        deleteOrganization: () =>
-          user._id.toString() === organization.owner.toString(),
-        addMemberToOrganization: () =>
-          user._id.toString() === organization.owner.toString(),
-        removeMemberFromOrganization: () =>
-          user._id.toString() === organization.owner.toString(),
+        updateOrganization: () => isOwnerOrMember(user, organization),
+        deleteOrganization: () => isOwner(user, organization),
+        addMemberToOrganization: () => isOwner(user, organization),
+        removeMemberFromOrganization: () => isOwner(user, organization),
+        createClickHouseCredential: () => isOwnerOrMember(user, organization),
+        updateClickHouseCredential: () => isOwnerOrMember(user, organization),
+        deleteClickHouseCredential: () => isOwnerOrMember(user, organization),
+        createEditor: () => isOwnerOrMember(user, organization),
+        updateEditor: () => isOwnerOrMember(user, organization),
+        deleteEditor: () => isOwnerOrMember(user, organization),
+        createMetrics: () => isOwnerOrMember(user, organization),
+        updateMetrics: () => isOwnerOrMember(user, organization),
+        deleteMetrics: () => isOwnerOrMember(user, organization),
         // Add more permission checks as needed
       };
 
       // Check if the user is authorized to perform the action
-      if (permissions[action] && permissions[action](req.body.userId)) {
+      if (permissions[action] && permissions[action]()) {
         return next();
       }
 
@@ -89,6 +90,21 @@ const isAuthorized = (action) => {
       );
     }
   };
+};
+
+// Helper functions
+const isOwner = (user, organization) => {
+  return organization && user._id.toString() === organization.owner.toString();
+};
+
+const isOwnerOrMember = (user, organization) => {
+  return (
+    organization &&
+    (isOwner(user, organization) ||
+      organization.members.some(
+        (member) => member.toString() === user._id.toString()
+      ))
+  );
 };
 
 module.exports = isAuthorized;
