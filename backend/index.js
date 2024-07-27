@@ -24,6 +24,8 @@ app.use(
 // routes
 app.use("/api/v1/auth", require("./routes/auth.route")); // Added auth routes
 app.use("/api/v1/users", require("./routes/user.route"));
+// Middleware to introduce a delay of 3 seconds
+
 app.use("/api/v1/organizations", require("./routes/organization.route")); // Added organization routes
 app.use(
   "/api/v1/clickhouse-credentials",

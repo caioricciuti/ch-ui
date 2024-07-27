@@ -30,8 +30,7 @@ import {
 } from "lucide-react";
 import Logo from "/logo.png";
 import useAuthStore from "@/stores/user.store";
-import OrganizationCombobox from "@/components/OrganizationSelector";
-import CredentialSelector from "@/components/CredentialSelector";
+import OrganizationCredentialSelector from "@/components/OrganizationCredentialSelector";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getInitials, bgColorsByInitials } from "@/lib/helpers";
@@ -119,8 +118,7 @@ const Navbar = () => {
                 <NavContent mobile onItemClick={() => setIsOpen(false)} />
               </div>
               <div className="mt-6 space-y-3">
-                <OrganizationCombobox />
-                <CredentialSelector />
+                <OrganizationCredentialSelector />
               </div>
             </ScrollArea>
           </SheetContent>
@@ -144,8 +142,7 @@ const Navbar = () => {
 
         <div className="flex items-center space-x-4">
           <div className="hidden lg:flex space-x-2">
-            <OrganizationCombobox />
-            <CredentialSelector />
+            <OrganizationCredentialSelector />
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

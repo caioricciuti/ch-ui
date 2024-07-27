@@ -154,6 +154,30 @@ exports.getAllClickHouseCredentials = async (req, res) => {
   }
 };
 
+// Get all ClickHouse credentials
+exports.getAvailableCredentialByOrganization = async (req, res) => {
+  try {
+    const credentials = await ClickHouseCredential.find({
+      users: req.user.id,
+      allowedOrganizations: req.user.activeOrganization._id,
+    })
+      .populate("users", "id name email")
+      .populate("allowedOrganizations", "id name slug")
+      .select("-password");
+
+    res.json(credentials);
+  } catch (error) {
+    console.error("Error in getAvailableCredentialByOrganization:", error);
+    errorResponse(
+      res,
+      500,
+      4002,
+      "Failed to fetch Available ClickHouse credentials",
+      "getAvailableCredentialByOrganization"
+    );
+  }
+};
+
 // Get ClickHouse credential by ID
 exports.getClickHouseCredentialById = [
   param("id").isMongoId().withMessage("Invalid ClickHouse credential ID"),

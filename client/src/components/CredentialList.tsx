@@ -1,3 +1,5 @@
+// CredentialList component
+
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Table,
@@ -47,31 +49,7 @@ import { Alert } from "@/components/ui/alert";
 import useClickHouseCredentialStore from "@/stores/clickHouseCredentials.store";
 import useAuthStore from "@/stores/user.store";
 import useOrganizationStore from "@/stores/organization.store";
-
-interface ClickHouseCredential {
-  _id: string;
-  name: string;
-  slug: string;
-  host: string;
-  port: number;
-  username: string;
-  users: User[];
-  allowedOrganizations: Organization[];
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface User {
-  _id: string;
-  name: string;
-  email: string;
-}
-
-interface Organization {
-  _id: string;
-  name: string;
-}
+import { ClickHouseCredential } from "@/types/types";
 
 interface CredentialListProps {
   credentials: ClickHouseCredential[];
@@ -110,6 +88,7 @@ const CredentialList: React.FC<CredentialListProps> = ({
     fetchOrganizations();
   }, [getAllUsers, fetchOrganizations]);
 
+  // Keep existing handler functions...
   const handleDeleteClick = (cred: ClickHouseCredential) => {
     setCredentialToManage(cred);
     setDeleteDialogOpen(true);
@@ -187,27 +166,29 @@ const CredentialList: React.FC<CredentialListProps> = ({
 
   const usersNotInCredential = useMemo(() => {
     if (!credentialToManage) return [];
-    const credentialUserIds = new Set(
-      credentialToManage.users.map((user) => user._id)
-    );
+    const credentialUserIds = new Set(credentialToManage.users);
     return allUsers.filter((user) => !credentialUserIds.has(user._id));
   }, [allUsers, credentialToManage]);
 
   const usersInCredential = useMemo(() => {
-    return credentialToManage ? credentialToManage.users : [];
-  }, [credentialToManage]);
+    if (!credentialToManage) return [];
+    return allUsers.filter((user) =>
+      credentialToManage.users.includes(user._id)
+    );
+  }, [allUsers, credentialToManage]);
 
   const orgsNotInCredential = useMemo(() => {
     if (!credentialToManage) return [];
-    const credentialOrgIds = new Set(
-      credentialToManage.allowedOrganizations.map((org) => org._id)
-    );
+    const credentialOrgIds = new Set(credentialToManage.allowedOrganizations);
     return organizations.filter((org) => !credentialOrgIds.has(org._id));
   }, [organizations, credentialToManage]);
 
   const orgsInCredential = useMemo(() => {
-    return credentialToManage ? credentialToManage.allowedOrganizations : [];
-  }, [credentialToManage]);
+    if (!credentialToManage) return [];
+    return organizations.filter((org) =>
+      credentialToManage.allowedOrganizations.includes(org._id)
+    );
+  }, [organizations, credentialToManage]);
 
   return (
     <>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import DatabaseExplorer from "@/components/workspace/DataExplorer";
 import api from "../api/axios.config";
 import { TreeNodeData } from "@/components/workspace/DataExplorer"; // Make sure this path is correct
+import WorkspaceTabs from "@/components/workspace/WorkspaceTabs"; // Make sure this path is correct
 
 function WorkspacePage() {
   const [databaseData, setDatabaseData] = useState<TreeNodeData[]>([]);
@@ -38,7 +38,11 @@ function WorkspacePage() {
 
   return (
     <div>
-      <DatabaseExplorer data={databaseData} />
+      <WorkspaceTabs
+        {...{
+          databaseData,
+        }}
+      />
     </div>
   );
 }

@@ -9,6 +9,9 @@ import OrganizationDetailDialog from "@/components/OrganizationDetailDialog";
 import UpdateOrganizationDialog from "@/components/UpdateOrganizationDialog";
 import { Search, Plus, ArrowUpDown, Tally5 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+
+import { Organization } from "@/types/types";
 
 function OrganizationsPage() {
   const { organizations, fetchOrganizations, isLoading, error } =
@@ -78,10 +81,23 @@ function OrganizationsPage() {
         </div>
 
         {isLoading ? (
-          <div className="text-center py-8">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
-            <p className="mt-4">Loading organizations...</p>
-          </div>
+          <>
+            <div className="grid gap-4 mb-4">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <Skeleton className="h-48 w-full" />
+              <Skeleton className="h-48 w-full" />
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-8 w-full mb-2" />
+                <Skeleton className="h-8 w-full mb-2" />
+                <Skeleton className="h-8 w-full mb-2" />
+                <Skeleton className="h-12 w-full mb-2" />
+              </div>
+            </div>
+          </>
         ) : filteredOrganizations.length > 0 ? (
           <>
             <div className="mb-4">
@@ -97,15 +113,15 @@ function OrganizationsPage() {
             </div>
             <OrganizationList
               organizations={filteredOrganizations}
-              onViewDetails={(org) => {
+              onViewDetails={(org: Organization) => {
                 useOrganizationStore.getState().setSelectedOrganization(org);
                 setIsDetailDialogOpen(true);
               }}
-              onEdit={(org) => {
+              onEdit={(org: Organization) => {
                 useOrganizationStore.getState().setSelectedOrganization(org);
                 setIsUpdateDialogOpen(true);
               }}
-              onDelete={(org) => {
+              onDelete={(org: Organization) => {
                 useOrganizationStore.getState().deleteOrganization(org._id);
               }}
             />

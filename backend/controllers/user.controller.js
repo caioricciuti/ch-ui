@@ -293,7 +293,7 @@ exports.updateUserRole = [
       }
 
       user.role = req.body.role;
-      
+
       await user.save();
       res.json({
         message: "User role updated successfully",
@@ -315,7 +315,10 @@ exports.updateUserRole = [
 
 exports.setCurrentCredentialsForUser = [
   body("credentialId")
-    .custom(validateObjectId)
+    .custom((value) => {
+      if (value === "") return true;
+      return validateObjectId(value);
+    })
     .withMessage("Invalid credential ID"),
 
   async (req, res) => {
@@ -333,9 +336,18 @@ exports.setCurrentCredentialsForUser = [
 
     try {
       const user = req.user;
-      const credentials = await ClickHouseCredential.findById(
-        req.body.credentialId
-      );
+      const credentialId = req.body.credentialId;
+
+      if (credentialId === "") {
+        user.activeClickhouseCredential = null;
+        await user.save();
+        return res.json({
+          message: "Active credential has been unset",
+          credentialId: null,
+        });
+      }
+
+      const credentials = await ClickHouseCredential.findById(credentialId);
 
       if (!credentials) {
         return errorResponse(
@@ -357,7 +369,7 @@ exports.setCurrentCredentialsForUser = [
         );
       }
 
-      user.activeClickhouseCredential = req.body.credentialId;
+      user.activeClickhouseCredential = credentialId;
       await user.save();
       res.json({
         message: "Credentials are now set as current credentials",

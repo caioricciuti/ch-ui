@@ -1,58 +1,14 @@
+// clickHouseCredentials store
 import { create } from "zustand";
 import api from "@/api/axios.config";
 import { toast } from "sonner";
-
-interface ClickHouseCredential {
-  _id: string;
-  name: string;
-  slug: string;
-  host: string;
-  port: number;
-  username: string;
-  users: string[];
-  allowedOrganizations: string[];
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface ClickHouseCredentialState {
-  credentials: ClickHouseCredential[];
-  selectedCredential: ClickHouseCredential | null;
-  isLoading: boolean;
-  error: string | null;
-  fetchCredentials: () => Promise<void>;
-  createCredential: (
-    credentialData: Partial<ClickHouseCredential>
-  ) => Promise<void>;
-  updateCredential: (
-    id: string,
-    credentialData: Partial<ClickHouseCredential>
-  ) => Promise<void>;
-  deleteCredential: (id: string) => Promise<void>;
-  assignCredentialToOrganization: (
-    credentialId: string,
-    organizationId: string
-  ) => Promise<void>;
-  revokeCredentialFromOrganization: (
-    credentialId: string,
-    organizationId: string
-  ) => Promise<void>;
-  assignUserToCredential: (
-    credentialId: string,
-    userId: string
-  ) => Promise<void>;
-  revokeUserFromCredential: (
-    credentialId: string,
-    userId: string
-  ) => Promise<void>;
-  setSelectedCredential: (credential: ClickHouseCredential | null) => void;
-}
+import { ClickHouseCredentialState, ClickHouseCredential } from "@/types/types";
 
 const useClickHouseCredentialStore = create<ClickHouseCredentialState>(
   (set, get) => ({
     credentials: [],
     selectedCredential: null,
+    availableCredentials: [],
     isLoading: false,
     error: null,
 
@@ -64,6 +20,20 @@ const useClickHouseCredentialStore = create<ClickHouseCredentialState>(
       } catch (error) {
         set({ error: "Failed to fetch credentials", isLoading: false });
         toast.error("Failed to fetch credentials");
+      }
+    },
+    // fetch available credentials for the current user based on the organization they are in
+    fetchAvailableCredentials: async () => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await api.get("/clickhouse-credentials/available");
+        set({ availableCredentials: response.data, isLoading: false });
+      } catch (error) {
+        set({
+          error: "Failed to fetch available credentials",
+          isLoading: false,
+        });
+        toast.error("Failed to fetch available credentials");
       }
     },
 
@@ -169,7 +139,14 @@ const useClickHouseCredentialStore = create<ClickHouseCredentialState>(
       }
     },
 
-    setSelectedCredential: (credential) => {
+    resetCredentials: () => {
+      set({
+        availableCredentials: [],
+        selectedCredential: null,
+      });
+    },
+
+    setSelectedCredential: (credential: ClickHouseCredential | null) => {
       set({ selectedCredential: credential });
     },
   })

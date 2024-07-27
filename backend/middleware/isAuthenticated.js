@@ -35,7 +35,8 @@ const isAuthenticated = async (req, res, next) => {
     );
     const user = await User.findById(decoded.id)
       .select("+active")
-      .populate("activeOrganization");
+      .populate("activeOrganization")
+      .populate("activeClickhouseCredential");
 
     if (!user || !user.active) {
       return errorResponse(

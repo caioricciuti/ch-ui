@@ -9,6 +9,7 @@ import CredentialDetailDialog from "@/components/CredentialDetailDialog";
 import UpdateCredentialDialog from "@/components/UpdateCredentialDialog";
 import { Search, Plus, ArrowUpDown, DatabaseZap } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 function CredentialsPage() {
   const {
@@ -87,10 +88,23 @@ function CredentialsPage() {
         </div>
 
         {isLoading ? (
-          <div className="text-center py-8">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
-            <p className="mt-4">Loading credentials...</p>
-          </div>
+          <>
+            <div className="grid gap-4 mb-4">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <Skeleton className="h-48 w-full" />
+              <Skeleton className="h-48 w-full" />
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-8 w-full mb-2" />
+                <Skeleton className="h-8 w-full mb-2" />
+                <Skeleton className="h-8 w-full mb-2" />
+                <Skeleton className="h-12 w-full mb-2" />
+              </div>
+            </div>
+          </>
         ) : filteredCredentials.length > 0 ? (
           <>
             <div className="mb-4">

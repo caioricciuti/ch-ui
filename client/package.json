@@ -10,6 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.17.0",
+    "@codemirror/basic-setup": "^0.20.0",
+    "@codemirror/lang-sql": "^6.7.0",
+    "@codemirror/theme-one-dark": "^6.1.2",
+    "@codemirror/view": "^6.29.0",
     "@hookform/resolvers": "^3.9.0",
     "@radix-ui/react-accordion": "^1.2.0",
     "@radix-ui/react-alert-dialog": "^1.1.1",
@@ -42,6 +47,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
+    "codemirror": "^6.0.1",
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.1.7",
     "framer-motion": "^11.3.8",
@@ -49,6 +55,7 @@
     "lucide-react": "^0.395.0",
     "next-themes": "^0.3.0",
     "react": "^18.2.0",
+    "react-beautiful-dnd": "^13.1.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.2.0",
     "react-hook-form": "^7.52.1",

@@ -1,42 +1,9 @@
+// organization store
 import { create } from "zustand";
 import api from "@/api/axios.config";
 import { toast } from "sonner";
 
-interface Member {
-  _id: string;
-  name: string;
-  email: string;
-}
-
-interface Organization {
-  _id: string;
-  name: string;
-  slug: string;
-  members: Member[];
-  owner: Member;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface OrganizationState {
-  organizations: Organization[];
-  selectedOrganization: Organization | null;
-  isLoading: boolean;
-  error: string | null;
-  fetchOrganizations: () => Promise<void>;
-  setSelectedOrganization: (organization: Organization) => void;
-  addOrganization: (name: string) => Promise<void>;
-  updateOrganization: (id: string, name: string) => Promise<void>;
-  deleteOrganization: (id: string) => Promise<void>;
-  addUserToOrganization: (
-    organizationId: string,
-    userId: string
-  ) => Promise<void>;
-  removeUserFromOrganization: (
-    organizationId: string,
-    userId: string
-  ) => Promise<void>;
-}
+import { OrganizationState } from "@/types/types";
 
 const useOrganizationStore = create<OrganizationState>((set, get) => ({
   organizations: [],

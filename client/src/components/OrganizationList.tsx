@@ -43,22 +43,7 @@ import {
 import useAuthStore from "@/stores/user.store";
 import useOrganizationStore from "@/stores/organization.store";
 import { Alert } from "./ui/alert";
-
-interface Member {
-  _id: string;
-  name: string;
-  email: string;
-}
-
-interface Organization {
-  _id: string;
-  name: string;
-  slug: string;
-  members: Member[];
-  owner: Member;
-  createdAt: string;
-  updatedAt: string;
-}
+import { Organization } from "@/types/types";
 
 interface OrganizationListProps {
   organizations: Organization[];
