@@ -166,7 +166,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
               <div className="w-4 mr-1" />
             )}
             {getIcon()}
-            <p className="text-sm truncate">{node.name}</p>
+            <p className="text-sm w-">{node.name}</p>
           </div>
           <div className="flex items-center">
             <Button
@@ -256,15 +256,15 @@ const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ data }) => {
   }, [data, searchTerm, showStarredOnly]);
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="flex flex-col h-full">
       <div className="p-4 border-b">
         <div className="flex justify-between items-center mb-3">
-          <h2 className="text-lg font-semibold truncate">Explorer</h2>
+          <h2 className="text-lg font-semibold">Explorer</h2>
           <Button
             variant="link"
             onClick={() => setShowStarredOnly(!showStarredOnly)}
           >
-            {!showStarredOnly ? "Only Favorites" : "Show All"}
+            {!showStarredOnly ? "Favorites" : "Show All"}
           </Button>
         </div>
         <div className="relative mb-2">
@@ -290,8 +290,8 @@ const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ data }) => {
           )}
         </div>
       </div>
-      <ScrollArea className="w-full h-[75vh]">
-        <div className="p-2">
+      <ScrollArea className="flex-1">
+        <div className="p-3">
           {filteredData && filteredData.length > 0 ? (
             filteredData.map((node, index) => (
               <TreeNode

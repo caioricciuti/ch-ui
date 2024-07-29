@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import api from "../api/axios.config";
-import DatabaseExplorer from "@/components/workspace/DataExplorer"; // Make sure this path is correct
+import DatabaseExplorer from "@/components/workspace/DataExplorer";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -58,14 +58,13 @@ function WorkspacePage() {
   }
 
   return (
-    <div className="h-[calc(100vh-20rem)]] w-full">
-      {isLoading && <Skeleton className="h-12 w-11/12" />}
+    <div>
       <ResizablePanelGroup direction="horizontal">
-        <ResizablePanel defaultSize={25}>
+        <ResizablePanel defaultSize={22}>
           <DatabaseExplorer data={databaseData} />
         </ResizablePanel>
         <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={75}>
+        <ResizablePanel defaultSize={88}>
           <WorkspaceTabs />
         </ResizablePanel>
       </ResizablePanelGroup>

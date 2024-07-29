@@ -65,9 +65,6 @@ function SortableTab({
 
   return (
     <div ref={setNodeRef} style={style} className="flex items-center">
-      <div {...attributes} {...listeners} className="cursor-move px-2">
-        <GripVertical size={16} />
-      </div>
       <TabsTrigger
         value={tab.id}
         className={`data-[state=active]:bg-orange-400 h-10 data-[state=active]:text-primary flex items-center rounded-none ${
@@ -75,6 +72,9 @@ function SortableTab({
         }`}
         onClick={onActivate}
       >
+        <div {...attributes} {...listeners} className="cursor-pointer px-1">
+          <GripVertical className="cursor-move" size={12} />
+        </div>
         {tab.type === "home" && <Home className="w-4 h-4 mr-2" />}
         {tab.type === "info" && <Info className="w-4 h-4 mr-2" />}
         {tab.type === "sql" && <Code className="w-4 h-4 mr-2" />}
@@ -230,7 +230,7 @@ export function WorkspaceTabs() {
                 strategy={horizontalListSortingStrategy}
               >
                 <div ref={tabsListRef} className="flex">
-                  <TabsList className="inline-flex h-12 items-center justify-start rounded-none w-full overflow-x-hidden">
+                  <TabsList className="inline-flex h-10 items-center justify-start rounded-none w-full overflow-y-clip">
                     {tabs.map((tab) => (
                       <SortableTab
                         key={tab.id}

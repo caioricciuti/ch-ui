@@ -8,13 +8,13 @@ const Layout: React.FC = () => {
   const { user } = useAuthStore();
 
   return (
-    <main>
+    <div className="h-screen flex flex-col overflow-hidden">
       {user && <Navbar />}
-      <section className="mx-auto">
+      <main className="flex-1 flex overflow-hidden">
         <Outlet />
-        <CommandMenu />
-      </section>
-    </main>
+      </main>
+      <CommandMenu />
+    </div>
   );
 };
 
