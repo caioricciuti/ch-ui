@@ -1,9 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Check } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -27,7 +27,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import useClickHouseCredentialStore from "@/stores/clickHouseCredentials.store";
+import useOrganizationStore from "@/stores/organization.store";
 
 const credentialSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -39,6 +48,9 @@ const credentialSchema = z.object({
     .max(65535, "Port must be between 1 and 65535"),
   username: z.string().min(1, "Username is required"),
   password: z.string().optional(),
+  allowedOrganizations: z
+    .array(z.string())
+    .min(1, "At least one organization is required"),
 });
 
 type CredentialFormValues = z.infer<typeof credentialSchema>;
@@ -52,10 +64,16 @@ const AddCredentialDialog: React.FC<AddCredentialDialogProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { createCredential } = useClickHouseCredentialStore();
+  const { createCredential, fetchAvailableCredentials, fetchCredentials } =
+    useClickHouseCredentialStore();
+  const { organizations, fetchOrganizations } = useOrganizationStore();
   const [isTestingCredentials, setIsTestingCredentials] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCredentialValid, setIsCredentialValid] = useState(false);
+
+  useEffect(() => {
+    fetchOrganizations();
+  }, [fetchOrganizations]);
 
   const form = useForm<CredentialFormValues>({
     resolver: zodResolver(credentialSchema),
@@ -65,6 +83,7 @@ const AddCredentialDialog: React.FC<AddCredentialDialogProps> = ({
       port: 8123,
       username: "",
       password: "",
+      allowedOrganizations: [],
     },
     mode: "onChange",
   });
@@ -82,6 +101,8 @@ const AddCredentialDialog: React.FC<AddCredentialDialogProps> = ({
       onClose();
       form.reset();
       setIsCredentialValid(false);
+      fetchCredentials();
+      fetchAvailableCredentials();
     } catch (error) {
       console.error("Failed to create credential:", error);
       toast.error("Failed to add credential. Please try again.");
@@ -203,6 +224,64 @@ const AddCredentialDialog: React.FC<AddCredentialDialogProps> = ({
                       placeholder="Your ClickHouse password"
                     />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="allowedOrganizations"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Allowed Organizations</FormLabel>
+                  <Select
+                    onValueChange={(value) => {
+                      const updatedOrgs = field.value.includes(value)
+                        ? field.value.filter((org) => org !== value)
+                        : [...field.value, value];
+                      field.onChange(updatedOrgs);
+                    }}
+                    value={field.value[field.value.length - 1] || ""}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select organizations" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {organizations.map((org) => (
+                        <SelectItem key={org._id} value={org._id}>
+                          <div className="flex items-center">
+                            <span>{org.name}</span>
+                            {field.value.includes(org._id) && (
+                              <Check className="ml-2 h-4 w-4" />
+                            )}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {field.value.map((orgId) => {
+                      const org = organizations.find((o) => o._id === orgId);
+                      return (
+                        <Badge
+                          key={orgId}
+                          variant="secondary"
+                          className="cursor-pointer"
+                          onClick={() => {
+                            const updatedOrgs = field.value.filter(
+                              (id) => id !== orgId
+                            );
+                            field.onChange(updatedOrgs);
+                          }}
+                        >
+                          {org?.name}
+                          <span className="ml-1">×</span>
+                        </Badge>
+                      );
+                    })}
+                  </div>
                   <FormMessage />
                 </FormItem>
               )}

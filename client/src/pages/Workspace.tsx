@@ -1,10 +1,18 @@
 import { useState, useEffect } from "react";
 import api from "../api/axios.config";
-import { TreeNodeData } from "@/components/workspace/DataExplorer"; // Make sure this path is correct
-import WorkspaceTabs from "@/components/workspace/WorkspaceTabs"; // Make sure this path is correct
+import DatabaseExplorer from "@/components/workspace/DataExplorer"; // Make sure this path is correct
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
+import WorkspaceTabs from "@/components/workspace/WorkspaceTabs";
+import useAuthStore from "@/stores/user.store";
+import { Skeleton } from "@/components/ui/skeleton";
 
 function WorkspacePage() {
-  const [databaseData, setDatabaseData] = useState<TreeNodeData[]>([]);
+  const { setCurrentCredential } = useAuthStore();
+  const [databaseData, setDatabaseData] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -12,7 +20,7 @@ function WorkspacePage() {
     const fetchDatabaseData = async () => {
       try {
         setIsLoading(true);
-        const response = await api.get<TreeNodeData[]>("/ch-queries/databases");
+        const response = await api.get("/ch-queries/databases");
         setDatabaseData(response.data);
         setError(null);
       } catch (err) {
@@ -24,11 +32,24 @@ function WorkspacePage() {
     };
 
     fetchDatabaseData();
-  }, []);
+  }, [setCurrentCredential]);
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-full">Loading...</div>
+      <div className="skeleton-container p-6">
+        <Skeleton className="skeleton-heading" />
+        <Skeleton className="skeleton-square" />
+        <div className="skeleton-grid">
+          <Skeleton className="skeleton-item" />
+          <Skeleton className="skeleton-item" />
+          <Skeleton className="skeleton-item" />
+          <Skeleton className="skeleton-item" />
+          <Skeleton className="skeleton-item" />
+          <Skeleton className="skeleton-item" />
+          <Skeleton className="skeleton-item" />
+          <Skeleton className="skeleton-item" />
+        </div>
+      </div>
     );
   }
 
@@ -37,12 +58,17 @@ function WorkspacePage() {
   }
 
   return (
-    <div>
-      <WorkspaceTabs
-        {...{
-          databaseData,
-        }}
-      />
+    <div className="h-[calc(100vh-20rem)]] w-full">
+      {isLoading && <Skeleton className="h-12 w-11/12" />}
+      <ResizablePanelGroup direction="horizontal">
+        <ResizablePanel defaultSize={25}>
+          <DatabaseExplorer data={databaseData} />
+        </ResizablePanel>
+        <ResizableHandle withHandle />
+        <ResizablePanel defaultSize={75}>
+          <WorkspaceTabs />
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
 }

@@ -66,7 +66,7 @@ const OrganizationDetailDialog: React.FC<OrganizationDetailDialogProps> = ({
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
-        className="sm:max-w-[600px]"
+        className="sm:max-w-[600px] m-auto"
         onOpenAutoFocus={(e) => e.preventDefault()}
         aria-describedby="organization-details"
         aria-description="Detailed information about the organization"
@@ -87,7 +87,7 @@ const OrganizationDetailDialog: React.FC<OrganizationDetailDialogProps> = ({
             Detailed information about {selectedOrganization.name} organization.
           </DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[70vh] pr-4">
+        <ScrollArea className="max-h-[70vh]">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center space-x-4 mb-4">

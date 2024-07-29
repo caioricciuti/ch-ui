@@ -67,7 +67,6 @@ const useOrganizationStore = create<OrganizationState>((set, get) => ({
   addUserToOrganization: async (organizationId, userId) => {
     set({ isLoading: true, error: null });
     try {
-      console.log(organizationId, userId);
       await api.post(`/organizations/${organizationId}/members`, { userId });
       await get().fetchOrganizations();
       toast.success("User added to organization successfully");

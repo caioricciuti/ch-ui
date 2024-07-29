@@ -65,7 +65,7 @@ export const SQLEditor: React.FC<SQLEditorProps> = ({
     };
   }, [initialValue, onChange]);
 
-  return <div ref={editorRef} className="" />;
+  return <div ref={editorRef} className="w-full h-34" />;
 };
 
 export default SQLEditor;

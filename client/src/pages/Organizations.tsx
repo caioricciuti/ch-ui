@@ -31,7 +31,7 @@ function OrganizationsPage() {
     if (error) {
       toast.error(error);
     }
-  }, [error, toast]);
+  }, [error]);
 
   const filteredOrganizations = organizations
     .filter((org) => org.name.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -57,88 +57,82 @@ function OrganizationsPage() {
   };
 
   return (
-    <Card className="container mx-auto my-6 max-w-8xl">
-      <CardHeader>
-        <CardTitle className="text-2xl font-bold">Organizations</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="flex justify-between items-center mb-6">
-          <Button
-            className="bg-orange-400/30 text-orange-600 hover:bg-orange-400/40"
-            onClick={() => setIsAddDialogOpen(true)}
-          >
-            <Plus className="mr-2 h-4 w-4" /> Add Organization
-          </Button>
-          <div className="relative w-64">
-            <Input
-              className="pr-10"
-              placeholder="Search organizations..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            <Search className="absolute right-3 top-3" />
-          </div>
-        </div>
-
-        {isLoading ? (
-          <>
-            <div className="grid gap-4 mb-4">
-              <Skeleton className="h-8 w-full" />
-              <Skeleton className="h-8 w-full" />
-              <Skeleton className="h-8 w-full" />
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <Skeleton className="h-48 w-full" />
-              <Skeleton className="h-48 w-full" />
-              <div className="flex flex-col gap-2">
-                <Skeleton className="h-8 w-full mb-2" />
-                <Skeleton className="h-8 w-full mb-2" />
-                <Skeleton className="h-8 w-full mb-2" />
-                <Skeleton className="h-12 w-full mb-2" />
-              </div>
-            </div>
-          </>
-        ) : filteredOrganizations.length > 0 ? (
-          <>
-            <div className="mb-4">
-              <Button
-                variant="outline"
-                onClick={toggleSort}
-                className="flex items-center"
-              >
-                <ArrowUpDown className="mr-2 h-4 w-4" />
-                Sort by {sortBy === "name" ? "Name" : "Member Count"} (
-                {sortOrder === "asc" ? "Ascending" : "Descending"})
-              </Button>
-            </div>
-            <OrganizationList
-              organizations={filteredOrganizations}
-              onViewDetails={(org: Organization) => {
-                useOrganizationStore.getState().setSelectedOrganization(org);
-                setIsDetailDialogOpen(true);
-              }}
-              onEdit={(org: Organization) => {
-                useOrganizationStore.getState().setSelectedOrganization(org);
-                setIsUpdateDialogOpen(true);
-              }}
-              onDelete={(org: Organization) => {
-                useOrganizationStore.getState().deleteOrganization(org._id);
-              }}
-            />
-          </>
-        ) : (
-          <div className="text-center py-8">
-            <Tally5 className="h-12 w-12 text-gray-500 mx-auto" />
-            <p className="mt-2 text-xs mb-4 text-gray-500">
-              No organizations found. Try adjusting your search or add a new
-              organization.
-            </p>
-            <Button variant="link" onClick={() => setIsAddDialogOpen(true)}>
+    <div className="container mx-auto my-6 max-w-8xl">
+      <Card className="h-[calc(100vh-8rem)] flex flex-col">
+        <CardHeader>
+          <CardTitle className="text-2xl font-bold">Organizations</CardTitle>
+        </CardHeader>
+        <CardContent className="flex-grow flex flex-col">
+          <div className="flex justify-between items-center mb-4">
+            <Button
+              className="bg-orange-400/30 text-orange-600 hover:bg-orange-400/40"
+              onClick={() => setIsAddDialogOpen(true)}
+            >
               <Plus className="mr-2 h-4 w-4" /> Add Organization
             </Button>
+            <div className="relative w-64">
+              <Input
+                className="pr-10"
+                placeholder="Search organizations..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <Search className="absolute right-3 top-3 text-gray-400" />
+            </div>
           </div>
-        )}
-      </CardContent>
+
+          <div className="mb-4">
+            <Button
+              variant="outline"
+              onClick={toggleSort}
+              className="flex items-center"
+            >
+              <ArrowUpDown className="mr-2 h-4 w-4" />
+              Sort by {sortBy === "name" ? "Name" : "Member Count"} (
+              {sortOrder === "asc" ? "Ascending" : "Descending"})
+            </Button>
+          </div>
+
+          <div className="flex-grow overflow-hidden">
+            {isLoading ? (
+              <div className="space-y-4">
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+              </div>
+            ) : filteredOrganizations.length > 0 ? (
+              <OrganizationList
+                organizations={filteredOrganizations}
+                onViewDetails={(org: Organization) => {
+                  useOrganizationStore.getState().setSelectedOrganization(org);
+                  setIsDetailDialogOpen(true);
+                }}
+                onEdit={(org: Organization) => {
+                  useOrganizationStore.getState().setSelectedOrganization(org);
+                  setIsUpdateDialogOpen(true);
+                }}
+                onDelete={(org: Organization) => {
+                  useOrganizationStore.getState().deleteOrganization(org._id);
+                }}
+              />
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center">
+                <Tally5 className="h-12 w-12 text-gray-500 mb-2" />
+                <p className="text-sm text-gray-500 mb-4">
+                  No organizations found. Try adjusting your search or add a new
+                  organization.
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsAddDialogOpen(true)}
+                >
+                  <Plus className="mr-2 h-4 w-4" /> Add Organization
+                </Button>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <AddOrganizationDialog
         isOpen={isAddDialogOpen}
@@ -152,7 +146,7 @@ function OrganizationsPage() {
         isOpen={isUpdateDialogOpen}
         onClose={() => setIsUpdateDialogOpen(false)}
       />
-    </Card>
+    </div>
   );
 }
 

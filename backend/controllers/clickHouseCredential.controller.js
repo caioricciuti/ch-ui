@@ -157,6 +157,11 @@ exports.getAllClickHouseCredentials = async (req, res) => {
 // Get all ClickHouse credentials
 exports.getAvailableCredentialByOrganization = async (req, res) => {
   try {
+    // if user does not have a req.user.activeOrganization, return empty array
+    if (!req.user.activeOrganization) {
+      return res.json([]);
+    }
+
     const credentials = await ClickHouseCredential.find({
       users: req.user.id,
       allowedOrganizations: req.user.activeOrganization._id,

@@ -110,10 +110,7 @@ const ActivateAccount = () => {
             </div>
           )}
           {status === "success" && (
-            <Alert className="bg-green-500/10 border-green-400 text-green-400">
-              <AlertTitle className="flex items-center gap-2">
-                <CheckCircle /> Success!
-              </AlertTitle>
+            <Alert variant="success">
               <AlertDescription>{message}</AlertDescription>
               <Button asChild className="mt-4 items-center flex gap-2">
                 <Link to="/login">
