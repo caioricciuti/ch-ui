@@ -36,6 +36,62 @@ const homeTabCards = [
     action: "Create a new query",
     Icon: Link,
   },
+  {
+    title: "Start Querying",
+    description:
+      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
+    action: "Create a new query",
+    Icon: Link,
+  },
+  {
+    title: "Start Querying",
+    description:
+      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
+    action: "Create a new query",
+    Icon: Link,
+  },
+  {
+    title: "Start Querying",
+    description:
+      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
+    action: "Create a new query",
+    Icon: Link,
+  },
+  {
+    title: "Start Querying",
+    description:
+      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
+    action: "Create a new query",
+    Icon: Link,
+  },
+  {
+    title: "Start Querying",
+    description:
+      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
+    action: "Create a new query",
+    Icon: Link,
+  },
+  {
+    title: "Start Querying",
+    description:
+      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
+    action: "Create a new query",
+    Icon: Link,
+  },
+  {
+    title: "Start Querying",
+    description:
+      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
+    action: "Create a new query",
+    Icon: Link,
+  },
+  {
+    title: "Start Querying",
+    description:
+      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
+    action: "Create a new query",
+    Icon: Link,
+  },
 ];
 
 interface HomeTabCard {
@@ -63,7 +119,7 @@ const HomeTab = () => {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 h-full w-full">
       <h1 className="text-3xl font-bold mb-6">
         Welcome,{" "}
         <span
@@ -85,9 +141,6 @@ const HomeTab = () => {
               </CardTitle>
               <CardDescription>{card.description}</CardDescription>
             </CardHeader>
-            <CardContent className="flex-grow">
-              {/* Additional content can be added here if needed */}
-            </CardContent>
             <CardFooter>
               <Button
                 className="w-full"

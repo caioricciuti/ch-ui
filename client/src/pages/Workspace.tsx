@@ -58,7 +58,7 @@ function WorkspacePage() {
   }
 
   return (
-    <div>
+    <div className="h-[calc(100vh-theme(spacing.16))]">
       <ResizablePanelGroup direction="horizontal">
         <ResizablePanel defaultSize={22}>
           <DatabaseExplorer data={databaseData} />

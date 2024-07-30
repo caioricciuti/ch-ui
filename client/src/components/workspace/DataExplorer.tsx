@@ -290,7 +290,7 @@ const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ data }) => {
           )}
         </div>
       </div>
-      <ScrollArea className="flex-1">
+      <ScrollArea>
         <div className="p-3">
           {filteredData && filteredData.length > 0 ? (
             filteredData.map((node, index) => (

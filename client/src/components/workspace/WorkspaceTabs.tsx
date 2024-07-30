@@ -67,14 +67,14 @@ function SortableTab({
     <div ref={setNodeRef} style={style} className="flex items-center">
       <TabsTrigger
         value={tab.id}
-        className={`data-[state=active]:bg-orange-400 h-10 data-[state=active]:text-primary flex items-center rounded-none ${
-          isActive ? "bg-orange-400" : ""
-        }`}
+        className={`data-[state=active]:bg-orange-500 h-10 data-[state=active]:text-primary flex items-center rounded-none`}
         onClick={onActivate}
       >
-        <div {...attributes} {...listeners} className="cursor-pointer px-1">
-          <GripVertical className="cursor-move" size={12} />
-        </div>
+        {isActive && (
+          <div {...attributes} {...listeners} className="cursor-pointer px-1">
+            <GripVertical className="cursor-move" size={12} />
+          </div>
+        )}
         {tab.type === "home" && <Home className="w-4 h-4 mr-2" />}
         {tab.type === "info" && <Info className="w-4 h-4 mr-2" />}
         {tab.type === "sql" && <Code className="w-4 h-4 mr-2" />}
@@ -216,10 +216,17 @@ export function WorkspaceTabs() {
       <Tabs
         value={activeTab}
         onValueChange={setActiveTab}
-        className="flex-1 flex flex-col"
+        className="flex flex-col h-full"
       >
-        <div className="flex items-center">
-          <ScrollArea className="flex-1" ref={scrollRef}>
+        <div className="flex-shrink-0 flex items-center">
+          <Button
+            variant="link"
+            className="rounded-none hover:bg-gray-200 h-10 px-2 sticky left-0 z-10 bg-background"
+            onClick={addNewCodeTab}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+          <ScrollArea className="flex-grow" ref={scrollRef}>
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
@@ -246,22 +253,17 @@ export function WorkspaceTabs() {
             </DndContext>
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
-          <Button
-            variant="link"
-            className="rounded-none hover:bg-gray-200"
-            onClick={addNewCodeTab}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
         </div>
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-grow overflow-hidden">
           {tabs.map((tab) => (
             <TabsContent
               key={tab.id}
               value={tab.id}
-              className="h-[85vh] p-0 outline-none data-[state=active]:flex-1"
+              className="h-full p-0 outline-none data-[state=active]:block"
             >
-              <ScrollArea className="h-full w-full">{tab.content}</ScrollArea>
+              <ScrollArea className="h-full">
+                <div className="h-full p-4">{tab.content}</div>
+              </ScrollArea>
             </TabsContent>
           ))}
         </div>
