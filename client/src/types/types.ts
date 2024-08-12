@@ -114,3 +114,34 @@ export interface ClickHouseCredential {
   updatedAt: Date | string;
   __v?: number;
 }
+
+// Tab related types
+export type TabType = "sql" | "result" | "home" | "information";
+
+export interface Tab {
+  id: string;
+  title: string;
+  content: string;
+  type: TabType;
+  results?: any[]; // Query results
+  error?: string | null; // Query error
+  isLoading?: boolean; // Loading state for the query
+}
+
+export interface TabQueryState {
+  tabs: Tab[];
+  activeTabId: string;
+  isLoading: boolean;
+  error: string | null;
+
+  addTab: (tab: Omit<Tab, "id">) => void;
+  closeTab: (id: string) => void;
+  updateTabContent: (id: string, content: string) => void;
+  setActiveTab: (id: string) => void;
+  updateTabTitle: (id: string, title: string) => void;
+  moveTab: (fromIndex: number, toIndex: number) => void;
+  getTabById: (id: string) => Tab | undefined;
+
+  fetchQueries: () => Promise<void>;
+  runQuery: (tabId: string, query: string) => Promise<void>;
+}

@@ -4,12 +4,11 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
-  CardContent,
   CardFooter,
 } from "@/components/ui/card";
 import { Github, Link, ExternalLink } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import useAuthStore from "@/stores/user.store";
+import useTabStore from "@/stores/tabs.store";
 
 import { bgGradientByInitials } from "@/lib/helpers";
 
@@ -27,7 +26,8 @@ const homeTabCards = [
     description:
       "ClickHouse is a fast open-source OLAP database management system, designed for big data analytics. Ah, also, it's open-source.",
     Icon: ExternalLink,
-    action: "Learn More",
+    link: "https://clickhouse.tech/docs/en/",
+    action: "Click House Docs",
   },
   {
     title: "Start Querying",
@@ -37,60 +37,12 @@ const homeTabCards = [
     Icon: Link,
   },
   {
-    title: "Start Querying",
+    title: "CH-UI Docs",
+    Icon: ExternalLink,
     description:
-      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
-    action: "Create a new query",
-    Icon: Link,
-  },
-  {
-    title: "Start Querying",
-    description:
-      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
-    action: "Create a new query",
-    Icon: Link,
-  },
-  {
-    title: "Start Querying",
-    description:
-      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
-    action: "Create a new query",
-    Icon: Link,
-  },
-  {
-    title: "Start Querying",
-    description:
-      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
-    action: "Create a new query",
-    Icon: Link,
-  },
-  {
-    title: "Start Querying",
-    description:
-      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
-    action: "Create a new query",
-    Icon: Link,
-  },
-  {
-    title: "Start Querying",
-    description:
-      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
-    action: "Create a new query",
-    Icon: Link,
-  },
-  {
-    title: "Start Querying",
-    description:
-      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
-    action: "Create a new query",
-    Icon: Link,
-  },
-  {
-    title: "Start Querying",
-    description:
-      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
-    action: "Create a new query",
-    Icon: Link,
+      "Learn more about CH-UI and how to use it. You can also contribute to the project.",
+    link: "https://ch-ui.caioricciuti.com",
+    action: "CH-UI Docs",
   },
 ];
 
@@ -103,23 +55,25 @@ interface HomeTabCard {
 }
 
 const HomeTab = () => {
-  const navigate = useNavigate();
+  const { addTab } = useTabStore();
   const { user } = useAuthStore();
 
   const handleAction = (card: HomeTabCard) => {
     if (card.link) {
       window.open(card.link, "_blank");
     } else if (card.title === "Start Querying") {
-      // Navigate to the query page or open a new query tab
-      navigate("/new-query");
+      addTab({
+        type: "sql",
+        title: "New Query",
+        content: "",
+      });
     } else {
-      // Handle other actions
       console.log(`Action for ${card.title}`);
     }
   };
 
   return (
-    <div className="p-6 space-y-6 h-full w-full">
+    <div className="p-6 space-y-6 flex flex-col">
       <h1 className="text-3xl font-bold mb-6">
         Welcome,{" "}
         <span

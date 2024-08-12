@@ -7,8 +7,11 @@ const isAuthorized = require("../middleware/isAuthorized");
 
 const {
   getDatabasesAndTables,
+  getIntellisense
 } = require("../controllers/chUiQueries.controller");
 
+
 router.get("/databases", isAuthenticated, getDatabasesAndTables);
+router.get("/intellisense", isAuthenticated, getIntellisense);
 
 module.exports = router;

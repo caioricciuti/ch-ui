@@ -7,32 +7,34 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import WorkspaceTabs from "@/components/workspace/WorkspaceTabs";
-import useAuthStore from "@/stores/user.store";
 import { Skeleton } from "@/components/ui/skeleton";
+import useClickHouseCredentialStore from "@/stores/clickHouseCredentials.store";
+import useAuthStore from "@/stores/user.store";
 
 function WorkspacePage() {
-  const { setCurrentCredential } = useAuthStore();
+  const { setSelectedCredential } = useClickHouseCredentialStore();
+  const { user } = useAuthStore();
   const [databaseData, setDatabaseData] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchDatabaseData = async () => {
-      try {
-        setIsLoading(true);
-        const response = await api.get("/ch-queries/databases");
-        setDatabaseData(response.data);
-        setError(null);
-      } catch (err) {
-        setError("Failed to fetch database data. Please try again later.");
-        console.error("Error fetching database data:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const fetchDatabaseData = async () => {
+    try {
+      setIsLoading(true);
+      const response = await api.get("/ch-queries/databases");
+      setDatabaseData(response.data);
+      setError(null);
+    } catch (err) {
+      setError("Failed to fetch database data. Please try again later.");
+      console.error("Error fetching database data:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchDatabaseData();
-  }, [setCurrentCredential]);
+  }, [setSelectedCredential, user?.activeClickhouseCredential]);
 
   if (isLoading) {
     return (
@@ -59,12 +61,12 @@ function WorkspacePage() {
 
   return (
     <div className="h-[calc(100vh-theme(spacing.16))]">
-      <ResizablePanelGroup direction="horizontal">
-        <ResizablePanel defaultSize={22}>
+      <ResizablePanelGroup className="h-full" direction="horizontal">
+        <ResizablePanel className="overflow-scroll" defaultSize={25}>
           <DatabaseExplorer data={databaseData} />
         </ResizablePanel>
         <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={88}>
+        <ResizablePanel className="overflow-scroll" defaultSize={75}>
           <WorkspaceTabs />
         </ResizablePanel>
       </ResizablePanelGroup>

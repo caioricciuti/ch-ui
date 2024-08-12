@@ -1,4 +1,8 @@
-const { createClient } = require("@clickhouse/client");
+const {
+  createClient,
+  ClickHouseError,
+  ClickHouseLogLevel,
+} = require("@clickhouse/client");
 const Organization = require("../models/Organization");
 const ClickHouseCredential = require("../models/ClickHouseCredential");
 const errorResponse = require("../utils/errorResponse");
@@ -141,7 +145,7 @@ exports.executeQuery = async (req, res) => {
     }
 
     const clickhouseClient = createClient({
-      url: `http://${clickHouseCredential.host}:${clickHouseCredential.port}`,
+      url: `${clickHouseCredential.host}:${clickHouseCredential.port}`,
       username: clickHouseCredential.username,
       password: clickHouseCredential.password,
     });
@@ -164,8 +168,13 @@ exports.executeQuery = async (req, res) => {
 
     return res.status(200).json(queryResult);
   } catch (error) {
-    console.error("Error in executeQuery:", error);
-    return errorResponse(res, 500, 6004, error.message, "executeQuery");
+    return errorResponse(
+      res,
+      400,
+      6004,
+      error.message.toString(),
+      "executeQuery"
+    );
   }
 };
 

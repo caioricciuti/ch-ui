@@ -145,6 +145,154 @@ const getDatabasesAndTables = async (req, res) => {
   }
 };
 
+const getIntellisense = async (req, res) => {
+  try {
+    const user = req.user;
+    const { activeOrganization, activeClickhouseCredential } = user;
+
+    // Check if user has an active organization
+    if (!activeOrganization) {
+      return errorResponse(
+        res,
+        400,
+        6000,
+        "No active organization",
+        "getIntellisense"
+      );
+    }
+
+    // Fetch the active organization
+    const organization = await Organization.findById(activeOrganization);
+    if (!organization) {
+      return errorResponse(
+        res,
+        404,
+        6001,
+        "Active organization not found",
+        "getIntellisense"
+      );
+    }
+
+    // Check if user is a member of the active organization
+    if (!organization.members.includes(user._id)) {
+      return errorResponse(
+        res,
+        403,
+        6006,
+        "User is not a member of the active organization",
+        "getIntellisense"
+      );
+    }
+
+    // Check if user has an active ClickHouse credential
+    if (!activeClickhouseCredential) {
+      return errorResponse(
+        res,
+        403,
+        6002,
+        "No active ClickHouse credentials found for this user",
+        "getIntellisense"
+      );
+    }
+
+    // Fetch the active ClickHouse credential
+    const clickHouseCredential = await ClickHouseCredential.findById(
+      activeClickhouseCredential
+    ).select("+password");
+
+    if (!clickHouseCredential) {
+      return errorResponse(
+        res,
+        403,
+        6003,
+        "ClickHouse credentials not found",
+        "getIntellisense"
+      );
+    }
+
+    // Check if the credential is associated with the active organization
+    if (!clickHouseCredential.allowedOrganizations.includes(organization._id)) {
+      return errorResponse(
+        res,
+        403,
+        6007,
+        "The active credential is not associated with the active organization",
+        "getIntellisense"
+      );
+    }
+
+    // Check if the user is allowed to use this credential
+    if (!clickHouseCredential.users.includes(user._id)) {
+      return errorResponse(
+        res,
+        403,
+        6008,
+        "User is not allowed to use this credential",
+        "getIntellisense"
+      );
+    }
+
+    const clickhouseClient = createClient({
+      url: new URL(`${clickHouseCredential.host}:${clickHouseCredential.port}`),
+      username: clickHouseCredential.username,
+      password: clickHouseCredential.password,
+    });
+
+    const query = `
+    SELECT 
+    database,
+    table,
+    name AS column_name,
+    type AS column_type
+      FROM system.columns
+      ORDER BY database, table, column_name;
+    `;
+
+    const result = await clickhouseClient.query({ query, format: "JSON" });
+    const resultJSON = await result.json();
+
+    const databases = {};
+    resultJSON.data.forEach((row) => {
+      const { database, table, column_name, column_type } = row;
+
+      if (!databases[database]) {
+        databases[database] = {
+          name: database,
+          type: "database",
+          children: [],
+        };
+      }
+
+      const tableIndex = databases[database].children.findIndex(
+        (tableObj) => tableObj.name === table
+      );
+
+      if (tableIndex === -1) {
+        databases[database].children.push({
+          name: table,
+          type: "table",
+          children: [],
+        });
+      }
+
+      databases[database].children[
+        databases[database].children.length - 1
+      ].children.push({
+        name: column_name,
+        type: column_type,
+      });
+    });
+
+    const mockDatabaseData = Object.values(databases);
+
+    return res.status(200).json(mockDatabaseData);
+  } catch (error) {
+    console.error("Error in getIntellisense:", error);
+    return errorResponse(res, 500, 6004, error.message, "getIntellisense");
+  }
+};
+
 module.exports = {
   getDatabasesAndTables,
+  getIntellisense,
 };

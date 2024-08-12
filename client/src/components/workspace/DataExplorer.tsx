@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import {
   ChevronRight,
   ChevronDown,
@@ -31,6 +31,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import useTabStore from "@/stores/tabs.store";
 
 export type NodeType = "database" | "table" | "view";
 
@@ -52,189 +53,195 @@ interface DatabaseExplorerProps {
   data: TreeNodeData[];
 }
 
-const TreeNode: React.FC<TreeNodeProps> = ({
-  node,
-  level,
-  searchTerm,
-  onToggleStar,
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
+const TreeNode: React.FC<TreeNodeProps> = React.memo(
+  ({ node, level, searchTerm, onToggleStar }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const { addTab } = useTabStore();
 
-  const toggleOpen = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsOpen(!isOpen);
-  };
+    const toggleOpen = useCallback((e: React.MouseEvent) => {
+      e.stopPropagation();
+      setIsOpen((prev) => !prev);
+    }, []);
 
-  const getIcon = () => {
-    if (node.type === "database") return <Database className="w-4 h-4 mr-2" />;
-    if (node.type === "table") return <Table className="w-4 h-4 mr-2" />;
-    if (node.type === "view")
-      return <FileSpreadsheet className="w-4 h-4 mr-2" />;
-    return null;
-  };
+    const handleViewData = useCallback(() => {
+      addTab({
+        title: node.name,
+        type: "sql",
+        content: `SELECT * FROM ${node.name};`,
+      });
+    }, [node.name, addTab]);
 
-  const matchesSearch = node.name
-    .toLowerCase()
-    .includes(searchTerm.toLowerCase());
-  const childrenMatchSearch = node.children?.some(
-    (child) =>
-      child.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      child.children?.some((grandchild) =>
-        grandchild.name.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-  );
+    const getIcon = useCallback(() => {
+      if (node.type === "database")
+        return <Database className="w-4 h-4 mr-2" />;
+      if (node.type === "table") return <Table className="w-4 h-4 mr-2" />;
+      if (node.type === "view")
+        return <FileSpreadsheet className="w-4 h-4 mr-2" />;
+      return null;
+    }, [node.type]);
 
-  if (searchTerm && !matchesSearch && !childrenMatchSearch) {
-    return null;
-  }
+    const contextMenuOptions = useMemo(
+      () => ({
+        database: [
+          {
+            label: "Create Table",
+            icon: <FilePlus className="w-4 h-4 mr-2" />,
+            action: () => console.log("Create new table"),
+          },
+          {
+            label: "New View",
+            icon: <Plus className="w-4 h-4 mr-2" />,
+            action: () => console.log("Create new view"),
+          },
+          {
+            label: "Delete",
+            icon: <Trash className="w-4 h-4 mr-2" />,
+            action: () => console.log("Delete database"),
+          },
+        ],
+        table: [
+          {
+            label: "View Data",
+            icon: <Eye className="w-4 h-4 mr-2" />,
+            action: () => console.log("View table data"),
+          },
+          {
+            label: "Edit Structure",
+            icon: <Edit className="w-4 h-4 mr-2" />,
+            action: () => console.log("Edit table structure"),
+          },
+          {
+            label: "Export",
+            icon: <Download className="w-4 h-4 mr-2" />,
+            action: () => console.log("Export table"),
+          },
+          {
+            label: "Delete",
+            icon: <Trash className="w-4 h-4 mr-2" />,
+            action: () => console.log("Delete table"),
+          },
+        ],
+        view: [
+          {
+            label: "Edit Query",
+            icon: <Edit className="w-4 h-4 mr-2" />,
+            action: () => console.log("Edit view query"),
+          },
+          {
+            label: "View Data",
+            icon: <Eye className="w-4 h-4 mr-2" />,
+            action: handleViewData,
+          },
+          {
+            label: "Delete",
+            icon: <Trash className="w-4 h-4 mr-2" />,
+            action: () => console.log("Delete view"),
+          },
+        ],
+      }),
+      [handleViewData]
+    );
 
-  const contextMenuOptions = {
-    database: [
-      {
-        label: "Create Table",
-        icon: <FilePlus className="w-4 h-4 mr-2" />,
-        action: () => console.log("Create new table"),
-      },
-      {
-        label: "New View",
-        icon: <Plus className="w-4 h-4 mr-2" />,
-        action: () => console.log("Create new view"),
-      },
-      {
-        label: "Delete",
-        icon: <Trash className="w-4 h-4 mr-2" />,
-        action: () => console.log("Delete database"),
-      },
-    ],
-    table: [
-      {
-        label: "View Data",
-        icon: <Eye className="w-4 h-4 mr-2" />,
-        action: () => console.log("View table data"),
-      },
-      {
-        label: "Edit Structure",
-        icon: <Edit className="w-4 h-4 mr-2" />,
-        action: () => console.log("Edit table structure"),
-      },
-      {
-        label: "Export",
-        icon: <Download className="w-4 h-4 mr-2" />,
-        action: () => console.log("Export table"),
-      },
-      {
-        label: "Delete",
-        icon: <Trash className="w-4 h-4 mr-2" />,
-        action: () => console.log("Delete table"),
-      },
-    ],
-    view: [
-      {
-        label: "Edit Query",
-        icon: <Edit className="w-4 h-4 mr-2" />,
-        action: () => console.log("Edit view query"),
-      },
-      {
-        label: "View Data",
-        icon: <Eye className="w-4 h-4 mr-2" />,
-        action: () => console.log("View view data"),
-      },
-      {
-        label: "Delete",
-        icon: <Trash className="w-4 h-4 mr-2" />,
-        action: () => console.log("Delete view"),
-      },
-    ],
-  };
+    const matchesSearch = node.name
+      .toLowerCase()
+      .includes(searchTerm.toLowerCase());
+    const childrenMatchSearch = node.children?.some(
+      (child) =>
+        child.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        child.children?.some((grandchild) =>
+          grandchild.name.toLowerCase().includes(searchTerm.toLowerCase())
+        )
+    );
 
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger>
-        <div
-          className={`flex items-center py-1 px-2 hover:bg-secondary hover:rounded-md cursor-pointer
+    const shouldRender = !searchTerm || matchesSearch || childrenMatchSearch;
+
+    return shouldRender ? (
+      <ContextMenu>
+        <ContextMenuTrigger>
+          <div
+            className={`flex items-center py-1 px-2 hover:bg-secondary hover:rounded-md cursor-pointer
               ${level > 0 ? "ml-4" : ""}`}
-          onClick={toggleOpen}
-        >
-          <div className="flex-grow flex items-center">
-            {node.children ? (
-              isOpen ? (
-                <ChevronDown className="w-4 h-4 mr-1" />
+            onClick={toggleOpen}
+          >
+            <div className="flex-grow flex items-center">
+              {node.children ? (
+                isOpen ? (
+                  <ChevronDown className="w-4 h-4 mr-1" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 mr-1" />
+                )
               ) : (
-                <ChevronRight className="w-4 h-4 mr-1" />
-              )
-            ) : (
-              <div className="w-4 mr-1" />
-            )}
-            {getIcon()}
-            <p className="text-sm w-">{node.name}</p>
-          </div>
-          <div className="flex items-center">
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-6 w-6"
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleStar(node);
-              }}
-            >
-              <Star
-                className={`w-4 h-4 ${node.starred ? "fill-yellow-400" : ""}`}
-              />
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="icon" variant="ghost" className="h-6 w-6">
-                  <MoreVertical className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                {contextMenuOptions[node.type].map(
-                  (option: any, index: number) => (
+                <div className="w-4 mr-1" />
+              )}
+              {getIcon()}
+              <p className="text-sm">{node.name}</p>
+            </div>
+            <div className="flex items-center">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleStar(node);
+                }}
+              >
+                <Star
+                  className={`w-4 h-4 ${node.starred ? "fill-yellow-400" : ""}`}
+                />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="icon" variant="ghost" className="h-6 w-6">
+                    <MoreVertical className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  {contextMenuOptions[node.type].map((option, index) => (
                     <DropdownMenuItem key={index} onSelect={option.action}>
                       {option.icon}
                       {option.label}
                     </DropdownMenuItem>
-                  )
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
-        </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        {contextMenuOptions[node.type].map((option, index) => (
-          <ContextMenuItem key={index} onSelect={option.action}>
-            {option.icon}
-            {option.label}
-          </ContextMenuItem>
-        ))}
-      </ContextMenuContent>
-      {(isOpen || searchTerm) && node.children && (
-        <div>
-          {node.children.map((child, index) => (
-            <TreeNode
-              key={index}
-              node={child}
-              level={level + 1}
-              searchTerm={searchTerm}
-              onToggleStar={onToggleStar}
-            />
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          {contextMenuOptions[node.type].map((option, index) => (
+            <ContextMenuItem key={index} onSelect={option.action}>
+              {option.icon}
+              {option.label}
+            </ContextMenuItem>
           ))}
-        </div>
-      )}
-    </ContextMenu>
-  );
-};
+        </ContextMenuContent>
+        {(isOpen || searchTerm) && node.children && (
+          <div>
+            {node.children.map((child, index) => (
+              <TreeNode
+                key={index}
+                node={child}
+                level={level + 1}
+                searchTerm={searchTerm}
+                onToggleStar={onToggleStar}
+              />
+            ))}
+          </div>
+        )}
+      </ContextMenu>
+    ) : null;
+  }
+);
 
 const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ data }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [showStarredOnly, setShowStarredOnly] = useState(false);
 
-  const toggleStar = (node: TreeNodeData) => {
+  const toggleStar = useCallback((node: TreeNodeData) => {
     node.starred = !node.starred;
     // You might want to update this in your state management system or backend
-  };
+  }, []);
 
   const filteredData = useMemo(() => {
     let filtered = data;

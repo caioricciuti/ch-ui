@@ -1,15 +1,17 @@
-import React, { useState, useRef, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
 import {
   X,
   Plus,
   Home,
   Code,
   MoreVertical,
-  Info,
   GripVertical,
+  Info,
+  Edit2,
 } from "lucide-react";
 import {
   DndContext,
@@ -21,7 +23,6 @@ import {
   DragEndEvent,
 } from "@dnd-kit/core";
 import {
-  arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
@@ -36,31 +37,51 @@ import {
 } from "@/components/ui/dropdown-menu";
 import SQLEditor from "@/components/workspace/SqlTab";
 import HomeTab from "@/components/workspace/HomeTab";
+import useTabStore from "@/stores/tabs.store";
 
-interface Tab {
-  id: string;
-  title: string;
-  type: "info" | "sql" | "home";
-  content: React.ReactNode;
-}
-
-function SortableTab({
-  tab,
-  onClose,
-  isActive,
-  onActivate,
-}: {
-  tab: Tab;
-  onClose: (id: string) => void;
+interface SortableTabProps {
+  tab: {
+    id: string;
+    title: string;
+    type: "sql" | "result" | "home" | "information";
+    content: string;
+  };
   isActive: boolean;
   onActivate: () => void;
-}) {
+}
+
+function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: tab.id });
+  const { closeTab, updateTabTitle } = useTabStore();
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedTitle, setEditedTitle] = useState(tab.title);
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+  };
+
+  const handleTitleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsEditing(true);
+  };
+
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditedTitle(e.target.value);
+  };
+
+  const handleTitleBlur = () => {
+    if (editedTitle.trim() !== "") {
+      updateTabTitle(tab.id, editedTitle);
+    }
+    setIsEditing(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      handleTitleBlur();
+    }
   };
 
   return (
@@ -76,16 +97,32 @@ function SortableTab({
           </div>
         )}
         {tab.type === "home" && <Home className="w-4 h-4 mr-2" />}
-        {tab.type === "info" && <Info className="w-4 h-4 mr-2" />}
         {tab.type === "sql" && <Code className="w-4 h-4 mr-2" />}
-        {tab.title}
+        {tab.type === "information" && <Info className="w-4 h-4 mr-2" />}
+        {isEditing ? (
+          <Input
+            value={editedTitle}
+            onChange={handleTitleChange}
+            onBlur={handleTitleBlur}
+            onKeyDown={handleKeyDown}
+            className="w-24 h-6 px-1 py-0 text-sm"
+            autoFocus
+          />
+        ) : (
+          <>
+            <span onClick={handleTitleClick}>
+              <Edit2 className="h-3 hidden hover:flex" />
+              {tab.title}
+            </span>
+          </>
+        )}
         {tab.id !== "home" && (
           <>
             <span
               className="ml-2 cursor-pointer"
               onClick={(e) => {
                 e.stopPropagation();
-                onClose(tab.id);
+                closeTab(tab.id);
               }}
             >
               <X className="h-4 w-4" />
@@ -100,7 +137,7 @@ function SortableTab({
                 </span>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => onClose(tab.id)}>
+                <DropdownMenuItem onClick={() => closeTab(tab.id)}>
                   <X className="h-4 w-4 mr-2" />
                   Close
                 </DropdownMenuItem>
@@ -114,12 +151,7 @@ function SortableTab({
 }
 
 export function WorkspaceTabs() {
-  const [tabs, setTabs] = useState<Tab[]>([
-    { id: "home", title: "Home", type: "home", content: <HomeTab /> },
-  ]);
-  const [activeTab, setActiveTab] = useState("home");
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const tabsListRef = useRef<HTMLDivElement | null>(null);
+  const { tabs, activeTabId, addTab, setActiveTab, moveTab } = useTabStore();
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -128,42 +160,11 @@ export function WorkspaceTabs() {
     })
   );
 
-  const addTab = (newTab: Tab) => {
-    setTabs((prevTabs) => {
-      const newTabs = [...prevTabs, newTab];
-      return newTabs;
-    });
-    setActiveTab(newTab.id);
-    setTimeout(() => {
-      if (tabsListRef.current) {
-        const tabEl = tabsListRef.current.querySelector(
-          `[data-tab-id="${newTab.id}"]`
-        );
-        if (tabEl) {
-          tabEl.scrollIntoView({ behavior: "smooth", inline: "center" });
-        }
-      }
-    }, 100);
-  };
-
-  const closeTab = (tabId: string) => {
-    setTabs((prevTabs) => {
-      const newTabs = prevTabs.filter((tab) => tab.id !== tabId);
-      if (activeTab === tabId) {
-        const newActiveTab = newTabs[newTabs.length - 1]?.id || "home";
-        setActiveTab(newActiveTab);
-      }
-      return newTabs;
-    });
-  };
-
   const addNewCodeTab = () => {
-    const newTabId = `code-${Date.now()}`;
     addTab({
-      id: newTabId,
       title: "New Query",
       type: "sql",
-      content: <CodeTab initialCode="Select" />,
+      content: "",
     });
   };
 
@@ -171,50 +172,28 @@ export function WorkspaceTabs() {
     const { active, over } = event;
 
     if (active.id !== over?.id) {
-      setTabs((items) => {
-        const oldIndex = items.findIndex((item) => item.id === active.id);
-        const newIndex = items.findIndex((item) => item.id === over?.id);
-
-        return arrayMove(items, oldIndex, newIndex);
-      });
+      const oldIndex = tabs.findIndex((tab) => tab.id === active.id);
+      const newIndex = tabs.findIndex((tab) => tab.id === over?.id);
+      moveTab(oldIndex, newIndex);
     }
   };
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.ctrlKey && event.key === "w") {
-        event.preventDefault();
-        if (activeTab !== "home") {
-          console.log("Ctrl+W pressed, closing active tab:", activeTab);
-          closeTab(activeTab);
-        }
-      }
       if (event.ctrlKey && event.key === "t") {
         event.preventDefault();
-        console.log("Ctrl+T pressed, adding new code tab");
         addNewCodeTab();
-      }
-      if (event.ctrlKey && event.key >= "1" && event.key <= "9") {
-        event.preventDefault();
-        const tabIndex = parseInt(event.key) - 1;
-        if (tabIndex < tabs.length) {
-          console.log(
-            `Ctrl+${event.key} pressed, switching to tab:`,
-            tabs[tabIndex].id
-          );
-          setActiveTab(tabs[tabIndex].id);
-        }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [tabs, activeTab]);
+  }, []);
 
   return (
     <div className="flex flex-col h-full">
       <Tabs
-        value={activeTab}
+        value={activeTabId || undefined}
         onValueChange={setActiveTab}
         className="flex flex-col h-full"
       >
@@ -226,7 +205,7 @@ export function WorkspaceTabs() {
           >
             <Plus className="h-4 w-4" />
           </Button>
-          <ScrollArea className="flex-grow" ref={scrollRef}>
+          <ScrollArea className="flex-grow">
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
@@ -236,17 +215,17 @@ export function WorkspaceTabs() {
                 items={tabs.map((tab) => tab.id)}
                 strategy={horizontalListSortingStrategy}
               >
-                <div ref={tabsListRef} className="flex">
+                <div className="flex">
                   <TabsList className="inline-flex h-10 items-center justify-start rounded-none w-full overflow-y-clip">
                     {tabs.map((tab) => (
                       <SortableTab
                         key={tab.id}
                         tab={tab}
-                        onClose={closeTab}
-                        isActive={activeTab === tab.id}
+                        isActive={activeTabId === tab.id}
                         onActivate={() => setActiveTab(tab.id)}
                       />
                     ))}
+                    <div></div>
                   </TabsList>
                 </div>
               </SortableContext>
@@ -254,31 +233,26 @@ export function WorkspaceTabs() {
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
         </div>
-        <div className="flex-grow overflow-hidden">
+        <div className="overflow-hidden flex flex-col">
           {tabs.map((tab) => (
             <TabsContent
               key={tab.id}
               value={tab.id}
               className="h-full p-0 outline-none data-[state=active]:block"
             >
-              <ScrollArea className="h-full">
-                <div className="h-full p-4">{tab.content}</div>
-              </ScrollArea>
+              <div className="h-full p-4">
+                {tab.type === "home" ? (
+                  <HomeTab />
+                ) : tab.type === "sql" ? (
+                  <SQLEditor tabId={tab.id} />
+                ) : (
+                  <div>Information Tab Content</div>
+                )}
+              </div>
             </TabsContent>
           ))}
         </div>
       </Tabs>
-    </div>
-  );
-}
-
-function CodeTab({ initialCode = "" }: { initialCode?: string }) {
-  return (
-    <div className="h-full">
-      <SQLEditor
-        initialValue={initialCode}
-        onChange={(value) => console.log("New value:", value)}
-      />
     </div>
   );
 }

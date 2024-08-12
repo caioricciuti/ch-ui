@@ -14,10 +14,6 @@ const editorsSchema = new mongoose.Schema(
       type: String,
       required: [true, "Editor content is required"],
     },
-    language: {
-      type: String,
-      required: [true, "Editor language is required"],
-    },
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -26,6 +22,11 @@ const editorsSchema = new mongoose.Schema(
     organization: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Organization",
+      required: true,
+    },
+    clickHouseCredentials: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ClickHouseCredentials",
       required: true,
     },
   },

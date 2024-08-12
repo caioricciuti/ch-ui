@@ -19,6 +19,7 @@ import useOrganizationStore from "@/stores/organization.store";
 import useAuthStore from "@/stores/user.store";
 import useClickHouseCredentialStore from "@/stores/clickHouseCredentials.store";
 import { toast } from "sonner";
+import ConfirmationDialog from "@/components/ConfirmationDialog";
 
 export function CombinedSelector() {
   const {
@@ -38,6 +39,11 @@ export function CombinedSelector() {
   const [credOpen, setCredOpen] = React.useState(false);
   const [orgValue, setOrgValue] = React.useState("");
   const [credValue, setCredValue] = React.useState("");
+  const [confirmDialogOpen, setConfirmDialogOpen] = React.useState(false);
+  const [pendingOrgChange, setPendingOrgChange] = React.useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
   React.useEffect(() => {
     fetchOrganizations();
@@ -58,20 +64,30 @@ export function CombinedSelector() {
     organizationName: string
   ) => {
     if (organizationId !== orgValue) {
-      setOrgValue(organizationId);
+      setPendingOrgChange({ id: organizationId, name: organizationName });
+      setConfirmDialogOpen(true);
       setOrgOpen(false);
+    }
+  };
+
+  const confirmOrgChange = async () => {
+    if (pendingOrgChange) {
+      setOrgValue(pendingOrgChange.id);
       try {
-        await setCurrentOrganization(organizationId);
+        await setCurrentOrganization(pendingOrgChange.id);
         resetCredentials();
         fetchAvailableCredentials();
-        toast.success(`${organizationName} selected as current organization. Please select a credential.`);
-        // force user to select a credential after selecting an organization
-        setCredOpen(true);  
+        toast.success(
+          `${pendingOrgChange.name} selected as current organization. Please select a credential.`
+        );
+        setCredOpen(true);
       } catch (error: any) {
         console.error("Update current organization failed:", error);
         toast.error(`Failed: ${error.message}`);
       }
     }
+    setConfirmDialogOpen(false);
+    setPendingOrgChange(null);
   };
 
   const handleCredSelect = async (
@@ -84,6 +100,7 @@ export function CombinedSelector() {
       try {
         await setCurrentCredential(credentialId);
         toast.success(`${credentialName} selected as current credential.`);
+        window.dispatchEvent(new Event("workspaceReload"));
       } catch (error: any) {
         console.error("Update current credential failed:", error);
         toast.error(`Failed: ${error.message}`);
@@ -196,6 +213,15 @@ export function CombinedSelector() {
         availableCredentials,
         handleCredSelect
       )}
+      <ConfirmationDialog
+        isOpen={confirmDialogOpen}
+        onClose={() => setConfirmDialogOpen(false)}
+        onConfirm={confirmOrgChange}
+        title="Confirm Organization Change"
+        description={`Are you sure you want to change the organization to ${pendingOrgChange?.name}? This will reset your current credential selection.`}
+        confirmText="Change Organization"
+        cancelText="Cancel"
+      />
     </div>
   );
 }
