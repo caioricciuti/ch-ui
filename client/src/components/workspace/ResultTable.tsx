@@ -194,24 +194,26 @@ export function Table<T extends RowData>({
   }, [table]);
 
   return (
-    <Card className="w-full">
-      <CardContent className="p-4">
-        <div className="flex flex-col space-y-4">
-          <div className="flex justify-between items-center">
-            <div className="relative w-64">
-              <Input
-                placeholder="Search all columns..."
-                value={globalFilter ?? ""}
-                onChange={(e) => setGlobalFilter(e.target.value)}
-                className="pl-10 pr-4 py-2 w-full text-sm"
-              />
-              <Search
-                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
-                size={16}
-              />
-            </div>
-            <div className="flex items-center space-x-4">
+    <div className="w-full p-1">
+      <div className="flex flex-col space-y-2">
+        <div className="flex justify-between items-center">
+          <div className="relative w-64">
+            <Input
+              placeholder="Search all columns..."
+              value={globalFilter ?? ""}
+              onChange={(e) => setGlobalFilter(e.target.value)}
+              className="pl-10 pr-4 py-2 w-full text-sm"
+            />
+            <Search
+              className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+              size={16}
+            />
+          </div>
+          <div className="flex items-center space-x-4">
+            {/* if filters show clear filter button */}
+            {columnFilters.length > 0 && (
               <Button
+                variant="ghost"
                 onClick={() => {
                   setColumnFilters([]);
                   setGlobalFilter("");
@@ -219,19 +221,38 @@ export function Table<T extends RowData>({
               >
                 Clear Filters
               </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline">
-                    <Columns className="mr-2 h-4 w-4" />
-                    Columns
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+            )}
+
+            <Select
+              value={table.getState().pagination.pageSize.toString()}
+              onValueChange={(value) => {
+                table.setPageSize(Number(value));
+              }}
+            >
+              <SelectTrigger className="text-sm">
+                <SelectValue placeholder="Rows" />
+              </SelectTrigger>
+              <SelectContent>
+                {[20, 50, 100, 200, 500].map((pageSize) => (
+                  <SelectItem key={pageSize} value={pageSize.toString()}>
+                    {pageSize}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon">
+                  <Columns className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <div className="max-h-52 overflow-auto">
                   {table.getAllColumns().map((column) => {
                     return (
                       <DropdownMenuCheckboxItem
                         key={column.id}
-                        className="capitalize"
+                        className=""
                         checked={column.getIsVisible()}
                         onCheckedChange={(value) =>
                           column.toggleVisibility(!!value)
@@ -241,223 +262,200 @@ export function Table<T extends RowData>({
                       </DropdownMenuCheckboxItem>
                     );
                   })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <Select
-                value={table.getState().pagination.pageSize.toString()}
-                onValueChange={(value) => {
-                  table.setPageSize(Number(value));
-                }}
-              >
-                <SelectTrigger className="w-[140px] text-sm">
-                  <SelectValue placeholder="Select page size" />
-                </SelectTrigger>
-                <SelectContent>
-                  {[20, 50, 100, 200, 500].map((pageSize) => (
-                    <SelectItem key={pageSize} value={pageSize.toString()}>
-                      Show {pageSize}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div
-            ref={tableContainerRef}
-            className="overflow-auto rounded-md border"
-            style={{ height: "calc(100vh - 240px)" }}
-          >
-            <table className="w-full border-collapse table-auto text-sm">
-              <thead className="bg-gray-100 dark:bg-gray-800 sticky top-0 z-10">
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <tr key={headerGroup.id}>
-                    {headerGroup.headers.map((header) => (
-                      <th
-                        key={header.id}
-                        className="text-left px-3 py-2 font-semibold text-gray-700 dark:text-gray-200 cursor-pointer relative"
-                        style={{ width: header.getSize() }}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div
-                            className="flex items-center space-x-2"
-                            onClick={header.column.getToggleSortingHandler()}
-                          >
-                            {flexRender(
-                              header.column.columnDef.header,
-                              header.getContext()
-                            )}
-                            <div className="flex flex-col">
-                              <ChevronUp
-                                size={12}
-                                className={
-                                  header.column.getIsSorted() === "asc"
-                                    ? "text-primary"
-                                    : "text-gray-400"
-                                }
-                              />
-                              <ChevronDown
-                                size={12}
-                                className={
-                                  header.column.getIsSorted() === "desc"
-                                    ? "text-primary"
-                                    : "text-gray-400"
-                                }
-                              />
-                            </div>
-                          </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0"
-                              >
-                                <Filter className="h-3 w-3" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-56">
-                              <DropdownMenuLabel className="text-xs">
-                                Filter{" "}
-                                {header.column.columnDef.header as string}
-                              </DropdownMenuLabel>
-                              <DropdownMenuSeparator />
-                              <div className="p-2">
-                                <FilterComponent
-                                  column={header.column}
-                                  table={table}
-                                />
-                              </div>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  header.column.setFilterValue(null)
-                                }
-                                className="text-xs"
-                              >
-                                Clear filter
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                        {header.column.getCanResize() && (
-                          <div
-                            onMouseDown={header.getResizeHandler()}
-                            onTouchStart={header.getResizeHandler()}
-                            className={`absolute right-0 top-0 h-full w-1 cursor-col-resize select-none touch-none ${
-                              header.column.getIsResizing()
-                                ? "bg-primary"
-                                : "bg-gray-300 dark:bg-gray-600"
-                            }`}
-                          />
-                        )}
-                      </th>
-                    ))}
-                  </tr>
-                ))}
-              </thead>
-              <tbody>
-                {table.getRowModel().rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td
-                        key={cell.id}
-                        className="px-3 py-2 border-t border-gray-200 dark:border-gray-600 truncate"
-                        style={{ maxWidth: cell.column.getSize() }}
-                      >
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex items-center justify-between mt-2 text-sm">
-            <div className="flex items-center space-x-2">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={() => table.setPageIndex(0)}
-                      disabled={!table.getCanPreviousPage()}
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8"
-                    >
-                      <ChevronsLeft size={14} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>First Page</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={() => table.previousPage()}
-                      disabled={!table.getCanPreviousPage()}
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8"
-                    >
-                      <ChevronLeft size={14} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Previous Page</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={() => table.nextPage()}
-                      disabled={!table.getCanNextPage()}
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8"
-                    >
-                      <ChevronRight size={14} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Next Page </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={() =>
-                        table.setPageIndex(table.getPageCount() - 1)
-                      }
-                      disabled={!table.getCanNextPage()}
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8"
-                    >
-                      <ChevronsRight size={14} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Last Page</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-            <span className="text-xs text-gray-600 dark:text-gray-300">
-              Page {table.getState().pagination.pageIndex + 1} of{" "}
-              {table.getPageCount()}
-            </span>
-            <span className="text-xs text-gray-600 dark:text-gray-300">
-              {table.getPrePaginationRowModel().rows.length} Rows
-            </span>
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
-      </CardContent>
-    </Card>
+        <div
+          ref={tableContainerRef}
+          className="overflow-auto rounded-md border"
+        >
+          <table className="w-full border-collapse table-auto text-sm">
+            <thead className="bg-gray-100 dark:bg-gray-800 ">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <th
+                      key={header.id}
+                      className="text-left px-3 py-2 font-semibold relative"
+                      style={{ width: header.getSize() }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div
+                          className="flex items-center space-x-2"
+                          onClick={header.column.getToggleSortingHandler()}
+                        >
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                          <div className="flex flex-col">
+                            <ChevronUp
+                              size={12}
+                              className={
+                                header.column.getIsSorted() === "asc"
+                                  ? "text-primary"
+                                  : "text-gray-400"
+                              }
+                            />
+                            <ChevronDown
+                              size={12}
+                              className={
+                                header.column.getIsSorted() === "desc"
+                                  ? "text-primary"
+                                  : "text-gray-400"
+                              }
+                            />
+                          </div>
+                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                            >
+                              <Filter className="h-3 w-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuLabel className="text-xs">
+                              Filter {header.column.columnDef.header as string}
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <div className="p-2">
+                              <FilterComponent
+                                column={header.column}
+                                table={table}
+                              />
+                            </div>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => header.column.setFilterValue(null)}
+                              className="text-xs"
+                            >
+                              Clear filter
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                      {header.column.getCanResize() && (
+                        <div
+                          onMouseDown={header.getResizeHandler()}
+                          onTouchStart={header.getResizeHandler()}
+                          className={`absolute right-0 top-0 h-full w-1 cursor-col-resize select-none touch-none ${
+                            header.column.getIsResizing()
+                              ? "bg-primary"
+                              : "bg-gray-300 dark:bg-gray-600"
+                          }`}
+                        />
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map((row) => (
+                <tr
+                  key={row.id}
+                  className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td
+                      key={cell.id}
+                      className="px-3 py-2 border-t border-gray-200 dark:border-gray-600 truncate"
+                      style={{ maxWidth: cell.column.getSize() }}
+                    >
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex items-center justify-between mt-2 text-sm">
+          <div className="flex items-center space-x-2">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={() => table.setPageIndex(0)}
+                    disabled={!table.getCanPreviousPage()}
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                  >
+                    <ChevronsLeft size={14} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>First Page</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={() => table.previousPage()}
+                    disabled={!table.getCanPreviousPage()}
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                  >
+                    <ChevronLeft size={14} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Previous Page</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={() => table.nextPage()}
+                    disabled={!table.getCanNextPage()}
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                  >
+                    <ChevronRight size={14} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Next Page </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={() => table.setPageIndex(table.getPageCount() - 1)}
+                    disabled={!table.getCanNextPage()}
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                  >
+                    <ChevronsRight size={14} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Last Page</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+          <span className="text-xs text-gray-600 dark:text-gray-300">
+            Page {table.getState().pagination.pageIndex + 1} of{" "}
+            {table.getPageCount()}
+          </span>
+          <span className="text-xs text-gray-600 dark:text-gray-300">
+            {table.getPrePaginationRowModel().rows.length} Rows
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }
 
