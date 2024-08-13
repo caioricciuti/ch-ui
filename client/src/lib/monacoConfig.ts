@@ -1,6 +1,10 @@
+//monacoConfig.ts
+// This file contains the configuration for the Monaco Editor used in the application.
+
 import * as monaco from "monaco-editor";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import api from "../api/axios.config";
+import { format } from "sql-formatter";
 
 let isInitialized = false;
 
@@ -24,6 +28,12 @@ interface Database {
 
 // Cache for database structure
 let dbStructureCache: Database[] | null = null;
+
+// cache for functions
+let functionsCache: string[] | null = null;
+
+// cache for keywords
+let keywordsCache: string[] | null = null;
 
 // Setting up the Monaco Environment to use the editor worker
 self.MonacoEnvironment = {
@@ -53,6 +63,38 @@ async function getDatabasesTablesAndColumns(): Promise<Database[]> {
     return dbStructureCache;
   } catch (err) {
     console.error("Error fetching database data:", err);
+    return [];
+  }
+}
+
+// async function get functions from the API
+async function getFunctions(): Promise<string[]> {
+  if (functionsCache) {
+    return functionsCache;
+  }
+
+  try {
+    const response = await api.get("/ch-queries/functions");
+    functionsCache = response.data as string[];
+    return response.data as string[];
+  } catch (err) {
+    console.error("Error fetching functions data:", err);
+    return [];
+  }
+}
+
+// async function get keywords from the API
+async function getKeywords(): Promise<string[]> {
+  if (keywordsCache) {
+    return keywordsCache;
+  }
+
+  try {
+    const response = await api.get("/ch-queries/keywords");
+    keywordsCache = response.data as string[];
+    return response.data as string[];
+  } catch (err) {
+    console.error("Error fetching keywords data:", err);
     return [];
   }
 }
@@ -179,6 +221,10 @@ export const initializeMonacoGlobally = async () => {
         [/[^']+/, "string"],
         [/'/, { token: "string.quote", bracket: "@close", next: "@pop" }],
       ],
+      comment: [
+        [/[^-]+/, "comment"],
+        [/--/, "comment"],
+      ],
     },
   });
 
@@ -195,6 +241,8 @@ export const initializeMonacoGlobally = async () => {
 
       const dbStructure = await getDatabasesTablesAndColumns();
       const queryContext = parseQueryContext(model.getValue(), position);
+      const clickHouseFunctionsArray = await getFunctions();
+      const clickHouseKeywordsArray = await getKeywords(); // Fetch keywords from API
 
       const suggestions: monaco.languages.CompletionItem[] = [];
 
@@ -251,36 +299,38 @@ export const initializeMonacoGlobally = async () => {
         }
       });
 
-      // Add SQL keyword suggestions
-      const keywordSuggestions = [
-        "SELECT",
-        "FROM",
-        "WHERE",
-        "GROUP BY",
-        "ORDER BY",
-        "LIMIT",
-        "JOIN",
-        "INSERT",
-        "UPDATE",
-        "DELETE",
-        "CREATE",
-        "ALTER",
-        "DROP",
-        "TABLE",
-        "INDEX",
-        "VIEW",
-        "TRIGGER",
-        "PROCEDURE",
-        "FUNCTION",
-        "DATABASE",
-      ].map((keyword) => ({
+      // Add SQL keyword suggestions from fetched keywords
+      const keywordSuggestions = clickHouseKeywordsArray.map((keyword) => ({
         label: keyword,
         kind: monaco.languages.CompletionItemKind.Keyword,
         insertText: keyword,
         range: range,
       }));
 
-      return { suggestions: [...suggestions, ...keywordSuggestions] };
+      // Add ClickHouse functions suggestions
+      const chFunctions = clickHouseFunctionsArray.map((chFunc: string) => ({
+        label: chFunc,
+        kind: monaco.languages.CompletionItemKind.Function,
+        insertText: `${chFunc}()`,
+        range: range,
+      }));
+
+      return {
+        suggestions: [...suggestions, ...keywordSuggestions, ...chFunctions],
+      };
+    },
+  });
+
+  // Use sql formatter for formatting SQL code using import { format } from "sql-formatter";
+  monaco.languages.registerDocumentFormattingEditProvider("sql", {
+    provideDocumentFormattingEdits: (model) => {
+      const formatted = format(model.getValue(), { language: "sql" });
+      return [
+        {
+          range: model.getFullModelRange(),
+          text: formatted,
+        },
+      ];
     },
   });
 

@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "sql-formatter": "^15.4.0"
+  }
+}

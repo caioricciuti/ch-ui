@@ -49,3 +49,5 @@ export const bgGradientByInitials = (initials: string) => {
   ];
   return gradients[charCode % gradients.length];
 };
+
+export const clickHouseFunctionsArray: Array<string> = ["avg", "min"];

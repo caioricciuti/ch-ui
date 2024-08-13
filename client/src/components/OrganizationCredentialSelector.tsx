@@ -194,7 +194,7 @@ export function CombinedSelector() {
   };
 
   return (
-    <div className="flex space-x-2">
+    <div className="w-full space-y-2">
       {renderSelector(
         "org",
         orgLoading,

@@ -3,99 +3,67 @@ const Organization = require("../models/Organization");
 const ClickHouseCredential = require("../models/ClickHouseCredential");
 const errorResponse = require("../utils/errorResponse");
 
-const getDatabasesAndTables = async (req, res) => {
+// Helper functions
+const checkActiveOrganization = async (user) => {
+  if (!user.activeOrganization) {
+    throw new Error("No active organization");
+  }
+  const organization = await Organization.findById(user.activeOrganization);
+  if (!organization) {
+    throw new Error("Active organization not found");
+  }
+  if (!organization.members.includes(user._id)) {
+    throw new Error("User is not a member of the active organization");
+  }
+  return organization;
+};
+
+const getActiveClickHouseCredential = async (user, organization) => {
+  if (!user.activeClickhouseCredential) {
+    throw new Error("No active ClickHouse credentials found for this user");
+  }
+  const credential = await ClickHouseCredential.findById(
+    user.activeClickhouseCredential
+  ).select("+password");
+  if (!credential) {
+    throw new Error("ClickHouse credentials not found");
+  }
+  if (!credential.allowedOrganizations.includes(organization._id)) {
+    throw new Error(
+      "The active credential is not associated with the active organization"
+    );
+  }
+  if (!credential.users.includes(user._id)) {
+    throw new Error("User is not allowed to use this credential");
+  }
+  return credential;
+};
+
+const createClickHouseClient = (credential) => {
+  return createClient({
+    url: new URL(`${credential.host}:${credential.port}`),
+    username: credential.username,
+    password: credential.password,
+  });
+};
+
+// Main controller functions
+const executeClickHouseQuery = async (req, res, queryFunc) => {
   try {
     const user = req.user;
-    const { activeOrganization, activeClickhouseCredential } = user;
+    const organization = await checkActiveOrganization(user);
+    const credential = await getActiveClickHouseCredential(user, organization);
+    const clickhouseClient = createClickHouseClient(credential);
+    const result = await queryFunc(clickhouseClient);
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error(`Error in ${queryFunc.name}:`, error);
+    return errorResponse(res, 500, 6004, error.message, queryFunc.name);
+  }
+};
 
-    // Check if user has an active organization
-    if (!activeOrganization) {
-      return errorResponse(
-        res,
-        400,
-        6000,
-        "No active organization",
-        "getDatabasesAndTables"
-      );
-    }
-
-    // Fetch the active organization
-    const organization = await Organization.findById(activeOrganization);
-    if (!organization) {
-      return errorResponse(
-        res,
-        404,
-        6001,
-        "Active organization not found",
-        "getDatabasesAndTables"
-      );
-    }
-
-    // Check if user is a member of the active organization
-    if (!organization.members.includes(user._id)) {
-      return errorResponse(
-        res,
-        403,
-        6006,
-        "User is not a member of the active organization",
-        "getDatabasesAndTables"
-      );
-    }
-
-    // Check if user has an active ClickHouse credential
-    if (!activeClickhouseCredential) {
-      return errorResponse(
-        res,
-        403,
-        6002,
-        "No active ClickHouse credentials found for this user",
-        "getDatabasesAndTables"
-      );
-    }
-
-    // Fetch the active ClickHouse credential
-    const clickHouseCredential = await ClickHouseCredential.findById(
-      activeClickhouseCredential
-    ).select("+password");
-
-    if (!clickHouseCredential) {
-      return errorResponse(
-        res,
-        403,
-        6003,
-        "ClickHouse credentials not found",
-        "getDatabasesAndTables"
-      );
-    }
-
-    // Check if the credential is associated with the active organization
-    if (!clickHouseCredential.allowedOrganizations.includes(organization._id)) {
-      return errorResponse(
-        res,
-        403,
-        6007,
-        "The active credential is not associated with the active organization",
-        "getDatabasesAndTables"
-      );
-    }
-
-    // Check if the user is allowed to use this credential
-    if (!clickHouseCredential.users.includes(user._id)) {
-      return errorResponse(
-        res,
-        403,
-        6008,
-        "User is not allowed to use this credential",
-        "getDatabasesAndTables"
-      );
-    }
-
-    const clickhouseClient = createClient({
-      url: new URL(`${clickHouseCredential.host}:${clickHouseCredential.port}`),
-      username: clickHouseCredential.username,
-      password: clickHouseCredential.password,
-    });
-
+const getDatabasesAndTables = async (req, res) => {
+  const queryFunc = async (client) => {
     const query = `
       SELECT
         databases.name AS database_name,
@@ -106,8 +74,7 @@ const getDatabasesAndTables = async (req, res) => {
         ON databases.name = tables.database
       ORDER BY database_name, table_name;
     `;
-
-    const result = await clickhouseClient.query({ query, format: "JSON" });
+    const result = await client.query({ query, format: "JSON" });
     const resultJSON = await result.json();
 
     const databases = {};
@@ -130,114 +97,14 @@ const getDatabasesAndTables = async (req, res) => {
       });
     });
 
-    const mockDatabaseData = Object.values(databases);
+    return Object.values(databases);
+  };
 
-    return res.status(200).json(mockDatabaseData);
-  } catch (error) {
-    console.error("Error in getDatabasesAndTables:", error);
-    return errorResponse(
-      res,
-      500,
-      6004,
-      error.message,
-      "getDatabasesAndTables"
-    );
-  }
+  return executeClickHouseQuery(req, res, queryFunc);
 };
 
 const getIntellisense = async (req, res) => {
-  try {
-    const user = req.user;
-    const { activeOrganization, activeClickhouseCredential } = user;
-
-    // Check if user has an active organization
-    if (!activeOrganization) {
-      return errorResponse(
-        res,
-        400,
-        6000,
-        "No active organization",
-        "getIntellisense"
-      );
-    }
-
-    // Fetch the active organization
-    const organization = await Organization.findById(activeOrganization);
-    if (!organization) {
-      return errorResponse(
-        res,
-        404,
-        6001,
-        "Active organization not found",
-        "getIntellisense"
-      );
-    }
-
-    // Check if user is a member of the active organization
-    if (!organization.members.includes(user._id)) {
-      return errorResponse(
-        res,
-        403,
-        6006,
-        "User is not a member of the active organization",
-        "getIntellisense"
-      );
-    }
-
-    // Check if user has an active ClickHouse credential
-    if (!activeClickhouseCredential) {
-      return errorResponse(
-        res,
-        403,
-        6002,
-        "No active ClickHouse credentials found for this user",
-        "getIntellisense"
-      );
-    }
-
-    // Fetch the active ClickHouse credential
-    const clickHouseCredential = await ClickHouseCredential.findById(
-      activeClickhouseCredential
-    ).select("+password");
-
-    if (!clickHouseCredential) {
-      return errorResponse(
-        res,
-        403,
-        6003,
-        "ClickHouse credentials not found",
-        "getIntellisense"
-      );
-    }
-
-    // Check if the credential is associated with the active organization
-    if (!clickHouseCredential.allowedOrganizations.includes(organization._id)) {
-      return errorResponse(
-        res,
-        403,
-        6007,
-        "The active credential is not associated with the active organization",
-        "getIntellisense"
-      );
-    }
-
-    // Check if the user is allowed to use this credential
-    if (!clickHouseCredential.users.includes(user._id)) {
-      return errorResponse(
-        res,
-        403,
-        6008,
-        "User is not allowed to use this credential",
-        "getIntellisense"
-      );
-    }
-
-    const clickhouseClient = createClient({
-      url: new URL(`${clickHouseCredential.host}:${clickHouseCredential.port}`),
-      username: clickHouseCredential.username,
-      password: clickHouseCredential.password,
-    });
-
+  const queryFunc = async (client) => {
     const query = `
     SELECT 
     database,
@@ -247,8 +114,7 @@ const getIntellisense = async (req, res) => {
       FROM system.columns
       ORDER BY database, table, column_name;
     `;
-
-    const result = await clickhouseClient.query({ query, format: "JSON" });
+    const result = await client.query({ query, format: "JSON" });
     const resultJSON = await result.json();
 
     const databases = {};
@@ -283,16 +149,39 @@ const getIntellisense = async (req, res) => {
       });
     });
 
-    const mockDatabaseData = Object.values(databases);
+    return Object.values(databases);
+  };
 
-    return res.status(200).json(mockDatabaseData);
-  } catch (error) {
-    console.error("Error in getIntellisense:", error);
-    return errorResponse(res, 500, 6004, error.message, "getIntellisense");
-  }
+  return executeClickHouseQuery(req, res, queryFunc);
+};
+
+const getClickHouseFunctions = async (req, res) => {
+  const queryFunc = async (client) => {
+    const query = `SELECT name from system.functions`;
+    const result = await client.query({ query, format: "JSON" });
+    const resultJSON = await result.json();
+    const functions = resultJSON.data.map((row) => row.name);
+    return functions;
+  };
+
+  return executeClickHouseQuery(req, res, queryFunc);
+};
+
+const getKeywords = async (req, res) => {
+  const queryFunc = async (client) => {
+    const query = `SELECT keyword FROM system.keywords`;
+    const result = await client.query({ query, format: "JSON" });
+    const resultJSON = await result.json();
+    const keywords = resultJSON.data.map((row) => row.keyword);
+    return keywords;
+  };
+
+  return executeClickHouseQuery(req, res, queryFunc);
 };
 
 module.exports = {
   getDatabasesAndTables,
   getIntellisense,
+  getClickHouseFunctions,
+  getKeywords,
 };
