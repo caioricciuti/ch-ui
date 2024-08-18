@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -11,8 +11,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { CommandShortcut } from "@/components/ui/command";
 import {
-  ChevronLeft,
-  ChevronRight,
   LogOut,
   CogIcon,
   Users,
@@ -33,7 +31,9 @@ const Sidebar = () => {
   const { user, logout, admin } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
-  const [isCollapsed, setIsCollapsed] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const expandTimeoutRef = useRef<number | null>(null);
 
   const handleLogout = async () => {
     try {
@@ -55,21 +55,53 @@ const Sidebar = () => {
 
   const isActive = (path: string) => location.pathname === path;
 
+  useEffect(() => {
+    const handleMouseEnter = () => {
+      if (expandTimeoutRef.current) {
+        clearTimeout(expandTimeoutRef.current);
+      }
+      setIsExpanded(true);
+    };
+
+    const handleMouseLeave = () => {
+      expandTimeoutRef.current = window.setTimeout(() => {
+        setIsExpanded(false);
+      }, 300); // 300ms delay before collapsing
+    };
+
+    const sidebar = sidebarRef.current;
+    if (sidebar) {
+      sidebar.addEventListener("mouseenter", handleMouseEnter);
+      sidebar.addEventListener("mouseleave", handleMouseLeave);
+    }
+
+    return () => {
+      if (sidebar) {
+        sidebar.removeEventListener("mouseenter", handleMouseEnter);
+        sidebar.removeEventListener("mouseleave", handleMouseLeave);
+      }
+      if (expandTimeoutRef.current) {
+        clearTimeout(expandTimeoutRef.current);
+      }
+    };
+  }, []);
+
   return (
     <div
+      ref={sidebarRef}
       className={`flex flex-col h-screen bg-background border-r transition-all duration-300 ${
-        isCollapsed ? "w-16" : "w-64"
+        isExpanded ? "w-64" : "w-16"
       }`}
     >
       <div className="p-4 flex items-center justify-between">
         <Link
           to="/"
           className={`flex items-center space-x-2 ${
-            isCollapsed ? "justify-center" : ""
+            !isExpanded ? "justify-center" : ""
           }`}
         >
           <img src={Logo} alt="Logo" className="h-8 w-8 min-h-8 min-w-8" />
-          {!isCollapsed && (
+          {isExpanded && (
             <span className="font-bold text-lg truncate">CH-UI</span>
           )}
         </Link>
@@ -86,8 +118,8 @@ const Sidebar = () => {
                   : "hover:bg-secondary/80"
               }`}
             >
-              <Shield className={`h-5 w-5 ${isCollapsed ? "" : "mr-2"}`} />
-              {!isCollapsed && <span>Admin</span>}
+              <Shield className={`h-5 w-5 ${!isExpanded ? "" : "mr-2"}`} />
+              {isExpanded && <span>Admin</span>}
             </Link>
           )}
           {navItems.map((item) => (
@@ -100,21 +132,21 @@ const Sidebar = () => {
                   : "hover:bg-secondary/80"
               }`}
             >
-              <item.icon className={`h-5 w-5 ${isCollapsed ? "" : "mr-2"}`} />
-              {!isCollapsed && <span>{item.label}</span>}
+              <item.icon className={`h-5 w-5 ${!isExpanded ? "" : "mr-2"}`} />
+              {isExpanded && <span>{item.label}</span>}
             </Link>
           ))}
         </nav>
       </ScrollArea>
 
       <div className="p-4">
-        {!isCollapsed && <OrganizationCredentialSelector />}
+        {isExpanded && <OrganizationCredentialSelector />}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               className={`w-full justify-start ${
-                isCollapsed ? "px-0" : "px-2"
+                !isExpanded ? "px-0" : "px-2"
               } mt-2`}
             >
               <Avatar className="h-8 w-8">
@@ -126,7 +158,7 @@ const Sidebar = () => {
                   {getInitials(user?.name || "")}
                 </AvatarFallback>
               </Avatar>
-              {!isCollapsed && (
+              {isExpanded && (
                 <span className="ml-2 text-sm font-medium">{user?.name}</span>
               )}
             </Button>
@@ -161,18 +193,6 @@ const Sidebar = () => {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button
-          variant="link"
-          size="icon"
-          onClick={() => setIsCollapsed(!isCollapsed)}
-              className="w-full justify-center mt-2"
-        >
-          {isCollapsed ? (
-            <ChevronRight className="h-4 w-4" />
-          ) : (
-            <ChevronLeft className="h-4 w-4" />
-          )}
-        </Button>
       </div>
     </div>
   );
