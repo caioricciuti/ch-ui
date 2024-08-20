@@ -14,7 +14,7 @@ import {
   Download,
   Eye,
   MoreVertical,
-  Star,
+  RefreshCcw,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -32,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import useTabStore from "@/stores/tabs.store";
+import { toast } from "sonner";
 
 export type NodeType = "database" | "table" | "view";
 
@@ -46,17 +47,18 @@ interface TreeNodeProps {
   node: TreeNodeData;
   level: number;
   searchTerm: string;
-  onToggleStar: (node: TreeNodeData) => void;
+  parentDatabaseName?: string; // Added to pass the parent database name
 }
 
 interface DatabaseExplorerProps {
   data: TreeNodeData[];
+  reloadDatabases?: () => void;
 }
 
 const TreeNode: React.FC<TreeNodeProps> = React.memo(
-  ({ node, level, searchTerm, onToggleStar }) => {
+  ({ node, level, searchTerm, parentDatabaseName }) => {
     const [isOpen, setIsOpen] = useState(false);
-    const { addTab } = useTabStore();
+    const { addTab, runQuery } = useTabStore();
 
     const toggleOpen = useCallback((e: React.MouseEvent) => {
       e.stopPropagation();
@@ -80,6 +82,27 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(
       return null;
     }, [node.type]);
 
+    const actionDropDatabase = async (database: string) => {
+      if (
+        window.confirm(`Are you sure you want to drop database ${database}?`)
+      ) {
+        console.log(`Dropping database ${database}`);
+      }
+      await runQuery("", `DROP DATABASE ${database}`);
+      toast.success(`Dropped database ${database}`);
+    };
+
+    const actionDropTable = async (database: string, table: string) => {
+      if (window.confirm(`Are you sure you want to drop table ${table}?`)) {
+        try {
+          await runQuery("", `DROP TABLE ${database}.${table}`);
+          toast.success(`Dropped table ${table}`);
+        } catch (error) {
+          toast.error(`Failed to drop table ${table}`);
+        }
+      }
+    };
+
     const contextMenuOptions = useMemo(
       () => ({
         database: [
@@ -96,7 +119,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(
           {
             label: "Delete",
             icon: <Trash className="w-4 h-4 mr-2" />,
-            action: () => console.log("Delete database"),
+            action: () => actionDropDatabase(node.name),
           },
         ],
         table: [
@@ -118,7 +141,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(
           {
             label: "Delete",
             icon: <Trash className="w-4 h-4 mr-2" />,
-            action: () => console.log("Delete table"),
+            action: () => actionDropTable(parentDatabaseName!, node.name),
           },
         ],
         view: [
@@ -139,7 +162,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(
           },
         ],
       }),
-      [handleViewData]
+      [parentDatabaseName, node.name, handleViewData]
     );
 
     const matchesSearch = node.name
@@ -177,19 +200,6 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(
               <p className="text-sm">{node.name}</p>
             </div>
             <div className="flex items-center">
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-6 w-6"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleStar(node);
-                }}
-              >
-                <Star
-                  className={`w-4 h-4 ${node.starred ? "fill-yellow-400" : ""}`}
-                />
-              </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button size="icon" variant="ghost" className="h-6 w-6">
@@ -224,7 +234,9 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(
                 node={child}
                 level={level + 1}
                 searchTerm={searchTerm}
-                onToggleStar={onToggleStar}
+                parentDatabaseName={
+                  node.type === "database" ? node.name : parentDatabaseName
+                } // Pass down database name
               />
             ))}
           </div>
@@ -234,20 +246,14 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(
   }
 );
 
-const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ data }) => {
+const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({
+  data,
+  reloadDatabases,
+}) => {
   const [searchTerm, setSearchTerm] = useState("");
-  const [showStarredOnly, setShowStarredOnly] = useState(false);
-
-  const toggleStar = useCallback((node: TreeNodeData) => {
-    node.starred = !node.starred;
-    // You might want to update this in your state management system or backend
-  }, []);
 
   const filteredData = useMemo(() => {
     let filtered = data;
-    if (showStarredOnly) {
-      filtered = filtered.filter((node) => node.starred);
-    }
     if (!searchTerm) return filtered;
     return filtered.filter(
       (node) =>
@@ -260,7 +266,11 @@ const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ data }) => {
             )
         )
     );
-  }, [data, searchTerm, showStarredOnly]);
+  }, [data, searchTerm]);
+
+  const refreshDatabases = useCallback(() => {
+    if (reloadDatabases) reloadDatabases();
+  }, [reloadDatabases]);
 
   return (
     <div className="flex flex-col h-full">
@@ -268,10 +278,12 @@ const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ data }) => {
         <div className="flex justify-between items-center mb-3">
           <h2 className="text-lg font-semibold">Explorer</h2>
           <Button
-            variant="link"
-            onClick={() => setShowStarredOnly(!showStarredOnly)}
+            size="sm"
+            variant="outline"
+            onClick={() => refreshDatabases()}
+            className="flex items-center"
           >
-            {!showStarredOnly ? "Favorites" : "Show All"}
+            <RefreshCcw className="w-4 h-4 ml-1" />
           </Button>
         </div>
         <div className="relative mb-2">
@@ -306,7 +318,7 @@ const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ data }) => {
                 node={node}
                 level={0}
                 searchTerm={searchTerm}
-                onToggleStar={toggleStar}
+                parentDatabaseName={node.name} // Pass the database name at the top level
               />
             ))
           ) : (

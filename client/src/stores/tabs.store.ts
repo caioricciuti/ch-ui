@@ -111,13 +111,13 @@ const useTabStore = create<TabQueryState>()(
             ),
           }));
         } catch (err: any) {
-          console.log(err)
           set((state) => ({
             tabs: state.tabs.map((tab) =>
               tab.id === tabId
                 ? {
                     ...tab,
-                    error: err.data,
+                    results: undefined,
+                    error: err.response?.data?.message || "An error occurred",
                     isLoading: false,
                   }
                 : tab

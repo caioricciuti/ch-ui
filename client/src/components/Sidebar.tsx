@@ -34,6 +34,7 @@ const Sidebar = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const expandTimeoutRef = useRef<number | null>(null);
+  const lastMouseXRef = useRef<number | null>(null);
 
   const handleLogout = async () => {
     try {
@@ -56,35 +57,41 @@ const Sidebar = () => {
   const isActive = (path: string) => location.pathname === path;
 
   useEffect(() => {
-    const handleMouseEnter = () => {
-      if (expandTimeoutRef.current) {
-        clearTimeout(expandTimeoutRef.current);
+    const handleMouseMove = (event: MouseEvent) => {
+      const currentMouseX = event.clientX;
+      const sidebarRect = sidebarRef.current?.getBoundingClientRect();
+
+      if (sidebarRect) {
+        if (currentMouseX <= sidebarRect.right && !isExpanded) {
+          setIsExpanded(true);
+          if (expandTimeoutRef.current) {
+            clearTimeout(expandTimeoutRef.current);
+          }
+        } else if (
+          lastMouseXRef.current !== null &&
+          currentMouseX < lastMouseXRef.current &&
+          currentMouseX < sidebarRect.left
+        ) {
+          setIsExpanded(false);
+        } else if (currentMouseX > sidebarRect.right && isExpanded) {
+          expandTimeoutRef.current = window.setTimeout(() => {
+            setIsExpanded(false);
+          }, 300);
+        }
       }
-      setIsExpanded(true);
+
+      lastMouseXRef.current = currentMouseX;
     };
 
-    const handleMouseLeave = () => {
-      expandTimeoutRef.current = window.setTimeout(() => {
-        setIsExpanded(false);
-      }, 300); // 300ms delay before collapsing
-    };
-
-    const sidebar = sidebarRef.current;
-    if (sidebar) {
-      sidebar.addEventListener("mouseenter", handleMouseEnter);
-      sidebar.addEventListener("mouseleave", handleMouseLeave);
-    }
+    window.addEventListener("mousemove", handleMouseMove);
 
     return () => {
-      if (sidebar) {
-        sidebar.removeEventListener("mouseenter", handleMouseEnter);
-        sidebar.removeEventListener("mouseleave", handleMouseLeave);
-      }
+      window.removeEventListener("mousemove", handleMouseMove);
       if (expandTimeoutRef.current) {
         clearTimeout(expandTimeoutRef.current);
       }
     };
-  }, []);
+  }, [isExpanded]);
 
   return (
     <div
@@ -140,7 +147,7 @@ const Sidebar = () => {
       </ScrollArea>
 
       <div className="p-4">
-        {isExpanded && <OrganizationCredentialSelector />}
+        <OrganizationCredentialSelector isExpanded={isExpanded} />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button

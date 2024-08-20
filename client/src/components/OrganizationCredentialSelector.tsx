@@ -21,7 +21,7 @@ import useClickHouseCredentialStore from "@/stores/clickHouseCredentials.store";
 import { toast } from "sonner";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
 
-export function CombinedSelector() {
+export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
   const {
     organizations,
     fetchOrganizations,
@@ -153,7 +153,9 @@ export function CombinedSelector() {
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            className="max-w-[180px] justify-between gap-2"
+            className={`max-w-[180px] justify-between gap-2
+              ${isExpanded ? "" : "hidden"}
+              `}
           >
             {React.createElement(icon, {
               className: "h-4 w-4 shrink-0 opacity-50",

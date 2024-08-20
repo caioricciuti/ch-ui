@@ -136,12 +136,11 @@ export interface TabQueryState {
 
   addTab: (tab: Omit<Tab, "id">) => void;
   closeTab: (id: string) => void;
-  updateTabContent: (id: string, content: string) => void;
+  updateTabContent: (id: string, updatedValues: Partial<Tab>) => void;
   setActiveTab: (id: string) => void;
   updateTabTitle: (id: string, title: string) => void;
   moveTab: (fromIndex: number, toIndex: number) => void;
   getTabById: (id: string) => Tab | undefined;
-
   fetchQueries: () => Promise<void>;
   runQuery: (tabId: string, query: string) => Promise<void>;
 }

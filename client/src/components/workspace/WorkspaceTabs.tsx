@@ -7,11 +7,11 @@ import {
   X,
   Plus,
   Home,
-  Code,
   MoreVertical,
   GripVertical,
   Info,
   Edit2,
+  Terminal,
 } from "lucide-react";
 import {
   DndContext,
@@ -35,9 +35,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import SQLEditor from "@/components/workspace/SqlTab";
 import HomeTab from "@/components/workspace/HomeTab";
 import useTabStore from "@/stores/tabs.store";
+import SqlTab from "@/components/workspace/SqlTab";
 
 interface SortableTabProps {
   tab: {
@@ -97,7 +97,7 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
           </div>
         )}
         {tab.type === "home" && <Home className="w-4 h-4 mr-2" />}
-        {tab.type === "sql" && <Code className="w-4 h-4 mr-2" />}
+        {tab.type === "sql" && <Terminal className="w-4 h-4 mr-2" />}
         {tab.type === "information" && <Info className="w-4 h-4 mr-2" />}
         {isEditing ? (
           <Input
@@ -233,18 +233,18 @@ export function WorkspaceTabs() {
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
         </div>
-        <div className="overflow-hidden flex flex-col">
+        <div className=" flex flex-col h-screen">
           {tabs.map((tab) => (
             <TabsContent
               key={tab.id}
               value={tab.id}
               className="h-full p-0 outline-none data-[state=active]:block"
             >
-              <div className="h-full p-4">
+              <div className="h-full p-2">
                 {tab.type === "home" ? (
                   <HomeTab />
                 ) : tab.type === "sql" ? (
-                  <SQLEditor tabId={tab.id} />
+                  <SqlTab tabId={tab.id} />
                 ) : (
                   <div>Information Tab Content</div>
                 )}

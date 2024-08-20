@@ -73,7 +73,7 @@ const HomeTab = () => {
   };
 
   return (
-    <div className="p-6 space-y-6 flex flex-col">
+    <div className="h-screen w-full p-6 space-y-6 flex flex-col">
       <h1 className="text-3xl font-bold mb-6">
         Welcome,{" "}
         <span
