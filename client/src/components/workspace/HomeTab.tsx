@@ -1,3 +1,4 @@
+import React from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -6,43 +7,47 @@ import {
   CardDescription,
   CardFooter,
 } from "@/components/ui/card";
-import { Github, Link, ExternalLink } from "lucide-react";
+import { Github, ExternalLink, Terminal, BookOpen } from "lucide-react";
 import useAuthStore from "@/stores/user.store";
 import useTabStore from "@/stores/tabs.store";
-
+import { motion } from "framer-motion";
 import { bgGradientByInitials } from "@/lib/helpers";
 
 const homeTabCards = [
   {
     title: "Star us on GitHub!",
     description:
-      "Star us on GitHub if you like this project. It helps us a lot, and it also helps other people find this project.",
+      "Support our project by starring it on GitHub. Your star helps us grow and reach more developers!",
     link: "https://github.com/caioricciuti/ch-ui",
     Icon: Github,
     action: "Star on GitHub",
+    color: "bg-purple-600",
   },
   {
-    title: "ClickHouse",
+    title: "ClickHouse Docs",
     description:
-      "ClickHouse is a fast open-source OLAP database management system, designed for big data analytics. Ah, also, it's open-source.",
-    Icon: ExternalLink,
-    link: "https://clickhouse.tech/docs/en/",
-    action: "Click House Docs",
+      "Explore ClickHouse, the lightning-fast open-source OLAP database designed for big data analytics.",
+    Icon: BookOpen,
+    link: "https://clickhouse.com/docs/en/intro",
+    action: "Read Docs",
+    color: "bg-yellow-500",
   },
   {
     title: "Start Querying",
     description:
-      "Create and run queries on your ClickHouse instance. You can also save your queries for later use.",
-    action: "Create a new query",
-    Icon: Link,
+      "Jump right in! Create and run queries on your ClickHouse instance. Save your work for future use.",
+    action: "New Query",
+    Icon: Terminal,
+    color: "bg-green-500",
   },
   {
-    title: "CH-UI Docs",
+    title: "CH-UI Documentation",
     Icon: ExternalLink,
     description:
-      "Learn more about CH-UI and how to use it. You can also contribute to the project.",
+      "Learn how to make the most of CH-UI. Contribute to our open-source project and help shape its future!",
     link: "https://ch-ui.caioricciuti.com",
-    action: "CH-UI Docs",
+    action: "Explore CH-UI",
+    color: "bg-blue-500",
   },
 ];
 
@@ -50,8 +55,9 @@ interface HomeTabCard {
   title: string;
   description: string;
   link?: string;
-  Icon?: React.FC;
+  Icon?: React.FC<{ className?: string }>;
   action: string;
+  color: string;
 }
 
 const HomeTab = () => {
@@ -73,40 +79,68 @@ const HomeTab = () => {
   };
 
   return (
-    <div className="h-screen w-full p-6 space-y-6 flex flex-col">
-      <h1 className="text-3xl font-bold mb-6">
+    <div className="p-2 mt-4 space-y-8 flex flex-col h-screen overflow-auto w-full">
+      <motion.h1
+        className="text-4xl font-bold"
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 1.5 }}
+      >
         Welcome,{" "}
         <span
           className={`
-        ${bgGradientByInitials(user?.name ?? "")}
-        text-transparent bg-clip-text 
-        `}
+            ${bgGradientByInitials(user?.name ?? "Guest")}
+            text-transparent bg-clip-text 
+          `}
         >
-          {user?.name ?? ""}!
+          {user?.name ?? "Guest"}!
         </span>
-      </h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      </motion.h1>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 px-4">
         {homeTabCards.map((card, index) => (
-          <Card key={index} className="flex flex-col">
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                {card.Icon && <card.Icon className="w-6 h-6" />}
-                <span>{card.title}</span>
-              </CardTitle>
-              <CardDescription>{card.description}</CardDescription>
-            </CardHeader>
-            <CardFooter>
-              <Button
-                className="w-full"
-                variant={index === 2 ? "default" : "outline"}
-                onClick={() => handleAction(card)}
-              >
-                {card.action}
-              </Button>
-            </CardFooter>
-          </Card>
+          <motion.div
+            key={index}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: index * 0.3 }}
+          >
+            <Card className="flex flex-col h-full transition-all duration-300 hover:shadow-lg hover:scale-105">
+              <CardHeader className="flex-grow">
+                <CardTitle className="flex items-center space-x-3">
+                  {card.Icon && (
+                    <div className={`p-2 rounded-full ${card.color}`}>
+                      <card.Icon className="w-6 h-6" />
+                    </div>
+                  )}
+                  <span>{card.title}</span>
+                </CardTitle>
+                <CardDescription className="mt-2">
+                  {card.description}
+                </CardDescription>
+              </CardHeader>
+              <CardFooter>
+                <Button
+                  className="w-full font-semibold"
+                  variant={
+                    card.title === "Start Querying" ? "default" : "outline"
+                  }
+                  onClick={() => handleAction(card)}
+                >
+                  {card.action}
+                </Button>
+              </CardFooter>
+            </Card>
+          </motion.div>
         ))}
       </div>
+      <motion.div
+        className="relative bottom-2 text-xs text-muted-foreground"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5, delay: 0.8 }}
+      >
+        Made with ❤️ by the CH-UI Team
+      </motion.div>
     </div>
   );
 };

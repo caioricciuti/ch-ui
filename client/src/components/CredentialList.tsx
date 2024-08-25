@@ -252,7 +252,6 @@ const CredentialList: React.FC<CredentialListProps> = ({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
                         <DropdownMenuItem onClick={() => onViewDetails(cred)}>
                           <Eye className="mr-2 h-4 w-4" />
                           View details

@@ -25,7 +25,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { CheckCircle, Loader2, LogIn, Mail } from "lucide-react";
+import { Loader2, LogIn, Mail } from "lucide-react";
 import Logo from "/logo.png";
 import { toast } from "sonner";
 

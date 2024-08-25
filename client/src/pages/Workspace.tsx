@@ -82,7 +82,16 @@ function WorkspacePage() {
           </Button>
 
           <p className="text-sm text-center text-gray-500 dark:text-gray-400">
-            If the issue persists, please contact support.
+            If the issue persists, please contact your administrator, or read
+            the{" "}
+            <a
+              href="https://clickhouse.com/docs/en/getting-started/connecting/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              ClickHouse documentation
+            </a>
+            .
           </p>
 
           <details className="text-xs text-gray-500 dark:text-gray-400">
@@ -106,7 +115,7 @@ function WorkspacePage() {
           />
         </ResizablePanel>
         <ResizableHandle withHandle />
-        <ResizablePanel className="overflow-scroll" defaultSize={75}>
+        <ResizablePanel className="overflow-scroll" defaultSize={75} minSize={60}>
           <WorkspaceTabs />
         </ResizablePanel>
       </ResizablePanelGroup>

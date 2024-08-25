@@ -172,7 +172,6 @@ const OrganizationList: React.FC<OrganizationListProps> = ({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
                       <DropdownMenuItem onClick={() => onViewDetails(org)}>
                         <Eye className="mr-2 h-4 w-4" />
                         View details

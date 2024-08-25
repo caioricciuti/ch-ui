@@ -40,9 +40,8 @@ function LoginPage() {
   useEffect(() => {
     if (user && !isLoading) {
       navigate("/");
-      toast.error(`You are already logged in as ${user.name}`);
     }
-  }, [navigate]);
+  }, [user, navigate]);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -7,7 +7,6 @@ import {
   X,
   Plus,
   Home,
-  MoreVertical,
   GripVertical,
   Info,
   Edit2,
@@ -29,22 +28,17 @@ import {
   horizontalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import HomeTab from "@/components/workspace/HomeTab";
 import useTabStore from "@/stores/tabs.store";
 import SqlTab from "@/components/workspace/SqlTab";
+import InformationTab from "./InformationTab";
 
 interface SortableTabProps {
   tab: {
     id: string;
     title: string;
     type: "sql" | "result" | "home" | "information";
-    content: string;
+    content: string | { query: string; database: string; table?: string };
   };
   isActive: boolean;
   onActivate: () => void;
@@ -56,13 +50,15 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
   const { closeTab, updateTabTitle } = useTabStore();
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState(tab.title);
+  const [isHovering, setIsHovering] = useState(false);
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+    width: tab.type === "home" ? "100px" : "150px",
   };
 
-  const handleTitleClick = (e: React.MouseEvent) => {
+  const handleEditClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsEditing(true);
   };
@@ -85,21 +81,29 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="flex items-center">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center"
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => setIsHovering(false)}
+    >
       <TabsTrigger
         value={tab.id}
-        className={`data-[state=active]:bg-orange-500 h-10 data-[state=active]:text-primary flex items-center rounded-none`}
+        className={`data-[state=active]:bg-orange-500 h-10 data-[state=active]:text-primary flex items-center rounded-none w-full`}
         onClick={onActivate}
       >
-        {isActive && (
+        {isActive && isHovering && tab.type !== "home" && (
           <div {...attributes} {...listeners} className="cursor-pointer px-1">
             <GripVertical className="cursor-move" size={12} />
           </div>
         )}
-        {tab.type === "home" && <Home className="w-4 h-4 mr-2" />}
-        {tab.type === "sql" && <Terminal className="w-4 h-4 mr-2" />}
-        {tab.type === "information" && <Info className="w-4 h-4 mr-2" />}
-        {isEditing ? (
+        {tab.type === "home" && <Home width={16} className="mr-2 min-w-4" />}
+        {tab.type === "sql" && <Terminal width={16} className="mr-2 min-w-4" />}
+        {tab.type === "information" && (
+          <Info width={16} className="mr-2 min-w-4" />
+        )}
+        {isEditing && tab.type !== "home" ? (
           <Input
             value={editedTitle}
             onChange={handleTitleChange}
@@ -109,41 +113,28 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
             autoFocus
           />
         ) : (
-          <>
-            <span onClick={handleTitleClick}>
-              <Edit2 className="h-3 hidden hover:flex" />
+          <div className="flex items-center overflow-hidden">
+            <span className="truncate" title={tab.title}>
               {tab.title}
             </span>
-          </>
+            {isActive && isHovering && tab.type !== "home" && (
+              <Edit2
+                className="h-3 ml-1 cursor-pointer"
+                onClick={handleEditClick}
+              />
+            )}
+          </div>
         )}
         {tab.id !== "home" && (
-          <>
-            <span
-              className="ml-2 cursor-pointer"
-              onClick={(e) => {
-                e.stopPropagation();
-                closeTab(tab.id);
-              }}
-            >
-              <X className="h-4 w-4" />
-            </span>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <span
-                  className="ml-2 cursor-pointer"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <MoreVertical className="h-4 w-4" />
-                </span>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => closeTab(tab.id)}>
-                  <X className="h-4 w-4 mr-2" />
-                  Close
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
+          <span
+            className="ml-auto cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              closeTab(tab.id);
+            }}
+          >
+            <X className="h-4 w-4" />
+          </span>
         )}
       </TabsTrigger>
     </div>
@@ -151,7 +142,8 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
 }
 
 export function WorkspaceTabs() {
-  const { tabs, activeTabId, addTab, setActiveTab, moveTab } = useTabStore();
+  const { tabs, activeTabId, addTab, setActiveTab, moveTab, closeTab } =
+    useTabStore();
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -162,7 +154,7 @@ export function WorkspaceTabs() {
 
   const addNewCodeTab = () => {
     addTab({
-      title: "New Query",
+      title: "Query " + (tabs.length + 1),
       type: "sql",
       content: "",
     });
@@ -180,16 +172,31 @@ export function WorkspaceTabs() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.ctrlKey && event.key === "t") {
+      if ((event.metaKey || event.ctrlKey) && event.key === "w") {
+        event.preventDefault();
+        if (activeTabId && activeTabId !== "home") {
+          closeTab(activeTabId);
+        }
+      } else if ((event.metaKey || event.ctrlKey) && event.key === "t") {
         event.preventDefault();
         addNewCodeTab();
+      } else if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key >= "1" &&
+        event.key <= "9"
+      ) {
+        event.preventDefault();
+        const tabIndex = parseInt(event.key) - 1;
+        if (tabIndex < tabs.length) {
+          setActiveTab(tabs[tabIndex].id);
+        }
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
+    window.addEventListener("keydown", handleKeyDown, true); // Notice the third argument `true` here.
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [tabs, activeTabId, addNewCodeTab, closeTab, setActiveTab]);
+  
   return (
     <div className="flex flex-col h-full">
       <Tabs
@@ -225,7 +232,6 @@ export function WorkspaceTabs() {
                         onActivate={() => setActiveTab(tab.id)}
                       />
                     ))}
-                    <div></div>
                   </TabsList>
                 </div>
               </SortableContext>
@@ -233,21 +239,24 @@ export function WorkspaceTabs() {
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
         </div>
-        <div className=" flex flex-col h-screen">
+        <div className="flex flex-col h-screen overflow-auto">
           {tabs.map((tab) => (
             <TabsContent
               key={tab.id}
               value={tab.id}
               className="h-full p-0 outline-none data-[state=active]:block"
             >
-              <div className="h-full p-2">
+              <div className="">
                 {tab.type === "home" ? (
                   <HomeTab />
                 ) : tab.type === "sql" ? (
                   <SqlTab tabId={tab.id} />
-                ) : (
-                  <div>Information Tab Content</div>
-                )}
+                ) : tab.type === "information" ? (
+                  <InformationTab
+                    database={tab.content.database}
+                    table={tab.content.table}
+                  />
+                ) : null}
               </div>
             </TabsContent>
           ))}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -19,6 +19,8 @@ import {
   Shield,
   Key,
   SearchCode,
+  ChevronRight,
+  ChevronLeft,
 } from "lucide-react";
 import Logo from "/logo.png";
 import useAuthStore from "@/stores/user.store";
@@ -33,8 +35,6 @@ const Sidebar = () => {
   const location = useLocation();
   const [isExpanded, setIsExpanded] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const expandTimeoutRef = useRef<number | null>(null);
-  const lastMouseXRef = useRef<number | null>(null);
 
   const handleLogout = async () => {
     try {
@@ -47,6 +47,10 @@ const Sidebar = () => {
     }
   };
 
+  const toggleSidebar = () => {
+    setIsExpanded(!isExpanded);
+  };
+
   const navItems = [
     { to: "/credentials", label: "Credentials", icon: Key },
     { to: "/organizations", label: "Organizations", icon: Users },
@@ -55,43 +59,6 @@ const Sidebar = () => {
   ];
 
   const isActive = (path: string) => location.pathname === path;
-
-  useEffect(() => {
-    const handleMouseMove = (event: MouseEvent) => {
-      const currentMouseX = event.clientX;
-      const sidebarRect = sidebarRef.current?.getBoundingClientRect();
-
-      if (sidebarRect) {
-        if (currentMouseX <= sidebarRect.right && !isExpanded) {
-          setIsExpanded(true);
-          if (expandTimeoutRef.current) {
-            clearTimeout(expandTimeoutRef.current);
-          }
-        } else if (
-          lastMouseXRef.current !== null &&
-          currentMouseX < lastMouseXRef.current &&
-          currentMouseX < sidebarRect.left
-        ) {
-          setIsExpanded(false);
-        } else if (currentMouseX > sidebarRect.right && isExpanded) {
-          expandTimeoutRef.current = window.setTimeout(() => {
-            setIsExpanded(false);
-          }, 300);
-        }
-      }
-
-      lastMouseXRef.current = currentMouseX;
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      if (expandTimeoutRef.current) {
-        clearTimeout(expandTimeoutRef.current);
-      }
-    };
-  }, [isExpanded]);
 
   return (
     <div
@@ -200,6 +167,23 @@ const Sidebar = () => {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+      </div>
+
+      <div className="">
+        <Button
+          variant="link"
+          className="w-full flex justify-center items-center mt-4"
+          onClick={toggleSidebar}
+        >
+          {isExpanded ? (
+            <>
+              <ChevronLeft className="h-5 w-5" />
+              <span className="ml-2">Collapse</span>
+            </>
+          ) : (
+            <ChevronRight className="h-5 w-5" />
+          )}
+        </Button>
       </div>
     </div>
   );

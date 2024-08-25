@@ -35,6 +35,7 @@ function SettingsPage() {
   const onSubmit = async (data: any) => {
     try {
       if (user) {
+        console.log(user._id, data);
         await updateUser(user._id, data);
         toast.success("Profile updated successfully");
         setIsEditing(false);

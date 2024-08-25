@@ -121,7 +121,7 @@ export type TabType = "sql" | "result" | "home" | "information";
 export interface Tab {
   id: string;
   title: string;
-  content: string;
+  content: string | { query: string; database: string; table: string };
   type: TabType;
   results?: any[]; // Query results
   error?: string | null; // Query error

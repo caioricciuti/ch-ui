@@ -48,7 +48,13 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
     }
 
     if (tab.error) {
-      return <div className="p-4 text-red-600">{tab.error}</div>;
+      return (
+        <>
+          <div className="overflow-autotext-sm p-2">
+          <div className="p-4 border text-xs rounded-md text-red-600 bg-red-300/10 border-red-500">{tab.error}</div>
+          </div>
+        </>
+      );
     }
 
     if (!results) {
@@ -68,7 +74,11 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
       query_id: results.query_id,
     };
 
-    return <CHUITable result={tableResult} initialPageSize={20} />;
+    return (
+      <div className="h-full w-full flex flex-col">
+        <CHUITable result={tableResult} initialPageSize={20} />
+      </div>
+    );
   };
 
   return (
@@ -79,7 +89,7 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
         </ResizablePanel>
         <ResizableHandle withHandle />
         <ResizablePanel defaultSize={50} minSize={0}>
-          {renderResults()}
+          <div className="h-full w-full flex flex-col">{renderResults()}</div>
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
