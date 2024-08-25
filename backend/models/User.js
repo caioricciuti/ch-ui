@@ -44,6 +44,12 @@ const userSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "ClickHouseCredential",
     },
+    savedQueries: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "SavedQuery",
+      },
+    ],
   },
   { timestamps: true }
 );

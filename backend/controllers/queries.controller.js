@@ -1,11 +1,8 @@
-const {
-  createClient,
-  ClickHouseError,
-  ClickHouseLogLevel,
-} = require("@clickhouse/client");
+const { createClient } = require("@clickhouse/client");
 const Organization = require("../models/Organization");
 const ClickHouseCredential = require("../models/ClickHouseCredential");
 const errorResponse = require("../utils/errorResponse");
+const QuerieSave = require("../models/QuerieSave");
 
 const determineQueryType = (query) => {
   const upperQuery = query.trim().toUpperCase();
@@ -177,5 +174,72 @@ exports.executeQuery = async (req, res) => {
     );
   }
 };
+
+exports.saveQuery = async (req, res) => {
+  try {
+    const { user } = req;
+    const { activeOrganization } = user;
+
+    // Check if user has an active organization
+    if (!activeOrganization) {
+      return errorResponse(
+        res,
+        400,
+        6010,
+        "No active organization",
+        "saveQuery"
+      );
+    }
+
+    // Fetch the active organization
+    const organization = await Organization.findById(activeOrganization);
+    if (!organization) {
+      return errorResponse(
+        res,
+        404,
+        6011,
+        "Active organization not found",
+        "saveQuery"
+      );
+    }
+
+    // Check if user is a member of the active organization
+    if (!organization.members.includes(user._id)) {
+      return errorResponse(
+        res,
+        403,
+        6016,
+        "User is not a member of the active organization",
+        "saveQuery"
+      );
+    }
+
+    const { name, query, public } = req.body;
+    if (!name || !query || typeof name !== "string" || typeof query !== "string") {
+      return errorResponse(res, 400, 6015, "Invalid request body", "saveQuery");
+    }
+
+    const savedQuery = new QuerieSave({
+      name,
+      query,
+      user: user._id,
+      public: !!public,
+      organization: organization._id,
+    });
+
+    await savedQuery.save();
+
+    return res.status(201).json(savedQuery);
+  } catch (error) {
+    return errorResponse(
+      res,
+      400,
+      6014,
+      error.message.toString(),
+      "saveQuery"
+    );
+  }
+}
+
 
 module.exports = exports;

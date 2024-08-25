@@ -186,7 +186,7 @@ export function CHUITable<T extends RowData>({
     const handleResize = () => {
       if (tableContainerRef.current) {
         const { height } = tableContainerRef.current.getBoundingClientRect();
-        tableContainerRef.current.style.height = `${Math.max(height, 256)}px`;
+        tableContainerRef.current.style.height = `${Math.max(height, 50)}px`;
       }
     };
 

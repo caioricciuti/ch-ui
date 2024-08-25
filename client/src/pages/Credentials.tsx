@@ -7,9 +7,10 @@ import CredentialList from "@/components/CredentialList";
 import AddCredentialDialog from "@/components/AddCredentialDialog";
 import CredentialDetailDialog from "@/components/CredentialDetailDialog";
 import UpdateCredentialDialog from "@/components/UpdateCredentialDialog";
-import { Search, Plus, ArrowUpDown, DatabaseZap } from "lucide-react";
+import { Search, Plus, ArrowUpDown, DatabaseZap, Info } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import InfoDialog from "@/components/InfoDialog"; // Ensure this is the correct import path
 
 function CredentialsPage() {
   const {
@@ -22,6 +23,7 @@ function CredentialsPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
+  const [isInfoDialogOpen, setIsInfoDialogOpen] = useState(false); // State for InfoDialog
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState<"name" | "userCount">("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
@@ -65,8 +67,12 @@ function CredentialsPage() {
     <div className="container mx-auto my-6 max-w-8xl">
       <Card className="h-[calc(100vh-8rem)] flex flex-col">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold">
+          <CardTitle className="text-2xl font-bold flex items-center">
             Click House Credentials
+            <Info
+              className="h-6 w-6 text-blue-500 cursor-pointer ml-3"
+              onClick={() => setIsInfoDialogOpen(true)} // Open InfoDialog on click
+            />
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -84,7 +90,7 @@ function CredentialsPage() {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
-              <Search className=" right-3 top-2 absolute" />
+              <Search className="right-3 top-2 absolute" />
             </div>
           </div>
 
@@ -162,6 +168,20 @@ function CredentialsPage() {
         <UpdateCredentialDialog
           isOpen={isUpdateDialogOpen}
           onClose={() => setIsUpdateDialogOpen(false)}
+        />
+
+        {/* Info Dialog for How-To */}
+        <InfoDialog
+          isOpen={isInfoDialogOpen}
+          onClose={() => setIsInfoDialogOpen(false)}
+          title="Click House Credentials"
+          description="Click House Credentials allow you to manage access and permissions for your ClickHouse instances."
+          steps={[
+            "Add a new credential by clicking the 'Add Credential' button. (You can only add credentials if there is at least 1 Oraganization)",
+            "View details of a credential by clicking on it in the list.",
+            "Edit or delete credentials using the options available for each credential.",
+            "Assign users and organizations to a credential to manage access.",
+          ]}
         />
       </Card>
     </div>

@@ -47,10 +47,13 @@ const isAuthorized = (action) => {
         }
       }
 
+      const payloadUserId = req.body.userId;
+      const requestedUserId = req.user.id;
+
       // Define permissions
       const permissions = {
-        updateUser: (reqUserId) => user._id.toString() === reqUserId,
-        deleteUser: (reqUserId) => user._id.toString() === reqUserId,
+        updateUser: () => requestedUserId === payloadUserId,
+        deleteUser: () => requestedUserId === payloadUserId,
         updateOrganization: () => isOwnerOrMember(user, organization),
         deleteOrganization: () => isOwner(user, organization),
         addMemberToOrganization: () => isOwner(user, organization),

@@ -7,9 +7,10 @@ import OrganizationList from "@/components/OrganizationList";
 import AddOrganizationDialog from "@/components/AddOrganizationDialog";
 import OrganizationDetailDialog from "@/components/OrganizationDetailDialog";
 import UpdateOrganizationDialog from "@/components/UpdateOrganizationDialog";
-import { Search, Plus, ArrowUpDown, Tally5 } from "lucide-react";
+import { Search, Plus, ArrowUpDown, Tally5, Info } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import InfoDialog from "@/components/InfoDialog"; // Ensure this is the correct import path
 
 import { Organization } from "@/types/types";
 
@@ -19,6 +20,7 @@ function OrganizationsPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
+  const [isInfoDialogOpen, setIsInfoDialogOpen] = useState(false); // State for InfoDialog
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState<"name" | "memberCount">("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
@@ -60,7 +62,13 @@ function OrganizationsPage() {
     <div className="container mx-auto my-6 max-w-8xl">
       <Card className="h-[calc(100vh-8rem)] flex flex-col">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold">Organizations</CardTitle>
+          <CardTitle className="text-2xl font-bold flex items-center">
+            Organizations
+            <Info
+              className="h-6 w-6 text-blue-500 cursor-pointer ml-3"
+              onClick={() => setIsInfoDialogOpen(true)} // Open InfoDialog on click
+            />
+          </CardTitle>
         </CardHeader>
         <CardContent className="flex-grow flex flex-col">
           <div className="flex justify-between items-center mb-4">
@@ -145,6 +153,23 @@ function OrganizationsPage() {
       <UpdateOrganizationDialog
         isOpen={isUpdateDialogOpen}
         onClose={() => setIsUpdateDialogOpen(false)}
+      />
+
+      <InfoDialog
+        isOpen={isInfoDialogOpen}
+        onClose={() => setIsInfoDialogOpen(false)}
+        title="Organizations"
+        description="Organizations are groups of users."
+        steps={[
+          "Create a new organization by clicking the 'Add Organization' button.",
+          "View organization details by clicking on an organization card.",
+          "Edit or delete an organization using the actions on the table",
+          "Search for organizations using the search bar.",
+          "Sort organizations by name or member count by clicking the 'Sort by' button.",
+          "Add, or remove members from an organization using the actions",
+          "Organizations have members and credentials assigned to it.",
+        ]}
+        docsUrl="https://ch-ui.caioricciuti.com/organizations"
       />
     </div>
   );
