@@ -1,70 +1,109 @@
 ---
 sidebar_position: 1
-title: Intro
+title: Discover CH-UI
 ---
 
-### Let's discover **ch-ui**.
+import { FeatureCard, FeatureGrid } from '@site/src/components/FeatureCard';
 
-## What it does?
+# 🧑‍🚀️ Discover CH-UI
 
-It makes your life and your data projects **easy** to manage and maintain (hopefully).
+**CH-UI** is your gateway to effortless data management and insightful analytics with ClickHouse. Let's explore how it can help you and your organization to reach new heights in data-driven decision-making.
 
-1. User Interface to interact with your data on a **ClickHouse instance**.
-2. **Data visualization** with **charts** and **tables**.
-3. **Query editor** to run SQL queries.
-4. **Data management** with **tables** and **databases**.
-5. **User management** with **roles** and **permissions**.
-6. **Data import** and **export**.
-7. **Data transformation** with **SQL**.
-8. **Data monitoring** with **metrics**.
-9. Everything else we need on the way - IT'S OPEN SOURCE, your idea can be implemented.
+## 🚀 What CH-UI Does
 
-## Is it really necessary?
+CH-UI makes your life and data projects **easy** to manage and maintain when you need privacy and control over your data.
 
-- [ClickHouse](https://clickhouse.com) is a powerful **OLAP** database, (the best in my opinion) but it relies on 3rd party Cloud to deploy and have the built-in UI (which is totally fine), they already make the engine open-source and free to use, which I'm personally grateful for.
+#### Here's what you can do:
 
-## How it works?
+<FeatureGrid>
+  <FeatureCard
+    title="ClickHouse Integration"
+    description="Seamlessly interact with your ClickHouse instances through an intuitive user interface."
+    icon="database"
+  />
+  <FeatureCard
+    title="Results Visualization"
+    description="See the results of your queries on the go in filtrable tables"
+    icon="table"
+  />
+  <FeatureCard
+    title="Query Editor"
+    description="Write and execute SQL queries with ease using our powerful editor."
+    icon="code"
+  />
+  <FeatureCard
+    title="Data Management"
+    description="Effortlessly manage tables and databases within your ClickHouse instance."
+    icon="file"
+  />
+  <FeatureCard
+    title="User Management"
+    description="Control access with customizable roles and permissions."
+    icon="users"
+  />
+  <FeatureCard
+    title="Data Import/Export"
+    description="Export the results of your queries"
+    icon="exchange-alt"
+  />
+  <FeatureCard
+    title="Data Transformation"
+    description="Transform your data using the power of SQL, right within CH-UI."
+    icon="magic"
+  />
+  <FeatureCard
+    title="Metrics"
+    description="Keep an eye on your instance with a metrics dashboard."
+    icon="chart-line"
+  />
+    <FeatureCard
+    title="It's yours"
+    description="All your data managed by you, spin a Click House instance, connect with CH-UI and relax, it's on the house"
+    icon="network-wired"
+  />
+</FeatureGrid>
 
-### Client
+And much more! CH-UI is designed to be your go-to tool for all things related to your data team! Finally you can focus on what matters most: your data, your insights, your decisions. Make your data team's life easier and more productive with **CH-UI**.
 
-- The client is built with **React** and **TypeScript**.
+## 🤔 Why CH-UI?
 
-> Client - "Responsible for the user interface and user experience".
+[ClickHouse](https://clickhouse.com) is an incredibly **THE BEST** OLAP database, after years working with proprietary DB's I had no
+idea that an open-source database could be so powerful, but it is, and it's amazing. The command line interface is great, but it's not for everyone, and that's where CH-UI comes in.
 
-1. Nothing is stored on the client side other than the app state ( **Zustand** ).
-2. Client communicates with the server through **REST API**. ( **React Query** ).
-3. Shows the data in a user-friendly way and allows the user to interact with it.
+- [Check out Click House documentation](https://clickhouse.com/docs)
 
-### Server
+NOTE: This is not a Click House project, it's a personal project, I'm not affiliated with Click House in any way, I just love it.
 
-- The server is built with **Node.js** and **Express**.
+## 🛠 How It Works
 
-> Server - "Responsible for processing requests, handling business logic, and interacting with the database".
+CH-UI is built on my best knowledge. It's a full-stack application that leverages the power of modern web technologies to deliver a seamless user experience.
 
-1. Manages user authentication and authorization. **JWT**
-2. Exposes REST API endpoints for client interactions.
-3. Connects to the ClickHouse database to execute queries and manage data. [ClickHouse's JS(NodeJs) Client ](https://clickhouse.com/docs/en/integrations/language-clients/javascript)
-4. Handles data import and export operations. **CSV/JSON**
-5. Manages user roles and permissions for secure access control.
+### Client Side
+
+- Built with **React** and **TypeScript**
+- Uses **Zustand** for efficient state management
+- Communicates with the server via **REST API**
+
+### Server Side
+
+- Powered by **Node.js** and **Express**
+- Handles authentication and authorization with **JWT**
+- Connects to ClickHouse using the official [ClickHouse JS Client](https://clickhouse.com/docs/en/integrations/language-clients/javascript)
+- Manages data operations and user permissions
 
 ### Data Flow
 
-1. **User Request**: The user interacts with the client application (UI) and makes a request (e.g., to run a query or visualize data).
-2. **Client to Server**: The client sends the request to the server via a REST API call.
-3. **Server Processing**: The server processes the request, which involve querying the ClickHouse database or performing some data transformation via [ClickHouse's JS(NodeJs) Client ](https://clickhouse.com/docs/en/integrations/language-clients/javascript).
-4. **Response**: The server sends the data back to the client.
-5. **Data Display**: The client receives the data and displays it in a user-friendly format (e.g., charts, tables).
+1. User interacts with the CH-UI client
+2. Client sends requests to the server via REST API
+3. Server processes requests, interacting with ClickHouse as needed
+4. Server sends data back to the client
+5. Client displays data in a user-friendly format
 
-### Key Features
+## 💡 Why Choose CH-UI?
 
-- **Query Editor**: Write and execute SQL queries directly from the UI.
-- **User Management**: Control access with roles and permissions. ** within ch-ui** 
-- **Data Management**: Import, export, and manage your data tables and databases.
-- **Monitoring**: Track and visualize key metrics for your data and queries.
+- **Open Source**: Customize and extend to fit your unique needs, your data, your way!
+- **User-Friendly**: Intuitive interface for effortless data interaction
+- **Powerful**: Harness the full potential of ClickHouse with enhanced UX
+- **Community-Driven**: Shape the future of CH-UI with your contributions!
 
-## Why choose ch-ui?
-
-- **Open Source**: Customize and extend the platform to fit your needs.
-- **User-Friendly**: Intuitive UI that makes it easy to interact with your data.
-- **Powerful**: Leverage the full capabilities of ClickHouse with an enhanced user experience.
-- **Community-Driven**: Contribute your ideas and improvements to the project.
+Ready to supercharge your ClickHouse experience? [Get started with CH-UI](/docs/documentation/getstarted) now!

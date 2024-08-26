@@ -3,27 +3,15 @@ import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
 
 const config: Config = {
-  title: "ch-ui",
-  tagline: "Democratizing data is necessary... together it's possible!",
+  title: "CH-UI",
+  tagline: "Reaching for making data accessible for everyone...",
   favicon: "img/logo.png",
-
-  // Set the production url of your site here
   url: "https://ch-ui.caioricciuti.com",
-  // Set the /<baseUrl>/ pathname under which your site is served
-  // For GitHub pages deployment, it is often '/<projectName>/'
   baseUrl: "/",
-
-  // GitHub pages deployment config.
-  // If you aren't using GitHub pages, you don't need these.
-  organizationName: "Caio Ricciuti", // Usually your GitHub org/user name.
-  projectName: "ch-ui", // Usually your repo name.
-
+  organizationName: "Caio Ricciuti",
+  projectName: "ch-ui",
   onBrokenLinks: "throw",
   onBrokenMarkdownLinks: "warn",
-
-  // Even if you don't use internationalization, you can use this field to set
-  // useful metadata like html lang. For example, if your site is Chinese, you
-  // may want to replace "en" with "zh-Hans".
   i18n: {
     defaultLocale: "en",
     locales: ["en"],
@@ -33,12 +21,10 @@ const config: Config = {
 
   presets: [
     [
-      "classic",
+      "@docusaurus/preset-classic",
       {
         docs: {
           sidebarPath: "./sidebars.ts",
-          // Please change this to your repo.
-          // Remove this to remove the "edit this page" links.
           editUrl: "https://github.com/caioricciuti/ch-ui/docs/s",
         },
         theme: {
@@ -49,12 +35,10 @@ const config: Config = {
   ],
 
   themeConfig: {
-    // Replace with your project's social card
-    image: "img/docusaurus-social-card.jpg",
     navbar: {
-      title: "ch-ui",
+      title: "CH-UI",
       logo: {
-        alt: "ch-ui Logo",
+        alt: "CH-UI Logo",
         src: "img/logo.png",
       },
       items: [
@@ -62,12 +46,13 @@ const config: Config = {
           type: "docSidebar",
           sidebarId: "tutorialSidebar",
           position: "left",
-          label: "Intro",
+          label: "Documentation",
         },
         {
-          href: "https://github.com/caioricciuti/ch-ui?utm_source=ch-ui-docs&utm_medium=navbar",
-          label: "GitHub",
+          type: "html",
           position: "right",
+          value:
+            '<div><a href="https://github.com/caioricciuti/ch-ui?utm_source=ch-ui-docs&utm_medium=header" target="_blank"><img style="margin-top:6px" src="https://img.shields.io/github/stars/caioricciuti/ch-ui?style=social" alt="GitHub stars" /></a></div>',
         },
       ],
     },
@@ -88,19 +73,22 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} ch-ui - Caio Ricciuti <br/> Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} CH-UI <br /> Made with ❤`,
     },
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
     },
-    customFields: {
-      // This allows the dev server to be accessed from other devices on the network
-      host: "0.0.0.0",
-      // Optionally, specify a port (default is 3000)
-      port: 3001,
-    },
   } satisfies Preset.ThemeConfig,
+
+  customFields: {
+    github: {
+      username: "caioricciuti",
+      repoName: "ch-ui",
+    },
+    host: "0.0.0.0",
+    port: 3001,
+  },
 };
 
 export default config;
