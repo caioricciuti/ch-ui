@@ -35,10 +35,6 @@ const DownloadDialog: React.FC<DownloadDialogProps> = ({ data }) => {
       case "json":
         size = new Blob([JSON.stringify(data)]).size;
         break;
-      case "parquet":
-        // Rough estimation, as actual Parquet size would be calculated server-side
-        size = new Blob([JSON.stringify(data)]).size * 0.7;
-        break;
       case "clipboard":
         size = new Blob([JSON.stringify(data)]).size;
         break;
@@ -64,11 +60,6 @@ const DownloadDialog: React.FC<DownloadDialogProps> = ({ data }) => {
         break;
       case "json":
         downloadJSON();
-        break;
-      case "parquet":
-        alert(
-          "Parquet download is not implemented in this client-side example."
-        );
         break;
       case "clipboard":
         copyToClipboard();
@@ -137,10 +128,6 @@ const DownloadDialog: React.FC<DownloadDialogProps> = ({ data }) => {
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="json" id="json" />
               <Label htmlFor="json">Download as JSON</Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="parquet" id="parquet" />
-              <Label htmlFor="parquet">Download as Parquet</Label>
             </div>
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="clipboard" id="clipboard" />

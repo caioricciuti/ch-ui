@@ -54,6 +54,12 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId }) => {
         updateTabContent(tabId, { content: newContent });
       });
 
+      // add the cmd or ctrl + enter key binding to run the query
+      editor.addCommand(
+        monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+        handleRunQuery
+      );
+
       return () => {
         changeListener.dispose();
         editor.dispose();
@@ -67,9 +73,23 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId }) => {
 
   const handleRunQuery = () => {
     if (monacoRef.current) {
-      const content = monacoRef.current.getValue();
+      const content = getSelectedText() || monacoRef.current.getValue();
       runQuery(tabId, content);
     }
+  };
+
+  const getSelectedText = () => {
+    if (monacoRef.current) {
+      const model = monacoRef.current.getModel();
+      if (model) {
+        const selection = monacoRef.current.getSelection();
+        // console.log the selected text
+        if (selection && !selection.isEmpty()) {
+          return model.getValueInRange(selection);
+        }
+      }
+    }
+    return null;
   };
 
   const handleSaveQuery = async () => {

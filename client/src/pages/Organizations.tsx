@@ -11,12 +11,13 @@ import { Search, Plus, ArrowUpDown, Tally5, Info } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import InfoDialog from "@/components/InfoDialog"; // Ensure this is the correct import path
-
 import { Organization } from "@/types/types";
+import useAuthStore from "@/stores/user.store";
 
 function OrganizationsPage() {
   const { organizations, fetchOrganizations, isLoading, error } =
     useOrganizationStore();
+  const { user } = useAuthStore();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
@@ -34,6 +35,8 @@ function OrganizationsPage() {
       toast.error(error);
     }
   }, [error]);
+
+  const userSelectedOrganization = user?.activeOrganization?._id;
 
   const filteredOrganizations = organizations
     .filter((org) => org.name.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -111,6 +114,7 @@ function OrganizationsPage() {
             ) : filteredOrganizations.length > 0 ? (
               <OrganizationList
                 organizations={filteredOrganizations}
+                userSelectedOrganization={userSelectedOrganization ?? null}
                 onViewDetails={(org: Organization) => {
                   useOrganizationStore.getState().setSelectedOrganization(org);
                   setIsDetailDialogOpen(true);

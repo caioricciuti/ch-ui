@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: Build and Push Client Docker Image
 
 on:
   push:
@@ -7,11 +7,13 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - "client/**"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: contains(github.event.head_commit.message, 'dk-build')
+    if: contains(github.event.head_commit.message, 'dk-build-client')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2

@@ -21,6 +21,7 @@ export interface User {
   _id: string;
   name: string;
   email: string;
+  avatar?: string;
   role: "admin" | "user" | "viewer";
   active: boolean;
   createdAt: string;
@@ -70,7 +71,7 @@ export interface ClickHouseCredentialState {
   isLoading: boolean;
   error: string | null;
   fetchCredentials: () => Promise<void>;
-  fetchAvailableCredentials: () => Promise<void>;
+  fetchAvailableCredentials: (organizationId: string) => Promise<void>;
   createCredential: (
     credentialData: Partial<ClickHouseCredential>
   ) => Promise<void>;
@@ -143,4 +144,37 @@ export interface TabQueryState {
   getTabById: (id: string) => Tab | undefined;
   fetchQueries: () => Promise<void>;
   runQuery: (tabId: string, query: string) => Promise<void>;
+}
+
+//CHATS
+export interface Chat {
+  _id: string;
+  participants: User[];
+  messages: Message[];
+  lastMessage: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Message {
+  _id: string;
+  sender: User;
+  content: string;
+  timestamp: string;
+}
+
+export interface ChatState {
+  chats: Chat[];
+  selectedChat: Chat | null;
+  isLoading: boolean;
+  error: string | null;
+  fetchChats: () => Promise<void>;
+  fetchChat: (chatId: string) => Promise<void>;
+  createChat: (participantId: string) => Promise<Chat>;
+  sendMessage: (chatId: string, content: string) => Promise<Message>;
+  deleteMessage: (chatId: string, messageId: string) => Promise<void>;
+  deleteChat: (chatId: string) => Promise<void>;
+  handleNewMessage: (chatId: string, message: Message) => void;
+  handleMessageDeleted: (chatId: string, messageId: string) => void;
+  handleChatDeleted: (chatId: string) => void;
 }

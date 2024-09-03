@@ -1,25 +1,27 @@
 import * as React from "react";
-import { Building2, Check, ChevronsUpDown, Loader2, Key } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Building2, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import useOrganizationStore from "@/stores/organization.store";
 import useAuthStore from "@/stores/user.store";
 import useClickHouseCredentialStore from "@/stores/clickHouseCredentials.store";
 import { toast } from "sonner";
-import ConfirmationDialog from "@/components/ConfirmationDialog";
 
 export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
   const {
@@ -35,196 +37,160 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
   } = useClickHouseCredentialStore();
   const { user, setCurrentOrganization, setCurrentCredential } = useAuthStore();
 
-  const [orgOpen, setOrgOpen] = React.useState(false);
-  const [credOpen, setCredOpen] = React.useState(false);
-  const [orgValue, setOrgValue] = React.useState("");
-  const [credValue, setCredValue] = React.useState("");
-  const [confirmDialogOpen, setConfirmDialogOpen] = React.useState(false);
-  const [pendingOrgChange, setPendingOrgChange] = React.useState<{
-    id: string;
-    name: string;
-  } | null>(null);
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [tempOrgValue, setTempOrgValue] = React.useState("");
+  const [tempCredValue, setTempCredValue] = React.useState("");
 
   React.useEffect(() => {
     fetchOrganizations();
-    fetchAvailableCredentials();
-  }, [fetchOrganizations, fetchAvailableCredentials]);
+  }, [fetchOrganizations]);
 
   React.useEffect(() => {
-    if (user?.activeOrganization) {
-      setOrgValue(user.activeOrganization._id);
+    if (user?.activeOrganization?._id) {
+      setTempOrgValue(user.activeOrganization._id);
+      fetchAvailableCredentials(user.activeOrganization._id);
     }
-    if (user?.activeClickhouseCredential) {
-      setCredValue(user.activeClickhouseCredential._id);
+    if (user?.activeClickhouseCredential?._id) {
+      setTempCredValue(user.activeClickhouseCredential._id);
     }
-  }, [user?.activeOrganization, user?.activeClickhouseCredential]);
+  }, [
+    user?.activeOrganization,
+    user?.activeClickhouseCredential,
+    fetchAvailableCredentials,
+  ]);
 
-  const handleOrgSelect = async (
-    organizationId: string,
-    organizationName: string
-  ) => {
-    if (organizationId !== orgValue) {
-      setPendingOrgChange({ id: organizationId, name: organizationName });
-      setConfirmDialogOpen(true);
-      setOrgOpen(false);
+  const handleDialogOpen = () => {
+    setTempOrgValue(user?.activeOrganization?._id || "");
+    setTempCredValue(user?.activeClickhouseCredential?._id || "");
+    setDialogOpen(true);
+  };
+
+  const handleDialogClose = () => {
+    setDialogOpen(false);
+  };
+
+  const handleOrgSelect = async (organizationId: string) => {
+    setTempOrgValue(organizationId);
+    resetCredentials();
+    setTempCredValue("");
+    await fetchAvailableCredentials(organizationId);
+  };
+
+  const handleCredSelect = (credentialId: string) => {
+    setTempCredValue(credentialId);
+  };
+
+  const handleSave = async () => {
+    if (!tempOrgValue || !tempCredValue) {
+      toast.error("Please select both an organization and a credential.");
+      return;
+    }
+
+    try {
+      await setCurrentOrganization(tempOrgValue);
+      await setCurrentCredential(tempCredValue);
+      toast.success("Organization and credential updated successfully.");
+      setDialogOpen(false);
+    } catch (error: any) {
+      console.error("Update failed:", error);
+      toast.error(`Failed to update: ${error.message}`);
     }
   };
 
-  const confirmOrgChange = async () => {
-    if (pendingOrgChange) {
-      setOrgValue(pendingOrgChange.id);
-      try {
-        await setCurrentOrganization(pendingOrgChange.id);
-        resetCredentials();
-        fetchAvailableCredentials();
-        toast.success(
-          `${pendingOrgChange.name} selected as current organization. Please select a credential.`
-        );
-        setCredOpen(true);
-      } catch (error: any) {
-        console.error("Update current organization failed:", error);
-        toast.error(`Failed: ${error.message}`);
-      }
-    }
-    setConfirmDialogOpen(false);
-    setPendingOrgChange(null);
-  };
-
-  const handleCredSelect = async (
-    credentialId: string,
-    credentialName: string
-  ) => {
-    if (credentialId !== credValue) {
-      setCredValue(credentialId);
-      setCredOpen(false);
-      try {
-        await setCurrentCredential(credentialId);
-        toast.success(`${credentialName} selected as current credential.`);
-        window.dispatchEvent(new Event("workspaceReload"));
-      } catch (error: any) {
-        console.error("Update current credential failed:", error);
-        toast.error(`Failed: ${error.message}`);
-      }
-    }
-  };
-
-  const selectedOrganization = organizations.find(
-    (org) => org._id === orgValue
-  );
-  const selectedCredential = availableCredentials.find(
-    (cred) => cred._id === credValue
-  );
-
-  const renderSelector = (
-    type: "org" | "cred",
-    loading: boolean,
-    open: boolean,
-    setOpen: React.Dispatch<React.SetStateAction<boolean>>,
-    selected: any,
-    items: any[],
-    handleSelect: (id: string, name: string) => void
-  ) => {
-    const icon = type === "org" ? Building2 : Key;
-    const placeholder =
-      type === "org" ? "Select organization" : "Select credential";
-    const searchPlaceholder =
-      type === "org" ? "Search organization..." : "Search credential...";
-    const emptyMessage =
-      type === "org" ? "No organization found." : "No credential found.";
-
-    if (loading) {
-      return (
-        <Button
-          variant="outline"
-          className="max-w-[180px] justify-between gap-2"
-        >
-          {React.createElement(icon, {
-            className: "h-4 w-4 shrink-0 opacity-50 mr-2",
-          })}
-          <Loader2 className="h-4 w-4 animate-spin" />
-        </Button>
-      );
-    }
-
-    return (
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            className={`max-w-[180px] justify-between gap-2
-              ${isExpanded ? "" : "hidden"}
-              `}
-          >
-            {React.createElement(icon, {
-              className: "h-4 w-4 shrink-0 opacity-50",
-            })}
-            <span className="truncate">
-              {selected ? selected.name : placeholder}
-            </span>
-            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-[200px] p-0">
-          <Command>
-            <CommandInput placeholder={searchPlaceholder} />
-            <CommandEmpty>{emptyMessage}</CommandEmpty>
-            <CommandList>
-              <CommandGroup>
-                {items.map((item) => (
-                  <CommandItem
-                    key={item._id}
-                    value={item._id}
-                    onSelect={() => handleSelect(item._id, item.name)}
-                  >
-                    <Check
-                      className={cn(
-                        "mr-2 h-4 w-4",
-                        selected?._id === item._id ? "opacity-100" : "opacity-0"
-                      )}
-                    />
-                    {item.name}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    );
-  };
+  const noCredentialsAvailable =
+    availableCredentials.length === 0 && tempOrgValue !== "" && !credLoading;
 
   return (
-    <div className="w-full space-y-2">
-      {renderSelector(
-        "org",
-        orgLoading,
-        orgOpen,
-        setOrgOpen,
-        selectedOrganization,
-        organizations,
-        handleOrgSelect
-      )}
-      {renderSelector(
-        "cred",
-        credLoading,
-        credOpen,
-        setCredOpen,
-        selectedCredential,
-        availableCredentials,
-        handleCredSelect
-      )}
-      <ConfirmationDialog
-        isOpen={confirmDialogOpen}
-        onClose={() => setConfirmDialogOpen(false)}
-        onConfirm={confirmOrgChange}
-        title="Confirm Organization Change"
-        description={`Are you sure you want to change the organization to ${pendingOrgChange?.name}? This will reset your current credential selection.`}
-        confirmText="Change Organization"
-        cancelText="Cancel"
-      />
-    </div>
+    <>
+      <Button
+        variant="outline"
+        className={`max-w-[180px] justify-between gap-2 ${
+          isExpanded ? "" : "hidden"
+        }`}
+        onClick={handleDialogOpen}
+      >
+        <Building2 className="h-4 w-4 shrink-0 opacity-50" />
+        <span className="truncate">
+          {user?.activeOrganization?.name || "Select Organization"}
+        </span>
+        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+      </Button>
+
+      <Dialog open={dialogOpen} onOpenChange={handleDialogClose}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Choose Organization and Credential</DialogTitle>
+            <DialogDescription>
+              Select your organization and credential to continue.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="organization" className="text-right">
+                Organization
+              </Label>
+              <Select
+                value={tempOrgValue}
+                onValueChange={handleOrgSelect}
+                disabled={orgLoading}
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select organization" />
+                </SelectTrigger>
+                <SelectContent>
+                  {organizations.map((org) => (
+                    <SelectItem key={org._id} value={org._id}>
+                      {org.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="credential" className="text-right">
+                Credential
+              </Label>
+              <Select
+                value={tempCredValue}
+                onValueChange={handleCredSelect}
+                disabled={
+                  credLoading || !tempOrgValue || noCredentialsAvailable
+                }
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select credential" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableCredentials.map((cred) => (
+                    <SelectItem key={cred._id} value={cred._id}>
+                      {cred.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {noCredentialsAvailable && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  There are no credentials available for this organization you
+                  can use.
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={handleSave}
+              disabled={
+                !tempOrgValue || !tempCredValue || noCredentialsAvailable
+              }
+            >
+              Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

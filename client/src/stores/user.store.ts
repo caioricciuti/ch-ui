@@ -6,7 +6,6 @@ import axios from "axios";
 import useClickHouseCredentialStore from "@/stores/clickHouseCredentials.store";
 import { AuthState } from "@/types/types";
 
-
 const useAuthStore = create<AuthState>()(
   devtools((set, get) => ({
     user: null,
@@ -133,7 +132,7 @@ const useAuthStore = create<AuthState>()(
         // Reset and fetch available credentials
         const credentialStore = useClickHouseCredentialStore.getState();
         credentialStore.resetCredentials();
-        await credentialStore.fetchAvailableCredentials();
+        await credentialStore.fetchAvailableCredentials(organizationId);
       } catch (error) {
         console.error("Failed to set current organization:", error);
         set({ error: "Failed to set current organization", isLoading: false });

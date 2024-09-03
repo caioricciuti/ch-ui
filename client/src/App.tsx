@@ -4,19 +4,31 @@ import { ThemeProvider } from "@/components/theme-provider";
 import useAuthStore from "@/stores/user.store";
 import { FlipWords } from "./components/ui/flip-words";
 import Logo from "/logo.png";
+import webSocketManager from "@/lib/websocket";
 
 const App: React.FC = () => {
-  const { checkAuth } = useAuthStore();
+  const { checkAuth, user } = useAuthStore();
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const initAuth = async () => {
       await checkAuth();
+      console.log("check auth");
       setIsLoading(false);
     };
 
     initAuth();
   }, [checkAuth]);
+
+  // If user is auth create the websocket connection
+  useEffect(() => {
+    if (!isLoading && user) {
+      console.log("init websocket");
+      
+    } else {
+      console.log("not init websocket");
+    }
+  }, [isLoading]);
 
   return (
     <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">

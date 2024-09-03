@@ -17,6 +17,8 @@ import MetricsPage from "@/pages/Metrics";
 import ActivateAccount from "@/pages/ActivateAccount";
 import SettingsPage from "@/pages/Settings";
 import CredentialsPage from "@/pages/Credentials";
+import NotificationsPage from "@/pages/Notifications";
+import ChatPage from "@/pages/Chat";
 
 const router = createBrowserRouter([
   {
@@ -65,6 +67,18 @@ const router = createBrowserRouter([
           {
             path: "credentials",
             element: <CredentialsPage />,
+          },
+          {
+            path: "notifications",
+            element: <NotificationsPage />,
+          },
+          {
+            path: "chats",
+            element: <ChatPage />,
+          },
+          {
+            path: "chats/:chatId",
+            element: <ChatPage />, // Specific chat page with chatId
           },
           {
             path: "*",

@@ -23,10 +23,13 @@ const useClickHouseCredentialStore = create<ClickHouseCredentialState>(
       }
     },
     // fetch available credentials for the current user based on the organization they are in
-    fetchAvailableCredentials: async () => {
+    fetchAvailableCredentials: async (organizationId) => {
       set({ isLoading: true, error: null });
       try {
-        const response = await api.get("/clickhouse-credentials/available");
+        const response = await api.get(
+          `/clickhouse-credentials/available?organizationId=${organizationId}`
+        );
+        console.log(response.data);
         set({ availableCredentials: response.data, isLoading: false });
       } catch (error) {
         set({

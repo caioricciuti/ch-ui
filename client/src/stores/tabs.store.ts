@@ -46,7 +46,7 @@ const useTabStore = create<TabQueryState>()(
               newTabs[tabIndex]?.id ||
               newTabs[tabIndex - 1]?.id ||
               newTabs[0]?.id ||
-              "";
+              "home";
           }
 
           return { tabs: newTabs, activeTabId: newActiveTabId };
@@ -78,17 +78,21 @@ const useTabStore = create<TabQueryState>()(
           const newTabs = [...state.tabs];
           const [movedTab] = newTabs.splice(fromIndex, 1);
           newTabs.splice(toIndex, 0, movedTab);
-          return { tabs: newTabs };
+
+          return {
+            tabs: newTabs,
+            activeTabId:
+              state.activeTabId === movedTab.id
+                ? movedTab.id
+                : state.activeTabId,
+          };
         });
       },
 
-      getTabById: (id) => {
-        return get().tabs.find((tab) => tab.id === id);
-      },
+      getTabById: (id) => get().tabs.find((tab) => tab.id === id),
 
-      getTabByTitle: (title: string) => {
-        return get().tabs.find((tab) => tab.title === title);
-      },
+      getTabByTitle: (title: string) =>
+        get().tabs.find((tab) => tab.title === title),
 
       fetchQueries: async () => {
         set({ isLoading: true, error: null });
@@ -105,7 +109,6 @@ const useTabStore = create<TabQueryState>()(
 
       runQuery: async (tabId, query) => {
         if (!tabId) {
-          // just send the result api call and the result back
           try {
             const response = await api.post("/query", { query });
             return response.data;
@@ -113,6 +116,7 @@ const useTabStore = create<TabQueryState>()(
             throw new Error(err.response?.data?.message || "An error occurred");
           }
         }
+
         set((state) => ({
           tabs: state.tabs.map((tab) =>
             tab.id === tabId ? { ...tab, isLoading: true, error: null } : tab

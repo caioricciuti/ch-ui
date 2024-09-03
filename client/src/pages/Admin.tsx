@@ -14,7 +14,7 @@ function AdminPage() {
       navigate("/");
       toast.error("You are not authorized to view this page");
     }
-  }, [user, navigate, checkAuth]);
+  }, [navigate, checkAuth]);
 
   // Show loading state if the authentication check is still in progress
   if (isLoading) {

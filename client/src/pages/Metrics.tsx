@@ -190,13 +190,23 @@ const queries = [
   },
 ];
 
+// test
+import useAuthStore from "@/stores/user.store";
+import { useNavigate } from "react-router-dom";
+
 function MetricsPage() {
   const { runQuery } = useTabStore();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState([]);
+  const { user } = useAuthStore();
+  const navigate = useNavigate();
 
-  useEffect(() => {
+  useEffect((): void => {
+    if (!user?.activeOrganization) {
+      navigate("/organizations");
+      toast.error("Please select an organization to view metrics.");
+    }
     const fetchMetrics = async () => {
       try {
         setLoading(true);

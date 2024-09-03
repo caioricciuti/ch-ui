@@ -1,8 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useCallback, useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Input } from "@/components/ui/input";
 import {
   X,
   Plus,
@@ -32,6 +31,7 @@ import HomeTab from "@/components/workspace/HomeTab";
 import useTabStore from "@/stores/tabs.store";
 import SqlTab from "@/components/workspace/SqlTab";
 import InformationTab from "./InformationTab";
+import { Input } from "@/components/ui/input";
 
 interface SortableTabProps {
   tab: {
@@ -152,13 +152,13 @@ export function WorkspaceTabs() {
     })
   );
 
-  const addNewCodeTab = () => {
+  const addNewCodeTab = useCallback(() => {
     addTab({
-      title: "Query " + (tabs.length + 1),
+      title: "Query " + tabs.length,
       type: "sql",
       content: "",
     });
-  };
+  }, [tabs.length, addTab]);
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -193,10 +193,10 @@ export function WorkspaceTabs() {
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown, true); // Notice the third argument `true` here.
+    window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [tabs, activeTabId, addNewCodeTab, closeTab, setActiveTab]);
-  
+
   return (
     <div className="flex flex-col h-full">
       <Tabs
@@ -253,8 +253,14 @@ export function WorkspaceTabs() {
                   <SqlTab tabId={tab.id} />
                 ) : tab.type === "information" ? (
                   <InformationTab
-                    database={tab.content.database}
-                    table={tab.content.table}
+                    database={
+                      typeof tab.content === "object"
+                        ? tab.content.database
+                        : ""
+                    }
+                    table={
+                      typeof tab.content === "object" ? tab.content.table : ""
+                    }
                   />
                 ) : null}
               </div>

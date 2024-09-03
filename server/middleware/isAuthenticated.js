@@ -6,12 +6,44 @@ require("dotenv").config();
 
 const verifyJWT = promisify(jwt.verify);
 
+class AuthError extends Error {
+  constructor(statusCode, errorCode, message) {
+    super(message);
+    this.statusCode = statusCode;
+    this.errorCode = errorCode;
+  }
+}
+
 const generateNewAccessToken = (user) => {
   return jwt.sign(
-    { id: user._id, role: user.role },
+    { id: user._id },
     process.env.ACCESS_TOKEN_SECRET,
     { expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN }
   );
+};
+
+const verifyToken = async (token, secret) => {
+  try {
+    return await verifyJWT(token, secret);
+  } catch (error) {
+    if (error.name === "TokenExpiredError") {
+      throw new AuthError(401, 3009, "Token expired");
+    }
+    throw new AuthError(401, 3007, "Invalid token");
+  }
+};
+
+const findAndValidateUser = async (userId) => {
+  const user = await User.findById(userId)
+    .select("+active")
+    .populate("activeOrganization")
+    .populate("activeClickhouseCredential");
+
+  if (!user || !user.active) {
+    throw new AuthError(401, 3008, "User not found or inactive");
+  }
+
+  return user;
 };
 
 const isAuthenticated = async (req, res, next) => {
@@ -19,65 +51,18 @@ const isAuthenticated = async (req, res, next) => {
   const refreshToken = req.cookies.refreshToken;
 
   if (!accessToken) {
-    return errorResponse(
-      res,
-      401,
-      3004,
-      "Access token missing",
-      "isAuthenticated"
-    );
+    return errorResponse(res, 401, 3004, "Access token missing", "isAuthenticated");
   }
 
   try {
-    const decoded = await verifyJWT(
-      accessToken,
-      process.env.ACCESS_TOKEN_SECRET
-    );
-    const user = await User.findById(decoded.id)
-      .select("+active")
-      .populate("activeOrganization")
-      .populate("activeClickhouseCredential");
-
-    if (!user || !user.active) {
-      return errorResponse(
-        res,
-        401,
-        3008,
-        "User not found or inactive",
-        "isAuthenticated"
-      );
-    }
-
-    req.user = user;
+    const decoded = await verifyToken(accessToken, process.env.ACCESS_TOKEN_SECRET);
+    req.user = await findAndValidateUser(decoded.id);
     return next();
-  } catch (err) {
-    if (err.name === "TokenExpiredError") {
-      if (!refreshToken) {
-        return errorResponse(
-          res,
-          401,
-          3005,
-          "Refresh token missing",
-          "isAuthenticated"
-        );
-      }
-
+  } catch (error) {
+    if (error.errorCode === 3009 && refreshToken) { // Token expired
       try {
-        const refreshDecoded = await verifyJWT(
-          refreshToken,
-          process.env.REFRESH_TOKEN_SECRET
-        );
-        const user = await User.findById(refreshDecoded.id).select("+active");
-
-        if (!user || !user.active) {
-          return errorResponse(
-            res,
-            401,
-            3008,
-            "User not found or inactive",
-            "isAuthenticated"
-          );
-        }
+        const refreshDecoded = await verifyToken(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+        const user = await findAndValidateUser(refreshDecoded.id);
 
         const newAccessToken = generateNewAccessToken(user);
 
@@ -90,23 +75,11 @@ const isAuthenticated = async (req, res, next) => {
 
         req.user = user;
         return next();
-      } catch (refreshErr) {
-        return errorResponse(
-          res,
-          401,
-          3006,
-          "Invalid refresh token",
-          "isAuthenticated"
-        );
+      } catch (refreshError) {
+        return errorResponse(res, 401, 3006, "Invalid refresh token", "isAuthenticated");
       }
     } else {
-      return errorResponse(
-        res,
-        401,
-        3007,
-        "Invalid access token",
-        "isAuthenticated"
-      );
+      return errorResponse(res, error.statusCode, error.errorCode, error.message, "isAuthenticated");
     }
   }
 };

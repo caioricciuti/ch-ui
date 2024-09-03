@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import SQLEditor from "./SqlEditor";
 import {
   ResizablePanel,
@@ -29,11 +29,33 @@ interface QueryResults {
 const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
   const { getTabById } = useTabStore();
   const tab = getTabById(tabId);
+  const [timer, setTimer] = useState<number>(0); // Timer state in seconds
+  const [isRunning, setIsRunning] = useState<boolean>(false); // To track the timer state
 
   if (!tab) return null;
 
   const results: QueryResults | undefined =
     tab.results as unknown as QueryResults;
+
+  // Effect to handle timer
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+
+    if (tab.isLoading) {
+      setTimer(0); // Reset the timer when loading starts
+      setIsRunning(true);
+      interval = setInterval(() => {
+        setTimer((prevTimer) => prevTimer + 0.1); // Increment timer every 100ms
+      }, 100);
+    } else {
+      setIsRunning(false); // Stop the timer when loading ends
+      if (interval) clearInterval(interval);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [tab.isLoading]);
 
   const renderResults = () => {
     if (tab.isLoading) {
@@ -42,6 +64,7 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
           <div className="flex items-center justify-center h-full space-x-4">
             <Loader2 size={24} className="animate-spin" />
             <p>Running query</p>
+            <p>{timer.toFixed(1)}s</p> {/* Display the timer here */}
           </div>
         </div>
       );
@@ -50,8 +73,10 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
     if (tab.error) {
       return (
         <>
-          <div className="overflow-autotext-sm p-2">
-          <div className="p-4 border text-xs rounded-md text-red-600 bg-red-300/10 border-red-500">{tab.error}</div>
+          <div className="overflow-auto text-sm p-2">
+            <div className="p-4 border text-xs rounded-md text-red-600 bg-red-300/10 border-red-500">
+              {tab.error}
+            </div>
           </div>
         </>
       );

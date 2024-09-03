@@ -11,7 +11,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -51,12 +50,14 @@ interface OrganizationListProps {
   onViewDetails: (org: Organization) => void;
   onEdit: (org: Organization) => void;
   onDelete: (org: Organization) => void;
+  userSelectedOrganization: string | null;
 }
 
 const OrganizationList: React.FC<OrganizationListProps> = ({
   organizations,
   onViewDetails,
   onEdit,
+  userSelectedOrganization,
   onDelete,
 }) => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -148,6 +149,7 @@ const OrganizationList: React.FC<OrganizationListProps> = ({
               <TableHead>Slug</TableHead>
               <TableHead>Members</TableHead>
               <TableHead>Owner</TableHead>
+              <TableHead></TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -163,6 +165,11 @@ const OrganizationList: React.FC<OrganizationListProps> = ({
                   </div>
                 </TableCell>
                 <TableCell>{org.owner.name}</TableCell>
+                <TableCell className="text-right">
+                  {userSelectedOrganization === org._id && (
+                    <span className="text-green-500 text-xs bg-green-500/20 px-2 rounded-lg">Selected</span>
+                  )}
+                </TableCell>
                 <TableCell className="text-right">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
