@@ -7,6 +7,7 @@ import {
   Loader2,
   SquareX,
   Table,
+  X,
 } from "lucide-react";
 import { Skeleton } from "./ui/skeleton";
 import { useTabState } from "@/providers/TabsStateContext";
@@ -15,8 +16,15 @@ import TableTabContent from "@/TabContents/TableTabContent";
 import QueryTabContent from "@/TabContents/QueryTabContent";
 
 export default function TabsManager() {
-  const { tabs, activeTab, setActiveTab, isLoading, addQueryTab, deleteTab } =
-    useTabState(); // Use context to manage tabs and related state
+  const {
+    tabs,
+    activeTab,
+    setActiveTab,
+    isLoading,
+    addQueryTab,
+    deleteTab,
+    closeAllTabs
+  } = useTabState();
 
   if (isLoading) {
     return (
@@ -29,17 +37,34 @@ export default function TabsManager() {
 
   return (
     <div className="flex flex-col">
-      <Tabs value={activeTab} onValueChange={(e) => {
-        setActiveTab(e)
-      }}>
+      <Tabs
+        value={activeTab}
+        onValueChange={(e) => {
+          setActiveTab(e);
+        }}
+      >
         <TabsList className="flex overflow-x-auto whitespace-nowrap dark:bg-black bg-white justify-start overflow-y-hidden relative rounded-none">
-          <Button
-            className="flex items-center rounded-none"
-            onClick={() => addQueryTab()}
-          >
-            <FilePlus2 size={16} />
-            <span className="ml-1 sr-only">New Tab</span>
-          </Button>
+          <div className="flex items-center">
+            <Button
+              className="flex items-center rounded-none"
+              onClick={() => addQueryTab()}
+            >
+              <FilePlus2 size={16} />
+              <span className="ml-1 sr-only">New Tab</span>
+            </Button>
+            {tabs.length > 2 && (
+
+              <Button
+                className="flex items-center rounded-none px-1"
+                onClick={closeAllTabs}
+                variant="ghost"
+
+              >
+                <X size={18} />
+
+              </Button>
+            )}
+          </div>
           {tabs.map((tab) => (
             <TabsTrigger
               key={tab.tab_id}

@@ -196,7 +196,6 @@ export default function QueryTabContent({ tab }) {
                 minimap: { enabled: false },
                 wordWrap: "on",
                 fontSize: 14,
-                fontVariations: true,
                 lineNumbers: "on",
                 padding: { top: 15, bottom: 10 },
                 acceptSuggestionOnCommitCharacter: true,
@@ -208,7 +207,6 @@ export default function QueryTabContent({ tab }) {
                 colorDecorators: true,
                 contextmenu: true,
                 cursorBlinking: "blink",
-                cursorSmoothCaretAnimation: true,
               }}
             />
           </ResizablePanel>
@@ -228,8 +226,8 @@ export default function QueryTabContent({ tab }) {
               <div className="w-full p-2 overflow-auto flex flex-col">
                 <div
                   className={`${theme === "dark"
-                      ? "ag-theme-alpine-dark"
-                      : "ag-theme-alpine"
+                    ? "ag-theme-alpine-dark"
+                    : "ag-theme-alpine"
                     }  w-full flex-grow`}
                 >
                   {isLoadingQuery ? (

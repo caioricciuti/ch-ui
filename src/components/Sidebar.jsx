@@ -1,5 +1,6 @@
+import React from "react";
 import { useClickHouseState } from "@/providers/ClickHouseContext";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   SquareTerminal,
   Github,
@@ -12,6 +13,7 @@ import {
   CornerDownLeft,
   ServerCogIcon,
   Settings2,
+  Search,
 } from "lucide-react";
 import {
   Sheet,
@@ -35,9 +37,26 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { CommandShortcut } from "@/components/ui/command";
 import { useTheme } from "@/providers/theme";
 import { Button } from "@/components/ui/button";
+
+import {
+  Command,
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut,
+} from "@/components/ui/command"
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 const commandsSheet = [
   {
@@ -62,14 +81,72 @@ export default function Sidebar() {
   const { theme, setTheme } = useTheme(); // Use the theme context
   const { isServerAvailable, isLoading, version } = useClickHouseState();
   const location = useLocation();
+  const [open, setOpen] = React.useState(false)
+
+  const navigate = useNavigate();
 
   const toggleTheme = () => {
     const newTheme = theme === "dark" ? "light" : "dark";
     setTheme(newTheme);
   };
+  React.useEffect(() => {
+    const down = (e) => {
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        setOpen((open) => !open)
+      }
+    }
+    document.addEventListener("keydown", down)
+    return () => document.removeEventListener("keydown", down)
+  }, [])
 
   return (
     <aside className="inset-y fixed left-0 z-20 flex h-full flex-col border-r items-center">
+      <CommandDialog open={open} onOpenChange={setOpen}>
+        <CommandInput placeholder="Type a command or search..." />
+        <CommandList>
+          <CommandEmpty>No results found.</CommandEmpty>
+          <CommandGroup heading="Navigate">
+            <CommandItem onSelect={
+              () => {
+                navigate("/")
+                setOpen(false)
+              }
+            }>
+              Home
+            </CommandItem>
+            <CommandItem onSelect={
+              () => {
+                navigate("/instance-metrics")
+                setOpen(false)
+              }
+            }>
+              Metrics
+            </CommandItem>
+            <CommandItem
+
+              onSelect={
+                () => {
+                  navigate("/settings")
+                  setOpen(false)
+                }
+              }>
+              Settings
+            </CommandItem>
+          </CommandGroup>
+          <CommandGroup heading="Actions">
+            <CommandItem onSelect={
+              () => {
+                toggleTheme()
+                setOpen(false)
+              }
+            }>
+              Toggle Theme
+            </CommandItem>
+          </CommandGroup>
+        </CommandList>
+      </CommandDialog>
+
       <div className="border-b p-2">
         <Button variant="ghost" size="icon" aria-label="Home">
           <Github
@@ -87,25 +164,22 @@ export default function Sidebar() {
       <div className="flex flex-col gap-3 items-center p-2">
         <Link
           to="/"
-          className={`flex items-center p-2 rounded-md ${
-            location.pathname === "/" ? "bg-secondary" : ""
-          }`}
+          className={`flex items-center p-2 rounded-md ${location.pathname === "/" ? "bg-secondary" : ""
+            }`}
         >
           <SquareTerminal size={24} />
         </Link>
         <Link
           to="/instance-metrics"
-          className={`flex items-center p-2 rounded-md ${
-            location.pathname === "/instance-metrics" ? "bg-secondary" : ""
-          }`}
+          className={`flex items-center p-2 rounded-md ${location.pathname === "/instance-metrics" ? "bg-secondary" : ""
+            }`}
         >
           <ServerCogIcon size={24} />
         </Link>
         <Link
           to="/settings"
-          className={`flex items-center p-2 rounded-md ${
-            location.pathname === "/settings" ? "bg-secondary" : ""
-          }`}
+          className={`flex items-center p-2 rounded-md ${location.pathname === "/settings" ? "bg-secondary" : ""
+            }`}
         >
           <Settings2 size={24} />
         </Link>
@@ -171,22 +245,41 @@ export default function Sidebar() {
           )}
         </Button>
 
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="mb-2"
+                aria-label="Command Opener"
+                onClick={() => setOpen((open) => !open)}
+              >
+                <Search className="size-5 m-auto" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <span className="text-primary text-xs">Cmd/Ctrl + K</span>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+
+
+
+
         {/* server status */}
         <Popover>
-          <PopoverTrigger>
-            {isLoading ? (
-              <Button variant="link" size="icon" aria-label="Help">
+          <PopoverTrigger asChild>
+            <div className="cursor-pointer m-auto">
+              {isLoading ? (
                 <Loader2 className="size-6 animate-spin" />
-              </Button>
-            ) : isServerAvailable && !isLoading ? (
-              <Button variant="ghost" size="icon" aria-label="Help">
+              ) : isServerAvailable && !isLoading ? (
                 <CircleCheckIcon className="size-6 text-green-500" />
-              </Button>
-            ) : (
-              <Button variant="ghost" size="icon" aria-label="Help">
+              ) : (
                 <AlertCircleIcon className="size-6 text-red-500" />
-              </Button>
-            )}
+              )}
+            </div>
           </PopoverTrigger>
           <PopoverContent className="ml-2 w-full">
             <div className="flex items-center">
@@ -195,8 +288,8 @@ export default function Sidebar() {
                 {isLoading
                   ? "Loading..."
                   : isServerAvailable
-                  ? "Online"
-                  : "Offline"}
+                    ? "Online"
+                    : "Offline"}
               </p>
             </div>
             <div className="flex items-center">

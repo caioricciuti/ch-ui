@@ -12,12 +12,20 @@ import {
 } from "@/components/ui/select";
 
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+import {
   FileSpreadsheetIcon,
   Loader2,
   RefreshCcw,
   SearchXIcon,
   Table,
   PlusIcon,
+  MoreVertical,
 } from "lucide-react";
 
 import {
@@ -37,12 +45,18 @@ export default function DbController() {
     availableDatabases,
     isLoading,
     availableTables,
-    loadDatabases,
+    fetchDatabases,
     getTablesFromDatabase,
     loadingProgress,
+    deleteTablesStoreDB,
   } = useDatabaseTablesState();
 
   const [searchQuery, setSearchQuery] = useState("");
+
+  const handleDeleteCacheAndReload = async () => {
+    await deleteTablesStoreDB();
+    fetchDatabases(true);
+  };
 
   if (isLoading) {
     return (
@@ -68,7 +82,21 @@ export default function DbController() {
   return (
     <div className="px-4 min-w-[280px]">
       <fieldset className="rounded-lg border p-4 overflow-auto max-h-[80vh] min-w-20 mt-6">
-        <legend className="-ml-1 px-1 text-sm font-medium">Databases</legend>
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="text-lg font-semibold">Databases</h3>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleDeleteCacheAndReload}>
+                Delete All Cache and Reload
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <div className="flex justify-center items-center">
           <Select
             value={selectedDatabase}
@@ -89,15 +117,6 @@ export default function DbController() {
                 ))}
             </SelectContent>
           </Select>
-          <Button
-            variant="ghost"
-            className="p-0 ml-2 hover:text-primary"
-            onClick={() => {
-              loadDatabases();
-            }}
-          >
-            <RefreshCcw size={16} />
-          </Button>
         </div>
       </fieldset>
       {availableDatabases && availableTables.length > 0 ? (
@@ -116,15 +135,6 @@ export default function DbController() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
-            <Button
-              variant="ghost"
-              className="p-0 hover:text-primary"
-              onClick={() => {
-                getTablesFromDatabase(selectedDatabase, true);
-              }}
-            >
-              <RefreshCcw size={16} className="p-0" />
-            </Button>
           </div>
           {availableTables.filter((table) =>
             table.name.toLowerCase().includes(searchQuery.toLowerCase()),

@@ -31,7 +31,7 @@ export default function HomeTabContent() {
   ];
   return (
     <>
-      <div className="h-[88vh] relative w-full flex flex-col p-10 overflow-hidden rounded-md border">
+      <div className="h-[88vh] relative w-full flex flex-col p-10 overflow-hidden rounded-md">
         <div className="flex flex-col h-full">
           <div className="flex flex-wrap gap-4">
             {projects.map((project, index) => (

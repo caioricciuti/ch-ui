@@ -253,11 +253,11 @@ export const TabsStateProvider = ({ children }) => {
         last_run: new Date().toISOString(),
         tab_results: isCreateOrInsert(query)
           ? [
-              {
-                success: "true",
-                message: JSON.stringify(data),
-              },
-            ]
+            {
+              success: "true",
+              message: JSON.stringify(data),
+            },
+          ]
           : data.data,
         tab_results_statistics: isCreateOrInsert(query) ? [] : data.statistics,
         tab_errors: null,
@@ -279,6 +279,23 @@ export const TabsStateProvider = ({ children }) => {
     }
   };
 
+  const closeAllTabs = useCallback(async () => {
+    if (window.confirm("Are you sure you want to close all tabs?")) {
+      const homeTab = tabs.find(tab => tab.tab_id === "home");
+      setTabs([homeTab]);
+      setActiveTab("home");
+      try {
+        const tabsToDelete = tabs.filter(tab => tab.tab_id !== "home");
+        for (const tab of tabsToDelete) {
+          await deleteFromDB(tab.tab_id);
+        }
+        toast.success("All tabs closed");
+      } catch (error) {
+        toast.error(`Error closing all tabs: ${error}`);
+      }
+    }
+  }, [tabs]);
+
   const value = {
     tabs,
     setTabs,
@@ -294,6 +311,7 @@ export const TabsStateProvider = ({ children }) => {
     updateQueryTab,
     runQuery,
     isLoadingQuery,
+    closeAllTabs,
   };
 
   return (

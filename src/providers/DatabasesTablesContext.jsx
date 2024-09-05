@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect } from "react";
 import { useClickHouseState } from "@/providers/ClickHouseContext";
 import { toast } from "sonner";
 
-import { readFromDB, writeToDB } from "@/lib/tablesIndexedDB";
+import { readFromDB, writeToDB, deleteDatabase } from "@/lib/tablesIndexedDB";
 
 const DatabasesTablesContext = createContext();
 
@@ -28,18 +28,21 @@ export const DatabasesTableProvider = ({ children }) => {
     }
   }, [isServerAvailable]);
 
-  const fetchDatabases = async () => {
+  const fetchDatabases = async (forceRefresh = false) => {
     try {
       setIsLoading(true);
-      if (availableDatabases.length > 0) {
+      if (forceRefresh) {
+        localStorage.removeItem("availableDatabases");
+      }
+      if (availableDatabases.length > 0 && !forceRefresh) {
         setAvailableDatabases(
           JSON.parse(localStorage.getItem("availableDatabases")),
         );
-        await getTablesFromDatabase(selectedDatabase);
+        await getTablesFromDatabase(selectedDatabase, forceRefresh);
         setIsLoading(false);
         return;
       }
-      await loadDatabases();
+      await loadDatabases(forceRefresh);
     } catch (error) {
       toast.error(`Error fetching databases: ${error.message}`);
     } finally {
@@ -47,7 +50,7 @@ export const DatabasesTableProvider = ({ children }) => {
     }
   };
 
-  const loadDatabases = async () => {
+  const loadDatabases = async (forceRefresh = false) => {
     setIsLoading(true);
     setLoadingProgress(0);
     try {
@@ -60,22 +63,22 @@ export const DatabasesTableProvider = ({ children }) => {
       setAvailableDatabases(data);
       if (data && data.length > 0) {
         toast.success("Databases loaded successfully");
-        changeSelectedDatabase(selectedDatabase || data[0].name);
+        changeSelectedDatabase(selectedDatabase || data[0].name, forceRefresh);
       }
     } catch (error) {
-      toast.error(`Error loading database: ${error.message}`);
+      toast.error(`Error loading databases: ${error.message}`);
     } finally {
-      setLoadingProgress(100);
+      setLoadingProgress(99);
       setIsLoading(false);
     }
   };
 
-  const changeSelectedDatabase = async (database) => {
+  const changeSelectedDatabase = async (database, forceRefresh = false) => {
     try {
       setIsLoading(true);
       setSelectedDatabase(database);
       localStorage.setItem("selectedDatabase", database);
-      await getTablesFromDatabase(database);
+      await getTablesFromDatabase(database, forceRefresh);
       toast.success(`Selected database: ${database}`);
     } catch (error) {
       toast.error(`Error changing database: ${error.message}`);
@@ -84,38 +87,38 @@ export const DatabasesTableProvider = ({ children }) => {
     }
   };
 
-  const getTablesFromDatabase = async (selectedDatabase, refresh) => {
+  const getTablesFromDatabase = async (selectedDatabase, forceRefresh = false) => {
     setIsLoading(true);
     setLoadingProgress(0);
     try {
-      const cachedTables = await readFromDB(selectedDatabase);
-      if (cachedTables && !refresh) {
-        setAvailableTables(cachedTables);
-        toast.success("Tables loaded from cache.");
-        setIsLoading(false);
-        return;
+      if (!forceRefresh) {
+        const cachedTables = await readFromDB(selectedDatabase);
+        if (cachedTables) {
+          setAvailableTables(cachedTables);
+          toast.success("Tables loaded from cache.");
+          setIsLoading(false);
+          return;
+        }
       }
+
       const tables = await clickHouseClient.current.query({
         query: `SELECT * FROM system.tables WHERE database='${selectedDatabase}'`,
         format: "JSONEachRow",
       });
       let tablesData = await tables.json();
-      // if no tables found, return
       if (tablesData.length === 0) {
         toast.error("No tables found in the selected database");
         setAvailableTables([]);
         return;
       }
       const totalTables = tablesData.length;
-      // for each table, fetch the schema
       for (let i = 0; i < totalTables; i++) {
         const table = tablesData[i];
         const schemaDataObj = await fetchTableSchema({
           database: selectedDatabase,
           table: table.name,
         });
-        table.schema = schemaDataObj.schema; // add schema to table object
-        // for each table load the progress bar by the number of tables fetched from
+        table.schema = schemaDataObj.schema;
         const progress = ((i + 1) / totalTables) * 100;
         setLoadingProgress(Math.min(progress.toFixed(2), 100));
       }
@@ -138,7 +141,6 @@ export const DatabasesTableProvider = ({ children }) => {
         format: "JSONEachRow",
       });
       const schemaData = await tableSchema.json();
-      // Create a new Object
       const schemaDataObj = {
         table: table,
         schema: schemaData,
@@ -174,6 +176,14 @@ export const DatabasesTableProvider = ({ children }) => {
       toast.error(`Error fetching table preview: ${error.message}`);
     }
   };
+  const deleteTablesStoreDB = async () => {
+    try {
+      await deleteDatabase();
+      toast.success("Tables store deleted successfully");
+    } catch (error) {
+      toast.error(`Error deleting tables store: ${error.message}`);
+    }
+  }
 
   const value = {
     isLoading,
@@ -181,6 +191,7 @@ export const DatabasesTableProvider = ({ children }) => {
     selectedDatabase,
     setSelectedDatabase,
     availableTables,
+    fetchDatabases,
     changeSelectedDatabase,
     getTablesFromDatabase,
     fetchTableSchema,
@@ -188,6 +199,7 @@ export const DatabasesTableProvider = ({ children }) => {
     fetchTablePreview,
     loadDatabases,
     loadingProgress,
+    deleteTablesStoreDB,
   };
 
   return (
