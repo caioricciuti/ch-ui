@@ -39,5 +39,9 @@ ENV VITE_CLICKHOUSE_URL=""
 ENV VITE_CLICKHOUSE_USER=""
 ENV VITE_CLICKHOUSE_PASS=""
 
+RUN addgroup -S ch-group -g 1001 && adduser -S ch-user -u 1001 -G ch-group
+
+RUN chown -R ch-user:ch-group /app
+
 # Use a shell script to inject environment variables and then serve the app
 CMD ["/bin/sh", "-c", "node inject-env.js && serve -s -l 5521"]
