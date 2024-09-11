@@ -241,11 +241,23 @@ export default function QueryTabContent({ tab }) {
                       enableCellTextSelection={true}
                       columnDefs={
                         tab.tab_results && tab.tab_results.length > 0
-                          ? Object.keys(tab.tab_results[0]).map((key) => ({
-                            headerName: key,
-                            field: key,
-                            filter: true,
-                          }))
+                          ? Object.entries(tab.tab_results[0]).map((key, _) => {
+                            if (Array.isArray(key[1])) {
+                              return {
+                                filter: true,
+                                field: key[1],
+                                headerName: key[0],
+                                valueFormatter: (params) => params ? params.data[key[0]]
+                                .map(d => d === null ? 'null' : d)
+                                .join(', ') : '',
+                              }
+                            }
+                            return {
+                              headerName: key[0],
+                              field: key[0],
+                              filter: true
+                            }
+                          })
                           : []
                       }
                       defaultColDef={{ resizable: true }}
