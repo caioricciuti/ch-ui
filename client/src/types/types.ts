@@ -117,7 +117,7 @@ export interface ClickHouseCredential {
 }
 
 // Tab related types
-export type TabType = "sql" | "result" | "home" | "information";
+export type TabType = "sql" | "result" | "home" | "information" | "saved_query";
 
 export interface Tab {
   id: string;
@@ -127,6 +127,8 @@ export interface Tab {
   results?: any[]; // Query results
   error?: string | null; // Query error
   isLoading?: boolean; // Loading state for the query
+  isSaved?: boolean; // Whether the query is saved
+  isDirty?: boolean; // Whether the query has unsaved changes
 }
 
 export interface TabQueryState {
@@ -134,6 +136,10 @@ export interface TabQueryState {
   activeTabId: string;
   isLoading: boolean;
   error: string | null;
+  isLoadingDataBase: boolean;
+  databaseData: [];
+  isSavedQuery: boolean;
+  isDirty: boolean;
 
   addTab: (tab: Omit<Tab, "id">) => void;
   closeTab: (id: string) => void;
@@ -144,6 +150,7 @@ export interface TabQueryState {
   getTabById: (id: string) => Tab | undefined;
   fetchQueries: () => Promise<void>;
   runQuery: (tabId: string, query: string) => Promise<void>;
+  fetchDatabaseData: () => Promise<void>;
 }
 
 //CHATS

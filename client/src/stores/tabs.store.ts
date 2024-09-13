@@ -14,11 +14,15 @@ const useTabStore = create<TabQueryState>()(
           content: "",
           type: "home",
           error: null,
+          isLoadingDataBase: false,
+          databaseData: [],
         },
       ],
       activeTabId: "home",
       isLoading: false,
+      isLoadingDataBase: false,
       error: null,
+      databaseData: [],
 
       addTab: (tab) => {
         const existingTab = get().tabs.find((t) => t.title === tab.title);
@@ -104,6 +108,20 @@ const useTabStore = create<TabQueryState>()(
           console.error("Error fetching queries:", err);
         } finally {
           set({ isLoading: false });
+        }
+      },
+
+      fetchDatabaseData: async () => {
+        set({ isLoadingDataBase: true, error: null });
+        try {
+          const response = await api.get("/ch-queries/databases");
+          console.log("Fetched databases:", response.data);
+          set({ databaseData: response.data });
+        } catch (err) {
+          set({ error: "Failed to fetch databases. Please try again later." });
+          console.error("Error fetching databases:", err);
+        } finally {
+          set({ isLoadingDataBase: false });
         }
       },
 

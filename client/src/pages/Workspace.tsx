@@ -1,5 +1,4 @@
-import { useState, useEffect } from "react";
-import api from "../api/axios.config";
+import { useEffect } from "react";
 import DatabaseExplorer from "@/components/workspace/DataExplorer";
 import {
   ResizableHandle,
@@ -11,32 +10,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import useClickHouseCredentialStore from "@/stores/clickHouseCredentials.store";
 import useAuthStore from "@/stores/user.store";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import useTabStore from "@/stores/tabs.store";
 
 function WorkspacePage() {
   const { setSelectedCredential } = useClickHouseCredentialStore();
   const { user } = useAuthStore();
-  const [databaseData, setDatabaseData] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchDatabaseData = async () => {
-    try {
-      setIsLoading(true);
-      const response = await api.get("/ch-queries/databases");
-      setDatabaseData(response.data);
-      setError(null);
-    } catch (err) {
-      setError("Failed to fetch database data. Please try again later.");
-      console.error("Error fetching database data:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const { fetchDatabaseData, isLoading, error } = useTabStore();
 
   useEffect(() => {
     fetchDatabaseData();
-  }, [setSelectedCredential, user?.activeClickhouseCredential]);
+  }, [
+    fetchDatabaseData,
+    setSelectedCredential,
+    user?.activeClickhouseCredential,
+  ]);
 
   if (isLoading) {
     return (
@@ -64,22 +51,13 @@ function WorkspacePage() {
           <Alert variant="destructive">
             <AlertTitle>Something went wrong</AlertTitle>
             <AlertDescription>
-              {/* Stepts to take to resolve the issue */}
-              <div className=" items-center space-x-2">
+              <div className="items-center space-x-2">
                 Make sure that: 1. The ClickHouse server is running. 2. The
                 connection details are correct. 3. The user has the necessary
                 permissions. 4. The network connection is stable.
               </div>
             </AlertDescription>
           </Alert>
-
-          <Button
-            variant="default"
-            className="w-full"
-            onClick={fetchDatabaseData}
-          >
-            Retry
-          </Button>
 
           <p className="text-sm text-center text-gray-500 dark:text-gray-400">
             If the issue persists, please contact your administrator, or read
@@ -109,13 +87,14 @@ function WorkspacePage() {
     <div className="h-screen">
       <ResizablePanelGroup direction="horizontal">
         <ResizablePanel className="overflow-scroll" defaultSize={25}>
-          <DatabaseExplorer
-            reloadDatabases={fetchDatabaseData}
-            data={databaseData}
-          />
+          <DatabaseExplorer />
         </ResizablePanel>
         <ResizableHandle withHandle />
-        <ResizablePanel className="overflow-scroll" defaultSize={75} minSize={60}>
+        <ResizablePanel
+          className="overflow-scroll"
+          defaultSize={75}
+          minSize={60}
+        >
           <WorkspaceTabs />
         </ResizablePanel>
       </ResizablePanelGroup>

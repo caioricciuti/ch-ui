@@ -70,7 +70,7 @@ const HomeTab = () => {
     } else if (card.title === "Start Querying") {
       addTab({
         type: "sql",
-        title: "New Query",
+        title: "Start Query",
         content: "",
       });
     } else {
@@ -79,7 +79,7 @@ const HomeTab = () => {
   };
 
   return (
-    <div className="p-2 mt-4 space-y-8 flex flex-col h-screen overflow-auto w-full">
+    <div className="p-2 mt-4 space-y-8 flex flex-col h-full overflow-auto w-full">
       <motion.h1
         className="text-4xl font-bold"
         initial={{ opacity: 0, y: -20 }}
@@ -133,14 +133,6 @@ const HomeTab = () => {
           </motion.div>
         ))}
       </div>
-      <motion.div
-        className="relative bottom-2 text-xs text-muted-foreground"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.5, delay: 0.8 }}
-      >
-        Made with ❤️ by the CH-UI Team
-      </motion.div>
     </div>
   );
 };

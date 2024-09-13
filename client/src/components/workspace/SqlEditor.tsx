@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import * as monaco from "monaco-editor";
 import { useTheme } from "@/components/theme-provider";
 import useTabStore from "@/stores/tabs.store";
@@ -26,7 +26,8 @@ interface SQLEditorProps {
 }
 
 const SQLEditor: React.FC<SQLEditorProps> = ({ tabId }) => {
-  const { runQuery, getTabById, updateTabContent } = useTabStore();
+  const { runQuery, getTabById, updateTabContent, fetchDatabaseData } =
+    useTabStore();
   const editorRef = useRef<HTMLDivElement>(null);
   const monacoRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const tab = getTabById(tabId);
@@ -71,12 +72,24 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId }) => {
     return null;
   }
 
-  const handleRunQuery = () => {
+  const handleRunQuery = useCallback(() => {
     if (monacoRef.current) {
       const content = getSelectedText() || monacoRef.current.getValue();
-      runQuery(tabId, content);
+
+      // Check if the query should trigger a refresh
+      const shouldRefresh =
+        /^\s*(CREATE|DROP|ALTER|TRUNCATE|RENAME|INSERT|UPDATE|DELETE)\s+/i.test(
+          content
+        );
+
+      runQuery(tabId, content).then(() => {
+        if (shouldRefresh) {
+          fetchDatabaseData();
+          toast.success("Data Explorer refreshed due to schema change");
+        }
+      });
     }
-  };
+  }, [tabId, runQuery, fetchDatabaseData]);
 
   const getSelectedText = () => {
     if (monacoRef.current) {

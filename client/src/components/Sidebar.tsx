@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -22,57 +22,22 @@ import {
   ChevronRight,
   ChevronLeft,
   Bell,
-  MessagesSquare,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+
 import Logo from "/logo.png";
 import useAuthStore from "@/stores/user.store";
 import OrganizationCredentialSelector from "@/components/OrganizationCredentialSelector";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getInitials, bgColorsByInitials } from "@/lib/helpers";
-import webSocketManager from "@/lib/websocket";
-import api from "@/api/axios.config";
 
 const Sidebar = () => {
   const { user, logout, admin } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [isExpanded, setIsExpanded] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
+
   const sidebarRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    fetchUnreadCount();
-
-    const handleNewNotification = () => {
-      toast.info("New notification received");
-      fetchUnreadCount(); // Fetch the unread count again when a new notification is received
-    };
-
-    const socket = null;
-    if (socket) {
-      socket.on("new_notification", handleNewNotification);
-    }
-
-    return () => {
-      if (socket) {
-        socket.off("new_notification", handleNewNotification);
-      }
-    };
-  }, []);
-
-  const fetchUnreadCount = async () => {
-    try {
-      const response = await api.get("notifications/");
-      const unreadNotifications = response.data.data.filter(
-        (notification: any) => !notification.read
-      );
-      setUnreadCount(unreadNotifications.length);
-    } catch (error) {
-      console.error("Failed to fetch unread count:", error);
-    }
-  };
 
   const handleLogout = async () => {
     try {
@@ -98,13 +63,6 @@ const Sidebar = () => {
       to: "/notifications",
       label: "Notifications",
       icon: Bell,
-      badge: unreadCount,
-    },
-    {
-      to: "/chats",
-      label: "Chat",
-      icon: MessagesSquare,
-      badge: 0,
     },
   ];
 
@@ -160,14 +118,6 @@ const Sidebar = () => {
                 <item.icon className={`h-5 w-5 ${!isExpanded ? "" : "mr-2"}`} />
                 {isExpanded && <span>{item.label}</span>}
               </div>
-              {item.badge > 0 && (
-                <Badge
-                  variant="destructive"
-                  className={isExpanded ? "" : "absolute right-4 h-4 p-1 "}
-                >
-                  {item.badge}
-                </Badge>
-              )}
             </Link>
           ))}
         </nav>
