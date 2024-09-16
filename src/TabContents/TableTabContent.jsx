@@ -5,6 +5,7 @@ import { AgGridReact } from "ag-grid-react"; // React Data Grid Component
 import "ag-grid-community/styles/ag-grid.css"; // Mandatory CSS required by the grid
 import "ag-grid-community/styles/ag-theme-alpine.css"; // Optional theme CSS
 import downloadCsv from "/src/helpers/donwloadCsv.js";
+import transformRows from "/src/helpers/transformRows.js";
 
 import {
   Popover,
@@ -251,7 +252,7 @@ export default function TableTabContent({ tab }) {
                 <AgGridReact
                   enableCellTextSelection={true}
                   alwaysShowVerticalScroll={true}
-                  rowData={currentPreview}
+                  rowData={transformRows(currentPreview)}
                   columnDefs={Object.keys(currentPreview[0])?.map((key) => ({
                     headerName: key,
                     field: key,
