@@ -25,6 +25,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import downloadCsv from "/src/helpers/donwloadCsv.js";
+import transformRows from "/src/helpers/transformRows.js";
 import { suggestions } from "@/providers/AutoCompleteMonaco";
 
 export default function QueryTabContent({ tab }) {
@@ -237,7 +238,7 @@ export default function QueryTabContent({ tab }) {
                   ) : (
                     <AgGridReact
                       alwaysShowVerticalScroll={true}
-                      rowData={tab.tab_results}
+                      rowData={transformRows(tab.tab_results)}
                       enableCellTextSelection={true}
                       columnDefs={
                         tab.tab_results && tab.tab_results.length > 0
