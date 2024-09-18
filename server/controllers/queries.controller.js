@@ -151,7 +151,13 @@ exports.executeQuery = async (req, res) => {
 
     const { query } = req.body;
     if (!query || typeof query !== "string") {
-      return errorResponse(res, 400, 6005, "Invalid query", "executeQuery");
+      return errorResponse(
+        res,
+        400,
+        6005,
+        "Query cannot be empty and it needs to be an string",
+        "executeQuery"
+      );
     }
 
     const queryType = determineQueryType(query);
@@ -202,7 +208,7 @@ exports.executeQuery = async (req, res) => {
     console.error("Error executing query:", error);
     return errorResponse(
       res,
-      500,
+      400,
       6004,
       error.message || "Failed to execute query",
       "executeQuery"

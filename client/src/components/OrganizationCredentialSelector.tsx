@@ -104,16 +104,19 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
     <>
       <Button
         variant="outline"
-        className={`max-w-[180px] justify-between gap-2 ${
-          isExpanded ? "" : "hidden"
-        }`}
+        className={`max-w-[180px]  ${isExpanded ? "gap-2" : "max-w-[12px]"}`}
         onClick={handleDialogOpen}
       >
-        <Building2 className="h-4 w-4 shrink-0 opacity-50" />
-        <span className="truncate">
-          {user?.activeOrganization?.name || "Select Organization"}
-        </span>
-        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+        <Building2 className="h-4 w-4 shrink-0 opacity-80" />
+
+        {isExpanded && (
+          <>
+            <span className="truncate">
+              {user?.activeOrganization?.name || "Select Organization"}
+            </span>
+            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+          </>
+        )}
       </Button>
 
       <Dialog open={dialogOpen} onOpenChange={handleDialogClose}>

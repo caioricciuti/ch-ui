@@ -11,11 +11,12 @@ import useClickHouseCredentialStore from "@/stores/clickHouseCredentials.store";
 import useAuthStore from "@/stores/user.store";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import useTabStore from "@/stores/tabs.store";
+import CreateTable from "@/components/CreateTable";
 
 function WorkspacePage() {
   const { setSelectedCredential } = useClickHouseCredentialStore();
   const { user } = useAuthStore();
-  const { fetchDatabaseData, isLoading, error } = useTabStore();
+  const { fetchDatabaseData, isLoading, error, runQuery } = useTabStore();
 
   useEffect(() => {
     fetchDatabaseData();
@@ -85,6 +86,7 @@ function WorkspacePage() {
 
   return (
     <div className="h-screen">
+      <CreateTable runQuery={runQuery} fetchDatabaseData={fetchDatabaseData} />
       <ResizablePanelGroup direction="horizontal">
         <ResizablePanel className="overflow-scroll" defaultSize={25}>
           <DatabaseExplorer />

@@ -23,6 +23,8 @@ const useTabStore = create<TabQueryState>()(
       isLoadingDataBase: false,
       error: null,
       databaseData: [],
+      isSavedQuery: false,
+      isDirty: false,
 
       addTab: (tab) => {
         const existingTab = get().tabs.find((t) => t.title === tab.title);

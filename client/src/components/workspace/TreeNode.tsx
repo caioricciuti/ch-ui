@@ -13,8 +13,8 @@ import {
   TerminalIcon,
   MoreVertical,
   FilePlus,
-  // Removed Download as it's unused
   BookOpen,
+  FolderPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,6 +32,7 @@ import {
 import ConfirmationDialog from "@/components/ConfirmationDialog";
 import { toast } from "sonner";
 import useTabStore from "@/stores/tabs.store";
+import CreateTable from "@/components/CreateTable";
 
 export interface TreeNodeData {
   name: string;
@@ -180,6 +181,11 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         {
           label: "Create Table",
           icon: <FilePlus className="w-4 h-4 mr-2" />,
+          action: () => console.log("Create new table"),
+        },
+        {
+          label: "Create Database",
+          icon: <FolderPlus className="w-4 h-4 mr-2" />,
           action: () => console.log("Create new table"),
         },
         {

@@ -123,7 +123,7 @@ const Sidebar = () => {
         </nav>
       </ScrollArea>
 
-      <div className="p-4">
+      <div className="px-4">
         <OrganizationCredentialSelector isExpanded={isExpanded} />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -179,22 +179,20 @@ const Sidebar = () => {
         </DropdownMenu>
       </div>
 
-      <div className="">
-        <Button
-          variant="link"
-          className="w-full flex justify-center items-center mt-4"
-          onClick={toggleSidebar}
-        >
-          {isExpanded ? (
-            <>
-              <ChevronLeft className="h-5 w-5" />
-              <span className="ml-2">Collapse</span>
-            </>
-          ) : (
-            <ChevronRight className="h-5 w-5" />
-          )}
-        </Button>
-      </div>
+      <Button
+        variant="link"
+        className="w-full flex justify-center items-center"
+        onClick={toggleSidebar}
+      >
+        {isExpanded ? (
+          <>
+            <ChevronLeft className="h-5 w-5" />
+            <span className="ml-2">Collapse</span>
+          </>
+        ) : (
+          <ChevronRight className="h-5 w-5" />
+        )}
+      </Button>
     </div>
   );
 };

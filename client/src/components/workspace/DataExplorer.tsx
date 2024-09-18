@@ -17,7 +17,7 @@ const DatabaseExplorer: React.FC = () => {
     return databaseData.filter(
       (node) =>
         node.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        node.children?.some(
+        node.children.some(
           (child) =>
             child.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             child.children?.some((grandchild) =>
