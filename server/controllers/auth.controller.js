@@ -50,7 +50,7 @@ const setCookies = (res, { accessToken, refreshToken }) => {
 const passwordValidation = body("password")
   .isString()
   .isLength({ min: 8 })
-  .matches(/^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])/)
+  .matches(/^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>;])/)
   .withMessage(
     "Password must be at least 8 characters long, contain at least one uppercase letter, one number, and one special character"
   );
