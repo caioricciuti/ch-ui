@@ -205,7 +205,6 @@ exports.executeQuery = async (req, res) => {
 
     return res.status(200).json(queryResult);
   } catch (error) {
-    console.error("Error executing query:", error);
     return errorResponse(
       res,
       400,
