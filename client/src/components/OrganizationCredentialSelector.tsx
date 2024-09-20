@@ -48,7 +48,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
   React.useEffect(() => {
     if (user?.activeOrganization?._id) {
       setTempOrgValue(user.activeOrganization._id);
-      fetchAvailableCredentials(user.activeOrganization._id);
+      fetchCredentials(user.activeOrganization._id)
     }
     if (user?.activeClickhouseCredential?._id) {
       setTempCredValue(user.activeClickhouseCredential._id);
@@ -69,11 +69,23 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
     setDialogOpen(false);
   };
 
+  const fetchCredentials = async (organizationId: string) => {
+    try {
+      await fetchAvailableCredentials(organizationId);
+    } catch(error) {
+      if (error instanceof Error) {
+        toast.error(error.message)
+      } {
+        toast.error("Failed to fetch available credentials")
+      }
+    }
+  }
+
   const handleOrgSelect = async (organizationId: string) => {
     setTempOrgValue(organizationId);
     resetCredentials();
     setTempCredValue("");
-    await fetchAvailableCredentials(organizationId);
+    await fetchCredentials(organizationId)
   };
 
   const handleCredSelect = (credentialId: string) => {
@@ -92,7 +104,6 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
       toast.success("Organization and credential updated successfully.");
       setDialogOpen(false);
     } catch (error: any) {
-      console.error("Update failed:", error);
       toast.error(`Failed to update: ${error.message}`);
     }
   };

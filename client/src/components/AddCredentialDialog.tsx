@@ -104,8 +104,11 @@ const AddCredentialDialog: React.FC<AddCredentialDialogProps> = ({
       fetchCredentials();
       fetchAvailableCredentials();
     } catch (error) {
-      console.error("Failed to create credential:", error);
-      toast.error("Failed to add credential. Please try again.");
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error("Failed to create credential")
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -139,7 +142,6 @@ const AddCredentialDialog: React.FC<AddCredentialDialogProps> = ({
         toast.error("Invalid credentials. Please check and try again.");
       }
     } catch (error) {
-      console.error("Error testing credentials:", error);
       toast.error("An error occurred while testing credentials.");
     } finally {
       setIsTestingCredentials(false);

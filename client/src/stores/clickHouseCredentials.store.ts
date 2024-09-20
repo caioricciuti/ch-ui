@@ -3,6 +3,7 @@ import { create } from "zustand";
 import api from "@/api/axios.config";
 import { toast } from "sonner";
 import { ClickHouseCredentialState, ClickHouseCredential } from "@/types/types";
+import { isAxiosError } from "axios";
 
 const useClickHouseCredentialStore = create<ClickHouseCredentialState>(
   (set, get) => ({
@@ -13,54 +14,48 @@ const useClickHouseCredentialStore = create<ClickHouseCredentialState>(
     error: null,
 
     fetchCredentials: async () => {
-      set({ isLoading: true, error: null });
       try {
         const response = await api.get("/clickhouse-credentials");
         set({ credentials: response.data, isLoading: false });
       } catch (error) {
-        set({ error: "Failed to fetch credentials", isLoading: false });
-        toast.error("Failed to fetch credentials");
+        throw new Error("Failed to fetch credentials")
       }
     },
     // fetch available credentials for the current user based on the organization they are in
     fetchAvailableCredentials: async (organizationId) => {
-      set({ isLoading: true, error: null });
       try {
         const response = await api.get(
           `/clickhouse-credentials/available?organizationId=${organizationId}`
         );
-        console.log(response.data);
-        set({ availableCredentials: response.data, isLoading: false });
+        set({ availableCredentials: response.data });
       } catch (error) {
-        set({
-          error: "Failed to fetch available credentials",
-          isLoading: false,
-        });
-        toast.error("Failed to fetch available credentials");
+        throw new Error("Failed to fetch available credentials")
       }
     },
 
     createCredential: async (credentialData) => {
-      set({ isLoading: true, error: null });
       try {
         await api.post("/clickhouse-credentials", credentialData);
         await get().fetchCredentials();
-        toast.success("Credential created successfully");
       } catch (error) {
-        set({ error: "Failed to create credential", isLoading: false });
-        toast.error("Failed to create credential");
+        let msg = 'Failed to create credential'
+        if (isAxiosError(error)) {
+          msg = `${msg}: ${error.response?.data.message}`
+        }
+        throw new Error(msg)
       }
     },
 
     updateCredential: async (id, credentialData) => {
-      set({ isLoading: true, error: null });
       try {
         await api.put(`/clickhouse-credentials/${id}`, credentialData);
         await get().fetchCredentials();
-        toast.success("Credential updated successfully");
       } catch (error) {
-        set({ error: "Failed to update credential", isLoading: false });
-        toast.error("Failed to update credential");
+        let msg = "Failed to update credential"
+        if (isAxiosError(error)) {
+          msg = `${msg}: ${error.response?.data.message}`
+        }
+        throw new Error(msg)
       }
     },
 

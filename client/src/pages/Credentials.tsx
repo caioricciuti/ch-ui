@@ -17,7 +17,6 @@ function CredentialsPage() {
     credentials,
     fetchCredentials,
     isLoading,
-    error,
     setSelectedCredential,
   } = useClickHouseCredentialStore();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -29,14 +28,16 @@ function CredentialsPage() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
-    fetchCredentials();
-  }, [fetchCredentials]);
-
-  useEffect(() => {
-    if (error) {
-      toast.error(error);
+    try {
+      fetchCredentials();
+    } catch (error) {
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error("Failed to fetch credentials");
+      }
     }
-  }, [error]);
+  }, [fetchCredentials]);
 
   const filteredCredentials = credentials
     .filter((cred) =>
