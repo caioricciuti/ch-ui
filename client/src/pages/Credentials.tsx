@@ -17,7 +17,6 @@ function CredentialsPage() {
     credentials,
     fetchCredentials,
     isLoading,
-    error,
     setSelectedCredential,
   } = useClickHouseCredentialStore();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -29,14 +28,16 @@ function CredentialsPage() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
-    fetchCredentials();
-  }, [fetchCredentials]);
-
-  useEffect(() => {
-    if (error) {
-      toast.error(error);
+    try {
+      fetchCredentials();
+    } catch (error) {
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error("Failed to fetch credentials");
+      }
     }
-  }, [error]);
+  }, [fetchCredentials]);
 
   const filteredCredentials = credentials
     .filter((cred) =>
@@ -62,6 +63,22 @@ function CredentialsPage() {
     }
     setSortOrder(sortOrder === "asc" ? "desc" : "asc");
   };
+
+  const deleteCredential = (credentialId: string) => {
+    try {
+      useClickHouseCredentialStore
+        .getState()
+        .deleteCredential(credentialId);
+      toast.success("Credential deleted successfully");
+    } catch (error) {
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error("Failed to delete credentials")
+      }
+    }
+    
+  }
 
   return (
     <div className="container mx-auto my-6 max-w-8xl">
@@ -137,9 +154,7 @@ function CredentialsPage() {
                   setIsUpdateDialogOpen(true);
                 }}
                 onDelete={(cred) => {
-                  useClickHouseCredentialStore
-                    .getState()
-                    .deleteCredential(cred._id);
+                  deleteCredential(cred._id)
                 }}
               />
             </>

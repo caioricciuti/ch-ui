@@ -68,8 +68,6 @@ export interface ClickHouseCredentialState {
   credentials: ClickHouseCredential[];
   selectedCredential: ClickHouseCredential | null;
   availableCredentials: ClickHouseCredential[];
-  isLoading: boolean;
-  error: string | null;
   fetchCredentials: () => Promise<void>;
   fetchAvailableCredentials: (organizationId: string) => Promise<void>;
   createCredential: (

@@ -97,13 +97,16 @@ const UpdateCredentialDialog: React.FC<UpdateCredentialDialogProps> = ({
           // Only include password if it's not empty
           ...(data.password && { password: data.password }),
         });
-        toast.success("Credential updated successfully!");
         onClose();
         setIsCredentialValid(false);
+        toast.success("Credential updated successfully");
       }
     } catch (error) {
-      console.error("Failed to update credential:", error);
-      toast.error("Failed to update credential. Please try again.");
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error("Failed to update credentials")
+      }
     } finally {
       setIsSubmitting(false);
     }
