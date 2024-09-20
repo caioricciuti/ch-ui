@@ -16,7 +16,7 @@ import CreateTable from "@/components/CreateTable";
 function WorkspacePage() {
   const { setSelectedCredential } = useClickHouseCredentialStore();
   const { user } = useAuthStore();
-  const { fetchDatabaseData, isLoading, error, runQuery, databaseData} = useTabStore();
+  const { fetchDatabaseData, isLoading, error } = useTabStore();
 
   useEffect(() => {
     fetchDatabaseData();
@@ -86,7 +86,7 @@ function WorkspacePage() {
 
   return (
     <div className="h-screen">
-      <CreateTable runQuery={runQuery} fetchDatabaseData={fetchDatabaseData} databaseData={databaseData} />
+      <CreateTable />
       <ResizablePanelGroup direction="horizontal">
         <ResizablePanel className="overflow-scroll" defaultSize={25}>
           <DatabaseExplorer />

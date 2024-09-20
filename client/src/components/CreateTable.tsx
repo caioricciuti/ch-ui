@@ -16,7 +16,6 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
-  SheetTrigger,
 } from "@/components/ui/sheet";
 import {
   Select,
@@ -51,7 +50,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { toast } from "sonner";
-import { json } from "stream/consumers";
+import useTabStore from "@/stores/tabs.store";
 
 const FIELD_TYPES = [
   "String",
@@ -83,17 +82,17 @@ const ENGINES = [
 
 const DEFAULT_PARTITION_OPTIONS = ["toYYYYMM", "toYYYYMMDD", "toYear"];
 
-interface CreateTableProps {
-  runQuery: (query: string, sql: string) => Promise<void>;
-  fetchDatabaseData: () => void;
-  databaseData: { name: string; children: { name: string }[] }[];
-}
+const CreateTable = () => {
+  const {
+    isCreateTableModalOpen,
+    selectedDatabaseForCreateTable,
+    closeCreateTableModal,
+    fetchDatabaseData,
+    databaseData,
+    runQuery,
+    addTab,
+  } = useTabStore();
 
-const CreateTable: React.FC<CreateTableProps> = ({
-  runQuery,
-  fetchDatabaseData,
-  databaseData,
-}) => {
   const [open, setOpen] = useState(false);
   const [database, setDatabase] = useState("");
   const [tableName, setTableName] = useState("");
@@ -117,8 +116,6 @@ const CreateTable: React.FC<CreateTableProps> = ({
   const [statementCopiedToClipBoard, setStatementCopiedToClipBoard] =
     useState<Boolean>(false);
 
-  console.log(JSON.stringify(databaseData));
-
   let databases = databaseData
     .filter((item) => item.type === "database")
     .map((db) => ({
@@ -132,11 +129,15 @@ const CreateTable: React.FC<CreateTableProps> = ({
     }));
 
   useEffect(() => {
+    if (selectedDatabaseForCreateTable) {
+      setDatabase(selectedDatabaseForCreateTable);
+    }
+
     const newPrimaryKeyFields = fields
       .filter((field) => field.isPrimaryKey && field.name)
       .map((field) => field.name);
     setPrimaryKeyFields(newPrimaryKeyFields);
-  }, [fields]);
+  }, [fields, selectedDatabaseForCreateTable]);
 
   const addField = () => {
     setFields([
@@ -240,7 +241,6 @@ const CreateTable: React.FC<CreateTableProps> = ({
           newErrors[err.path.join(".")] = err.message;
         });
         setErrors(newErrors);
-        toast.error("Please correct the errors");
       } else {
         toast.error("Unknown error occurred");
       }
@@ -266,9 +266,15 @@ const CreateTable: React.FC<CreateTableProps> = ({
       setPartitionBy("");
       setComment("");
       setSql("");
+      addTab({
+        title: `${database}.${tableName}`,
+        content: { query: "", database, table: tableName },
+        type: "information",
+        databaseData: [],
+      });
+      // Close the modal
+      closeCreateTableModal();
     } catch (error: any) {
-      console.log(error);
-      toast.error(`Failed to create table: ${error}`);
       setCreateTableError(error);
     } finally {
       setLoading(false);
@@ -295,11 +301,8 @@ const CreateTable: React.FC<CreateTableProps> = ({
   };
 
   return (
-    <Sheet>
-      <SheetTrigger asChild>
-        <Button>Create Table</Button>
-      </SheetTrigger>
-      <SheetContent className="xl:w-[1000px] xl:max-w-none sm:w-[400px] sm:max-w-[540px] overflow-auto">
+    <Sheet open={isCreateTableModalOpen} onOpenChange={closeCreateTableModal}>
+      <SheetContent className="xl:w-[1000px] sm:w-full sm:max-w-full overflow-auto">
         <SheetHeader>
           <SheetTitle>
             Create Table - {database}.{tableName}

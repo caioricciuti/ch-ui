@@ -13,8 +13,6 @@ const useTabStore = create<TabQueryState>()(
           title: "Home",
           content: "",
           type: "home",
-          error: null,
-          isLoadingDataBase: false,
           databaseData: [],
         },
       ],
@@ -25,6 +23,20 @@ const useTabStore = create<TabQueryState>()(
       databaseData: [],
       isSavedQuery: false,
       isDirty: false,
+      isCreateTableModalOpen: false,
+      selectedDatabaseForCreateTable: "",
+
+      openCreateTableModal: (database: string) =>
+        set({
+          isCreateTableModalOpen: true,
+          selectedDatabaseForCreateTable: database,
+        }),
+
+      closeCreateTableModal: () =>
+        set({
+          isCreateTableModalOpen: false,
+          selectedDatabaseForCreateTable: "",
+        }),
 
       addTab: (tab) => {
         const existingTab = get().tabs.find((t) => t.title === tab.title);
@@ -168,6 +180,7 @@ const useTabStore = create<TabQueryState>()(
         }
       },
     }),
+
     {
       name: "tab-query-storage",
       partialize: (state) => ({

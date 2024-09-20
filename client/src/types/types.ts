@@ -129,6 +129,7 @@ export interface Tab {
   isLoading?: boolean; // Loading state for the query
   isSaved?: boolean; // Whether the query is saved
   isDirty?: boolean; // Whether the query has unsaved changes
+  databaseData: any[]; // Added this line
 }
 
 export interface TabQueryState {
@@ -141,6 +142,9 @@ export interface TabQueryState {
   isSavedQuery: boolean;
   isDirty: boolean;
 
+  isCreateTableModalOpen: boolean;
+  selectedDatabaseForCreateTable: string;
+
   addTab: (tab: Omit<Tab, "id">) => void;
   closeTab: (id: string) => void;
   updateTabContent: (id: string, updatedValues: Partial<Tab>) => void;
@@ -151,6 +155,8 @@ export interface TabQueryState {
   fetchQueries: () => Promise<void>;
   runQuery: (tabId: string, query: string) => Promise<void>;
   fetchDatabaseData: () => Promise<void>;
+  closeCreateTableModal: () => void;
+  openCreateTableModal: (database: string) => void;
 }
 
 //CHATS

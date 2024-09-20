@@ -32,7 +32,6 @@ import {
 import ConfirmationDialog from "@/components/ConfirmationDialog";
 import { toast } from "sonner";
 import useTabStore from "@/stores/tabs.store";
-import CreateTable from "@/components/CreateTable";
 
 export interface TreeNodeData {
   name: string;
@@ -63,7 +62,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
   );
   const [confirmTitle, setConfirmTitle] = useState("");
   const [confirmDescription, setConfirmDescription] = useState("");
-  const { addTab, runQuery, getTabById } = useTabStore();
+  const { addTab, runQuery, getTabById, openCreateTableModal } = useTabStore();
 
   const toggleOpen = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -81,6 +80,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         type: "information",
         title: title,
         content: { query: "", database, table },
+        databaseData: [],
       });
     }
   };
@@ -98,6 +98,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
           type: "sql",
           title: title,
           content: { query, database: database || "", table },
+          databaseData: [],
         });
       }
     },
@@ -115,6 +116,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         type: "sql",
         title: title,
         content: { query: node.query || "", database: "", table: "" },
+        databaseData: [],
       });
     }
   };
@@ -181,7 +183,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         {
           label: "Create Table",
           icon: <FilePlus className="w-4 h-4 mr-2" />,
-          action: () => console.log("Create new table"),
+          action: () => openCreateTableModal(node.name),
         },
         {
           label: "Create Database",

@@ -37,7 +37,7 @@ interface SortableTabProps {
   tab: {
     id: string;
     title: string;
-    type: "sql" | "result" | "home" | "information";
+    type: "sql" | "result" | "home" | "information" | "saved_query";
     content: string | { query: string; database: string; table?: string };
   };
   isActive: boolean;
@@ -90,7 +90,7 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
     >
       <TabsTrigger
         value={tab.id}
-        className={`data-[state=active]:bg-orange-500 h-10 data-[state=active]:text-primary flex items-center rounded-none w-full`}
+        className={`data-[state=active]:bg-orange-500 h-8 data-[state=active]:text-primary flex items-center rounded-none w-full`}
         onClick={onActivate}
       >
         {isActive && isHovering && tab.type !== "home" && (
@@ -109,15 +109,15 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
             onChange={handleTitleChange}
             onBlur={handleTitleBlur}
             onKeyDown={handleKeyDown}
-            className="w-24 h-6 px-1 py-0 text-sm"
+            className="w-24 h-4 p-1 text-xs"
             autoFocus
           />
         ) : (
           <div className="flex items-center overflow-hidden">
-            <span className="truncate" title={tab.title}>
+            <span className="truncate text-xs" title={tab.title}>
               {tab.title}
             </span>
-            {isActive && isHovering && tab.type !== "home" && (
+            {isActive && tab.type !== "home" && (
               <Edit2
                 className="h-3 ml-1 cursor-pointer"
                 onClick={handleEditClick}
@@ -157,6 +157,8 @@ export function WorkspaceTabs() {
       title: "Query " + tabs.length,
       type: "sql",
       content: "",
+      isCreatingTable: false,
+      databaseData: [],
     });
   }, [tabs.length, addTab]);
 
