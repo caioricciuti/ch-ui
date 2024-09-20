@@ -51,6 +51,7 @@ import useAuthStore from "@/stores/user.store";
 import useOrganizationStore from "@/stores/organization.store";
 import { ClickHouseCredential } from "@/types/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { toast } from "sonner";
 
 interface CredentialListProps {
   credentials: ClickHouseCredential[];
@@ -167,46 +168,82 @@ const CredentialList: React.FC<CredentialListProps> = ({
 
   const handleConfirmAddUser = async () => {
     if (credentialToManage && selectedUserId) {
-      await assignUserToCredential(credentialToManage._id, selectedUserId);
-      setAddUserDialogOpen(false);
-      setCredentialToManage(null);
-      setSelectedUserId("");
+      try {
+        await assignUserToCredential(credentialToManage._id, selectedUserId);
+        setAddUserDialogOpen(false);
+        setCredentialToManage(null);
+        setSelectedUserId("");
+        toast.success("User assigned to credential successfully");
+      } catch (error) {
+        if (error instanceof Error) {
+          toast.error(error.message)
+        } else {
+          toast.error("Failed to assign user to credential")
+        }
+      }
     }
   };
 
   const handleConfirmRemoveUser = async () => {
     if (credentialToManage && selectedUserId) {
-      await revokeUserFromCredential(credentialToManage._id, selectedUserId);
-      setRemoveUserDialogOpen(false);
-      setCredentialToManage(null);
-      setSelectedUserId("");
+      try {
+        await revokeUserFromCredential(credentialToManage._id, selectedUserId);
+        setRemoveUserDialogOpen(false);
+        setCredentialToManage(null);
+        setSelectedUserId("");
+        toast.success("User revoked from credential successfully");
+      } catch (error) {
+        if (error instanceof Error) {
+          toast.error(error.message)
+        } else {
+          toast.error("Failed to revoke user from credential")
+        }
+      }
     }
   };
 
   const handleConfirmAddOrg = async () => {
     if (credentialToManage && selectedOrgId) {
-      await assignCredentialToOrganization(
-        credentialToManage._id,
-        selectedOrgId
-      );
-      setAddOrgDialogOpen(false);
-      setCredentialToManage(null);
-      setSelectedOrgId("");
-      fetchCredentials();
-      fetchOrganizations();
-      fetchAvailableCredentials();
+      try {
+        await assignCredentialToOrganization(
+          credentialToManage._id,
+          selectedOrgId
+        );
+        toast.success("Credential assigned to organization successfully");
+        setAddOrgDialogOpen(false);
+        setCredentialToManage(null);
+        setSelectedOrgId("");
+        fetchCredentials();
+        fetchOrganizations();
+        fetchAvailableCredentials();
+      } catch (error) {
+        if (error instanceof Error) {
+          toast.error(error.message)
+        } else {
+          toast.error("Failed to assign credential to organization")
+        }
+      }
     }
   };
 
   const handleConfirmRemoveOrg = async () => {
     if (credentialToManage && selectedOrgId) {
-      await revokeCredentialFromOrganization(
-        credentialToManage._id,
-        selectedOrgId
-      );
-      setRemoveOrgDialogOpen(false);
-      setCredentialToManage(null);
-      setSelectedOrgId("");
+      try {
+        await revokeCredentialFromOrganization(
+          credentialToManage._id,
+          selectedOrgId
+        );
+        setRemoveOrgDialogOpen(false);
+        setCredentialToManage(null);
+        setSelectedOrgId("");
+        toast.success("Credential revoked from organization successfully");
+      } catch (error) {
+        if (error instanceof Error) {
+          toast.error(error.message)
+        } else {
+          toast.error("Failed to revoke credential from organization")
+        }
+      }
     }
   };
 

@@ -1,7 +1,6 @@
 // clickHouseCredentials store
 import { create } from "zustand";
 import api from "@/api/axios.config";
-import { toast } from "sonner";
 import { ClickHouseCredentialState, ClickHouseCredential } from "@/types/types";
 import { isAxiosError } from "axios";
 
@@ -10,13 +9,11 @@ const useClickHouseCredentialStore = create<ClickHouseCredentialState>(
     credentials: [],
     selectedCredential: null,
     availableCredentials: [],
-    isLoading: false,
-    error: null,
 
     fetchCredentials: async () => {
       try {
         const response = await api.get("/clickhouse-credentials");
-        set({ credentials: response.data, isLoading: false });
+        set({ credentials: response.data });
       } catch (error) {
         throw new Error("Failed to fetch credentials")
       }
@@ -60,80 +57,82 @@ const useClickHouseCredentialStore = create<ClickHouseCredentialState>(
     },
 
     deleteCredential: async (id) => {
-      set({ isLoading: true, error: null });
       try {
         await api.delete(`/clickhouse-credentials/${id}`);
         await get().fetchCredentials();
-        toast.success("Credential deleted successfully");
       } catch (error) {
-        set({ error: "Failed to delete credential", isLoading: false });
-        toast.error("Failed to delete credential");
+        let msg = "Failed to delete credential"
+        if (isAxiosError(error)) {
+          msg = `${msg}: ${error.response?.data.message}`
+        }
+        throw new Error(msg)
       }
     },
 
     assignCredentialToOrganization: async (credentialId, organizationId) => {
-      set({ isLoading: true, error: null });
       try {
         await api.post(
           `/clickhouse-credentials/${credentialId}/organizations`,
           { organizationId }
         );
         await get().fetchCredentials();
-        toast.success("Credential assigned to organization successfully");
       } catch (error) {
-        set({
-          error: "Failed to assign credential to organization",
-          isLoading: false,
-        });
-        toast.error("Failed to assign credential to organization");
+        let msg = "Failed to assign credential to organization";
+        if (isAxiosError(error)) {
+          msg = `${msg}: ${error.response?.data.message}`
+        }
+        throw new Error(msg)
       }
     },
 
     revokeCredentialFromOrganization: async (credentialId, organizationId) => {
-      set({ isLoading: true, error: null });
       try {
         await api.delete(
           `/clickhouse-credentials/${credentialId}/organizations/${organizationId}`
         );
         await get().fetchCredentials();
-        toast.success("Credential revoked from organization successfully");
       } catch (error) {
-        set({
-          error: "Failed to revoke credential from organization",
-          isLoading: false,
-        });
-        toast.error("Failed to revoke credential from organization");
+        let msg = "Failed to revoke credential from organization"
+        if (isAxiosError(error)) {
+          if (isAxiosError(error)) {
+            msg = `${msg}: ${error.response?.data.message}`
+          }
+          throw new Error(msg)
+        }
       }
     },
 
     assignUserToCredential: async (credentialId, userId) => {
-      set({ isLoading: true, error: null });
       try {
         await api.post(`/clickhouse-credentials/${credentialId}/users`, {
           userId,
         });
         await get().fetchCredentials();
-        toast.success("User assigned to credential successfully");
       } catch (error) {
-        set({ error: "Failed to assign user to credential", isLoading: false });
-        toast.error("Failed to assign user to credential");
+        let msg = "Failed to assign user to credential"
+        if (isAxiosError(error)) {
+          if (isAxiosError(error)) {
+            msg = `${msg}: ${error.response?.data.message}`
+          }
+          throw new Error(msg)
+        }
       }
     },
 
     revokeUserFromCredential: async (credentialId, userId) => {
-      set({ isLoading: true, error: null });
       try {
         await api.delete(
           `/clickhouse-credentials/${credentialId}/users/${userId}`
         );
         await get().fetchCredentials();
-        toast.success("User revoked from credential successfully");
       } catch (error) {
-        set({
-          error: "Failed to revoke user from credential",
-          isLoading: false,
-        });
-        toast.error("Failed to revoke user from credential");
+        let msg = "Failed to revoke user from credential"
+        if (isAxiosError(error)) {
+          if (isAxiosError(error)) {
+            msg = `${msg}: ${error.response?.data.message}`
+          }
+          throw new Error(msg)
+        }
       }
     },
 
