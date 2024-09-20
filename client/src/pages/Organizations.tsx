@@ -15,7 +15,7 @@ import { Organization } from "@/types/types";
 import useAuthStore from "@/stores/user.store";
 
 function OrganizationsPage() {
-  const { organizations, fetchOrganizations, isLoading, error } =
+  const { organizations, fetchOrganizations } =
     useOrganizationStore();
   const { user } = useAuthStore();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -26,15 +26,22 @@ function OrganizationsPage() {
   const [sortBy, setSortBy] = useState<"name" | "memberCount">("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
-  useEffect(() => {
-    fetchOrganizations();
-  }, [fetchOrganizations]);
+  const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
-    if (error) {
-      toast.error(error);
+    try {
+      setIsLoading(true)
+      fetchOrganizations();
+    } catch (error) {
+      if (error instanceof Error) {
+        toast.error(error.message)
+      } else {
+        toast.error("Failed to fetch organizations")
+      }
+    } finally {
+      setIsLoading(false)
     }
-  }, [error]);
+  }, [fetchOrganizations]);
 
   const userSelectedOrganization = user?.activeOrganization?._id;
 
@@ -60,6 +67,20 @@ function OrganizationsPage() {
     }
     setSortOrder(sortOrder === "asc" ? "desc" : "asc");
   };
+
+  const deleteOrganization = async (organizationId: string) => {
+    try {
+      await useOrganizationStore.getState().deleteOrganization(organizationId)
+      toast.info(`Organization deleted successfully`);
+    } catch (error) {
+      if (error instanceof Error) {
+        toast.error(error.message)
+      } else {
+        toast.error("Failed to delete organization")
+      }
+    }
+    
+  }
 
   return (
     <div className="container mx-auto my-6 max-w-8xl">
@@ -123,9 +144,7 @@ function OrganizationsPage() {
                   useOrganizationStore.getState().setSelectedOrganization(org);
                   setIsUpdateDialogOpen(true);
                 }}
-                onDelete={(org: Organization) => {
-                  useOrganizationStore.getState().deleteOrganization(org._id);
-                }}
+                onDelete={(org: Organization) => deleteOrganization(org._id) }
               />
             ) : (
               <div className="h-full flex flex-col items-center justify-center">

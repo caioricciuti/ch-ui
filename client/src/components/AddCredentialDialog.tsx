@@ -72,7 +72,15 @@ const AddCredentialDialog: React.FC<AddCredentialDialogProps> = ({
   const [isCredentialValid, setIsCredentialValid] = useState(false);
 
   useEffect(() => {
-    fetchOrganizations();
+    try {
+      fetchOrganizations();
+    } catch (error) {
+      if (error instanceof Error) {
+        toast.error(error.message)
+      } else {
+        toast.error("Failed to fetch organizations")
+      }
+    }
   }, [fetchOrganizations]);
 
   const form = useForm<CredentialFormValues>({

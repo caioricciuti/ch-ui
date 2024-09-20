@@ -21,6 +21,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import useOrganizationStore from "@/stores/organization.store";
+import { toast } from "sonner";
 
 const formSchema = z.object({
   name: z
@@ -47,7 +48,16 @@ const AddOrganizationDialog: React.FC<AddOrganizationDialogProps> = ({
   });
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
-    await addOrganization(values.name);
+    try {
+      await addOrganization(values.name);
+      toast.success(`Organization ${values.name} added successfully`);
+    } catch (error) {
+      if (error instanceof Error) {
+        toast.error(error.message)
+      } else {
+        toast.error("Failed to add organization")
+      }
+    }
     form.reset();
     onClose();
   };

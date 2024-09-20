@@ -1,5 +1,5 @@
 // src/components/UpdateOrganizationDialog.tsx
-import React from "react";
+import {useEffect} from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -21,6 +21,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import useOrganizationStore from "@/stores/organization.store";
+import { toast } from "sonner";
 
 const formSchema = z.object({
   name: z.string().min(1, "Organization name is required"),
@@ -46,12 +47,21 @@ const UpdateOrganizationDialog: React.FC<UpdateOrganizationDialogProps> = ({
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     if (selectedOrganization) {
-      await updateOrganization(selectedOrganization._id, values.name);
+      try {
+        await updateOrganization(selectedOrganization._id, values.name);
+        toast.success(`Organization ${values.name} updated successfully`);
+      } catch (error) {
+        if (error instanceof Error) {
+          toast.error(error.message)
+        } else {
+          toast.error("Failed to update organization")
+        }
+      }
       onClose();
     }
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (selectedOrganization) {
       form.reset({ name: selectedOrganization.name });
     }
