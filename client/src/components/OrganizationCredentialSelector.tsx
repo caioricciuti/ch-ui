@@ -48,7 +48,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
   React.useEffect(() => {
     if (user?.activeOrganization?._id) {
       setTempOrgValue(user.activeOrganization._id);
-      fetchCredentials(user.activeOrganization._id)
+      fetchAvailbleCredentialsAndHandleErrors(user.activeOrganization._id)
     }
     if (user?.activeClickhouseCredential?._id) {
       setTempCredValue(user.activeClickhouseCredential._id);
@@ -69,7 +69,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
     setDialogOpen(false);
   };
 
-  const fetchCredentials = async (organizationId: string) => {
+  const fetchAvailbleCredentialsAndHandleErrors = async (organizationId: string) => {
     try {
       await fetchAvailableCredentials(organizationId);
     } catch(error) {
@@ -85,7 +85,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
     setTempOrgValue(organizationId);
     resetCredentials();
     setTempCredValue("");
-    await fetchCredentials(organizationId)
+    await fetchAvailbleCredentialsAndHandleErrors(organizationId)
   };
 
   const handleCredSelect = (credentialId: string) => {
