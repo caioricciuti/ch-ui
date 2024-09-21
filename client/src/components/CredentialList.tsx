@@ -87,7 +87,15 @@ const CredentialList: React.FC<CredentialListProps> = ({
 
   useEffect(() => {
     getAllUsers();
-    fetchOrganizations();
+    try {
+      fetchOrganizations();
+    } catch (error) {
+      if (error instanceof Error) {
+        toast.error(error.message)
+      } else {
+        toast.error("Failed to fetch organizations")
+      }
+    }
     setCredentialToManage(credentials[0]);
   }, [getAllUsers, fetchOrganizations]);
 

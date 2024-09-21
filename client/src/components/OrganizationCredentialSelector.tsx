@@ -1,4 +1,4 @@
-import * as React from "react";
+import {useState, useEffect} from "react";
 import { Building2, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,25 +27,35 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
   const {
     organizations,
     fetchOrganizations,
-    isLoading: orgLoading,
   } = useOrganizationStore();
   const {
     availableCredentials,
-    isLoading: credLoading,
     fetchAvailableCredentials,
     resetCredentials,
   } = useClickHouseCredentialStore();
   const { user, setCurrentOrganization, setCurrentCredential } = useAuthStore();
 
-  const [dialogOpen, setDialogOpen] = React.useState(false);
-  const [tempOrgValue, setTempOrgValue] = React.useState("");
-  const [tempCredValue, setTempCredValue] = React.useState("");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [tempOrgValue, setTempOrgValue] = useState("");
+  const [tempCredValue, setTempCredValue] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-  React.useEffect(() => {
-    fetchOrganizations();
+  useEffect(() => {
+    try {
+      setIsLoading(true)
+      fetchOrganizations();
+    } catch (error) {
+      if (error instanceof Error) {
+        toast.error(error.message)
+      } else {
+        toast.error("Failed to fetch organizations")
+      }
+    } finally {
+      setIsLoading(false)
+    }
   }, [fetchOrganizations]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (user?.activeOrganization?._id) {
       setTempOrgValue(user.activeOrganization._id);
       fetchAvailbleCredentialsAndHandleErrors(user.activeOrganization._id)
@@ -71,6 +81,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
 
   const fetchAvailbleCredentialsAndHandleErrors = async (organizationId: string) => {
     try {
+      setIsLoading(true)
       await fetchAvailableCredentials(organizationId);
     } catch(error) {
       if (error instanceof Error) {
@@ -78,6 +89,8 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
       } {
         toast.error("Failed to fetch available credentials")
       }
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -109,7 +122,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
   };
 
   const noCredentialsAvailable =
-    availableCredentials.length === 0 && tempOrgValue !== "" && !credLoading;
+    availableCredentials.length === 0 && tempOrgValue !== "" && !isLoading;
 
   return (
     <>
@@ -146,7 +159,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
               <Select
                 value={tempOrgValue}
                 onValueChange={handleOrgSelect}
-                disabled={orgLoading}
+                disabled={isLoading}
               >
                 <SelectTrigger className="col-span-3">
                   <SelectValue placeholder="Select organization" />
@@ -168,7 +181,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
                 value={tempCredValue}
                 onValueChange={handleCredSelect}
                 disabled={
-                  credLoading || !tempOrgValue || noCredentialsAvailable
+                  isLoading || !tempOrgValue || noCredentialsAvailable
                 }
               >
                 <SelectTrigger className="col-span-3">

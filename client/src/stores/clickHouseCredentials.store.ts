@@ -15,7 +15,11 @@ const useClickHouseCredentialStore = create<ClickHouseCredentialState>(
         const response = await api.get("/clickhouse-credentials");
         set({ credentials: response.data });
       } catch (error) {
-        throw new Error("Failed to fetch credentials")
+        let msg = "Failed to fetch credentials";
+        if (isAxiosError(error)) {
+          msg = `${msg}: ${error.response?.data.message}`
+        }
+        throw new Error(msg)
       }
     },
     // fetch available credentials for the current user based on the organization they are in
@@ -26,7 +30,11 @@ const useClickHouseCredentialStore = create<ClickHouseCredentialState>(
         );
         set({ availableCredentials: response.data });
       } catch (error) {
-        throw new Error("Failed to fetch available credentials")
+        let msg = "Failed to fetch available credentials";
+        if (isAxiosError(error)) {
+          msg = `${msg}: ${error.response?.data.message}`
+        }
+        throw new Error(msg)
       }
     },
 

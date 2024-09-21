@@ -35,8 +35,6 @@ export interface User {
 export interface OrganizationState {
   organizations: Organization[];
   selectedOrganization: Organization | null;
-  isLoading: boolean;
-  error: string | null;
   fetchOrganizations: () => Promise<void>;
   setSelectedOrganization: (organization: Organization) => void;
   addOrganization: (name: string) => Promise<void>;

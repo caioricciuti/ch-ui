@@ -44,6 +44,7 @@ import useOrganizationStore from "@/stores/organization.store";
 import { Alert } from "./ui/alert";
 import { Organization } from "@/types/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { toast } from "sonner";
 
 interface OrganizationListProps {
   organizations: Organization[];
@@ -118,22 +119,40 @@ const OrganizationList: React.FC<OrganizationListProps> = ({
 
   const handleConfirmAddUser = async () => {
     if (organizationToManage && selectedUserId) {
-      await addUserToOrganization(organizationToManage._id, selectedUserId);
-      setAddUserDialogOpen(false);
-      setOrganizationToManage(null);
-      setSelectedUserId("");
+      try {
+        await addUserToOrganization(organizationToManage._id, selectedUserId);
+        setAddUserDialogOpen(false);
+        setOrganizationToManage(null);
+        setSelectedUserId("");
+        toast.success("User added to organization successfully");
+      } catch (error) {
+        if (error instanceof Error) {
+          toast.error(error.message)
+        } else {
+          toast.error("Failed to add user to organization")
+        }
+      }
     }
   };
 
   const handleConfirmRemoveUser = async () => {
     if (organizationToManage && selectedUserId) {
-      await removeUserFromOrganization(
-        organizationToManage._id,
-        selectedUserId
-      );
-      setRemoveUserDialogOpen(false);
-      setOrganizationToManage(null);
-      setSelectedUserId("");
+      try {
+        await removeUserFromOrganization(
+          organizationToManage._id,
+          selectedUserId
+        );
+        setRemoveUserDialogOpen(false);
+        setOrganizationToManage(null);
+        setSelectedUserId("");
+        toast.success("User removed from organization successfully");
+      } catch (error) {
+        if (error instanceof Error) {
+          toast.error(error.message)
+        } else {
+          toast.error("Failed to remove user from organization")
+        }
+      }
     }
   };
 
