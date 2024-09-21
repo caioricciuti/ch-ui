@@ -104,7 +104,27 @@
     &::-webkit-scrollbar-thumb:hover {
       background-color: rgba(112, 112, 112, 0.5);
     }
+
+    /* Safari scrollbar adjustment */
+    /* WebKit browsers including Safari (Mac) */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px; /* Ensure the horizontal scrollbar is also sized properly */
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background-color: rgba(112, 112, 112, 0.5);
+      border-radius: 10px;
+    }
+
+    /* Safari (Mac & iOS) - Overflow bar issue fix */
+    @supports (-webkit-touch-callout: none) {
+      ::-webkit-scrollbar {
+        display: block; /* Ensure scrollbars are always visible when needed */
+      }
+    }
   }
+
   body {
     @apply bg-background text-foreground;
   }

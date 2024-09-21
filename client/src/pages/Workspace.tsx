@@ -53,24 +53,25 @@ function WorkspacePage() {
             <AlertTitle>Something went wrong</AlertTitle>
             <AlertDescription>
               <div className="items-center space-x-2">
-                Make sure that: 1. The ClickHouse server is running. 2. The
-                connection details are correct. 3. The user has the necessary
-                permissions. 4. The network connection is stable.
+                <p>Make sure that:</p>
+                <p>1. The ClickHouse server is running.</p>
+                <p>2. The connection details are correct.</p>
+                <p>3. The user has the necessary permissions.</p>
+                <p>4. The network connection is stable.</p>
               </div>
             </AlertDescription>
           </Alert>
 
           <p className="text-sm text-center text-gray-500 dark:text-gray-400">
-            If the issue persists, please contact your administrator, or read
-            the{" "}
+            If the issue persists, please contact your administrator, or read{" "}
             <a
-              href="https://clickhouse.com/docs/en/getting-started/connecting/"
+              href="https://clickhouse.com/docs/en/getting-started/quick-start?utm_source=ch-ui-app&utm_medium=error-message-workspace-page"
               target="_blank"
               rel="noreferrer"
+              className="text-blue-500 hover:underline"
             >
-              ClickHouse documentation
+              Click House's documentation.
             </a>
-            .
           </p>
 
           <details className="text-xs text-gray-500 dark:text-gray-400">

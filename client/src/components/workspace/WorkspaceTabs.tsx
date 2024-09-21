@@ -157,7 +157,6 @@ export function WorkspaceTabs() {
       title: "Query " + tabs.length,
       type: "sql",
       content: "",
-      isCreatingTable: false,
       databaseData: [],
     });
   }, [tabs.length, addTab]);
@@ -209,7 +208,7 @@ export function WorkspaceTabs() {
         <div className="flex-shrink-0 flex items-center">
           <Button
             variant="link"
-            className="rounded-none hover:bg-gray-200 h-10 px-2 sticky left-0 z-10 bg-background"
+            className="rounded-none hover:bg-gray-200 h-8 px-2 sticky left-0 z-10 bg-background"
             onClick={addNewCodeTab}
           >
             <Plus className="h-4 w-4" />

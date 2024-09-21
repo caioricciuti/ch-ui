@@ -13,7 +13,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -83,7 +82,6 @@ const CredentialList: React.FC<CredentialListProps> = ({
     revokeUserFromCredential,
     assignCredentialToOrganization,
     revokeCredentialFromOrganization,
-    fetchAvailableCredentials,
     fetchCredentials,
   } = useClickHouseCredentialStore();
 
@@ -141,7 +139,6 @@ const CredentialList: React.FC<CredentialListProps> = ({
       onDelete(credentialToManage);
       setDeleteDialogOpen(false);
       setCredentialToManage(null);
-      fetchAvailableCredentials();
       fetchCredentials();
     }
   };
@@ -176,9 +173,9 @@ const CredentialList: React.FC<CredentialListProps> = ({
         toast.success("User assigned to credential successfully");
       } catch (error) {
         if (error instanceof Error) {
-          toast.error(error.message)
+          toast.error(error.message);
         } else {
-          toast.error("Failed to assign user to credential")
+          toast.error("Failed to assign user to credential");
         }
       }
     }
@@ -194,9 +191,9 @@ const CredentialList: React.FC<CredentialListProps> = ({
         toast.success("User revoked from credential successfully");
       } catch (error) {
         if (error instanceof Error) {
-          toast.error(error.message)
+          toast.error(error.message);
         } else {
-          toast.error("Failed to revoke user from credential")
+          toast.error("Failed to revoke user from credential");
         }
       }
     }
@@ -215,12 +212,11 @@ const CredentialList: React.FC<CredentialListProps> = ({
         setSelectedOrgId("");
         fetchCredentials();
         fetchOrganizations();
-        fetchAvailableCredentials();
       } catch (error) {
         if (error instanceof Error) {
-          toast.error(error.message)
+          toast.error(error.message);
         } else {
-          toast.error("Failed to assign credential to organization")
+          toast.error("Failed to assign credential to organization");
         }
       }
     }
@@ -239,17 +235,17 @@ const CredentialList: React.FC<CredentialListProps> = ({
         toast.success("Credential revoked from organization successfully");
       } catch (error) {
         if (error instanceof Error) {
-          toast.error(error.message)
+          toast.error(error.message);
         } else {
-          toast.error("Failed to revoke credential from organization")
+          toast.error("Failed to revoke credential from organization");
         }
       }
     }
   };
 
   return (
-    <div className="h-[30vh]">
-      <ScrollArea className="h-[calc(100vh-20rem)] w-full">
+    <div className="border rounded-md">
+      <ScrollArea className="h-[calc(100vh-15rem)] w-full">
         <>
           <Table>
             <TableHeader>
