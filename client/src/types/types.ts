@@ -15,6 +15,8 @@ export interface AuthState {
   admin: () => boolean;
   updateUser: (userId: string, userData: Partial<User>) => Promise<void>;
   getAllUsers: () => Promise<void>;
+  getActiveCredential : () => ClickHouseCredential | null;
+  getActiveOrganization : () => Organization | null;
 }
 
 export interface User {
@@ -35,8 +37,10 @@ export interface User {
 export interface OrganizationState {
   organizations: Organization[];
   selectedOrganization: Organization | null;
+  isLoading: boolean;
+  error: string | null;
   fetchOrganizations: () => Promise<void>;
-  setSelectedOrganization: (organization: Organization) => void;
+  setSelectedOrganization: (organization: Organization | null) => void;
   addOrganization: (name: string) => Promise<void>;
   updateOrganization: (id: string, name: string) => Promise<void>;
   deleteOrganization: (id: string) => Promise<void>;
@@ -61,11 +65,12 @@ export interface Organization {
 }
 
 // CLICKHOUSE CREDENTIALS
-
 export interface ClickHouseCredentialState {
   credentials: ClickHouseCredential[];
   selectedCredential: ClickHouseCredential | null;
   availableCredentials: ClickHouseCredential[];
+  isLoading: boolean;
+  error: string | null;
   fetchCredentials: () => Promise<void>;
   fetchAvailableCredentials: (organizationId: string) => Promise<void>;
   createCredential: (
@@ -92,8 +97,8 @@ export interface ClickHouseCredentialState {
     credentialId: string,
     userId: string
   ) => Promise<void>;
-  setSelectedCredential: (credential: ClickHouseCredential | null) => void;
   resetCredentials: () => void;
+  setSelectedCredential: (credential: ClickHouseCredential | null) => void;
 }
 
 export interface ClickHouseCredential {

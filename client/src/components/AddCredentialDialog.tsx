@@ -64,24 +64,19 @@ const AddCredentialDialog: React.FC<AddCredentialDialogProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { createCredential, fetchAvailableCredentials, fetchCredentials } =
-    useClickHouseCredentialStore();
-  const { organizations, fetchOrganizations } = useOrganizationStore();
+  const {
+    createCredential,
+    fetchCredentials,
+    isLoading: isCredentialLoading,
+    error: credentialError,
+  } = useClickHouseCredentialStore();
+  const {
+    organizations,
+    fetchOrganizations,
+    error: orgError,
+  } = useOrganizationStore();
   const [isTestingCredentials, setIsTestingCredentials] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCredentialValid, setIsCredentialValid] = useState(false);
-
-  useEffect(() => {
-    try {
-      fetchOrganizations();
-    } catch (error) {
-      if (error instanceof Error) {
-        toast.error(error.message)
-      } else {
-        toast.error("Failed to fetch organizations")
-      }
-    }
-  }, [fetchOrganizations]);
 
   const form = useForm<CredentialFormValues>({
     resolver: zodResolver(credentialSchema),
@@ -96,13 +91,30 @@ const AddCredentialDialog: React.FC<AddCredentialDialogProps> = ({
     mode: "onChange",
   });
 
+  useEffect(() => {
+    if (isOpen) {
+      fetchOrganizations();
+    }
+  }, [isOpen, fetchOrganizations]);
+
+  useEffect(() => {
+    if (orgError) {
+      toast.error(`Failed to fetch organizations: ${orgError}`);
+    }
+  }, [orgError]);
+
+  useEffect(() => {
+    if (credentialError) {
+      toast.error(`Credential error: ${credentialError}`);
+    }
+  }, [credentialError]);
+
   const onSubmit = async (data: CredentialFormValues) => {
     if (!isCredentialValid) {
       toast.error("Please test and validate your credentials before adding.");
       return;
     }
 
-    setIsSubmitting(true);
     try {
       await createCredential(data);
       toast.success("Credential added successfully!");
@@ -110,15 +122,8 @@ const AddCredentialDialog: React.FC<AddCredentialDialogProps> = ({
       form.reset();
       setIsCredentialValid(false);
       fetchCredentials();
-      fetchAvailableCredentials();
     } catch (error) {
-      if (error instanceof Error) {
-        toast.error(error.message);
-      } else {
-        toast.error("Failed to create credential")
-      }
-    } finally {
-      setIsSubmitting(false);
+      // Error is handled by the store and displayed via the useEffect above
     }
   };
 
@@ -150,7 +155,11 @@ const AddCredentialDialog: React.FC<AddCredentialDialogProps> = ({
         toast.error("Invalid credentials. Please check and try again.");
       }
     } catch (error) {
-      toast.error("An error occurred while testing credentials.");
+      if (error instanceof Error) {
+        toast.error(`Failed to test credentials: ${error.message}`);
+      } else {
+        toast.error("An unexpected error occurred while testing credentials");
+      }
     } finally {
       setIsTestingCredentials(false);
     }
@@ -305,7 +314,9 @@ const AddCredentialDialog: React.FC<AddCredentialDialogProps> = ({
                       variant="outline"
                       onClick={handleTestCredentials}
                       disabled={
-                        !isFormValid || isTestingCredentials || isSubmitting
+                        !isFormValid ||
+                        isTestingCredentials ||
+                        isCredentialLoading
                       }
                     >
                       {isTestingCredentials ? (
@@ -328,11 +339,11 @@ const AddCredentialDialog: React.FC<AddCredentialDialogProps> = ({
                 disabled={
                   !isFormValid ||
                   !isCredentialValid ||
-                  isSubmitting ||
+                  isCredentialLoading ||
                   isTestingCredentials
                 }
               >
-                {isSubmitting ? (
+                {isCredentialLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Adding...

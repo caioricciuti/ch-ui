@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import DatabaseExplorer from "@/components/workspace/DataExplorer";
 import {
   ResizableHandle,
@@ -7,10 +8,17 @@ import {
 import WorkspaceTabs from "@/components/workspace/WorkspaceTabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import useTabStore from "@/stores/tabs.store";
+import useAuthStore from "@/stores/user.store";
 import CreateTable from "@/components/CreateTable";
 
+
 function WorkspacePage() {
-  const { error } = useTabStore();
+  const { error  } = useTabStore();
+  const {  } = useAuthStore();
+
+  useEffect(() => {
+
+  }, []);
 
   if (error) {
     return (

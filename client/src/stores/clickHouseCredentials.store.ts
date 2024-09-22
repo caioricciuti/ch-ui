@@ -1,83 +1,84 @@
-// clickHouseCredentials store
 import { create } from "zustand";
+import { devtools } from "zustand/middleware";
 import api from "@/api/axios.config";
+import { AxiosError } from "axios";
 import { ClickHouseCredentialState, ClickHouseCredential } from "@/types/types";
-import { isAxiosError } from "axios";
 
-const useClickHouseCredentialStore = create<ClickHouseCredentialState>(
-  (set, get) => ({
+const useClickHouseCredentialStore = create<ClickHouseCredentialState>()(
+  devtools((set, get) => ({
     credentials: [],
     selectedCredential: null,
     availableCredentials: [],
+    isLoading: false,
+    error: null,
 
     fetchCredentials: async () => {
+      set({ isLoading: true, error: null });
       try {
-        const response = await api.get("/clickhouse-credentials");
-        set({ credentials: response.data });
-      } catch (error) {
-        let msg = "Failed to fetch credentials";
-        if (isAxiosError(error)) {
-          msg = `${msg}: ${error.response?.data.message}`
-        }
-        throw new Error(msg)
-      }
-    },
-    // fetch available credentials for the current user based on the organization they are in
-    fetchAvailableCredentials: async (organizationId) => {
-      try {
-        const response = await api.get(
-          `/clickhouse-credentials/available?organizationId=${organizationId}`
+        const response = await api.get<ClickHouseCredential[]>(
+          "/clickhouse-credentials"
         );
-        set({ availableCredentials: response.data });
+        set({ credentials: response.data, isLoading: false });
       } catch (error) {
-        let msg = "Failed to fetch available credentials";
-        if (isAxiosError(error)) {
-          msg = `${msg}: ${error.response?.data.message}`
-        }
-        throw new Error(msg)
+        handleApiError(error, "Failed to fetch credentials", set);
+        throw error;
       }
     },
 
-    createCredential: async (credentialData) => {
+    fetchAvailableCredentials: async (organizationId: string) => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await api.get<ClickHouseCredential[]>(
+          `/clickhouse-credentials/available?organizationId=${organizationId}`
+        );
+        set({ availableCredentials: response.data, isLoading: false });
+      } catch (error) {
+        handleApiError(error, "Failed to fetch available credentials", set);
+        throw error;
+      }
+    },
+
+    createCredential: async (credentialData: Partial<ClickHouseCredential>) => {
+      set({ isLoading: true, error: null });
       try {
         await api.post("/clickhouse-credentials", credentialData);
         await get().fetchCredentials();
       } catch (error) {
-        let msg = 'Failed to create credential'
-        if (isAxiosError(error)) {
-          msg = `${msg}: ${error.response?.data.message}`
-        }
-        throw new Error(msg)
+        handleApiError(error, `Failed to create credential: ${error}`, set);
+        throw error;
       }
     },
 
-    updateCredential: async (id, credentialData) => {
+    updateCredential: async (
+      id: string,
+      credentialData: Partial<ClickHouseCredential>
+    ) => {
+      set({ isLoading: true, error: null });
       try {
         await api.put(`/clickhouse-credentials/${id}`, credentialData);
         await get().fetchCredentials();
       } catch (error) {
-        let msg = "Failed to update credential"
-        if (isAxiosError(error)) {
-          msg = `${msg}: ${error.response?.data.message}`
-        }
-        throw new Error(msg)
+        handleApiError(error, "Failed to update credential", set);
+        throw error;
       }
     },
 
-    deleteCredential: async (id) => {
+    deleteCredential: async (id: string) => {
+      set({ isLoading: true, error: null });
       try {
         await api.delete(`/clickhouse-credentials/${id}`);
         await get().fetchCredentials();
       } catch (error) {
-        let msg = "Failed to delete credential"
-        if (isAxiosError(error)) {
-          msg = `${msg}: ${error.response?.data.message}`
-        }
-        throw new Error(msg)
+        handleApiError(error, "Failed to delete credential", set);
+        throw error;
       }
     },
 
-    assignCredentialToOrganization: async (credentialId, organizationId) => {
+    assignCredentialToOrganization: async (
+      credentialId: string,
+      organizationId: string
+    ) => {
+      set({ isLoading: true, error: null });
       try {
         await api.post(
           `/clickhouse-credentials/${credentialId}/organizations`,
@@ -85,62 +86,58 @@ const useClickHouseCredentialStore = create<ClickHouseCredentialState>(
         );
         await get().fetchCredentials();
       } catch (error) {
-        let msg = "Failed to assign credential to organization";
-        if (isAxiosError(error)) {
-          msg = `${msg}: ${error.response?.data.message}`
-        }
-        throw new Error(msg)
+        handleApiError(
+          error,
+          "Failed to assign credential to organization",
+          set
+        );
+        throw error;
       }
     },
 
-    revokeCredentialFromOrganization: async (credentialId, organizationId) => {
+    revokeCredentialFromOrganization: async (
+      credentialId: string,
+      organizationId: string
+    ) => {
+      set({ isLoading: true, error: null });
       try {
         await api.delete(
           `/clickhouse-credentials/${credentialId}/organizations/${organizationId}`
         );
         await get().fetchCredentials();
       } catch (error) {
-        let msg = "Failed to revoke credential from organization"
-        if (isAxiosError(error)) {
-          if (isAxiosError(error)) {
-            msg = `${msg}: ${error.response?.data.message}`
-          }
-          throw new Error(msg)
-        }
+        handleApiError(
+          error,
+          "Failed to revoke credential from organization",
+          set
+        );
+        throw error;
       }
     },
 
-    assignUserToCredential: async (credentialId, userId) => {
+    assignUserToCredential: async (credentialId: string, userId: string) => {
+      set({ isLoading: true, error: null });
       try {
         await api.post(`/clickhouse-credentials/${credentialId}/users`, {
           userId,
         });
         await get().fetchCredentials();
       } catch (error) {
-        let msg = "Failed to assign user to credential"
-        if (isAxiosError(error)) {
-          if (isAxiosError(error)) {
-            msg = `${msg}: ${error.response?.data.message}`
-          }
-          throw new Error(msg)
-        }
+        handleApiError(error, "Failed to assign user to credential", set);
+        throw error;
       }
     },
 
-    revokeUserFromCredential: async (credentialId, userId) => {
+    revokeUserFromCredential: async (credentialId: string, userId: string) => {
+      set({ isLoading: true, error: null });
       try {
         await api.delete(
           `/clickhouse-credentials/${credentialId}/users/${userId}`
         );
         await get().fetchCredentials();
       } catch (error) {
-        let msg = "Failed to revoke user from credential"
-        if (isAxiosError(error)) {
-          if (isAxiosError(error)) {
-            msg = `${msg}: ${error.response?.data.message}`
-          }
-          throw new Error(msg)
-        }
+        handleApiError(error, "Failed to revoke user from credential", set);
+        throw error;
       }
     },
 
@@ -148,13 +145,31 @@ const useClickHouseCredentialStore = create<ClickHouseCredentialState>(
       set({
         availableCredentials: [],
         selectedCredential: null,
+        error: null,
       });
     },
 
     setSelectedCredential: (credential: ClickHouseCredential | null) => {
       set({ selectedCredential: credential });
     },
-  })
+  }))
 );
+
+const handleApiError = (
+  error: unknown,
+  defaultMessage: string,
+  set: (state: Partial<ClickHouseCredentialState>) => void
+) => {
+  if (error instanceof AxiosError && error.response) {
+    set({
+      error: `${defaultMessage}: ${
+        error.response.data.message || error.message
+      }`,
+      isLoading: false,
+    });
+  } else {
+    set({ error: defaultMessage, isLoading: false });
+  }
+};
 
 export default useClickHouseCredentialStore;

@@ -1,4 +1,4 @@
-import {useState, useEffect} from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Building2, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,52 +27,81 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
   const {
     organizations,
     fetchOrganizations,
+    isLoading: isOrgLoading,
+    error: orgError,
   } = useOrganizationStore();
   const {
     availableCredentials,
     fetchAvailableCredentials,
-    resetCredentials,
+    isLoading: isCredLoading,
+    error: credError,
   } = useClickHouseCredentialStore();
-  const { user, setCurrentOrganization, setCurrentCredential } = useAuthStore();
+  const {
+    setCurrentOrganization,
+    setCurrentCredential,
+    getActiveOrganization,
+    getActiveCredential,
+  } = useAuthStore();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [tempOrgValue, setTempOrgValue] = useState("");
   const [tempCredValue, setTempCredValue] = useState("");
-  const [isOrgLoading, setIsOrgLoading] = useState(false);
-  const [isCredLoading, setIsCredLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
+  const fetchOrganizationsAndHandleErrors = useCallback(async () => {
     try {
-      setIsOrgLoading(true)
-      fetchOrganizations();
+      await fetchOrganizations();
     } catch (error) {
-      if (error instanceof Error) {
-        toast.error(error.message)
-      } else {
-        toast.error("Failed to fetch organizations")
-      }
-    } finally {
-      setIsOrgLoading(false)
+      console.error("Failed to fetch organizations:", error);
     }
   }, [fetchOrganizations]);
 
+  const fetchAvailableCredentialsAndHandleErrors = useCallback(
+    async (organizationId: string) => {
+      try {
+        await fetchAvailableCredentials(organizationId);
+      } catch (error) {
+        console.error("Failed to fetch available credentials:", error);
+      }
+    },
+    [fetchAvailableCredentials]
+  );
+
   useEffect(() => {
-    if (user?.activeOrganization?._id) {
-      setTempOrgValue(user.activeOrganization._id);
-      fetchAvailbleCredentialsAndHandleErrors(user.activeOrganization._id)
-    }
-    if (user?.activeClickhouseCredential?._id) {
-      setTempCredValue(user.activeClickhouseCredential._id);
+    if (dialogOpen) {
+      fetchOrganizationsAndHandleErrors();
+      const activeOrg = getActiveOrganization();
+      const activeCred = getActiveCredential();
+
+      if (activeOrg) {
+        setTempOrgValue(activeOrg._id);
+        fetchAvailableCredentialsAndHandleErrors(activeOrg._id);
+      }
+      if (activeCred) {
+        setTempCredValue(activeCred._id);
+      }
     }
   }, [
-    user?.activeOrganization,
-    user?.activeClickhouseCredential,
-    fetchAvailableCredentials,
+    dialogOpen,
+    getActiveOrganization,
+    getActiveCredential,
+    fetchOrganizationsAndHandleErrors,
+    fetchAvailableCredentialsAndHandleErrors,
   ]);
 
+  useEffect(() => {
+    if (orgError && !isOrgLoading) {
+      toast.error(`Organization error: ${orgError}`);
+    }
+  }, [orgError, isOrgLoading]);
+
+  useEffect(() => {
+    if (credError && !isCredLoading) {
+      toast.error(`Credential error: ${credError}`);
+    }
+  }, [credError, isCredLoading]);
+
   const handleDialogOpen = () => {
-    setTempOrgValue(user?.activeOrganization?._id || "");
-    setTempCredValue(user?.activeClickhouseCredential?._id || "");
     setDialogOpen(true);
   };
 
@@ -80,26 +109,10 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
     setDialogOpen(false);
   };
 
-  const fetchAvailbleCredentialsAndHandleErrors = async (organizationId: string) => {
-    try {
-      setIsCredLoading(true)
-      await fetchAvailableCredentials(organizationId);
-    } catch(error) {
-      if (error instanceof Error) {
-        toast.error(error.message)
-      } {
-        toast.error("Failed to fetch available credentials")
-      }
-    } finally {
-      setIsCredLoading(false)
-    }
-  }
-
   const handleOrgSelect = async (organizationId: string) => {
     setTempOrgValue(organizationId);
-    resetCredentials();
     setTempCredValue("");
-    await fetchAvailbleCredentialsAndHandleErrors(organizationId)
+    await fetchAvailableCredentialsAndHandleErrors(organizationId);
   };
 
   const handleCredSelect = (credentialId: string) => {
@@ -112,32 +125,40 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
       return;
     }
 
+    setIsSaving(true);
     try {
       await setCurrentOrganization(tempOrgValue);
       await setCurrentCredential(tempCredValue);
       toast.success("Organization and credential updated successfully.");
       setDialogOpen(false);
-    } catch (error: any) {
-      toast.error(`Failed to update: ${error.message}`);
+    } catch (error) {
+      if (error instanceof Error) {
+        toast.error(`Failed to update: ${error.message}`);
+      } else {
+        toast.error("An unexpected error occurred while updating");
+      }
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const noCredentialsAvailable =
-    availableCredentials.length === 0 && tempOrgValue !== "";
+    availableCredentials.length === 0 && tempOrgValue !== "" && !isCredLoading;
+
+  const activeOrg = getActiveOrganization();
 
   return (
     <>
       <Button
         variant="outline"
-        className={`max-w-[180px]  ${isExpanded ? "gap-2" : "max-w-[12px]"}`}
+        className={`max-w-[180px] ${isExpanded ? "gap-2" : "max-w-[12px]"}`}
         onClick={handleDialogOpen}
       >
         <Building2 className="h-4 w-4 shrink-0 opacity-80" />
-
         {isExpanded && (
           <>
             <span className="truncate">
-              {user?.activeOrganization?.name || "Select Organization"}
+              {activeOrg?.name || "Select Organization"}
             </span>
             <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
           </>
@@ -160,7 +181,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
               <Select
                 value={tempOrgValue}
                 onValueChange={handleOrgSelect}
-                disabled={isOrgLoading}
+                disabled={isOrgLoading || isSaving}
               >
                 <SelectTrigger className="col-span-3">
                   <SelectValue placeholder="Select organization" />
@@ -182,7 +203,10 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
                 value={tempCredValue}
                 onValueChange={handleCredSelect}
                 disabled={
-                  isCredLoading || !tempOrgValue || noCredentialsAvailable
+                  isCredLoading ||
+                  !tempOrgValue ||
+                  noCredentialsAvailable ||
+                  isSaving
                 }
               >
                 <SelectTrigger className="col-span-3">
@@ -210,10 +234,15 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
             <Button
               onClick={handleSave}
               disabled={
-                !tempOrgValue || !tempCredValue || noCredentialsAvailable
+                !tempOrgValue ||
+                !tempCredValue ||
+                noCredentialsAvailable ||
+                isOrgLoading ||
+                isCredLoading ||
+                isSaving
               }
             >
-              Save changes
+              {isSaving ? "Saving..." : "Save changes"}
             </Button>
           </DialogFooter>
         </DialogContent>
