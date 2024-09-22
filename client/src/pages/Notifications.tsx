@@ -217,14 +217,11 @@ const NotificationsPage: React.FC = () => {
   const readNotifications = notifications.filter((n) => n.read);
 
   return (
-    <div className="container mx-auto p-4 max-w-3xl">
+    <div className="container mx-auto p-4 max-w-4xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold flex items-center">
           <Bell className="mr-2" /> Notifications
         </h1>
-        <Badge className="text-lg py-1 px-3">
-          {unreadNotifications.length}
-        </Badge>
       </div>
 
       {error && (

@@ -127,7 +127,7 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId }) => {
   return (
     <div className="h-full flex flex-col">
       <div className="p-1 flex items-center justify-between">
-        <span className="text-xs text-gray-400 truncate">{tab.title}</span>
+        <span className="ml-4 text-xs text-gray-400 truncate">{tab.title}</span>
         <div className="flex space-x-2">
           <Button
             size="sm"

@@ -127,9 +127,9 @@ const OrganizationList: React.FC<OrganizationListProps> = ({
         toast.success("User added to organization successfully");
       } catch (error) {
         if (error instanceof Error) {
-          toast.error(error.message)
+          toast.error(error.message);
         } else {
-          toast.error("Failed to add user to organization")
+          toast.error("Failed to add user to organization");
         }
       }
     }
@@ -148,9 +148,9 @@ const OrganizationList: React.FC<OrganizationListProps> = ({
         toast.success("User removed from organization successfully");
       } catch (error) {
         if (error instanceof Error) {
-          toast.error(error.message)
+          toast.error(error.message);
         } else {
-          toast.error("Failed to remove user from organization")
+          toast.error("Failed to remove user from organization");
         }
       }
     }
@@ -159,8 +159,8 @@ const OrganizationList: React.FC<OrganizationListProps> = ({
   const isOwner = (org: Organization) => org.owner._id === currentUser?._id;
 
   return (
-    <div className="h-[30vh]">
-      <ScrollArea className="h-[calc(100vh-20rem)] w-full">
+    <div className="border rounded-md">
+      <ScrollArea className="h-[calc(100vh-15rem)] w-full">
         <Table>
           <TableHeader>
             <TableRow>
@@ -186,7 +186,9 @@ const OrganizationList: React.FC<OrganizationListProps> = ({
                 <TableCell>{org.owner.name}</TableCell>
                 <TableCell className="text-right">
                   {userSelectedOrganization === org._id && (
-                    <span className="text-green-500 text-xs bg-green-500/20 px-2 rounded-lg">Selected</span>
+                    <span className="text-green-500 text-xs bg-green-500/20 px-2 rounded-lg">
+                      Selected
+                    </span>
                   )}
                 </TableCell>
                 <TableCell className="text-right">

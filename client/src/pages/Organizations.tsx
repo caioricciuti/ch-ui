@@ -8,15 +8,14 @@ import AddOrganizationDialog from "@/components/AddOrganizationDialog";
 import OrganizationDetailDialog from "@/components/OrganizationDetailDialog";
 import UpdateOrganizationDialog from "@/components/UpdateOrganizationDialog";
 import { Search, Plus, ArrowUpDown, Tally5, Info } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import InfoDialog from "@/components/InfoDialog"; // Ensure this is the correct import path
 import { Organization } from "@/types/types";
 import useAuthStore from "@/stores/user.store";
 
 function OrganizationsPage() {
-  const { organizations, fetchOrganizations } =
-    useOrganizationStore();
+  const { organizations, fetchOrganizations } = useOrganizationStore();
   const { user } = useAuthStore();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
@@ -26,20 +25,20 @@ function OrganizationsPage() {
   const [sortBy, setSortBy] = useState<"name" | "memberCount">("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     try {
-      setIsLoading(true)
+      setIsLoading(true);
       fetchOrganizations();
     } catch (error) {
       if (error instanceof Error) {
-        toast.error(error.message)
+        toast.error(error.message);
       } else {
-        toast.error("Failed to fetch organizations")
+        toast.error("Failed to fetch organizations");
       }
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }, [fetchOrganizations]);
 
@@ -70,100 +69,98 @@ function OrganizationsPage() {
 
   const deleteOrganization = async (organizationId: string) => {
     try {
-      await useOrganizationStore.getState().deleteOrganization(organizationId)
+      await useOrganizationStore.getState().deleteOrganization(organizationId);
       toast.info(`Organization deleted successfully`);
     } catch (error) {
       if (error instanceof Error) {
-        toast.error(error.message)
+        toast.error(error.message);
       } else {
-        toast.error("Failed to delete organization")
+        toast.error("Failed to delete organization");
       }
     }
-    
-  }
+  };
 
   return (
-    <div className="container mx-auto my-6 max-w-8xl">
-      <Card className="h-[calc(100vh-8rem)] flex flex-col">
-        <CardHeader>
-          <CardTitle className="text-2xl font-bold flex items-center">
-            Organizations
-            <Info
-              className="h-6 w-6 text-blue-500 cursor-pointer ml-3"
-              onClick={() => setIsInfoDialogOpen(true)} // Open InfoDialog on click
+    <div className="container mx-auto max-w-8xl">
+      <CardHeader>
+        <CardTitle className="text-2xl font-bold flex items-center">
+          Organizations
+          <Info
+            className="h-6 w-6 text-blue-500 cursor-pointer ml-3"
+            onClick={() => setIsInfoDialogOpen(true)} // Open InfoDialog on click
+          />
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex-grow flex flex-col">
+        <div className="flex justify-between items-center mb-4">
+          <Button
+            className="bg-orange-400/30 text-orange-600 hover:bg-orange-400/40"
+            onClick={() => setIsAddDialogOpen(true)}
+          >
+            <Plus className="mr-2 h-4 w-4" /> Add Organization
+          </Button>
+          <div className="relative w-64">
+            <Input
+              className="pr-10"
+              placeholder="Search organizations..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
             />
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex-grow flex flex-col">
-          <div className="flex justify-between items-center mb-4">
-            <Button
-              className="bg-orange-400/30 text-orange-600 hover:bg-orange-400/40"
-              onClick={() => setIsAddDialogOpen(true)}
-            >
-              <Plus className="mr-2 h-4 w-4" /> Add Organization
-            </Button>
-            <div className="relative w-64">
-              <Input
-                className="pr-10"
-                placeholder="Search organizations..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-              <Search className="absolute right-3 top-3 text-gray-400" />
+            <Search className="right-3 top-2 absolute" />
+
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <Button
+            variant="outline"
+            onClick={toggleSort}
+            className="flex items-center"
+          >
+            <ArrowUpDown className="mr-2 h-4 w-4" />
+            Sort by {sortBy === "name" ? "Name" : "Member Count"} (
+            {sortOrder === "asc" ? "Ascending" : "Descending"})
+          </Button>
+        </div>
+
+        <div className="flex-grow overflow-hidden">
+          {isLoading ? (
+            <div className="space-y-4">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
             </div>
-          </div>
-
-          <div className="mb-4">
-            <Button
-              variant="outline"
-              onClick={toggleSort}
-              className="flex items-center"
-            >
-              <ArrowUpDown className="mr-2 h-4 w-4" />
-              Sort by {sortBy === "name" ? "Name" : "Member Count"} (
-              {sortOrder === "asc" ? "Ascending" : "Descending"})
-            </Button>
-          </div>
-
-          <div className="flex-grow overflow-hidden">
-            {isLoading ? (
-              <div className="space-y-4">
-                <Skeleton className="h-12 w-full" />
-                <Skeleton className="h-12 w-full" />
-                <Skeleton className="h-12 w-full" />
-              </div>
-            ) : filteredOrganizations.length > 0 ? (
-              <OrganizationList
-                organizations={filteredOrganizations}
-                userSelectedOrganization={userSelectedOrganization ?? null}
-                onViewDetails={(org: Organization) => {
-                  useOrganizationStore.getState().setSelectedOrganization(org);
-                  setIsDetailDialogOpen(true);
-                }}
-                onEdit={(org: Organization) => {
-                  useOrganizationStore.getState().setSelectedOrganization(org);
-                  setIsUpdateDialogOpen(true);
-                }}
-                onDelete={(org: Organization) => deleteOrganization(org._id) }
-              />
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center">
-                <Tally5 className="h-12 w-12 text-gray-500 mb-2" />
-                <p className="text-sm text-gray-500 mb-4">
-                  No organizations found. Try adjusting your search or add a new
-                  organization.
-                </p>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsAddDialogOpen(true)}
-                >
-                  <Plus className="mr-2 h-4 w-4" /> Add Organization
-                </Button>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+          ) : filteredOrganizations.length > 0 ? (
+            <OrganizationList
+              organizations={filteredOrganizations}
+              userSelectedOrganization={userSelectedOrganization ?? null}
+              onViewDetails={(org: Organization) => {
+                useOrganizationStore.getState().setSelectedOrganization(org);
+                setIsDetailDialogOpen(true);
+              }}
+              onEdit={(org: Organization) => {
+                useOrganizationStore.getState().setSelectedOrganization(org);
+                setIsUpdateDialogOpen(true);
+              }}
+              onDelete={(org: Organization) => deleteOrganization(org._id)}
+            />
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center">
+              <Tally5 className="h-12 w-12 text-gray-500 mb-2" />
+              <p className="text-sm text-gray-500 mb-4">
+                No organizations found. Try adjusting your search or add a new
+                organization.
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => setIsAddDialogOpen(true)}
+              >
+                <Plus className="mr-2 h-4 w-4" /> Add Organization
+              </Button>
+            </div>
+          )}
+        </div>
+      </CardContent>
 
       <AddOrganizationDialog
         isOpen={isAddDialogOpen}

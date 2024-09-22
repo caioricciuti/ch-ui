@@ -85,7 +85,7 @@ function CredentialsPage() {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-4">
           <Button
             className="bg-blue-400/30 text-blue-600 hover:bg-blue-400/40"
             onClick={() => setIsAddDialogOpen(true)}

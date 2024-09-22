@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import {
   flexRender,
   useReactTable,
@@ -50,6 +50,7 @@ import {
   Columns,
   Filter,
   FilterX,
+  InfoIcon,
 } from "lucide-react";
 import DownloadDialog from "@/components/DonwloadDialog";
 
@@ -84,9 +85,7 @@ export function CHUITable<T extends RowData>({
 
   const { meta, data, statistics, message, query_id } = result;
 
-  // If there's a message, display it instead of the table
   if (message) {
-    console.log(message);
     return (
       <div className="w-full mt-4 p-4">
         <p className="text-sm">{message}</p>
@@ -97,7 +96,6 @@ export function CHUITable<T extends RowData>({
     );
   }
 
-  // If there's no data or meta, display a loading message
   if (!data || !meta) {
     return (
       <div className="w-full mt-4 p-4 bg-gray-100 rounded-md">
@@ -120,38 +118,6 @@ export function CHUITable<T extends RowData>({
       accessorKey: col.name,
       minSize: 50,
       maxSize: 2500,
-      filterFn: (
-        row: any,
-        columnId: any,
-        filterValue: { operator: string; value: string }
-      ) => {
-        if (!filterValue) return true;
-        const { operator, value } = filterValue;
-        const cellValue = row.getValue(columnId);
-
-        switch (operator) {
-          case "equals":
-            return cellValue === value;
-          case "contains":
-            return String(cellValue)
-              .toLowerCase()
-              .includes(value.toLowerCase());
-          case "starts_with":
-            return String(cellValue)
-              .toLowerCase()
-              .startsWith(value.toLowerCase());
-          case "ends_with":
-            return String(cellValue)
-              .toLowerCase()
-              .endsWith(value.toLowerCase());
-          case "greater_than":
-            return Number(cellValue) > Number(value);
-          case "less_than":
-            return Number(cellValue) < Number(value);
-          default:
-            return true;
-        }
-      },
     })),
   ];
 
@@ -182,21 +148,6 @@ export function CHUITable<T extends RowData>({
 
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handleResize = () => {
-      if (tableContainerRef.current) {
-        const { height } = tableContainerRef.current.getBoundingClientRect();
-        tableContainerRef.current.style.height = `${Math.max(height, 50)}px`;
-      }
-    };
-
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, []);
-
   const isFiltered = table.getState().columnFilters.length > 0;
 
   const clearAllFilters = () => {
@@ -213,12 +164,55 @@ export function CHUITable<T extends RowData>({
 
   return (
     <div className="flex flex-col h-full w-full">
-      <div className="flex-shrink-0 p-2 text-xs text-gray-500 flex justify-between items-center border-b dark:border-gray-700">
-        <div>
-          {statistics.rows_read} rows in {statistics.elapsed} ms
-          {statistics.bytes_read > 0 && ` (${statistics.bytes_read} bytes)`}
-        </div>
+      {/* Commands at the top of the table */}
+      <div className="flex items-center justify-between text-xs p-2">
         <div className="flex items-center space-x-2">
+          <Select
+            value={table.getState().pagination.pageSize.toString()}
+            onValueChange={(value) => {
+              table.setPageSize(Number(value));
+            }}
+          >
+            <SelectTrigger className="h-8 w-[70px]">
+              <SelectValue placeholder="Rows" />
+            </SelectTrigger>
+            <SelectContent>
+              {[20, 50, 100, 200].map((pageSize) => (
+                <SelectItem
+                  key={pageSize}
+                  value={pageSize.toString()}
+                  className="text-xs"
+                >
+                  {pageSize}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button className="h-8 w-8 p-0">
+                <Columns className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <div className="max-h-52 overflow-auto">
+                {table.getAllColumns().map((column) => (
+                  <DropdownMenuCheckboxItem
+                    key={column.id}
+                    checked={column.getIsVisible()}
+                    onCheckedChange={(value) =>
+                      column.toggleVisibility(!!value)
+                    }
+                    className="text-xs"
+                  >
+                    {column.id}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           {isFiltered && (
             <TooltipProvider>
               <Tooltip>
@@ -234,9 +228,119 @@ export function CHUITable<T extends RowData>({
               </Tooltip>
             </TooltipProvider>
           )}
-          <DownloadDialog data={data} />{" "}
+
+          <DownloadDialog data={data} />
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <InfoIcon size={14} />
+              </TooltipTrigger>
+              <TooltipContent>
+                <div className="text-xs p-2 text-primary/70">
+                  <p>Rows Read: {statistics.rows_read}</p>
+                  <p>Bytes Read: {statistics.bytes_read}</p>
+                  <p>Elapsed Time: {statistics.elapsed} seconds</p>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+
+        <div className="flex-1 px-2 max-w-sm">
+          <div className="relative">
+            <Input
+              placeholder="Search all columns..."
+              value={globalFilter ?? ""}
+              onChange={(e) => setGlobalFilter(e.target.value)}
+              className="h-8 w-full pl-8 pr-4 text-xs"
+            />
+            <Search
+              className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400"
+              size={14}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => table.setPageIndex(0)}
+                  disabled={!table.getCanPreviousPage()}
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 p-0"
+                >
+                  <ChevronsLeft size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>First Page</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => table.previousPage()}
+                  disabled={!table.getCanPreviousPage()}
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 p-0"
+                >
+                  <ChevronLeft size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Previous Page</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <span className="text-xs text-gray-600 dark:text-gray-300 min-w-[100px] text-center">
+            Page {table.getState().pagination.pageIndex + 1} of{" "}
+            {table.getPageCount()}
+          </span>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => table.nextPage()}
+                  disabled={!table.getCanNextPage()}
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 p-0"
+                >
+                  <ChevronRight size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Next Page</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => table.setPageIndex(table.getPageCount() - 1)}
+                  disabled={!table.getCanNextPage()}
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 p-0"
+                >
+                  <ChevronsRight size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Last Page</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <span>{table.getPrePaginationRowModel().rows.length} Rows</span>
         </div>
       </div>
+
+      {/* The table content */}
       <div ref={tableContainerRef} className="flex-grow overflow-auto">
         <table className="w-full text-xs border-collapse table-fixed">
           <thead className="sticky top-0 z-20 bg-gray-500">
@@ -339,140 +443,6 @@ export function CHUITable<T extends RowData>({
             ))}
           </tbody>
         </table>
-      </div>
-
-      <div className="p-2 flex items-center justify-between text-xs">
-        <div className="flex items-center space-x-2">
-          <Select
-            value={table.getState().pagination.pageSize.toString()}
-            onValueChange={(value) => {
-              table.setPageSize(Number(value));
-            }}
-          >
-            <SelectTrigger className="h-8 w-[70px]">
-              <SelectValue placeholder="Rows" />
-            </SelectTrigger>
-            <SelectContent>
-              {[20, 50, 100, 200].map((pageSize) => (
-                <SelectItem
-                  key={pageSize}
-                  value={pageSize.toString()}
-                  className="text-xs"
-                >
-                  {pageSize}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button className="h-8 w-8 p-0">
-                <Columns className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
-              <div className="max-h-52 overflow-auto">
-                {table.getAllColumns().map((column) => (
-                  <DropdownMenuCheckboxItem
-                    key={column.id}
-                    checked={column.getIsVisible()}
-                    onCheckedChange={(value) =>
-                      column.toggleVisibility(!!value)
-                    }
-                    className="text-xs"
-                  >
-                    {column.id}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        <div className="flex-1 px-2 max-w-sm">
-          <div className="relative">
-            <Input
-              placeholder="Search all columns..."
-              value={globalFilter ?? ""}
-              onChange={(e) => setGlobalFilter(e.target.value)}
-              className="h-8 w-full pl-8 pr-4 text-xs"
-            />
-            <Search
-              className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400"
-              size={14}
-            />
-          </div>
-        </div>
-        <div className="flex items-center space-x-2">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={() => table.setPageIndex(0)}
-                  disabled={!table.getCanPreviousPage()}
-                  variant="outline"
-                  size="icon"
-                  className="h-8 w-8 p-0"
-                >
-                  <ChevronsLeft size={14} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>First Page</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={() => table.previousPage()}
-                  disabled={!table.getCanPreviousPage()}
-                  variant="outline"
-                  size="icon"
-                  className="h-8 w-8 p-0"
-                >
-                  <ChevronLeft size={14} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Previous Page</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <span className="text-xs text-gray-600 dark:text-gray-300 min-w-[100px] text-center">
-            Page {table.getState().pagination.pageIndex + 1} of{" "}
-            {table.getPageCount()}
-          </span>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={() => table.nextPage()}
-                  disabled={!table.getCanNextPage()}
-                  variant="outline"
-                  size="icon"
-                  className="h-8 w-8 p-0"
-                >
-                  <ChevronRight size={14} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Next Page</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={() => table.setPageIndex(table.getPageCount() - 1)}
-                  disabled={!table.getCanNextPage()}
-                  variant="outline"
-                  size="icon"
-                  className="h-8 w-8 p-0"
-                >
-                  <ChevronsRight size={14} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Last Page</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <span>{table.getPrePaginationRowModel().rows.length} Rows</span>
-        </div>
       </div>
     </div>
   );
