@@ -15,8 +15,8 @@ export interface AuthState {
   admin: () => boolean;
   updateUser: (userId: string, userData: Partial<User>) => Promise<void>;
   getAllUsers: () => Promise<void>;
-  getActiveCredential : () => ClickHouseCredential | null;
-  getActiveOrganization : () => Organization | null;
+  getActiveCredential: () => ClickHouseCredential | null;
+  getActiveOrganization: () => Organization | null;
 }
 
 export interface User {
@@ -158,6 +158,7 @@ export interface TabQueryState {
   fetchDatabaseData: () => Promise<void>;
   closeCreateTableModal: () => void;
   openCreateTableModal: (database: string) => void;
+  resetTabs: () => void;
 }
 
 //CHATS

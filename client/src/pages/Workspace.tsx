@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import DatabaseExplorer from "@/components/workspace/DataExplorer";
 import {
   ResizableHandle,
@@ -11,14 +11,37 @@ import useTabStore from "@/stores/tabs.store";
 import useAuthStore from "@/stores/user.store";
 import CreateTable from "@/components/CreateTable";
 
-
 function WorkspacePage() {
-  const { error  } = useTabStore();
-  const {  } = useAuthStore();
+  const { error, resetTabs } = useTabStore();
+  const { getActiveOrganization, getActiveCredential } = useAuthStore();
+  const [activeOrg, setActiveOrg] = useState(getActiveOrganization());
+  const [activeCred, setActiveCred] = useState(getActiveCredential());
 
   useEffect(() => {
+    const currentOrg = getActiveOrganization();
+    const currentCred = getActiveCredential();
 
-  }, []);
+    if (
+      currentOrg?._id !== activeOrg?._id ||
+      currentCred?._id !== activeCred?._id
+    ) {
+      // Organization or credential has changed
+      setActiveOrg(currentOrg);
+      setActiveCred(currentCred);
+
+      // Reset tabs and perform any other necessary actions
+      resetTabs();
+
+      // You might want to refetch data or perform other actions here
+      // For example, refetching the database structure for the new organization/credential
+    }
+  }, [
+    getActiveOrganization,
+    getActiveCredential,
+    activeOrg,
+    activeCred,
+    resetTabs,
+  ]);
 
   if (error) {
     return (

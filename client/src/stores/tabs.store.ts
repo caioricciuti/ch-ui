@@ -71,6 +71,28 @@ const useTabStore = create<TabQueryState>()(
         });
       },
 
+      resetTabs: () => {
+        set({
+          tabs: [
+            {
+              id: "home",
+              title: "Home",
+              content: "",
+              type: "home",
+              databaseData: [],
+            },
+          ],
+          activeTabId: "home",
+          isLoading: false,
+          isLoadingDataBase: false,
+          error: null,
+          databaseData: [],
+          isSavedQuery: false,
+          isDirty: false,
+          isCreateTableModalOpen: false,
+          selectedDatabaseForCreateTable: "",
+        });
+      },
       updateTabContent: (id: string, updatedValues: Partial<Tab>) => {
         set((state) => ({
           tabs: state.tabs.map((tab) =>
