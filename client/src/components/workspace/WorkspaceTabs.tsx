@@ -90,7 +90,7 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
     >
       <TabsTrigger
         value={tab.id}
-        className={`data-[state=active]:bg-orange-500 h-8 data-[state=active]:text-primary flex items-center rounded-none w-full`}
+        className={`data-[state=active]:bg-orange-500 h-8 data-[state=active]:text-primary flex items-center rounded-sm w-full`}
         onClick={onActivate}
       >
         {isActive && isHovering && tab.type !== "home" && (

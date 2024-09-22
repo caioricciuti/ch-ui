@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import DatabaseExplorer from "@/components/workspace/DataExplorer";
 import {
   ResizableHandle,
@@ -6,44 +5,12 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import WorkspaceTabs from "@/components/workspace/WorkspaceTabs";
-import { Skeleton } from "@/components/ui/skeleton";
-import useClickHouseCredentialStore from "@/stores/clickHouseCredentials.store";
-import useAuthStore from "@/stores/user.store";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import useTabStore from "@/stores/tabs.store";
 import CreateTable from "@/components/CreateTable";
 
 function WorkspacePage() {
-  const { setSelectedCredential } = useClickHouseCredentialStore();
-  const { user } = useAuthStore();
-  const { fetchDatabaseData, isLoading, error } = useTabStore();
-
-  useEffect(() => {
-    fetchDatabaseData();
-  }, [
-    fetchDatabaseData,
-    setSelectedCredential,
-    user?.activeClickhouseCredential,
-  ]);
-
-  if (isLoading) {
-    return (
-      <div className="skeleton-container p-6">
-        <Skeleton className="skeleton-heading" />
-        <Skeleton className="skeleton-square" />
-        <div className="skeleton-grid">
-          <Skeleton className="skeleton-item" />
-          <Skeleton className="skeleton-item" />
-          <Skeleton className="skeleton-item" />
-          <Skeleton className="skeleton-item" />
-          <Skeleton className="skeleton-item" />
-          <Skeleton className="skeleton-item" />
-          <Skeleton className="skeleton-item" />
-          <Skeleton className="skeleton-item" />
-        </div>
-      </div>
-    );
-  }
+  const { error } = useTabStore();
 
   if (error) {
     return (
