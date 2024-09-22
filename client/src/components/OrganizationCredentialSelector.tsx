@@ -38,11 +38,12 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [tempOrgValue, setTempOrgValue] = useState("");
   const [tempCredValue, setTempCredValue] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isOrgLoading, setIsOrgLoading] = useState(false);
+  const [isCredLoading, setIsCredLoading] = useState(false);
 
   useEffect(() => {
     try {
-      setIsLoading(true)
+      setIsOrgLoading(true)
       fetchOrganizations();
     } catch (error) {
       if (error instanceof Error) {
@@ -51,7 +52,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
         toast.error("Failed to fetch organizations")
       }
     } finally {
-      setIsLoading(false)
+      setIsOrgLoading(false)
     }
   }, [fetchOrganizations]);
 
@@ -81,7 +82,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
 
   const fetchAvailbleCredentialsAndHandleErrors = async (organizationId: string) => {
     try {
-      setIsLoading(true)
+      setIsCredLoading(true)
       await fetchAvailableCredentials(organizationId);
     } catch(error) {
       if (error instanceof Error) {
@@ -90,7 +91,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
         toast.error("Failed to fetch available credentials")
       }
     } finally {
-      setIsLoading(false)
+      setIsCredLoading(false)
     }
   }
 
@@ -122,7 +123,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
   };
 
   const noCredentialsAvailable =
-    availableCredentials.length === 0 && tempOrgValue !== "" && !isLoading;
+    availableCredentials.length === 0 && tempOrgValue !== "";
 
   return (
     <>
@@ -159,7 +160,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
               <Select
                 value={tempOrgValue}
                 onValueChange={handleOrgSelect}
-                disabled={isLoading}
+                disabled={isOrgLoading}
               >
                 <SelectTrigger className="col-span-3">
                   <SelectValue placeholder="Select organization" />
@@ -181,7 +182,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
                 value={tempCredValue}
                 onValueChange={handleCredSelect}
                 disabled={
-                  isLoading || !tempOrgValue || noCredentialsAvailable
+                  isCredLoading || !tempOrgValue || noCredentialsAvailable
                 }
               >
                 <SelectTrigger className="col-span-3">
