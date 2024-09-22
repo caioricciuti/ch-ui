@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 function AdminPage() {
-  const { checkAuth, user, isLoading } = useAuthStore();
+  const { checkAuth, user, authIsLoading } = useAuthStore();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -17,7 +17,7 @@ function AdminPage() {
   }, [navigate, checkAuth]);
 
   // Show loading state if the authentication check is still in progress
-  if (isLoading) {
+  if (authIsLoading) {
     return <div>Loading...</div>;
   }
 

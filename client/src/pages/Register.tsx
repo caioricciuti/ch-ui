@@ -51,7 +51,7 @@ type RegisterFormValues = z.infer<typeof registerSchema>;
 
 function RegisterPage() {
   const navigate = useNavigate();
-  const { register, isLoading, user } = useAuthStore();
+  const { register, authIsLoading, user } = useAuthStore();
   const [localError, setLocalError] = React.useState<string | null>(null);
 
   const form = useForm<RegisterFormValues>({
@@ -172,8 +172,8 @@ function RegisterPage() {
                   <AlertDescription>{localError}</AlertDescription>
                 </Alert>
               )}
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Registering..." : "Register"}
+              <Button type="submit" className="w-full" disabled={authIsLoading}>
+                {authIsLoading ? "Registering..." : "Register"}
               </Button>
             </form>
           </Form>

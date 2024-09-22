@@ -34,11 +34,11 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 
 function LoginPage() {
   const navigate = useNavigate();
-  const { login, user, isLoading, error } = useAuthStore();
+  const { login, user, authIsLoading, error } = useAuthStore();
   const [localError, setLocalError] = React.useState<string | null>(null);
 
   useEffect(() => {
-    if (user && !isLoading) {
+    if (user && !authIsLoading) {
       navigate("/");
     }
   }, [user, navigate]);
@@ -114,8 +114,8 @@ function LoginPage() {
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Logging in..." : "Login"}
+              <Button type="submit" className="w-full" disabled={authIsLoading}>
+                {authIsLoading ? "Logging in..." : "Login"}
               </Button>
             </form>
           </Form>

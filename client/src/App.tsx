@@ -4,7 +4,6 @@ import { ThemeProvider } from "@/components/theme-provider";
 import useAuthStore from "@/stores/user.store";
 import { FlipWords } from "./components/ui/flip-words";
 import Logo from "/logo.png";
-import webSocketManager from "@/lib/websocket";
 
 const App: React.FC = () => {
   const { checkAuth, user } = useAuthStore();
