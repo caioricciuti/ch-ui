@@ -8,17 +8,13 @@ const useOrganizationStore = create<OrganizationState>()(
   devtools((set, get) => ({
     organizations: [],
     selectedOrganization: null,
-    isLoading: false,
-    error: null,
 
     fetchOrganizations: async () => {
-      set({ isLoading: true, error: null });
       try {
         const response = await api.get<Organization[]>("/organizations");
-        set({ organizations: response.data, isLoading: false });
+        set({ organizations: response.data });
       } catch (error) {
-        handleApiError(error, "Failed to fetch organizations", set);
-        throw error;
+        handleApiError(error, "Failed to fetch organizations");
       }
     },
 
@@ -27,18 +23,15 @@ const useOrganizationStore = create<OrganizationState>()(
     },
 
     addOrganization: async (name: string) => {
-      set({ isLoading: true, error: null });
       try {
         await api.post("/organizations", { name });
         await get().fetchOrganizations();
       } catch (error) {
-        handleApiError(error, "Failed to add organization", set);
-        throw error;
+        handleApiError(error, "Failed to add organization");
       }
     },
 
     updateOrganization: async (id: string, name: string) => {
-      set({ isLoading: true, error: null });
       try {
         await api.put("/organizations", {
           name,
@@ -46,30 +39,25 @@ const useOrganizationStore = create<OrganizationState>()(
         });
         await get().fetchOrganizations();
       } catch (error) {
-        handleApiError(error, "Failed to update organization", set);
-        throw error;
+        handleApiError(error, "Failed to update organization");
       }
     },
 
     deleteOrganization: async (id: string) => {
-      set({ isLoading: true, error: null });
       try {
         await api.delete("/organizations", { data: { organizationId: id } });
         await get().fetchOrganizations();
       } catch (error) {
-        handleApiError(error, "Failed to delete organization", set);
-        throw error;
+        handleApiError(error, "Failed to delete organization");
       }
     },
 
     addUserToOrganization: async (organizationId: string, userId: string) => {
-      set({ isLoading: true, error: null });
       try {
         await api.post(`/organizations/${organizationId}/members`, { userId });
         await get().fetchOrganizations();
       } catch (error) {
-        handleApiError(error, "Failed to add user to organization", set);
-        throw error;
+        handleApiError(error, "Failed to add user to organization");
       }
     },
 
@@ -77,13 +65,11 @@ const useOrganizationStore = create<OrganizationState>()(
       organizationId: string,
       userId: string
     ) => {
-      set({ isLoading: true, error: null });
       try {
         await api.delete(`/organizations/${organizationId}/members/${userId}`);
         await get().fetchOrganizations();
       } catch (error) {
-        handleApiError(error, "Failed to remove user from organization", set);
-        throw error;
+        handleApiError(error, "Failed to remove user from organization");
       }
     },
   }))
@@ -92,17 +78,11 @@ const useOrganizationStore = create<OrganizationState>()(
 const handleApiError = (
   error: unknown,
   defaultMessage: string,
-  set: (state: Partial<OrganizationState>) => void
-) => {
+): Error => {
   if (error instanceof AxiosError && error.response) {
-    set({
-      error: `${defaultMessage}: ${
-        error.response.data.message || error.message
-      }`,
-      isLoading: false,
-    });
+    throw new Error(`${defaultMessage}: ${error.response.data.message || error.message}`)
   } else {
-    set({ error: defaultMessage, isLoading: false });
+    throw new Error(defaultMessage)
   }
 };
 
