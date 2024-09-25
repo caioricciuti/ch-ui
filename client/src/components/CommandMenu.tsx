@@ -15,10 +15,13 @@ import { useTheme } from "@/components/theme-provider";
 export function CommandMenu() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
-  const { logout } = useAuthStore();
+  const { logout, user } = useAuthStore();
   const { setTheme } = useTheme();
 
   useEffect(() => {
+    if (!user) {
+      return;
+    }
     const down = (e: KeyboardEvent) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
@@ -28,7 +31,7 @@ export function CommandMenu() {
 
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
-  }, []);
+  }, [user]);
 
   const runCommand = (command: () => void) => {
     setOpen(false);

@@ -13,8 +13,8 @@ const Layout: React.FC = () => {
       <div className="flex-1 flex flex-col overflow-hidden">
         <main className="flex-1 overflow-y-auto">
           <Outlet />
+          <CommandMenu />
         </main>
-        <CommandMenu />
       </div>
     </div>
   );

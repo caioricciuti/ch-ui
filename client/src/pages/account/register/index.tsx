@@ -21,7 +21,7 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import useAuthStore from "../stores/user.store";
+import useAuthStore from "@/stores/user.store";
 import { toast } from "sonner";
 
 const registerSchema = z
@@ -77,7 +77,7 @@ function RegisterPage() {
       await register(data.name, data.email, data.password);
       toast.success("Registration successful!");
       toast.info("Check your email to activate your account...");
-      navigate("/login");
+      navigate("/account/login");
     } catch (err) {
       setLocalError("Failed to register. Please try again.");
       toast.error("Registration failed. Please try again.");
@@ -181,7 +181,7 @@ function RegisterPage() {
         <CardFooter className="flex justify-center">
           <p>
             Already have an account?{" "}
-            <Link to="/login" className="text-blue-600 hover:underline">
+            <Link to="/account/login" className="text-blue-600 hover:underline">
               Login
             </Link>
           </p>

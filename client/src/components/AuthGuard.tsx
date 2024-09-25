@@ -1,7 +1,9 @@
+// src/components/AuthGuard.tsx
 import React, { useEffect, useState } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import useAuthStore from "@/stores/user.store";
 import { toast } from "sonner";
+//import LoadingScreen from "./LoadingScreen";
 
 const AuthGuard: React.FC = () => {
   const { user, checkAuth } = useAuthStore();
@@ -14,7 +16,10 @@ const AuthGuard: React.FC = () => {
       const isAuthenticated = await checkAuth();
       setIsChecking(false);
       if (!isAuthenticated) {
-        navigate("/login", { state: { from: location }, replace: true });
+        navigate("/account/login", {
+          state: { from: location },
+          replace: true,
+        });
         toast.warning("Please Login to continue");
       }
     };
@@ -23,7 +28,7 @@ const AuthGuard: React.FC = () => {
   }, [checkAuth, navigate, location]);
 
   if (isChecking) {
-    return <div>Loading...</div>; // Or a proper loading component
+    return null;
   }
 
   return user ? <Outlet /> : null;

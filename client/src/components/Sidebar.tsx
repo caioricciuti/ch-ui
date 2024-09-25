@@ -42,7 +42,7 @@ const Sidebar = () => {
   const handleLogout = async () => {
     try {
       await logout();
-      navigate("/login");
+      navigate("/account/login");
       toast.success("Logged out successfully");
     } catch (error) {
       console.error("Logout failed:", error);

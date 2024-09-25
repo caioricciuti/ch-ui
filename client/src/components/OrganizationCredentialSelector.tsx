@@ -147,6 +147,11 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
 
   const activeOrg = getActiveOrganization();
 
+  // Determine if there are no organizations or no credentials
+  const noOrganizations = organizations.length === 0;
+  const noCredentialsForSelectedOrg = noCredentialsAvailable;
+  const showGeneralAlert = noOrganizations || noCredentialsForSelectedOrg;
+
   return (
     <>
       <Button
@@ -181,7 +186,7 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
               <Select
                 value={tempOrgValue}
                 onValueChange={handleOrgSelect}
-                disabled={isOrgLoading || isSaving}
+                disabled={isOrgLoading || isSaving || noOrganizations}
               >
                 <SelectTrigger className="col-span-3">
                   <SelectValue placeholder="Select organization" />
@@ -221,6 +226,8 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Existing Alert for No Credentials Available */}
             {noCredentialsAvailable && (
               <Alert variant="destructive">
                 <AlertDescription>
@@ -229,8 +236,22 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
                 </AlertDescription>
               </Alert>
             )}
+
+            {/* New General Alert for No Organizations or Credentials */}
+            {showGeneralAlert && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  You need to have at least 1 Organization and 1 Credential to
+                  choose from. You can create your own or ask your admin to
+                  invite you.
+                </AlertDescription>
+              </Alert>
+            )}
           </div>
           <DialogFooter>
+            <Button onClick={handleDialogClose} variant="outline">
+              Cancel
+            </Button>
             <Button
               onClick={handleSave}
               disabled={
@@ -239,7 +260,8 @@ export function CombinedSelector({ isExpanded }: { isExpanded: boolean }) {
                 noCredentialsAvailable ||
                 isOrgLoading ||
                 isCredLoading ||
-                isSaving
+                isSaving ||
+                noOrganizations
               }
             >
               {isSaving ? "Saving..." : "Save changes"}

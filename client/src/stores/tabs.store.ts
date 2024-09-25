@@ -25,6 +25,11 @@ const useTabStore = create<TabQueryState>()(
       isDirty: false,
       isCreateTableModalOpen: false,
       selectedDatabaseForCreateTable: "",
+      isCreateDatabaseModalOpen: false,
+
+      closeCreateDatabaseModal: () => set({ isCreateDatabaseModalOpen: false }),
+
+      openCreateDatabaseModal: () => set({ isCreateDatabaseModalOpen: true }),
 
       openCreateTableModal: (database: string) =>
         set({

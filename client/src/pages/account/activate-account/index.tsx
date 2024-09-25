@@ -82,7 +82,7 @@ const ActivateAccount = () => {
       // close the dialog and show toast
       setIsDialogOpen(false);
       // Navigate to login page
-      navigate("/login");
+      navigate("/account//login");
 
       toast.success(response.data.message);
     } catch (error: any) {
@@ -113,7 +113,7 @@ const ActivateAccount = () => {
             <Alert variant="success">
               <AlertDescription>{message}</AlertDescription>
               <Button asChild className="mt-4 items-center flex gap-2">
-                <Link to="/login">
+                <Link to="/account/login">
                   <LogIn className="h-4 w-4" />
                   Login into your account
                 </Link>

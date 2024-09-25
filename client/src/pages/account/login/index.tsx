@@ -123,7 +123,7 @@ function LoginPage() {
         <CardFooter className="flex justify-center">
           <p>
             Don't have an account?{" "}
-            <Link to="/register" className="text-blue-500 hover:underline">
+            <Link to="/account/register" className="text-blue-500 hover:underline">
               Sign up
             </Link>
           </p>

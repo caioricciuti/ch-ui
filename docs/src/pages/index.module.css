@@ -21,3 +21,40 @@
   align-items: center;
   justify-content: center;
 }
+
+.heroBanner {
+  padding: 4rem 0;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2rem;
+}
+
+.features {
+  display: flex;
+  align-items: center;
+  padding: 2rem 0;
+  width: 100%;
+}
+
+.socialLinks {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.socialLinks a {
+  color: var(--ifm-color-primary);
+  transition: color 0.2s;
+}
+
+.socialLinks a:hover {
+  color: var(--ifm-color-primary-dark);
+}
