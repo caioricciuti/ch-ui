@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import DatabaseExplorer from "@/components/workspace/DataExplorer";
 import {
   ResizableHandle,
@@ -10,14 +10,18 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import useTabStore from "@/stores/tabs.store";
 import useAuthStore from "@/stores/user.store";
 import CreateTable from "@/components/CreateTable";
+import CreateDatabase from "@/components/CreateDatabase";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 function WorkspacePage() {
+  const navigate = useNavigate();
   const { error, resetTabs } = useTabStore();
   const { getActiveOrganization, getActiveCredential } = useAuthStore();
   const [activeOrg, setActiveOrg] = useState(getActiveOrganization());
   const [activeCred, setActiveCred] = useState(getActiveCredential());
 
-  useEffect(() => {
+  const handleOrgCredChange = useCallback(() => {
     const currentOrg = getActiveOrganization();
     const currentCred = getActiveCredential();
 
@@ -25,15 +29,13 @@ function WorkspacePage() {
       currentOrg?._id !== activeOrg?._id ||
       currentCred?._id !== activeCred?._id
     ) {
-      // Organization or credential has changed
+      console.log("Organization or credential changed. Reloading workspace...");
       setActiveOrg(currentOrg);
       setActiveCred(currentCred);
-
-      // Reset tabs and perform any other necessary actions
       resetTabs();
-
-      // You might want to refetch data or perform other actions here
-      // For example, refetching the database structure for the new organization/credential
+      // Add any other reload logic here
+      // For example, you might want to refetch the database structure:
+      // fetchDatabaseStructure();
     }
   }, [
     getActiveOrganization,
@@ -42,6 +44,24 @@ function WorkspacePage() {
     activeCred,
     resetTabs,
   ]);
+
+  useEffect(() => {
+    const currentOrg = getActiveOrganization();
+    const currentCred = getActiveCredential();
+    if (!currentOrg || !currentCred){
+      navigate('/organizations')
+      toast.warning("You need to have a Selected Organization and Selected Credential to access the workspace")
+
+    }
+      // Initial check
+      handleOrgCredChange();
+
+    // Subscribe to changes in the auth store
+    const unsubscribe = useAuthStore.subscribe(handleOrgCredChange);
+
+    // Cleanup subscription on component unmount
+    return () => unsubscribe();
+  }, [handleOrgCredChange]);
 
   if (error) {
     return (
@@ -86,6 +106,7 @@ function WorkspacePage() {
   return (
     <div className="h-screen">
       <CreateTable />
+      <CreateDatabase />
       <ResizablePanelGroup direction="horizontal">
         <ResizablePanel className="overflow-scroll" defaultSize={25}>
           <DatabaseExplorer />

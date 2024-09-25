@@ -18,7 +18,7 @@ function AdminPage() {
 
   // Show loading state if the authentication check is still in progress
   if (authIsLoading) {
-    return <div>Loading...</div>;
+    return null;
   }
 
   return (

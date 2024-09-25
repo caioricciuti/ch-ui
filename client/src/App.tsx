@@ -1,8 +1,10 @@
+// src/App.tsx
 import React, { useEffect, useState } from "react";
 import Routes from "@/routes";
 import { ThemeProvider } from "@/components/theme-provider";
 import useAuthStore from "@/stores/user.store";
 import Logo from "/logo.png";
+import { Toaster } from "sonner";
 
 const App: React.FC = () => {
   const { checkAuth } = useAuthStore();

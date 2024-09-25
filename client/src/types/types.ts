@@ -145,6 +145,9 @@ export interface TabQueryState {
 
   isCreateTableModalOpen: boolean;
   selectedDatabaseForCreateTable: string;
+  closeCreateDatabaseModal: () => void;
+  openCreateDatabaseModal: () => void;
+  isCreateDatabaseModalOpen: boolean;
 
   addTab: (tab: Omit<Tab, "id">) => void;
   closeTab: (id: string) => void;

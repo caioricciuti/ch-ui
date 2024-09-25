@@ -1,86 +1,36 @@
-import React, { useState, useEffect } from "react";
+// components/CreateTable/CreateTable.tsx
+
+import { useState, useEffect } from "react";
 import { z } from "zod";
-import {
-  Check,
-  ChevronsUpDown,
-  X,
-  Trash2,
-  Plus,
-  Info,
-  CopyIcon,
-  CopyCheck,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import useTabStore from "@/stores/tabs.store";
 
-const FIELD_TYPES = [
-  "String",
-  "UInt32",
-  "UInt64",
-  "Int32",
-  "Int64",
-  "Float32",
-  "Float64",
-  "Date",
-  "DateTime",
-  "Enum8",
-  "Enum16",
-  "Array(String)",
-  "Array(UInt32)",
-];
+import ConfirmationDialog from "@/components/createTable/ConfirmationDialog";
+import ManualCreationForm from "@/components/createTable/ManualCreationForm";
+import FileUploadForm from "@/components/createTable/FileUploadForm";
+import GeneratedSQL from "@/components/createTable/GeneratedSQL";
 
 const TIME_FIELDS = ["Date", "DateTime"];
-const INT_FIELDS = ["UInt32", "UInt64", "Int32", "Int64"];
-const ENGINES = [
-  "MergeTree",
-  "ReplacingMergeTree",
-  "SummingMergeTree",
-  "AggregatingMergeTree",
-  "CollapsingMergeTree",
-  "VersionedCollapsingMergeTree",
-  "Memory",
-];
 
-const DEFAULT_PARTITION_OPTIONS = ["toYYYYMM", "toYYYYMMDD", "toYear"];
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB in bytes
+const PREVIEW_ROW_COUNT = 10; // Number of rows to preview
+
+// Interfaces
+interface Field {
+  name: string;
+  type: string;
+  nullable: boolean;
+  isPrimaryKey: boolean;
+  isOrderBy: boolean;
+  isPartitionBy: boolean;
+}
 
 const CreateTable = () => {
   const {
@@ -93,74 +43,134 @@ const CreateTable = () => {
     addTab,
   } = useTabStore();
 
-  const [open, setOpen] = useState(false);
+  // State variables
   const [database, setDatabase] = useState("");
   const [tableName, setTableName] = useState("");
   const [engine, setEngine] = useState("MergeTree");
-  const [fields, setFields] = useState([
-    { name: "", type: "String", nullable: false, isPrimaryKey: false },
+  const [fields, setFields] = useState<Field[]>([
+    {
+      name: "",
+      type: "String",
+      nullable: false,
+      isPrimaryKey: false,
+      isOrderBy: false,
+      isPartitionBy: false,
+    },
   ]);
   const [primaryKeyFields, setPrimaryKeyFields] = useState<string[]>([]);
-  const [orderBy, setOrderBy] = useState("");
-  const [partitionBy, setPartitionBy] = useState("");
+  const [orderByFields, setOrderByFields] = useState<string[]>([]);
+  const [partitionByField, setPartitionByField] = useState<string | null>(null);
   const [comment, setComment] = useState("");
   const [sql, setSql] = useState("");
   const [loading, setLoading] = useState(false);
-  interface Errors {
-    [key: string]: string | undefined;
-  }
-
-  const [errors, setErrors] = useState<Errors>({});
-
-  const [createTableError, setCreateTableError] = useState<String>("");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [createTableError, setCreateTableError] = useState<string>("");
   const [statementCopiedToClipBoard, setStatementCopiedToClipBoard] =
-    useState<Boolean>(false);
+    useState(false);
 
-  let databases = databaseData
-    .filter((item) => item.type === "database")
-    .map((db) => ({
-      value: db.name,
-      label: db.name,
-      children: db.children.map((child) => ({
-        value: child.name,
-        label: child.name,
-        type: child.type,
-      })),
-    }));
+  // State variables for file upload
+  const [file, setFile] = useState<File | null>(null);
+  const [fileType, setFileType] = useState<"csv" | "json">("csv");
+  const [uploadedFileName, setUploadedFileName] = useState("");
 
+  // Advanced CSV options
+  const [csvDelimiter, setCsvDelimiter] = useState(",");
+  const [csvQuoteChar, setCsvQuoteChar] = useState('"');
+  const [csvEscapeChar, setCsvEscapeChar] = useState("\\");
+  const [csvHeaderRowsToSkip, setCsvHeaderRowsToSkip] = useState(0);
+
+  // Nested JSON Handling
+  const [flattenJSON, setFlattenJSON] = useState<boolean>(true);
+  const [jsonNestedPaths, setJsonNestedPaths] = useState<string[]>([]); // Example: ["address.street", "user.age"]
+
+  // State for confirmation dialog
+  const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
+
+  // State for data preview
+  const [previewData, setPreviewData] = useState<any[]>([]);
+
+  // State for processing progress
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Effect to set default database if selectedDatabaseForCreateTable is provided
   useEffect(() => {
     if (selectedDatabaseForCreateTable) {
       setDatabase(selectedDatabaseForCreateTable);
     }
+  }, [selectedDatabaseForCreateTable]);
 
-    const newPrimaryKeyFields = fields
+  // Effect to update primaryKeyFields, orderByFields, and partitionByField when fields change
+  useEffect(() => {
+    const pkFields = fields
       .filter((field) => field.isPrimaryKey && field.name)
       .map((field) => field.name);
-    setPrimaryKeyFields(newPrimaryKeyFields);
-  }, [fields, selectedDatabaseForCreateTable]);
+    setPrimaryKeyFields(pkFields);
 
+    const obFields = fields
+      .filter((field) => field.isOrderBy)
+      .map((field) => field.name);
+    setOrderByFields(obFields);
+
+    const pbField = fields.find((field) => field.isPartitionBy)?.name || null;
+    setPartitionByField(pbField);
+  }, [fields]);
+
+  // Function to add a new field
   const addField = () => {
     setFields([
       ...fields,
-      { name: "", type: "String", nullable: false, isPrimaryKey: false },
+      {
+        name: "",
+        type: "String",
+        nullable: false,
+        isPrimaryKey: false,
+        isOrderBy: false,
+        isPartitionBy: false,
+      },
     ]);
   };
 
+  // Function to remove a field
   const removeField = (index: number) => {
     setFields(fields.filter((_, i) => i !== index));
     setErrors((prev) => {
       const newErrors = { ...prev };
-      delete newErrors[`fields.${index}.name`];
-      return newErrors;
+      // Shift errors for fields after the removed index
+      const updatedErrors: Record<string, string> = {};
+      Object.keys(newErrors).forEach((key) => {
+        const regex = /^fields\.(\d+)\.name$/;
+        const match = key.match(regex);
+        if (match) {
+          const fieldIndex = parseInt(match[1], 10);
+          if (fieldIndex > index) {
+            updatedErrors[`fields.${fieldIndex - 1}.name`] = newErrors[key];
+          } else if (fieldIndex < index) {
+            updatedErrors[key] = newErrors[key];
+          }
+        } else {
+          updatedErrors[key] = newErrors[key];
+        }
+      });
+      return updatedErrors;
     });
   };
 
-  type FieldKey = "name" | "type" | "nullable" | "isPrimaryKey";
-
-  const updateField = (index: any, key: FieldKey, value: string | boolean) => {
+  // Function to update a field
+  const updateField = (index: number, key: string, value: string | boolean) => {
     const updatedFields = [...fields];
-    updatedFields[index][key] = value;
+    updatedFields[index] = { ...updatedFields[index], [key]: value };
+
+    // Ensure only one Partition By field
+    if (key === "isPartitionBy" && value === true) {
+      updatedFields.forEach((field, i) => {
+        if (i !== index && field.isPartitionBy) {
+          updatedFields[i].isPartitionBy = false;
+        }
+      });
+    }
+
     setFields(updatedFields);
+
     if (key === "name") {
       setErrors((prev) => {
         const newErrors = { ...prev };
@@ -170,13 +180,15 @@ const CreateTable = () => {
     }
   };
 
+  // Validate if the table name is unique in the selected database
   const validateTableName = (name: string) => {
     const selectedDb = databaseData.find(
-      (db: { name: string }) => db.name === database
-    );
+      (db: { name: string; children?: { name: string }[] }) =>
+        db.name === database
+    ) as { name: string; children?: { name: string }[] } | undefined;
     if (
       selectedDb &&
-      selectedDb.children.some(
+      selectedDb.children?.some(
         (table: { name: string }) =>
           table.name.toLowerCase() === name.toLowerCase()
       )
@@ -186,33 +198,158 @@ const CreateTable = () => {
     return true;
   };
 
-  const validateAndGenerateSQL = async () => {
-    const tableSchema = z.object({
-      database: z.string().min(1, "Database is required"),
-      tableName: z
-        .string()
-        .min(1, "Table name is required")
-        .refine(validateTableName, {
-          message: "Table name already exists in this database",
-        }),
-      fields: z
-        .array(
-          z.object({
-            name: z
-              .string()
-              .min(1, "Name is required")
-              .refine((value) => !/\s/.test(value), {
-                message: "Name cannot contain spaces",
-              }),
-            type: z.string(),
-            nullable: z.boolean(),
-            isPrimaryKey: z.boolean(),
-          })
-        )
-        .min(1, "At least one field is required"),
+  // Schema for manual table creation
+  const manualTableSchema = z.object({
+    database: z.string().min(1, "Database is required"),
+    tableName: z
+      .string()
+      .min(1, "Table name is required")
+      .refine(validateTableName, {
+        message: "Table name already exists in this database",
+      }),
+    fields: z
+      .array(
+        z.object({
+          name: z
+            .string()
+            .min(1, "Name is required")
+            .refine((value) => !/\s/.test(value), {
+              message: "Name cannot contain spaces",
+            }),
+          type: z.string(),
+          nullable: z.boolean(),
+          isPrimaryKey: z.boolean(),
+          isOrderBy: z.boolean(),
+          isPartitionBy: z.boolean(),
+        })
+      )
+      .min(1, "At least one field is required"),
+  });
+
+  // Function to infer column types based on data
+  const inferColumnTypes = (headers: string[], data: any[]) => {
+    const types: string[] = headers.map(() => "String"); // Default type
+
+    headers.forEach((header, colIndex) => {
+      let isNumber = true;
+      let isInteger = true;
+      let isDate = true;
+
+      for (let row of data) {
+        const value = row[colIndex];
+        if (value === null || value === undefined || value === "") continue;
+
+        // Check for number
+        if (isNumber && isNaN(Number(value))) {
+          isNumber = false;
+        }
+
+        // Check for integer
+        if (isInteger && !Number.isInteger(Number(value))) {
+          isInteger = false;
+        }
+
+        // Check for date
+        if (isDate && isNaN(Date.parse(value))) {
+          isDate = false;
+        }
+
+        // Early exit if all checks fail
+        if (!isNumber && !isInteger && !isDate) {
+          break;
+        }
+      }
+
+      if (isInteger) {
+        types[colIndex] = "Int64";
+      } else if (isNumber) {
+        types[colIndex] = "Float64";
+      } else if (isDate) {
+        types[colIndex] = "DateTime";
+      } else {
+        types[colIndex] = "String";
+      }
     });
+
+    return types;
+  };
+
+  // Function to flatten nested JSON objects
+  const flattenObject = (
+    obj: any,
+    parentKey: string = "",
+    result: any = {}
+  ) => {
+    for (let key in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
+        const newKey = parentKey ? `${parentKey}.${key}` : key;
+        if (
+          typeof obj[key] === "object" &&
+          obj[key] !== null &&
+          !Array.isArray(obj[key])
+        ) {
+          flattenObject(obj[key], newKey, result);
+        } else {
+          result[newKey] = obj[key];
+        }
+      }
+    }
+    return result;
+  };
+
+  // Schema for file upload
+  const uploadSchema = z.object({
+    database: z.string().min(1, "Database is required"),
+    tableName: z
+      .string()
+      .min(1, "Table name is required")
+      .refine(validateTableName, {
+        message: "Table name already exists in this database",
+      }),
+    file: z
+      .instanceof(File)
+      .refine(
+        (f) => f.size <= MAX_FILE_SIZE,
+        `File size should not exceed ${MAX_FILE_SIZE / (1024 * 1024)}MB`
+      ),
+    ...(fileType === "csv"
+      ? {
+          csvDelimiter: z
+            .string()
+            .min(1, "Delimiter is required")
+            .max(1, "Delimiter must be a single character"),
+          csvHeaderRowsToSkip: z.number().min(0, "Cannot skip negative rows"),
+          csvQuoteChar: z
+            .string()
+            .length(1, "Quote character must be a single character"),
+          csvEscapeChar: z
+            .string()
+            .length(1, "Escape character must be a single character"),
+        }
+      : {}),
+    ...(fileType === "json"
+      ? {
+          flattenJSON: z.boolean(),
+          jsonNestedPaths: z
+            .array(z.string())
+            .optional()
+            .refine(
+              (paths) => {
+                if (!paths) return true;
+                return paths.every(
+                  (path) => typeof path === "string" && path.length > 0
+                );
+              },
+              { message: "Each path must be a non-empty string" }
+            ),
+        }
+      : {}),
+  });
+
+  // Function to validate and generate SQL for manual creation
+  const validateAndGenerateSQL = () => {
     try {
-      tableSchema.parse({ database, tableName, fields });
+      manualTableSchema.parse({ database, tableName, fields });
 
       const fieldDefinitions = fields
         .map(
@@ -225,478 +362,506 @@ const CreateTable = () => {
 
       let sqlStatement = `CREATE TABLE ${database}.${tableName}\n(\n    ${fieldDefinitions}\n) ENGINE = ${engine}\n`;
 
-      if (orderBy) sqlStatement += `ORDER BY (${orderBy})\n`;
-      if (partitionBy) sqlStatement += `PARTITION BY ${partitionBy}\n`;
-      if (primaryKeyFields.length)
+      if (orderByFields.length > 0) {
+        sqlStatement += `ORDER BY (${orderByFields.join(", ")})\n`;
+      }
+
+      if (partitionByField) {
+        const partitionField = fields.find((f) => f.name === partitionByField);
+        if (partitionField && TIME_FIELDS.includes(partitionField.type)) {
+          sqlStatement += `PARTITION BY toYYYYMM(${partitionByField})\n`;
+        } else {
+          sqlStatement += `PARTITION BY ${partitionByField}\n`;
+        }
+      }
+
+      if (primaryKeyFields.length > 0) {
         sqlStatement += `PRIMARY KEY (${primaryKeyFields.join(", ")})\n`;
-      if (comment) sqlStatement += `COMMENT '${comment}'`;
+      }
+
+      if (comment) {
+        sqlStatement += `COMMENT '${comment}'`;
+      }
 
       setSql(sqlStatement.trim());
       setErrors({});
-      return true;
+      return sqlStatement.trim();
     } catch (error) {
       if (error instanceof z.ZodError) {
         const newErrors: { [key: string]: string } = {};
         error.errors.forEach((err) => {
-          newErrors[err.path.join(".")] = err.message;
+          const path = err.path.join(".");
+          newErrors[path] = err.message;
         });
         setErrors(newErrors);
       } else {
         toast.error("Unknown error occurred");
       }
-      return false;
+      return null;
     }
   };
 
-  const handleCreate = async () => {
-    if (!(await validateAndGenerateSQL())) return;
+  // Function to handle manual table creation
+  const handleCreateManual = async () => {
+    const sqlStatement = validateAndGenerateSQL();
+    if (!sqlStatement) return;
 
     setLoading(true);
     setCreateTableError("");
     try {
-      await runQuery("", sql);
+      await runQuery("", sqlStatement);
       fetchDatabaseData();
       toast.success("Table created successfully!");
-      // Reset form after successful creation
-      setTableName("");
-      setFields([
-        { name: "", type: "String", nullable: false, isPrimaryKey: false },
-      ]);
-      setOrderBy("");
-      setPartitionBy("");
-      setComment("");
-      setSql("");
+
+      // Reset all fields
+      resetForm();
+
+      // Optionally, add a new tab or perform other actions
       addTab({
         title: `${database}.${tableName}`,
         content: { query: "", database, table: tableName },
         type: "information",
         databaseData: [],
       });
-      // Close the modal
+
       closeCreateTableModal();
     } catch (error: any) {
-      setCreateTableError(error);
+      setCreateTableError(error.toString());
     } finally {
       setLoading(false);
     }
   };
 
-  const handleShowStatement = async () => {
+  // Function to handle copying SQL to clipboard
+  const handleCopySQL = () => {
+    navigator.clipboard.writeText(sql);
+    toast.success("SQL statement copied to clipboard!");
+    setStatementCopiedToClipBoard(true);
+    setTimeout(() => {
+      setStatementCopiedToClipBoard(false);
+    }, 4000);
+  };
+
+  // File upload handling
+  const handleFileChange = (selectedFile: File | null) => {
+    if (selectedFile) {
+      if (selectedFile.size > MAX_FILE_SIZE) {
+        setErrors((prev) => ({
+          ...prev,
+          file: "File size exceeds 100MB limit",
+        }));
+        return;
+      }
+      setFile(selectedFile);
+      setUploadedFileName(selectedFile.name);
+      setErrors((prev) => ({ ...prev, file: "" }));
+    }
+  };
+
+  // Function to handle file type change
+  const handleFileTypeChange = (value: "csv" | "json") => {
+    setFileType(value);
+    setFile(null);
+    setUploadedFileName("");
+    setErrors((prev) => ({ ...prev, file: "" }));
+
+    // Reset advanced options when switching file types
+    if (value !== "csv") {
+      setCsvDelimiter(",");
+      setCsvQuoteChar('"');
+      setCsvEscapeChar("\\");
+      setCsvHeaderRowsToSkip(0);
+    }
+    if (value !== "json") {
+      setFlattenJSON(true);
+      setJsonNestedPaths([]);
+    }
+  };
+
+  // Function to infer and set preview data
+  const generatePreviewData = (headers: string[], data: any[]) => {
+    const inferredTypes = inferColumnTypes(headers, data);
+    setPreviewData(data.slice(0, PREVIEW_ROW_COUNT));
+    // Update field types based on inference
+    const updatedFields = headers.map((header, index) => ({
+      name: header,
+      type: inferredTypes[index],
+      nullable: true,
+      isPrimaryKey: false,
+      isOrderBy: false,
+      isPartitionBy: false,
+    }));
+    setFields(updatedFields);
+  };
+
+  // Function to handle file-based table creation
+  const handleCreateFromFile = async () => {
+    if (!file) {
+      setErrors((prev) => ({ ...prev, file: "File is required" }));
+      return;
+    }
+
+    const uploadData: any = {
+      database,
+      tableName,
+      file,
+    };
+
+    if (fileType === "csv") {
+      uploadData.csvDelimiter = csvDelimiter;
+      uploadData.csvHeaderRowsToSkip = csvHeaderRowsToSkip;
+      uploadData.csvQuoteChar = csvQuoteChar;
+      uploadData.csvEscapeChar = csvEscapeChar;
+    }
+
+    if (fileType === "json") {
+      uploadData.flattenJSON = flattenJSON;
+      uploadData.jsonNestedPaths = jsonNestedPaths;
+    }
+
+    try {
+      uploadSchema.parse(uploadData);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const newErrors: { [key: string]: string } = {};
+        error.errors.forEach((err) => {
+          const path = err.path.join(".");
+          newErrors[path] = err.message;
+        });
+        setErrors(newErrors);
+      }
+      return;
+    }
+
+    setLoading(true);
     setCreateTableError("");
-    await validateAndGenerateSQL();
+    setIsProcessing(true);
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const content = e.target?.result;
+        if (!content || typeof content !== "string") {
+          setCreateTableError("Failed to read the file content.");
+          setLoading(false);
+          setIsProcessing(false);
+          return;
+        }
+
+        let headers: string[] = [];
+        let data: any[] = [];
+
+        if (fileType === "csv") {
+          const lines = content
+            .split("\n")
+            .filter((line) => line.trim() !== "")
+            .slice(csvHeaderRowsToSkip); // Skip header rows
+          if (lines.length < 1) {
+            setCreateTableError(
+              "CSV file must have headers and at least one data row."
+            );
+            setLoading(false);
+            setIsProcessing(false);
+            return;
+          }
+          headers = lines[0].split(csvDelimiter).map((header) => header.trim());
+          data = lines.slice(1).map((line) => line.split(csvDelimiter));
+
+          // Generate preview data and infer types
+          generatePreviewData(headers, data);
+        } else if (fileType === "json") {
+          try {
+            const jsonData = JSON.parse(content);
+            if (!Array.isArray(jsonData) || jsonData.length === 0) {
+              setCreateTableError(
+                "JSON file must contain an array of objects."
+              );
+              setLoading(false);
+              setIsProcessing(false);
+              return;
+            }
+
+            let processedData = jsonData;
+            if (flattenJSON) {
+              processedData = jsonData.map((item: any) => flattenObject(item));
+            } else if (jsonNestedPaths.length > 0) {
+              // Implement logic to extract specific nested paths
+              processedData = jsonData.map((item: any) => {
+                const newItem: any = {};
+                jsonNestedPaths.forEach((path) => {
+                  const keys = path.split(".");
+                  let value = item;
+                  for (let key of keys) {
+                    value = value ? value[key] : undefined;
+                  }
+                  newItem[path] = value;
+                });
+                return newItem;
+              });
+            }
+
+            headers = Object.keys(processedData[0]);
+            data = processedData.map((obj: any) => Object.values(obj));
+
+            // Generate preview data and infer types
+            generatePreviewData(headers, data);
+          } catch (jsonError) {
+            setCreateTableError("Invalid JSON format.");
+            setLoading(false);
+            setIsProcessing(false);
+            return;
+          }
+        }
+
+        // Generate SQL statement
+        const fieldDefinitions = fields
+          .map(
+            (field) =>
+              `${field.name} ${field.type}${
+                field.nullable ? " NULL" : " NOT NULL"
+              }`
+          )
+          .join(",\n    ");
+
+        let sqlStatement = `CREATE TABLE ${database}.${tableName}\n(\n    ${fieldDefinitions}\n) ENGINE = ${engine}\n`;
+
+        if (orderByFields.length > 0) {
+          sqlStatement += `ORDER BY (${orderByFields.join(", ")})\n`;
+        }
+
+        if (partitionByField) {
+          const partitionField = fields.find(
+            (f) => f.name === partitionByField
+          );
+          if (partitionField && TIME_FIELDS.includes(partitionField.type)) {
+            sqlStatement += `PARTITION BY toYYYYMM(${partitionByField})\n`;
+          } else {
+            sqlStatement += `PARTITION BY ${partitionByField}\n`;
+          }
+        }
+
+        if (primaryKeyFields.length > 0) {
+          sqlStatement += `PRIMARY KEY (${primaryKeyFields.join(", ")})\n`;
+        }
+
+        if (comment) {
+          sqlStatement += `COMMENT '${comment}'`;
+        }
+
+        setSql(sqlStatement.trim());
+
+        try {
+          // Execute CREATE TABLE
+          await runQuery("", sqlStatement);
+        } catch (createError: any) {
+          setCreateTableError(createError.toString());
+          setLoading(false);
+          setIsProcessing(false);
+          return;
+        }
+
+        // Generate INSERT statements
+        let insertSQL = "";
+        if (fileType === "csv") {
+          insertSQL = `INSERT INTO ${database}.${tableName} FORMAT CSV\n${content}`;
+        } else if (fileType === "json") {
+          insertSQL = `INSERT INTO ${database}.${tableName} FORMAT JSONEachRow\n${content}`;
+        }
+
+        try {
+          await runQuery("", insertSQL);
+          fetchDatabaseData();
+          toast.success("Table created and data inserted successfully!");
+
+          // Reset all fields
+          resetForm();
+
+          closeCreateTableModal();
+        } catch (insertError: any) {
+          setCreateTableError(insertError.toString());
+        } finally {
+          setLoading(false);
+          setIsProcessing(false);
+        }
+      };
+
+      reader.readAsText(file);
+    } catch (error: any) {
+      setCreateTableError(error.toString());
+      setLoading(false);
+      setIsProcessing(false);
+    }
   };
 
-  const handlePrimaryKeyToggle = (index: number) => {
-    const updatedFields = fields.map((field, i) =>
-      i === index ? { ...field, isPrimaryKey: !field.isPrimaryKey } : field
-    );
-    setFields(updatedFields);
+  // Function to handle closing the sheet with confirmation
+  const handleCloseSheet = () => {
+    if (
+      database ||
+      tableName ||
+      fields.some(
+        (field) =>
+          field.name ||
+          field.type !== "String" ||
+          field.nullable ||
+          field.isPrimaryKey ||
+          field.isOrderBy ||
+          field.isPartitionBy
+      ) ||
+      comment ||
+      file
+    ) {
+      setIsConfirmDialogOpen(true);
+    } else {
+      closeCreateTableModal();
+    }
   };
 
-  const removePrimaryKeyField = (fieldName: string) => {
-    const updatedFields = fields.map((field) =>
-      field.name === fieldName ? { ...field, isPrimaryKey: false } : field
-    );
-    setFields(updatedFields);
+  // Function to confirm closing and reset all fields
+  const confirmClose = () => {
+    resetForm();
+    setIsConfirmDialogOpen(false);
+    closeCreateTableModal();
+  };
+
+  // Function to reset the form
+  const resetForm = () => {
+    setDatabase("");
+    setTableName("");
+    setEngine("MergeTree");
+    setFields([
+      {
+        name: "",
+        type: "String",
+        nullable: false,
+        isPrimaryKey: false,
+        isOrderBy: false,
+        isPartitionBy: false,
+      },
+    ]);
+    setPrimaryKeyFields([]);
+    setOrderByFields([]);
+    setPartitionByField(null);
+    setComment("");
+    setSql("");
+    setFile(null);
+    setUploadedFileName("");
+    setCsvDelimiter(",");
+    setCsvQuoteChar('"');
+    setCsvEscapeChar("\\");
+    setCsvHeaderRowsToSkip(0);
+    setFlattenJSON(true);
+    setJsonNestedPaths([]);
+    setPreviewData([]);
+    setErrors({});
+    setCreateTableError("");
+    setStatementCopiedToClipBoard(false);
   };
 
   return (
-    <Sheet open={isCreateTableModalOpen} onOpenChange={closeCreateTableModal}>
-      <SheetContent className="xl:w-[1000px] sm:w-full sm:max-w-full overflow-auto">
-        <SheetHeader>
-          <SheetTitle>
-            Create Table - {database}.{tableName}
-          </SheetTitle>
-        </SheetHeader>
-        <div className="mt-4 space-y-4">
-          <div className=" space-x-4 justify-between grid grid-cols-3">
-            <div className="space-y-2">
-              <Label htmlFor="database-name">Database</Label>
-              <Popover open={open} onOpenChange={setOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    id="database-name"
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={open}
-                    className={cn(
-                      "w-full justify-between",
-                      errors.database ? "border-red-500" : ""
-                    )}
-                  >
-                    {database
-                      ? databases.find(
-                          (db: { value: string }) => db.value === database
-                        )?.label
-                      : "Select database..."}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[200px] p-0">
-                  <Command>
-                    <CommandInput placeholder="Search database..." />
-                    <CommandList>
-                      <CommandEmpty>No database found.</CommandEmpty>
-                      <CommandGroup>
-                        {databases.map(
-                          (db: {
-                            value: React.Key | null | undefined;
-                            label:
-                              | string
-                              | number
-                              | boolean
-                              | React.ReactElement<
-                                  any,
-                                  string | React.JSXElementConstructor<any>
-                                >
-                              | Iterable<React.ReactNode>
-                              | React.ReactPortal
-                              | null
-                              | undefined;
-                          }) => (
-                            <CommandItem
-                              key={db.value}
-                              value={db.value as string}
-                              onSelect={(currentValue) => {
-                                setDatabase(
-                                  currentValue === database ? "" : currentValue
-                                );
-                                setOpen(false);
-                              }}
-                            >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  database === db.value
-                                    ? "opacity-100"
-                                    : "opacity-0"
-                                )}
-                              />
-                              {db.label}
-                            </CommandItem>
-                          )
-                        )}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-              {errors.database && (
-                <p className="text-xs text-red-500">{errors.database}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="table-name">Table name</Label>
-              <Input
-                id="table-name"
-                placeholder="Table Name"
-                value={tableName}
-                onChange={(e) => {
-                  setTableName(e.target.value);
-                  setErrors((prev) => ({ ...prev, tableName: undefined }));
+    <>
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={isConfirmDialogOpen}
+        onClose={() => setIsConfirmDialogOpen(false)}
+        onConfirm={confirmClose}
+      />
+
+      {/* Create Table Sheet */}
+      <Sheet open={isCreateTableModalOpen} onOpenChange={handleCloseSheet}>
+        <SheetContent className="xl:w-[1000px] sm:w-full sm:max-w-full overflow-auto">
+          <SheetHeader>
+            <SheetTitle>Create Table</SheetTitle>
+          </SheetHeader>
+
+          <Tabs defaultValue="manual" className="w-full mt-4">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="manual">Manual Creation</TabsTrigger>
+              <TabsTrigger value="upload">File Upload</TabsTrigger>
+            </TabsList>
+
+            {/* Manual Table Creation Tab */}
+            <TabsContent value="manual">
+              <ManualCreationForm
+                database={database}
+                tableName={tableName}
+                engine={engine}
+                fields={fields}
+                primaryKeyFields={primaryKeyFields}
+                orderByFields={orderByFields}
+                partitionByField={partitionByField}
+                comment={comment}
+                errors={errors}
+                onChange={(field, value) => {
+                  if (field === "database") setDatabase(value);
+                  else if (field === "tableName") setTableName(value);
+                  else if (field === "engine") setEngine(value);
+                  else if (field === "comment") setComment(value);
                 }}
-                className={cn(errors.tableName ? "border-red-500" : "")}
+                onAddField={addField}
+                onRemoveField={removeField}
+                onUpdateField={updateField}
+                onValidateAndGenerateSQL={validateAndGenerateSQL}
+                onCreateManual={handleCreateManual}
+                sql={sql}
+                onCopySQL={handleCopySQL}
+                createTableError={createTableError}
+                statementCopiedToClipBoard={statementCopiedToClipBoard}
+                databaseData={databaseData} // Pass databaseData here
               />
-              {errors.tableName && (
-                <p className="text-xs text-red-500">{errors.tableName}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="engine-name">Database Engine</Label>
+            </TabsContent>
 
-              <Select value={engine} onValueChange={setEngine}>
-                <SelectTrigger id="engine-name">
-                  <SelectValue placeholder="Select engine" />
-                </SelectTrigger>
-                <SelectContent>
-                  {ENGINES.map((eng) => (
-                    <SelectItem key={eng} value={eng}>
-                      {eng}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2 justify-between">
-            <p className="text-lg font-semibold">Table Schema:</p>
-            <Button
-              size="sm"
-              onClick={addField}
-              variant="ghost"
-              className="text-xs bg-transparent text-green-600 hover:text-green-400"
-            >
-              <Plus className="mr-2 h-4 w-4" /> Add Column
-            </Button>
-          </div>
-
-          {fields.map((field, index) => (
-            <div key={index} className="grid grid-cols-4 gap-4 items-center">
-              {/* Field Name */}
-              <div className="col-span-1">
-                <Input
-                  placeholder="Field Name"
-                  value={field.name}
-                  onChange={(e) => updateField(index, "name", e.target.value)}
-                  className={cn(
-                    errors[`fields.${index}.name`] ? "border-red-500" : ""
-                  )}
-                />
-                {errors[`fields.${index}.name`] && (
-                  <p className="text-xs text-red-500">
-                    {errors[`fields.${index}.name`]}
-                  </p>
-                )}
-              </div>
-
-              {/* Field Type */}
-              <div className="col-span-1">
-                <Select
-                  value={field.type}
-                  onValueChange={(value) => updateField(index, "type", value)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {FIELD_TYPES.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {type}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Nullable */}
-              <div className="col-span-1">
-                <Select
-                  value={field.nullable ? "NULL" : "NOT NULL"}
-                  onValueChange={(value) =>
-                    updateField(index, "nullable", value === "NULL")
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="NULL">NULL</SelectItem>
-                    <SelectItem value="NOT NULL">NOT NULL</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Primary Key and Remove */}
-              <div className="col-span-1 flex items-center space-x-2">
-                <Checkbox
-                  id={`pk-check-box-${index}`}
-                  checked={field.isPrimaryKey}
-                  onCheckedChange={() => handlePrimaryKeyToggle(index)}
-                  disabled={!field.name}
-                  aria-label="Primary Key"
-                />
-                <Label
-                  htmlFor={`pk-check-box-${index}`}
-                  className="whitespace-nowrap text-xs text-primary/70"
-                >
-                  Set as PK
-                </Label>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger>
-                      <Info className="h-4 w-4 text-blue-500" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="p-2 max-w-[300px] text-xs text-primary/50">
-                        Primary Key is a column or a set of columns that
-                        uniquely identifies each row in the table. You can only
-                        select a column as primary key if the given column has a
-                        name.
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-
-                {/* Remove Button */}
-                <Button
-                  variant="link"
-                  size="icon"
-                  onClick={() => removeField(index)}
-                >
-                  <Trash2 className="h-4 w-4 text-red-500" />
-                </Button>
-              </div>
-            </div>
-          ))}
-
-          <div className="flex gap-4 ">
-            <div className="flex-col space-y-1">
-              <Label htmlFor="order-by">Order by:</Label>
-
-              <div className="flex items-center space-x-2">
-                <Select
-                  onValueChange={(value) => setOrderBy(value)}
-                  value={orderBy}
-                >
-                  <SelectTrigger id="order-by" className="w-[300px]">
-                    <SelectValue placeholder="Order By (Date/Time fields)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {fields
-                      .filter(
-                        (field) =>
-                          TIME_FIELDS.includes(field.type) && field.name
-                      )
-                      .map((field) => (
-                        <SelectItem key={field.name} value={field.name}>
-                          {field.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-
-                <Button
-                  onClick={() => setOrderBy("")}
-                  variant="outline"
-                  size="sm"
-                >
-                  Clear
-                </Button>
-              </div>
-            </div>
-
-            <div className="flex-col space-y-1 w-full">
-              <Label htmlFor="partition-by">Partition by:</Label>
-
-              <div className="flex items-center space-x-2">
-                <Select
-                  onValueChange={(value) => setPartitionBy(value)}
-                  value={partitionBy}
-                >
-                  <SelectTrigger id="partition-by" className="w-full">
-                    <SelectValue placeholder="Partition By (Time/Integer fields)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {DEFAULT_PARTITION_OPTIONS.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))}
-                    {fields
-                      .filter(
-                        (field) =>
-                          (TIME_FIELDS.includes(field.type) ||
-                            INT_FIELDS.includes(field.type)) &&
-                          field.name
-                      )
-                      .map((field) => (
-                        <SelectItem key={field.name} value={field.name}>
-                          {field.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-
-                <Button
-                  onClick={() => setPartitionBy("")}
-                  variant="outline"
-                  size="sm"
-                >
-                  Clear
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          <Textarea
-            placeholder="Table Comment"
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-          />
-
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-sm text-primary/70">Primary Key(s):</span>
-            {primaryKeyFields.length > 0 ? (
-              primaryKeyFields.map((field) => (
-                <Badge key={field} variant="secondary" className="text-sm">
-                  {field}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="ml-1 h-4 w-4 p-0"
-                    onClick={() => removePrimaryKeyField(field)}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </Badge>
-              ))
-            ) : (
-              <span className="text-xs text-gray-500">
-                No column selected as primary key
-              </span>
-            )}
-          </div>
-
-          <div className="flex gap-4">
-            <Button
-              onClick={handleShowStatement}
-              variant="outline"
-              disabled={!database || !tableName || fields.length === 0}
-            >
-              Show Statement
-            </Button>
-
-            <Button
-              onClick={handleCreate}
-              disabled={
-                loading || !database || !tableName || fields.length === 0
-              }
-            >
-              {loading ? "Creating..." : "Create Table"}
-            </Button>
-          </div>
-        </div>
-
-        {createTableError && (
-          <div className="text-xs p-2">
-            <div className="p-2 border rounded-md border-red-400 dark:text-red-300 text-red-700">
-              {createTableError.toString()}
-            </div>
-          </div>
-        )}
-
-        {sql && (
-          <div className="mt-4">
-            <div className="flex items-center">
-              <h3 className="text-lg font-semibold">Generated SQL:</h3>
-              <Button
-                size="icon"
-                variant="link"
-                onClick={() => {
-                  // copy sql value to clip board
-                  navigator.clipboard.writeText(sql);
-                  toast.success("Statement coppied to clipboard!");
-                  setStatementCopiedToClipBoard(true);
-                  setTimeout(() => {
-                    setStatementCopiedToClipBoard(false);
-                  }, 4000);
+            {/* File Upload Tab */}
+            <TabsContent value="upload">
+              <FileUploadForm
+                database={database}
+                tableName={tableName}
+                fileType={fileType}
+                file={file}
+                uploadedFileName={uploadedFileName}
+                csvDelimiter={csvDelimiter}
+                csvQuoteChar={csvQuoteChar}
+                csvEscapeChar={csvEscapeChar}
+                csvHeaderRowsToSkip={csvHeaderRowsToSkip}
+                flattenJSON={flattenJSON}
+                jsonNestedPaths={jsonNestedPaths}
+                errors={errors}
+                previewData={previewData}
+                onChange={(field, value) => {
+                  if (field === "database") setDatabase(value);
+                  else if (field === "tableName") setTableName(value);
                 }}
-              >
-                {!statementCopiedToClipBoard ? (
-                  <CopyIcon height={18} />
-                ) : (
-                  <CopyCheck height={18} className="text-green-400" />
-                )}
-              </Button>
-            </div>
-            <pre className="bg-primary/20 p-2 rounded mt-2 text-sm overflow-x-auto">
-              {sql}
-            </pre>
-          </div>
-        )}
-      </SheetContent>
-    </Sheet>
+                onFileChange={handleFileChange}
+                onFileTypeChange={handleFileTypeChange}
+                onCsvDelimiterChange={setCsvDelimiter}
+                onCsvQuoteCharChange={setCsvQuoteChar}
+                onCsvEscapeCharChange={setCsvEscapeChar}
+                onCsvHeaderRowsToSkipChange={setCsvHeaderRowsToSkip}
+                onFlattenJSONChange={setFlattenJSON}
+                onJsonNestedPathsChange={setJsonNestedPaths}
+                onRemoveFile={() => {
+                  setFile(null);
+                  setUploadedFileName("");
+                  setErrors((prev) => ({ ...prev, file: "" }));
+                }}
+                onCreateFromFile={handleCreateFromFile}
+                createTableError={createTableError}
+                isProcessing={isProcessing}
+                databaseData={databaseData} // Pass databaseData here
+              />
+            </TabsContent>
+          </Tabs>
+
+          {/* Generated SQL */}
+          {sql && (
+            <GeneratedSQL
+              sql={sql}
+              onCopySQL={handleCopySQL}
+              statementCopiedToClipBoard={statementCopiedToClipBoard}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
+    </>
   );
 };
 

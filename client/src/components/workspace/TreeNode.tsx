@@ -62,7 +62,13 @@ const TreeNode: React.FC<TreeNodeProps> = ({
   );
   const [confirmTitle, setConfirmTitle] = useState("");
   const [confirmDescription, setConfirmDescription] = useState("");
-  const { addTab, runQuery, getTabById, openCreateTableModal } = useTabStore();
+  const {
+    addTab,
+    runQuery,
+    getTabById,
+    openCreateTableModal,
+    openCreateDatabaseModal,
+  } = useTabStore();
 
   const toggleOpen = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -188,7 +194,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         {
           label: "Create Database",
           icon: <FolderPlus className="w-4 h-4 mr-2" />,
-          action: () => console.log("Create new table"),
+          action: () => openCreateDatabaseModal(),
         },
         {
           label: "Delete",

@@ -100,22 +100,26 @@ const TableInfoTabs: React.FC<TableInfoTabsProps> = ({
       </TabsContent>
 
       <TabsContent value="sample">
-        <CHUITable
-          result={{
-            meta: dataSample[0]
-              ? Object.keys(dataSample[0]).map((key) => ({
-                  name: key,
-                  type: "String",
-                }))
-              : [],
-            data: dataSample,
-            statistics: {
-              elapsed: 0,
-              rows_read: dataSample.length,
-              bytes_read: 0,
-            },
-          }}
-        />
+        {dataSample.length > 0 ? (
+          <CHUITable
+            result={{
+              meta: dataSample[0]
+                ? Object.keys(dataSample[0]).map((key) => ({
+                    name: key,
+                    type: "String",
+                  }))
+                : [],
+              data: dataSample,
+              statistics: {
+                elapsed: 0,
+                rows_read: dataSample.length,
+                bytes_read: 0,
+              },
+            }}
+          />
+        ) : (
+          <div className="text-center mt-12 text-gray-500">Nothing to show</div>
+        )}
       </TabsContent>
     </Tabs>
   );

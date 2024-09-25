@@ -1,9 +1,24 @@
 import { create } from "zustand";
-import { devtools, persist } from "zustand/middleware";
+import { devtools, persist, PersistOptions, StorageValue } from "zustand/middleware";
 import api from "../api/axios.config";
 import axios from "axios";
 import useClickHouseCredentialStore from "@/stores/clickHouseCredentials.store";
 import { AuthState, User } from "@/types/types";
+
+// Custom storage object
+const customStorage: PersistOptions<AuthState>["storage"] = {
+  getItem: (name): StorageValue<AuthState> | Promise<StorageValue<AuthState> | null> | null => {
+    const str = localStorage.getItem(name);
+    if (str) return JSON.parse(str) as AuthState;
+    return null;
+  },
+  setItem: (name, value): void => {
+    localStorage.setItem(name, JSON.stringify(value));
+  },
+  removeItem: (name): void => {
+    localStorage.removeItem(name);
+  },
+};
 
 const useAuthStore = create<AuthState>()(
   devtools(
@@ -171,7 +186,7 @@ const useAuthStore = create<AuthState>()(
       },
       {
         name: "auth-storage",
-        getStorage: () => localStorage,
+        storage: customStorage,
       }
     )
   )
