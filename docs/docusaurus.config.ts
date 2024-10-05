@@ -8,10 +8,8 @@ const config: Config = {
   favicon: "img/logo.png",
 
   // Set the production url of your site here
-  url: "https://ch-ui.caioricciuti.com",
-  // Set the /<baseUrl>/ pathname under which your site is served
-  // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: "/",
+  url: "https://yourusername.github.io",
+  baseUrl: "/ch-ui/",
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
