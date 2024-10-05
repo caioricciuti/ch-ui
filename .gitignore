@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 .env
 !.env.example
+
+
+# Remove some things for docker-compose
+.clickhouse_local_data

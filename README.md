@@ -56,6 +56,19 @@ docker run -p 5521:5521 \
 
 When these environment variables are set, CH-UI will automatically use them to configure the ClickHouse connection, bypassing the need for manual setup in the UI.
 
+### Using docker-compose to run a localhost clickhouse (only for development)
+
+The following command will run a clickhouse database with a connection to http://localhost:8123 and a user `dev` with password `dev`.
+The data will be persisted in this directory: `.clickhouse_local_data`
+```bash
+docker-compose -f docker-compose-dev.yml up -d
+```
+
+Use the following command to turn down, don't forget to remove `.clickhouse_local_data` if you want to save some space in your HD but then all data will be erased.
+```bash
+docker-compose -f docker-compose-dev.yml down
+```
+
 ### Prerequisites
 
 What things you need to install the software and how to install them:
