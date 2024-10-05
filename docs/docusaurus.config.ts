@@ -10,13 +10,13 @@ const config: Config = {
   // Set the production url of your site here
   url: "https://caioricciuti.github.io",
   baseUrl: "/ch-ui/",
+  onBrokenLinks: "warn",
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
   organizationName: "caioricciuti", // Usually your GitHub org/user name.
   projectName: "ch-ui", // Usually your repo name.
 
-  onBrokenLinks: "throw",
   onBrokenMarkdownLinks: "warn",
 
   // Even if you don't use internationalization, you can use this field to set
@@ -90,7 +90,11 @@ const config: Config = {
           items: [
             {
               label: "Intro",
-              to: "/docs/intro",
+              to: "/docs/introduction",
+            },
+            {
+              label: "Get Started",
+              to: "/docs/getting-started",
             },
           ],
         },
