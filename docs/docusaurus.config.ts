@@ -8,7 +8,7 @@ const config: Config = {
   favicon: "img/logo.png",
 
   // Set the production url of your site here
-  url: "https://yourusername.github.io",
+  url: "https://caioricciuti.github.io",
   baseUrl: "/ch-ui/",
 
   // GitHub pages deployment config.
