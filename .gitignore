@@ -28,3 +28,4 @@ dist-ssr
 
 # Remove some things for docker-compose
 .clickhouse_local_data
+/docs
