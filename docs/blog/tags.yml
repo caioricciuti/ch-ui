@@ -1,0 +1,44 @@
+ch-ui:
+  label: CH-UI
+  permalink: /ch-ui
+  description: CH-UI tag description
+
+clickhouse:
+  label: Click House
+  permalink: /clickhouse
+  description: Click House tag description
+
+bigdata:
+  label: Big Data
+  permalink: /bigdata
+  description: Big Data tag description
+
+data-engineering:
+  label: Data Engineering
+  permalink: / data-engineering
+  description: Data Engineering tag description
+
+data-warehouse:
+  label: Data Warehouse
+  permalink: /data-warehouse
+  description: Data Warehouse tag description
+
+data-visualization:
+  label: Data Visualization
+  permalink: /data-visualization
+  description: Data Visualization tag description
+
+data-analysis:
+  label: Data Analysis
+  permalink: /data-analysis
+  description: Data Analysis tag description
+
+data-science:
+  label: Data Science
+  permalink: /data-science
+  description: Data Science tag description
+
+tutorial:
+  label: Tutorial
+  permalink: /tutorial
+  description: Tutorial tag description
