@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import DatabaseExplorer from "@/components/explorer/DataExplorer";
 import {
   ResizableHandle,
@@ -9,6 +10,10 @@ import CreateTable from "@/components/explorer/CreateTable";
 import CreateDatabase from "@/components/explorer/CreateDatabase";
 
 function HomePage() {
+  useEffect(() => {
+    document.title = "CH-UI | Home - Workspace";
+  }, []);
+
   return (
     <div className="h-screen w-full overflow-auto">
       <CreateTable />

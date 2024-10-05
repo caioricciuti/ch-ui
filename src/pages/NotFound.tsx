@@ -1,6 +1,6 @@
 // src/pages/NotFound.tsx
 import React from "react";
-import Logo from "/ch_logo.svg";
+import Logo from "/logo.png";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";

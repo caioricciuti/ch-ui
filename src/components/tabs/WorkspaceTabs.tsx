@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useState } from "react";
+import React, { useEffect, useCallback, useState, useMemo } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -10,6 +10,7 @@ import {
   Info,
   Edit2,
   Terminal,
+  Save,
 } from "lucide-react";
 import {
   DndContext,
@@ -31,15 +32,18 @@ import HomeTab from "@/components/tabs/HomeTab";
 import useAppStore from "@/store/appStore";
 import SqlTab from "@/components/tabs/SqlTab";
 import InformationTab from "@/components/tabs/InformationTab";
+import SavedQueryTab from "@/components/tabs/SavedQueryTab"; // Assuming you have this component
 import { Input } from "@/components/ui/input";
 
+interface Tab {
+  id: string;
+  title: string;
+  type: "sql" | "home" | "information" | "saved_query";
+  content: string | { database?: string; table?: string };
+}
+
 interface SortableTabProps {
-  tab: {
-    id: string;
-    title: string;
-    type: "sql" | "home" | "information";
-    content: string;
-  };
+  tab: Tab;
   isActive: boolean;
   onActivate: () => void;
 }
@@ -103,6 +107,9 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
         {tab.type === "information" && (
           <Info width={16} className="mr-2 min-w-4" />
         )}
+        {tab.type === "saved_query" && (
+          <Save width={16} className="mr-2 min-w-4" />
+        )}
         {isEditing && tab.type !== "home" ? (
           <Input
             value={editedTitle}
@@ -162,12 +169,19 @@ export function WorkspaceTabs() {
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
 
-    if (active.id !== over?.id) {
+    if (active.id !== over?.id && active.id !== "home") {
       const oldIndex = tabs.findIndex((tab) => tab.id === active.id);
       const newIndex = tabs.findIndex((tab) => tab.id === over?.id);
-      moveTab(oldIndex, newIndex);
+      moveTab(oldIndex, newIndex > 0 ? newIndex : 1); // Ensure home tab stays first
     }
   };
+
+  // Sort tabs to always keep home tab first
+  const sortedTabs = useMemo(() => {
+    const homeTab = tabs.find((tab) => tab.id === "home");
+    const otherTabs = tabs.filter((tab) => tab.id !== "home");
+    return homeTab ? [homeTab, ...otherTabs] : otherTabs;
+  }, [tabs]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -218,12 +232,12 @@ export function WorkspaceTabs() {
               onDragEnd={handleDragEnd}
             >
               <SortableContext
-                items={tabs.map((tab) => tab.id)}
+                items={sortedTabs.map((tab) => tab.id)}
                 strategy={horizontalListSortingStrategy}
               >
                 <div className="flex">
                   <TabsList className="inline-flex h-10 items-center justify-start rounded-none w-full overflow-y-clip">
-                    {tabs.map((tab) => (
+                    {sortedTabs.map((tab) => (
                       <SortableTab
                         key={tab.id}
                         tab={
@@ -241,7 +255,7 @@ export function WorkspaceTabs() {
           </ScrollArea>
         </div>
         <div className="flex flex-col h-screen overflow-auto">
-          {tabs.map((tab) => (
+          {sortedTabs.map((tab) => (
             <TabsContent
               key={tab.id}
               value={tab.id}
@@ -254,8 +268,16 @@ export function WorkspaceTabs() {
                   <SqlTab tabId={tab.id} />
                 ) : tab.type === "information" ? (
                   <InformationTab
-                    database={tab.content?.database}
-                    tableName={tab.content?.table}
+                    database={
+                      typeof tab.content === "object"
+                        ? tab.content.database
+                        : undefined
+                    }
+                    tableName={
+                      typeof tab.content === "object"
+                        ? tab.content.table
+                        : undefined
+                    }
                   />
                 ) : null}
               </div>

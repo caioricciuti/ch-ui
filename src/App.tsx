@@ -6,7 +6,7 @@ import SettingsPage from "@/pages/Settings";
 import { ThemeProvider } from "@/components/theme-provider";
 import AppInitializer from "@/components/AppInit";
 import NotFound from "./pages/NotFound";
-import { PrivateRoute } from "@/components/privateRoute"; // Import your PrivateRoute
+import { PrivateRoute } from "@/components/privateRoute"; // Import PrivateRoute
 
 export default function App() {
   return (

@@ -20,7 +20,6 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
   const tab = getTabById(tabId);
 
   const handleRunQuery = async (query: string) => {
-    console.log("SqlTab: Running query:", query);
     try {
       const shouldRefresh =
         /^\s*(CREATE|DROP|ALTER|TRUNCATE|RENAME|INSERT|UPDATE|DELETE)\s+/i.test(

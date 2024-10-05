@@ -11,29 +11,30 @@ let isInitialized = false;
 // Initialize ClickHouse client
 let client: any = null;
 
-function initializeClickHouseClient() {
-  const appStore = localStorage.getItem("app-storage");
-  const state = appStore ? JSON.parse(appStore) : {};
-  const credential = state.state?.credential || {};
+const appStore = localStorage.getItem("app-storage");
+const state = appStore ? JSON.parse(appStore) : {};
+const credential = state.state?.credential || {};
 
+function initializeClickHouseClient(appStore, state, credential) {
   if (
     credential &&
-    credential.host &&
-    credential.username &&
-    credential.password
+    typeof credential.host === "string" &&
+    credential.host.trim() !== "" &&
+    typeof credential.username === "string" &&
+    credential.username.trim() !== ""
   ) {
     client = createClient({
       url: credential.host,
       username: credential.username,
-      password: credential.password,
+      password: credential.password || "", // Allow empty password
     });
   } else {
-    console.error("Invalid or missing ClickHouse credentials");
+    console.error("Invalid or missing ClickHouse credentials:", credential);
   }
 }
 
 // Call this function at the start of your application
-initializeClickHouseClient();
+initializeClickHouseClient(appStore, state, credential);
 
 // Modify the query execution function
 async function executeQuery(query: string): Promise<any> {

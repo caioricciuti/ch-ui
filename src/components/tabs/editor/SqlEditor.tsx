@@ -54,7 +54,6 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
   const handleRunQuery = useCallback(() => {
     if (monacoRef.current) {
       const content = getSelectedText() || monacoRef.current.getValue();
-      console.log("Editor: Running query:", content);
       onRunQuery(content);
     }
   }, [onRunQuery]);

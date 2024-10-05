@@ -168,21 +168,21 @@ const TreeNode: React.FC<TreeNodeProps> = ({
           icon: <Eye className="w-4 h-4 mr-2" />,
           action: () => openInfoTab(node.name, ""),
         },
-        {
-          label: "Create Table",
-          icon: <FilePlus className="w-4 h-4 mr-2" />,
-          action: () => openCreateTableModal(node.name),
-        },
-        {
-          label: "Create Database",
-          icon: <FolderPlus className="w-4 h-4 mr-2" />,
-          action: () => openCreateDatabaseModal(),
-        },
-        {
-          label: "Delete",
-          icon: <Trash className="w-4 h-4 mr-2" />,
-          action: () => actionDropDatabase(node.name),
-        },
+        // {
+        //   label: "Create Table",
+        //   icon: <FilePlus className="w-4 h-4 mr-2" />,
+        //   action: () => openCreateTableModal(node.name),
+        // },
+        // {
+        //   label: "Create Database",
+        //   icon: <FolderPlus className="w-4 h-4 mr-2" />,
+        //   action: () => openCreateDatabaseModal(),
+        // },
+        // {
+        //   label: "Delete",
+        //   icon: <Trash className="w-4 h-4 mr-2" />,
+        //   action: () => actionDropDatabase(node.name),
+        // },
       ],
       table: [
         {
@@ -195,16 +195,16 @@ const TreeNode: React.FC<TreeNodeProps> = ({
                 toast.error("Parent database name is undefined.");
               },
         },
-        {
-          label: "Delete",
-          icon: <Trash className="w-4 h-4 mr-2" />,
-          // Using non-null assertion since parentDatabaseName should be defined for table
-          action: parentDatabaseName
-            ? () => actionDropTable(parentDatabaseName, node.name)
-            : () => {
-                toast.error("Parent database name is undefined.");
-              },
-        },
+        // {
+        //   label: "Delete",
+        //   icon: <Trash className="w-4 h-4 mr-2" />,
+        //   // Using non-null assertion since parentDatabaseName should be defined for table
+        //   action: parentDatabaseName
+        //     ? () => actionDropTable(parentDatabaseName, node.name)
+        //     : () => {
+        //         toast.error("Parent database name is undefined.");
+        //       },
+        // },
       ],
       view: [
         {
@@ -217,11 +217,11 @@ const TreeNode: React.FC<TreeNodeProps> = ({
                 toast.error("Parent database name is undefined.");
               },
         },
-        {
-          label: "Delete",
-          icon: <Trash className="w-4 h-4 mr-2" />,
-          action: () => console.log("Delete view"),
-        },
+        // {
+        //   label: "Delete",
+        //   icon: <Trash className="w-4 h-4 mr-2" />,
+        //   action: () => console.log("Delete view"),
+        // },
       ],
     }),
     [

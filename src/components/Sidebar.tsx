@@ -56,7 +56,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import Logo from "/ch_logo.svg";
+import Logo from "/logo.png";
 import useAppStore from "@/store/appStore";
 
 const commandsSheet = [

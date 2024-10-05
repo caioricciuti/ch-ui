@@ -731,7 +731,7 @@ ORDER BY
         title: "Exceptions Over Time",
         query: `
           SELECT 
-            toStartOfHour(event_time) AS hour, 
+            toStartOfHour(event_time) AS hourERROR, 
             COUNT(*) AS exception_count 
           FROM 
             system.query_log 
