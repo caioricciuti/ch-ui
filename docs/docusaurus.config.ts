@@ -8,7 +8,7 @@ const config: Config = {
   favicon: "img/logo.png",
 
   url: "https://ch-ui.caioricciuti.com",
-  baseUrl: "/",
+  baseUrl: "/ch-ui/",
   organizationName: "caioricciuti",
   projectName: "ch-ui",
 
