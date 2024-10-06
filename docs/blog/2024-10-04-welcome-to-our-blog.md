@@ -2,7 +2,7 @@
 slug: introduction
 title: A short introduction...
 authors: [caioricciuti]
-tags: [CH-UI, ClickHouse]
+tags: [ch-ui, clickhouse]
 ---
 
 You guessed it - this is the very first post on CH-UI's blog, and I'm super excited to kick things off 🎉
@@ -10,6 +10,8 @@ You guessed it - this is the very first post on CH-UI's blog, and I'm super exci
 ## What is CH-UI?
 
 Alright, let me break it down for you in simple terms. You know ClickHouse, that super-fast database system that can crunch through tons of data like it's nothing? Well, CH-UI is basically a fancy dress for ClickHouse. It's a UI that makes ClickHouse easy to use via a web browser.
+
+<!-- truncate -->
 
 ## Why did I create it?
 

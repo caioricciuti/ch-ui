@@ -2,8 +2,10 @@
 slug: why-i-couldnt-lose-my-data
 title: Why I couldn't Lose My Data!
 authors: [caioricciuti]
-tags: [CH-UI, Click House, Data Analysis]
+tags: [ch-ui, clickhouse, data-analysis]
 ---
+
+
 
 # Why I couldn't Lose My Data!
 
@@ -16,6 +18,8 @@ From July 1, 2015 to September 30, 2015, we tracked a whopping **52,075** taxi r
 :::tip Fun Fact
 A full **1.9%** of Brooklyn taxi riders were airport-bound. That's nearly 1 in 50 rides!
 :::
+
+<!-- truncate -->
 
 ## The Great Escape: Theories and Speculations
 

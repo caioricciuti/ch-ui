@@ -12,7 +12,7 @@ ClickHouse UI is a powerful React-based application designed for managing and in
 - **SQL Editor**: Write and execute SQL queries with syntax highlighting and auto-completion.
 - **Query Results**: View query results, format with sorting, filtering, and export options.
 - **Workspace Tabs**: Organize your work with a flexible tab system for multiple queries and views.
-- **Metrics Dashboard**: Visualize and analyze key metrics (to be implemented).
+- **Metrics Dashboard**: Visualize and analyze key metrics.
 
 ## Technical Stack
 

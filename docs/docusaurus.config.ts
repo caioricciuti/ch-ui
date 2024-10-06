@@ -8,7 +8,7 @@ const config: Config = {
   favicon: "img/logo.png",
 
   url: "https://ch-ui.caioricciuti.com",
-  baseUrl: "/ch-ui/",
+  baseUrl: "",
   organizationName: "caioricciuti",
   projectName: "ch-ui",
 
@@ -26,7 +26,7 @@ const config: Config = {
       {
         docs: {
           sidebarPath: "./sidebars.ts",
-          editUrl: "https://github.com/caioricciuti/ch-ui/edit/main/",
+          editUrl: "https://github.com/caioricciuti/ch-ui/edit/main/docs/",
         },
         blog: {
           showReadingTime: true,
@@ -34,7 +34,7 @@ const config: Config = {
             type: ["rss", "atom"],
             xslt: true,
           },
-          editUrl: "https://github.com/caioricciuti/ch-ui/edit/main/",
+          editUrl: "https://github.com/caioricciuti/ch-ui/edit/main/docs/",
           onInlineTags: "warn",
           onInlineAuthors: "warn",
           onUntruncatedBlogPosts: "warn",
