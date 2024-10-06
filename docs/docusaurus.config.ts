@@ -9,7 +9,6 @@ const config: Config = {
 
   url: "https://ch-ui.caioricciuti.com",
   baseUrl: "/",
-  
   organizationName: "caioricciuti",
   projectName: "ch-ui",
 

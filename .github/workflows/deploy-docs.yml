@@ -10,6 +10,8 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v3
 
@@ -28,10 +30,13 @@ jobs:
           cd docs
           npm run build
 
+      - name: Create CNAME file
+        run: echo "ch-ui.caioricciuti.com" > docs/build/CNAME
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
-          github_token: ${{ secrets.GHCR_PAT }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./docs/build
           user_name: "github-actions[bot]"
           user_email: "github-actions[bot]@users.noreply.github.com"
