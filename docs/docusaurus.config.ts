@@ -83,6 +83,10 @@ const config: Config = {
               label: "Get Started",
               to: "/docs/getting-started",
             },
+            {
+              label: "Contributing",
+              to: "/docs/contributing",
+            },
           ],
         },
         {
@@ -103,18 +107,33 @@ const config: Config = {
             },
             {
               label: "GitHub",
-              href: "https://github.com/facebook/docusaurus",
+              href: "https://github.com/caioricciuti/ch-ui?utm_source=ch-ui-docs&utm_medium=footer",
             },
           ],
         },
       ],
       copyright: `${new Date().getFullYear()} CH-UI made with ❤`,
     },
+
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
     },
   } satisfies Preset.ThemeConfig,
+
+  scripts: [
+    {
+      src: "https://umami.caioricciuti.com/script.js",
+      "data-website-id": "ba7d406b-f617-44ac-9c7f-6c3b864fa863",
+      async: true,
+    },
+    {
+      src: "https://consent.cookiebot.com/uc.js",
+      "data-cbid": "92463182-1238-4c58-82fb-86dd7fc0c26a",
+      "data-blockingmode": "auto",
+      async: true,
+    },
+  ],
 };
 
 export default config;
