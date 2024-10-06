@@ -16,8 +16,11 @@ function HomepageHeader() {
         <h1 className="hero__title">CH-UI</h1>
         <p className="hero__subtitle">{siteConfig.tagline}</p>
         <div className={styles.buttons}>
-          <Link className="button button--primary button--lg" to="/docs/intro">
-            CH-UI Introduction - 5min ⏱️
+          <Link
+            className="button button--primary button--lg"
+            to="/docs/getting-started"
+          >
+            Get Started 🚀 - in 2min ⏱️
           </Link>
         </div>
       </div>
