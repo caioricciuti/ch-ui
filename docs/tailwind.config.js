@@ -1,6 +1,6 @@
 module.exports = {
   content: [
-    "./src/**/*.{js,jsx,ts,tsx}",
+    "./src/components/**/*.{js,jsx,ts,tsx}",
     "./docusaurus.config.js",
     "./src/pages/**/*.{js,jsx,ts,tsx}",
   ],
@@ -9,6 +9,5 @@ module.exports = {
   },
   plugins: [],
   corePlugins: { preflight: false },
-  darkMode: ['class', '[data-theme="dark"]'],
-
+  darkMode: ["class", '[data-theme="dark"]'],
 };
