@@ -1,6 +1,7 @@
 import { themes as prismThemes } from "prism-react-renderer";
 import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
+import React from "react";
 
 const config: Config = {
   title: "CH-UI",
@@ -8,7 +9,7 @@ const config: Config = {
   favicon: "img/logo.png",
 
   url: "https://ch-ui.caioricciuti.com",
-  baseUrl: "",
+  baseUrl: "/",
   organizationName: "caioricciuti",
   projectName: "ch-ui",
 
@@ -48,6 +49,11 @@ const config: Config = {
 
   themeConfig: {
     image: "img/logo.png",
+    colorMode: {
+      defaultMode: "dark",
+      disableSwitch: false,
+      respectPrefersColorScheme: false,
+    },
     navbar: {
       title: "CH-UI",
       logo: {
@@ -63,9 +69,16 @@ const config: Config = {
         },
         { to: "/blog", label: "Blog", position: "left" },
         {
-          href: "https://github.com/caioricciuti/ch-ui?utm_source=ch-ui-docs&utm_medium=navbar",
+          to: "https://github.com/caioricciuti/ch-ui",
           label: "GitHub",
           position: "right",
+          // Add a custom icon
+        },
+        {
+          to: "https://join.slack.com/t/ch-ui-v2/shared_invite/zt-2r6xwoizm-PMlCH6ZZAi5hK3fPagypQw",
+          position: "right",
+          label: "Slack",
+          // Add a custom icon
         },
       ],
     },
