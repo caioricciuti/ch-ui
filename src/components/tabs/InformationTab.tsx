@@ -206,10 +206,12 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
         {cards.map((card, index) => (
           <Card key={index}>
             <CardHeader className="flex items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">
-                {card.title}
-              </CardTitle>
-              {card.icon}
+              <div className="flex space-x-2 items-center">
+                {card.icon}
+                <CardTitle className="text-sm font-medium">
+                  {card.title}
+                </CardTitle>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{card.value}</div>
@@ -363,7 +365,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
                     <CardTitle>Create Table Query</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <pre className="bg-muted p-4 rounded-md overflow-x-auto">
+                    <pre className="bg-muted p-4 rounded-md max-w-128 overflow-x-auto">
                       <code>{(data as TableData).create_table_query}</code>
                     </pre>
                   </CardContent>
