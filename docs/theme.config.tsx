@@ -1,7 +1,8 @@
 import { useRouter } from "next/router";
 import type { DocsThemeConfig } from "nextra-theme-docs";
 import { Link, useConfig } from "nextra-theme-docs";
-import CustomLogo from "./components/CustomLogo";
+import CustomLogo from "@/components/CustomLogo";
+import SlackLogo from "@/components/SlackLogo";
 
 const config: DocsThemeConfig = {
   banner: {
@@ -15,6 +16,10 @@ const config: DocsThemeConfig = {
       </div>
     ),
   },
+  chat: {
+    link: "https://join.slack.com/t/ch-ui-v2/shared_invite/zt-2r6xwoizm-PMlCH6ZZAi5hK3fPagypQw",
+    icon: <SlackLogo />,
+  },
   project: {
     link: "https://github.com/caioricciuti/ch-ui",
   },
@@ -27,13 +32,18 @@ const config: DocsThemeConfig = {
     const config = useConfig();
     const { route } = useRouter();
     const isDefault = route === "/" || !config.title;
+    const isBlog = route.startsWith("/blog");
     const image =
       "https://ch-ui.caioricciuti.com/" +
       (isDefault ? "og.png" : `api/og?title=${config.title}`);
     const description =
       config.frontMatter.description ||
-      "Make beautiful websites with Next.js & MDX.";
-    const title = config.title + (route === "/" ? "" : " - CH-UI");
+      (isBlog
+        ? "Insights and updates from the CH-UI team."
+        : "Make beautiful websites with Next.js & MDX.");
+    const title =
+      config.title +
+      (route === "/" ? "" : isBlog ? " - CH-UI Blog" : " - CH-UI");
 
     return (
       <>
