@@ -5,27 +5,18 @@ export default {
     display: "hidden",
     theme: {
       layout: "full",
+      timestamp: false,
     },
   },
   docs: {
     type: "page",
     title: "Documentation",
-    theme: {
-      layout: "full",
-    },
   },
-  blog: {
+  support: {
     type: "page",
-    title: "Blog",
-    layout: "raw",
-  },
-  sponsors: {
-    type: "page",
-    title: "Sponsors",
-    theme: {
-      typesetting: "article",
-      timestamp: false,
-    },
+    title: "Support",
+    href: "https://www.buymeacoffee.com/caioricciuti?utm_source=ch-ui-docs&utm_medium=header",
+    newWindow: true,
   },
   404: {
     type: "page",

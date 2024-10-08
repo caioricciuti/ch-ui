@@ -1,11 +1,13 @@
 import React from "react";
 import {
   DatabaseZap,
-  Edit2,
+  SquareTerminal,
   Table2,
   ChartArea,
   Activity,
   CommandIcon,
+  Network,
+  DownloadCloud,
 } from "lucide-react";
 import { Marquee } from "../ui/Marquee";
 
@@ -24,7 +26,7 @@ const FeatureList: FeatureItem[] = [
   },
   {
     title: "SQL Editor",
-    Icon: Edit2,
+    Icon: SquareTerminal,
     description:
       "Write and run queries with our powerful SQL editor. Enjoy syntax highlighting and auto-completion.",
   },
@@ -33,6 +35,18 @@ const FeatureList: FeatureItem[] = [
     Icon: Table2,
     description:
       "View your data in interactive tables. Easily filter, sort, and export your data.",
+  },
+  {
+    title: "Connect to ClickHouse",
+    Icon: Network,
+    description:
+      "Use your ClicHhouse instance with CH-UI. Connect to your instance with a few clicks.",
+  },
+  {
+    title: "Data Export",
+    Icon: DownloadCloud,
+    description:
+      "Export your data in JSON/CSV. Download your query results with a single click.",
   },
   {
     title: "Data Insights",
@@ -74,7 +88,7 @@ export default function HomepageFeatures(): JSX.Element {
     <section className="py-24">
       <div className="w-full">
         <div className="text-center">
-          <h2 className="text-4xl mb-12 font-extrabold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl bg-clip-text text-transparent bg-gradient-to-r from-orange-600 to-orange-400">
+          <h2 className="text-4xl mb-20 font-extrabold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl bg-clip-text text-transparent bg-gradient-to-r from-orange-600 to-orange-400">
             Features
           </h2>
         </div>

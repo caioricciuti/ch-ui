@@ -1,18 +1,20 @@
 import React from "react";
-import { Link } from "nextra-theme-docs";
 import Image from "next/image";
-import { RainbowButton } from "../ui/RainbowButton";
+import Link from "next/link";
+import { ArrowBigDown } from "lucide-react";
+
 export const HeroSection = () => {
   return (
-    <section className="w-full py-12 md:py-24 lg:py-32">
+    <section className="relative w-full py-12 md:py-24 lg:pt-26 min-h-screen lg-h-scren flex flex-col justify-between">
       <div className="container mx-auto grid items-center gap-6 px-4 md:px-6 lg:grid-cols-2 lg:gap-10">
         <div className="space-y-6">
           <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl bg-clip-text text-transparent bg-gradient-to-r from-orange-600 to-pink-500">
             Data is better when we see it!
           </h1>
-          <p className="max-w-[600px] md:text-xl/relaxed lg:text-xl/relaxed xl:text-2xl/relaxed">
-            CH-UI makes working with data easy. Our tools help you uncover
-            patterns and trends, making data-driven decisions simpler than ever.
+          <p className="max-w-[600px] md:text-lg/relaxed lg:text-lg/relaxed xl:text-2xl/relaxed font-semibold">
+            CH-UI makes working with data easy. This UI connects you directly to
+            your ClickHouse instance, allowing you to view, filter, and export
+            your data with ease.
           </p>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
             <Link
@@ -22,16 +24,29 @@ export const HeroSection = () => {
               Get Started 🚀
             </Link>
           </div>
-          <RainbowButton>Sponor Us 🌈</RainbowButton>
         </div>
-        <div className="relative">
-          <Image
-            src="/logo.png"
-            alt="Hero"
-            width={500}
-            height={500}
-            className="mx-auto object-cover rounded-lg"
-          />
+        <div className="flex justify-center items-center">
+          <div className="relative w-full max-w-[300px] aspect-square">
+            <Image
+              src="/logo.png"
+              alt="Hero"
+              layout="fill"
+              objectFit="contain"
+              className="rounded-lg"
+            />
+          </div>
+          <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 mb-4">
+            <ArrowBigDown
+              size={58}
+              onClick={() => {
+                window.scrollTo({
+                  top: window.innerHeight + 100,
+                  behavior: "smooth",
+                });
+              }}
+              className="text-orange-500 cursor-pointer animate-bounce"
+            />
+          </div>
         </div>
       </div>
     </section>

@@ -18,6 +18,7 @@
     "lucide-react": "^0.447.0",
     "next": "14.2.14",
     "nextra": "^3.0.0-alpha.42",
+    "nextra-theme-blog": "^3.0.0-alpha.42",
     "nextra-theme-docs": "^3.0.0-alpha.42",
     "react": "^18",
     "react-dom": "^18",

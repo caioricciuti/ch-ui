@@ -21,7 +21,7 @@ const config: DocsThemeConfig = {
   footer: {
     content: <></>,
   },
-  docsRepositoryBase: "ttps://github.com/caioricciuti/ch-ui/tree/main/docs",
+  docsRepositoryBase: "https://github.com/caioricciuti/ch-ui/tree/main/docs",
   logo: <CustomLogo />,
   head: function useHead() {
     const config = useConfig();
@@ -72,6 +72,9 @@ const config: DocsThemeConfig = {
   sidebar: {
     defaultMenuCollapseLevel: 1,
     toggleButton: true,
+  },
+  color: {
+    hue: 23,
   },
 };
 
