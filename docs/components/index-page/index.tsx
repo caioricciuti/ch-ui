@@ -2,10 +2,10 @@ import { HeroSection } from "./HeroSection";
 import HomepageFeatures from "./HomePageFeatures";
 
 export const IndexPage = () => (
-  <div className="container m-auto">
-    <div className="home-content">
+  <section className="">
+    <div className=" m-auto">
       <HeroSection />
       <HomepageFeatures />
     </div>
-  </div>
+  </section>
 );
