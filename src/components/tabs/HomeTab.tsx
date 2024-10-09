@@ -79,12 +79,13 @@ const HomeTab = () => {
   return (
     <div className="p-2 mt-4 space-y-8 flex flex-col h-full overflow-auto w-full">
       <motion.h1
-        className="text-4xl font-bold"
+        //text gradient color from orange to orange-red
+        className="text-6xl font-extrabold bg-gradient-to-r from-orange-600 via-pink-300 to-orange-300 inline-block text-transparent bg-clip-text"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 1.5 }}
       >
-        Welcome! 👋
+        Welcome! 🚀
       </motion.h1>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 px-4">
         {homeTabCards.map((card, index) => (

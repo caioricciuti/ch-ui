@@ -3,6 +3,7 @@ import type { DocsThemeConfig } from "nextra-theme-docs";
 import { Link, useConfig } from "nextra-theme-docs";
 import CustomLogo from "@/components/CustomLogo";
 import SlackLogo from "@/components/SlackLogo";
+import Footer from "./components/Footer";
 
 const config: DocsThemeConfig = {
   banner: {
@@ -24,7 +25,9 @@ const config: DocsThemeConfig = {
     link: "https://github.com/caioricciuti/ch-ui",
   },
   footer: {
-    content: <></>,
+    content: (
+     <Footer />
+    ),
   },
   docsRepositoryBase: "https://github.com/caioricciuti/ch-ui/tree/main/docs",
   logo: <CustomLogo />,
@@ -73,11 +76,27 @@ const config: DocsThemeConfig = {
           type="image/png"
           media="(prefers-color-scheme: dark)"
         />
+        <>
+          <script
+            src="https://umami.caioricciuti.com/script.js"
+            data-website-id="ba7d406b-f617-44ac-9c7f-6c3b864fa863"
+            async
+          />
+          <script
+            src="https://consent.cookiebot.com/uc.js"
+            data-cbid="92463182-1238-4c58-82fb-86dd7fc0c26a"
+            data-blockingmode="auto"
+            async
+          />
+        </>
       </>
     );
   },
   editLink: {
     content: "Edit this page on GitHub →",
+  },
+  feedback: {
+    content: null,
   },
   sidebar: {
     defaultMenuCollapseLevel: 1,

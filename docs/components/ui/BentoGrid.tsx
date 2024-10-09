@@ -74,8 +74,8 @@ const BentoCard = ({
           <Image
             src={backgroundImage}
             alt={name}
-            layout="fill"
-            objectFit="cover"
+            fill
+            style={{ objectFit: "cover" }}
             className="blur-[1px] opacity-30"
           />
         </div>
@@ -98,10 +98,7 @@ const BentoCard = ({
           "z-10 cursor-pointer absolute bottom-0 flex w-full translate-y-10 transform-gpu flex-row items-center p-4 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100"
         )}
       >
-        <Link
-          href={href}
-          className="flex items-center no-underline font-bold"
-        >
+        <Link href={href} className="flex items-center no-underline font-bold">
           {cta}
           <ArrowRightIcon className="ml-2 h-4 w-4" />
         </Link>

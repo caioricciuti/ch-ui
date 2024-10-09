@@ -1,0 +1,28 @@
+---
+title: Blog Tags
+description: Browse all tags used in the CH-UI blog
+---
+
+# Blog Tags
+
+Browse all the tags used in our blog posts to find content on specific topics.
+
+import { getAllTags } from '@/components/blog/GetAllTags'
+import Link from 'next/link'
+
+export function TagList() {
+  const tags = getAllTags('/blog/posts')
+  return (
+    <ul>
+      {Object.entries(tags).map(([tag, count]) => (
+        <li key={tag}>
+          <Link href={`/blog/tags/${tag}`}>
+            {tag} ({count})
+          </Link>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+<TagList />

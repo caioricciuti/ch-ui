@@ -1,0 +1,31 @@
+---
+title: Posts tagged with "[tag]"
+---
+
+import { useRouter } from 'next/router'
+import { getPagesUnderRoute } from 'nextra/context'
+import Link from 'next/link'
+
+export const TagPage = () => {
+  const router = useRouter()
+  const { tag } = router.query
+  const pages = getPagesUnderRoute('/blog/posts').filter(
+    page => page.frontMatter.tags && page.frontMatter.tags.includes(tag)
+  )
+
+return (
+
+<>
+  <h1>Posts tagged with "{tag}"</h1>
+  <ul>
+    {pages.map((page) => (
+      <li key={page.route}>
+        <Link href={page.route}>{page.frontMatter.title}</Link>
+        <span> - {page.frontMatter.date}</span>
+      </li>
+    ))}
+  </ul>
+</>
+) }
+
+<TagPage />

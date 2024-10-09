@@ -30,8 +30,8 @@ export const HeroSection = () => {
             <Image
               src="/logo.png"
               alt="Hero"
-              layout="fill"
-              objectFit="contain"
+              fill
+              style={{ objectFit: 'contain' }}
               className="rounded-lg"
             />
           </div>

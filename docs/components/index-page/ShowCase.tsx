@@ -1,29 +1,10 @@
 import {
   ChartAreaIcon,
   Download,
-  Share2Icon,
-  Calendar,
   TerminalSquare,
-  NetworkIcon,
+  Newspaper,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { BentoCard, BentoGrid } from "@/components/ui/BentoGrid";
-import { Marquee } from "@/components/ui/Marquee";
-
-const files = [
-  {
-    name: "ch-ui.json",
-    body: "{ 'name': 'CH-UI', 'description': 'Just work with your data' }",
-  },
-  {
-    name: "ch-ui.csv",
-    body: "export,import\n'CH-UI','Just work with your data'",
-  },
-  {
-    name: "getStart.txt",
-    body: "Welcome to CH-UI! Start working with your data.",
-  },
-];
 
 const features = [
   {
@@ -33,7 +14,7 @@ const features = [
     href: "/docs/getting-started",
     className: "col-span-3 lg:col-span-1",
     cta: "Learn more",
-    background: {},
+    background: { light: "", dark: "" },
   },
   {
     Icon: ChartAreaIcon,
@@ -62,13 +43,13 @@ const features = [
     },
   },
   {
-    Icon: NetworkIcon,
-    name: "Connect to your instance",
-    description: "Connect to your ClickHouse instance with ease.",
+    Icon: Newspaper,
+    name: "Check the latest news!",
+    description: "Check the latest news about CH-UI.",
     className: "col-span-3 lg:col-span-1",
-    href: "/docs/acknowledgements",
-    cta: "See CH-UI acknowledgements",
-    background: {},
+    href: "/blog",
+    cta: "Take me to the blog",
+    background: { light: "", dark: "" },
   },
 ];
 

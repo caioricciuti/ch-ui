@@ -1,1 +1,58 @@
-# Blog
+---
+title: CH-UI Blog
+description: Stay updated with the latest news, tutorials, and insights about CH-UI
+---
+
+# Welcome to the CH-UI Blog
+
+Here you'll find the latest news, tutorials, and insights about CH-UI. Our team regularly shares updates on new features, best practices, and tips to help you make the most of CH-UI.
+
+## Latest Posts
+
+import { getPagesUnderRoute } from "nextra/context";
+import Link from "next/link";
+
+export function LatestPosts() {
+  const pages = getPagesUnderRoute("/blog/posts").sort(
+    (a, b) => new Date(b.frontMatter.date) - new Date(a.frontMatter.date)
+  );
+  return (
+    <ul>
+      {pages.slice(0, 5).map((page) => (
+        <li key={page.route}>
+          <Link href={page.route}>{page.frontMatter.title}</Link>
+          <span> - {page.frontMatter.date}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+<LatestPosts />
+
+[View all posts →](/blog/posts)
+
+## Popular Tags
+
+import { getAllTags } from "@/components/blog/GetAllTags";
+
+export function PopularTags() {
+  const tags = getAllTags("/blog/posts");
+  return (
+    <ul>
+      {Object.entries(tags)
+        .slice(0, 5)
+        .map(([tag, count]) => (
+          <li key={tag}>
+            <Link href={`/blog/tags/${tag}`}>
+              {tag} ({count})
+            </Link>
+          </li>
+        ))}
+    </ul>
+  );
+}
+
+<PopularTags />
+
+[View all tags →](/blog/tags)

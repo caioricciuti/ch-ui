@@ -16,6 +16,7 @@ import {
   ChevronRight,
   ChevronLeft,
   LineChart,
+  BookText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -61,21 +62,24 @@ import useAppStore from "@/store/appStore";
 
 const commandsSheet = [
   {
-    action: "Save Query",
-    command: ["S/Ctrl+S"],
-    context: "Query Editor",
+    action: "Expand/Shrink Sidebar",
+    command: ["⌘/Ctrl", "+", "B"],
+    context: "Global",
+  },
+  {
+    action: "Search Bar",
+    command: ["⌘/Ctrl", "+", "K"],
+    context: "Global",
+  },
+  {
+    action: "Switch Tab",
+    command: ["⌘/Ctrl", "+", "Tab Number"],
+    context: "Home/Workspace",
   },
   {
     action: "Run Query",
-    command: [
-      "⌘",
-      "+",
-      <CornerDownLeft size={16} />,
-      "/Ctrl",
-      "+",
-      <CornerDownLeft size={16} />,
-    ],
-    context: "Query Editor",
+    command: ["⌘/Ctrl", "+", "Enter"],
+    context: "Home/Workspace",
   },
 ];
 
@@ -99,6 +103,11 @@ const Sidebar = () => {
         e.preventDefault();
         setOpen((open) => !open);
       }
+      // Toogle sidebar when pressing Cmd/Ctrl + B
+      if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setIsExpanded((isExpanded) => !isExpanded);
+      }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
@@ -114,6 +123,12 @@ const Sidebar = () => {
       icon: Github,
       isNewWindow: true,
     },
+    {
+      to: "https://ch-ui.caioricciuti.com/docs?utm_source=ch-ui&utm_medium=sidebar",
+      label: "Documentation",
+      icon: BookText,
+      isNewWindow: true,
+    },
   ];
 
   return (
@@ -123,7 +138,7 @@ const Sidebar = () => {
         isExpanded ? "w-64" : "w-16"
       }`}
     >
-      <div className="p-4 flex items-center justify-between">
+      <div className="p-2 ml-2 mt-2 flex items-center justify-between w-full">
         <Link to="/" className="flex items-center space-x-2">
           <img src={Logo} alt="Logo" className="h-8 w-8" />
           {isExpanded && (
@@ -294,6 +309,11 @@ const Sidebar = () => {
               <CommandItem
                 key={item.to}
                 onSelect={() => {
+                  if (item.isNewWindow) {
+                    window.open(item.to, "_blank");
+                    setOpen(false);
+                    return;
+                  }
                   navigate(item.to);
                   setOpen(false);
                 }}
