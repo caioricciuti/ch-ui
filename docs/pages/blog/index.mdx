@@ -1,58 +1,42 @@
----
-title: CH-UI Blog
-description: Stay updated with the latest news, tutorials, and insights about CH-UI
----
-
-# Welcome to the CH-UI Blog
-
-Here you'll find the latest news, tutorials, and insights about CH-UI. Our team regularly shares updates on new features, best practices, and tips to help you make the most of CH-UI.
-
-## Latest Posts
-
 import { getPagesUnderRoute } from "nextra/context";
 import Link from "next/link";
+import { PostCard } from "@/components/blog/PostCard";
+import { TagList } from "@/components/blog/TagList";
+import { formatDate } from "@/utils/dateFormatter";
 
-export function LatestPosts() {
-  const pages = getPagesUnderRoute("/blog/posts").sort(
-    (a, b) => new Date(b.frontMatter.date) - new Date(a.frontMatter.date)
+export default function BlogIndex() {
+  const posts = getPagesUnderRoute("/blog/posts").sort(
+    (a, b) => new Date(b.frontMatter.date).getTime() - new Date(a.frontMatter.date).getTime()
   );
-  return (
-    <ul>
-      {pages.slice(0, 5).map((page) => (
-        <li key={page.route}>
-          <Link href={page.route}>{page.frontMatter.title}</Link>
-          <span> - {page.frontMatter.date}</span>
-        </li>
-      ))}
-    </ul>
-  );
+  console.log(posts);
+
+return (
+<div className="max-w-5xl mx-auto px-4">
+<h1 className="text-4xl font-bold mb-8">CH-UI Blog</h1>
+<div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
+{posts.slice(0, 4).map((post) => (
+<PostCard key={post.route} post={post} />
+))}
+</div>
+<div className="flex justify-between items-start">
+<div className="w-2/3">
+<h2 className="text-2xl font-semibold mb-4">All Posts</h2>
+<ul className="space-y-4">
+{posts.slice(4).map((post) => (
+<li key={post.route}>
+<Link href={post.route} className="text-lg hover:underline">
+{post.frontMatter.title}
+</Link>
+<p className="text-sm text-gray-500">{formatDate(post.frontMatter.date)}</p>
+</li>
+))}
+</ul>
+</div>
+<div className="w-1/3">
+<h2 className="text-2xl font-semibold mb-4">Popular Tags</h2>
+<TagList />
+</div>
+</div>
+</div>
+);
 }
-
-<LatestPosts />
-
-[View all posts →](/blog/posts)
-
-## Popular Tags
-
-import { getAllTags } from "@/components/blog/GetAllTags";
-
-export function PopularTags() {
-  const tags = getAllTags("/blog/posts");
-  return (
-    <ul>
-      {Object.entries(tags)
-        .slice(0, 5)
-        .map(([tag, count]) => (
-          <li key={tag}>
-            <Link href={`/blog/tags/${tag}`}>
-              {tag} ({count})
-            </Link>
-          </li>
-        ))}
-    </ul>
-  );
-}
-
-<PopularTags />
-
-[View all tags →](/blog/tags)

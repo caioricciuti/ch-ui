@@ -14,18 +14,20 @@ export const TagPage = () => {
   )
 
 return (
-
 <>
-  <h1>Posts tagged with "{tag}"</h1>
-  <ul>
-    {pages.map((page) => (
-      <li key={page.route}>
-        <Link href={page.route}>{page.frontMatter.title}</Link>
-        <span> - {page.frontMatter.date}</span>
-      </li>
-    ))}
-  </ul>
+<h1>Posts tagged with "{tag}"</h1>
+<ul>
+{pages.map(page => (
+<li key={page.route}>
+<Link href={page.route}>
+{page.frontMatter.title}
+</Link>
+<span> - {page.frontMatter.date}</span>
+</li>
+))}
+</ul>
 </>
-) }
+)
+}
 
 <TagPage />

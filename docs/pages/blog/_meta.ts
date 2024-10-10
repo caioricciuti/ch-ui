@@ -3,10 +3,6 @@ export default {
   index: {
     title: "Blog",
     type: "page",
-    display: "hidden",
-    theme: {
-      layout: "full",
-    },
   },
   posts: {
     title: "All Posts",
@@ -16,8 +12,11 @@ export default {
     title: "Tags",
     type: "page",
   },
+  authors: {
+    title: "Authors",
+    type: "page",
+  },
   "*": {
-    // This will apply to all other blog posts
     type: "page",
     theme: {
       typesetting: "article",
