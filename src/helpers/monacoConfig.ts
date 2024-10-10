@@ -15,7 +15,11 @@ const appStore = localStorage.getItem("app-storage");
 const state = appStore ? JSON.parse(appStore) : {};
 const credential = state.state?.credential || {};
 
-function initializeClickHouseClient(appStore, state, credential) {
+function initializeClickHouseClient(
+  appStore: any,
+  state: any,
+  credential: any
+) {
   if (
     credential &&
     typeof credential.host === "string" &&
