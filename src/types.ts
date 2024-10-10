@@ -62,6 +62,7 @@ export interface AppState {
   selectedDatabaseForDelete: string | null;
   selectedTableForDelete: string | null;
   dbInstance: IDBDatabase | null;
+  credentialSource: "env" | "app" | null;
 
   // Methods
   setCredential: (credential: Credential) => Promise<void>;
@@ -81,4 +82,5 @@ export interface AppState {
   openCreateDatabaseModal: () => void;
   getTabById: (tabId: string) => Tab | undefined;
   moveTab: (oldIndex: number, newIndex: number) => void; // Add moveTab here
+  setCredentialSource: (source: "env" | "app") => void;
 }

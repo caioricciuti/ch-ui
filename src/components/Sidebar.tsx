@@ -10,7 +10,6 @@ import {
   Sun,
   Moon,
   LifeBuoy,
-  CornerDownLeft,
   Settings2,
   Search,
   ChevronRight,

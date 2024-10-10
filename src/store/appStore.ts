@@ -31,6 +31,11 @@ const useAppStore = create<AppState>()(
       selectedDatabaseForDelete: null,
       selectedTableForDelete: null,
       dbInstance: null,
+      credentialSource: null,
+
+      setCredentialSource: (source: "env" | "app") => {
+        set({ credentialSource: source });
+      },
 
       setCredential: async (credential) => {
         set({ credential, isLoadingCredentials: true });

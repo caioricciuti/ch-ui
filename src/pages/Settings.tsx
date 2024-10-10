@@ -52,6 +52,8 @@ export default function SettingsPage() {
     version,
     error,
     clearCredentials,
+    credentialSource,
+    setCredentialSource,
   } = useAppStore();
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
@@ -87,6 +89,7 @@ export default function SettingsPage() {
         password: values.password || "",
       });
       await checkServerStatus();
+      setCredentialSource("app");
       if (isServerAvailable) {
         navigate("/");
         toast.success("Connection successful!");
@@ -113,13 +116,28 @@ export default function SettingsPage() {
     <div className="max-w-3xl m-auto mt-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl font-bold flex items-center">
-            <Settings className="mr-2" size={24} />
-            ClickHouse Connection Settings
-          </CardTitle>
-          <CardDescription>
-            Configure your connection to the ClickHouse server
-          </CardDescription>
+          {credentialSource === "env" ? (
+            <Alert variant="info" className="mb-4">
+              <AlertTitle className="flex items-center">
+                Using Environment Variables
+              </AlertTitle>
+              <AlertDescription>
+                Your ClickHouse credentials are set using environment variables.
+                Please update your environment variables to change the
+                ClickHouse connection settings.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <>
+              <CardTitle className="text-2xl font-bold flex items-center">
+                <Settings className="mr-2" size={24} />
+                ClickHouse Connection Settings
+              </CardTitle>
+              <CardDescription>
+                Configure your connection to the ClickHouse server
+              </CardDescription>
+            </>
+          )}
         </CardHeader>
         <CardContent>
           <Form {...form}>
@@ -132,6 +150,9 @@ export default function SettingsPage() {
                     <FormLabel>ClickHouse Host</FormLabel>
                     <FormControl>
                       <Input
+                        disabled={
+                          isLoadingCredentials || credentialSource === "env"
+                        }
                         placeholder="https://your-clickhouse-host:<PORT>"
                         {...field}
                       />
@@ -151,7 +172,14 @@ export default function SettingsPage() {
                   <FormItem>
                     <FormLabel>Username</FormLabel>
                     <FormControl>
-                      <Input autoComplete="username" {...field} />
+                      <Input
+                        disabled={
+                          isLoadingCredentials || credentialSource === "env"
+                        }
+                        placeholder="ClickHouse username"
+                        autoComplete="username"
+                        {...field}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -166,6 +194,9 @@ export default function SettingsPage() {
                     <FormControl>
                       <div className="relative">
                         <Input
+                          disabled={
+                            isLoadingCredentials || credentialSource === "env"
+                          }
                           type={showPassword ? "text" : "password"}
                           autoComplete="current-password"
                           {...field}
@@ -187,26 +218,28 @@ export default function SettingsPage() {
                   </FormItem>
                 )}
               />
-              <div className="flex space-x-4">
-                <Button type="submit" disabled={isLoadingCredentials}>
-                  {isLoadingCredentials ? (
-                    <>
-                      Connecting{" "}
-                      <Loader2 className="ml-2 h-4 w-4 animate-spin" />
-                    </>
-                  ) : (
-                    "Save and Connect"
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={handleDisconnect}
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Disconnect
-                </Button>
-              </div>
+              {credentialSource !== "env" && (
+                <div className="flex space-x-4">
+                  <Button type="submit" disabled={isLoadingCredentials}>
+                    {isLoadingCredentials ? (
+                      <>
+                        Connecting{" "}
+                        <Loader2 className="ml-2 h-4 w-4 animate-spin" />
+                      </>
+                    ) : (
+                      "Save and Connect"
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={handleDisconnect}
+                  >
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Disconnect
+                  </Button>
+                </div>
+              )}
             </form>
           </Form>
         </CardContent>
