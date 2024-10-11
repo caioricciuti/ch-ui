@@ -112,6 +112,10 @@ const Sidebar = () => {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  if(!isServerAvailable) {
+    return null;
+  }
+
   const navItems = [
     { to: "/", label: "Home", icon: SquareTerminal },
     { to: "/metrics", label: "Metrics", icon: LineChart },

@@ -5,16 +5,8 @@ export default {
     type: "page",
   },
   posts: {
-    title: "All Posts",
-    type: "page",
-  },
-  tags: {
-    title: "Tags",
-    type: "page",
-  },
-  authors: {
-    title: "Authors",
-    type: "page",
+    title: "Posts",
+    type: "hidden",
   },
   "*": {
     type: "page",

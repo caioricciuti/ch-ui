@@ -28,6 +28,6 @@
     ".next/types/**/*.ts",
     "tailwind.config.ts",
     "pages/_app.tsx"
-  ],
+, "pages/blog/posts/index.mdx"  ],
   "exclude": ["node_modules"]
 }

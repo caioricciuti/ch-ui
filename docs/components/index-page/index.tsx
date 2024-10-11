@@ -1,3 +1,5 @@
+"use client"
+
 import { HeroSection } from "./HeroSection";
 import HomepageFeatures from "./HomePageFeatures";
 import { ShowCase } from "./ShowCase";

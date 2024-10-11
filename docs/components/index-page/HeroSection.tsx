@@ -1,3 +1,4 @@
+"use client"
 import React from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -26,12 +27,12 @@ export const HeroSection = () => {
           </div>
         </div>
         <div className="flex justify-center items-center">
-          <div className="relative w-full max-w-[300px] aspect-square">
+          <div className="relative w-full max-w-[500px] aspect-square">
             <Image
               src="/logo.png"
               alt="Hero"
               fill
-              style={{ objectFit: 'contain' }}
+              style={{ objectFit: "contain" }}
               className="rounded-lg"
             />
           </div>

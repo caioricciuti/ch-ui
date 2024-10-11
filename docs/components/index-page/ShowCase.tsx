@@ -1,3 +1,4 @@
+"use client";
 import {
   ChartAreaIcon,
   Download,
@@ -57,7 +58,7 @@ export function ShowCase() {
   return (
     <section>
       <div className="text-center">
-        <h2 className="text-2xl mb-20 font-extrabold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl bg-clip-text text-transparent bg-gradient-to-r from-orange-300 to-orange-600">
+        <h2 className="text-2xl mb-20 font-extrabold tracking-tight sm:text-3xl md:text-4xl lg:text-5xl bg-clip-text text-transparent bg-gradient-to-r from-orange-300 to-orange-600">
           Yeah you can do that!
         </h2>
       </div>
