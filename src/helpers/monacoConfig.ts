@@ -1,5 +1,4 @@
 //monacoConfig.ts
-// This file contains the configuration for the Monaco Editor used in the application.
 import { createClient } from "@clickhouse/client-web";
 import * as monaco from "monaco-editor";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
@@ -33,12 +32,39 @@ function initializeClickHouseClient(
       password: credential.password || "", // Allow empty password
     });
   } else {
-    console.error("Invalid or missing ClickHouse credentials:", credential);
+    console.warn("Invalid or missing ClickHouse credentials:", credential);
   }
 }
 
 // Call this function at the start of your application
 initializeClickHouseClient(appStore, state, credential);
+
+// Retry initialization function
+export async function retryInitialization(
+  retries: number = 3,
+  delay: number = 2000
+): Promise<void> {
+  for (let i = 0; i < retries; i++) {
+    if (client) {
+      console.log("ClickHouse client is already initialized.");
+      return;
+    }
+    console.log(`Retrying initialization... Attempt ${i + 1}`);
+    // get the latest app store
+    const appStore = localStorage.getItem("app-storage");
+    const state = appStore ? JSON.parse(appStore) : {};
+    const credential = state.state?.credential || {};
+    initializeClickHouseClient(appStore, state, credential);
+    if (client) {
+      console.log("ClickHouse client initialized successfully.");
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+  console.error(
+    "Failed to initialize ClickHouse client after multiple attempts."
+  );
+}
 
 // Modify the query execution function
 async function executeQuery(query: string): Promise<any> {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -34,6 +34,7 @@ import {
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import useAppStore from "@/store/appStore";
+import { retryInitialization } from "@/helpers/monacoConfig";
 
 const formSchema = z.object({
   host: z.string().url("Invalid URL").min(1, "URL is required"),
@@ -90,10 +91,8 @@ export default function SettingsPage() {
       });
       await checkServerStatus();
       setCredentialSource("app");
-      if (isServerAvailable) {
-        navigate("/");
-        toast.success("Connection successful!");
-      }
+      // retry to load monacoconfig
+      await retryInitialization();
     } catch (error) {
       toast.error("Error saving credentials: " + (error as Error).message);
     }
