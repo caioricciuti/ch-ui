@@ -1,0 +1,35 @@
+import { getPagesUnderRoute } from "nextra/context";
+import Link from "next/link";
+import { PostCard } from "@/components/blog/PostCard";
+
+export default function BlogIndex() {
+  const posts = getPagesUnderRoute("/blog/posts")
+    .filter(post => post.name !== "index") // Exclude the "index" file
+    .sort((a, b) => new Date(b.frontMatter.date).getTime() - new Date(a.frontMatter.date).getTime());
+
+  return (
+
+    <div className="max-w-5xl mx-auto px-4">
+      <h1 className="text-2xl font-bold">CH-UI's Blog!</h1>
+      <p className="text mt-4 text-gray-500 dark:text-gray-400">
+        Welcome to the CH-UI blog! Here you'll find all the latest news, updates,
+        and insights about ClickHouse and CH-UI.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16 mt-16">
+        {posts.slice(0, 10).map((post) => (
+          <PostCard key={post.route} post={post} />
+        ))}
+      </div>
+      <div className="flex justify-between items-start">
+        <div className="w-2/3">
+          <Link
+            href="/blog/posts"
+            className="flex items-center space-x-2 hover:underline"
+          >
+            <h2 className="text-2xl font-semibold mb-4">All Posts</h2>
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
