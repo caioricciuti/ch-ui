@@ -132,7 +132,7 @@ export default function SettingsPage() {
               <>
                 <CardTitle className="text-2xl font-bold flex items-center">
                   <Settings className="mr-2" size={24} />
-                  ClickHouse Connection Settings
+                  Connection Settings
                 </CardTitle>
                 <CardDescription>
                   Configure your connection to the ClickHouse server

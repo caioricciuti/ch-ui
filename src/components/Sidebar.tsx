@@ -56,6 +56,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Separator } from "@/components/ui/separator";
 import Logo from "/logo.png";
 import useAppStore from "@/store/appStore";
 
@@ -112,14 +113,17 @@ const Sidebar = () => {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  if(!isServerAvailable) {
+  if (!isServerAvailable) {
     return null;
   }
 
   const navItems = [
-    { to: "/", label: "Home", icon: SquareTerminal },
-    { to: "/metrics", label: "Metrics", icon: LineChart },
-    { to: "/settings", label: "Settings", icon: Settings2 },
+    { to: "/", label: "Home", icon: SquareTerminal, isNewWindow: false },
+    { to: "/metrics", label: "Metrics", icon: LineChart, isNewWindow: false },
+    { to: "/settings", label: "Settings", icon: Settings2, isNewWindow: false },
+  ];
+
+  const externalNavItems = [
     {
       to: "https://github.com/caioricciuti/ch-ui?utm_source=ch-ui&utm_medium=sidebar",
       label: "GitHub",
@@ -180,6 +184,26 @@ const Sidebar = () => {
       </ScrollArea>
 
       <div className="w-full">
+        <ScrollArea className="flex-grow">
+          <nav className="space-y-1 p-2">
+            {externalNavItems.map((item) => (
+              <Link
+                key={item.to}
+                to={item.to}
+                target={item.isNewWindow ? "_blank" : "_self"}
+                className={`flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  location.pathname === item.to
+                    ? "bg-secondary text-secondary-foreground"
+                    : "hover:bg-secondary/80"
+                }`}
+              >
+                <item.icon className={`h-5 w-5 ${isExpanded ? "mr-2" : ""}`} />
+                {isExpanded && <span>{item.label}</span>}
+              </Link>
+            ))}
+          </nav>
+        </ScrollArea>
+        <Separator className="w-full mb-2" />
         <div
           className={`${isExpanded ? "flex justify-around" : "block p-2.5"}`}
         >
@@ -309,6 +333,25 @@ const Sidebar = () => {
           <CommandEmpty>No results found.</CommandEmpty>
           <CommandGroup heading="Navigation">
             {navItems.map((item) => (
+              <CommandItem
+                key={item.to}
+                onSelect={() => {
+                  if (item.isNewWindow) {
+                    window.open(item.to, "_blank");
+                    setOpen(false);
+                    return;
+                  }
+                  navigate(item.to);
+                  setOpen(false);
+                }}
+              >
+                <item.icon className="mr-2 h-4 w-4" />
+                {item.label}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+          <CommandGroup heading="External Navigation">
+            {externalNavItems.map((item) => (
               <CommandItem
                 key={item.to}
                 onSelect={() => {

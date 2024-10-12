@@ -62,17 +62,7 @@ const useAppStore = create<AppState>()(
           isServerAvailable: false,
           version: "",
           error: "",
-          tabs: [],
-          activeTab: "home",
-          isInitialized: false,
         });
-        // Clear the persisted storage
-        localStorage.removeItem("app-storage");
-        // Clear IndexedDB
-        if (get().dbInstance) {
-          get().dbInstance?.close();
-          indexedDB.deleteDatabase("AppTabs");
-        }
       },
 
       checkServerStatus: async () => {
