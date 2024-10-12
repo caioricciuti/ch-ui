@@ -8,6 +8,7 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, 'no-release') }}
     permissions:
       contents: write # Allow pushing the tag
     steps:
@@ -16,10 +17,10 @@ jobs:
 
       - name: Bump version and tag
         id: tag_version
-        uses: mathieudutour/github-tag-action@v6.1 # More robust tag/release action
+        uses: mathieudutour/github-tag-action@v6.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          default_bump: patch # Start with patch, customizable with inputs
+          default_bump: patch
 
       - name: Push new tag
         run: |

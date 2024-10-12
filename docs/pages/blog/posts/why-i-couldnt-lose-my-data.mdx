@@ -11,6 +11,8 @@ tags: [ch-ui, clickhouse, data]
 date: 2024-10-09
 readingTime: 3
 ---
+import { Callout } from "nextra/components";
+
 
 # Why I couldn't Lose My Data!
 
@@ -20,9 +22,9 @@ Ever wondered how often Brooklynites make a break for the airport? Well, we've c
 
 From July 1, 2015 to September 30, 2015, we tracked a whopping **52,075** taxi rides originating from the hipster havens and brownstone-lined streets of Brooklyn. But here's the kicker: **989** of these rides were headed straight for the airport!
 
-:::tip Fun Fact
+<Callout type='info' emoji="📈"> 
 A full **1.9%** of Brooklyn taxi riders were airport-bound. That's nearly 1 in 50 rides!
-:::
+</Callout>
 
 ## The Great Escape: Theories and Speculations
 
@@ -34,9 +36,10 @@ We may never know the true reason behind this mass exodus, but one thing's for s
 
 So the next time you're stuck in Brooklyn traffic, remember: there's a 1.9% chance the car next to you is making a desperate dash for JFK. Maybe they forgot to pack their artisanal beard oil, or perhaps they're just late for their shift as a professional avocado toast influencer in LA.
 
-:::note The Real Miracle of Brooklyn
+<Callout type='info'> 
+The Real Miracle of Brooklyn: \
 For many Brooklynites, the real 'Miracle of Brooklyn' is successfully hailing a cab to the airport!
-:::
+</Callout>
 
 ## What's behind all this madness?
 
@@ -49,7 +52,7 @@ So, here's the raw data for all you number-crunching enthusiasts:
 <details>
 <summary>Query & Results</summary>
 
-```sql
+```sql copy
 SELECT
   MIN(pickup_datetime) AS earliest_date,
   MAX(pickup_datetime) AS latest_date,
@@ -139,9 +142,7 @@ WHERE
 
 </details>
 
-:::note
-**TRY IT:** Run the query yourself in your ClickHouse database to see the results!
-
+<Callout>
+**TRY IT:** Run the query yourself in your ClickHouse database to see the results!  \
 Want to do it your self? Follow the steps [From ClickHouse official website](https://clickhouse.com/docs/en/getting-started/example-datasets/nyc-taxi) guide.
-
-:::
+</Callout>

@@ -1,0 +1,45 @@
+name: Deploy CH-UI Docs to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/**"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: |
+          cd docs
+          npm ci
+
+      - name: Build website
+        run: |
+          cd docs
+          npm run build
+
+      - name: Add .nojekyll file
+        run: touch docs/out/.nojekyll
+
+      - name: Create CNAME file
+        run: echo "ch-ui.caioricciuti.com" > docs/out/CNAME
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/out
+          user_name: "github-actions[bot]"
+          user_email: "github-actions[bot]@users.noreply.github.com"
