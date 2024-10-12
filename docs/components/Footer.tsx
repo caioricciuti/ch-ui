@@ -67,13 +67,7 @@ export default function Footer() {
             >
               Blog
             </Link>
-            <Link
-              href="/changelog"
-              className="text-sm hover:underline"
-              prefetch={false}
-            >
-              Changelog
-            </Link>
+      
           </div>
           <div className="grid gap-4">
             <h4 className="text-sm font-medium">Community</h4>

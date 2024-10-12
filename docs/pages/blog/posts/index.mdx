@@ -3,32 +3,31 @@ import Link from "next/link";
 
 export default function Posts() {
   const posts = getPagesUnderRoute("/blog/posts")
-    .filter(post => post.name !== "index") // Exclude the "index" file
+    .filter(post => post.name !== "index")
     .sort((a, b) => new Date(b.frontMatter.date).getTime() - new Date(a.frontMatter.date).getTime());
 
   return (
-
-    <div className="max-w-5xl">
-      <h1 className="text-2xl font-bold">Posts</h1>
-      <div className="flex flex-col mt-8">
+    <div className="max-w-3xl mx-auto py-8">
+      <h1 className="text-3xl font-bold mb-8">Blog Posts</h1>
+      <ul className="space-y-4">
         {posts.map((post) => (
-          <div key={post.route} className="bg-white dark:bg-gray-800 rounded-md p-2 mb-4">
-            <Link href={post.route}>
-              <h2 className="text-lg font-semibold">{post.frontMatter.title}</h2>
-              <p className="text-gray-500 dark:text-gray-400">
-                {post.frontMatter.description}
-              </p>
-              <div className="flex items-center mt-4">
-                <p className="ml-2 text-sm text-gray-700 dark:text-gray-300">
-                  {post.frontMatter.author.name || "Unknown author"}
-                </p>
+          <li key={post.route} className="border-b border-gray-200 dark:border-gray-700 pb-4">
+            <Link href={post.route} className="group block">
+              <div className="flex justify-between items-baseline">
+                <h2 className="text-xl font-semibold group-hover:text-blue-500 transition-colors">
+                  {post.frontMatter.title}
+                </h2>
+                <time className="text-sm text-gray-500 dark:text-gray-400">
+                  {new Date(post.frontMatter.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                </time>
               </div>
+              <p className="text-gray-600 dark:text-gray-300 mt-1">
+                {post.frontMatter.author.name || "Unknown author"}
+              </p>
             </Link>
-          </div>
+          </li>
         ))}
-
-      </div>
-
+      </ul>
     </div>
   );
 }

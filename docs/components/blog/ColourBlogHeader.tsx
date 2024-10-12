@@ -38,8 +38,8 @@ const ColourBlogHeader: React.FC<ColourBlogHeaderProps> = ({ title, date }) => {
               "linear-gradient(45deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 100%)",
           }}
         />
-        <div className="relative z-10 p-6 text-white">
-          <h2 className="text-3xl font-bold mb-2">{title}</h2>
+        <div className="relative z-10 p-6">
+          <h2 className="text-2xl font-bold mb-2 truncate">{title}</h2>
           <div className="text-sm opacity-80">
             <span>{date}</span>
           </div>

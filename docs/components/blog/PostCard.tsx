@@ -19,7 +19,7 @@ interface Post {
 
 export function PostCard({ post }: { post: Post }) {
   return (
-    <div className="rounded-lg shadow-md h-64 overflow-hidden dark:border-gray-600">
+    <div className="rounded-lg shadow-md h-64 overflow-hidden dark:border dark:border-gray-600">
       <div className="w-full rounded no-underline hover:no-underline">
         <Link href={post.route}>
           <ColourBlogHeader
