@@ -41,7 +41,7 @@ export const HeroSection = () => {
               size={58}
               onClick={() => {
                 window.scrollTo({
-                  top: window.innerHeight + 100,
+                  top: window.innerHeight + 30,
                   behavior: "smooth",
                 });
               }}

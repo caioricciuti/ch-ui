@@ -4,13 +4,10 @@ const withNextra = nextra({
   theme: "nextra-theme-docs",
   themeConfig: "./theme.config.tsx",
   search: {
-    codeblocks: false,
+    codeblocks: true,
   },
 });
 
 export default withNextra({
   reactStrictMode: true,
-  images: {
-    domains: ["avatars.githubusercontent.com"],
-  },
 });

@@ -1,3 +1,5 @@
+"use client";
+
 import React from "react";
 import Link from "next/link";
 import CustomLogo from "./CustomLogo";
@@ -95,10 +97,18 @@ export default function Footer() {
             © {new Date().getFullYear()} CH-UI. All rights reserved.
           </p>
           <div className="flex gap-4 text-xs text-muted-foreground">
-            <Link href="/privacy" className="hover:underline" prefetch={false}>
+            <Link
+              href="/legal/privacy-policy"
+              className="hover:underline"
+              prefetch={false}
+            >
               Privacy Policy
             </Link>
-            <Link href="/terms" className="hover:underline" prefetch={false}>
+            <Link
+              href="/legal/terms-of-service"
+              className="hover:underline"
+              prefetch={false}
+            >
               Terms of Service
             </Link>
           </div>

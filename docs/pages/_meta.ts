@@ -30,6 +30,10 @@ export default {
     href: "https://www.buymeacoffee.com/caioricciuti?utm_source=ch-ui-docs&utm_medium=header",
     newWindow: true,
   },
+  legal: {
+    type: "page",
+    title: "Legal",
+  },
   404: {
     type: "page",
     theme: {
