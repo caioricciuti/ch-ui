@@ -8,6 +8,7 @@ const withNextra = nextra({
   },
 });
 
+// deploy gh-pages
 export default withNextra({
   output: "export",
   reactStrictMode: true,
