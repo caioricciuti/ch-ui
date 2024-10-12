@@ -7,9 +7,8 @@ on:
 
 jobs:
   release:
-    # Add this condition to check for "no-release" in the commit message
-    if: "!contains(github.event.head_commit.message, 'no-release')"
     runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, 'no-release') }}
     permissions:
       contents: write # Allow pushing the tag
     steps:
