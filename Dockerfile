@@ -10,6 +10,10 @@ COPY package*.json ./
 # Install dependencies
 RUN npm install
 
+# Run browser list update
+RUN npx update-browserslist-db@latest
+
+
 # Bundle app source inside Docker image
 COPY . .
 
