@@ -5,4 +5,5 @@ export default {
   contributing: "Contributing",
   acknowledgments: "Acknowledgments",
   license: "License",
+  security: "Security",
 };

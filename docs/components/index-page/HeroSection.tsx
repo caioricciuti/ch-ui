@@ -36,7 +36,7 @@ export const HeroSection = () => {
               className="rounded-lg"
             />
           </div>
-          <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 mb-4">
+          <div className="hidden lg:block lg:absolute bottom-20 left-1/2 transform -translate-x-1/2 mb-4">
             <ArrowBigDown
               size={58}
               onClick={() => {

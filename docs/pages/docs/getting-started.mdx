@@ -1,20 +1,34 @@
 # Getting Started 🚀
 
-Let's start with **CH-UI in less than 5 minutes**.
+Let's get you up and running with CH-UI in no time.
 
 ## Prerequisites
 
-- A running ClickHouse server instance [ClickHouse Official Installation Guide](https://clickhouse.com/docs/en/install#quick-install)
+- A running ClickHouse server instance. If you don't have one, follow the [ClickHouse Official Installation Guide](https://clickhouse.com/docs/en/install#quick-install).
 
-## 🐳 Docker
+## 🐳 Using Docker
 
-You can deploy CH-UI in a few minutes using Docker. Just run the following command:
+Deploy CH-UI quickly using Docker:
 
 ```bash copy
 docker run -p 5521:5521 ghcr.io/caioricciuti/ch-ui:latest
 ```
 
-We also have a docker-compose file that you can use to deploy CH-UI. Just create a `docker-compose.yml` file with the following content:
+### Using Environment Variables with Docker
+
+CH-UI supports setting ClickHouse connection details using environment variables:
+
+```bash copy
+docker run -p 5521:5521 \
+  -e VITE_CLICKHOUSE_URL=http://your-clickhouse-server:8123 \
+  -e VITE_CLICKHOUSE_USER=your-username \
+  -e VITE_CLICKHOUSE_PASS=your-password \
+  ghcr.io/caioricciuti/ch-ui:latest
+```
+
+### Using docker-compose
+
+Create a `docker-compose.yml` file (or use the one provided in the repository):
 
 ```yaml copy
 services:
@@ -24,51 +38,61 @@ services:
     ports:
       - "${CH_UI_PORT:-5521}:5521"
     environment:
-      VITE_CLICKHOUSE_URL: "http://your-clickhouse-server:8123"
-      VITE_CLICKHOUSE_USER: "your-username"
-      VITE_CLICKHOUSE_PASS: "your-password"
+      VITE_CLICKHOUSE_URL: "http://your-clickhouse-server:8123" # OPTIONAL
+      VITE_CLICKHOUSE_USER: "your-username" # OPTIONAL
+      VITE_CLICKHOUSE_PASS: "your-password" # OPTIONAL
 ```
 
-And then run:
+Then run:
 
 ```bash copy
-# use -d to run in detached mode
-docker-compose up -d
+docker-compose up # use -d to run in detached mode
 ```
 
-Environment variables:
-- `VITE_CLICKHOUSE_URL`: ClickHouse server URL (optional)
-- `VITE_CLICKHOUSE_USER`: ClickHouse user (optional)
-- `VITE_CLICKHOUSE_PASS`: ClickHouse password (optional)
+## 💻 Building from Source
 
-## 💻 Build from source
+1. Clone the repository:
+   ```bash copy
+   git clone https://github.com/caioricciuti/ch-ui.git
+   ```
 
-You can also build CH-UI from source.
+2. Install dependencies:
+   ```bash copy
+   cd ch-ui
+   npm install
+   ```
 
-Clone the repository:
+3. Build the project:
+   ```bash copy
+   npm run build
+   ```
+
+4. Preview the build:
+   ```bash copy
+   npm run preview
+   ```
+
+   Or run in debug mode:
+   ```bash copy
+   npm run dev
+   ```
+
+## Using docker-compose to run a localhost clickhouse (only for development)
+
+The following command will run a clickhouse database with a connection to http://localhost:8123 and a user `dev` with password `dev`.
+The data will be persisted in this directory: `.clickhouse_local_data`
 
 ```bash copy
-git clone https://github.com/caioricciuti/ch-ui.git
+docker-compose -f docker-compose-dev.yml up -d
 ```
 
-Install the dependencies:
+Use the following command to turn down, don't forget to remove `.clickhouse_local_data` if you want to save some space in your HD but then all data will be erased.
 
 ```bash copy
-cd ch-ui
-npm install
+docker-compose -f docker-compose-dev.yml down
 ```
-
-Run the development server:
-
-```bash copy
-npm run dev
-```
-
-Open [http://localhost:5521](http://localhost:5521) in your browser.
 
 ## Project Structure
-
-Here's an overview of the key directories and files in the project:
 
 - `/src`: Main source directory
   - `/components`: Reusable React components
@@ -79,17 +103,49 @@ Here's an overview of the key directories and files in the project:
 - `App.tsx`: Main application component
 - `main.tsx`: Application entry point
 
+## Features
+
+- **ClickHouse Integration**: Seamlessly interact with ClickHouse databases.
+- **Dynamic UI Components**: Advanced UI for enhanced data interaction.
+- **Responsive Tab Management**: Create and manage query tabs and table tabs.
+- **Performance Optimizations**: Efficient state management and optimized database interactions.
+- **TypeScript Refactor**: Improved code quality and developer experience.
+- **Enhanced Metrics**: Redesigned metrics dashboard with new insights.
+- **Custom Table Management**: Internally handled tables for better control.
+- **SQL Editor IntelliSense**: Autocomplete suggestions and syntax highlighting.
+- **Intuitive Data Explorer**: Redesigned interface for easier navigation.
+- **Fresh New Design**: Modern, clean UI for improved usability.
+
+## Security Recommendations
+
+For production use, consider implementing these security measures:
+
+1. Use a reverse proxy with authentication (e.g., Nginx with basic auth).
+2. Enable HTTPS to encrypt all traffic.
+3. Implement IP whitelisting if possible.
+4. Keep all components up to date.
+5. Configure a firewall to restrict incoming connections.
+
+Refer to the full README for detailed security configuration examples.
+
 ## Next Steps
 
-Once you have the application running, you can:
-
-1. Connect to your ClickHouse server through the Settings page
-2. Explore your databases and tables using the Database Explorer
-3. Write and execute SQL queries in the SQL Editor
-4. Organize your work using the Workspace Tabs
+1. Connect to your ClickHouse server through the Settings page.
+2. Explore databases and tables using the Database Explorer.
+3. Write and execute SQL queries in the SQL Editor.
+4. Organize your work using Workspace Tabs.
 
 For more detailed information on each feature, please refer to the respective sections in this documentation.
 
 ## Contributing
 
-If you want to contribute to CH-UI, please read the [contributing guide](/contributing).
+If you want to contribute to CH-UI, please read our [contributing guide](https://ch-ui.caioricciuti.com/docs/contributing?utm_source=ch-ui&utm_medium=gitHubReadme).
+
+## Support
+
+- Financial support:  [![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-Donate-FF813F.svg)](https://www.buymeacoffee.com/caioricciuti)
+
+- Contribute: Find a bug or suggest a feature. All lines of code are welcome!
+- Spread the word: Star the project on GitHub or share it with your network.
+
+Your support helps keep the project running and improving. Thank you!
