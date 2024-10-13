@@ -195,4 +195,7 @@ Finally, if you like this project and want to support it:
 All contributions are greatly appreciated and help to keep the project running and improving. Thank you for your support!
 
 
-### [acknowledgments and Credits](https://ch-ui.caioricciuti.com/docs/acknowledgments?utm_source=ch-ui&utm_medium=gitHubReadme)
+### [Acknowledgments and Credits](https://ch-ui.caioricciuti.com/docs/acknowledgments?utm_source=ch-ui&utm_medium=gitHubReadme)
+
+
+### [Watch the promo video!](/public/video/chuivid.mp4)
