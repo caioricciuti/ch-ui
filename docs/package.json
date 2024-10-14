@@ -14,6 +14,7 @@
     "@radix-ui/react-slot": "^1.1.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
+    "embla-carousel-react": "^8.3.0",
     "framer-motion": "^11.11.1",
     "lucide-react": "^0.447.0",
     "next": "14.2.14",
@@ -22,6 +23,7 @@
     "nextra-theme-docs": "^3.0.0-alpha.42",
     "react": "^18",
     "react-dom": "^18",
+    "swiper": "^11.1.14",
     "tailwind-merge": "^2.5.3",
     "tailwindcss-animate": "^1.0.7"
   },
