@@ -10,21 +10,38 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ !contains(github.event.head_commit.message, 'no-release') }}
     permissions:
-      contents: write # Allow pushing the tag
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get latest tag
+        id: get_latest_tag
+        run: echo "latest_tag=$(git describe --tags --abbrev=0)" >> $GITHUB_OUTPUT
 
       - name: Bump version and tag
         id: tag_version
-        uses: mathieudutour/github-tag-action@v6.1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          default_bump: patch
-
-      - name: Push new tag
-        run: |
-          git fetch --tags
-          git push origin ${{ steps.tag_version.outputs.new_tag }}
+        uses: anothrNick/github-tag-action@1.67.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: patch
+          WITH_V: true
+          RELEASE_BRANCHES: main
+          INITIAL_VERSION: 1.5.0
+          PRERELEASE: false
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag_version.outputs.new_tag }}
+          release_name: Release ${{ steps.tag_version.outputs.new_tag }}
+          body: |
+            Changes in this Release
+            - First Change
+            - Second Change
+          draft: false
+          prerelease: false
