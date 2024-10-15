@@ -10,7 +10,6 @@ import {
   Info,
   Edit2,
   Terminal,
-  Save,
 } from "lucide-react";
 import {
   DndContext,
@@ -32,7 +31,6 @@ import HomeTab from "@/components/tabs/HomeTab";
 import useAppStore from "@/store/appStore";
 import SqlTab from "@/components/tabs/SqlTab";
 import InformationTab from "@/components/tabs/InformationTab";
-import SavedQueryTab from "@/components/tabs/SavedQueryTab"; // Assuming you have this component
 import { Input } from "@/components/ui/input";
 
 interface Tab {
@@ -88,7 +86,7 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center"
+      className={`flex items-center ${isActive ? "z-10" : "z-0"}`}
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
     >
@@ -98,7 +96,7 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
         onClick={onActivate}
       >
         {isActive && isHovering && tab.type !== "home" && (
-          <div {...attributes} {...listeners} className="cursor-pointer">
+          <div {...attributes} {...listeners} className="cursor-move px-1">
             <GripVertical className="cursor-move p-0" size={12} />
           </div>
         )}
@@ -106,9 +104,6 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
         {tab.type === "sql" && <Terminal width={16} className="mr-2 min-w-4" />}
         {tab.type === "information" && (
           <Info width={16} className="mr-2 min-w-4" />
-        )}
-        {tab.type === "saved_query" && (
-          <Save width={16} className="mr-2 min-w-4" />
         )}
         {isEditing && tab.type !== "home" ? (
           <Input
@@ -169,10 +164,10 @@ export function WorkspaceTabs() {
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
 
-    if (active.id !== over?.id && active.id !== "home") {
+    if (active.id !== over?.id && active.id !== "home" && over?.id !== "home") {
       const oldIndex = tabs.findIndex((tab) => tab.id === active.id);
       const newIndex = tabs.findIndex((tab) => tab.id === over?.id);
-      moveTab(oldIndex, newIndex > 0 ? newIndex : 1); // Ensure home tab stays first
+      moveTab(oldIndex, newIndex);
     }
   };
 
@@ -183,7 +178,11 @@ export function WorkspaceTabs() {
     return homeTab ? [homeTab, ...otherTabs] : otherTabs;
   }, [tabs]);
 
+
+/*
+  ***** Keyboard shortcuts COMMENTED OUT ***** 
   useEffect(() => {
+    // Keyboard shortcuts
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "w") {
         event.preventDefault();
@@ -206,9 +205,10 @@ export function WorkspaceTabs() {
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown, true);
-    return () => window.removeEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [tabs, activeTab, addNewCodeTab, removeTab, setActiveTab]);
+*/
 
   return (
     <div className="flex flex-col h-full">
@@ -254,33 +254,31 @@ export function WorkspaceTabs() {
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
         </div>
-        <div className="flex flex-col h-screen overflow-auto">
+        <div className="flex-grow overflow-auto">
           {sortedTabs.map((tab) => (
             <TabsContent
               key={tab.id}
               value={tab.id}
               className="h-full p-0 outline-none data-[state=active]:block"
             >
-              <div className="">
-                {tab.type === "home" ? (
-                  <HomeTab />
-                ) : tab.type === "sql" ? (
-                  <SqlTab tabId={tab.id} />
-                ) : tab.type === "information" ? (
-                  <InformationTab
-                    database={
-                      typeof tab.content === "object"
-                        ? tab.content.database
-                        : undefined
-                    }
-                    tableName={
-                      typeof tab.content === "object"
-                        ? tab.content.table
-                        : undefined
-                    }
-                  />
-                ) : null}
-              </div>
+              {tab.type === "home" ? (
+                <HomeTab />
+              ) : tab.type === "sql" ? (
+                <SqlTab tabId={tab.id} />
+              ) : tab.type === "information" ? (
+                <InformationTab
+                  database={
+                    typeof tab.content === "object"
+                      ? tab.content.database
+                      : undefined
+                  }
+                  tableName={
+                    typeof tab.content === "object"
+                      ? tab.content.table
+                      : undefined
+                  }
+                />
+              ) : null}
             </TabsContent>
           ))}
         </div>
