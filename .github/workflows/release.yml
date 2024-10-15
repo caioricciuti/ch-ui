@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ !contains(github.event.head_commit.message, 'no-release') }}
     permissions:
-      contents: write
+      contents: write 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -21,16 +21,23 @@ jobs:
         id: get_latest_tag
         run: echo "latest_tag=$(git describe --tags --abbrev=0)" >> $GITHUB_OUTPUT
 
-      - name: Bump version and tag
+      - name: Bump version and push tag
         id: tag_version
-        uses: anothrNick/github-tag-action@1.67.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEFAULT_BUMP: patch
-          WITH_V: true
-          RELEASE_BRANCHES: main
-          INITIAL_VERSION: 1.5.0
-          PRERELEASE: false
+        run: |
+          latest_tag=${{ steps.get_latest_tag.outputs.latest_tag }}
+          if [[ $latest_tag =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            major=${BASH_REMATCH[1]}
+            minor=${BASH_REMATCH[2]}
+            patch=${BASH_REMATCH[3]}
+            new_tag="v$major.$minor.$((patch + 1))"
+          else
+            new_tag="v1.5.1"
+          fi
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git tag $new_tag
+          git push origin $new_tag
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
 
       - name: Create Release
         uses: actions/create-release@v1
@@ -41,7 +48,6 @@ jobs:
           release_name: Release ${{ steps.tag_version.outputs.new_tag }}
           body: |
             Changes in this Release
-            - First Change
-            - Second Change
+            - Automated patch version bump
           draft: false
           prerelease: false
