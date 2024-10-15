@@ -86,15 +86,15 @@ export default function HomepageFeatures(): JSX.Element {
   const secondRow = FeatureList.slice(FeatureList.length / 2);
 
   return (
-    <section className="py-24">
+    <section className="w-full">
       <div className="w-full">
         <div className="text-center">
-          <h2 className="text-4xl mb-20 font-extrabold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl bg-clip-text text-transparent bg-gradient-to-r from-orange-600 to-orange-400">
+          <h2 className="text-4xl mb-12 md:mb-24 font-extrabold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl bg-clip-text text-transparent bg-gradient-to-r from-orange-700 to-orange-300">
             Features
           </h2>
         </div>
-        <div className="relative h-[600px] w-full overflow-hidden rounded-lg ">
-          <Marquee pauseOnHover className="[--duration:60s] mb-24">
+        <div className="relative h-[450px] md:h-[600px] lg:h-[600px] w-full overflow-hidden rounded-lg ">
+          <Marquee pauseOnHover className="[--duration:60s]">
             {firstRow.map((feature, index) => (
               <FeatureCard key={index} {...feature} />
             ))}
@@ -104,8 +104,6 @@ export default function HomepageFeatures(): JSX.Element {
               <FeatureCard key={index} {...feature} />
             ))}
           </Marquee>
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-full bg-gradient-to-r "></div>
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/4 bg-gradient-to-l from-inherit"></div>
         </div>
       </div>
     </section>

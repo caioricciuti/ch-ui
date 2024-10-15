@@ -5,8 +5,8 @@ import {
   CarouselItem,
   CarouselNext,
   CarouselPrevious,
-} from "../components/ui/carousel";
-import { Card, CardContent } from "../components/ui/card";
+} from "../ui/carousel";
+import { Card, CardContent } from "../ui/card";
 
 const screenshotPairs = [
   "/screenshots/main-screen-light.png",
@@ -27,7 +27,7 @@ const screenshotPairs = [
 
 const CarouselScreenShots = () => {
   return (
-    <div className="container mx-auto mb-32">
+    <div className="container mx-auto mb-12 md:mb-24 lg:mb-32">
       <h2
         className="text-4xl text-center mb-20 font-extrabold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl bg-clip-text
        text-transparent bg-gradient-to-r from-orange-700 via-red-500 to-orange-300"
