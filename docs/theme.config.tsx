@@ -1,9 +1,33 @@
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import type { DocsThemeConfig } from "nextra-theme-docs";
 import { Link, useConfig } from "nextra-theme-docs";
+import { useTheme } from "next-themes";
 import CustomLogo from "@/components/CustomLogo";
 import SlackLogo from "@/components/SlackLogo";
 import Footer from "./components/Footer";
+import { Sun, Moon } from "lucide-react";
+
+function ThemeToggle() {
+  const [mounted, setMounted] = useState(false);
+  const { setTheme, resolvedTheme } = useTheme();
+
+  useEffect(() => setMounted(true), []);
+
+  if (!mounted) {
+    return null;
+  }
+
+  const handleToggle = () => {
+    setTheme(resolvedTheme === "dark" ? "light" : "dark");
+  };
+
+  return (
+    <button onClick={handleToggle} className="p-2 text-current">
+      {resolvedTheme === "dark" ? <Moon /> : <Sun />}
+    </button>
+  );
+}
 
 const config: DocsThemeConfig = {
   banner: {
@@ -25,9 +49,10 @@ const config: DocsThemeConfig = {
     link: "https://github.com/caioricciuti/ch-ui",
   },
   footer: {
-    content: (
-     <Footer />
-    ),
+    content: <Footer />,
+  },
+  themeSwitch: {
+    component: () => null,
   },
   docsRepositoryBase: "https://github.com/caioricciuti/ch-ui/tree/main/docs",
   logo: <CustomLogo />,
@@ -104,6 +129,9 @@ const config: DocsThemeConfig = {
   },
   color: {
     hue: 23,
+  },
+  navbar: {
+    extraContent: () => <ThemeToggle />,
   },
 };
 
