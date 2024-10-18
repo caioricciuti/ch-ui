@@ -643,6 +643,7 @@ const CreateTable = () => {
         }
 
         try {
+          console.log(insertSQL);
           await runQuery(insertSQL);
           fetchDatabaseInfo();
           toast.success("Table created and data inserted successfully!");

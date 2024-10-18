@@ -1,3 +1,6 @@
+import { ClickHouseClient } from "@clickhouse/client-web"
+import { WebClickHouseClient } from "@clickhouse/client-web/dist/client";
+
 export interface InternalQueries {
   query: string;
   name: string;
@@ -48,7 +51,7 @@ export interface AppState {
   isInitialized: boolean;
   version: string;
   error: string;
-  clickHouseClient: any; // Consider using a more specific type if available
+  clickHouseClient: WebClickHouseClient | null; // Consider using a more specific type if available
   dataBaseExplorer: DatabaseInfo[];
   isLoadingDatabase: boolean;
   tabError: string | null;
