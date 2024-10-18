@@ -1,5 +1,4 @@
 //ignore TS check
-// @ts-nocheck
 
 import { ChartConfig } from "@/components/ui/chart";
 import {

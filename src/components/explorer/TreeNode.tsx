@@ -85,7 +85,6 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         id: title,
         title: title,
         type: "information",
-        //@ts-ignore
         content: { database, table },
       });
     }

@@ -5,8 +5,7 @@ import { Credential, Tab, DatabaseInfo, AppState } from "@/types";
 import { toast } from "sonner";
 import { appQueries } from "@/helpers/appQueries";
 import * as IndexedDB from "@/lib/indexDB";
-import { WebClickHouseClient } from "@clickhouse/client-web/dist/client";
-import { isCreateOrInsert, transformInsertQuery } from "@/helpers/sqlUtils";
+import { isCreateOrInsert } from "@/helpers/sqlUtils";
 
 const useAppStore = create<AppState>()(
   persist(

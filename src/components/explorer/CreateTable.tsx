@@ -224,7 +224,7 @@ const CreateTable = () => {
       let isInteger = true;
       let isDate = true;
 
-      for (let row of data) {
+      for (const row of data) {
         const value = row[colIndex];
         if (value === null || value === undefined || value === "") continue;
 
@@ -269,7 +269,7 @@ const CreateTable = () => {
     parentKey: string = "",
     result: any = {}
   ) => {
-    for (let key in obj) {
+    for (const key in obj) {
       if (Object.prototype.hasOwnProperty.call(obj, key)) {
         const newKey = parentKey ? `${parentKey}.${key}` : key;
         if (
@@ -554,7 +554,7 @@ const CreateTable = () => {
                 jsonNestedPaths.forEach((path) => {
                   const keys = path.split(".");
                   let value = item;
-                  for (let key of keys) {
+                  for (const key of keys) {
                     value = value ? value[key] : undefined;
                   }
                   newItem[path] = value;

@@ -1,4 +1,3 @@
-import { ClickHouseClient } from "@clickhouse/client-web"
 import { WebClickHouseClient } from "@clickhouse/client-web/dist/client";
 
 export interface InternalQueries {
