@@ -112,7 +112,6 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
             onBlur={handleTitleBlur}
             onKeyDown={handleKeyDown}
             className="w-24 h-4 p-1 text-xs"
-            autoFocus
           />
         ) : (
           <div className="flex items-center overflow-hidden">
@@ -268,9 +267,9 @@ export function WorkspaceTabs() {
               ) : tab.type === "information" ? (
                 <InformationTab
                   database={
-                    typeof tab.content === "object"
+                    typeof tab.content === "object" && tab.content.database
                       ? tab.content.database
-                      : undefined
+                      : ""
                   }
                   tableName={
                     typeof tab.content === "object"

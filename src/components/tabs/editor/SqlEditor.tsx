@@ -30,7 +30,7 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
       monacoRef.current = editor;
 
       if (tab?.content) {
-        const content = tab.content;
+        const content = typeof tab.content === 'string' ? tab.content : '';
         editor.setValue(content);
       }
 

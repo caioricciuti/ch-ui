@@ -9,8 +9,8 @@ export interface InternalQueries {
 export interface Tab {
   id: string;
   title: string;
-  content: string;
   type: "sql" | "home" | "information" | "saved_query";
+  content: string | { database?: string; table?: string };
   error?: string | null;
   isLoading?: boolean;
   isSaved?: boolean;

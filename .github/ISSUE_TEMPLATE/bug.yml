@@ -5,10 +5,11 @@ body:
     id: Environment
     attributes:
       label: Environment
-      description: How are you using Ch-UI?
+      description: How are you using CH-UI?
       options:
         - NPM build
         - Docker
+        - Other
     validations:
       required: true
   - type: textarea
@@ -36,10 +37,40 @@ body:
       description: What was the accual result?
     validations:
       required: true
-
+  - type: dropdown
+    id: Browser
+    attributes:
+      label: Browser
+      description: What browser are you using?
+      options:
+        - Chrome
+        - Firefox
+        - Edge
+        - Safari
+        - Brave
+        - Other
+    validations:
+      required: true
+  # browser version with instructions to check it 
+  - type: text
+    id: browser-version
+    attributes:
+      label: Browser Version
+      description: What version of the browser are you using?
+      placeholder: e.g. 125.0.0
+    validations:
+      required: true
+  - type: text
+    id: version
+    attributes:
+      label: Version
+      description: What version of CH-UI are you using?
+      placeholder: e.g. 1.5.0
+    validations:
+      required: true
   - type: markdown
     attributes:
       value: |-
-        ### Great, just submit the issue and I will do my best to take care of it!  🙏
+        ### All done, now, just submit the issue and I will do my best to take care of it!  🙏
     validations:
       required: false
