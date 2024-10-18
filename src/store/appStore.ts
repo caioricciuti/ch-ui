@@ -1,10 +1,12 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { createClient } from "@clickhouse/client-web";
+import { ClickHouseClient, createClient, ResponseJSON } from "@clickhouse/client-web";
 import { Credential, Tab, DatabaseInfo, AppState } from "@/types";
 import { toast } from "sonner";
 import { appQueries } from "@/helpers/appQueries";
 import * as IndexedDB from "@/lib/indexDB";
+import { WebClickHouseClient } from "@clickhouse/client-web/dist/client";
+import { isCreateOrInsert, transformInsertQuery } from "@/helpers/sqlUtils";
 
 const useAppStore = create<AppState>()(
   persist(
@@ -40,7 +42,7 @@ const useAppStore = create<AppState>()(
       setCredential: async (credential) => {
         set({ credential, isLoadingCredentials: true });
         try {
-          const client = createClient({
+          const client: ClickHouseClient = createClient({
             url: credential.host,
             username: credential.username,
             password: credential.password,
@@ -102,24 +104,28 @@ const useAppStore = create<AppState>()(
           }));
         }
 
+        let jsonResult: ResponseJSON<"JSON"> = {
+          data: [],
+          meta: [],
+          statistics: { elapsed: 0, rows_read: 0, bytes_read: 0 },
+          rows: 0,
+        };
+        
         try {
-          const result = await clickHouseClient.query({
-            query,
-            format: "JSON",
-          });
-
-          let jsonResult;
-          try {
+          let result;
+          if (isCreateOrInsert(query)) {
+            result = await clickHouseClient.command({
+              query: query,
+            });  
+          } else {
+            result = await clickHouseClient.query({
+              query,
+              format: "JSON",
+            });
             jsonResult = await result.json();
-          } catch (jsonError) {
-            // If parsing JSON fails, it's likely a non-data query (e.g., DROP DATABASE)
-            jsonResult = {
-              data: [],
-              meta: [],
-              statistics: { elapsed: 0, rows_read: 0, bytes_read: 0 },
-              rows: 0,
-            };
           }
+
+          
 
           const processedResult = {
             meta: jsonResult.meta || [],
