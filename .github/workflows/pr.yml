@@ -1,0 +1,27 @@
+name: Build and Run tests when PR is opened
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+      
+      - name: Install dependencies
+        run: npm i
+      
+      - name: Run tests
+        run: npm run test
