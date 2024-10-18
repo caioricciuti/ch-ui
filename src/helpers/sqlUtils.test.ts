@@ -66,6 +66,6 @@ describe('isCreateOrInsert', () => {
             -- select * from cities;
             -- Insert 10 sample values into the 'cities' table
             select * from cities;
-        `)).toBe(true);
+        `)).toBe(false);
     });
 });
