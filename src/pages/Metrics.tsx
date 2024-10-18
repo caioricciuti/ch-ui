@@ -6,6 +6,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import useAppStore from "@/store/appStore";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useTitle } from "@/hooks/useTitle";
 
 function MetricsOverview() {
   const location = useLocation();
@@ -14,8 +15,9 @@ function MetricsOverview() {
   const { credential, isServerAvailable } = useAppStore();
   const [isLocalHostInstance, setIsLocalHostInstance] = React.useState(false);
 
+  useTitle("Metrics - Workspace");
+
   useEffect(() => {
-    document.title = "CH-UI | Metrics";
     if (!isServerAvailable) {
       toast.error(
         "No active connection. Please configure your connection in Settings."

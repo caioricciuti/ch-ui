@@ -35,6 +35,7 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import useAppStore from "@/store/appStore";
 import { retryInitialization } from "@/helpers/monacoConfig";
+import { useTitle } from "@/hooks/useTitle";
 
 const formSchema = z.object({
   host: z.string().url("Invalid URL").min(1, "URL is required"),
@@ -43,7 +44,8 @@ const formSchema = z.object({
 });
 
 export default function SettingsPage() {
-  document.title = "CH-UI | Settings";
+  useTitle("Settings - Workspace");
+
   const {
     credential,
     setCredential,
