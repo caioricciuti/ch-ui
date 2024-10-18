@@ -15,6 +15,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
+      
+      - name: Run tests
+        run: npm run tests
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
