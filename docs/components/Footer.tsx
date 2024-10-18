@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import CustomLogo from "./CustomLogo";
-import { Github, Slack, Rss } from "lucide-react";
+import { Github, Slack } from "lucide-react";
 
 export default function Footer() {
   return (
