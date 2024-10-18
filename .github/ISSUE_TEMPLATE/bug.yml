@@ -52,7 +52,7 @@ body:
     validations:
       required: true
   # browser version with instructions to check it 
-  - type: text
+  - type: textarea
     id: browser-version
     attributes:
       label: Browser Version
@@ -60,7 +60,7 @@ body:
       placeholder: e.g. 125.0.0
     validations:
       required: true
-  - type: text
+  - type: textarea
     id: version
     attributes:
       label: Version
