@@ -5,8 +5,7 @@ import { Credential, Tab, DatabaseInfo, AppState } from "@/types";
 import { toast } from "sonner";
 import { appQueries } from "@/helpers/appQueries";
 import * as IndexedDB from "@/lib/indexDB";
-import { WebClickHouseClient } from "@clickhouse/client-web/dist/client";
-import { isCreateOrInsert, transformInsertQuery } from "@/helpers/sqlUtils";
+import { isCreateOrInsert } from "@/helpers/sqlUtils";
 
 const useAppStore = create<AppState>()(
   persist(
@@ -32,7 +31,7 @@ const useAppStore = create<AppState>()(
       selectedTableForCreateDatabase: null,
       selectedDatabaseForDelete: null,
       selectedTableForDelete: null,
-      dbInstance: null,
+      indexDbInstance: null,
       credentialSource: null,
 
       setCredentialSource: (source: "env" | "app") => {
@@ -136,7 +135,7 @@ const useAppStore = create<AppState>()(
               bytes_read: 0,
             },
             message:
-              jsonResult.data && jsonResult.data.length > 0
+              jsonResult.data && jsonResult.data.length > 0 && jsonResult.meta && jsonResult.meta.length > 0
                 ? null
                 : "Query executed successfully",
             rows: jsonResult.rows || 0,
@@ -180,7 +179,7 @@ const useAppStore = create<AppState>()(
 
         // Initialize IndexedDB
         const db = await IndexedDB.initDB();
-        set({ dbInstance: db });
+        set({ indexDbInstance: db });
 
         // Load tabs from IndexedDB
         const tabs = await IndexedDB.getTabs(db);
@@ -249,8 +248,8 @@ const useAppStore = create<AppState>()(
       },
 
       addTab: async (tab: Tab) => {
-        const { dbInstance, tabs } = get();
-        if (!dbInstance) throw new Error("Database not initialized");
+        const { indexDbInstance, tabs } = get();
+        if (!indexDbInstance) throw new Error("Database not initialized");
 
         const existingTab = tabs.find((t) => t.id === tab.id);
         if (existingTab) {
@@ -258,7 +257,7 @@ const useAppStore = create<AppState>()(
           return;
         }
 
-        await IndexedDB.addTab(dbInstance, tab);
+        await IndexedDB.addTab(indexDbInstance, tab);
         set((state) => ({
           tabs: [...state.tabs, tab],
           activeTab: tab.id,
@@ -266,23 +265,23 @@ const useAppStore = create<AppState>()(
       },
 
       updateTab: async (tabId: string, updates: Partial<Tab>) => {
-        const { dbInstance, tabs } = get();
-        if (!dbInstance) throw new Error("Database not initialized");
+        const { indexDbInstance, tabs } = get();
+        if (!indexDbInstance) throw new Error("Database not initialized");
 
         const updatedTabs = tabs.map((tab) =>
           tab.id === tabId ? { ...tab, ...updates } : tab
         );
 
         await IndexedDB.updateTab(
-          dbInstance,
+          indexDbInstance,
           updatedTabs.find((tab) => tab.id === tabId)!
         );
         set({ tabs: updatedTabs });
       },
 
       updateTabTitle: async (tabId: string, newTitle: string) => {
-        const { dbInstance, tabs } = get();
-        if (!dbInstance) throw new Error("Database not initialized");
+        const { indexDbInstance, tabs } = get();
+        if (!indexDbInstance) throw new Error("Database not initialized");
 
         const updatedTabs = tabs.map((tab) =>
           tab.id === tabId ? { ...tab, title: newTitle } : tab
@@ -293,17 +292,17 @@ const useAppStore = create<AppState>()(
           throw new Error("Tab not found");
         }
 
-        await IndexedDB.updateTab(dbInstance, updatedTab);
+        await IndexedDB.updateTab(indexDbInstance, updatedTab);
         set({ tabs: updatedTabs });
 
         toast.success(`Tab title updated to "${newTitle}"`);
       },
 
       removeTab: async (tabId: string) => {
-        const { dbInstance, tabs, activeTab } = get();
-        if (!dbInstance) throw new Error("Database not initialized");
+        const { indexDbInstance, tabs, activeTab } = get();
+        if (!indexDbInstance) throw new Error("Database not initialized");
 
-        await IndexedDB.removeTab(dbInstance, tabId);
+        await IndexedDB.removeTab(indexDbInstance, tabId);
         const updatedTabs = tabs.filter((tab) => tab.id !== tabId);
         set({ tabs: updatedTabs });
 

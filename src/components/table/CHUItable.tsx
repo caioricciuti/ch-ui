@@ -75,6 +75,11 @@ interface TableProps<T extends RowData> {
 
 const DEFAULT_COLUMN_SIZE = 150;
 
+// Remove the getNestedValue function since it's not suitable for keys with dots
+// function getNestedValue(obj: any, path: string) {
+//   return path.split('.').reduce((acc, part) => acc && acc[part], obj);
+// }
+
 function CHUITable<T extends RowData>({
   result,
   initialPageSize = 20,
@@ -139,8 +144,10 @@ function CHUITable<T extends RowData>({
         maxSize: 1500,
         size: DEFAULT_COLUMN_SIZE,
         enableResizing: true,
-        cell: ({ getValue }: { getValue: () => any }) => {
-          const value = getValue();
+        cell: ({ row }: { row: Row<T> }) => {
+          // Access the property directly using bracket notation
+          const value = row.original[col.name as keyof T];
+
           if (typeof value === "object" && value !== null) {
             return JSON.stringify(value);
           }

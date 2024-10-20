@@ -1,4 +1,3 @@
-import { ClickHouseClient } from "@clickhouse/client-web"
 import { WebClickHouseClient } from "@clickhouse/client-web/dist/client";
 
 export interface InternalQueries {
@@ -64,7 +63,7 @@ export interface AppState {
   selectedTableForCreateDatabase: string | null;
   selectedDatabaseForDelete: string | null;
   selectedTableForDelete: string | null;
-  dbInstance: IDBDatabase | null;
+  indexDbInstance: IDBDatabase | null;
   credentialSource: "env" | "app" | null;
 
   // Methods

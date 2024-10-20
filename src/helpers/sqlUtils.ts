@@ -1,5 +1,3 @@
-
-
 export const isCreateOrInsert = (query: string) => {
     // Remove lines that start with '--'
     const cleanedQuery = query
@@ -26,7 +24,16 @@ export const isCreateOrInsert = (query: string) => {
     const createTableTemporaryLike = /\bcreate\s+table\s+temporary\s+like\b/;
     const createTableTemporaryMaterialized = /\bcreate\s+table\s+temporary\s+materialized\b/;
     const createTableTemporaryAs = /\bcreate\s+table\s+temporary\s+as\b/;
-
+    // ClickHouse-specific patterns
+    const createTableOnCluster = /\bcreate\s+table\s+on\s+cluster\b/;
+    const createTableDistributed = /\bcreate\s+table\s+.*\bengine\s*=\s*Distributed\b/i;
+    const createMaterializedView = /\bcreate\s+materialized\s+view\b/;
+    const createView = /\bcreate\s+view\b/;
+    const createDictionary = /\bcreate\s+dictionary\b/;
+    const attachTable = /\battach\s+table\b/;
+    const optimizeTable = /\boptimize\s+table\b/;
+    const truncateTable = /\btruncate\s+table\b/;
+    const renameTable = /\brename\s+table\b/;
 
     return (
       createTableRegex.test(lowerQuery) ||
@@ -47,6 +54,15 @@ export const isCreateOrInsert = (query: string) => {
       createTableTemporaryIfNotExists.test(lowerQuery) ||
       createTableTemporaryLike.test(lowerQuery) ||
       createTableTemporaryMaterialized.test(lowerQuery) ||
-      createTableTemporaryAs.test(lowerQuery)
+      createTableTemporaryAs.test(lowerQuery) ||
+      createTableOnCluster.test(lowerQuery) ||
+      createTableDistributed.test(lowerQuery) ||
+      createMaterializedView.test(lowerQuery) ||
+      createView.test(lowerQuery) ||
+      createDictionary.test(lowerQuery) ||
+      attachTable.test(lowerQuery) ||
+      optimizeTable.test(lowerQuery) ||
+      truncateTable.test(lowerQuery) ||
+      renameTable.test(lowerQuery)
     );
   };

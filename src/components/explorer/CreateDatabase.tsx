@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { z } from "zod";
-import { CopyIcon, CopyCheck } from "lucide-react";
+import { CopyIcon, CopyCheck, InfoIcon } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -30,17 +30,11 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import useAppstore from "@/store/appStore";
+import InfoDialog from "@/components/misc/InfoDialog";
+import ConfirmationDialog from "@/components/ConfirmationDialog";
 
-const ENGINE_OPTIONS = [
-  "Atomic",
-  "Lazy",
-  "MySQL",
-  "PostgreSQL",
-  "MaterializedMySQL",
-  "MaterializedPostgreSQL",
-  "Replicated",
-  "SQLite",
-];
+
+const ENGINE_OPTIONS = ["Atomic", "Lazy"];
 
 const CreateDatabase = () => {
   const {
@@ -53,12 +47,14 @@ const CreateDatabase = () => {
   } = useAppstore();
 
   // State variables for database creation
+  const [isInfoDialogOpen, setIsInfoDialogOpen] = useState(false);
   const [databaseName, setDatabaseName] = useState("");
   const [ifNotExists, setIfNotExists] = useState(false);
   const [onCluster, setOnCluster] = useState(false);
   const [clusterName, setClusterName] = useState("");
   const [engine, setEngine] = useState("Atomic");
   const [comment, setComment] = useState("");
+  const [expirationTimeInSeconds, setExpirationTimeInSeconds] = useState("");
   const [sql, setSql] = useState("");
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -81,6 +77,7 @@ const CreateDatabase = () => {
       setClusterName("");
       setEngine("Atomic");
       setComment("");
+      setExpirationTimeInSeconds("");
       setSql("");
       setErrors({});
       setCreateDatabaseError("");
@@ -103,6 +100,7 @@ const CreateDatabase = () => {
       databaseName: z
         .string()
         .min(1, "Database name is required")
+        .regex(/^[a-zA-Z0-9_]+$/, "Database name must contain only letters, numbers, and underscores")
         .refine((value) => !/\s/.test(value), {
           message: "Database name cannot contain spaces",
         }),
@@ -111,6 +109,13 @@ const CreateDatabase = () => {
       clusterName: z.string().min(1, "Cluster name is required").optional(),
       engine: z.string(),
       comment: z.string().optional(),
+      expirationTimeInSeconds: z.preprocess((a) => {
+        if (typeof a === "string" && a.trim() !== "") {
+          const parsed = parseInt(a, 10);
+          return isNaN(parsed) ? undefined : parsed;
+        }
+        return undefined;
+      }, z.number().int().positive().optional()),
     })
     .refine(
       (data) => {
@@ -127,7 +132,20 @@ const CreateDatabase = () => {
     .refine((data) => validateDatabaseName(data.databaseName), {
       message: "Database name already exists",
       path: ["databaseName"],
-    });
+    })
+    .refine(
+      (data) => {
+        if (data.engine === "Lazy") {
+          return typeof data.expirationTimeInSeconds === "number";
+        }
+        return true;
+      },
+      {
+        message:
+          "Expiration time is required and must be a positive integer when engine is Lazy",
+        path: ["expirationTimeInSeconds"],
+      }
+    );
 
   // Function to validate and generate SQL
   const validateAndGenerateSQL = () => {
@@ -139,6 +157,8 @@ const CreateDatabase = () => {
         clusterName: onCluster ? clusterName : undefined,
         engine,
         comment,
+        expirationTimeInSeconds:
+          engine === "Lazy" ? expirationTimeInSeconds : undefined,
       });
 
       let sqlStatement = `CREATE DATABASE `;
@@ -151,7 +171,9 @@ const CreateDatabase = () => {
         sqlStatement += `ON CLUSTER ${clusterName} `;
       }
 
-      if (engine) {
+      if (engine === "Lazy") {
+        sqlStatement += `ENGINE = Lazy(${expirationTimeInSeconds}) `;
+      } else if (engine) {
         sqlStatement += `ENGINE = ${engine} `;
       }
 
@@ -186,17 +208,24 @@ const CreateDatabase = () => {
     setCreateDatabaseError("");
 
     try {
-      await runQuery(sqlStatement);
-      fetchDatabaseInfo();
-      toast.success("Database created successfully!");
+      const result = await runQuery(sqlStatement);
 
-      // Optionally, add a new tab or perform other actions
-      addTab({
-        id: "database-" + databaseName,
-        title: databaseName,
-        type: "information",
-        content: "",
-      });
+      if (result.error) {
+        setCreateDatabaseError(result.error);
+        setLoading(false);
+        return;
+      } else {
+        fetchDatabaseInfo();
+        toast.success("Database created successfully!");
+
+        // Optionally, add a new tab or perform other actions
+        addTab({
+          id: "database-" + databaseName,
+          title: databaseName,
+          type: "information",
+          content: { database: databaseName, table: "" },
+        });
+      }
 
       // Reset all fields
       setDatabaseName("");
@@ -205,6 +234,7 @@ const CreateDatabase = () => {
       setClusterName("");
       setEngine("Atomic");
       setComment("");
+      setExpirationTimeInSeconds("");
       setSql("");
       setErrors({});
       setStatementCopiedToClipboard(false);
@@ -235,7 +265,8 @@ const CreateDatabase = () => {
       onCluster ||
       clusterName ||
       engine !== "Atomic" ||
-      comment
+      comment ||
+      expirationTimeInSeconds
     );
   };
 
@@ -252,61 +283,97 @@ const CreateDatabase = () => {
     setIsConfirmDialogOpen(false);
     closeCreateDatabaseModal();
     // Reset form fields here
+    setDatabaseName("");
+    setIfNotExists(false);
+    setOnCluster(false);
+    setClusterName("");
+    setEngine("Atomic");
+    setComment("");
+    setExpirationTimeInSeconds("");
+    setSql("");
+    setErrors({});
+    setStatementCopiedToClipboard(false);
   };
 
   return (
     <>
       {/* Confirmation Dialog */}
-      <Dialog open={isConfirmDialogOpen} onOpenChange={setIsConfirmDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirm Close</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to close? All your work will be lost.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setIsConfirmDialogOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={confirmClose}>
-              Yes, Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmationDialog
+        isOpen={isConfirmDialogOpen}
+        onClose={() => setIsConfirmDialogOpen(false)}
+        onConfirm={confirmClose}
+        title={"Confirm Close"}
+        description={
+          "Are you sure you want to close? All your work will be lost."
+        }
+      />
 
       {/* Create Database Sheet */}
       <Sheet open={isCreateDatabaseModalOpen} onOpenChange={handleCloseSheet}>
-        <SheetContent className="xl:w-[600px] sm:w-full sm:max-w-full overflow-auto">
+        <SheetContent
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            // auto focus on the first input
+            const firstInput = (e.target as HTMLElement)?.querySelector("input");
+            if (firstInput) {
+              firstInput.focus();
+            }
+          }}
+          className="xl:w-[1000px] sm:w-full sm:max-w-full overflow-auto"
+        >
           <SheetHeader>
-            <SheetTitle>Create Database</SheetTitle>
+            <SheetTitle>
+              Create Database{" "}
+              <Button
+                variant="link"
+                size="icon"
+                onClick={() => setIsInfoDialogOpen(true)}
+              >
+                <InfoIcon className="w-4 h-4" />
+              </Button>
+            </SheetTitle>
           </SheetHeader>
 
-          <div className="space-y-4">
+          <div className="space-y-6">
             {/* Database Name */}
-            <div className="space-y-2">
-              <Label htmlFor="database-name">Database Name</Label>
-              <Input
-                id="database-name"
-                value={databaseName}
-                onChange={(e) => {
-                  setDatabaseName(e.target.value);
-                  setErrors((prev) => {
-                    const newErrors = { ...prev };
-                    delete newErrors.databaseName;
-                    return newErrors;
-                  });
-                }}
-                placeholder="Enter database name"
-                className={errors.databaseName ? "border-red-500" : ""}
-              />
-              {errors.databaseName && (
-                <p className="text-xs text-red-500">{errors.databaseName}</p>
-              )}
+            <div className="grid grid-cols-2 gap-4 items-center mt-6">
+              <div className="space-y-3">
+                <Label htmlFor="database-name">Database Name</Label>
+                <Input
+                  id="database-name"
+                  value={databaseName}
+                  onChange={(e) => {
+                    setDatabaseName(e.target.value);
+                    setErrors((prev) => {
+                      const newErrors = { ...prev };
+                      delete newErrors.databaseName;
+                      return newErrors;
+                    });
+                  }}
+                  placeholder="Enter database name"
+                  className={errors.databaseName ? "border-red-500" : ""}
+                />
+                {errors.databaseName && (
+                  <p className="text-xs text-red-500">{errors.databaseName}</p>
+                )}
+              </div>
+              {/* ENGINE Selector */}
+              <div className="space-y-3">
+                <Label htmlFor="engine-select">Engine</Label>
+
+                <Select value={engine} onValueChange={setEngine}>
+                  <SelectTrigger id="engine-select">
+                    <SelectValue placeholder="Select engine" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ENGINE_OPTIONS.map((eng: any) => (
+                      <SelectItem key={eng} value={eng}>
+                        {eng}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {/* IF NOT EXISTS Checkbox */}
@@ -358,22 +425,36 @@ const CreateDatabase = () => {
               </div>
             )}
 
-            {/* ENGINE Selector */}
-            <div className="space-y-2">
-              <Label htmlFor="engine-select">ENGINE</Label>
-              <Select value={engine} onValueChange={setEngine}>
-                <SelectTrigger id="engine-select">
-                  <SelectValue placeholder="Select engine" />
-                </SelectTrigger>
-                <SelectContent>
-                  {ENGINE_OPTIONS.map((eng) => (
-                    <SelectItem key={eng} value={eng}>
-                      {eng}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Expiration Time Input (Conditional) */}
+            {engine === "Lazy" && (
+              <div className="space-y-2">
+                <Label htmlFor="expiration-time">
+                  Expiration Time (seconds)
+                </Label>
+                <Input
+                  id="expiration-time"
+                  type="number"
+                  value={expirationTimeInSeconds}
+                  onChange={(e) => {
+                    setExpirationTimeInSeconds(e.target.value);
+                    setErrors((prev) => {
+                      const newErrors = { ...prev };
+                      delete newErrors.expirationTimeInSeconds;
+                      return newErrors;
+                    });
+                  }}
+                  placeholder="Enter expiration time in seconds"
+                  className={
+                    errors.expirationTimeInSeconds ? "border-red-500" : ""
+                  }
+                />
+                {errors.expirationTimeInSeconds && (
+                  <p className="text-xs text-red-500">
+                    {errors.expirationTimeInSeconds}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* COMMENT Textarea */}
             <div className="space-y-2">
@@ -399,7 +480,10 @@ const CreateDatabase = () => {
               <Button
                 onClick={handleCreateDatabase}
                 disabled={
-                  loading || !databaseName || (onCluster && !clusterName)
+                  loading ||
+                  !databaseName ||
+                  (onCluster && !clusterName) ||
+                  (engine === "Lazy" && !expirationTimeInSeconds)
                 }
               >
                 {loading ? "Creating..." : "Create Database"}
@@ -438,6 +522,27 @@ const CreateDatabase = () => {
               </Alert>
             )}
           </div>
+
+          {/* Add the InfoDialog component here */}
+          <InfoDialog
+            title="Database Engines"
+            variant="info"
+            isOpen={isInfoDialogOpen}
+            onClose={() => setIsInfoDialogOpen(false)}
+            link="https://clickhouse.com/docs/en/engines/database-engines/?utm_source=ch-ui&utm_medium=create-database-info"
+          >
+            <>
+              <p className="text-sm ">
+                ClickHouse offers different database engines optimized for
+                various use cases. The choice of engine can affect performance,
+                data storage, and replication behavior.
+              </p>
+              <p className="text-xs mt-3">
+                CH-UI supports only Atomic and Lazy engines. Using Atomic is
+                recommended for most use cases.
+              </p>
+            </>
+          </InfoDialog>
         </SheetContent>
       </Sheet>
     </>

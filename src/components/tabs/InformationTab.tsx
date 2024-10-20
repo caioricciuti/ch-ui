@@ -6,7 +6,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import CHUItable from "@/components/table/CHUItable";
 import {
   Loader2,
-  AlertCircle,
   Database,
   HardDrive,
   Layers,
@@ -310,7 +309,6 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
         </div>
       ) : error ? (
         <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
           <AlertTitle>Error</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
@@ -384,7 +382,6 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
                       </div>
                     ) : sampleError ? (
                       <Alert variant="destructive">
-                        <AlertCircle className="h-4 w-4" />
                         <AlertTitle>Error</AlertTitle>
                         <AlertDescription>{sampleError}</AlertDescription>
                       </Alert>
@@ -396,7 +393,11 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
                             type: typeof sampleData[0][key],
                           })),
                           data: sampleData,
-                          statistics: [],
+                          statistics: {
+                            elapsed: 0,
+                            rows_read: 0,
+                            bytes_read: 0
+                          },
                           message: "",
                           query_id: "",
                         }}
@@ -418,7 +419,6 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
         </Tabs>
       ) : (
         <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
           <AlertTitle>Data Missing</AlertTitle>
           <AlertDescription>No data available to display.</AlertDescription>
         </Alert>

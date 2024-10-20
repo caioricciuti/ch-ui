@@ -2,14 +2,35 @@ import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { RefreshCcw, Search, SearchX } from "lucide-react";
+import {
+  RefreshCcw,
+  Search,
+  SearchX,
+  MoreVertical,
+  FolderPlus,
+  FilePlus,
+  TerminalIcon,
+} from "lucide-react";
 import useAppStore from "@/store/appStore";
 import TreeNode, { TreeNodeData } from "@/components/explorer/TreeNode";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const DatabaseExplorer: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
-  const { dataBaseExplorer, tabError, fetchDatabaseInfo, isLoadingDatabase } =
-    useAppStore();
+  const {
+    dataBaseExplorer,
+    tabError,
+    fetchDatabaseInfo,
+    isLoadingDatabase,
+    addTab,
+    openCreateDatabaseModal,
+    openCreateTableModal,
+  } = useAppStore();
 
   const filteredData = useMemo(() => {
     if (!searchTerm) return dataBaseExplorer;
@@ -37,7 +58,36 @@ const DatabaseExplorer: React.FC = () => {
     <div className="flex flex-col h-full">
       <div className="p-4 border-b">
         <div className="flex justify-between items-center mb-3">
-          <h2 className="text-lg font-semibold">Explorer</h2>
+          <div className="flex items-center space-x-1">
+            <h2 className="text-lg font-semibold">Explorer</h2>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon" variant="ghost" className="p-0">
+                  <MoreVertical className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onClick={() => openCreateDatabaseModal()}>
+                  <FolderPlus className="w-4 h-4 mr-2" /> Create Database
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openCreateTableModal("")}>
+                  <FilePlus className="w-4 h-4 mr-2" /> Create Table
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() =>
+                    addTab({
+                      id: Math.random().toString(36).substr(2, 9),
+                      type: "sql",
+                      title: "Query",
+                      content: "",
+                    })
+                  }
+                >
+                  <TerminalIcon className="w-4 h-4 mr-2" /> New Query
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <Button
             size="sm"
             variant="outline"

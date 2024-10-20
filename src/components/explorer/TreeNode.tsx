@@ -6,7 +6,6 @@ import {
   Database,
   Table,
   FileSpreadsheet,
-  Folder,
   Eye,
   Trash,
   TerminalIcon,
@@ -85,7 +84,6 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         id: title,
         title: title,
         type: "information",
-        //@ts-ignore
         content: { database, table },
       });
     }
@@ -119,7 +117,6 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         return <Table className="w-4 h-4 mr-2" />;
       case "view":
         return <FileSpreadsheet className="w-4 h-4 mr-2" />;
-        return <Folder className="w-4 h-4 mr-2" />;
       default:
         return null;
     }
@@ -139,7 +136,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         toast.error(`Failed to drop database ${database}`);
       }
     });
-    setIsConfirmDialogOpen(true);
+    setIsConfirmDialogOpen(true); // ✅ Corrected to open the dialog
   };
 
   const actionDropTable = async (database: string, table: string) => {
@@ -157,7 +154,25 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         toast.error(`Failed to drop table ${table}`);
       }
     });
-    setIsConfirmDialogOpen(false);
+    setIsConfirmDialogOpen(true); // ✅ Corrected to open the dialog
+  };
+
+  const actionDropView = async (database: string, view: string) => {
+    setConfirmTitle(`Drop View ${view}`);
+    setConfirmDescription(
+      `Are you sure you want to drop the view ${database}.${view}? This action cannot be undone.`
+    );
+
+    setConfirmAction(() => async () => {
+      try {
+        await runQuery(`DROP VIEW ${database}.${view}`);
+        toast.success(`Dropped view ${view}`);
+        refreshData();
+      } catch (error) {
+        toast.error(`Failed to drop view ${view}`);
+      }
+    });
+    setIsConfirmDialogOpen(true); // ✅ Opens the dialog for views
   };
 
   const contextMenuOptions = useMemo(
@@ -168,60 +183,61 @@ const TreeNode: React.FC<TreeNodeProps> = ({
           icon: <Eye className="w-4 h-4 mr-2" />,
           action: () => openInfoTab(node.name, ""),
         },
-        // {
-        //   label: "Create Table",
-        //   icon: <FilePlus className="w-4 h-4 mr-2" />,
-        //   action: () => openCreateTableModal(node.name),
-        // },
-        // {
-        //   label: "Create Database",
-        //   icon: <FolderPlus className="w-4 h-4 mr-2" />,
-        //   action: () => openCreateDatabaseModal(),
-        // },
-        // {
-        //   label: "Delete",
-        //   icon: <Trash className="w-4 h-4 mr-2" />,
-        //   action: () => actionDropDatabase(node.name),
-        // },
+        {
+          label: "Create Table",
+          icon: <FilePlus className="w-4 h-4 mr-2" />,
+          action: () => openCreateTableModal(node.name),
+        },
+        {
+          label: "Create Database",
+          icon: <FolderPlus className="w-4 h-4 mr-2" />,
+          action: () => openCreateDatabaseModal(),
+        },
+        {
+          label: "Delete",
+          icon: <Trash className="w-4 h-4 mr-2" />,
+          action: () => actionDropDatabase(node.name),
+        },
       ],
       table: [
         {
           label: "Query Table",
           icon: <TerminalIcon className="w-4 h-4 mr-2" />,
-          // Using non-null assertion since parentDatabaseName should be defined for table
           action: parentDatabaseName
             ? handleQueryData(parentDatabaseName, node.name)
             : () => {
                 toast.error("Parent database name is undefined.");
               },
         },
-        // {
-        //   label: "Delete",
-        //   icon: <Trash className="w-4 h-4 mr-2" />,
-        //   // Using non-null assertion since parentDatabaseName should be defined for table
-        //   action: parentDatabaseName
-        //     ? () => actionDropTable(parentDatabaseName, node.name)
-        //     : () => {
-        //         toast.error("Parent database name is undefined.");
-        //       },
-        // },
+        {
+          label: "Delete",
+          icon: <Trash className="w-4 h-4 mr-2" />,
+          action: parentDatabaseName
+            ? () => actionDropTable(parentDatabaseName, node.name)
+            : () => {
+                toast.error("Parent database name is undefined.");
+              },
+        },
       ],
       view: [
         {
           label: "Query View",
           icon: <TerminalIcon className="w-4 h-4 mr-2" />,
-          // Using non-null assertion since parentDatabaseName should be defined for view
           action: parentDatabaseName
             ? handleQueryData(parentDatabaseName, node.name)
             : () => {
                 toast.error("Parent database name is undefined.");
               },
         },
-        // {
-        //   label: "Delete",
-        //   icon: <Trash className="w-4 h-4 mr-2" />,
-        //   action: () => console.log("Delete view"),
-        // },
+        {
+          label: "Delete",
+          icon: <Trash className="w-4 h-4 mr-2" />,
+          action: parentDatabaseName
+            ? () => actionDropView(parentDatabaseName, node.name)
+            : () => {
+                toast.error("Parent database name is undefined.");
+              },
+        },
       ],
     }),
     [
@@ -230,6 +246,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
       handleQueryData,
       actionDropDatabase,
       actionDropTable,
+      actionDropView,
     ]
   );
 
