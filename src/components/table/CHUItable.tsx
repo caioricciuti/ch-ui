@@ -62,7 +62,7 @@ interface TableProps<T extends RowData> {
   result: {
     meta?: { name: string; type: string }[];
     data?: T[];
-    statistics: {
+    statistics?: {
       elapsed: number;
       rows_read: number;
       bytes_read: number;
@@ -364,20 +364,23 @@ function CHUITable<T extends RowData>({
 
           <DownloadDialog data={data} />
 
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info size={14} />
-              </TooltipTrigger>
-              <TooltipContent>
-                <div className="text-xs p-2 text-primary/70">
-                  <p>Rows Read: {statistics.rows_read}</p>
-                  <p>Bytes Read: {statistics.bytes_read}</p>
-                  <p>Elapsed Time: {statistics.elapsed} seconds</p>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          {
+            statistics &&
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info size={14} />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <div className="text-xs p-2 text-primary/70">
+                    <p>Rows Read: {statistics.rows_read}</p>
+                    <p>Bytes Read: {statistics.bytes_read}</p>
+                    <p>Elapsed Time: {statistics.elapsed} seconds</p>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          }
         </div>
 
         <div className="flex-1 px-2 max-w-sm">

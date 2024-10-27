@@ -1,5 +1,3 @@
-//ignore TS check
-// @ts-nocheck
 
 import { ChartConfig } from "@/components/ui/chart";
 import {
@@ -28,7 +26,10 @@ export interface MetricItem {
   type: "card" | "table" | "chart";
   chartType?: "bar" | "line" | "area" | "pie" | "radar" | "radial";
   description: string;
-  chartConfig?: ChartConfig;
+  chartConfig?: {
+    indexBy: string;
+    data: ChartConfig;
+  };
   tiles?: number;
 }
 
@@ -105,9 +106,11 @@ export const metrics: Metrics[] = [
         `,
         chartConfig: {
           indexBy: "day",
-          query_count: {
-            label: "Query Count",
-            color: "hsl(var(--chart-1))",
+          data: {
+            query_count: {
+              label: "Query Count",
+              color: "hsl(var(--chart-1))",
+            },
           },
         },
         tiles: 4,
@@ -171,10 +174,12 @@ export const metrics: Metrics[] = [
         description: "Size distribution of the top 30 largest tables.",
         chartConfig: {
           indexBy: "name",
-          total_mb: {
-            label: "Size (MB)",
-            color: "hsl(var(--chart-2))",
-          },
+          data: {
+            total_mb: {
+              label: "Size (MB)",
+              color: "hsl(var(--chart-2))",
+            },
+          }
         },
         tiles: 2,
       },
@@ -186,10 +191,12 @@ export const metrics: Metrics[] = [
         description: "Number of partitions per table.",
         chartConfig: {
           indexBy: "table",
-          partition_count: {
-            label: "Partition Count",
-            color: "hsl(var(--chart-3))",
-          },
+          data: {
+            partition_count: {
+              label: "Partition Count",
+              color: "hsl(var(--chart-3))",
+            },
+          }
         },
         tiles: 2,
       },
@@ -201,10 +208,12 @@ export const metrics: Metrics[] = [
         description: "Distribution of table engines.",
         chartConfig: {
           indexBy: "engine",
-          table_count: {
-            label: "Table Count",
-            color: "hsl(var(--chart-1))",
-          },
+          data: {
+            table_count: {
+              label: "Table Count",
+              color: "hsl(var(--chart-1))",
+            },
+          }
         },
         tiles: 2,
       },
@@ -216,10 +225,12 @@ export const metrics: Metrics[] = [
         description: "Top 10 most queried tables in the last 24 hours.",
         chartConfig: {
           indexBy: "tables",
-          query_count: {
-            label: "Query Count",
-            color: "hsl(var(--chart-2))",
-          },
+          data: {
+            query_count: {
+              label: "Query Count",
+              color: "hsl(var(--chart-2))",
+            },
+          }
         },
         tiles: 2,
       },
@@ -314,10 +325,12 @@ export const metrics: Metrics[] = [
           "Granular distribution of query durations over the last 24 hours.",
         chartConfig: {
           indexBy: "duration_bucket",
-          query_count: {
-            label: "Query Count",
-            color: "hsl(var(--chart-1))",
-          },
+          data: {
+            query_count: {
+              label: "Query Count",
+              color: "hsl(var(--chart-1))",
+            },
+          }
         },
         tiles: 2,
       },
@@ -337,10 +350,12 @@ export const metrics: Metrics[] = [
         description: "Rate of queries per second over the last hour.",
         chartConfig: {
           indexBy: "minute",
-          qps: {
-            label: "QPS",
-            color: "hsl(var(--chart-3))",
-          },
+          data: {
+            qps: {
+              label: "QPS",
+              color: "hsl(var(--chart-3))",
+            },
+          }
         },
         tiles: 2,
       },
@@ -403,10 +418,12 @@ export const metrics: Metrics[] = [
         description: "CPU usage over the last hour.",
         chartConfig: {
           indexBy: "minute",
-          cpu_usage: {
-            label: "CPU Usage",
-            color: "hsl(var(--chart-5))",
-          },
+          data: {
+            cpu_usage: {
+              label: "CPU Usage",
+              color: "hsl(var(--chart-5))",
+            },
+          }
         },
         tiles: 2,
       },
@@ -426,10 +443,12 @@ export const metrics: Metrics[] = [
         description: "Memory usage over the last hour.",
         chartConfig: {
           indexBy: "minute",
-          memory_usage: {
-            label: "Memory Usage",
-            color: "hsl(var(--chart-1))",
-          },
+          data: {
+            memory_usage: {
+              label: "Memory Usage",
+              color: "hsl(var(--chart-1))",
+            },
+          }
         },
         tiles: 2,
       },
@@ -450,10 +469,12 @@ export const metrics: Metrics[] = [
         description: "Threads usage over the last hour.",
         chartConfig: {
           indexBy: "minute",
-          threads_running: {
-            label: "Threads Running",
-            color: "hsl(var(--chart-1))",
-          },
+          data: {
+            threads_running: {
+              label: "Threads Running",
+              color: "hsl(var(--chart-1))",
+            },
+          }
         },
         tiles: 2,
       },
@@ -478,9 +499,11 @@ ORDER BY
         description: "Network traffic over the last hour.",
         chartConfig: {
           indexBy: "minute",
-          bytes_received: {
-            label: "Bytes Received",
-            color: "hsl(var(--chart-4))",
+          data: {
+            bytes_received: {
+              label: "Bytes Received",
+              color: "hsl(var(--chart-4))",
+          }
           },
         },
         tiles: 2,
@@ -501,10 +524,12 @@ ORDER BY
         description: "Average disk usage over the last hour.",
         chartConfig: {
           indexBy: "minute",
-          disk_usage: {
-            label: "Disk Usage",
-            color: "hsl(var(--chart-6))",
-          },
+          data: {
+            disk_usage: {
+              label: "Disk Usage",
+              color: "hsl(var(--chart-6))",
+            },
+          }
         },
         tiles: 2,
       },
@@ -524,10 +549,12 @@ ORDER BY
         description: "Active Keep alive connections over the last hour.",
         chartConfig: {
           indexBy: "minute",
-          active_connections: {
-            label: "Active Connections",
-            color: "hsl(var(--chart-1))",
-          },
+          data: {
+            active_connections: {
+              label: "Active Connections",
+              color: "hsl(var(--chart-1))",
+            },
+          }
         },
         tiles: 2,
       },
@@ -563,10 +590,12 @@ ORDER BY
         description: "Size distribution of databases.",
         chartConfig: {
           indexBy: "database",
-          size_gb: {
-            label: "Size (GB)",
-            color: "hsl(var(--chart-2))",
-          },
+          data: {
+            size_gb: {
+              label: "Size (GB)",
+              color: "hsl(var(--chart-2))",
+            },
+          }
         },
         tiles: 4,
       },
@@ -593,14 +622,16 @@ ORDER BY
         description: "Network traffic over the last hour.",
         chartConfig: {
           indexBy: "minute",
-          send_bytes: {
-            label: "Send (bytes)",
-            color: "hsl(var(--chart-3))",
-          },
-          receive_bytes: {
-            label: "Receive (bytes)",
-            color: "hsl(var(--chart-4))",
-          },
+          data: {
+            send_bytes: {
+              label: "Send (bytes)",
+              color: "hsl(var(--chart-3))",
+            },
+            receive_bytes: {
+              label: "Receive (bytes)",
+              color: "hsl(var(--chart-4))",
+            },
+          }
         },
         tiles: 2,
       },
@@ -618,10 +649,12 @@ ORDER BY
         description: "HTTP connections over the last hour.",
         chartConfig: {
           indexBy: "minute",
-          connections: {
-            label: "Connections",
-            color: "hsl(var(--chart-1))",
-          },
+          data: {
+            connections: {
+              label: "Connections",
+              color: "hsl(var(--chart-1))",
+            },
+          }
         },
         tiles: 2,
       },
@@ -748,10 +781,12 @@ ORDER BY
         description: "Count of exceptions recorded over the last 24 hours.",
         chartConfig: {
           indexBy: "hour",
-          exception_count: {
-            label: "Exception Count",
-            color: "hsl(var(--chart-2))",
-          },
+          data: {
+            exception_count: {
+              label: "Exception Count",
+              color: "hsl(var(--chart-2))",
+            },
+          }
         },
         tiles: 2,
       },

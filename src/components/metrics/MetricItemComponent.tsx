@@ -1,35 +1,6 @@
-import { useState, useEffect, ComponentType } from "react";
+import { useState, useEffect } from "react";
 import { MetricItem } from "@/helpers/metricsConfig";
-import {
-  Bar,
-  BarChart,
-  Line,
-  LineChart,
-  Area,
-  AreaChart,
-  Pie,
-  PieChart,
-  Radar,
-  RadarChart,
-  RadialBar,
-  RadialBarChart,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  ResponsiveContainer,
-} from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  ChartLegend,
-  ChartLegendContent,
-  ChartConfig,
-} from "@/components/ui/chart";
 import CHUITable from "@/components/table/CHUItable";
 import { Skeleton } from "../ui/skeleton";
 import {
@@ -55,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import useAppStore from "@/store/appStore";
+import ChartComponent from "./ChartComponent";
 
 interface Props {
   item: MetricItem;
@@ -75,7 +47,7 @@ function MetricItemComponent({ item }: Props) {
         setData([]);
         setErrorMessage(result.error);
       } else if (result.data && result.data.length > 0) {
-        setData(result);
+        setData(result.data);
         setErrorMessage("");
       } else {
         setData([]);
@@ -154,109 +126,9 @@ function MetricItemComponent({ item }: Props) {
       return <div className="text-muted-foreground font-bold">No data</div>;
     }
 
-    let ChartComponent: ComponentType<any>;
-    let DataComponent: ComponentType<any>;
+    const chartConfig = item.chartConfig || { indexBy: "name", data: {} };
 
-    switch (item.chartType) {
-      case "line":
-        ChartComponent = LineChart;
-        DataComponent = Line;
-        break;
-      case "area":
-        ChartComponent = AreaChart;
-        DataComponent = Area;
-        break;
-      case "pie":
-        ChartComponent = PieChart;
-        DataComponent = Pie;
-        break;
-      case "radar":
-        ChartComponent = RadarChart;
-        DataComponent = Radar;
-        break;
-      case "radial":
-        ChartComponent = RadialBarChart;
-        DataComponent = RadialBar;
-        break;
-      case "bar":
-      default:
-        ChartComponent = BarChart;
-        DataComponent = Bar;
-    }
-
-    const chartConfig = item.chartConfig || {};
-    const dataKeys = Object.keys(chartConfig).filter(
-      (key) => key !== "indexBy"
-    );
-    const dataKey = dataKeys[0];
-    const maxValue = Math.max(
-      ...data.data.map((d: any) => d[dataKey as string])
-    );
-    const yAxisMax = Math.ceil(maxValue * 1.1); // Add 10% padding to the top
-
-    return (
-      <ChartContainer
-        config={chartConfig as ChartConfig}
-        className="mt-4 h-[250px] w-full"
-      >
-        <ResponsiveContainer width="100%" height="100%">
-          <ChartComponent
-            data={data.data}
-            margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
-          >
-            {["bar", "line", "area"].includes(item.chartType || "") && (
-              <>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey={chartConfig.indexBy as string}
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 12 }}
-                  tickMargin={10}
-                  tickFormatter={(value) => value.toString().slice(0, 10)}
-                />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 12 }}
-                  width={40}
-                  domain={[0, yAxisMax]}
-                  allowDataOverflow={false}
-                />
-              </>
-            )}
-            {item.chartType === "radar" && (
-              <>
-                <PolarGrid />
-                <PolarAngleAxis dataKey={chartConfig.indexBy as string} />
-                <PolarRadiusAxis />
-              </>
-            )}
-            <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-            <ChartLegend content={<ChartLegendContent />} />
-            {dataKeys.map((key) => (
-              <DataComponent
-                key={key}
-                dataKey={key}
-                fill={`var(--color-${key})`}
-                stroke={`var(--color-${key})`}
-                strokeWidth={2}
-                dot={false}
-                radius={item.chartType === "bar" ? [4, 4, 0, 0] : undefined}
-                fillOpacity={item.chartType === "area" ? 0.3 : 1}
-                {...(item.chartType === "pie" || item.chartType === "radial"
-                  ? {
-                      data: data.data,
-                      nameKey: chartConfig.indexBy as string,
-                      label: true,
-                    }
-                  : {})}
-              />
-            ))}
-          </ChartComponent>
-        </ResponsiveContainer>
-      </ChartContainer>
-    );
+    return <ChartComponent chartType={item.chartType} data={data.data} config={chartConfig} />;
   };
 
   const renderTable = () => {
