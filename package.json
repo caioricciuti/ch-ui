@@ -62,11 +62,13 @@
     "zustand": "^5.0.0-rc.2"
   },
   "devDependencies": {
+    "@storybook/addon-essentials": "^8.3.6",
     "@storybook/builder-vite": "^8.3.6",
     "@storybook/react": "^8.3.6",
     "@storybook/react-vite": "^8.3.6",
     "@storybook/test": "^8.3.6",
     "@types/node": "^22.7.7",
+    "@types/papaparse": "^5.3.14",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
     "@vitejs/plugin-react": "^4.2.1",
