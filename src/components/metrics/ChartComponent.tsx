@@ -9,7 +9,7 @@ export type ChartComponentProps = {
 } & CategoricalChartProps;
 
 const ChartComponent = ({ chartType, data, margin, config }: ChartComponentProps) => {
-  const dataKeys = Object.keys(config).filter((key) => key !== "indexBy");
+  const dataKeys = Object.keys(config.data);
 
   const dataKey = dataKeys[0];
   const maxValue = Math.max(...data.map((d: any) => d[dataKey as string]));
