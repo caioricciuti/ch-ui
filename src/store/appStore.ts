@@ -33,6 +33,7 @@ const useAppStore = create<AppState>()(
       selectedTableForDelete: null,
       indexDbInstance: null,
       credentialSource: null,
+	    databaseData: [],
 
       setCredentialSource: (source: "env" | "app") => {
         set({ credentialSource: source });
