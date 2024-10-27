@@ -8,11 +8,10 @@ import {
 import WorkspaceTabs from "@/components/tabs/WorkspaceTabs";
 import CreateTable from "@/components/explorer/CreateTable";
 import CreateDatabase from "@/components/explorer/CreateDatabase";
+import { useTitle } from "@/hooks/useTitle";
 
 function HomePage() {
-  useEffect(() => {
-    document.title = "CH-UI | Home - Workspace";
-  }, []);
+  useTitle("Home - Workspace");
 
   return (
     <div className="h-screen w-full overflow-auto">

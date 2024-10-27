@@ -127,8 +127,7 @@ function CHUITable<T extends RowData>({
       {
         id: "row-number",
         header: "#",
-        cell: ({ row }) =>
-          row.index + 1 + pagination.pageIndex * pagination.pageSize,
+        cell: ({ row }) => row.index + 1,
         enableResizing: true,
         size: 60,
         minSize: 40,
