@@ -78,11 +78,12 @@ export default function SettingsPage() {
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
-      // if current values are the same as the form values, do nothing
+      // if current values are the same as the form values and it's connected, do nothing
       if (
         values.host === currentFormValues.host &&
         values.username === currentFormValues.username &&
-        values.password === currentFormValues.password
+        values.password === currentFormValues.password &&
+        isServerAvailable
       ) {
         toast.info("No changes detected.");
         return;

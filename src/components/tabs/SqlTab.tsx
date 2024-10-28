@@ -37,10 +37,6 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
           await fetchDatabaseInfo();
           toast.success("Data Explorer refreshed due to schema change");
         }
-
-        if (result.message) {
-          toast.success(result.message);
-        }
       }
     } catch (error) {
       console.error("Error running query:", error);
@@ -91,15 +87,15 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
     if (tab.result.message) {
       return (
         <div className="m-4">
-          <Alert variant="success">
-            <AlertTitle>Success</AlertTitle>
+          <Alert variant="info">
             <AlertDescription>{tab.result.message}</AlertDescription>
           </Alert>
         </div>
       );
     }
 
-    if (tab.result.data && tab.result.data.length > 0) {
+    if (tab.result.data && tab.result.data.length > 0 && tab.result.meta.length > 0) {
+
       return (
         <CHUITable
           result={{

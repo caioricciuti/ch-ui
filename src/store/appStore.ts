@@ -34,6 +34,7 @@ const useAppStore = create<AppState>()(
       indexDbInstance: null,
       credentialSource: null,
 	    databaseData: [],
+      isAdmin: false,
 
       setCredentialSource: (source: "env" | "app") => {
         set({ credentialSource: source });
@@ -110,13 +111,13 @@ const useAppStore = create<AppState>()(
           statistics: { elapsed: 0, rows_read: 0, bytes_read: 0 },
           rows: 0,
         };
-        
+
         try {
           let result;
           if (isCreateOrInsert(query)) {
             result = await clickHouseClient.command({
               query: query,
-            });  
+            });
           } else {
             result = await clickHouseClient.query({
               query,
@@ -125,7 +126,7 @@ const useAppStore = create<AppState>()(
             jsonResult = await result.json();
           }
 
-          
+
 
           const processedResult = {
             meta: jsonResult.meta || [],
@@ -138,7 +139,7 @@ const useAppStore = create<AppState>()(
             message:
               jsonResult.data && jsonResult.data.length > 0 && jsonResult.meta && jsonResult.meta.length > 0
                 ? null
-                : "Query executed successfully",
+                : `Query executed successfully! ${jsonResult.data && jsonResult.data.length > 0 && jsonResult.meta && jsonResult.meta.length > 0 ? "" : "No data was returned from this query, if you are expecting data, make sure you have the correct filters and/or the table has data."}`,
             rows: jsonResult.rows || 0,
           };
 
@@ -342,6 +343,34 @@ const useAppStore = create<AppState>()(
       closeCreateDatabaseModal: () => set({ isCreateDatabaseModalOpen: false }),
 
       openCreateDatabaseModal: () => set({ isCreateDatabaseModalOpen: true }),
+
+
+      // Admin
+      checkIsAdmin: async () => {
+        const { clickHouseClient } = get();
+        if (!clickHouseClient) {
+          throw new Error("ClickHouse client is not initialized");
+        }
+
+        const result = await clickHouseClient.query({
+          query: `SELECT if(grant_option = 1, true, false) AS is_admin 
+            FROM system.grants 
+            WHERE user_name = currentUser() 
+            LIMIT 1`,
+          format: "JSON",
+        });
+        const resultJSON = await result.json().catch(() => {
+          throw new Error("Failed to parse JSON");
+        }) as { data: { is_admin: boolean }[] };
+
+        console.log(resultJSON);
+
+        if (!Array.isArray(resultJSON.data) || resultJSON.data.length === 0) {
+          throw new Error("Invalid data format");
+        }
+        set({ isAdmin: resultJSON.data[0].is_admin });
+      },
+
     }),
 
     {
@@ -349,7 +378,6 @@ const useAppStore = create<AppState>()(
       partialize: (state) => ({
         credential: state.credential,
         activeTab: state.activeTab,
-        // We don't persist tabs here as they're handled by IndexedDB
       }),
     }
   )

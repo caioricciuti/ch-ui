@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   LineChart,
   BookText,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -59,6 +60,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import Logo from "/logo.png";
 import useAppStore from "@/store/appStore";
+import { Badge } from "@/components/ui/badge";
 
 const commandsSheet = [
   {
@@ -85,8 +87,13 @@ const commandsSheet = [
 
 const Sidebar = () => {
   const { theme, setTheme } = useTheme();
-  const { isServerAvailable, version, isLoadingCredentials, clearCredentials } =
-    useAppStore();
+  const {
+    isServerAvailable,
+    version,
+    isLoadingCredentials,
+    clearCredentials,
+    isAdmin,
+  } = useAppStore();
   const location = useLocation();
   const navigate = useNavigate();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -180,6 +187,31 @@ const Sidebar = () => {
               {isExpanded && <span>{item.label}</span>}
             </Link>
           ))}
+          {isAdmin && (
+            <Link
+              to="/admin"
+              className={`relative flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                location.pathname === "/admin"
+                  ? "bg-secondary text-secondary-foreground"
+                  : "hover:bg-secondary/80"
+              }`}
+            >
+              <div className="relative">
+                <ShieldCheck
+                  className={`h-5 w-5 ${isExpanded ? "mr-2" : ""}`}
+                />
+                <Badge
+                  variant="secondary"
+                  className={`absolute -top-1 -right-0 bg-purple-500 text-[10px] text-white hover:bg-purple-600 p-1
+                    ${isExpanded ? "mr-2" : ""}
+                    `}
+                >
+                  {" "}
+                </Badge>
+              </div>
+              {isExpanded && <span>Admin</span>}
+            </Link>
+          )}
         </nav>
       </ScrollArea>
 
