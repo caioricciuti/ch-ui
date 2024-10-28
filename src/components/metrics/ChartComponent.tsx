@@ -128,7 +128,7 @@ const ChartComponent = ({ chartType, data, margin, config }: ChartComponentProps
             <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
             <ChartLegend content={<ChartLegendContent />} />
             {dataKeys.map((key) => (
-              <Bar key={key} dataKey={key} fill={`var(--color-${key})`} stroke={`var(--color-${key})`} strokeWidth={2} fillOpacity={1} />
+              <Bar key={key} dataKey={key} fill={`var(--color-${key})`} stroke={`var(--color-${key})`} radius={[4, 4, 0, 0]} strokeWidth={2} fillOpacity={1} />
             ))}
           </BarChart>
         );

@@ -47,7 +47,7 @@ function MetricItemComponent({ item }: Props) {
         setData([]);
         setErrorMessage(result.error);
       } else if (result.data && result.data.length > 0) {
-        setData(result.data);
+        setData(result);
         setErrorMessage("");
       } else {
         setData([]);
