@@ -1,4 +1,9 @@
 import { useEffect, useState, ReactNode } from "react";
+import Logo from "/logo.png";
+import { MultiStepLoader as Loader } from "@/components/ui/multi-step-loader";
+
+
+
 
 declare global {
   interface Window {
@@ -10,17 +15,32 @@ declare global {
   }
 }
 import useAppStore from "@/store/appStore";
-import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 const AppInitializer = ({ children }: { children: ReactNode }) => {
+
+  const loadingStates = [
+    {
+      text: "Initializing application..."
+
+    },
+    {
+      text: "Checking if you are an admin..."
+    },
+    {
+      text: "Loading metrics..."
+    },
+    {
+      text: "Loading settings..."
+    },
+  ];
+
   const {
     initializeApp,
-    isInitialized,
     error,
     setCredential,
-    credentialSource,
     setCredentialSource,
+    checkIsAdmin,
   } = useAppStore();
   const [isLoading, setIsLoading] = useState(true);
 
@@ -46,6 +66,7 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
     const init = async () => {
       try {
         await initializeApp();
+        await checkIsAdmin();
       } catch (err) {
         console.error("Initialization failed:", err);
       } finally {
@@ -65,10 +86,9 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
   // Loading state
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <Loader2 className="w-8 h-8 animate-spin" />
-        <span className="ml-2">Initializing application...</span>
-      </div>
+
+      <Loader loadingStates={loadingStates} loading={isLoading} duration={1000} />
+
     );
   }
 

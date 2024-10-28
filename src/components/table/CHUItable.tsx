@@ -145,12 +145,16 @@ function CHUITable<T extends RowData>({
         size: DEFAULT_COLUMN_SIZE,
         enableResizing: true,
         cell: ({ row }: { row: Row<T> }) => {
-          // Access the property directly using bracket notation
           const value = row.original[col.name as keyof T];
+
+          if (typeof value === "boolean") {
+            return value.toString(); // Convert boolean to string
+          }
 
           if (typeof value === "object" && value !== null) {
             return JSON.stringify(value);
           }
+
           return value;
         },
       })),

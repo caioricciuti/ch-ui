@@ -65,6 +65,7 @@ export interface AppState {
   selectedTableForDelete: string | null;
   indexDbInstance: IDBDatabase | null;
   credentialSource: "env" | "app" | null;
+  isAdmin: boolean;
 
   // Methods
   setCredential: (credential: Credential) => Promise<void>;
@@ -85,4 +86,5 @@ export interface AppState {
   getTabById: (tabId: string) => Tab | undefined;
   moveTab: (oldIndex: number, newIndex: number) => void; // Add moveTab here
   setCredentialSource: (source: "env" | "app") => void;
+  checkIsAdmin: () => Promise<void>;
 }

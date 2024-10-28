@@ -739,9 +739,9 @@ ORDER BY
             type IN ('ExceptionBeforeStart', 'ExceptionWhileProcessing') 
             AND event_time > now() - INTERVAL 1 DAY 
           GROUP BY 
-            hour 
+            hourERROR 
           ORDER BY 
-            hour
+            hourERROR
         `,
         type: "chart",
         chartType: "line",

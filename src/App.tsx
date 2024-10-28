@@ -7,6 +7,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import AppInitializer from "@/components/AppInit";
 import NotFound from "./pages/NotFound";
 import { PrivateRoute } from "@/components/privateRoute"; // Import PrivateRoute
+import Admin from "@/pages/admin/Admin";
+import { AdminRoute } from "@/components/admin/adminRoute";
 
 export default function App() {
   return (
@@ -30,6 +32,14 @@ export default function App() {
                   <PrivateRoute>
                     <MetricsPage />
                   </PrivateRoute>
+                }
+              />
+              <Route
+                path="/admin"
+                element={
+                  <AdminRoute>
+                    <Admin />
+                  </AdminRoute>
                 }
               />
               <Route path="/settings" element={<SettingsPage />} />
