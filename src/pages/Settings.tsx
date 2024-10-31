@@ -33,8 +33,8 @@ import {
 } from "@/components/ui/form";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import useAppStore from "@/store/appStore";
-import { retryInitialization } from "@/helpers/monacoConfig";
+import useAppStore from "@/store";
+import { retryInitialization } from "@/features/workspace/editor/monacoConfig";
 
 const formSchema = z.object({
   host: z.string().url("Invalid URL").min(1, "URL is required"),

@@ -1,13 +1,13 @@
 import { useEffect } from "react";
-import DatabaseExplorer from "@/components/explorer/DataExplorer";
+import DatabaseExplorer from "@/features/explorer/components/DataExplorer";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import WorkspaceTabs from "@/components/tabs/WorkspaceTabs";
-import CreateTable from "@/components/explorer/CreateTable";
-import CreateDatabase from "@/components/explorer/CreateDatabase";
+import WorkspaceTabs from "@/features/workspace/components//WorkspaceTabs";
+import CreateTable from "@/features/explorer/components/CreateTable";
+import CreateDatabase from "@/features/explorer/components/CreateDatabase";
 
 function HomePage() {
   useEffect(() => {
