@@ -60,8 +60,7 @@ export const createCoreSlice: StateCreator<
             set({ clickHouseClient: client, clickhouseSettings });
             await get().checkServerStatus();
         } catch (error) {
-            set({ error: (error as Error).message });
-            toast.error(`Failed to update configuration: ${(error as Error).message}`);
+            throw error
         }
     },
 

@@ -12,6 +12,8 @@ import { Database } from "lucide-react";
 import { FormProvider, useForm } from "react-hook-form";
 import InputField from "@/components/common/form/InputField";
 import { OverflowMode } from "@clickhouse/client-common/dist/settings"
+import { ClickHouseSettings } from "@clickhouse/client-common";
+import { toast } from "sonner";
 
 export default function ClickhouseDefaultConfiguration() {
   const {
@@ -19,13 +21,22 @@ export default function ClickhouseDefaultConfiguration() {
     clickhouseSettings
   } = useAppStore();
 
-  const methods = useForm({
+  const methods = useForm<ClickHouseSettings>({
     defaultValues: {
       max_result_rows: clickhouseSettings.max_result_rows ?? "0",
       max_result_bytes: clickhouseSettings.max_result_bytes ?? "0",
-      result_overflow_mode: clickhouseSettings.result_overflow_mode ?? "break" as OverflowMode
+      result_overflow_mode: clickhouseSettings.result_overflow_mode ?? "break"
     },
   });
+
+  const onSubmit = async (data: ClickHouseSettings) => {
+    try {
+      await updateConfiguration(data); // Assuming this is an async function
+      toast.success("Configuration updated successfully")
+    } catch (error) {
+      toast.error(`Failed to update configuration: ${error}` )
+    }
+  };
 
   return (
     <Card className="w-2/8">
@@ -41,7 +52,7 @@ export default function ClickhouseDefaultConfiguration() {
 
       <CardContent className="space-y-4">
         <FormProvider {...methods}>
-          <form onSubmit={methods.handleSubmit(d => updateConfiguration(d))}>
+          <form onSubmit={methods.handleSubmit(onSubmit)}>
             <InputField name="max_result_rows" label="Max result rows"
               rules={{
                 pattern: {
