@@ -1,10 +1,11 @@
 // src/store/slices/core.ts
 import { StateCreator } from 'zustand';
 import { AppState, CoreSlice } from '@/types/common';
-import { createClient } from "@clickhouse/client-web";
+import { ClickHouseSettings, createClient } from "@clickhouse/client-web";
 import { toast } from 'sonner';
 import { isCreateOrInsert } from '@/helpers/sqlUtils';
 import * as IndexedDB from '@/lib/indexDB';
+import { OverflowMode } from "@clickhouse/client-common/dist/settings"
 
 export const createCoreSlice: StateCreator<
     AppState,
@@ -20,6 +21,11 @@ export const createCoreSlice: StateCreator<
     version: "",
     error: "",
     credentialSource: null,
+    clickhouseSettings: {
+        max_result_rows: "0",
+        max_result_bytes: "0",
+        result_overflow_mode: "break" as OverflowMode
+    },
 
     setCredentialSource: (source) => set({ credentialSource: source }),
 
@@ -30,6 +36,7 @@ export const createCoreSlice: StateCreator<
                 url: credential.host,
                 username: credential.username,
                 password: credential.password || "",
+                clickhouse_settings: get().clickhouseSettings
             });
             set({ clickHouseClient: client });
             await get().checkServerStatus();
@@ -41,13 +48,34 @@ export const createCoreSlice: StateCreator<
         }
     },
 
+    updateConfiguration: async (clickhouseSettings: ClickHouseSettings) => {
+        try {
+            const credentials = get().credential
+            const client = createClient({
+                url: credentials.host,
+                username: credentials.username,
+                password: credentials.password || "",
+                clickhouse_settings: clickhouseSettings
+            });
+            set({ clickHouseClient: client, clickhouseSettings });
+            await get().checkServerStatus();
+        } catch (error) {
+            throw error
+        }
+    },
+
     clearCredentials: async () => {
         set({
             credential: {} as Credential,
+            clickhouseSettings: {
+                max_result_rows: "0",
+                max_result_bytes: "0",
+                result_overflow_mode: "break"
+            } ,
             clickHouseClient: null,
             isServerAvailable: false,
             version: "",
-            error: "",
+            error: ""
         });
     },
 

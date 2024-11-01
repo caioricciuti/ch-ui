@@ -62,6 +62,7 @@
     "zustand": "^5.0.0-rc.2"
   },
   "devDependencies": {
+    "@hookform/devtools": "^4.3.1",
     "@types/node": "^22.7.7",
     "@types/papaparse": "^5.3.15",
     "@types/react": "^18.2.66",

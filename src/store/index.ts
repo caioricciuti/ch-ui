@@ -20,6 +20,7 @@ const useAppStore = create<AppState>()(
             partialize: (state) => ({
                 credential: state.credential,
                 activeTab: state.activeTab,
+                clickhouseSettings: state.clickhouseSettings
             }),
         }
     )
