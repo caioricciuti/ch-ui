@@ -7,11 +7,9 @@ import {
   CardDescription,
   CardContent,
 } from "@/components/ui/card";
-import { DevTool } from "@hookform/devtools";
 import { Database } from "lucide-react";
 import { FormProvider, useForm } from "react-hook-form";
 import InputField from "@/components/common/form/InputField";
-import { OverflowMode } from "@clickhouse/client-common/dist/settings"
 import { ClickHouseSettings } from "@clickhouse/client-common";
 import { toast } from "sonner";
 
@@ -78,7 +76,6 @@ export default function ClickhouseDefaultConfiguration() {
               Save
             </Button>
           </form>
-          <DevTool control={methods.control} />
         </FormProvider>
       </CardContent>
 
