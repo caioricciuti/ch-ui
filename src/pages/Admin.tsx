@@ -4,6 +4,7 @@ import UserTable from "@/features/admin/components/UserTable";
 import { InfoIcon, ShieldCheck } from "lucide-react";
 import InfoDialog from "@/components/common/InfoDialog";
 import ActivateSavedQueries from "@/features/admin/components/ActivateSavedQueries";
+import ClickhouseDefaultConfiguration from "@/features/admin/components/ClickhouseDefaultConfiguration";
 
 export default function Admin() {
   const [isInfoOpen, setIsInfoOpen] = useState(false);
@@ -49,7 +50,10 @@ export default function Admin() {
       </h1>
       <div className="flex flex-col gap-4">
         <UserTable />
-        <ActivateSavedQueries />
+        <div className="flex flex-row gap-4">
+          <ActivateSavedQueries />
+          <ClickhouseDefaultConfiguration />
+        </div>
       </div>
     </div>
   );

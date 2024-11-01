@@ -15,7 +15,7 @@ export default function App() {
     <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
       <Router>
         <AppInitializer>
-          <div className="flex h-screen overflow-hidden">
+          <div className="flex h-screen">
             <Sidebar />
             <Routes>
               <Route

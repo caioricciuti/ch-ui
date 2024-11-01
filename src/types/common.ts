@@ -1,4 +1,5 @@
 // src/types/common.ts
+import { ClickHouseSettings } from "@clickhouse/client-web";
 import { WebClickHouseClient } from "@clickhouse/client-web/dist/client";
 
 export interface Credential {
@@ -42,6 +43,7 @@ export interface CoreState {
     version: string;
     error: string;
     credentialSource: "env" | "app" | null;
+    clickhouseSettings: ClickHouseSettings
 }
 
 export interface CoreSlice extends CoreState {
@@ -51,6 +53,7 @@ export interface CoreSlice extends CoreState {
     runQuery: (query: string, tabId?: string) => Promise<any>;
     initializeApp: () => Promise<void>;
     setCredentialSource: (source: "env" | "app") => void;
+    updateConfiguration: (clickhouseSettings: ClickHouseSettings) => void;
 }
 
 export interface WorkspaceState {

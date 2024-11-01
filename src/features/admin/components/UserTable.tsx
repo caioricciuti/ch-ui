@@ -158,6 +158,7 @@ const UserData: React.FC = () => {
 
   const getAuthType = (types: string[]) => {
     if (!types) return [];
+    if (!Array.isArray(types)) return [];
     return types.map((type) =>
       type.replace(/'([^']+)'.*/, "$1").replace(/_/g, " ")
     );
