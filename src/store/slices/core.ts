@@ -30,6 +30,11 @@ export const createCoreSlice: StateCreator<
                 url: credential.host,
                 username: credential.username,
                 password: credential.password || "",
+                clickhouse_settings: {
+                    max_result_rows: "1000",
+                    max_result_bytes: "10000000",
+                    result_overflow_mode: "break"
+                }
             });
             set({ clickHouseClient: client });
             await get().checkServerStatus();
