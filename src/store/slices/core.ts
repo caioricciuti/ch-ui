@@ -50,9 +50,7 @@ export const createCoreSlice: StateCreator<
 
     updateConfiguration: async (clickhouseSettings: ClickHouseSettings) => {
         try {
-            console.log(clickhouseSettings)
             const credentials = get().credential
-            console.log(credentials)
             const client = createClient({
                 url: credentials.host,
                 username: credentials.username,
@@ -78,7 +76,7 @@ export const createCoreSlice: StateCreator<
             clickHouseClient: null,
             isServerAvailable: false,
             version: "",
-            error: "",
+            error: ""
         });
     },
 

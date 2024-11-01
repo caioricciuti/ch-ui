@@ -15,14 +15,15 @@ import { OverflowMode } from "@clickhouse/client-common/dist/settings"
 
 export default function ClickhouseDefaultConfiguration() {
   const {
-    updateConfiguration
+    updateConfiguration,
+    clickhouseSettings
   } = useAppStore();
 
   const methods = useForm({
     defaultValues: {
-      max_result_rows: "0",
-      max_result_bytes: "0",
-      result_overflow_mode: "break" as OverflowMode
+      max_result_rows: clickhouseSettings.max_result_rows ?? "0",
+      max_result_bytes: clickhouseSettings.max_result_bytes ?? "0",
+      result_overflow_mode: clickhouseSettings.result_overflow_mode ?? "break" as OverflowMode
     },
   });
 
@@ -59,24 +60,6 @@ export default function ClickhouseDefaultConfiguration() {
               }}
               required
             />
-            {/* <FormField control={form.control}
-              name="maxResultRows"
-              rules={{
-                pattern: {
-                  value: /^[0-9]+$/,
-                  message: "Only numbers",
-                },
-              }}
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Max result rows</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Enter the max result rows" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}>
-            </FormField> */}
             <Button
               type="submit"
               className="w-full mt-2"
