@@ -5,6 +5,6 @@ services:
     ports:
       - "${CH_UI_PORT:-5521}:5521"
     environment:
-      VITE_CLICKHOUSE_URL: "http://your-clickhouse-server:8123"
-      VITE_CLICKHOUSE_USER: "your-username"
-      VITE_CLICKHOUSE_PASS: "your-password"
+      VITE_CLICKHOUSE_URL: "${CLICKHOUSE_URL}"
+      VITE_CLICKHOUSE_USER: "${CLICKHOUSE_USER}"
+      VITE_CLICKHOUSE_PASS: "${CLICKHOUSE_PASS}"
