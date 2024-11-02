@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import UserTable from "@/features/admin/components/UserTable";
+import UserTable from "@/features/admin/components/UserManagement/index";
 import { InfoIcon, ShieldCheck } from "lucide-react";
 import InfoDialog from "@/components/common/InfoDialog";
 import ActivateSavedQueries from "@/features/admin/components/ActivateSavedQueries";
@@ -8,7 +8,7 @@ import ClickhouseDefaultConfiguration from "@/features/admin/components/Clickhou
 
 export default function Admin() {
   const [isInfoOpen, setIsInfoOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState("users"); // Track active section
+  const [activeSection, setActiveSection] = useState("config");
 
   return (
     <div className="min-h-screen bg-black text-gray-300 w-full">

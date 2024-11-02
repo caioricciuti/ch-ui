@@ -14,25 +14,22 @@ import { ClickHouseSettings } from "@clickhouse/client-common";
 import { toast } from "sonner";
 
 export default function ClickhouseDefaultConfiguration() {
-  const {
-    updateConfiguration,
-    clickhouseSettings
-  } = useAppStore();
+  const { updateConfiguration, clickhouseSettings } = useAppStore();
 
   const methods = useForm<ClickHouseSettings>({
     defaultValues: {
       max_result_rows: clickhouseSettings.max_result_rows ?? "0",
       max_result_bytes: clickhouseSettings.max_result_bytes ?? "0",
-      result_overflow_mode: clickhouseSettings.result_overflow_mode ?? "break"
+      result_overflow_mode: clickhouseSettings.result_overflow_mode ?? "break",
     },
   });
 
   const onSubmit = async (data: ClickHouseSettings) => {
     try {
       await updateConfiguration(data); // Assuming this is an async function
-      toast.success("Configuration updated successfully")
+      toast.success("Configuration updated successfully");
     } catch (error) {
-      toast.error(`Failed to update configuration: ${error}` )
+      toast.error(`Failed to update configuration: ${error}`);
     }
   };
 
@@ -44,14 +41,17 @@ export default function ClickhouseDefaultConfiguration() {
           <CardTitle>Default values</CardTitle>
         </div>
         <CardDescription>
-          Set default values when are doing the queries (only affects your session in ch-ui)
+          Set default values when are doing the queries (only affects your
+          session in ch-ui)
         </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-4">
         <FormProvider {...methods}>
           <form onSubmit={methods.handleSubmit(onSubmit)}>
-            <InputField name="max_result_rows" label="Max result rows"
+            <InputField
+              name="max_result_rows"
+              label="Max result rows"
               rules={{
                 pattern: {
                   value: /^[0-9]+$/,
@@ -60,7 +60,9 @@ export default function ClickhouseDefaultConfiguration() {
               }}
               required
             />
-            <InputField name="max_result_bytes" label="Max result bytes"
+            <InputField
+              name="max_result_bytes"
+              label="Max result bytes"
               rules={{
                 pattern: {
                   value: /^[0-9]+$/,
@@ -69,17 +71,12 @@ export default function ClickhouseDefaultConfiguration() {
               }}
               required
             />
-            <Button
-              type="submit"
-              className="w-full mt-2"
-            >
+            <Button type="submit" className="w-full mt-2">
               Save
             </Button>
           </form>
         </FormProvider>
       </CardContent>
-
-
     </Card>
   );
 }
