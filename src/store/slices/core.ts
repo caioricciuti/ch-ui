@@ -13,7 +13,11 @@ export const createCoreSlice: StateCreator<
     [],
     CoreSlice
 > = (set, get) => ({
-    credential: {} as Credential,
+    credential: {
+        host: "",
+        username: "",
+        password: ""
+    },
     clickHouseClient: null,
     isLoadingCredentials: false,
     isServerAvailable: false,
@@ -39,7 +43,9 @@ export const createCoreSlice: StateCreator<
                 clickhouse_settings: get().clickhouseSettings
             });
             set({ clickHouseClient: client });
-            await get().checkServerStatus();
+            await get().checkServerStatus().then(() => {
+                get().checkIsAdmin();
+            });
         } catch (error) {
             set({ error: (error as Error).message });
             toast.error(`Failed to set credentials: ${(error as Error).message}`);
@@ -66,12 +72,16 @@ export const createCoreSlice: StateCreator<
 
     clearCredentials: async () => {
         set({
-            credential: {} as Credential,
+            credential: {
+                host: "",
+                username: "",
+                password: ""
+            },
             clickhouseSettings: {
                 max_result_rows: "0",
                 max_result_bytes: "0",
                 result_overflow_mode: "break"
-            } ,
+            },
             clickHouseClient: null,
             isServerAvailable: false,
             version: "",

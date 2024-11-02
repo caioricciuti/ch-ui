@@ -4,6 +4,12 @@ import { AppState, ExplorerSlice } from '@/types/common';
 import { appQueries } from '@/features/workspace/editor/appQueries';
 import { toast } from 'sonner';
 
+interface DatabaseInfo {
+    name: string;
+    type: "database";
+    children: Array<{ name: string; type: "table" | "view" }>;
+}
+
 export const createExplorerSlice: StateCreator<
     AppState,
     [],

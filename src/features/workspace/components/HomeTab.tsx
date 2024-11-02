@@ -20,6 +20,7 @@ import {
 import useAppStore from "@/store";
 import { motion } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
+import { genTabId } from "@/lib/utils";
 
 const quickStartActions = [
   {
@@ -85,7 +86,7 @@ const HomeTab = () => {
 
   const handleNewAction = (type: string, query?: string) => {
     addTab({
-      id: Math.random().toString(36).substr(2, 9),
+      id: genTabId(),
       type: "sql",
       title: query
         ? `Recent - ${type}`
@@ -109,7 +110,7 @@ const HomeTab = () => {
       FROM
         system.query_log
       WHERE
-        user = 'default'
+        user = '${credential.username}'
         AND event_time >= (current_timestamp() - INTERVAL 2 DAY)
         AND arrayExists(db -> db NOT LIKE '%system%', databases)
         AND query NOT LIKE 'SELECT DISTINCT%'

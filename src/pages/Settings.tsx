@@ -291,12 +291,7 @@ export default function SettingsPage() {
             </div>
           </Alert>
         ) : error ? (
-          <Alert variant="destructive" className="mt-4">
-            <AlertTitle className="flex items-center">
-              <AlertTriangle className="mr-2" /> Connection Failed
-            </AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
+          <></>
         ) : null}
       </div>
     </div>

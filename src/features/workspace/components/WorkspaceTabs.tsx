@@ -32,7 +32,7 @@ import useAppStore from "@/store";
 import SqlTab from "@/features/workspace/components//SqlTab";
 import InformationTab from "@/features/workspace/components//InformationTab";
 import { Input } from "@/components/ui/input";
-
+import { genTabId } from "@/lib/utils";
 interface Tab {
   id: string;
   title: string;
@@ -153,7 +153,7 @@ export function WorkspaceTabs() {
 
   const addNewCodeTab = useCallback(() => {
     addTab({
-      id: Math.random().toString(36).substr(2, 9),
+      id: genTabId(),
       title: "Query " + tabs.length,
       type: "sql",
       content: "",
@@ -177,8 +177,7 @@ export function WorkspaceTabs() {
     return homeTab ? [homeTab, ...otherTabs] : otherTabs;
   }, [tabs]);
 
-
-/*
+  /*
   ***** Keyboard shortcuts COMMENTED OUT ***** 
   useEffect(() => {
     // Keyboard shortcuts

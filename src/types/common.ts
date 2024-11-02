@@ -101,10 +101,10 @@ export interface AdminState {
 }
 
 export interface AdminSlice extends AdminState {
-    checkIsAdmin: () => Promise<void>;
+    checkIsAdmin: () => Promise<boolean>;
     activateSavedQueries: () => Promise<void>;
-    deactivateSavedQueries: () => Promise<void>;
-    checkSavedQueriesStatus: () => Promise<void>;
+    deactivateSavedQueries: () => Promise<boolean>;
+    checkSavedQueriesStatus: () => Promise<boolean>;
 }
 
 // src/types/store/index.ts

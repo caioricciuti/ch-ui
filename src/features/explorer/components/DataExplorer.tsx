@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
+import { genTabId } from "@/lib/utils";
 const DatabaseExplorer: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const {
@@ -76,7 +76,7 @@ const DatabaseExplorer: React.FC = () => {
                 <DropdownMenuItem
                   onClick={() =>
                     addTab({
-                      id: Math.random().toString(36).substr(2, 9),
+                      id: genTabId(), 
                       type: "sql",
                       title: "Query",
                       content: "",

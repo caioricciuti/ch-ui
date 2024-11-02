@@ -11,6 +11,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -24,6 +26,21 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
   MoreHorizontal,
   KeyRound,
   Database,
@@ -32,45 +49,31 @@ import {
   Lock,
   Settings,
   AlertTriangle,
+  Search,
+  RefreshCcw,
+  Key,
+  Trash,
 } from "lucide-react";
 import useAppStore from "@/store";
 import { toast } from "sonner";
 import CreateNewUser from "./CreateNewUser";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { generateRandomPassword } from "@/lib/utils";
+import { UserData } from "../types";
 
-interface UserData {
-  name: string;
-  id: string;
-  auth_type: string[];
-  host_ip: string[];
-  host_names: string[];
-  host_names_regexp: string[];
-  host_names_like: string[];
-  default_roles_all: number;
-  default_roles_list: string[];
-  default_database: string;
-  grantees_any: number;
-  grantees_list: string[];
-  grants?: string[];
-  settings_profile?: string;
-  readonly?: boolean;
-}
-
-interface CreateNewUserProps {
-  onUserCreated: () => void;
-}
-
-const UserData: React.FC = () => {
+const UserTable: React.FC = () => {
   const { runQuery, isAdmin } = useAppStore();
   const [users, setUsers] = React.useState<UserData[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
   const [selectedUser, setSelectedUser] = React.useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = React.useState(false);
+  const [showResetPasswordDialog, setShowResetPasswordDialog] =
+    React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
   const [refreshTrigger, setRefreshTrigger] = React.useState(0);
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [newPassword, setNewPassword] = React.useState<string | null>(null);
 
   const fetchUserGrants = async (username: string) => {
     try {
@@ -101,21 +104,19 @@ const UserData: React.FC = () => {
       setLoading(true);
       setError("");
 
-      // Fetch basic user information
       const usersResult = await runQuery(`
-                SELECT 
-                    name, id, auth_type, host_ip, host_names,
-                    host_names_regexp, host_names_like, default_roles_all,
-                    default_roles_list, default_database, grantees_any, grantees_list
-                FROM system.users
-                ORDER BY name ASC
-            `);
+        SELECT 
+          name, id, auth_type, host_ip, host_names,
+          host_names_regexp, host_names_like, default_roles_all,
+          default_roles_list, default_database, grantees_any, grantees_list
+        FROM system.users
+        ORDER BY name ASC
+      `);
 
       if (usersResult.error) {
         throw new Error(usersResult.error);
       }
 
-      // Enhance user data with grants and settings
       const enhancedUsers = await Promise.all(
         usersResult.data.map(async (user: UserData) => {
           const [grants, settings] = await Promise.all([
@@ -172,9 +173,7 @@ const UserData: React.FC = () => {
 
     setDeleting(true);
     try {
-      // First revoke all privileges
       await runQuery(`REVOKE ALL PRIVILEGES ON *.* FROM ${username}`);
-      // Then drop the user
       await runQuery(`DROP USER IF EXISTS ${username}`);
       toast.success(`User ${username} deleted successfully`);
       setRefreshTrigger((prev) => prev + 1);
@@ -188,12 +187,17 @@ const UserData: React.FC = () => {
     }
   };
 
-  const refreshUserPassword = async (username: string) => {
+  const handleRefreshPassword = async (username: string) => {
+    const password = generateRandomPassword();
+    setNewPassword(password); // Store the new password
+
     try {
-      const password = generateRandomPassword();
-      await runQuery(`ALTER USER ${username} SET PASSWORD = '${password}'`);
+      await runQuery(
+        `ALTER USER ${username} IDENTIFIED WITH sha256_password BY '${password}'`
+      );
       toast.success(`Password reset for ${username}`);
       setRefreshTrigger((prev) => prev + 1);
+      setShowResetPasswordDialog(false);
     } catch (error: any) {
       const errorMessage = error.message || "Failed to reset password";
       setError(errorMessage);
@@ -201,156 +205,292 @@ const UserData: React.FC = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <>
-        <Skeleton className="w-full h-20" />
-        <Skeleton className="w-full h-20" />
-        <Skeleton className="w-full h-20" />
-        <Skeleton className="w-full h-20" />
-      </>
+  const filteredUsers = React.useMemo(() => {
+    return users.filter(
+      (user) =>
+        user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        user.default_database
+          ?.toLowerCase()
+          .includes(searchQuery.toLowerCase()) ||
+        user.default_roles_list?.some((role) =>
+          role.toLowerCase().includes(searchQuery.toLowerCase())
+        )
     );
+  }, [users, searchQuery]);
+
+  const TableSkeletons = () => (
+    <div className="space-y-4 w-full h-[calc(100vh-300px)]">
+      <Skeleton className="h-[calc(15vh-30px)] w-full" />
+      <Skeleton className="h-[calc(15vh-30px)] w-full" />
+      <Skeleton className="h-[calc(15vh-30px)] w-full" />
+      <Skeleton className="h-[calc(15vh-30px)] w-full" />
+
+    </div>
+  );
+
+  if (loading) {
+    return <TableSkeletons />;
   }
 
   return (
-    <Card className="space-y-4 p-4 h-96 overflow-auto">
-      {error && (
-        <div className="flex items-center gap-2 bg-destructive/15 text-destructive px-4 py-2 rounded-md">
-          <AlertTriangle className="h-4 w-4" />
-          <span>{error}</span>
-        </div>
-      )}
+    <TooltipProvider>
+      <Card className="border shadow-md">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-2xl font-bold">
+                User Management
+              </CardTitle>
+              <CardDescription>
+                Manage database users, roles, and permissions
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setRefreshTrigger((prev) => prev + 1)}
+                className={loading ? "animate-spin" : ""}
+              >
+                <RefreshCcw className="h-4 w-4" />
+              </Button>
+              {isAdmin && (
+                <CreateNewUser
+                  onUserCreated={() => setRefreshTrigger((prev) => prev + 1)}
+                />
+              )}
+            </div>
+          </div>
+        </CardHeader>
 
-      <div className="flex justify-between items-center">
-        <h2 className="text-lg font-semibold">User Management</h2>
-        {isAdmin && (
-          <CreateNewUser
-            onUserCreated={() => setRefreshTrigger((prev) => prev + 1)}
-          />
-        )}
-      </div>
+        <CardContent>
+          <div className="flex items-center space-x-2 mb-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search users, roles, or databases..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8"
+              />
+            </div>
+          </div>
 
-      <Table className="min-w-[1000px]">
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[200px]">User</TableHead>
-            <TableHead>Authentication</TableHead>
-            <TableHead>Roles & Database</TableHead>
-            <TableHead>Access</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="w-[100px]">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {users.map((user) => (
-            <TableRow key={user.name}>
-              <TableCell className="font-medium">
-                <div className="flex items-center space-x-2">
-                  <KeyRound className="h-4 w-4" />
-                  <span>{user.name}</span>
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-1">
-                  {getAuthType(user.auth_type).map((type, idx) => (
-                    <Badge
-                      key={idx}
-                      variant="outline"
-                      className="flex items-center"
-                    >
-                      {type}
-                    </Badge>
-                  ))}
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="space-y-1">
-                  <div className="flex flex-wrap gap-1">
-                    {user.default_roles_all === 1 ? (
-                      <Badge variant="default" className="flex items-center">
-                        All Roles
-                      </Badge>
-                    ) : user.default_roles_list?.length > 0 ? (
-                      user.default_roles_list.map((role, idx) => (
-                        <Badge
-                          key={idx}
-                          variant="outline"
-                          className="flex items-center"
-                        >
-                          {role}
-                        </Badge>
-                      ))
-                    ) : (
-                      <span className="text-muted-foreground">No roles</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Database className="h-3 w-3" />
-                    {user.default_database || "No default database"}
-                  </div>
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center space-x-2">
-                  <Network className="h-4 w-4" />
-                  <span className="text-sm">{getHostAccess(user)}</span>
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-2">
-                  {user.readonly && (
-                    <Badge variant="secondary" className="flex items-center">
-                      <Lock className="h-3 w-3 mr-1" />
-                      Read-only
-                    </Badge>
-                  )}
-                  {user.settings_profile && (
-                    <Badge variant="outline" className="flex items-center">
-                      <Settings className="h-3 w-3 mr-1" />
-                      {user.settings_profile}
-                    </Badge>
-                  )}
-                  {user.grantees_any === 1 && (
-                    <Badge variant="secondary" className="flex items-center">
-                      <Users className="h-3 w-3 mr-1" />
-                      Can Grant
-                    </Badge>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="h-8 w-8 p-0">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setSelectedUser(user.name);
-                        setShowDeleteDialog(true);
-                      }}
-                      className="text-destructive"
-                    >
-                      <AlertTriangle className="h-4 w-4 mr-2" />
-                      Delete User
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          {error && (
+            <div className="flex items-center gap-2 bg-destructive/15 text-destructive px-4 py-2 rounded-md mb-4">
+              <AlertTriangle className="h-4 w-4" />
+              <span>{error}</span>
+            </div>
+          )}
 
+          <ScrollArea className="h-[calc(100vh-300px)] rounded-md border">
+            <Table className="min-w-[1000px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[200px]">User</TableHead>
+                  <TableHead>Authentication</TableHead>
+                  <TableHead>Roles & Database</TableHead>
+                  <TableHead>Access</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="w-[100px]">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredUsers.map((user) => (
+                  <TableRow key={user.name} className="group hover:bg-muted/50">
+                    <TableCell className="font-medium">
+                      <div className="flex items-center space-x-2">
+                        <div className="bg-primary/10 p-2 rounded-full">
+                          <KeyRound className="h-4 w-4 text-primary" />
+                        </div>
+                        <span>{user.name}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {getAuthType(user.auth_type).map((type, idx) => (
+                          <Badge
+                            key={idx}
+                            variant="outline"
+                            className="bg-primary/5"
+                          >
+                            {type}
+                          </Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap gap-1">
+                          {user.default_roles_all === 1 ? (
+                            <Badge variant="default" className="bg-primary">
+                              All Roles
+                            </Badge>
+                          ) : user.default_roles_list?.length > 0 ? (
+                            user.default_roles_list.map((role, idx) => (
+                              <Badge key={idx} variant="secondary">
+                                {role}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-muted-foreground">
+                              No roles
+                            </span>
+                          )}
+                        </div>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground cursor-help">
+                              <Database className="h-3 w-3" />
+                              {user.default_database || "No default database"}
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Default Database</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center space-x-2">
+                            <Network className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm">
+                              {getHostAccess(user)}
+                            </span>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Host Access Configuration</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-2">
+                        {user.readonly && (
+                          <Badge variant="secondary" className="gap-1">
+                            <Lock className="h-3 w-3" />
+                            Read-only
+                          </Badge>
+                        )}
+                        {user.settings_profile && (
+                          <Badge variant="outline" className="gap-1">
+                            <Settings className="h-3 w-3" />
+                            {user.settings_profile}
+                          </Badge>
+                        )}
+                        {user.grantees_any === 1 && (
+                          <Badge variant="secondary" className="gap-1">
+                            <Users className="h-3 w-3" />
+                            Can Grant
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuLabel>User Actions</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="gap-2"
+                            onClick={() => {
+                              setSelectedUser(user.name);
+                              setShowResetPasswordDialog(true);
+                            }}
+                          >
+                            <Key className="h-4 w-4" />
+                            Reset Password
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="gap-2 text-destructive"
+                            onClick={() => {
+                              setSelectedUser(user.name);
+                              setShowDeleteDialog(true);
+                            }}
+                          >
+                            <Trash className="h-4 w-4" />
+                            Delete User
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+
+      {/* Reset Password Confirmation Dialog */}
+      <Dialog
+        open={showResetPasswordDialog}
+        onOpenChange={setShowResetPasswordDialog}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to reset the password for "{selectedUser}"?
+              This action will generate a new password.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowResetPasswordDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() =>
+                selectedUser && handleRefreshPassword(selectedUser)
+              }
+            >
+              Reset Password
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* New Password Display Dialog */}
+      <Dialog open={!!newPassword} onOpenChange={() => setNewPassword(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Password Reset Successful</DialogTitle>
+            <DialogDescription>
+              The new password for "{selectedUser}" is:{" "}
+              <strong>{newPassword}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewPassword(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete User</DialogTitle>
             <DialogDescription>
               Are you sure you want to delete the user "{selectedUser}"? This
-              action cannot be undone and will revoke all privileges.
+              action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -371,8 +511,8 @@ const UserData: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </TooltipProvider>
   );
 };
 
-export default UserData;
+export default UserTable;

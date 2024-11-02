@@ -1,7 +1,23 @@
-// src/store/slices/admin.ts
 import { StateCreator } from 'zustand';
 import { AppState, AdminSlice } from '@/types/common';
 import { toast } from 'sonner';
+
+// Define specific error types
+export class ClickHouseError extends Error {
+    constructor(message: string, public readonly originalError?: unknown) {
+        super(message);
+        this.name = 'ClickHouseError';
+    }
+}
+
+// Define response types
+interface AdminCheckResponse {
+    data: Array<{ is_admin: boolean }>;
+}
+
+interface SavedQueriesCheckResponse {
+    data: Array<{ exists: number }>;
+}
 
 export const createAdminSlice: StateCreator<
     AppState,
@@ -18,34 +34,44 @@ export const createAdminSlice: StateCreator<
         error: null
     },
 
-    checkIsAdmin: async () => {
+    checkIsAdmin: async (): Promise<boolean> => {
         const { clickHouseClient } = get();
+
         if (!clickHouseClient) {
-            throw new Error("ClickHouse client is not initialized");
+            throw new ClickHouseError('ClickHouse client is not initialized');
         }
 
         try {
             const result = await clickHouseClient.query({
-                query: `SELECT if(grant_option = 1, true, false) AS is_admin 
-                FROM system.grants 
-                WHERE user_name = currentUser() 
-                LIMIT 1`,
-                format: "JSON",
+                query: `
+                    SELECT if(grant_option = 1, true, false) AS is_admin 
+                    FROM system.grants 
+                    WHERE user_name = currentUser() 
+                    LIMIT 1
+                `,
+                format: 'JSON',
             });
-            const resultJSON = await result.json();
 
-            if (!Array.isArray(resultJSON.data) || resultJSON.data.length === 0) {
-                throw new Error("Invalid data format");
+            const response = (await result.json()) as AdminCheckResponse;
+
+            if (!Array.isArray(response.data) || response.data.length === 0) {
+                throw new ClickHouseError('No admin status data returned');
             }
-            set({ isAdmin: resultJSON?.data[0].is_admin as boolean });
+
+            set({ isAdmin: response.data[0].is_admin });
+            return response.data[0].is_admin;
+
         } catch (error) {
-            console.error("Failed to check admin status:", error);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+            console.error('Failed to check admin status:', errorMessage);
             set({ isAdmin: false });
+            throw new ClickHouseError('Failed to check admin status', error);
         }
     },
 
-    checkSavedQueriesStatus: async () => {
+    checkSavedQueriesStatus: async (): Promise<boolean> => {
         const { runQuery } = get();
+
         set(state => ({
             savedQueries: {
                 ...state.savedQueries,
@@ -55,21 +81,35 @@ export const createAdminSlice: StateCreator<
         }));
 
         try {
-            const result = await runQuery("DESCRIBE CH_UI.saved_queries");
+            const result = await runQuery(`
+                 SELECT COUNT(*) as exists 
+                 FROM system.tables 
+                 WHERE database = 'CH_UI' 
+                 AND name = 'saved_queries'
+            `);
+
+            const response = (result) as SavedQueriesCheckResponse;
+            const isActive = response.data[0]?.exists > 0;
+
             set(state => ({
                 savedQueries: {
                     ...state.savedQueries,
-                    isSavedQueriesActive: result.data.length > 0,
+                    isSavedQueriesActive: isActive
                 }
             }));
+
+            return isActive;
+
         } catch (error) {
+            const errorMessage = `Failed to check saved queries status: ${error}`;
             set(state => ({
                 savedQueries: {
                     ...state.savedQueries,
                     isSavedQueriesActive: false,
-                    error: "Failed to check saved queries status"
+                    error: errorMessage
                 }
             }));
+            throw new ClickHouseError(errorMessage, error);
         } finally {
             set(state => ({
                 savedQueries: {
@@ -82,6 +122,7 @@ export const createAdminSlice: StateCreator<
 
     activateSavedQueries: async () => {
         const { runQuery } = get();
+
         set(state => ({
             savedQueries: {
                 ...state.savedQueries,
@@ -91,29 +132,45 @@ export const createAdminSlice: StateCreator<
         }));
 
         try {
-            await runQuery("CREATE DATABASE IF NOT EXISTS CH_UI");
-            await runQuery(`
-        CREATE TABLE IF NOT EXISTS CH_UI.saved_queries (
-          id String,
-          name String,
-          query String,
-          created_at DateTime,
-          updated_at DateTime,
-          owner String,
-          PRIMARY KEY (id)
-        ) ENGINE = MergeTree()
-      `);
+            // Run queries in sequence with proper error handling
+            await runQuery('CREATE DATABASE IF NOT EXISTS CH_UI').then(async () => {
+                await runQuery(`
+                    CREATE TABLE IF NOT EXISTS CH_UI.saved_queries (
+                        id String,
+                        name String,
+                        query String,
+                        created_at DateTime64(3),
+                        updated_at DateTime64(3),
+                        owner String,
+                        is_public Boolean DEFAULT false,
+                        tags Array(String) DEFAULT [],
+                        description String DEFAULT '',
+                        PRIMARY KEY (id)
+                    ) ENGINE = MergeTree()
+                    ORDER BY (id, created_at)
+                    SETTINGS index_granularity = 8192
+                `);
+            });
 
-            await get().checkSavedQueriesStatus();
-            toast.success("Saved queries activated successfully");
+            // Verify the table was created successfully
+            const isActive = await get().checkSavedQueriesStatus();
+
+            if (!isActive) {
+                throw new ClickHouseError('Table creation verification failed');
+            }
+
+            toast.success('Saved queries activated successfully');
+
         } catch (error) {
+            const errorMessage = 'Failed to activate saved queries';
             set(state => ({
                 savedQueries: {
                     ...state.savedQueries,
-                    error: "Failed to activate saved queries"
+                    error: errorMessage
                 }
             }));
-            toast.error("Failed to activate saved queries");
+            toast.error(errorMessage);
+            throw new ClickHouseError(errorMessage, error);
         } finally {
             set(state => ({
                 savedQueries: {
@@ -126,6 +183,7 @@ export const createAdminSlice: StateCreator<
 
     deactivateSavedQueries: async () => {
         const { runQuery } = get();
+
         set(state => ({
             savedQueries: {
                 ...state.savedQueries,
@@ -135,17 +193,28 @@ export const createAdminSlice: StateCreator<
         }));
 
         try {
-            await runQuery("DROP TABLE IF EXISTS CH_UI.saved_queries");
-            await get().checkSavedQueriesStatus();
-            toast.success("Saved queries deactivated successfully");
+            await runQuery('DROP TABLE IF EXISTS CH_UI.saved_queries');
+
+            // Verify the table was dropped successfully
+            const isActive = await get().checkSavedQueriesStatus();
+
+            if (isActive) {
+                throw new ClickHouseError('Table deletion verification failed');
+            }
+
+            toast.success('Saved queries deactivated successfully');
+            return true;
+
         } catch (error) {
+            const errorMessage = 'Failed to deactivate saved queries';
             set(state => ({
                 savedQueries: {
                     ...state.savedQueries,
-                    error: "Failed to deactivate saved queries"
+                    error: errorMessage
                 }
             }));
-            toast.error("Failed to deactivate saved queries");
+            toast.error(errorMessage);
+            throw new ClickHouseError(errorMessage, error);
         } finally {
             set(state => ({
                 savedQueries: {
