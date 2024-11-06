@@ -1,10 +1,10 @@
 import React, { useEffect } from "react";
-import { metrics } from "@/helpers/metricsConfig";
-import MetricItemComponent from "@/components/metrics/MetricItemComponent";
-import MetricsNavigationMenu from "@/components/metrics/MetricsNavigationMenu";
+import { metrics } from "@/features/metrics/config/metricsConfig";
+import MetricItemComponent from "@/features/metrics/components/MetricItemComponent";
+import MetricsNavigationMenu from "@/features/metrics/components/MetricsNavigationMenu";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import useAppStore from "@/store/appStore";
+import useAppStore from "@/store";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 function MetricsOverview() {
