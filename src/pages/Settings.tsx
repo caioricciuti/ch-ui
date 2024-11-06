@@ -33,8 +33,8 @@ import {
 } from "@/components/ui/form";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import useAppStore from "@/store/appStore";
-import { retryInitialization } from "@/helpers/monacoConfig";
+import useAppStore from "@/store";
+import { retryInitialization } from "@/features/workspace/editor/monacoConfig";
 
 const formSchema = z.object({
   host: z.string().url("Invalid URL").min(1, "URL is required"),
@@ -291,12 +291,7 @@ export default function SettingsPage() {
             </div>
           </Alert>
         ) : error ? (
-          <Alert variant="destructive" className="mt-4">
-            <AlertTitle className="flex items-center">
-              <AlertTriangle className="mr-2" /> Connection Failed
-            </AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
+          <></>
         ) : null}
       </div>
     </div>
