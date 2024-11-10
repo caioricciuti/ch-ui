@@ -1,7 +1,7 @@
 // components/CreateNewUser/index.tsx
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Form } from "@/components/ui/form";
+import { Plus } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -9,20 +9,19 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { Plus } from "lucide-react";
-import React, { useState } from "react";
-import { useForm } from "react-hook-form";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Form } from "@/components/ui/form";
 import { toast } from "sonner";
+import { useForm } from "react-hook-form";
 import useAppStore from "@/store";
 import { format } from "date-fns";
-import { generateRandomPassword } from "@/lib/utils"
-
-import useMetadata from "./hooks/useMetadata";
-import AccessControlSection from "./AccessControlSection";
+import { generateRandomPassword } from "@/lib/utils";
 import AuthenticationSection from "./AuthenticationSection";
+import AccessControlSection from "./AccessControlSection";
 import DatabaseRolesSection from "./DatabaseRolesSection";
 import PrivilegesSection from "./PrivilegesSection";
 import SettingsSection from "./SettingsSection";
+import useMetadata from "./hooks/useMetadata";
 
 interface CreateNewUserProps {
   onUserCreated: () => void;
@@ -32,7 +31,6 @@ const CreateNewUser: React.FC<CreateNewUserProps> = ({ onUserCreated }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { runQuery } = useAppStore();
 
   const form = useForm({
     defaultValues: {
@@ -62,7 +60,8 @@ const CreateNewUser: React.FC<CreateNewUserProps> = ({ onUserCreated }) => {
     },
   });
 
-  const metadata = useMetadata(isOpen);
+  const metadata = useMetadata(isOpen); // Fetch roles, databases, profiles
+  const { runQuery } = useAppStore();
 
   const onSubmit = async (data: any) => {
     try {
@@ -215,21 +214,36 @@ const CreateNewUser: React.FC<CreateNewUserProps> = ({ onUserCreated }) => {
             onSubmit={form.handleSubmit(onSubmit)}
             className="space-y-4 pt-6"
           >
+            {/* Authentication Section */}
             <AuthenticationSection
               form={form}
               handleGeneratePassword={handleGeneratePassword}
             />
+
+            {/* Access Control Section */}
             <AccessControlSection form={form} />
-            <DatabaseRolesSection form={form} />
+
+            {/* Database and Roles Section */}
+            <DatabaseRolesSection
+              form={form}
+              roles={metadata.roles}
+              databases={metadata.databases}
+            />
+
+            {/* Privileges Section */}
             <PrivilegesSection form={form} />
+
+            {/* Settings Section */}
             <SettingsSection form={form} profiles={metadata.profiles} />
 
+            {/* Error Alert */}
             {error && (
               <Alert variant="destructive">
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
 
+            {/* Submit Button */}
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Creating..." : "Create User"}
             </Button>

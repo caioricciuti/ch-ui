@@ -40,13 +40,16 @@ export const createExplorerSlice: StateCreator<
                 throw new Error("getDatabasesTables query not found");
             }
             const result = await clickHouseClient.query({
-                query,
-                format: "JSON",
+                query
             });
-            const resultJSON = await result.json();
+            const resultJSON = await result.json() as { data: Array<{
+                database_name: string;
+                table_name?: string;
+                table_type?: string;
+            }>};
             const databases: Record<string, DatabaseInfo> = {};
 
-            resultJSON.data.forEach((row: any) => {
+            resultJSON.data.forEach((row) => {
                 const { database_name, table_name, table_type } = row;
                 if (!databases[database_name]) {
                     databases[database_name] = {

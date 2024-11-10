@@ -49,7 +49,6 @@ export const createAdminSlice: StateCreator<
                     WHERE user_name = currentUser() 
                     LIMIT 1
                 `,
-                format: 'JSON',
             });
 
             const response = (await result.json()) as AdminCheckResponse;

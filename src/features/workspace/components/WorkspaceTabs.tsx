@@ -30,7 +30,7 @@ import { CSS } from "@dnd-kit/utilities";
 import HomeTab from "@/features/workspace/components/HomeTab";
 import useAppStore from "@/store";
 import SqlTab from "@/features/workspace/components//SqlTab";
-import InformationTab from "@/features/workspace/components//InformationTab";
+import InformationTab from "@/features/workspace/components/infoTab/InfoTab";
 import { Input } from "@/components/ui/input";
 import { genTabId } from "@/lib/utils";
 interface Tab {

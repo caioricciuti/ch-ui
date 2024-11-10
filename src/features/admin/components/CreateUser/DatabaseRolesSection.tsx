@@ -1,19 +1,20 @@
 // components/CreateNewUser/DatabaseRolesSection.tsx
 import React from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage, FormDescription } from "@/components/ui/form";
+import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface DatabaseRolesSectionProps {
   form: any;
+  roles: string[];
+  databases: string[];
 }
 
-const DatabaseRolesSection: React.FC<DatabaseRolesSectionProps> = ({ form }) => {
-  const databases = form.watch("grantDatabases") || [];
+const DatabaseRolesSection: React.FC<DatabaseRolesSectionProps> = ({ form, roles, databases }) => {
+  const grantDatabases = form.watch("grantDatabases") || [];
 
   return (
     <Card>
@@ -21,6 +22,7 @@ const DatabaseRolesSection: React.FC<DatabaseRolesSectionProps> = ({ form }) => 
         <CardTitle>Database and Roles</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Default Role */}
         <FormField
           control={form.control}
           name="defaultRole"
@@ -34,7 +36,7 @@ const DatabaseRolesSection: React.FC<DatabaseRolesSectionProps> = ({ form }) => 
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  {form.getValues("roles")?.map((role: string) => (
+                  {roles.map((role) => (
                     <SelectItem key={role} value={role}>
                       {role}
                     </SelectItem>
@@ -46,6 +48,7 @@ const DatabaseRolesSection: React.FC<DatabaseRolesSectionProps> = ({ form }) => 
           )}
         />
 
+        {/* Default Database */}
         <FormField
           control={form.control}
           name="defaultDatabase"
@@ -59,7 +62,7 @@ const DatabaseRolesSection: React.FC<DatabaseRolesSectionProps> = ({ form }) => 
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  {form.getValues("databases")?.map((db: string) => (
+                  {databases.map((db) => (
                     <SelectItem key={db} value={db}>
                       {db}
                     </SelectItem>
@@ -71,6 +74,7 @@ const DatabaseRolesSection: React.FC<DatabaseRolesSectionProps> = ({ form }) => 
           )}
         />
 
+        {/* Grant Access to Databases */}
         <FormField
           control={form.control}
           name="grantDatabases"
@@ -79,8 +83,8 @@ const DatabaseRolesSection: React.FC<DatabaseRolesSectionProps> = ({ form }) => 
               <FormLabel>Grant Access to Databases</FormLabel>
               <Select
                 onValueChange={(value: string) => {
-                  if (!field.value.includes(value)) {
-                    field.onChange([...field.value, value]);
+                  if (!grantDatabases.includes(value)) {
+                    form.setValue("grantDatabases", [...grantDatabases, value]);
                   }
                 }}
               >
@@ -90,20 +94,29 @@ const DatabaseRolesSection: React.FC<DatabaseRolesSectionProps> = ({ form }) => 
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  {form.getValues("databases")?.map((db: string) => (
-                    <SelectItem key={db} value={db} disabled={field.value.includes(db)}>
+                  {databases.map((db) => (
+                    <SelectItem
+                      key={db}
+                      value={db}
+                      disabled={grantDatabases.includes(db)}
+                    >
                       {db}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <div className="flex flex-wrap gap-2 mt-2">
-                {field.value.map((db: string) => (
+                {grantDatabases.map((db: string) => (
                   <Badge
                     key={db}
                     variant="secondary"
                     className="hover:bg-destructive hover:text-destructive-foreground cursor-pointer"
-                    onClick={() => field.onChange(field.value.filter((v: string) => v !== db))}
+                    onClick={() =>
+                      form.setValue(
+                        "grantDatabases",
+                        grantDatabases.filter((v: string) => v !== db)
+                      )
+                    }
                   >
                     {db}
                     <X className="ml-1 h-3 w-3" />

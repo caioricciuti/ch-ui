@@ -11,7 +11,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Copy, CopyCheck, X } from "lucide-react";
-import FieldManagement, { Field } from "@/features/explorer/components/FieldManagement";
+import FieldManagement, {
+  Field,
+} from "@/features/explorer/components/FieldManagement";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface ManualCreationFormProps {
@@ -134,7 +136,7 @@ const ManualCreationForm: React.FC<ManualCreationFormProps> = ({
           {/* Engine Selector */}
           <div className="flex flex-col">
             <Label htmlFor="engine-select" className="mb-3">
-              Database Engine
+              Table Engine
             </Label>
             <Select
               value={engine}
@@ -147,6 +149,7 @@ const ManualCreationForm: React.FC<ManualCreationFormProps> = ({
                 {[
                   "MergeTree",
                   "ReplacingMergeTree",
+                  "ReplicatedMergeTree",
                   "SummingMergeTree",
                   "AggregatingMergeTree",
                   "CollapsingMergeTree",

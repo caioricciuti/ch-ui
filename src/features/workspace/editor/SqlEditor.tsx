@@ -129,15 +129,12 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
         <div className="flex items-center gap-2">
           <Button
             size="sm"
-            variant="secondary"
+            variant="outline"
             onClick={handleRunQuery}
             className="gap-2"
           >
             <Play className="h-4 w-4" />
             Run Query
-            <kbd className="ml-2 pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-              <span className="text-xs">⌘</span>↵
-            </kbd>
           </Button>
 
   

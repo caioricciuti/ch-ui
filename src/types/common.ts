@@ -113,3 +113,14 @@ export interface AppState extends
     WorkspaceSlice,
     ExplorerSlice,
     AdminSlice { }
+
+export interface QueryResult {
+    meta: any[];
+    data: any[];
+    statistics: {
+        elapsed: number;
+        rows_read: number;
+        bytes_read: number;
+    };
+    rows?: number;
+}

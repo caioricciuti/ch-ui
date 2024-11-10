@@ -11,10 +11,10 @@ export default function Admin() {
   const [activeSection, setActiveSection] = useState("config");
 
   return (
-    <div className="min-h-screen bg-black text-gray-300 w-full">
+    <div className="max-h-screen w-full overflow-y-auto">
       <div className="container mx-auto p-6">
         <div className="mb-8">
-          <h1 className="text-3xl font-medium text-white mb-2 flex items-center gap-2">
+          <h1 className="text-3xl font-medium  mb-2 flex items-center gap-2">
             <ShieldCheck className="w-6 h-6" />
             Administration
             <span
@@ -33,8 +33,8 @@ export default function Admin() {
               <Button
                 variant="ghost"
                 className={`w-full justify-start ${
-                  activeSection === "users" ? "text-white" : "text-gray-400"
-                } hover:bg-gray-800`}
+                  activeSection === "users" ? "" : "text-gray-400"
+                } hover:bg-muted/50`}
                 onClick={() => setActiveSection("users")}
               >
                 Users & Roles
@@ -42,8 +42,8 @@ export default function Admin() {
               <Button
                 variant="ghost"
                 className={`w-full justify-start ${
-                  activeSection === "queries" ? "text-white" : "text-gray-400"
-                } hover:bg-gray-800`}
+                  activeSection === "queries" ? "" : "text-gray-400"
+                } hover:bg-muted/50`}
                 onClick={() => setActiveSection("queries")}
               >
                 Saved Queries
@@ -51,8 +51,8 @@ export default function Admin() {
               <Button
                 variant="ghost"
                 className={`w-full justify-start ${
-                  activeSection === "config" ? "text-white" : "text-gray-400"
-                } hover:bg-gray-800`}
+                  activeSection === "config" ? "" : "text-gray-400"
+                } hover:bg-muted/50`}
                 onClick={() => setActiveSection("config")}
               >
                 Configuration
@@ -71,9 +71,7 @@ export default function Admin() {
 
               {activeSection === "queries" && (
                 <div>
-                  <h2 className="text-2xl font-medium text-white mb-2">
-                    Saved Queries
-                  </h2>
+                  <h2 className="text-2xl font-medium mb-2">Saved Queries</h2>
                   <p className="text-gray-400 mb-6">
                     Manage and activate saved queries.
                   </p>
@@ -83,9 +81,7 @@ export default function Admin() {
 
               {activeSection === "config" && (
                 <div>
-                  <h2 className="text-2xl font-medium text-white mb-2">
-                    Configuration
-                  </h2>
+                  <h2 className="text-2xl font-medium  mb-2">Configuration</h2>
                   <p className="text-gray-400 mb-6">
                     Manage ClickHouse configuration settings.
                   </p>

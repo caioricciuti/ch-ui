@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import useAppStore from "@/store";
-import InfoDialog from "@/components/common/InfoDialog";
 
 import ConfirmationDialog from "@/components/common/ConfirmationDialog";
 import ManualCreationForm from "@/features/explorer/components/ManualCreationForm";

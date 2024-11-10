@@ -11,6 +11,13 @@ import {
   Layers,
   Calendar,
   Table,
+  AlertCircle,
+  RefreshCcw,
+  Copy,
+  ChevronRight,
+  Code,
+  FileText,
+  LucideIcon,
 } from "lucide-react";
 import useAppStore from "@/store";
 
@@ -44,19 +51,50 @@ interface TableData {
   last_modified_partition: number;
 }
 
+interface MetricCardProps {
+  icon: LucideIcon;
+  title: string;
+  value: string | number;
+  trend?: number;
+}
+
 const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
   const { runQuery } = useAppStore();
-
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<DatabaseData | TableData | null>(null);
   const [error, setError] = useState<string | null>(null);
-
   const [sampleLoading, setSampleLoading] = useState(false);
-  const [sampleData, setSampleData] = useState<any[]>([]);
+  const [sampleData, setSampleData] = useState<Record<string, any>[]>([]);
   const [sampleError, setSampleError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("overview");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const sanitize = (input: string) => {
+  const sanitize = (input: string): string => {
     return input.replace(/[^a-zA-Z0-9_]/g, "");
+  };
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  };
+
+  const formatDate = (timestamp: number): string => {
+    if (!timestamp) return "Invalid Date";
+    return new Date(timestamp * 1000).toLocaleString();
+  };
+
+  const copyToClipboard = async (text: string): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy text: ", err);
+    }
   };
 
   const fetchData = useCallback(async () => {
@@ -113,7 +151,6 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
       setError(error.message || "An unexpected error occurred.");
     } finally {
       setLoading(false);
-      fetchSampleData();
     }
   }, [database, tableName, runQuery]);
 
@@ -126,11 +163,10 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
     try {
       const sanitizedDatabase = sanitize(database);
       const sanitizedTable = sanitize(tableName);
-      console.log(sanitizedDatabase, sanitizedTable);
       const query = `
         SELECT *
         FROM ${sanitizedDatabase}.${sanitizedTable}
-        LIMIT 20
+        LIMIT 100
       `;
       const response = await runQuery(query);
 
@@ -150,72 +186,102 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
     fetchData();
   }, [fetchData]);
 
-  const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return "0 Bytes";
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  useEffect(() => {
+    if (tableName) {
+      fetchSampleData();
+    }
+  }, [tableName, fetchSampleData]);
+
+  const refreshData = async () => {
+    setIsRefreshing(true);
+    try {
+      await fetchData();
+      if (tableName) {
+        await fetchSampleData();
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
-  const formatDate = (timestamp: number): string => {
-    return new Date(timestamp * 1000).toLocaleString();
-  };
+  const MetricCard: React.FC<MetricCardProps> = ({
+    icon: Icon,
+    title,
+    value,
+    trend,
+  }) => (
+    <Card className="relative overflow-hidden group hover:shadow-lg transition-all duration-300">
+      <CardHeader className="space-y-0 pb-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Icon className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">{title}</CardTitle>
+          </div>
+          {trend !== undefined && (
+            <span
+              className={`text-xs ${
+                trend > 0 ? "text-green-500" : "text-red-500"
+              }`}
+            >
+              {trend > 0 ? "↑" : "↓"} {Math.abs(trend)}%
+            </span>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold tracking-tight">{value}</div>
+        <div className="absolute bottom-0 left-0 w-full h-1 bg-primary/10 group-hover:bg-primary/20 transition-colors duration-300" />
+      </CardContent>
+    </Card>
+  );
+
+  const LoadingOverlay: React.FC = () => (
+    <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="flex flex-col items-center space-y-4">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Loading data...</p>
+      </div>
+    </div>
+  );
 
   const renderOverviewCards = () => {
     if (!data) return null;
 
     const cards = [
       {
+        icon: tableName ? Database : Table,
         title: tableName ? "Total Rows" : "Total Tables",
         value: tableName
-          ? (data as TableData).total_rows?.toLocaleString()
-          : (data as DatabaseData).table_count?.toLocaleString(),
-        icon: tableName ? (
-          <Database className="h-4 w-4 text-muted-foreground" />
-        ) : (
-          <Table className="h-4 w-4 text-muted-foreground" />
-        ),
+          ? (data as TableData).total_rows?.toLocaleString() ?? "0"
+          : (data as DatabaseData).table_count?.toLocaleString() ?? "0",
       },
       {
+        icon: HardDrive,
         title: "Total Size",
-        value: formatBytes(data.total_bytes),
-        icon: <HardDrive className="h-4 w-4 text-muted-foreground" />,
+        value: formatBytes(data.total_bytes ?? 0),
       },
       {
+        icon: Layers,
         title: tableName ? "Partitions" : "Total Rows",
         value: tableName
-          ? (data as TableData).partition_count?.toLocaleString()
-          : (data as DatabaseData).total_rows?.toLocaleString(),
-        icon: <Layers className="h-4 w-4 text-muted-foreground" />,
+          ? (data as TableData).partition_count?.toLocaleString() ?? "0"
+          : (data as DatabaseData).total_rows?.toLocaleString() ?? "0",
       },
       {
+        icon: Calendar,
         title: "Last Modified",
         value: formatDate(
           tableName
-            ? (data as TableData).last_modified_partition
-            : (data as DatabaseData).last_modified
+            ? (data as TableData).last_modified_partition ?? 0
+            : (data as DatabaseData).last_modified ?? 0
         ),
-        icon: <Calendar className="h-4 w-4 text-muted-foreground" />,
       },
     ];
 
     return (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {cards.map((card, index) => (
-          <Card key={index}>
-            <CardHeader className="flex items-center justify-between pb-2">
-              <div className="flex space-x-2 items-center">
-                {card.icon}
-                <CardTitle className="text-sm font-medium">
-                  {card.title}
-                </CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{card.value}</div>
-            </CardContent>
-          </Card>
+          <MetricCard key={index} {...card} />
         ))}
       </div>
     );
@@ -288,39 +354,90 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
         ];
 
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {details.map((detail, index) => (
-          <div key={index}>
-            <p className="text-sm font-medium text-muted-foreground">
-              {detail.label}
-            </p>
-            <p className="text-lg font-semibold">{detail.value}</p>
-          </div>
+          <Card
+            key={index}
+            className="hover:shadow-md transition-all duration-300"
+          >
+            <CardContent className="pt-6">
+              <p className="text-sm font-medium text-muted-foreground mb-1">
+                {detail.label}
+              </p>
+              <p className="text-lg font-semibold">{detail.value}</p>
+            </CardContent>
+          </Card>
         ))}
       </div>
     );
   };
 
   return (
-    <div className="container mt-8">
-      {loading ? (
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin" />
+    <div className="relative space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          <Database className="w-5 h-5 text-primary" />
+          <h2 className="text-2xl font-bold tracking-tight">
+            {tableName ? `Table: ${tableName}` : `Database: ${database}`}
+          </h2>
         </div>
+        <button
+          onClick={refreshData}
+          className="flex items-center space-x-2 px-4 py-2 rounded-md bg-primary/10 hover:bg-primary/20 transition-colors"
+          disabled={isRefreshing}
+        >
+          <RefreshCcw
+            className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`}
+          />
+          <span>Refresh</span>
+        </button>
+      </div>
+
+      {loading ? (
+        <LoadingOverlay />
       ) : error ? (
         <Alert variant="destructive">
+          <AlertCircle className="w-4 h-4" />
           <AlertTitle>Error</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : data ? (
-        <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="mb-4">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="details">Details</TabsTrigger>
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="w-full space-y-6"
+        >
+          <TabsList className="grid w-full grid-cols-2 lg:w-auto lg:inline-grid lg:grid-cols-none">
+            <TabsTrigger
+              value="overview"
+              className="flex items-center space-x-2"
+            >
+              <FileText className="w-4 h-4" />
+              <span>Overview</span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="details"
+              className="flex items-center space-x-2"
+            >
+              <Code className="w-4 h-4" />
+              <span>Details</span>
+            </TabsTrigger>
             {tableName && (
               <>
-                <TabsTrigger value="query">Create Query</TabsTrigger>
-                <TabsTrigger value="data_sample">Data Sample</TabsTrigger>
+                <TabsTrigger
+                  value="query"
+                  className="flex items-center space-x-2"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                  <span>Create Query</span>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="data_sample"
+                  className="flex items-center space-x-2"
+                >
+                  <Table className="w-4 h-4" />
+                  <span>Data Sample</span>
+                </TabsTrigger>
               </>
             )}
           </TabsList>
@@ -329,14 +446,17 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
             {renderOverviewCards()}
             <Card>
               <CardHeader>
-                <CardTitle>Storage Efficiency</CardTitle>
+                <CardTitle className="flex items-center space-x-2">
+                  <HardDrive className="w-4 h-4" />
+                  <span>Storage Efficiency</span>
+                </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-2">
                 <Progress
                   value={(data.total_bytes / data.lifetime_bytes) * 100}
                   className="h-2"
                 />
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-sm text-muted-foreground">
                   {((data.total_bytes / data.lifetime_bytes) * 100).toFixed(2)}%
                   of lifetime data
                 </p>
@@ -345,26 +465,32 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
           </TabsContent>
 
           <TabsContent value="details" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  {tableName ? "Table Details" : "Database Details"}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>{renderDetailsContent()}</CardContent>
-            </Card>
+            {renderDetailsContent()}
           </TabsContent>
 
           {tableName && (
             <>
               <TabsContent value="query">
                 <Card>
-                  <CardHeader>
-                    <CardTitle>Create Table Query</CardTitle>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-lg font-bold">
+                      Create Table Query
+                    </CardTitle>
+                    <button
+                      onClick={() =>
+                        copyToClipboard((data as TableData).create_table_query)
+                      }
+                      className="flex items-center space-x-2 text-sm text-muted-foreground hover:text-primary transition-colors"
+                    >
+                      <Copy className="w-4 h-4" />
+                      <span>{copied ? "Copied!" : "Copy"}</span>
+                    </button>
                   </CardHeader>
                   <CardContent>
-                    <pre className="bg-muted p-4 rounded-md max-w-128 overflow-x-auto">
-                      <code>{(data as TableData).create_table_query}</code>
+                    <pre className="bg-muted p-4 rounded-lg overflow-x-auto">
+                      <code className="text-sm">
+                        {(data as TableData).create_table_query}
+                      </code>
                     </pre>
                   </CardContent>
                 </Card>
@@ -377,11 +503,10 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
                   </CardHeader>
                   <CardContent>
                     {sampleLoading ? (
-                      <div className="flex items-center justify-center h-64">
-                        <Loader2 className="w-8 h-8 animate-spin" />
-                      </div>
+                      <LoadingOverlay />
                     ) : sampleError ? (
                       <Alert variant="destructive">
+                        <AlertCircle className="w-4 h-4" />
                         <AlertTitle>Error</AlertTitle>
                         <AlertDescription>{sampleError}</AlertDescription>
                       </Alert>
@@ -396,7 +521,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
                           statistics: {
                             elapsed: 0,
                             rows_read: 0,
-                            bytes_read: 0
+                            bytes_read: 0,
                           },
                           message: "",
                           query_id: "",
@@ -404,7 +529,8 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
                         initialPageSize={20}
                       />
                     ) : (
-                      <Alert variant="warning">
+                      <Alert>
+                        <AlertCircle className="w-4 h-4" />
                         <AlertTitle>No Data</AlertTitle>
                         <AlertDescription>
                           No sample data available for this table.
@@ -418,8 +544,9 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
           )}
         </Tabs>
       ) : (
-        <Alert variant="destructive">
-          <AlertTitle>Data Missing</AlertTitle>
+        <Alert>
+          <AlertCircle className="w-4 h-4" />
+          <AlertTitle>No Data</AlertTitle>
           <AlertDescription>No data available to display.</AlertDescription>
         </Alert>
       )}

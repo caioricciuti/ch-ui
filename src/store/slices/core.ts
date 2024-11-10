@@ -1,6 +1,6 @@
 // src/store/slices/core.ts
 import { StateCreator } from 'zustand';
-import { AppState, CoreSlice } from '@/types/common';
+import { AppState, CoreSlice, QueryResult } from '@/types/common';
 import { ClickHouseSettings, createClient } from "@clickhouse/client-web";
 import { toast } from 'sonner';
 import { isCreateOrInsert } from '@/helpers/sqlUtils';
@@ -99,7 +99,6 @@ export const createCoreSlice: StateCreator<
             await clickHouseClient.ping();
             const versionResult = await clickHouseClient.query({
                 query: "SELECT version()",
-                format: "JSON",
             });
             const versionData = await versionResult.json() as { data: { "version()": string }[] };
             const version = versionData.data[0]["version()"];
@@ -111,12 +110,13 @@ export const createCoreSlice: StateCreator<
         }
     },
 
-    runQuery: async (query, tabId) => {
+    runQuery: async (query: string, tabId?: string) => {
         const { clickHouseClient } = get();
         if (!clickHouseClient) {
             throw new Error("ClickHouse client is not initialized");
         }
 
+        // Set initial loading state
         if (tabId) {
             set((state) => ({
                 tabs: state.tabs.map((tab) =>
@@ -126,49 +126,74 @@ export const createCoreSlice: StateCreator<
         }
 
         try {
-            let result;
-            if (isCreateOrInsert(query)) {
-                result = await clickHouseClient.command({
-                    query: query,
-                });
-                return { message: "Query executed successfully" };
-            } else {
-                result = await clickHouseClient.query({
-                    query,
-                    format: "JSON",
-                });
-                const jsonResult = await result.json();
+            const trimmedQuery = query.trim();
 
-                const processedResult = {
-                    meta: jsonResult.meta || [],
-                    data: jsonResult.data || [],
-                    statistics: jsonResult.statistics || {
-                        elapsed: 0,
-                        rows_read: 0,
-                        bytes_read: 0,
-                    },
-                    message: jsonResult.data?.length === 0
-                        ? "No data returned from query"
-                        : null,
-                    rows: jsonResult.rows || 0,
+            // Handle DDL and modification queries
+            if (isCreateOrInsert(trimmedQuery)) {
+                await clickHouseClient.command({
+                    query: trimmedQuery,
+                });
+
+                const result = {
+                    meta: [],
+                    data: [],
+                    statistics: { elapsed: 0, rows_read: 0, bytes_read: 0 },
+                    message: "Query executed successfully",
+                    rows: 0,
+                    error: null
                 };
 
                 if (tabId) {
                     await get().updateTab(tabId, {
-                        result: processedResult,
+                        result,
                         isLoading: false,
                         error: null,
                     });
                 }
-                return processedResult;
+                return result;
             }
+
+            // Handle SELECT and other data retrieval queries
+            const result = await clickHouseClient.query({
+                query: trimmedQuery,
+            });
+
+            const jsonResult = await result.json();
+            const processedResult = {
+                meta: jsonResult.meta || [],
+                data: jsonResult.data || [],
+                statistics: jsonResult.statistics || {
+                    elapsed: 0,
+                    rows_read: 0,
+                    bytes_read: 0,
+                },
+                message: !jsonResult.data || jsonResult.data.length === 0 || jsonResult.meta.length === 0
+                    ? `Query executed successfully - No data Returned. 
+                    ${jsonResult.statistics.elapsed} seconds, ${jsonResult.statistics.rows_read} rows read, ${jsonResult.statistics.bytes_read} bytes read
+
+                    META: ${JSON.stringify(jsonResult.meta)}
+                    `
+                    : null,
+                rows: jsonResult.rows || 0,
+                error: null
+            };
+
+            if (tabId) {
+                await get().updateTab(tabId, {
+                    result: processedResult,
+                    isLoading: false,
+                    error: null,
+                });
+            }
+            return processedResult;
+
         } catch (error: any) {
             const errorResult = {
                 meta: [],
                 data: [],
                 statistics: { elapsed: 0, rows_read: 0, bytes_read: 0 },
                 message: null,
-                error: error.message || "An error occurred while running the query",
+                error: error?.response?.data?.message || error.message || "An error occurred while running the query",
                 rows: 0,
             };
 
@@ -180,6 +205,15 @@ export const createCoreSlice: StateCreator<
                 });
             }
             return errorResult;
+        } finally {
+            // Ensure loading state is always reset
+            if (tabId) {
+                set((state) => ({
+                    tabs: state.tabs.map((tab) =>
+                        tab.id === tabId ? { ...tab, isLoading: false } : tab
+                    ),
+                }));
+            }
         }
     },
 

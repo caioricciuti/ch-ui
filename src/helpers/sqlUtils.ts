@@ -24,6 +24,7 @@ export const isCreateOrInsert = (query: string) => {
   const createTableTemporaryLike = /\bcreate\s+table\s+temporary\s+like\b/;
   const createTableTemporaryMaterialized = /\bcreate\s+table\s+temporary\s+materialized\b/;
   const createTableTemporaryAs = /\bcreate\s+table\s+temporary\s+as\b/;
+  const createTemporaryTable = /\bcreate\s+temporary\s+table\b/;
   // ClickHouse-specific patterns
   const createTableOnCluster = /\bcreate\s+table\s+on\s+cluster\b/;
   const createTableDistributed = /\bcreate\s+table\s+.*\bengine\s*=\s*Distributed\b/i;
@@ -54,7 +55,7 @@ export const isCreateOrInsert = (query: string) => {
   const alterAggregateFunction = /\balter\s+aggregate\s+function\b/;
   const grant = /\bgrant\b/;
   const revoke = /\brevoke\b/;
-
+  const setAllowPattern = /\bset\s+allow_.*$/i;
 
   return (
     createTableRegex.test(lowerQuery) ||
@@ -71,6 +72,7 @@ export const isCreateOrInsert = (query: string) => {
     createTableLike.test(lowerQuery) ||
     createTableMaterialized.test(lowerQuery) ||
     createTableTemporary.test(lowerQuery) ||
+    createTemporaryTable.test(lowerQuery) ||
     createTableTemporaryEngine.test(lowerQuery) ||
     createTableTemporaryIfNotExists.test(lowerQuery) ||
     createTableTemporaryLike.test(lowerQuery) ||
@@ -104,6 +106,7 @@ export const isCreateOrInsert = (query: string) => {
     dropAggregateFunction.test(lowerQuery) ||
     alterAggregateFunction.test(lowerQuery) ||
     grant.test(lowerQuery) ||
-    revoke.test(lowerQuery)
+    revoke.test(lowerQuery) ||
+    setAllowPattern.test(lowerQuery)
   );
 };

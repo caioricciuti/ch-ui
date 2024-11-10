@@ -34,7 +34,7 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
 
       if (result.error) {
         // If there's an error, don't refresh the Data Explorer
-        console.error("Error running query:", result.error);
+        return;
       } else {
         // Only refresh and show success messages if there's no error
         if (shouldRefresh) {
@@ -118,7 +118,7 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
     }
 
     return (
-      <div className="p-4 border text-sm rounded-md text-blue-600 bg-blue-100 border-blue-300">
+      <div className="p-4 m-4 border text-sm rounded-md text-blue-600 dark:text-blue-200 bg-blue-100/30 border-blue-300">
         Query executed successfully. No data returned.
       </div>
     );
