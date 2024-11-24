@@ -6,6 +6,8 @@ export interface Credential {
     host: string;
     username: string;
     password: string;
+    useAdvanced: boolean;
+    customPath: string;
 }
 
 export interface DatabaseInfo {

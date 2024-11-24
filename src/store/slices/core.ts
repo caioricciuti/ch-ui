@@ -1,11 +1,26 @@
-// src/store/slices/core.ts
 import { StateCreator } from 'zustand';
-import { AppState, CoreSlice, QueryResult } from '@/types/common';
+import { AppState, CoreSlice, Credential } from '@/types/common';
 import { ClickHouseSettings, createClient } from "@clickhouse/client-web";
 import { toast } from 'sonner';
 import { isCreateOrInsert } from '@/helpers/sqlUtils';
 import * as IndexedDB from '@/lib/indexDB';
-import { OverflowMode } from "@clickhouse/client-common/dist/settings"
+import { OverflowMode } from "@clickhouse/client-common/dist/settings";
+
+const buildConnectionUrl = (credential: Credential): string => {
+    let baseUrl = credential.host;
+    
+    // Remove trailing slashes from the base URL
+    baseUrl = baseUrl.replace(/\/+$/, '');
+
+    // If using advanced settings with a custom path
+    if (credential.useAdvanced && credential.customPath) {
+        // Remove leading slash from custom path if it exists
+        const cleanPath = credential.customPath.replace(/^\/+/, '');
+        return `${baseUrl}/${cleanPath}`;
+    }
+
+    return baseUrl;
+};
 
 export const createCoreSlice: StateCreator<
     AppState,
@@ -16,7 +31,9 @@ export const createCoreSlice: StateCreator<
     credential: {
         host: "",
         username: "",
-        password: ""
+        password: "",
+        useAdvanced: false,
+        customPath: ""
     },
     clickHouseClient: null,
     isLoadingCredentials: false,
@@ -36,12 +53,20 @@ export const createCoreSlice: StateCreator<
     setCredential: async (credential) => {
         set({ credential, isLoadingCredentials: true });
         try {
+            const connectionUrl = buildConnectionUrl(credential);
+            
             const client = createClient({
-                url: credential.host,
+                url: connectionUrl,
                 username: credential.username,
                 password: credential.password || "",
-                clickhouse_settings: get().clickhouseSettings
+                clickhouse_settings: get().clickhouseSettings,
+                request_options: {
+                    headers: {
+                        'X-Forwarded-Proto': 'https',
+                    }
+                }
             });
+            
             set({ clickHouseClient: client });
             await get().checkServerStatus().then(() => {
                 get().checkIsAdmin();
@@ -56,17 +81,25 @@ export const createCoreSlice: StateCreator<
 
     updateConfiguration: async (clickhouseSettings: ClickHouseSettings) => {
         try {
-            const credentials = get().credential
+            const credentials = get().credential;
+            const connectionUrl = buildConnectionUrl(credentials);
+            
             const client = createClient({
-                url: credentials.host,
+                url: connectionUrl,
                 username: credentials.username,
                 password: credentials.password || "",
-                clickhouse_settings: clickhouseSettings
+                clickhouse_settings: clickhouseSettings,
+                request_options: {
+                    headers: {
+                        'X-Forwarded-Proto': 'https',
+                    }
+                }
             });
+            
             set({ clickHouseClient: client, clickhouseSettings });
             await get().checkServerStatus();
         } catch (error) {
-            throw error
+            throw error;
         }
     },
 
@@ -75,7 +108,9 @@ export const createCoreSlice: StateCreator<
             credential: {
                 host: "",
                 username: "",
-                password: ""
+                password: "",
+                useAdvanced: false,
+                customPath: ""
             },
             clickhouseSettings: {
                 max_result_rows: "0",
@@ -104,9 +139,31 @@ export const createCoreSlice: StateCreator<
             const version = versionData.data[0]["version()"];
             set({ isServerAvailable: true, version });
         } catch (error: any) {
-            set({ isServerAvailable: false, error: error.message });
+            let errorMessage = error.message;
+            if (error.response?.status === 404) {
+                errorMessage = "Unable to connect to the specified cluster. Please check your custom path configuration.";
+            } else if (error.response?.status === 502) {
+                errorMessage = "Proxy error: Unable to reach the ClickHouse server. Please verify your cluster is running.";
+            }
+            set({ isServerAvailable: false, error: errorMessage });
         } finally {
             set({ isLoadingCredentials: false });
+        }
+    },
+
+    checkIsAdmin: async () => {
+        try {
+            const result = await get().runQuery(
+                "SELECT * FROM system.settings WHERE name = 'access_management'"
+            );
+            if (result?.data?.[0]?.value === "1") {
+                set({ isAdmin: true });
+            } else {
+                set({ isAdmin: false });
+            }
+        } catch (error) {
+            set({ isAdmin: false });
+            console.error("Error checking admin status:", error);
         }
     },
 
