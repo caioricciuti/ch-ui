@@ -16,6 +16,7 @@ import OverviewCards from "./OverviewCards";
 import DetailsContent from "./DetailsContent";
 import CreateQuerySection from "./CreateQuerySection";
 import DataSampleSection from "./DataSampleSection";
+import SchemaSection from "./SchemaSection";
 
 interface InfoTabProps {
   database: string;
@@ -44,7 +45,7 @@ interface TableData {
   metadata_modification_time: number;
   create_table_query: string;
   partition_count: number;
-  last_modified_partition: number;
+  last_modified_partition: Date;
 }
 
 const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
@@ -200,7 +201,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
       onValueChange={setActiveTab}
       className="w-full space-y-6"
     >
-      <TabsList className="grid w-full grid-cols-4  gap-1">
+      <TabsList className="grid w-full grid-cols-5 gap-1">
         <TabsTrigger value="overview" className="flex items-center space-x-2">
           <FileText className="w-4 h-4" />
           <span>Overview</span>
@@ -222,17 +223,32 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
               <Table className="w-4 h-4" />
               <span>Data Sample</span>
             </TabsTrigger>
+            <TabsTrigger value="schema" className="flex items-center space-x-2">
+              <Table className="w-4 h-4" />
+              <span>Schema</span>
+            </TabsTrigger>
           </>
         )}
       </TabsList>
 
       <TabsContent value="overview" className="space-y-6">
-        <OverviewCards data={data} tableName={tableName} />
+        {data && (
+          <OverviewCards
+            data={data as DatabaseData | TableData}
+            tableName={tableName}
+          />
+        )}
       </TabsContent>
 
       <TabsContent value="details" className="space-y-6">
         {data && <DetailsContent data={data} tableName={tableName} />}
       </TabsContent>
+
+      {tableName && (
+        <TabsContent value="schema">
+          <SchemaSection database={database} tableName={tableName} />
+        </TabsContent>
+      )}
 
       {tableName && data && (
         <>

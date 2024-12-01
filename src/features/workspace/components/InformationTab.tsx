@@ -34,7 +34,7 @@ interface DatabaseData {
   total_bytes: number;
   lifetime_rows: number;
   lifetime_bytes: number;
-  last_modified: number;
+  last_modified: string;
 }
 
 interface TableData {
@@ -45,10 +45,10 @@ interface TableData {
   total_bytes: number;
   lifetime_rows: number;
   lifetime_bytes: number;
-  metadata_modification_time: number;
+  metadata_modification_time: string;
   create_table_query: string;
   partition_count: number;
-  last_modified_partition: number;
+  last_modified_partition: string;
 }
 
 interface MetricCardProps {
@@ -80,11 +80,6 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
     const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-  };
-
-  const formatDate = (timestamp: number): string => {
-    if (!timestamp) return "Invalid Date";
-    return new Date(timestamp * 1000).toLocaleString();
   };
 
   const copyToClipboard = async (text: string): Promise<void> => {
@@ -270,11 +265,9 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
       {
         icon: Calendar,
         title: "Last Modified",
-        value: formatDate(
-          tableName
-            ? (data as TableData).last_modified_partition ?? 0
-            : (data as DatabaseData).last_modified ?? 0
-        ),
+        value: tableName
+          ? (data as TableData).last_modified_partition ?? 0
+          : (data as DatabaseData).last_modified ?? 0,
       },
     ];
 
@@ -317,11 +310,11 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
           },
           {
             label: "Last Modified",
-            value: formatDate((data as TableData).last_modified_partition),
+            value: (data as TableData).last_modified_partition,
           },
           {
             label: "Last Metadata Modification",
-            value: formatDate((data as TableData).metadata_modification_time),
+            value: (data as TableData).metadata_modification_time,
           },
         ]
       : [
@@ -349,7 +342,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
           },
           {
             label: "Last Modified",
-            value: formatDate((data as DatabaseData).last_modified),
+            value: (data as DatabaseData).last_modified,
           },
         ];
 

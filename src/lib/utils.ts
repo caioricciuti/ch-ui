@@ -44,15 +44,41 @@ export const genTabId = () => {
 };
 
 
-export const formatBytes = (bytes: number): string => {
-  if (bytes === 0) return "0 Bytes";
+
+export const formatBytes = (bytes: string | number | null | undefined): string => {
+  const numBytes = Number(bytes);
+  if (!bytes || isNaN(numBytes) || numBytes === 0) return "N/A";
   const k = 1024;
   const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  const i = Math.floor(Math.log(numBytes) / Math.log(k));
+  return parseFloat((numBytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 };
 
-export const formatDate = (timestamp: number): string => {
-  if (!timestamp) return "Invalid Date";
-  return new Date(timestamp * 1000).toLocaleString();
+
+export const formatDate = (date: string | number | Date): string => {
+  if (!date) return "N/A";
+  return new Date(date).toLocaleString();
+};
+
+export const formatNumber = (
+  value: number | string | null | undefined
+): string => {
+  if (value === null || value === undefined) return "N/A";
+  const num = typeof value === "string" ? parseFloat(value) : value;
+  if (isNaN(num)) return "N/A";
+  return num.toLocaleString();
+};
+
+export const calculateEfficiency = (
+  total: number,
+  lifetime: number
+): number => {
+  if (lifetime === 0) return 0;
+  return (total / lifetime) * 100;
+};
+
+export const getEfficiencyColor = (value: number): string => {
+  if (value >= 90) return "text-red-500";
+  if (value >= 70) return "text-yellow-500";
+  return "text-green-500";
 };
