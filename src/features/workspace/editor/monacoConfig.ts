@@ -28,6 +28,7 @@ function initializeClickHouseClient(
   ) {
     client = createClient({
       url: credential.host,
+      pathname: credential.customPath,
       username: credential.username,
       password: credential.password || "", // Allow empty password
     });

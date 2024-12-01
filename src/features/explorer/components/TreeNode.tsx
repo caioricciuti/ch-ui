@@ -32,7 +32,7 @@ import useAppStore from "@/store";
 
 export interface TreeNodeData {
   name: string;
-  type: "database" | "table" | "view";
+  type: "database" | "table" | "view" | "saved_query";
   children?: TreeNodeData[];
   query?: string;
 }
@@ -117,6 +117,8 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         return <Table className="w-4 h-4 mr-2" />;
       case "view":
         return <FileSpreadsheet className="w-4 h-4 mr-2" />;
+      case "saved_query":
+        return <TerminalIcon className="w-4 h-4 mr-2" />;
       default:
         return null;
     }

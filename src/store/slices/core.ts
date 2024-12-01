@@ -8,7 +8,7 @@ import { OverflowMode } from "@clickhouse/client-common/dist/settings";
 
 const buildConnectionUrl = (credential: Credential): string => {
     let baseUrl = credential.host;
-    
+
     // Remove trailing slashes from the base URL
     baseUrl = baseUrl.replace(/\/+$/, '');
 
@@ -54,9 +54,10 @@ export const createCoreSlice: StateCreator<
         set({ credential, isLoadingCredentials: true });
         try {
             const connectionUrl = buildConnectionUrl(credential);
-            
+
             const client = createClient({
                 url: connectionUrl,
+                pathname: credential.customPath, // Use custom path for proxy
                 username: credential.username,
                 password: credential.password || "",
                 clickhouse_settings: get().clickhouseSettings,
@@ -66,7 +67,7 @@ export const createCoreSlice: StateCreator<
                     }
                 }
             });
-            
+
             set({ clickHouseClient: client });
             await get().checkServerStatus().then(() => {
                 get().checkIsAdmin();
@@ -83,9 +84,10 @@ export const createCoreSlice: StateCreator<
         try {
             const credentials = get().credential;
             const connectionUrl = buildConnectionUrl(credentials);
-            
+
             const client = createClient({
                 url: connectionUrl,
+                pathname: credentials.customPath, // Ensure custom path is applied
                 username: credentials.username,
                 password: credentials.password || "",
                 clickhouse_settings: clickhouseSettings,
@@ -95,7 +97,7 @@ export const createCoreSlice: StateCreator<
                     }
                 }
             });
-            
+
             set({ clickHouseClient: client, clickhouseSettings });
             await get().checkServerStatus();
         } catch (error) {
@@ -185,90 +187,34 @@ export const createCoreSlice: StateCreator<
         try {
             const trimmedQuery = query.trim();
 
-            // Handle DDL and modification queries
             if (isCreateOrInsert(trimmedQuery)) {
-                await clickHouseClient.command({
-                    query: trimmedQuery,
-                });
-
-                const result = {
-                    meta: [],
-                    data: [],
-                    statistics: { elapsed: 0, rows_read: 0, bytes_read: 0 },
-                    message: "Query executed successfully",
-                    rows: 0,
-                    error: null
-                };
-
-                if (tabId) {
-                    await get().updateTab(tabId, {
-                        result,
-                        isLoading: false,
-                        error: null,
-                    });
-                }
+                await clickHouseClient.command({ query: trimmedQuery });
+                const result = { meta: [], data: [], statistics: {}, rows: 0, error: null };
+                if (tabId) await get().updateTab(tabId, { result, isLoading: false, error: null });
                 return result;
             }
 
-            // Handle SELECT and other data retrieval queries
-            const result = await clickHouseClient.query({
-                query: trimmedQuery,
-            });
-
+            const result = await clickHouseClient.query({ query: trimmedQuery });
             const jsonResult = await result.json();
             const processedResult = {
                 meta: jsonResult.meta || [],
                 data: jsonResult.data || [],
-                statistics: jsonResult.statistics || {
-                    elapsed: 0,
-                    rows_read: 0,
-                    bytes_read: 0,
-                },
-                message: !jsonResult.data || jsonResult.data.length === 0 || jsonResult.meta.length === 0
-                    ? `Query executed successfully - No data Returned. 
-                    ${jsonResult.statistics.elapsed} seconds, ${jsonResult.statistics.rows_read} rows read, ${jsonResult.statistics.bytes_read} bytes read
-
-                    META: ${JSON.stringify(jsonResult.meta)}
-                    `
-                    : null,
+                statistics: jsonResult.statistics || {},
                 rows: jsonResult.rows || 0,
-                error: null
+                error: null,
             };
 
-            if (tabId) {
-                await get().updateTab(tabId, {
-                    result: processedResult,
-                    isLoading: false,
-                    error: null,
-                });
-            }
+            if (tabId) await get().updateTab(tabId, { result: processedResult, isLoading: false });
             return processedResult;
 
         } catch (error: any) {
-            const errorResult = {
-                meta: [],
-                data: [],
-                statistics: { elapsed: 0, rows_read: 0, bytes_read: 0 },
-                message: null,
-                error: error?.response?.data?.message || error.message || "An error occurred while running the query",
-                rows: 0,
-            };
-
-            if (tabId) {
-                await get().updateTab(tabId, {
-                    result: errorResult,
-                    isLoading: false,
-                    error: errorResult.error,
-                });
-            }
+            const errorResult = { meta: [], data: [], statistics: {}, rows: 0, error: error.message };
+            if (tabId) await get().updateTab(tabId, { result: errorResult, isLoading: false, error: error.message });
             return errorResult;
         } finally {
-            // Ensure loading state is always reset
             if (tabId) {
                 set((state) => ({
-                    tabs: state.tabs.map((tab) =>
-                        tab.id === tabId ? { ...tab, isLoading: false } : tab
-                    ),
+                    tabs: state.tabs.map((tab) => (tab.id === tabId ? { ...tab, isLoading: false } : tab)),
                 }));
             }
         }
