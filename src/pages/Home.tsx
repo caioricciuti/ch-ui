@@ -23,7 +23,11 @@ function HomePage() {
           <DatabaseExplorer />
         </ResizablePanel>
         <ResizableHandle withHandle />
-        <ResizablePanel className="overflow-scroll" defaultSize={75} minSize={40}>
+        <ResizablePanel
+          className="overflow-scroll"
+          defaultSize={75}
+          minSize={40}
+        >
           <WorkspaceTabs />
         </ResizablePanel>
       </ResizablePanelGroup>

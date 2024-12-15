@@ -122,7 +122,6 @@ const SchemaSection: React.FC<SchemaSectionProps> = ({ database, tableName }) =>
                 message: "",
                 query_id: "",
               }}
-              initialPageSize={20}
             />
           </div>
         ) : (

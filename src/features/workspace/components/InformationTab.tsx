@@ -161,7 +161,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
       const query = `
         SELECT *
         FROM ${sanitizedDatabase}.${sanitizedTable}
-        LIMIT 100
+        LIMIT 10
       `;
       const response = await runQuery(query);
 
@@ -519,7 +519,6 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
                           message: "",
                           query_id: "",
                         }}
-                        initialPageSize={20}
                       />
                     ) : (
                       <Alert>

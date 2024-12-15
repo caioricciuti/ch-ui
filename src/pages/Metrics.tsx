@@ -25,8 +25,8 @@ function MetricsOverview() {
     }
 
     if (
-      credential?.host.includes("localhost") ||
-      credential?.host.includes("127.0.0.1")
+      credential?.url.includes("localurl") ||
+      credential?.url.includes("127.0.0.1")
     ) {
       setIsLocalHostInstance(true);
     }

@@ -7,13 +7,9 @@ import {
 } from "@/components/ui/resizable";
 import useAppStore from "@/store";
 import CHUITable from "@/components/common/table/CHUItable";
-import { Loader2 } from "lucide-react";
+import { Loader2, FileX2 } from "lucide-react";
 import { toast } from "sonner";
-import {
-  Alert,
-  AlertTitle,
-  AlertDescription,
-} from "../../../components/ui/alert";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 interface SqlTabProps {
   tabId: string;
@@ -73,7 +69,14 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
 
     if (!tab?.result) {
       return (
-        <p className="text-center mt-4">Run a query to see results here</p>
+        <div className="h-full flex items-center justify-center">
+          <div className="flex flex-col items-center">
+            <FileX2 size={48} className="text-muted-foreground mb-4" />
+            <p className="text-sm text-muted-foreground">
+              There's no data yet! Run a query to get started.
+            </p>
+          </div>
+        </div>
       );
     }
 
@@ -104,16 +107,17 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
       tab.result.meta.length > 0
     ) {
       return (
-        <CHUITable
-          result={{
-            meta: tab.result.meta,
-            data: tab.result.data,
-            statistics: tab.result.statistics,
-            message: tab.result.message,
-            query_id: tab.result.query_id,
-          }}
-          initialPageSize={20}
-        />
+        <div className="h-full">
+          <CHUITable
+            result={{
+              meta: tab.result.meta,
+              data: tab.result.data,
+              statistics: tab.result.statistics,
+              message: tab.result.message,
+              query_id: tab.result.query_id,
+            }}
+          />
+        </div>
       );
     }
 
@@ -127,13 +131,13 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
   if (!tab) return null;
 
   return (
-    <div className="h-screen">
+    <div className="h-full">
       <ResizablePanelGroup direction="vertical">
-        <ResizablePanel defaultSize={50} minSize={0}>
+        <ResizablePanel defaultSize={50} minSize={25}>
           <SQLEditor tabId={tabId} onRunQuery={handleRunQuery} />
         </ResizablePanel>
         <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={50} minSize={0}>
+        <ResizablePanel defaultSize={50} minSize={25}>
           {renderResults()}
         </ResizablePanel>
       </ResizablePanelGroup>

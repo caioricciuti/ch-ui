@@ -4,7 +4,6 @@ import type { DocsThemeConfig } from "nextra-theme-docs";
 import { Link, useConfig } from "nextra-theme-docs";
 import { useTheme } from "next-themes";
 import CustomLogo from "@/components/CustomLogo";
-import SlackLogo from "@/components/SlackLogo";
 import Footer from "./components/Footer";
 import { Sun, Moon } from "lucide-react";
 
@@ -41,10 +40,7 @@ const config: DocsThemeConfig = {
       </div>
     ),
   },
-  chat: {
-    link: "https://join.slack.com/t/ch-ui-v2/shared_invite/zt-2r6xwoizm-PMlCH6ZZAi5hK3fPagypQw",
-    icon: <SlackLogo />,
-  },
+
   project: {
     link: "https://github.com/caioricciuti/ch-ui",
   },

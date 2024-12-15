@@ -1,37 +1,31 @@
-import React, { useState, useRef, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useRef,
+  useCallback,
+  useMemo,
+  useEffect,
+  useTransition,
+} from "react";
 import {
   flexRender,
   useReactTable,
   getCoreRowModel,
   getSortedRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
-  ColumnFiltersState,
-  SortingState,
-  PaginationState,
   ColumnDef,
+  SortingState,
   RowData,
   VisibilityState,
-  Table,
   Row,
+  ColumnFiltersState,
+  getPaginationRowModel,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuSeparator,
-  DropdownMenuLabel,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -40,9 +34,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-
-import FilterComponent from "@/components/common/FilterComponent";
-
 import {
   ArrowDown,
   ArrowUp,
@@ -50,64 +41,96 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  Search,
   Columns,
-  Filter,
-  FilterX,
   Info,
+  RefreshCw,
+  HelpCircle,
 } from "lucide-react";
 import DownloadDialog from "@/components/common/DownloadDialog";
+import { debounce } from "lodash";
+import { CHUIFilter } from "./Filter";
+import { SmartFilter } from "./SmartFilter";
 
-interface TableProps<T extends RowData> {
-  result: {
-    meta?: { name: string; type: string }[];
-    data?: T[];
-    statistics: {
-      elapsed: number;
-      rows_read: number;
-      bytes_read: number;
-    };
-    message?: string;
-    query_id?: string;
-  };
-  initialPageSize?: number;
+// Constants
+const DEFAULT_COLUMN_SIZE = 150;
+const MIN_COLUMN_SIZE = 50;
+const OVERSCAN_COUNT = 5;
+const ROW_HEIGHT = 35;
+const FIXED_PAGE_SIZE = 100;
+const DEBOUNCE_DELAY = 500;
+
+// Types
+export interface TableMeta {
+  name: string;
+  type: string;
 }
 
-const DEFAULT_COLUMN_SIZE = 150;
+export interface TableStatistics {
+  elapsed?: number | 0;
+  rows_read?: number | 0;
+  bytes_read?: number | 0;
+}
 
-// Remove the getNestedValue function since it's not suitable for keys with dots
-// function getNestedValue(obj: any, path: string) {
-//   return path.split('.').reduce((acc, part) => acc && acc[part], obj);
-// }
+export interface TableResult<T extends RowData> {
+  meta?: TableMeta[];
+  data?: T[];
+  statistics?: TableStatistics;
+  message?: string;
+  query_id?: string;
+}
+
+export interface TableProps<T extends RowData> {
+  result: TableResult<T>;
+  onLoadMore?: () => void;
+  onRefresh?: () => void;
+  isLoading?: boolean;
+  virtualScrolling?: boolean;
+  defaultSorting?: SortingState;
+  defaultColumnVisibility?: VisibilityState;
+  onSortingChange?: (sorting: SortingState) => void;
+  className?: string;
+}
 
 function CHUITable<T extends RowData>({
   result,
-  initialPageSize = 20,
+  onLoadMore,
+  onRefresh,
+  isLoading = false,
+  virtualScrolling = true,
+  defaultSorting = [],
+  defaultColumnVisibility = {},
+  onSortingChange,
+  className,
 }: TableProps<T>) {
-  const [sorting, setSorting] = useState<SortingState>([]);
+  // State
+  const [sorting, setSorting] = useState<SortingState>(defaultSorting);
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
+    defaultColumnVisibility
+  );
+  const [columnSizing, setColumnSizing] = useState<Record<string, number>>({});
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
-  const [pagination, setPagination] = useState<PaginationState>({
+  const [filterValue, setFilterValue] = useState("");
+  const [pagination, setPagination] = useState({
     pageIndex: 0,
-    pageSize: initialPageSize,
+    pageSize: FIXED_PAGE_SIZE,
   });
-  const [columnSizing, setColumnSizing] = useState<{ [key: string]: number }>(
-    {}
-  );
-  const [autoSizedColumns, setAutoSizedColumns] = useState<{
-    [key: string]: boolean;
-  }>({});
+  const [isPending, startTransition] = useTransition();
 
-  const sizeCache = useRef<{ [key: string]: number }>({});
+  // Refs
+  const sizeCache = useRef<Record<string, number>>({});
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef<HTMLTableRowElement>(null);
+  const resizeTimeout = useRef<NodeJS.Timeout>();
 
   const { meta, data, statistics, message, query_id } = result;
 
+  // Error handling
   if (message) {
     return (
-      <div className="w-full mt-4 p-4">
-        <p className="text-sm">{message}</p>
-        <p className="text-xs text-gray-600">
+      <div className="w-full mt-4 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
+        <p className="text-sm text-red-600 dark:text-red-400">{message}</p>
+        <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
           Query ID: {query_id || "Unknown"}
         </p>
       </div>
@@ -116,178 +139,188 @@ function CHUITable<T extends RowData>({
 
   if (!data || !meta) {
     return (
-      <div className="w-full mt-4 p-4 bg-gray-100 rounded-md">
-        <p className="text-sm text-gray-800">No data/meta</p>
+      <div className="w-full mt-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg animate-pulse">
+        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/3"></div>
       </div>
     );
   }
 
-  const transformedColumns: ColumnDef<T>[] = useMemo(
-    () => [
-      {
-        id: "row-number",
-        header: "#",
-        cell: ({ row }) =>
-          row.index + 1 + pagination.pageIndex * pagination.pageSize,
-        enableResizing: true,
-        size: 60,
-        minSize: 40,
-        maxSize: 200,
-        enableSorting: false,
-        enableColumnFilter: false,
+  // Handle column resize
+  const handleColumnResize = useCallback((size: number, columnId: string) => {
+    if (resizeTimeout.current) {
+      clearTimeout(resizeTimeout.current);
+    }
+
+    resizeTimeout.current = setTimeout(() => {
+      setColumnSizing((prev) => ({
+        ...prev,
+        [columnId]: Math.max(MIN_COLUMN_SIZE, size),
+      }));
+    }, 10);
+  }, []);
+
+  // Memoized columns definition
+  const columns = useMemo<ColumnDef<T>[]>(() => {
+    const baseColumns = meta.map((col) => ({
+      id: col.name,
+      accessorKey: col.name,
+      header: col.name,
+      enableResizing: true,
+      size: columnSizing[col.name] || DEFAULT_COLUMN_SIZE,
+      minSize: MIN_COLUMN_SIZE,
+      cell: ({ getValue }: any) => {
+        const value = getValue();
+        if (value === null || value === undefined) return "-";
+        if (typeof value === "object") return JSON.stringify(value);
+        return String(value);
       },
-      ...meta.map((col, index) => ({
-        id: col.name || `col-${index}`,
-        header: col.name || `Column ${index + 1}`,
-        accessorKey: col.name,
+    }));
+
+    return [
+      {
+        id: "__index",
+        header: "#",
+        size: 70,
         minSize: 50,
-        maxSize: 1500,
-        size: DEFAULT_COLUMN_SIZE,
+        maxSize: 70,
         enableResizing: true,
-        cell: ({ row }: { row: Row<T> }) => {
-          const value = row.original[col.name as keyof T];
+        cell: (info) => <span>{info.row.index + 1}</span>,
+      },
+      ...baseColumns,
+    ];
+  }, [meta, columnSizing]);
 
-          if (typeof value === "boolean") {
-            return value.toString(); // Convert boolean to string
-          }
-
-          if (typeof value === "object" && value !== null) {
-            return JSON.stringify(value);
-          }
-
-          return value;
-        },
-      })),
-    ],
-    [meta, pagination.pageIndex, pagination.pageSize]
-  );
-
+  // Table instance
   const table = useReactTable({
     data,
-    columns: transformedColumns,
+    columns,
     state: {
       sorting,
+      columnVisibility,
       columnFilters,
       globalFilter,
-      columnVisibility,
       pagination,
       columnSizing,
     },
-    onSortingChange: setSorting,
+    onSortingChange: (updater) => {
+      const newSorting =
+        typeof updater === "function" ? updater(sorting) : updater;
+      setSorting(newSorting);
+      onSortingChange?.(newSorting);
+    },
+    onColumnVisibilityChange: setColumnVisibility,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
-    onColumnVisibilityChange: setColumnVisibility,
     onPaginationChange: setPagination,
-    onColumnSizingChange: setColumnSizing,
+    onColumnSizingChange: (updater) => {
+      const newSizing =
+        typeof updater === "function" ? updater(columnSizing) : updater;
+      setColumnSizing(newSizing);
+    },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
     enableColumnResizing: true,
     columnResizeMode: "onChange",
+    globalFilterFn: CHUIFilter,
   });
 
-  const tableContainerRef = useRef<HTMLDivElement>(null);
-
+  // Virtual scrolling setup
   const { rows } = table.getRowModel();
-
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => tableContainerRef.current,
-    estimateSize: () => 35,
-    overscan: 10,
+    estimateSize: useCallback(() => ROW_HEIGHT, []),
+    overscan: OVERSCAN_COUNT,
   });
 
-  const virtualRows = rowVirtualizer.getVirtualItems();
-  const totalSize = rowVirtualizer.getTotalSize();
+  const virtualRows = virtualScrolling
+    ? rowVirtualizer.getVirtualItems()
+    : rows.map((_, index) => ({
+        index,
+        start: index * ROW_HEIGHT,
+        size: ROW_HEIGHT,
+      }));
 
-  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start || 0 : 0;
-  const paddingBottom =
-    virtualRows.length > 0
-      ? totalSize - (virtualRows[virtualRows.length - 1].end || 0)
-      : 0;
+  // Column auto-sizing
+  const calculateAutoSize = useCallback(
+    (columnId: string) => {
+      if (sizeCache.current[columnId]) return sizeCache.current[columnId];
 
-  const isFiltered = table.getState().columnFilters.length > 0;
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      if (!context) return DEFAULT_COLUMN_SIZE;
 
-  const clearAllFilters = useCallback(() => {
-    table.resetColumnFilters();
+      context.font = getComputedStyle(document.body).font || "12px sans-serif";
+      const headerWidth = context.measureText(columnId).width + 24;
+      let maxWidth = headerWidth;
+
+      const sampleRows = rows.slice(0, 200);
+      for (const row of sampleRows) {
+        const value = row.getValue(columnId);
+        const width = context.measureText(String(value ?? "")).width + 24;
+        maxWidth = Math.max(maxWidth, width);
+      }
+
+      const finalSize = Math.max(maxWidth, MIN_COLUMN_SIZE);
+      sizeCache.current[columnId] = finalSize;
+      return finalSize;
+    },
+    [rows]
+  );
+
+  // Handle filter changes
+  const handleFilterChange = useCallback((value: string) => {
+    setFilterValue(value);
+    startTransition(() => {
+      setGlobalFilter(value.trim());
+    });
+  }, []);
+
+  const debouncedSearch = useMemo(
+    () => debounce(handleFilterChange, DEBOUNCE_DELAY),
+    [handleFilterChange]
+  );
+
+  // Effects
+  useEffect(() => {
+    table.setPageSize(FIXED_PAGE_SIZE);
   }, [table]);
 
+  useEffect(() => {
+    if (!onLoadMore || !loadMoreRef.current || isLoading) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !isLoading) onLoadMore();
+      },
+      { threshold: 0.8 }
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [onLoadMore, isLoading]);
+
+  useEffect(() => {
+    return () => {
+      debouncedSearch.cancel();
+      if (resizeTimeout.current) {
+        clearTimeout(resizeTimeout.current);
+      }
+    };
+  }, [debouncedSearch]);
+
+  // Render methods
   const renderCell = useCallback((cell: any) => {
     const value = cell.getValue();
-    if (value === null) {
-      return <span className="text-gray-400 italic">null</span>;
-    }
+    if (value === null)
+      return <span className="text-gray-400 italic text-xs">null</span>;
     return flexRender(cell.column.columnDef.cell, cell.getContext());
   }, []);
 
-  const calculateAutoSize = useCallback((columnId: string, table: Table<T>) => {
-    if (sizeCache.current[columnId]) {
-      return sizeCache.current[columnId];
-    }
-
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-    if (!context) return DEFAULT_COLUMN_SIZE;
-
-    const computedStyle = getComputedStyle(document.body);
-    context.font = computedStyle.font || "12px sans-serif";
-
-    const headerText = columnId;
-    let maxWidth = context.measureText(headerText).width + 16;
-
-    const rows = table.getRowModel().rows.slice(0, 200);
-    for (const row of rows) {
-      const cellValue = row.getValue(columnId);
-      const cellText =
-        cellValue === null
-          ? "null"
-          : typeof cellValue === "object"
-          ? JSON.stringify(cellValue)
-          : cellValue?.toString();
-      const width = context.measureText(cellText || "").width + 16;
-      if (width > maxWidth) {
-        maxWidth = width;
-      }
-    }
-
-    const maxSize =
-      table.getAllColumns().find((col) => col.id === columnId)?.columnDef
-        .maxSize || 4000;
-    const calculatedSize = Math.min(maxWidth, maxSize);
-
-    sizeCache.current[columnId] = calculatedSize;
-    return calculatedSize;
-  }, []);
-
-  const handleDoubleClick = useCallback(
-    (header: any) => {
-      const columnId = header.column.id;
-
-      setAutoSizedColumns((prev) => {
-        const isCurrentlyAutoSized = prev[columnId];
-
-        if (isCurrentlyAutoSized) {
-          setColumnSizing((old) => ({
-            ...old,
-            [columnId]: DEFAULT_COLUMN_SIZE,
-          }));
-          return { ...prev, [columnId]: false };
-        } else {
-          const autoSize = calculateAutoSize(columnId, table);
-          setColumnSizing((old) => ({
-            ...old,
-            [columnId]: autoSize,
-          }));
-          return { ...prev, [columnId]: true };
-        }
-      });
-    },
-    [calculateAutoSize, table]
-  );
-
   const TableRow = React.memo(({ row }: { row: Row<T> }) => (
-    <tr className="hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+    <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-xs">
       {row.getVisibleCells().map((cell) => (
         <td
           key={cell.id}
@@ -300,112 +333,96 @@ function CHUITable<T extends RowData>({
     </tr>
   ));
 
-  return (
-    <div className="flex flex-col h-full w-full">
-      {/* Commands at the top of the table */}
-      <div className="flex items-center justify-between text-xs p-2">
-        <div className="flex items-center space-x-2">
-          <Select
-            value={table.getState().pagination.pageSize.toString()}
-            onValueChange={(value) => {
-              table.setPageSize(Number(value));
-            }}
-          >
-            <SelectTrigger className="h-8 w-[70px]">
-              <SelectValue placeholder="Rows" />
-            </SelectTrigger>
-            <SelectContent>
-              {[20, 50, 100, 200].map((pageSize) => (
-                <SelectItem
-                  key={pageSize}
-                  value={pageSize.toString()}
-                  className="text-xs"
-                >
-                  {pageSize}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start || 0 : 0;
+  const paddingBottom =
+    virtualRows.length > 0
+      ? rowVirtualizer.getTotalSize() -
+        (virtualRows[virtualRows.length - 1].start || 0) -
+        virtualRows[virtualRows.length - 1].size
+      : 0;
 
+  return (
+    <div className={`w-full h-full flex min-h-[200px] flex-col ${className}`}>
+      {/* Controls */}
+      <div className="flex items-center justify-between p-2 border-b dark:border-gray-700">
+        <div className="flex items-center space-x-2 flex-1">
+          {/* Smart Filter */}
+          <div className="flex-1">
+            <SmartFilter
+              columns={table
+                .getAllColumns()
+                .filter((col) => col.id !== "__index")
+                .map((col) => ({
+                  id: col.id,
+                  header: String(col.columnDef.header || col.id),
+                }))}
+              onFilterChange={(filters) => {
+                const filterString = filters
+                  .map((f) => `${f.column}${f.operator}${f.value}`)
+                  .join(" AND ");
+                startTransition(() => {
+                  setGlobalFilter(filterString);
+                });
+              }}
+              className="w-full"
+            />
+          </div>
+
+          {/* Column visibility */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button className="h-8 w-8 p-0">
-                <Columns className="h-4 w-4" />
+              <Button variant="outline" size="sm" className="h-8">
+                <Columns className="h-4 w-4 mr-2" />
+                Columns
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
-              <div className="max-h-52 overflow-auto">
-                {table.getAllColumns().map((column) => (
-                  <DropdownMenuCheckboxItem
-                    key={column.id}
-                    checked={column.getIsVisible()}
-                    onCheckedChange={(value) =>
-                      column.toggleVisibility(!!value)
-                    }
-                    className="text-xs"
-                  >
-                    {column.id}
-                  </DropdownMenuCheckboxItem>
-                ))}
+            <DropdownMenuContent align="end" className="w-48">
+              <div className="max-h-64 overflow-auto">
+                {table
+                  .getAllColumns()
+                  .filter((col) => col.id !== "__index")
+                  .map((column) => (
+                    <DropdownMenuCheckboxItem
+                      key={column.id}
+                      checked={column.getIsVisible()}
+                      onCheckedChange={(value) =>
+                        column.toggleVisibility(!!value)
+                      }
+                      className="text-sm"
+                    >
+                      {column.id}
+                    </DropdownMenuCheckboxItem>
+                  ))}
               </div>
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {isFiltered && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    onClick={clearAllFilters}
-                    className="h-6 w-6 p-1 bg-transparent text-primary hover:bg-secondary"
-                  >
-                    <FilterX className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Clear all filters</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-
           <DownloadDialog data={data} />
 
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info size={14} />
-              </TooltipTrigger>
-              <TooltipContent>
-                <div className="text-xs p-2 text-primary/70">
-                  <p>Rows Read: {statistics.rows_read}</p>
-                  <p>Bytes Read: {statistics.bytes_read}</p>
-                  <p>Elapsed Time: {statistics.elapsed} seconds</p>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          {onRefresh && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="h-8"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`}
+              />
+            </Button>
+          )}
         </div>
 
-        <div className="flex-1 px-2 max-w-sm">
-          <div className="relative">
-            <Input
-              placeholder="Search all columns..."
-              value={globalFilter ?? ""}
-              onChange={(e) => setGlobalFilter(e.target.value)}
-              className="h-8 w-full pl-8 pr-4 text-xs"
-            />
-            <Search
-              className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400"
-              size={14}
-            />
-          </div>
-        </div>
-
+        {/* Pagination controls */}
         <div className="flex items-center space-x-2">
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  onClick={() => table.setPageIndex(0)}
+                  onClick={() =>
+                    setPagination((prev) => ({ ...prev, pageIndex: 0 }))
+                  }
                   disabled={!table.getCanPreviousPage()}
                   variant="outline"
                   size="icon"
@@ -422,7 +439,12 @@ function CHUITable<T extends RowData>({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  onClick={() => table.previousPage()}
+                  onClick={() =>
+                    setPagination((prev) => ({
+                      ...prev,
+                      pageIndex: Math.max(0, prev.pageIndex - 1),
+                    }))
+                  }
                   disabled={!table.getCanPreviousPage()}
                   variant="outline"
                   size="icon"
@@ -435,7 +457,7 @@ function CHUITable<T extends RowData>({
             </Tooltip>
           </TooltipProvider>
 
-          <span className="text-xs text-gray-600 dark:text-gray-300 min-w-[100px] text-center">
+          <span className="text-gray-600 dark:text-gray-300 min-w-[100px] text-center text-xs">
             Page {table.getState().pagination.pageIndex + 1} of{" "}
             {table.getPageCount()}
           </span>
@@ -444,7 +466,15 @@ function CHUITable<T extends RowData>({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  onClick={() => table.nextPage()}
+                  onClick={() =>
+                    setPagination((prev) => ({
+                      ...prev,
+                      pageIndex: Math.min(
+                        table.getPageCount() - 1,
+                        prev.pageIndex + 1
+                      ),
+                    }))
+                  }
                   disabled={!table.getCanNextPage()}
                   variant="outline"
                   size="icon"
@@ -461,7 +491,12 @@ function CHUITable<T extends RowData>({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  onClick={() => table.setPageIndex(table.getPageCount() - 1)}
+                  onClick={() =>
+                    setPagination((prev) => ({
+                      ...prev,
+                      pageIndex: table.getPageCount() - 1,
+                    }))
+                  }
                   disabled={!table.getCanNextPage()}
                   variant="outline"
                   size="icon"
@@ -473,128 +508,155 @@ function CHUITable<T extends RowData>({
               <TooltipContent>Last Page</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-
-          <span>{table.getPrePaginationRowModel().rows.length} Rows</span>
         </div>
       </div>
 
-      {/* The table content */}
+      {/* Table content */}
       <div
         ref={tableContainerRef}
-        className="flex-grow overflow-auto relative"
-        style={{ willChange: "transform" }}
+        className="relative flex-1 overflow-auto w-full"
       >
-        <table className="w-full text-xs border-collapse table-fixed">
-          <thead className="sticky top-0 bg-gray-500">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    style={{
-                      width: header.getSize(),
-                      position: "relative",
-                    }}
-                    className="text-left p-2 font-bold bg-gray-500 text-white"
-                  >
-                    {header.isPlaceholder ? null : (
-                      <>
-                        {header.column.id === "row-number" ? (
-                          "#"
-                        ) : (
-                          <div className="flex items-center justify-between">
-                            <div
-                              className={`flex items-center space-x-2 ${
-                                header.column.getCanSort()
-                                  ? "cursor-pointer select-none"
-                                  : ""
-                              }`}
-                              onClick={
-                                header.column.getCanSort()
-                                  ? header.column.getToggleSortingHandler()
-                                  : undefined
-                              }
-                            >
-                              {flexRender(
-                                header.column.columnDef.header,
-                                header.getContext()
-                              )}
-                              {{
-                                asc: <ArrowUp className="h-3 w-3 ml-1" />,
-                                desc: <ArrowDown className="h-3 w-3 ml-1" />,
-                              }[header.column.getIsSorted() as string] ?? (
-                                <span className="h-3 w-3 ml-1" />
-                              )}
-                            </div>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                {header.column.getFilterValue() ? (
-                                  <FilterX className="h-3 w-3" />
-                                ) : (
-                                  <Filter className="h-3 w-3" />
-                                )}
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-56">
-                                <DropdownMenuLabel className="text-xs">
-                                  Filter{" "}
-                                  {header.column.columnDef.header as string}
-                                </DropdownMenuLabel>
-                                <DropdownMenuSeparator />
-                                <div className="p-2">
-                                  <FilterComponent column={header.column} />
-                                </div>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    header.column.setFilterValue(null)
-                                  }
-                                  className="text-xs"
-                                >
-                                  Clear filter
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
+        <div
+          style={{
+            height: `${rowVirtualizer.getTotalSize()}px`,
+            width: "100%",
+            position: "relative",
+          }}
+        >
+          <table className="w-full table-fixed">
+            <colgroup>
+              {table.getAllColumns().map((column) => (
+                <col key={column.id} style={{ width: column.getSize() }} />
+              ))}
+            </colgroup>
+
+            <thead className="sticky top-0 z-1 bg-gray-50 dark:bg-gray-800">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <th
+                      key={header.id}
+                      style={{ width: header.getSize() }}
+                      className={`
+                        relative p-2 text-left font-medium text-gray-600 dark:text-gray-200
+                        border-b dark:border-gray-700 text-xs select-none
+                        ${header.column.getCanSort() ? "cursor-pointer" : ""}
+                      `}
+                      onClick={
+                        header.column.getCanSort()
+                          ? header.column.getToggleSortingHandler()
+                          : undefined
+                      }
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="truncate">
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                        </span>
+                        {header.column.getIsSorted() && (
+                          <span className="text-primary">
+                            {header.column.getIsSorted() === "asc" ? (
+                              <ArrowUp className="h-3.5 w-3.5" />
+                            ) : (
+                              <ArrowDown className="h-3.5 w-3.5" />
+                            )}
+                          </span>
                         )}
-                        {header.column.getCanResize() && (
-                          <div
-                            onMouseDown={header.getResizeHandler()}
-                            onTouchStart={header.getResizeHandler()}
-                            onDoubleClick={() => handleDoubleClick(header)}
-                            className={`absolute right-0 top-0 h-full w-1 bg-gray-300 cursor-col-resize select-none touch-none hover:bg-gray-400 ${
-                              header.column.getIsResizing() ? "bg-gray-500" : ""
-                            }`}
-                          />
-                        )}
-                      </>
+                      </div>
+
+                      {header.column.getCanResize() && (
+                        <div
+                          onMouseDown={header.getResizeHandler()}
+                          onTouchStart={header.getResizeHandler()}
+                          onDoubleClick={() => {
+                            const newSize = calculateAutoSize(header.column.id);
+                            handleColumnResize(newSize, header.column.id);
+                          }}
+                          className={`
+                            absolute right-0 top-0 h-full w-1
+                            cursor-col-resize select-none touch-none
+                            bg-gray-300 dark:bg-gray-600
+                            hover:bg-primary/50
+                            ${
+                              header.column.getIsResizing()
+                                ? "bg-primary w-1"
+                                : ""
+                            }
+                            transition-colors
+                          `}
+                        />
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+
+            <tbody>
+              {paddingTop > 0 && (
+                <tr>
+                  <td
+                    style={{ height: `${paddingTop}px` }}
+                    colSpan={columns.length}
+                  />
+                </tr>
+              )}
+
+              {virtualRows.map((virtualRow) => {
+                const row = rows[virtualRow.index];
+                return <TableRow key={row.id} row={row} />;
+              })}
+
+              {paddingBottom > 0 && (
+                <tr>
+                  <td
+                    style={{ height: `${paddingBottom}px` }}
+                    colSpan={columns.length}
+                  />
+                </tr>
+              )}
+
+              {onLoadMore && (
+                <tr ref={loadMoreRef}>
+                  <td colSpan={columns.length} className="text-center p-4">
+                    {isLoading ? (
+                      <div className="flex items-center justify-center gap-2">
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <span>Loading more...</span>
+                      </div>
+                    ) : (
+                      <span className="text-gray-500 dark:text-gray-400">
+                        Scroll to load more
+                      </span>
                     )}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {paddingTop > 0 && (
-              <tr>
-                <td style={{ height: `${paddingTop}px` }} />
-              </tr>
-            )}
-            {virtualRows.map((virtualRow) => (
-              <TableRow
-                key={rows[virtualRow.index].id}
-                row={rows[virtualRow.index]}
-              />
-            ))}
-            {paddingBottom > 0 && (
-              <tr>
-                <td style={{ height: `${paddingBottom}px` }} />
-              </tr>
-            )}
-          </tbody>
-        </table>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Footer with stats */}
+      <div className="p-2 border-t dark:border-gray-700">
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            {table.getFilteredRowModel().rows.length.toLocaleString()} of{" "}
+            {table.getPreFilteredRowModel().rows.length.toLocaleString()} rows
+          </span>
+          {statistics && (
+            <>
+              <span>Loaded in {statistics.elapsed?.toFixed(2) || 0}s</span>
+              <span>{statistics.rows_read?.toLocaleString() || 0} rows</span>
+              <span>{statistics.bytes_read?.toLocaleString() || 0} bytes</span>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-export default React.memo(CHUITable);
+export default React.memo(CHUITable) as typeof CHUITable;

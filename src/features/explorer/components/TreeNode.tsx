@@ -300,7 +300,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
                     }
                   }
                 }}
-                className="text-sm"
+                className="text-xs"
               >
                 <p className="truncate"> {node.name}</p>
               </div>

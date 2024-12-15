@@ -1,151 +1,213 @@
-# Getting Started 🚀
+# Getting Started with CH-UI 🚀
 
-Let's get you up and running with CH-UI in no time.
+Welcome to CH-UI! This guide will help you get up and running quickly with our modern interface for ClickHouse databases.
 
-## Prerequisites
+## Quick Start ⚡
 
-- A running ClickHouse server instance. If you don't have one, follow the [ClickHouse Official Installation Guide](https://clickhouse.com/docs/en/install#quick-install).
+Choose your preferred installation method:
 
-## 🐳 Using Docker
+import { Tabs } from 'nextra/components'
+import { Steps } from 'nextra/components'
+ 
+<Tabs items={['Docker (Recommended)', 'Docker Compose', 'Build from Source']}>
+  <Tabs.Tab>
+    ### Simple Docker Setup
+    ```bash copy
+    docker run -p 5521:5521 ghcr.io/caioricciuti/ch-ui:latest
+    ```
+    
+    ### Docker with Environment Variables
+    ```bash copy
+    docker run -p 5521:5521 \
+      -e VITE_CLICKHOUSE_URL=http://your-clickhouse-server:8123 \
+      -e VITE_CLICKHOUSE_USER=your-username \
+      -e VITE_CLICKHOUSE_PASS=your-password \
+      ghcr.io/caioricciuti/ch-ui:latest
+    ```
+  </Tabs.Tab>
+  <Tabs.Tab>
+    ### Using Docker Compose
+    
+    Create a `docker-compose.yml`:
+    ```yaml copy
+    services:
+      ch-ui:
+        image: ghcr.io/caioricciuti/ch-ui:latest
+        restart: always
+        ports:
+          - "${CH_UI_PORT:-5521}:5521"
+        environment:
+          VITE_CLICKHOUSE_URL: "${CLICKHOUSE_URL}"
+          VITE_CLICKHOUSE_USER: "${CLICKHOUSE_USER}"
+          VITE_CLICKHOUSE_PASS: "${CLICKHOUSE_PASS}"
+          # Advanced Options (Optional)
+          VITE_CLICKHOUSE_USE_ADVANCED: "${CLICKHOUSE_USE_ADVANCED:-false}"
+          VITE_CLICKHOUSE_CUSTOM_PATH: "${CLICKHOUSE_CUSTOM_PATH:-}"
+    ```
 
-Deploy CH-UI quickly using Docker:
+    Start the service:
+    ```bash copy
+    docker-compose up -d
+    ```
+  </Tabs.Tab>
+  <Tabs.Tab>
+    ### Building from Source
+    
+    <Steps>
+      ### Clone Repository
+      ```bash copy
+      git clone https://github.com/caioricciuti/ch-ui.git
+      cd ch-ui
+      ```
+
+      ### Install Dependencies
+      ```bash copy
+      npm install
+      ```
+
+      ### Build Project
+      ```bash copy
+      npm run build
+      ```
+
+      ### Start Server
+      For production:
+      ```bash copy
+      npm run preview
+      ```
+      For development:
+      ```bash copy
+      npm run dev
+      ```
+    </Steps>
+  </Tabs.Tab>
+</Tabs>
+
+## System Requirements 🖥️
+
+### Prerequisites
+- A running ClickHouse server ([Installation Guide](https://clickhouse.com/docs/en/install#quick-install))
+- For Docker: Docker Engine 20.10.0 or newer
+- For building from source:
+  - Node.js >= 20.x
+  - npm >= 10.x
+
+## Configuration Options ⚙️
+
+### Environment Variables
+
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| VITE_CLICKHOUSE_URL | ClickHouse server URL | Yes | - |
+| VITE_CLICKHOUSE_USER | ClickHouse username | No | "" |
+| VITE_CLICKHOUSE_PASS | ClickHouse password | No | "" |
+| VITE_CLICKHOUSE_USE_ADVANCED | Enable advanced features | No | false |
+| VITE_CLICKHOUSE_CUSTOM_PATH | Custom HTTP path | No | - |
+
+### Advanced Features (required to set custom path)
+When `VITE_CLICKHOUSE_USE_ADVANCED` is enabled:
+-  `VITE_CLICKHOUSE_CUSTOM_PATH` is required to set a custom HTTP path for ClickHouse.
+-   The path should be relative to the ClickHouse server URL, without the protocol (e.g., "/path/to/clickhouse").
+
+
+## Development Environment 🛠️
+
+### Local ClickHouse Instance
+
+Run a local ClickHouse instance for development:
 
 ```bash copy
-docker run -p 5521:5521 ghcr.io/caioricciuti/ch-ui:latest
-```
-
-### Using Environment Variables with Docker
-
-CH-UI supports setting ClickHouse connection details using environment variables:
-
-```bash copy
-docker run -p 5521:5521 \
-  -e VITE_CLICKHOUSE_URL=http://your-clickhouse-server:8123 \
-  -e VITE_CLICKHOUSE_USER=your-username \
-  -e VITE_CLICKHOUSE_PASS=your-password \
-  ghcr.io/caioricciuti/ch-ui:latest
-```
-
-### Using docker-compose
-
-Create a `docker-compose.yml` file (or use the one provided in the repository):
-
-```yaml copy
-services:
-  ch-ui:
-    image: ghcr.io/caioricciuti/ch-ui:latest
-    restart: always
-    ports:
-      - "${CH_UI_PORT:-5521}:5521"
-    environment:
-      VITE_CLICKHOUSE_URL: "http://your-clickhouse-server:8123" # OPTIONAL
-      VITE_CLICKHOUSE_USER: "your-username" # OPTIONAL
-      VITE_CLICKHOUSE_PASS: "your-password" # OPTIONAL
-```
-
-Then run:
-
-```bash copy
-docker-compose up # use -d to run in detached mode
-```
-
-## 💻 Building from Source
-
-1. Clone the repository:
-   ```bash copy
-   git clone https://github.com/caioricciuti/ch-ui.git
-   ```
-
-2. Install dependencies:
-   ```bash copy
-   cd ch-ui
-   npm install
-   ```
-
-3. Build the project:
-   ```bash copy
-   npm run build
-   ```
-
-4. Preview the build:
-   ```bash copy
-   npm run preview
-   ```
-
-   Or run in debug mode:
-   ```bash copy
-   npm run dev
-   ```
-
-## Using docker-compose to run a localhost clickhouse (only for development)
-
-The following command will run a clickhouse database with a connection to http://localhost:8123 and a user `dev` with password `dev`.
-The data will be persisted in this directory: `.clickhouse_local_data`
-
-```bash copy
+# Start ClickHouse
 docker-compose -f docker-compose-dev.yml up -d
-```
 
-Use the following command to turn down, don't forget to remove `.clickhouse_local_data` if you want to save some space in your HD but then all data will be erased.
-
-```bash copy
+# Stop ClickHouse
 docker-compose -f docker-compose-dev.yml down
 ```
 
-## Project Structure
+Default credentials:
+- URL: `http://localhost:8123`
+- Username: `dev`
+- Password: `dev`
 
-- `/src`: Main source directory
-  - `/components`: Reusable React components
-  - `/pages`: Main page components (Home, Metrics, Settings)
-  - `/store`: State management with Zustand
-  - `/lib`: Utility functions
-  - `/types`: TypeScript type definitions
-- `App.tsx`: Main application component
-- `main.tsx`: Application entry point
+Data is persisted in `.clickhouse_local_data` directory.
 
-## Features
+## Project Structure 📁
 
-- **ClickHouse Integration**: Seamlessly interact with ClickHouse databases.
-- **Dynamic UI Components**: Advanced UI for enhanced data interaction.
-- **Responsive Tab Management**: Create and manage query tabs and table tabs.
-- **Performance Optimizations**: Efficient state management and optimized database interactions.
-- **TypeScript Refactor**: Improved code quality and developer experience.
-- **Enhanced Metrics**: Redesigned metrics dashboard with new insights.
-- **Custom Table Management**: Internally handled tables for better control.
-- **SQL Editor IntelliSense**: Autocomplete suggestions and syntax highlighting.
-- **Intuitive Data Explorer**: Redesigned interface for easier navigation.
-- **Fresh New Design**: Modern, clean UI for improved usability.
+```
+ch-ui/
+├── src/
+│   ├── components/    # Reusable React components
+│   ├── pages/        # Main page components
+│   ├── store/        # State management (Zustand)
+│   ├── lib/          # Utility functions
+│   └── types/        # TypeScript definitions
+├── public/           # Static assets
+├── App.tsx          # Main application component
+└── main.tsx         # Application entry point
+```
 
-## Security Recommendations
+## Security Best Practices 🔒
 
-For production use, consider implementing these security measures:
+For production deployments, we recommend:
 
-1. Use a reverse proxy with authentication (e.g., Nginx with basic auth).
-2. Enable HTTPS to encrypt all traffic.
-3. Implement IP whitelisting if possible.
-4. Keep all components up to date.
-5. Configure a firewall to restrict incoming connections.
+1. **Reverse Proxy Setup**
+   - Use Nginx/Apache as a reverse proxy
+   - Enable HTTPS
+   - Implement authentication
 
-Refer to the full README for detailed security configuration examples.
+2. **Network Security**
+   - Run on a private network when possible
+   - Use VPN for remote access
+   - Implement IP whitelisting
 
-## Next Steps
+3. **Access Control**
+   - Use minimal privilege ClickHouse users
+   - Regularly rotate credentials
+   - Monitor access logs
 
-1. Connect to your ClickHouse server through the Settings page.
-2. Explore databases and tables using the Database Explorer.
-3. Write and execute SQL queries in the SQL Editor.
-4. Organize your work using Workspace Tabs.
+## Getting Started Guide 📚
 
-For more detailed information on each feature, please refer to the respective sections in this documentation.
+<Steps>
+### Connect to ClickHouse
+1. Launch CH-UI
+2. Navigate to Settings
+3. Enter your ClickHouse connection details
 
-## Contributing
+### Explore Your Data
+1. Use the Database Explorer to browse tables
+2. View table structures and sample data
+3. Create custom views and filters
 
-If you want to contribute to CH-UI, please read our [contributing guide](https://ch-ui.caioricciuti.com/docs/contributing?utm_source=ch-ui&utm_medium=gitHubReadme).
+### Write Queries
+1. Open the SQL Editor
+2. Use IntelliSense for code completion
+3. Execute and analyze queries
 
-## Support
+### Organize Your Work
+1. Create workspace tabs
+2. Save frequently used queries
+3. Export results as needed
+</Steps>
 
-- Financial support:  [![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-Donate-FF813F.svg)](https://www.buymeacoffee.com/caioricciuti)
+## Support & Community 👥
 
-- Contribute: Find a bug or suggest a feature. All lines of code are welcome!
-- Spread the word: Star the project on GitHub or share it with your network.
+- **Documentation**: Browse our [comprehensive guides](https://ch-ui.caioricciuti.com/docs)
+- **GitHub Issues**: Report bugs or request features on our [GitHub repository](https://github.com/caioricciuti/ch-ui/issues)
+- **Discussions**: Join our [community discussions](https://github.com/caioricciuti/ch-ui/discussions)
 
-Your support helps keep the project running and improving. Thank you!
+### Support the Project
+
+If you find CH-UI helpful, consider:
+
+<div align="center">
+  <a href="https://buymeacoffee.com/caioricciuti?utm_source=ch-ui-docs&utm_medium=docs">
+    <img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=caioricciuti&button_colour=FF813F&font_colour=ffffff&font_family=Cookie&outline_colour=000000&coffee_colour=FFDD00" alt="Buy Me A Coffee" />
+  </a>
+</div>
+
+## Next Steps 🎯
+
+- Explore [Core Concepts](/docs/core-concepts)
+- Learn about [Advanced Features](/docs/advanced-features)
+- Check out our [API Reference](/docs/api-reference)
+- Join our [Community](/docs/community)

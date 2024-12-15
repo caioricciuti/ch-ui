@@ -21,13 +21,13 @@ function initializeClickHouseClient(
 ) {
   if (
     credential &&
-    typeof credential.host === "string" &&
-    credential.host.trim() !== "" &&
+    typeof credential.url === "string" &&
+    credential.url.trim() !== "" &&
     typeof credential.username === "string" &&
     credential.username.trim() !== ""
   ) {
     client = createClient({
-      url: credential.host,
+      url: credential.url,
       pathname: credential.customPath,
       username: credential.username,
       password: credential.password || "", // Allow empty password
@@ -38,7 +38,11 @@ function initializeClickHouseClient(
 }
 
 // Call this function at the start of your application
-initializeClickHouseClient(appStore, state, credential);
+try {
+  initializeClickHouseClient(appStore, state, credential);
+} catch (error) {
+  console.error("Error initializing ClickHouse client:", error);
+}
 
 // Retry initialization function
 export async function retryInitialization(

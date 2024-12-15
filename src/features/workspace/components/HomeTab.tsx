@@ -29,14 +29,6 @@ const quickStartActions = [
     description: "Write and execute SQL queries",
     action: "sql",
   },
-  /*
-  {
-    title: "ADD DATA",
-    icon: <UploadCloud className="w-5 h-5" />,
-    description: "Upload data to your instance",
-    action: "upload",
-  },
-  */
 ];
 
 const resourceCards = [

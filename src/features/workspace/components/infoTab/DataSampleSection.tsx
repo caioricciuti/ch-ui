@@ -49,7 +49,7 @@ const DataSampleSection: React.FC<DataSampleSectionProps> = ({
       const query = `
         SELECT *
         FROM ${sanitizedDatabase}.${sanitizedTable}
-        LIMIT 100
+        LIMIT 10
       `;
 
       const response = (await runQuery(query)) as QueryResult;
@@ -134,7 +134,6 @@ const DataSampleSection: React.FC<DataSampleSectionProps> = ({
                 message: "",
                 query_id: "",
               }}
-              initialPageSize={20}
             />
           </div>
         ) : (

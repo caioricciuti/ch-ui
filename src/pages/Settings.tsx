@@ -48,7 +48,7 @@ import useAppStore from "@/store";
 import { retryInitialization } from "@/features/workspace/editor/monacoConfig";
 
 const formSchema = z.object({
-  host: z.string().url("Invalid URL").min(1, "URL is required"),
+  url: z.string().url("Invalid URL").min(1, "URL is required"),
   username: z.string().min(1, "Username is required"),
   password: z.string().optional(),
   useAdvanced: z.boolean().optional(),
@@ -75,7 +75,7 @@ export default function SettingsPage() {
   const navigate = useNavigate();
 
   const currentFormValues = {
-    host: credential?.host,
+    url: credential?.url,
     username: credential?.username,
     password: credential?.password,
   };
@@ -83,7 +83,7 @@ export default function SettingsPage() {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      host: credential?.host || "",
+      url: credential?.url || "",
       username: credential?.username || "",
       password: credential?.password || "",
       useAdvanced: false,
@@ -94,7 +94,7 @@ export default function SettingsPage() {
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
       if (
-        values.host === currentFormValues.host &&
+        values.url === currentFormValues.url &&
         values.username === currentFormValues.username &&
         values.password === currentFormValues.password &&
         isServerAvailable
@@ -103,14 +103,14 @@ export default function SettingsPage() {
         return;
       }
 
-      let host = values.host;
+      let url = values.url;
       if (values.useAdvanced && values.customPath) {
-        host = `${values.host}/${values.customPath}`;
+        url = `${values.url}/${values.customPath}`;
       }
 
       await setCredential({
         ...values,
-        host,
+        url,
         password: values.password || "",
         useAdvanced: values.useAdvanced || false,
         customPath: values.customPath || "",
@@ -127,7 +127,7 @@ export default function SettingsPage() {
   const handleDisconnect = () => {
     clearCredentials();
     form.reset({
-      host: "",
+      url: "",
       username: "",
       password: "",
       useAdvanced: false,
@@ -189,7 +189,7 @@ export default function SettingsPage() {
                     <div className="space-y-4">
                       <FormField
                         control={form.control}
-                        name="host"
+                        name="url"
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="flex items-center gap-2">
@@ -402,7 +402,7 @@ export default function SettingsPage() {
               ) : error ? (
                 <CardFooter className="border-t bg-muted/50 rounded-b-lg pt-4">
                   <span className="text-sm font-mono font-semibold text-red-500">
-                    {error} 
+                    {error}
                   </span>
                 </CardFooter>
               ) : null}

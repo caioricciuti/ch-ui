@@ -1,201 +1,237 @@
-# CH-UI
+# CH-UI 🚀
 
-CH-UI is a modern and feature-rich user interface for ClickHouse databases. It offers an intuitive platform for managing ClickHouse databases, executing queries, and visualizing metrics about your instance. Built with React and ClickHouse client for web, CH-UI aims to streamline the use of ClickHouse databases and provide a more user-friendly experience for developers and data engineers.
+[![GitHub license](https://img.shields.io/github/license/caioricciuti/ch-ui)](https://github.com/caioricciuti/ch-ui/blob/main/LICENSE)
+![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.x-brightgreen)
+![npm Version](https://img.shields.io/badge/npm-%3E%3D10.x-brightgreen)
+[![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fcaioricciuti%2Fch--ui-blue)](https://github.com/caioricciuti/ch-ui/pkgs/container/ch-ui)
 
-![GitHub license](https://img.shields.io/github/license/caioricciuti/ch-ui)
+![Docker Pulls](https://img.shields.io/badge/pulls-30.6k-blue?logo=docker&style=flat-square)
 
-## Features
+A modern, feature-rich web interface for ClickHouse databases. CH-UI provides an intuitive platform for managing ClickHouse databases, executing queries, and visualizing metrics about your instance.
 
-- **ClickHouse Integration**: Seamlessly interact with ClickHouse databases, manage connections, and execute queries.
-- **Dynamic UI Components**: Utilize advanced UI components for enhanced data interaction.
-- **Responsive Tab Management**: Create, manage, and dynamically interact with various tabs like query tabs and table tabs.
-- **Performance Optimizations**: Efficient state management and optimized database interactions - Uses indexedDB for caching.
-- **TypeScript Refactor**: 🚀 Fully refactored codebase using TypeScript for improved code quality and developer experience.
-- **Enhanced Metrics**: 📊 Re-build metrics dashboard with new insights and visualization options using scopes such as Queries, Tables, Settings, Network and more for better usage.
-- **Custom Table Management**: 🔧 Tables are now created and handled internally, removing dependency on 3rd party packages.
-- **SQL Editor IntelliSense**: 💡 Improved SQL editing experience with autocomplete suggestions and syntax highlighting.
-- **Intuitive Data Explorer**: 🔍 Redesigned interface for easier navigation and data manipulation.
-- **Fresh New Design**: 🎨 Modern, clean UI overhaul for improved usability and aesthetics.
+## 🌟 Key Features
 
-### Screenshots
+### Core Functionality
+- **🔄 ClickHouse Integration**: Seamless connection and interaction with ClickHouse databases
+- **📝 Advanced SQL Editor**: 
+  - Intelligent IntelliSense with autocomplete suggestions
+  - Syntax highlighting
+  - Query history tracking
+  - Multi-tab query execution
+- **📊 Dynamic Data Visualization**: 
+  - Interactive data tables with sorting and filtering
+  - Custom visualization options
+  - Real-time data updates
 
-<img src="./public/screen-shots/settings.png" alt="Screenshot of the application" width="300">
-<img src="./public/screen-shots/main-page.png" alt="Screenshot of the application" width="300">
-<img src="./public/screen-shots/instance-metrics.png" alt="Screenshot of the application" width="200">
+### Performance & Architecture
+- **⚡ Optimized Performance**:
+  - IndexedDB-based caching system
+  - Efficient state management
+  - Responsive UI even with large datasets
+- **🔒 TypeScript Implementation**: Full TypeScript support for improved code quality and developer experience
+- **📦 Custom Table Management**: Built-in table handling without third-party dependencies
 
-## Getting Started
+### Monitoring & Analytics
+- **📈 Enhanced Metrics Dashboard**:
+  - Query performance monitoring
+  - Table statistics and insights
+  - System settings overview
+  - Network performance metrics
+  - Resource utilization tracking
 
-### Using npm and building from scratch
+### User Experience
+- **🎨 Modern UI/UX**:
+  - Clean, intuitive interface
+  - Responsive design
+  - Dark/Light mode support
+  - Customizable layouts
 
-```bash
-git clone https://github.com/caioricciuti/ch-ui.git
-cd ch-ui
-npm install
-npm run build
+## 📸 Screenshots
 
-** preview **
-npm run preview
+<div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+  <img src="./public/screen-shots/settings.png" alt="Settings Interface" width="32%" />
+  <img src="./public/screen-shots/main-page.png" alt="Main Dashboard" width="32%" />
+  <img src="./public/screen-shots/instance-metrics.png" alt="Instance Metrics" width="32%" />
+</div>
 
-** debug **
-npm run dev
-```
+## 🚀 Getting Started
 
-### Using Docker
+### Option 1: Docker (Recommended)
 
+#### Simple Start
 ```bash
 docker run -p 5521:5521 ghcr.io/caioricciuti/ch-ui:latest
 ```
 
-### Using Environment Variables with Docker
+#### Using Docker Compose
+Create a `docker-compose.yml`:
+```yaml
+services:
+  ch-ui:
+    image: ghcr.io/caioricciuti/ch-ui:latest
+    restart: always
+    ports:
+      - "5521:5521"
+    environment:
+      VITE_CLICKHOUSE_URL: "http://your-clickhouse-server:8123"
+      VITE_CLICKHOUSE_USER: "your-username"
+      VITE_CLICKHOUSE_PASS: "your-password"
+```
 
-CH-UI now supports setting ClickHouse connection details using environment variables when running with Docker. You can use the following variables:
+Then run:
+```bash
+docker-compose up -d
+```
 
-VITE_CLICKHOUSE_URL: The URL of your ClickHouse server
-VITE_CLICKHOUSE_USER: The username for ClickHouse authentication
-VITE_CLICKHOUSE_PASS: The password for ClickHouse authentication
+#### Environment Variables
+| Variable | Description | Required | Default |
+|----------|-------------|-----------|---------|
+| VITE_CLICKHOUSE_URL | ClickHouse server URL | Yes | - |
+| VITE_CLICKHOUSE_USER | ClickHouse username | Yes | - |
+| VITE_CLICKHOUSE_PASS | ClickHouse password | No | "" |
+| VITE_CLICKHOUSE_USE_ADVANCED | Enable advanced ClickHouse features (e.g., custom settings, system tables access) | No | false |
+| VITE_CLICKHOUSE_CUSTOM_PATH | Custom path for ClickHouse HTTP interface | No | - |
 
-Example:
+#### Advanced Docker Configuration
+```yaml
+services:
+  ch-ui:
+    image: ghcr.io/caioricciuti/ch-ui:latest
+    restart: always
+    ports:
+      - "5521:5521"
+    environment:
+      VITE_CLICKHOUSE_URL: "http://your-clickhouse-server:8123"
+      VITE_CLICKHOUSE_USER: "your-username"
+      VITE_CLICKHOUSE_PASS: "your-password"
+      # Advanced Options
+      VITE_CLICKHOUSE_USE_ADVANCED: "true"  # Enable advanced features
+      VITE_CLICKHOUSE_CUSTOM_PATH: "/custom/path"  # Optional: Custom HTTP path
+```
 
+Or using Docker run with advanced options:
 ```bash
 docker run -p 5521:5521 \
   -e VITE_CLICKHOUSE_URL=http://your-clickhouse-server:8123 \
   -e VITE_CLICKHOUSE_USER=your-username \
   -e VITE_CLICKHOUSE_PASS=your-password \
+  -e VITE_CLICKHOUSE_USE_ADVANCED=true \
+  -e VITE_CLICKHOUSE_CUSTOM_PATH=/custom/path \
   ghcr.io/caioricciuti/ch-ui:latest
 ```
 
-When these environment variables are set, CH-UI will automatically use them to configure the ClickHouse connection, bypassing the need for manual setup in the UI.
+### Option 2: Build from Source
 
-### Using docker-compose to run a localhost clickhouse (only for development)
+#### Prerequisites
+- Node.js >= 20.x
+- npm >= 10.x
 
-The following command will run a clickhouse database with a connection to http://localhost:8123 and a user `dev` with password `dev`.
-The data will be persisted in this directory: `.clickhouse_local_data`
-
+#### Installation Steps
 ```bash
-docker-compose -f docker-compose-dev.yml up -d
+# Clone the repository
+git clone https://github.com/caioricciuti/ch-ui.git
+
+# Navigate to project directory
+cd ch-ui
+
+# Install dependencies
+npm install
+
+# Build the project
+npm run build
+
+# Start for development
+npm run dev
+
+# Start for production
+npm run preview
 ```
 
-Use the following command to turn down, don't forget to remove `.clickhouse_local_data` if you want to save some space in your HD but then all data will be erased.
+## 🧪 Development Environment
+
+### Local ClickHouse Instance
+For development purposes, you can run a local ClickHouse instance using Docker:
 
 ```bash
+# Start ClickHouse
+docker-compose -f docker-compose-dev.yml up -d
+
+# Stop ClickHouse
 docker-compose -f docker-compose-dev.yml down
 ```
 
-### Prerequisites
+Default credentials:
+- URL: http://localhost:8123
+- Username: dev
+- Password: dev
 
-Only for building from scratch: (if you are using docker you don't need to install these).
+Data is persisted in `.clickhouse_local_data` directory.
 
-```bash
-nodejs >= 20.x
-npm >= 10.x
-```
+## 🔒 Security Recommendations
 
-## Documentation
+### Production Deployment
+When deploying CH-UI in a production environment, consider the following security measures:
 
-For information on how to use CH-UI, please refer to our documentation:
+1. **Reverse Proxy Setup**
+   - Use Nginx/Apache as a reverse proxy
+   - Enable HTTPS
+   - Implement authentication
 
-- [Getting Started](https://ch-ui.caioricciuti.com/docs/getting-started?utm_source=ch-ui&utm_medium=gitHubReadme)
+2. **Network Security**
+   - Run on a private network when possible
+   - Use VPN for remote access
+   - Implement IP whitelisting
 
-## Security Recommendations
-
-I recommend using a reverse proxy with authentication, as the app itself only caches and makes data available on the browser; we don't have a backend (yet). If you plan to make CH-UI available for your team on the open internet, it's good practice to use basic authentication or run it on a private network. You can use Nginx, Apache, or any other reverse proxy that supports basic authentication. Here is an example of how to set up basic authentication with Nginx:
-
+### Example Nginx Configuration with Basic Auth
 ```nginx
 server {
     listen 80;
-    server_name your-server-name;
+    server_name your-domain.com;
 
     location / {
+        auth_basic "Restricted Access";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+        
         proxy_pass http://localhost:5521;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        auth_basic "Restricted Access";
-        auth_basic_user_file /path/to/.htpasswd;
     }
 }
 ```
 
-To create the `.htpasswd` file for basic authentication:
+## 📚 Documentation
 
-1. Install the `apache2-utils` package (on Ubuntu/Debian) or `httpd-tools` (on CentOS/RHEL):
-
-   ```
-   sudo apt-get install apache2-utils
-   ```
-
-   or
-
-   ```
-   sudo yum install httpd-tools
-   ```
-
-2. Create the `.htpasswd` file and add a user:
-
-   ```
-   sudo htpasswd -c /path/to/.htpasswd username
-   ```
-
-   Replace `/path/to/.htpasswd` with the actual path where you want to store the file, and `username` with the desired username.
-
-3. You'll be prompted to enter and confirm a password for the user.
-
-Remember to replace `your-server-name` with your actual domain name or IP address, and adjust the `proxy_pass` URL if your application is running on a different port or host.
-
-### Additional Security Measures
-
-1. **Use HTTPS**: It's highly recommended to use HTTPS to encrypt all traffic. You can obtain a free SSL certificate from Let's Encrypt and configure Nginx to use it.
-
-2. **IP Whitelisting**: If your team works from fixed IP addresses, you can add an additional layer of security by whitelisting these IPs in your Nginx configuration.
-
-3. **Regular Updates**: Keep your Nginx server and all dependencies up to date to ensure you have the latest security patches.
-
-4. **Firewall**: Configure a firewall (like `ufw` on Ubuntu) to only allow necessary incoming connections.
-
-By implementing these security measures, you can significantly reduce the risk of unauthorized access to your CH-UI instance. Always follow the principle of least privilege and regularly review and update your security configurations.
-
-Also remember that the most important credential you have is the connection information to your ClickHouse server, that is what gives access to your data. CH-UI does not manage users, it's done on your ClickHouse instance, read the [ClickHouse documentation to learn how to manage users and permissions.](https://clickhouse.com/docs/en/cloud/security/common-access-management-queries?utm_source=ch-ui&utm_medium=gitHubReadme)
-
-## Limitations
-
-Since the tabs and it's results are cached on the browser using IndexedDB, if you have a lot of data or a lot of tabs open, it can consume a lot of memory on the browser, this makes the app to be quite freeze, I'm working on a solution to this, but for now, I recommend to use the app with a reasonable amount of data and tabs open.
-
-## Authors and Contributors
-
-This project is maintained by Caio Ricciuti and it gets better and better with all contributions from the community. If you want to contribute, please refer to the [Contribution Guidelines](https://ch-ui.caioricciuti.com/docs/contributing?utm_source=ch-ui&utm_medium=gitHubReadme).
-
-### Contributors
-
-<a href="https://github.com/caioricciuti/ch-ui/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=caioricciuti/ch-ui" />
-</a>
-
-Made with contrib.rocks
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE.md file for details
-
-## Disclaimer
-
-This project is not affiliated with ClickHouse or Yandex. It is an independent project developed by Caio Ricciuti to provide a modern and user-friendly interface for ClickHouse databases. For official ClickHouse documentation and support, please visit the [ClickHouse website](https://clickhouse.com/docs/en/?utm_source=ch-ui&utm_medium=gitHubReadme).
-
-## Support
-
-Finally, if you like this project and want to support it:
-
-#### Financially: [![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-Donate-FF813F.svg)](https://www.buymeacoffee.com/caioricciuti).
-
-#### Contributing ![GitHub issues](https://img.shields.io/github/issues/caioricciuti/ch-ui) find a bug or suggest a feature, all lines of code are welcome! 🚀
-
-#### Recognition: ⭐️ the project on GitHub, share it with your friends, or spread the word, it helps a lot!
-
-All contributions are greatly appreciated and help to keep the project running and improving. Thank you for your support!
+![Website](https://img.shields.io/website?url=https%3A%2F%2Fch-ui.caioricciuti.com)
 
 
-### [Acknowledgments and Credits](https://ch-ui.caioricciuti.com/docs/acknowledgments?utm_source=ch-ui&utm_medium=gitHubReadme)
+For detailed documentation, visit our [official documentation](https://ch-ui.caioricciuti.com/docs/getting-started?utm_source=ch-ui&utm_medium=gitHubReadme). 
 
+## 🤝 Contributing
 
-### [Watch the promo video!](/public/video/chuivid.mp4)
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## ❤️ Sponsors
+
+<div align="center">
+  <a href="https://iberodata.es/?utm_source=ch-ui&utm_medium=github" target="_blank">
+    <img src="https://iberodata.es/logo.png" alt="Iberodata" width="100"/>
+  </a>
+  
+  <p><strong>Iberodata</strong> - Empowering businesses with data-driven solutions</p>
+</div>
+
+## ☕ Support the Project
+
+If you find CH-UI helpful, consider supporting its development:
+
+<div align="center">
+  <a href="https://buymeacoffee.com/caioricciuti?utm_source=ch-ui&utm_medium=github">
+    <img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=caioricciuti&button_colour=FF813F&font_colour=ffffff&font_family=Cookie&outline_colour=000000&coffee_colour=FFDD00" alt="Buy Me A Coffee" />
+  </a>
+</div>
+
+Your support helps maintain and improve CH-UI! ✨
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

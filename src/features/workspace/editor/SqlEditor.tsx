@@ -7,7 +7,7 @@ import {
   createMonacoEditor,
 } from "@/features/workspace/editor/monacoConfig";
 import { Button } from "@/components/ui/button";
-import { Play } from "lucide-react";
+import { CirclePlay } from "lucide-react";
 import { toast } from "sonner";
 import SaveQueryDialog from "@/features/workspace/editor/SaveQuery";
 
@@ -122,25 +122,17 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="p-2 flex items-center justify-between border-b">
+      <div className="px-4 flex items-center justify-between border-b">
         <span className="text-sm text-muted-foreground truncate max-w-[200px]">
           {tab.title}
         </span>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleRunQuery}
-            className="gap-2"
-          >
-            <Play className="h-4 w-4" />
-            Run Query
+          <Button variant="link" onClick={handleRunQuery} className="gap-2">
+            <CirclePlay className="h-6 w-6" />
           </Button>
-
-  
         </div>
       </div>
-      <div ref={editorRef} className="flex-1 min-h-0" />
+      <div ref={editorRef} className="flex-1" />
     </div>
   );
 };

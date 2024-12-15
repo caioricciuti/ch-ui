@@ -252,7 +252,7 @@ export function WorkspaceTabs() {
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
         </div>
-        <div className="flex-grow overflow-auto">
+        <div className="flex flex-col flex-1">
           {sortedTabs.map((tab) => (
             <TabsContent
               key={tab.id}

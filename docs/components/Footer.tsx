@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import CustomLogo from "./CustomLogo";
-import { Github, Slack, Rss } from "lucide-react";
+import { Github } from "lucide-react";
 
 export default function Footer() {
   return (
@@ -18,13 +18,6 @@ export default function Footer() {
               Data is better when we see it!
             </p>
             <div className="flex items-center gap-4 mt-4">
-              <Link
-                href="#"
-                className="text-muted-foreground hover:text-primary transition-colors"
-                prefetch={false}
-              >
-                <Slack className="w-5 h-5" />
-              </Link>
               <Link
                 href="https://github.com/caioricciuti/ch-ui"
                 className="text-muted-foreground hover:text-primary transition-colors"
@@ -44,13 +37,6 @@ export default function Footer() {
               Get Started
             </Link>
             <Link
-              href="/docs/core-concepts"
-              className="text-sm hover:underline"
-              prefetch={false}
-            >
-              Core Concepts
-            </Link>
-            <Link
               href="/docs/license"
               className="text-sm hover:underline"
               prefetch={false}
@@ -58,22 +44,9 @@ export default function Footer() {
               License
             </Link>
           </div>
-          <div className="grid gap-4">
-            <h4 className="text-sm font-medium">News</h4>
-            <Link
-              href="/blog"
-              className="text-sm hover:underline"
-              prefetch={false}
-            >
-              Blog
-            </Link>
-      
-          </div>
+
           <div className="grid gap-4">
             <h4 className="text-sm font-medium">Community</h4>
-            <Link href="#" className="text-sm hover:underline" prefetch={false}>
-              Slack Channel
-            </Link>
             <Link
               href="https://github.com/caioricciuti/ch-ui/discussions"
               className="text-sm hover:underline"

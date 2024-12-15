@@ -3,7 +3,7 @@ import { ClickHouseSettings } from "@clickhouse/client-web";
 import { WebClickHouseClient } from "@clickhouse/client-web/dist/client";
 
 export interface Credential {
-    host: string;
+    url: string;
     username: string;
     password: string;
     useAdvanced: boolean;

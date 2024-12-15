@@ -12,18 +12,6 @@ export default {
     type: "page",
     title: "Documentation",
   },
-  blog: {
-    type: "page",
-    title: "Blog",
-    theme: {
-      typesetting: "article",
-      breadcrumb: true,
-      footer: true,
-      sidebar: false,
-      toc: true,
-      pagination: true,
-    },
-  },
   support: {
     type: "page",
     title: "Support",

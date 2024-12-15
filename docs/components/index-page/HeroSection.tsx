@@ -31,6 +31,60 @@ export const HeroSection = () => {
               to your ClickHouse instance, allowing you to view, filter, and
               export your data with ease.
             </p>
+            <div className="flex flex-wrap gap-2 items-center">
+              <Link
+                href="https://github.com/caioricciuti/ch-ui"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Image
+                  src="https://img.shields.io/github/stars/caioricciuti/ch-ui?style=social"
+                  alt="GitHub Stars"
+                  width={70}
+                  height={20}
+                />
+              </Link>
+
+              <Link
+                href="https://github.com/caioricciuti/ch-ui/?tab=MIT-1-ov-file#readme"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Image
+                  src="https://img.shields.io/github/license/caioricciuti/ch-ui"
+                  alt="GitHub license"
+                  width={70}
+                  height={20}
+                />
+              </Link>
+
+              <Image
+                src="https://img.shields.io/badge/pulls-30.6k-blue?logo=docker&style=flat-square"
+                alt="Docker Pulls"
+                width={100}
+                height={20}
+              />
+
+              <Image
+                src="https://img.shields.io/github/actions/workflow/status/caioricciuti/ch-ui/docker-build.yml?style=flat-square"
+                alt="Build Status"
+                width={90}
+                height={20}
+              />
+
+              <Link
+                href="https://x.com/caioricciuti"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Image
+                  src="https://img.shields.io/twitter/follow/caioricciuti?style=social"
+                  alt="Twitter Follow"
+                  width={130}
+                  height={20}
+                />
+              </Link>
+            </div>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
               <Link
                 href="/docs/"

@@ -1,15 +1,14 @@
 import { useEffect, useState, ReactNode } from "react";
 import { MultiStepLoader as Loader } from "@/components/ui/multi-step-loader";
 
-
-
-
 declare global {
   interface Window {
     env?: {
       VITE_CLICKHOUSE_URL?: string;
       VITE_CLICKHOUSE_USER?: string;
       VITE_CLICKHOUSE_PASS?: string;
+      VITE_CLICKHOUSE_USE_ADVANCED?: boolean;
+      VITE_CLICKHOUSE_CUSTOM_PATH?: string;
     };
   }
 }
@@ -17,20 +16,18 @@ import useAppStore from "@/store";
 import { toast } from "sonner";
 
 const AppInitializer = ({ children }: { children: ReactNode }) => {
-
   const loadingStates = [
     {
-      text: "Initializing application..."
-
+      text: "Initializing application...",
     },
     {
-      text: "Checking if you are an admin..."
+      text: "Checking if you are an admin...",
     },
     {
-      text: "Loading metrics..."
+      text: "Loading metrics...",
     },
     {
-      text: "Loading settings..."
+      text: "Loading settings...",
     },
   ];
 
@@ -49,12 +46,16 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
     const envUrl = window.env?.VITE_CLICKHOUSE_URL;
     const envUser = window.env?.VITE_CLICKHOUSE_USER;
     const envPass = window.env?.VITE_CLICKHOUSE_PASS;
+    const envUseAdvanced = window.env?.VITE_CLICKHOUSE_USE_ADVANCED;
+    const envCustomPath = window.env?.VITE_CLICKHOUSE_CUSTOM_PATH;
 
     if (envUrl && envUser) {
       setCredential({
-        host: envUrl,
+        url: envUrl,
         username: envUser,
         password: envPass || "",
+        useAdvanced: envUseAdvanced || false,
+        customPath: envCustomPath || "",
       });
       setCredentialSource("env");
     }
@@ -85,9 +86,11 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
   // Loading state
   if (isLoading) {
     return (
-
-      <Loader loadingStates={loadingStates} loading={isLoading} duration={1000} />
-
+      <Loader
+        loadingStates={loadingStates}
+        loading={isLoading}
+        duration={1000}
+      />
     );
   }
 
