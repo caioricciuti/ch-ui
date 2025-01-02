@@ -24,6 +24,8 @@ import { toast } from "sonner";
 import useAppstore from "@/store";
 import InfoDialog from "@/components/common/InfoDialog";
 import ConfirmationDialog from "@/components/common/ConfirmationDialog";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { a11yDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 const ENGINE_OPTIONS = ["Atomic", "Lazy"];
 
@@ -505,9 +507,21 @@ const CreateDatabase = () => {
                     )}
                   </Button>
                 </div>
-                <pre className="bg-primary/20 p-2 rounded mt-2 text-sm overflow-x-auto">
+
+                <SyntaxHighlighter
+                  language="sql"
+                  style={a11yDark}
+                  customStyle={{
+                    padding: "1rem",
+                    borderRadius: "0.5rem",
+
+                    overflowX: "auto",
+                  }}
+                  showLineNumbers
+                  wrapLines
+                >
                   {sql}
-                </pre>
+                </SyntaxHighlighter>
               </div>
             )}
 

@@ -2,7 +2,7 @@ import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import CHUItable from "@/components/common/table/CHUItable";
-import { AlertCircle, Loader2, RefreshCcw } from "lucide-react";
+import { Loader2, RefreshCcw } from "lucide-react";
 import useAppStore from "@/store";
 
 interface DataSampleSectionProps {
@@ -116,7 +116,6 @@ const DataSampleSection: React.FC<DataSampleSectionProps> = ({
       <CardContent>
         {sampleError ? (
           <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{sampleError}</AlertDescription>
           </Alert>
@@ -138,7 +137,6 @@ const DataSampleSection: React.FC<DataSampleSectionProps> = ({
           </div>
         ) : (
           <Alert>
-            <AlertCircle className="h-4 w-4" />
             <AlertTitle>No Data</AlertTitle>
             <AlertDescription>
               No sample data available for this table.

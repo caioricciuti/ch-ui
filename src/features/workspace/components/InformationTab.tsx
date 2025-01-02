@@ -11,7 +11,6 @@ import {
   Layers,
   Calendar,
   Table,
-  AlertCircle,
   RefreshCcw,
   Copy,
   ChevronRight,
@@ -390,7 +389,6 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
         <LoadingOverlay />
       ) : error ? (
         <Alert variant="destructive">
-          <AlertCircle className="w-4 h-4" />
           <AlertTitle>Error</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
@@ -499,7 +497,6 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
                       <LoadingOverlay />
                     ) : sampleError ? (
                       <Alert variant="destructive">
-                        <AlertCircle className="w-4 h-4" />
                         <AlertTitle>Error</AlertTitle>
                         <AlertDescription>{sampleError}</AlertDescription>
                       </Alert>
@@ -522,7 +519,6 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
                       />
                     ) : (
                       <Alert>
-                        <AlertCircle className="w-4 h-4" />
                         <AlertTitle>No Data</AlertTitle>
                         <AlertDescription>
                           No sample data available for this table.
@@ -537,7 +533,6 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
         </Tabs>
       ) : (
         <Alert>
-          <AlertCircle className="w-4 h-4" />
           <AlertTitle>No Data</AlertTitle>
           <AlertDescription>No data available to display.</AlertDescription>
         </Alert>

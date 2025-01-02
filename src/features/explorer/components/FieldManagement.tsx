@@ -1,5 +1,4 @@
 // components/CreateTable/FieldManagement.tsx
-
 import React from "react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -18,9 +17,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Trash2, Plus } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Trash2, Plus, X, Info } from "lucide-react";
 
-// Define precise types for fields
 export interface Field {
   name: string;
   type: string;
@@ -29,6 +28,7 @@ export interface Field {
   isPrimaryKey: boolean;
   isOrderBy: boolean;
   isPartitionBy: boolean;
+  customType?: string;
 }
 
 interface FieldManagementProps {
@@ -37,7 +37,6 @@ interface FieldManagementProps {
   onRemoveField: (index: number) => void;
   onUpdateField: (index: number, key: keyof Field, value: any) => void;
   errors: Record<string, string>;
-  fieldTypes: string[];
 }
 
 const FIELD_TYPES = [
@@ -55,7 +54,7 @@ const FIELD_TYPES = [
   "Array(String)",
   "Array(UInt32)",
   "Other",
-];
+] as const;
 
 const FieldManagement: React.FC<FieldManagementProps> = ({
   fields,
@@ -64,16 +63,35 @@ const FieldManagement: React.FC<FieldManagementProps> = ({
   onUpdateField,
   errors,
 }) => {
+  const handleTypeChange = (index: number, value: string) => {
+    if (value !== "Other") {
+      onUpdateField(index, "customType", "");
+    }
+    onUpdateField(index, "type", value);
+
+    // Reset partition by if type is changed and not compatible
+    if (!["Date", "DateTime"].includes(value) && fields[index].isPartitionBy) {
+      onUpdateField(index, "isPartitionBy", false);
+    }
+  };
+
+  const handleResetCustomType = (index: number) => {
+    onUpdateField(index, "type", "String");
+    onUpdateField(index, "customType", "");
+  };
+
   return (
-    <div className="w-full">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4 ">
-        <p className="text-lg font-semibold">Table Schema</p>
+    <div className="w-full space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="space-y-1">
+          <h3 className="text-2xl font-semibold tracking-tight">Table Schema</h3>
+          <p className="text-sm text-muted-foreground">
+            Define your table structure and constraints
+          </p>
+        </div>
         <Button
-          aria-label="Add Column"
-          size="sm"
           onClick={onAddField}
-          className="flex items-center gap-2 text-sm text-green-500 hover:text-green-700"
+          className="flex items-center gap-2"
           variant="outline"
         >
           <Plus className="h-4 w-4" />
@@ -81,97 +99,125 @@ const FieldManagement: React.FC<FieldManagementProps> = ({
         </Button>
       </div>
 
-      {/* Fields List */}
-      <div className="space-y-4 w-full">
+      <div className="space-y-6">
         {fields.map((field, index) => (
           <div
             key={index}
-            className="grid grid-cols-1 md:grid-cols-5 gap-4 items-center pb-5 border-b"
+            className="grid grid-cols-1 md:grid-cols-6 gap-4 p-4 rounded-lg border bg-card"
           >
             {/* Field Name */}
-            <div className="flex flex-col">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Label htmlFor={`field-name-${index}`} className="mb-3">
-                      Field Name
-                    </Label>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    Enter the name of the column. No spaces allowed.
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+            <div className="space-y-2">
+              <Label 
+                htmlFor={`field-name-${index}`}
+                className="flex items-center gap-2"
+              >
+                Field Name
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="h-4 w-4 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Enter the name of the column. No spaces allowed.
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </Label>
               <Input
                 id={`field-name-${index}`}
                 placeholder="e.g., user_id"
                 value={field.name}
                 onChange={(e) => onUpdateField(index, "name", e.target.value)}
-                className={`h-10 ${
-                  errors[`fields.${index}.name`] ? "border-red-500" : ""
-                }`}
-                aria-invalid={!!errors[`fields.${index}.name`]}
-                aria-describedby={
-                  errors[`fields.${index}.name`]
-                    ? `error-field-name-${index}`
-                    : undefined
-                }
+                className={errors[`fields.${index}.name`] ? "border-destructive" : ""}
               />
               {errors[`fields.${index}.name`] && (
-                <p
-                  id={`error-field-name-${index}`}
-                  className="mt-1 text-sm text-red-500"
-                >
+                <p className="text-sm text-destructive">
                   {errors[`fields.${index}.name`]}
                 </p>
               )}
             </div>
 
             {/* Field Type */}
-            <div className="flex flex-col">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Label htmlFor={`field-type-${index}`} className="mb-3">
-                      Type
-                    </Label>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    Select the data type of the column.
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <Select
-                value={field.type}
-                onValueChange={(value) => onUpdateField(index, "type", value)}
+            <div className="space-y-2">
+              <Label 
+                htmlFor={`field-type-${index}`}
+                className="flex items-center gap-2"
               >
-                <SelectTrigger id={`field-type-${index}`} className="h-10">
-                  <SelectValue placeholder="Select type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {FIELD_TYPES.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                Type
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="h-4 w-4 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Select the data type of the column
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </Label>
+              {field.type !== "Other" ? (
+                <Select
+                  value={field.type}
+                  onValueChange={(value) => handleTypeChange(index, value)}
+                >
+                  <SelectTrigger id={`field-type-${index}`}>
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FIELD_TYPES.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="relative">
+                  <Input
+                    id={`field-custom-type-${index}`}
+                    placeholder="Enter custom type"
+                    value={field.customType || ""}
+                    onChange={(e) => onUpdateField(index, "customType", e.target.value)}
+                    className={`pr-8 ${
+                      errors[`fields.${index}.customType`] ? "border-destructive" : ""
+                    }`}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1 h-6 w-6 p-0"
+                    onClick={() => handleResetCustomType(index)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+              {field.type === "Other" && errors[`fields.${index}.customType`] && (
+                <p className="text-sm text-destructive">
+                  {errors[`fields.${index}.customType`]}
+                </p>
+              )}
             </div>
 
             {/* Nullable Selector */}
-            <div className="flex flex-col">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Label htmlFor={`field-nullable-${index}`} className="mb-3">
-                      Nullable
-                    </Label>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    Specify whether the column can contain NULL values.
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+            <div className="space-y-2">
+              <Label 
+                htmlFor={`field-nullable-${index}`}
+                className="flex items-center gap-2"
+              >
+                Nullable
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="h-4 w-4 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Specify whether the column can contain NULL values
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </Label>
               <Select
                 value={field.nullable ? "NULL" : "NOT NULL"}
                 onValueChange={(value) =>
@@ -188,75 +234,61 @@ const FieldManagement: React.FC<FieldManagementProps> = ({
               </Select>
             </div>
 
-            {/* Column Description */}
-            <div className="flex flex-col">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Label
-                      htmlFor={`field-description-${index}`}
-                      className="mb-3"
-                    >
-                      Description
-                    </Label>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    Enter a description for the column.
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+            {/* Description */}
+            <div className="space-y-2">
+              <Label 
+                htmlFor={`field-description-${index}`}
+                className="flex items-center gap-2"
+              >
+                Description
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="h-4 w-4 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Enter a description for the column
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </Label>
               <Input
                 id={`field-description-${index}`}
                 placeholder="e.g., Identifier for the user"
                 value={field.description}
-                onChange={(e) =>
-                  onUpdateField(index, "description", e.target.value)
-                }
-                className="h-10"
+                onChange={(e) => onUpdateField(index, "description", e.target.value)}
               />
             </div>
 
-            {/* Field Options: PK, OB, PB */}
-            <div className="flex flex-col md:flex-row md:col-span-1 items-start md:items-center space-y-2 md:space-y-0 md:space-x-4 mt-6">
-              {/* Primary Key Checkbox */}
-              <div className="flex items-center space-x-1">
+            {/* Field Options */}
+            <div className="flex flex-col space-y-4 md:space-y-0 md:flex-row md:items-end md:space-x-4 md:col-span-2">
+              <div className="flex items-center space-x-4">
                 <TooltipProvider>
                   <Tooltip>
-                    <TooltipTrigger asChild>
+                    <TooltipTrigger className="flex items-center space-x-2">
                       <Checkbox
                         id={`pk-checkbox-${index}`}
                         checked={field.isPrimaryKey}
                         onCheckedChange={() =>
-                          onUpdateField(
-                            index,
-                            "isPrimaryKey",
-                            !field.isPrimaryKey
-                          )
+                          onUpdateField(index, "isPrimaryKey", !field.isPrimaryKey)
                         }
                         disabled={!field.name}
-                        aria-label={`Mark ${field.name} as Primary Key`}
                       />
+                      <Label htmlFor={`pk-checkbox-${index}`}>
+                        <Badge className="" variant={field.isPrimaryKey ? "default" : "outline"}>
+                          PK
+                        </Badge>
+                      </Label>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <span className="text-xs text-gray-500">
-                        Mark this column as part of the primary key.
-                      </span>
+                      Mark this column as part of the primary key
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-                <Label
-                  htmlFor={`pk-checkbox-${index}`}
-                  className="text-sm text-gray-700"
-                >
-                  PK
-                </Label>
-              </div>
 
-              {/* Order By Checkbox */}
-              <div className="flex items-center space-x-1">
                 <TooltipProvider>
                   <Tooltip>
-                    <TooltipTrigger asChild>
+                    <TooltipTrigger className="flex items-center space-x-2">
                       <Checkbox
                         id={`ob-checkbox-${index}`}
                         checked={field.isOrderBy}
@@ -264,69 +296,58 @@ const FieldManagement: React.FC<FieldManagementProps> = ({
                           onUpdateField(index, "isOrderBy", !field.isOrderBy)
                         }
                         disabled={!field.name}
-                        aria-label={`Include ${field.name} in ORDER BY`}
                       />
+                      <Label htmlFor={`ob-checkbox-${index}`}>
+                        <Badge className="" variant={field.isOrderBy ? "default" : "outline"}>
+                          OB
+                        </Badge>
+                      </Label>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <span className="text-xs text-gray-500">
-                        Include this column in the ORDER BY clause.
-                      </span>
+                      Include this column in the ORDER BY clause
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-                <Label
-                  htmlFor={`ob-checkbox-${index}`}
-                  className="text-sm text-gray-700"
-                >
-                  OB
-                </Label>
-              </div>
 
-              {/* Partition By Checkbox */}
-              <div className="flex items-center space-x-1 ">
                 <TooltipProvider>
                   <Tooltip>
-                    <TooltipTrigger asChild>
+                    <TooltipTrigger className="flex items-center space-x-2">
                       <Checkbox
                         id={`pb-checkbox-${index}`}
                         checked={field.isPartitionBy}
-                        onCheckedChange={() =>
-                          onUpdateField(
-                            index,
-                            "isPartitionBy",
-                            !field.isPartitionBy
-                          )
-                        }
+                        onCheckedChange={() => {
+                          // Uncheck other partition by fields first
+                          fields.forEach((_, i) => {
+                            if (i !== index && fields[i].isPartitionBy) {
+                              onUpdateField(i, "isPartitionBy", false);
+                            }
+                          });
+                          onUpdateField(index, "isPartitionBy", !field.isPartitionBy);
+                        }}
                         disabled={
                           !field.name ||
-                          !["Date", "DateTime"].includes(field.type)
+                          (!["Date", "DateTime"].includes(field.type) &&
+                            field.type !== "Other")
                         }
-                        aria-label={`Use ${field.name} for Partition By`}
                       />
+                      <Label htmlFor={`pb-checkbox-${index}`}>
+                        <Badge className="" variant={field.isPartitionBy ? "default" : "outline"}>
+                          PB
+                        </Badge>
+                      </Label>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <span className="text-xs text-gray-500">
-                        Use this column for table partitioning. <br />
-                        Only available for Date and DateTime types.
-                      </span>
+                      Use this column for table partitioning (Date/DateTime only)
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-                <Label
-                  htmlFor={`pb-checkbox-${index}`}
-                  className="text-sm text-gray-700"
-                >
-                  PB
-                </Label>
               </div>
 
-              {/* Remove Field Button */}
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => onRemoveField(index)}
-                aria-label={`Remove ${field.name} field`}
-                className="text-red-500 hover:text-red-700"
+                className="text-destructive hover:text-destructive/90 hover:bg-destructive/10"
               >
                 <Trash2 className="h-4 w-4" />
               </Button>

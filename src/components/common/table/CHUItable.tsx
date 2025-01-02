@@ -168,8 +168,10 @@ function CHUITable<T extends RowData>({
       enableResizing: true,
       size: columnSizing[col.name] || DEFAULT_COLUMN_SIZE,
       minSize: MIN_COLUMN_SIZE,
-      cell: ({ getValue }: any) => {
-        const value = getValue();
+      cell: ({ row }: any) => {
+        // Access the value directly from row.original using the full column name
+        const value = row.original[col.name];
+
         if (value === null || value === undefined) return "-";
         if (typeof value === "object") return JSON.stringify(value);
         return String(value);
@@ -184,7 +186,7 @@ function CHUITable<T extends RowData>({
         minSize: 50,
         maxSize: 70,
         enableResizing: true,
-        cell: (info) => <span>{info.row.index + 1}</span>,
+        cell: (info) => React.createElement("span", null, info.row.index + 1),
       },
       ...baseColumns,
     ];

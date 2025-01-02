@@ -1,5 +1,4 @@
 // components/CreateTable/CreateTable.tsx
-
 import { useState, useEffect } from "react";
 import { z } from "zod";
 import {
@@ -12,19 +11,33 @@ import { toast } from "sonner";
 import useAppStore from "@/store";
 
 import ConfirmationDialog from "@/components/common/ConfirmationDialog";
-import ManualCreationForm from "@/features/explorer/components/ManualCreationForm";
+import ManualCreationForm from "./ManualCreationForm";
+import { Field } from "./FieldManagement";
 
-const TIME_FIELDS = ["Date", "DateTime"];
+const TIME_FIELDS = ["Date", "DateTime"] as const;
 
-// Interfaces
-interface Field {
-  name: string;
-  type: string;
-  nullable: boolean;
-  isPrimaryKey: boolean;
-  isOrderBy: boolean;
-  isPartitionBy: boolean;
-}
+// Schema for field validation
+const fieldSchema = z.object({
+  name: z.string().min(1, "Name is required").refine(
+    (val) => !/\s/.test(val),
+    "Name cannot contain spaces"
+  ),
+  type: z.string().min(1, "Type is required"),
+  nullable: z.boolean(),
+  description: z.string(),
+  isPrimaryKey: z.boolean(),
+  isOrderBy: z.boolean(),
+  isPartitionBy: z.boolean(),
+  customType: z.string().optional(),
+}).refine((data) => {
+  if (data.type === "Other") {
+    return !!data.customType?.trim();
+  }
+  return true;
+}, {
+  message: "Custom type is required when 'Other' is selected",
+  path: ["customType"],
+});
 
 const CreateTable = () => {
   const {
@@ -37,7 +50,7 @@ const CreateTable = () => {
     addTab,
   } = useAppStore();
 
-  // State variables
+  // State management
   const [database, setDatabase] = useState("");
   const [tableName, setTableName] = useState("");
   const [engine, setEngine] = useState("MergeTree");
@@ -46,39 +59,35 @@ const CreateTable = () => {
   const [orderByFields, setOrderByFields] = useState<string[]>([]);
   const [partitionByField, setPartitionByField] = useState<string | null>(null);
   const [comment, setComment] = useState("");
-  const [sql, setSql] = useState("");
-  const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [createTableError, setCreateTableError] = useState<string>("");
-  const [statementCopiedToClipBoard, setStatementCopiedToClipBoard] =
-    useState(false);
-
+  const [isLoading, setIsLoading] = useState(false);
   const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
 
-  // Effect to set default database if selectedDatabaseForCreateTable is provided
+  // Effect to set default database
   useEffect(() => {
     if (selectedDatabaseForCreateTable) {
       setDatabase(selectedDatabaseForCreateTable);
     }
   }, [selectedDatabaseForCreateTable]);
 
-  // Effect to update primaryKeyFields, orderByFields, and partitionByField when fields change
+  // Effect to update derived states when fields change
   useEffect(() => {
-    const pkFields = fields
-      .filter((field) => field.isPrimaryKey && field.name)
-      .map((field) => field.name);
-    setPrimaryKeyFields(pkFields);
+    setPrimaryKeyFields(
+      fields.filter((field) => field.isPrimaryKey && field.name)
+        .map((field) => field.name)
+    );
 
-    const obFields = fields
-      .filter((field) => field.isOrderBy)
-      .map((field) => field.name);
-    setOrderByFields(obFields);
+    setOrderByFields(
+      fields.filter((field) => field.isOrderBy && field.name)
+        .map((field) => field.name)
+    );
 
-    const pbField = fields.find((field) => field.isPartitionBy)?.name || null;
+    const pbField = fields.find((field) => field.isPartitionBy && field.name)?.name || null;
     setPartitionByField(pbField);
   }, [fields]);
 
-  // Function to add a new field
+  // Field management handlers
   const addField = () => {
     setFields([
       ...fields,
@@ -86,6 +95,7 @@ const CreateTable = () => {
         name: "",
         type: "String",
         nullable: false,
+        description: "",
         isPrimaryKey: false,
         isOrderBy: false,
         isPartitionBy: false,
@@ -93,188 +103,149 @@ const CreateTable = () => {
     ]);
   };
 
-  // Function to remove a field
   const removeField = (index: number) => {
     setFields(fields.filter((_, i) => i !== index));
+    // Clean up any errors related to this field
     setErrors((prev) => {
       const newErrors = { ...prev };
-      // Shift errors for fields after the removed index
-      const updatedErrors: Record<string, string> = {};
-      Object.keys(newErrors).forEach((key) => {
-        const regex = /^fields\.(\d+)\.name$/;
-        const match = key.match(regex);
-        if (match) {
-          const fieldIndex = parseInt(match[1], 10);
-          if (fieldIndex > index) {
-            updatedErrors[`fields.${fieldIndex - 1}.name`] = newErrors[key];
-          } else if (fieldIndex < index) {
-            updatedErrors[key] = newErrors[key];
-          }
-        } else {
-          updatedErrors[key] = newErrors[key];
-        }
-      });
-      return updatedErrors;
+      Object.keys(newErrors)
+        .filter(key => key.startsWith(`fields.${index}`))
+        .forEach(key => delete newErrors[key]);
+      return newErrors;
     });
   };
 
-  // Function to update a field
-  const updateField = (index: number, key: string, value: string | boolean) => {
+  const updateField = (index: number, key: keyof Field, value: any) => {
     const updatedFields = [...fields];
     updatedFields[index] = { ...updatedFields[index], [key]: value };
 
-    // Ensure only one Partition By field
+    // Handle partition by field exclusivity
     if (key === "isPartitionBy" && value === true) {
       updatedFields.forEach((field, i) => {
         if (i !== index && field.isPartitionBy) {
-          updatedFields[i].isPartitionBy = false;
+          updatedFields[i] = { ...field, isPartitionBy: false };
         }
       });
     }
 
     setFields(updatedFields);
-
-    if (key === "name") {
-      setErrors((prev) => {
+    
+    // Clear field-specific errors when the field is updated
+    if (errors[`fields.${index}.${key}`]) {
+      setErrors(prev => {
         const newErrors = { ...prev };
-        delete newErrors[`fields.${index}.name`];
+        delete newErrors[`fields.${index}.${key}`];
         return newErrors;
       });
     }
   };
 
-  // Validate if the table name is unique in the selected database
-  const validateTableName = (name: string) => {
-    const selectedDb = dataBaseExplorer.find(
-      (db: { name: string; children?: { name: string }[] }) =>
-        db.name === database
-    ) as { name: string; children?: { name: string }[] } | undefined;
-    if (
-      selectedDb &&
-      selectedDb.children?.some(
-        (table: { name: string }) =>
-          table.name.toLowerCase() === name.toLowerCase()
-      )
-    ) {
-      return false;
-    }
-    return true;
+  // Validation helpers
+  const validateTableName = (name: string): boolean => {
+    const selectedDb = dataBaseExplorer.find(db => db.name === database);
+    return !selectedDb?.children?.some(
+      table => table.name.toLowerCase() === name.toLowerCase()
+    );
   };
 
-  // Schema for manual table creation
-  const manualTableSchema = z.object({
+  // Schema for table validation
+  const tableSchema = z.object({
     database: z.string().min(1, "Database is required"),
-    tableName: z
-      .string()
-      .min(1, "Table name is required")
-      .refine(validateTableName, {
-        message: "Table name already exists in this database",
-      }),
-    fields: z
-      .array(
-        z.object({
-          name: z
-            .string()
-            .min(1, "Name is required")
-            .refine((value) => !/\s/.test(value), {
-              message: "Name cannot contain spaces",
-            }),
-          type: z.string(),
-          nullable: z.boolean(),
-          isPrimaryKey: z.boolean(),
-          isOrderBy: z.boolean(),
-          isPartitionBy: z.boolean(),
-        })
-      )
+    tableName: z.string().min(1, "Table name is required")
+      .refine(validateTableName, "Table name already exists in this database"),
+    fields: z.array(fieldSchema)
       .min(1, "At least one field is required"),
   });
 
-  // Function to validate and generate SQL for manual creation
-  const validateAndGenerateSQL = () => {
+  // SQL Generation
+  const validateAndGenerateSQL = (): string | null => {
     try {
-      manualTableSchema.parse({ database, tableName, fields });
+      // Validate the form data
+      tableSchema.parse({ database, tableName, fields });
+      
+      // Generate SQL
+      const fieldDefinitions = fields.map(field => {
+        const typeStr = field.type === "Other" ? field.customType : field.type;
+        const nullableStr = field.nullable ? "NULL" : "NOT NULL";
+        const commentStr = field.description ? ` COMMENT '${field.description}'` : '';
+        return `${field.name} ${typeStr} ${nullableStr}${commentStr}`;
+      }).join(",\n    ");
 
-      const fieldDefinitions = fields
-        .map(
-          (field) =>
-            `${field.name} ${field.type}${
-              field.nullable ? " NULL" : " NOT NULL"
-            }`
-        )
-        .join(",\n    ");
+      let sql = `CREATE TABLE ${database}.${tableName}\n(\n    ${fieldDefinitions}\n) ENGINE = ${engine}`;
 
-      let sqlStatement = `CREATE TABLE ${database}.${tableName}\n(\n    ${fieldDefinitions}\n) ENGINE = ${engine}\n`;
+      if (primaryKeyFields.length > 0) {
+        sql += `\nPRIMARY KEY (${primaryKeyFields.join(", ")})`;
+      }
 
       if (orderByFields.length > 0) {
-        sqlStatement += `ORDER BY (${orderByFields.join(", ")})\n`;
+        sql += `\nORDER BY (${orderByFields.join(", ")})`;
       }
 
       if (partitionByField) {
-        const partitionField = fields.find((f) => f.name === partitionByField);
-        if (partitionField && TIME_FIELDS.includes(partitionField.type)) {
-          sqlStatement += `PARTITION BY toYYYYMM(${partitionByField})\n`;
+        const partitionField = fields.find(f => f.name === partitionByField);
+        if (partitionField && TIME_FIELDS.includes(partitionField.type as any)) {
+          sql += `\nPARTITION BY toYYYYMM(${partitionByField})`;
         } else {
-          sqlStatement += `PARTITION BY ${partitionByField}\n`;
+          sql += `\nPARTITION BY ${partitionByField}`;
         }
       }
 
-      if (primaryKeyFields.length > 0) {
-        sqlStatement += `PRIMARY KEY (${primaryKeyFields.join(", ")})\n`;
-      }
-
       if (comment) {
-        sqlStatement += `COMMENT '${comment}'`;
+        sql += `\nCOMMENT '${comment}'`;
       }
 
-      setSql(sqlStatement.trim());
       setErrors({});
-      return sqlStatement.trim();
+      return sql;
     } catch (error) {
       if (error instanceof z.ZodError) {
-        const newErrors: { [key: string]: string } = {};
-        error.errors.forEach((err) => {
-          const path = err.path.join(".");
-          newErrors[path] = err.message;
+        const newErrors: Record<string, string> = {};
+        error.errors.forEach(err => {
+          newErrors[err.path.join(".")] = err.message;
         });
         setErrors(newErrors);
       } else {
-        toast.error("Unknown error occurred");
+        toast.error("Validation failed");
       }
       return null;
     }
   };
 
-  // Function to handle closing the sheet with confirmation
-  const handleCloseSheet = () => {
-    if (
-      database ||
-      tableName ||
-      fields.some(
-        (field) =>
-          field.name ||
-          field.type !== "String" ||
-          field.nullable ||
-          field.isPrimaryKey ||
-          field.isOrderBy ||
-          field.isPartitionBy
-      ) ||
-      comment
-      // Removed: || file
-    ) {
-      setIsConfirmDialogOpen(true);
-    } else {
+  // Table Creation
+  const handleCreateManual = async () => {
+    const sql = validateAndGenerateSQL();
+    if (!sql) return;
+
+    setIsLoading(true);
+    setCreateTableError("");
+
+    try {
+      const response = await runQuery(sql);
+      if (response.error) {
+        setCreateTableError(response.error);
+        return;
+      }
+
+      await fetchDatabaseInfo();
+      toast.success("Table created successfully!");
+
+      // Add new tab for the created table
+      addTab({
+        id: `${database}.${tableName}`,
+        type: "information",
+        title: `${database}.${tableName}`,
+        content: { database, table: tableName },
+      });
+
+      resetForm();
       closeCreateTableModal();
+    } catch (error: any) {
+      setCreateTableError(error.toString());
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Function to confirm closing and reset all fields
-  const confirmClose = () => {
-    resetForm();
-    setIsConfirmDialogOpen(false);
-    closeCreateTableModal();
-  };
-
-  // Function to reset the form
+  // Form reset and closing
   const resetForm = () => {
     setDatabase("");
     setTableName("");
@@ -284,82 +255,56 @@ const CreateTable = () => {
     setOrderByFields([]);
     setPartitionByField(null);
     setComment("");
-    setSql("");
     setErrors({});
     setCreateTableError("");
-    setStatementCopiedToClipBoard(false);
   };
 
-  // Function to handle manual table creation
-  const handleCreateManual = async () => {
-    const sqlStatement = validateAndGenerateSQL();
-    if (!sqlStatement) return;
+  const handleCloseSheet = () => {
+    const hasChanges = database || 
+      tableName || 
+      fields.length > 0 || 
+      comment || 
+      engine !== "MergeTree";
 
-    setLoading(true);
-    setCreateTableError("");
-    try {
-      const response = await runQuery(sqlStatement);
-
-      if (response.error) {
-        setCreateTableError(response.error);
-        setLoading(false);
-        return;
-      }
-
-      fetchDatabaseInfo();
-      toast.success("Table created successfully!");
-
-      addTab({
-        id: `${database}.${tableName}`,
-        type: "information",
-        title: `${database}.${tableName}`,
-        content: { database, table: tableName },
-      });
-
-      // Reset all fields
-      resetForm();
-
+    if (hasChanges) {
+      setIsConfirmDialogOpen(true);
+    } else {
       closeCreateTableModal();
-    } catch (error: any) {
-      setCreateTableError(error.toString());
-    } finally {
-      setLoading(false);
     }
+  };
+
+  const handleConfirmClose = () => {
+    resetForm();
+    setIsConfirmDialogOpen(false);
+    closeCreateTableModal();
   };
 
   return (
     <>
-      {/* Confirmation Dialog */}
       <ConfirmationDialog
         isOpen={isConfirmDialogOpen}
         onClose={() => setIsConfirmDialogOpen(false)}
-        onConfirm={confirmClose}
-        title={"Confirm Close"}
-        description={
-          "Are you sure you want to close? All your work will be lost."
-        }
+        onConfirm={handleConfirmClose}
+        title="Confirm Close"
+        description="Are you sure you want to close? All your changes will be lost."
       />
 
-      {/* Create Table Sheet */}
       <Sheet open={isCreateTableModalOpen} onOpenChange={handleCloseSheet}>
         <SheetContent
+          className="xl:w-[1200px] sm:w-full sm:max-w-full overflow-y-auto"
           onOpenAutoFocus={(e) => {
             e.preventDefault();
-            // auto focus on the first input
-            const firstInput = (e.target as HTMLElement)?.querySelector(
-              "input"
-            );
-            if (firstInput) {
-              firstInput.focus();
-            }
+            const firstInput = document.querySelector('input');
+            firstInput?.focus();
           }}
-          className="xl:w-[1200px] sm:w-full sm:max-w-full overflow-auto"
         >
           <SheetHeader>
             <SheetTitle>
-              Create Table{" "}
+              Create Table
               {database && tableName && (
-                <span className="text-primary/50">{`"${database}.${tableName}"`}</span>
+                <span className="text-muted-foreground ml-2">
+                  {`${database}.${tableName}`}
+                </span>
               )}
             </SheetTitle>
           </SheetHeader>
@@ -375,28 +320,28 @@ const CreateTable = () => {
             comment={comment}
             errors={errors}
             onChange={(field, value) => {
-              if (field === "database") setDatabase(value);
-              else if (field === "tableName") setTableName(value);
-              else if (field === "engine") setEngine(value);
-              else if (field === "comment") setComment(value);
+              switch (field) {
+                case "database":
+                  setDatabase(value);
+                  break;
+                case "tableName":
+                  setTableName(value);
+                  break;
+                case "engine":
+                  setEngine(value);
+                  break;
+                case "comment":
+                  setComment(value);
+                  break;
+              }
             }}
             onAddField={addField}
             onRemoveField={removeField}
             onUpdateField={updateField}
             onValidateAndGenerateSQL={validateAndGenerateSQL}
             onCreateManual={handleCreateManual}
-            sql={sql}
-            onCopySQL={() => {
-              navigator.clipboard.writeText(sql);
-              toast.success("SQL statement copied to clipboard!");
-              setStatementCopiedToClipBoard(true);
-              setTimeout(() => {
-                setStatementCopiedToClipBoard(false);
-              }, 4000);
-            }}
             createTableError={createTableError}
-            statementCopiedToClipBoard={statementCopiedToClipBoard}
-            fieldTypes={[]}
+            isLoading={isLoading}
             databaseData={dataBaseExplorer}
           />
         </SheetContent>

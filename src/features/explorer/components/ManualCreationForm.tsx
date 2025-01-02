@@ -11,22 +11,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Copy, CopyCheck, X } from "lucide-react";
-import FieldManagement, {
-  Field,
-} from "@/features/explorer/components/FieldManagement";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import FieldManagement, { Field } from "./FieldManagement";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { a11yDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+
+interface DatabaseItem {
+  name: string;
+  type: string;
+}
 
 interface ManualCreationFormProps {
   database: string;
   tableName: string;
   engine: string;
-  fields: Array<{
-    name: string;
-    type: string;
-    isPrimaryKey: boolean;
-    isOrderBy: boolean;
-    isPartitionBy: boolean;
-  }>;
+  fields: Field[];
   primaryKeyFields: string[];
   orderByFields: string[];
   partitionByField: string | null;
@@ -35,16 +36,24 @@ interface ManualCreationFormProps {
   onChange: (field: string, value: any) => void;
   onAddField: () => void;
   onRemoveField: (index: number) => void;
-  onUpdateField: (index: number, key: string, value: any) => void;
-  onValidateAndGenerateSQL: () => void;
-  onCreateManual: () => void;
-  sql: string;
-  onCopySQL: () => void;
-  createTableError: string;
-  statementCopiedToClipBoard: boolean;
-  fieldTypes: string[];
-  databaseData: Array<{ name: string; type: string }>;
+  onUpdateField: (index: number, key: keyof Field, value: any) => void;
+  onValidateAndGenerateSQL: () => string | null;
+  onCreateManual: () => Promise<void>;
+  createTableError?: string;
+  isLoading?: boolean;
+  databaseData: DatabaseItem[];
 }
+
+const TABLE_ENGINES = [
+  "MergeTree",
+  "ReplacingMergeTree",
+  "ReplicatedMergeTree",
+  "SummingMergeTree",
+  "AggregatingMergeTree",
+  "CollapsingMergeTree",
+  "VersionedCollapsingMergeTree",
+  "Memory",
+] as const;
 
 const ManualCreationForm: React.FC<ManualCreationFormProps> = ({
   database,
@@ -62,276 +71,276 @@ const ManualCreationForm: React.FC<ManualCreationFormProps> = ({
   onUpdateField,
   onValidateAndGenerateSQL,
   onCreateManual,
-  sql,
-  onCopySQL,
   createTableError,
-  statementCopiedToClipBoard,
-  fieldTypes,
+  isLoading = false,
   databaseData,
 }) => {
+  const [sql, setSql] = React.useState<string>("");
+  const [isCopied, setIsCopied] = React.useState(false);
+
+  const handleGenerateSQL = () => {
+    const generatedSQL = onValidateAndGenerateSQL();
+    if (generatedSQL) {
+      setSql(generatedSQL);
+    }
+  };
+
+  const handleCopySQL = async () => {
+    await navigator.clipboard.writeText(sql);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+
+  const removeField = (type: 'pk' | 'ob' | 'pb', fieldName: string) => {
+    const fieldIndex = fields.findIndex(f => f.name === fieldName);
+    if (fieldIndex !== -1) {
+      switch (type) {
+        case 'pk':
+          onUpdateField(fieldIndex, "isPrimaryKey", false);
+          break;
+        case 'ob':
+          onUpdateField(fieldIndex, "isOrderBy", false);
+          break;
+        case 'pb':
+          onUpdateField(fieldIndex, "isPartitionBy", false);
+          break;
+      }
+    }
+  };
+
   return (
-    <div className="flex w-full mt-6">
-      <div className="space-y-6 w-full">
-        {/* Database and Table Name */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Database Selector */}
-          <div className="flex flex-col">
-            <Label htmlFor="database-select" className="mb-3">
-              Database
-            </Label>
-            <Select
-              value={database}
-              onValueChange={(value) => onChange("database", value)}
-            >
-              <SelectTrigger id="database-select">
-                <SelectValue placeholder="Select database" />
-              </SelectTrigger>
-              <SelectContent>
-                {databaseData
-                  .filter((item) => item.type === "database")
-                  .map((db) => (
-                    <SelectItem key={db.name} value={db.name}>
-                      {db.name}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-            {errors.database && (
-              <p className="mt-1 text-sm text-red-500">{errors.database}</p>
-            )}
-          </div>
-
-          {/* Table Name Input */}
-          <div className="flex flex-col">
-            <Label htmlFor="table-name" className="mb-3">
-              Table Name
-            </Label>
-            <Input
-              id="table-name"
-              value={tableName}
-              onChange={(e) => onChange("tableName", e.target.value)}
-              placeholder="Enter table name"
-              className={`${errors.tableName ? "border-red-500" : ""} h-10`}
-            />
-            {errors.tableName && (
-              <p className="mt-1 text-sm text-red-500">{errors.tableName}</p>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Table Comment */}
-          <div className="flex flex-col">
-            <Label htmlFor="table-comment" className="mb-3">
-              Table Comment
-            </Label>
-            <Input
-              id="table-comment"
-              placeholder="Enter table comment"
-              value={comment}
-              onChange={(e) => onChange("comment", e.target.value)}
-            />
-          </div>
-
-          {/* Engine Selector */}
-          <div className="flex flex-col">
-            <Label htmlFor="engine-select" className="mb-3">
-              Table Engine
-            </Label>
-            <Select
-              value={engine}
-              onValueChange={(value) => onChange("engine", value)}
-            >
-              <SelectTrigger id="engine-select">
-                <SelectValue placeholder="Select engine" />
-              </SelectTrigger>
-              <SelectContent>
-                {[
-                  "MergeTree",
-                  "ReplacingMergeTree",
-                  "ReplicatedMergeTree",
-                  "SummingMergeTree",
-                  "AggregatingMergeTree",
-                  "CollapsingMergeTree",
-                  "VersionedCollapsingMergeTree",
-                  "Memory",
-                ].map((eng) => (
-                  <SelectItem key={eng} value={eng}>
-                    {eng}
+    <div className="space-y-8 w-full">
+      {/* Database and Table Name */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="space-y-2">
+          <Label htmlFor="database">Database</Label>
+          <Select
+            value={database}
+            onValueChange={(value) => onChange("database", value)}
+          >
+            <SelectTrigger id="database">
+              <SelectValue placeholder="Select database" />
+            </SelectTrigger>
+            <SelectContent>
+              {databaseData
+                .filter((item) => item.type === "database")
+                .map((db) => (
+                  <SelectItem key={db.name} value={db.name}>
+                    {db.name}
                   </SelectItem>
                 ))}
-              </SelectContent>
-            </Select>
-            {errors.engine && (
-              <p className="mt-1 text-sm text-red-500">{errors.engine}</p>
+            </SelectContent>
+          </Select>
+          {errors.database && (
+            <p className="text-sm text-destructive">{errors.database}</p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="tableName">Table Name</Label>
+          <Input
+            id="tableName"
+            value={tableName}
+            onChange={(e) => onChange("tableName", e.target.value)}
+            placeholder="Enter table name"
+            className={errors.tableName ? "border-destructive" : ""}
+          />
+          {errors.tableName && (
+            <p className="text-sm text-destructive">{errors.tableName}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Engine and Comment */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="space-y-2">
+          <Label htmlFor="engine">Engine</Label>
+          <Select
+            value={engine}
+            onValueChange={(value) => onChange("engine", value)}
+          >
+            <SelectTrigger id="engine">
+              <SelectValue placeholder="Select engine" />
+            </SelectTrigger>
+            <SelectContent>
+              {TABLE_ENGINES.map((eng) => (
+                <SelectItem key={eng} value={eng}>
+                  {eng}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="comment">Table Comment</Label>
+          <Input
+            id="comment"
+            value={comment}
+            onChange={(e) => onChange("comment", e.target.value)}
+            placeholder="Enter table comment"
+          />
+        </div>
+      </div>
+
+      {/* Field Management */}
+      <Card>
+        <CardContent className="pt-6">
+          <FieldManagement
+            fields={fields}
+            onAddField={onAddField}
+            onRemoveField={onRemoveField}
+            onUpdateField={onUpdateField}
+            errors={errors}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Field Summary */}
+      <div className="space-y-4">
+        {/* Primary Keys */}
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-sm font-medium">Primary Key(s):</span>
+          <div className="flex flex-wrap gap-2">
+            {primaryKeyFields.length > 0 ? (
+              primaryKeyFields.map((field) => (
+                <Badge
+                  key={field}
+                  variant="secondary"
+                  className="flex items-center gap-1"
+                >
+                  {field}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-4 w-4 p-0 hover:bg-transparent"
+                    onClick={() => removeField('pk', field)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </Badge>
+              ))
+            ) : (
+              <span className="text-sm text-muted-foreground">None selected</span>
             )}
           </div>
         </div>
 
-        {/* Field Management */}
-        <FieldManagement
-          fields={fields as Field[]}
-          onAddField={onAddField}
-          onRemoveField={onRemoveField}
-          onUpdateField={onUpdateField}
-          errors={errors}
-          fieldTypes={fieldTypes}
-        />
-
-        {/* Primary Key(s) Display */}
+        {/* Order By */}
         <div className="flex flex-wrap gap-2 items-center">
-          <span className="text-sm font-medium text-primary">
-            Primary Key(s):
-          </span>
-          {primaryKeyFields.length > 0 ? (
-            primaryKeyFields.map((field) => (
-              <span
-                key={field}
-                className="inline-flex items-center px-2 py-0.5 rounded bg-secondary text-xs font-medium text-white"
-              >
-                {field}
-                <button
-                  type="button"
-                  className="ml-1 text-white hover:text-red-300 focus:outline-none"
-                  onClick={() => {
-                    const fieldIndex = fields.findIndex(
-                      (f) => f.name === field
-                    );
-                    if (fieldIndex !== -1) {
-                      onUpdateField(fieldIndex, "isPrimaryKey", false);
-                    }
-                  }}
-                  aria-label={`Remove primary key from ${field}`}
+          <span className="text-sm font-medium">Order By:</span>
+          <div className="flex flex-wrap gap-2">
+            {orderByFields.length > 0 ? (
+              orderByFields.map((field) => (
+                <Badge
+                  key={field}
+                  variant="secondary"
+                  className="flex items-center gap-1"
                 >
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            ))
-          ) : (
-            <span className="text-xs text-gray-500">
-              No column selected as primary key
-            </span>
-          )}
-        </div>
-
-        {/* Order By Fields Display */}
-        <div className="flex flex-wrap gap-2 items-center">
-          <span className="text-sm font-medium text-primary">
-            Order By Field(s):
-          </span>
-          {orderByFields.length > 0 ? (
-            orderByFields.map((field) => (
-              <span
-                key={field}
-                className="inline-flex items-center px-2 py-0.5 rounded bg-secondary text-xs font-medium text-white"
-              >
-                {field}
-                <button
-                  type="button"
-                  className="ml-1 text-white hover:text-red-300 focus:outline-none"
-                  onClick={() => {
-                    const fieldIndex = fields.findIndex(
-                      (f) => f.name === field
-                    );
-                    if (fieldIndex !== -1) {
-                      onUpdateField(fieldIndex, "isOrderBy", false);
-                    }
-                  }}
-                  aria-label={`Remove order by from ${field}`}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            ))
-          ) : (
-            <span className="text-xs text-gray-500">
-              No column selected as order by
-            </span>
-          )}
-        </div>
-
-        {/* Partition By Field Display */}
-        <div className="flex flex-wrap gap-2 items-center">
-          <span className="text-sm font-medium text-primary">
-            Partition By Field:
-          </span>
-          {partitionByField ? (
-            <span className="inline-flex items-center px-2 py-0.5 rounded bg-secondary text-xs font-medium text-white">
-              {partitionByField}
-              <button
-                type="button"
-                className="ml-1 text-white hover:text-red-300 focus:outline-none"
-                onClick={() => {
-                  const fieldIndex = fields.findIndex(
-                    (f) => f.name === partitionByField
-                  );
-                  if (fieldIndex !== -1) {
-                    onUpdateField(fieldIndex, "isPartitionBy", false);
-                  }
-                }}
-                aria-label={`Remove partition by from ${partitionByField}`}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ) : (
-            <span className="text-xs text-gray-500">
-              No column selected as partition by
-            </span>
-          )}
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Button
-            onClick={onValidateAndGenerateSQL}
-            variant="outline"
-            disabled={!database || !tableName || fields.length === 0}
-            className="w-full sm:w-auto"
-          >
-            Show Statement
-          </Button>
-
-          <Button
-            onClick={onCreateManual}
-            disabled={!database || !tableName || fields.length === 0}
-            className="w-full sm:w-auto"
-          >
-            Create Table
-          </Button>
-        </div>
-
-        {/* Generated SQL */}
-        {sql && (
-          <div className="mt-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Generated SQL:</h3>
-              <button
-                type="button"
-                onClick={onCopySQL}
-                className="p-2 rounded hover:bg-gray-200"
-                aria-label="Copy SQL Statement"
-              >
-                {!statementCopiedToClipBoard ? (
-                  <Copy className="h-4 w-4" />
-                ) : (
-                  <CopyCheck className="h-4 w-4 text-green-500" />
-                )}
-              </button>
-            </div>
-            <pre className="bg-secondary p-4 rounded mt-2 text-sm overflow-x-auto">
-              {sql}
-            </pre>
+                  {field}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-4 w-4 p-0 hover:bg-transparent"
+                    onClick={() => removeField('ob', field)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </Badge>
+              ))
+            ) : (
+              <span className="text-sm text-muted-foreground">None selected</span>
+            )}
           </div>
-        )}
+        </div>
 
-        {/* Error Message */}
-        {createTableError && (
-          <Alert variant="destructive" className="mt-4">
-            <AlertDescription>{createTableError}</AlertDescription>
-          </Alert>
-        )}
+        {/* Partition By */}
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-sm font-medium">Partition By:</span>
+          <div className="flex flex-wrap gap-2">
+            {partitionByField ? (
+              <Badge
+                variant="secondary"
+                className="flex items-center gap-1"
+              >
+                {partitionByField}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-4 w-4 p-0 hover:bg-transparent"
+                  onClick={() => removeField('pb', partitionByField)}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </Badge>
+            ) : (
+              <span className="text-sm text-muted-foreground">None selected</span>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* Action Buttons */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <Button
+          variant="outline"
+          onClick={handleGenerateSQL}
+          disabled={!database || !tableName || fields.length === 0}
+          className="flex-1"
+        >
+          Preview SQL
+        </Button>
+        <Button
+          onClick={onCreateManual}
+          disabled={!database || !tableName || fields.length === 0 || isLoading}
+          className="flex-1"
+        >
+          {isLoading ? "Creating..." : "Create Table"}
+        </Button>
+      </div>
+
+      {/* SQL Preview */}
+      {sql && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Generated SQL:</h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCopySQL}
+              className="flex items-center gap-2"
+            >
+              {isCopied ? (
+                <CopyCheck className="h-4 w-4" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+              {isCopied ? "Copied!" : "Copy"}
+            </Button>
+          </div>
+          <SyntaxHighlighter
+                  language="sql"
+                  style={a11yDark}
+                  customStyle={{
+                    padding: "1rem",
+                    borderRadius: "0.5rem",
+
+                    overflowX: "auto",
+                  }}
+                  showLineNumbers
+                  wrapLines
+                >
+                  {sql}
+                </SyntaxHighlighter>
+        </div>
+      )}
+
+      {/* Error Display */}
+      {createTableError && (
+        <Alert variant="destructive">
+          <AlertDescription>{createTableError}</AlertDescription>
+        </Alert>
+      )}
     </div>
   );
 };
