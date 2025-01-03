@@ -1,5 +1,5 @@
 // src/utils/indexedDB.ts
-import { Tab } from "../types";
+import { Tab } from "@/types/common";
 
 const DB_NAME = "AppTabs";
 const STORE_NAME = "tabs";

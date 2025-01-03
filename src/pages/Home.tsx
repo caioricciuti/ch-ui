@@ -8,6 +8,7 @@ import {
 import WorkspaceTabs from "@/features/workspace/components//WorkspaceTabs";
 import CreateTable from "@/features/explorer/components/CreateTable";
 import CreateDatabase from "@/features/explorer/components/CreateDatabase";
+import UploadFromFile from "@/features/explorer/components/UploadFile";
 
 function HomePage() {
   useEffect(() => {
@@ -18,6 +19,7 @@ function HomePage() {
     <div className="h-screen w-full overflow-auto">
       <CreateTable />
       <CreateDatabase />
+      <UploadFromFile />
       <ResizablePanelGroup direction="horizontal">
         <ResizablePanel className="overflow-scroll" defaultSize={25}>
           <DatabaseExplorer />

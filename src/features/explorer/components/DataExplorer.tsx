@@ -10,9 +10,12 @@ import {
   FolderPlus,
   FilePlus,
   TerminalIcon,
+  FileUp,
 } from "lucide-react";
 import useAppStore from "@/store";
-import TreeNode, { TreeNodeData } from "@/features/explorer/components/TreeNode";
+import TreeNode, {
+  TreeNodeData,
+} from "@/features/explorer/components/TreeNode";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,6 +33,7 @@ const DatabaseExplorer: React.FC = () => {
     addTab,
     openCreateDatabaseModal,
     openCreateTableModal,
+    openUploadFileModal,
   } = useAppStore();
 
   const filteredData = useMemo(() => {
@@ -73,10 +77,13 @@ const DatabaseExplorer: React.FC = () => {
                 <DropdownMenuItem onClick={() => openCreateTableModal("")}>
                   <FilePlus className="w-4 h-4 mr-2" /> Create Table
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openUploadFileModal("")}>
+                  <FileUp className="w-4 h-4 mr-2" /> Upload File
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() =>
                     addTab({
-                      id: genTabId(), 
+                      id: genTabId(),
                       type: "sql",
                       title: "Query",
                       content: "",

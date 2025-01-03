@@ -10,13 +10,13 @@ import {
   Sun,
   Moon,
   LifeBuoy,
-  Settings2,
   Search,
   ChevronRight,
   ChevronLeft,
   LineChart,
   BookText,
   ShieldCheck,
+  CogIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -127,10 +127,10 @@ const Sidebar = () => {
   const navItems = [
     { to: "/", label: "Home", icon: SquareTerminal, isNewWindow: false },
     { to: "/metrics", label: "Metrics", icon: LineChart, isNewWindow: false },
-    { to: "/settings", label: "Settings", icon: Settings2, isNewWindow: false },
   ];
 
-  const externalNavItems = [
+  const bottomNavLinks = [
+    { to: "/settings", label: "Settings", icon: CogIcon, isNewWindow: false },
     {
       to: "https://github.com/caioricciuti/ch-ui?utm_source=ch-ui&utm_medium=sidebar",
       label: "GitHub",
@@ -161,11 +161,11 @@ const Sidebar = () => {
         </Link>
         {isExpanded && (
           <Button
-            variant="ghost"
+            variant="link"
             size="icon"
             onClick={() => setIsExpanded(false)}
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-4 w-4 mr-2" />
           </Button>
         )}
       </div>
@@ -209,7 +209,7 @@ const Sidebar = () => {
                   {" "}
                 </Badge>
               </div>
-              {isExpanded && <span>Admin</span>}
+              {isExpanded && <span>ClickHouse Admin</span>}
             </Link>
           )}
         </nav>
@@ -218,7 +218,7 @@ const Sidebar = () => {
       <div className="w-full">
         <ScrollArea className="flex-grow">
           <nav className="space-y-1 p-2">
-            {externalNavItems.map((item) => (
+            {bottomNavLinks.map((item) => (
               <Link
                 key={item.to}
                 to={item.to}
@@ -383,7 +383,7 @@ const Sidebar = () => {
             ))}
           </CommandGroup>
           <CommandGroup heading="External Navigation">
-            {externalNavItems.map((item) => (
+            {bottomNavLinks.map((item) => (
               <CommandItem
                 key={item.to}
                 onSelect={() => {

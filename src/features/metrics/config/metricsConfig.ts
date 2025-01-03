@@ -1,6 +1,3 @@
-//ignore TS check
-// @ts-nocheck
-
 import { ChartConfig } from "@/components/ui/chart";
 import {
   HomeIcon,
@@ -13,6 +10,7 @@ import {
   CpuIcon,
   AlertTriangleIcon,
 } from "lucide-react";
+import { ReactNode, ComponentType } from "react";
 
 export interface Metrics {
   title: string;
@@ -28,9 +26,30 @@ export interface MetricItem {
   type: "card" | "table" | "chart";
   chartType?: "bar" | "line" | "area" | "pie" | "radar" | "radial";
   description: string;
-  chartConfig?: ChartConfig;
+  chartConfig?: CustomChartConfig;
   tiles?: number;
 }
+
+
+export type ChartTheme = {
+  light: string;
+  dark: string;
+}
+
+
+export type ChartDataConfig = {
+  label?: ReactNode;
+  icon?: ComponentType<{}>;
+} & ({ color?: string; theme?: never } | { color?: never; theme: ChartTheme });
+
+
+
+export type CustomChartConfig = {
+    indexBy: string;
+    [key: string]: ChartDataConfig | string | undefined;
+}
+
+
 
 export const metrics: Metrics[] = [
   {
@@ -103,7 +122,7 @@ export const metrics: Metrics[] = [
           GROUP BY day 
           ORDER BY day
         `,
-        chartConfig: {
+       chartConfig: {
           indexBy: "day",
           query_count: {
             label: "Query Count",
@@ -312,11 +331,11 @@ export const metrics: Metrics[] = [
         chartType: "bar",
         description:
           "Granular distribution of query durations over the last 24 hours.",
-        chartConfig: {
+           chartConfig: {
           indexBy: "duration_bucket",
           query_count: {
             label: "Query Count",
-            color: "hsl(var(--chart-1))",
+           color: "hsl(var(--chart-1))",
           },
         },
         tiles: 2,
@@ -339,7 +358,7 @@ export const metrics: Metrics[] = [
           indexBy: "minute",
           qps: {
             label: "QPS",
-            color: "hsl(var(--chart-3))",
+           color: "hsl(var(--chart-3))",
           },
         },
         tiles: 2,
@@ -401,7 +420,7 @@ export const metrics: Metrics[] = [
         type: "chart",
         chartType: "line",
         description: "CPU usage over the last hour.",
-        chartConfig: {
+         chartConfig: {
           indexBy: "minute",
           cpu_usage: {
             label: "CPU Usage",
@@ -424,7 +443,7 @@ export const metrics: Metrics[] = [
         type: "chart",
         chartType: "area",
         description: "Memory usage over the last hour.",
-        chartConfig: {
+          chartConfig: {
           indexBy: "minute",
           memory_usage: {
             label: "Memory Usage",
@@ -448,7 +467,7 @@ export const metrics: Metrics[] = [
         type: "chart",
         chartType: "area",
         description: "Threads usage over the last hour.",
-        chartConfig: {
+         chartConfig: {
           indexBy: "minute",
           threads_running: {
             label: "Threads Running",
@@ -476,7 +495,7 @@ ORDER BY
         type: "chart",
         chartType: "area",
         description: "Network traffic over the last hour.",
-        chartConfig: {
+           chartConfig: {
           indexBy: "minute",
           bytes_received: {
             label: "Bytes Received",
@@ -499,11 +518,11 @@ ORDER BY
         type: "chart",
         chartType: "line",
         description: "Average disk usage over the last hour.",
-        chartConfig: {
+          chartConfig: {
           indexBy: "minute",
           disk_usage: {
             label: "Disk Usage",
-            color: "hsl(var(--chart-6))",
+             color: "hsl(var(--chart-6))",
           },
         },
         tiles: 2,
@@ -522,7 +541,7 @@ ORDER BY
         type: "chart",
         chartType: "line",
         description: "Active Keep alive connections over the last hour.",
-        chartConfig: {
+         chartConfig: {
           indexBy: "minute",
           active_connections: {
             label: "Active Connections",
@@ -591,7 +610,7 @@ ORDER BY
         type: "chart",
         chartType: "area",
         description: "Network traffic over the last hour.",
-        chartConfig: {
+          chartConfig: {
           indexBy: "minute",
           send_bytes: {
             label: "Send (bytes)",
@@ -616,7 +635,7 @@ ORDER BY
         type: "chart",
         chartType: "line",
         description: "HTTP connections over the last hour.",
-        chartConfig: {
+         chartConfig: {
           indexBy: "minute",
           connections: {
             label: "Connections",
@@ -746,8 +765,8 @@ ORDER BY
         type: "chart",
         chartType: "line",
         description: "Count of exceptions recorded over the last 24 hours.",
-        chartConfig: {
-          indexBy: "hour",
+           chartConfig: {
+          indexBy: "hourERROR",
           exception_count: {
             label: "Exception Count",
             color: "hsl(var(--chart-2))",

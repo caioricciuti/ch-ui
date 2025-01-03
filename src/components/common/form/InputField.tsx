@@ -1,7 +1,7 @@
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { HTMLProps } from "react";
-import { Control, FieldValue, FieldValues, RegisterOptions, useFormContext } from "react-hook-form";
+import { FieldValues, RegisterOptions, useFormContext } from "react-hook-form";
 
 
 interface Props<T extends FieldValues> extends HTMLProps<HTMLInputElement> {
@@ -13,7 +13,7 @@ const InputField = <T extends FieldValues>({ name, rules, label, placeholder }: 
   const context = useFormContext()
   return (
     <FormField control={context.control}
-      name={name}
+      name={name as string}
       rules={rules}
       render={({ field }) => (
         <FormItem>

@@ -20,7 +20,7 @@ export default function ClickhouseDefaultConfiguration() {
     defaultValues: {
       max_result_rows: clickhouseSettings.max_result_rows ?? "0",
       max_result_bytes: clickhouseSettings.max_result_bytes ?? "0",
-      result_overflow_mode: clickhouseSettings.result_overflow_mode ?? "break",
+      result_overflow_mode: clickhouseSettings.result_overflow_mode ?? "throw",
     },
   });
 

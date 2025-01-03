@@ -1,5 +1,7 @@
 import { useState, useEffect, ComponentType } from "react";
-import { MetricItem } from "@/features/metrics/config/metricsConfig";
+import {
+  MetricItem,
+} from "@/features/metrics/config/metricsConfig";
 import {
   Bar,
   BarChart,
@@ -20,15 +22,20 @@ import {
   PolarAngleAxis,
   PolarRadiusAxis,
   ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  Legend as RechartsLegend,
+  BarProps,
+  LineProps,
+  AreaProps,
+  PieProps,
+  RadarProps,
+  RadialBarProps,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ChartContainer,
-  ChartTooltip,
   ChartTooltipContent,
-  ChartLegend,
   ChartLegendContent,
-  ChartConfig,
 } from "@/components/ui/chart";
 import CHUITable from "@/components/common/table/CHUItable";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -60,9 +67,27 @@ interface Props {
   item: MetricItem;
 }
 
+interface QueryResult {
+  data: any[];
+  error?: string;
+  meta?: any;
+  statistics?: {
+    time_elapsed: number;
+    rows_read: number;
+  };
+}
+
+type DataComponentType =
+  | ComponentType<BarProps>
+  | ComponentType<LineProps>
+  | ComponentType<AreaProps>
+  | ComponentType<PieProps>
+  | ComponentType<RadarProps>
+  | ComponentType<RadialBarProps>;
+
 function MetricItemComponent({ item }: Props) {
   const { runQuery } = useAppStore();
-  const [data, setData] = useState<any>(null);
+  const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string>("");
 
@@ -72,18 +97,18 @@ function MetricItemComponent({ item }: Props) {
       const result = await runQuery(item.query);
 
       if (result.error) {
-        setData([]);
+        setQueryResult({ data: [], error: result.error });
         setErrorMessage(result.error);
       } else if (result.data && result.data.length > 0) {
-        setData(result);
+        setQueryResult(result);
         setErrorMessage("");
       } else {
-        setData([]);
+        setQueryResult({ data: [] });
         setErrorMessage("No data returned from the query.");
       }
     } catch (err: any) {
       console.error(err);
-      setData([]);
+      setQueryResult({ data: [] });
       setErrorMessage(err.message || "An unexpected error occurred.");
     } finally {
       setLoading(false);
@@ -118,10 +143,11 @@ function MetricItemComponent({ item }: Props) {
   }
 
   const renderCardContent = () => {
-    if (!data || !data.data || data.data.length === 0) {
+    if (!queryResult || !queryResult.data || queryResult.data.length === 0) {
       return <div className="text-muted-foreground font-bold">No data</div>;
     }
-    return data.data.map((item: any, index: number) => (
+
+    return queryResult.data.map((item: any, index: number) => (
       <div key={index} className="mb-2">
         {Object.entries(item).map(([key, value]) => (
           <div key={key}>
@@ -132,7 +158,9 @@ function MetricItemComponent({ item }: Props) {
     ));
   };
 
-  const handleDownloadData = (data: any) => {
+  const handleDownloadData = (data: QueryResult) => {
+    if (!data) return;
+
     const blob = new Blob([JSON.stringify(data, null, 2)], {
       type: "application/json",
     });
@@ -150,12 +178,12 @@ function MetricItemComponent({ item }: Props) {
   };
 
   const renderChart = () => {
-    if (!data || !data.data || data.data.length === 0) {
+    if (!queryResult || !queryResult.data || queryResult.data.length === 0) {
       return <div className="text-muted-foreground font-bold">No data</div>;
     }
 
     let ChartComponent: ComponentType<any>;
-    let DataComponent: ComponentType<any>;
+    let DataComponent: DataComponentType;
 
     switch (item.chartType) {
       case "line":
@@ -184,24 +212,35 @@ function MetricItemComponent({ item }: Props) {
         DataComponent = Bar;
     }
 
-    const chartConfig = item.chartConfig || {};
+    const chartConfig = item.chartConfig || { indexBy: "" }; // Provide a default if chartConfig is missing
     const dataKeys = Object.keys(chartConfig).filter(
       (key) => key !== "indexBy"
     );
+
+    if (!dataKeys.length || !chartConfig.indexBy) {
+      return (
+        <div className="text-muted-foreground font-bold">
+          Invalid chart configuration
+        </div>
+      );
+    }
+
     const dataKey = dataKeys[0];
+
     const maxValue = Math.max(
-      ...data.data.map((d: any) => d[dataKey as string])
+      ...queryResult.data.map((d: any) => d[dataKey as string])
     );
-    const yAxisMax = Math.ceil(maxValue * 1.1); // Add 10% padding to the top
+
+    const yAxisMax = Math.ceil(maxValue * 1.1);
 
     return (
       <ChartContainer
-        config={chartConfig as ChartConfig}
+        config={chartConfig as any}
         className="mt-4 h-[250px] w-full"
       >
         <ResponsiveContainer width="100%" height="100%">
           <ChartComponent
-            data={data.data}
+            data={queryResult.data}
             margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
           >
             {["bar", "line", "area"].includes(item.chartType || "") && (
@@ -232,27 +271,48 @@ function MetricItemComponent({ item }: Props) {
                 <PolarRadiusAxis />
               </>
             )}
-            <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-            <ChartLegend content={<ChartLegendContent />} />
-            {dataKeys.map((key) => (
-              <DataComponent
-                key={key}
-                dataKey={key}
-                fill={`var(--color-${key})`}
-                stroke={`var(--color-${key})`}
-                strokeWidth={2}
-                dot={false}
-                radius={item.chartType === "bar" ? [4, 4, 0, 0] : undefined}
-                fillOpacity={item.chartType === "area" ? 0.3 : 1}
-                {...(item.chartType === "pie" || item.chartType === "radial"
-                  ? {
-                      data: data.data,
-                      nameKey: chartConfig.indexBy as string,
-                      label: true,
-                    }
-                  : {})}
-              />
-            ))}
+            <RechartsTooltip
+              content={<ChartTooltipContent indicator="dot" />}
+            />
+            <RechartsLegend content={<ChartLegendContent />} />
+            {dataKeys.map((key) => {
+              const commonProps = {
+                key: key,
+                fill: `var(--color-${key})`,
+                stroke: `var(--color-${key})`,
+                strokeWidth: 2,
+                dot: false,
+              };
+
+              if (item.chartType === "pie") {
+                return (
+                  <DataComponent
+                    {...commonProps}
+                    data={queryResult.data}
+                    nameKey={chartConfig.indexBy as string}
+                    label={true}
+                  />
+                );
+              } else if (item.chartType === "radial") {
+                return (
+                  <DataComponent
+                    {...commonProps}
+                    data={queryResult.data}
+                    nameKey={chartConfig.indexBy as string}
+                    label={true}
+                  />
+                );
+              } else {
+                return (
+                  <DataComponent
+                    {...commonProps}
+                    dataKey={key}
+                    radius={item.chartType === "bar" ? [4, 4, 0, 0] : undefined}
+                    fillOpacity={item.chartType === "area" ? 0.3 : 1}
+                  />
+                );
+              }
+            })}
           </ChartComponent>
         </ResponsiveContainer>
       </ChartContainer>
@@ -260,18 +320,18 @@ function MetricItemComponent({ item }: Props) {
   };
 
   const renderTable = () => {
-    if (!data || !data.data || data.data.length === 0) {
+    if (!queryResult || !queryResult.data || queryResult.data.length === 0) {
       return <div className="text-muted-foreground font-bold">No data</div>;
     }
     return (
       <CHUITable
         result={{
-          meta: data.meta,
-          data: data.data,
+          meta: queryResult.meta,
+          data: queryResult.data,
           statistics: {
-            elapsed: data.statistics.time_elapsed,
-            rows_read: data.statistics.rows_read,
-            bytes_read: JSON.stringify(data).length,
+            elapsed: queryResult.statistics?.time_elapsed || 0,
+            rows_read: queryResult.statistics?.rows_read || 0,
+            bytes_read: JSON.stringify(queryResult).length,
           },
         }}
       />
@@ -327,13 +387,19 @@ function MetricItemComponent({ item }: Props) {
                   <CopyIcon className="w-4 h-4 mr-2" />
                   Copy Query
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleDownloadData(data)}>
+                <DropdownMenuItem
+                  onClick={() => handleDownloadData(queryResult!)}
+                >
                   <DownloadCloud className="w-4 h-4 mr-2" />
                   Download Data
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
-                    const jsonString = JSON.stringify(data.data, null, 2);
+                    const jsonString = JSON.stringify(
+                      queryResult!.data,
+                      null,
+                      2
+                    );
                     navigator.clipboard
                       .writeText(jsonString)
                       .then(() => toast.success("Data copied to clipboard"))
