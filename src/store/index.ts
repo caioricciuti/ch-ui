@@ -8,12 +8,13 @@ import {
   ClickHouseSettings,
   QueryResult,
 } from "@/types/common";
-import { createClient, ClickHouseClient } from "@clickhouse/client-web";
+import { createClient } from "@clickhouse/client-web";
 import { isCreateOrInsert } from "@/helpers/sqlUtils";
 import * as IndexedDB from "@/lib/indexDB";
 import { OverflowMode } from "@clickhouse/client-common/dist/settings";
 import { toast } from "sonner";
 import { appQueries } from "@/features/workspace/editor/appQueries";
+
 // Define specific error types
 export class ClickHouseError extends Error {
   constructor(message: string, public readonly originalError?: unknown) {
@@ -62,7 +63,7 @@ const useAppStore = create<AppState>()(
       clickhouseSettings: {
         max_result_rows: "0",
         max_result_bytes: "0",
-        result_overflow_mode: 'throw' as OverflowMode,
+        result_overflow_mode: "throw" as OverflowMode,
       },
       setCredentialSource: (source) => set({ credentialSource: source }),
       setCredential: async (credential) => {
@@ -110,6 +111,7 @@ const useAppStore = create<AppState>()(
           throw error;
         }
       },
+
       clearCredentials: async () => {
         set({
           credential: {
@@ -130,6 +132,7 @@ const useAppStore = create<AppState>()(
           error: "",
         });
       },
+
       checkServerStatus: async () => {
         const { clickHouseClient } = get();
         set({ isLoadingCredentials: true, error: "" });
@@ -249,6 +252,7 @@ const useAppStore = create<AppState>()(
           }
         }
       },
+
       initializeApp: async () => {
         const { credential, setCredential } = get();
         if (credential.url && credential.username) {
@@ -271,6 +275,7 @@ const useAppStore = create<AppState>()(
         }
         set({ isInitialized: true });
       },
+
       // Workspace State & Actions
       tabs: [],
       activeTab: "home",
@@ -306,6 +311,7 @@ const useAppStore = create<AppState>()(
         );
         set({ tabs: updatedTabs });
       },
+
       removeTab: async (tabId) => {
         const { indexDbInstance, tabs, activeTab } = get();
         if (!indexDbInstance) throw new Error("Database not initialized");
@@ -318,6 +324,45 @@ const useAppStore = create<AppState>()(
           set({ activeTab: updatedTabs[updatedTabs.length - 1]?.id || "home" });
         }
       },
+
+      duplicateTab: async (tabId: string) => {
+        const { indexDbInstance, tabs } = get();
+        if (!indexDbInstance) throw new Error("Database not initialized");
+
+        const tabToDuplicate = tabs.find((tab) => tab.id === tabId);
+        if (!tabToDuplicate) {
+          throw new Error("Tab not found");
+        }
+
+        const newTab = {
+          ...tabToDuplicate,
+          id: `tab-${Date.now()}`,
+          title: `${tabToDuplicate.title} (Copy)`,
+        };
+
+        await IndexedDB.addTab(indexDbInstance, newTab);
+        set((state) => ({
+          tabs: [...state.tabs, newTab],
+          activeTab: newTab.id,
+        }));
+      },
+
+      closeAllTabs: async () => {
+        const { indexDbInstance, tabs } = get();
+        if (!indexDbInstance) throw new Error("Database not initialized");
+
+        const tabsToRemove = tabs.filter((tab) => tab.id !== "home");
+        await Promise.all(
+          tabsToRemove.map((tab) =>
+            IndexedDB.removeTab(indexDbInstance, tab.id)
+          )
+        );
+        set({
+          tabs: [tabs.find((tab) => tab.id === "home")!],
+          activeTab: "home",
+        });
+      },
+
       updateTabTitle: async (tabId, newTitle) => {
         const { indexDbInstance, tabs } = get();
         if (!indexDbInstance) throw new Error("Database not initialized");
@@ -335,18 +380,22 @@ const useAppStore = create<AppState>()(
         set({ tabs: updatedTabs });
         toast.success(`Tab title updated to "${newTitle}"`);
       },
+
       setActiveTab: (tabId) => {
         set({ activeTab: tabId });
       },
+
       getTabById: (tabId) => {
         return get().tabs.find((tab) => tab.id === tabId);
       },
+
       moveTab: (oldIndex, newIndex) => {
         const tabs = [...get().tabs];
         const [removed] = tabs.splice(oldIndex, 1);
         tabs.splice(newIndex, 0, removed);
         set({ tabs });
       },
+
       // Explorer State & Actions
       dataBaseExplorer: [],
       isLoadingDatabase: false,

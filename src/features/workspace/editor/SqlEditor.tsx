@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef, useCallback, useState } from "react";
 import * as monaco from "monaco-editor";
 import { useTheme } from "@/components/common/theme-provider";
 import useAppStore from "@/store";
@@ -7,9 +7,9 @@ import {
   createMonacoEditor,
 } from "@/features/workspace/editor/monacoConfig";
 import { Button } from "@/components/ui/button";
-import { CirclePlay } from "lucide-react";
+import { CirclePlay, Edit3Icon } from "lucide-react";
 import { toast } from "sonner";
-import SaveQueryDialog from "@/features/workspace/editor/SaveQuery";
+import { Input } from "@/components/ui/input";
 
 interface SQLEditorProps {
   tabId: string;
@@ -17,24 +17,15 @@ interface SQLEditorProps {
 }
 
 const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
-  const {
-    getTabById,
-    updateTab,
-    savedQueries: { isSavedQueriesActive },
-    checkSavedQueriesStatus,
-  } = useAppStore();
-
+  const { getTabById, updateTab } = useAppStore();
   const editorRef = useRef<HTMLDivElement>(null);
   const monacoRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const tab = getTabById(tabId);
   const { theme } = useTheme();
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedTitle, setEditedTitle] = useState("");
 
   const editorTheme = theme === "light" ? "vs-light" : "vs-dark";
-
-  // Check saved queries status when component mounts
-  useEffect(() => {
-    checkSavedQueriesStatus();
-  }, []);
 
   useEffect(() => {
     initializeMonacoGlobally();
@@ -52,14 +43,9 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
         updateTab(tabId, { content: newContent });
       });
 
-      // Add keyboard shortcuts
       editor.addCommand(
         monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
         handleRunQuery
-      );
-      editor.addCommand(
-        monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
-        handleSaveShortcut
       );
 
       return () => {
@@ -68,6 +54,30 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
       };
     }
   }, [tabId, updateTab, editorTheme]);
+
+  const handleTitleEdit = () => {
+    setEditedTitle(tab?.title || "");
+    setIsEditing(true);
+  };
+
+  const handleTitleSave = () => {
+    if (editedTitle.trim()) {
+      updateTab(tabId, { title: editedTitle.trim() });
+    }
+    setIsEditing(false);
+  };
+
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditedTitle(e.target.value);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleTitleSave();
+    } else if (e.key === "Escape") {
+      setIsEditing(false);
+    }
+  };
 
   const getCurrentQuery = useCallback(() => {
     if (monacoRef.current) {
@@ -91,41 +101,32 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
     }
   }, [onRunQuery, getCurrentQuery]);
 
-  const handleSaveShortcut = useCallback(
-    (e?: any) => {
-      e?.preventDefault();
-      const content = getCurrentQuery();
-      if (!content.trim()) {
-        toast.error("Please enter a query to save");
-        return;
-      }
-      if (!isSavedQueriesActive) {
-        toast.error("Saved queries feature is not activated");
-        return;
-      }
-      // The dialog handles the actual saving
-    },
-    [getCurrentQuery, isSavedQueriesActive]
-  );
-
-  const handleSaveSuccess = useCallback(() => {
-    // Update tab title if it's a new query
-    if (tab?.title.startsWith("New Query")) {
-      updateTab(tabId, {
-        title: `Saved Query - ${new Date().toLocaleTimeString()}`,
-      });
-    }
-    toast.success("Query saved successfully!");
-  }, [tabId, tab?.title, updateTab]);
-
   if (!tab) return null;
 
   return (
     <div className="h-full flex flex-col">
       <div className="px-4 flex items-center justify-between border-b">
-        <span className="text-sm text-muted-foreground truncate max-w-[200px]">
-          {tab.title}
-        </span>
+        <div className="flex items-center gap-2">
+          {isEditing ? (
+            <Input
+              type="text"
+              value={editedTitle}
+              autoFocus
+              className="w-full h-6"
+              onChange={handleTitleChange}
+              onBlur={handleTitleSave}
+              onKeyDown={handleKeyDown}
+            />
+          ) : (
+            <span className="text-sm text-muted-foreground truncate max-w-[200px]">
+              {tab.title}
+            </span>
+          )}
+          <Edit3Icon
+            className="h-4 w-4 cursor-pointer hover:text-primary"
+            onClick={handleTitleEdit}
+          />
+        </div>
         <div className="flex items-center gap-2">
           <Button variant="link" onClick={handleRunQuery} className="gap-2">
             <CirclePlay className="h-6 w-6" />

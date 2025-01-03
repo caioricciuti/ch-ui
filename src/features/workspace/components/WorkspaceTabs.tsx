@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useMemo } from "react";
+import { useCallback, useState, useMemo } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -8,8 +8,10 @@ import {
   Home,
   GripVertical,
   Info,
-  Edit2,
   Terminal,
+  XSquareIcon,
+  Copy,
+  Save,
 } from "lucide-react";
 import {
   DndContext,
@@ -31,8 +33,15 @@ import HomeTab from "@/features/workspace/components/HomeTab";
 import useAppStore from "@/store";
 import SqlTab from "@/features/workspace/components//SqlTab";
 import InformationTab from "@/features/workspace/components/infoTab/InfoTab";
-import { Input } from "@/components/ui/input";
 import { genTabId } from "@/lib/utils";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+
 interface Tab {
   id: string;
   title: string;
@@ -49,37 +58,13 @@ interface SortableTabProps {
 function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: tab.id });
-  const { removeTab, updateTabTitle } = useAppStore();
-  const [isEditing, setIsEditing] = useState(false);
-  const [editedTitle, setEditedTitle] = useState(tab.title);
+  const { removeTab, duplicateTab } = useAppStore();
   const [isHovering, setIsHovering] = useState(false);
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     width: tab.type === "home" ? "100px" : "150px",
-  };
-
-  const handleEditClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsEditing(true);
-  };
-
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setEditedTitle(e.target.value);
-  };
-
-  const handleTitleBlur = () => {
-    if (editedTitle.trim() !== "") {
-      updateTabTitle(tab.id, editedTitle);
-    }
-    setIsEditing(false);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      handleTitleBlur();
-    }
   };
 
   return (
@@ -89,59 +74,81 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
       className={`flex items-center ${isActive ? "z-10" : "z-0"}`}
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
+      onAuxClick={(e) => {
+        e.preventDefault();
+        removeTab(tab.id);
+      }}
     >
-      <TabsTrigger
-        value={tab.id}
-        className={`data-[state=active]:bg-orange-500 h-8 data-[state=active]:text-primary flex items-center rounded-sm w-full`}
-        onClick={onActivate}
-      >
-        {isActive && isHovering && tab.type !== "home" && (
-          <div {...attributes} {...listeners} className="cursor-move px-1">
-            <GripVertical className="cursor-move p-0" size={12} />
-          </div>
-        )}
-        {tab.type === "home" && <Home width={16} className="mr-2 min-w-4" />}
-        {tab.type === "sql" && <Terminal width={16} className="mr-2 min-w-4" />}
-        {tab.type === "information" && (
-          <Info width={16} className="mr-2 min-w-4" />
-        )}
-        {isEditing && tab.type !== "home" ? (
-          <Input
-            value={editedTitle}
-            onChange={handleTitleChange}
-            onBlur={handleTitleBlur}
-            onKeyDown={handleKeyDown}
-            className="w-24 h-4 p-1 text-xs"
-          />
-        ) : (
-          <div className="flex items-center overflow-hidden">
-            <span className="max-w-14 truncate text-xs">{tab.title}</span>
-            {isActive && tab.type !== "home" && (
-              <Edit2
-                className="w-3 h-3 ml-1 cursor-pointer"
-                onClick={handleEditClick}
-              />
-            )}
-          </div>
-        )}
-        {tab.id !== "home" && (
-          <span
-            className="ml-auto cursor-pointer"
-            onClick={(e) => {
-              e.stopPropagation();
-              removeTab(tab.id);
-            }}
+      <ContextMenu>
+        <ContextMenuTrigger className="flex h-[150px] w-[300px] items-center justify-center rounded-md border border-dashed text-sm">
+          <TabsTrigger
+            value={tab.id}
+            className={`data-[state=active]:bg-orange-500 h-8 data-[state=active]:text-primary flex items-center rounded-sm w-full`}
+            onClick={onActivate}
           >
-            <X className="h-4 w-4" />
-          </span>
-        )}
-      </TabsTrigger>
+            {isActive && isHovering && tab.type !== "home" && (
+              <div {...attributes} {...listeners} className="cursor-move px-1">
+                <GripVertical className="cursor-move p-0" size={12} />
+              </div>
+            )}
+            {tab.type === "home" && (
+              <Home width={16} className="mr-2 min-w-4" />
+            )}
+            {tab.type === "sql" && (
+              <Terminal width={16} className="mr-2 min-w-4" />
+            )}
+            {tab.type === "information" && (
+              <Info width={16} className="mr-2 min-w-4" />
+            )}
+
+            <div className="flex items-center overflow-hidden">
+              <span className="truncate max-w-16 text-xs">{tab.title}</span>
+            </div>
+
+            {tab.id !== "home" && (
+              <span
+                className="ml-auto cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeTab(tab.id);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </span>
+            )}
+          </TabsTrigger>
+        </ContextMenuTrigger>
+
+        <ContextMenuContent>
+          {tab.type === "sql" && (
+            <ContextMenuItem onClick={() => duplicateTab(tab.id)}>
+              Duplicate Tab <Copy className="ml-4 h-4 w-4" />
+            </ContextMenuItem>
+          )}
+
+
+          {tab.type !== "home" && (
+            <ContextMenuItem
+              onClick={() => removeTab(tab.id)}
+              className="text-red-600"
+            >
+              Close Tab <XSquareIcon className="ml-4 h-4 w-4" />
+            </ContextMenuItem>
+          )}
+
+          {tab.type === "home" && (
+            <ContextMenuItem>
+              Home Tab <Home className="ml-4 h-4 w-4" />
+            </ContextMenuItem>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
     </div>
   );
 }
 
 export function WorkspaceTabs() {
-  const { tabs, activeTab, addTab, setActiveTab, moveTab, removeTab } =
+  const { tabs, activeTab, addTab, setActiveTab, moveTab, closeAllTabs } =
     useAppStore();
 
   const sensors = useSensors(
@@ -162,7 +169,6 @@ export function WorkspaceTabs() {
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-
     if (active.id !== over?.id && active.id !== "home" && over?.id !== "home") {
       const oldIndex = tabs.findIndex((tab) => tab.id === active.id);
       const newIndex = tabs.findIndex((tab) => tab.id === over?.id);
@@ -170,43 +176,11 @@ export function WorkspaceTabs() {
     }
   };
 
-  // Sort tabs to always keep home tab first
   const sortedTabs = useMemo(() => {
     const homeTab = tabs.find((tab) => tab.id === "home");
     const otherTabs = tabs.filter((tab) => tab.id !== "home");
     return homeTab ? [homeTab, ...otherTabs] : otherTabs;
   }, [tabs]);
-
-  /*
-  ***** Keyboard shortcuts COMMENTED OUT ***** 
-  useEffect(() => {
-    // Keyboard shortcuts
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === "w") {
-        event.preventDefault();
-        if (activeTab && activeTab !== "home") {
-          removeTab(activeTab);
-        }
-      } else if ((event.metaKey || event.ctrlKey) && event.key === "t") {
-        event.preventDefault();
-        addNewCodeTab();
-      } else if (
-        (event.metaKey || event.ctrlKey) &&
-        event.key >= "1" &&
-        event.key <= "9"
-      ) {
-        event.preventDefault();
-        const tabIndex = parseInt(event.key) - 1;
-        if (tabIndex < tabs.length) {
-          setActiveTab(tabs[tabIndex].id);
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [tabs, activeTab, addNewCodeTab, removeTab, setActiveTab]);
-*/
 
   return (
     <div className="flex flex-col h-full">
@@ -224,31 +198,49 @@ export function WorkspaceTabs() {
             <Plus className="h-4 w-4" />
           </Button>
           <ScrollArea className="flex-grow">
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={sortedTabs.map((tab) => tab.id)}
-                strategy={horizontalListSortingStrategy}
-              >
-                <div className="flex">
-                  <TabsList className="inline-flex h-10 items-center justify-start rounded-none w-full overflow-y-clip">
-                    {sortedTabs.map((tab) => (
-                      <SortableTab
-                        key={tab.id}
-                        tab={
-                          tab.id === "home" ? { ...tab, title: "Home" } : tab
-                        }
-                        isActive={activeTab === tab.id}
-                        onActivate={() => setActiveTab(tab.id)}
-                      />
-                    ))}
-                  </TabsList>
-                </div>
-              </SortableContext>
-            </DndContext>
+            <ContextMenu>
+              <ContextMenuTrigger>
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={sortedTabs.map((tab) => tab.id)}
+                    strategy={horizontalListSortingStrategy}
+                  >
+                    <div className="flex">
+                      <TabsList className="inline-flex h-10 items-center justify-start rounded-none w-full overflow-y-clip">
+                        {sortedTabs.map((tab) => (
+                          <SortableTab
+                            key={tab.id}
+                            tab={
+                              tab.id === "home"
+                                ? { ...tab, title: "Home" }
+                                : tab
+                            }
+                            isActive={activeTab === tab.id}
+                            onActivate={() => setActiveTab(tab.id)}
+                          />
+                        ))}
+                      </TabsList>
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem onClick={addNewCodeTab}>
+                  New Tab <Plus className="ml-4 h-4 w-4" />
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  onClick={closeAllTabs}
+                  className="text-red-600"
+                >
+                  Close All Tabs <XSquareIcon className="ml-4 h-4 w-4" />
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
         </div>
