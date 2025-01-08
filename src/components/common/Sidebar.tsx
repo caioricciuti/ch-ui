@@ -100,6 +100,9 @@ const Sidebar = () => {
   const [open, setOpen] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
+  // version from vite.config.ts
+  const ch_ui_version = __CH_UI_VERSION__;
+
   const toggleTheme = () => {
     setTheme(theme === "dark" ? "light" : "dark");
   };
@@ -342,7 +345,8 @@ const Sidebar = () => {
                   ? "Connected"
                   : "Disconnected"}
               </p>
-              <p className="text-xs">Version: {version}</p>
+              <p className="text-xs">Click House Version: {version}</p>
+              <p className="text-xs">CH-UI Version: {ch_ui_version}</p>
             </div>
           </PopoverContent>
         </Popover>
