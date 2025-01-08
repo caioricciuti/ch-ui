@@ -76,8 +76,11 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
       onAuxClick={(e) => {
-        e.preventDefault();
-        removeTab(tab.id);
+        if (e.button === 1) {
+          // Only handle middle mouse button
+          e.preventDefault();
+          removeTab(tab.id);
+        }
       }}
     >
       <ContextMenu>
@@ -127,7 +130,6 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
             </ContextMenuItem>
           )}
 
-
           {tab.type !== "home" && (
             <ContextMenuItem
               onClick={() => removeTab(tab.id)}
@@ -159,7 +161,6 @@ export function WorkspaceTabs() {
     })
   );
 
-
   const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
@@ -170,7 +171,7 @@ export function WorkspaceTabs() {
       const existingTab = tabs.find(
         (tab) =>
           tab.type === "information" &&
-          typeof tab.content === "object" && 
+          typeof tab.content === "object" &&
           tab.content.database === database &&
           tab.content.table === table
       );
@@ -184,7 +185,7 @@ export function WorkspaceTabs() {
           content: { database, table },
         });
       }
-      
+
       // Clean up URL parameters
       setSearchParams({}, { replace: true });
     }

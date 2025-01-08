@@ -21,7 +21,7 @@ jobs:
         id: get_latest_tag
         run: echo "latest_tag=$(git describe --tags --abbrev=0)" >> $GITHUB_OUTPUT
 
-      - name: Bump version and push tag
+      - name: Bump version and update package.json
         id: tag_version
         run: |
           latest_tag=${{ steps.get_latest_tag.outputs.latest_tag }}
@@ -33,11 +33,31 @@ jobs:
           else
             new_tag="v1.5.1"
           fi
+          
+          # Update package.json version (without the 'v' prefix)
+          new_version="${new_tag:1}"
+          npm version $new_version --no-git-tag-version
+          
+          # Stage and commit package.json changes
           git config user.name github-actions
           git config user.email github-actions@github.com
+          git add package.json package-lock.json
+          git commit -m "chore: bump version to ${new_tag}"
+          git push
+          
+          # Create and push new tag
           git tag $new_tag
           git push origin $new_tag
           echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+
+      - name: Generate Release Notes
+        id: release_notes
+        run: |
+          # Get commit messages since last tag
+          COMMITS=$(git log $(git describe --tags --abbrev=0)..HEAD --pretty=format:"- %s")
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create Release
         uses: actions/create-release@v1
@@ -47,7 +67,10 @@ jobs:
           tag_name: ${{ steps.tag_version.outputs.new_tag }}
           release_name: Release ${{ steps.tag_version.outputs.new_tag }}
           body: |
-            Changes in this Release
-            - Automated patch version bump
+            # What's Changed
+            
+            ${{ steps.release_notes.outputs.commits }}
+            
+            **Full Changelog**: https://github.com/${{ github.repository }}/commits/${{ steps.tag_version.outputs.new_tag }}
           draft: false
           prerelease: false
