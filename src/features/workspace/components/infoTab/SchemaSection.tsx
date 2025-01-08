@@ -4,6 +4,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import CHUItable from "@/components/common/table/CHUItable";
 import { AlertCircle, Loader2, RefreshCcw } from "lucide-react";
 import useAppStore from "@/store";
+import { Button } from "@/components/ui/button";
 
 interface SchemaSectionProps {
   database: string;
@@ -88,20 +89,21 @@ const SchemaSection: React.FC<SchemaSectionProps> = ({ database, tableName }) =>
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 bg">
         <CardTitle>Schema</CardTitle>
-        <button
+        <Button
           onClick={() => fetchSchemaData(true)}
-          className="flex items-center space-x-2 text-sm text-muted-foreground hover:text-primary transition-colors"
+          variant="ghost"
+          className="flex items-center space-x-2 text-sm"
           disabled={isRefreshing}
         >
           <RefreshCcw
             className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
           />
           <span>Refresh</span>
-        </button>
+        </Button>
       </CardHeader>
-      <CardContent>
+      <CardContent className="max-h-[500px] overflow-auto">
         {schemaError ? (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
@@ -109,7 +111,7 @@ const SchemaSection: React.FC<SchemaSectionProps> = ({ database, tableName }) =>
             <AlertDescription>{schemaError}</AlertDescription>
           </Alert>
         ) : schemaData.length > 0 ? (
-          <div className="rounded-md border">
+          <div className="rounded-md border overflow-auto">
             <CHUItable
               result={{
                 meta: getTableMeta(schemaData),
@@ -126,7 +128,6 @@ const SchemaSection: React.FC<SchemaSectionProps> = ({ database, tableName }) =>
           </div>
         ) : (
           <Alert>
-            <AlertCircle className="h-4 w-4" />
             <AlertTitle>No Data</AlertTitle>
             <AlertDescription>
               No schema information available for this table.

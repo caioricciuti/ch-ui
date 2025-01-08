@@ -1,4 +1,4 @@
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useState, useMemo, useEffect } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -41,6 +41,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { useSearchParams } from "react-router-dom";
 
 interface Tab {
   id: string;
@@ -157,6 +158,37 @@ export function WorkspaceTabs() {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
+
+
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  useEffect(() => {
+    const database = searchParams.get("database") || "";
+    const table = searchParams.get("table") || "";
+    if (database || table) {
+      // look if the tab already exists
+      const existingTab = tabs.find(
+        (tab) =>
+          tab.type === "information" &&
+          typeof tab.content === "object" && 
+          tab.content.database === database &&
+          tab.content.table === table
+      );
+      if (existingTab) {
+        setActiveTab(existingTab.id);
+      } else {
+        addTab({
+          id: genTabId(),
+          title: `Information: ${database || table}`,
+          type: "information",
+          content: { database, table },
+        });
+      }
+      
+      // Clean up URL parameters
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, tabs]);
 
   const addNewCodeTab = useCallback(() => {
     addTab({

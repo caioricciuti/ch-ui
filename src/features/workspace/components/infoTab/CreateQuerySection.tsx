@@ -55,7 +55,7 @@ const CreateQuerySection: React.FC<CreateQuerySectionProps> = ({ data }) => {
           customStyle={{
             padding: "1rem",
             borderRadius: "0.5rem",
-
+            maxHeight: "400px",
             overflowX: "auto",
           }}
           showLineNumbers

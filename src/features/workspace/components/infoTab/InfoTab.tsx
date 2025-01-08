@@ -9,6 +9,8 @@ import {
   ChevronRight,
   Table,
   AlertCircle,
+  Share,
+  Share2,
 } from "lucide-react";
 import useAppStore from "@/store";
 import LoadingOverlay from "./LoadingOverlay";
@@ -17,6 +19,9 @@ import DetailsContent from "./DetailsContent";
 import CreateQuerySection from "./CreateQuerySection";
 import DataSampleSection from "./DataSampleSection";
 import SchemaSection from "./SchemaSection";
+import { useSearchParams } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 interface InfoTabProps {
   database: string;
@@ -49,6 +54,7 @@ interface TableData {
 }
 
 const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
+  const [searchParams] = useSearchParams();
   const { runQuery } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<DatabaseData | TableData | null>(null);
@@ -156,6 +162,12 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
 
   useEffect(() => {
     fetchData();
+    // if (searchParams.get("tab") use the value to set the internal tab
+
+    const internalTab = searchParams.get("tab") || "";
+    if (internalTab) {
+      setActiveTab(internalTab);
+    }
   }, [fetchData]);
 
   const refreshData = async () => {
@@ -260,6 +272,25 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
           </TabsContent>
         </>
       )}
+      <Button
+        size="icon"
+        variant="ghost"
+        onClick={() => {
+          // create the url to share e.g. /? ?info_tab=true&database=<current_db>&table=<current_Table>&tab=<current_tab>
+          const params = new URLSearchParams();
+          params.append("info_tab", "true");
+          params.append("database", database);
+          if (tableName) {
+            params.append("table", tableName);
+          }
+          params.append("tab", activeTab);
+          const url = `${window.location.origin}/?${params.toString()}`;
+          navigator.clipboard.writeText(url);
+          toast.success("URL copied to clipboard");
+        }}
+      >
+        <Share2 className="w-4 h-4" />
+      </Button>
     </Tabs>
   );
 
