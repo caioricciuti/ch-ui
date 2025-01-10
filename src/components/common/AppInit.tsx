@@ -52,6 +52,7 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
 
     if (import.meta.env?.VITE_CLICKHOUSE_SELFSERVICE || window.env?.VITE_CLICKHOUSE_SELFSERVICE) {
       const envUrlSelf = window.location.origin || false;
+      console.log('SELF-SERVICE ENABLED', window.location.origin);
     }
     
     if (envUrl && envUser) {
