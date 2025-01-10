@@ -9,6 +9,7 @@ declare global {
       VITE_CLICKHOUSE_PASS?: string;
       VITE_CLICKHOUSE_USE_ADVANCED?: boolean;
       VITE_CLICKHOUSE_CUSTOM_PATH?: string;
+      VITE_CLICKHOUSE_SELFSERVICE?: string;
     };
   }
 }
@@ -49,9 +50,13 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
     const envUseAdvanced = window.env?.VITE_CLICKHOUSE_USE_ADVANCED;
     const envCustomPath = window.env?.VITE_CLICKHOUSE_CUSTOM_PATH;
 
+    if (import.meta.env?.VITE_CLICKHOUSE_SELFSERVICE || window.env?.VITE_CLICKHOUSE_SELFSERVICE) {
+      const envUrlSelf = window.location.origin;
+    }
+    
     if (envUrl && envUser) {
       setCredential({
-        url: envUrl,
+        url: envUrlSelf || envUrl,
         username: envUser,
         password: envPass || "",
         useAdvanced: envUseAdvanced || false,
