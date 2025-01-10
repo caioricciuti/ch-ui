@@ -203,7 +203,7 @@ export default function SettingsPage() {
                                   isLoadingCredentials ||
                                   credentialSource === "env"
                                 }
-                                placeholder="https://your-clickhouse-host:8123"
+                                placeholder="https://clickhouse-server:8123"
                                 {...field}
                               />
                             </FormControl>
@@ -259,6 +259,7 @@ export default function SettingsPage() {
                                     isLoadingCredentials ||
                                     credentialSource === "env"
                                   }
+                                  placeholder={ credentialSource === "self" ? "set username/password to persist data" : ""}
                                   type={showPassword ? "text" : "password"}
                                   autoComplete="current-password"
                                   {...field}
