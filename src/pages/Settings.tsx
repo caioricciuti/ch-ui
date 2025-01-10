@@ -268,15 +268,21 @@ export default function SettingsPage() {
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        if (credentialSource !== "env" || credentialSource !== "self") {
+                                        if (credentialSource !== "env") {
                                           setShowPassword(!showPassword);
                                         }
                                       }}
-                                      disabled={credentialSource === "env" || credentialSource === "self"}
+                                      disabled={credentialSource === "env"}
                                       className={`absolute inset-y-0 right-0 pr-3 flex items-center ${
                                         credentialSource === "env" ? "cursor-not-allowed text-muted-foreground" : "text-muted-foreground hover:text-foreground"
                                       }`}
                                     >
+                                      {showPassword ? (
+                                        <EyeOff className="h-4 w-4" />
+                                      ) : (
+                                        <Eye className="h-4 w-4" />
+                                      )}
+                                    </button>
                                   </TooltipTrigger>
                                   <TooltipContent>
                                     {showPassword
