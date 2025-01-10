@@ -267,17 +267,16 @@ export default function SettingsPage() {
                                   <TooltipTrigger asChild>
                                     <button
                                       type="button"
-                                      onClick={() =>
-                                        setShowPassword(!showPassword)
-                                      }
-                                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-muted-foreground hover:text-foreground transition-colors"
+                                      onClick={() => {
+                                        if (credentialSource !== "env" || credentialSource !== "self") {
+                                          setShowPassword(!showPassword);
+                                        }
+                                      }}
+                                      disabled={credentialSource === "env" || credentialSource === "self"}
+                                      className={`absolute inset-y-0 right-0 pr-3 flex items-center ${
+                                        credentialSource === "env" ? "cursor-not-allowed text-muted-foreground" : "text-muted-foreground hover:text-foreground"
+                                      }`}
                                     >
-                                      {showPassword ? (
-                                        <EyeOff className="h-4 w-4" />
-                                      ) : (
-                                        <Eye className="h-4 w-4" />
-                                      )}
-                                    </button>
                                   </TooltipTrigger>
                                   <TooltipContent>
                                     {showPassword
