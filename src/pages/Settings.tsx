@@ -259,7 +259,6 @@ export default function SettingsPage() {
                                     isLoadingCredentials ||
                                     credentialSource === "env"
                                   }
-                                  placeholder={ credentialSource === "self" ? "set username/password to persist data" : ""}
                                   type={showPassword ? "text" : "password"}
                                   autoComplete="current-password"
                                   {...field}
