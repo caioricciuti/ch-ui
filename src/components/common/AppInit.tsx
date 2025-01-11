@@ -51,10 +51,10 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
     const envCustomPath = ( import.meta.env?.VITE_CLICKHOUSE_CUSTOM_PATH || window.env?.VITE_CLICKHOUSE_CUSTOM_PATH );
 
     if (import.meta.env?.VITE_CLICKHOUSE_SELFSERVICE || window.env?.VITE_CLICKHOUSE_SELFSERVICE) {
-      const envUrlSelf = window.location.origin || false;
+      const envUrlSelf = window.location.origin;
       setCredential({
         url: envUrlSelf,
-        username: envUser || "stateless",
+        username: envUser || "default",
         password: envPass || "",
         useAdvanced: envUseAdvanced || false,
         customPath: envCustomPath || "",
