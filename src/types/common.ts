@@ -9,6 +9,7 @@ export interface Credential {
   url: string;
   username: string;
   password: string;
+  requestTimeout: number;
   useAdvanced: boolean;
   customPath: string;
 }

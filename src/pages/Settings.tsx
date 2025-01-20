@@ -13,6 +13,7 @@ import {
   User,
   Lock,
   Cog,
+  FileClock,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,11 @@ const formSchema = z.object({
   password: z.string().optional(),
   useAdvanced: z.boolean().optional(),
   customPath: z.string().optional(),
+  requestTimeout: z.coerce
+    .number()
+    .int("Request timeout must be a whole number")
+    .min(1000, "Request timeout must be at least 1000 millisecond")
+    .max(600000, "Request timeout must not exceed 600000 milliseconds"),
 });
 
 export default function SettingsPage() {
@@ -78,6 +84,7 @@ export default function SettingsPage() {
     url: credential?.url,
     username: credential?.username,
     password: credential?.password,
+    requestTimeout: credential?.requestTimeout,
   };
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -86,6 +93,7 @@ export default function SettingsPage() {
       url: credential?.url || "",
       username: credential?.username || "",
       password: credential?.password || "",
+      requestTimeout: credential?.requestTimeout || 30000,
       useAdvanced: false,
       customPath: "",
     },
@@ -97,6 +105,7 @@ export default function SettingsPage() {
         values.url === currentFormValues.url &&
         values.username === currentFormValues.username &&
         values.password === currentFormValues.password &&
+        values.requestTimeout === currentFormValues.requestTimeout &&
         isServerAvailable
       ) {
         toast.info("No changes detected.");
@@ -114,6 +123,7 @@ export default function SettingsPage() {
         password: values.password || "",
         useAdvanced: values.useAdvanced || false,
         customPath: values.customPath || "",
+        requestTimeout: values.requestTimeout, // No need to convert, already a number
       });
       await checkServerStatus();
       setCredentialSource("app");
@@ -132,6 +142,7 @@ export default function SettingsPage() {
       password: "",
       useAdvanced: false,
       customPath: "",
+      requestTimeout: 30000,
     });
     toast.success("Disconnected from ClickHouse server.");
     navigate("/settings");
@@ -207,7 +218,7 @@ export default function SettingsPage() {
                                 {...field}
                               />
                             </FormControl>
-                            <FormDescription>
+                            <FormDescription className="text-xs">
                               The URL of your ClickHouse server, including
                               protocol and port
                             </FormDescription>
@@ -313,7 +324,7 @@ export default function SettingsPage() {
                                 <Cog className="h-4 w-4" />
                                 Advanced Settings
                               </FormLabel>
-                              <FormDescription>
+                              <FormDescription className="text-xs">
                                 Enable custom path handling for the ClickHouse
                                 URL
                               </FormDescription>
@@ -337,7 +348,7 @@ export default function SettingsPage() {
                                   {...field}
                                 />
                               </FormControl>
-                              <FormDescription>
+                              <FormDescription className="text-xs">
                                 Specify the custom path if you're using
                                 path-based routing
                               </FormDescription>
@@ -346,6 +357,36 @@ export default function SettingsPage() {
                           )}
                         />
                       )}
+
+                      <FormField
+                        control={form.control}
+                        name="requestTimeout"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="flex items-center gap-2">
+                              <FileClock className="h-4 w-4" />
+                              Request Timeout (ms)
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                className="font-mono"
+                                disabled={isLoadingCredentials}
+                                type="number"
+                                min={1}
+                                max={600000}
+                                placeholder="30000"
+                                {...field}
+                                onChange={(e) => field.onChange(e.target.value)}
+                              />
+                            </FormControl>
+                            <FormDescription className="text-xs">
+                              Set the request timeout in milliseconds. Must be
+                              between 1000 and 600000. (Default: 30000)
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                     </div>
 
                     {credentialSource !== "env" && (

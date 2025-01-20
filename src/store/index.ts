@@ -52,6 +52,7 @@ const useAppStore = create<AppState>()(
         password: "",
         useAdvanced: false,
         customPath: "",
+        requestTimeout: 30000,
       },
       clickHouseClient: null,
       isLoadingCredentials: false,
@@ -63,7 +64,7 @@ const useAppStore = create<AppState>()(
       clickhouseSettings: {
         max_result_rows: "0",
         max_result_bytes: "0",
-        result_overflow_mode: "throw" as OverflowMode,
+        result_overflow_mode: "break" as OverflowMode,
       },
       setCredentialSource: (source) => set({ credentialSource: source }),
       setCredential: async (credential) => {
@@ -75,9 +76,10 @@ const useAppStore = create<AppState>()(
             pathname: credential.customPath, // Use custom path for proxy
             username: credential.username,
             password: credential.password || "",
+            request_timeout: credential.requestTimeout || 30000,
             clickhouse_settings: {
               ...get().clickhouseSettings,
-              result_overflow_mode: "throw",
+              result_overflow_mode: "break",
             },
           });
           set({ clickHouseClient: client });
@@ -102,6 +104,7 @@ const useAppStore = create<AppState>()(
             pathname: credentials.customPath, // Ensure custom path is applied
             username: credentials.username,
             password: credentials.password || "",
+            request_timeout: credentials.requestTimeout || 30000,
             clickhouse_settings: clickhouseSettings,
           });
 
@@ -120,11 +123,12 @@ const useAppStore = create<AppState>()(
             password: "",
             useAdvanced: false,
             customPath: "",
+            requestTimeout: 30000,
           },
           clickhouseSettings: {
             max_result_rows: "0",
             max_result_bytes: "0",
-            result_overflow_mode: "throw",
+            result_overflow_mode: "break" as OverflowMode
           },
           clickHouseClient: null,
           isServerAvailable: false,
