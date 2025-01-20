@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -14,6 +14,7 @@ import {
   Lock,
   Cog,
   FileClock,
+  Share2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import useAppStore from "@/store";
 import { retryInitialization } from "@/features/workspace/editor/monacoConfig";
 
@@ -79,6 +80,7 @@ export default function SettingsPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const currentFormValues = {
     url: credential?.url,
@@ -90,14 +92,35 @@ export default function SettingsPage() {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      url: credential?.url || "",
-      username: credential?.username || "",
-      password: credential?.password || "",
-      requestTimeout: credential?.requestTimeout || 30000,
-      useAdvanced: false,
-      customPath: "",
+      url: searchParams.get("url") || credential?.url || "",
+      username: searchParams.get("username") || credential?.username || "",
+      password: searchParams.get("password") || credential?.password || "",
+      requestTimeout:
+        Number(searchParams.get("requestTimeout")) ||
+        credential?.requestTimeout ||
+        30000,
+      useAdvanced: searchParams.get("useAdvanced") === "true" || false,
+      customPath: searchParams.get("customPath") || "",
     },
   });
+
+  useEffect(() => {
+    form.reset({
+      url: searchParams.get("url") || credential?.url || "",
+      username: searchParams.get("username") || credential?.username || "",
+      password: searchParams.get("password") || credential?.password || "",
+      requestTimeout:
+        Number(searchParams.get("requestTimeout")) ||
+        credential?.requestTimeout ||
+        30000,
+      useAdvanced: searchParams.get("useAdvanced") === "true" || false,
+      customPath: searchParams.get("customPath") || "",
+    });
+
+    if (searchParams.get("useAdvanced") === "true")
+      setShowAdvancedSettings(true);
+    else setShowAdvancedSettings(false);
+  }, [searchParams, credential, form.reset]);
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
@@ -159,6 +182,25 @@ export default function SettingsPage() {
     } catch (err) {
       toast.error("Error testing connection");
     }
+  };
+
+  const handleShare = () => {
+    const values = form.getValues();
+    const params = new URLSearchParams();
+    params.set("url", values.url);
+    params.set("username", values.username);
+    if (values.password) params.set("password", values.password);
+    if (values.useAdvanced)
+      params.set("useAdvanced", values.useAdvanced.toString());
+    if (values.customPath) params.set("customPath", values.customPath);
+    params.set("requestTimeout", String(values.requestTimeout));
+
+    const url = `${window.location.origin}${
+      window.location.pathname
+    }?${params.toString()}`;
+
+    navigator.clipboard.writeText(url);
+    toast.success("URL copied to clipboard!");
   };
 
   return (
@@ -426,15 +468,34 @@ export default function SettingsPage() {
               {isServerAvailable ? (
                 <CardFooter className="border-t bg-muted/50 rounded-b-lg pt-4">
                   <div className="flex w-full justify-between items-center ">
-                    <Button
-                      variant="outline"
-                      onClick={handleTestConnection}
-                      disabled={isLoadingCredentials}
-                      className="w-40"
-                    >
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                      Test Connection
-                    </Button>
+                    <div className="space-x-4">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="secondary"
+                              onClick={handleShare}
+                              disabled={isLoadingCredentials}
+                              size="icon"
+                            >
+                              <Share2 className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            Share your current connection settings as a URL.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      <Button
+                        variant="outline"
+                        onClick={handleTestConnection}
+                        disabled={isLoadingCredentials}
+                        className="w-40"
+                      >
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        Test Connection
+                      </Button>
+                    </div>
                     <span className="text-sm font-mono font-semibold text-green-500">
                       Server version: {version} - Connected
                     </span>
