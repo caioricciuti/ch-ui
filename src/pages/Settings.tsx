@@ -256,7 +256,7 @@ export default function SettingsPage() {
                                   isLoadingCredentials ||
                                   credentialSource === "env"
                                 }
-                                placeholder="https://your-clickhouse-host:8123"
+                                placeholder="https://clickhouse-server:8123"
                                 {...field}
                               />
                             </FormControl>
@@ -320,10 +320,15 @@ export default function SettingsPage() {
                                   <TooltipTrigger asChild>
                                     <button
                                       type="button"
-                                      onClick={() =>
-                                        setShowPassword(!showPassword)
-                                      }
-                                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-muted-foreground hover:text-foreground transition-colors"
+                                      onClick={() => {
+                                        if (credentialSource !== "env") {
+                                          setShowPassword(!showPassword);
+                                        }
+                                      }}
+                                      disabled={credentialSource === "env"}
+                                      className={`absolute inset-y-0 right-0 pr-3 flex items-center ${
+                                        credentialSource === "env" ? "cursor-not-allowed text-muted-foreground" : "text-muted-foreground hover:text-foreground"
+                                      }`}
                                     >
                                       {showPassword ? (
                                         <EyeOff className="h-4 w-4" />
