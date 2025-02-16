@@ -141,7 +141,7 @@ const Sidebar = () => {
       isNewWindow: true,
     },
     {
-      to: "https://ch-ui.caioricciuti.com/docs?utm_source=ch-ui&utm_medium=sidebar",
+      to: "https://ch-ui.com/docs?utm_source=ch-ui&utm_medium=sidebar",
       label: "Documentation",
       icon: BookText,
       isNewWindow: true,

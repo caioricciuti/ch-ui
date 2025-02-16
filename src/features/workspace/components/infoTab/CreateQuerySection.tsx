@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Copy } from "lucide-react";
 import { format } from "sql-formatter";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"; 
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { a11yDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { toast } from "sonner";
 
@@ -30,7 +30,7 @@ const CreateQuerySection: React.FC<CreateQuerySectionProps> = ({ data }) => {
       await navigator.clipboard.writeText(data.create_table_query);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (error:any) {
+    } catch (error: any) {
       console.error("Failed to copy text:", error);
       toast.error(`Failed to copy text to clipboard, ${error.message}`);
     }
@@ -58,7 +58,6 @@ const CreateQuerySection: React.FC<CreateQuerySectionProps> = ({ data }) => {
             maxHeight: "400px",
             overflowX: "auto",
           }}
-          showLineNumbers
           wrapLines
         >
           {formattedQuery}

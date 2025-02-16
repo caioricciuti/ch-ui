@@ -123,7 +123,8 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
 
     return (
       <div className="p-4 m-4 border text-sm rounded-md text-blue-600 dark:text-blue-200 bg-blue-100/30 border-blue-300">
-        Query executed successfully. No data returned.
+        <p>Query executed successfully. No data returned. </p>
+        <p> Elapsed time: {tab.result.statistics.elapsed} seconds.</p>
       </div>
     );
   };

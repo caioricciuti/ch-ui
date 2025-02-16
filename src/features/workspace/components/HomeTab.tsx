@@ -50,7 +50,7 @@ const resourceCards = [
     title: "CH-UI Documentation",
     Icon: ExternalLink,
     description: "Learn how to make the most of CH-UI.",
-    link: "https://ch-ui.caioricciuti.com",
+    link: "https://ch-ui.com",
     action: "Explore CH-UI",
   },
 ];

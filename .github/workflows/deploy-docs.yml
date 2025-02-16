@@ -10,8 +10,13 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: |
+      (!contains(github.event.head_commit.message, 'no-docs') && !contains(github.event.head_commit.message, 'release-only') && !contains(github.event.head_commit.message, 'docker-only')) || 
+      contains(github.event.head_commit.message, 'docs-only')
     permissions:
       contents: write
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
     steps:
       - uses: actions/checkout@v3
 
@@ -19,6 +24,8 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: "20"
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
 
       - name: Install dependencies
         run: |
@@ -31,15 +38,15 @@ jobs:
           npm run build
 
       - name: Add .nojekyll file
-        run: touch docs/out/.nojekyll
+        run: touch docs/build/.nojekyll
 
       - name: Create CNAME file
-        run: echo "ch-ui.caioricciuti.com" > docs/out/CNAME
+        run: echo "ch-ui.com" > docs/build/CNAME
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs/out
-          user_name: "github-actions[bot]"
-          user_email: "github-actions[bot]@users.noreply.github.com"
+          github_token: ${{ secrets.GHCR_PAT }}
+          publish_dir: ./docs/build
+          user_name: ${{ secrets.GIT_USER_NAME }}
+          user_email: ${{ secrets.GIT_USER_EMAIL }}

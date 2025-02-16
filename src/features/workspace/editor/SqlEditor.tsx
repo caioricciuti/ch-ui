@@ -7,9 +7,20 @@ import {
   createMonacoEditor,
 } from "@/features/workspace/editor/monacoConfig";
 import { Button } from "@/components/ui/button";
-import { CirclePlay, Edit3Icon } from "lucide-react";
+import { CirclePlay, Edit3Icon, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useNavigate } from "react-router-dom";
 
 interface SQLEditorProps {
   tabId: string;
@@ -17,13 +28,17 @@ interface SQLEditorProps {
 }
 
 const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
-  const { getTabById, updateTab } = useAppStore();
+  const { getTabById, updateTab, saveQuery, checkSavedQueriesStatus, isAdmin } =
+    useAppStore();
   const editorRef = useRef<HTMLDivElement>(null);
   const monacoRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const tab = getTabById(tabId);
   const { theme } = useTheme();
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
+  const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
+  const [queryName, setQueryName] = useState(tab?.title || "Untitled Query");
+  const navigate = useNavigate();
 
   const editorTheme = theme === "light" ? "vs-light" : "vs-dark";
 
@@ -101,6 +116,54 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
     }
   }, [onRunQuery, getCurrentQuery]);
 
+  const hanldeSaveOpenDialog = async () => {
+    const isSavedQueryEnabled = await checkSavedQueriesStatus();
+    if (!isSavedQueryEnabled) {
+      isAdmin &&
+        toast.warning(`Saved queries are not enable.`, {
+          action: {
+            label: "Enable",
+            onClick: () => {
+              navigate("/admin");
+            },
+          },
+        });
+
+      !isAdmin &&
+        toast.warning(
+          `Saved queries are not enable. Contact your admin to enable it.`
+        );
+
+      return;
+    }
+    setIsSaveDialogOpen(true);
+  };
+
+  const handleSaveQuery = async () => {
+    const query = getCurrentQuery();
+    if (!queryName.trim()) {
+      toast.error("Please enter a query name.");
+      return;
+    }
+
+    if (!query.trim()) {
+      toast.error("Please enter a query to save.");
+      return;
+    }
+
+    try {
+      await saveQuery(tabId, queryName, query);
+      setIsSaveDialogOpen(false);
+    } catch (error) {
+      console.error("Error saving query:", error);
+      toast.error("Failed to save query.");
+    }
+  };
+
+  const handleQueryNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setQueryName(e.target.value);
+  };
+
   if (!tab) return null;
 
   return (
@@ -131,9 +194,43 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
           <Button variant="link" onClick={handleRunQuery} className="gap-2">
             <CirclePlay className="h-6 w-6" />
           </Button>
+          <Button
+            variant="link"
+            onClick={hanldeSaveOpenDialog}
+            className="gap-2"
+            disabled={tab.type === "home" || tab.type === "information"}
+          >
+            <Save className="h-4 w-4" />
+          </Button>
         </div>
       </div>
       <div ref={editorRef} className="flex-1" />
+
+      {/* Save Query Dialog */}
+      <AlertDialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save Query</AlertDialogTitle>
+            <AlertDialogDescription>
+              Enter a name for this query:
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid gap-2">
+            <Input
+              type="text"
+              placeholder="Query Name"
+              value={queryName}
+              onChange={handleQueryNameChange}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSaveQuery}>
+              {tab.isSaved ? "Update" : "Save"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

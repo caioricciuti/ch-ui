@@ -52,7 +52,7 @@ const DataSampleSection: React.FC<DataSampleSectionProps> = ({
         LIMIT 10
       `;
 
-      const response = (await runQuery(query)) as QueryResult;
+      const response = (await runQuery(query)) as unknown as QueryResult;
 
       if (response.data && response.data.length > 0) {
         setSampleData(response.data);
@@ -86,7 +86,7 @@ const DataSampleSection: React.FC<DataSampleSectionProps> = ({
   if (loading) {
     return (
       <Card>
-        <CardContent className="min-h-[400px] flex items-center justify-center">
+        <CardContent className="min-h-[500px] flex items-center justify-center">
           <div className="flex flex-col items-center gap-2">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <p className="text-sm text-muted-foreground">
@@ -122,6 +122,7 @@ const DataSampleSection: React.FC<DataSampleSectionProps> = ({
         ) : sampleData.length > 0 ? (
           <div className="rounded-md border">
             <CHUItable
+            className="min-h-[400px]"
               result={{
                 meta: getTableMeta(sampleData),
                 data: sampleData,

@@ -42,6 +42,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { useSearchParams } from "react-router-dom";
+import SavedQueryTab from "@/features/workspace/editor/SavedQueryTab";
 
 interface Tab {
   id: string;
@@ -103,6 +104,9 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
             )}
             {tab.type === "information" && (
               <Info width={16} className="mr-2 min-w-4" />
+            )}
+            {tab.type === "saved_query" && (
+              <Save width={16} className="mr-2 min-w-4" />
             )}
 
             <div className="flex items-center overflow-hidden">
@@ -301,6 +305,8 @@ export function WorkspaceTabs() {
                       : undefined
                   }
                 />
+              ) : tab.type === "saved_query" ? (
+                <SavedQueryTab tabId={tab.id} />
               ) : null}
             </TabsContent>
           ))}

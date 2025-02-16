@@ -218,220 +218,220 @@ export default function SettingsPage() {
                   Your ClickHouse credentials are set using environment
                   variables. Please update your environment variables to change
                   the connection settings.
+                  <hr className="my-4" />
+                  <p className="text-sm">
+                    You are connected to: {credential?.url}
+                    <br />
+                    User: {credential?.username}
+                    <br />
+                  </p>
                 </AlertDescription>
               </Alert>
             )}
 
-            <Card className="shadow-lg border-muted">
-              <CardHeader>
-                <CardTitle className="text-2xl font-bold flex items-center gap-2">
-                  <Settings className="h-6 w-6 text-primary" />
-                  Connection Settings
-                </CardTitle>
-                <CardDescription>
-                  Configure your connection to the ClickHouse server
-                </CardDescription>
-              </CardHeader>
+            {credentialSource !== "env" && (
+              <Card className="shadow-lg border-muted">
+                <CardHeader>
+                  <CardTitle className="text-2xl font-bold flex items-center gap-2">
+                    <Settings className="h-6 w-6 text-primary" />
+                    Connection Settings
+                  </CardTitle>
+                  <CardDescription>
+                    Configure your connection to the ClickHouse server
+                  </CardDescription>
+                </CardHeader>
 
-              <CardContent>
-                <Form {...form}>
-                  <form
-                    onSubmit={form.handleSubmit(onSubmit)}
-                    className="space-y-6"
-                  >
-                    <div className="space-y-4">
-                      <FormField
-                        control={form.control}
-                        name="url"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="flex items-center gap-2">
-                              <Server className="h-4 w-4" />
-                              ClickHouse Host
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                className="font-mono"
-                                disabled={
-                                  isLoadingCredentials ||
-                                  credentialSource === "env"
-                                }
-                                placeholder="https://your-clickhouse-host:8123"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormDescription className="text-xs">
-                              The URL of your ClickHouse server, including
-                              protocol and port
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="username"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="flex items-center gap-2">
-                              <User className="h-4 w-4" />
-                              Username
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                className="font-mono"
-                                disabled={
-                                  isLoadingCredentials ||
-                                  credentialSource === "env"
-                                }
-                                placeholder="default"
-                                autoComplete="username"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="password"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="flex items-center gap-2">
-                              <Lock className="h-4 w-4" />
-                              Password
-                            </FormLabel>
-                            <FormControl>
-                              <div className="relative">
-                                <Input
-                                  className="font-mono pr-10"
-                                  disabled={
-                                    isLoadingCredentials ||
-                                    credentialSource === "env"
-                                  }
-                                  type={showPassword ? "text" : "password"}
-                                  autoComplete="current-password"
-                                  {...field}
-                                />
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setShowPassword(!showPassword)
-                                      }
-                                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-muted-foreground hover:text-foreground transition-colors"
-                                    >
-                                      {showPassword ? (
-                                        <EyeOff className="h-4 w-4" />
-                                      ) : (
-                                        <Eye className="h-4 w-4" />
-                                      )}
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    {showPassword
-                                      ? "Hide password"
-                                      : "Show password"}
-                                  </TooltipContent>
-                                </Tooltip>
-                              </div>
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <Separator className="my-6" />
-
-                      <FormField
-                        control={form.control}
-                        name="useAdvanced"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow-sm">
-                            <FormControl>
-                              <Checkbox
-                                checked={field.value}
-                                onCheckedChange={(checked) => {
-                                  setShowAdvancedSettings(checked as boolean);
-                                  field.onChange(checked);
-                                }}
-                              />
-                            </FormControl>
-                            <div className="space-y-1 leading-none">
-                              <FormLabel className="flex items-center gap-2">
-                                <Cog className="h-4 w-4" />
-                                Advanced Settings
-                              </FormLabel>
-                              <FormDescription className="text-xs">
-                                Enable custom path handling for the ClickHouse
-                                URL
-                              </FormDescription>
-                            </div>
-                          </FormItem>
-                        )}
-                      />
-
-                      {showAdvancedSettings && (
+                <CardContent>
+                  <Form {...form}>
+                    <form
+                      onSubmit={form.handleSubmit(onSubmit)}
+                      className="space-y-6"
+                    >
+                      <div className="space-y-4">
                         <FormField
                           control={form.control}
-                          name="customPath"
+                          name="url"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Custom Path</FormLabel>
+                              <FormLabel className="flex items-center gap-2">
+                                <Server className="h-4 w-4" />
+                                ClickHouse Host
+                              </FormLabel>
                               <FormControl>
                                 <Input
                                   className="font-mono"
                                   disabled={isLoadingCredentials}
-                                  placeholder="clickhouse-{cluster_name}"
+                                  placeholder="https://your-clickhouse-host:8123"
                                   {...field}
                                 />
                               </FormControl>
                               <FormDescription className="text-xs">
-                                Specify the custom path if you're using
-                                path-based routing
+                                The URL of your ClickHouse server, including
+                                protocol and port
                               </FormDescription>
                               <FormMessage />
                             </FormItem>
                           )}
                         />
-                      )}
 
-                      <FormField
-                        control={form.control}
-                        name="requestTimeout"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="flex items-center gap-2">
-                              <FileClock className="h-4 w-4" />
-                              Request Timeout (ms)
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                className="font-mono"
-                                disabled={isLoadingCredentials}
-                                type="number"
-                                min={1}
-                                max={600000}
-                                placeholder="30000"
-                                {...field}
-                                onChange={(e) => field.onChange(e.target.value)}
-                              />
-                            </FormControl>
-                            <FormDescription className="text-xs">
-                              Set the request timeout in milliseconds. Must be
-                              between 1000 and 600000. (Default: 30000)
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
+                        <FormField
+                          control={form.control}
+                          name="username"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="flex items-center gap-2">
+                                <User className="h-4 w-4" />
+                                Username
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  className="font-mono"
+                                  disabled={isLoadingCredentials}
+                                  placeholder="default"
+                                  autoComplete="username"
+                                  {...field}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="password"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="flex items-center gap-2">
+                                <Lock className="h-4 w-4" />
+                                Password
+                              </FormLabel>
+                              <FormControl>
+                                <div className="relative">
+                                  <Input
+                                    className="font-mono pr-10"
+                                    disabled={isLoadingCredentials}
+                                    type={showPassword ? "text" : "password"}
+                                    autoComplete="current-password"
+                                    {...field}
+                                  />
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setShowPassword(!showPassword)
+                                        }
+                                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-muted-foreground hover:text-foreground transition-colors"
+                                      >
+                                        {showPassword ? (
+                                          <EyeOff className="h-4 w-4" />
+                                        ) : (
+                                          <Eye className="h-4 w-4" />
+                                        )}
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      {showPassword
+                                        ? "Hide password"
+                                        : "Show password"}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <Separator className="my-6" />
+
+                        <FormField
+                          control={form.control}
+                          name="useAdvanced"
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow-sm">
+                              <FormControl>
+                                <Checkbox
+                                  checked={field.value}
+                                  onCheckedChange={(checked) => {
+                                    setShowAdvancedSettings(checked as boolean);
+                                    field.onChange(checked);
+                                  }}
+                                />
+                              </FormControl>
+                              <div className="space-y-1 leading-none">
+                                <FormLabel className="flex items-center gap-2">
+                                  <Cog className="h-4 w-4" />
+                                  Advanced Settings
+                                </FormLabel>
+                                <FormDescription className="text-xs">
+                                  Enable custom path handling for the ClickHouse
+                                  URL
+                                </FormDescription>
+                              </div>
+                            </FormItem>
+                          )}
+                        />
+
+                        {showAdvancedSettings && (
+                          <FormField
+                            control={form.control}
+                            name="customPath"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Custom Path</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    className="font-mono"
+                                    disabled={isLoadingCredentials}
+                                    placeholder="clickhouse-{cluster_name}"
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormDescription className="text-xs">
+                                  Specify the custom path if you're using
+                                  path-based routing
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
                         )}
-                      />
-                    </div>
 
-                    {credentialSource !== "env" && (
+                        <FormField
+                          control={form.control}
+                          name="requestTimeout"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="flex items-center gap-2">
+                                <FileClock className="h-4 w-4" />
+                                Request Timeout (ms)
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  className="font-mono"
+                                  disabled={isLoadingCredentials}
+                                  type="number"
+                                  min={1}
+                                  max={600000}
+                                  placeholder="30000"
+                                  {...field}
+                                  onChange={(e) =>
+                                    field.onChange(e.target.value)
+                                  }
+                                />
+                              </FormControl>
+                              <FormDescription className="text-xs">
+                                Set the request timeout in milliseconds. Must be
+                                between 1000 and 600000. (Default: 30000)
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
                       <div className="flex gap-4 pt-4">
                         <Button
                           type="submit"
@@ -460,55 +460,55 @@ export default function SettingsPage() {
                           </Button>
                         )}
                       </div>
-                    )}
-                  </form>
-                </Form>
-              </CardContent>
+                    </form>
+                  </Form>
+                </CardContent>
 
-              {isServerAvailable ? (
-                <CardFooter className="border-t bg-muted/50 rounded-b-lg pt-4">
-                  <div className="flex w-full justify-between items-center ">
-                    <div className="space-x-4">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="secondary"
-                              onClick={handleShare}
-                              disabled={isLoadingCredentials}
-                              size="icon"
-                            >
-                              <Share2 className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            Share your current connection settings as a URL.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      <Button
-                        variant="outline"
-                        onClick={handleTestConnection}
-                        disabled={isLoadingCredentials}
-                        className="w-40"
-                      >
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                        Test Connection
-                      </Button>
+                {isServerAvailable ? (
+                  <CardFooter className="border-t bg-muted/50 rounded-b-lg pt-4">
+                    <div className="flex w-full justify-between items-center ">
+                      <div className="space-x-4">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="secondary"
+                                onClick={handleShare}
+                                disabled={isLoadingCredentials}
+                                size="icon"
+                              >
+                                <Share2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Share your current connection settings as a URL.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        <Button
+                          variant="outline"
+                          onClick={handleTestConnection}
+                          disabled={isLoadingCredentials}
+                          className="w-40"
+                        >
+                          <RefreshCw className="mr-2 h-4 w-4" />
+                          Test Connection
+                        </Button>
+                      </div>
+                      <span className="text-sm font-mono font-semibold text-green-500">
+                        Server version: {version} - Connected
+                      </span>
                     </div>
-                    <span className="text-sm font-mono font-semibold text-green-500">
-                      Server version: {version} - Connected
+                  </CardFooter>
+                ) : error ? (
+                  <CardFooter className="border-t bg-muted/50 rounded-b-lg pt-4">
+                    <span className="text-sm font-mono font-semibold text-red-500">
+                      {error}
                     </span>
-                  </div>
-                </CardFooter>
-              ) : error ? (
-                <CardFooter className="border-t bg-muted/50 rounded-b-lg pt-4">
-                  <span className="text-sm font-mono font-semibold text-red-500">
-                    {error}
-                  </span>
-                </CardFooter>
-              ) : null}
-            </Card>
+                  </CardFooter>
+                ) : null}
+              </Card>
+            )}
           </div>
         </div>
       </div>

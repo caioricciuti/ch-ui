@@ -29,6 +29,17 @@ export interface Tab {
   isLoading?: boolean;
   isSaved?: boolean;
   result?: any;
+  isDirty?: boolean;
+}
+
+export interface SavedQuery {
+  id: string;
+  name: string;
+  query: string;
+  created_at: string;
+  updated_at: string;
+  owner: string;
+  is_public: boolean;
 }
 
 export interface SavedQueriesState {
@@ -103,7 +114,7 @@ export interface AppState
   initializeApp: () => Promise<void>;
   setCredentialSource: (source: "env" | "app") => void;
   updateConfiguration: (clickhouseSettings: ClickHouseSettings) => void;
-
+  updatedSavedQueriesTrigger: string;
   addTab: (tab: Tab) => Promise<void>;
   updateTab: (tabId: string, updates: Partial<Tab>) => Promise<void>;
   removeTab: (tabId: string) => Promise<void>;
@@ -126,4 +137,13 @@ export interface AppState
   activateSavedQueries: () => Promise<void>;
   deactivateSavedQueries: () => Promise<boolean>;
   checkSavedQueriesStatus: () => Promise<boolean>;
+
+  saveQuery: (tabId: string, queryName: string, query: string) => Promise<void>;
+  updateSavedQuery: (
+    tabId: string,
+    queryName: string,
+    query: string
+  ) => Promise<void>;
+  fetchSavedQueries: (id?: string) => Promise<Array<any>>;
+  deleteSavedQuery: (id: string) => Promise<void>;
 }

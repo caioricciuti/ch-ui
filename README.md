@@ -60,7 +60,7 @@ A modern, feature-rich web interface for ClickHouse databases. CH-UI provides an
 
 #### Simple Start
 ```bash
-docker run -p 5521:5521 ghcr.io/caioricciuti/ch-ui:latest
+docker run --name ch-ui -p 5521:5521 ghcr.io/caioricciuti/ch-ui:latest
 ```
 
 #### Using Docker Compose
@@ -91,6 +91,7 @@ docker-compose up -d
 | VITE_CLICKHOUSE_PASS | ClickHouse password | No | "" |
 | VITE_CLICKHOUSE_USE_ADVANCED | Enable advanced ClickHouse features (e.g., custom settings, system tables access) | No | false |
 | VITE_CLICKHOUSE_CUSTOM_PATH | Custom path for ClickHouse HTTP interface | No | - |
+| VITE_CLICKHOUSE_REQUEST_TIMEOUT | Request timeout in milliseconds | No | 30000 |
 
 #### Advanced Docker Configuration
 ```yaml
@@ -107,16 +108,18 @@ services:
       # Advanced Options
       VITE_CLICKHOUSE_USE_ADVANCED: "true"  # Enable advanced features
       VITE_CLICKHOUSE_CUSTOM_PATH: "/custom/path"  # Optional: Custom HTTP path
+      VITE_CLICKHOUSE_REQUEST_TIMEOUT: "30000"  # Optional: Request timeout in milliseconds
 ```
 
 Or using Docker run with advanced options:
 ```bash
-docker run -p 5521:5521 \
+docker run --name ch-ui -p 5521:5521 \
   -e VITE_CLICKHOUSE_URL=http://your-clickhouse-server:8123 \
   -e VITE_CLICKHOUSE_USER=your-username \
   -e VITE_CLICKHOUSE_PASS=your-password \
   -e VITE_CLICKHOUSE_USE_ADVANCED=true \
   -e VITE_CLICKHOUSE_CUSTOM_PATH=/custom/path \
+  -e VITE_CLICKHOUSE_REQUEST_TIMEOUT=30000 \
   ghcr.io/caioricciuti/ch-ui:latest
 ```
 
@@ -201,10 +204,10 @@ server {
 
 ## 📚 Documentation
 
-![Website](https://img.shields.io/website?url=https%3A%2F%2Fch-ui.caioricciuti.com)
+![Website](https://img.shields.io/website?url=https%3A%2F%2Fhttps://ch-ui.com)
 
 
-For detailed documentation, visit our [official documentation](https://ch-ui.caioricciuti.com/docs/getting-started?utm_source=ch-ui&utm_medium=gitHubReadme). 
+For detailed documentation, visit our [official documentation](https://ch-ui.com/docs/getting-started?utm_source=ch-ui&utm_medium=gitHubReadme).
 
 ## 🤝 Contributing
 
