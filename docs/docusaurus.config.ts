@@ -3,9 +3,9 @@ import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
 
 const config: Config = {
-  title: "CH-UI makes working with data easy.",
+  title: "CH-UI: ClickHouse Data Visualization & Management Made Easy", // More specific, includes key terms
   tagline:
-    "This UI connects you directly to your ClickHouse instance, allowing you to view, filter, and export your data with ease.",
+    "Effortlessly connect to your ClickHouse instance, visualize your data, and gain insights with our intuitive open-source UI.", // Benefit-oriented tagline
   favicon: "img/logo.png",
   url: "https://ch-ui.com",
   baseUrl: "/",
@@ -40,7 +40,7 @@ const config: Config = {
         },
         sitemap: {
           changefreq: "weekly",
-          priority: 0.5,
+          priority: 0.7, // Increased priority
           ignorePatterns: ["/tags/**", "/page/*"],
           filename: "sitemap.xml",
         },
@@ -54,7 +54,7 @@ const config: Config = {
       attributes: {
         name: "description",
         content:
-          "CH-UI data visualization,charts, analytics, open source, ClickHouse UI tool, data analysis, data tool",
+          "CH-UI is an open-source ClickHouse UI for data visualization, analytics, and management.  Quickly connect to your ClickHouse instance and start exploring your data.", // Improved description
       },
     },
     {
@@ -62,7 +62,7 @@ const config: Config = {
       attributes: {
         name: "keywords",
         content:
-          "data visualization,charts, analytics, open source, ClickHouse UI tool, data analysis, data tool",
+          "ClickHouse UI, ClickHouse GUI, data visualization, data analytics, data management, open source, ClickHouse client, query ClickHouse, ClickHouse charts, CH-UI", // More targeted keyword list
       },
     },
     {
@@ -90,7 +90,7 @@ const config: Config = {
       tagName: "meta",
       attributes: {
         property: "og:title",
-        content: "CH-UI: Data Made Easy",
+        content: "CH-UI: Your Open-Source ClickHouse Data Visualization Tool", // More compelling OG title
       },
     },
     {
@@ -98,7 +98,7 @@ const config: Config = {
       attributes: {
         property: "og:description",
         content:
-          "Simply connect with your Clickhouse instance and start quering!",
+          "Connect to your ClickHouse instance in seconds and visualize your data with ease using CH-UI, the open-source ClickHouse UI.", // Improved OG description
       },
     },
     {
@@ -170,7 +170,8 @@ const config: Config = {
       tagName: "meta",
       attributes: {
         name: "twitter:title",
-        content: "CH-UI: Working with data Made Easy",
+        content:
+          "CH-UI: Open-Source ClickHouse UI for Effortless Data Visualization", // Improved Twitter title
       },
     },
     {
@@ -178,7 +179,7 @@ const config: Config = {
       attributes: {
         name: "twitter:description",
         content:
-          "Get started with CH-UI and use our app to work with ease on your ClickHouse instave. Open-source tool for connecting with your ClickHouse instance.",
+          "Visualize, query, and manage your ClickHouse data with CH-UI.  A free, open-source tool for connecting to your ClickHouse instance and gaining data insights.", // Improved Twitter description
       },
     },
     {
@@ -194,14 +195,14 @@ const config: Config = {
       tagName: "meta",
       attributes: {
         name: "application-name",
-        content: "ch-ui",
+        content: "CH-UI", // Capitalized
       },
     },
     {
       tagName: "meta",
       attributes: {
         name: "apple-mobile-web-app-title",
-        content: "ch-ui",
+        content: "CH-UI", // Capitalized
       },
     },
     {
@@ -241,7 +242,7 @@ const config: Config = {
     navbar: {
       title: "CH-UI",
       logo: {
-        alt: "ch-ui Logo",
+        alt: "CH-UI Logo", // Capitalized for consistency
         src: "img/logo.png",
       },
       items: [
@@ -299,7 +300,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `${new Date().getFullYear()} CH-UI. All rights reserved.`,
+      copyright: `Copyright © ${new Date().getFullYear()} CH-UI. All rights reserved.`, // Added copyright symbol
     },
     prism: {
       theme: prismThemes.dracula,
