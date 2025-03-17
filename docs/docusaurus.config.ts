@@ -253,7 +253,7 @@ const config: Config = {
           label: "Docs",
         },
         {
-          href: "https://buymeacoffee.com/caioricciuti",
+          href:"https://github.com/sponsors/caioricciuti",
           position: "right",
           label: "Donate",
         },
@@ -295,7 +295,7 @@ const config: Config = {
           items: [
             {
               label: "Donate",
-              href: "https://buymeacoffee.com/caioricciuti",
+              href:"https://github.com/sponsors/caioricciuti"
             },
           ],
         },
