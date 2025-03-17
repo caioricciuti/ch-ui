@@ -8,6 +8,7 @@ import AppInitializer from "@/components/common/AppInit";
 import NotFound from "./pages/NotFound";
 import { PrivateRoute } from "@/components/common/privateRoute"; // Import PrivateRoute
 import Admin from "@/pages/Admin";
+import LogsPage from "@/pages/Logs";
 import { AdminRoute } from "@/features/admin/routes/adminRoute";
 
 export default function App() {
@@ -31,6 +32,14 @@ export default function App() {
                 element={
                   <PrivateRoute>
                     <MetricsPage />
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/logs"
+                element={
+                  <PrivateRoute>
+                    <LogsPage />
                   </PrivateRoute>
                 }
               />

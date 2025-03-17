@@ -30,18 +30,18 @@ interface Metric {
 export function MetricsNavigationMenu() {
   const navigate = useNavigate();
 
-  const handleMetricClick = (metric: Metric) => {
+  const handleMetricClick = React.useCallback((metric: Metric) => {
     const scope = metric.scope;
     navigate(scope ? `/metrics?scope=${scope}` : "/metrics");
-  };
+  }, [navigate]);
 
   return (
-    <div className="flex items-center justify-between w-full container pt-2 mb-4">
+    <nav className="flex items-center justify-between w-full container pt-2 mb-4" aria-label="Metrics navigation">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="flex items-center gap-2">
+          <Button variant="outline" className="flex items-center gap-2" aria-label="Select metric">
             Metrics
-            <ChevronDown className="h-4 w-4" />
+            <ChevronDown className="h-4 w-4" aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-[300px]">
@@ -51,10 +51,12 @@ export function MetricsNavigationMenu() {
               <DropdownMenuItem
                 onClick={() => handleMetricClick(metric)}
                 className="flex items-start gap-2 p-2 cursor-pointer"
+                role="menuitem"
               >
                 <div className="mt-1">
                   {React.createElement(metric.icon, {
                     className: "h-5 w-5",
+                    "aria-hidden": "true"
                   })}
                 </div>
                 <div className="flex flex-col">
@@ -69,7 +71,7 @@ export function MetricsNavigationMenu() {
         </DropdownMenuContent>
       </DropdownMenu>
       <DynamicBreadcrumb />
-    </div>
+    </nav>
   );
 }
 
@@ -77,7 +79,7 @@ const DynamicBreadcrumb = () => {
   const location = useLocation();
   const scope = new URLSearchParams(location.search).get("scope");
 
-  const breadcrumbItems = [
+  const breadcrumbItems = React.useMemo(() => [
     { label: "Metrics", to: "/metrics" },
     ...(scope
       ? [
@@ -87,10 +89,10 @@ const DynamicBreadcrumb = () => {
           },
         ]
       : []),
-  ];
+  ], [scope]);
 
   return (
-    <Breadcrumb>
+    <Breadcrumb aria-label="Breadcrumb navigation">
       <BreadcrumbList>
         {breadcrumbItems.map((item, index) => (
           <React.Fragment key={item.to}>

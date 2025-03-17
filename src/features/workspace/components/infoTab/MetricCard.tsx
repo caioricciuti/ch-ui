@@ -2,6 +2,7 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LucideIcon } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface MetricCardProps {
   icon: LucideIcon;
@@ -10,6 +11,7 @@ interface MetricCardProps {
   description?: string;
   trend?: number;
   className?: string;
+  isLoading?: boolean;
 }
 
 const MetricCard: React.FC<MetricCardProps> = ({
@@ -19,6 +21,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
   description,
   trend,
   className = "",
+  isLoading = false,
 }) => (
   <Card
     className={`relative group hover:shadow-md transition-all duration-300 ${className}`}
@@ -29,7 +32,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
           <Icon className="w-4 h-4 text-muted-foreground" />
           <CardTitle className="text-sm font-medium">{title}</CardTitle>
         </div>
-        {trend !== undefined && (
+        {!isLoading && trend !== undefined && (
           <span
             className={`text-xs ${
               trend > 0 ? "text-green-500" : "text-red-500"
@@ -41,7 +44,11 @@ const MetricCard: React.FC<MetricCardProps> = ({
       </div>
     </CardHeader>
     <CardContent>
-      <p className="text-lg font-bold">{value}</p>
+      {isLoading ? (
+        <Skeleton className="h-6 w-24" />
+      ) : (
+        <p className="text-lg font-bold">{value}</p>
+      )}
       {description && (
         <p className="text-sm text-muted-foreground mt-1">{description}</p>
       )}

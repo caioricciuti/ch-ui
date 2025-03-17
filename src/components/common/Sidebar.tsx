@@ -17,6 +17,7 @@ import {
   BookText,
   ShieldCheck,
   CogIcon,
+  ScrollText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -130,6 +131,7 @@ const Sidebar = () => {
   const navItems = [
     { to: "/", label: "Home", icon: SquareTerminal, isNewWindow: false },
     { to: "/metrics", label: "Metrics", icon: LineChart, isNewWindow: false },
+    { to: "/logs", label: "Logs", icon: ScrollText, isNewWindow: false },
   ];
 
   const bottomNavLinks = [

@@ -27,7 +27,12 @@ import {
 import CHUITable from "@/components/common/table/CHUItable";
 import { Loader2, FileX2 } from "lucide-react";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { SavedQuery } from "@/types/common";
+import { AgGridReact } from "ag-grid-react";
+import { ColDef } from "ag-grid-community";
+import { AllCommunityModule } from "ag-grid-community";
+import { themeBalham } from "ag-grid-community";
+import { colorSchemeDark } from "ag-grid-community";
+
 
 interface SavedQueryTabProps {
   tabId: string;
@@ -51,7 +56,6 @@ const SavedQueryTab: React.FC<SavedQueryTabProps> = ({ tabId }) => {
   const [isDeleteQueryDialogOpen, setIsDeleteQueryDialogOpen] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [initialQuery, setInitialQuery] = useState<string>("");
-  const [loadingQuery, setLoadingQuery] = useState(false);
 
   const editorTheme = theme === "light" ? "vs-light" : "vs-dark";
 
@@ -62,36 +66,7 @@ const SavedQueryTab: React.FC<SavedQueryTabProps> = ({ tabId }) => {
     }
   }, []);
 
-  const getSavedQuery = useCallback(
-    async (id: string) => {
-      setLoadingQuery(true);
-      try {
-        const saved_content = await fetchSavedQueries(id);
-        if (saved_content) {
-          const saved_query = saved_content[0].query;
-          
-          setInitialQuery(saved_query); // Update initialQuery after loading
-          
-          setIsDirty(false); // It's the saved query, so not dirty
-        } else {
-          setEditorValue("");
-          setInitialQuery("");
-          updateTab(tabId, { content: "" });
-          setIsDirty(false);
-        }
-      } catch (error) {
-        console.error("Error fetching saved query:", error);
-        toast.error("Failed to fetch saved query. Please check the console.");
-        setEditorValue("");
-        setInitialQuery("");
-        updateTab(tabId, { content: "" });
-        setIsDirty(false);
-      } finally {
-        setLoadingQuery(false);
-      }
-    },
-    [fetchSavedQueries, setEditorValue, tabId, updateTab]
-  );
+
 
   useEffect(() => {
     initializeMonacoGlobally();
@@ -102,11 +77,13 @@ const SavedQueryTab: React.FC<SavedQueryTabProps> = ({ tabId }) => {
       if (tab?.content) {
         const content = typeof tab.content === "string" ? tab.content : "";
         editor.setValue(content);
+        setInitialQuery(content);
       }
 
       const changeListener = editor.onDidChangeModelContent(() => {
         const newContent = editor.getValue();
         updateTab(tabId, { content: newContent });
+        setIsDirty(newContent !== initialQuery);
       });
 
       editor.addCommand(
@@ -119,7 +96,7 @@ const SavedQueryTab: React.FC<SavedQueryTabProps> = ({ tabId }) => {
         editor.dispose();
       };
     }
-  }, [tabId, updateTab, editorTheme]);
+  }, [tabId, updateTab, editorTheme, initialQuery]);
 
   const getCurrentQuery = useCallback(() => {
     return monacoRef.current ? monacoRef.current.getValue() : "";

@@ -29,7 +29,6 @@ const CHUNK_SIZE = 10000; // Number of rows to process at once
 const DownloadDialog: React.FC<DownloadDialogProps> = ({
   data,
   onExport,
-  filename = "export",
   maxRows = 1000000,
 }) => {
   const [downloadOption, setDownloadOption] = useState<ExportFormat>("csv");
@@ -129,7 +128,13 @@ const DownloadDialog: React.FC<DownloadDialogProps> = ({
     }
   };
 
-  type AlertVariant = "destructive" | "warning" | "info" | "default" | "success" | "neutral";
+  type AlertVariant =
+    | "destructive"
+    | "warning"
+    | "info"
+    | "default"
+    | "success"
+    | "neutral";
 
   type SizeWarning = {
     message: string;
@@ -232,8 +237,8 @@ const DownloadDialog: React.FC<DownloadDialogProps> = ({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Download className="h-4 w-4" />
+        <Button variant="link" className="h-4 w-4 p-0 ml-2">
+          <Download />
         </Button>
       </DialogTrigger>
       <DialogContent>

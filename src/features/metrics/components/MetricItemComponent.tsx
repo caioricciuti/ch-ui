@@ -1,4 +1,4 @@
-import { useState, useEffect, ComponentType } from "react";
+import { useState, useEffect, ComponentType, ReactNode } from "react";
 import {
   MetricItem,
 } from "@/features/metrics/config/metricsConfig";
@@ -30,6 +30,7 @@ import {
   PieProps,
   RadarProps,
   RadialBarProps,
+  LegendType,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -62,28 +63,164 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import useAppStore from "@/store";
+import React from "react";
 
 interface Props {
   item: MetricItem;
 }
 
+interface TableMeta {
+  name: string;
+  type: string;
+}
+
 interface QueryResult {
-  data: any[];
-  error?: string;
-  meta?: any;
+  data: Record<string, any>[];
+  error?: string | null;
+  meta?: TableMeta[];
   statistics?: {
-    time_elapsed: number;
+    elapsed: number;
     rows_read: number;
+    bytes_read: number;
   };
 }
 
-type DataComponentType =
-  | ComponentType<BarProps>
-  | ComponentType<LineProps>
-  | ComponentType<AreaProps>
-  | ComponentType<PieProps>
-  | ComponentType<RadarProps>
-  | ComponentType<RadialBarProps>;
+type ChartProps = {
+  data: Record<string, any>[];
+  chartType: string;
+  chartConfig: any;
+};
+
+type ChartComponentType = typeof BarChart | typeof LineChart | typeof AreaChart | typeof PieChart | typeof RadarChart | typeof RadialBarChart;
+type DataComponentType = ComponentType<BarProps | LineProps | AreaProps | PieProps | RadarProps | RadialBarProps>;
+
+const MemoizedChart: React.FC<ChartProps> = React.memo(({ 
+  data, 
+  chartType, 
+  chartConfig 
+}) => {
+  let ChartComponent: ChartComponentType;
+  let DataComponent: DataComponentType;
+
+  switch (chartType) {
+    case "line":
+      ChartComponent = LineChart;
+      DataComponent = Line as DataComponentType;
+      break;
+    case "area":
+      ChartComponent = AreaChart;
+      DataComponent = Area as DataComponentType;
+      break;
+    case "pie":
+      ChartComponent = PieChart;
+      DataComponent = Pie as DataComponentType;
+      break;
+    case "radar":
+      ChartComponent = RadarChart;
+      DataComponent = Radar as DataComponentType;
+      break;
+    case "radial":
+      ChartComponent = RadialBarChart;
+      DataComponent = RadialBar as DataComponentType;
+      break;
+    case "bar":
+    default:
+      ChartComponent = BarChart;
+      DataComponent = Bar as DataComponentType;
+  }
+
+  const dataKeys = Object.keys(chartConfig).filter(
+    (key) => key !== "indexBy"
+  );
+
+  if (!dataKeys.length || !chartConfig.indexBy) {
+    return <div className="text-muted-foreground font-bold">Invalid chart configuration</div>;
+  }
+
+  const dataKey = dataKeys[0];
+  const maxValue = Math.max(
+    ...data.map((d: any) => d[dataKey as string])
+  );
+  const yAxisMax = Math.ceil(maxValue * 1.1);
+
+  const renderDataComponent = (key: string) => {
+    const commonProps = {
+      key,
+      fill: `var(--color-${key})`,
+      stroke: `var(--color-${key})`,
+      strokeWidth: 2,
+      dot: false,
+      dataKey: key,
+      legendType: "none" as LegendType,
+    };
+
+    if (chartType === "pie" || chartType === "radial") {
+      return (
+        <DataComponent
+          {...commonProps}
+          data={data}
+          nameKey={chartConfig.indexBy}
+          label={true}
+        />
+      );
+    } else {
+      return (
+        <DataComponent
+          {...commonProps}
+          radius={chartType === "bar" ? 4 : undefined}
+          fillOpacity={chartType === "area" ? 0.3 : 1}
+          layout={chartType === "bar" ? "vertical" : undefined}
+        />
+      );
+    }
+  };
+
+  return (
+    <ChartContainer
+      config={chartConfig}
+      className="mt-4 h-[250px] w-full"
+    >
+      <ResponsiveContainer width="100%" height="100%">
+        <ChartComponent
+          data={data}
+          margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
+        >
+          {["bar", "line", "area"].includes(chartType) && (
+            <>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey={chartConfig.indexBy}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fontSize: 12 }}
+                tickMargin={10}
+                tickFormatter={(value) => value.toString().slice(0, 10)}
+              />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                tick={{ fontSize: 12 }}
+                width={40}
+                domain={[0, yAxisMax]}
+                allowDataOverflow={false}
+              />
+            </>
+          )}
+          {chartType === "radar" && (
+            <>
+              <PolarGrid />
+              <PolarAngleAxis dataKey={chartConfig.indexBy} />
+              <PolarRadiusAxis />
+            </>
+          )}
+          <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
+          <RechartsLegend content={<ChartLegendContent />} />
+          {dataKeys.map(renderDataComponent)}
+        </ChartComponent>
+      </ResponsiveContainer>
+    </ChartContainer>
+  );
+});
 
 function MetricItemComponent({ item }: Props) {
   const { runQuery } = useAppStore();
@@ -91,7 +228,7 @@ function MetricItemComponent({ item }: Props) {
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string>("");
 
-  const fetchData = async () => {
+  const fetchData = React.useCallback(async () => {
     try {
       setLoading(true);
       const result = await runQuery(item.query);
@@ -100,7 +237,17 @@ function MetricItemComponent({ item }: Props) {
         setQueryResult({ data: [], error: result.error });
         setErrorMessage(result.error);
       } else if (result.data && result.data.length > 0) {
-        setQueryResult(result);
+        // Transform the result to match our QueryResult interface
+        const transformedResult: QueryResult = {
+          data: result.data,
+          meta: result.meta as TableMeta[],
+          statistics: {
+            elapsed: result.statistics?.elapsed || 0,
+            rows_read: result.statistics?.rows_read || 0,
+            bytes_read: result.statistics?.bytes_read || 0,
+          },
+        };
+        setQueryResult(transformedResult);
         setErrorMessage("");
       } else {
         setQueryResult({ data: [] });
@@ -113,11 +260,32 @@ function MetricItemComponent({ item }: Props) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [item.query, runQuery]);
 
   useEffect(() => {
     fetchData();
-  }, [item.query, runQuery]);
+  }, [fetchData]);
+
+  // Memoize handlers
+  const handleDownloadData = React.useCallback((data: QueryResult) => {
+    if (!data) return;
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json",
+    });
+    const fileName = `${item.title.replace(/\s+/g, "_").toLowerCase()}.json`;
+    const link = document.createElement("a");
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", fileName);
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+  }, [item.title]);
 
   if (loading) {
     return (
@@ -158,164 +326,17 @@ function MetricItemComponent({ item }: Props) {
     ));
   };
 
-  const handleDownloadData = (data: QueryResult) => {
-    if (!data) return;
-
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
-      type: "application/json",
-    });
-    const fileName = `${item.title.replace(" ", "_").toLowerCase()}.json`;
-    const link = document.createElement("a");
-    if (link.download !== undefined) {
-      const url = URL.createObjectURL(blob);
-      link.setAttribute("href", url);
-      link.setAttribute("download", fileName);
-      link.style.visibility = "hidden";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
-  };
-
   const renderChart = () => {
     if (!queryResult || !queryResult.data || queryResult.data.length === 0) {
       return <div className="text-muted-foreground font-bold">No data</div>;
     }
 
-    let ChartComponent: ComponentType<any>;
-    let DataComponent: DataComponentType;
-
-    switch (item.chartType) {
-      case "line":
-        ChartComponent = LineChart;
-        DataComponent = Line;
-        break;
-      case "area":
-        ChartComponent = AreaChart;
-        DataComponent = Area;
-        break;
-      case "pie":
-        ChartComponent = PieChart;
-        DataComponent = Pie;
-        break;
-      case "radar":
-        ChartComponent = RadarChart;
-        DataComponent = Radar;
-        break;
-      case "radial":
-        ChartComponent = RadialBarChart;
-        DataComponent = RadialBar;
-        break;
-      case "bar":
-      default:
-        ChartComponent = BarChart;
-        DataComponent = Bar;
-    }
-
-    const chartConfig = item.chartConfig || { indexBy: "" }; // Provide a default if chartConfig is missing
-    const dataKeys = Object.keys(chartConfig).filter(
-      (key) => key !== "indexBy"
-    );
-
-    if (!dataKeys.length || !chartConfig.indexBy) {
-      return (
-        <div className="text-muted-foreground font-bold">
-          Invalid chart configuration
-        </div>
-      );
-    }
-
-    const dataKey = dataKeys[0];
-
-    const maxValue = Math.max(
-      ...queryResult.data.map((d: any) => d[dataKey as string])
-    );
-
-    const yAxisMax = Math.ceil(maxValue * 1.1);
-
     return (
-      <ChartContainer
-        config={chartConfig as any}
-        className="mt-4 h-[250px] w-full"
-      >
-        <ResponsiveContainer width="100%" height="100%">
-          <ChartComponent
-            data={queryResult.data}
-            margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
-          >
-            {["bar", "line", "area"].includes(item.chartType || "") && (
-              <>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey={chartConfig.indexBy as string}
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 12 }}
-                  tickMargin={10}
-                  tickFormatter={(value) => value.toString().slice(0, 10)}
-                />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 12 }}
-                  width={40}
-                  domain={[0, yAxisMax]}
-                  allowDataOverflow={false}
-                />
-              </>
-            )}
-            {item.chartType === "radar" && (
-              <>
-                <PolarGrid />
-                <PolarAngleAxis dataKey={chartConfig.indexBy as string} />
-                <PolarRadiusAxis />
-              </>
-            )}
-            <RechartsTooltip
-              content={<ChartTooltipContent indicator="dot" />}
-            />
-            <RechartsLegend content={<ChartLegendContent />} />
-            {dataKeys.map((key) => {
-              const commonProps = {
-                key: key,
-                fill: `var(--color-${key})`,
-                stroke: `var(--color-${key})`,
-                strokeWidth: 2,
-                dot: false,
-              };
-
-              if (item.chartType === "pie") {
-                return (
-                  <DataComponent
-                    {...commonProps}
-                    data={queryResult.data}
-                    nameKey={chartConfig.indexBy as string}
-                    label={true}
-                  />
-                );
-              } else if (item.chartType === "radial") {
-                return (
-                  <DataComponent
-                    {...commonProps}
-                    data={queryResult.data}
-                    nameKey={chartConfig.indexBy as string}
-                    label={true}
-                  />
-                );
-              } else {
-                return (
-                  <DataComponent
-                    {...commonProps}
-                    dataKey={key}
-                    radius={item.chartType === "bar" ? [4, 4, 0, 0] : undefined}
-                    fillOpacity={item.chartType === "area" ? 0.3 : 1}
-                  />
-                );
-              }
-            })}
-          </ChartComponent>
-        </ResponsiveContainer>
-      </ChartContainer>
+      <MemoizedChart
+        data={queryResult.data}
+        chartType={item.chartType || "bar"}
+        chartConfig={item.chartConfig || { indexBy: "" }}
+      />
     );
   };
 
@@ -326,12 +347,12 @@ function MetricItemComponent({ item }: Props) {
     return (
       <CHUITable
         result={{
-          meta: queryResult.meta,
+          meta: queryResult.meta || [],
           data: queryResult.data,
           statistics: {
-            elapsed: queryResult.statistics?.time_elapsed || 0,
+            elapsed: queryResult.statistics?.elapsed || 0,
             rows_read: queryResult.statistics?.rows_read || 0,
-            bytes_read: JSON.stringify(queryResult).length,
+            bytes_read: queryResult.statistics?.bytes_read || 0,
           },
         }}
       />
