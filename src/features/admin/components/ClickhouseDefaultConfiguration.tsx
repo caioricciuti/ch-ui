@@ -34,7 +34,7 @@ export default function ClickhouseDefaultConfiguration() {
   };
 
   return (
-    <Card className="w-2/8">
+    <Card>
       <CardHeader>
         <div className="flex items-center space-x-2">
           <Database className="h-5 w-5" />
@@ -71,7 +71,7 @@ export default function ClickhouseDefaultConfiguration() {
               }}
               required
             />
-            <Button type="submit" className="w-full mt-2">
+            <Button type="submit" className="w-full mt-6">
               Save
             </Button>
           </form>

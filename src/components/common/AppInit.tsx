@@ -56,6 +56,7 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
         password: envPass || "",
         useAdvanced: envUseAdvanced || false,
         customPath: envCustomPath || "",
+        requestTimeout: 10000,
       });
       setCredentialSource("env");
     }

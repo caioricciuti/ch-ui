@@ -1,35 +1,36 @@
-import React from "react";
+import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import CHUItable from "@/components/common/table/CHUItable";
-import { AlertCircle, Loader2, RefreshCcw } from "lucide-react";
+import { Loader2, RefreshCcw } from "lucide-react";
 import useAppStore from "@/store";
 import { Button } from "@/components/ui/button";
+import AgTable from "@/components/common/AgTable";
 
 interface SchemaSectionProps {
   database: string;
   tableName: string;
 }
 
-interface SchemaResult {
-  name: string;
-  type: string;
-  default_type: string;
-  default_expression: string;
-  comment: string;
-  codec_expression: string;
-  ttl_expression: string;
+interface QueryResult {
+  meta?: any[];
+  data?: any[];
+  rows?: number;
+  statistics?: {
+    elapsed: number;
+    rows_read: number;
+    bytes_read: number;
+  };
 }
 
-const SchemaSection: React.FC<SchemaSectionProps> = ({ database, tableName }) => {
+const SchemaSection: React.FC<SchemaSectionProps> = ({
+  database,
+  tableName,
+}) => {
   const { runQuery } = useAppStore();
-  const [schemaData, setSchemaData] = React.useState<SchemaResult[]>([]);
-  const [schemaError, setSchemaError] = React.useState<string | null>(null);
-  const [loading, setLoading] = React.useState(false);
-  const [isRefreshing, setIsRefreshing] = React.useState(false);
-
-  const sanitize = (input: string): string =>
-    input.replace(/[^a-zA-Z0-9_]/g, "");
+  const [schemaData, setSchemaData] = useState<QueryResult | null>(null);
+  const [schemaError, setSchemaError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const fetchSchemaData = async (isRefresh = false) => {
     if (isRefresh) {
@@ -40,15 +41,12 @@ const SchemaSection: React.FC<SchemaSectionProps> = ({ database, tableName }) =>
     setSchemaError(null);
 
     try {
-      const sanitizedDatabase = sanitize(database);
-      const sanitizedTable = sanitize(tableName);
+      const query = `DESCRIBE \`${database}\`.\`${tableName}\``;
 
-      const query = `DESCRIBE ${sanitizedDatabase}.${sanitizedTable}`;
+      const response = await runQuery(query);
 
-      const response = (await runQuery(query)) as { data: SchemaResult[] };
-
-      if (response.data && response.data.length > 0) {
-        setSchemaData(response.data);
+      if (response && response.data && response.data.length > 0) {
+        setSchemaData(response);
       } else {
         setSchemaError("No schema information available for this table.");
       }
@@ -63,14 +61,6 @@ const SchemaSection: React.FC<SchemaSectionProps> = ({ database, tableName }) =>
   React.useEffect(() => {
     fetchSchemaData();
   }, [database, tableName]);
-
-  const getTableMeta = (data: SchemaResult[]) => {
-    if (!data.length) return [];
-    return Object.keys(data[0]).map((key) => ({
-      name: key,
-      type: "string",
-    }));
-  };
 
   if (loading) {
     return (
@@ -106,25 +96,15 @@ const SchemaSection: React.FC<SchemaSectionProps> = ({ database, tableName }) =>
       <CardContent className="max-h-[500px] overflow-auto">
         {schemaError ? (
           <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{schemaError}</AlertDescription>
           </Alert>
-        ) : schemaData.length > 0 ? (
-          <div className="rounded-md border overflow-auto">
-            <CHUItable
-              result={{
-                meta: getTableMeta(schemaData),
-                data: schemaData,
-                statistics: {
-                  elapsed: 0,
-                  rows_read: schemaData.length,
-                  bytes_read: 0,
-                },
-                message: "",
-                query_id: "",
-              }}
-            />
+        ) : schemaData ? (
+          <div
+            className="rounded-md border overflow-hidden"
+            style={{ height: "400px" }}
+          >
+            <AgTable data={schemaData} />
           </div>
         ) : (
           <Alert>

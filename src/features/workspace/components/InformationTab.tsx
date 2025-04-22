@@ -1,9 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import CHUItable from "@/components/common/table/CHUItable";
 import {
   Loader2,
   Database,
@@ -19,6 +17,18 @@ import {
   LucideIcon,
 } from "lucide-react";
 import useAppStore from "@/store";
+import AgTable from "@/components/common/AgTable";
+
+interface QueryResult {
+  meta?: any[];
+  data?: any[];
+  rows?: number;
+  statistics?: {
+    elapsed: number;
+    rows_read: number;
+    bytes_read: number;
+  };
+}
 
 interface InfoTabProps {
   database: string;
@@ -31,8 +41,6 @@ interface DatabaseData {
   table_count: number;
   total_rows: number;
   total_bytes: number;
-  lifetime_rows: number;
-  lifetime_bytes: number;
   last_modified: string;
 }
 
@@ -42,8 +50,6 @@ interface TableData {
   engine: string;
   total_rows: number;
   total_bytes: number;
-  lifetime_rows: number;
-  lifetime_bytes: number;
   metadata_modification_time: string;
   create_table_query: string;
   partition_count: number;
@@ -63,15 +69,11 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
   const [data, setData] = useState<DatabaseData | TableData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sampleLoading, setSampleLoading] = useState(false);
-  const [sampleData, setSampleData] = useState<Record<string, any>[]>([]);
+  const [sampleData, setSampleData] = useState<QueryResult | null>(null);
   const [sampleError, setSampleError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
-
-  const sanitize = (input: string): string => {
-    return input.replace(/[^a-zA-Z0-9_]/g, "");
-  };
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return "0 Bytes";
@@ -99,8 +101,6 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
     try {
       let query: string;
       if (tableName) {
-        const sanitizedDatabase = sanitize(database);
-        const sanitizedTable = sanitize(tableName);
         query = `
           SELECT 
             database,
@@ -108,29 +108,24 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
             engine,
             total_rows,
             total_bytes,
-            lifetime_rows,
-            lifetime_bytes,
             metadata_modification_time,
             create_table_query,
-            (SELECT count() FROM system.parts WHERE database = '${sanitizedDatabase}' AND table = '${sanitizedTable}') AS partition_count,
-            (SELECT max(modification_time) FROM system.parts WHERE database = '${sanitizedDatabase}' AND table = '${sanitizedTable}') AS last_modified_partition
+            (SELECT count() FROM system.parts WHERE database = '${database}' AND table = '${tableName}') AS partition_count,
+            (SELECT max(modification_time) FROM system.parts WHERE database = '${database}' AND table = '${tableName}') AS last_modified_partition
           FROM system.tables
-          WHERE database = '${sanitizedDatabase}' AND name = '${sanitizedTable}'
+          WHERE database = '${database}' AND name = '${tableName}'
         `;
       } else {
-        const sanitizedDatabase = sanitize(database);
         query = `
           SELECT 
             name,
             engine,
-            (SELECT count() FROM system.tables WHERE database = '${sanitizedDatabase}') AS table_count,
-            (SELECT sum(total_rows) FROM system.tables WHERE database = '${sanitizedDatabase}') AS total_rows,
-            (SELECT sum(total_bytes) FROM system.tables WHERE database = '${sanitizedDatabase}') AS total_bytes,
-            (SELECT sum(lifetime_rows) FROM system.tables WHERE database = '${sanitizedDatabase}') AS lifetime_rows,
-            (SELECT sum(lifetime_bytes) FROM system.tables WHERE database = '${sanitizedDatabase}') AS lifetime_bytes,
-            (SELECT max(metadata_modification_time) FROM system.tables WHERE database = '${sanitizedDatabase}') AS last_modified
+            (SELECT count() FROM system.tables WHERE database = '${database}') AS table_count,
+            (SELECT sum(total_rows) FROM system.tables WHERE database = '${database}') AS total_rows,
+            (SELECT sum(total_bytes) FROM system.tables WHERE database = '${database}') AS total_bytes,
+            (SELECT max(metadata_modification_time) FROM system.tables WHERE database = '${database}') AS last_modified
           FROM system.databases
-          WHERE name = '${sanitizedDatabase}'
+          WHERE name = '${database}'
         `;
       }
 
@@ -152,20 +147,18 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
     if (!tableName) return;
     setSampleLoading(true);
     setSampleError(null);
-    setSampleData([]);
+    setSampleData(null);
 
     try {
-      const sanitizedDatabase = sanitize(database);
-      const sanitizedTable = sanitize(tableName);
       const query = `
         SELECT *
-        FROM ${sanitizedDatabase}.${sanitizedTable}
-        LIMIT 10
+        FROM \`${database}\`.\`${tableName}\`
+        LIMIT 20
       `;
       const response = await runQuery(query);
 
-      if (response.data && response.data.length > 0) {
-        setSampleData(response.data);
+      if (response && response.data.length > 0) {
+        setSampleData(response as QueryResult);
       } else {
         setSampleError("No sample data available.");
       }
@@ -296,14 +289,6 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
             value: formatBytes((data as TableData).total_bytes),
           },
           {
-            label: "Lifetime Rows",
-            value: (data as TableData).lifetime_rows?.toLocaleString(),
-          },
-          {
-            label: "Lifetime Size",
-            value: formatBytes((data as TableData).lifetime_bytes),
-          },
-          {
             label: "Partitions",
             value: (data as TableData).partition_count?.toLocaleString(),
           },
@@ -330,14 +315,6 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
           {
             label: "Total Size",
             value: formatBytes((data as DatabaseData).total_bytes),
-          },
-          {
-            label: "Lifetime Rows",
-            value: (data as DatabaseData).lifetime_rows?.toLocaleString(),
-          },
-          {
-            label: "Lifetime Size",
-            value: formatBytes((data as DatabaseData).lifetime_bytes),
           },
           {
             label: "Last Modified",
@@ -435,24 +412,6 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
 
           <TabsContent value="overview" className="space-y-6">
             {renderOverviewCards()}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <HardDrive className="w-4 h-4" />
-                  <span>Storage Efficiency</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Progress
-                  value={(data.total_bytes / data.lifetime_bytes) * 100}
-                  className="h-2"
-                />
-                <p className="text-sm text-muted-foreground">
-                  {((data.total_bytes / data.lifetime_bytes) * 100).toFixed(2)}%
-                  of lifetime data
-                </p>
-              </CardContent>
-            </Card>
           </TabsContent>
 
           <TabsContent value="details" className="space-y-6">
@@ -500,23 +459,8 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
                         <AlertTitle>Error</AlertTitle>
                         <AlertDescription>{sampleError}</AlertDescription>
                       </Alert>
-                    ) : sampleData.length > 0 ? (
-                      <CHUItable
-                        result={{
-                          meta: Object.keys(sampleData[0]).map((key) => ({
-                            name: key,
-                            type: typeof sampleData[0][key],
-                          })),
-                          data: sampleData,
-                          statistics: {
-                            elapsed: 0,
-                            rows_read: 0,
-                            bytes_read: 0,
-                          },
-                          message: "",
-                          query_id: "",
-                        }}
-                      />
+                    ) : sampleData ? (
+                      <AgTable data={sampleData} />
                     ) : (
                       <Alert>
                         <AlertTitle>No Data</AlertTitle>

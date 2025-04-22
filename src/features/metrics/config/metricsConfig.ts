@@ -22,7 +22,7 @@ export interface MetricItem {
   title: string;
   query: string;
   type: "card" | "table" | "chart";
-  chartType?: "bar" | "line" | "area" | "pie" | "radar" | "radial";
+  chartType?: "bar" | "line" | "area" | "pie" | "radar" | "donut";
   description: string;
   chartConfig?: CustomChartConfig;
   tiles?: number;
@@ -36,11 +36,29 @@ export type ChartTheme = {
 export type ChartDataConfig = {
   label?: ReactNode;
   icon?: ComponentType<{}>;
-} & ({ color?: string; theme?: never } | { color?: never; theme: ChartTheme });
+  color?: string;
+  theme?: ChartTheme;
+};
 
 export type CustomChartConfig = {
   indexBy: string;
   [key: string]: ChartDataConfig | string | undefined;
+};
+
+// Helper function to create a consistent chart config object
+export const createChartConfig = (
+  indexBy: string,
+  valueKey: string,
+  label: string,
+  color: string = "hsl(var(--chart-1))",
+): CustomChartConfig => {
+  return {
+    indexBy,
+    [valueKey]: {
+      label,
+      color,
+    },
+  };
 };
 
 export const metrics: Metrics[] = [
@@ -118,13 +136,7 @@ export const metrics: Metrics[] = [
           GROUP BY day 
           ORDER BY day
         `,
-        chartConfig: {
-          indexBy: "day",
-          query_count: {
-            label: "Query Count",
-            color: "hsl(var(--chart-1))",
-          },
-        },
+        chartConfig: createChartConfig("day", "query_count", "Query Count", "hsl(var(--chart-1))"),
         tiles: 4,
       },
     ],
@@ -184,13 +196,7 @@ export const metrics: Metrics[] = [
         type: "chart",
         chartType: "bar",
         description: "Size distribution of the top 30 largest tables.",
-        chartConfig: {
-          indexBy: "name",
-          total_mb: {
-            label: "Size (MB)",
-            color: "hsl(var(--chart-2))",
-          },
-        },
+        chartConfig: createChartConfig("name", "total_mb", "Size (MB)", "hsl(var(--chart-2))"),
         tiles: 2,
       },
       {
@@ -199,13 +205,7 @@ export const metrics: Metrics[] = [
         type: "chart",
         chartType: "bar",
         description: "Number of partitions per table.",
-        chartConfig: {
-          indexBy: "table",
-          partition_count: {
-            label: "Partition Count",
-            color: "hsl(var(--chart-3))",
-          },
-        },
+        chartConfig: createChartConfig("table", "partition_count", "Partition Count", "hsl(var(--chart-3))"),
         tiles: 2,
       },
       {
@@ -214,13 +214,7 @@ export const metrics: Metrics[] = [
         type: "chart",
         chartType: "bar",
         description: "Distribution of table engines.",
-        chartConfig: {
-          indexBy: "engine",
-          table_count: {
-            label: "Table Count",
-            color: "hsl(var(--chart-1))",
-          },
-        },
+        chartConfig: createChartConfig("engine", "table_count", "Table Count", "hsl(var(--chart-1))"),
         tiles: 2,
       },
       {
@@ -229,13 +223,7 @@ export const metrics: Metrics[] = [
         type: "chart",
         chartType: "bar",
         description: "Top 10 most queried tables in the last 24 hours.",
-        chartConfig: {
-          indexBy: "tables",
-          query_count: {
-            label: "Query Count",
-            color: "hsl(var(--chart-2))",
-          },
-        },
+        chartConfig: createChartConfig("tables", "query_count", "Query Count", "hsl(var(--chart-2))"),
         tiles: 2,
       },
     ],
@@ -327,13 +315,7 @@ export const metrics: Metrics[] = [
         chartType: "bar",
         description:
           "Granular distribution of query durations over the last 24 hours.",
-        chartConfig: {
-          indexBy: "duration_bucket",
-          query_count: {
-            label: "Query Count",
-            color: "hsl(var(--chart-1))",
-          },
-        },
+        chartConfig: createChartConfig("duration_bucket", "query_count", "Query Count", "hsl(var(--chart-1))"),
         tiles: 2,
       },
       {
@@ -350,13 +332,7 @@ export const metrics: Metrics[] = [
         type: "chart",
         chartType: "area",
         description: "Rate of queries per second over the last hour.",
-        chartConfig: {
-          indexBy: "minute",
-          qps: {
-            label: "QPS",
-            color: "hsl(var(--chart-3))",
-          },
-        },
+        chartConfig: createChartConfig("minute", "qps", "QPS", "hsl(var(--chart-3))"),
         tiles: 2,
       },
       {
@@ -416,13 +392,7 @@ export const metrics: Metrics[] = [
         type: "chart",
         chartType: "line",
         description: "CPU usage over the last hour.",
-        chartConfig: {
-          indexBy: "minute",
-          cpu_usage: {
-            label: "CPU Usage",
-            color: "hsl(var(--chart-5))",
-          },
-        },
+        chartConfig: createChartConfig("minute", "cpu_usage", "CPU Usage", "hsl(var(--chart-5))"),
         tiles: 2,
       },
       {
@@ -439,13 +409,7 @@ export const metrics: Metrics[] = [
         type: "chart",
         chartType: "area",
         description: "Memory usage over the last hour.",
-        chartConfig: {
-          indexBy: "minute",
-          memory_usage: {
-            label: "Memory Usage",
-            color: "hsl(var(--chart-1))",
-          },
-        },
+        chartConfig: createChartConfig("minute", "memory_usage", "Memory Usage", "hsl(var(--chart-1))"),
         tiles: 2,
       },
 
@@ -463,13 +427,7 @@ export const metrics: Metrics[] = [
         type: "chart",
         chartType: "area",
         description: "Threads usage over the last hour.",
-        chartConfig: {
-          indexBy: "minute",
-          threads_running: {
-            label: "Threads Running",
-            color: "hsl(var(--chart-1))",
-          },
-        },
+        chartConfig: createChartConfig("minute", "threads_running", "Threads Running", "hsl(var(--chart-1))"),
         tiles: 2,
       },
       {
@@ -491,13 +449,7 @@ ORDER BY
         type: "chart",
         chartType: "area",
         description: "Network traffic over the last hour.",
-        chartConfig: {
-          indexBy: "minute",
-          bytes_received: {
-            label: "Bytes Received",
-            color: "hsl(var(--chart-4))",
-          },
-        },
+        chartConfig: createChartConfig("minute", "bytes_received", "Bytes Received", "hsl(var(--chart-4))"),
         tiles: 2,
       },
       {
@@ -514,13 +466,7 @@ ORDER BY
         type: "chart",
         chartType: "line",
         description: "Average disk usage over the last hour.",
-        chartConfig: {
-          indexBy: "minute",
-          disk_usage: {
-            label: "Disk Usage",
-            color: "hsl(var(--chart-6))",
-          },
-        },
+        chartConfig: createChartConfig("minute", "disk_usage", "Disk Usage", "hsl(var(--chart-6))"),
         tiles: 2,
       },
       {
@@ -537,13 +483,7 @@ ORDER BY
         type: "chart",
         chartType: "line",
         description: "Active Keep alive connections over the last hour.",
-        chartConfig: {
-          indexBy: "minute",
-          active_connections: {
-            label: "Active Connections",
-            color: "hsl(var(--chart-1))",
-          },
-        },
+        chartConfig: createChartConfig("minute", "active_connections", "Active Connections", "hsl(var(--chart-1))"),
         tiles: 2,
       },
     ],
@@ -576,13 +516,7 @@ ORDER BY
         type: "chart",
         chartType: "bar",
         description: "Size distribution of databases.",
-        chartConfig: {
-          indexBy: "database",
-          size_gb: {
-            label: "Size (GB)",
-            color: "hsl(var(--chart-2))",
-          },
-        },
+        chartConfig: createChartConfig("database", "size_gb", "Size (GB)", "hsl(var(--chart-2))"),
         tiles: 4,
       },
     ],
@@ -631,13 +565,7 @@ ORDER BY
         type: "chart",
         chartType: "line",
         description: "HTTP connections over the last hour.",
-        chartConfig: {
-          indexBy: "minute",
-          connections: {
-            label: "Connections",
-            color: "hsl(var(--chart-1))",
-          },
-        },
+        chartConfig: createChartConfig("minute", "connections", "Connections", "hsl(var(--chart-1))"),
         tiles: 2,
       },
     ],
@@ -761,13 +689,7 @@ ORDER BY
         type: "chart",
         chartType: "line",
         description: "Count of exceptions recorded over the last 24 hours.",
-        chartConfig: {
-          indexBy: "hourERROR",
-          exception_count: {
-            label: "Exception Count",
-            color: "hsl(var(--chart-2))",
-          },
-        },
+        chartConfig: createChartConfig("hourERROR", "exception_count", "Exception Count", "hsl(var(--chart-2))"),
         tiles: 2,
       },
       {

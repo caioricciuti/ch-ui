@@ -1,7 +1,6 @@
 import * as React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { metrics } from "@/features/metrics/config/metricsConfig";
-import { cn } from "@/lib/utils";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -36,7 +35,7 @@ export function MetricsNavigationMenu() {
   }, [navigate]);
 
   return (
-    <nav className="flex items-center justify-between w-full container pt-2 mb-4" aria-label="Metrics navigation">
+    <nav className="flex items-center justify-between w-full container pt-2 mb-4 mx-auto" aria-label="Metrics navigation">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" className="flex items-center gap-2" aria-label="Select metric">

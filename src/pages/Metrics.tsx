@@ -89,42 +89,42 @@ function MetricsOverview() {
   };
 
   return (
-    <div className="h-screen w-full overflow-auto">
-      <MetricsNavigationMenu />
-      <main className="container mx-auto pb-12">
-        {isLocalHostInstance && (
-          <Alert className="my-4" variant="warning">
-            <AlertTitle>Local Instance Detected</AlertTitle>
-            <AlertDescription>
-              We have detected that you are using a local instance of Click
-              House. There are some metrics that may not be available due to the
-              limitations of the local instance.
-            </AlertDescription>
-          </Alert>
-        )}
-        <div className="mb-8">
-          <div>
-            <div className="flex items-center space-x-4">
-              {React.createElement(currentMetric.icon, {
-                className: "w-6 h-6 text-primary",
-              })}
-              <h1 className="text-2xl font-bold text-foreground">
-                {currentMetric.title}
-              </h1>
+      <div className="h-screen w-full overflow-auto">
+        <MetricsNavigationMenu />
+        <main className="container mx-auto pb-12">
+          {isLocalHostInstance && (
+            <Alert className="my-4" variant="warning">
+              <AlertTitle>Local Instance Detected</AlertTitle>
+              <AlertDescription>
+                We have detected that you are using a local instance of Click
+                House. There are some metrics that may not be available due to the
+                limitations of the local instance.
+              </AlertDescription>
+            </Alert>
+          )}
+          <div className="mb-8">
+            <div>
+              <div className="flex items-center space-x-4">
+                {React.createElement(currentMetric.icon, {
+                  className: "w-6 h-6 text-primary",
+                })}
+                <h1 className="text-2xl font-bold text-foreground">
+                  {currentMetric.title}
+                </h1>
+              </div>
             </div>
+            <p className="text-muted-foreground">{currentMetric.description}</p>
           </div>
-          <p className="text-muted-foreground">{currentMetric.description}</p>
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {currentMetric.items?.map((item) => (
-            <div key={item.title} className={getColSpanClass(item.tiles || 4)}>
-              <MetricItemComponent item={item} />
-            </div>
-          ))}
-        </div>
-      </main>
-    </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {currentMetric.items?.map((item) => (
+              <div key={item.title} className={getColSpanClass(item.tiles || 4)}>
+                <MetricItemComponent item={item} />
+              </div>
+            ))}
+          </div>
+        </main>
+      </div>
   );
 }
 

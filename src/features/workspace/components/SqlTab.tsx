@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback } from "react";
 import { toast } from "sonner";
 import { Loader2, FileX2 } from "lucide-react";
 import { AgGridReact } from "ag-grid-react";
-import { ColDef, AllCommunityModule } from "ag-grid-community";
+import { ColDef, AllCommunityModule, ICellRendererParams } from "ag-grid-community";
 import { themeBalham, colorSchemeDark } from "ag-grid-community";
 
 // Component imports
@@ -31,6 +31,23 @@ interface IRow {
   [key: string]: any;
 }
 
+// Format complex values for display in the grid
+const formatCellValue = (value: any): string => {
+  if (value === null || value === undefined) {
+    return "<em>null</em>";
+  }
+  if (typeof value === 'object') {
+    return JSON.stringify(value, null, 2);
+  }
+  return String(value);
+};
+
+// Cell renderer that can handle HTML content
+const CustomCellRenderer = (props: ICellRendererParams) => {
+  const formattedValue = formatCellValue(props.value);
+  return <div dangerouslySetInnerHTML={{ __html: formattedValue }} />;
+};
+
 /**
  * SqlTab component that provides a SQL editor and result viewer
  *
@@ -55,6 +72,8 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
     filter: true,
     resizable: true,
     filterParams: { buttons: ["reset", "apply"] },
+    cellRenderer: CustomCellRenderer,
+    autoHeight: true,
   };
 
   const [columnDefs, setColumnDefs] = useState<ColDef<IRow>[]>([]);

@@ -28,8 +28,6 @@ const DetailsContent: React.FC<DetailsContentProps> = ({ data, tableName }) => {
         { label: "Engine", value: data.engine },
         { label: "Total Rows", value: formatNumber(data.total_rows) },
         { label: "Total Size", value: formatBytes(data.total_bytes) },
-        { label: "Lifetime Rows", value: formatNumber(data.lifetime_rows) },
-        { label: "Lifetime Size", value: formatBytes(data.lifetime_bytes) },
         { label: "Partitions", value: data.partition_count },
         {
           label: "Last Modified",
@@ -42,8 +40,6 @@ const DetailsContent: React.FC<DetailsContentProps> = ({ data, tableName }) => {
         { label: "Total Tables", value: formatNumber(data.table_count) },
         { label: "Total Rows", value: formatNumber(data.total_rows) },
         { label: "Total Size", value: formatBytes(data.total_bytes) },
-        { label: "Lifetime Rows", value: formatNumber(data.lifetime_rows) },
-        { label: "Lifetime Size", value: formatBytes(data.lifetime_bytes) },
         { label: "Last Modified", value: formatDate(data.last_modified) },
       ];
 

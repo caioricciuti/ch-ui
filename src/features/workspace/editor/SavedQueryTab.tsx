@@ -24,15 +24,9 @@ import {
   ResizablePanelGroup,
   ResizableHandle,
 } from "@/components/ui/resizable";
-import CHUITable from "@/components/common/table/CHUItable";
 import { Loader2, FileX2 } from "lucide-react";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { AgGridReact } from "ag-grid-react";
-import { ColDef } from "ag-grid-community";
-import { AllCommunityModule } from "ag-grid-community";
-import { themeBalham } from "ag-grid-community";
-import { colorSchemeDark } from "ag-grid-community";
-
+import AgTable from "@/components/common/AgTable";
 
 interface SavedQueryTabProps {
   tabId: string;
@@ -225,16 +219,8 @@ const SavedQueryTab: React.FC<SavedQueryTabProps> = ({ tabId }) => {
     ) {
       return (
         <div className="h-full">
-          <CHUITable
-            result={{
-              meta: tab.result.meta,
-              data: tab.result.data,
-              statistics: tab.result.statistics,
-              message: tab.result.message,
-              query_id: tab.result.query_id,
-            }}
-          />
-        </div>
+          <AgTable data={tab.result} />
+            </div>
       );
     }
 

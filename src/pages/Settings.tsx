@@ -151,7 +151,6 @@ export default function SettingsPage() {
       await checkServerStatus();
       setCredentialSource("app");
       await retryInitialization();
-      toast.info("Settings saved successfully!");
     } catch (error) {
       toast.error("Error saving credentials: " + (error as Error).message);
     }
@@ -175,12 +174,20 @@ export default function SettingsPage() {
     try {
       await checkServerStatus();
       if (isServerAvailable && !error) {
-        toast.success("Connection successful!");
+        toast.success("Connection successful!", {
+          description: "Successfully connected to ClickHouse server."
+        });
       } else if (error) {
-        toast.error(`Connection failed: ${error}`);
+        // Extract just the main error message for the toast (not the troubleshooting tips)
+        const mainErrorMessage = error.split('\n\n')[0];
+        toast.error(`Connection failed: ${mainErrorMessage}`, {
+          description: "See the troubleshooting tips below for help resolving this issue."
+        });
       }
     } catch (err) {
-      toast.error("Error testing connection");
+      toast.error("Error testing connection", {
+        description: "An unexpected error occurred while testing the connection."
+      });
     }
   };
 
@@ -236,9 +243,6 @@ export default function SettingsPage() {
                     <Settings className="h-6 w-6 text-primary" />
                     Connection Settings
                   </CardTitle>
-                  <CardDescription>
-                    Configure your connection to the ClickHouse server
-                  </CardDescription>
                 </CardHeader>
 
                 <CardContent>
@@ -502,9 +506,39 @@ export default function SettingsPage() {
                   </CardFooter>
                 ) : error ? (
                   <CardFooter className="border-t bg-muted/50 rounded-b-lg pt-4">
-                    <span className="text-sm font-mono font-semibold text-red-500">
-                      {error}
-                    </span>
+                    <div className="w-full">
+                      <Alert variant="destructive" className="mb-4">
+                        <AlertTitle className="flex items-center font-semibold text-red-500">
+                          Connection Error
+                        </AlertTitle>
+                        <AlertDescription>
+                          <div className="mt-2 space-y-4">
+                            <p className="font-medium">{error.split('\n\n')[0]}</p>
+                            
+                            {error.includes('Troubleshooting tips:') && (
+                              <div className="mt-4">
+                                <h4 className="font-medium mb-2">Troubleshooting Tips:</h4>
+                                <ul className="list-disc pl-5 space-y-1.5 text-sm">
+                                  {error.split('Troubleshooting tips:\n')[1]?.split('\n').map((tip, index) => (
+                                    <li key={index}>{tip}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={handleTestConnection}
+                              className="mt-4"
+                            >
+                              <RefreshCw className="mr-2 h-4 w-4" />
+                              Test Connection Again
+                            </Button>
+                          </div>
+                        </AlertDescription>
+                      </Alert>
+                    </div>
                   </CardFooter>
                 ) : null}
               </Card>

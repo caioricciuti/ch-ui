@@ -33,10 +33,6 @@ export default function ActivateSavedQueries() {
       isSavedQueriesActive,
       isCheckingStatus,
       error,
-      totalQueries = 0,
-      activeUsers = 0,
-      lastUsed = null,
-      storageUsed = "0 KB",
     },
     activateSavedQueries,
     deactivateSavedQueries,
@@ -81,12 +77,6 @@ export default function ActivateSavedQueries() {
             <Database className="h-5 w-5" />
             <CardTitle>Saved Queries</CardTitle>
           </div>
-          {isSavedQueriesActive && (
-            <Badge variant="outline" className="flex items-center space-x-1">
-              <Save className="h-3 w-3 mr-1" />
-              {totalQueries} {totalQueries === 1 ? "Query" : "Queries"} Saved
-            </Badge>
-          )}
         </div>
         <CardDescription>
           Manage the saved queries feature for all users
@@ -121,33 +111,7 @@ export default function ActivateSavedQueries() {
                   </Badge>
                 )}
               </div>
-              {isSavedQueriesActive && (
-                <Badge
-                  variant="secondary"
-                  className="flex items-center space-x-1"
-                >
-                  <Save className="h-3 w-3 mr-1" />
-                  {storageUsed} Used
-                </Badge>
-              )}
             </div>
-
-            {isSavedQueriesActive && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex items-center space-x-2 text-sm">
-                  <Users className="h-4 w-4 text-muted-foreground" />
-                  <span>
-                    {activeUsers} active {activeUsers === 1 ? "user" : "users"}
-                  </span>
-                </div>
-                {lastUsed && (
-                  <div className="flex items-center space-x-2 text-sm">
-                    <Clock className="h-4 w-4 text-muted-foreground" />
-                    <span>Last used {new Date(lastUsed).toLocaleString()}</span>
-                  </div>
-                )}
-              </div>
-            )}
           </>
         )}
 
@@ -183,13 +147,7 @@ export default function ActivateSavedQueries() {
         description={
           isSavedQueriesActive
             ? `This action will remove the saved queries table and disable the saved queries feature for all users. 
-               ${
-                 totalQueries > 0
-                   ? `<br/><br/><span class="font-bold text-destructive">WARNING: ${totalQueries} saved ${
-                       totalQueries === 1 ? "query" : "queries"
-                     } will be permanently deleted!</span>`
-                   : ""
-               }`
+               All saved queries will be permanently deleted!`
             : "This action will create the necessary tables and enable the saved queries feature for all users."
         }
         isOpen={isConfirmOpen}

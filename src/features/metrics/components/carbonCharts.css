@@ -1,0 +1,119 @@
+/* Custom Carbon Charts styles */
+
+/* Chart color variables */
+:root {
+  --chart-1: 222, 80%, 60%; /* blue */
+  --chart-2: 133, 70%, 50%; /* green */
+  --chart-3: 350, 80%, 60%; /* red */
+  --chart-4: 30, 80%, 60%; /* orange */
+  --chart-5: 270, 70%, 60%; /* purple */
+  --chart-6: 180, 70%, 50%; /* teal */
+  --chart-7: 60, 80%, 60%; /* yellow */
+  --chart-8: 310, 70%, 60%; /* pink */
+}
+
+/* Dark mode adjustments */
+html.dark .bx--cc--tooltip {
+  background-color: hsl(var(--background-950)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+html.dark .bx--cc--tooltip-arrow {
+  border-color: hsl(var(--background-950)) !important;
+}
+
+/* Improve chart rendering in dark mode */
+html.dark .bx--cc--axis path,
+html.dark .bx--cc--axis line {
+  stroke: rgba(255, 255, 255, 0.2) !important;
+}
+
+html.dark .bx--cc--axis text {
+  fill: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* General style enhancements */
+.bx--chart-holder {
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+/* Improve tick label display for time-series */
+.bx--cc--axis g.tick text {
+  font-size: 10px;
+  text-anchor: end;
+  transform: rotate(-45deg);
+  transform-origin: 10px 14px;
+}
+
+/* Center the charts and improve spacing */
+.carbon-chart-container {
+  width: 100%;
+  height: 300px;
+  margin-top: 1rem;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+/* Ensure legends don't overwhelm the chart */
+.bx--cc--legend {
+  max-height: 40px !important;
+  overflow-y: auto;
+  padding: 5px !important;
+  position: relative !important; 
+  margin-bottom: 0 !important;
+}
+
+/* Improve sizing of the chart component */
+.bx--cc--chart {
+  min-height: 200px !important;
+}
+
+/* Improve axis labels */
+.bx--cc--axis.x g.tick:nth-child(odd) {
+  display: none;
+}
+
+/* Better line rendering */
+.bx--cc--line {
+  stroke-width: 2px !important;
+}
+
+/* Nice area chart fill */
+.bx--cc--area {
+  opacity: 0.3 !important;
+}
+
+/* Enhanced bar chart styling */
+.bx--cc--bar {
+  stroke-width: 0 !important;
+  rx: 2px !important;
+  ry: 2px !important;
+}
+
+/* Adjustments for small screens */
+@media (max-width: 768px) {
+  .carbon-chart-container {
+    height: 200px;
+  }
+
+  .bx--cc--axis g.tick text {
+    font-size: 8px;
+  }
+
+  /* Hide more labels on small screens */
+  .bx--cc--axis.x g.tick:nth-child(even) {
+    display: none;
+  }
+
+  /* Only show every fourth tick on small screens */
+  .bx--cc--axis.x g.tick:nth-child(4n + 1) {
+    display: block;
+  }
+}
+
+/* Grid lines should be subtle */
+.bx--cc--grid line {
+  stroke: rgba(128, 128, 128, 0.1) !important;
+}

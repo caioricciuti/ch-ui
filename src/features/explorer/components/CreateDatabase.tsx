@@ -24,9 +24,8 @@ import { toast } from "sonner";
 import useAppstore from "@/store";
 import InfoDialog from "@/components/common/InfoDialog";
 import ConfirmationDialog from "@/components/common/ConfirmationDialog";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { a11yDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-
+import SyntaxHighlighter from "react-syntax-highlighter";
+import { a11yDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
 const ENGINE_OPTIONS = ["Atomic", "Lazy"];
 
 const CreateDatabase = () => {

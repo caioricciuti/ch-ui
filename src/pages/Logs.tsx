@@ -504,12 +504,12 @@ const LogsPage: React.FC = () => {
         defaultValue="system"
         value={activeTab}
         onValueChange={setActiveTab}
-        className="space-y-4 flex-1 flex flex-col"
+        className="space-y-4 flex-1 flex flex-col w-full"
       >
         <TabsList>
-          <TabsTrigger value="system">System Logs</TabsTrigger>
-          <TabsTrigger value="query">Query Logs</TabsTrigger>
-          <TabsTrigger value="error">Error Logs</TabsTrigger>
+          <TabsTrigger className="w-full" value="system">System Logs</TabsTrigger>
+          <TabsTrigger className="w-full" value="query">Query Logs</TabsTrigger>
+          <TabsTrigger className="w-full" value="error">Error Logs</TabsTrigger>
         </TabsList>
         
         <Card className="flex-shrink-0">

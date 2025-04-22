@@ -34,8 +34,6 @@ interface DatabaseData {
   table_count: number;
   total_rows: number;
   total_bytes: number;
-  lifetime_rows: number;
-  lifetime_bytes: number;
   last_modified: number;
 }
 
@@ -45,8 +43,6 @@ interface TableData {
   engine: string;
   total_rows: number;
   total_bytes: number;
-  lifetime_rows: number;
-  lifetime_bytes: number;
   metadata_modification_time: number;
   create_table_query: string;
   partition_count: number;
@@ -61,19 +57,15 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [isRefreshing, setIsRefreshing] = useState(false);
-
-  const sanitize = (input: string): string =>
-    input.replace(/[^a-zA-Z0-9_]/g, "");
+ 
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const sanitizedDatabase = sanitize(database);
       let query: string;
 
       if (tableName) {
-        const sanitizedTable = sanitize(tableName);
         query = `
           SELECT 
             database,
@@ -81,27 +73,25 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
             engine,
             total_rows,
             total_bytes,
-            lifetime_rows,
-            lifetime_bytes,
             metadata_modification_time,
             create_table_query,
             (
               SELECT count()
               FROM system.parts
-              WHERE database = '${sanitizedDatabase}'
-              AND table = '${sanitizedTable}'
+              WHERE database = '${database}'
+              AND table = '${tableName}'
               AND active
             ) AS partition_count,
             (
               SELECT max(modification_time)
               FROM system.parts
-              WHERE database = '${sanitizedDatabase}'
-              AND table = '${sanitizedTable}'
+              WHERE database = '${database}'
+              AND table = '${tableName}'
               AND active
             ) AS last_modified_partition
           FROM system.tables
-          WHERE database = '${sanitizedDatabase}'
-          AND name = '${sanitizedTable}'
+          WHERE database = '${database}'
+          AND name = '${tableName}'
         `;
       } else {
         query = `
@@ -111,35 +101,25 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
             (
               SELECT count()
               FROM system.tables
-              WHERE database = '${sanitizedDatabase}'
+              WHERE database = '${database}'
             ) AS table_count,
             (
               SELECT sum(total_rows)
               FROM system.tables
-              WHERE database = '${sanitizedDatabase}'
+              WHERE database = '${database}'
             ) AS total_rows,
             (
               SELECT sum(total_bytes)
               FROM system.tables
-              WHERE database = '${sanitizedDatabase}'
+              WHERE database = '${database}'
             ) AS total_bytes,
-            (
-              SELECT sum(lifetime_rows)
-              FROM system.tables
-              WHERE database = '${sanitizedDatabase}'
-            ) AS lifetime_rows,
-            (
-              SELECT sum(lifetime_bytes)
-              FROM system.tables
-              WHERE database = '${sanitizedDatabase}'
-            ) AS lifetime_bytes,
             (
               SELECT max(metadata_modification_time)
               FROM system.tables
-              WHERE database = '${sanitizedDatabase}'
+              WHERE database = '${database}'
             ) AS last_modified
           FROM system.databases
-          WHERE name = '${sanitizedDatabase}'
+          WHERE name = '${database}'
         `;
       }
 

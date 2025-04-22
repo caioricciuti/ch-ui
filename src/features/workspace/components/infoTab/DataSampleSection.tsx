@@ -1,9 +1,10 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import CHUItable from "@/components/common/table/CHUItable";
 import { Loader2, RefreshCcw } from "lucide-react";
 import useAppStore from "@/store";
+import { Button } from "@/components/ui/button";
+import AgTable from "@/components/common/AgTable";
 
 interface DataSampleSectionProps {
   database: string;
@@ -11,14 +12,14 @@ interface DataSampleSectionProps {
 }
 
 interface QueryResult {
-  data: Record<string, any>[];
-  statistics: {
+  meta?: any[];
+  data?: any[];
+  rows?: number;
+  statistics?: {
     elapsed: number;
     rows_read: number;
     bytes_read: number;
   };
-  message: string;
-  query_id: string;
 }
 
 const DataSampleSection: React.FC<DataSampleSectionProps> = ({
@@ -26,13 +27,10 @@ const DataSampleSection: React.FC<DataSampleSectionProps> = ({
   tableName,
 }) => {
   const { runQuery } = useAppStore();
-  const [sampleData, setSampleData] = React.useState<Record<string, any>[]>([]);
+  const [sampleData, setSampleData] = React.useState<QueryResult | null>(null);
   const [sampleError, setSampleError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
-
-  const sanitize = (input: string): string =>
-    input.replace(/[^a-zA-Z0-9_]/g, "");
 
   const fetchSampleData = async (isRefresh = false) => {
     if (isRefresh) {
@@ -43,19 +41,16 @@ const DataSampleSection: React.FC<DataSampleSectionProps> = ({
     setSampleError(null);
 
     try {
-      const sanitizedDatabase = sanitize(database);
-      const sanitizedTable = sanitize(tableName);
-
       const query = `
         SELECT *
-        FROM ${sanitizedDatabase}.${sanitizedTable}
+        FROM \`${database}\`.\`${tableName}\`
         LIMIT 10
       `;
 
-      const response = (await runQuery(query)) as unknown as QueryResult;
+      const response = await runQuery(query);
 
-      if (response.data && response.data.length > 0) {
-        setSampleData(response.data);
+      if (response && response.data && response.data.length > 0) {
+        setSampleData(response);
       } else {
         setSampleError("No sample data available for this table.");
       }
@@ -70,18 +65,6 @@ const DataSampleSection: React.FC<DataSampleSectionProps> = ({
   React.useEffect(() => {
     fetchSampleData();
   }, [database, tableName]);
-
-  const getTableMeta = (data: Record<string, any>[]) => {
-    if (!data.length) return [];
-    return Object.entries(data[0]).map(([key, value]) => ({
-      name: key,
-      type: Array.isArray(value)
-        ? "array"
-        : value === null
-        ? "null"
-        : typeof value,
-    }));
-  };
 
   if (loading) {
     return (
@@ -102,16 +85,17 @@ const DataSampleSection: React.FC<DataSampleSectionProps> = ({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle>Data Sample</CardTitle>
-        <button
+        <Button
           onClick={() => fetchSampleData(true)}
-          className="flex items-center space-x-2 text-sm text-muted-foreground hover:text-primary transition-colors"
+          variant="ghost"
+          className="flex items-center space-x-2 text-sm"
           disabled={isRefreshing}
         >
           <RefreshCcw
             className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
           />
           <span>Refresh</span>
-        </button>
+        </Button>
       </CardHeader>
       <CardContent>
         {sampleError ? (
@@ -119,22 +103,9 @@ const DataSampleSection: React.FC<DataSampleSectionProps> = ({
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{sampleError}</AlertDescription>
           </Alert>
-        ) : sampleData.length > 0 ? (
-          <div className="rounded-md border">
-            <CHUItable
-            className="min-h-[400px]"
-              result={{
-                meta: getTableMeta(sampleData),
-                data: sampleData,
-                statistics: {
-                  elapsed: 0,
-                  rows_read: sampleData.length,
-                  bytes_read: 0,
-                },
-                message: "",
-                query_id: "",
-              }}
-            />
+        ) : sampleData ? (
+          <div className="rounded-md border overflow-hidden" style={{ height: "400px" }}>
+            <AgTable data={sampleData} />
           </div>
         ) : (
           <Alert>

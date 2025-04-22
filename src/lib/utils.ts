@@ -5,80 +5,44 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export const generateRandomPassword = () => {
-  const length = 16;
-  const charset = {
-    uppercase: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-    lowercase: "abcdefghijklmnopqrstuvwxyz",
-    numbers: "0123456789",
-    symbols: "!@#$%^&*()_+-=[]{}|;:,.<>?",
-  };
+export function genTabId() {
+  return `tab-${Math.random().toString(36).substring(2, 15)}`;
+}
 
-  let password = "";
-  // Ensure at least one of each type
-  password +=
-    charset.uppercase[Math.floor(Math.random() * charset.uppercase.length)];
-  password +=
-    charset.lowercase[Math.floor(Math.random() * charset.lowercase.length)];
-  password +=
-    charset.numbers[Math.floor(Math.random() * charset.numbers.length)];
-  password +=
-    charset.symbols[Math.floor(Math.random() * charset.symbols.length)];
-
-  // Fill the rest randomly
-  const allChars = Object.values(charset).join("");
-  for (let i = password.length; i < length; i++) {
-    password += allChars[Math.floor(Math.random() * allChars.length)];
-  }
-  // Shuffle the password
-  return password
-    .split("")
-    .sort(() => Math.random() - 0.5)
-    .join("");
-};
-
-export const genTabId = () => {
-  const timestamp = Date.now().toString();
-  const randomStr = Math.random().toString(36).substring(2);
-  return timestamp + randomStr.slice(0, 26 - timestamp.length);
-};
-
-
-
-export const formatBytes = (bytes: string | number | null | undefined): string => {
-  const numBytes = Number(bytes);
-  if (!bytes || isNaN(numBytes) || numBytes === 0) return "N/A";
+export function formatBytes(bytes: number) {
+  if (!bytes) return "";
+  if (bytes === 0) return "0 Bytes";
   const k = 1024;
   const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(numBytes) / Math.log(k));
-  return parseFloat((numBytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-};
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+export function formatDate(date: Date, format: string) {
+  if (!date) return "";
+  return date.toLocaleString("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+export function formatNumber(number: number) {
+  if (!number) return "";
+  return number.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
 
 
-export const formatDate = (date: string | number | Date): string => {
-  if (!date) return "N/A";
-  return new Date(date).toLocaleString();
-};
+export function generateRandomPassword(length: number = 12) {
+  const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()";
+  let password = "";
+  for (let i = 0; i < length; i++) {
+    const randomIndex = Math.floor(Math.random() * charset.length);
+    password += charset[randomIndex];
+  }
+  return password;
+}
 
-export const formatNumber = (
-  value: number | string | null | undefined
-): string => {
-  if (value === null || value === undefined) return "N/A";
-  const num = typeof value === "string" ? parseFloat(value) : value;
-  if (isNaN(num)) return "N/A";
-  return num.toLocaleString();
-};
-
-export const calculateEfficiency = (
-  total: number,
-  lifetime: number
-): number => {
-  if (lifetime === 0) return 0;
-  return (total / lifetime) * 100;
-};
-
-export const getEfficiencyColor = (value: number): string => {
-  if (value >= 90) return "text-red-500";
-  if (value >= 70) return "text-yellow-500";
-  return "text-green-500";
-};

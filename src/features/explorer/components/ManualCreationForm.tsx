@@ -15,8 +15,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import FieldManagement, { Field } from "./FieldManagement";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { a11yDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import SyntaxHighlighter from "react-syntax-highlighter";
+import { a11yDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
 
 interface DatabaseItem {
   name: string;
@@ -91,17 +91,17 @@ const ManualCreationForm: React.FC<ManualCreationFormProps> = ({
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  const removeField = (type: 'pk' | 'ob' | 'pb', fieldName: string) => {
-    const fieldIndex = fields.findIndex(f => f.name === fieldName);
+  const removeField = (type: "pk" | "ob" | "pb", fieldName: string) => {
+    const fieldIndex = fields.findIndex((f) => f.name === fieldName);
     if (fieldIndex !== -1) {
       switch (type) {
-        case 'pk':
+        case "pk":
           onUpdateField(fieldIndex, "isPrimaryKey", false);
           break;
-        case 'ob':
+        case "ob":
           onUpdateField(fieldIndex, "isOrderBy", false);
           break;
-        case 'pb':
+        case "pb":
           onUpdateField(fieldIndex, "isPartitionBy", false);
           break;
       }
@@ -214,14 +214,16 @@ const ManualCreationForm: React.FC<ManualCreationFormProps> = ({
                     variant="ghost"
                     size="sm"
                     className="h-4 w-4 p-0 hover:bg-transparent"
-                    onClick={() => removeField('pk', field)}
+                    onClick={() => removeField("pk", field)}
                   >
                     <X className="h-3 w-3" />
                   </Button>
                 </Badge>
               ))
             ) : (
-              <span className="text-sm text-muted-foreground">None selected</span>
+              <span className="text-sm text-muted-foreground">
+                None selected
+              </span>
             )}
           </div>
         </div>
@@ -242,14 +244,16 @@ const ManualCreationForm: React.FC<ManualCreationFormProps> = ({
                     variant="ghost"
                     size="sm"
                     className="h-4 w-4 p-0 hover:bg-transparent"
-                    onClick={() => removeField('ob', field)}
+                    onClick={() => removeField("ob", field)}
                   >
                     <X className="h-3 w-3" />
                   </Button>
                 </Badge>
               ))
             ) : (
-              <span className="text-sm text-muted-foreground">None selected</span>
+              <span className="text-sm text-muted-foreground">
+                None selected
+              </span>
             )}
           </div>
         </div>
@@ -259,22 +263,21 @@ const ManualCreationForm: React.FC<ManualCreationFormProps> = ({
           <span className="text-sm font-medium">Partition By:</span>
           <div className="flex flex-wrap gap-2">
             {partitionByField ? (
-              <Badge
-                variant="secondary"
-                className="flex items-center gap-1"
-              >
+              <Badge variant="secondary" className="flex items-center gap-1">
                 {partitionByField}
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-4 w-4 p-0 hover:bg-transparent"
-                  onClick={() => removeField('pb', partitionByField)}
+                  onClick={() => removeField("pb", partitionByField)}
                 >
                   <X className="h-3 w-3" />
                 </Button>
               </Badge>
             ) : (
-              <span className="text-sm text-muted-foreground">None selected</span>
+              <span className="text-sm text-muted-foreground">
+                None selected
+              </span>
             )}
           </div>
         </div>
@@ -319,19 +322,18 @@ const ManualCreationForm: React.FC<ManualCreationFormProps> = ({
             </Button>
           </div>
           <SyntaxHighlighter
-                  language="sql"
-                  style={a11yDark}
-                  customStyle={{
-                    padding: "1rem",
-                    borderRadius: "0.5rem",
-
-                    overflowX: "auto",
-                  }}
-                  showLineNumbers
-                  wrapLines
-                >
-                  {sql}
-                </SyntaxHighlighter>
+            language="sql"
+            customStyle={{
+              padding: "1rem",
+              borderRadius: "0.5rem",
+              overflowX: "auto",
+            }}
+            style={a11yDark}
+            showLineNumbers
+            wrapLines
+          >
+            {sql}
+          </SyntaxHighlighter>
         </div>
       )}
 

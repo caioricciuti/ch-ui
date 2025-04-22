@@ -5,8 +5,6 @@ import MetricCard from "./MetricCard";
 import {
   formatBytes,
   formatDate,
-  calculateEfficiency,
-  getEfficiencyColor,
   formatNumber,
 } from "@/lib/utils";
 
@@ -16,8 +14,6 @@ interface OverviewCardsProps {
 }
 
 const OverviewCards: React.FC<OverviewCardsProps> = ({ data, tableName }) => {
-  const efficiency = calculateEfficiency(data.total_bytes, data.lifetime_bytes);
-
   const metrics = tableName
     ? [
         {
@@ -78,14 +74,6 @@ const OverviewCards: React.FC<OverviewCardsProps> = ({ data, tableName }) => {
         {metrics.map((metric, index) => (
           <MetricCard key={index} {...metric} />
         ))}
-      </div>
-      <div className="p-4 bg-muted rounded-lg">
-        <p className="text-sm text-muted-foreground">
-          Storage Efficiency:{" "}
-          <span className={`font-bold ${getEfficiencyColor(efficiency)}`}>
-            {efficiency.toFixed(1)}%
-          </span>
-        </p>
       </div>
     </div>
   );

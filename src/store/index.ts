@@ -18,11 +18,119 @@ import { appQueries } from "@/features/workspace/editor/appQueries";
 
 /**
  * Error class for ClickHouse related errors.
+ * Provides error categories and troubleshooting tips.
  */
 export class ClickHouseError extends Error {
-  constructor(message: string, public readonly originalError?: unknown) {
+  category: 'connection' | 'authentication' | 'query' | 'timeout' | 'network' | 'unknown';
+  troubleshootingTips: string[];
+  
+  constructor(
+    message: string, 
+    public readonly originalError?: unknown,
+    category?: 'connection' | 'authentication' | 'query' | 'timeout' | 'network' | 'unknown',
+    troubleshootingTips?: string[]
+  ) {
     super(message);
     this.name = "ClickHouseError";
+    this.category = category || 'unknown';
+    this.troubleshootingTips = troubleshootingTips || [];
+  }
+
+  /**
+   * Creates a categorized error with helpful troubleshooting tips based on the error message or status code
+   */
+  static fromError(error: any, defaultMessage: string = "An unknown error occurred"): ClickHouseError {
+    let message = error?.message || defaultMessage;
+    let category: 'connection' | 'authentication' | 'query' | 'timeout' | 'network' | 'unknown' = 'unknown';
+    let tips: string[] = [];
+    
+    // Check for common error patterns
+    const statusCode = error?.response?.status;
+
+    // Authentication errors
+    if (statusCode === 401 || statusCode === 403 || message.includes("Authentication") || message.includes("Unauthorized") || message.includes("Access denied")) {
+      category = 'authentication';
+      message = "Authentication failed. Please check your username and password.";
+      tips = [
+        "Verify that your username and password are correct",
+        "Ensure the user has the necessary permissions",
+        "Check if the user exists in the ClickHouse server"
+      ];
+    } 
+    // Connection errors
+    else if (statusCode === 404) {
+      category = 'connection';
+      message = "Server not found at the specified URL. Please check your connection settings.";
+      tips = [
+        "Verify the URL is correct and the server is running",
+        "Check if you need to use a custom path (enable Advanced Settings)",
+        "Ensure no firewalls are blocking the connection"
+      ];
+    }
+    // Proxy errors
+    else if (statusCode === 502 || statusCode === 504) {
+      category = 'network';
+      message = "Cannot reach the ClickHouse server. The server might be down or there's a network issue.";
+      tips = [
+        "Verify your ClickHouse server is running",
+        "Check for network connectivity issues",
+        "If using a proxy, ensure it's configured correctly"
+      ];
+    }
+    // Timeout errors
+    else if (statusCode === 408 || message.includes("timeout") || message.includes("timed out")) {
+      category = 'timeout';
+      message = "Connection timed out while trying to reach the ClickHouse server.";
+      tips = [
+        "Try increasing the request timeout value",
+        "Check if the server is under heavy load",
+        "Verify network latency is not causing delays"
+      ];
+    }
+    // CORS errors 
+    else if (message.includes("CORS") || message.includes("Cross-Origin")) {
+      category = 'network';
+      message = "Cross-Origin Request Blocked. The server doesn't allow connections from this origin.";
+      tips = [
+        "Check if CORS is enabled on your ClickHouse server",
+        "Configure the server to accept requests from this origin",
+        "If using a proxy, ensure it's forwarding CORS headers correctly"
+      ];
+    }
+    // Network errors
+    else if (message.includes("Network") || message.includes("ECONNREFUSED") || message.includes("ENOTFOUND")) {
+      category = 'network';
+      message = "Failed to connect to the server. Please check your network connection.";
+      tips = [
+        "Verify the server URL is accessible from your network",
+        "Check for firewall or proxy restrictions",
+        "Ensure the server hostname can be resolved"
+      ];
+    }
+    // SSL errors
+    else if (message.includes("SSL") || message.includes("certificate")) {
+      category = 'connection';
+      message = "SSL connection failed. There might be an issue with the server's certificate.";
+      tips = [
+        "Check if the server's SSL certificate is valid",
+        "Ensure the server name matches the certificate name",
+        "Try using HTTP if HTTPS is not properly configured"
+      ];
+    }
+    // General connection error if we can't be more specific
+    else if (!message.includes("query") && !message.includes("SQL")) {
+      category = 'connection';
+      if (message === defaultMessage) {
+        message = "Failed to connect to the ClickHouse server. Please check your connection settings.";
+      }
+      tips = [
+        "Verify the server URL and port are correct",
+        "Check if your username and password are valid",
+        "Ensure the ClickHouse server is running and accessible"
+      ];
+    }
+
+    return new ClickHouseError(message, error, category, tips);
   }
 }
 
@@ -92,9 +200,10 @@ const useAppStore = create<AppState>()(
 
         /**
          * Sets credentials, initializes the ClickHouse client, and checks the server status.
+         * Provides detailed error information when the connection fails.
          */
         setCredential: async (credential: Credential) => {
-          set({ credential, isLoadingCredentials: true });
+          set({ credential, isLoadingCredentials: true, error: "" });
           try {
             const connectionUrl = buildConnectionUrl(credential);
             const client = createClient({
@@ -115,10 +224,20 @@ const useAppStore = create<AppState>()(
                 get().checkIsAdmin();
               });
           } catch (error) {
-            set({ error: (error as Error).message });
-            toast.error(
-              `Failed to set credentials: ${(error as Error).message}`
+            // Use the enhanced error handling
+            const enhancedError = ClickHouseError.fromError(
+              error, 
+              "Failed to set connection credentials"
             );
+            
+            set({ 
+              error: `${enhancedError.message}\n\nTroubleshooting tips:\n${enhancedError.troubleshootingTips.join('\n')}`,
+              isServerAvailable: false
+            });
+            
+            toast.error(`Connection error: ${enhancedError.message}`, {
+              description: "Please check the troubleshooting tips in the settings panel."
+            });
           } finally {
             set({ isLoadingCredentials: false });
           }
@@ -126,6 +245,7 @@ const useAppStore = create<AppState>()(
 
         /**
          * Updates ClickHouse configuration and re-checks the server status.
+         * Uses enhanced error handling for better user feedback.
          */
         updateConfiguration: async (clickhouseSettings: ClickHouseSettings) => {
           try {
@@ -142,7 +262,16 @@ const useAppStore = create<AppState>()(
             set({ clickHouseClient: client, clickhouseSettings });
             await get().checkServerStatus();
           } catch (error) {
-            throw error;
+            const enhancedError = ClickHouseError.fromError(
+              error, 
+              "Failed to update ClickHouse configuration"
+            );
+            
+            toast.error(`Configuration error: ${enhancedError.message}`, {
+              description: "Check the troubleshooting tips for possible solutions."
+            });
+            
+            throw enhancedError;
           }
         },
 
@@ -173,14 +302,19 @@ const useAppStore = create<AppState>()(
 
         /**
          * Pings the ClickHouse server and retrieves its version.
-         * If the connection fails, credentials are cleared.
+         * If the connection fails, provides detailed error information and troubleshooting tips.
          */
         checkServerStatus: async () => {
           const { clickHouseClient } = get();
           set({ isLoadingCredentials: true, error: "" });
           try {
             if (!clickHouseClient) {
-              throw new Error("ClickHouse client is not initialized");
+              throw new ClickHouseError(
+                "ClickHouse client is not initialized", 
+                null, 
+                'connection',
+                ["Please enter your connection details and try again"]
+              );
             }
             await clickHouseClient.ping();
             const versionResult = await clickHouseClient.query({
@@ -192,18 +326,27 @@ const useAppStore = create<AppState>()(
             const version = versionData.data[0]["version()"];
             set({ isServerAvailable: true, version });
           } catch (error: any) {
-            let errorMessage = error.message;
-            if (error.response?.status === 404) {
-              errorMessage =
-                "Unable to connect to the specified cluster. Please check your custom path configuration.";
-            } else if (error.response?.status === 502) {
-              errorMessage =
-                "Proxy error: Unable to reach the ClickHouse server. Please verify your cluster is running.";
+            // Use the new ClickHouseError.fromError to get a better error message and tips
+            const enhancedError = ClickHouseError.fromError(error, "Failed to connect to ClickHouse server");
+            
+            // Set the detailed error
+            set({ 
+              isServerAvailable: false, 
+              error: `${enhancedError.message}\n\nTroubleshooting tips:\n${enhancedError.troubleshootingTips.join('\n')}` 
+            });
+            
+            // Don't automatically clear credentials on all errors
+            // Only clear them for certain types of errors
+            if (enhancedError.category === 'connection' || enhancedError.category === 'authentication') {
+              await get().clearCredentials();
+              toast.error(`Connection failed: ${enhancedError.message}`, {
+                description: "Your credentials have been cleared. Please try again with correct information."
+              });
+            } else {
+              toast.error(`Connection error: ${enhancedError.message}`, {
+                description: "Check the troubleshooting tips for suggestions to resolve this issue."
+              });
             }
-            set({ isServerAvailable: false, error: errorMessage });
-            // Clear credentials when connection fails
-            await get().clearCredentials();
-            toast.error("Connection failed. Credentials have been cleared.");
           } finally {
             set({ isLoadingCredentials: false });
           }
