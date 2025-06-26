@@ -12,6 +12,7 @@ import {
   Share,
   Share2,
 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import useAppStore from "@/store";
 import LoadingOverlay from "./LoadingOverlay";
 import OverviewCards from "./OverviewCards";
@@ -246,6 +247,37 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
         <>
           <TabsContent value="query">
             <CreateQuerySection data={data as TableData} />
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle className="text-lg font-bold">Using TTL (Time-To-Live)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">
+                  You can specify a Time-To-Live (TTL) for rows in your ClickHouse table.
+                  This allows rows to be automatically deleted after a specified duration.
+                  To use TTL, add a `TTL` clause to your `CREATE TABLE` query.
+                </p>
+                <p className="text-sm mt-2">
+                  <strong>Example:</strong>
+                </p>
+                <pre className="bg-muted p-4 rounded-lg overflow-x-auto mt-2">
+                  <code className="text-sm">
+                    CREATE TABLE example_table (<br />
+                    &nbsp;&nbsp;d DateTime,<br />
+                    &nbsp;&nbsp;a Int<br />
+                    )<br />
+                    ENGINE = MergeTree<br />
+                    PARTITION BY toYYYYMM(d)<br />
+                    ORDER BY d<br />
+                    TTL d + INTERVAL 1 MONTH;
+                  </code>
+                </pre>
+                <p className="text-sm mt-2">
+                  In this example, rows will be deleted one month after the date specified in the `d` column.
+                  Refer to the <a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#ttl" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">ClickHouse documentation</a> for more details on TTL.
+                </p>
+              </CardContent>
+            </Card>
           </TabsContent>
           <TabsContent value="data_sample">
             <DataSampleSection database={database} tableName={tableName} />

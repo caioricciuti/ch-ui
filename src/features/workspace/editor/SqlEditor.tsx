@@ -7,7 +7,7 @@ import {
   createMonacoEditor,
 } from "@/features/workspace/editor/monacoConfig";
 import { Button } from "@/components/ui/button";
-import { CirclePlay, Edit3Icon, Save } from "lucide-react";
+import { CirclePlay, Edit3Icon, Save, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import {
@@ -164,6 +164,23 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
     setQueryName(e.target.value);
   };
 
+  const handleInsertTtlSnippet = () => {
+    if (monacoRef.current) {
+      const editor = monacoRef.current;
+      const position = editor.getPosition();
+      if (position) {
+        editor.executeEdits("insert-ttl-snippet", [
+          {
+            range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
+            text: "\nTTL <date_column> + INTERVAL <number> <DAY|WEEK|MONTH|YEAR>\n",
+            forceMoveMarkers: true,
+          },
+        ]);
+        editor.focus();
+      }
+    }
+  };
+
   if (!tab) return null;
 
   return (
@@ -201,6 +218,14 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
             disabled={tab.type === "home" || tab.type === "information"}
           >
             <Save className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="link"
+            onClick={handleInsertTtlSnippet}
+            className="gap-2"
+            title="Insert TTL Snippet"
+          >
+            <Clock className="h-4 w-4" />
           </Button>
         </div>
       </div>

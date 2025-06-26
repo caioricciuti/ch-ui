@@ -1,0 +1,77 @@
+---
+title: Writing Queries
+description: Learn how to write and execute queries in CH-UI, including advanced features like Time-To-Live (TTL).
+sidebar_position: 3
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+CH-UI provides a powerful SQL editor for interacting with your ClickHouse database. This guide covers the basics of writing queries and highlights some advanced features.
+
+## SQL Editor
+
+The SQL editor in CH-UI uses Monaco Editor, the same editor that powers VS Code. This provides a rich editing experience with features like:
+
+- Syntax highlighting
+- Autocompletion (coming soon!)
+- Error highlighting
+- Keyboard shortcuts (e.g., Ctrl/Cmd + Enter to run a query)
+
+## Running Queries
+
+To run a query, simply type it into the SQL editor and click the "Run Query" button or press Ctrl/Cmd + Enter. The results will be displayed in a table below the editor.
+
+You can also run a selected portion of a query by highlighting the desired SQL statements before running.
+
+## Time-To-Live (TTL)
+
+ClickHouse allows you to specify a Time-To-Live (TTL) for rows in your tables. This feature automatically deletes rows after a specified duration, which can be useful for managing data retention policies.
+
+### Defining TTL in `CREATE TABLE`
+
+You define TTL using the `TTL` clause in your `CREATE TABLE` statement. The TTL expression should evaluate to a Date or DateTime.
+
+**Example:**
+
+```sql
+CREATE TABLE example_table (
+    event_time DateTime,
+    user_id UInt32,
+    action String
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(event_time)
+ORDER BY (event_time, user_id)
+TTL event_time + INTERVAL 1 MONTH;
+```
+
+In this example:
+- Rows in `example_table` will be automatically deleted one month after the `event_time`.
+- You can use various time intervals like `DAY`, `WEEK`, `MONTH`, `YEAR`.
+
+### TTL Snippet Helper
+
+CH-UI provides a convenient snippet helper in the SQL editor to insert a TTL clause template:
+
+1. Click the **Clock icon** (Insert TTL Snippet) in the editor's toolbar.
+2. A template `TTL <date_column> + INTERVAL <number> <DAY|WEEK|MONTH|YEAR>` will be inserted at your cursor's position.
+3. Replace the placeholders (`<date_column>`, `<number>`, `<DAY|WEEK|MONTH|YEAR>`) with your desired values.
+
+**Example using the snippet:**
+
+If you have a column named `log_date` and want data to expire after 90 days:
+
+```sql
+TTL log_date + INTERVAL 90 DAY
+```
+
+### Important Notes on TTL:
+
+- TTL is processed during data part merges in ClickHouse. Data isn't deleted immediately upon expiration but rather when merges occur.
+- You can also specify TTL for individual columns.
+- For more detailed information, refer to the [official ClickHouse TTL documentation](https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#ttl).
+
+## Saving Queries
+
+You can save frequently used queries in CH-UI. Click the "Save" icon in the SQL editor toolbar, provide a name for your query, and it will be accessible from the "Saved Queries" section in the sidebar.
