@@ -5,7 +5,7 @@
     "name": "Caio Ricciuti",
     "email": "caio.ricciuti@outlook.com"
   },
-  "version": "1.5.27",
+  "version": "1.5.28",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
