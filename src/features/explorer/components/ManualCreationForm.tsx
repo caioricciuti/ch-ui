@@ -15,8 +15,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import FieldManagement, { Field } from "./FieldManagement";
-import SyntaxHighlighter from "react-syntax-highlighter";
-import { a11yDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
+import hljs from "highlight.js/lib/core";
+import sqlLang from "highlight.js/lib/languages/sql";
+import "highlight.js/styles/a11y-dark.css";
+
+hljs.registerLanguage("sql", sqlLang);
 
 interface DatabaseItem {
   name: string;
@@ -321,19 +324,12 @@ const ManualCreationForm: React.FC<ManualCreationFormProps> = ({
               {isCopied ? "Copied!" : "Copy"}
             </Button>
           </div>
-          <SyntaxHighlighter
-            language="sql"
-            customStyle={{
-              padding: "1rem",
-              borderRadius: "0.5rem",
-              overflowX: "auto",
+          <pre
+            className="bg-[#2d2d2d] rounded-md p-4 overflow-x-auto"
+            dangerouslySetInnerHTML={{
+              __html: hljs.highlight(sql, { language: "sql" }).value,
             }}
-            style={a11yDark}
-            showLineNumbers
-            wrapLines
-          >
-            {sql}
-          </SyntaxHighlighter>
+          />
         </div>
       )}
 

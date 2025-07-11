@@ -24,8 +24,11 @@ import { toast } from "sonner";
 import useAppstore from "@/store";
 import InfoDialog from "@/components/common/InfoDialog";
 import ConfirmationDialog from "@/components/common/ConfirmationDialog";
-import SyntaxHighlighter from "react-syntax-highlighter";
-import { a11yDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
+import hljs from "highlight.js/lib/core";
+import sqlLang from "highlight.js/lib/languages/sql";
+import "highlight.js/styles/a11y-dark.css";
+
+hljs.registerLanguage("sql", sqlLang);
 const ENGINE_OPTIONS = ["Atomic", "Lazy"];
 
 const CreateDatabase = () => {
@@ -182,7 +185,7 @@ const CreateDatabase = () => {
     } catch (error) {
       if (error instanceof z.ZodError) {
         const newErrors: { [key: string]: string } = {};
-        error.errors.forEach((err) => {
+        error.issues.forEach((err) => {
           const path = err.path.join(".");
           newErrors[path] = err.message;
         });
@@ -507,20 +510,12 @@ const CreateDatabase = () => {
                   </Button>
                 </div>
 
-                <SyntaxHighlighter
-                  language="sql"
-                  style={a11yDark}
-                  customStyle={{
-                    padding: "1rem",
-                    borderRadius: "0.5rem",
-
-                    overflowX: "auto",
+                <pre
+                  className="bg-[#2d2d2d] rounded-md p-4 overflow-x-auto"
+                  dangerouslySetInnerHTML={{
+                    __html: hljs.highlight(sql, { language: "sql" }).value,
                   }}
-                  showLineNumbers
-                  wrapLines
-                >
-                  {sql}
-                </SyntaxHighlighter>
+                />
               </div>
             )}
 

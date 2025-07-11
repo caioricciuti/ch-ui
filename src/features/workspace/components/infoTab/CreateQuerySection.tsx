@@ -2,9 +2,12 @@ import React, { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Copy } from "lucide-react";
 import { format } from "sql-formatter";
-import SyntaxHighlighter from 'react-syntax-highlighter';
-import { a11yDark } from 'react-syntax-highlighter/dist/esm/styles/hljs';
+import hljs from "highlight.js/lib/core";
+import sqlLang from "highlight.js/lib/languages/sql";
+import "highlight.js/styles/a11y-dark.css";
 import { toast } from "sonner";
+
+hljs.registerLanguage("sql", sqlLang);
 
 
 interface CreateQuerySectionProps {
@@ -50,19 +53,12 @@ const CreateQuerySection: React.FC<CreateQuerySectionProps> = ({ data }) => {
         </button>
       </CardHeader>
       <CardContent>
-        <SyntaxHighlighter
-          language="sql"
-          style={a11yDark}
-          customStyle={{
-            padding: "1rem",
-            borderRadius: "0.5rem",
-            maxHeight: "400px",
-            overflowX: "auto",
+        <pre
+          className="rounded-md p-4 overflow-x-auto max-h-[400px]"
+          dangerouslySetInnerHTML={{
+            __html: hljs.highlight(formattedQuery, { language: "sql" }).value,
           }}
-          wrapLines
-        >
-          {formattedQuery}
-        </SyntaxHighlighter>
+        />
       </CardContent>
     </Card>
   );
