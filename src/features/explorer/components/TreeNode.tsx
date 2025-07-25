@@ -91,7 +91,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
 
   const handleQueryData = useCallback(
     (database: string, table: string) => async () => {
-      const query = `SELECT * FROM ${database}.${table} LIMIT 1000`;
+      const query = `SELECT * FROM \`${database}\`.\`${table}\` LIMIT 1000`;
       const title = `Query - ${table}`;
       const existingTab = getTabById(title);
 
@@ -153,7 +153,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
 
     setConfirmAction(() => async () => {
       try {
-        await runQuery(`DROP TABLE ${database}.${table}`);
+        await runQuery(`DROP TABLE \`${database}\`.\`${table}\``);
         toast.success(`Dropped table ${table}`);
         refreshData();
       } catch (error) {
