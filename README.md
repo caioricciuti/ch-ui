@@ -4,6 +4,7 @@
 ![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.x-brightgreen)
 ![npm Version](https://img.shields.io/badge/npm-%3E%3D10.x-brightgreen)
 [![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fcaioricciuti%2Fch--ui-blue)](https://github.com/caioricciuti/ch-ui/pkgs/container/ch-ui)
+![Version](https://img.shields.io/badge/version-1.5.30-blue)
 
 ![Docker Pulls](https://img.shields.io/badge/pulls-30.6k-blue?logo=docker&style=flat-square)
 
@@ -18,8 +19,10 @@ A modern, feature-rich web interface for ClickHouse databases. CH-UI provides an
   - Syntax highlighting
   - Query history tracking
   - Multi-tab query execution
+  - Query saving and management
 - **📊 Dynamic Data Visualization**: 
   - Interactive data tables with sorting and filtering
+  - Support for column names with special characters (dots, spaces, etc.)
   - Custom visualization options
   - Real-time data updates
 
@@ -39,6 +42,20 @@ A modern, feature-rich web interface for ClickHouse databases. CH-UI provides an
   - Network performance metrics
   - Resource utilization tracking
 
+### Advanced Features
+- **🌐 Distributed ClickHouse Support**:
+  - ON CLUSTER operations for tables and users
+  - Cluster-aware table creation
+  - Distributed engine support
+- **🔀 Reverse Proxy/Subpath Support**:
+  - Deploy behind nginx/apache with custom base paths
+  - Flexible URL routing
+  - Production-ready proxy configurations
+- **🔧 Runtime Configuration**:
+  - Environment variables injected at Docker runtime
+  - No rebuild required for configuration changes
+  - Flexible deployment options
+
 ### User Experience
 - **🎨 Modern UI/UX**:
   - Clean, intuitive interface
@@ -49,9 +66,10 @@ A modern, feature-rich web interface for ClickHouse databases. CH-UI provides an
 ## 📸 Screenshots
 
 <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-  <img src="./public/screen-shots/settings.png" alt="Settings Interface" width="32%" />
-  <img src="./public/screen-shots/main-page.png" alt="Main Dashboard" width="32%" />
-  <img src="./public/screen-shots/instance-metrics.png" alt="Instance Metrics" width="32%" />
+  <img src="./public/screen-shots/screenshot1.png" alt="Settings Interface" width="24%" />
+  <img src="./public/screen-shots/screenshot2.png" alt="Main Dashboard" width="24%" />
+  <img src="./public/screen-shots//screenshot13.png" alt="Instance Metrics" width="24%" />
+  <img src="./public/screen-shots//screenshot13.png" alt="Instance Metrics" width="24%" />
 </div>
 
 ## 🚀 Getting Started
@@ -73,9 +91,18 @@ services:
     ports:
       - "5521:5521"
     environment:
+      # Core ClickHouse Configuration
       VITE_CLICKHOUSE_URL: "http://your-clickhouse-server:8123"
       VITE_CLICKHOUSE_USER: "your-username"
       VITE_CLICKHOUSE_PASS: "your-password"
+      
+      # Optional: Advanced Features
+      VITE_CLICKHOUSE_USE_ADVANCED: "false"
+      VITE_CLICKHOUSE_CUSTOM_PATH: ""
+      VITE_CLICKHOUSE_REQUEST_TIMEOUT: "30000"
+      
+      # Optional: Reverse Proxy Support
+      VITE_BASE_PATH: "/"
 ```
 
 Then run:
@@ -84,16 +111,23 @@ docker-compose up -d
 ```
 
 #### Environment Variables
-| Variable | Description | Required | Default |
-|----------|-------------|-----------|---------|
-| VITE_CLICKHOUSE_URL | ClickHouse server URL | Yes | - |
-| VITE_CLICKHOUSE_USER | ClickHouse username | Yes | - |
-| VITE_CLICKHOUSE_PASS | ClickHouse password | No | "" |
-| VITE_CLICKHOUSE_USE_ADVANCED | Enable advanced ClickHouse features (e.g., custom settings, system tables access) | No | false |
-| VITE_CLICKHOUSE_CUSTOM_PATH | Custom path for ClickHouse HTTP interface | No | - |
-| VITE_CLICKHOUSE_REQUEST_TIMEOUT | Request timeout in milliseconds | No | 30000 |
+
+| Variable | Description | Required | Default | Since |
+|----------|-------------|----------|---------|-------|
+| **Core Configuration** |
+| VITE_CLICKHOUSE_URL | ClickHouse server URL | Yes | - | v1.0.0 |
+| VITE_CLICKHOUSE_USER | ClickHouse username | Yes | - | v1.0.0 |
+| VITE_CLICKHOUSE_PASS | ClickHouse password | No | "" | v1.0.0 |
+| **Advanced Features** |
+| VITE_CLICKHOUSE_USE_ADVANCED | Enable advanced ClickHouse features (e.g., custom settings, system tables access) | No | false | v1.4.0 |
+| VITE_CLICKHOUSE_CUSTOM_PATH | Custom path for ClickHouse HTTP interface | No | - | v1.4.0 |
+| VITE_CLICKHOUSE_REQUEST_TIMEOUT | Request timeout in milliseconds | No | 30000 | v1.4.0 |
+| **Deployment Configuration** |
+| VITE_BASE_PATH | Base path for reverse proxy deployment (e.g., "/ch-ui") | No | "/" | v1.5.30 |
 
 #### Advanced Docker Configuration
+
+##### Complete Example with All Options
 ```yaml
 services:
   ch-ui:
@@ -102,16 +136,21 @@ services:
     ports:
       - "5521:5521"
     environment:
+      # Core Configuration
       VITE_CLICKHOUSE_URL: "http://your-clickhouse-server:8123"
       VITE_CLICKHOUSE_USER: "your-username"
       VITE_CLICKHOUSE_PASS: "your-password"
+      
       # Advanced Options
       VITE_CLICKHOUSE_USE_ADVANCED: "true"  # Enable advanced features
-      VITE_CLICKHOUSE_CUSTOM_PATH: "/custom/path"  # Optional: Custom HTTP path
-      VITE_CLICKHOUSE_REQUEST_TIMEOUT: "30000"  # Optional: Request timeout in milliseconds
+      VITE_CLICKHOUSE_CUSTOM_PATH: "/custom/path"  # Custom HTTP path
+      VITE_CLICKHOUSE_REQUEST_TIMEOUT: "60000"  # 60 second timeout
+      
+      # Deployment Options
+      VITE_BASE_PATH: "/ch-ui"  # Deploy at https://yourdomain.com/ch-ui
 ```
 
-Or using Docker run with advanced options:
+##### Docker Run with All Options
 ```bash
 docker run --name ch-ui -p 5521:5521 \
   -e VITE_CLICKHOUSE_URL=http://your-clickhouse-server:8123 \
@@ -119,7 +158,8 @@ docker run --name ch-ui -p 5521:5521 \
   -e VITE_CLICKHOUSE_PASS=your-password \
   -e VITE_CLICKHOUSE_USE_ADVANCED=true \
   -e VITE_CLICKHOUSE_CUSTOM_PATH=/custom/path \
-  -e VITE_CLICKHOUSE_REQUEST_TIMEOUT=30000 \
+  -e VITE_CLICKHOUSE_REQUEST_TIMEOUT=60000 \
+  -e VITE_BASE_PATH=/ch-ui \
   ghcr.io/caioricciuti/ch-ui:latest
 ```
 
@@ -170,48 +210,169 @@ Default credentials:
 
 Data is persisted in `.clickhouse_local_data` directory.
 
-## 🔒 Security Recommendations
+## 🔒 Security & Production Deployment
 
-### Production Deployment
-When deploying CH-UI in a production environment, consider the following security measures:
+### Reverse Proxy Setup with Nginx
 
-1. **Reverse Proxy Setup**
-   - Use Nginx/Apache as a reverse proxy
-   - Enable HTTPS
-   - Implement authentication
+When deploying CH-UI behind a reverse proxy with a custom base path:
 
-2. **Network Security**
-   - Run on a private network when possible
-   - Use VPN for remote access
-   - Implement IP whitelisting
-
-### Example Nginx Configuration with Basic Auth
+#### Nginx Configuration
 ```nginx
 server {
     listen 80;
     server_name your-domain.com;
 
-    location / {
-        auth_basic "Restricted Access";
-        auth_basic_user_file /etc/nginx/.htpasswd;
-        
-        proxy_pass http://localhost:5521;
+    # CH-UI with custom base path
+    location /ch-ui/ {
+        proxy_pass http://localhost:5521/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket support for real-time features
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
     }
 }
 ```
 
+#### Docker Compose for Reverse Proxy
+```yaml
+services:
+  ch-ui:
+    image: ghcr.io/caioricciuti/ch-ui:latest
+    restart: always
+    ports:
+      - "127.0.0.1:5521:5521"  # Only bind to localhost
+    environment:
+      VITE_CLICKHOUSE_URL: "http://your-clickhouse-server:8123"
+      VITE_CLICKHOUSE_USER: "your-username"
+      VITE_CLICKHOUSE_PASS: "your-password"
+      VITE_BASE_PATH: "/ch-ui"  # Must match nginx location
+```
+
+### HTTPS with Let's Encrypt
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name your-domain.com;
+
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+
+    location /ch-ui/ {
+        proxy_pass http://localhost:5521/;
+        # ... rest of proxy configuration
+    }
+}
+```
+
+### Authentication with Basic Auth
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location /ch-ui/ {
+        auth_basic "Restricted Access";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+        
+        proxy_pass http://localhost:5521/;
+        # ... rest of proxy configuration
+    }
+}
+```
+
+## 🎯 Distributed ClickHouse Support
+
+CH-UI now supports distributed ClickHouse deployments with cluster operations:
+
+### Features
+- **ON CLUSTER Support**: Create tables and users across entire clusters
+- **Cluster-Aware Operations**: Automatic detection of distributed setups
+- **Distributed Engine**: Support for Distributed table engine
+
+### Configuration
+In your Settings page, enable "Distributed Mode" and specify your cluster name. This will:
+- Enable ON CLUSTER syntax for table creation
+- Enable ON CLUSTER syntax for user management
+- Show cluster-specific options in the UI
+
+### Example: Creating a Distributed Table
+1. Enable Distributed Mode in Settings
+2. Create a table with "ON CLUSTER" option checked
+3. Select "Distributed" as the table engine
+4. CH-UI will generate the appropriate DDL with cluster syntax
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+#### Environment Variables Not Working
+If environment variables aren't being applied:
+1. Ensure you're using the latest image: `docker pull ghcr.io/caioricciuti/ch-ui:latest`
+2. Check logs: `docker logs ch-ui`
+3. Verify variables are set: The logs should show which variables are SET/NOT SET
+
+#### Reverse Proxy Issues
+If CH-UI doesn't work correctly behind a reverse proxy:
+1. Ensure `VITE_BASE_PATH` matches your proxy location
+2. Don't include trailing slashes in `VITE_BASE_PATH`
+3. Check browser console for 404 errors on assets
+
+#### Column Names with Special Characters
+CH-UI now properly handles column names containing:
+- Dots (e.g., `user.email`)
+- Spaces (e.g., `User Name`)
+- Special characters
+
+No configuration needed - this works automatically.
+
 ## 📚 Documentation
 
-![Website](https://img.shields.io/website?url=https%3A%2F%2Fhttps://ch-ui.com)
-
+![Website](https://img.shields.io/website?url=https%3A%2F%2Fch-ui.com)
 
 For detailed documentation, visit our [official documentation](https://ch-ui.com/docs/getting-started?utm_source=ch-ui&utm_medium=gitHubReadme).
+
+## 🔄 Migration Guide
+
+### Upgrading from v1.4.x to v1.5.30
+
+#### New Features
+1. **Reverse Proxy Support**: Set `VITE_BASE_PATH` if deploying behind a proxy
+2. **Distributed ClickHouse**: Enable in Settings for cluster operations
+3. **Enhanced Column Rendering**: No changes needed, automatic improvement
+
+#### Breaking Changes
+None - v1.5.30 is fully backward compatible.
+
+#### Recommended Actions
+1. Pull the latest Docker image
+2. Review new environment variables
+3. Test distributed features if using ClickHouse clusters
 
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+### Development Setup
+```bash
+# Clone and install
+git clone https://github.com/caioricciuti/ch-ui.git
+cd ch-ui
+npm install
+
+# Run tests
+npm test
+
+# Run linter
+npm run lint
+
+# Start development server
+npm run dev
+```
 
 ## ❤️ Sponsors
 
@@ -238,3 +399,6 @@ Your support helps maintain and improve CH-UI! ✨
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](./LICENSE.md) file for details.
+
+
+Made with ❤️ by [Caio Ricciuti](https://github.com/caioricciuti)

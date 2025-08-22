@@ -28,7 +28,7 @@ interface SQLEditorProps {
 }
 
 const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
-  const { getTabById, updateTab, saveQuery, checkSavedQueriesStatus, isAdmin } =
+  const { getTabById, updateTab, saveQuery, updateSavedQuery, checkSavedQueriesStatus, isAdmin } =
     useAppStore();
   const editorRef = useRef<HTMLDivElement>(null);
   const monacoRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -152,11 +152,19 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
     }
 
     try {
-      await saveQuery(tabId, queryName, query);
+      if (tab?.isSaved) {
+        // Update existing saved query
+        await updateSavedQuery(tabId, query, queryName);
+        toast.success("Query updated successfully!");
+      } else {
+        // Save new query
+        await saveQuery(tabId, queryName, query);
+        toast.success("Query saved successfully!");
+      }
       setIsSaveDialogOpen(false);
     } catch (error) {
       console.error("Error saving query:", error);
-      toast.error("Failed to save query.");
+      toast.error(tab?.isSaved ? "Failed to update query." : "Failed to save query.");
     }
   };
 
@@ -210,9 +218,9 @@ const SQLEditor: React.FC<SQLEditorProps> = ({ tabId, onRunQuery }) => {
       <AlertDialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Save Query</AlertDialogTitle>
+            <AlertDialogTitle>{tab?.isSaved ? "Update Query" : "Save Query"}</AlertDialogTitle>
             <AlertDialogDescription>
-              Enter a name for this query:
+              {tab?.isSaved ? "Update the saved query:" : "Enter a name for this query:"}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="grid gap-2">

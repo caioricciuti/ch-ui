@@ -928,7 +928,6 @@ const useAppStore = create<AppState>()(
             await clickHouseClient.command({ query: insertQuery });
 
             await updateTab(tabId, {
-              type: "saved_query",
               title: name,
               content: query,
               isSaved: true,

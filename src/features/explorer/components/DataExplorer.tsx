@@ -114,9 +114,10 @@ const DatabaseExplorer: React.FC = () => {
   const handleSavedQueryOpen = (query: SavedQuery) => {
     addTab({
       id: query.id,
-      type: "saved_query",
+      type: "sql",
       title: query.name,
       content: query.query,
+      isSaved: true,
     });
   };
 

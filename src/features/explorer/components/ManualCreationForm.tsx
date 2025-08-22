@@ -14,6 +14,7 @@ import { Copy, CopyCheck, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import FieldManagement, { Field } from "./FieldManagement";
 import hljs from "highlight.js/lib/core";
 import sqlLang from "highlight.js/lib/languages/sql";
@@ -35,6 +36,8 @@ interface ManualCreationFormProps {
   orderByFields: string[];
   partitionByField: string | null;
   comment: string;
+  onCluster?: boolean;
+  clusterName?: string;
   errors: Record<string, string>;
   onChange: (field: string, value: any) => void;
   onAddField: () => void;
@@ -56,6 +59,7 @@ const TABLE_ENGINES = [
   "CollapsingMergeTree",
   "VersionedCollapsingMergeTree",
   "Memory",
+  "Distributed",
 ] as const;
 
 const ManualCreationForm: React.FC<ManualCreationFormProps> = ({
@@ -67,6 +71,8 @@ const ManualCreationForm: React.FC<ManualCreationFormProps> = ({
   orderByFields,
   partitionByField,
   comment,
+  onCluster = false,
+  clusterName = "",
   errors,
   onChange,
   onAddField,
@@ -173,6 +179,36 @@ const ManualCreationForm: React.FC<ManualCreationFormProps> = ({
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        {/* ON CLUSTER Settings */}
+        <div className="space-y-4">
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="onCluster"
+              checked={onCluster}
+              onCheckedChange={(checked) => onChange("onCluster", checked)}
+            />
+            <Label htmlFor="onCluster" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+              ON CLUSTER
+            </Label>
+          </div>
+          
+          {onCluster && (
+            <div className="space-y-2">
+              <Label htmlFor="clusterName">Cluster Name</Label>
+              <Input
+                id="clusterName"
+                value={clusterName}
+                onChange={(e) => onChange("clusterName", e.target.value)}
+                placeholder="Enter cluster name"
+                className={errors.clusterName ? "border-red-500" : ""}
+              />
+              {errors.clusterName && (
+                <p className="text-xs text-red-500">{errors.clusterName}</p>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">

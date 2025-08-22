@@ -48,6 +48,7 @@ const CreateTable = () => {
     dataBaseExplorer,
     runQuery,
     addTab,
+    credential,
   } = useAppStore();
 
   // State management
@@ -63,6 +64,8 @@ const CreateTable = () => {
   const [createTableError, setCreateTableError] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
+  const [onCluster, setOnCluster] = useState(false);
+  const [clusterName, setClusterName] = useState("");
 
   // Effect to set default database
   useEffect(() => {
@@ -70,6 +73,14 @@ const CreateTable = () => {
       setDatabase(selectedDatabaseForCreateTable);
     }
   }, [selectedDatabaseForCreateTable]);
+
+  // Effect to set cluster settings from credentials
+  useEffect(() => {
+    if (credential?.isDistributed && credential?.clusterName) {
+      setOnCluster(true);
+      setClusterName(credential.clusterName);
+    }
+  }, [credential]);
 
   // Effect to update derived states when fields change
   useEffect(() => {
@@ -171,7 +182,13 @@ const CreateTable = () => {
         return `${field.name} ${typeStr} ${nullableStr}${commentStr}`;
       }).join(",\n    ");
 
-      let sql = `CREATE TABLE ${database}.${tableName}\n(\n    ${fieldDefinitions}\n) ENGINE = ${engine}`;
+      let sql = `CREATE TABLE ${database}.${tableName}`;
+      
+      if (onCluster && clusterName) {
+        sql += ` ON CLUSTER ${clusterName}`;
+      }
+      
+      sql += `\n(\n    ${fieldDefinitions}\n) ENGINE = ${engine}`;
 
       if (primaryKeyFields.length > 0) {
         sql += `\nPRIMARY KEY (${primaryKeyFields.join(", ")})`;
@@ -318,6 +335,8 @@ const CreateTable = () => {
             orderByFields={orderByFields}
             partitionByField={partitionByField}
             comment={comment}
+            onCluster={onCluster}
+            clusterName={clusterName}
             errors={errors}
             onChange={(field, value) => {
               switch (field) {
@@ -332,6 +351,12 @@ const CreateTable = () => {
                   break;
                 case "comment":
                   setComment(value);
+                  break;
+                case "onCluster":
+                  setOnCluster(value as boolean);
+                  break;
+                case "clusterName":
+                  setClusterName(value);
                   break;
               }
             }}

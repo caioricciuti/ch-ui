@@ -60,6 +60,8 @@ const formSchema = z.object({
     .int("Request timeout must be a whole number")
     .min(1000, "Request timeout must be at least 1000 millisecond")
     .max(600000, "Request timeout must not exceed 600000 milliseconds"),
+  isDistributed: z.boolean().optional(),
+  clusterName: z.string().optional(),
 });
 
 export default function SettingsPage() {
@@ -79,6 +81,9 @@ export default function SettingsPage() {
 
   const [showPassword, setShowPassword] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [showDistributedSettings, setShowDistributedSettings] = useState(
+    credential?.isDistributed || false
+  );
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -101,6 +106,8 @@ export default function SettingsPage() {
         30000,
       useAdvanced: searchParams.get("useAdvanced") === "true" || false,
       customPath: searchParams.get("customPath") || "",
+      isDistributed: searchParams.get("isDistributed") === "true" || credential?.isDistributed || false,
+      clusterName: searchParams.get("clusterName") || credential?.clusterName || "",
     },
   });
 
@@ -115,6 +122,8 @@ export default function SettingsPage() {
         30000,
       useAdvanced: searchParams.get("useAdvanced") === "true" || false,
       customPath: searchParams.get("customPath") || "",
+      isDistributed: searchParams.get("isDistributed") === "true" || credential?.isDistributed || false,
+      clusterName: searchParams.get("clusterName") || credential?.clusterName || "",
     });
 
     if (searchParams.get("useAdvanced") === "true")
@@ -434,6 +443,54 @@ export default function SettingsPage() {
                             </FormItem>
                           )}
                         />
+
+                        <FormField
+                          control={form.control}
+                          name="isDistributed"
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow-sm">
+                              <FormControl>
+                                <Checkbox
+                                  checked={field.value}
+                                  onCheckedChange={(checked) => {
+                                    setShowDistributedSettings(checked as boolean);
+                                    field.onChange(checked);
+                                  }}
+                                />
+                              </FormControl>
+                              <div className="space-y-1 leading-none">
+                                <FormLabel>Distributed Mode</FormLabel>
+                                <FormDescription className="text-xs">
+                                  Enable this if you're using a ClickHouse cluster
+                                </FormDescription>
+                              </div>
+                            </FormItem>
+                          )}
+                        />
+
+                        {showDistributedSettings && (
+                          <FormField
+                            control={form.control}
+                            name="clusterName"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Cluster Name</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    className="font-mono"
+                                    disabled={isLoadingCredentials}
+                                    placeholder="my_cluster"
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormDescription className="text-xs">
+                                  The name of your ClickHouse cluster
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        )}
                       </div>
 
                       <div className="flex gap-4 pt-4">

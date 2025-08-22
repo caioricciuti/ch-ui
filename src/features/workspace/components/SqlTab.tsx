@@ -112,7 +112,6 @@ const SqlTab: React.FC<SqlTabProps> = ({ tabId }) => {
     if (tab?.result?.data?.length && tab?.result?.meta?.length) {
       const colDefs: ColDef<IRow>[] = tab.result.meta.map((col: any) => ({
         headerName: col.name,
-        field: col.name,
         valueGetter: (param: any) => param.data[col.name],
       }));
 

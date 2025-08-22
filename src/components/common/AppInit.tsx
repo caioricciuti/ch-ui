@@ -9,6 +9,8 @@ declare global {
       VITE_CLICKHOUSE_PASS?: string;
       VITE_CLICKHOUSE_USE_ADVANCED?: boolean;
       VITE_CLICKHOUSE_CUSTOM_PATH?: string;
+      VITE_CLICKHOUSE_REQUEST_TIMEOUT?: number;
+      VITE_BASE_PATH?: string;
     };
   }
 }
@@ -39,6 +41,7 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
     checkIsAdmin,
   } = useAppStore();
   const [isLoading, setIsLoading] = useState(true);
+  const [envChecked, setEnvChecked] = useState(false);
 
   // Effect to set credentials from environment variables
   useEffect(() => {
@@ -48,22 +51,31 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
     const envPass = window.env?.VITE_CLICKHOUSE_PASS;
     const envUseAdvanced = window.env?.VITE_CLICKHOUSE_USE_ADVANCED;
     const envCustomPath = window.env?.VITE_CLICKHOUSE_CUSTOM_PATH;
+    const envRequestTimeout = window.env?.VITE_CLICKHOUSE_REQUEST_TIMEOUT;
+
+    console.log("AppInit: Checking environment variables...");
+    console.log("AppInit: envUrl:", envUrl ? "SET" : "NOT SET");
+    console.log("AppInit: envUser:", envUser ? "SET" : "NOT SET");
 
     if (envUrl && envUser) {
+      console.log("AppInit: Setting credentials from environment variables");
       setCredential({
         url: envUrl,
         username: envUser,
         password: envPass || "",
         useAdvanced: envUseAdvanced || false,
         customPath: envCustomPath || "",
-        requestTimeout: 10000,
+        requestTimeout: envRequestTimeout || 30000,
       });
       setCredentialSource("env");
     }
-  }, [setCredential]);
+    setEnvChecked(true);
+  }, [setCredential, setCredentialSource]);
 
-  // Effect to initialize the application
+  // Effect to initialize the application after env check
   useEffect(() => {
+    if (!envChecked) return;
+    
     const init = async () => {
       try {
         await initializeApp();
@@ -75,7 +87,7 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
       }
     };
     init();
-  }, [initializeApp]);
+  }, [envChecked, initializeApp, checkIsAdmin]);
 
   // Effect to handle initialization errors
   useEffect(() => {

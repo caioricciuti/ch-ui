@@ -11,6 +11,9 @@ import {
 } from "@/components/ui/sheet";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Form } from "@/components/ui/form";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import useAppStore from "@/store";
@@ -31,6 +34,8 @@ const CreateNewUser: React.FC<CreateNewUserProps> = ({ onUserCreated }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [onCluster, setOnCluster] = useState(false);
+  const [clusterName, setClusterName] = useState("");
 
   const form = useForm({
     defaultValues: {
@@ -61,7 +66,15 @@ const CreateNewUser: React.FC<CreateNewUserProps> = ({ onUserCreated }) => {
   });
 
   const metadata = useMetadata(isOpen); // Fetch roles, databases, profiles
-  const { runQuery } = useAppStore();
+  const { runQuery, credential } = useAppStore();
+
+  // Set cluster settings from credentials
+  React.useEffect(() => {
+    if (credential?.isDistributed && credential?.clusterName) {
+      setOnCluster(true);
+      setClusterName(credential.clusterName);
+    }
+  }, [credential]);
 
   const onSubmit = async (data: any) => {
     try {
@@ -119,6 +132,11 @@ const CreateNewUser: React.FC<CreateNewUserProps> = ({ onUserCreated }) => {
 
   const buildUserCreationQuery = (data: any) => {
     let query = `CREATE USER IF NOT EXISTS ${data.username}`;
+    
+    // Add ON CLUSTER if enabled
+    if (onCluster && clusterName) {
+      query += ` ON CLUSTER ${clusterName}`;
+    }
 
     // Add authentication
     query += ` IDENTIFIED WITH sha256_password BY '${data.password}'`;
@@ -219,6 +237,31 @@ const CreateNewUser: React.FC<CreateNewUserProps> = ({ onUserCreated }) => {
               form={form}
               handleGeneratePassword={handleGeneratePassword}
             />
+
+            {/* ON CLUSTER Settings */}
+            <div className="space-y-4 border rounded-lg p-4">
+              <h3 className="text-lg font-semibold">Cluster Settings</h3>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="onCluster"
+                  checked={onCluster}
+                  onCheckedChange={(checked) => setOnCluster(!!checked)}
+                />
+                <Label htmlFor="onCluster">Create user on cluster</Label>
+              </div>
+              
+              {onCluster && (
+                <div className="space-y-2">
+                  <Label htmlFor="clusterName">Cluster Name</Label>
+                  <Input
+                    id="clusterName"
+                    value={clusterName}
+                    onChange={(e) => setClusterName(e.target.value)}
+                    placeholder="Enter cluster name"
+                  />
+                </div>
+              )}
+            </div>
 
             {/* Access Control Section */}
             <AccessControlSection form={form} />

@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "docs/**"
+      - ".github/workflows/deploy-docs.yml"
 
 jobs:
   deploy:
@@ -24,29 +25,44 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: "20"
-          cache: npm
-          cache-dependency-path: docs/package-lock.json
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
 
       - name: Install dependencies
         run: |
           cd docs
-          npm ci
+          if [ -f "../bun.lock" ]; then
+            echo "Using bun to install dependencies"
+            bun install
+          else
+            echo "Using npm to install dependencies"
+            npm ci
+          fi
 
       - name: Build website
         run: |
           cd docs
-          npm run build
+          if [ -f "../bun.lock" ]; then
+            echo "Building with bun"
+            bun run docs:build
+          else
+            echo "Building with npm"
+            npm run docs:build
+          fi
 
       - name: Add .nojekyll file
-        run: touch docs/build/.nojekyll
+        run: touch docs/.vitepress/dist/.nojekyll
 
       - name: Create CNAME file
-        run: echo "ch-ui.com" > docs/build/CNAME
+        run: echo "ch-ui.com" > docs/.vitepress/dist/CNAME
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GHCR_PAT }}
-          publish_dir: ./docs/build
+          publish_dir: ./docs/.vitepress/dist
           user_name: ${{ secrets.GIT_USER_NAME }}
           user_email: ${{ secrets.GIT_USER_EMAIL }}

@@ -12,6 +12,8 @@ export interface Credential {
   requestTimeout: number;
   useAdvanced: boolean;
   customPath: string;
+  isDistributed?: boolean;
+  clusterName?: string;
 }
 
 export interface DatabaseInfo {
@@ -23,7 +25,7 @@ export interface DatabaseInfo {
 export interface Tab {
   id: string;
   title: string;
-  type: "sql" | "home" | "information" | "saved_query";
+  type: "sql" | "home" | "information";
   content: string | { database?: string; table?: string };
   error?: string | null;
   isLoading?: boolean;

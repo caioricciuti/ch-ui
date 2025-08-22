@@ -63,7 +63,7 @@ export default function AgTable({ data }: AgTableProps) {
     if (!data?.data?.length) return [];
     return Object.keys(data.data[0]).map((key) => ({
       headerName: key,
-      field: key,
+      valueGetter: (params: any) => params.data[key],
     }));
   }, [data?.data]);
 
@@ -71,7 +71,7 @@ export default function AgTable({ data }: AgTableProps) {
     if (!data?.meta?.length) return [];
     return Object.keys(data.meta[0]).map((key) => ({
       headerName: key,
-      field: key,
+      valueGetter: (params: any) => params.data[key],
     }));
   }, [data?.meta]);
 
