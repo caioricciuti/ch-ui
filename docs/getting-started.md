@@ -208,7 +208,7 @@ For detailed permission requirements, see our [Permissions Guide](/permissions).
 
 - [Configure ClickHouse permissions](/permissions) for CH-UI access
 - [Contribute](/contributing) to the project
-- Check the [Changelog](/changelog) for latest updates
+- Check the [Changelog](https://github.com/caioricciuti/ch-ui/releases) for latest updates
 
 ---
 
