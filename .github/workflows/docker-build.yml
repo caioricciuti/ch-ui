@@ -47,7 +47,12 @@ jobs:
 
   build:
     needs: [changes]
-    if: ${{ needs.changes.outputs.docker == 'true' || github.event_name == 'push' }}
+    if: |
+      (needs.changes.outputs.docker == 'true' || github.event_name == 'push') &&
+      !contains(github.event.head_commit.message, '[skip docker]') &&
+      !contains(github.event.head_commit.message, '[skip ci]') &&
+      !contains(github.event.head_commit.message, '[docs-only]') &&
+      !contains(github.event.head_commit.message, 'docs-only')
     runs-on: ubuntu-latest
     permissions:
       contents: read

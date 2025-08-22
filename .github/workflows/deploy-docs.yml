@@ -9,11 +9,32 @@ on:
       - ".github/workflows/deploy-docs.yml"
 
 jobs:
+  # Check if docs changed
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            docs:
+              - 'docs/**'
+              - '.github/workflows/deploy-docs.yml'
+
   deploy:
+    needs: [changes]
     runs-on: ubuntu-latest
     if: |
-      (!contains(github.event.head_commit.message, 'no-docs') && !contains(github.event.head_commit.message, 'release-only') && !contains(github.event.head_commit.message, 'docker-only')) || 
-      contains(github.event.head_commit.message, 'docs-only')
+      !contains(github.event.head_commit.message, '[skip docs]') &&
+      !contains(github.event.head_commit.message, '[skip ci]') &&
+      (
+        needs.changes.outputs.docs == 'true' ||
+        contains(github.event.head_commit.message, '[docs-only]') ||
+        contains(github.event.head_commit.message, 'docs-only')
+      )
     permissions:
       contents: write
     concurrency:
