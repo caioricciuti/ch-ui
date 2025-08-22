@@ -53,6 +53,7 @@ export default defineConfig({
       {
         text: 'About',
         items: [
+          { text: 'Changelog', link: 'https://github.com/caioricciuti/ch-ui/releases' },
           { text: 'Contributing', link: '/contributing' },
           { text: 'Acknowledgments', link: '/acknowledgments' },
           { text: 'License', link: '/license' }

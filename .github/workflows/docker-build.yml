@@ -152,24 +152,18 @@ jobs:
             echo "🚧 Development build"
           fi
 
-      - name: Build Docker image
+      - name: Build and push Docker image
         id: build
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ${{ steps.build_config.outputs.dockerfile }}
           platforms: linux/amd64,linux/arm64
-          push: false
-          load: false
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=gha
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: |
-            type=gha,mode=max
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           build-args: |
             VERSION=${{ steps.build_config.outputs.version }}
             COMMIT_SHA=${{ github.sha }}
@@ -180,18 +174,15 @@ jobs:
           sbom: true
 
       - name: Export digest
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.build.outputs.digest != ''
         run: |
-          mkdir -p /tmp/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
-          echo "Digest: $digest"
+          echo "Image digest: ${{ steps.build.outputs.digest }}"
 
       - name: Scan for vulnerabilities
         uses: aquasecurity/trivy-action@master
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.build.outputs.imageid != ''
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
@@ -206,9 +197,9 @@ jobs:
 
       - name: Generate SBOM
         uses: anchore/sbom-action@v0
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.build.outputs.imageid != ''
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
           format: spdx-json
           output-file: sbom.spdx.json
 
@@ -220,19 +211,9 @@ jobs:
           path: sbom.spdx.json
           retention-days: 30
 
-      - name: Push Docker image
-        if: github.event_name != 'pull_request'
-        id: push
-        run: |
-          # Create manifest and push
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
-          
-          echo "✅ Image pushed successfully"
 
       - name: Sign the container image
-        if: ${{ github.event_name != 'pull_request' && steps.build_config.outputs.stable == 'true' }}
+        if: ${{ github.event_name != 'pull_request' && steps.build_config.outputs.stable == 'true' && steps.build.outputs.digest != '' }}
         env:
           COSIGN_EXPERIMENTAL: 1
         run: |
