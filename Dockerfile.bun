@@ -4,10 +4,10 @@
 # Build stage
 FROM oven/bun:1-alpine AS build
 
-# Build arguments
+# Build arguments - declare at the top
 ARG VERSION=dev
 ARG COMMIT_SHA=unknown
-ARG BUILD_DATE
+ARG BUILD_DATE=unknown
 
 # Set the working directory
 WORKDIR /app
@@ -18,9 +18,6 @@ COPY package.json bun.lock* ./
 # Install dependencies using Bun (much faster than npm)
 RUN bun install --frozen-lockfile
 
-# Run browser list update
-RUN bunx update-browserslist-db@latest
-
 # Copy application source
 COPY . .
 
@@ -29,6 +26,11 @@ RUN bun run build
 
 # Runtime stage
 FROM oven/bun:1-alpine AS runtime
+
+# Re-declare build arguments for runtime stage
+ARG VERSION=dev
+ARG COMMIT_SHA=unknown
+ARG BUILD_DATE=unknown
 
 # Install serve globally using Bun
 RUN bun add -g serve

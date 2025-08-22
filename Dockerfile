@@ -7,7 +7,7 @@ FROM node:20-alpine AS build
 # Build arguments
 ARG VERSION=dev
 ARG COMMIT_SHA=unknown
-ARG BUILD_DATE
+ARG BUILD_DATE=unknown
 
 # Set the working directory
 WORKDIR /app
@@ -42,6 +42,11 @@ RUN if [ -f "bun.lock" ]; then \
 
 # Runtime stage
 FROM node:20-alpine AS runtime
+
+# Re-declare build arguments for runtime stage
+ARG VERSION=dev
+ARG COMMIT_SHA=unknown
+ARG BUILD_DATE=unknown
 
 # Install serve for serving static files
 RUN npm install -g serve
