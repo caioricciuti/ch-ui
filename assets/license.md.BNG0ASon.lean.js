@@ -1,0 +1,1 @@
+import{_ as t,c as i,o as a,a2 as o}from"./chunks/framework.OUnFJC8d.js";const f=JSON.parse('{"title":"License","description":"","frontmatter":{},"headers":[],"relativePath":"license.md","filePath":"license.md"}'),r={name:"license.md"};function n(s,e,l,h,c,d){return a(),i("div",null,[...e[0]||(e[0]=[o("",18)])])}const p=t(r,[["render",n]]);export{f as __pageData,p as default};
