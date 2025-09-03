@@ -49,8 +49,56 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import useAppStore from "@/store";
 import { retryInitialization } from "@/features/workspace/editor/monacoConfig";
 
+// Custom URL validator that accepts both standard URLs and IP addresses with ports
+const isValidClickHouseUrl = (url: string): boolean => {
+  if (!url) return false;
+  
+  try {
+    // Try to parse as URL - this will work for both domain names and IP addresses
+    const parsed = new URL(url);
+    
+    // Check if it has a valid protocol
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return false;
+    }
+    
+    // Check if it has a hostname (can be domain or IP)
+    if (!parsed.hostname) {
+      return false;
+    }
+    
+    // Basic IP address pattern check (IPv4)
+    const ipv4Pattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+    // Basic IPv6 pattern check (simplified)
+    const ipv6Pattern = /^(\[)?[0-9a-fA-F:]+(\])?$/;
+    
+    // If it's an IP address, ensure it's valid
+    if (ipv4Pattern.test(parsed.hostname)) {
+      const parts = parsed.hostname.split('.');
+      return parts.every(part => {
+        const num = parseInt(part, 10);
+        return num >= 0 && num <= 255;
+      });
+    }
+    
+    // For IPv6, basic validation (URL constructor handles most of it)
+    if (ipv6Pattern.test(parsed.hostname.replace(/[\[\]]/g, ''))) {
+      return true;
+    }
+    
+    // For domain names, just ensure it's not empty
+    return parsed.hostname.length > 0;
+  } catch {
+    return false;
+  }
+};
+
 const formSchema = z.object({
-  url: z.string().url("Invalid URL").min(1, "URL is required"),
+  url: z.string()
+    .min(1, "URL is required")
+    .refine(isValidClickHouseUrl, {
+      message: "Invalid URL. Please use format: http://hostname:port or http://ip-address:port"
+    }),
   username: z.string().min(1, "Username is required"),
   password: z.string().optional(),
   useAdvanced: z.boolean().optional(),
