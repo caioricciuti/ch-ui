@@ -5,8 +5,6 @@ on:
     branches:
       - main
       - develop
-    tags:
-      - 'v*'  # Trigger on version tags
   pull_request:
     branches:
       - main
@@ -88,47 +86,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            # Latest tag for default branch
-            type=raw,value=latest,enable={{is_default_branch}}
-            
-            # Edge tag for main branch (for early adopters)
-            type=edge,branch=main
-            
-            # Branch tags
-            type=ref,event=branch
-            
-            # Semantic versioning (when using tags like v1.6.0)
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
-            
-            # SHA tags for precise tracking
-            type=sha,format=long
-            type=sha,format=short,prefix=sha-
-            
-            # PR tags (not pushed, just for testing)
-            type=ref,event=pr
-            
-            # Date-based tags for nightly builds
-            type=schedule,pattern=nightly-{{date 'YYYYMMDD'}}
-            type=schedule,pattern={{date 'YYYYMMDD-HHmmss' tz='UTC'}}
-          labels: |
-            org.opencontainers.image.title=CH-UI
-            org.opencontainers.image.description=A modern, feature-rich web interface for ClickHouse databases
-            org.opencontainers.image.vendor=Caio Ricciuti
-            org.opencontainers.image.licenses=MIT
-            org.opencontainers.image.documentation=https://ch-ui.com
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.url=https://github.com/${{ github.repository }}
-            maintainer=caio.ricciuti@outlook.com
-
       - name: Determine build configuration
         id: build_config
         run: |
@@ -148,14 +105,46 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "📌 Version: $VERSION"
           
-          # Determine if this is a stable release
-          if [[ "${{ github.ref }}" == refs/tags/v* ]] && [[ ! "${{ github.ref }}" == *"-"* ]]; then
+          # Determine if this is a stable release (main branch builds are considered stable)
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "stable=true" >> $GITHUB_OUTPUT
             echo "✅ Stable release detected"
           else
             echo "stable=false" >> $GITHUB_OUTPUT
             echo "🚧 Development build"
           fi
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # Latest tag for main branch
+            type=raw,value=latest,enable={{is_default_branch}}
+            
+            # Version from package.json for main branch
+            type=raw,value=${{ steps.build_config.outputs.version }},enable={{is_default_branch}}
+            
+            # Branch tags (develop, etc.)
+            type=ref,event=branch
+            
+            # SHA tags for precise tracking
+            type=sha,format=short,prefix=sha-
+            
+            # PR tags (not pushed, just for testing)
+            type=ref,event=pr
+          labels: |
+            org.opencontainers.image.title=CH-UI
+            org.opencontainers.image.description=A modern, feature-rich web interface for ClickHouse databases
+            org.opencontainers.image.vendor=Caio Ricciuti
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.documentation=https://ch-ui.com
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.build_config.outputs.version }}
+            maintainer=caio.ricciuti@outlook.com
 
       - name: Build and push Docker image
         id: build
@@ -246,9 +235,7 @@ jobs:
             echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
             echo "# Pull the image:" >> $GITHUB_STEP_SUMMARY
             echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
-            if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-              echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-            fi
+            echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.build_config.outputs.version }}" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             
