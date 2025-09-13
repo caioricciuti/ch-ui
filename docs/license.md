@@ -1,30 +1,24 @@
 # License
 
-## CH-UI - MIT License
+## CH-UI - Apache License 2.0
 
-Copyright (c) 2025 CH-UI, Caio Ricciuti, and Ibero Data.
+Copyright 2025 Caio Ricciuti
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+    http://www.apache.org/licenses/LICENSE-2.0
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 
 ## What does this mean?
 
-The MIT License is a permissive license that is short and to the point. It lets people do anything they want with your code as long as they provide attribution back to you and don't hold you liable.
+The Apache License 2.0 is a permissive open source license that provides users with extensive freedom to use, modify, and distribute the software, while also offering robust legal protection through its patent grant and clear contribution terms.
 
 ### You are free to:
 
@@ -33,16 +27,31 @@ The MIT License is a permissive license that is short and to the point. It lets 
 - ✅ Distribute the software
 - ✅ Use the software for private use
 - ✅ Sublicense the software
+- ✅ Use patents claims of contributors to the code
 
 ### Under the following conditions:
 
 - ℹ️ Include the original copyright notice
-- ℹ️ Include the license notice
+- ℹ️ Include a copy of the license
+- ℹ️ State significant changes made to the software
+- ℹ️ Include the NOTICE file (if present) with attribution notes
 
 ### With the understanding that:
 
 - ⚠️ The software is provided "as is", without warranty of any kind
 - ⚠️ The authors cannot be held liable for damages
+- ⚠️ Trademark use is not granted except as required for describing the origin of the work
+
+## Key Benefits of Apache 2.0
+
+### Patent Protection
+Unlike simpler licenses like MIT, Apache 2.0 includes an express patent grant from contributors to users. This means that if a contributor has patents that cover their contribution, they automatically grant you a license to use those patents.
+
+### Clear Contribution Terms
+The license explicitly states that any contributions are assumed to be under the same Apache 2.0 license unless otherwise specified, providing clarity for collaborative development.
+
+### Compatibility
+Apache 2.0 is compatible with many other open source licenses and is widely accepted in both open source and commercial contexts.
 
 ## Third-Party Licenses
 

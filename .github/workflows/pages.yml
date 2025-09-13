@@ -1,0 +1,13 @@
+# Disable automatic GitHub Pages builds
+# This empty workflow prevents GitHub from automatically building Pages
+# We use our custom deploy-docs.yml workflow instead
+
+name: pages-build-deployment
+on:
+  workflow_dispatch:
+
+jobs:
+  skip:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "This workflow is intentionally empty to prevent automatic Pages builds"

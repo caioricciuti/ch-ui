@@ -5,7 +5,8 @@
     "name": "Caio Ricciuti",
     "email": "caio.ricciuti@outlook.com"
   },
-  "version": "1.6.1",
+  "version": "1.6.2",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host",

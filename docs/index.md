@@ -97,7 +97,7 @@ Empowering businesses with data-driven solutions
 
 ## License
 
-CH-UI is open source software [licensed under MIT](/license).
+CH-UI is open source software [licensed under Apache 2.0](/license).
 
 ---
 

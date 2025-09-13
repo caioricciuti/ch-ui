@@ -55,18 +55,21 @@ jobs:
       - name: Install dependencies
         run: |
           cd docs
-          if [ -f "../bun.lock" ]; then
+          if [ -f "bun.lock" ]; then
             echo "Using bun to install dependencies"
             bun install
-          else
-            echo "Using npm to install dependencies"
+          elif [ -f "package-lock.json" ]; then
+            echo "Using npm ci to install dependencies"
             npm ci
+          else
+            echo "Using npm install to install dependencies"
+            npm install
           fi
 
       - name: Build website
         run: |
           cd docs
-          if [ -f "../bun.lock" ]; then
+          if [ -f "bun.lock" ]; then
             echo "Building with bun"
             bun run docs:build
           else

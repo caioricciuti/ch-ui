@@ -398,7 +398,7 @@ Your support helps maintain and improve CH-UI! ✨
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE.md) file for details.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](./LICENSE.md) file for details.
 
 
 Made with ❤️ by [Caio Ricciuti](https://github.com/caioricciuti)

@@ -66,8 +66,8 @@ export default defineConfig({
     ],
 
     footer: {
-      message: 'Released under the MIT License.',
-      copyright: 'Copyright © 2025 Caio Ricciuti and Ibero Data'
+      message: 'Released under the Apache License 2.0.',
+      copyright: 'Copyright © 2025 Caio Ricciuti'
     },
 
     search: {

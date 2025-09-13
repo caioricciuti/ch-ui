@@ -55,7 +55,7 @@ RUN chown -R ch-user:ch-group /app
 LABEL org.opencontainers.image.title="CH-UI" \
       org.opencontainers.image.description="A modern web interface for ClickHouse databases" \
       org.opencontainers.image.vendor="Caio Ricciuti" \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT_SHA}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
