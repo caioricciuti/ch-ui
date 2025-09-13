@@ -1,4 +1,4 @@
-// ../node_modules/minisearch/dist/es/index.js
+// node_modules/minisearch/dist/es/index.js
 var ENTRIES = "ENTRIES";
 var KEYS = "KEYS";
 var VALUES = "VALUES";

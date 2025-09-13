@@ -89,22 +89,16 @@ jobs:
       - name: Determine build configuration
         id: build_config
         run: |
-          # Determine Dockerfile
-          if [ -f "Dockerfile.bun" ]; then
-            echo "dockerfile=Dockerfile.bun" >> $GITHUB_OUTPUT
-            echo "variant=bun" >> $GITHUB_OUTPUT
-            echo "📦 Using Bun Dockerfile for faster builds"
-          else
-            echo "dockerfile=Dockerfile" >> $GITHUB_OUTPUT
-            echo "variant=standard" >> $GITHUB_OUTPUT
-            echo "📦 Using standard Dockerfile"
-          fi
-          
+          # Using Bun Dockerfile
+          echo "dockerfile=Dockerfile" >> $GITHUB_OUTPUT
+          echo "variant=bun" >> $GITHUB_OUTPUT
+          echo "📦 Using Bun Dockerfile for faster builds"
+
           # Extract version from package.json
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "📌 Version: $VERSION"
-          
+
           # Determine if this is a stable release (main branch builds are considered stable)
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "stable=true" >> $GITHUB_OUTPUT

@@ -1,10 +1,10 @@
-# Multi-stage Dockerfile for CH-UI
-# Supports both npm and Bun package managers
+# Bun-optimized Dockerfile for CH-UI
+# Using Bun for faster builds and smaller images
 
 # Build stage
-FROM node:20-alpine AS build
+FROM oven/bun:1-alpine AS build
 
-# Build arguments
+# Build arguments - declare at the top
 ARG VERSION=dev
 ARG COMMIT_SHA=unknown
 ARG BUILD_DATE=unknown
@@ -13,43 +13,27 @@ ARG BUILD_DATE=unknown
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
-COPY bun.lock* ./
+COPY package.json bun.lock ./
 
-# Install dependencies
-# Check if bun.lock exists to determine package manager
-RUN if [ -f "bun.lock" ]; then \
-      echo "Using Bun for dependency installation" && \
-      npm install -g bun && \
-      bun install --frozen-lockfile; \
-    else \
-      echo "Using npm for dependency installation" && \
-      npm ci --prefer-offline --no-audit; \
-    fi
-
-# Run browser list update
-RUN npx update-browserslist-db@latest
+# Install dependencies using Bun (much faster than npm)
+RUN bun install --frozen-lockfile
 
 # Copy application source
 COPY . .
 
-# Build the application
-RUN if [ -f "bun.lock" ]; then \
-      bun run build; \
-    else \
-      npm run build; \
-    fi
+# Build the application using Bun
+RUN bun run build
 
 # Runtime stage
-FROM node:20-alpine AS runtime
+FROM oven/bun:1-alpine AS runtime
 
 # Re-declare build arguments for runtime stage
 ARG VERSION=dev
 ARG COMMIT_SHA=unknown
 ARG BUILD_DATE=unknown
 
-# Install serve for serving static files
-RUN npm install -g serve
+# Install serve globally using Bun
+RUN bun add -g serve
 
 # Set the working directory
 WORKDIR /app
@@ -98,4 +82,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:5521 || exit 1
 
 # Start the application
-CMD ["/bin/sh", "-c", "node inject-env.cjs && serve -s -l 5521"]
+CMD ["/bin/sh", "-c", "bun run /app/inject-env.cjs && bunx serve -s -l 5521 /app"]
