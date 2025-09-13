@@ -5,18 +5,8 @@ CH-UI is built on the shoulders of giants. We extend our heartfelt gratitude to 
 ## ClickHouse ⭐
 
 ::: info
-[ClickHouse](https://clickhouse.com/) - THE ONE AND ONLY! We wouldn't be here without ClickHouse! 🙏
+[ClickHouse](https://clickhouse.com/) - THE ONE AND ONLY! We wouldn't be here without ClickHouse!
 :::
-
-### A Personal Note
-
-> I would like to personally thank the ClickHouse team for creating such an amazing database system and for providing excellent documentation. The power, speed, and flexibility of ClickHouse have been truly inspiring, and it has been a joy to work with such a well-designed system.
->
-> This project has been an incredible learning experience for me. It has allowed me to dive deep into the intricacies of database management and user interface design, pushing me to grow from being a Data Engineer to maybe a Developer :) . The journey of creating CH-UI has been both challenging and rewarding, and I'm immensely proud of what it has become (and what it can be with the community support and contribution).
->
-> I am very grateful for having the opportunity to make a personal project that can be useful to a wide range of users. Whether you're a curious individual just starting to explore ClickHouse, a data analyst looking for a more intuitive way to interact with your data, or a company seeking efficient data management solutions, I hope CH-UI serves you well.
->
-> \- [Caio Ricciuti](https://github.com/caioricciuti)
 
 ## Core Technologies 🛠️
 
