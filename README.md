@@ -1,13 +1,6 @@
 # CH-UI 🚀
 
-[![GitHub license](https://img.shields.io/github/license/caioricciuti/ch-ui)](https://github.com/caioricciuti/ch-ui/blob/main/LICENSE)
-![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.x-brightgreen)
-![npm Version](https://img.shields.io/badge/npm-%3E%3D10.x-brightgreen)
-[![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fcaioricciuti%2Fch--ui-blue)](https://github.com/caioricciuti/ch-ui/pkgs/container/ch-ui)
-![Version](https://img.shields.io/badge/version-1.5.30-blue)
-
-![Docker Pulls](https://img.shields.io/badge/pulls-30.6k-blue?logo=docker&style=flat-square)
-
+[![Version](https://img.shields.io/github/v/release/caioricciuti/ch-ui?label=version&style=flat-square)](https://github.com/caioricciuti/ch-ui/releases)
 A modern, feature-rich web interface for ClickHouse databases. CH-UI provides an intuitive platform for managing ClickHouse databases, executing queries, and visualizing metrics about your instance.
 
 ## 🌟 Key Features
