@@ -22,7 +22,7 @@ export interface DatabaseInfo {
   children: { name: string; type: string }[];
 }
 
-export interface Tab {
+interface Tab {
   id: string;
   title: string;
   type: "sql" | "home" | "information";
@@ -44,7 +44,7 @@ export interface SavedQuery {
   is_public: boolean;
 }
 
-export interface SavedQueriesState {
+interface SavedQueriesState {
   isSavedQueriesActive: boolean;
   isCheckingStatus: boolean;
   isActivating: boolean;
@@ -64,7 +64,7 @@ export interface QueryResult {
   error?: string | null;
 }
 
-export interface CoreState {
+interface CoreState {
   credential: Credential;
   clickHouseClient: ClickHouseClient | null;
   isLoadingCredentials: boolean;
@@ -76,15 +76,14 @@ export interface CoreState {
   clickhouseSettings: ClickHouseSettings;
 }
 
-export interface WorkspaceState {
+interface WorkspaceState {
   tabs: Tab[];
   activeTab: string;
   tabError: string | null;
   isTabLoading: boolean;
-  indexDbInstance: IDBDatabase | null;
 }
 
-export interface ExplorerState {
+interface ExplorerState {
   dataBaseExplorer: DatabaseInfo[];
   isLoadingDatabase: boolean;
   isCreateTableModalOpen: boolean;
@@ -99,7 +98,7 @@ export interface ExplorerState {
   selectedDatabaseForUpload: string;
 }
 
-export interface AdminState {
+interface AdminState {
   isAdmin: boolean;
   savedQueries: SavedQueriesState;
 }
@@ -124,8 +123,8 @@ export interface AppState
   setActiveTab: (tabId: string) => void;
   getTabById: (tabId: string) => Tab | undefined;
   moveTab: (oldIndex: number, newIndex: number) => void;
-  duplicateTab: (tabId: string) => void;
-  closeAllTabs: () => void;
+  duplicateTab: (tabId: string) => void | Promise<void>;
+  closeAllTabs: () => void | Promise<void>;
 
   fetchDatabaseInfo: () => Promise<void>;
   closeCreateTableModal: () => void;
@@ -148,4 +147,7 @@ export interface AppState
   ) => Promise<void>;
   fetchSavedQueries: (id?: string) => Promise<Array<any>>;
   deleteSavedQuery: (id: string) => Promise<void>;
+
+  // Utilities
+  clearLocalData: () => void;
 }

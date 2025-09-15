@@ -21,7 +21,7 @@ A modern, feature-rich web interface for ClickHouse databases. CH-UI provides an
 
 ### Performance & Architecture
 - **⚡ Optimized Performance**:
-  - IndexedDB-based caching system
+- LocalStorage-based lightweight persistence
   - Efficient state management
   - Responsive UI even with large datasets
 - **🔒 TypeScript Implementation**: Full TypeScript support for improved code quality and developer experience

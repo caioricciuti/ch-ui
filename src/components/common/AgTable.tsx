@@ -23,6 +23,7 @@ interface QueryResult {
 
 interface AgTableProps {
   data: QueryResult;
+  height?: number | string; // container height
 }
 
 // Format complex values for display in the grid
@@ -42,7 +43,7 @@ const CustomCellRenderer = (props: ICellRendererParams) => {
   return <div dangerouslySetInnerHTML={{ __html: formattedValue }} />;
 };
 
-export default function AgTable({ data }: AgTableProps) {
+export default function AgTable({ data, height = "350px" }: AgTableProps) {
   const { theme } = useTheme();
 
   const gridTheme =
@@ -87,52 +88,70 @@ export default function AgTable({ data }: AgTableProps) {
     ) : null;
   }
 
+  const containerHeight =
+    typeof height === "number" ? `${height}px` : height || "350px";
+  const isFull = containerHeight === "100%";
+
   return (
-    <Tabs defaultValue="results">
-      <TabsList className="w-full">
+    <Tabs defaultValue="results" className="h-full flex flex-col">
+      <TabsList className="w-full shrink-0">
         <TabsTrigger className="w-full" value="results">
           Results {data.rows && `(${data.rows} rows)`}
-          <DownloadDialog data={data.data || []} />
         </TabsTrigger>
         <TabsTrigger className="w-full" value="metadata">
           Metadata {data.meta && `(${data.meta.length} fields)`}
-          <DownloadDialog data={data?.meta || []} />
         </TabsTrigger>
         <TabsTrigger className="w-full" value="statistics">
           Statistics
         </TabsTrigger>
       </TabsList>
 
-      <TabsContent value="results" className="ag-theme-balham" style={{ height: "350px" }}>
-        <div className="h-full w-full">
+      <TabsContent value="results" className="flex-1 min-h-0" style={{ height: 'auto' }}>
+        <div className="flex items-center justify-end pb-2">
+          <DownloadDialog data={data.data || []} />
+        </div>
+        <div
+          className={`ag-theme-balham w-full overflow-auto ${isFull ? 'h-full flex-1 min-h-0' : ''}`}
+          style={isFull ? undefined : { height: containerHeight }}
+        >
           <AgGridReact
-            rowData={data.data || []}
-            columnDefs={dataColumnDefs}
-            defaultColDef={defaultColDef}
-            modules={[AllCommunityModule]}
-            theme={gridTheme}
-            pagination={true}
-            paginationPageSize={100}
-            enableCellTextSelection={true}
-            animateRows={true}
-            domLayout="normal"
-          />
+              rowData={data.data || []}
+              columnDefs={dataColumnDefs}
+              defaultColDef={defaultColDef}
+              modules={[AllCommunityModule]}
+              theme={gridTheme}
+              pagination={true}
+              paginationPageSize={100}
+              enableCellTextSelection={true}
+              animateRows={true}
+              domLayout="normal"
+            />
         </div>
       </TabsContent>
-      <TabsContent value="metadata" className="ag-theme-balham" style={{ height: "350px" }}>
-        <div className="h-full w-full">
+      <TabsContent
+        value="metadata"
+        className="flex-1 min-h-0"
+        style={{ height: 'auto' }}
+      >
+        <div className="flex items-center justify-end pb-2">
+          <DownloadDialog data={data?.meta || []} />
+        </div>
+        <div
+          className={`ag-theme-balham w-full overflow-auto ${isFull ? 'h-full flex-1 min-h-0' : ''}`}
+          style={isFull ? undefined : { height: containerHeight }}
+        >
           <AgGridReact
-            rowData={data.meta || []}
-            columnDefs={metaColumnDefs}
-            defaultColDef={defaultColDef}
-            modules={[AllCommunityModule]}
-            theme={gridTheme}
-            pagination={true}
-            enableCellTextSelection={true}
-          />
+              rowData={data.meta || []}
+              columnDefs={metaColumnDefs}
+              defaultColDef={defaultColDef}
+              modules={[AllCommunityModule]}
+              theme={gridTheme}
+              pagination={true}
+              enableCellTextSelection={true}
+            />
         </div>
       </TabsContent>
-      <TabsContent value="statistics">
+      <TabsContent value="statistics" className="flex-1 min-h-0 overflow-auto">
         {data.statistics && <StatisticsDisplay statistics={data.statistics} />}
       </TabsContent>
     </Tabs>

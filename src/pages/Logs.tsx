@@ -58,7 +58,7 @@ import {
 } from "@/components/ui/sheet";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-export interface LogEntry {
+interface LogEntry {
   id: string;
   timestamp: string;
   type: string;

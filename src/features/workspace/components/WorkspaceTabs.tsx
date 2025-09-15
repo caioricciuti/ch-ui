@@ -154,7 +154,7 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
   );
 }
 
-export function WorkspaceTabs() {
+function WorkspaceTabs() {
   const { tabs, activeTab, addTab, setActiveTab, moveTab, closeAllTabs } =
     useAppStore();
 

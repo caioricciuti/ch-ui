@@ -15,6 +15,7 @@ import {
   Cog,
   FileClock,
   Share2,
+  Trash2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -52,40 +53,40 @@ import { retryInitialization } from "@/features/workspace/editor/monacoConfig";
 // Custom URL validator that accepts both standard URLs and IP addresses with ports
 const isValidClickHouseUrl = (url: string): boolean => {
   if (!url) return false;
-  
+
   try {
     // Try to parse as URL - this will work for both domain names and IP addresses
     const parsed = new URL(url);
-    
+
     // Check if it has a valid protocol
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
+    if (!["http:", "https:"].includes(parsed.protocol)) {
       return false;
     }
-    
+
     // Check if it has a hostname (can be domain or IP)
     if (!parsed.hostname) {
       return false;
     }
-    
+
     // Basic IP address pattern check (IPv4)
     const ipv4Pattern = /^(\d{1,3}\.){3}\d{1,3}$/;
     // Basic IPv6 pattern check (simplified)
     const ipv6Pattern = /^(\[)?[0-9a-fA-F:]+(\])?$/;
-    
+
     // If it's an IP address, ensure it's valid
     if (ipv4Pattern.test(parsed.hostname)) {
-      const parts = parsed.hostname.split('.');
-      return parts.every(part => {
+      const parts = parsed.hostname.split(".");
+      return parts.every((part) => {
         const num = parseInt(part, 10);
         return num >= 0 && num <= 255;
       });
     }
-    
+
     // For IPv6, basic validation (URL constructor handles most of it)
-    if (ipv6Pattern.test(parsed.hostname.replace(/[\[\]]/g, ''))) {
+    if (ipv6Pattern.test(parsed.hostname.replace(/[\[\]]/g, ""))) {
       return true;
     }
-    
+
     // For domain names, just ensure it's not empty
     return parsed.hostname.length > 0;
   } catch {
@@ -94,11 +95,10 @@ const isValidClickHouseUrl = (url: string): boolean => {
 };
 
 const formSchema = z.object({
-  url: z.string()
-    .min(1, "URL is required")
-    .refine(isValidClickHouseUrl, {
-      message: "Invalid URL. Please use format: http://hostname:port or http://ip-address:port"
-    }),
+  url: z.string().min(1, "URL is required").refine(isValidClickHouseUrl, {
+    message:
+      "Invalid URL. Please use format: http://hostname:port or http://ip-address:port",
+  }),
   username: z.string().min(1, "Username is required"),
   password: z.string().optional(),
   useAdvanced: z.boolean().optional(),
@@ -125,6 +125,7 @@ export default function SettingsPage() {
     clearCredentials,
     credentialSource,
     setCredentialSource,
+    clearLocalData,
   } = useAppStore();
 
   const [showPassword, setShowPassword] = useState(false);
@@ -142,7 +143,17 @@ export default function SettingsPage() {
     requestTimeout: credential?.requestTimeout,
   };
 
-  const form = useForm<z.infer<typeof formSchema>>({
+  type FormData = {
+    url: string;
+    username: string;
+    password?: string;
+    useAdvanced?: boolean;
+    customPath?: string;
+    requestTimeout: unknown;
+    isDistributed?: boolean;
+    clusterName?: string;
+  };
+  const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       url: searchParams.get("url") || credential?.url || "",
@@ -154,8 +165,12 @@ export default function SettingsPage() {
         30000,
       useAdvanced: searchParams.get("useAdvanced") === "true" || false,
       customPath: searchParams.get("customPath") || "",
-      isDistributed: searchParams.get("isDistributed") === "true" || credential?.isDistributed || false,
-      clusterName: searchParams.get("clusterName") || credential?.clusterName || "",
+      isDistributed:
+        searchParams.get("isDistributed") === "true" ||
+        credential?.isDistributed ||
+        false,
+      clusterName:
+        searchParams.get("clusterName") || credential?.clusterName || "",
     },
   });
 
@@ -170,8 +185,12 @@ export default function SettingsPage() {
         30000,
       useAdvanced: searchParams.get("useAdvanced") === "true" || false,
       customPath: searchParams.get("customPath") || "",
-      isDistributed: searchParams.get("isDistributed") === "true" || credential?.isDistributed || false,
-      clusterName: searchParams.get("clusterName") || credential?.clusterName || "",
+      isDistributed:
+        searchParams.get("isDistributed") === "true" ||
+        credential?.isDistributed ||
+        false,
+      clusterName:
+        searchParams.get("clusterName") || credential?.clusterName || "",
     });
 
     if (searchParams.get("useAdvanced") === "true")
@@ -179,7 +198,7 @@ export default function SettingsPage() {
     else setShowAdvancedSettings(false);
   }, [searchParams, credential, form.reset]);
 
-  const onSubmit = async (values: z.infer<typeof formSchema>) => {
+  const onSubmit = async (values: FormData) => {
     try {
       if (
         values.url === currentFormValues.url &&
@@ -203,7 +222,7 @@ export default function SettingsPage() {
         password: values.password || "",
         useAdvanced: values.useAdvanced || false,
         customPath: values.customPath || "",
-        requestTimeout: values.requestTimeout, // No need to convert, already a number
+        requestTimeout: Number(values.requestTimeout), // Ensure type is number
       });
       await checkServerStatus();
       setCredentialSource("app");
@@ -232,18 +251,20 @@ export default function SettingsPage() {
       await checkServerStatus();
       if (isServerAvailable && !error) {
         toast.success("Connection successful!", {
-          description: "Successfully connected to ClickHouse server."
+          description: "Successfully connected to ClickHouse server.",
         });
       } else if (error) {
         // Extract just the main error message for the toast (not the troubleshooting tips)
-        const mainErrorMessage = error.split('\n\n')[0];
+        const mainErrorMessage = error.split("\n\n")[0];
         toast.error(`Connection failed: ${mainErrorMessage}`, {
-          description: "See the troubleshooting tips below for help resolving this issue."
+          description:
+            "See the troubleshooting tips below for help resolving this issue.",
         });
       }
     } catch (err) {
       toast.error("Error testing connection", {
-        description: "An unexpected error occurred while testing the connection."
+        description:
+          "An unexpected error occurred while testing the connection.",
       });
     }
   };
@@ -265,6 +286,15 @@ export default function SettingsPage() {
 
     navigator.clipboard.writeText(url);
     toast.success("URL copied to clipboard!");
+  };
+
+  const handleClearLocal = () => {
+    const confirmed = window.confirm(
+      "This will clear tabs and metrics layouts saved locally. Credentials are kept. Continue?"
+    );
+    if (!confirmed) return;
+    clearLocalData();
+    toast.success("Local data cleared");
   };
 
   return (
@@ -477,10 +507,13 @@ export default function SettingsPage() {
                                   min={1}
                                   max={600000}
                                   placeholder="30000"
-                                  {...field}
+                                  value={typeof field.value === "number" || typeof field.value === "string" ? field.value : ""}
                                   onChange={(e) =>
                                     field.onChange(e.target.value)
                                   }
+                                  onBlur={field.onBlur}
+                                  name={field.name}
+                                  ref={field.ref}
                                 />
                               </FormControl>
                               <FormDescription className="text-xs">
@@ -501,7 +534,9 @@ export default function SettingsPage() {
                                 <Checkbox
                                   checked={field.value}
                                   onCheckedChange={(checked) => {
-                                    setShowDistributedSettings(checked as boolean);
+                                    setShowDistributedSettings(
+                                      checked as boolean
+                                    );
                                     field.onChange(checked);
                                   }}
                                 />
@@ -509,7 +544,8 @@ export default function SettingsPage() {
                               <div className="space-y-1 leading-none">
                                 <FormLabel>Distributed Mode</FormLabel>
                                 <FormDescription className="text-xs">
-                                  Enable this if you're using a ClickHouse cluster
+                                  Enable this if you're using a ClickHouse
+                                  cluster
                                 </FormDescription>
                               </div>
                             </FormItem>
@@ -618,22 +654,29 @@ export default function SettingsPage() {
                         </AlertTitle>
                         <AlertDescription>
                           <div className="mt-2 space-y-4">
-                            <p className="font-medium">{error.split('\n\n')[0]}</p>
-                            
-                            {error.includes('Troubleshooting tips:') && (
+                            <p className="font-medium">
+                              {error.split("\n\n")[0]}
+                            </p>
+
+                            {error.includes("Troubleshooting tips:") && (
                               <div className="mt-4">
-                                <h4 className="font-medium mb-2">Troubleshooting Tips:</h4>
+                                <h4 className="font-medium mb-2">
+                                  Troubleshooting Tips:
+                                </h4>
                                 <ul className="list-disc pl-5 space-y-1.5 text-sm">
-                                  {error.split('Troubleshooting tips:\n')[1]?.split('\n').map((tip, index) => (
-                                    <li key={index}>{tip}</li>
-                                  ))}
+                                  {error
+                                    .split("Troubleshooting tips:\n")[1]
+                                    ?.split("\n")
+                                    .map((tip, index) => (
+                                      <li key={index}>{tip}</li>
+                                    ))}
                                 </ul>
                               </div>
                             )}
-                            
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
+
+                            <Button
+                              variant="outline"
+                              size="sm"
                               onClick={handleTestConnection}
                               className="mt-4"
                             >
@@ -648,6 +691,29 @@ export default function SettingsPage() {
                 ) : null}
               </Card>
             )}
+
+            {/* Local data management */}
+            <Card className="shadow-lg border-muted">
+              <CardHeader>
+                <CardTitle className="text-2xl font-bold flex items-center gap-2">
+                  <Trash2 className="h-6 w-6 text-primary" />
+                  Local Data
+                </CardTitle>
+                <CardDescription>
+                  Clear tabs and dashboard layouts saved in this browser.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  This keeps your connection credentials. Use Disconnect to clear credentials.
+                </p>
+              </CardContent>
+              <CardFooter className="border-t bg-muted/50 rounded-b-lg pt-4 flex justify-end">
+                <Button variant="destructive" onClick={handleClearLocal}>
+                  <Trash2 className="mr-2 h-4 w-4" /> Clear Local Data
+                </Button>
+              </CardFooter>
+            </Card>
           </div>
         </div>
       </div>

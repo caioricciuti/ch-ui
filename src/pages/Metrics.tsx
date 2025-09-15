@@ -1,7 +1,10 @@
 import React, { useEffect } from "react";
 import { metrics } from "@/features/metrics/config/metricsConfig";
-import MetricItemComponent from "@/features/metrics/components/MetricItemComponent";
-import MetricsNavigationMenu from "@/features/metrics/components/MetricsNavigationMenu";
+import UPlotMetricItemComponent from "@/features/metrics/components/UPlotMetricItemComponent";
+import DashboardGrid from "@/features/metrics/components/DashboardGrid";
+import MetricsNavTabs from "@/features/metrics/components/MetricsNavTabs";
+import TimeRangeSelector from "@/features/metrics/components/TimeRangeSelector";
+import { TimeRangeProvider } from "@/features/metrics/context/TimeRangeContext";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import useAppStore from "@/store";
@@ -25,7 +28,7 @@ function MetricsOverview() {
     }
 
     if (
-      credential?.url.includes("localurl") ||
+      credential?.url.includes("localhost") ||
       credential?.url.includes("127.0.0.1")
     ) {
       setIsLocalHostInstance(true);
@@ -74,57 +77,64 @@ function MetricsOverview() {
   }
 
   const getColSpanClass = (tiles: number) => {
+    // Use a 12-column grid for more granular layout
     switch (tiles) {
       case 1:
-        return "col-span-1";
+        return "col-span-12 md:col-span-3"; // quarter width on md+
       case 2:
-        return "col-span-2";
+        return "col-span-12 md:col-span-6"; // half width
       case 3:
-        return "col-span-3";
+        return "col-span-12 md:col-span-9"; // three-quarters
       case 4:
-        return "col-span-full";
       default:
-        return "col-span-full";
+        return "col-span-12"; // full width
     }
   };
 
   return (
-      <div className="h-screen w-full overflow-auto">
-        <MetricsNavigationMenu />
-        <main className="container mx-auto pb-12">
+    <TimeRangeProvider defaultPreset="7d">
+      {/* Fit within App's flex h-screen; avoid nested h-screen */}
+      <div className="flex-1 w-full overflow-auto">
+        <main className="container mx-auto pb-4">
+          <div className="py-2 flex items-center justify-between gap-4">
+            <h1 className="text-xl font-semibold tracking-tight">Metrics</h1>
+            <MetricsNavTabs />
+          </div>
           {isLocalHostInstance && (
-            <Alert className="my-4" variant="warning">
-              <AlertTitle>Local Instance Detected</AlertTitle>
-              <AlertDescription>
-                We have detected that you are using a local instance of Click
-                House. There are some metrics that may not be available due to the
-                limitations of the local instance.
+            <Alert className="my-2" variant="warning">
+              <AlertTitle className="text-sm">Local Instance Detected</AlertTitle>
+              <AlertDescription className="text-xs">
+                Some metrics may not be available on local ClickHouse instances.
               </AlertDescription>
             </Alert>
           )}
-          <div className="mb-8">
-            <div>
-              <div className="flex items-center space-x-4">
-                {React.createElement(currentMetric.icon, {
-                  className: "w-6 h-6 text-primary",
-                })}
-                <h1 className="text-2xl font-bold text-foreground">
+
+          {/* Metric header with time selector */}
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              {React.createElement(currentMetric.icon, {
+                className: "w-5 h-5 text-primary",
+              })}
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">
                   {currentMetric.title}
-                </h1>
+                </h2>
+                <p className="text-xs text-muted-foreground">{currentMetric.description}</p>
               </div>
             </div>
-            <p className="text-muted-foreground">{currentMetric.description}</p>
+            <TimeRangeSelector />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {currentMetric.items?.map((item) => (
-              <div key={item.title} className={getColSpanClass(item.tiles || 4)}>
-                <MetricItemComponent item={item} />
-              </div>
-            ))}
-          </div>
+          <DashboardGrid
+            scope={currentMetric.scope}
+            items={currentMetric.items || []}
+            renderItem={(it) => (
+              <UPlotMetricItemComponent item={it as any} />
+            )}
+          />
         </main>
       </div>
+    </TimeRangeProvider>
   );
 }
 

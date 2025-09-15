@@ -19,12 +19,14 @@ interface ErrorCardProps {
   item: { title: string; query: string };
   errorMessage: string;
   fetchData: () => void;
+  queryPreview?: string;
 }
 
 const ErrorCard: React.FC<ErrorCardProps> = ({
   item,
   errorMessage,
   fetchData,
+  queryPreview,
 }) => {
   const isNoDataState = errorMessage.toLowerCase().includes("no data returned");
   
@@ -107,7 +109,7 @@ const ErrorCard: React.FC<ErrorCardProps> = ({
                     variant="outline"
                     size="sm"
                     className={buttonStyles}
-                    onClick={() => copyToClipboard(item.query, "Query copied to clipboard")}
+                    onClick={() => copyToClipboard(queryPreview || item.query, "Query copied to clipboard")}
                   >
                     <ClipboardCopy className="w-4 h-4 mr-2" />
                     Copy Query

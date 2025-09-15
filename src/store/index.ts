@@ -11,7 +11,6 @@ import {
 } from "@/types/common";
 import { createClient } from "@clickhouse/client-web";
 import { isCreateOrInsert } from "@/helpers/sqlUtils";
-import * as IndexedDB from "@/lib/indexDB";
 import { OverflowMode } from "@clickhouse/client-common/dist/settings";
 import { toast } from "sonner";
 import { appQueries } from "@/features/workspace/editor/appQueries";
@@ -439,24 +438,25 @@ const useAppStore = create<AppState>()(
         },
 
         /**
-         * Initializes the app by setting credentials (if available), initializing IndexedDB,
-         * fetching tabs, and ensuring a home tab exists.
+         * Initializes the app by setting credentials (if available) and ensuring a home tab exists.
+         * Tabs are persisted via localStorage using Zustand persist.
          */
         initializeApp: async () => {
-          const { credential, setCredential } = get();
+          const { credential, setCredential, tabs } = get();
           if (credential.url && credential.username) {
             await setCredential(credential);
           }
-          const db = await IndexedDB.initDB();
-          set({ indexDbInstance: db });
-          const tabs = await IndexedDB.getTabs(db);
-          set({ tabs });
-          if (tabs.length === 0) {
-            await get().addTab({
-              id: "home",
-              title: "Home",
-              content: "",
-              type: "home",
+          if (!tabs || tabs.length === 0) {
+            set({
+              tabs: [
+                {
+                  id: "home",
+                  title: "Home",
+                  content: "",
+                  type: "home",
+                },
+              ],
+              activeTab: "home",
             });
           }
           set({ isInitialized: true });
@@ -470,20 +470,18 @@ const useAppStore = create<AppState>()(
         activeTab: "home",
         tabError: null,
         isTabLoading: false,
-        indexDbInstance: null,
+        // IndexedDB removed; tabs persist via localStorage
 
         /**
          * Adds a new tab. If the tab already exists, it simply activates it.
          */
         addTab: async (tab) => {
-          const { indexDbInstance, tabs } = get();
-          if (!indexDbInstance) throw new Error("Database not initialized");
+          const { tabs } = get();
           const existingTab = tabs.find((t) => t.id === tab.id);
           if (existingTab) {
             set({ activeTab: existingTab.id });
             return;
           }
-          await IndexedDB.addTab(indexDbInstance, tab);
           set((state) => ({
             tabs: [...state.tabs, tab],
             activeTab: tab.id,
@@ -494,14 +492,9 @@ const useAppStore = create<AppState>()(
          * Updates a tab with the given changes.
          */
         updateTab: async (tabId, updates) => {
-          const { indexDbInstance, tabs } = get();
-          if (!indexDbInstance) throw new Error("Database not initialized");
+          const { tabs } = get();
           const updatedTabs = tabs.map((tab) =>
             tab.id === tabId ? { ...tab, ...updates } : tab
-          );
-          await IndexedDB.updateTab(
-            indexDbInstance,
-            updatedTabs.find((tab) => tab.id === tabId)!
           );
           set({ tabs: updatedTabs });
         },
@@ -510,9 +503,7 @@ const useAppStore = create<AppState>()(
          * Removes a tab and updates the active tab if necessary.
          */
         removeTab: async (tabId) => {
-          const { indexDbInstance, tabs, activeTab } = get();
-          if (!indexDbInstance) throw new Error("Database not initialized");
-          await IndexedDB.removeTab(indexDbInstance, tabId);
+          const { tabs, activeTab } = get();
           const updatedTabs = tabs.filter((tab) => tab.id !== tabId);
           set({ tabs: updatedTabs });
           if (activeTab === tabId) {
@@ -526,8 +517,7 @@ const useAppStore = create<AppState>()(
          * Creates a duplicate of an existing tab.
          */
         duplicateTab: async (tabId: string) => {
-          const { indexDbInstance, tabs } = get();
-          if (!indexDbInstance) throw new Error("Database not initialized");
+          const { tabs } = get();
           const tabToDuplicate = tabs.find((tab) => tab.id === tabId);
           if (!tabToDuplicate) {
             throw new Error("Tab not found");
@@ -537,7 +527,6 @@ const useAppStore = create<AppState>()(
             id: `tab-${Date.now()}`,
             title: `${tabToDuplicate.title} (Copy)`,
           };
-          await IndexedDB.addTab(indexDbInstance, newTab);
           set((state) => ({
             tabs: [...state.tabs, newTab],
             activeTab: newTab.id,
@@ -548,14 +537,7 @@ const useAppStore = create<AppState>()(
          * Closes all tabs except the home tab.
          */
         closeAllTabs: async () => {
-          const { indexDbInstance, tabs } = get();
-          if (!indexDbInstance) throw new Error("Database not initialized");
-          const tabsToRemove = tabs.filter((tab) => tab.id !== "home");
-          await Promise.all(
-            tabsToRemove.map((tab) =>
-              IndexedDB.removeTab(indexDbInstance, tab.id)
-            )
-          );
+          const { tabs } = get();
           set({
             tabs: [tabs.find((tab) => tab.id === "home")!],
             activeTab: "home",
@@ -566,8 +548,7 @@ const useAppStore = create<AppState>()(
          * Updates the title of a specified tab.
          */
         updateTabTitle: async (tabId, newTitle) => {
-          const { indexDbInstance, tabs } = get();
-          if (!indexDbInstance) throw new Error("Database not initialized");
+          const { tabs } = get();
           const updatedTabs = tabs.map((tab) =>
             tab.id === tabId ? { ...tab, title: newTitle } : tab
           );
@@ -575,7 +556,6 @@ const useAppStore = create<AppState>()(
           if (!updatedTab) {
             throw new Error("Tab not found");
           }
-          await IndexedDB.updateTab(indexDbInstance, updatedTab);
           set({ tabs: updatedTabs });
           toast.success(`Tab title updated to "${newTitle}"`);
         },
@@ -1037,15 +1017,53 @@ const useAppStore = create<AppState>()(
             return [];
           }
         },
+
+        /**
+         * Clears local UI data stored in localStorage (tabs, layouts, etc.).
+         * Keeps credentials intact. Resets tabs to Home.
+         */
+        clearLocalData: () => {
+          try {
+            // Remove metrics layouts
+            const keysToRemove: string[] = [];
+            for (let i = 0; i < localStorage.length; i++) {
+              const k = localStorage.key(i)!;
+              if (k.startsWith('metrics_layout_')) keysToRemove.push(k);
+            }
+            keysToRemove.forEach((k) => localStorage.removeItem(k));
+
+            // Reset tabs in state; persist plugin will write back clean tabs
+            set({
+              tabs: [
+                {
+                  id: 'home',
+                  title: 'Home',
+                  content: '',
+                  type: 'home',
+                },
+              ],
+              activeTab: 'home',
+            });
+          } catch (e) {
+            console.error('Failed to clear local data', e);
+          }
+        },
       };
     },
 
     {
       name: "app-storage",
-      // Persist only a subset of the state
+      // Persist subset of the state to localStorage
       partialize: (state) => ({
         credential: state.credential,
         activeTab: state.activeTab,
+        tabs: state.tabs.map((t) => ({
+          ...t,
+          // Avoid persisting heavy query results to keep storage small
+          result: undefined,
+          isLoading: false,
+          error: null,
+        })),
         clickhouseSettings: state.clickhouseSettings,
         isAdmin: state.isAdmin,
       }),

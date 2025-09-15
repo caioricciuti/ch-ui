@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { ReactNode, ComponentType } from "react";
 
-export interface Metrics {
+interface Metrics {
   title: string;
   description: string;
   scope: string;
@@ -18,7 +18,7 @@ export interface Metrics {
   items?: MetricItem[];
 }
 
-export interface MetricItem {
+interface MetricItem {
   title: string;
   query: string;
   type: "card" | "table" | "chart";
@@ -28,29 +28,28 @@ export interface MetricItem {
   tiles?: number;
 }
 
-export type ChartTheme = {
-  light: string;
-  dark: string;
-};
-
-export type ChartDataConfig = {
+type ChartDataConfig = {
   label?: ReactNode;
   icon?: ComponentType<{}>;
   color?: string;
-  theme?: ChartTheme;
+  unit?: string;
+  decimals?: number;
 };
 
-export type CustomChartConfig = {
+type CustomChartConfig = {
   indexBy: string;
-  [key: string]: ChartDataConfig | string | undefined;
+  isDateTime?: boolean;
+  [key: string]: ChartDataConfig | string | boolean | undefined;
 };
+
+// Removed theme indirection for simplicity
 
 // Helper function to create a consistent chart config object
-export const createChartConfig = (
+const createChartConfig = (
   indexBy: string,
   valueKey: string,
   label: string,
-  color: string = "hsl(var(--chart-1))",
+  color: string = "#447EBC",
 ): CustomChartConfig => {
   return {
     indexBy,
@@ -125,18 +124,26 @@ export const metrics: Metrics[] = [
         tiles: 4,
       },
       {
-        title: "Daily Query Count",
-        description: "Number of queries per day for the last 30 days.",
+        title: "Query Count Over Time",
+        description: "Number of queries over the selected time range.",
         type: "chart",
-        chartType: "bar",
+        chartType: "line",
         query: `
-          SELECT count() AS query_count, toStartOfDay(event_time) AS day 
-          FROM system.query_log 
-          WHERE event_time > now() - INTERVAL 30 DAY 
-          GROUP BY day 
-          ORDER BY day
+          WITH toUInt64((($__unixEpochTo - $__unixEpochFrom) / $__bucketSec) + 1) AS steps
+          SELECT g.bucket, COALESCE(d.query_count, 0) AS query_count
+          FROM (
+            SELECT toStartOfInterval(toDateTime($__unixEpochFrom + number * $__bucketSec), INTERVAL $__bucketSec SECOND) AS bucket
+            FROM numbers(steps)
+          ) AS g
+          LEFT JOIN (
+            SELECT $__timeBucket AS bucket, COUNT(*) AS query_count
+            FROM system.query_log
+            WHERE event_time BETWEEN $__timeFromTo
+            GROUP BY $__timeBucket
+          ) AS d USING bucket
+          ORDER BY g.bucket
         `,
-        chartConfig: createChartConfig("day", "query_count", "Query Count", "hsl(var(--chart-1))"),
+        chartConfig: createChartConfig("bucket", "query_count", "Query Count", "#447EBC"),
         tiles: 4,
       },
     ],
@@ -196,7 +203,10 @@ export const metrics: Metrics[] = [
         type: "chart",
         chartType: "bar",
         description: "Size distribution of the top 30 largest tables.",
-        chartConfig: createChartConfig("name", "total_mb", "Size (MB)", "hsl(var(--chart-2))"),
+        chartConfig: {
+          indexBy: "name",
+          total_mb: { label: "Size (MB)", color: "#EAB839", unit: "MB", decimals: 1 },
+        },
         tiles: 2,
       },
       {
@@ -205,25 +215,39 @@ export const metrics: Metrics[] = [
         type: "chart",
         chartType: "bar",
         description: "Number of partitions per table.",
-        chartConfig: createChartConfig("table", "partition_count", "Partition Count", "hsl(var(--chart-3))"),
+        chartConfig: createChartConfig("table", "partition_count", "Partition Count", "#6ED0E0"),
         tiles: 2,
       },
       {
         title: "Table Engine Distribution",
-        query: `SELECT engine, COUNT(*) AS table_count FROM system.tables WHERE database NOT IN ('system', 'information_schema') GROUP BY engine ORDER BY table_count DESC`,
+        query: `SELECT engine, COUNT(*) AS table_count FROM system.tables WHERE database NOT IN ('system', 'information_schema') GROUP BY engine ORDER BY table_count DESC LIMIT 15`,
         type: "chart",
         chartType: "bar",
         description: "Distribution of table engines.",
-        chartConfig: createChartConfig("engine", "table_count", "Table Count", "hsl(var(--chart-1))"),
+        chartConfig: createChartConfig("engine", "table_count", "Table Count", "#7EB26D"),
         tiles: 2,
       },
       {
         title: "Most Used Tables",
-        query: `SELECT tables, COUNT(*) AS query_count FROM system.query_log WHERE event_time > now() - INTERVAL 1 DAY GROUP BY tables ORDER BY query_count DESC LIMIT 10`,
+        query: `
+          SELECT t AS table, COUNT(*) AS query_count
+          FROM (
+            SELECT arrayJoin(tables) AS t
+            FROM system.query_log
+            WHERE event_time BETWEEN $__timeFromTo
+              AND type = 'QueryFinish'
+          )
+          GROUP BY t
+          ORDER BY query_count DESC
+          LIMIT 10
+        `,
         type: "chart",
         chartType: "bar",
-        description: "Top 10 most queried tables in the last 24 hours.",
-        chartConfig: createChartConfig("tables", "query_count", "Query Count", "hsl(var(--chart-2))"),
+        description: "Top 10 most queried tables in the selected time range.",
+        chartConfig: {
+          indexBy: "table",
+          query_count: { label: "Query Count", color: "#EAB839" },
+        },
         tiles: 2,
       },
     ],
@@ -257,14 +281,14 @@ export const metrics: Metrics[] = [
               FROM
                 system.query_log
               WHERE
-                event_time > now() - INTERVAL 1 DAY
+                event_time BETWEEN $__timeFromTo
             ) AS query_counts`,
         type: "card",
-        description: "Percentage of failed queries over the last 24 hours.",
+        description: "Percentage of failed queries (selected range).",
         tiles: 1,
       },
       {
-        title: "Average Query Duration",
+        title: "Average Query Duration (Selected Range)",
         query: `
           SELECT 
             round(avg(query_duration_ms), 2) AS avg_duration_ms
@@ -272,20 +296,19 @@ export const metrics: Metrics[] = [
             system.query_log
           WHERE 
             type = 'QueryFinish' 
-            AND event_time > now() - INTERVAL 1 DAY`,
+            AND event_time BETWEEN $__timeFromTo`,
         type: "card",
-        description:
-          "Average duration of queries executed in the last 24 hours.",
+        description: "Average query duration in the selected time range.",
         tiles: 1,
       },
       {
-        title: "Total Queries (Last 24h)",
+        title: "Total Queries (Selected Range)",
         query: `
           SELECT COUNT(*) AS total_queries 
           FROM system.query_log 
-          WHERE event_time > now() - INTERVAL 1 DAY`,
+          WHERE event_time BETWEEN $__timeFromTo`,
         type: "card",
-        description: "Total number of queries executed in the last 24 hours.",
+        description: "Total number of queries (selected range).",
         tiles: 1,
       },
       {
@@ -308,31 +331,35 @@ export const metrics: Metrics[] = [
           FROM system.query_log
           WHERE 
             type = 'QueryFinish'
-            AND event_time > now() - INTERVAL 1 DAY
+            AND event_time BETWEEN $__timeFromTo
           GROUP BY duration_bucket
           ORDER BY duration_bucket`,
         type: "chart",
         chartType: "bar",
-        description:
-          "Granular distribution of query durations over the last 24 hours.",
-        chartConfig: createChartConfig("duration_bucket", "query_count", "Query Count", "hsl(var(--chart-1))"),
+        description: "Distribution of query durations (selected range).",
+        chartConfig: createChartConfig("duration_bucket", "query_count", "Query Count", "#447EBC"),
         tiles: 2,
       },
       {
-        title: "Queries Per Second (QPS)",
+        title: "Queries Per Minute",
         query: `
-          SELECT 
-            toStartOfMinute(event_time) AS minute,
-            COUNT(*) AS qps
-          FROM system.query_log
-          WHERE type = 'QueryFinish' 
-            AND event_time > now() - INTERVAL 1 HOUR
-          GROUP BY minute
-          ORDER BY minute`,
+          WITH toUInt64((($__unixEpochTo - $__unixEpochFrom) / $__bucketSec) + 1) AS steps
+          SELECT g.bucket, COALESCE(d.qps, 0) AS qps
+          FROM (
+            SELECT toStartOfInterval(toDateTime($__unixEpochFrom + number * $__bucketSec), INTERVAL $__bucketSec SECOND) AS bucket
+            FROM numbers(steps)
+          ) AS g
+          LEFT JOIN (
+            SELECT $__timeBucket AS bucket, COUNT(*) AS qps
+            FROM system.query_log
+            WHERE type = 'QueryFinish' AND event_time BETWEEN $__timeFromTo
+            GROUP BY $__timeBucket
+          ) AS d USING bucket
+          ORDER BY g.bucket`,
         type: "chart",
         chartType: "area",
-        description: "Rate of queries per second over the last hour.",
-        chartConfig: createChartConfig("minute", "qps", "QPS", "hsl(var(--chart-3))"),
+        description: "Queries over the selected time range (auto-grouped).",
+        chartConfig: createChartConfig("bucket", "qps", "Queries", "#6ED0E0"),
         tiles: 2,
       },
       {
@@ -344,14 +371,13 @@ export const metrics: Metrics[] = [
           FROM 
             system.query_log 
           WHERE 
-            event_time > now() - INTERVAL 1 DAY 
+            event_time BETWEEN $__timeFromTo 
             AND type = 'QueryFinish' 
           GROUP BY user 
           ORDER BY query_count DESC 
           LIMIT 10`,
         type: "table",
-        description:
-          "Top 10 users by the number of queries executed in the last 24 hours.",
+        description: "Top 10 users by queries (selected range).",
         tiles: 4,
       },
 
@@ -363,11 +389,11 @@ export const metrics: Metrics[] = [
             query_duration_ms 
           FROM system.query_log 
           WHERE type = 'QueryFinish' 
-            AND event_time > now() - INTERVAL 1 DAY 
+            AND event_time BETWEEN $__timeFromTo 
           ORDER BY query_duration_ms DESC 
           LIMIT 10`,
         type: "table",
-        description: "Top 10 slowest queries executed in the last 24 hours.",
+        description: "Top 10 slowest queries (selected range).",
         tiles: 4,
       },
     ],
@@ -381,109 +407,138 @@ export const metrics: Metrics[] = [
       {
         title: "CPU Usage",
         query: `
-          SELECT 
-            toStartOfMinute(event_time) AS minute,
+          SELECT
+            $__timeBucket AS bucket,
             avg(ProfileEvent_OSCPUVirtualTimeMicroseconds) AS cpu_usage
           FROM system.metric_log
-          WHERE event_time > now() - INTERVAL 1 HOUR
-          GROUP BY minute
-          ORDER BY minute
+          WHERE event_time BETWEEN $__timeFromTo
+          GROUP BY $__timeBucket
+          ORDER BY bucket WITH FILL STEP $__bucketSec
         `,
         type: "chart",
         chartType: "line",
-        description: "CPU usage over the last hour.",
-        chartConfig: createChartConfig("minute", "cpu_usage", "CPU Usage", "hsl(var(--chart-5))"),
+        description: "CPU usage over the selected time range.",
+        chartConfig: createChartConfig("bucket", "cpu_usage", "CPU Usage", "#BA43A9"),
         tiles: 2,
       },
       {
         title: "Memory Usage",
         query: `
-          SELECT 
-            toStartOfMinute(event_time) AS minute,
-            avg(ProfileEvent_MemoryWorkerRun) AS memory_usage
-          FROM system.metric_log
-          WHERE event_time > now() - INTERVAL 1 HOUR
-          GROUP BY minute
-          ORDER BY minute
+          WITH toUInt64((($__unixEpochTo - $__unixEpochFrom) / $__bucketSec) + 1) AS steps
+          SELECT g.bucket, COALESCE(d.memory_usage, 0) AS memory_usage
+          FROM (
+            SELECT toStartOfInterval(toDateTime($__unixEpochFrom + number * $__bucketSec), INTERVAL $__bucketSec SECOND) AS bucket
+            FROM numbers(steps)
+          ) AS g
+          LEFT JOIN (
+            SELECT $__timeBucket AS bucket, avg(ProfileEvent_MemoryWorkerRun) AS memory_usage
+            FROM system.metric_log
+            WHERE event_time BETWEEN $__timeFromTo
+            GROUP BY $__timeBucket
+          ) AS d USING bucket
+          ORDER BY g.bucket
         `,
         type: "chart",
         chartType: "area",
-        description: "Memory usage over the last hour.",
-        chartConfig: createChartConfig("minute", "memory_usage", "Memory Usage", "hsl(var(--chart-1))"),
+        description: "Memory usage over the selected time range.",
+        chartConfig: createChartConfig("bucket", "memory_usage", "Memory Usage", "#7EB26D"),
         tiles: 2,
       },
 
       {
         title: "Threads Usage",
         query: `
-        SELECT 
-            toStartOfMinute(event_time) AS minute,
-            avg(ProfileEvent_Query) AS threads_running
-        FROM system.metric_log
-        WHERE event_time > now() - INTERVAL 1 HOUR
-        GROUP BY minute
-        ORDER BY minute
+        WITH toUInt64((($__unixEpochTo - $__unixEpochFrom) / $__bucketSec) + 1) AS steps
+        SELECT g.bucket, COALESCE(d.threads_running, 0) AS threads_running
+        FROM (
+          SELECT toStartOfInterval(toDateTime($__unixEpochFrom + number * $__bucketSec), INTERVAL $__bucketSec SECOND) AS bucket
+          FROM numbers(steps)
+        ) AS g
+        LEFT JOIN (
+          SELECT $__timeBucket AS bucket, avg(ProfileEvent_Query) AS threads_running
+          FROM system.metric_log
+          WHERE event_time BETWEEN $__timeFromTo
+          GROUP BY $__timeBucket
+        ) AS d USING bucket
+        ORDER BY g.bucket
         `,
         type: "chart",
         chartType: "area",
-        description: "Threads usage over the last hour.",
-        chartConfig: createChartConfig("minute", "threads_running", "Threads Running", "hsl(var(--chart-1))"),
+        description: "Threads usage over the selected time range.",
+        chartConfig: createChartConfig("bucket", "threads_running", "Threads Running", "#7EB26D"),
         tiles: 2,
       },
       {
         title: "Network Traffic",
         query: `
-   SELECT
-  toStartOfMinute (event_time) AS minute,
-  sum(value) AS bytes_received
-FROM
-  system.asynchronous_metric_log
-WHERE
-  event_time > now () - INTERVAL 1 HOUR
-  AND metric LIKE '%NetworkReceiveBytes%'
-GROUP BY
-  minute
-ORDER BY
-  minute
+   WITH toUInt64((($__unixEpochTo - $__unixEpochFrom) / $__bucketSec) + 1) AS steps
+   SELECT g.bucket, COALESCE(d.bytes_received, 0) AS bytes_received
+   FROM (
+     SELECT toStartOfInterval(toDateTime($__unixEpochFrom + number * $__bucketSec), INTERVAL $__bucketSec SECOND) AS bucket
+     FROM numbers(steps)
+   ) AS g
+   LEFT JOIN (
+     SELECT $__timeBucket AS bucket, sum(value) AS bytes_received
+     FROM system.asynchronous_metric_log
+     WHERE event_time BETWEEN $__timeFromTo AND metric LIKE '%NetworkReceiveBytes%'
+     GROUP BY $__timeBucket
+   ) AS d USING bucket
+   ORDER BY g.bucket
         `,
         type: "chart",
         chartType: "area",
-        description: "Network traffic over the last hour.",
-        chartConfig: createChartConfig("minute", "bytes_received", "Bytes Received", "hsl(var(--chart-4))"),
+        description: "Network traffic over the selected time range.",
+        chartConfig: {
+          indexBy: "bucket",
+          isDateTime: true,
+          bytes_received: { label: "Bytes Received", color: "#EF843C", unit: "bytes", decimals: 0 },
+        },
         tiles: 2,
       },
       {
         title: "Disk Usage",
         query: `
-          SELECT 
-            toStartOfMinute(event_time) AS minute,
-            avg(ProfileEvent_ReadCompressedBytes) AS disk_usage
-          FROM system.metric_log
-          WHERE event_time > now() - INTERVAL 1 HOUR
-          GROUP BY minute
-          ORDER BY minute
+          WITH toUInt64((($__unixEpochTo - $__unixEpochFrom) / $__bucketSec) + 1) AS steps
+          SELECT g.bucket, COALESCE(d.disk_usage, 0) AS disk_usage
+          FROM (
+            SELECT toStartOfInterval(toDateTime($__unixEpochFrom + number * $__bucketSec), INTERVAL $__bucketSec SECOND) AS bucket
+            FROM numbers(steps)
+          ) AS g
+          LEFT JOIN (
+            SELECT $__timeBucket AS bucket, avg(ProfileEvent_ReadCompressedBytes) AS disk_usage
+            FROM system.metric_log
+            WHERE event_time BETWEEN $__timeFromTo
+            GROUP BY $__timeBucket
+          ) AS d USING bucket
+          ORDER BY g.bucket
         `,
         type: "chart",
         chartType: "line",
-        description: "Average disk usage over the last hour.",
-        chartConfig: createChartConfig("minute", "disk_usage", "Disk Usage", "hsl(var(--chart-6))"),
+        description: "Average disk usage over the selected time range.",
+        chartConfig: createChartConfig("bucket", "disk_usage", "Disk Usage", "#E24D42"),
         tiles: 2,
       },
       {
         title: "Keep Alive Connections",
         query: `
-          SELECT 
-            toStartOfMinute(event_time) AS minute,
-            avg(CurrentMetric_KeeperAliveConnections) AS active_connections
-          FROM system.metric_log
-          WHERE event_time > now() - INTERVAL 1 HOUR
-          GROUP BY minute
-          ORDER BY minute
+          WITH toUInt64((($__unixEpochTo - $__unixEpochFrom) / $__bucketSec) + 1) AS steps
+          SELECT g.bucket, COALESCE(d.active_connections, 0) AS active_connections
+          FROM (
+            SELECT toStartOfInterval(toDateTime($__unixEpochFrom + number * $__bucketSec), INTERVAL $__bucketSec SECOND) AS bucket
+            FROM numbers(steps)
+          ) AS g
+          LEFT JOIN (
+            SELECT $__timeBucket AS bucket, avg(CurrentMetric_KeeperAliveConnections) AS active_connections
+            FROM system.metric_log
+            WHERE event_time BETWEEN $__timeFromTo
+            GROUP BY $__timeBucket
+          ) AS d USING bucket
+          ORDER BY g.bucket
         `,
         type: "chart",
         chartType: "line",
-        description: "Active Keep alive connections over the last hour.",
-        chartConfig: createChartConfig("minute", "active_connections", "Active Connections", "hsl(var(--chart-1))"),
+        description: "Active Keep alive connections over the selected time range.",
+        chartConfig: createChartConfig("bucket", "active_connections", "Active Connections", "#7EB26D"),
         tiles: 2,
       },
     ],
@@ -512,11 +567,15 @@ ORDER BY
                   round(sum(total_bytes) / 1024 / 1024 / 1024, 2) AS size_gb
                 FROM system.tables
                 GROUP BY database
-                ORDER BY size_gb DESC`,
+                ORDER BY size_gb DESC
+                LIMIT 20`,
         type: "chart",
         chartType: "bar",
         description: "Size distribution of databases.",
-        chartConfig: createChartConfig("database", "size_gb", "Size (GB)", "hsl(var(--chart-2))"),
+        chartConfig: {
+          indexBy: "database",
+          size_gb: { label: "Size (GB)", color: "#EAB839", unit: "GB", decimals: 2 },
+        },
         tiles: 4,
       },
     ],
@@ -529,43 +588,52 @@ ORDER BY
     items: [
       {
         title: "Network Traffic",
-        query: `SELECT 
-                  toStartOfMinute(event_time) AS minute,
-                  sum(ProfileEvent_NetworkSendBytes) AS send_bytes,
-                  sum(ProfileEvent_NetworkReceiveBytes) AS receive_bytes
-                FROM system.metric_log
-                WHERE event_time > now() - INTERVAL 1 HOUR
-                GROUP BY minute
-                ORDER BY minute`,
+        query: `WITH toUInt64((($__unixEpochTo - $__unixEpochFrom) / $__bucketSec) + 1) AS steps
+                SELECT g.bucket, COALESCE(d.send_bytes, 0) AS send_bytes, COALESCE(d.receive_bytes, 0) AS receive_bytes
+                FROM (
+                  SELECT toStartOfInterval(toDateTime($__unixEpochFrom + number * $__bucketSec), INTERVAL $__bucketSec SECOND) AS bucket
+                  FROM numbers(steps)
+                ) AS g
+                LEFT JOIN (
+                  SELECT $__timeBucket AS bucket,
+                         sum(ProfileEvent_NetworkSendBytes) AS send_bytes,
+                         sum(ProfileEvent_NetworkReceiveBytes) AS receive_bytes
+                  FROM system.metric_log
+                  WHERE event_time BETWEEN $__timeFromTo
+                  GROUP BY $__timeBucket
+                ) AS d USING bucket
+                ORDER BY g.bucket`,
         type: "chart",
         chartType: "area",
-        description: "Network traffic over the last hour.",
+        description: "Network traffic over the selected time range.",
         chartConfig: {
-          indexBy: "minute",
-          send_bytes: {
-            label: "Send (bytes)",
-            color: "hsl(var(--chart-3))",
-          },
-          receive_bytes: {
-            label: "Receive (bytes)",
-            color: "hsl(var(--chart-4))",
-          },
+          indexBy: "bucket",
+          isDateTime: true,
+          send_bytes: { label: "Send", color: "#6ED0E0", unit: "bytes", decimals: 0 },
+          receive_bytes: { label: "Receive", color: "#EF843C", unit: "bytes", decimals: 0 },
         },
         tiles: 2,
       },
       {
         title: "Network Connections HTTP",
-        query: `SELECT 
-                  toStartOfMinute(event_time) AS minute,
-                  avg(CurrentMetric_HTTPConnection) AS connections
-                FROM system.metric_log
-                WHERE event_time > now() - INTERVAL 1 HOUR
-                GROUP BY minute
-                ORDER BY minute`,
+        query: `WITH toUInt64((($__unixEpochTo - $__unixEpochFrom) / $__bucketSec) + 1) AS steps
+                SELECT g.bucket, COALESCE(d.connections, 0) AS connections
+                FROM (
+                  SELECT toStartOfInterval(toDateTime($__unixEpochFrom + number * $__bucketSec), INTERVAL $__bucketSec SECOND) AS bucket
+                  FROM numbers(steps)
+                ) AS g
+                LEFT JOIN (
+                  SELECT $__timeBucket AS bucket,
+                         avg(CurrentMetric_HTTPConnection) AS connections
+                  FROM system.metric_log
+                  WHERE event_time BETWEEN $__timeFromTo
+                  GROUP BY $__timeBucket
+                ) AS d USING bucket
+                ORDER BY g.bucket`,
         type: "chart",
         chartType: "line",
-        description: "HTTP connections over the last hour.",
-        chartConfig: createChartConfig("minute", "connections", "Connections", "hsl(var(--chart-1))"),
+        description: "HTTP connections over the selected time range.",
+        chartConfig: createChartConfig("bucket", "connections", "Connections", "#7EB26D"),
         tiles: 2,
       },
     ],
@@ -599,31 +667,29 @@ ORDER BY
     icon: AlertTriangleIcon,
     items: [
       {
-        title: "Exceptions (Last 24h)",
+        title: "Exceptions (Selected Range)",
         query: `
           SELECT COUNT(*) AS total_exceptions 
           FROM system.query_log 
           WHERE type IN ('ExceptionBeforeStart', 'ExceptionWhileProcessing') 
-            AND event_time > now() - INTERVAL 1 DAY
+            AND event_time BETWEEN $__timeFromTo
         `,
         type: "card",
-        description:
-          "Total number of exceptions recorded in the last 24 hours.",
+        description: "Total number of exceptions in the selected time range.",
         tiles: 1,
       },
       {
-        title: "Exception Rate (Last 24h)",
+        title: "Exception Rate (Selected Range)",
         query: `
           SELECT 
             round(100 * COUNTIf(type IN ('ExceptionBeforeStart', 'ExceptionWhileProcessing')) / COUNT(*), 2) AS exception_rate 
           FROM 
             system.query_log 
           WHERE 
-            event_time > now() - INTERVAL 1 DAY
+            event_time BETWEEN $__timeFromTo
         `,
         type: "card",
-        description:
-          "Percentage of queries that resulted in exceptions over the last 24 hours.",
+        description: "Percentage of queries that resulted in exceptions (selected range).",
         tiles: 1,
       },
       {
@@ -638,13 +704,13 @@ ORDER BY
             system.query_log 
           WHERE 
             type IN ('ExceptionBeforeStart', 'ExceptionWhileProcessing') 
-            AND event_time > now() - INTERVAL 1 HOUR 
+            AND event_time BETWEEN $__timeFromTo 
           ORDER BY 
             event_time DESC 
           LIMIT 10
         `,
         type: "table",
-        description: "Last 10 exceptions recorded in the last hour.",
+        description: "Last 10 exceptions in the selected time range.",
         tiles: 4,
       },
 
@@ -658,7 +724,7 @@ ORDER BY
             system.query_log 
           WHERE 
             type IN ('ExceptionBeforeStart', 'ExceptionWhileProcessing') 
-            AND event_time > now() - INTERVAL 1 DAY 
+            AND event_time BETWEEN $__timeFromTo 
           GROUP BY 
             user 
           ORDER BY 
@@ -666,30 +732,29 @@ ORDER BY
           LIMIT 10
         `,
         type: "table",
-        description:
-          "Top 10 users with the most exceptions in the last 24 hours.",
+        description: "Top 10 users by exception count (selected range).",
         tiles: 4,
       },
       {
         title: "Exceptions Over Time",
         query: `
           SELECT 
-            toStartOfHour(event_time) AS hourERROR, 
+            $__timeGroupExpr AS bucket, 
             COUNT(*) AS exception_count 
           FROM 
             system.query_log 
           WHERE 
             type IN ('ExceptionBeforeStart', 'ExceptionWhileProcessing') 
-            AND event_time > now() - INTERVAL 1 DAY 
+            AND event_time BETWEEN $__timeFromTo 
           GROUP BY 
-            hourERROR 
+            bucket 
           ORDER BY 
-            hourERROR
+            bucket
         `,
         type: "chart",
         chartType: "line",
-        description: "Count of exceptions recorded over the last 24 hours.",
-        chartConfig: createChartConfig("hourERROR", "exception_count", "Exception Count", "hsl(var(--chart-2))"),
+        description: "Count of exceptions over the selected time range.",
+        chartConfig: createChartConfig("bucket", "exception_count", "Exception Count", "#EAB839"),
         tiles: 2,
       },
       {
@@ -702,7 +767,7 @@ ORDER BY
             system.query_log 
           WHERE 
             type IN ('ExceptionBeforeStart', 'ExceptionWhileProcessing') 
-            AND event_time > now() - INTERVAL 1 DAY 
+            AND event_time BETWEEN $__timeFromTo 
           GROUP BY 
             exception 
           ORDER BY 
@@ -710,7 +775,7 @@ ORDER BY
           LIMIT 10
         `,
         type: "table",
-        description: "Top 10 most common exceptions in the last 24 hours.",
+        description: "Top 10 most common exceptions (selected range).",
         tiles: 2,
       },
     ],

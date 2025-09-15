@@ -1,9 +1,17 @@
 //monacoConfig.ts
 import { createClient } from "@clickhouse/client-web";
 import * as monaco from "monaco-editor";
-import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { format } from "sql-formatter";
 import { appQueries } from "./appQueries";
+
+// Add this declaration to extend the Window interface
+declare global {
+  interface Window {
+    MonacoEnvironment?: {
+      getWorkerUrl: () => string;
+    };
+  }
+}
 
 let isInitialized = false;
 
@@ -116,17 +124,21 @@ let functionsCache: string[] | null = null;
 let keywordsCache: string[] | null = null;
 
 // Setting up the Monaco Environment to use the editor worker
-self.MonacoEnvironment = {
-  getWorker() {
-    return new editorWorker();
+window.MonacoEnvironment = {
+  getWorkerUrl() {
+    return new URL("../../worker/monaco-editor-worker.js", import.meta.url)
+      .href;
   },
 };
 
 // Ensure the Monaco Environment is initialized
-export function ensureMonacoEnvironment() {
-  if (typeof self.MonacoEnvironment === "undefined") {
-    self.MonacoEnvironment = {
-      getWorker: () => new editorWorker(),
+function ensureMonacoEnvironment() {
+  if (typeof window.MonacoEnvironment === "undefined") {
+    window.MonacoEnvironment = {
+      getWorkerUrl() {
+        return new URL("../../worker/monaco-editor-worker.js", import.meta.url)
+          .href;
+      },
     };
   }
 }

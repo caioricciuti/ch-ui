@@ -37,7 +37,7 @@ const OverviewCards: React.FC<OverviewCardsProps> = ({ data, tableName }) => {
         {
           icon: Calendar,
           title: "Last Modified",
-          value: formatDate(data.last_modified_partition),
+          value: formatDate(data.last_modified_partition, "MM/dd/yyyy"),
           description: "Last modification of the table",
         },
       ]
@@ -63,7 +63,7 @@ const OverviewCards: React.FC<OverviewCardsProps> = ({ data, tableName }) => {
         {
           icon: Calendar,
           title: "Last Modified",
-          value: formatDate(data.last_modified),
+          value: formatDate(data.last_modified, "MM/dd/yyyy"),
           description: "Last modification of the database",
         },
       ];
