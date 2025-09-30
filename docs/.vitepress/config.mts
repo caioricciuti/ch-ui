@@ -18,8 +18,7 @@ export default defineConfig({
       'script',
       {
         defer: '',
-        src: 'https://umami.ch-ui.com/script.js',
-        'data-website-id': '2fd4b78c-f4f2-40c8-bf84-f8d3af064a02'
+        src: 'https://wt.ch-ui.com/s.js'
       }
     ]
   ],
