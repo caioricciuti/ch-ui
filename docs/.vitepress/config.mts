@@ -18,7 +18,7 @@ export default defineConfig({
       'script',
       {
         defer: '',
-        src: 'https://wt.ch-ui.com/s.js'
+        src: 'https://wt.yaat.io/s.js'
       }
     ]
   ],
