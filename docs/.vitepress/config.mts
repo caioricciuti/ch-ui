@@ -18,7 +18,8 @@ export default defineConfig({
       'script',
       {
         defer: '',
-        src: 'https://wt.yaat.io/s.js'
+        src: 'https://wt.yaat.io/s.js',
+        'data-org': 'yaat'
       }
     ]
   ],
