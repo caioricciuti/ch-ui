@@ -59,10 +59,10 @@ A modern, feature-rich web interface for ClickHouse databases. CH-UI provides an
 ## 📸 Screenshots
 
 <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-  <img src="./public/screen-shots/screenshot1.png" alt="Settings Interface" width="24%" />
-  <img src="./public/screen-shots/screenshot2.png" alt="Main Dashboard" width="24%" />
-  <img src="./public/screen-shots//screenshot13.png" alt="Instance Metrics" width="24%" />
-  <img src="./public/screen-shots//screenshot13.png" alt="Instance Metrics" width="24%" />
+  <img src="./docs/public/screenshots/screenshot1.png" alt="Main Dashboard" width="24%" />
+  <img src="./docs/public/screenshots/screenshot2.png" alt="Query Interface" width="24%" />
+  <img src="./docs/public/screenshots/screenshot8.png" alt="Instance Metrics" width="24%" />
+  <img src="./docs/public/screenshots/screenshot9.png" alt="Query Metrics" width="24%" />
 </div>
 
 ## 🚀 Getting Started
