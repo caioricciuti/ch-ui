@@ -1,7 +1,9 @@
 // src/pages/NotFound.tsx
 import React from "react";
-import Logo from "/logo.png";
+import { withBasePath } from "@/lib/basePath";
 import { Separator } from "@/components/ui/separator";
+
+const Logo = withBasePath("logo.png");
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { SignpostBig } from "lucide-react";

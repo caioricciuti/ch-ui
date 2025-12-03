@@ -26,6 +26,35 @@ type ExportFormat = "csv" | "json" | "clipboard";
 
 const CHUNK_SIZE = 10000; // Number of rows to process at once
 
+/**
+ * Prepares a value for CSV export by properly handling objects and complex types.
+ * Objects are serialized to JSON strings which PapaParse will then properly escape.
+ */
+const prepareCsvValue = (value: unknown): string | number | boolean | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === "object") {
+    // Convert objects/arrays to JSON strings
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  return String(value);
+};
+
+/**
+ * Prepares an entire row for CSV export by processing each value.
+ */
+const prepareRowForCsv = (row: Record<string, unknown>): Record<string, string | number | boolean | null> => {
+  const prepared: Record<string, string | number | boolean | null> = {};
+  for (const key of Object.keys(row)) {
+    prepared[key] = prepareCsvValue(row[key]);
+  }
+  return prepared;
+};
+
 const DownloadDialog: React.FC<DownloadDialogProps> = ({
   data,
   onExport,
@@ -48,10 +77,18 @@ const DownloadDialog: React.FC<DownloadDialogProps> = ({
     let size: number;
 
     switch (downloadOption) {
-      case "csv":
+      case "csv": {
+        const preparedSample = sample.map(prepareRowForCsv);
+        const csvOptions: Papa.UnparseConfig = {
+          quotes: true,
+          quoteChar: '"',
+          escapeChar: '"',
+        };
         size =
-          new Blob([Papa.unparse(sample)]).size * (data.length / sampleSize);
+          new Blob([Papa.unparse(preparedSample, csvOptions)]).size *
+          (data.length / sampleSize);
         break;
+      }
       case "json":
         size =
           new Blob([JSON.stringify(sample)]).size * (data.length / sampleSize);
@@ -92,12 +129,23 @@ const DownloadDialog: React.FC<DownloadDialogProps> = ({
       const chunk = data.slice(i * chunkSize, (i + 1) * chunkSize);
 
       switch (format) {
-        case "csv":
-          result +=
-            i === 0
-              ? Papa.unparse(chunk)
-              : Papa.unparse(chunk, { header: false });
+        case "csv": {
+          // Preprocess data to handle objects and complex types
+          const preparedChunk = chunk.map(prepareRowForCsv);
+          // Use PapaParse with proper escaping configuration
+          const csvOptions: Papa.UnparseConfig = {
+            header: i === 0,
+            quotes: true, // Always quote fields to ensure proper escaping
+            quoteChar: '"',
+            escapeChar: '"', // Double-quote escaping as per RFC 4180
+            newline: "\r\n", // Standard CSV line ending
+          };
+          result += Papa.unparse(preparedChunk, csvOptions);
+          if (i < chunks - 1) {
+            result += "\r\n"; // Add newline between chunks
+          }
           break;
+        }
         case "json":
         case "clipboard":
           result +=

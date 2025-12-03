@@ -69,6 +69,12 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
       });
       setCredentialSource("env");
     }
+
+    // Clear window.env after reading to reduce credential exposure
+    if (window.env) {
+      delete window.env;
+    }
+
     setEnvChecked(true);
   }, [setCredential, setCredentialSource]);
 

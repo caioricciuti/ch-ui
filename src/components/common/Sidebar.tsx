@@ -59,8 +59,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
-import Logo from "/logo.png";
+import { withBasePath } from "@/lib/basePath";
 import useAppStore from "@/store";
+
+const Logo = withBasePath("logo.png");
 import { Badge } from "@/components/ui/badge";
 
 const commandsSheet = [

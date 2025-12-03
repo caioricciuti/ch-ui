@@ -42,7 +42,6 @@ console.log(
 const scriptContent = `
 <script>
   window.env = ${JSON.stringify(envVars)};
-  console.log("Environment variables loaded:", window.env);
 </script>
 `;
 
