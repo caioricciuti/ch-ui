@@ -132,9 +132,9 @@ export default function Login() {
                                             {availableUrls.length > 0 ? (
                                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                     <FormControl>
-                                                        <SelectTrigger className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 hover:bg-white/10 transition-colors h-11">
-                                                            <div className="flex items-center gap-2">
-                                                                <Database className="w-4 h-4 text-purple-400" />
+                                                        <SelectTrigger className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 hover:bg-white/10 transition-colors h-11 overflow-hidden justify-start">
+                                                            <div className="flex items-center gap-2 w-full overflow-x-auto whitespace-nowrap">
+                                                                <Database className="w-4 h-4 text-purple-400 shrink-0" />
                                                                 <SelectValue placeholder="Select a ClickHouse server" />
                                                             </div>
                                                         </SelectTrigger>

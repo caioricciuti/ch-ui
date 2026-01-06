@@ -144,8 +144,33 @@ interface SavedQueriesCheckResponse {
 /**
  * Helper: Builds the connection URL from the provided credential.
  */
-const buildConnectionUrl = (credential: Credential): string => {
-  return credential.url.replace(/\/+$/, "");
+/**
+ * Helper: Builds the connection config from the provided credential.
+ * Extracts proxy slug if present and sets appropriate headers.
+ */
+const buildClientConfig = (credential: Credential): { url: string; headers: Record<string, string> } => {
+  let url = credential.url.replace(/\/+$/, "");
+  const headers: Record<string, string> = {};
+
+  // Check if it's a proxy path (e.g. /proxy/slug or http://.../proxy/slug)
+  const proxyMatch = url.match(/\/proxy\/([^\/]+)$/);
+
+  if (proxyMatch) {
+    const slug = proxyMatch[1];
+    headers["X-ClickHouse-Proxy-Slug"] = slug;
+
+    // Set URL to origin (the proxy server root)
+    if (typeof window !== "undefined") {
+      url = window.location.origin;
+    }
+  } else if (url.startsWith("/")) {
+    // Other relative paths
+    if (typeof window !== "undefined") {
+      url = `${window.location.origin}${url}`;
+    }
+  }
+
+  return { url, headers };
 };
 
 const escapeClickhouseString = (value: string): string =>
@@ -197,12 +222,13 @@ const useAppStore = create<AppState>()(
         setCredential: async (credential: Credential) => {
           set({ credential, isLoadingCredentials: true, error: "" });
           try {
-            const connectionUrl = buildConnectionUrl(credential);
+            const { url, headers } = buildClientConfig(credential);
             const client = createClient({
-              url: connectionUrl,
+              url,
               username: credential.username,
               password: credential.password || "",
               request_timeout: 300000,
+              http_headers: headers,
               clickhouse_settings: {
                 ...get().clickhouseSettings,
                 result_overflow_mode: "break",
@@ -241,12 +267,13 @@ const useAppStore = create<AppState>()(
         updateConfiguration: async (clickhouseSettings: ClickHouseSettings) => {
           try {
             const credentials = get().credential;
-            const connectionUrl = buildConnectionUrl(credentials);
+            const { url, headers } = buildClientConfig(credentials);
             const client = createClient({
-              url: connectionUrl,
+              url,
               username: credentials.username,
               password: credentials.password || "",
               request_timeout: 300000,
+              http_headers: headers,
               clickhouse_settings: clickhouseSettings,
             });
             set({ clickHouseClient: client, clickhouseSettings });

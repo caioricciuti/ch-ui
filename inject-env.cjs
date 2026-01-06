@@ -11,14 +11,30 @@ if (!fs.existsSync(indexHtmlPath)) {
 let indexHtmlContent = fs.readFileSync(indexHtmlPath, "utf8");
 
 // Inject the environment variables
+const clickhouseUrls = (process.env.CLICKHOUSE_URLS || "")
+  .split(",")
+  .map(u => u.trim())
+  .filter(u => u.length > 0);
+
+// Helper to generate friendly path from URL (Must match server.ts logic)
+function slugifyUrl(urlString) {
+  try {
+    // Basic node URL parsing
+    const u = new URL(urlString);
+    let slug = u.hostname.replace(/[^a-zA-Z0-9-]/g, '-');
+    if (u.port) slug += `-${u.port}`;
+    return slug;
+  } catch (e) {
+    return urlString.replace(/^https?:\/\//, '').replace(/[^a-zA-Z0-9-]/g, '-');
+  }
+}
+
 const envVars = {
-  VITE_CLICKHOUSE_URLS: (process.env.VITE_CLICKHOUSE_URLS || "")
-    .split(",")
-    .filter((url) => url.trim() !== ""),
-
-
-
-
+  VITE_CLICKHOUSE_URLS: clickhouseUrls.length > 0
+    ? clickhouseUrls.map(u => `/proxy/${slugifyUrl(u)}`)
+    : (process.env.VITE_CLICKHOUSE_URLS || "")
+      .split(",")
+      .filter((url) => url.trim() !== ""),
 };
 
 console.log("Injecting environment variables:");

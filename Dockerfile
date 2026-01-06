@@ -43,15 +43,14 @@ COPY --from=build /app/dist /app
 
 # Copy environment injection script
 COPY inject-env.cjs /app/inject-env.cjs
-
-# Install serve locally in /app (pinned version for reproducibility)
-RUN bun add serve@14.2.5
+# Copy server script
+COPY server.ts /app/server.ts
 
 # Create non-root user
 RUN addgroup -S ch-group -g 1001 && \
   adduser -S ch-user -u 1001 -G ch-group
 
-# Set ownership (includes node_modules with serve)
+# Set ownership
 RUN chown -R ch-user:ch-group /app
 
 # Add metadata labels
@@ -75,5 +74,5 @@ USER ch-user
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:5521 || exit 1
 
-# Start the application
-CMD ["/bin/sh", "-c", "bun run /app/inject-env.cjs && ./node_modules/.bin/serve -s -l 5521 /app"]
+# Start the application with Bun server
+CMD ["/bin/sh", "-c", "bun run /app/inject-env.cjs && bun run /app/server.ts"]
