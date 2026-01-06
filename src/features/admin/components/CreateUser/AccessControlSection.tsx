@@ -87,8 +87,7 @@ const AccessControlSection: React.FC<AccessControlSectionProps> = ({ form }) => 
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
                   <Calendar
-                    className="rounded-md border"
-                    classNames='w-64'
+                    className="rounded-md border w-64"
                     mode="single"
                     selected={field.value}
                     onSelect={field.onChange}

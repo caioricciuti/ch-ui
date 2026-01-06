@@ -6,11 +6,11 @@ import {
   HardDriveIcon,
   NetworkIcon,
   CpuIcon,
-  AlertTriangleIcon,
+
 } from "lucide-react";
 import { ReactNode, ComponentType } from "react";
 
-interface Metrics {
+export interface Metrics {
   title: string;
   description: string;
   scope: string;
@@ -18,7 +18,7 @@ interface Metrics {
   items?: MetricItem[];
 }
 
-interface MetricItem {
+export interface MetricItem {
   title: string;
   query: string;
   type: "card" | "table" | "chart";
@@ -26,6 +26,9 @@ interface MetricItem {
   description: string;
   chartConfig?: CustomChartConfig;
   tiles?: number;
+  showTableMetadata?: boolean;
+  showTableStatistics?: boolean;
+  hideTableHeader?: boolean;
 }
 
 type ChartDataConfig = {
@@ -36,7 +39,7 @@ type ChartDataConfig = {
   decimals?: number;
 };
 
-type CustomChartConfig = {
+export type CustomChartConfig = {
   indexBy: string;
   isDateTime?: boolean;
   [key: string]: ChartDataConfig | string | boolean | undefined;
@@ -660,124 +663,5 @@ export const metrics: Metrics[] = [
       },
     ],
   },
-  {
-    title: "Query Exceptions",
-    scope: "exceptions",
-    description: "Overview of query exceptions in the system.",
-    icon: AlertTriangleIcon,
-    items: [
-      {
-        title: "Exceptions (Selected Range)",
-        query: `
-          SELECT COUNT(*) AS total_exceptions 
-          FROM system.query_log 
-          WHERE type IN ('ExceptionBeforeStart', 'ExceptionWhileProcessing') 
-            AND event_time BETWEEN $__timeFromTo
-        `,
-        type: "card",
-        description: "Total number of exceptions in the selected time range.",
-        tiles: 1,
-      },
-      {
-        title: "Exception Rate (Selected Range)",
-        query: `
-          SELECT 
-            round(100 * COUNTIf(type IN ('ExceptionBeforeStart', 'ExceptionWhileProcessing')) / COUNT(*), 2) AS exception_rate 
-          FROM 
-            system.query_log 
-          WHERE 
-            event_time BETWEEN $__timeFromTo
-        `,
-        type: "card",
-        description: "Percentage of queries that resulted in exceptions (selected range).",
-        tiles: 1,
-      },
-      {
-        title: "Recent Exceptions",
-        query: `
-          SELECT 
-            event_time, 
-            user, 
-            query, 
-            exception 
-          FROM 
-            system.query_log 
-          WHERE 
-            type IN ('ExceptionBeforeStart', 'ExceptionWhileProcessing') 
-            AND event_time BETWEEN $__timeFromTo 
-          ORDER BY 
-            event_time DESC 
-          LIMIT 10
-        `,
-        type: "table",
-        description: "Last 10 exceptions in the selected time range.",
-        tiles: 4,
-      },
 
-      {
-        title: "Exceptions by User",
-        query: `
-          SELECT 
-            user, 
-            COUNT(*) AS exception_count 
-          FROM 
-            system.query_log 
-          WHERE 
-            type IN ('ExceptionBeforeStart', 'ExceptionWhileProcessing') 
-            AND event_time BETWEEN $__timeFromTo 
-          GROUP BY 
-            user 
-          ORDER BY 
-            exception_count DESC 
-          LIMIT 10
-        `,
-        type: "table",
-        description: "Top 10 users by exception count (selected range).",
-        tiles: 4,
-      },
-      {
-        title: "Exceptions Over Time",
-        query: `
-          SELECT 
-            $__timeGroupExpr AS bucket, 
-            COUNT(*) AS exception_count 
-          FROM 
-            system.query_log 
-          WHERE 
-            type IN ('ExceptionBeforeStart', 'ExceptionWhileProcessing') 
-            AND event_time BETWEEN $__timeFromTo 
-          GROUP BY 
-            bucket 
-          ORDER BY 
-            bucket
-        `,
-        type: "chart",
-        chartType: "line",
-        description: "Count of exceptions over the selected time range.",
-        chartConfig: createChartConfig("bucket", "exception_count", "Exception Count", "#EAB839"),
-        tiles: 2,
-      },
-      {
-        title: "Most Common Exceptions",
-        query: `
-          SELECT 
-            exception, 
-            COUNT(*) AS count 
-          FROM 
-            system.query_log 
-          WHERE 
-            type IN ('ExceptionBeforeStart', 'ExceptionWhileProcessing') 
-            AND event_time BETWEEN $__timeFromTo 
-          GROUP BY 
-            exception 
-          ORDER BY 
-            count DESC 
-          LIMIT 10
-        `,
-        type: "table",
-        description: "Top 10 most common exceptions (selected range).",
-        tiles: 2,
-      },
-    ],
-  },
 ];

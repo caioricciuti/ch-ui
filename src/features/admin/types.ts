@@ -15,4 +15,5 @@ export interface UserData {
   grants?: any[];
   settings_profile?: string;
   readonly?: boolean;
+  active_sessions?: number;
 }

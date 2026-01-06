@@ -36,13 +36,37 @@ export function formatNumber(number: number) {
 }
 
 
-export function generateRandomPassword(length: number = 12) {
-  const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()";
-  let password = "";
-  for (let i = 0; i < length; i++) {
-    const randomIndex = Math.floor(Math.random() * charset.length);
-    password += charset[randomIndex];
+export function generateRandomPassword(length: number = 16) {
+  const lowercase = "abcdefghijklmnopqrstuvwxyz";
+  const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const numbers = "0123456789";
+  const special = "!@#$%^&*()_+-=[]{}|;:,.<>?";
+
+  const allChars = lowercase + uppercase + numbers + special;
+
+  // Ensure at least one of each required type
+  let password = [
+    lowercase[Math.floor(Math.random() * lowercase.length)],
+    uppercase[Math.floor(Math.random() * uppercase.length)],
+    numbers[Math.floor(Math.random() * numbers.length)],
+    special[Math.floor(Math.random() * special.length)],
+  ];
+
+  // Fill the rest randomly
+  for (let i = 4; i < length; i++) {
+    password.push(allChars[Math.floor(Math.random() * allChars.length)]);
   }
-  return password;
+
+  // Shuffle the password
+  return password.sort(() => 0.5 - Math.random()).join('');
 }
 
+export function redactSecrets(query: string): string {
+  if (!query) return "";
+  let redacted = query;
+  // Redact IDENTIFIED BY/WITH '...'
+  redacted = redacted.replace(/(IDENTIFIED\s+(?:WITH\s+[a-zA-Z0-9_]+\s+)?BY\s+)'[^']+'/gi, "$1'******'");
+  // Redact PASSWORD '...'
+  redacted = redacted.replace(/(PASSWORD\s+)'[^']+'/gi, "$1'******'");
+  return redacted;
+}

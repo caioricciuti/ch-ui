@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
@@ -7,7 +8,7 @@ import pkg from "./package.json";
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: process.env.VITE_BASE_PATH || '/',
+  base: '/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -16,5 +17,9 @@ export default defineConfig({
   },
   define: {
     __CH_UI_VERSION__: JSON.stringify(pkg.version),
+  },
+  test: {
+    environment: 'happy-dom',
+    globals: true,
   },
 });

@@ -31,17 +31,9 @@ import AgTable from "@/components/common/AgTable";
 import { useTimeRange } from "../context/TimeRangeContext";
 import { interpolateQuery, previewQuery } from "../utils/queryInterpolation";
 import UPlotMetricChart from "./UPlotMetricChart";
-// removed inline statistics badges for cleaner UI
+import { MetricItem } from "../config/metricsConfig";
 
-interface MetricItem {
-  title: string;
-  query: string;
-  type: "card" | "table" | "chart";
-  chartType?: "bar" | "line" | "area" | "pie" | "radar" | "donut";
-  description: string;
-  chartConfig?: any;
-  tiles?: number;
-}
+// removed inline statistics badges for cleaner UI
 
 interface Props {
   item: MetricItem;
@@ -233,7 +225,15 @@ function UPlotMetricItemComponent({ item }: Props) {
     if (!queryResult || !queryResult.data || queryResult.data.length === 0) {
       return <div className="text-muted-foreground font-bold">No data</div>;
     }
-    return <AgTable data={queryResult} height="100%" />;
+    return (
+      <AgTable
+        data={queryResult}
+        height="100%"
+        showMetadata={item.showTableMetadata}
+        showStatistics={item.showTableStatistics}
+        showHeader={!item.hideTableHeader}
+      />
+    );
   };
 
   const renderContent = () => {
@@ -322,7 +322,7 @@ function UPlotMetricItemComponent({ item }: Props) {
             <UPlotMetricChart
               data={queryResult?.data || []}
               chartType={(item.chartType as 'line' | 'area' | 'bar') || 'line'}
-              chartConfig={item.chartConfig}
+              chartConfig={item.chartConfig!}
               height={chartHeight}
             />
           ) : (

@@ -51,7 +51,7 @@ function usePersistedLayout(scope: string, items: ItemLike[]) {
     if (raw && ver === layoutVersion) {
       try {
         return JSON.parse(raw) as { order: string[]; sizes: Record<string, GridItem> };
-      } catch {}
+      } catch { }
     }
     const order = items.map(i => i.title);
     const sizes: Record<string, GridItem> = Object.fromEntries(
@@ -103,10 +103,12 @@ export default function DashboardGrid<T extends ItemLike>({
   scope,
   items,
   renderItem,
+  allowReset,
 }: {
   scope: string;
   items: T[];
   renderItem: (item: T) => React.ReactNode;
+  allowReset?: boolean;
 }) {
   const { state, save } = usePersistedLayout(scope, items);
   const order = state.order.filter(id => items.find(i => i.title === id));
@@ -278,9 +280,11 @@ export default function DashboardGrid<T extends ItemLike>({
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
       <SortableContext items={order} strategy={rectSortingStrategy}>
-        <div className="flex items-center justify-end pb-2">
-          <button className="text-xs px-2 py-1 rounded border hover:bg-accent" onClick={resetLayout}>Reset layout</button>
-        </div>
+        {(allowReset ?? true) && (
+          <div className="flex items-center justify-end pb-2">
+            <button className="text-xs px-2 py-1 rounded border hover:bg-accent" onClick={resetLayout}>Reset layout</button>
+          </div>
+        )}
         <div
           className="grid grid-cols-12 gap-4"
           style={{
@@ -307,40 +311,40 @@ export default function DashboardGrid<T extends ItemLike>({
                     gridRow: `span ${size.rowSpan}`,
                   };
                   return (
-                  <div
-                    ref={setNodeRef}
-                    style={mergedStyle}
-                    className="relative h-full group"
-                    data-grid-tile
-                  >
-                    {/* Move grip (drag handle only) */}
-                    <button
-                      className="absolute left-2 top-2 z-10 p-1 rounded bg-background/80 border cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Drag to move"
-                      {...attributes}
-                      {...listeners}
+                    <div
+                      ref={setNodeRef}
+                      style={mergedStyle}
+                      className="relative h-full group"
+                      data-grid-tile
                     >
-                      <Grip className="h-4 w-4" />
-                    </button>
-                    {/* Quick size controls removed for cleaner UI */}
-                    {/* Drag resize handles */}
-                    <div
-                      onPointerDown={(e) => startResizeX(e, id)}
-                      className="absolute -right-1 top-1/2 -translate-y-1/2 z-10 h-6 w-2 rounded-sm border bg-background/90 shadow cursor-e-resize opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Drag to resize width"
-                    />
-                    <div
-                      onPointerDown={(e) => startResizeY(e, id)}
-                      className="absolute left-1/2 -translate-x-1/2 -bottom-1 z-10 h-2 w-6 rounded-sm border bg-background/90 shadow cursor-s-resize opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Drag to resize height"
-                    />
-                    <div
-                      onPointerDown={(e) => startResize(e, id)}
-                      className="absolute right-1 bottom-1 z-10 h-5 w-5 rounded-sm border bg-background/90 shadow cursor-se-resize opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Drag to resize"
-                    />
-                    {renderItem(itm)}
-                  </div>
+                      {/* Move grip (drag handle only) */}
+                      <button
+                        className="absolute left-2 top-2 z-10 p-1 rounded bg-background/80 border cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Drag to move"
+                        {...attributes}
+                        {...listeners}
+                      >
+                        <Grip className="h-4 w-4" />
+                      </button>
+                      {/* Quick size controls removed for cleaner UI */}
+                      {/* Drag resize handles */}
+                      <div
+                        onPointerDown={(e) => startResizeX(e, id)}
+                        className="absolute -right-1 top-1/2 -translate-y-1/2 z-10 h-6 w-2 rounded-sm border bg-background/90 shadow cursor-e-resize opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Drag to resize width"
+                      />
+                      <div
+                        onPointerDown={(e) => startResizeY(e, id)}
+                        className="absolute left-1/2 -translate-x-1/2 -bottom-1 z-10 h-2 w-6 rounded-sm border bg-background/90 shadow cursor-s-resize opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Drag to resize height"
+                      />
+                      <div
+                        onPointerDown={(e) => startResize(e, id)}
+                        className="absolute right-1 bottom-1 z-10 h-5 w-5 rounded-sm border bg-background/90 shadow cursor-se-resize opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Drag to resize"
+                      />
+                      {renderItem(itm)}
+                    </div>
                   );
                 }}
               </SortableItem>

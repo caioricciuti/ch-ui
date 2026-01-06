@@ -9,9 +9,8 @@ export interface Credential {
   url: string;
   username: string;
   password: string;
-  requestTimeout: number;
-  useAdvanced: boolean;
-  customPath: string;
+
+
   isDistributed?: boolean;
   clusterName?: string;
 }
@@ -100,14 +99,15 @@ interface ExplorerState {
 
 interface AdminState {
   isAdmin: boolean;
+  permissions: string[];
   savedQueries: SavedQueriesState;
 }
 
 export interface AppState
   extends CoreState,
-    WorkspaceState,
-    ExplorerState,
-    AdminState {
+  WorkspaceState,
+  ExplorerState,
+  AdminState {
   setCredential: (credential: Credential) => Promise<void>;
   clearCredentials: () => Promise<void>;
   checkServerStatus: () => Promise<void>;
@@ -135,6 +135,7 @@ export interface AppState
   openUploadFileModal: (database: string) => void;
 
   checkIsAdmin: () => Promise<boolean>;
+  checkPermissions: () => Promise<void>;
   activateSavedQueries: () => Promise<void>;
   deactivateSavedQueries: () => Promise<boolean>;
   checkSavedQueriesStatus: () => Promise<boolean>;

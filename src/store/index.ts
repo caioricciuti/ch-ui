@@ -22,9 +22,9 @@ import { appQueries } from "@/features/workspace/editor/appQueries";
 export class ClickHouseError extends Error {
   category: 'connection' | 'authentication' | 'query' | 'timeout' | 'network' | 'unknown';
   troubleshootingTips: string[];
-  
+
   constructor(
-    message: string, 
+    message: string,
     public readonly originalError?: unknown,
     category?: 'connection' | 'authentication' | 'query' | 'timeout' | 'network' | 'unknown',
     troubleshootingTips?: string[]
@@ -42,7 +42,7 @@ export class ClickHouseError extends Error {
     let message = error?.message || defaultMessage;
     let category: 'connection' | 'authentication' | 'query' | 'timeout' | 'network' | 'unknown' = 'unknown';
     let tips: string[] = [];
-    
+
     // Check for common error patterns
     const statusCode = error?.response?.status;
 
@@ -55,7 +55,7 @@ export class ClickHouseError extends Error {
         "Ensure the user has the necessary permissions",
         "Check if the user exists in the ClickHouse server"
       ];
-    } 
+    }
     // Connection errors
     else if (statusCode === 404) {
       category = 'connection';
@@ -145,12 +145,7 @@ interface SavedQueriesCheckResponse {
  * Helper: Builds the connection URL from the provided credential.
  */
 const buildConnectionUrl = (credential: Credential): string => {
-  let baseUrl = credential.url.replace(/\/+$/, "");
-  if (credential.useAdvanced && credential.customPath) {
-    const cleanPath = credential.customPath.replace(/^\/+/, "");
-    return `${baseUrl}/${cleanPath}`;
-  }
-  return baseUrl;
+  return credential.url.replace(/\/+$/, "");
 };
 
 const escapeClickhouseString = (value: string): string =>
@@ -174,8 +169,6 @@ const useAppStore = create<AppState>()(
           url: "",
           username: "",
           password: "",
-          useAdvanced: false,
-          customPath: "",
           requestTimeout: 30000,
         },
         clickHouseClient: null,
@@ -207,10 +200,9 @@ const useAppStore = create<AppState>()(
             const connectionUrl = buildConnectionUrl(credential);
             const client = createClient({
               url: connectionUrl,
-              pathname: credential.customPath, // Use custom path for proxy
               username: credential.username,
               password: credential.password || "",
-              request_timeout: credential.requestTimeout || 30000,
+              request_timeout: 300000,
               clickhouse_settings: {
                 ...get().clickhouseSettings,
                 result_overflow_mode: "break",
@@ -225,15 +217,15 @@ const useAppStore = create<AppState>()(
           } catch (error) {
             // Use the enhanced error handling
             const enhancedError = ClickHouseError.fromError(
-              error, 
+              error,
               "Failed to set connection credentials"
             );
-            
-            set({ 
+
+            set({
               error: `${enhancedError.message}\n\nTroubleshooting tips:\n${enhancedError.troubleshootingTips.join('\n')}`,
               isServerAvailable: false
             });
-            
+
             toast.error(`Connection error: ${enhancedError.message}`, {
               description: "Please check the troubleshooting tips in the settings panel."
             });
@@ -252,24 +244,23 @@ const useAppStore = create<AppState>()(
             const connectionUrl = buildConnectionUrl(credentials);
             const client = createClient({
               url: connectionUrl,
-              pathname: credentials.customPath, // Ensure custom path is applied
               username: credentials.username,
               password: credentials.password || "",
-              request_timeout: credentials.requestTimeout || 30000,
+              request_timeout: 300000,
               clickhouse_settings: clickhouseSettings,
             });
             set({ clickHouseClient: client, clickhouseSettings });
             await get().checkServerStatus();
           } catch (error) {
             const enhancedError = ClickHouseError.fromError(
-              error, 
+              error,
               "Failed to update ClickHouse configuration"
             );
-            
+
             toast.error(`Configuration error: ${enhancedError.message}`, {
               description: "Check the troubleshooting tips for possible solutions."
             });
-            
+
             throw enhancedError;
           }
         },
@@ -283,9 +274,8 @@ const useAppStore = create<AppState>()(
               url: "",
               username: "",
               password: "",
-              useAdvanced: false,
-              customPath: "",
-              requestTimeout: 30000,
+
+
             },
             clickhouseSettings: {
               max_result_rows: "0",
@@ -309,8 +299,8 @@ const useAppStore = create<AppState>()(
           try {
             if (!clickHouseClient) {
               throw new ClickHouseError(
-                "ClickHouse client is not initialized", 
-                null, 
+                "ClickHouse client is not initialized",
+                null,
                 'connection',
                 ["Please enter your connection details and try again"]
               );
@@ -327,13 +317,13 @@ const useAppStore = create<AppState>()(
           } catch (error: any) {
             // Use the new ClickHouseError.fromError to get a better error message and tips
             const enhancedError = ClickHouseError.fromError(error, "Failed to connect to ClickHouse server");
-            
+
             // Set the detailed error
-            set({ 
-              isServerAvailable: false, 
-              error: `${enhancedError.message}\n\nTroubleshooting tips:\n${enhancedError.troubleshootingTips.join('\n')}` 
+            set({
+              isServerAvailable: false,
+              error: `${enhancedError.message}\n\nTroubleshooting tips:\n${enhancedError.troubleshootingTips.join('\n')}`
             });
-            
+
             // Don't automatically clear credentials on all errors
             // Only clear them for certain types of errors
             if (enhancedError.category === 'connection' || enhancedError.category === 'authentication') {
@@ -687,6 +677,7 @@ const useAppStore = create<AppState>()(
         // =====================================================
         // Admin & Saved Queries Actions
         // =====================================================
+
         isAdmin: false,
         savedQueries: {
           isSavedQueriesActive: false,
@@ -695,38 +686,53 @@ const useAppStore = create<AppState>()(
           isDeactivating: false,
           error: null,
         },
+        permissions: [], // Store list of permissions
 
         /**
-         * Checks if the current user has admin privileges.
+         * Checks permissions for the current user.
+         * Fetches all grants from system.grants.
          */
+        checkPermissions: async () => {
+          const { clickHouseClient } = get();
+          if (!clickHouseClient) return;
+
+          try {
+            // Get all grants including scope
+            const result = await clickHouseClient.query({
+              query: `SELECT access_type, database, table FROM system.grants WHERE user_name = currentUser()`,
+              format: "JSONEachRow"
+            });
+            const grants = await result.json() as { access_type: string, database?: string, table?: string }[];
+
+            // Store simple string permissions for generic checks
+            // We combine access_type with scope for clearer debugging if needed, 
+            // but for now, we just store access_type to keep compatible with PermissionGuard which does string matching.
+            // Ideally PermissionGuard should be smarter, but let's fix checkIsAdmin first.
+            const permissions = grants.map(g => g.access_type);
+
+            // True Admin check:
+            // 1. 'ALL' on global scope (database and table are empty/null)
+            // 2. 'CREATE USER' (global privilege)
+            const isAdmin = grants.some(g => {
+              const isGlobal = (!g.database || g.database === '') && (!g.table || g.table === '');
+              if (g.access_type === 'ALL' && isGlobal) return true;
+              if (g.access_type.includes('ALL') && isGlobal) return true; // generic catch
+              if (g.access_type === 'CREATE USER') return true;
+              if (g.access_type === 'ACCESS MANAGEMENT') return true;
+              return false;
+            });
+
+            console.log("Permissions check:", { grants, isAdmin });
+            set({ permissions, isAdmin });
+          } catch (error) {
+            console.error("Failed to fetch permissions:", error);
+            set({ permissions: [], isAdmin: false });
+          }
+        },
 
         checkIsAdmin: async (): Promise<boolean> => {
-          const { clickHouseClient } = get();
-          if (!clickHouseClient) {
-            throw new ClickHouseError("ClickHouse client is not initialized");
-          }
-          try {
-            const result = await clickHouseClient.query({
-              query: `
-                SELECT if(grant_option = 1, true, false) AS is_admin 
-                FROM system.grants 
-                WHERE user_name = currentUser() 
-                LIMIT 1
-              `,
-            });
-            const response = (await result.json()) as AdminCheckResponse;
-            if (!Array.isArray(response.data) || response.data.length === 0) {
-              throw new ClickHouseError("No admin status data returned");
-            }
-            set({ isAdmin: response.data[0].is_admin });
-            return response.data[0].is_admin;
-          } catch (error) {
-            const errorMessage =
-              error instanceof Error ? error.message : "Unknown error occurred";
-            console.error("Failed to check admin status:", errorMessage);
-            set({ isAdmin: false });
-            throw new ClickHouseError("Failed to check admin status", error);
-          }
+          await get().checkPermissions();
+          return get().isAdmin;
         },
 
         /**

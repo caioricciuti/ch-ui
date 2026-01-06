@@ -533,7 +533,7 @@ const CreateDatabase = () => {
             variant="info"
             isOpen={isInfoDialogOpen}
             onClose={() => setIsInfoDialogOpen(false)}
-            link="https://clickhouse.com/docs/en/engines/database-engines/?utm_source=ch-ui&utm_medium=create-database-info"
+            link="https://clickhouse.com/docs/en/engines/database-engines/?utm_source=clickhouse-ui&utm_medium=create-database-info"
           >
             <>
               <p className="text-sm ">
@@ -542,7 +542,7 @@ const CreateDatabase = () => {
                 data storage, and replication behavior.
               </p>
               <p className="text-xs mt-3">
-                CH-UI supports only Atomic and Lazy engines. Using Atomic is
+                ClickHouse UI supports only Atomic and Lazy engines. Using Atomic is
                 recommended for most use cases.
               </p>
             </>

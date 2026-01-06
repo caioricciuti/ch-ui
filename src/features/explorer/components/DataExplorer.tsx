@@ -30,6 +30,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import PermissionGuard from "@/components/common/PermissionGuard";
 
 const DatabaseExplorer: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -124,10 +125,10 @@ const DatabaseExplorer: React.FC = () => {
   return (
     <div className="flex flex-col h-full">
       {/* Header Section */}
-      <div className="flex-none p-4 border-b">
+      <div className="flex-none p-4 border-b border-white/10 bg-white/5">
         <div className="flex justify-between items-center mb-3">
           <div className="flex items-center space-x-1">
-            <h2 className="text-lg font-semibold">Explorer</h2>
+            <h2 className="text-lg font-semibold text-white/90">Explorer</h2>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="icon" variant="ghost" className="p-0">
@@ -135,15 +136,23 @@ const DatabaseExplorer: React.FC = () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => openCreateDatabaseModal()}>
-                  <FolderPlus className="w-4 h-4 mr-2" /> Create Database
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openCreateTableModal("")}>
-                  <FilePlus className="w-4 h-4 mr-2" /> Create Table
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openUploadFileModal("")}>
-                  <FileUp className="w-4 h-4 mr-2" /> Upload File
-                </DropdownMenuItem>
+                <PermissionGuard requiredPermission="CREATE DATABASE" showTooltip>
+                  <DropdownMenuItem onClick={() => openCreateDatabaseModal()}>
+                    <FolderPlus className="w-4 h-4 mr-2" /> Create Database
+                  </DropdownMenuItem>
+                </PermissionGuard>
+
+                <PermissionGuard requiredPermission="CREATE TABLE" showTooltip>
+                  <DropdownMenuItem onClick={() => openCreateTableModal("")}>
+                    <FilePlus className="w-4 h-4 mr-2" /> Create Table
+                  </DropdownMenuItem>
+                </PermissionGuard>
+
+                <PermissionGuard requiredPermission="INSERT" showTooltip>
+                  <DropdownMenuItem onClick={() => openUploadFileModal("")}>
+                    <FileUp className="w-4 h-4 mr-2" /> Upload File
+                  </DropdownMenuItem>
+                </PermissionGuard>
                 <DropdownMenuItem
                   onClick={() =>
                     addTab({
@@ -167,9 +176,8 @@ const DatabaseExplorer: React.FC = () => {
             disabled={isLoadingDatabase}
           >
             <RefreshCcw
-              className={`w-4 h-4 ml-1 ${
-                isLoadingDatabase ? "animate-spin" : ""
-              }`}
+              className={`w-4 h-4 ml-1 ${isLoadingDatabase ? "animate-spin" : ""
+                }`}
             />
           </Button>
         </div>
@@ -197,20 +205,20 @@ const DatabaseExplorer: React.FC = () => {
 
       {/* Main Content Area - Databases */}
       <div className="flex-1 min-h-0 flex flex-col">
-        <ScrollArea className="flex-1">
-          <div className="p-3">
+        <ScrollArea className="flex-1 bg-transparent">
+          <div className="p-3 bg-transparent">
             {isLoadingDatabase ? (
               <div className="p-4 text-muted-foreground w-full flex flex-col items-center justify-center">
                 <RefreshCcw className="w-8 h-8 mx-auto animate-spin" />
-                <p className="text-center mt-2">Loading...</p>
+                <p className="text-center mt-2">Loading databases...</p>
               </div>
             ) : tabError ? (
-              <div className="p-4 text-red-500 w-full flex flex-col items-center justify-center">
+              <div className="p-4 text-red-400 w-full flex flex-col items-center justify-center">
                 <p className="text-center mt-2">{tabError}</p>
                 <Button
                   onClick={refreshDatabases}
                   variant="outline"
-                  className="mt-4"
+                  className="mt-4 border-red-500/50 hover:bg-red-500/10"
                 >
                   Retry
                 </Button>
@@ -228,13 +236,13 @@ const DatabaseExplorer: React.FC = () => {
               ))
             ) : (
               <div className="p-4 text-muted-foreground w-full flex flex-col items-center justify-center">
-                <SearchX className="w-8 h-8 mx-auto" />
+                <SearchX className="w-8 h-8 mx-auto opacity-50" />
                 <p className="text-center mt-2">No results found</p>
                 {searchTerm && (
                   <Button
                     onClick={() => setSearchTerm("")}
-                    variant="outline"
-                    className="mt-4"
+                    variant="ghost"
+                    className="mt-4 hover:bg-white/5"
                   >
                     Clear Search
                   </Button>

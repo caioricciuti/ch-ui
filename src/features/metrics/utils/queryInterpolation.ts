@@ -62,10 +62,7 @@ const getBuiltInVariables = (timeRange: TimeRange): QueryVariable[] => {
       name: '$__timeBucket',
       value: getAdaptiveTimeGroupExpr(timeRange),
     },
-    {
-      name: '$__timeBucket',
-      value: getAdaptiveTimeGroupExpr(timeRange),
-    },
+
     {
       name: '$__unixEpochFrom',
       value: Math.floor(timeRange.from.getTime() / 1000),
@@ -145,8 +142,10 @@ export const interpolateQuery = (
   let interpolatedQuery = query;
 
   // Get all variables (built-in + custom)
+  // Get all variables (built-in + custom)
   const builtInVariables = getBuiltInVariables(timeRange);
-  const allVariables = [...builtInVariables, ...customVariables];
+  // Sort variables by length (descending) to prevent prefix collisions
+  const allVariables = [...builtInVariables, ...customVariables].sort((a, b) => b.name.length - a.name.length);
 
   // Replace each variable in the query
   allVariables.forEach(variable => {

@@ -3,13 +3,6 @@
  * Checks runtime window.env first (for Docker), falls back to build-time BASE_URL.
  */
 export function getBasePath(): string {
-  // Runtime override from Docker inject-env.cjs
-  if (typeof window !== "undefined" && window.env?.VITE_BASE_PATH) {
-    const path = window.env.VITE_BASE_PATH;
-    // Ensure it ends with /
-    return path.endsWith("/") ? path : `${path}/`;
-  }
-  // Build-time value from Vite
   return import.meta.env.BASE_URL;
 }
 

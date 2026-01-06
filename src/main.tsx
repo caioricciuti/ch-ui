@@ -19,6 +19,17 @@ if (typeof crypto.randomUUID !== "function") {
   };
 }
 
+// Development helper: Inject window.env from Vite env vars if not present
+if (import.meta.env.DEV && !window.env) {
+  window.env = {
+
+    VITE_CLICKHOUSE_URLS: (import.meta.env.VITE_CLICKHOUSE_URLS || "")
+      .split(",")
+      .filter((url: string) => url.trim() !== ""),
+  };
+  console.log("Development mode: Injected window.env from .env file", window.env);
+}
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <Toaster
