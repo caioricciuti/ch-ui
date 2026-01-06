@@ -1,4 +1,4 @@
-# Bun-optimized Dockerfile for CH-UI
+# Bun-optimized Dockerfile for ClickHouse UI
 # Using Bun for faster builds and smaller images
 
 # Build stage
@@ -49,30 +49,21 @@ RUN bun add serve@14.2.5
 
 # Create non-root user
 RUN addgroup -S ch-group -g 1001 && \
-    adduser -S ch-user -u 1001 -G ch-group
+  adduser -S ch-user -u 1001 -G ch-group
 
 # Set ownership (includes node_modules with serve)
 RUN chown -R ch-user:ch-group /app
 
 # Add metadata labels
-LABEL org.opencontainers.image.title="CH-UI" \
-      org.opencontainers.image.description="A modern web interface for ClickHouse databases" \
-      org.opencontainers.image.vendor="Caio Ricciuti" \
-      org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${COMMIT_SHA}" \
-      org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.source="https://github.com/caioricciuti/ch-ui"
+LABEL org.opencontainers.image.title="ClickHouse UI" \
+  org.opencontainers.image.description="A modern web interface for ClickHouse databases" \
+  org.opencontainers.image.licenses="Apache-2.0" \
+  org.opencontainers.image.version="${VERSION}" \
+  org.opencontainers.image.revision="${COMMIT_SHA}" \
+  org.opencontainers.image.created="${BUILD_DATE}"
 
-# Environment variables with defaults
-ENV VITE_CLICKHOUSE_URL="" \
-    VITE_CLICKHOUSE_USER="" \
-    VITE_CLICKHOUSE_PASS="" \
-    VITE_CLICKHOUSE_USE_ADVANCED="" \
-    VITE_CLICKHOUSE_CUSTOM_PATH="" \
-    VITE_CLICKHOUSE_REQUEST_TIMEOUT=30000 \
-    VITE_BASE_PATH="/" \
-    NODE_ENV=production
+ENV VITE_CLICKHOUSE_URLS="" \
+  NODE_ENV=production
 
 # Expose port
 EXPOSE 5521

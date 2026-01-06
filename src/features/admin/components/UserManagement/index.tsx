@@ -18,17 +18,20 @@ import ResetPasswordDialog from "./ResetPasswordDialog";
 import NewPasswordDialog from "./NewPasswordDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UserData } from "@/features/admin/types";
-import CreateNewUser from "../CreateUser/index"
+import CreateNewUser from "../CreateUser/index";
+import EditUser from "../EditUser";
 import { generateRandomPassword } from "@/lib/utils";
 
 const UserTable: React.FC = () => {
-  const { runQuery, isAdmin } = useAppStore();
+  const { runQuery, isAdmin, credential } = useAppStore(); // Get credential for cluster info
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
+  const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showResetPasswordDialog, setShowResetPasswordDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
@@ -37,7 +40,12 @@ const UserTable: React.FC = () => {
   const fetchUserGrants = async (username: string) => {
     try {
       const grantsResult = await runQuery(`SHOW GRANTS FOR ${username}`);
-      return grantsResult.data || [];
+      // ClickHouse returns [{ grant: "GRANT ALL ON *.* TO user" }]
+      // Map it to a string array
+      if (grantsResult.data && Array.isArray(grantsResult.data)) {
+        return grantsResult.data.map((row: any) => Object.values(row)[0] as string);
+      }
+      return [];
     } catch (error) {
       console.error(`Failed to fetch grants for ${username}:`, error);
       return [];
@@ -114,8 +122,15 @@ const UserTable: React.FC = () => {
 
     setDeleting(true);
     try {
-      await runQuery(`REVOKE ALL PRIVILEGES ON *.* FROM ${username}`);
-      await runQuery(`DROP USER IF EXISTS ${username}`);
+      const onClusterClause =
+        credential?.isDistributed && credential?.clusterName
+          ? ` ON CLUSTER '${credential.clusterName}'`
+          : "";
+
+      await runQuery(
+        `REVOKE ALL PRIVILEGES ON *.* FROM ${username}${onClusterClause}`
+      );
+      await runQuery(`DROP USER IF EXISTS ${username}${onClusterClause}`);
       toast.success(`User ${username} deleted successfully`);
       setRefreshTrigger((prev) => prev + 1);
     } catch (error: any) {
@@ -132,8 +147,13 @@ const UserTable: React.FC = () => {
     const password = generateRandomPassword();
     setNewPassword(password); // Store the new password
     try {
+      const onClusterClause =
+        credential?.isDistributed && credential?.clusterName
+          ? ` ON CLUSTER '${credential.clusterName}'`
+          : "";
+
       await runQuery(
-        `ALTER USER ${username} IDENTIFIED WITH sha256_password BY '${password}'`
+        `ALTER USER ${username}${onClusterClause} IDENTIFIED WITH sha256_password BY '${password}'`
       );
       toast.success(`Password reset for ${username}`);
       setShowResetPasswordDialog(false);
@@ -142,6 +162,11 @@ const UserTable: React.FC = () => {
       setError(errorMessage);
       toast.error(errorMessage);
     }
+  };
+
+  const handleEditUser = (user: UserData) => {
+    setEditingUser(user);
+    setShowEditDialog(true);
   };
 
   const filteredUsers = useMemo(() => {
@@ -215,10 +240,18 @@ const UserTable: React.FC = () => {
           setSelectedUser={setSelectedUser}
           setShowDeleteDialog={setShowDeleteDialog}
           setShowResetPasswordDialog={setShowResetPasswordDialog}
+          onEditUser={handleEditUser}
         />
       </CardContent>
 
       {/* Action Dialogs */}
+      <EditUser
+        isOpen={showEditDialog}
+        onClose={() => setShowEditDialog(false)}
+        user={editingUser}
+        onUserUpdated={() => setRefreshTrigger((prev) => prev + 1)}
+      />
+
       <ResetPasswordDialog
         open={showResetPasswordDialog}
         onOpenChange={setShowResetPasswordDialog}

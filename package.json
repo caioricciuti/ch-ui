@@ -1,10 +1,7 @@
 {
-  "name": "ch-ui",
+  "name": "clickhouse-ui",
   "private": true,
-  "author": {
-    "name": "Caio Ricciuti",
-    "email": "caio.ricciuti@outlook.com"
-  },
+  "author": "",
   "version": "1.6.4",
   "license": "Apache-2.0",
   "type": "module",
@@ -56,6 +53,7 @@
     "react-hook-form": "^7.67.0",
     "react-resizable-panels": "^3.0.6",
     "react-router-dom": "^7.10.0",
+    "recharts": "^3.6.0",
     "sonner": "^2.0.7",
     "sql-formatter": "^15.6.10",
     "tailwind-merge": "^3.4.0",
@@ -75,7 +73,11 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "typescript": "^5.9.3",
     "vite": "^7.2.6",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "happy-dom": "^16.0.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.5.0",
+    "@testing-library/dom": "^10.0.0"
   },
   "browserslist": [
     "chrome >= 88",

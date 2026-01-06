@@ -9,8 +9,9 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import useAppStore from "@/store";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { motion } from "framer-motion";
 
-function MetricsOverview() {
+function MetricsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const scope = new URLSearchParams(location.search).get("scope") || "overview";
@@ -18,7 +19,7 @@ function MetricsOverview() {
   const [isLocalHostInstance, setIsLocalHostInstance] = React.useState(false);
 
   useEffect(() => {
-    document.title = "CH-UI | Metrics";
+    document.title = "ClickHouse UI | Metrics";
     if (!isServerAvailable) {
       toast.error(
         "No active connection. Please configure your connection in Settings."
@@ -47,27 +48,27 @@ function MetricsOverview() {
 
   if (!currentMetric) {
     return (
-      <div className="container mx-auto mt-4">
+      <div className="container mx-auto mt-4 p-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Metrics</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-3xl font-bold text-white/90">Metrics</h1>
+          <p className="text-gray-400">
             You're trying to access an invalid metric scope...
           </p>
-          <div className="grid grid-cols-4 mt-12 gap-4 border p-4 rounded-md">
+          <div className="grid grid-cols-4 mt-12 gap-4 border border-white/10 p-4 rounded-xl bg-white/5 backdrop-blur-sm">
             {metrics.map((metric) => (
               <div key={metric.title} className="mt-4 max-w-[250px]">
                 <Link
                   to={`/metrics?scope=${metric.scope}`}
-                  className="text-primary hover:underline"
+                  className="text-purple-400 hover:text-purple-300 hover:underline"
                 >
-                  <div className="text-lg font-bold text-foreground flex items-center">
+                  <div className="text-lg font-bold flex items-center">
                     {metric.title}{" "}
                     <span className="ml-4">
                       {React.createElement(metric.icon)}
                     </span>
                   </div>
                 </Link>
-                <p className="text-muted-foreground">{metric.description}</p>
+                <p className="text-gray-400">{metric.description}</p>
               </div>
             ))}
           </div>
@@ -76,66 +77,67 @@ function MetricsOverview() {
     );
   }
 
-  const getColSpanClass = (tiles: number) => {
-    // Use a 12-column grid for more granular layout
-    switch (tiles) {
-      case 1:
-        return "col-span-12 md:col-span-3"; // quarter width on md+
-      case 2:
-        return "col-span-12 md:col-span-6"; // half width
-      case 3:
-        return "col-span-12 md:col-span-9"; // three-quarters
-      case 4:
-      default:
-        return "col-span-12"; // full width
-    }
-  };
-
   return (
-    <TimeRangeProvider defaultPreset="7d">
-      {/* Fit within App's flex h-screen; avoid nested h-screen */}
-      <div className="flex-1 w-full overflow-auto">
-        <main className="container mx-auto pb-4">
-          <div className="py-2 flex items-center justify-between gap-4">
-            <h1 className="text-xl font-semibold tracking-tight">Metrics</h1>
+    <TimeRangeProvider defaultPreset="1h">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="flex-1 w-full overflow-auto"
+      >
+        <main className="container mx-auto p-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-white/90">Metrics</h1>
+              <p className="text-gray-400">Real-time system performance monitoring</p>
+            </div>
             <MetricsNavTabs />
           </div>
+
           {isLocalHostInstance && (
-            <Alert className="my-2" variant="warning">
-              <AlertTitle className="text-sm">Local Instance Detected</AlertTitle>
-              <AlertDescription className="text-xs">
+            <Alert className="my-2 bg-yellow-500/10 border-yellow-500/20 text-yellow-200" variant="default">
+              <AlertTitle className="text-sm font-semibold">Local Instance Detected</AlertTitle>
+              <AlertDescription className="text-xs opacity-90">
                 Some metrics may not be available on local ClickHouse instances.
               </AlertDescription>
             </Alert>
           )}
 
           {/* Metric header with time selector */}
-          <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center justify-between bg-white/5 p-4 rounded-xl border border-white/10 backdrop-blur-md">
             <div className="flex items-center space-x-3">
-              {React.createElement(currentMetric.icon, {
-                className: "w-5 h-5 text-primary",
-              })}
+              <div className="p-2 rounded-lg bg-purple-500/20">
+                {React.createElement(currentMetric.icon, {
+                  className: "w-5 h-5 text-purple-400",
+                })}
+              </div>
               <div>
-                <h2 className="text-lg font-semibold text-foreground">
+                <h2 className="text-lg font-semibold text-white/90">
                   {currentMetric.title}
                 </h2>
-                <p className="text-xs text-muted-foreground">{currentMetric.description}</p>
+                <p className="text-xs text-gray-400">{currentMetric.description}</p>
               </div>
             </div>
             <TimeRangeSelector />
           </div>
 
-          <DashboardGrid
-            scope={currentMetric.scope}
-            items={currentMetric.items || []}
-            renderItem={(it) => (
-              <UPlotMetricItemComponent item={it as any} />
-            )}
-          />
+          <div className="rounded-xl">
+            <DashboardGrid
+              scope={currentMetric.scope}
+              items={currentMetric.items || []}
+              renderItem={(it) => (
+                <div className="h-full w-full rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl overflow-hidden shadow-lg hover:shadow-purple-500/5 transition-all duration-300">
+                  <div className="p-4 h-full">
+                    <UPlotMetricItemComponent item={it as any} />
+                  </div>
+                </div>
+              )}
+            />
+          </div>
         </main>
-      </div>
+      </motion.div>
     </TimeRangeProvider>
   );
 }
 
-export default MetricsOverview;
+export default MetricsPage;

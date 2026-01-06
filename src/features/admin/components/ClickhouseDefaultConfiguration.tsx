@@ -42,7 +42,7 @@ export default function ClickhouseDefaultConfiguration() {
         </div>
         <CardDescription>
           Set default values when are doing the queries (only affects your
-          session in ch-ui)
+          session in clickhouse-ui)
         </CardDescription>
       </CardHeader>
 

@@ -1,438 +1,196 @@
-import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useTheme } from "@/components/common/theme-provider";
 import {
-  SquareTerminal,
-  Github,
-  Loader2,
-  CircleCheckIcon,
-  AlertCircleIcon,
-  Sun,
-  Moon,
-  LifeBuoy,
-  Search,
-  ChevronRight,
+  LayoutDashboard,
+  Server,
+  Settings,
+  Activity,
+  LogOut,
+  Database,
+  FileText,
+  Shield,
   ChevronLeft,
-  LineChart,
-  BookText,
-  ShieldCheck,
-  CogIcon,
-  ScrollText,
+  ChevronRight,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { toast } from "sonner";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandShortcut,
-} from "@/components/ui/command";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
+  TooltipProvider,
 } from "@/components/ui/tooltip";
-import { Separator } from "@/components/ui/separator";
-import { withBasePath } from "@/lib/basePath";
 import useAppStore from "@/store";
+import { useState } from "react";
+import { motion } from "framer-motion";
+import { withBasePath } from "@/lib/basePath";
 
-const Logo = withBasePath("logo.png");
-import { Badge } from "@/components/ui/badge";
+interface SidebarItemProps {
+  icon: React.ElementType;
+  label: string;
+  to: string;
+  isActive?: boolean;
+  isCollapsed: boolean;
+}
 
-const commandsSheet = [
-  {
-    action: "Expand/Shrink Sidebar",
-    command: ["⌘/Ctrl", "+", "B"],
-    context: "Global",
-  },
-  {
-    action: "Search Bar",
-    command: ["⌘/Ctrl", "+", "K"],
-    context: "Global",
-  },
-  {
-    action: "Switch Tab",
-    command: ["⌘/Ctrl", "+", "Tab Number"],
-    context: "Home/Workspace",
-  },
-  {
-    action: "Run Query",
-    command: ["⌘/Ctrl", "+", "Enter"],
-    context: "Home/Workspace",
-  },
-];
-
-const Sidebar = () => {
-  const { theme, setTheme } = useTheme();
-  const {
-    isServerAvailable,
-    version,
-    isLoadingCredentials,
-    clearCredentials,
-    isAdmin,
-  } = useAppStore();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [open, setOpen] = useState(false);
-  const sidebarRef = useRef<HTMLDivElement>(null);
-
-  // version from vite.config.ts
-  const ch_ui_version = __CH_UI_VERSION__;
-
-  const toggleTheme = () => {
-    setTheme(theme === "dark" ? "light" : "dark");
-  };
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        setOpen((open) => !open);
-      }
-      // Toogle sidebar when pressing Cmd/Ctrl + B
-      if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        setIsExpanded((isExpanded) => !isExpanded);
-      }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  if (!isServerAvailable) {
-    return null;
-  }
-
-  const navItems = [
-    { to: "/", label: "Home", icon: SquareTerminal, isNewWindow: false },
-    { to: "/metrics", label: "Metrics", icon: LineChart, isNewWindow: false },
-    { to: "/logs", label: "Logs", icon: ScrollText, isNewWindow: false },
-  ];
-
-  const bottomNavLinks = [
-    { to: "/settings", label: "Settings", icon: CogIcon, isNewWindow: false },
-    {
-      to: "https://github.com/caioricciuti/ch-ui?utm_source=ch-ui&utm_medium=sidebar",
-      label: "GitHub",
-      icon: Github,
-      isNewWindow: true,
-    },
-    {
-      to: "https://ch-ui.com/docs?utm_source=ch-ui&utm_medium=sidebar",
-      label: "Documentation",
-      icon: BookText,
-      isNewWindow: true,
-    },
-  ];
-
+const SidebarItem = ({ icon: Icon, label, to, isActive, isCollapsed }: SidebarItemProps) => {
   return (
-    <div
-      ref={sidebarRef}
-      className={`flex flex-col h-screen bg-background border-r transition-all duration-300 ${
-        isExpanded ? "w-64" : "w-16"
-      }`}
-    >
-      <div className="p-2 ml-2 mt-2 flex items-center justify-between w-full">
-        <Link to="/" className="flex items-center space-x-2">
-          <img src={Logo} alt="Logo" className="h-8 w-8" />
-          {isExpanded && (
-            <span className="font-bold text-lg truncate">CH-UI</span>
-          )}
-        </Link>
-        {isExpanded && (
-          <Button
-            variant="link"
-            size="icon"
-            onClick={() => setIsExpanded(false)}
-          >
-            <ChevronLeft className="h-4 w-4 mr-2" />
-          </Button>
-        )}
-      </div>
-
-      <ScrollArea className="flex-grow">
-        <nav className="space-y-1 p-2">
-          {navItems.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              target={item.isNewWindow ? "_blank" : "_self"}
-              className={`flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                location.pathname === item.to
-                  ? "bg-secondary text-secondary-foreground"
-                  : "hover:bg-secondary/80"
-              }`}
-            >
-              <item.icon className={`h-5 w-5 ${isExpanded ? "mr-2" : ""}`} />
-              {isExpanded && <span>{item.label}</span>}
-            </Link>
-          ))}
-          {isAdmin && (
-            <Link
-              to="/admin"
-              className={`relative flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                location.pathname === "/admin"
-                  ? "bg-secondary text-secondary-foreground"
-                  : "hover:bg-secondary/80"
-              }`}
-            >
-              <div className="relative">
-                <ShieldCheck
-                  className={`h-5 w-5 ${isExpanded ? "mr-2" : ""}`}
-                />
-                <Badge
-                  variant="secondary"
-                  className={`absolute -top-1 -right-0 bg-purple-500 text-[10px] text-white hover:bg-purple-600 p-1
-                    ${isExpanded ? "mr-2" : ""}
-                    `}
-                >
-                  {" "}
-                </Badge>
-              </div>
-              {isExpanded && <span>ClickHouse Admin</span>}
-            </Link>
-          )}
-        </nav>
-      </ScrollArea>
-
-      <div className="w-full">
-        <ScrollArea className="flex-grow">
-          <nav className="space-y-1 p-2">
-            {bottomNavLinks.map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
-                target={item.isNewWindow ? "_blank" : "_self"}
-                className={`flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  location.pathname === item.to
-                    ? "bg-secondary text-secondary-foreground"
-                    : "hover:bg-secondary/80"
-                }`}
-              >
-                <item.icon className={`h-5 w-5 ${isExpanded ? "mr-2" : ""}`} />
-                {isExpanded && <span>{item.label}</span>}
-              </Link>
-            ))}
-          </nav>
-        </ScrollArea>
-        <Separator className="w-full mb-2" />
-        <div
-          className={`${isExpanded ? "flex justify-around" : "block p-2.5"}`}
-        >
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setOpen(true)}
-                >
-                  <Search className="h-5 w-5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <span className="text-xs">Search (Cmd/Ctrl + K)</span>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-
-          <Button variant="ghost" size="icon" onClick={toggleTheme}>
-            {theme === "dark" ? (
-              <Sun className="h-5 w-5" />
-            ) : (
-              <Moon className="h-5 w-5" />
+    <TooltipProvider delayDuration={0}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            to={to}
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2.5 transition-all duration-300 group relative overflow-hidden",
+              isActive
+                ? "bg-white/10 text-white shadow-lg shadow-purple-500/10 ring-1 ring-white/10"
+                : "text-gray-400 hover:text-white hover:bg-white/5",
+              isCollapsed && "justify-center px-2"
             )}
-          </Button>
+          >
+            {isActive && (
+              <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-blue-500/10 opacity-50" />
+            )}
+            <Icon className={cn("h-5 w-5 transition-transform group-hover:scale-110", isActive && "text-purple-400")} />
+            {!isCollapsed && (
+              <span className={cn("font-medium z-10", isActive && "text-white")}>{label}</span>
+            )}
 
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <LifeBuoy className="h-5 w-5" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent className="xl:w-[1000px] xl:max-w-none sm:w-[400px] sm:max-w-[540px]">
-              <SheetHeader>
-                <SheetTitle>Command Cheat Sheet</SheetTitle>
-                <SheetDescription>
-                  Useful commands to enhance your experience.
-                </SheetDescription>
-              </SheetHeader>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Action</TableHead>
-                    <TableHead>Command</TableHead>
-                    <TableHead>Context</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {commandsSheet.map((command) => (
-                    <TableRow key={command.action}>
-                      <TableCell>{command.action}</TableCell>
-                      <TableCell>
-                        <CommandShortcut>
-                          {command.command.map((part, i) => (
-                            <span key={i}>{part}</span>
-                          ))}
-                        </CommandShortcut>
-                      </TableCell>
-                      <TableCell>{command.context}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </SheetContent>
-          </Sheet>
-        </div>
-
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              className={`${
-                isExpanded
-                  ? "w-full justify-items-stretch mb-2"
-                  : "m-auto w-full"
-              } hover:bg-transparent bg-transparent text-primary`}
-            >
-              {isLoadingCredentials ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : isServerAvailable ? (
-                <CircleCheckIcon className="h-5 w-5 text-green-500" />
-              ) : (
-                <AlertCircleIcon className="h-5 w-5 text-red-500" />
-              )}
-              {isExpanded && (
-                <span className="ml-2">
-                  {isLoadingCredentials
-                    ? "Connecting..."
-                    : isServerAvailable
-                    ? "Connected"
-                    : "Disconnected"}
-                </span>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-2">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Server Status</p>
-              <p className="text-xs">
-                {isLoadingCredentials
-                  ? "Connecting..."
-                  : isServerAvailable
-                  ? "Connected"
-                  : "Disconnected"}
-              </p>
-              <p className="text-xs">Click House Version: {version}</p>
-              <p className="text-xs">CH-UI Version: {ch_ui_version}</p>
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
-
-      {!isExpanded && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="m-2"
-          onClick={() => setIsExpanded(true)}
-        >
-          <ChevronRight className="h-4 w-4" />
-        </Button>
-      )}
-
-      <CommandDialog open={open} onOpenChange={setOpen}>
-        <CommandInput placeholder="Type a command or search..." />
-        <CommandList>
-          <CommandEmpty>No results found.</CommandEmpty>
-          <CommandGroup heading="Navigation">
-            {navItems.map((item) => (
-              <CommandItem
-                key={item.to}
-                onSelect={() => {
-                  if (item.isNewWindow) {
-                    window.open(item.to, "_blank");
-                    setOpen(false);
-                    return;
-                  }
-                  navigate(item.to);
-                  setOpen(false);
-                }}
-              >
-                <item.icon className="mr-2 h-4 w-4" />
-                {item.label}
-              </CommandItem>
-            ))}
-          </CommandGroup>
-          <CommandGroup heading="External Navigation">
-            {bottomNavLinks.map((item) => (
-              <CommandItem
-                key={item.to}
-                onSelect={() => {
-                  if (item.isNewWindow) {
-                    window.open(item.to, "_blank");
-                    setOpen(false);
-                    return;
-                  }
-                  navigate(item.to);
-                  setOpen(false);
-                }}
-              >
-                <item.icon className="mr-2 h-4 w-4" />
-                {item.label}
-              </CommandItem>
-            ))}
-          </CommandGroup>
-          <CommandGroup heading="Actions">
-            <CommandItem
-              onSelect={() => {
-                toast.success("Theme changed!");
-                toggleTheme();
-                setOpen(false);
-              }}
-            >
-              Toggle Theme
-            </CommandItem>
-            <CommandItem
-              onSelect={() => {
-                clearCredentials();
-                toast.success("Credentials cleared!");
-                setOpen(false);
-              }}
-            >
-              Reset Credentials
-            </CommandItem>
-          </CommandGroup>
-        </CommandList>
-      </CommandDialog>
-    </div>
+            {/* Active Indicator Line */}
+            {isActive && !isCollapsed && (
+              <motion.div
+                layoutId="sidebar-active"
+                className="absolute left-0 top-0 bottom-0 w-1 bg-purple-500 rounded-r-full"
+              />
+            )}
+          </Link>
+        </TooltipTrigger>
+        {isCollapsed && (
+          <TooltipContent side="right" className="bg-black/80 text-white border-white/10 backdrop-blur-md">
+            {label}
+          </TooltipContent>
+        )}
+      </Tooltip>
+    </TooltipProvider>
   );
 };
 
-export default Sidebar;
+export default function Sidebar() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { credential, clearCredentials, isAdmin } = useAppStore();
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  const Logo = withBasePath("logo.svg");
+
+  const sidebarItems = [
+    ...(isAdmin ? [{ icon: LayoutDashboard, label: "Overview", to: "/" }] : []), // Admin Only
+    { icon: Database, label: "Explorer", to: "/explorer" }, // Everyone
+    ...(isAdmin ? [{ icon: Activity, label: "Metrics", to: "/metrics" }] : []), // Admin Only
+    { icon: FileText, label: "Logs", to: "/logs" }, // Everyone
+    ...(isAdmin ? [{ icon: Shield, label: "Admin", to: "/admin" }] : []), // Admin Only
+    { icon: Settings, label: "Settings", to: "/settings" }, // Everyone (with internal guards)
+  ];
+
+  const handleLogout = () => {
+    clearCredentials();
+    navigate("/login");
+  };
+
+  return (
+    <motion.div
+      animate={{ width: isCollapsed ? 80 : 256 }}
+      className="relative z-20 flex flex-col border-r border-white/10 bg-black/20 backdrop-blur-xl h-full transition-all duration-300 ease-in-out"
+    >
+      {/* Toggle Button */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="absolute -right-3 top-6 z-30 h-6 w-6 rounded-full border border-white/10 bg-[#1a1a1a] text-gray-400 hover:text-white shadow-md hover:bg-purple-500/20"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
+        {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
+      </Button>
+
+      <div className={cn("flex items-center gap-3 p-6", isCollapsed && "justify-center p-4")}>
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center">
+          <img src={Logo} alt="Logo" className="w-8 h-8 object-contain drop-shadow-[0_0_10px_rgba(255,200,0,0.2)]" />
+        </div>
+        {!isCollapsed && (
+          <div className="flex flex-col overflow-hidden">
+            <span className="font-bold text-lg bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent truncate">
+              ClickHouse UI
+            </span>
+            <span className="text-xs text-gray-500 font-medium truncate">
+              ClickHouse Client
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 scrollbar-hide">
+        <nav className="flex flex-col gap-2">
+
+          {!isCollapsed && <div className="px-2 mb-2 text-xs font-semibold text-gray-600 uppercase tracking-wider">Menu</div>}
+
+          {sidebarItems.map((item) => (
+            <SidebarItem
+              key={item.to + item.label}
+              icon={item.icon}
+              label={item.label}
+              to={item.to}
+              isActive={location.pathname === item.to}
+              isCollapsed={isCollapsed}
+            />
+          ))}
+        </nav>
+      </div>
+
+      <div className="p-4 mt-auto border-t border-white/5 bg-black/20">
+        {!isCollapsed && <div className="px-2 mb-2 text-xs font-semibold text-gray-600 uppercase tracking-wider">Connection</div>}
+
+        <div className={cn("flex items-center gap-3 rounded-xl bg-white/5 p-3 mb-3 border border-white/5", isCollapsed && "justify-center bg-transparent border-0 p-0 mb-4")}>
+          {!isCollapsed ? (
+            <>
+              <div className="h-8 w-8 rounded-full bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center ring-1 ring-white/10">
+                <Server className="h-4 w-4 text-green-400" />
+              </div>
+              <div className="flex flex-col overflow-hidden">
+                <span className="text-sm font-medium text-white truncate w-32" title={credential?.username}>
+                  {credential?.username || "Connected"}
+                </span>
+                <span className="text-xs text-green-400 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                  Online
+                </span>
+              </div>
+            </>
+          ) : (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger>
+                  <div className="h-8 w-8 rounded-full bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center ring-1 ring-white/10 relative">
+                    <Server className="h-4 w-4 text-green-400" />
+                    <span className="absolute top-0 right-0 w-2 h-2 rounded-full bg-green-400 border border-black" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="right">Connected as {credential?.username}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
+
+        <Button
+          variant="ghost"
+          className={cn(
+            "w-full gap-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors",
+            isCollapsed && "justify-center px-0"
+          )}
+          onClick={handleLogout}
+        >
+          <LogOut className="h-4 w-4" />
+          {!isCollapsed && "Disconnect"}
+        </Button>
+      </div>
+    </motion.div>
+  );
+}

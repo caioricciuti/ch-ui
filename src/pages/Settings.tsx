@@ -8,14 +8,14 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
-  LogOut,
+
   Server,
   User,
   Lock,
-  Cog,
   FileClock,
   Share2,
   Trash2,
+  ChevronRight,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -99,21 +99,15 @@ const formSchema = z.object({
     message:
       "Invalid URL. Please use format: http://hostname:port or http://ip-address:port",
   }),
-  username: z.string().min(1, "Username is required"),
+
+  username: z.string().optional(),
   password: z.string().optional(),
-  useAdvanced: z.boolean().optional(),
-  customPath: z.string().optional(),
-  requestTimeout: z.coerce
-    .number()
-    .int("Request timeout must be a whole number")
-    .min(1000, "Request timeout must be at least 1000 millisecond")
-    .max(600000, "Request timeout must not exceed 600000 milliseconds"),
   isDistributed: z.boolean().optional(),
   clusterName: z.string().optional(),
 });
 
 export default function SettingsPage() {
-  document.title = "CH-UI | Settings";
+  document.title = "ClickHouse UI | Settings";
   const {
     credential,
     setCredential,
@@ -129,7 +123,6 @@ export default function SettingsPage() {
   } = useAppStore();
 
   const [showPassword, setShowPassword] = useState(false);
-  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [showDistributedSettings, setShowDistributedSettings] = useState(
     credential?.isDistributed || false
   );
@@ -140,16 +133,14 @@ export default function SettingsPage() {
     url: credential?.url,
     username: credential?.username,
     password: credential?.password,
-    requestTimeout: credential?.requestTimeout,
+    isDistributed: credential?.isDistributed,
+    clusterName: credential?.clusterName,
   };
 
   type FormData = {
     url: string;
-    username: string;
+    username?: string;
     password?: string;
-    useAdvanced?: boolean;
-    customPath?: string;
-    requestTimeout: unknown;
     isDistributed?: boolean;
     clusterName?: string;
   };
@@ -159,12 +150,6 @@ export default function SettingsPage() {
       url: searchParams.get("url") || credential?.url || "",
       username: searchParams.get("username") || credential?.username || "",
       password: searchParams.get("password") || credential?.password || "",
-      requestTimeout:
-        Number(searchParams.get("requestTimeout")) ||
-        credential?.requestTimeout ||
-        30000,
-      useAdvanced: searchParams.get("useAdvanced") === "true" || false,
-      customPath: searchParams.get("customPath") || "",
       isDistributed:
         searchParams.get("isDistributed") === "true" ||
         credential?.isDistributed ||
@@ -179,12 +164,6 @@ export default function SettingsPage() {
       url: searchParams.get("url") || credential?.url || "",
       username: searchParams.get("username") || credential?.username || "",
       password: searchParams.get("password") || credential?.password || "",
-      requestTimeout:
-        Number(searchParams.get("requestTimeout")) ||
-        credential?.requestTimeout ||
-        30000,
-      useAdvanced: searchParams.get("useAdvanced") === "true" || false,
-      customPath: searchParams.get("customPath") || "",
       isDistributed:
         searchParams.get("isDistributed") === "true" ||
         credential?.isDistributed ||
@@ -192,10 +171,6 @@ export default function SettingsPage() {
       clusterName:
         searchParams.get("clusterName") || credential?.clusterName || "",
     });
-
-    if (searchParams.get("useAdvanced") === "true")
-      setShowAdvancedSettings(true);
-    else setShowAdvancedSettings(false);
   }, [searchParams, credential, form.reset]);
 
   const onSubmit = async (values: FormData) => {
@@ -204,25 +179,18 @@ export default function SettingsPage() {
         values.url === currentFormValues.url &&
         values.username === currentFormValues.username &&
         values.password === currentFormValues.password &&
-        values.requestTimeout === currentFormValues.requestTimeout &&
+        values.isDistributed === currentFormValues.isDistributed &&
+        values.clusterName === currentFormValues.clusterName &&
         isServerAvailable
       ) {
         toast.info("No changes detected.");
         return;
       }
 
-      let url = values.url;
-      if (values.useAdvanced && values.customPath) {
-        url = `${values.url}/${values.customPath}`;
-      }
-
       await setCredential({
         ...values,
-        url,
-        password: values.password || "",
-        useAdvanced: values.useAdvanced || false,
-        customPath: values.customPath || "",
-        requestTimeout: Number(values.requestTimeout), // Ensure type is number
+        username: credential?.username || "",
+        password: credential?.password || "",
       });
       await checkServerStatus();
       setCredentialSource("app");
@@ -232,19 +200,7 @@ export default function SettingsPage() {
     }
   };
 
-  const handleDisconnect = () => {
-    clearCredentials();
-    form.reset({
-      url: "",
-      username: "",
-      password: "",
-      useAdvanced: false,
-      customPath: "",
-      requestTimeout: 30000,
-    });
-    toast.success("Disconnected from ClickHouse server.");
-    navigate("/settings");
-  };
+
 
   const handleTestConnection = async () => {
     try {
@@ -273,16 +229,11 @@ export default function SettingsPage() {
     const values = form.getValues();
     const params = new URLSearchParams();
     params.set("url", values.url);
-    params.set("username", values.username);
+    params.set("username", values.username || "");
     if (values.password) params.set("password", values.password);
-    if (values.useAdvanced)
-      params.set("useAdvanced", values.useAdvanced.toString());
-    if (values.customPath) params.set("customPath", values.customPath);
-    params.set("requestTimeout", String(values.requestTimeout));
 
-    const url = `${window.location.origin}${
-      window.location.pathname
-    }?${params.toString()}`;
+    const url = `${window.location.origin}${window.location.pathname
+      }?${params.toString()}`;
 
     navigator.clipboard.writeText(url);
     toast.success("URL copied to clipboard!");
@@ -328,285 +279,153 @@ export default function SettingsPage() {
                 <CardHeader>
                   <CardTitle className="text-2xl font-bold flex items-center gap-2">
                     <Settings className="h-6 w-6 text-primary" />
-                    Connection Settings
+                    Cluster & Host Configuration
                   </CardTitle>
+                  <CardDescription>
+                    Configure your active server connection and enable distributed operations.
+                  </CardDescription>
                 </CardHeader>
 
                 <CardContent>
-                  <Form {...form}>
-                    <form
-                      onSubmit={form.handleSubmit(onSubmit)}
-                      className="space-y-6"
-                    >
-                      <div className="space-y-4">
-                        <FormField
-                          control={form.control}
-                          name="url"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-2">
-                                <Server className="h-4 w-4" />
-                                ClickHouse Host
-                              </FormLabel>
-                              <FormControl>
-                                <Input
-                                  className="font-mono"
-                                  disabled={isLoadingCredentials}
-                                  placeholder="https://your-clickhouse-host:8123"
-                                  {...field}
-                                />
-                              </FormControl>
-                              <FormDescription className="text-xs">
-                                The URL of your ClickHouse server, including
-                                protocol and port
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name="username"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-2">
-                                <User className="h-4 w-4" />
-                                Username
-                              </FormLabel>
-                              <FormControl>
-                                <Input
-                                  className="font-mono"
-                                  disabled={isLoadingCredentials}
-                                  placeholder="default"
-                                  autoComplete="username"
-                                  {...field}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name="password"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-2">
-                                <Lock className="h-4 w-4" />
-                                Password
-                              </FormLabel>
-                              <FormControl>
-                                <div className="relative">
-                                  <Input
-                                    className="font-mono pr-10"
-                                    disabled={isLoadingCredentials}
-                                    type={showPassword ? "text" : "password"}
-                                    autoComplete="current-password"
-                                    {...field}
-                                  />
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setShowPassword(!showPassword)
-                                        }
-                                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-muted-foreground hover:text-foreground transition-colors"
-                                      >
-                                        {showPassword ? (
-                                          <EyeOff className="h-4 w-4" />
-                                        ) : (
-                                          <Eye className="h-4 w-4" />
-                                        )}
-                                      </button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      {showPassword
-                                        ? "Hide password"
-                                        : "Show password"}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </div>
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <Separator className="my-6" />
-
-                        <FormField
-                          control={form.control}
-                          name="useAdvanced"
-                          render={({ field }) => (
-                            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow-sm">
-                              <FormControl>
-                                <Checkbox
-                                  checked={field.value}
-                                  onCheckedChange={(checked) => {
-                                    setShowAdvancedSettings(checked as boolean);
-                                    field.onChange(checked);
-                                  }}
-                                />
-                              </FormControl>
-                              <div className="space-y-1 leading-none">
+                  {!useAppStore.getState().isAdmin ? (
+                    <Alert variant="default" className="bg-yellow-500/10 border-yellow-500/20 text-yellow-200">
+                      <Lock className="h-4 w-4" />
+                      <AlertTitle>Admin Settings Locked</AlertTitle>
+                      <AlertDescription>
+                        You are logged in as a restricted user. Server configuration is read-only.
+                        Please contact your administrator to change connection details.
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <Form {...form}>
+                      <form
+                        onSubmit={form.handleSubmit(onSubmit)}
+                        className="space-y-6"
+                      >
+                        <div className="space-y-4">
+                          <FormField
+                            control={form.control}
+                            name="url"
+                            render={({ field }) => (
+                              <FormItem>
                                 <FormLabel className="flex items-center gap-2">
-                                  <Cog className="h-4 w-4" />
-                                  Advanced Settings
+                                  <Server className="h-4 w-4" />
+                                  ClickHouse Host
                                 </FormLabel>
-                                <FormDescription className="text-xs">
-                                  Enable custom path handling for the ClickHouse
-                                  URL
-                                </FormDescription>
-                              </div>
-                            </FormItem>
-                          )}
-                        />
-
-                        {showAdvancedSettings && (
-                          <FormField
-                            control={form.control}
-                            name="customPath"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Custom Path</FormLabel>
                                 <FormControl>
-                                  <Input
-                                    className="font-mono"
-                                    disabled={isLoadingCredentials}
-                                    placeholder="clickhouse-{cluster_name}"
-                                    {...field}
-                                  />
+                                  {window.env?.VITE_CLICKHOUSE_URLS && window.env.VITE_CLICKHOUSE_URLS.length > 0 ? (
+                                    <div className="relative">
+                                      <select
+                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 appearance-none font-mono"
+                                        value={field.value}
+                                        onChange={field.onChange}
+                                        disabled={isLoadingCredentials}
+                                      >
+                                        {window.env.VITE_CLICKHOUSE_URLS.map((url) => (
+                                          <option key={url} value={url}>
+                                            {url}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <ChevronRight className="absolute right-3 top-3 h-4 w-4 rotate-90 opacity-50 pointer-events-none" />
+                                    </div>
+                                  ) : (
+                                    <Input
+                                      className="font-mono"
+                                      disabled={isLoadingCredentials}
+                                      placeholder="https://your-clickhouse-host:8123"
+                                      {...field}
+                                    />
+                                  )}
                                 </FormControl>
                                 <FormDescription className="text-xs">
-                                  Specify the custom path if you're using
-                                  path-based routing
+                                  The URL of your ClickHouse server, including
+                                  protocol and port
                                 </FormDescription>
                                 <FormMessage />
                               </FormItem>
                             )}
                           />
-                        )}
 
-                        <FormField
-                          control={form.control}
-                          name="requestTimeout"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-2">
-                                <FileClock className="h-4 w-4" />
-                                Request Timeout (ms)
-                              </FormLabel>
-                              <FormControl>
-                                <Input
-                                  className="font-mono"
-                                  disabled={isLoadingCredentials}
-                                  type="number"
-                                  min={1}
-                                  max={600000}
-                                  placeholder="30000"
-                                  value={typeof field.value === "number" || typeof field.value === "string" ? field.value : ""}
-                                  onChange={(e) =>
-                                    field.onChange(e.target.value)
-                                  }
-                                  onBlur={field.onBlur}
-                                  name={field.name}
-                                  ref={field.ref}
-                                />
-                              </FormControl>
-                              <FormDescription className="text-xs">
-                                Set the request timeout in milliseconds. Must be
-                                between 1000 and 600000. (Default: 30000)
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
 
-                        <FormField
-                          control={form.control}
-                          name="isDistributed"
-                          render={({ field }) => (
-                            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow-sm">
-                              <FormControl>
-                                <Checkbox
-                                  checked={field.value}
-                                  onCheckedChange={(checked) => {
-                                    setShowDistributedSettings(
-                                      checked as boolean
-                                    );
-                                    field.onChange(checked);
-                                  }}
-                                />
-                              </FormControl>
-                              <div className="space-y-1 leading-none">
-                                <FormLabel>Distributed Mode</FormLabel>
-                                <FormDescription className="text-xs">
-                                  Enable this if you're using a ClickHouse
-                                  cluster
-                                </FormDescription>
-                              </div>
-                            </FormItem>
-                          )}
-                        />
 
-                        {showDistributedSettings && (
+
+
+
+
                           <FormField
                             control={form.control}
-                            name="clusterName"
+                            name="isDistributed"
                             render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Cluster Name</FormLabel>
+                              <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow-sm">
                                 <FormControl>
-                                  <Input
-                                    className="font-mono"
-                                    disabled={isLoadingCredentials}
-                                    placeholder="my_cluster"
-                                    {...field}
+                                  <Checkbox
+                                    checked={field.value}
+                                    onCheckedChange={(checked) => {
+                                      setShowDistributedSettings(
+                                        checked as boolean
+                                      );
+                                      field.onChange(checked);
+                                    }}
                                   />
                                 </FormControl>
-                                <FormDescription className="text-xs">
-                                  The name of your ClickHouse cluster
-                                </FormDescription>
-                                <FormMessage />
+                                <div className="space-y-1 leading-none">
+                                  <FormLabel>Distributed Mode</FormLabel>
+                                  <FormDescription className="text-xs">
+                                    Enable this if you're using a ClickHouse
+                                    cluster
+                                  </FormDescription>
+                                </div>
                               </FormItem>
                             )}
                           />
-                        )}
-                      </div>
 
-                      <div className="flex gap-4 pt-4">
-                        <Button
-                          type="submit"
-                          disabled={isLoadingCredentials}
-                          className="w-40"
-                        >
-                          {isLoadingCredentials ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Connecting
-                            </>
-                          ) : (
-                            "Save and Connect"
+                          {showDistributedSettings && (
+                            <FormField
+                              control={form.control}
+                              name="clusterName"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Cluster Name</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      className="font-mono"
+                                      disabled={isLoadingCredentials}
+                                      placeholder="my_cluster"
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormDescription className="text-xs">
+                                    The name of your ClickHouse cluster
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
                           )}
-                        </Button>
+                        </div>
 
-                        {isServerAvailable && (
+                        <div className="flex gap-4 pt-4">
                           <Button
-                            type="button"
-                            variant="destructive"
-                            onClick={handleDisconnect}
-                            className="w-32"
+                            type="submit"
+                            disabled={isLoadingCredentials}
+                            className="w-40"
                           >
-                            <LogOut className="mr-2 h-4 w-4" />
-                            Disconnect
+                            {isLoadingCredentials ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Connecting
+                              </>
+                            ) : (
+                              "Save and Connect"
+                            )}
                           </Button>
-                        )}
-                      </div>
-                    </form>
-                  </Form>
+
+
+                        </div>
+                      </form>
+                    </Form>
+                  )}
                 </CardContent>
 
                 {isServerAvailable ? (
@@ -697,15 +516,15 @@ export default function SettingsPage() {
               <CardHeader>
                 <CardTitle className="text-2xl font-bold flex items-center gap-2">
                   <Trash2 className="h-6 w-6 text-primary" />
-                  Local Data
+                  Interface Reset
                 </CardTitle>
                 <CardDescription>
-                  Clear tabs and dashboard layouts saved in this browser.
+                  Reset your workspace layout, including open tabs and dashboard customizations.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground">
-                  This keeps your connection credentials. Use Disconnect to clear credentials.
+                  This acts as a "Factory Reset" for the UI. It does not log you out or delete any data on the server.
                 </p>
               </CardContent>
               <CardFooter className="border-t bg-muted/50 rounded-b-lg pt-4 flex justify-end">

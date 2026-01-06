@@ -33,25 +33,18 @@ const quickStartActions = [
 
 const resourceCards = [
   {
-    title: "Star us on GitHub!",
-    description: "Support our project by starring it on GitHub.",
-    link: "https://github.com/caioricciuti/ch-ui",
-    Icon: Github,
-    action: "Star on GitHub",
-  },
-  {
-    title: "ClickHouse Docs",
-    description: "Explore ClickHouse documentation and learn more.",
+    title: "SQL Reference",
+    description: "Explore ClickHouse SQL documentation.",
     Icon: BookOpen,
-    link: "https://clickhouse.com/docs/en/intro",
+    link: "https://clickhouse.com/docs/en/sql-reference",
     action: "Read Docs",
   },
   {
-    title: "CH-UI Documentation",
+    title: "ClickHouse Docs",
+    description: "Learn more about ClickHouse features.",
     Icon: ExternalLink,
-    description: "Learn how to make the most of CH-UI.",
-    link: "https://ch-ui.com",
-    action: "Explore CH-UI",
+    link: "https://clickhouse.com/docs/en/intro",
+    action: "Docs",
   },
 ];
 

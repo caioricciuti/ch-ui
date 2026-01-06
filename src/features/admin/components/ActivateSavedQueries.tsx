@@ -95,7 +95,7 @@ export default function ActivateSavedQueries() {
               <div className="flex items-center space-x-2">
                 {isSavedQueriesActive ? (
                   <Badge
-                    variant="success"
+                    variant="default"
                     className="flex items-center space-x-1 bg-green-500/40"
                   >
                     <CheckCircle className="h-3 w-3" />

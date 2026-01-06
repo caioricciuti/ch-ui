@@ -5,7 +5,7 @@ import { ReactNode } from "react";
 export function PrivateRoute({ children }: { children: ReactNode }) {
   const { isServerAvailable } = useAppStore();
   if (!isServerAvailable) {
-    return <Navigate to="/settings" replace />;
+    return <Navigate to="/login" replace />;
   }
   return <>{children}</>;
 }
