@@ -7,20 +7,21 @@
 This is an enhanced fork of the original [CH-UI](https://github.com/caioricciuti/ch-ui) by Caio Ricciuti, featuring **secure runtime authentication** improvements.
 
 ### 🎯 **Fork Highlights**
-- ✅ **Secure Login Page** - No more hardcoded credentials in environment variables
+- ✅ **Login Authentication** - Users must enter credentials instead of auto-connecting
+- ✅ **Runtime Credential Entry** - No more hardcoded credentials in Docker configs
 - ✅ **Session Management** - 8-hour session expiry with automatic logout
-- ✅ **Optional Persistence** - Choose between session-only or saved credentials
+- ✅ **No Proxy Required** - Eliminates need for BasicAuth or reverse proxy protection
 - ✅ **100% Backward Compatible** - Existing Docker deployments continue working unchanged
-- ✅ **Zero Breaking Changes** - Drop-in replacement for enhanced security
 
 ### 💡 **Why This Fork?**
-The original CH-UI requires credentials to be set via environment variables, which can be:
-- 🚫 Exposed in Docker configurations
-- 🚫 Visible in public repositories
-- 🚫 Stored in container orchestration configs
-- 🚫 Logged in CI/CD systems
+The original CH-UI **auto-connects** using environment variables, which creates security concerns:
+- 🚫 **Auto-login bypass**: Users are automatically logged in without entering credentials
+- 🚫 **Exposed credentials**: Database credentials visible in Docker configurations
+- 🚫 **Public repository risk**: Credentials stored in container orchestration configs
+- 🚫 **No user authentication**: Anyone with URL access gets immediate database access
+- 🚫 **Requires proxy protection**: Needs additional BasicAuth/reverse proxy for security
 
-This fork solves these security concerns while maintaining full compatibility with existing deployments.
+**This fork adds a proper login screen** where users must enter their ClickHouse server details and credentials before accessing the database, eliminating the need for environment variables and proxy authentication.
 
 ### 🚀 **Quick Start with Enhanced Security**
 
