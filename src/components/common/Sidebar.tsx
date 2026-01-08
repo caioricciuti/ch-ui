@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   CogIcon,
   ScrollText,
+  LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -96,6 +97,8 @@ const Sidebar = () => {
     isLoadingCredentials,
     clearCredentials,
     isAdmin,
+    credentialSource,
+    logout,
   } = useAppStore();
   const location = useLocation();
   const navigate = useNavigate();
@@ -108,6 +111,12 @@ const Sidebar = () => {
 
   const toggleTheme = () => {
     setTheme(theme === "dark" ? "light" : "dark");
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login", { replace: true });
+    toast.success("Successfully logged out");
   };
 
   useEffect(() => {
@@ -270,6 +279,22 @@ const Sidebar = () => {
               <Moon className="h-5 w-5" />
             )}
           </Button>
+
+          {/* Show logout button for session-based or saved credentials */}
+          {(credentialSource === "session" || credentialSource === "app") && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" onClick={handleLogout}>
+                    <LogOut className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <span className="text-xs">Logout</span>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
 
           <Sheet>
             <SheetTrigger asChild>

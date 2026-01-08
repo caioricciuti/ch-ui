@@ -185,6 +185,7 @@ const useAppStore = create<AppState>()(
         version: "",
         error: "",
         credentialSource: null,
+        sessionExpiry: null,
         updatedSavedQueriesTrigger: "",
         clickhouseSettings: {
           max_result_rows: "0",
@@ -193,9 +194,44 @@ const useAppStore = create<AppState>()(
         },
 
         /**
-         * Sets the credential source.
+         * Sets the credential source and manages session expiry.
          */
-        setCredentialSource: (source) => set({ credentialSource: source }),
+        setCredentialSource: (source) => {
+          const now = Date.now();
+          const expiry = source === "session" ? now + (8 * 60 * 60 * 1000) : null; // 8 hours for session
+          set({ credentialSource: source, sessionExpiry: expiry });
+        },
+
+        /**
+         * Checks if the current session is still valid.
+         */
+        isSessionValid: () => {
+          const { credentialSource, sessionExpiry } = get();
+          if (credentialSource !== "session" || !sessionExpiry) {
+            return credentialSource !== "session"; // Non-session credentials are always valid
+          }
+          return Date.now() < sessionExpiry;
+        },
+
+        /**
+         * Extends the current session expiry by another 8 hours.
+         */
+        extendSession: () => {
+          const { credentialSource } = get();
+          if (credentialSource === "session") {
+            const newExpiry = Date.now() + (8 * 60 * 60 * 1000);
+            set({ sessionExpiry: newExpiry });
+          }
+        },
+
+        /**
+         * Logs out the user by clearing credentials and redirecting.
+         */
+        logout: async () => {
+          await get().clearCredentials();
+          set({ sessionExpiry: null });
+          // Note: Navigation will be handled by the component calling this method
+        },
 
         /**
          * Sets credentials, initializes the ClickHouse client, and checks the server status.
@@ -296,6 +332,8 @@ const useAppStore = create<AppState>()(
             isServerAvailable: false,
             version: "",
             error: "",
+            credentialSource: null,
+            sessionExpiry: null,
           });
         },
 
@@ -1055,7 +1093,17 @@ const useAppStore = create<AppState>()(
       name: "app-storage",
       // Persist subset of the state to localStorage
       partialize: (state) => ({
-        credential: state.credential,
+        // Only persist credentials for "app" source, not "session" or "env"
+        credential: state.credentialSource === "app" ? state.credential : {
+          url: "",
+          username: "",
+          password: "",
+          useAdvanced: false,
+          customPath: "",
+          requestTimeout: 30000,
+        },
+        credentialSource: state.credentialSource === "app" ? state.credentialSource : null,
+        sessionExpiry: null, // Never persist session expiry
         activeTab: state.activeTab,
         tabs: state.tabs.map((t) => ({
           ...t,

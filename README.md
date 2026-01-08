@@ -1,6 +1,50 @@
-# CH-UI 🚀
+# CH-UI 🚀 - Enhanced Security Fork
 
 [![Version](https://img.shields.io/github/v/release/caioricciuti/ch-ui?label=version&style=flat-square)](https://github.com/caioricciuti/ch-ui/releases)
+
+## 🔐 **Security-Enhanced Fork**
+
+This is an enhanced fork of the original [CH-UI](https://github.com/caioricciuti/ch-ui) by Caio Ricciuti, featuring **secure runtime authentication** improvements.
+
+### 🎯 **Fork Highlights**
+- ✅ **Secure Login Page** - No more hardcoded credentials in environment variables
+- ✅ **Session Management** - 8-hour session expiry with automatic logout
+- ✅ **Optional Persistence** - Choose between session-only or saved credentials
+- ✅ **100% Backward Compatible** - Existing Docker deployments continue working unchanged
+- ✅ **Zero Breaking Changes** - Drop-in replacement for enhanced security
+
+### 💡 **Why This Fork?**
+The original CH-UI requires credentials to be set via environment variables, which can be:
+- 🚫 Exposed in Docker configurations
+- 🚫 Visible in public repositories
+- 🚫 Stored in container orchestration configs
+- 🚫 Logged in CI/CD systems
+
+This fork solves these security concerns while maintaining full compatibility with existing deployments.
+
+### 🚀 **Quick Start with Enhanced Security**
+
+**Option 1: Secure Login (Recommended)**
+```bash
+# Run without credentials - users see login page
+docker run -p 5521:5521 your-dockerhub-username/ch-ui-secure:latest
+# Navigate to http://localhost:5521 and use the login form
+```
+
+**Option 2: Traditional Docker (Backward Compatible)**
+```bash
+# Existing deployments continue working
+docker run -p 5521:5521 \
+  -e VITE_CLICKHOUSE_URL="http://clickhouse-server:8123" \
+  -e VITE_CLICKHOUSE_USER="default" \
+  -e VITE_CLICKHOUSE_PASS="password" \
+  your-dockerhub-username/ch-ui-secure:latest
+```
+
+---
+
+## 📖 **About CH-UI**
+
 A modern, feature-rich web interface for ClickHouse databases. CH-UI provides an intuitive platform for managing ClickHouse databases, executing queries, and visualizing metrics about your instance.
 
 ## 🌟 Key Features
@@ -277,6 +321,50 @@ server {
     }
 }
 ```
+
+### Runtime Authentication (New Security Feature)
+
+CH-UI now supports secure runtime authentication instead of storing credentials in environment variables. This provides enhanced security for production deployments.
+
+#### Login Page Authentication
+Instead of hardcoding credentials in environment variables, users can now:
+- **Login Page**: Enter credentials securely through a dedicated login interface
+- **Session Management**: Temporary 8-hour sessions for enhanced security
+- **Optional Persistence**: Choose to remember credentials locally or use session-only authentication
+
+#### Authentication Modes
+1. **Environment Variables** (Docker mode): Credentials set via environment variables (auto-login)
+2. **Session Authentication**: Temporary login with 8-hour session expiry
+3. **Saved Credentials**: Persistent login with credentials stored locally
+
+#### Security Benefits
+- **No Environment Variable Exposure**: Credentials no longer stored in Docker configs or public repositories
+- **Session Expiration**: Automatic logout after 8 hours for session-based authentication
+- **Runtime Input**: Credentials entered securely at application runtime
+- **Logout Functionality**: Manual logout available in Settings and Sidebar
+
+#### Usage Examples
+
+**Secure Session-based Login** (Recommended for shared environments):
+```bash
+# Run without credentials - users will see login page
+docker run -p 5521:5521 ghcr.io/caioricciuti/ch-ui:latest
+```
+
+**Traditional Environment Variables** (Docker mode):
+```bash
+# Still supported for backwards compatibility
+docker run -p 5521:5521 \
+  -e VITE_CLICKHOUSE_URL="http://clickhouse-server:8123" \
+  -e VITE_CLICKHOUSE_USER="default" \
+  -e VITE_CLICKHOUSE_PASS="password" \
+  ghcr.io/caioricciuti/ch-ui:latest
+```
+
+**Saved Credentials** (For personal use):
+- Login through the web interface
+- Check "Remember credentials" during login
+- Credentials will persist between browser sessions
 
 ## 🎯 Distributed ClickHouse Support
 

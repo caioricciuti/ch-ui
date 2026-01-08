@@ -39,11 +39,14 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
     setCredential,
     setCredentialSource,
     checkIsAdmin,
+    credentialSource,
+    isSessionValid,
+    logout,
   } = useAppStore();
   const [isLoading, setIsLoading] = useState(true);
   const [envChecked, setEnvChecked] = useState(false);
 
-  // Effect to set credentials from environment variables
+  // Effect to check for environment variables (Docker mode)
   useEffect(() => {
     // Check if credentials are set from environment variables
     const envUrl = window.env?.VITE_CLICKHOUSE_URL;
@@ -57,6 +60,7 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
     console.log("AppInit: envUrl:", envUrl ? "SET" : "NOT SET");
     console.log("AppInit: envUser:", envUser ? "SET" : "NOT SET");
 
+    // Only auto-set credentials for Docker/env mode
     if (envUrl && envUser) {
       console.log("AppInit: Setting credentials from environment variables");
       setCredential({
@@ -77,6 +81,14 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
 
     setEnvChecked(true);
   }, [setCredential, setCredentialSource]);
+
+  // Effect to validate existing sessions on app start
+  useEffect(() => {
+    if (credentialSource === "session" && !isSessionValid()) {
+      console.log("AppInit: Session expired, clearing credentials");
+      logout();
+    }
+  }, [credentialSource, isSessionValid, logout]);
 
   // Effect to initialize the application after env check
   useEffect(() => {

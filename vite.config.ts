@@ -17,4 +17,21 @@ export default defineConfig({
   define: {
     __CH_UI_VERSION__: JSON.stringify(pkg.version),
   },
+  worker: {
+    format: 'es',
+  },
+  optimizeDeps: {
+    include: [
+      'monaco-editor/esm/vs/editor/editor.worker'
+    ]
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          monaco: ['monaco-editor']
+        }
+      }
+    }
+  },
 });

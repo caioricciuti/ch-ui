@@ -126,6 +126,9 @@ export default function SettingsPage() {
     credentialSource,
     setCredentialSource,
     clearLocalData,
+    logout,
+    sessionExpiry,
+    isSessionValid,
   } = useAppStore();
 
   const [showPassword, setShowPassword] = useState(false);
@@ -297,6 +300,29 @@ export default function SettingsPage() {
     toast.success("Local data cleared");
   };
 
+  const handleLogout = async () => {
+    const confirmed = window.confirm(
+      "Are you sure you want to logout? You will need to re-enter your credentials."
+    );
+    if (!confirmed) return;
+
+    await logout();
+    navigate("/login", { replace: true });
+    toast.success("Successfully logged out");
+  };
+
+  const formatSessionExpiry = (expiry: number) => {
+    const now = Date.now();
+    const diff = expiry - now;
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    }
+    return `${minutes}m`;
+  };
+
   return (
     <TooltipProvider>
       <div className="max-h-screen w-full overflow-y-auto">
@@ -319,6 +345,73 @@ export default function SettingsPage() {
                     User: {credential?.username}
                     <br />
                   </p>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Session Status for session-based authentication */}
+            {credentialSource === "session" && sessionExpiry && (
+              <Alert variant={isSessionValid() ? "default" : "destructive"} className="mb-8">
+                <AlertTitle className="flex items-center font-semibold">
+                  <User className="mr-2 h-4 w-4" />
+                  Session Status
+                </AlertTitle>
+                <AlertDescription>
+                  {isSessionValid() ? (
+                    <div>
+                      <p>You are logged in with temporary session credentials.</p>
+                      <p className="text-sm mt-2">
+                        Session expires in: <strong>{formatSessionExpiry(sessionExpiry)}</strong>
+                      </p>
+                      <div className="flex gap-2 mt-4">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleLogout}
+                        >
+                          <LogOut className="mr-2 h-3 w-3" />
+                          Logout
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-red-500">Your session has expired. Please login again.</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate("/login")}
+                        className="mt-2"
+                      >
+                        Go to Login
+                      </Button>
+                    </div>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Saved credentials status for app-based authentication */}
+            {credentialSource === "app" && (
+              <Alert variant="default" className="mb-8">
+                <AlertTitle className="flex items-center font-semibold">
+                  <User className="mr-2 h-4 w-4" />
+                  Saved Credentials
+                </AlertTitle>
+                <AlertDescription>
+                  <div>
+                    <p>Your credentials are saved locally for future sessions.</p>
+                    <div className="flex gap-2 mt-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleLogout}
+                      >
+                        <LogOut className="mr-2 h-3 w-3" />
+                        Logout & Clear Credentials
+                      </Button>
+                    </div>
+                  </div>
                 </AlertDescription>
               </Alert>
             )}

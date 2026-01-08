@@ -123,11 +123,13 @@ let functionsCache: string[] | null = null;
 // cache for keywords
 let keywordsCache: string[] | null = null;
 
-// Setting up the Monaco Environment to use the editor worker
+// Setting up the Monaco Environment to use Vite's worker handling
 window.MonacoEnvironment = {
-  getWorkerUrl() {
-    return new URL("../../worker/monaco-editor-worker.js", import.meta.url)
-      .href;
+  getWorkerUrl: function (moduleId: string, label: string) {
+    if (label === 'typescript' || label === 'javascript') {
+      return /* @vite-ignore */ new URL('monaco-editor/esm/vs/language/typescript/ts.worker', import.meta.url).href;
+    }
+    return /* @vite-ignore */ new URL('monaco-editor/esm/vs/editor/editor.worker', import.meta.url).href;
   },
 };
 
@@ -135,9 +137,11 @@ window.MonacoEnvironment = {
 function ensureMonacoEnvironment() {
   if (typeof window.MonacoEnvironment === "undefined") {
     window.MonacoEnvironment = {
-      getWorkerUrl() {
-        return new URL("../../worker/monaco-editor-worker.js", import.meta.url)
-          .href;
+      getWorkerUrl: function (moduleId: string, label: string) {
+        if (label === 'typescript' || label === 'javascript') {
+          return /* @vite-ignore */ new URL('monaco-editor/esm/vs/language/typescript/ts.worker', import.meta.url).href;
+        }
+        return /* @vite-ignore */ new URL('monaco-editor/esm/vs/editor/editor.worker', import.meta.url).href;
       },
     };
   }

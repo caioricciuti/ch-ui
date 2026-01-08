@@ -72,7 +72,8 @@ interface CoreState {
   isInitialized: boolean;
   version: string;
   error: string;
-  credentialSource: "env" | "app" | null;
+  credentialSource: "env" | "app" | "session" | null;
+  sessionExpiry: number | null;
   clickhouseSettings: ClickHouseSettings;
 }
 
@@ -113,8 +114,11 @@ export interface AppState
   checkServerStatus: () => Promise<void>;
   runQuery: (query: string, tabId?: string) => Promise<QueryResult>;
   initializeApp: () => Promise<void>;
-  setCredentialSource: (source: "env" | "app") => void;
+  setCredentialSource: (source: "env" | "app" | "session") => void;
   updateConfiguration: (clickhouseSettings: ClickHouseSettings) => void;
+  logout: () => Promise<void>;
+  isSessionValid: () => boolean;
+  extendSession: () => void;
   updatedSavedQueriesTrigger: string;
   addTab: (tab: Tab) => Promise<void>;
   updateTab: (tabId: string, updates: Partial<Tab>) => Promise<void>;
