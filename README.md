@@ -23,6 +23,14 @@ The original CH-UI **auto-connects** using environment variables, which creates 
 
 **This fork adds a proper login screen** where users must enter their ClickHouse server details and credentials before accessing the database, eliminating the need for environment variables and proxy authentication.
 
+### 🖼️ **See the Security Enhancement**
+
+Instead of auto-connecting with environment variables, users now see a secure login page:
+
+![Secure Login Page](docs/images/login-page.png)
+
+*Professional login interface with ClickHouse server configuration and session management options*
+
 ### 🚀 **Quick Start with Enhanced Security**
 
 **Option 1: Secure Login (Recommended)**
