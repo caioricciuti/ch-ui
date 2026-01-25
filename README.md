@@ -7,13 +7,13 @@ A modern, feature-rich web interface for ClickHouse databases. CH-UI provides an
 
 ### Core Functionality
 - **🔄 ClickHouse Integration**: Seamless connection and interaction with ClickHouse databases
-- **📝 Advanced SQL Editor**: 
+- **📝 Advanced SQL Editor**:
   - Intelligent IntelliSense with autocomplete suggestions
   - Syntax highlighting
   - Query history tracking
   - Multi-tab query execution
   - Query saving and management
-- **📊 Dynamic Data Visualization**: 
+- **📊 Dynamic Data Visualization**:
   - Interactive data tables with sorting and filtering
   - Support for column names with special characters (dots, spaces, etc.)
   - Custom visualization options
@@ -88,12 +88,13 @@ services:
       VITE_CLICKHOUSE_URL: "http://your-clickhouse-server:8123"
       VITE_CLICKHOUSE_USER: "your-username"
       VITE_CLICKHOUSE_PASS: "your-password"
-      
+      VITE_CLICKHOUSE_DATABASE: "your-default-db"
+
       # Optional: Advanced Features
       VITE_CLICKHOUSE_USE_ADVANCED: "false"
       VITE_CLICKHOUSE_CUSTOM_PATH: ""
       VITE_CLICKHOUSE_REQUEST_TIMEOUT: "30000"
-      
+
       # Optional: Reverse Proxy Support
       VITE_BASE_PATH: "/"
 ```
@@ -133,12 +134,12 @@ services:
       VITE_CLICKHOUSE_URL: "http://your-clickhouse-server:8123"
       VITE_CLICKHOUSE_USER: "your-username"
       VITE_CLICKHOUSE_PASS: "your-password"
-      
+
       # Advanced Options
       VITE_CLICKHOUSE_USE_ADVANCED: "true"  # Enable advanced features
       VITE_CLICKHOUSE_CUSTOM_PATH: "/custom/path"  # Custom HTTP path
       VITE_CLICKHOUSE_REQUEST_TIMEOUT: "60000"  # 60 second timeout
-      
+
       # Deployment Options
       VITE_BASE_PATH: "/ch-ui"  # Deploy at https://yourdomain.com/ch-ui
 ```
@@ -149,6 +150,7 @@ docker run --name ch-ui -p 5521:5521 \
   -e VITE_CLICKHOUSE_URL=http://your-clickhouse-server:8123 \
   -e VITE_CLICKHOUSE_USER=your-username \
   -e VITE_CLICKHOUSE_PASS=your-password \
+  -e VITE_CLICKHOUSE_DATABASE=your-database \
   -e VITE_CLICKHOUSE_USE_ADVANCED=true \
   -e VITE_CLICKHOUSE_CUSTOM_PATH=/custom/path \
   -e VITE_CLICKHOUSE_REQUEST_TIMEOUT=60000 \
@@ -222,7 +224,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
+
         # WebSocket support for real-time features
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -271,7 +273,7 @@ server {
     location /ch-ui/ {
         auth_basic "Restricted Access";
         auth_basic_user_file /etc/nginx/.htpasswd;
-        
+
         proxy_pass http://localhost:5521/;
         # ... rest of proxy configuration
     }
@@ -355,16 +357,16 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 # Clone and install
 git clone https://github.com/caioricciuti/ch-ui.git
 cd ch-ui
-npm install
+bun install
 
 # Run tests
-npm test
+bun run test
 
 # Run linter
-npm run lint
+bun run lint
 
 # Start development server
-npm run dev
+bun run dev
 ```
 
 ## ❤️ Sponsors
@@ -373,7 +375,7 @@ npm run dev
   <a href="https://iberodata.es/?utm_source=ch-ui&utm_medium=github" target="_blank">
     <img src="https://iberodata.es/logo.png" alt="Iberodata" width="100"/>
   </a>
-  
+
   <p><strong>Iberodata</strong> - Empowering businesses with data-driven solutions</p>
 </div>
 

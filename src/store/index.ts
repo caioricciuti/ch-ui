@@ -15,6 +15,8 @@ import { OverflowMode } from "@clickhouse/client-common/dist/settings";
 import { toast } from "sonner";
 import { appQueries } from "@/features/workspace/editor/appQueries";
 
+const MAPPED_TABLE_TYPE: Record<string, string> = {"view": "view", "dictionary": "dictionary", "materializedview": "materialized_view"};
+
 /**
  * Error class for ClickHouse related errors.
  * Provides error categories and troubleshooting tips.
@@ -636,10 +638,7 @@ const useAppStore = create<AppState>()(
                 };
               }
               if (table_name) {
-                const table_type_mapped =
-                  table_type && table_type.toLowerCase() === "view"
-                    ? "view"
-                    : "table";
+                const table_type_mapped = table_type && MAPPED_TABLE_TYPE[table_type.toLowerCase()] || "table";
                 databases[database_name].children.push({
                   name: table_name,
                   type: table_type_mapped,
