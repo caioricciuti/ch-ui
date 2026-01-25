@@ -375,7 +375,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
               {getIcon}
               <div
                 onClick={() => {
-                  if (node.type === "table" || node.type === "view") {
+                  if (node.type === "table" || node.type === "view" || node.type === "dictionary" || node.type === "materialized_view") {
                     // Using non-null assertion since parentDatabaseName should be defined for table/view
                     if (parentDatabaseName) {
                       openInfoTab(parentDatabaseName, node.name);
