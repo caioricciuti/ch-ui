@@ -10,6 +10,7 @@ export interface Credential {
   username: string;
   password: string;
   requestTimeout: number;
+  database?: string;
   useAdvanced: boolean;
   customPath: string;
   isDistributed?: boolean;

@@ -22,9 +22,9 @@ import { appQueries } from "@/features/workspace/editor/appQueries";
 export class ClickHouseError extends Error {
   category: 'connection' | 'authentication' | 'query' | 'timeout' | 'network' | 'unknown';
   troubleshootingTips: string[];
-  
+
   constructor(
-    message: string, 
+    message: string,
     public readonly originalError?: unknown,
     category?: 'connection' | 'authentication' | 'query' | 'timeout' | 'network' | 'unknown',
     troubleshootingTips?: string[]
@@ -42,7 +42,7 @@ export class ClickHouseError extends Error {
     let message = error?.message || defaultMessage;
     let category: 'connection' | 'authentication' | 'query' | 'timeout' | 'network' | 'unknown' = 'unknown';
     let tips: string[] = [];
-    
+
     // Check for common error patterns
     const statusCode = error?.response?.status;
 
@@ -55,7 +55,7 @@ export class ClickHouseError extends Error {
         "Ensure the user has the necessary permissions",
         "Check if the user exists in the ClickHouse server"
       ];
-    } 
+    }
     // Connection errors
     else if (statusCode === 404) {
       category = 'connection';
@@ -86,7 +86,7 @@ export class ClickHouseError extends Error {
         "Verify network latency is not causing delays"
       ];
     }
-    // CORS errors 
+    // CORS errors
     else if (message.includes("CORS") || message.includes("Cross-Origin")) {
       category = 'network';
       message = "Cross-Origin Request Blocked. The server doesn't allow connections from this origin.";
@@ -211,6 +211,7 @@ const useAppStore = create<AppState>()(
               username: credential.username,
               password: credential.password || "",
               request_timeout: credential.requestTimeout || 30000,
+              database: credential.database,
               clickhouse_settings: {
                 ...get().clickhouseSettings,
                 result_overflow_mode: "break",
@@ -225,15 +226,15 @@ const useAppStore = create<AppState>()(
           } catch (error) {
             // Use the enhanced error handling
             const enhancedError = ClickHouseError.fromError(
-              error, 
+              error,
               "Failed to set connection credentials"
             );
-            
-            set({ 
+
+            set({
               error: `${enhancedError.message}\n\nTroubleshooting tips:\n${enhancedError.troubleshootingTips.join('\n')}`,
               isServerAvailable: false
             });
-            
+
             toast.error(`Connection error: ${enhancedError.message}`, {
               description: "Please check the troubleshooting tips in the settings panel."
             });
@@ -262,14 +263,14 @@ const useAppStore = create<AppState>()(
             await get().checkServerStatus();
           } catch (error) {
             const enhancedError = ClickHouseError.fromError(
-              error, 
+              error,
               "Failed to update ClickHouse configuration"
             );
-            
+
             toast.error(`Configuration error: ${enhancedError.message}`, {
               description: "Check the troubleshooting tips for possible solutions."
             });
-            
+
             throw enhancedError;
           }
         },
@@ -309,8 +310,8 @@ const useAppStore = create<AppState>()(
           try {
             if (!clickHouseClient) {
               throw new ClickHouseError(
-                "ClickHouse client is not initialized", 
-                null, 
+                "ClickHouse client is not initialized",
+                null,
                 'connection',
                 ["Please enter your connection details and try again"]
               );
@@ -327,13 +328,13 @@ const useAppStore = create<AppState>()(
           } catch (error: any) {
             // Use the new ClickHouseError.fromError to get a better error message and tips
             const enhancedError = ClickHouseError.fromError(error, "Failed to connect to ClickHouse server");
-            
+
             // Set the detailed error
-            set({ 
-              isServerAvailable: false, 
-              error: `${enhancedError.message}\n\nTroubleshooting tips:\n${enhancedError.troubleshootingTips.join('\n')}` 
+            set({
+              isServerAvailable: false,
+              error: `${enhancedError.message}\n\nTroubleshooting tips:\n${enhancedError.troubleshootingTips.join('\n')}`
             });
-            
+
             // Don't automatically clear credentials on all errors
             // Only clear them for certain types of errors
             if (enhancedError.category === 'connection' || enhancedError.category === 'authentication') {
@@ -708,9 +709,9 @@ const useAppStore = create<AppState>()(
           try {
             const result = await clickHouseClient.query({
               query: `
-                SELECT if(grant_option = 1, true, false) AS is_admin 
-                FROM system.grants 
-                WHERE user_name = currentUser() 
+                SELECT if(grant_option = 1, true, false) AS is_admin
+                FROM system.grants
+                WHERE user_name = currentUser()
                 LIMIT 1
               `,
             });
@@ -743,9 +744,9 @@ const useAppStore = create<AppState>()(
           }));
           try {
             const result = await runQuery(`
-              SELECT COUNT(*) as exists 
-              FROM system.tables 
-              WHERE database = 'CH_UI' 
+              SELECT COUNT(*) as exists
+              FROM system.tables
+              WHERE database = 'CH_UI'
               AND name = 'saved_queries'
             `);
             const response = result as SavedQueriesCheckResponse;
