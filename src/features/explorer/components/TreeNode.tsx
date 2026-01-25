@@ -12,6 +12,8 @@ import {
   MoreVertical,
   FilePlus,
   FolderPlus,
+  BookA,
+  Columns3Cog
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,7 +34,7 @@ import useAppStore from "@/store";
 
 export interface TreeNodeData {
   name: string;
-  type: "database" | "table" | "view" | "saved_query";
+  type: "database" | "table" | "view" | "dictionary" | "materialized_view" | "saved_query";
   children?: TreeNodeData[];
   query?: string;
 }
@@ -117,6 +119,10 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         return <Table className="w-4 h-4 mr-2" />;
       case "view":
         return <FileSpreadsheet className="w-4 h-4 mr-2" />;
+      case "dictionary":
+        return <BookA className="w-4 h-4 mr-2" />;
+      case "materialized_view":
+        return <Columns3Cog className="w-4 h-4 mr-2" />;
       case "saved_query":
         return <TerminalIcon className="w-4 h-4 mr-2" />;
       default:
@@ -179,6 +185,42 @@ const TreeNode: React.FC<TreeNodeProps> = ({
       }
     });
     setIsConfirmDialogOpen(true); // ✅ Opens the dialog for views
+  };
+
+  const actionDropDictionary = async (database: string, dictionary: string) => {
+    setConfirmTitle(`Drop Dictionary ${dictionary}`);
+    setConfirmDescription(
+      `Are you sure you want to drop the dictionary ${database}.${dictionary}? This action cannot be undone.`
+    );
+
+    setConfirmAction(() => async () => {
+      try {
+        await runQuery(`DROP DICTIONARY ${database}.${dictionary}`);
+        toast.success(`Dropped dictionary ${dictionary}`);
+        refreshData();
+      } catch (error) {
+        toast.error(`Failed to drop dictionary ${dictionary}`);
+      }
+    });
+    setIsConfirmDialogOpen(true); // ✅ Opens the dialog for views
+  };
+
+  const actionDropMaterializedView = async (database: string, materializedView: string) => {
+    setConfirmTitle(`Drop Materialized View ${materializedView}`);
+    setConfirmDescription(
+      `Are you sure you want to drop the materialized view ${database}.${materializedView}? This action cannot be undone.`
+    );
+
+    setConfirmAction(() => async () => {
+      try {
+        await runQuery(`DROP TABLE ${database}.${materializedView}`);
+        toast.success(`Dropped materialized view ${materializedView}`);
+        refreshData();
+      } catch (error) {
+        toast.error(`Failed to drop materialized view ${materializedView}`);
+      }
+    });
+    setIsConfirmDialogOpen(true); // ✅ Opens the dialog for materialized views
   };
 
   const contextMenuOptions = useMemo(
@@ -245,6 +287,46 @@ const TreeNode: React.FC<TreeNodeProps> = ({
               },
         },
       ],
+      dictionary: [
+        {
+          label: "Query Dictionary",
+          icon: <TerminalIcon className="w-4 h-4 mr-2" />,
+          action: parentDatabaseName
+            ? handleQueryData(parentDatabaseName, node.name)
+            : () => {
+                toast.error("Parent database name is undefined.");
+              },
+        },
+        {
+          label: "Delete Dictionary",
+          icon: <Trash className="w-4 h-4 mr-2" />,
+          action: parentDatabaseName
+            ? () => actionDropDictionary(parentDatabaseName, node.name)
+            : () => {
+                toast.error("Parent database name is undefined.");
+              },
+        },
+      ],
+      materialized_view: [
+        {
+          label: "Query Materialized View",
+          icon: <TerminalIcon className="w-4 h-4 mr-2" />,
+          action: parentDatabaseName
+            ? handleQueryData(parentDatabaseName, node.name)
+            : () => {
+                toast.error("Parent database name is undefined.");
+              },
+        },
+        {
+          label: "Delete Materialized View",
+          icon: <Trash className="w-4 h-4 mr-2" />,
+          action: parentDatabaseName
+            ? () => actionDropMaterializedView(parentDatabaseName, node.name)
+            : () => {
+                toast.error("Parent database name is undefined.");
+              }
+            }
+      ],
     }),
     [
       parentDatabaseName,
@@ -253,6 +335,8 @@ const TreeNode: React.FC<TreeNodeProps> = ({
       actionDropDatabase,
       actionDropTable,
       actionDropView,
+      actionDropDictionary,
+      actionDropMaterializedView,
     ]
   );
 
@@ -291,7 +375,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
               {getIcon}
               <div
                 onClick={() => {
-                  if (node.type === "table" || node.type === "view") {
+                  if (node.type === "table" || node.type === "view" || node.type === "dictionary" || node.type === "materialized_view") {
                     // Using non-null assertion since parentDatabaseName should be defined for table/view
                     if (parentDatabaseName) {
                       openInfoTab(parentDatabaseName, node.name);

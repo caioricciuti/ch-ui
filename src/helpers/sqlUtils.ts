@@ -7,10 +7,12 @@ export const isCreateOrInsert = (query: string) => {
   const lowerQuery = cleanedQuery.toLowerCase();
   const createTableRegex = /\bcreate\s+table\b/;
   const insertRegex = /\binsert\b/;
+  const deleteRegex = /\bdelete\b/;
   const alterRegex = /\balter\b/;
   const dropTableRegex = /\bdrop\s+table\b/;
   const dropColumnRegex = /\bdrop\s+column\b/;
   const dropIndexRegex = /\bdrop\s+index\b/;
+  const dropDictionaryRegex = /\bdrop\s+dictionary\b/;
   const createDatabase = /\bcreate\s+database\b/;
   const dropDatabase = /\bdrop\s+database\b/;
   const createTableAs = /\bcreate\s+table\s+as\b/;
@@ -61,9 +63,11 @@ export const isCreateOrInsert = (query: string) => {
     createTableRegex.test(lowerQuery) ||
     insertRegex.test(lowerQuery) ||
     alterRegex.test(lowerQuery) ||
+    deleteRegex.test(lowerQuery) ||
     dropTableRegex.test(lowerQuery) ||
     dropColumnRegex.test(lowerQuery) ||
     dropIndexRegex.test(lowerQuery) ||
+    dropDictionaryRegex.test(lowerQuery) ||
     createDatabase.test(lowerQuery) ||
     dropDatabase.test(lowerQuery) ||
     createTableAs.test(lowerQuery) ||

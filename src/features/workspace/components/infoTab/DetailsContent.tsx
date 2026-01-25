@@ -29,6 +29,7 @@ const DetailsContent: React.FC<DetailsContentProps> = ({ data, tableName }) => {
         { label: "Total Rows", value: formatNumber(data.total_rows) },
         { label: "Total Size", value: formatBytes(data.total_bytes) },
         { label: "Partitions", value: data.partition_count },
+        { label: "Parts", value: data.part_count },
         {
           label: "Last Modified",
           value: formatDate(data.last_modified_partition, "MM/dd/yyyy"),

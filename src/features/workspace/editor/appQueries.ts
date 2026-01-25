@@ -23,6 +23,15 @@ export const appQueries: Record<string, AppQuery> = {
     FROM system.databases AS databases
     LEFT JOIN system.tables AS tables
       ON databases.name = tables.database
+
+    UNION ALL
+
+    SELECT
+      database AS database_name,
+      name AS table_name,
+      'Dictionary' AS table_type
+    FROM system.dictionaries
+
     ORDER BY database_name, table_name;
     `,
   },

@@ -7,6 +7,7 @@ declare global {
       VITE_CLICKHOUSE_URL?: string;
       VITE_CLICKHOUSE_USER?: string;
       VITE_CLICKHOUSE_PASS?: string;
+      VITE_CLICKHOUSE_DATABASE?: string;
       VITE_CLICKHOUSE_USE_ADVANCED?: boolean;
       VITE_CLICKHOUSE_CUSTOM_PATH?: string;
       VITE_CLICKHOUSE_REQUEST_TIMEOUT?: number;
@@ -49,6 +50,7 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
     const envUrl = window.env?.VITE_CLICKHOUSE_URL;
     const envUser = window.env?.VITE_CLICKHOUSE_USER;
     const envPass = window.env?.VITE_CLICKHOUSE_PASS;
+    const envDatabase = window.env?.VITE_CLICKHOUSE_DATABASE;
     const envUseAdvanced = window.env?.VITE_CLICKHOUSE_USE_ADVANCED;
     const envCustomPath = window.env?.VITE_CLICKHOUSE_CUSTOM_PATH;
     const envRequestTimeout = window.env?.VITE_CLICKHOUSE_REQUEST_TIMEOUT;
@@ -56,6 +58,7 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
     console.log("AppInit: Checking environment variables...");
     console.log("AppInit: envUrl:", envUrl ? "SET" : "NOT SET");
     console.log("AppInit: envUser:", envUser ? "SET" : "NOT SET");
+    console.log("AppInit: envDatabase:", envDatabase ? "SET" : "NOT SET");
 
     if (envUrl && envUser) {
       console.log("AppInit: Setting credentials from environment variables");
@@ -63,6 +66,7 @@ const AppInitializer = ({ children }: { children: ReactNode }) => {
         url: envUrl,
         username: envUser,
         password: envPass || "",
+        database: envDatabase,
         useAdvanced: envUseAdvanced || false,
         customPath: envCustomPath || "",
         requestTimeout: envRequestTimeout || 30000,

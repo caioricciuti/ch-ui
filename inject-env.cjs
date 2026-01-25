@@ -22,6 +22,7 @@ const envVars = {
     process.env.VITE_CLICKHOUSE_REQUEST_TIMEOUT || "30000",
     10
   ),
+  VITE_CLICKHOUSE_DATABASE: process.env.VITE_CLICKHOUSE_DATABASE,
   VITE_BASE_PATH: process.env.VITE_BASE_PATH || "/",
 };
 
@@ -37,6 +38,10 @@ console.log(
 console.log(
   "VITE_CLICKHOUSE_PASS:",
   envVars.VITE_CLICKHOUSE_PASS ? "SET (hidden)" : "NOT SET"
+);
+console.log(
+  "VITE_CLICKHOUSE_DATABASE:",
+  envVars.VITE_CLICKHOUSE_DATABASE ? "SET" : "NOT SET"
 );
 
 const scriptContent = `

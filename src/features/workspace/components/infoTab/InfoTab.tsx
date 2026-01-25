@@ -77,12 +77,19 @@ const InfoTab: React.FC<InfoTabProps> = ({ database, tableName }) => {
             metadata_modification_time,
             create_table_query,
             (
-              SELECT count()
+              SELECT count(DISTINCT partition)
               FROM system.parts
               WHERE database = '${database}'
               AND table = '${tableName}'
               AND active
             ) AS partition_count,
+            (
+              SELECT count()
+              FROM system.parts
+              WHERE database = '${database}'
+              AND table = '${tableName}'
+              AND active
+            ) AS part_count,
             (
               SELECT max(modification_time)
               FROM system.parts

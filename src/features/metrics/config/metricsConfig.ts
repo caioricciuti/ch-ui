@@ -191,8 +191,14 @@ export const metrics: Metrics[] = [
         tiles: 2,
       },
       {
-        title: "Table Row Counts",
-        query: `SELECT database, name AS table, total_rows FROM system.tables WHERE database NOT IN ('system', 'information_schema') ORDER BY total_rows DESC LIMIT 10`,
+        title: "Table Partitions",
+        query: `
+          SELECT database, table, COUNT(DISTINCT partition) AS partition_count
+          FROM system.parts
+          WHERE database NOT IN ('system', 'information_schema') AND active = 1
+          GROUP BY database, table
+          ORDER BY partition_count DESC
+          LIMIT 10`,
         type: "table",
         description: "Number of rows in the top 10 tables.",
         tiles: 2,
@@ -210,12 +216,12 @@ export const metrics: Metrics[] = [
         tiles: 2,
       },
       {
-        title: "Number of Partitions per Table",
-        query: `SELECT table, COUNT(*) AS partition_count FROM system.parts WHERE active = 1 GROUP BY table ORDER BY partition_count DESC LIMIT 20`,
+        title: "Number of Parts per Table",
+        query: `SELECT database, table, CONCAT(database, '.', table) table_name, COUNT(*) AS part_count FROM system.parts WHERE active = 1 GROUP BY database, table ORDER BY part_count DESC LIMIT 20`,
         type: "chart",
         chartType: "bar",
-        description: "Number of partitions per table.",
-        chartConfig: createChartConfig("table", "partition_count", "Partition Count", "#6ED0E0"),
+        description: "Number of parts per table.",
+        chartConfig: createChartConfig("table_name", "part_count", "Part Count", "#6ED0E0"),
         tiles: 2,
       },
       {
