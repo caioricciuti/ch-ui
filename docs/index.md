@@ -8,12 +8,11 @@ hero:
     src: /logo.png
     alt: CH-UI
   actions:
-    - theme: brand
-      text: Get Started
-      link: /getting-started
     - theme: alt
-      text: View on GitHub
-      link: https://github.com/caioricciuti/ch-ui
+      text: Get Started
+    - theme: brand
+      text: Try CH-UI Cloud (Beta)
+      link: https://cloud.ch-ui.com
 
 features:
   - title: SQL Editor

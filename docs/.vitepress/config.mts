@@ -27,7 +27,6 @@ export default defineConfig({
     nav: [
       { text: "Home", link: "/" },
       { text: "Getting Started", link: "/getting-started" },
-      { text: "Support", link: "https://buymeacoffee.com/caioricciuti" },
     ],
 
     sidebar: [
@@ -66,7 +65,7 @@ export default defineConfig({
     ],
 
     footer: {
-      message: "Released under the MIT License.",
+      message: "Released under the Apache 2.0 License.",
       copyright: "Copyright © 2025 Caio Ricciuti and Ibero Data",
     },
 

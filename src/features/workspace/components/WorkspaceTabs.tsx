@@ -12,6 +12,8 @@ import {
   XSquareIcon,
   Copy,
   Save,
+  PlusCircleIcon,
+  ArrowUpNarrowWide,
 } from "lucide-react";
 import {
   DndContext,
@@ -41,7 +43,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 interface Tab {
   id: string;
@@ -85,7 +87,7 @@ function SortableTab({ tab, isActive, onActivate }: SortableTabProps) {
       }}
     >
       <ContextMenu>
-        <ContextMenuTrigger className="flex h-[150px] w-[300px] items-center justify-center rounded-md border border-dashed text-sm">
+        <ContextMenuTrigger className="flex h-[150px] w-[300px] items-center justify-center rounded-md text-lg">
           <TabsTrigger
             value={tab.id}
             className={`data-[state=active]:bg-orange-500 h-8 data-[state=active]:text-primary flex items-center rounded-sm w-full`}
@@ -228,11 +230,12 @@ function WorkspaceTabs() {
       >
         <div className="flex-shrink-0 flex items-center">
           <Button
-            variant="link"
-            className="rounded-none hover:bg-gray-200 h-8 px-2 sticky left-0 z-10 bg-background"
+            variant="ghost"
+            size="icon"
+            className="rounded-none cursor-pointer"
             onClick={addNewCodeTab}
           >
-            <Plus className="h-4 w-4" />
+            <PlusCircleIcon className="h-6 w-6" />
           </Button>
           <ScrollArea className="flex-grow">
             <ContextMenu>
@@ -280,6 +283,13 @@ function WorkspaceTabs() {
             </ContextMenu>
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
+          <Link
+            className="rounded-none p-2 bg-muted"
+            to="https://ch-ui.com?utm_source=ch-ui-oss&utm_medium=tab_bar"
+            target="_blank"
+          >
+            <ArrowUpNarrowWide className="h-6 w-6 text-orange-500 stroke-3" />
+          </Link>
         </div>
         <div className="flex flex-col flex-1">
           {sortedTabs.map((tab) => (

@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   CogIcon,
   ScrollText,
+  ArrowUpWideNarrow,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -145,11 +146,18 @@ const Sidebar = () => {
       isNewWindow: true,
     },
     {
-      to: "https://ch-ui.com/docs?utm_source=ch-ui&utm_medium=sidebar",
+      to: "https://ch-ui.com/getting-started?utm_source=ch-ui&utm_medium=sidebar",
       label: "Documentation",
       icon: BookText,
       isNewWindow: true,
     },
+    {
+      to: "https://ch-ui.com?utm_source=ch-ui-oss&utm_medium=sidebar",
+      label: "CH-UI V2",
+      icon: ArrowUpWideNarrow,
+      iconColor: 'orange-500',
+      isNewWindow: true,
+    }
   ];
 
   return (
@@ -236,8 +244,8 @@ const Sidebar = () => {
                     : "hover:bg-secondary/80"
                 }`}
               >
-                <item.icon className={`h-5 w-5 ${isExpanded ? "mr-2" : ""}`} />
-                {isExpanded && <span>{item.label}</span>}
+                <item.icon className={`h-5 w-5 text-${item.iconColor} ${isExpanded ? "mr-2" : ""}`} />
+                {isExpanded && <span className={`text-${item.iconColor}`}>{item.label}</span>}
               </Link>
             ))}
           </nav>

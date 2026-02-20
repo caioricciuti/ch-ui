@@ -14,13 +14,13 @@ import {
   BookOpen,
   Database,
   ExternalLink,
-  UploadCloud,
   Loader2,
 } from "lucide-react";
 import useAppStore from "@/store";
 import { motion } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { genTabId } from "@/lib/utils";
+import { Link } from "react-router-dom";
 
 const quickStartActions = [
   {
@@ -41,7 +41,7 @@ const resourceCards = [
   },
   {
     title: "ClickHouse Docs",
-    description: "Explore ClickHouse documentation and learn more.",
+    description: "Explore ClickHouse official documentation.",
     Icon: BookOpen,
     link: "https://clickhouse.com/docs/en/intro",
     action: "Read Docs",
@@ -85,6 +85,7 @@ const HomeTab = () => {
         : `New ${type.charAt(0).toUpperCase() + type.slice(1)}`,
       content: query || "",
     });
+    // open new window with the href
   };
 
   const getUsersRecentItems = async () => {
@@ -127,18 +128,7 @@ const HomeTab = () => {
   };
 
   return (
-    <div className="p-6 space-y-8 max-w-7xl mx-auto">
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="space-y-2"
-      >
-        <h1 className="text-2xl font-semibold">
-          Welcome {credential?.username}
-        </h1>
-        <p className="text-muted-foreground">Let's get busy...</p>
-      </motion.div>
-
+    <div className="p-6 space-y-8 max-w-7xl mx-auto overflow-auto">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -158,12 +148,43 @@ const HomeTab = () => {
               </div>
               <span className="font-semibold">{action.title}</span>
             </div>
-            <span className="text-sm text-muted-foreground text-left">
+            <span className="text-sm text-muted-foreground text-left max-w-full group-hover:text-foreground truncate">
               {action.description}
             </span>
           </Button>
         ))}
       </motion.div>
+
+      <Card className="p-6 bg-gradient-to-r from-orange-500 via-orange-400 to-red-600 rounded-lg text-white border-none">
+        <div className="flex items-center justify-between gap-6">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-xl">
+                CH-UI - V2
+              </CardTitle>
+            </div>
+            <p className="text-white text-sm font-bold">
+              We are excited to announce the launch of CH-UI V2, our new version of CH-UI!
+              Experience enhanced performance, seamless collaboration, and a host of new features designed to supercharge your ClickHouse workflow.
+              ONE BINARY - More secure, more resources!
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 items-end">
+            <Button
+              variant="secondary"
+              className="shrink-0 bg-white text-orange-600 hover:bg-white/90"
+              onClick={() =>
+                window.open(
+                  "https://ch-ui.com?utm_source=ch-ui-oss&utm_medium=home-tab",
+                  "_blank"
+                )
+              }
+            >
+              Get Started with CH-UI V2
+            </Button>
+          </div>
+        </div>
+      </Card>
 
       <Tabs defaultValue="recent" className="space-y-4">
         <TabsList className="w-full justify-start">
