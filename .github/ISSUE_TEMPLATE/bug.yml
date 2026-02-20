@@ -1,14 +1,26 @@
-name: 🐞 Bug Report
+name: Bug Report
 description: Found something that doesn't work as expected?
 body:
   - type: dropdown
-    id: Environment
+    id: os
     attributes:
-      label: Environment
-      description: How are you using CH-UI?
+      label: Operating System
+      description: What OS are you running CH-UI on?
       options:
-        - NPM build
-        - Docker
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Architecture
+      description: What architecture?
+      options:
+        - x86_64 (amd64)
+        - ARM64 (aarch64 / Apple Silicon)
         - Other
     validations:
       required: true
@@ -18,46 +30,23 @@ body:
       label: How did you encounter the bug?
       description: How can this bug be reproduced? Please provide steps to reproduce.
       placeholder: |-
-        1. Run Docker container... 
-        2. npm run build...
-        3. Go to...
+        1. Start CH-UI with...
+        2. Go to...
+        3. Click on...
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
       label: What did you expect?
-      description: What it supposed to happen? What did you expect to see?
+      description: What was supposed to happen?
     validations:
       required: true
   - type: textarea
     id: actual
     attributes:
       label: Actual Result
-      description: What was the accual result?
-    validations:
-      required: true
-  - type: dropdown
-    id: Browser
-    attributes:
-      label: Browser
-      description: What browser are you using?
-      options:
-        - Chrome
-        - Firefox
-        - Edge
-        - Safari
-        - Brave
-        - Other
-    validations:
-      required: true
-  # browser version with instructions to check it 
-  - type: textarea
-    id: browser-version
-    attributes:
-      label: Browser Version
-      description: What version of the browser are you using?
-      placeholder: e.g. 125.0.0
+      description: What actually happened?
     validations:
       required: true
   - type: textarea
@@ -65,12 +54,20 @@ body:
     attributes:
       label: Version
       description: What version of CH-UI are you using?
-      placeholder: e.g. 1.5.0
+      placeholder: e.g. 2.0.0
     validations:
       required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Error Output
+      description: Any relevant logs or error messages from the terminal?
+      render: shell
+    validations:
+      required: false
   - type: markdown
     attributes:
       value: |-
-        ### All done, now, just submit the issue and I will do my best to take care of it!  🙏
+        ### All done, now, just submit the issue and I will do my best to take care of it!
     validations:
       required: false

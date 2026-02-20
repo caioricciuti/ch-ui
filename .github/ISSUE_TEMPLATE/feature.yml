@@ -1,4 +1,4 @@
-name: 💡 Feature Request
+name: Feature Request
 description: Tell us about something ch-UI doesn't do yet, but should!
 body:
   - type: textarea
