@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build frontend
+        run: make build-frontend
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Cross-compile binaries
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT: ${{ github.sha }}
+          DATE: ${{ github.event.head_commit.timestamp }}
+        run: |
+          LDFLAGS="-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT} -X main.BuildDate=${DATE}"
+
+          GOOS=linux  GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/ch-ui-linux-amd64 .
+          GOOS=linux  GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o dist/ch-ui-linux-arm64 .
+          GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/ch-ui-darwin-amd64 .
+          GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o dist/ch-ui-darwin-arm64 .
+
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          sha256sum ch-ui-* > checksums.txt
+          cat checksums.txt
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          TAG="${VERSION}"
+          TITLE="${TAG}"
+          REPO="${{ github.repository }}"
+          NOTES_FILE="$(mktemp)"
+
+          cat > "${NOTES_FILE}" <<EOF
+          ## Install
+
+          Download the binary for your platform and run it:
+
+          \`\`\`bash
+          # Linux (amd64)
+          curl -L -o ch-ui https://github.com/${REPO}/releases/download/${TAG}/ch-ui-linux-amd64
+          chmod +x ch-ui
+          ./ch-ui
+          \`\`\`
+
+          Optional (install globally):
+
+          \`\`\`bash
+          sudo install -m 755 ch-ui /usr/local/bin/ch-ui
+          ch-ui
+          \`\`\`
+
+          ## Verify checksum
+
+          \`\`\`bash
+          sha256sum -c checksums.txt
+          \`\`\`
+          EOF
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release edit "${TAG}" --title "${TITLE}" --notes-file "${NOTES_FILE}"
+          else
+            gh release create "${TAG}" --title "${TITLE}" --notes-file "${NOTES_FILE}"
+          fi
+
+          gh release upload "${TAG}" \
+            dist/ch-ui-linux-amd64 \
+            dist/ch-ui-linux-arm64 \
+            dist/ch-ui-darwin-amd64 \
+            dist/ch-ui-darwin-arm64 \
+            dist/checksums.txt \
+            --clobber

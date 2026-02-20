@@ -1,0 +1,377 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+
+  /* Compatibility token still referenced in components */
+  --color-ch-blue: #f97316;
+  --color-ch-orange: #f97316;
+  --color-ch-green: #10b981;
+
+  /* Neutral grayscale (no blue cast) */
+  --color-gray-50: #f7f7f8;
+  --color-gray-100: #efeff1;
+  --color-gray-200: #dfdfe2;
+  --color-gray-300: #c8c9ce;
+  --color-gray-400: #a2a5ad;
+  --color-gray-500: #7a7e88;
+  --color-gray-600: #5f646d;
+  --color-gray-700: #494d55;
+  --color-gray-800: #33363d;
+  --color-gray-900: #1f2126;
+  --color-gray-950: #121316;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+:root {
+  --radius: 0.425rem;
+  --background: #f7f7f8;
+  --foreground: #1b1d22;
+  --card: #ffffff;
+  --card-foreground: #1b1d22;
+  --popover: #ffffff;
+  --popover-foreground: #1b1d22;
+  --primary: #f97316;
+  --primary-foreground: #fffaf5;
+  --secondary: #efeff1;
+  --secondary-foreground: #2a2d33;
+  --muted: #efeff1;
+  --muted-foreground: #626773;
+  --accent: #efeff1;
+  --accent-foreground: #2a2d33;
+  --destructive: #dc2626;
+  --border: #d6d7dc;
+  --input: #d6d7dc;
+  --ring: #fb923c;
+}
+
+.dark {
+  --background: #131418;
+  --foreground: #f3f4f6;
+  --card: #1b1d22;
+  --card-foreground: #f3f4f6;
+  --popover: #1b1d22;
+  --popover-foreground: #f3f4f6;
+  --primary: #fb923c;
+  --primary-foreground: #1a1613;
+  --secondary: #282b32;
+  --secondary-foreground: #f3f4f6;
+  --muted: #282b32;
+  --muted-foreground: #a4a8b2;
+  --accent: #282b32;
+  --accent-foreground: #f3f4f6;
+  --destructive: #ef4444;
+  --border: rgba(255, 255, 255, 0.11);
+  --input: rgba(255, 255, 255, 0.14);
+  --ring: #fdba74;
+}
+
+html,
+body {
+  overflow: hidden;
+}
+
+* {
+  border-color: var(--border);
+  outline-color: color-mix(in oklab, var(--ring), transparent 50%);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(123, 123, 123, 0.45) transparent;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-weight: 450;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.012em;
+}
+
+code,
+pre,
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+.surface-card {
+  background: color-mix(in oklab, var(--card), transparent 1%);
+  border: 1px solid color-mix(in oklab, var(--border), transparent 8%);
+  box-shadow: 0 8px 24px rgba(10, 10, 10, 0.18);
+}
+
+.dark .surface-card {
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+}
+
+.brand-pill {
+  background: color-mix(in oklab, #f97316 16%, transparent);
+  border: 1px solid color-mix(in oklab, #f97316 38%, transparent);
+  color: #f97316;
+}
+
+.dark .brand-pill {
+  background: color-mix(in oklab, #fb923c 18%, transparent);
+  border-color: color-mix(in oklab, #fb923c 40%, transparent);
+  color: #fdba74;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(123, 123, 123, 0.45);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(123, 123, 123, 0.62);
+}
+
+@layer components {
+  .ds-page-header {
+    @apply flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800;
+  }
+
+  .ds-page-title {
+    @apply text-xl font-semibold text-gray-900 dark:text-gray-100;
+  }
+
+  .ds-page-subtitle {
+    @apply text-xs text-gray-500 dark:text-gray-400;
+  }
+
+  .ds-tabs {
+    @apply flex gap-1 px-4 pt-2 border-b border-gray-200 dark:border-gray-800;
+  }
+
+  .ds-tab {
+    @apply px-3.5 py-2.5 text-[13px] font-semibold rounded-t transition-colors text-gray-500 hover:text-gray-700 dark:hover:text-gray-300;
+  }
+
+  .ds-tab-active {
+    @apply text-ch-blue border-b-2 border-ch-blue bg-orange-50 dark:bg-orange-950/20;
+  }
+
+  .ds-card {
+    @apply rounded-lg border border-gray-200 dark:border-gray-800 bg-transparent;
+  }
+
+  .ds-panel {
+    @apply rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900;
+    box-shadow: 0 8px 24px rgba(10, 10, 10, 0.18);
+  }
+
+  .dark .ds-panel {
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+  }
+
+  .ds-panel-muted {
+    @apply rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-100/70 dark:bg-gray-900/70;
+  }
+
+  .ds-stat-card {
+    @apply rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 p-4;
+  }
+
+  .ds-form-label {
+    @apply block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1;
+  }
+
+  .ds-input {
+    @apply w-full rounded border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 text-[14px] text-gray-700 dark:text-gray-300;
+    @apply focus:outline-none focus:ring-2 focus:ring-ch-blue/40 focus:border-ch-blue;
+  }
+
+  .ds-input-sm {
+    @apply w-full rounded border border-gray-300 dark:border-gray-700 bg-transparent px-2.5 py-1.5 text-[13px] text-gray-700 dark:text-gray-300;
+    @apply focus:outline-none focus:ring-2 focus:ring-ch-blue/40 focus:border-ch-blue;
+  }
+
+  .ds-select {
+    @apply rounded border border-gray-300 dark:border-gray-700 bg-transparent px-2.5 py-1.5 text-[13px] text-gray-700 dark:text-gray-300;
+    @apply focus:outline-none focus:ring-2 focus:ring-ch-blue/40 focus:border-ch-blue;
+  }
+
+  .ds-textarea {
+    @apply w-full rounded border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 text-sm text-gray-700 dark:text-gray-300;
+    @apply focus:outline-none focus:ring-2 focus:ring-ch-blue/40 focus:border-ch-blue;
+  }
+
+  .ds-btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 rounded px-3 py-1.5 text-[13px] font-medium text-white bg-ch-blue border border-orange-500 transition-colors;
+    @apply hover:bg-orange-600;
+  }
+
+  .ds-btn-ghost {
+    @apply inline-flex items-center justify-center gap-1 rounded p-1.5 text-gray-500 transition-colors;
+    @apply hover:text-ch-blue hover:bg-gray-200 dark:hover:bg-gray-800;
+  }
+
+  .ds-btn-outline {
+    @apply inline-flex items-center justify-center gap-1 rounded border border-gray-300 dark:border-gray-700 px-2.5 py-1.5 text-[13px] font-medium text-gray-700 dark:text-gray-300 transition-colors;
+    @apply hover:border-ch-blue hover:text-ch-blue;
+  }
+
+  .ds-icon-btn {
+    @apply inline-flex items-center justify-center rounded p-1.5 text-gray-500 transition-colors;
+    @apply hover:text-ch-blue hover:bg-gray-200 dark:hover:bg-gray-800;
+  }
+
+  .ds-segment {
+    @apply inline-flex rounded-lg border border-gray-300/80 dark:border-gray-700/80 bg-gray-100/70 dark:bg-gray-900/65 p-1;
+  }
+
+  .ds-segment-btn {
+    @apply px-2.5 h-7 rounded-md text-xs transition-colors text-gray-500 hover:text-gray-700 dark:hover:text-gray-300;
+  }
+
+  .ds-segment-btn-active {
+    @apply bg-orange-100 dark:bg-orange-500/15 text-ch-orange;
+  }
+
+  .ds-table-wrap {
+    @apply overflow-x-auto;
+  }
+
+  .ds-table {
+    @apply w-full text-sm;
+  }
+
+  .ds-table-head-row {
+    @apply border-b border-gray-200 dark:border-gray-800;
+  }
+
+  .ds-table-th {
+    @apply text-left py-2 px-3 text-gray-500 font-medium;
+  }
+
+  .ds-table-th-right {
+    @apply text-right py-2 px-3 text-gray-500 font-medium;
+  }
+
+  .ds-table-th-compact {
+    @apply text-left py-1.5 px-2 text-[11px] text-gray-500 font-medium;
+  }
+
+  .ds-table-th-right-compact {
+    @apply text-right py-1.5 px-2 text-[11px] text-gray-500 font-medium;
+  }
+
+  .ds-table-row {
+    @apply border-b border-gray-100 dark:border-gray-900 hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-colors;
+  }
+
+  .ds-table-row-static {
+    @apply border-b border-gray-100 dark:border-gray-900;
+  }
+
+  .ds-td {
+    @apply py-2 px-3 text-gray-500 dark:text-gray-400;
+  }
+
+  .ds-td-strong {
+    @apply py-2 px-3 text-gray-800 dark:text-gray-200 font-medium;
+  }
+
+  .ds-td-right {
+    @apply py-2 px-3 text-right text-gray-500 dark:text-gray-400;
+  }
+
+  .ds-td-mono {
+    @apply py-2 px-3 text-xs text-gray-500 font-mono;
+  }
+
+  .ds-td-compact {
+    @apply py-1.5 px-2 text-xs text-gray-500 dark:text-gray-400;
+  }
+
+  .ds-td-compact-strong {
+    @apply py-1.5 px-2 text-xs text-gray-800 dark:text-gray-200 font-medium;
+  }
+
+  .ds-badge {
+    @apply inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium;
+  }
+
+  .ds-badge-neutral {
+    @apply bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300;
+  }
+
+  .ds-badge-success {
+    @apply bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300;
+  }
+
+  .ds-badge-danger {
+    @apply bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300;
+  }
+
+  .ds-badge-warn {
+    @apply bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300;
+  }
+
+  .ds-badge-brand {
+    @apply border border-orange-200 dark:border-orange-700/60 bg-orange-100 dark:bg-orange-500/15 text-orange-900 dark:text-orange-200;
+  }
+
+  .ds-empty {
+    @apply text-center py-10 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900;
+  }
+
+  .ds-checkbox {
+    @apply h-4 w-4 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 accent-ch-blue;
+    @apply focus:outline-none focus:ring-2 focus:ring-ch-blue/35 focus:ring-offset-0;
+  }
+
+  .ds-checkbox-sm {
+    @apply h-3.5 w-3.5;
+  }
+
+  .ds-checkbox-label {
+    @apply inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 select-none;
+  }
+
+  .ds-radio {
+    @apply h-4 w-4 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 accent-ch-blue;
+    @apply focus:outline-none focus:ring-2 focus:ring-ch-blue/35 focus:ring-offset-0;
+  }
+}

@@ -1,67 +1,71 @@
-# License
+# CH-UI Licensing
 
-## CH-UI - Apache License 2.0
+CH-UI uses a dual-license model: open source core + commercial Pro modules.
 
-Copyright 2025 Caio Ricciuti
+---
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+## CH-UI Core (Community Edition)
 
-    http://www.apache.org/licenses/LICENSE-2.0
+**License:** [Apache License 2.0](../LICENSE)
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+The core of CH-UI is free and open source. This includes:
 
-## What does this mean?
+- SQL Editor
+- Data Explorer
+- Saved Queries
+- Single ClickHouse connection
+- Tunnel connector (`ch-ui connect`)
+- Embedded web frontend
+- All CLI commands
 
-The Apache License 2.0 is a permissive open source license that provides users with extensive freedom to use, modify, and distribute the software, while also offering robust legal protection through its patent grant and clear contribution terms.
+You can use, modify, and distribute CH-UI Core freely under the Apache 2.0 license.
 
-### You are free to:
+## CH-UI Pro
 
-- ✅ Use the software commercially
-- ✅ Modify the software
-- ✅ Distribute the software
-- ✅ Use the software for private use
-- ✅ Sublicense the software
-- ✅ Use patents claims of contributors to the code
+**License:** Commercial (proprietary)
 
-### Under the following conditions:
+Pro modules extend CH-UI with advanced features:
 
-- ℹ️ Include the original copyright notice
-- ℹ️ Include a copy of the license
-- ℹ️ State significant changes made to the software
-- ℹ️ Include the NOTICE file (if present) with attribution notes
+- Dashboards & panel builder
+- Scheduled query jobs
+- Brain AI assistant
+- Governance, access, and policy controls
+- Admin panel
+- Multi-connection management
 
-### With the understanding that:
+Pro features require a valid license file. Licenses are per-deployment and include a customer name, expiration date, and feature set.
 
-- ⚠️ The software is provided "as is", without warranty of any kind
-- ⚠️ The authors cannot be held liable for damages
-- ⚠️ Trademark use is not granted except as required for describing the origin of the work
+### How to activate
 
-## Key Benefits of Apache 2.0
+1. Open CH-UI in your browser
+2. Go to **Settings > License**
+3. Paste or upload your license file
+4. Pro features unlock immediately
 
-### Patent Protection
-Unlike simpler licenses like MIT, Apache 2.0 includes an express patent grant from contributors to users. This means that if a contributor has patents that cover their contribution, they automatically grant you a license to use those patents.
+### How to get a license
 
-### Clear Contribution Terms
-The license explicitly states that any contributions are assumed to be under the same Apache 2.0 license unless otherwise specified, providing clarity for collaborative development.
+Visit [ch-ui.com/pricing](https://ch-ui.com/pricing) or contact **c.ricciuti@ch-ui.com**.
 
-### Compatibility
-Apache 2.0 is compatible with many other open source licenses and is widely accepted in both open source and commercial contexts.
+## License boundary
 
-## Third-Party Licenses
+The licensing boundary is clear and scope-separated:
 
-CH-UI is built on top of several open-source projects. We'd like to acknowledge and give credit to these projects:
+- **Core files** (Apache 2.0): everything in the repository except Pro module handlers
+- **Pro module handlers**: `internal/server/handlers/` for dashboards, schedules, brain, admin, governance — these are proprietary
+- **Frontend Pro components**: UI components gated behind the Pro license check
 
-- [ClickHouse](https://github.com/ClickHouse/ClickHouse) - Apache 2.0 License
-- [React](https://github.com/facebook/react) - MIT License
-- [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) - MIT License
-- [Zustand](https://github.com/pmndrs/zustand) - MIT License
-- [Monaco Editor](https://github.com/microsoft/monaco-editor) - MIT License
-- [Lucide Icons](https://github.com/lucide-icons/lucide) - ISC License
+The Pro license check is enforced both server-side (HTTP 402 middleware) and client-side (UI gate).
 
-For the full text of these licenses, please visit the respective project repositories.
+## FAQ
+
+**Can I use CH-UI Core in production?**
+Yes, freely. Apache 2.0 allows commercial use.
+
+**Can I modify CH-UI Core?**
+Yes. You must retain the copyright notice and license.
+
+**Do I need Pro for a single ClickHouse connection?**
+No. Core supports one connection out of the box.
+
+**What happens when a Pro license expires?**
+Pro features become locked. Core features continue working. Your data is never lost.
