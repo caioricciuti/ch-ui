@@ -26,6 +26,7 @@
 - [Quick Start (Local)](#quick-start-local)
 - [Quick Start (Docker)](#quick-start-docker)
 - [Change Local ClickHouse URL](#change-local-clickhouse-url)
+- [Can't Login?](#cant-login)
 - [Remote ClickHouse (VM2 Server + VM1 Agent)](#remote-clickhouse-vm2-server--vm1-agent)
 - [Tunnel Key Management (Server Host)](#tunnel-key-management-server-host)
 - [CLI Reference](#cli-reference)
@@ -207,6 +208,11 @@ CLICKHOUSE_URL=http://127.0.0.1:8123 ch-ui server
 
 Set a custom local connection name (optional):
 ```bash
+ch-ui server --clickhouse-url http://127.0.0.1:8123 --connection-name "My Connection 1"
+```
+
+Environment variable equivalent:
+```bash
 CLICKHOUSE_URL=http://127.0.0.1:8123 CONNECTION_NAME="My Connection 1" ch-ui server
 ```
 
@@ -233,8 +239,44 @@ Connection display name priority:
 - Config file (`connection_name`)
 - Built-in default (`Local ClickHouse`)
 
-Tip: The login page now includes a **Setup** tab that generates these commands for local binary and Docker runs.
+Tip: The login page includes a **Can't login?** action that opens a setup sheet (URL + connection name only; credentials stay in Sign in).
 Changing this local URL does not require Admin access (Admin and multi-connection management are Pro-only).
+
+---
+
+## Can't login?
+
+Use this path when login fails and you need fast recovery from the login screen.
+
+1. In login, click **Can't login?**.
+2. Set `ClickHouse URL` and `Connection Name`.
+3. Restart CH-UI with one command:
+
+```bash
+ch-ui server --clickhouse-url 'http://127.0.0.1:8123' --connection-name 'My Connection 1'
+```
+
+Or local binary:
+
+```bash
+./ch-ui server --clickhouse-url 'http://127.0.0.1:8123' --connection-name 'My Connection 1'
+```
+
+Docker:
+
+```bash
+docker run --rm -p 3488:3488 -v ch-ui-data:/app/data \
+  -e CLICKHOUSE_URL='http://127.0.0.1:8123' \
+  -e CONNECTION_NAME='My Connection 1' \
+  ghcr.io/caioricciuti/ch-ui:latest
+```
+
+Quick diagnosis:
+- `Authentication failed`: wrong credentials for selected connection.
+- `Connection unavailable` / `Unreachable`: wrong local URL or connector offline.
+- `Too many login attempts`: wait retry window; if URL was wrong, fix setup and restart first.
+
+Full guide: [`docs/cant-login.md`](docs/cant-login.md)
 
 ---
 
@@ -582,7 +624,7 @@ CH-UI now surfaces explicit login states (invalid credentials, offline connectio
 
 ### Local ClickHouse unreachable at login
 If the `Local ClickHouse` connection is listed but unreachable:
-- Open the login **Setup** tab and generate a startup command with the correct URL
+- Use login **Can't login?** to open setup guidance and generate a startup command
 - Restart CH-UI with `--clickhouse-url` or `CLICKHOUSE_URL`
 - Reload login and retry with your ClickHouse credentials
 

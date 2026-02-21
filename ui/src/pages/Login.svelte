@@ -6,6 +6,7 @@
   import Button from "../lib/components/common/Button.svelte";
   import Combobox from "../lib/components/common/Combobox.svelte";
   import Spinner from "../lib/components/common/Spinner.svelte";
+  import Sheet from "../lib/components/common/Sheet.svelte";
   import {
     Wifi,
     WifiOff,
@@ -16,6 +17,8 @@
     Zap,
     ArrowRight,
     AlertTriangle,
+    BookOpen,
+    ExternalLink,
   } from "lucide-svelte";
   import logo from "../assets/logo.png";
 
@@ -26,33 +29,47 @@
   let password = $state("");
   let submitting = $state(false);
   let localError = $state<string | null>(null);
-  let activeTab = $state<"signin" | "setup">("signin");
+  let showSetupSheet = $state(false);
   let setupClickHouseURL = $state("http://localhost:8123");
   let setupConnectionName = $state("Local ClickHouse");
-  let setupUsername = $state("default");
-  let setupPassword = $state("");
+
+  type LoginErrorKind = "auth" | "connection" | "rateLimit" | "generic";
 
   type LoginHelp = {
     title: string;
     detail?: string;
   };
 
-  function buildLoginHelp(message: string | null): LoginHelp | null {
+  function classifyLoginError(message: string | null): LoginErrorKind | null {
     if (!message) return null;
     const normalized = message.toLowerCase();
     if (normalized.includes("invalid credentials") || normalized.includes("authentication failed")) {
+      return "auth";
+    }
+    if (normalized.includes("connection offline") || normalized.includes("unreachable") || normalized.includes("tunnel")) {
+      return "connection";
+    }
+    if (normalized.includes("too many login attempts") || normalized.includes("retry in")) {
+      return "rateLimit";
+    }
+    return "generic";
+  }
+
+  function buildLoginHelp(kind: LoginErrorKind | null): LoginHelp | null {
+    if (!kind) return null;
+    if (kind === "auth") {
       return {
         title: "Authentication failed",
         detail: "Verify username/password and selected ClickHouse connection.",
       };
     }
-    if (normalized.includes("connection offline") || normalized.includes("unreachable") || normalized.includes("tunnel")) {
+    if (kind === "connection") {
       return {
         title: "Connection unavailable",
         detail: "Start the connector/agent for this connection, then retry.",
       };
     }
-    if (normalized.includes("too many login attempts") || normalized.includes("retry in")) {
+    if (kind === "rateLimit") {
       return {
         title: "Login temporarily blocked",
         detail: "Wait for the retry window and try again.",
@@ -101,23 +118,22 @@
     return `'${value.replace(/'/g, `'\"'\"'`)}'`;
   }
 
-  function applySetupToSignin() {
-    username = setupUsername.trim() || "default";
-    password = setupPassword;
-    activeTab = "signin";
-  }
-
   const error = $derived(localError || getError());
   const selectedConnection = $derived(connections.find((c) => c.id === selectedId) || null);
   const canSubmit = $derived(Boolean(selectedId && username && (selectedConnection ? selectedConnection.online : false)));
-  const loginHelp = $derived(buildLoginHelp(error));
+  const errorKind = $derived(classifyLoginError(error));
+  const loginHelp = $derived(buildLoginHelp(errorKind));
+  const showSetupRecoveryCTA = $derived(errorKind === "connection" || errorKind === "rateLimit");
+  const quickHelpURL = "https://github.com/caioricciuti/ch-ui#cant-login";
+  const cantLoginDocsURL = "https://github.com/caioricciuti/ch-ui/blob/main/docs/cant-login.md";
+  const dockerDocsURL = "https://github.com/caioricciuti/ch-ui#quick-start-docker";
   const normalizedSetupURL = $derived(setupClickHouseURL.trim() || "http://localhost:8123");
   const normalizedSetupConnectionName = $derived(setupConnectionName.trim() || "Local ClickHouse");
   const localCommand = $derived(
-    `CLICKHOUSE_URL=${shellQuote(normalizedSetupURL)} CONNECTION_NAME=${shellQuote(normalizedSetupConnectionName)} ch-ui server`
+    `ch-ui server --clickhouse-url ${shellQuote(normalizedSetupURL)} --connection-name ${shellQuote(normalizedSetupConnectionName)}`
   );
   const localCommandWithBinary = $derived(
-    `CLICKHOUSE_URL=${shellQuote(normalizedSetupURL)} CONNECTION_NAME=${shellQuote(normalizedSetupConnectionName)} ./ch-ui server`
+    `./ch-ui server --clickhouse-url ${shellQuote(normalizedSetupURL)} --connection-name ${shellQuote(normalizedSetupConnectionName)}`
   );
   const dockerCommand = $derived(
     `docker run --rm -p 3488:3488 -v ch-ui-data:/app/data -e CLICKHOUSE_URL=${shellQuote(normalizedSetupURL)} -e CONNECTION_NAME=${shellQuote(normalizedSetupConnectionName)} ghcr.io/caioricciuti/ch-ui:latest`
@@ -199,7 +215,17 @@
   <div class="right-panel">
     <div class="right-content">
       <div class="form-header">
-        <h1 class="form-title">Sign in</h1>
+        <div class="form-title-row">
+          <h1 class="form-title">Sign in</h1>
+          <button
+            type="button"
+            class="cant-login-link"
+            onclick={() => (showSetupSheet = true)}
+          >
+            <BookOpen size={13} />
+            Can't login?
+          </button>
+        </div>
         <p class="form-subtitle">Connect to your ClickHouse instance</p>
       </div>
 
@@ -208,192 +234,175 @@
         <span>Credentials are sent directly to your server</span>
       </div>
 
-      <div class="tab-switch" role="tablist" aria-label="Sign in and setup">
-        <button
-          type="button"
-          class="tab-btn {activeTab === 'signin' ? 'is-active' : ''}"
-          onclick={() => (activeTab = "signin")}
-        >
-          Sign in
-        </button>
-        <button
-          type="button"
-          class="tab-btn {activeTab === 'setup' ? 'is-active' : ''}"
-          onclick={() => (activeTab = "setup")}
-        >
-          Setup
-        </button>
-      </div>
+      {#if loadingConnections}
+        <div class="loading-state">
+          <Spinner />
+          <span class="loading-text">Discovering connections...</span>
+        </div>
+      {:else if connections.length === 0}
+        <div class="empty-state">
+          <Database size={28} class="empty-icon" />
+          <p class="empty-title">No connections configured</p>
+          <p class="empty-desc">
+            No local connection is ready yet. Open setup and restart CH-UI with
+            the correct URL.
+          </p>
+          <button
+            type="button"
+            class="empty-setup-btn"
+            onclick={() => (showSetupSheet = true)}
+          >
+            <BookOpen size={14} />
+            Can't login? Open setup guide
+          </button>
+        </div>
+      {:else}
+        <form onsubmit={handleSubmit} class="login-form">
+          <!-- Connection -->
+          <div class="field">
+            <label class="field-label" for="connection">
+              <Database size={12} class="field-label-icon" />
+              Connection
+            </label>
+            <Combobox
+              options={connections.map((conn) => ({
+                value: conn.id,
+                label: conn.name,
+                hint: conn.online ? "Online" : "Offline",
+                keywords: `${conn.name} ${conn.id}`,
+              }))}
+              value={selectedId}
+              placeholder="Select a connection..."
+              onChange={(id) => (selectedId = id)}
+            />
+            {#if selectedId}
+              {@const selected = connections.find((c) => c.id === selectedId)}
+              {#if selected}
+                <div class="conn-status">
+                  {#if selected.online}
+                    <Wifi size={11} class="status-online" />
+                    <span class="status-text-online">Connected</span>
+                  {:else}
+                    <WifiOff size={11} class="status-offline" />
+                    <span class="status-text-offline">Unreachable</span>
+                  {/if}
+                </div>
+              {/if}
+            {/if}
+          </div>
 
-      {#if activeTab === "signin"}
-        {#if loadingConnections}
-          <div class="loading-state">
-            <Spinner />
-            <span class="loading-text">Discovering connections...</span>
+          <!-- Username -->
+          <div class="field">
+            <label class="field-label" for="username">Username</label>
+            <input
+              id="username"
+              type="text"
+              bind:value={username}
+              placeholder="default"
+              autocomplete="username"
+              class="field-input"
+            />
           </div>
-        {:else if connections.length === 0}
-          <div class="empty-state">
-            <Database size={28} class="empty-icon" />
-            <p class="empty-title">No connections configured</p>
-            <p class="empty-desc">
-              Open the <strong>Setup</strong> tab to configure your local
-              ClickHouse URL and restart CH-UI.
-            </p>
+
+          <!-- Password -->
+          <div class="field">
+            <label class="field-label" for="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              bind:value={password}
+              placeholder="Optional"
+              autocomplete="current-password"
+              class="field-input"
+            />
           </div>
-        {:else}
-          <form onsubmit={handleSubmit} class="login-form">
-            <!-- Connection -->
-            <div class="field">
-              <label class="field-label" for="connection">
-                <Database size={12} class="field-label-icon" />
-                Connection
-              </label>
-              <Combobox
-                options={connections.map((conn) => ({
-                  value: conn.id,
-                  label: conn.name,
-                  hint: conn.online ? "Online" : "Offline",
-                  keywords: `${conn.name} ${conn.id}`,
-                }))}
-                value={selectedId}
-                placeholder="Select a connection..."
-                onChange={(id) => (selectedId = id)}
-              />
-              {#if selectedId}
-                {@const selected = connections.find((c) => c.id === selectedId)}
-                {#if selected}
-                  <div class="conn-status">
-                    {#if selected.online}
-                      <Wifi size={11} class="status-online" />
-                      <span class="status-text-online">Connected</span>
-                    {:else}
-                      <WifiOff size={11} class="status-offline" />
-                      <span class="status-text-offline">Unreachable</span>
-                    {/if}
-                  </div>
+
+          {#if error}
+            <div class="error-block">
+              <div class="error-header">
+                <AlertTriangle size={14} />
+                <p class="error-title">{loginHelp?.title ?? "Login failed"}</p>
+              </div>
+              <p class="error-text">{error}</p>
+              {#if loginHelp?.detail}
+                <p class="error-help">{loginHelp.detail}</p>
+              {/if}
+              {#if showSetupRecoveryCTA}
+                <button
+                  type="button"
+                  class="error-setup-btn"
+                  onclick={() => (showSetupSheet = true)}
+                >
+                  <BookOpen size={13} />
+                  Can't login? Open setup guide
+                </button>
+                {#if errorKind === "rateLimit"}
+                  <p class="error-recovery-note">
+                    If retries came from the wrong local URL, update setup and
+                    restart CH-UI before trying again.
+                  </p>
                 {/if}
               {/if}
             </div>
+          {/if}
 
-            <!-- Username -->
+          <Button
+            type="submit"
+            loading={submitting}
+            disabled={!canSubmit}
+          >
+            <span class="btn-inner">
+              Connect
+              <ArrowRight size={14} />
+            </span>
+          </Button>
+        </form>
+      {/if}
+
+      <Sheet
+        open={showSetupSheet}
+        title="Can't Login? Setup Guide"
+        size="lg"
+        onclose={() => (showSetupSheet = false)}
+      >
+        <div class="setup-sheet">
+          <p class="setup-sheet-intro">
+            Set URL/name, run one command, restart CH-UI, then return to Sign in.
+          </p>
+          <div class="setup-sheet-inputs">
             <div class="field">
-              <label class="field-label" for="username">Username</label>
+              <label class="field-label" for="sheet-clickhouse-url">
+                ClickHouse URL
+              </label>
               <input
-                id="username"
+                id="sheet-clickhouse-url"
+                type="url"
+                bind:value={setupClickHouseURL}
+                placeholder="http://localhost:8123"
+                class="field-input"
+              />
+            </div>
+            <div class="field">
+              <label class="field-label" for="sheet-connection-name">
+                Connection Name
+              </label>
+              <input
+                id="sheet-connection-name"
                 type="text"
-                bind:value={username}
-                placeholder="default"
-                autocomplete="username"
+                bind:value={setupConnectionName}
+                placeholder="Local ClickHouse"
                 class="field-input"
               />
             </div>
-
-            <!-- Password -->
-            <div class="field">
-              <label class="field-label" for="password">Password</label>
-              <input
-                id="password"
-                type="password"
-                bind:value={password}
-                placeholder="Optional"
-                autocomplete="current-password"
-                class="field-input"
-              />
-            </div>
-
-            {#if error}
-              <div class="error-block">
-                <div class="error-header">
-                  <AlertTriangle size={14} />
-                  <p class="error-title">{loginHelp?.title ?? "Login failed"}</p>
-                </div>
-                <p class="error-text">{error}</p>
-                {#if loginHelp?.detail}
-                  <p class="error-help">{loginHelp.detail}</p>
-                {/if}
-              </div>
-            {/if}
-
-            <Button
-              type="submit"
-              loading={submitting}
-              disabled={!canSubmit}
-            >
-              <span class="btn-inner">
-                Connect
-                <ArrowRight size={14} />
-              </span>
-            </Button>
-          </form>
-        {/if}
-      {:else}
-        <div class="setup-panel">
-          <p class="setup-copy">
-            If <strong>Local ClickHouse</strong> is pointing to the wrong host,
-            start CH-UI with a different URL. This setup only generates commands:
-            it does not write server settings.
-          </p>
-
-          <div class="field">
-            <label class="field-label" for="setup-clickhouse-url">
-              ClickHouse URL
-            </label>
-            <input
-              id="setup-clickhouse-url"
-              type="url"
-              bind:value={setupClickHouseURL}
-              placeholder="http://localhost:8123"
-              class="field-input"
-            />
           </div>
-
-          <div class="field">
-            <label class="field-label" for="setup-connection-name">
-              Connection Name
-            </label>
-            <input
-              id="setup-connection-name"
-              type="text"
-              bind:value={setupConnectionName}
-              placeholder="Local ClickHouse"
-              class="field-input"
-            />
-          </div>
-
-          <div class="field">
-            <label class="field-label" for="setup-username">
-              ClickHouse Username
-            </label>
-            <input
-              id="setup-username"
-              type="text"
-              bind:value={setupUsername}
-              placeholder="default"
-              class="field-input"
-            />
-          </div>
-
-          <div class="field">
-            <label class="field-label" for="setup-password">
-              ClickHouse Password
-            </label>
-            <input
-              id="setup-password"
-              type="password"
-              bind:value={setupPassword}
-              placeholder="Optional"
-              class="field-input"
-            />
-          </div>
-
-          <button type="button" class="setup-apply-btn" onclick={applySetupToSignin}>
-            Use credentials in Sign in tab
-          </button>
-
-          <p class="setup-security-note">
-            Passwords are intentionally excluded from generated commands. Enter
-            credentials in the Sign in tab after restart.
-          </p>
+          <ol class="setup-sheet-steps">
+            <li>Stop any running <code>ch-ui server</code> process.</li>
+            <li>Run one setup command with your URL and connection name.</li>
+            <li>
+              Open <code>http://localhost:3488</code> and sign in with your ClickHouse
+              credentials.
+            </li>
+          </ol>
 
           <div class="setup-command-block">
             <p class="setup-command-title">Run with globally installed `ch-ui`</p>
@@ -410,12 +419,42 @@
             <pre>{dockerCommand}</pre>
           </div>
 
-          <p class="setup-note">
-            Community edition supports local URL setup. Admin and multi-connection
-            management are Pro-only, but not required for this flow.
+          <div class="setup-sheet-links">
+            <a
+              href={quickHelpURL}
+              target="_blank"
+              rel="noopener"
+              class="setup-doc-link"
+            >
+              Can't login? Quick path
+              <ExternalLink size={12} />
+            </a>
+            <a
+              href={cantLoginDocsURL}
+              target="_blank"
+              rel="noopener"
+              class="setup-doc-link"
+            >
+              Full Can't login doc
+              <ExternalLink size={12} />
+            </a>
+            <a
+              href={dockerDocsURL}
+              target="_blank"
+              rel="noopener"
+              class="setup-doc-link"
+            >
+              Docker Quick Start
+              <ExternalLink size={12} />
+            </a>
+          </div>
+
+          <p class="setup-security-note">
+            Setup never stores ClickHouse credentials and commands never include
+            passwords.
           </p>
         </div>
-      {/if}
+      </Sheet>
 
       <div class="right-footer">
         <a
@@ -428,7 +467,7 @@
         </a>
         <span class="footer-sep">/</span>
         <a
-          href="https://ch-ui.com/docs"
+          href={cantLoginDocsURL}
           target="_blank"
           rel="noopener"
           class="footer-link"
@@ -694,70 +733,17 @@
     border-color: rgba(74, 222, 128, 0.1);
   }
 
-  .tab-switch {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.4rem;
-    margin-bottom: 1rem;
-  }
-
-  .tab-btn {
-    border: 1px solid #e5e7eb;
-    background: #ffffff;
-    color: #6b7280;
-    border-radius: 9px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    padding: 0.55rem 0.7rem;
-    transition: all 0.15s;
-    cursor: pointer;
-  }
-
-  .tab-btn:hover {
-    border-color: #d1d5db;
-    color: #374151;
-  }
-
-  .tab-btn.is-active {
-    border-color: rgba(245, 158, 11, 0.45);
-    color: #c2410c;
-    background: rgba(255, 237, 213, 0.55);
-  }
-
-  :global(.dark) .tab-btn {
-    background: rgba(255, 255, 255, 0.03);
-    border-color: #2d3748;
-    color: #9ca3af;
-  }
-
-  :global(.dark) .tab-btn:hover {
-    color: #e5e7eb;
-    border-color: #4b5563;
-  }
-
-  :global(.dark) .tab-btn.is-active {
-    border-color: rgba(251, 191, 36, 0.5);
-    color: #fbbf24;
-    background: rgba(245, 158, 11, 0.12);
-  }
-
-  .setup-panel {
+  .form-title-row {
     display: flex;
-    flex-direction: column;
-    gap: 0.9rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
   }
 
-  .setup-copy {
-    font-size: 0.78rem;
-    line-height: 1.45;
-    color: #4b5563;
-  }
-
-  :global(.dark) .setup-copy {
-    color: #9ca3af;
-  }
-
-  .setup-apply-btn {
+  .cant-login-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
     border: 1px solid #f59e0b;
     background: rgba(254, 243, 199, 0.7);
     color: #9a3412;
@@ -769,14 +755,131 @@
     transition: all 0.15s;
   }
 
-  .setup-apply-btn:hover {
+  .cant-login-link:hover {
     background: rgba(254, 243, 199, 1);
   }
 
-  :global(.dark) .setup-apply-btn {
+  :global(.dark) .cant-login-link {
     border-color: rgba(245, 158, 11, 0.5);
     background: rgba(245, 158, 11, 0.16);
     color: #fbbf24;
+  }
+
+  .empty-setup-btn,
+  .error-setup-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    border: 1px solid #f59e0b;
+    background: rgba(254, 243, 199, 0.65);
+    color: #9a3412;
+    border-radius: 9px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.45rem 0.65rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .empty-setup-btn {
+    margin-top: 0.8rem;
+  }
+
+  .error-setup-btn {
+    margin-top: 0.5rem;
+  }
+
+  .empty-setup-btn:hover,
+  .error-setup-btn:hover {
+    background: rgba(254, 243, 199, 1);
+  }
+
+  :global(.dark) .empty-setup-btn,
+  :global(.dark) .error-setup-btn {
+    border-color: rgba(245, 158, 11, 0.55);
+    background: rgba(245, 158, 11, 0.16);
+    color: #fbbf24;
+  }
+
+  .setup-doc-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.72rem;
+    color: #1d4ed8;
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .setup-doc-link:hover {
+    color: #1e40af;
+  }
+
+  :global(.dark) .setup-doc-link {
+    color: #60a5fa;
+  }
+
+  :global(.dark) .setup-doc-link:hover {
+    color: #93c5fd;
+  }
+
+  .setup-sheet {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
+  .setup-sheet-inputs {
+    display: grid;
+    gap: 0.85rem;
+  }
+
+  .setup-sheet code {
+    font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+    font-size: 0.72rem;
+    background: rgba(15, 23, 42, 0.06);
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 6px;
+    padding: 0.08rem 0.3rem;
+  }
+
+  :global(.dark) .setup-sheet code {
+    background: rgba(148, 163, 184, 0.15);
+    border-color: rgba(148, 163, 184, 0.25);
+  }
+
+  .setup-sheet-intro {
+    margin: 0;
+    font-size: 0.8rem;
+    color: #374151;
+    line-height: 1.45;
+  }
+
+  :global(.dark) .setup-sheet-intro {
+    color: #d1d5db;
+  }
+
+  .setup-sheet-steps {
+    margin: 0;
+    padding-left: 1.1rem;
+    font-size: 0.77rem;
+    line-height: 1.45;
+    color: #4b5563;
+  }
+
+  .setup-sheet-steps li + li {
+    margin-top: 0.2rem;
+  }
+
+  :global(.dark) .setup-sheet-steps {
+    color: #9ca3af;
+  }
+
+  .setup-sheet-links {
+    display: flex;
+    gap: 0.9rem;
+    flex-wrap: wrap;
   }
 
   .setup-security-note {
@@ -823,17 +926,6 @@
 
   :global(.dark) .setup-command-block pre {
     color: #e5e7eb;
-  }
-
-  .setup-note {
-    margin: 0;
-    font-size: 0.72rem;
-    line-height: 1.4;
-    color: #6b7280;
-  }
-
-  :global(.dark) .setup-note {
-    color: #9ca3af;
   }
 
   /* Loading state */
@@ -1019,6 +1111,17 @@
   }
 
   :global(.dark) .error-help {
+    color: #fbbf24;
+  }
+
+  .error-recovery-note {
+    margin-top: 0.35rem;
+    font-size: 0.7rem;
+    line-height: 1.4;
+    color: #9a3412;
+  }
+
+  :global(.dark) .error-recovery-note {
     color: #fbbf24;
   }
 
