@@ -428,6 +428,12 @@ func parseParquetDataset(payload []byte) (parsedUploadDataset, error) {
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
 
+	// Ensure restrictive permissions regardless of umask
+	if err := os.Chmod(tmpPath, 0600); err != nil {
+		tmp.Close()
+		return parsedUploadDataset{}, fmt.Errorf("failed to set temp file permissions: %w", err)
+	}
+
 	if _, err := tmp.Write(payload); err != nil {
 		tmp.Close()
 		return parsedUploadDataset{}, fmt.Errorf("failed to write parquet temp file: %w", err)
