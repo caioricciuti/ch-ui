@@ -292,7 +292,7 @@
   function renderMarkdown(content: string): string {
     let html = escapeHtml(content)
     html = html.replace(/```(\w+)\n([\s\S]*?)```/g, (_m, lang, code) =>
-      `<pre class="bg-gray-100 dark:bg-gray-800 rounded p-3 my-2 overflow-x-auto text-xs font-mono"><code data-lang="${lang}">${code}</code></pre>`
+      `<pre class="bg-gray-100 dark:bg-gray-800 rounded p-3 my-2 overflow-x-auto text-xs font-mono"><code data-lang="${escapeHtml(lang)}">${code}</code></pre>`
     )
     html = html.replace(/```\n?([\s\S]*?)```/g, (_m, code) =>
       `<pre class="bg-gray-100 dark:bg-gray-800 rounded p-3 my-2 overflow-x-auto text-xs font-mono"><code>${code}</code></pre>`

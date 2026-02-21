@@ -1557,9 +1557,10 @@ func escapeIdentifier(name string) string {
 	return "`" + escaped + "`"
 }
 
-// escapeLiteral escapes single quotes and backslashes for SQL string literals.
+// escapeLiteral escapes single quotes and backslashes for ClickHouse SQL string literals.
+// ClickHouse uses '' (doubled single-quote) to escape single quotes in string literals.
 func escapeLiteral(value string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(value, "\\", "\\\\"), "'", "\\'")
+	return strings.ReplaceAll(strings.ReplaceAll(value, "\\", "\\\\"), "'", "''")
 }
 
 func stripTrailingSemicolon(query string) string {
@@ -1613,10 +1614,12 @@ func isUnsafeSQLFragment(value string) bool {
 	if v == "" {
 		return false
 	}
+	// Check for SQL injection patterns: statement terminators, comments, and null bytes
 	return strings.Contains(v, ";") ||
 		strings.Contains(v, "--") ||
 		strings.Contains(v, "/*") ||
-		strings.Contains(v, "*/")
+		strings.Contains(v, "*/") ||
+		strings.ContainsAny(v, "\x00\r\n")
 }
 
 func isSystemDatabaseName(name string) bool {

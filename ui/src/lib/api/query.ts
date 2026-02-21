@@ -14,7 +14,14 @@ interface RunQueryParams {
 }
 
 function escapeLiteral(value: string): string {
+  // Reject null bytes which can truncate strings in some SQL engines
+  if (value.includes('\0')) throw new Error('Invalid character in identifier')
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+}
+
+function escapeIdentifier(value: string): string {
+  if (value.includes('\0')) throw new Error('Invalid character in identifier')
+  return '`' + value.replace(/`/g, '``') + '`'
 }
 
 /** Execute a query (legacy JSON format) */
@@ -123,7 +130,7 @@ export async function fetchTableInfo(database: string, table: string): Promise<R
 
 /** Fetch table schema via DESCRIBE */
 export async function fetchTableSchema(database: string, table: string): Promise<LegacyQueryResult> {
-  return runQuery({ query: `DESCRIBE TABLE \`${database}\`.\`${table}\`` })
+  return runQuery({ query: `DESCRIBE TABLE ${escapeIdentifier(database)}.${escapeIdentifier(table)}` })
 }
 
 /** Fetch database metadata and aggregate stats */

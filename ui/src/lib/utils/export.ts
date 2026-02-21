@@ -7,7 +7,12 @@ function normalizeScalar(val: unknown): string {
 }
 
 function escapeDelimited(val: unknown, delimiter: ',' | '\t'): string {
-  const s = normalizeScalar(val)
+  let s = normalizeScalar(val)
+  // Prevent CSV formula injection: prefix dangerous leading characters with a single quote
+  // so spreadsheet applications don't interpret them as formulas
+  if (s.length > 0 && /^[=+\-@\t\r]/.test(s)) {
+    s = "'" + s
+  }
   if (s.includes(delimiter) || s.includes('"') || s.includes('\n') || s.includes('\r')) {
     return '"' + s.replace(/"/g, '""') + '"'
   }

@@ -34,6 +34,10 @@
     return isDark() ? 'rgba(75,85,99,0.3)' : 'rgba(209,213,219,0.5)'
   }
 
+  function escapeHtml(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  }
+
   function tooltipPlugin(isTime: boolean): uPlot.Plugin {
     let tooltip: HTMLDivElement
 
@@ -72,7 +76,13 @@
         ? new Date(xVal * 1000).toLocaleString()
         : xVal.toLocaleString()
 
-      let rows = ''
+      // Build tooltip using DOM methods to prevent XSS from series labels or values
+      tooltip.textContent = ''
+      const headerDiv = document.createElement('div')
+      Object.assign(headerDiv.style, { fontWeight: '600', marginBottom: '4px', color: '#e4e4e7' })
+      headerDiv.textContent = String(header)
+      tooltip.appendChild(headerDiv)
+
       for (let i = 1; i < u.series.length; i++) {
         const s = u.series[i]
         if (!s.show) continue
@@ -81,15 +91,26 @@
           ? '\u2014'
           : Number(val).toLocaleString(undefined, { maximumFractionDigits: 2 })
         const color = typeof s.stroke === 'function' ? (s.stroke as Function)(u, i) : s.stroke
-        rows += `<div style="display:flex;align-items:center;gap:6px;">` +
-          `<span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>` +
-          `<span style="color:#a1a1aa;flex:1;">${s.label ?? ''}</span>` +
-          `<span style="font-weight:600;margin-left:12px;">${display}</span>` +
-          `</div>`
-      }
 
-      tooltip.innerHTML =
-        `<div style="font-weight:600;margin-bottom:4px;color:#e4e4e7;">${header}</div>${rows}`
+        const row = document.createElement('div')
+        Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '6px' })
+
+        const dot = document.createElement('span')
+        Object.assign(dot.style, { width: '8px', height: '8px', borderRadius: '50%', background: String(color ?? ''), flexShrink: '0' })
+        row.appendChild(dot)
+
+        const label = document.createElement('span')
+        Object.assign(label.style, { color: '#a1a1aa', flex: '1' })
+        label.textContent = String(s.label ?? '')
+        row.appendChild(label)
+
+        const value = document.createElement('span')
+        Object.assign(value.style, { fontWeight: '600', marginLeft: '12px' })
+        value.textContent = display
+        row.appendChild(value)
+
+        tooltip.appendChild(row)
+      }
 
       const ow = u.over.clientWidth
       const tw = tooltip.offsetWidth

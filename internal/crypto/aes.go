@@ -13,6 +13,10 @@ import (
 
 // deriveKey derives a 32-byte AES key from the secret using scrypt.
 // Parameters match Node.js crypto.scryptSync(secret, 'salt', 32) defaults: N=16384, r=8, p=1.
+//
+// SECURITY NOTE: The static salt weakens key derivation — all installations using
+// the same AppSecretKey will produce the same derived key. A future version should
+// use a per-installation salt (stored alongside the DB) with a data migration path.
 func deriveKey(secret string) ([]byte, error) {
 	return scrypt.Key([]byte(secret), []byte("salt"), 16384, 8, 1, 32)
 }
