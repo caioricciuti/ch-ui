@@ -57,6 +57,7 @@ func (db *DB) UpsertRateLimit(identifier, limitType string, attempts int, firstA
 		INSERT INTO rate_limits (identifier, type, attempts, first_attempt_at, locked_until, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(identifier) DO UPDATE SET
+			type = excluded.type,
 			attempts = excluded.attempts,
 			first_attempt_at = excluded.first_attempt_at,
 			locked_until = excluded.locked_until,

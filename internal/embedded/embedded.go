@@ -3,6 +3,7 @@ package embedded
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/caioricciuti/ch-ui/connector"
@@ -22,10 +23,14 @@ type EmbeddedAgent struct {
 // Start creates the embedded connection record if needed and launches
 // the in-process connector. It should be called after the HTTP server is
 // listening so the WebSocket endpoint is available.
-func Start(db *database.DB, port int, clickhouseURL string) (*EmbeddedAgent, error) {
+func Start(db *database.DB, port int, clickhouseURL, connectionName string) (*EmbeddedAgent, error) {
 	if clickhouseURL == "" {
 		slog.Info("No CLICKHOUSE_URL configured, skipping embedded agent")
 		return nil, nil
+	}
+	connectionName = strings.TrimSpace(connectionName)
+	if connectionName == "" {
+		connectionName = "Local ClickHouse"
 	}
 
 	// Ensure an embedded connection record exists
@@ -36,7 +41,7 @@ func Start(db *database.DB, port int, clickhouseURL string) (*EmbeddedAgent, err
 
 	if dbConn == nil {
 		token := license.GenerateTunnelToken()
-		id, err := db.CreateConnection("Local ClickHouse", token, true)
+		id, err := db.CreateConnection(connectionName, token, true)
 		if err != nil {
 			return nil, fmt.Errorf("create embedded connection: %w", err)
 		}
@@ -46,6 +51,12 @@ func Start(db *database.DB, port int, clickhouseURL string) (*EmbeddedAgent, err
 		if err != nil || dbConn == nil {
 			return nil, fmt.Errorf("fetch created embedded connection: %w", err)
 		}
+	} else if strings.TrimSpace(dbConn.Name) != connectionName {
+		if err := db.UpdateConnectionName(dbConn.ID, connectionName); err != nil {
+			return nil, fmt.Errorf("update embedded connection name: %w", err)
+		}
+		dbConn.Name = connectionName
+		slog.Info("Updated embedded connection name", "id", dbConn.ID, "name", connectionName)
 	}
 
 	tunnelURL := fmt.Sprintf("ws://127.0.0.1:%d/connect", port)

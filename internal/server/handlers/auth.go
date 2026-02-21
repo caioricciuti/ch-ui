@@ -27,7 +27,6 @@ const (
 	RateLimitWindow    = 15 * time.Minute
 	MaxAttemptsPerIP   = 5
 	MaxAttemptsPerUser = 3
-	LockoutDuration    = 1 * time.Hour
 )
 
 // AuthHandler implements the authentication HTTP endpoints.
@@ -113,8 +112,8 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Username == "" || req.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Username and password are required"})
+	if strings.TrimSpace(req.Username) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Username is required"})
 		return
 	}
 	req.ConnectionID = req.resolvedConnectionID()
@@ -124,7 +123,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	ipKey := fmt.Sprintf("ip:%s", clientIP)
 	userKey := fmt.Sprintf("user:%s", req.Username)
 
-	ipResult := h.RateLimiter.CheckAuthRateLimit(ipKey, "ip", MaxAttemptsPerIP, RateLimitWindow, LockoutDuration)
+	ipResult := h.RateLimiter.CheckAuthRateLimit(ipKey, "ip", MaxAttemptsPerIP, RateLimitWindow)
 	if !ipResult.Allowed {
 		retrySeconds := int(ipResult.RetryAfter.Seconds())
 		slog.Warn("IP rate limited", "ip", clientIP, "retryAfter", retrySeconds)
@@ -135,7 +134,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userResult := h.RateLimiter.CheckAuthRateLimit(userKey, "user", MaxAttemptsPerUser, RateLimitWindow, LockoutDuration)
+	userResult := h.RateLimiter.CheckAuthRateLimit(userKey, "user", MaxAttemptsPerUser, RateLimitWindow)
 	if !userResult.Allowed {
 		retrySeconds := int(userResult.RetryAfter.Seconds())
 		slog.Warn("User rate limited", "user", req.Username, "retryAfter", retrySeconds)
@@ -464,8 +463,8 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 		req.Username = existingSession.ClickhouseUser
 	}
 
-	if req.ConnectionID == "" || req.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "connection_id (or connectionId) and password are required"})
+	if req.ConnectionID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "connection_id (or connectionId) is required"})
 		return
 	}
 

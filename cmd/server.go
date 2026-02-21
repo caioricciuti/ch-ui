@@ -28,19 +28,21 @@ import (
 var FrontendFS fs.FS
 
 var (
-	serverPort        int
-	devMode           bool
-	serverDetach      bool
-	serverConfig      string
-	serverPIDFile     string
-	serverStopTimeout time.Duration
-	restartDetach     bool
+	serverPort           int
+	devMode              bool
+	serverClickHouse     string
+	serverConnectionName string
+	serverDetach         bool
+	serverConfig         string
+	serverPIDFile        string
+	serverStopTimeout    time.Duration
+	restartDetach        bool
 )
 
 var serverCmd = &cobra.Command{
 	Use:   "server",
-	Short: "Start the CH-UI Cloud server",
-	Long:  "Start the CH-UI Cloud HTTP server that serves the API, frontend, and tunnel gateway.",
+	Short: "Start the CH-UI server",
+	Long:  "Start the CH-UI HTTP server that serves the API, frontend, and tunnel gateway.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runServer(cmd)
 	},
@@ -126,6 +128,8 @@ func init() {
 	pf := serverCmd.PersistentFlags()
 	pf.IntVarP(&serverPort, "port", "p", 3488, "Port to listen on")
 	pf.BoolVar(&devMode, "dev", false, "Enable development mode (proxy to Vite)")
+	pf.StringVar(&serverClickHouse, "clickhouse-url", "", "Local ClickHouse HTTP URL for the embedded connection")
+	pf.StringVar(&serverConnectionName, "connection-name", "", "Display name for the embedded local connection")
 	pf.StringVarP(&serverConfig, "config", "c", "", "Path to config file")
 	pf.StringVar(&serverPIDFile, "pid-file", "ch-ui-server.pid", "Path to server PID file")
 	pf.DurationVar(&serverStopTimeout, "stop-timeout", 10*time.Second, "Graceful stop timeout")
@@ -168,6 +172,12 @@ func runServer(cmd *cobra.Command) error {
 	if cmd.Flags().Changed("port") {
 		cfg.Port = serverPort
 	}
+	if cmd.Flags().Changed("clickhouse-url") {
+		cfg.ClickHouseURL = strings.TrimSpace(serverClickHouse)
+	}
+	if cmd.Flags().Changed("connection-name") {
+		cfg.ConnectionName = strings.TrimSpace(serverConnectionName)
+	}
 	// --dev flag is the authority for dev mode in the server command.
 	// Without it, always serve the embedded frontend (production mode).
 	cfg.DevMode = devMode
@@ -180,7 +190,7 @@ func runServer(cmd *cobra.Command) error {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 	slog.SetDefault(logger)
 
-	slog.Info("Starting CH-UI Cloud server",
+	slog.Info("Starting CH-UI server",
 		"version", version.Version,
 		"port", cfg.Port,
 		"dev", cfg.DevMode,
@@ -205,7 +215,7 @@ func runServer(cmd *cobra.Command) error {
 	srv := server.New(cfg, db, FrontendFS)
 
 	// Start embedded agent (connects to local ClickHouse if configured)
-	ea, err := embedded.Start(db, cfg.Port, cfg.ClickHouseURL)
+	ea, err := embedded.Start(db, cfg.Port, cfg.ClickHouseURL, cfg.ConnectionName)
 	if err != nil {
 		slog.Warn("Failed to start embedded agent", "error", err)
 	}
@@ -244,6 +254,12 @@ func buildServerStartArgs(cmd *cobra.Command) []string {
 	}
 	if cmd.Flags().Changed("config") && strings.TrimSpace(serverConfig) != "" {
 		args = append(args, "--config", serverConfig)
+	}
+	if cmd.Flags().Changed("clickhouse-url") && strings.TrimSpace(serverClickHouse) != "" {
+		args = append(args, "--clickhouse-url", serverClickHouse)
+	}
+	if cmd.Flags().Changed("connection-name") && strings.TrimSpace(serverConnectionName) != "" {
+		args = append(args, "--connection-name", serverConnectionName)
 	}
 	if cmd.Flags().Changed("pid-file") && strings.TrimSpace(serverPIDFile) != "" {
 		args = append(args, "--pid-file", serverPIDFile)

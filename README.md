@@ -24,6 +24,8 @@
 - [Architecture](#architecture)
 - [Feature Overview](#feature-overview)
 - [Quick Start (Local)](#quick-start-local)
+- [Quick Start (Docker)](#quick-start-docker)
+- [Change Local ClickHouse URL](#change-local-clickhouse-url)
 - [Remote ClickHouse (VM2 Server + VM1 Agent)](#remote-clickhouse-vm2-server--vm1-agent)
 - [Tunnel Key Management (Server Host)](#tunnel-key-management-server-host)
 - [CLI Reference](#cli-reference)
@@ -153,9 +155,14 @@ sha256sum -c checksums.txt --ignore-missing
 
 ### 2) Start server
 
+Install globally and run with `ch-ui`:
+
 ```bash
-./ch-ui
+sudo install -m 755 ch-ui /usr/local/bin/ch-ui
+ch-ui
 ```
+
+If you prefer not to install globally, run `./ch-ui` from the download folder.
 
 Default address: `http://localhost:3488`
 
@@ -163,6 +170,71 @@ Default address: `http://localhost:3488`
 
 Use a ClickHouse user/password for the selected connection.
 For local setup, CH-UI uses the embedded connector against `http://localhost:8123` by default.
+
+---
+
+## Quick Start (Docker)
+
+Run the official image:
+
+```bash
+docker run --rm \
+  -p 3488:3488 \
+  -v ch-ui-data:/app/data \
+  -e CLICKHOUSE_URL=http://host.docker.internal:8123 \
+  ghcr.io/caioricciuti/ch-ui:latest
+```
+
+Notes:
+- On Linux, replace `host.docker.internal` with a host/IP reachable from the container.
+- Persisted state is stored in `/app/data/ch-ui.db` (volume: `ch-ui-data`).
+
+---
+
+## Change Local ClickHouse URL
+
+If `Local ClickHouse` points to the wrong endpoint, restart CH-UI with one of the options below:
+
+CLI flag:
+```bash
+ch-ui server --clickhouse-url http://127.0.0.1:8123
+```
+
+Environment variable:
+```bash
+CLICKHOUSE_URL=http://127.0.0.1:8123 ch-ui server
+```
+
+Set a custom local connection name (optional):
+```bash
+CLICKHOUSE_URL=http://127.0.0.1:8123 CONNECTION_NAME="My Connection 1" ch-ui server
+```
+
+Config file (`server.yaml`):
+```yaml
+clickhouse_url: http://127.0.0.1:8123
+connection_name: My Connection 1
+```
+
+Then start with:
+```bash
+ch-ui server -c /etc/ch-ui/server.yaml
+```
+
+Priority order for this setting:
+- CLI flag (`--clickhouse-url`)
+- Environment variable (`CLICKHOUSE_URL`)
+- Config file (`server.yaml`)
+- Built-in default (`http://localhost:8123`)
+
+Connection display name priority:
+- CLI flag (`--connection-name`)
+- Environment variable (`CONNECTION_NAME`)
+- Config file (`connection_name`)
+- Built-in default (`Local ClickHouse`)
+
+Tip: The login page now includes a **Setup** tab that generates these commands for local binary and Docker runs.
+Changing this local URL does not require Admin access (Admin and multi-connection management are Pro-only).
 
 ---
 
@@ -174,12 +246,12 @@ This is the recommended production topology:
 
 ### VM2: start CH-UI server
 ```bash
-./ch-ui server --port 3488
+ch-ui server --port 3488
 ```
 
 ### VM1: connect agent to VM2
 ```bash
-./ch-ui connect --url wss://your-ch-ui-domain/connect --key cht_your_tunnel_token
+ch-ui connect --url wss://your-ch-ui-domain/connect --key cht_your_tunnel_token
 ```
 
 Notes:
@@ -225,17 +297,17 @@ Useful flags:
 
 Local machine (fastest way):
 ```bash
-./ch-ui
+ch-ui
 ```
 
 Remote setup (VM2 server + VM1 ClickHouse):
 ```bash
 # VM2
-./ch-ui server start --detach
-./ch-ui tunnel create --name "vm1-clickhouse" --url wss://your-domain/connect
+ch-ui server start --detach
+ch-ui tunnel create --name "vm1-clickhouse" --url wss://your-domain/connect
 
 # VM1
-./ch-ui connect --url wss://your-domain/connect --key cht_xxx --clickhouse-url http://127.0.0.1:8123
+ch-ui connect --url wss://your-domain/connect --key cht_xxx --clickhouse-url http://127.0.0.1:8123
 ```
 
 ### Full command map
@@ -265,6 +337,8 @@ ch-ui server restart
 
 Common flags:
 - `--port, -p` HTTP port (default `3488`)
+- `--clickhouse-url` Local ClickHouse HTTP URL for embedded connection (default `http://localhost:8123`)
+- `--connection-name` Display name for embedded local connection (default `Local ClickHouse`)
 - `--config, -c` path to `server.yaml`
 - `--detach` run in background
 - `--pid-file` PID file location
@@ -360,6 +434,7 @@ port: 3488
 app_url: https://ch-ui.yourcompany.com
 database_path: /var/lib/ch-ui/ch-ui.db
 clickhouse_url: http://localhost:8123
+connection_name: Local ClickHouse
 app_secret_key: "change-this-in-production"
 allowed_origins:
   - https://ch-ui.yourcompany.com
@@ -375,6 +450,7 @@ What each key means:
 | `app_url` | `https://ch-ui.example.com` | `http://localhost:<port>` | Public URL for links and tunnel URL inference |
 | `database_path` | `/var/lib/ch-ui/ch-ui.db` | `./data/ch-ui.db` | Where CH-UI stores app state |
 | `clickhouse_url` | `http://localhost:8123` | `http://localhost:8123` | Embedded local connection target |
+| `connection_name` | `My Connection 1` | `Local ClickHouse` | Display name shown in login/session for embedded local connection |
 | `app_secret_key` | random long string | built-in dev value | Encrypts session credentials; must change in production |
 | `allowed_origins` | `["https://ch-ui.example.com"]` | empty | CORS allowlist |
 | `tunnel_url` | `wss://ch-ui.example.com/connect` | derived from port | Explicit tunnel endpoint advertised to agents |
@@ -384,6 +460,7 @@ Server environment variables:
 - `APP_URL`
 - `DATABASE_PATH`
 - `CLICKHOUSE_URL`
+- `CONNECTION_NAME`
 - `APP_SECRET_KEY`
 - `ALLOWED_ORIGINS` (comma-separated)
 - `TUNNEL_URL`
@@ -485,11 +562,11 @@ Another process is already using the port.
 
 Check:
 ```bash
-./ch-ui server status
+ch-ui server status
 ```
 Then stop old process:
 ```bash
-./ch-ui server stop
+ch-ui server stop
 ```
 
 If status says PID file is missing but port is in use, you likely upgraded from an older binary without PID management. Stop the old process once, then restart with current build.
@@ -502,6 +579,12 @@ If status says PID file is missing but port is in use, you likely upgraded from 
 
 ### Login fails but no clarity
 CH-UI now surfaces explicit login states (invalid credentials, offline connection, retry window). Verify selected connection is online.
+
+### Local ClickHouse unreachable at login
+If the `Local ClickHouse` connection is listed but unreachable:
+- Open the login **Setup** tab and generate a startup command with the correct URL
+- Restart CH-UI with `--clickhouse-url` or `CLICKHOUSE_URL`
+- Reload login and retry with your ClickHouse credentials
 
 ### WebSocket/tunnel fails behind proxy
 Your proxy must forward upgrades on `/connect`:
@@ -526,7 +609,7 @@ Requirements:
 git clone https://github.com/caioricciuti/ch-ui.git
 cd ch-ui
 make build
-./ch-ui
+ch-ui
 ```
 
 Dev mode:

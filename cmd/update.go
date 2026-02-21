@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	releasesURL = "https://api.github.com/repos/caioricciuti/ch-ui-cloud/releases/latest"
+	releasesURL = "https://api.github.com/repos/caioricciuti/ch-ui/releases/latest"
 )
 
 type ghRelease struct {

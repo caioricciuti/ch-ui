@@ -205,6 +205,15 @@ func (db *DB) UpdateConnectionToken(id, newToken string) error {
 	return nil
 }
 
+// UpdateConnectionName updates the display name for a connection.
+func (db *DB) UpdateConnectionName(id, newName string) error {
+	_, err := db.conn.Exec("UPDATE connections SET name = ? WHERE id = ?", newName, id)
+	if err != nil {
+		return fmt.Errorf("update connection name: %w", err)
+	}
+	return nil
+}
+
 // UpdateConnectionHostInfo stores the host info JSON for a connection.
 func (db *DB) UpdateConnectionHostInfo(connId string, info HostInfo) error {
 	data, err := json.Marshal(info)

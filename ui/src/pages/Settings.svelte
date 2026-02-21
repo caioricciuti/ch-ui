@@ -450,7 +450,7 @@
               <FileText size={12} /> Apache-2.0 Text <ExternalLink size={12} />
             </a>
             <a
-              href="https://github.com/caioricciuti/ch-ui-cloud/blob/main/docs/license.md"
+              href="https://github.com/caioricciuti/ch-ui/blob/main/docs/license.md"
               target="_blank"
               rel="noreferrer"
               class="ds-btn-outline px-3 py-1"
@@ -458,7 +458,7 @@
               <KeyRound size={12} /> CH-UI License Policy <ExternalLink size={12} />
             </a>
             <a
-              href="https://github.com/caioricciuti/ch-ui-cloud/blob/main/docs/legal/terms-of-service.md"
+              href="https://github.com/caioricciuti/ch-ui/blob/main/docs/legal/terms-of-service.md"
               target="_blank"
               rel="noreferrer"
               class="ds-btn-outline px-3 py-1"
@@ -466,7 +466,7 @@
               Terms <ExternalLink size={12} />
             </a>
             <a
-              href="https://github.com/caioricciuti/ch-ui-cloud/blob/main/docs/legal/privacy-policy.md"
+              href="https://github.com/caioricciuti/ch-ui/blob/main/docs/legal/privacy-policy.md"
               target="_blank"
               rel="noreferrer"
               class="ds-btn-outline px-3 py-1"

@@ -36,7 +36,7 @@ build-frontend:
 
 ## build-go: Build just the Go binary (skip frontend rebuild)
 build-go:
-	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
 
 ## dev: Start the server in dev mode (expects Vite running on :5173)
 dev:

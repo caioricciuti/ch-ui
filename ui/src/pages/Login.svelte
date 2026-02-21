@@ -26,6 +26,11 @@
   let password = $state("");
   let submitting = $state(false);
   let localError = $state<string | null>(null);
+  let activeTab = $state<"signin" | "setup">("signin");
+  let setupClickHouseURL = $state("http://localhost:8123");
+  let setupConnectionName = $state("Local ClickHouse");
+  let setupUsername = $state("default");
+  let setupPassword = $state("");
 
   type LoginHelp = {
     title: string;
@@ -92,10 +97,31 @@
     }
   }
 
+  function shellQuote(value: string): string {
+    return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+  }
+
+  function applySetupToSignin() {
+    username = setupUsername.trim() || "default";
+    password = setupPassword;
+    activeTab = "signin";
+  }
+
   const error = $derived(localError || getError());
   const selectedConnection = $derived(connections.find((c) => c.id === selectedId) || null);
   const canSubmit = $derived(Boolean(selectedId && username && (selectedConnection ? selectedConnection.online : false)));
   const loginHelp = $derived(buildLoginHelp(error));
+  const normalizedSetupURL = $derived(setupClickHouseURL.trim() || "http://localhost:8123");
+  const normalizedSetupConnectionName = $derived(setupConnectionName.trim() || "Local ClickHouse");
+  const localCommand = $derived(
+    `CLICKHOUSE_URL=${shellQuote(normalizedSetupURL)} CONNECTION_NAME=${shellQuote(normalizedSetupConnectionName)} ch-ui server`
+  );
+  const localCommandWithBinary = $derived(
+    `CLICKHOUSE_URL=${shellQuote(normalizedSetupURL)} CONNECTION_NAME=${shellQuote(normalizedSetupConnectionName)} ./ch-ui server`
+  );
+  const dockerCommand = $derived(
+    `docker run --rm -p 3488:3488 -v ch-ui-data:/app/data -e CLICKHOUSE_URL=${shellQuote(normalizedSetupURL)} -e CONNECTION_NAME=${shellQuote(normalizedSetupConnectionName)} ghcr.io/caioricciuti/ch-ui:latest`
+  );
 </script>
 
 <div class="login-root">
@@ -182,110 +208,218 @@
         <span>Credentials are sent directly to your server</span>
       </div>
 
-      {#if loadingConnections}
-        <div class="loading-state">
-          <Spinner />
-          <span class="loading-text">Discovering connections...</span>
-        </div>
-      {:else if connections.length === 0}
-        <div class="empty-state">
-          <Database size={28} class="empty-icon" />
-          <p class="empty-title">No connections configured</p>
-          <p class="empty-desc">
-            Add a ClickHouse connection in your server configuration to get
-            started.
-          </p>
-        </div>
-      {:else}
-        <form onsubmit={handleSubmit} class="login-form">
-          <!-- Connection -->
-          <div class="field">
-            <label class="field-label" for="connection">
-              <Database size={12} class="field-label-icon" />
-              Connection
-            </label>
-            <Combobox
-              options={connections.map((conn) => ({
-                value: conn.id,
-                label: conn.name,
-                hint: conn.online ? "Online" : "Offline",
-                keywords: `${conn.name} ${conn.id}`,
-              }))}
-              value={selectedId}
-              placeholder="Select a connection..."
-              onChange={(id) => (selectedId = id)}
-            />
-            {#if selectedId}
-              {@const selected = connections.find((c) => c.id === selectedId)}
-              {#if selected}
-                <div class="conn-status">
-                  {#if selected.online}
-                    <Wifi size={11} class="status-online" />
-                    <span class="status-text-online">Connected</span>
-                  {:else}
-                    <WifiOff size={11} class="status-offline" />
-                    <span class="status-text-offline">Unreachable</span>
-                  {/if}
-                </div>
-              {/if}
-            {/if}
-          </div>
+      <div class="tab-switch" role="tablist" aria-label="Sign in and setup">
+        <button
+          type="button"
+          class="tab-btn {activeTab === 'signin' ? 'is-active' : ''}"
+          onclick={() => (activeTab = "signin")}
+        >
+          Sign in
+        </button>
+        <button
+          type="button"
+          class="tab-btn {activeTab === 'setup' ? 'is-active' : ''}"
+          onclick={() => (activeTab = "setup")}
+        >
+          Setup
+        </button>
+      </div>
 
-          <!-- Username -->
-          <div class="field">
-            <label class="field-label" for="username">Username</label>
-            <input
-              id="username"
-              type="text"
-              bind:value={username}
-              placeholder="default"
-              autocomplete="username"
-              class="field-input"
-            />
+      {#if activeTab === "signin"}
+        {#if loadingConnections}
+          <div class="loading-state">
+            <Spinner />
+            <span class="loading-text">Discovering connections...</span>
           </div>
-
-          <!-- Password -->
-          <div class="field">
-            <label class="field-label" for="password">Password</label>
-            <input
-              id="password"
-              type="password"
-              bind:value={password}
-              placeholder="Optional"
-              autocomplete="current-password"
-              class="field-input"
-            />
+        {:else if connections.length === 0}
+          <div class="empty-state">
+            <Database size={28} class="empty-icon" />
+            <p class="empty-title">No connections configured</p>
+            <p class="empty-desc">
+              Open the <strong>Setup</strong> tab to configure your local
+              ClickHouse URL and restart CH-UI.
+            </p>
           </div>
-
-          {#if error}
-            <div class="error-block">
-              <div class="error-header">
-                <AlertTriangle size={14} />
-                <p class="error-title">{loginHelp?.title ?? "Login failed"}</p>
-              </div>
-              <p class="error-text">{error}</p>
-              {#if loginHelp?.detail}
-                <p class="error-help">{loginHelp.detail}</p>
+        {:else}
+          <form onsubmit={handleSubmit} class="login-form">
+            <!-- Connection -->
+            <div class="field">
+              <label class="field-label" for="connection">
+                <Database size={12} class="field-label-icon" />
+                Connection
+              </label>
+              <Combobox
+                options={connections.map((conn) => ({
+                  value: conn.id,
+                  label: conn.name,
+                  hint: conn.online ? "Online" : "Offline",
+                  keywords: `${conn.name} ${conn.id}`,
+                }))}
+                value={selectedId}
+                placeholder="Select a connection..."
+                onChange={(id) => (selectedId = id)}
+              />
+              {#if selectedId}
+                {@const selected = connections.find((c) => c.id === selectedId)}
+                {#if selected}
+                  <div class="conn-status">
+                    {#if selected.online}
+                      <Wifi size={11} class="status-online" />
+                      <span class="status-text-online">Connected</span>
+                    {:else}
+                      <WifiOff size={11} class="status-offline" />
+                      <span class="status-text-offline">Unreachable</span>
+                    {/if}
+                  </div>
+                {/if}
               {/if}
             </div>
-          {/if}
 
-          <Button
-            type="submit"
-            loading={submitting}
-            disabled={!canSubmit}
-          >
-            <span class="btn-inner">
-              Connect
-              <ArrowRight size={14} />
-            </span>
-          </Button>
-        </form>
+            <!-- Username -->
+            <div class="field">
+              <label class="field-label" for="username">Username</label>
+              <input
+                id="username"
+                type="text"
+                bind:value={username}
+                placeholder="default"
+                autocomplete="username"
+                class="field-input"
+              />
+            </div>
+
+            <!-- Password -->
+            <div class="field">
+              <label class="field-label" for="password">Password</label>
+              <input
+                id="password"
+                type="password"
+                bind:value={password}
+                placeholder="Optional"
+                autocomplete="current-password"
+                class="field-input"
+              />
+            </div>
+
+            {#if error}
+              <div class="error-block">
+                <div class="error-header">
+                  <AlertTriangle size={14} />
+                  <p class="error-title">{loginHelp?.title ?? "Login failed"}</p>
+                </div>
+                <p class="error-text">{error}</p>
+                {#if loginHelp?.detail}
+                  <p class="error-help">{loginHelp.detail}</p>
+                {/if}
+              </div>
+            {/if}
+
+            <Button
+              type="submit"
+              loading={submitting}
+              disabled={!canSubmit}
+            >
+              <span class="btn-inner">
+                Connect
+                <ArrowRight size={14} />
+              </span>
+            </Button>
+          </form>
+        {/if}
+      {:else}
+        <div class="setup-panel">
+          <p class="setup-copy">
+            If <strong>Local ClickHouse</strong> is pointing to the wrong host,
+            start CH-UI with a different URL. This setup only generates commands:
+            it does not write server settings.
+          </p>
+
+          <div class="field">
+            <label class="field-label" for="setup-clickhouse-url">
+              ClickHouse URL
+            </label>
+            <input
+              id="setup-clickhouse-url"
+              type="url"
+              bind:value={setupClickHouseURL}
+              placeholder="http://localhost:8123"
+              class="field-input"
+            />
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="setup-connection-name">
+              Connection Name
+            </label>
+            <input
+              id="setup-connection-name"
+              type="text"
+              bind:value={setupConnectionName}
+              placeholder="Local ClickHouse"
+              class="field-input"
+            />
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="setup-username">
+              ClickHouse Username
+            </label>
+            <input
+              id="setup-username"
+              type="text"
+              bind:value={setupUsername}
+              placeholder="default"
+              class="field-input"
+            />
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="setup-password">
+              ClickHouse Password
+            </label>
+            <input
+              id="setup-password"
+              type="password"
+              bind:value={setupPassword}
+              placeholder="Optional"
+              class="field-input"
+            />
+          </div>
+
+          <button type="button" class="setup-apply-btn" onclick={applySetupToSignin}>
+            Use credentials in Sign in tab
+          </button>
+
+          <p class="setup-security-note">
+            Passwords are intentionally excluded from generated commands. Enter
+            credentials in the Sign in tab after restart.
+          </p>
+
+          <div class="setup-command-block">
+            <p class="setup-command-title">Run with globally installed `ch-ui`</p>
+            <pre>{localCommand}</pre>
+          </div>
+
+          <div class="setup-command-block">
+            <p class="setup-command-title">Run with local binary</p>
+            <pre>{localCommandWithBinary}</pre>
+          </div>
+
+          <div class="setup-command-block">
+            <p class="setup-command-title">Run with Docker</p>
+            <pre>{dockerCommand}</pre>
+          </div>
+
+          <p class="setup-note">
+            Community edition supports local URL setup. Admin and multi-connection
+            management are Pro-only, but not required for this flow.
+          </p>
+        </div>
       {/if}
 
       <div class="right-footer">
         <a
-          href="https://github.com/caioricciuti/ch-ui-cloud"
+          href="https://github.com/caioricciuti/ch-ui"
           target="_blank"
           rel="noopener"
           class="footer-link"
@@ -558,6 +692,148 @@
     color: #4ade80;
     background: rgba(74, 222, 128, 0.06);
     border-color: rgba(74, 222, 128, 0.1);
+  }
+
+  .tab-switch {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+  }
+
+  .tab-btn {
+    border: 1px solid #e5e7eb;
+    background: #ffffff;
+    color: #6b7280;
+    border-radius: 9px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.55rem 0.7rem;
+    transition: all 0.15s;
+    cursor: pointer;
+  }
+
+  .tab-btn:hover {
+    border-color: #d1d5db;
+    color: #374151;
+  }
+
+  .tab-btn.is-active {
+    border-color: rgba(245, 158, 11, 0.45);
+    color: #c2410c;
+    background: rgba(255, 237, 213, 0.55);
+  }
+
+  :global(.dark) .tab-btn {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: #2d3748;
+    color: #9ca3af;
+  }
+
+  :global(.dark) .tab-btn:hover {
+    color: #e5e7eb;
+    border-color: #4b5563;
+  }
+
+  :global(.dark) .tab-btn.is-active {
+    border-color: rgba(251, 191, 36, 0.5);
+    color: #fbbf24;
+    background: rgba(245, 158, 11, 0.12);
+  }
+
+  .setup-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
+  .setup-copy {
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: #4b5563;
+  }
+
+  :global(.dark) .setup-copy {
+    color: #9ca3af;
+  }
+
+  .setup-apply-btn {
+    border: 1px solid #f59e0b;
+    background: rgba(254, 243, 199, 0.7);
+    color: #9a3412;
+    border-radius: 9px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.5rem 0.7rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .setup-apply-btn:hover {
+    background: rgba(254, 243, 199, 1);
+  }
+
+  :global(.dark) .setup-apply-btn {
+    border-color: rgba(245, 158, 11, 0.5);
+    background: rgba(245, 158, 11, 0.16);
+    color: #fbbf24;
+  }
+
+  .setup-security-note {
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: #9a3412;
+  }
+
+  :global(.dark) .setup-security-note {
+    color: #fbbf24;
+  }
+
+  .setup-command-block {
+    border: 1px solid #e5e7eb;
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 0.6rem 0.7rem;
+  }
+
+  :global(.dark) .setup-command-block {
+    border-color: #2d3748;
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .setup-command-title {
+    margin: 0 0 0.4rem;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #6b7280;
+    font-weight: 700;
+  }
+
+  .setup-command-block pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.75rem;
+    line-height: 1.45;
+    color: #111827;
+    font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+  }
+
+  :global(.dark) .setup-command-block pre {
+    color: #e5e7eb;
+  }
+
+  .setup-note {
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: #6b7280;
+  }
+
+  :global(.dark) .setup-note {
+    color: #9ca3af;
   }
 
   /* Loading state */

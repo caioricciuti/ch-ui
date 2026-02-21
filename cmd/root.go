@@ -11,8 +11,8 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "ch-ui",
-	Short: "CH-UI Cloud - ClickHouse UI & Management Platform",
-	Long:  "CH-UI Cloud is a single binary that serves the cloud management platform for ClickHouse databases.",
+	Short: "CH-UI - ClickHouse UI and management platform",
+	Long:  "CH-UI is a single binary that serves a ClickHouse management platform for local and remote deployments.",
 }
 
 func init() {

@@ -93,13 +93,13 @@
       id: 'project-releases',
       title: 'CH-UI Releases',
       description: 'Binary downloads and release notes',
-      href: 'https://github.com/caioricciuti/ch-ui-cloud/releases',
+      href: 'https://github.com/caioricciuti/ch-ui/releases',
     },
     {
       id: 'project-issues',
       title: 'Report Issue',
       description: 'Open bug reports and feature requests',
-      href: 'https://github.com/caioricciuti/ch-ui-cloud/issues',
+      href: 'https://github.com/caioricciuti/ch-ui/issues',
     },
   ]
 

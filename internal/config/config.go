@@ -30,7 +30,8 @@ type Config struct {
 	TunnelURL string
 
 	// Embedded agent
-	ClickHouseURL string // default http://localhost:8123
+	ClickHouseURL  string // default http://localhost:8123
+	ConnectionName string // default Local ClickHouse
 
 	// License
 	LicenseJSON string // Stored signed license JSON (loaded from DB at startup)
@@ -42,6 +43,7 @@ type serverConfigFile struct {
 	AppURL         string   `yaml:"app_url"`
 	DatabasePath   string   `yaml:"database_path"`
 	ClickHouseURL  string   `yaml:"clickhouse_url"`
+	ConnectionName string   `yaml:"connection_name"`
 	AppSecretKey   string   `yaml:"app_secret_key"`
 	AllowedOrigins []string `yaml:"allowed_origins"`
 	TunnelURL      string   `yaml:"tunnel_url"`
@@ -62,11 +64,12 @@ func DefaultServerConfigPath() string {
 // Priority: env vars > config file > defaults.
 func Load(configPath string) *Config {
 	cfg := &Config{
-		Port:          3488,
-		DatabasePath:  "./data/ch-ui.db",
-		AppSecretKey:  "ch-ui-default-secret-key-change-in-production",
-		SessionMaxAge: 7 * 24 * 60 * 60,
-		ClickHouseURL: "http://localhost:8123",
+		Port:           3488,
+		DatabasePath:   "./data/ch-ui.db",
+		AppSecretKey:   "ch-ui-default-secret-key-change-in-production",
+		SessionMaxAge:  7 * 24 * 60 * 60,
+		ClickHouseURL:  "http://localhost:8123",
+		ConnectionName: "Local ClickHouse",
 	}
 
 	// 1. Load from config file (overrides defaults)
@@ -102,6 +105,13 @@ func Load(configPath string) *Config {
 	}
 	if v := os.Getenv("CLICKHOUSE_URL"); v != "" {
 		cfg.ClickHouseURL = v
+	}
+	if v := os.Getenv("CONNECTION_NAME"); v != "" {
+		cfg.ConnectionName = trimQuotes(v)
+	}
+	// Backward-compatible typo alias
+	if v := os.Getenv("CONNECITION_NAME"); v != "" {
+		cfg.ConnectionName = trimQuotes(v)
 	}
 	if v := os.Getenv("APP_SECRET_KEY"); v != "" {
 		cfg.AppSecretKey = trimQuotes(v)
@@ -154,6 +164,9 @@ func loadServerConfigFile(path string, cfg *Config) error {
 	if fc.ClickHouseURL != "" {
 		cfg.ClickHouseURL = fc.ClickHouseURL
 	}
+	if fc.ConnectionName != "" {
+		cfg.ConnectionName = fc.ConnectionName
+	}
 	if fc.AppSecretKey != "" {
 		cfg.AppSecretKey = fc.AppSecretKey
 	}
@@ -189,6 +202,9 @@ port: 3488
 
 # ClickHouse HTTP endpoint (default: http://localhost:8123)
 # clickhouse_url: http://localhost:8123
+
+# Embedded connection display name (default: Local ClickHouse)
+# connection_name: Local ClickHouse
 
 # Secret key for session encryption (CHANGE THIS in production)
 # app_secret_key: your-random-secret-here

@@ -61,3 +61,6 @@ license/go.*
 license/licensetool
 license/README.md
 license/main.go
+
+posts.md
+ch-ui-server.pid
