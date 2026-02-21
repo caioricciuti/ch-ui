@@ -114,13 +114,21 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Verify GHCR credentials
+        env:
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+        run: |
+          if [ -z "${GHCR_PAT}" ]; then
+            echo "GHCR_PAT secret is required to publish ghcr.io/${{ github.repository }} images."
+            exit 1
+          fi
+
       - name: Log in to GHCR
-        # GHCR_PAT (write:packages) is preferred; falls back to GITHUB_TOKEN.
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6

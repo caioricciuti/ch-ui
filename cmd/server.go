@@ -196,6 +196,18 @@ func runServer(cmd *cobra.Command) error {
 		"dev", cfg.DevMode,
 	)
 
+	secretSource, err := config.EnsureAppSecretKey(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to initialize app secret key: %w", err)
+	}
+	if secretSource == config.SecretKeySourceGenerated {
+		slog.Warn("APP_SECRET_KEY was not configured; generated a persisted secret key",
+			"path", config.AppSecretKeyPath(cfg.DatabasePath))
+	} else if secretSource == config.SecretKeySourceFile {
+		slog.Info("Loaded persisted app secret key",
+			"path", config.AppSecretKeyPath(cfg.DatabasePath))
+	}
+
 	// Initialize database
 	db, err := database.Open(cfg.DatabasePath)
 	if err != nil {

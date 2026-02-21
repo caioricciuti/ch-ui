@@ -66,7 +66,7 @@ func Load(configPath string) *Config {
 	cfg := &Config{
 		Port:           3488,
 		DatabasePath:   "./data/ch-ui.db",
-		AppSecretKey:   "ch-ui-default-secret-key-change-in-production",
+		AppSecretKey:   DefaultAppSecretKey,
 		SessionMaxAge:  7 * 24 * 60 * 60,
 		ClickHouseURL:  "http://localhost:8123",
 		ConnectionName: "Local ClickHouse",

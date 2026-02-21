@@ -9,7 +9,7 @@ import (
 )
 
 const systemdServiceTemplate = `[Unit]
-Description=CH-UI Cloud Tunnel
+Description=CH-UI Tunnel
 Documentation=https://ch-ui.com/docs
 After=network-online.target
 Wants=network-online.target

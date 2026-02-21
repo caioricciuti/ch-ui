@@ -1,6 +1,6 @@
 package connector
 
-// GatewayMessage represents messages received from the CH-UI Cloud tunnel server
+// GatewayMessage represents messages received from the CH-UI tunnel server.
 type GatewayMessage struct {
 	Type     string `json:"type"`               // Message type: auth_ok, auth_error, query, query_stream, ping, cancel_query, test_connection
 	QueryID  string `json:"query_id,omitempty"` // Query identifier
@@ -12,7 +12,7 @@ type GatewayMessage struct {
 	Message  string `json:"message,omitempty"`  // Additional message info
 }
 
-// AgentMessage represents messages sent to the CH-UI Cloud tunnel server
+// AgentMessage represents messages sent to the CH-UI tunnel server.
 type AgentMessage struct {
 	Type      string      `json:"type"`               // Message type: auth, pong, query_result, query_error, test_result, host_info, query_stream_*
 	QueryID   string      `json:"query_id,omitempty"` // Query identifier (for query responses)
@@ -21,11 +21,11 @@ type AgentMessage struct {
 	Data      interface{} `json:"data,omitempty"`     // Query result data
 	Meta      interface{} `json:"meta,omitempty"`     // Query result metadata
 	Stats     *QueryStats `json:"statistics,omitempty"`
-	Error     string      `json:"error,omitempty"`     // Error message
-	Version   string      `json:"version,omitempty"`   // ClickHouse version (for test_result)
-	Online    bool        `json:"online,omitempty"`    // Connection status (for test_result)
-	HostInfo  *HostInfo   `json:"host_info,omitempty"` // Host machine metrics
-	Seq       int         `json:"seq,omitempty"`       // Chunk sequence number (for streaming)
+	Error     string      `json:"error,omitempty"`      // Error message
+	Version   string      `json:"version,omitempty"`    // ClickHouse version (for test_result)
+	Online    bool        `json:"online,omitempty"`     // Connection status (for test_result)
+	HostInfo  *HostInfo   `json:"host_info,omitempty"`  // Host machine metrics
+	Seq       int         `json:"seq,omitempty"`        // Chunk sequence number (for streaming)
 	TotalRows int64       `json:"total_rows,omitempty"` // Total row count (for streaming)
 }
 
@@ -49,14 +49,14 @@ const (
 
 // Message types to gateway
 const (
-	MsgTypeAuth              = "auth"
-	MsgTypePong              = "pong"
-	MsgTypeQueryResult       = "query_result"
-	MsgTypeQueryError        = "query_error"
-	MsgTypeTestResult        = "test_result"
-	MsgTypeHostInfo          = "host_info"
-	MsgTypeQueryStreamStart  = "query_stream_start"
-	MsgTypeQueryStreamChunk  = "query_stream_chunk"
-	MsgTypeQueryStreamEnd    = "query_stream_end"
-	MsgTypeQueryStreamError  = "query_stream_error"
+	MsgTypeAuth             = "auth"
+	MsgTypePong             = "pong"
+	MsgTypeQueryResult      = "query_result"
+	MsgTypeQueryError       = "query_error"
+	MsgTypeTestResult       = "test_result"
+	MsgTypeHostInfo         = "host_info"
+	MsgTypeQueryStreamStart = "query_stream_start"
+	MsgTypeQueryStreamChunk = "query_stream_chunk"
+	MsgTypeQueryStreamEnd   = "query_stream_end"
+	MsgTypeQueryStreamError = "query_stream_error"
 )

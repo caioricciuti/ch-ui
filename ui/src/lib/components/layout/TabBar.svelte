@@ -436,6 +436,12 @@
       oncontextmenu={(e) => openTabMenu(e, tab.id)}
       ondblclick={() => tab.type === 'query' && !isHomeTab(tab) && startRename(tab)}
       onmousedown={(e) => handleMiddleClick(e, tab.id)}
+      onkeydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          handleTabClick(tab.id)
+        }
+      }}
       ondragstart={(e) => handleDragStart(e, tab)}
       ondragover={(e) => handleDragOver(e, i)}
       ondrop={(e) => handleDrop(e, i)}

@@ -1376,7 +1376,7 @@
   >
     <div class="grid gap-4 md:grid-cols-2">
       <div>
-        <label class="ds-form-label">Database Name</label>
+        <div class="ds-form-label">Database Name</div>
         <input
           class="ds-input"
           placeholder="analytics"
@@ -1384,7 +1384,7 @@
         />
       </div>
       <div>
-        <label class="ds-form-label">Database Engine</label>
+        <div class="ds-form-label">Database Engine</div>
         <Combobox
           options={databaseEngineOptions}
           value={createDatabaseForm.engine}
@@ -1397,7 +1397,7 @@
 
     <div class="grid gap-4 md:grid-cols-2">
       <div>
-        <label class="ds-form-label">Cluster (optional)</label>
+        <div class="ds-form-label">Cluster (optional)</div>
         <Combobox
           options={clusterOptions}
           value={createDatabaseForm.onCluster}
@@ -1457,7 +1457,7 @@
   >
     <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       <div>
-        <label class="ds-form-label">Database</label>
+        <div class="ds-form-label">Database</div>
         <Combobox
           options={databaseOptions}
           value={createTableForm.database}
@@ -1467,7 +1467,7 @@
         />
       </div>
       <div>
-        <label class="ds-form-label">Table Name</label>
+        <div class="ds-form-label">Table Name</div>
         <input
           class="ds-input"
           placeholder="events"
@@ -1475,7 +1475,7 @@
         />
       </div>
       <div>
-        <label class="ds-form-label">Engine</label>
+        <div class="ds-form-label">Engine</div>
         <Combobox
           options={tableEngineOptions}
           value={createTableForm.engine}
@@ -1485,7 +1485,7 @@
         />
       </div>
       <div>
-        <label class="ds-form-label">Cluster (optional)</label>
+        <div class="ds-form-label">Cluster (optional)</div>
         <Combobox
           options={clusterOptions}
           value={createTableForm.onCluster}
@@ -1592,7 +1592,7 @@
 
     <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       <div>
-        <label class="ds-form-label">ORDER BY</label>
+        <div class="ds-form-label">ORDER BY</div>
         <input
           class="ds-input"
           placeholder="tuple()"
@@ -1600,7 +1600,7 @@
         />
       </div>
       <div>
-        <label class="ds-form-label">PARTITION BY</label>
+        <div class="ds-form-label">PARTITION BY</div>
         <input
           class="ds-input"
           placeholder="toYYYYMM(created_at)"
@@ -1608,7 +1608,7 @@
         />
       </div>
       <div>
-        <label class="ds-form-label">PRIMARY KEY</label>
+        <div class="ds-form-label">PRIMARY KEY</div>
         <input
           class="ds-input"
           placeholder="id"
@@ -1616,7 +1616,7 @@
         />
       </div>
       <div>
-        <label class="ds-form-label">SAMPLE BY</label>
+        <div class="ds-form-label">SAMPLE BY</div>
         <input
           class="ds-input"
           placeholder="cityHash64(id)"
@@ -1624,7 +1624,7 @@
         />
       </div>
       <div>
-        <label class="ds-form-label">TTL</label>
+        <div class="ds-form-label">TTL</div>
         <input
           class="ds-input"
           placeholder="created_at + INTERVAL 90 DAY"
@@ -1632,7 +1632,7 @@
         />
       </div>
       <div>
-        <label class="ds-form-label">SETTINGS</label>
+        <div class="ds-form-label">SETTINGS</div>
         <input
           class="ds-input"
           placeholder="index_granularity = 8192"
@@ -1643,7 +1643,7 @@
 
     <div class="grid gap-4 md:grid-cols-2">
       <div>
-        <label class="ds-form-label">Table Comment (optional)</label>
+        <div class="ds-form-label">Table Comment (optional)</div>
         <input
           class="ds-input"
           placeholder="Fact table for product analytics"
@@ -1723,7 +1723,7 @@
 
     <div class="grid gap-4 md:grid-cols-2">
       <div>
-        <label class="ds-form-label">Cluster (optional)</label>
+        <div class="ds-form-label">Cluster (optional)</div>
         <Combobox
           options={clusterOptions}
           value={deleteDatabaseForm.onCluster}
@@ -1746,7 +1746,7 @@
     </div>
 
     <div>
-      <label class="ds-form-label">Type database name to confirm</label>
+      <div class="ds-form-label">Type database name to confirm</div>
       <input
         class="ds-input"
         bind:value={deleteDatabaseForm.typedName}
@@ -1880,7 +1880,7 @@
 
       <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <div>
-          <label class="ds-form-label">Database</label>
+          <div class="ds-form-label">Database</div>
           <Combobox
             options={databaseOptions}
             value={uploadForm.database}
@@ -1891,7 +1891,7 @@
 
         {#if uploadForm.mode === "new"}
           <div>
-            <label class="ds-form-label">Table Name</label>
+            <div class="ds-form-label">Table Name</div>
             <input
               class="ds-input"
               bind:value={uploadForm.tableName}
@@ -1899,7 +1899,7 @@
             />
           </div>
           <div>
-            <label class="ds-form-label">Engine</label>
+            <div class="ds-form-label">Engine</div>
             <Combobox
               options={tableEngineOptions}
               value={uploadForm.engine}
@@ -1909,7 +1909,7 @@
             />
           </div>
           <div>
-            <label class="ds-form-label">Cluster (optional)</label>
+            <div class="ds-form-label">Cluster (optional)</div>
             <Combobox
               options={clusterOptions}
               value={uploadForm.onCluster}
@@ -1923,7 +1923,7 @@
           </div>
         {:else}
           <div class="md:col-span-3">
-            <label class="ds-form-label">Target Table</label>
+            <div class="ds-form-label">Target Table</div>
             <Combobox
               options={uploadTableOptions}
               value={uploadForm.existingTable}
@@ -1941,7 +1941,7 @@
       {#if uploadForm.mode === "new"}
         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div>
-            <label class="ds-form-label">ORDER BY</label>
+            <div class="ds-form-label">ORDER BY</div>
             <input
               class="ds-input"
               bind:value={uploadForm.orderBy}
@@ -1949,7 +1949,7 @@
             />
           </div>
           <div>
-            <label class="ds-form-label">PARTITION BY</label>
+            <div class="ds-form-label">PARTITION BY</div>
             <input
               class="ds-input"
               bind:value={uploadForm.partitionBy}
@@ -1957,7 +1957,7 @@
             />
           </div>
           <div>
-            <label class="ds-form-label">PRIMARY KEY</label>
+            <div class="ds-form-label">PRIMARY KEY</div>
             <input
               class="ds-input"
               bind:value={uploadForm.primaryKey}
@@ -1975,7 +1975,7 @@
             </label>
           </div>
           <div class="md:col-span-2 lg:col-span-4">
-            <label class="ds-form-label">Table Comment (optional)</label>
+            <div class="ds-form-label">Table Comment (optional)</div>
             <input
               class="ds-input"
               bind:value={uploadForm.comment}
@@ -2142,7 +2142,7 @@
 
     <div class="grid gap-4 md:grid-cols-2">
       <div>
-        <label class="ds-form-label">Cluster (optional)</label>
+        <div class="ds-form-label">Cluster (optional)</div>
         <Combobox
           options={clusterOptions}
           value={deleteTableForm.onCluster}
@@ -2165,7 +2165,7 @@
     </div>
 
     <div>
-      <label class="ds-form-label">Type full name to confirm</label>
+      <div class="ds-form-label">Type full name to confirm</div>
       <input
         class="ds-input"
         bind:value={deleteTableForm.typedName}

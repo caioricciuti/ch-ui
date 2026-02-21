@@ -35,12 +35,12 @@ All data is stored in the SQLite file specified by `database_path` in your confi
 
 When you activate a Pro license, the license file is stored locally in your database. No information is sent to external servers during activation — the license is validated offline using cryptographic signatures.
 
-## Cloud-hosted version
+## Managed hosting
 
-If you use our cloud-hosted version at `cloud.ch-ui.com`:
+If you use a managed CH-UI hosting offering:
 
-- We store your account information (email, name) for authentication
-- We store your ClickHouse connection metadata (not your database contents)
+- We may store your account information (email, name) for authentication
+- We may store your ClickHouse connection metadata (not your database contents)
 - We do not access, read, or store your ClickHouse data
 - Tunnel connections are end-to-end between your agent and your browser session
 

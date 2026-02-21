@@ -28,20 +28,17 @@
   let { dashboardId, dashboardTimeRange = '1h', panel = null, onclose, onsave }: Props = $props()
 
   // Form state
-  let name = $state(panel?.name ?? '')
-  let query = $state(panel?.query ?? '')
+  let name = $state('')
+  let query = $state('')
   let saving = $state(false)
   let running = $state(false)
   let formatting = $state(false)
 
-  // Parse existing config
-  const existingConfig: PanelConfig = panel?.config ? (() => { try { return JSON.parse(panel.config) } catch { return {} } })() : {}
-
-  let chartType = $state<PanelConfig['chartType']>(existingConfig.chartType ?? (panel?.panel_type as PanelConfig['chartType']) ?? 'table')
-  let xColumn = $state(existingConfig.xColumn ?? '')
-  let yColumns = $state<string[]>(existingConfig.yColumns ?? [])
-  let colors = $state<string[]>(existingConfig.colors ?? [...DEFAULT_COLORS])
-  let legendPosition = $state<'bottom' | 'right' | 'none'>(existingConfig.legendPosition ?? 'bottom')
+  let chartType = $state<PanelConfig['chartType']>('table')
+  let xColumn = $state('')
+  let yColumns = $state<string[]>([])
+  let colors = $state<string[]>([...DEFAULT_COLORS])
+  let legendPosition = $state<'bottom' | 'right' | 'none'>('bottom')
 
   // Query result state
   let queryData = $state<Record<string, unknown>[]>([])
@@ -77,6 +74,31 @@
     { value: 'right', label: 'Right' },
     { value: 'none', label: 'Hidden' },
   ]
+
+  function parsePanelConfig(value: Panel | null): Partial<PanelConfig> {
+    if (!value?.config) return {}
+    try {
+      return JSON.parse(value.config) as Partial<PanelConfig>
+    } catch {
+      return {}
+    }
+  }
+
+  $effect(() => {
+    const currentPanel = panel
+    const existingConfig = parsePanelConfig(currentPanel)
+
+    name = currentPanel?.name ?? ''
+    query = currentPanel?.query ?? ''
+    chartType = existingConfig.chartType ?? (currentPanel?.panel_type as PanelConfig['chartType']) ?? 'table'
+    xColumn = existingConfig.xColumn ?? ''
+    yColumns = existingConfig.yColumns ?? []
+    colors = existingConfig.colors ?? [...DEFAULT_COLORS]
+    legendPosition = existingConfig.legendPosition ?? 'bottom'
+    queryData = []
+    queryMeta = []
+    queryError = null
+  })
 
   // Auto-detect axes when results arrive
   $effect(() => {

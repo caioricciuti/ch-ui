@@ -242,7 +242,12 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-  <div class="fixed inset-0 z-[80] bg-gray-950/45 backdrop-blur-sm" onclick={() => closeCommandPalette()}></div>
+  <button
+    type="button"
+    class="fixed inset-0 z-[80] bg-gray-950/45 backdrop-blur-sm"
+    aria-label="Close command palette"
+    onclick={() => closeCommandPalette()}
+  ></button>
   <div class="fixed inset-0 z-[81] flex items-start justify-center pt-[12vh] px-4">
     <div class="surface-card w-full max-w-2xl rounded-2xl overflow-hidden">
       <div class="flex items-center gap-2 px-3 py-2.5 border-b border-gray-200/80 dark:border-gray-800/80">

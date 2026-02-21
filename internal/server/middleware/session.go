@@ -17,7 +17,7 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 }
 
 // Session returns a middleware that validates the chui_session cookie.
-func Session(db *database.DB, gw *tunnel.Gateway) func(http.Handler) http.Handler {
+func Session(db *database.DB, _ *tunnel.Gateway) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cookie, err := r.Cookie("chui_session")
@@ -33,15 +33,6 @@ func Session(db *database.DB, gw *tunnel.Gateway) func(http.Handler) http.Handle
 			}
 			if session == nil {
 				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Session expired or invalid"})
-				return
-			}
-
-			// Check tunnel is online
-			if !gw.IsTunnelOnline(session.ConnectionID) {
-				writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-					"error":   "Tunnel offline",
-					"message": "The database connection tunnel is currently offline. Please check the agent.",
-				})
 				return
 			}
 

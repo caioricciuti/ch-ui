@@ -85,6 +85,38 @@ func (r switchConnectionRequest) resolvedConnectionID() string {
 	return strings.TrimSpace(r.ConnectionIDSnake)
 }
 
+func normalizeRateLimitUsername(username string) string {
+	return strings.ToLower(strings.TrimSpace(username))
+}
+
+func userRateLimitKey(username, connectionID string) string {
+	return fmt.Sprintf("user:%s:%s", normalizeRateLimitUsername(username), strings.TrimSpace(connectionID))
+}
+
+func sanitizeClickHouseAuthMessage(raw string) string {
+	msg := strings.ToLower(strings.TrimSpace(raw))
+	if msg == "" {
+		return "Invalid credentials"
+	}
+	if strings.Contains(msg, "auth") ||
+		strings.Contains(msg, "credential") ||
+		strings.Contains(msg, "password") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "access denied") {
+		return "Invalid credentials"
+	}
+	if strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "deadline") ||
+		strings.Contains(msg, "refused") ||
+		strings.Contains(msg, "no route") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "network") ||
+		strings.Contains(msg, "tls") {
+		return "Connection to ClickHouse failed"
+	}
+	return "Authentication failed"
+}
+
 func shouldUseSecureCookie(r *http.Request, cfg *config.Config) bool {
 	// Direct TLS request (no proxy)
 	if r != nil && r.TLS != nil {
@@ -112,7 +144,8 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.TrimSpace(req.Username) == "" {
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Username is required"})
 		return
 	}
@@ -121,7 +154,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// --- Rate limiting ---
 	clientIP := getClientIP(r)
 	ipKey := fmt.Sprintf("ip:%s", clientIP)
-	userKey := fmt.Sprintf("user:%s", req.Username)
 
 	ipResult := h.RateLimiter.CheckAuthRateLimit(ipKey, "ip", MaxAttemptsPerIP, RateLimitWindow)
 	if !ipResult.Allowed {
@@ -129,17 +161,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("IP rate limited", "ip", clientIP, "retryAfter", retrySeconds)
 		writeJSON(w, http.StatusTooManyRequests, map[string]interface{}{
 			"error":      "Too many login attempts from this IP",
-			"retryAfter": retrySeconds,
-		})
-		return
-	}
-
-	userResult := h.RateLimiter.CheckAuthRateLimit(userKey, "user", MaxAttemptsPerUser, RateLimitWindow)
-	if !userResult.Allowed {
-		retrySeconds := int(userResult.RetryAfter.Seconds())
-		slog.Warn("User rate limited", "user", req.Username, "retryAfter", retrySeconds)
-		writeJSON(w, http.StatusTooManyRequests, map[string]interface{}{
-			"error":      "Too many login attempts for this user",
 			"retryAfter": retrySeconds,
 		})
 		return
@@ -177,6 +198,18 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		conn = &connections[0]
 	}
 
+	userKey := userRateLimitKey(req.Username, conn.ID)
+	userResult := h.RateLimiter.CheckAuthRateLimit(userKey, "user", MaxAttemptsPerUser, RateLimitWindow)
+	if !userResult.Allowed {
+		retrySeconds := int(userResult.RetryAfter.Seconds())
+		slog.Warn("User rate limited", "user", req.Username, "connection", conn.ID, "retryAfter", retrySeconds)
+		writeJSON(w, http.StatusTooManyRequests, map[string]interface{}{
+			"error":      "Too many login attempts for this user",
+			"retryAfter": retrySeconds,
+		})
+		return
+	}
+
 	// --- Check tunnel is online (retry up to 3 times) ---
 	online := false
 	for attempt := 0; attempt < 3; attempt++ {
@@ -204,7 +237,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		slog.Info("Login failed: connection test error", "user", req.Username, "error", err)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{
 			"error":   "Authentication failed",
-			"message": fmt.Sprintf("Could not authenticate with ClickHouse: %s", err.Error()),
+			"message": sanitizeClickHouseAuthMessage(err.Error()),
 		})
 		return
 	}
@@ -218,7 +251,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		slog.Info("Login failed: bad credentials", "user", req.Username)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{
 			"error":   "Authentication failed",
-			"message": errMsg,
+			"message": sanitizeClickHouseAuthMessage(errMsg),
 		})
 		return
 	}
@@ -462,6 +495,7 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.Username) == "" {
 		req.Username = existingSession.ClickhouseUser
 	}
+	req.Username = strings.TrimSpace(req.Username)
 
 	if req.ConnectionID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "connection_id (or connectionId) is required"})
@@ -503,7 +537,7 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 		slog.Info("Switch connection failed: test error", "user", req.Username, "error", err)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{
 			"error":   "Authentication failed",
-			"message": fmt.Sprintf("Could not authenticate with ClickHouse: %s", err.Error()),
+			"message": sanitizeClickHouseAuthMessage(err.Error()),
 		})
 		return
 	}
@@ -514,7 +548,7 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusUnauthorized, map[string]string{
 			"error":   "Authentication failed",
-			"message": errMsg,
+			"message": sanitizeClickHouseAuthMessage(errMsg),
 		})
 		return
 	}

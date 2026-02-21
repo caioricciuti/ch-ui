@@ -1,4 +1,4 @@
-# CH-UI Cloud Makefile
+# CH-UI Makefile
 # Single binary: server + agent + embedded frontend
 
 VERSION ?= $(shell cat VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo "dev")

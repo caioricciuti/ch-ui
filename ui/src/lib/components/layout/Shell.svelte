@@ -161,6 +161,14 @@
         class="flex flex-col min-w-0 overflow-hidden"
         style={split ? `width: ${i === 0 ? splitPercent : 100 - splitPercent}%` : 'flex: 1'}
         onclick={() => setFocusedGroup(group.id)}
+        onkeydown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setFocusedGroup(group.id)
+          }
+        }}
+        role="button"
+        tabindex="0"
       >
         <TabGroup groupId={group.id} />
       </div>

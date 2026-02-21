@@ -38,7 +38,7 @@ type Config struct {
 // Default configuration values
 var Defaults = Config{
 	ClickHouseURL:      "http://localhost:8123",
-	TunnelURL:          "wss://cloud.ch-ui.com/connect",
+	TunnelURL:          "ws://127.0.0.1:3488/connect",
 	ReconnectDelay:     1 * time.Second,
 	MaxReconnectDelay:  30 * time.Second,
 	HeartbeatInterval:  30 * time.Second,
@@ -199,14 +199,14 @@ func GenerateTemplate() string {
 # All settings can also be specified via environment variables or CLI flags.
 # Priority: CLI flags > Environment variables > Config file
 
-# Required: Your tunnel token from CH-UI Cloud
+# Required: Your tunnel token from CH-UI server (ch-ui tunnel create --name <name>)
 tunnel_token: "cht_your_token_here"
 
 # ClickHouse HTTP API URL (default: http://localhost:8123)
 clickhouse_url: "http://localhost:8123"
 
-# CH-UI Cloud tunnel URL (default: wss://cloud.ch-ui.com/connect)
-tunnel_url: "wss://cloud.ch-ui.com/connect"
+# CH-UI tunnel URL (default: ws://127.0.0.1:3488/connect)
+tunnel_url: "ws://127.0.0.1:3488/connect"
 
 # Skip TLS certificate validation for tunnel connection (unsafe, dev only)
 # insecure_skip_verify: false

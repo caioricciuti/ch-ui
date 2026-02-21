@@ -493,7 +493,7 @@ What each key means:
 | `database_path` | `/var/lib/ch-ui/ch-ui.db` | `./data/ch-ui.db` | Where CH-UI stores app state |
 | `clickhouse_url` | `http://localhost:8123` | `http://localhost:8123` | Embedded local connection target |
 | `connection_name` | `My Connection 1` | `Local ClickHouse` | Display name shown in login/session for embedded local connection |
-| `app_secret_key` | random long string | built-in dev value | Encrypts session credentials; must change in production |
+| `app_secret_key` | random long string | auto-generated per install (persisted at `<database_dir>/.app_secret_key`) | Encrypts session credentials; set explicitly in production |
 | `allowed_origins` | `["https://ch-ui.example.com"]` | empty | CORS allowlist |
 | `tunnel_url` | `wss://ch-ui.example.com/connect` | derived from port | Explicit tunnel endpoint advertised to agents |
 
@@ -506,6 +506,8 @@ Server environment variables:
 - `APP_SECRET_KEY`
 - `ALLOWED_ORIGINS` (comma-separated)
 - `TUNNEL_URL`
+
+If `APP_SECRET_KEY` is not configured, CH-UI generates a strong local key and persists it next to the database path as `.app_secret_key`.
 
 ### Connector config (`config.yaml`) explained
 
@@ -522,7 +524,7 @@ What each key means:
 |---|---|---|---|
 | `tunnel_token` | `cht_...` | none (required) | Auth key created on server (`ch-ui tunnel create`) |
 | `clickhouse_url` | `http://127.0.0.1:8123` | `http://localhost:8123` | Local ClickHouse for this VM |
-| `tunnel_url` | `wss://ch-ui.example.com/connect` | `wss://cloud.ch-ui.com/connect` | Server gateway endpoint |
+| `tunnel_url` | `wss://ch-ui.example.com/connect` | `ws://127.0.0.1:3488/connect` | Server gateway endpoint |
 | `insecure_skip_verify` | `false` | `false` | Only for insecure dev TLS setups |
 
 Connector environment variables:
@@ -562,7 +564,7 @@ tunnel_url: "wss://ch-ui.example.com/connect"
 - Back up SQLite database (`database_path`)
 - Run connector as service on remote hosts
 
-Nginx example is included: [`ch-ui-cloud.conf`](ch-ui-cloud.conf)
+Nginx example is included: [`ch-ui.conf`](ch-ui.conf)
 
 ### Backup and restore
 

@@ -97,3 +97,44 @@ func TestProgressiveLockoutSchedule(t *testing.T) {
 	}
 	expectLocked(10*time.Minute-5*time.Second, 10*time.Minute+5*time.Second, "user:3")
 }
+
+func TestLegacyLongLockIsCappedToCurrentSchedule(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "rate-limit-legacy.db")
+	db, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	rl := NewRateLimiter(db)
+	identifier := "user:legacy"
+	now := time.Now()
+	legacyUntil := now.Add(2 * time.Hour)
+	if err := db.UpsertRateLimit(identifier, "user:3", 3, now.Add(-1*time.Minute), &legacyUntil); err != nil {
+		t.Fatalf("seed legacy lock: %v", err)
+	}
+
+	res := rl.CheckAuthRateLimit(identifier, "user", 3, 15*time.Minute)
+	if res.Allowed {
+		t.Fatalf("expected request to remain blocked during capped lock window")
+	}
+	if res.RetryAfter > 10*time.Minute+5*time.Second {
+		t.Fatalf("legacy lock should be capped to 10m, got retryAfter=%s", res.RetryAfter)
+	}
+
+	entry, err := db.GetRateLimit(identifier)
+	if err != nil {
+		t.Fatalf("get rate limit: %v", err)
+	}
+	if entry == nil || entry.LockedUntil == nil {
+		t.Fatalf("expected normalized lock to be persisted")
+	}
+
+	normalizedUntil, err := time.Parse(time.RFC3339, *entry.LockedUntil)
+	if err != nil {
+		t.Fatalf("parse locked_until: %v", err)
+	}
+	if normalizedUntil.After(time.Now().Add(10*time.Minute + 5*time.Second)) {
+		t.Fatalf("persisted lock should be capped near now+10m, got %s", normalizedUntil)
+	}
+}

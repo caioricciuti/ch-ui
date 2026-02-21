@@ -419,6 +419,8 @@
     <div
       class="bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg p-5 w-96 shadow-xl"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
+      tabindex="-1"
     >
       <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3">Save Query</h3>
 

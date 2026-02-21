@@ -147,7 +147,7 @@ func (c *Connector) connect() error {
 		}
 
 		c.ui.ConnectionError(dialErr, c.cfg.TunnelURL)
-		return &ConnectError{Type: "network", Message: "Failed to connect to CH-UI Cloud", Err: dialErr}
+		return &ConnectError{Type: "network", Message: "Failed to connect to CH-UI server", Err: dialErr}
 	}
 
 	c.connMu.Lock()
@@ -182,7 +182,7 @@ func (c *Connector) connect() error {
 	var authResp GatewayMessage
 	if err := json.Unmarshal(message, &authResp); err != nil {
 		conn.Close()
-		c.ui.DiagnosticError(ui.ErrorTypeServer, "CH-UI Cloud Server",
+		c.ui.DiagnosticError(ui.ErrorTypeServer, "CH-UI Server",
 			"Received invalid response from server",
 			[]string{
 				"The server may be running an incompatible version",
@@ -221,7 +221,7 @@ func (c *Connector) connect() error {
 
 	default:
 		conn.Close()
-		c.ui.DiagnosticError(ui.ErrorTypeServer, "CH-UI Cloud Server",
+		c.ui.DiagnosticError(ui.ErrorTypeServer, "CH-UI Server",
 			fmt.Sprintf("Unexpected response type: %s", authResp.Type),
 			[]string{
 				"The server may be running an incompatible version",

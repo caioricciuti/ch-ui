@@ -149,7 +149,7 @@ func (u *UI) DiagnosticError(errType ErrorType, source, message string, suggesti
 
 // AuthError prints an authentication-specific error with helpful context
 func (u *UI) AuthError(serverMessage string) {
-	source := "CH-UI Cloud Server"
+	source := "CH-UI Server"
 	var suggestions []string
 
 	// Classify the error and provide specific suggestions
@@ -158,14 +158,14 @@ func (u *UI) AuthError(serverMessage string) {
 		suggestions = []string{
 			"The tunnel token is invalid or has been revoked",
 			"Check that you copied the complete token (starts with 'cht_')",
-			"Generate a new token from the CH-UI Cloud dashboard",
-			"Verify the token belongs to the correct organization",
+			"Generate a new token on the server with: ch-ui tunnel create --name <connection-name>",
+			"Verify the token belongs to the target server instance",
 		}
 	case strings.Contains(strings.ToLower(serverMessage), "license"):
 		suggestions = []string{
-			"Your organization's license may have expired",
+			"The server license may have expired",
 			"Contact your administrator to renew the license",
-			"Check the organization status in the CH-UI Cloud dashboard",
+			"Check server logs for license validation details",
 		}
 	case strings.Contains(strings.ToLower(serverMessage), "already connected"):
 		suggestions = []string{
@@ -184,7 +184,7 @@ func (u *UI) AuthError(serverMessage string) {
 		suggestions = []string{
 			"Check that your token is valid and not expired",
 			"Verify the tunnel URL is correct",
-			"Check the CH-UI Cloud dashboard for any issues",
+			"Check CH-UI server logs for tunnel auth errors",
 		}
 	}
 
@@ -200,7 +200,7 @@ func (u *UI) ConnectionError(err error, tunnelURL string) {
 	switch {
 	case strings.Contains(message, "connection refused"):
 		suggestions = []string{
-			"The CH-UI Cloud server may be down or unreachable",
+			"The CH-UI server may be down or unreachable",
 			"Check if the tunnel URL is correct: " + tunnelURL,
 			"Verify your network/firewall allows outbound WebSocket connections",
 			"If using a custom server, ensure it's running",

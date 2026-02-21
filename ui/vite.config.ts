@@ -23,5 +23,16 @@ export default defineConfig({
   build: {
     target: 'es2022',
     minify: process.env.CHUI_VITE_MINIFY !== '0',
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('@codemirror') || id.includes('@lezer')) return 'codemirror'
+          if (id.includes('lucide-svelte')) return 'icons'
+          if (id.includes('uplot')) return 'charts'
+          return 'vendor'
+        },
+      },
+    },
   },
 })
