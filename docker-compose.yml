@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
       network: host
       args:
-        PROXY: ${HTTP_PROXY:-http://172.21.10.22:8888/}
+        PROXY: ${HTTP_PROXY:-}
     restart: always
     ports:
       - "${CH_UI_PORT:-5555}:5521"
