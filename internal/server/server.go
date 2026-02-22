@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/alerts"
@@ -170,18 +171,35 @@ func (s *Server) setupRoutes() {
 
 	// ── SPA fallback (serve embedded frontend) ──────────────────────────
 	if s.frontendFS != nil {
-		fileServer := http.FileServer(http.FS(s.frontendFS))
-		r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-			// Try to serve the file directly
-			f, err := s.frontendFS.Open(r.URL.Path[1:]) // strip leading /
-			if err != nil {
-				// File not found — serve index.html for SPA routing
-				r.URL.Path = "/"
-			} else {
-				f.Close()
-			}
-			fileServer.ServeHTTP(w, r)
-		})
+		// Check whether the frontend was actually built and embedded.
+		if _, err := s.frontendFS.Open("index.html"); err != nil {
+			slog.Warn("Frontend assets not embedded; build the frontend first or use a release binary")
+			r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprintln(w, "Frontend assets not available. Build the frontend first or use a release binary.")
+			})
+		} else {
+			fileServer := http.FileServer(http.FS(s.frontendFS))
+			r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+				// Try to serve the file directly
+				path := r.URL.Path[1:] // strip leading /
+				f, err := s.frontendFS.Open(path)
+				if err != nil {
+					// File not found — serve index.html for SPA routing
+					w.Header().Set("Cache-Control", "no-cache")
+					r.URL.Path = "/"
+				} else {
+					f.Close()
+					if strings.HasPrefix(path, "assets/") {
+						w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+					} else {
+						w.Header().Set("Cache-Control", "no-cache")
+					}
+				}
+				fileServer.ServeHTTP(w, r)
+			})
+		}
 	}
 
 	slog.Info("Routes configured")

@@ -493,11 +493,16 @@ export async function clickhouseCompletionSource(
   if (!word) return null
   if (word.from === word.to && !context.explicit) return null
 
-  await Promise.all([ensureFunctionKeywordCache(), ensureDatabasesLoaded()])
+  // Warm caches in background so autocomplete stays responsive even when
+  // metadata endpoints are slow or temporarily unavailable.
+  void ensureFunctionKeywordCache()
+  void ensureDatabasesLoaded()
 
   const doc = context.state.doc.toString()
   const beforeCursor = doc.slice(0, context.pos)
-  const sqlCtx = detectContext(doc, word.from)
+  // Detect context at the cursor (not token start) so dot/function contexts are
+  // classified correctly while the user is actively typing.
+  const sqlCtx = detectContext(doc, context.pos)
   const term = word.text.replace(/[`"]/g, '')
 
   let options: Completion[] = []

@@ -162,6 +162,8 @@
         style={split ? `width: ${i === 0 ? splitPercent : 100 - splitPercent}%` : 'flex: 1'}
         onclick={() => setFocusedGroup(group.id)}
         onkeydown={(e) => {
+          // Only treat Space/Enter as pane activation when the pane itself is focused.
+          if (e.target !== e.currentTarget) return
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
             setFocusedGroup(group.id)

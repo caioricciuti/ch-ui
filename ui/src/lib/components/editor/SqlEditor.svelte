@@ -130,12 +130,16 @@
     },
   ])
 
+  // Bun can install a second @codemirror/view copy under transitive deps;
+  // normalize keymaps to one array type for TS while runtime dedupe is handled by Vite.
+  const editorKeymaps = [...defaultKeymap, ...historyKeymap, ...searchKeymap, ...closeBracketsKeymap] as any
+
   onMount(() => {
     const state = EditorState.create({
       doc: value,
       extensions: [
         runKeyBinding,
-        keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, ...closeBracketsKeymap]),
+        keymap.of(editorKeymaps),
         history(),
         bracketMatching(),
         closeBrackets(),

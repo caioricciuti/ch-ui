@@ -6,6 +6,19 @@ export default defineConfig({
   appType: 'spa',
   plugins: [svelte(), tailwindcss()],
   base: '/',
+  resolve: {
+    dedupe: [
+      '@codemirror/state',
+      '@codemirror/view',
+      '@codemirror/language',
+      '@codemirror/autocomplete',
+      '@codemirror/commands',
+      '@codemirror/search',
+      '@lezer/common',
+      '@lezer/highlight',
+      '@lezer/lr',
+    ],
+  },
   server: {
     host: '127.0.0.1',
     port: 5173,
