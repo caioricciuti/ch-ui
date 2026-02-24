@@ -100,6 +100,17 @@
     queryError = null
   })
 
+  // Sync panel query into the CodeMirror editor after it mounts
+  $effect(() => {
+    const q = panel?.query ?? ''
+    if (editorComponent && q) {
+      const current = editorComponent.getValue()
+      if (current !== q) {
+        editorComponent.setValue(q)
+      }
+    }
+  })
+
   // Auto-detect axes when results arrive
   $effect(() => {
     if (queryMeta.length > 0 && !xColumn && !yColumns.length) {
@@ -298,6 +309,20 @@
             bind:value={name}
           />
         </div>
+
+        <!-- Available variables -->
+        <details class="group/vars">
+          <summary class="flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300 list-none [&::-webkit-details-marker]:hidden">
+            <span class="text-[10px] transition-transform group-open/vars:rotate-90">&#9654;</span>
+            Available Variables
+          </summary>
+          <div class="mt-2 space-y-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+            <div><code class="px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300">$__timestamp(col)</code> — DateTime range filter</div>
+            <div><code class="px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300">$__timeFilter(col)</code> — Epoch range filter</div>
+            <div><code class="px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300">$__interval</code> — Aggregation interval (seconds)</div>
+            <div><code class="px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300">$__timeFrom</code> / <code class="px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300">$__timeTo</code> — Range boundaries</div>
+          </div>
+        </details>
 
         <!-- Visualization type -->
         <div>

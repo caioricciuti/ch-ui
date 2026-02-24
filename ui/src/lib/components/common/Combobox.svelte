@@ -72,8 +72,8 @@
 
   function selectOption(opt: ComboboxOption) {
     if (opt.disabled) return
-    onChange?.(opt.value)
     closeMenu()
+    onChange?.(opt.value)
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -129,7 +129,7 @@
       class="fixed inset-0 z-[65]"
       role="button"
       tabindex="-1"
-      onclick={closeMenu}
+      onclick={(e) => { e.preventDefault(); closeMenu() }}
       onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && closeMenu()}
     ></div>
     <div class="absolute z-[66] w-full min-w-[220px] rounded-xl surface-card overflow-hidden shadow-2xl {openUpward ? 'bottom-full mb-1' : 'mt-1'}">
@@ -152,7 +152,7 @@
             <button
               type="button"
               class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left transition-colors {idx === highlighted ? 'bg-ch-blue/10 text-ch-blue' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200/55 dark:hover:bg-gray-800/55'}"
-              onclick={() => selectOption(opt)}
+              onclick={(e) => { e.preventDefault(); selectOption(opt) }}
               onmouseenter={() => highlighted = idx}
               disabled={opt.disabled}
             >

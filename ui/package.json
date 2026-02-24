@@ -33,10 +33,11 @@
     "lucide-svelte": "^0.563.0",
     "svelte-sonner": "^1.0.7",
     "tailwindcss": "^4.2.0",
+    "marked": "^15.0.7",
     "uplot": "^1.6.32"
   },
   "overrides": {
-    "@codemirror/state": "6.5.4",
-    "@codemirror/view": "6.39.15"
+    "@codemirror/state": "$@codemirror/state",
+    "@codemirror/view": "$@codemirror/view"
   }
 }

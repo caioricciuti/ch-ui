@@ -3,7 +3,7 @@
   import uPlot from 'uplot'
   import 'uplot/dist/uPlot.min.css'
   import type { PanelConfig } from '../../types/api'
-  import { toUPlotData, DEFAULT_COLORS, isDateType, type ColumnMeta } from '../../utils/chart-transform'
+  import { toUPlotData, DEFAULT_COLORS, isDateType, isNumericType, type ColumnMeta } from '../../utils/chart-transform'
   import { getTheme } from '../../stores/theme.svelte'
 
   interface Props {
@@ -22,6 +22,18 @@
 
   const plotData = $derived(toUPlotData(data, meta, config))
 
+  /** True when x column is categorical (String, not Date/Numeric) */
+  const isCategorical = $derived.by(() => {
+    const xMeta = meta.find(m => m.name === config.xColumn)
+    if (!xMeta) return false
+    return !isDateType(xMeta.type) && !isNumericType(xMeta.type)
+  })
+
+  /** Category labels for the x-axis (only populated when categorical) */
+  const xLabels = $derived(
+    isCategorical ? data.map(row => String(row[config.xColumn!] ?? '')) : []
+  )
+
   function isDark(): boolean {
     return getTheme() === 'dark'
   }
@@ -38,7 +50,7 @@
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   }
 
-  function tooltipPlugin(isTime: boolean): uPlot.Plugin {
+  function tooltipPlugin(isTime: boolean, isCat: boolean, catLabels: string[]): uPlot.Plugin {
     let tooltip: HTMLDivElement
 
     function init(u: uPlot) {
@@ -74,7 +86,9 @@
       const xVal = u.data[0][idx]
       const header = isTime
         ? new Date(xVal * 1000).toLocaleString()
-        : xVal.toLocaleString()
+        : isCat
+          ? (catLabels[idx] ?? String(xVal))
+          : xVal.toLocaleString()
 
       // Build tooltip using DOM methods to prevent XSS from series labels or values
       tooltip.textContent = ''
@@ -134,6 +148,8 @@
   function buildOpts(w: number, h: number): uPlot.Options {
     const xMeta = meta.find(m => m.name === config.xColumn)
     const isTime = xMeta ? isDateType(xMeta.type) : false
+    const isCat = isCategorical
+    const catLabels = xLabels
     const colors = config.colors?.length ? config.colors : DEFAULT_COLORS
 
     const series: uPlot.Series[] = [
@@ -159,17 +175,36 @@
       series.push(s)
     }
 
+    // Build x-axis config based on data type
+    let xAxisConfig: Record<string, any> = {}
+    if (isTime) {
+      // default time formatting
+    } else if (isCat) {
+      // Categorical: show category labels at exact index positions
+      xAxisConfig = {
+        splits: (_u: uPlot) => catLabels.map((_: string, i: number) => i),
+        values: (_u: uPlot, splits: number[]) => splits.map(i => catLabels[i] ?? ''),
+        gap: 8,
+        size: catLabels.length > 6 ? 60 : 40,
+        rotate: catLabels.length > 6 ? -45 : 0,
+      }
+    } else {
+      xAxisConfig = {
+        values: (_u: uPlot, vals: number[]) => vals.map(v => String(v)),
+      }
+    }
+
     return {
       width: w,
       height: h,
       series,
-      plugins: [tooltipPlugin(isTime)],
+      plugins: [tooltipPlugin(isTime, isCat, catLabels)],
       axes: [
         {
           stroke: axisColor(),
           grid: { stroke: gridColor(), width: 1 },
           ticks: { stroke: gridColor(), width: 1 },
-          ...(isTime ? {} : { values: (_u: uPlot, vals: number[]) => vals.map(v => String(v)) }),
+          ...xAxisConfig,
         },
         {
           stroke: axisColor(),
@@ -178,7 +213,11 @@
         },
       ],
       scales: {
-        x: isTime ? { time: true } : { time: false },
+        x: isTime
+          ? { time: true }
+          : isCat
+            ? { time: false, distr: 2 }
+            : { time: false },
       },
       legend: { show: false },
       cursor: { drag: { x: true, y: false } },

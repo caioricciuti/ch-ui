@@ -43,6 +43,9 @@ var serverCmd = &cobra.Command{
 	Use:   "server",
 	Short: "Start the CH-UI server",
 	Long:  "Start the CH-UI HTTP server that serves the API, frontend, and tunnel gateway.",
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		serverPIDFile = resolvePIDFile(serverPIDFile)
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runServer(cmd)
 	},
@@ -273,9 +276,10 @@ func buildServerStartArgs(cmd *cobra.Command) []string {
 	if cmd.Flags().Changed("connection-name") && strings.TrimSpace(serverConnectionName) != "" {
 		args = append(args, "--connection-name", serverConnectionName)
 	}
-	if cmd.Flags().Changed("pid-file") && strings.TrimSpace(serverPIDFile) != "" {
-		args = append(args, "--pid-file", serverPIDFile)
-	}
+	// Always include absolute PID file path so the child process and
+	// future update/restart commands can reliably locate the PID file
+	// regardless of the caller's working directory.
+	args = append(args, "--pid-file", serverPIDFile)
 	if cmd.Flags().Changed("stop-timeout") {
 		args = append(args, fmt.Sprintf("--stop-timeout=%s", serverStopTimeout.String()))
 	}
@@ -456,4 +460,17 @@ func isTCPPortOpen(addr string) bool {
 	}
 	_ = conn.Close()
 	return true
+}
+
+// resolvePIDFile converts a relative PID file path to absolute so that
+// server detection works regardless of the caller's working directory.
+func resolvePIDFile(pidFile string) string {
+	if filepath.IsAbs(pidFile) {
+		return pidFile
+	}
+	abs, err := filepath.Abs(pidFile)
+	if err != nil {
+		return pidFile
+	}
+	return abs
 }

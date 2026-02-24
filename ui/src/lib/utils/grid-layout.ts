@@ -61,6 +61,15 @@ export function compact(items: LayoutItem[], movedId?: string): LayoutItem[] {
         item.y = moved.y + moved.h
       }
     }
+    // Cascade: resolve secondary overlaps caused by pushing
+    const others = result.filter(i => i.id !== movedId).sort((a, b) => a.y - b.y || a.x - b.x)
+    for (let i = 0; i < others.length; i++) {
+      for (let j = i + 1; j < others.length; j++) {
+        if (rectsOverlap(others[i], others[j])) {
+          others[j].y = others[i].y + others[i].h
+        }
+      }
+    }
   }
 
   // Sort by y then x for gravity pass (moved item excluded from sorting priority)

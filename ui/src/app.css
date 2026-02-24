@@ -374,4 +374,25 @@ pre,
     @apply h-4 w-4 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 accent-ch-blue;
     @apply focus:outline-none focus:ring-2 focus:ring-ch-blue/35 focus:ring-offset-0;
   }
+
+  /* Brain chat markdown output styling */
+  .prose-brain h1 { @apply text-lg font-bold mt-4 mb-2; }
+  .prose-brain h2 { @apply text-base font-bold mt-3 mb-1.5; }
+  .prose-brain h3 { @apply text-sm font-semibold mt-3 mb-1; }
+  .prose-brain h4, .prose-brain h5, .prose-brain h6 { @apply text-sm font-semibold mt-2 mb-1; }
+  .prose-brain p { @apply my-1.5 leading-relaxed; }
+  .prose-brain ul { @apply list-disc pl-5 my-1.5 space-y-0.5; }
+  .prose-brain ol { @apply list-decimal pl-5 my-1.5 space-y-0.5; }
+  .prose-brain li { @apply leading-relaxed; }
+  .prose-brain a { @apply text-ch-blue hover:underline; }
+  .prose-brain blockquote { @apply border-l-2 border-gray-300 dark:border-gray-600 pl-3 my-2 text-gray-600 dark:text-gray-400 italic; }
+  .prose-brain pre { @apply bg-gray-100 dark:bg-gray-800 rounded-lg p-3 my-2 overflow-x-auto text-xs font-mono; }
+  .prose-brain code { @apply bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded text-xs font-mono; }
+  .prose-brain pre code { @apply bg-transparent p-0; }
+  .prose-brain table { @apply min-w-full text-xs my-2 border border-gray-200 dark:border-gray-700 rounded; }
+  .prose-brain th { @apply px-2 py-1 text-left bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 font-semibold; }
+  .prose-brain td { @apply px-2 py-1 border-b border-gray-200/70 dark:border-gray-700/70; }
+  .prose-brain hr { @apply my-3 border-gray-200 dark:border-gray-700; }
+  .prose-brain strong { @apply font-semibold; }
+  .prose-brain em { @apply italic; }
 }

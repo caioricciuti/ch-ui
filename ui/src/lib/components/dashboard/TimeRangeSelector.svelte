@@ -1,110 +1,125 @@
 <script lang="ts">
-  import { TIME_RANGES } from '../../utils/chart-transform'
   import {
     decodeAbsoluteDashboardRange,
     encodeAbsoluteDashboardRange,
     formatDashboardTimeRangeLabel,
+    resolveNamedPreset,
   } from '../../utils/dashboard-time'
-  import { Clock3, ChevronDown, CalendarClock, TimerReset, SlidersHorizontal } from 'lucide-svelte'
+  import { Clock3, ChevronDown } from 'lucide-svelte'
+  import DualCalendar from './time-picker/DualCalendar.svelte'
+  import TimeInput from './time-picker/TimeInput.svelte'
+  import TimezoneSelect from './time-picker/TimezoneSelect.svelte'
+  import PresetList from './time-picker/PresetList.svelte'
 
   interface Props {
     value: string
     onchange: (value: string) => void
   }
 
-  type PickerTab = 'presets' | 'relative' | 'absolute'
-
   let { value, onchange }: Props = $props()
 
   let open = $state(false)
-  let activeTab = $state<PickerTab>('presets')
-  let relativeFrom = $state('now-1h')
-  let relativeTo = $state('now')
-  let customExpr = $state('')
-  let absoluteFrom = $state('')
-  let absoluteTo = $state('')
+  let rangeStart = $state<Date | null>(null)
+  let rangeEnd = $state<Date | null>(null)
+  let hoverDate = $state<Date | null>(null)
+  let fromTime = $state('00:00:00')
+  let toTime = $state('23:59:59')
+  let timezone = $state('UTC')
   let rootEl: HTMLDivElement | null = null
 
   const label = $derived(formatDashboardTimeRangeLabel(value))
-  const quickRelativeExpressions = ['now-5m', 'now-15m', 'now-1h', 'now-6h', 'now-24h', 'now-7d']
 
+  // Seed calendar state when the picker opens
   $effect(() => {
+    if (!open) return
+
+    // Try to decode the current value into calendar state
     const absolute = decodeAbsoluteDashboardRange(value)
     if (absolute) {
-      absoluteFrom = toDateTimeLocal(absolute.from)
-      absoluteTo = toDateTimeLocal(absolute.to)
-      customExpr = ''
-      activeTab = 'absolute'
-      return
+      const from = new Date(absolute.from)
+      const to = new Date(absolute.to)
+      if (!isNaN(from.getTime()) && !isNaN(to.getTime())) {
+        rangeStart = new Date(from.getFullYear(), from.getMonth(), from.getDate())
+        rangeEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate())
+        fromTime = pad(from.getUTCHours()) + ':' + pad(from.getUTCMinutes()) + ':' + pad(from.getUTCSeconds())
+        toTime = pad(to.getUTCHours()) + ':' + pad(to.getUTCMinutes()) + ':' + pad(to.getUTCSeconds())
+        return
+      }
     }
 
-    const trimmed = value.trim()
-    if (trimmed.includes(' to ')) {
-      const [from, to] = trimmed.split(/\s+to\s+/i)
-      relativeFrom = from.trim() || 'now-1h'
-      relativeTo = to.trim() || 'now'
-      customExpr = trimmed
-      activeTab = 'relative'
-      return
+    // Named presets — resolve to get calendar dates
+    if (value.startsWith('preset:')) {
+      const resolved = resolveNamedPreset(value)
+      if (resolved) {
+        const from = new Date(resolved.from)
+        const to = new Date(resolved.to)
+        rangeStart = new Date(from.getFullYear(), from.getMonth(), from.getDate())
+        rangeEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate())
+        fromTime = pad(from.getUTCHours()) + ':' + pad(from.getUTCMinutes()) + ':' + pad(from.getUTCSeconds())
+        toTime = pad(to.getUTCHours()) + ':' + pad(to.getUTCMinutes()) + ':' + pad(to.getUTCSeconds())
+        return
+      }
     }
 
-    if (trimmed) {
-      relativeFrom = trimmed.startsWith('now-') ? trimmed : `now-${trimmed}`
-      relativeTo = 'now'
-      customExpr = trimmed
-      activeTab = 'relative'
-    }
+    // Relative shorthand — show current moment minus offset
+    const now = new Date()
+    rangeEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    rangeStart = null
+    fromTime = '00:00:00'
+    toTime = pad(now.getUTCHours()) + ':' + pad(now.getUTCMinutes()) + ':' + pad(now.getUTCSeconds())
   })
 
-  function toDateTimeLocal(isoLike: string): string {
-    const d = new Date(isoLike)
-    if (Number.isNaN(d.getTime())) return ''
-    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-    return local.toISOString().slice(0, 16)
+  function pad(n: number): string {
+    return String(n).padStart(2, '0')
   }
 
-  function fromDateTimeLocal(localDateTime: string): string {
-    if (!localDateTime) return ''
-    const d = new Date(localDateTime)
-    if (Number.isNaN(d.getTime())) return ''
-    return d.toISOString()
+  function handleDateSelect(date: Date) {
+    if (!rangeStart || rangeEnd) {
+      rangeStart = date
+      rangeEnd = null
+      hoverDate = null
+    } else {
+      if (date < rangeStart) {
+        rangeEnd = rangeStart
+        rangeStart = date
+      } else {
+        rangeEnd = date
+      }
+      hoverDate = null
+    }
+  }
+
+  function handleDateHover(date: Date | null) {
+    if (rangeStart && !rangeEnd) {
+      hoverDate = date
+    }
+  }
+
+  function applyCalendarRange() {
+    if (!rangeStart || !rangeEnd) return
+    const [fh, fm, fs] = fromTime.split(':').map(Number)
+    const [th, tm, ts] = toTime.split(':').map(Number)
+
+    let fromDate: Date
+    let toDate: Date
+    if (timezone === 'UTC') {
+      fromDate = new Date(Date.UTC(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate(), fh, fm, fs))
+      toDate = new Date(Date.UTC(rangeEnd.getFullYear(), rangeEnd.getMonth(), rangeEnd.getDate(), th, tm, ts))
+    } else {
+      fromDate = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate(), fh, fm, fs)
+      toDate = new Date(rangeEnd.getFullYear(), rangeEnd.getMonth(), rangeEnd.getDate(), th, tm, ts)
+    }
+
+    onchange(encodeAbsoluteDashboardRange(fromDate.toISOString(), toDate.toISOString()))
+    open = false
   }
 
   function applyPreset(v: string) {
     onchange(v)
-    activeTab = 'presets'
     open = false
   }
 
-  function applyRelativeRange() {
-    const from = relativeFrom.trim() || 'now-1h'
-    const to = relativeTo.trim() || 'now'
-    onchange(`${from} to ${to}`)
-    open = false
-  }
-
-  function applyCustomExpr() {
-    const raw = customExpr.trim()
-    if (!raw) return
-    onchange(raw)
-    open = false
-  }
-
-  function applyAbsoluteRange() {
-    const fromISO = fromDateTimeLocal(absoluteFrom)
-    const toISO = fromDateTimeLocal(absoluteTo)
-    if (!fromISO || !toISO) return
-    onchange(encodeAbsoluteDashboardRange(fromISO, toISO))
-    open = false
-  }
-
-  function applyQuickExpr(expr: string) {
-    customExpr = expr
-    onchange(expr)
-    open = false
-  }
-
-  function close() {
+  function cancel() {
     open = false
   }
 
@@ -121,131 +136,79 @@
       open = false
     }
   }
+
+  const rangeDescription = $derived.by(() => {
+    if (!rangeStart) return ''
+    const fmt = (d: Date) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    if (!rangeEnd) return fmt(rangeStart)
+    return `${fmt(rangeStart)}  →  ${fmt(rangeEnd)}`
+  })
 </script>
 
 <svelte:window onmousedown={onWindowMouseDown} onkeydown={onWindowKeyDown} />
 
 <div class="relative" bind:this={rootEl}>
+  <!-- Trigger button -->
   <button
-    class="inline-flex items-center gap-1.5 text-xs bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-ch-orange"
+    class="inline-flex items-center gap-1.5 text-xs bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-ch-orange transition-colors"
     onclick={() => open = !open}
     title="Select dashboard time range"
   >
     <Clock3 size={12} class="text-ch-orange" />
     <span class="max-w-[220px] truncate">{label}</span>
-    <ChevronDown size={12} class="text-gray-400 {open ? 'rotate-180' : ''}" />
+    <ChevronDown size={12} class="text-gray-400 transition-transform {open ? 'rotate-180' : ''}" />
   </button>
 
+  <!-- Popover -->
   {#if open}
-    <div class="absolute right-0 mt-2 z-[70] w-[500px] max-w-[95vw] max-h-[72vh] overflow-y-auto surface-card rounded-xl border border-gray-200 dark:border-gray-800 p-3 shadow-xl backdrop-blur-xl">
-      <div class="mb-3 flex items-center justify-between">
-        <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-          Dashboard Time Range
-        </div>
-        <button class="ds-btn-ghost px-2 py-1 text-[11px]" onclick={close}>Close</button>
-      </div>
-
-      <div class="mb-3 ds-segment w-full">
-        <button
-          class="ds-segment-btn flex-1 {activeTab === 'presets' ? 'ds-segment-btn-active' : ''}"
-          onclick={() => activeTab = 'presets'}
-        >
-          Presets
-        </button>
-        <button
-          class="ds-segment-btn flex-1 {activeTab === 'relative' ? 'ds-segment-btn-active' : ''}"
-          onclick={() => activeTab = 'relative'}
-        >
-          Relative
-        </button>
-        <button
-          class="ds-segment-btn flex-1 {activeTab === 'absolute' ? 'ds-segment-btn-active' : ''}"
-          onclick={() => activeTab = 'absolute'}
-        >
-          Absolute
-        </button>
-      </div>
-
-      {#if activeTab === 'presets'}
-        <div class="grid grid-cols-2 gap-2">
-          {#each TIME_RANGES as range}
-            <button
-              class="text-left rounded border px-2 py-1.5 text-xs transition-colors
-                {value === range.value
-                  ? 'border-ch-orange text-ch-orange bg-orange-100/60 dark:bg-orange-900/20'
-                  : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'}"
-              onclick={() => applyPreset(range.value)}
-            >
-              {range.label}
-            </button>
-          {/each}
-        </div>
-
-        <div class="mt-3 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-100/70 dark:bg-gray-900/60 p-2">
-          <div class="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
-            <SlidersHorizontal size={12} class="text-ch-orange" />
-            Need exact timestamps? Switch to Relative or Absolute above.
-          </div>
-        </div>
-      {:else if activeTab === 'relative'}
-        <div class="space-y-2">
-          <div class="flex items-center gap-2 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-            <TimerReset size={12} class="text-ch-orange" />
-            Relative Expression
-          </div>
-          <div class="grid grid-cols-2 gap-2">
-            <input
-              class="ds-input-sm"
-              bind:value={relativeFrom}
-              placeholder="now-1h"
-            />
-            <input
-              class="ds-input-sm"
-              bind:value={relativeTo}
-              placeholder="now"
-            />
-          </div>
-          <div class="grid grid-cols-3 gap-2">
-            {#each quickRelativeExpressions as expr}
-              <button class="ds-btn-outline px-2 py-1" onclick={() => applyQuickExpr(expr)}>{expr}</button>
-            {/each}
-          </div>
-          <input
-            class="ds-input-sm"
-            bind:value={customExpr}
-            placeholder="now-5m or now-5m to now-1m"
+    <div
+      class="absolute right-0 mt-2 z-[70] surface-card rounded-xl border border-gray-200 dark:border-gray-800 shadow-xl backdrop-blur-xl
+        sm:w-[750px] max-w-[95vw] overflow-hidden"
+    >
+      <div class="relative">
+        <!-- Left: Calendar + time inputs (defines the popover height) -->
+        <div class="p-5 sm:pr-[195px] flex flex-col gap-3">
+          <DualCalendar
+            {rangeStart}
+            {rangeEnd}
+            {hoverDate}
+            onselect={handleDateSelect}
+            onhover={handleDateHover}
           />
-          <div class="flex justify-end gap-2">
-            <button class="ds-btn-outline px-2 py-1" onclick={applyCustomExpr}>Use Expression</button>
-            <button class="ds-btn-primary px-2 py-1" onclick={applyRelativeRange}>Apply Range</button>
+
+          {#if rangeDescription}
+            <div class="text-center text-xs text-gray-500 dark:text-gray-400 font-mono">
+              {rangeDescription}
+            </div>
+          {/if}
+
+          <div class="border-t border-gray-200 dark:border-gray-800 pt-3 flex flex-col gap-2.5">
+            <TimeInput label="From" value={fromTime} onchange={(v) => fromTime = v} />
+            <TimeInput label="To" value={toTime} onchange={(v) => toTime = v} />
+            <TimezoneSelect {timezone} onchange={(v) => timezone = v} />
+          </div>
+
+          <div class="flex items-center justify-end gap-2 pt-1">
+            <button class="ds-btn-outline px-3 py-1.5 text-xs" onclick={cancel}>Cancel</button>
+            <button
+              class="ds-btn-primary px-3 py-1.5 text-xs"
+              onclick={applyCalendarRange}
+              disabled={!rangeStart || !rangeEnd}
+            >
+              Apply
+            </button>
           </div>
         </div>
-      {:else}
-        <div class="space-y-2">
-          <div class="flex items-center gap-2 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-            <CalendarClock size={12} class="text-ch-orange" />
-            Absolute Range
-          </div>
-          <div class="grid grid-cols-2 gap-2">
-            <input
-              type="datetime-local"
-              class="ds-input-sm"
-              bind:value={absoluteFrom}
-            />
-            <input
-              type="datetime-local"
-              class="ds-input-sm"
-              bind:value={absoluteTo}
-            />
-          </div>
-          <p class="text-[11px] text-gray-500 dark:text-gray-400">
-            Uses your local browser timezone. Query variables still receive UTC ISO timestamps.
-          </p>
-          <div class="flex justify-end">
-            <button class="ds-btn-primary px-2 py-1" onclick={applyAbsoluteRange}>Apply Absolute</button>
-          </div>
+
+        <!-- Right: Presets sidebar — absolutely positioned, scrolls within calendar height -->
+        <div class="border-t sm:border-t-0 sm:border-l border-gray-200 dark:border-gray-800
+          w-full max-h-[50vh]
+          sm:absolute sm:top-0 sm:right-0 sm:bottom-0 sm:w-[185px] sm:max-h-none
+          py-3 overflow-y-auto">
+          <PresetList currentValue={value} onselect={applyPreset} />
         </div>
-      {/if}
+      </div>
     </div>
   {/if}
 </div>

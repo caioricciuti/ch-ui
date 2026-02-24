@@ -229,7 +229,7 @@
             <div class="flex items-center gap-2 min-w-0">
               <GripVertical size={12} class="text-gray-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
               <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{panel.name}</span>
-              <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-500">{panel.panel_type}</span>
+
             </div>
             <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button

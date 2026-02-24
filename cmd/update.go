@@ -52,6 +52,10 @@ func init() {
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
+	// Resolve PID file to absolute path so we can detect the running
+	// server regardless of the caller's working directory.
+	updatePIDFile = resolvePIDFile(updatePIDFile)
+
 	// Resolve current binary path
 	currentBin, err := os.Executable()
 	if err != nil {
@@ -256,10 +260,16 @@ func sanitizeServerStartArgs(args []string, pidFile string) []string {
 			a == "--config" || a == "-c" ||
 			a == "--clickhouse-url" ||
 			a == "--connection-name" ||
-			a == "--pid-file" ||
 			a == "--stop-timeout":
 			if i+1 < len(args) {
 				out = append(out, a, args[i+1])
+				i += 2
+				continue
+			}
+			i++
+		case a == "--pid-file":
+			if i+1 < len(args) {
+				out = append(out, a, resolvePIDFile(args[i+1]))
 				i += 2
 				continue
 			}
@@ -268,9 +278,12 @@ func sanitizeServerStartArgs(args []string, pidFile string) []string {
 			strings.HasPrefix(a, "--config=") ||
 			strings.HasPrefix(a, "--clickhouse-url=") ||
 			strings.HasPrefix(a, "--connection-name=") ||
-			strings.HasPrefix(a, "--pid-file=") ||
 			strings.HasPrefix(a, "--stop-timeout="):
 			out = append(out, a)
+			i++
+		case strings.HasPrefix(a, "--pid-file="):
+			val := strings.TrimPrefix(a, "--pid-file=")
+			out = append(out, "--pid-file="+resolvePIDFile(val))
 			i++
 		default:
 			i++

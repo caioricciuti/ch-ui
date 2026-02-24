@@ -10,7 +10,9 @@
   import DataPreview from '../../explorer/DataPreview.svelte'
   import VirtualTable from '../../table/VirtualTable.svelte'
   import Spinner from '../../common/Spinner.svelte'
-  import { Table2, Database, HardDrive, Rows3, Clock, Key, LayoutGrid, RefreshCw, Copy, Check } from 'lucide-svelte'
+  import { Table2, Database, HardDrive, Rows3, Clock, Key, LayoutGrid, RefreshCw, Copy, Check, ChevronDown, Braces, FileSpreadsheet, FileText, Code2 } from 'lucide-svelte'
+  import ContextMenu from '../../common/ContextMenu.svelte'
+  import type { ContextMenuItem } from '../../common/ContextMenu.svelte'
   import { EditorView } from '@codemirror/view'
   import { EditorState, Compartment } from '@codemirror/state'
   import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
@@ -41,6 +43,11 @@
   // Copy button state
   let copied = $state(false)
   let copyTimeout: ReturnType<typeof setTimeout> | undefined
+
+  // Schema copy menu state
+  let schemaCopyMenuOpen = $state(false)
+  let schemaCopyMenuX = $state(0)
+  let schemaCopyMenuY = $state(0)
 
   // CodeMirror state
   let cmContainer = $state<HTMLDivElement>(undefined!)
@@ -191,6 +198,60 @@
     if (copyTimeout) clearTimeout(copyTimeout)
     copyTimeout = setTimeout(() => { copied = false }, 2000)
   }
+
+  function openSchemaCopyMenu(e: MouseEvent) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    schemaCopyMenuX = rect.left
+    schemaCopyMenuY = rect.bottom + 4
+    schemaCopyMenuOpen = true
+  }
+
+  function schemaRows(): Record<string, unknown>[] {
+    return schemaData.map((row) => {
+      const obj: Record<string, unknown> = {}
+      schemaMeta.forEach((col, i) => { obj[col.name] = (row as unknown[])[i] ?? '' })
+      return obj
+    })
+  }
+
+  async function copySchemaAsJSON() {
+    await copyToClipboard(JSON.stringify(schemaRows(), null, 2))
+    success('Schema copied as JSON')
+  }
+
+  async function copySchemaAsTSV() {
+    const header = schemaMeta.map((c) => c.name).join('\t')
+    const rows = schemaData.map((row) => (row as unknown[]).map((v) => v ?? '').join('\t'))
+    await copyToClipboard([header, ...rows].join('\n'))
+    success('Schema copied as TSV')
+  }
+
+  async function copySchemaAsCSV() {
+    const escape = (v: unknown) => {
+      const s = String(v ?? '')
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const header = schemaMeta.map((c) => escape(c.name)).join(',')
+    const rows = schemaData.map((row) => (row as unknown[]).map((v) => escape(v)).join(','))
+    await copyToClipboard([header, ...rows].join('\n'))
+    success('Schema copied as CSV')
+  }
+
+  async function copySchemaAsSQL() {
+    const cols = schemaRows()
+      .map((r) => `  ${r.name} ${r.type}`)
+      .join(',\n')
+    const ddl = `CREATE TABLE ${tab.database}.${tab.table}\n(\n${cols}\n)`
+    await copyToClipboard(ddl)
+    success('Schema copied as SQL')
+  }
+
+  const schemaCopyItems: ContextMenuItem[] = [
+    { id: 'json', label: 'Copy as JSON', icon: Braces, onSelect: copySchemaAsJSON },
+    { id: 'tsv', label: 'Copy as TSV', icon: FileSpreadsheet, onSelect: copySchemaAsTSV },
+    { id: 'csv', label: 'Copy as CSV', icon: FileText, onSelect: copySchemaAsCSV },
+    { id: 'sql', label: 'Copy as SQL', icon: Code2, onSelect: copySchemaAsSQL },
+  ]
 
   async function loadSchema() {
     if (schemaLoaded) return
@@ -383,6 +444,25 @@
           <div class="bg-red-100/20 dark:bg-red-900/20 border border-red-300/50 dark:border-red-800/50 rounded-lg p-3 text-sm text-red-700 dark:text-red-300">{schemaError}</div>
         </div>
       {:else if schemaMeta.length > 0}
+        <div class="flex items-center justify-end px-3 py-1.5 border-b border-gray-200 dark:border-gray-800">
+          <button
+            class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md transition-colors
+              bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+            onclick={openSchemaCopyMenu}
+            title="Copy schema to clipboard"
+          >
+            <Copy size={12} />
+            Copy Schema
+            <ChevronDown size={11} class="text-gray-400 transition-transform {schemaCopyMenuOpen ? 'rotate-180' : ''}" />
+          </button>
+        </div>
+        <ContextMenu
+          open={schemaCopyMenuOpen}
+          x={schemaCopyMenuX}
+          y={schemaCopyMenuY}
+          items={schemaCopyItems}
+          onclose={() => schemaCopyMenuOpen = false}
+        />
         <VirtualTable meta={schemaMeta} data={schemaData} />
       {:else}
         <div class="flex items-center justify-center py-12 text-gray-400 dark:text-gray-600 text-sm">No schema data</div>

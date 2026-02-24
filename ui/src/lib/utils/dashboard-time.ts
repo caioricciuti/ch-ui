@@ -65,6 +65,84 @@ function isAbsoluteToken(value: string): boolean {
   return !Number.isNaN(Date.parse(value))
 }
 
+// ── Named preset resolution ────────────────────────────────
+
+const PRESET_LABELS: Record<string, string> = {
+  'preset:today': 'Today',
+  'preset:yesterday': 'Yesterday',
+  'preset:this-week': 'This Week',
+  'preset:last-week': 'Last Week',
+  'preset:this-month': 'This Month',
+  'preset:last-month': 'Last Month',
+  'preset:last-3-months': 'Last 3 Months',
+  'preset:last-6-months': 'Last 6 Months',
+}
+
+const DURATION_LABELS: Record<string, string> = {
+  '5m': 'Last 5m',
+  '15m': 'Last 15m',
+  '30m': 'Last 30m',
+  '1h': 'Last 1h',
+  '3h': 'Last 3h',
+  '6h': 'Last 6h',
+  '12h': 'Last 12h',
+  '24h': 'Last 24h',
+  '7d': 'Last 7d',
+  '30d': 'Last 30d',
+}
+
+export function resolveNamedPreset(name: string): { from: string; to: string } | null {
+  const now = new Date()
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+  switch (name) {
+    case 'preset:today':
+      return { from: startOfDay.toISOString(), to: now.toISOString() }
+    case 'preset:yesterday': {
+      const yd = new Date(startOfDay)
+      yd.setDate(yd.getDate() - 1)
+      return { from: yd.toISOString(), to: startOfDay.toISOString() }
+    }
+    case 'preset:this-week': {
+      const dow = now.getDay()
+      const startOfWeek = new Date(startOfDay)
+      startOfWeek.setDate(startOfWeek.getDate() - dow)
+      return { from: startOfWeek.toISOString(), to: now.toISOString() }
+    }
+    case 'preset:last-week': {
+      const dow = now.getDay()
+      const endOfLastWeek = new Date(startOfDay)
+      endOfLastWeek.setDate(endOfLastWeek.getDate() - dow)
+      const startOfLastWeek = new Date(endOfLastWeek)
+      startOfLastWeek.setDate(startOfLastWeek.getDate() - 7)
+      return { from: startOfLastWeek.toISOString(), to: endOfLastWeek.toISOString() }
+    }
+    case 'preset:this-month': {
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+      return { from: startOfMonth.toISOString(), to: now.toISOString() }
+    }
+    case 'preset:last-month': {
+      const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      return { from: startOfLastMonth.toISOString(), to: startOfThisMonth.toISOString() }
+    }
+    case 'preset:last-3-months': {
+      const d = new Date(now)
+      d.setMonth(d.getMonth() - 3)
+      return { from: d.toISOString(), to: now.toISOString() }
+    }
+    case 'preset:last-6-months': {
+      const d = new Date(now)
+      d.setMonth(d.getMonth() - 6)
+      return { from: d.toISOString(), to: now.toISOString() }
+    }
+    default:
+      return null
+  }
+}
+
+// ── Public API ──────────────────────────────────────────────
+
 export function formatDashboardTimeRangeLabel(value: string): string {
   const absolute = decodeAbsoluteDashboardRange(value)
   if (absolute) {
@@ -75,19 +153,22 @@ export function formatDashboardTimeRangeLabel(value: string): string {
 
   const trimmed = value.trim()
   if (!trimmed) return 'Last 1h'
+  if (PRESET_LABELS[trimmed]) return PRESET_LABELS[trimmed]
+  if (DURATION_LABELS[trimmed]) return DURATION_LABELS[trimmed]
   if (trimmed.includes(' to ')) return trimmed
-  if (trimmed === '5m') return 'Last 5m'
-  if (trimmed === '15m') return 'Last 15m'
-  if (trimmed === '1h') return 'Last 1h'
-  if (trimmed === '6h') return 'Last 6h'
-  if (trimmed === '24h') return 'Last 24h'
-  if (trimmed === '7d') return 'Last 7d'
-  if (trimmed === '30d') return 'Last 30d'
   return trimmed
 }
 
 export function toDashboardTimeRangePayload(value: string): DashboardTimeRangePayload {
   const trimmed = value.trim()
+
+  // Named presets — resolved at query time to absolute ranges
+  if (trimmed.startsWith('preset:')) {
+    const resolved = resolveNamedPreset(trimmed)
+    if (resolved) {
+      return { type: 'absolute', from: resolved.from, to: resolved.to }
+    }
+  }
 
   const absolute = decodeAbsoluteDashboardRange(trimmed)
   if (absolute) {

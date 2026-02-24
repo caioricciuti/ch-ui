@@ -126,6 +126,11 @@
     { value: 'openai_compatible', label: 'openai_compatible' },
     { value: 'ollama', label: 'ollama' },
   ]
+  const providerBaseUrls: Record<string, string> = {
+    openai: 'https://api.openai.com/v1',
+    openai_compatible: '',
+    ollama: 'http://localhost:11434/v1',
+  }
   const clickHouseAuthTypeOptions: ComboboxOption[] = [
     { value: 'sha256_password', label: 'sha256_password' },
     { value: 'plaintext_password', label: 'plaintext_password' },
@@ -790,14 +795,18 @@
         <Combobox
           options={providerKindOptions}
           value={providerForm.kind}
-          onChange={(v) => providerForm = { ...providerForm, kind: v }}
+          onChange={(v) => providerForm = { ...providerForm, kind: v, baseUrl: providerBaseUrls[v] ?? '' }}
         />
       </label>
       <label class="space-y-1 md:col-span-2">
         <span class="text-xs text-gray-500">Base URL</span>
         <input
           class="ds-input-sm"
-          placeholder={providerForm.kind === 'ollama' ? 'http://localhost:11434/v1' : 'https://api.openai.com'}
+          placeholder={providerForm.kind === 'ollama'
+            ? 'http://localhost:11434/v1'
+            : providerForm.kind === 'openai_compatible'
+              ? 'https://your-gateway.example.com'
+              : 'https://api.openai.com/v1'}
           bind:value={providerForm.baseUrl}
         />
       </label>
