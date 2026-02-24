@@ -1,7 +1,9 @@
 package database
 
 import (
+	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -487,6 +489,7 @@ func (db *DB) runMigrations() error {
 			object_column TEXT,
 			required_role TEXT,
 			severity TEXT DEFAULT 'warn',
+			enforcement_mode TEXT NOT NULL DEFAULT 'warn',
 			enabled INTEGER DEFAULT 1,
 			created_by TEXT,
 			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -503,6 +506,8 @@ func (db *DB) runMigrations() error {
 			ch_user TEXT NOT NULL,
 			violation_detail TEXT,
 			severity TEXT NOT NULL,
+			detection_phase TEXT NOT NULL DEFAULT 'post_exec',
+			request_endpoint TEXT,
 			detected_at TEXT NOT NULL,
 			created_at TEXT DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -690,6 +695,16 @@ func (db *DB) runMigrations() error {
 		}
 	}
 
+	if err := db.ensureColumn("gov_policies", "enforcement_mode", "TEXT NOT NULL DEFAULT 'warn'"); err != nil {
+		return err
+	}
+	if err := db.ensureColumn("gov_policy_violations", "detection_phase", "TEXT NOT NULL DEFAULT 'post_exec'"); err != nil {
+		return err
+	}
+	if err := db.ensureColumn("gov_policy_violations", "request_endpoint", "TEXT"); err != nil {
+		return err
+	}
+
 	// Drop legacy tables from the old SaaS schema
 	dropLegacy := []string{
 		"DROP TABLE IF EXISTS organizations",
@@ -751,5 +766,35 @@ Formatting:
 	}
 
 	slog.Info("Database migrations completed")
+	return nil
+}
+
+func (db *DB) ensureColumn(tableName, columnName, definition string) error {
+	rows, err := db.conn.Query(fmt.Sprintf("PRAGMA table_info(%s)", tableName))
+	if err != nil {
+		return fmt.Errorf("inspect table %s columns: %w", tableName, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dfltValue interface{}
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			return fmt.Errorf("scan table info for %s: %w", tableName, err)
+		}
+		if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(columnName)) {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate table info for %s: %w", tableName, err)
+	}
+
+	if _, err := db.conn.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, columnName, definition)); err != nil {
+		return fmt.Errorf("add column %s.%s: %w", tableName, columnName, err)
+	}
+
 	return nil
 }

@@ -27,6 +27,7 @@ type Server struct {
 	gateway    *tunnel.Gateway
 	scheduler  *scheduler.Runner
 	govSyncer  *governance.Syncer
+	guardrails *governance.GuardrailService
 	alerts     *alerts.Dispatcher
 	router     chi.Router
 	http       *http.Server
@@ -50,6 +51,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS) *Server {
 		gateway:    gw,
 		scheduler:  sched,
 		govSyncer:  govSyncer,
+		guardrails: governance.NewGuardrailService(govStore, db),
 		alerts:     alertDispatcher,
 		router:     r,
 		frontendFS: frontendFS,
@@ -117,7 +119,7 @@ func (s *Server) setupRoutes() {
 			protected.Post("/license/deactivate", licenseHandler.DeactivateLicense)
 
 			// Query execution (community)
-			queryHandler := &handlers.QueryHandler{DB: db, Gateway: gw, Config: cfg}
+			queryHandler := &handlers.QueryHandler{DB: db, Gateway: gw, Config: cfg, Guardrails: s.guardrails}
 			protected.Route("/query", queryHandler.Routes)
 
 			// Connections management (community)
@@ -136,6 +138,21 @@ func (s *Server) setupRoutes() {
 			savedQueriesHandler := &handlers.SavedQueriesHandler{DB: db}
 			protected.Route("/saved-queries", savedQueriesHandler.Routes)
 
+			// ── Community features ─────────────────────────────────────
+			// Dashboards
+			dashboardsHandler := &handlers.DashboardsHandler{DB: db, Gateway: gw, Config: cfg}
+			protected.Mount("/dashboards", dashboardsHandler.Routes())
+
+			// Brain AI assistant
+			brainHandler := &handlers.BrainHandler{DB: db, Gateway: gw, Config: cfg}
+			protected.Route("/brain", brainHandler.Routes)
+
+			// Admin routes (require admin role)
+			adminHandler := &handlers.AdminHandler{DB: db, Gateway: gw, Config: cfg}
+			protected.Route("/admin", func(ar chi.Router) {
+				adminHandler.Routes(ar)
+			})
+
 			// ── Pro-only features ──────────────────────────────────────
 			protected.Group(func(pro chi.Router) {
 				pro.Use(middleware.RequirePro(cfg))
@@ -143,20 +160,6 @@ func (s *Server) setupRoutes() {
 				// Scheduled jobs
 				schedulesHandler := &handlers.SchedulesHandler{DB: db, Gateway: gw, Config: cfg}
 				pro.Route("/schedules", schedulesHandler.Routes)
-
-				// Dashboards
-				dashboardsHandler := &handlers.DashboardsHandler{DB: db, Gateway: gw, Config: cfg}
-				pro.Mount("/dashboards", dashboardsHandler.Routes())
-
-				// Brain AI assistant
-				brainHandler := &handlers.BrainHandler{DB: db, Gateway: gw, Config: cfg}
-				pro.Route("/brain", brainHandler.Routes)
-
-				// Admin routes (require admin role)
-				adminHandler := &handlers.AdminHandler{DB: db, Gateway: gw, Config: cfg}
-				pro.Route("/admin", func(ar chi.Router) {
-					adminHandler.Routes(ar)
-				})
 
 				// Governance
 				govHandler := &handlers.GovernanceHandler{

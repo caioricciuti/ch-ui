@@ -38,11 +38,11 @@
 
   const navItems: NavItem[] = [
     { type: 'saved-queries', label: 'Saved Queries', icon: Bookmark },
-    { type: 'dashboards', label: 'Dashboards', icon: LayoutDashboard, pro: true },
+    { type: 'dashboards', label: 'Dashboards', icon: LayoutDashboard },
     { type: 'schedules', label: 'Schedules', icon: Clock, pro: true },
-    { type: 'brain', label: 'Brain', icon: Brain, pro: true },
+    { type: 'brain', label: 'Brain', icon: Brain },
     { type: 'governance', label: 'Governance', icon: Scale, pro: true },
-    { type: 'admin', label: 'Admin', icon: Shield, pro: true },
+    { type: 'admin', label: 'Admin', icon: Shield },
     { type: 'settings', label: 'License', icon: Settings },
   ]
 

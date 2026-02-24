@@ -13,6 +13,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/governance"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"github.com/go-chi/chi/v5"
@@ -22,9 +23,10 @@ const maxQueryTimeout = 5 * time.Minute
 
 // QueryHandler handles SQL query execution and schema exploration endpoints.
 type QueryHandler struct {
-	DB      *database.DB
-	Gateway *tunnel.Gateway
-	Config  *config.Config
+	DB         *database.DB
+	Gateway    *tunnel.Gateway
+	Config     *config.Config
+	Guardrails *governance.GuardrailService
 }
 
 // Routes registers all query-related routes on the given chi.Router.
@@ -161,6 +163,9 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Query is required")
 		return
 	}
+	if !h.enforceGuardrailsForQuery(w, r, query, r.URL.Path) {
+		return
+	}
 
 	// Determine timeout
 	timeout := 30 * time.Second
@@ -268,6 +273,9 @@ func (h *QueryHandler) ExplainQuery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Query is required")
 		return
 	}
+	if !h.enforceGuardrailsForQuery(w, r, query, r.URL.Path) {
+		return
+	}
 
 	password, err := crypto.Decrypt(session.EncryptedPassword, h.Config.AppSecretKey)
 	if err != nil {
@@ -315,6 +323,9 @@ func (h *QueryHandler) QueryPlan(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(req.Query)
 	if query == "" {
 		writeError(w, http.StatusBadRequest, "Query is required")
+		return
+	}
+	if !h.enforceGuardrailsForQuery(w, r, query, r.URL.Path) {
 		return
 	}
 
@@ -392,6 +403,9 @@ func (h *QueryHandler) SampleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	if !isReadOnlyQuery(query) {
 		writeError(w, http.StatusBadRequest, "Sampling only supports read-only SELECT/WITH queries")
+		return
+	}
+	if !h.enforceGuardrailsForQuery(w, r, query, r.URL.Path) {
 		return
 	}
 
@@ -500,6 +514,9 @@ func (h *QueryHandler) QueryProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Query is required")
 		return
 	}
+	if !h.enforceGuardrailsForQuery(w, r, query, r.URL.Path) {
+		return
+	}
 
 	password, err := crypto.Decrypt(session.EncryptedPassword, h.Config.AppSecretKey)
 	if err != nil {
@@ -579,6 +596,9 @@ func (h *QueryHandler) StreamQuery(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(req.Query)
 	if query == "" {
 		writeError(w, http.StatusBadRequest, "Query is required")
+		return
+	}
+	if !h.enforceGuardrailsForQuery(w, r, query, r.URL.Path) {
 		return
 	}
 
@@ -702,6 +722,9 @@ func (h *QueryHandler) ExplorerData(w http.ResponseWriter, r *http.Request) {
 
 	if req.Database == "" || req.Table == "" {
 		writeError(w, http.StatusBadRequest, "database and table are required")
+		return
+	}
+	if !h.enforceGuardrailsForTable(w, r, req.Database, req.Table, r.URL.Path) {
 		return
 	}
 	if req.PageSize <= 0 || req.PageSize > 1000 {
@@ -1551,6 +1574,84 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	})
 }
 
+func (h *QueryHandler) guardrailsEnabled() bool {
+	if h.Guardrails == nil {
+		return false
+	}
+	if h.Config == nil {
+		return true
+	}
+	return h.Config.IsPro()
+}
+
+func (h *QueryHandler) enforceGuardrailsForQuery(w http.ResponseWriter, r *http.Request, queryText, requestEndpoint string) bool {
+	if !h.guardrailsEnabled() {
+		return true
+	}
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return false
+	}
+
+	decision, err := h.Guardrails.EvaluateQuery(session.ConnectionID, session.ClickhouseUser, queryText, requestEndpoint)
+	if err != nil {
+		slog.Error("Guardrail pre-exec evaluation failed", "connection", session.ConnectionID, "endpoint", requestEndpoint, "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to evaluate governance guardrails")
+		return false
+	}
+	if decision.Allowed {
+		return true
+	}
+	h.writePolicyBlocked(w, decision.Block)
+	return false
+}
+
+func (h *QueryHandler) enforceGuardrailsForTable(w http.ResponseWriter, r *http.Request, databaseName, tableName, requestEndpoint string) bool {
+	if !h.guardrailsEnabled() {
+		return true
+	}
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return false
+	}
+
+	decision, err := h.Guardrails.EvaluateTable(session.ConnectionID, session.ClickhouseUser, databaseName, tableName, requestEndpoint)
+	if err != nil {
+		slog.Error("Guardrail table pre-exec evaluation failed", "connection", session.ConnectionID, "database", databaseName, "table", tableName, "endpoint", requestEndpoint, "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to evaluate governance guardrails")
+		return false
+	}
+	if decision.Allowed {
+		return true
+	}
+	h.writePolicyBlocked(w, decision.Block)
+	return false
+}
+
+func (h *QueryHandler) writePolicyBlocked(w http.ResponseWriter, block *governance.GuardrailBlock) {
+	if block == nil {
+		writeJSON(w, http.StatusForbidden, map[string]interface{}{
+			"success": false,
+			"error":   "Query blocked by governance policy",
+			"code":    "policy_blocked",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusForbidden, map[string]interface{}{
+		"success":          false,
+		"error":            block.Detail,
+		"code":             "policy_blocked",
+		"policy_id":        block.PolicyID,
+		"policy_name":      block.PolicyName,
+		"severity":         block.Severity,
+		"enforcement_mode": block.EnforcementMode,
+		"violation_id":     block.ViolationID,
+	})
+}
+
 // escapeIdentifier wraps a SQL identifier in backticks and escapes any inner backticks.
 func escapeIdentifier(name string) string {
 	escaped := strings.ReplaceAll(name, "`", "``")
@@ -1558,7 +1659,7 @@ func escapeIdentifier(name string) string {
 }
 
 // escapeLiteral escapes single quotes and backslashes for ClickHouse SQL string literals.
-// ClickHouse uses '' (doubled single-quote) to escape single quotes in string literals.
+// ClickHouse uses ” (doubled single-quote) to escape single quotes in string literals.
 func escapeLiteral(value string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(value, "\\", "\\\\"), "'", "''")
 }

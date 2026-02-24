@@ -25,7 +25,7 @@
   const activeTab = $derived(getGroupActiveTab(groupId))
   const proActive = $derived(isProActive())
   const licenseLoading = $derived(isLicenseLoading())
-  const requiresPro = $derived(!!activeTab && ['dashboards', 'dashboard', 'schedules', 'brain', 'admin', 'governance'].includes(activeTab.type))
+  const requiresPro = $derived(!!activeTab && ['schedules', 'governance'].includes(activeTab.type))
   let licenseChecked = $state(false)
 
   onMount(() => {
@@ -45,17 +45,10 @@
   function proFeatureLabel(): string {
     if (!activeTab) return 'this section'
     switch (activeTab.type) {
-      case 'dashboards':
-      case 'dashboard':
-        return 'Dashboards'
       case 'schedules':
         return 'Scheduled Jobs'
-      case 'brain':
-        return 'Brain AI'
       case 'governance':
         return 'Governance'
-      case 'admin':
-        return 'Admin Panel'
       default:
         return 'this section'
     }

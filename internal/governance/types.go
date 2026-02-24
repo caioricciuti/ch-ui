@@ -227,32 +227,35 @@ type AccessMatrixEntry struct {
 }
 
 type Policy struct {
-	ID             string  `json:"id"`
-	ConnectionID   string  `json:"connection_id"`
-	Name           string  `json:"name"`
-	Description    *string `json:"description"`
-	ObjectType     string  `json:"object_type"`
-	ObjectDatabase *string `json:"object_database"`
-	ObjectTable    *string `json:"object_table"`
-	ObjectColumn   *string `json:"object_column"`
-	RequiredRole   string  `json:"required_role"`
-	Severity       string  `json:"severity"`
-	Enabled        bool    `json:"enabled"`
-	CreatedBy      *string `json:"created_by"`
-	CreatedAt      string  `json:"created_at"`
-	UpdatedAt      string  `json:"updated_at"`
+	ID              string  `json:"id"`
+	ConnectionID    string  `json:"connection_id"`
+	Name            string  `json:"name"`
+	Description     *string `json:"description"`
+	ObjectType      string  `json:"object_type"`
+	ObjectDatabase  *string `json:"object_database"`
+	ObjectTable     *string `json:"object_table"`
+	ObjectColumn    *string `json:"object_column"`
+	RequiredRole    string  `json:"required_role"`
+	Severity        string  `json:"severity"`
+	EnforcementMode string  `json:"enforcement_mode"`
+	Enabled         bool    `json:"enabled"`
+	CreatedBy       *string `json:"created_by"`
+	CreatedAt       string  `json:"created_at"`
+	UpdatedAt       string  `json:"updated_at"`
 }
 
 type PolicyViolation struct {
-	ID              string `json:"id"`
-	ConnectionID    string `json:"connection_id"`
-	PolicyID        string `json:"policy_id"`
-	QueryLogID      string `json:"query_log_id"`
-	User            string `json:"ch_user"`
-	ViolationDetail string `json:"violation_detail"`
-	Severity        string `json:"severity"`
-	DetectedAt      string `json:"detected_at"`
-	CreatedAt       string `json:"created_at"`
+	ID              string  `json:"id"`
+	ConnectionID    string  `json:"connection_id"`
+	PolicyID        string  `json:"policy_id"`
+	QueryLogID      string  `json:"query_log_id"`
+	User            string  `json:"ch_user"`
+	ViolationDetail string  `json:"violation_detail"`
+	Severity        string  `json:"severity"`
+	DetectionPhase  string  `json:"detection_phase"`
+	RequestEndpoint *string `json:"request_endpoint"`
+	DetectedAt      string  `json:"detected_at"`
+	CreatedAt       string  `json:"created_at"`
 	// Joined fields
 	PolicyName string `json:"policy_name,omitempty"`
 }

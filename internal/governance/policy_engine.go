@@ -45,6 +45,9 @@ func EvaluatePolicies(connectionID string, entry QueryLogEntry, policies []Polic
 		if !policy.Enabled {
 			continue
 		}
+		if normalizePolicyEnforcementMode(policy.EnforcementMode) == "block" {
+			continue
+		}
 
 		// Check whether the query touches the object protected by this policy.
 		if !queryTouchesObject(tablesUsed, entry.QueryText, policy) {

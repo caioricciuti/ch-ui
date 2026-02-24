@@ -295,20 +295,24 @@ func (s *Store) UpsertIncidentFromViolation(connectionID, sourceRef, policyName,
 
 func (s *Store) GetViolationByID(id string) (*PolicyViolation, error) {
 	row := s.conn().QueryRow(
-		`SELECT v.id, v.connection_id, v.policy_id, v.query_log_id, v.ch_user, v.violation_detail, v.severity, v.detected_at, v.created_at, COALESCE(p.name, '')
+		`SELECT v.id, v.connection_id, v.policy_id, v.query_log_id, v.ch_user, v.violation_detail, v.severity, v.detection_phase, v.request_endpoint, v.detected_at, v.created_at, COALESCE(p.name, '')
 		 FROM gov_policy_violations v
 		 LEFT JOIN gov_policies p ON p.id = v.policy_id
 		 WHERE v.id = ?`,
 		id,
 	)
 	var v PolicyViolation
-	err := row.Scan(&v.ID, &v.ConnectionID, &v.PolicyID, &v.QueryLogID, &v.User, &v.ViolationDetail, &v.Severity, &v.DetectedAt, &v.CreatedAt, &v.PolicyName)
+	var queryLogID, requestEndpoint sql.NullString
+	err := row.Scan(&v.ID, &v.ConnectionID, &v.PolicyID, &queryLogID, &v.User, &v.ViolationDetail, &v.Severity, &v.DetectionPhase, &requestEndpoint, &v.DetectedAt, &v.CreatedAt, &v.PolicyName)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get violation by id: %w", err)
 	}
+	v.QueryLogID = queryLogID.String
+	v.RequestEndpoint = nullStringToPtr(requestEndpoint)
+	v.DetectionPhase = normalizeDetectionPhase(v.DetectionPhase)
 	return &v, nil
 }
 

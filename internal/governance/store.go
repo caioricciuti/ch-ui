@@ -3,6 +3,7 @@ package governance
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
@@ -1324,7 +1325,7 @@ func scanAccessMatrix(rows *sql.Rows) ([]AccessMatrixEntry, error) {
 // GetPolicies returns all policies for a connection.
 func (s *Store) GetPolicies(connectionID string) ([]Policy, error) {
 	return s.scanPolicies(
-		`SELECT id, connection_id, name, description, object_type, object_database, object_table, object_column, required_role, severity, enabled, created_by, created_at, updated_at
+		`SELECT id, connection_id, name, description, object_type, object_database, object_table, object_column, required_role, severity, enforcement_mode, enabled, created_by, created_at, updated_at
 		 FROM gov_policies WHERE connection_id = ? ORDER BY name`, connectionID,
 	)
 }
@@ -1332,7 +1333,7 @@ func (s *Store) GetPolicies(connectionID string) ([]Policy, error) {
 // GetEnabledPolicies returns all enabled policies for a connection.
 func (s *Store) GetEnabledPolicies(connectionID string) ([]Policy, error) {
 	return s.scanPolicies(
-		`SELECT id, connection_id, name, description, object_type, object_database, object_table, object_column, required_role, severity, enabled, created_by, created_at, updated_at
+		`SELECT id, connection_id, name, description, object_type, object_database, object_table, object_column, required_role, severity, enforcement_mode, enabled, created_by, created_at, updated_at
 		 FROM gov_policies WHERE connection_id = ? AND enabled = 1 ORDER BY name`, connectionID,
 	)
 }
@@ -1347,14 +1348,15 @@ func (s *Store) scanPolicies(query string, args ...interface{}) ([]Policy, error
 	var results []Policy
 	for rows.Next() {
 		var p Policy
-		var desc, objDB, objTable, objCol, createdBy sql.NullString
-		if err := rows.Scan(&p.ID, &p.ConnectionID, &p.Name, &desc, &p.ObjectType, &objDB, &objTable, &objCol, &p.RequiredRole, &p.Severity, &p.Enabled, &createdBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		var desc, objDB, objTable, objCol, createdBy, enforcementMode sql.NullString
+		if err := rows.Scan(&p.ID, &p.ConnectionID, &p.Name, &desc, &p.ObjectType, &objDB, &objTable, &objCol, &p.RequiredRole, &p.Severity, &enforcementMode, &p.Enabled, &createdBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan policy: %w", err)
 		}
 		p.Description = nullStringToPtr(desc)
 		p.ObjectDatabase = nullStringToPtr(objDB)
 		p.ObjectTable = nullStringToPtr(objTable)
 		p.ObjectColumn = nullStringToPtr(objCol)
+		p.EnforcementMode = normalizePolicyEnforcementMode(enforcementMode.String)
 		p.CreatedBy = nullStringToPtr(createdBy)
 		results = append(results, p)
 	}
@@ -1367,13 +1369,13 @@ func (s *Store) scanPolicies(query string, args ...interface{}) ([]Policy, error
 // GetPolicyByID returns a single policy by ID.
 func (s *Store) GetPolicyByID(id string) (*Policy, error) {
 	row := s.conn().QueryRow(
-		`SELECT id, connection_id, name, description, object_type, object_database, object_table, object_column, required_role, severity, enabled, created_by, created_at, updated_at
+		`SELECT id, connection_id, name, description, object_type, object_database, object_table, object_column, required_role, severity, enforcement_mode, enabled, created_by, created_at, updated_at
 		 FROM gov_policies WHERE id = ?`, id,
 	)
 
 	var p Policy
-	var desc, objDB, objTable, objCol, createdBy sql.NullString
-	err := row.Scan(&p.ID, &p.ConnectionID, &p.Name, &desc, &p.ObjectType, &objDB, &objTable, &objCol, &p.RequiredRole, &p.Severity, &p.Enabled, &createdBy, &p.CreatedAt, &p.UpdatedAt)
+	var desc, objDB, objTable, objCol, createdBy, enforcementMode sql.NullString
+	err := row.Scan(&p.ID, &p.ConnectionID, &p.Name, &desc, &p.ObjectType, &objDB, &objTable, &objCol, &p.RequiredRole, &p.Severity, &enforcementMode, &p.Enabled, &createdBy, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1384,12 +1386,13 @@ func (s *Store) GetPolicyByID(id string) (*Policy, error) {
 	p.ObjectDatabase = nullStringToPtr(objDB)
 	p.ObjectTable = nullStringToPtr(objTable)
 	p.ObjectColumn = nullStringToPtr(objCol)
+	p.EnforcementMode = normalizePolicyEnforcementMode(enforcementMode.String)
 	p.CreatedBy = nullStringToPtr(createdBy)
 	return &p, nil
 }
 
 // CreatePolicy creates a new policy and returns its ID.
-func (s *Store) CreatePolicy(connectionID, name, description, objectType, objectDB, objectTable, objectCol, requiredRole, severity, createdBy string) (string, error) {
+func (s *Store) CreatePolicy(connectionID, name, description, objectType, objectDB, objectTable, objectCol, requiredRole, severity, enforcementMode, createdBy string) (string, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	id := uuid.NewString()
 
@@ -1411,9 +1414,9 @@ func (s *Store) CreatePolicy(connectionID, name, description, objectType, object
 	}
 
 	_, err := s.conn().Exec(
-		`INSERT INTO gov_policies (id, connection_id, name, description, object_type, object_database, object_table, object_column, required_role, severity, enabled, created_by, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
-		id, connectionID, name, desc, objectType, oDB, oTable, oCol, requiredRole, severity, cBy, now, now,
+		`INSERT INTO gov_policies (id, connection_id, name, description, object_type, object_database, object_table, object_column, required_role, severity, enforcement_mode, enabled, created_by, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+		id, connectionID, name, desc, objectType, oDB, oTable, oCol, requiredRole, severity, normalizePolicyEnforcementMode(enforcementMode), cBy, now, now,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create policy: %w", err)
@@ -1422,7 +1425,7 @@ func (s *Store) CreatePolicy(connectionID, name, description, objectType, object
 }
 
 // UpdatePolicy updates an existing policy.
-func (s *Store) UpdatePolicy(id, name, description, requiredRole, severity string, enabled bool) error {
+func (s *Store) UpdatePolicy(id, name, description, requiredRole, severity, enforcementMode string, enabled bool) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	var desc interface{}
@@ -1436,8 +1439,8 @@ func (s *Store) UpdatePolicy(id, name, description, requiredRole, severity strin
 	}
 
 	_, err := s.conn().Exec(
-		`UPDATE gov_policies SET name = ?, description = ?, required_role = ?, severity = ?, enabled = ?, updated_at = ? WHERE id = ?`,
-		name, desc, requiredRole, severity, enabledInt, now, id,
+		`UPDATE gov_policies SET name = ?, description = ?, required_role = ?, severity = ?, enforcement_mode = ?, enabled = ?, updated_at = ? WHERE id = ?`,
+		name, desc, requiredRole, severity, normalizePolicyEnforcementMode(enforcementMode), enabledInt, now, id,
 	)
 	if err != nil {
 		return fmt.Errorf("update policy: %w", err)
@@ -1459,9 +1462,9 @@ func (s *Store) DeletePolicy(id string) error {
 // InsertPolicyViolation inserts a policy violation from a PolicyViolation struct.
 func (s *Store) InsertPolicyViolation(v PolicyViolation) error {
 	_, err := s.conn().Exec(
-		`INSERT INTO gov_policy_violations (id, connection_id, policy_id, query_log_id, ch_user, violation_detail, severity, detected_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		v.ID, v.ConnectionID, v.PolicyID, v.QueryLogID, v.User, v.ViolationDetail, v.Severity, v.DetectedAt, v.CreatedAt,
+		`INSERT INTO gov_policy_violations (id, connection_id, policy_id, query_log_id, ch_user, violation_detail, severity, detection_phase, request_endpoint, detected_at, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		v.ID, v.ConnectionID, v.PolicyID, nullableValue(v.QueryLogID), v.User, v.ViolationDetail, v.Severity, normalizeDetectionPhase(v.DetectionPhase), nullableValue(deref(v.RequestEndpoint)), v.DetectedAt, v.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("insert policy violation: %w", err)
@@ -1470,14 +1473,14 @@ func (s *Store) InsertPolicyViolation(v PolicyViolation) error {
 }
 
 // CreateViolation creates a new policy violation and returns its ID.
-func (s *Store) CreateViolation(connectionID, policyID, queryLogID, user, detail, severity string) (string, error) {
+func (s *Store) CreateViolation(connectionID, policyID, queryLogID, user, detail, severity, detectionPhase, requestEndpoint string) (string, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	id := uuid.NewString()
 
 	_, err := s.conn().Exec(
-		`INSERT INTO gov_policy_violations (id, connection_id, policy_id, query_log_id, ch_user, violation_detail, severity, detected_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, connectionID, policyID, queryLogID, user, detail, severity, now, now,
+		`INSERT INTO gov_policy_violations (id, connection_id, policy_id, query_log_id, ch_user, violation_detail, severity, detection_phase, request_endpoint, detected_at, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, connectionID, policyID, nullableValue(queryLogID), user, detail, severity, normalizeDetectionPhase(detectionPhase), nullableValue(requestEndpoint), now, now,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create violation: %w", err)
@@ -1499,7 +1502,7 @@ func (s *Store) GetViolations(connectionID string, limit int, policyID string) (
 	args = append(args, limit)
 
 	query := fmt.Sprintf(
-		`SELECT v.id, v.connection_id, v.policy_id, v.query_log_id, v.ch_user, v.violation_detail, v.severity, v.detected_at, v.created_at, COALESCE(p.name, '')
+		`SELECT v.id, v.connection_id, v.policy_id, v.query_log_id, v.ch_user, v.violation_detail, v.severity, v.detection_phase, v.request_endpoint, v.detected_at, v.created_at, COALESCE(p.name, '')
 		 FROM gov_policy_violations v
 		 LEFT JOIN gov_policies p ON p.id = v.policy_id
 		 WHERE %s
@@ -1516,15 +1519,39 @@ func (s *Store) GetViolations(connectionID string, limit int, policyID string) (
 	var results []PolicyViolation
 	for rows.Next() {
 		var v PolicyViolation
-		if err := rows.Scan(&v.ID, &v.ConnectionID, &v.PolicyID, &v.QueryLogID, &v.User, &v.ViolationDetail, &v.Severity, &v.DetectedAt, &v.CreatedAt, &v.PolicyName); err != nil {
+		var queryLogID, requestEndpoint sql.NullString
+		if err := rows.Scan(&v.ID, &v.ConnectionID, &v.PolicyID, &queryLogID, &v.User, &v.ViolationDetail, &v.Severity, &v.DetectionPhase, &requestEndpoint, &v.DetectedAt, &v.CreatedAt, &v.PolicyName); err != nil {
 			return nil, fmt.Errorf("scan violation: %w", err)
 		}
+		v.QueryLogID = queryLogID.String
+		v.RequestEndpoint = nullStringToPtr(requestEndpoint)
+		v.DetectionPhase = normalizeDetectionPhase(v.DetectionPhase)
 		results = append(results, v)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate violation rows: %w", err)
 	}
 	return results, nil
+}
+
+func normalizePolicyEnforcementMode(v string) string {
+	mode := strings.ToLower(strings.TrimSpace(v))
+	switch mode {
+	case "block":
+		return "block"
+	default:
+		return "warn"
+	}
+}
+
+func normalizeDetectionPhase(v string) string {
+	phase := strings.ToLower(strings.TrimSpace(v))
+	switch phase {
+	case "pre_exec_block":
+		return "pre_exec_block"
+	default:
+		return "post_exec"
+	}
 }
 
 // ── Overview ─────────────────────────────────────────────────────────────────

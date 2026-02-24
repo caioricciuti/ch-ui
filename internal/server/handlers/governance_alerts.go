@@ -35,7 +35,7 @@ type alertRuleResponse struct {
 	Routes []database.AlertRuleRouteView `json:"routes"`
 }
 
-func (h *AdminHandler) ListAlertChannels(w http.ResponseWriter, r *http.Request) {
+func (h *GovernanceHandler) ListAlertChannels(w http.ResponseWriter, r *http.Request) {
 	channels, err := h.DB.ListAlertChannels()
 	if err != nil {
 		slog.Error("Failed to list alert channels", "error", err)
@@ -72,7 +72,7 @@ func (h *AdminHandler) ListAlertChannels(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]interface{}{"channels": out})
 }
 
-func (h *AdminHandler) CreateAlertChannel(w http.ResponseWriter, r *http.Request) {
+func (h *GovernanceHandler) CreateAlertChannel(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
@@ -135,7 +135,7 @@ func (h *AdminHandler) CreateAlertChannel(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"id": id, "success": true})
 }
 
-func (h *AdminHandler) UpdateAlertChannel(w http.ResponseWriter, r *http.Request) {
+func (h *GovernanceHandler) UpdateAlertChannel(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
@@ -219,7 +219,7 @@ func (h *AdminHandler) UpdateAlertChannel(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
-func (h *AdminHandler) DeleteAlertChannel(w http.ResponseWriter, r *http.Request) {
+func (h *GovernanceHandler) DeleteAlertChannel(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
@@ -253,7 +253,7 @@ func (h *AdminHandler) DeleteAlertChannel(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
-func (h *AdminHandler) TestAlertChannel(w http.ResponseWriter, r *http.Request) {
+func (h *GovernanceHandler) TestAlertChannel(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	channel, err := h.DB.GetAlertChannelByID(id)
 	if err != nil {
@@ -309,7 +309,7 @@ func (h *AdminHandler) TestAlertChannel(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "provider_message_id": msgID})
 }
 
-func (h *AdminHandler) ListAlertRules(w http.ResponseWriter, r *http.Request) {
+func (h *GovernanceHandler) ListAlertRules(w http.ResponseWriter, r *http.Request) {
 	rules, err := h.DB.ListAlertRules()
 	if err != nil {
 		slog.Error("Failed to list alert rules", "error", err)
@@ -333,7 +333,7 @@ func (h *AdminHandler) ListAlertRules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"rules": out})
 }
 
-func (h *AdminHandler) CreateAlertRule(w http.ResponseWriter, r *http.Request) {
+func (h *GovernanceHandler) CreateAlertRule(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
@@ -415,7 +415,7 @@ func (h *AdminHandler) CreateAlertRule(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"id": id, "success": true})
 }
 
-func (h *AdminHandler) UpdateAlertRule(w http.ResponseWriter, r *http.Request) {
+func (h *GovernanceHandler) UpdateAlertRule(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
@@ -518,7 +518,7 @@ func (h *AdminHandler) UpdateAlertRule(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
-func (h *AdminHandler) DeleteAlertRule(w http.ResponseWriter, r *http.Request) {
+func (h *GovernanceHandler) DeleteAlertRule(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
@@ -551,7 +551,7 @@ func (h *AdminHandler) DeleteAlertRule(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
-func (h *AdminHandler) ListAlertEvents(w http.ResponseWriter, r *http.Request) {
+func (h *GovernanceHandler) ListAlertEvents(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil {
@@ -569,7 +569,7 @@ func (h *AdminHandler) ListAlertEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"events": events})
 }
 
-func (h *AdminHandler) validateRuleRoutes(payload []alertRuleRoutePayload) ([]database.AlertRuleRoute, error) {
+func (h *GovernanceHandler) validateRuleRoutes(payload []alertRuleRoutePayload) ([]database.AlertRuleRoute, error) {
 	routes := make([]database.AlertRuleRoute, 0, len(payload))
 	for _, item := range payload {
 		channelID := strings.TrimSpace(item.ChannelID)

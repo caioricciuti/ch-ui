@@ -15,8 +15,10 @@
 		Trash2,
 		PanelRightOpen,
 		ChevronRight,
+		ChevronDown,
 		MessageSquare,
-		Siren
+		Siren,
+		Bell
 	} from 'lucide-svelte';
 	import Spinner from '../lib/components/common/Spinner.svelte';
 	import Combobox from '../lib/components/common/Combobox.svelte';
@@ -55,6 +57,22 @@
 		deleteObjectNote as apiDeleteObjectNote,
 		triggerSync
 	} from '../lib/api/governance';
+	import { apiGet } from '../lib/api/client';
+	import type { AlertChannel, AlertChannelType, AlertEvent, AlertRule } from '../lib/types/alerts';
+	import {
+		adminListAlertChannels,
+		adminCreateAlertChannel,
+		adminUpdateAlertChannel,
+		adminDeleteAlertChannel,
+		adminTestAlertChannel,
+		adminListAlertRules,
+		adminCreateAlertRule,
+		adminUpdateAlertRule,
+		adminDeleteAlertRule,
+		adminListAlertEvents,
+	} from '../lib/api/alerts';
+	import type { AlertRuleRoutePayload } from '../lib/api/alerts';
+	import type { AuditLog } from '../lib/types/api';
 	import type {
 		GovernanceOverview,
 		GovDatabase,
@@ -76,7 +94,7 @@
 	} from '../lib/types/governance';
 
 	// State
-	type GovernanceTab = 'dashboard' | 'tables' | 'queries' | 'lineage' | 'access' | 'incidents' | 'policies';
+	type GovernanceTab = 'dashboard' | 'tables' | 'queries' | 'lineage' | 'access' | 'incidents' | 'policies' | 'querylog' | 'alerts' | 'auditlog';
 	type OverPermissionGroup = {
 		userName: string;
 		alerts: OverPermission[];
@@ -94,7 +112,10 @@
 		{ id: 'lineage', label: 'Lineage' },
 		{ id: 'access', label: 'Access' },
 		{ id: 'incidents', label: 'Incidents' },
-		{ id: 'policies', label: 'Policies' }
+		{ id: 'policies', label: 'Policies' },
+		{ id: 'querylog', label: 'Query Log' },
+		{ id: 'alerts', label: 'Alerts' },
+		{ id: 'auditlog', label: 'Audit Log' },
 	];
 
 	let activeTab = $state<GovernanceTab>('dashboard');
@@ -171,6 +192,7 @@
 		object_column: string;
 		required_role: string;
 		severity: string;
+		enforcement_mode: Policy['enforcement_mode'];
 		enabled: boolean;
 	}>({
 		name: '',
@@ -181,8 +203,87 @@
 		object_column: '',
 		required_role: '',
 		severity: 'warn',
+		enforcement_mode: 'warn',
 		enabled: true
 	});
+
+	// ── ClickHouse Query Log state ───────────────────────────
+	let queryLogLoading = $state(false);
+	let queryLogData = $state<any[]>([]);
+	let queryLogMeta = $state<any[]>([]);
+	let qlTimeRange = $state('1h');
+	let qlSearch = $state('');
+	let qlQueryKind = $state('');
+	let qlStatus = $state('');
+	let qlLimit = $state(100);
+	let qlOffset = $state(0);
+	let expandedRow = $state<number | null>(null);
+
+	// ── Alerts state ─────────────────────────────────────────
+	let alertsLoading = $state(false);
+	let alertChannels = $state<AlertChannel[]>([]);
+	let alertRules = $state<AlertRule[]>([]);
+	let alertEvents = $state<AlertEvent[]>([]);
+	let alertEventLimit = $state(50);
+	let alertTestRecipients = $state('');
+	let channelSheetOpen = $state(false);
+	let ruleSheetOpen = $state(false);
+	type RuleRouteDraft = {
+		channel_id: string;
+		recipients: string;
+		is_active: boolean;
+		delivery_mode: 'immediate' | 'digest';
+		digest_window_minutes: number;
+		escalation_channel_id: string;
+		escalation_recipients: string;
+		escalation_after_failures: number;
+	};
+	let ruleRoutesDraft = $state<RuleRouteDraft[]>([{
+		channel_id: '',
+		recipients: '',
+		is_active: true,
+		delivery_mode: 'immediate',
+		digest_window_minutes: 15,
+		escalation_channel_id: '',
+		escalation_recipients: '',
+		escalation_after_failures: 0,
+	}]);
+	let channelForm = $state({
+		name: '',
+		channel_type: 'smtp' as AlertChannelType,
+		is_active: true,
+		smtp_host: '',
+		smtp_port: 587,
+		smtp_username: '',
+		smtp_password: '',
+		smtp_from_email: '',
+		smtp_from_name: '',
+		smtp_use_tls: true,
+		smtp_starttls: false,
+		api_key: '',
+		api_from_email: '',
+		api_from_name: '',
+		api_base_url: '',
+	});
+	let ruleForm = $state({
+		name: '',
+		event_type: 'policy.violation',
+		severity_min: 'warn',
+		enabled: true,
+		cooldown_seconds: 300,
+		max_attempts: 3,
+		subject_template: '',
+		body_template: '',
+	});
+
+	// ── Audit Log state ──────────────────────────────────────
+	let auditLogs = $state<AuditLog[]>([]);
+	let auditLoading = $state(false);
+	let auditLimit = $state(100);
+	let auditTimeRange = $state('');
+	let auditAction = $state('');
+	let auditUsername = $state('');
+	let auditSearch = $state('');
 
 	const queryLimitOptions: ComboboxOption[] = [
 		{ value: '50', label: '50 queries' },
@@ -201,6 +302,11 @@
 		{ value: 'info', label: 'Info' },
 		{ value: 'warn', label: 'Warning' },
 		{ value: 'critical', label: 'Critical' }
+	];
+
+	const policyEnforcementModeOptions: ComboboxOption[] = [
+		{ value: 'warn', label: 'Warn (allow)' },
+		{ value: 'block', label: 'Block (deny)' }
 	];
 
 	const incidentSeverityOptions: ComboboxOption[] = [
@@ -227,6 +333,76 @@
 			label: db.name
 		}))
 	]);
+
+	const qlTimeRangeOptions: ComboboxOption[] = [
+		{ value: '5m', label: '5 min' },
+		{ value: '15m', label: '15 min' },
+		{ value: '30m', label: '30 min' },
+		{ value: '1h', label: '1 hour' },
+		{ value: '6h', label: '6 hours' },
+		{ value: '12h', label: '12 hours' },
+		{ value: '24h', label: '24 hours' },
+		{ value: '3d', label: '3 days' },
+		{ value: '7d', label: '7 days' },
+	];
+
+	const alertChannelTypeOptions: ComboboxOption[] = [
+		{ value: 'smtp', label: 'SMTP' },
+		{ value: 'resend', label: 'Resend' },
+		{ value: 'brevo', label: 'Brevo' },
+	];
+
+	const alertEventTypeOptions: ComboboxOption[] = [
+		{ value: 'policy.violation', label: 'Policy Violation' },
+		{ value: 'schedule.failed', label: 'Schedule Failed' },
+		{ value: 'schedule.slow', label: 'Schedule Slow' },
+		{ value: '*', label: 'All Events' },
+	];
+
+	const alertSeverityOptions: ComboboxOption[] = [
+		{ value: 'info', label: 'Info' },
+		{ value: 'warn', label: 'Warning' },
+		{ value: 'error', label: 'Error' },
+		{ value: 'critical', label: 'Critical' },
+	];
+
+	const routeDeliveryModeOptions: ComboboxOption[] = [
+		{ value: 'immediate', label: 'Immediate' },
+		{ value: 'digest', label: 'Digest' },
+	];
+
+	const auditLimitOptions: ComboboxOption[] = [
+		{ value: '50', label: '50 entries' },
+		{ value: '100', label: '100 entries' },
+		{ value: '500', label: '500 entries' },
+	];
+	const auditTimeRangeOptions: ComboboxOption[] = [
+		{ value: '', label: 'All time', keywords: 'all' },
+		{ value: '15m', label: '15 min' },
+		{ value: '1h', label: '1 hour' },
+		{ value: '6h', label: '6 hours' },
+		{ value: '24h', label: '24 hours' },
+		{ value: '7d', label: '7 days' },
+		{ value: '30d', label: '30 days' },
+	];
+	const auditActionOptions = $derived.by((): ComboboxOption[] => {
+		const values = new Set<string>();
+		if (auditAction.trim()) values.add(auditAction);
+		for (const log of auditLogs) {
+			if (log.action?.trim()) values.add(log.action);
+		}
+		const sorted = Array.from(values).sort((a, b) => a.localeCompare(b));
+		return [{ value: '', label: 'All actions', keywords: 'all' }, ...sorted.map((value) => ({ value, label: value }))];
+	});
+	const auditUsernameOptions = $derived.by((): ComboboxOption[] => {
+		const values = new Set<string>();
+		if (auditUsername.trim()) values.add(auditUsername);
+		for (const log of auditLogs) {
+			if (log.username?.trim()) values.add(log.username);
+		}
+		const sorted = Array.from(values).sort((a, b) => a.localeCompare(b));
+		return [{ value: '', label: 'All users', keywords: 'all' }, ...sorted.map((value) => ({ value, label: value }))];
+	});
 
 	// Helper functions
 	function formatBytes(bytes: number): string {
@@ -319,7 +495,7 @@
 		return 'info';
 	}
 
-	const governanceTabIds: GovernanceTab[] = ['dashboard', 'tables', 'queries', 'lineage', 'access', 'incidents', 'policies'];
+	const governanceTabIds: GovernanceTab[] = ['dashboard', 'tables', 'queries', 'lineage', 'access', 'incidents', 'policies', 'querylog', 'alerts', 'auditlog'];
 
 	function normalizeGovernanceTab(value: string | null | undefined): GovernanceTab {
 		const raw = (value ?? '').trim().toLowerCase();
@@ -377,6 +553,12 @@
 			loadIncidents();
 		} else if (tab === 'policies') {
 			loadPolicies();
+		} else if (tab === 'querylog') {
+			loadQueryLog();
+		} else if (tab === 'alerts') {
+			loadAlertsAdmin();
+		} else if (tab === 'auditlog') {
+			loadAuditLogs();
 		}
 	}
 
@@ -697,6 +879,7 @@
 				object_column: policy.object_column ?? '',
 				required_role: policy.required_role,
 				severity: policy.severity,
+				enforcement_mode: policy.enforcement_mode ?? 'warn',
 				enabled: policy.enabled
 			};
 		} else {
@@ -710,6 +893,7 @@
 				object_column: '',
 				required_role: '',
 				severity: 'warn',
+				enforcement_mode: 'warn',
 				enabled: true
 			};
 		}
@@ -762,6 +946,203 @@
 			toastError('Failed to delete policy: ' + err.message);
 		} finally {
 			confirmPolicyDeleteLoading = false;
+		}
+	}
+
+	// ── ClickHouse Query Log ─────────────────────────────────
+	async function loadQueryLog() {
+		queryLogLoading = true;
+		try {
+			const params = new URLSearchParams();
+			if (qlTimeRange) params.set('timeRange', qlTimeRange);
+			if (qlSearch.trim()) params.set('search', qlSearch.trim());
+			if (qlQueryKind) params.set('queryKind', qlQueryKind);
+			if (qlStatus) params.set('status', qlStatus);
+			params.set('limit', String(qlLimit));
+			params.set('offset', String(qlOffset));
+			const res = await apiGet<{ data: any[]; meta: any[] }>(`/api/governance/clickhouse-query-log?${params}`);
+			queryLogData = res.data ?? [];
+			queryLogMeta = res.meta ?? [];
+		} catch (e: any) {
+			toastError(e.message);
+		} finally {
+			queryLogLoading = false;
+		}
+	}
+
+	// ── Alerts admin ─────────────────────────────────────────
+	async function loadAlertsAdmin() {
+		alertsLoading = true;
+		try {
+			const [channels, rules, events] = await Promise.all([
+				adminListAlertChannels(),
+				adminListAlertRules(),
+				adminListAlertEvents({ limit: alertEventLimit }),
+			]);
+			alertChannels = channels;
+			alertRules = rules;
+			alertEvents = events;
+		} catch (e: any) {
+			toastError(e.message);
+		} finally {
+			alertsLoading = false;
+		}
+	}
+
+	async function createAlertChannelRecord() {
+		const config: Record<string, unknown> = {};
+		if (channelForm.channel_type === 'smtp') {
+			config.smtp_host = channelForm.smtp_host;
+			config.smtp_port = channelForm.smtp_port;
+			config.smtp_username = channelForm.smtp_username;
+			config.smtp_password = channelForm.smtp_password;
+			config.from_email = channelForm.smtp_from_email;
+			config.from_name = channelForm.smtp_from_name;
+			config.use_tls = channelForm.smtp_use_tls;
+			config.starttls = channelForm.smtp_starttls;
+		} else {
+			config.api_key = channelForm.api_key;
+			config.from_email = channelForm.api_from_email;
+			config.from_name = channelForm.api_from_name;
+			if (channelForm.api_base_url) config.base_url = channelForm.api_base_url;
+		}
+		try {
+			await adminCreateAlertChannel({
+				name: channelForm.name,
+				channel_type: channelForm.channel_type,
+				is_active: channelForm.is_active,
+				config,
+			});
+			toastSuccess('Alert channel created');
+			channelSheetOpen = false;
+			channelForm = { ...channelForm, name: '', smtp_host: '', smtp_port: 587, smtp_username: '', smtp_password: '', smtp_from_email: '', smtp_from_name: '', smtp_use_tls: true, smtp_starttls: false, api_key: '', api_from_email: '', api_from_name: '', api_base_url: '' };
+			await loadAlertsAdmin();
+		} catch (e: any) {
+			toastError(e.message);
+		}
+	}
+
+	async function toggleAlertChannel(channel: AlertChannel, isActive: boolean) {
+		try {
+			await adminUpdateAlertChannel(channel.id, { is_active: isActive });
+			toastSuccess(`Channel "${channel.name}" ${isActive ? 'activated' : 'deactivated'}`);
+			await loadAlertsAdmin();
+		} catch (e: any) {
+			toastError(e.message);
+		}
+	}
+
+	async function deleteAlertChannelRecord(channel: AlertChannel) {
+		if (!confirm(`Delete channel "${channel.name}"?`)) return;
+		try {
+			await adminDeleteAlertChannel(channel.id);
+			toastSuccess('Channel deleted');
+			await loadAlertsAdmin();
+		} catch (e: any) {
+			toastError(e.message);
+		}
+	}
+
+	async function testAlertChannelRecord(channel: AlertChannel) {
+		const recipients = alertTestRecipients.split(',').map((r) => r.trim()).filter(Boolean);
+		if (recipients.length === 0) {
+			toastError('Enter at least one test recipient');
+			return;
+		}
+		try {
+			await adminTestAlertChannel(channel.id, { recipients });
+			toastSuccess('Test alert sent');
+		} catch (e: any) {
+			toastError(e.message);
+		}
+	}
+
+	async function createAlertRuleRecord() {
+		const routes: AlertRuleRoutePayload[] = ruleRoutesDraft.map((r) => ({
+			channel_id: r.channel_id,
+			recipients: r.recipients.split(',').map((s) => s.trim()).filter(Boolean),
+			is_active: r.is_active,
+			delivery_mode: r.delivery_mode,
+			digest_window_minutes: r.delivery_mode === 'digest' ? r.digest_window_minutes : undefined,
+			escalation_channel_id: r.escalation_channel_id || undefined,
+			escalation_recipients: r.escalation_recipients ? r.escalation_recipients.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+			escalation_after_failures: r.escalation_after_failures || undefined,
+		}));
+		try {
+			await adminCreateAlertRule({
+				name: ruleForm.name,
+				event_type: ruleForm.event_type,
+				severity_min: ruleForm.severity_min,
+				enabled: ruleForm.enabled,
+				cooldown_seconds: ruleForm.cooldown_seconds,
+				max_attempts: ruleForm.max_attempts,
+				subject_template: ruleForm.subject_template || undefined,
+				body_template: ruleForm.body_template || undefined,
+				routes,
+			});
+			toastSuccess('Alert rule created');
+			ruleSheetOpen = false;
+			ruleForm = { ...ruleForm, name: '' };
+			ruleRoutesDraft = [{ channel_id: '', recipients: '', is_active: true, delivery_mode: 'immediate', digest_window_minutes: 15, escalation_channel_id: '', escalation_recipients: '', escalation_after_failures: 0 }];
+			await loadAlertsAdmin();
+		} catch (e: any) {
+			toastError(e.message);
+		}
+	}
+
+	async function toggleAlertRule(rule: AlertRule, enabled: boolean) {
+		try {
+			await adminUpdateAlertRule(rule.id, { enabled });
+			toastSuccess(`Rule "${rule.name}" ${enabled ? 'enabled' : 'disabled'}`);
+			await loadAlertsAdmin();
+		} catch (e: any) {
+			toastError(e.message);
+		}
+	}
+
+	async function deleteAlertRuleRecord(rule: AlertRule) {
+		if (!confirm(`Delete rule "${rule.name}"?`)) return;
+		try {
+			await adminDeleteAlertRule(rule.id);
+			toastSuccess('Rule deleted');
+			await loadAlertsAdmin();
+		} catch (e: any) {
+			toastError(e.message);
+		}
+	}
+
+	function alertChannelOptions(): ComboboxOption[] {
+		return alertChannels.map((ch) => ({ value: ch.id, label: `${ch.name} (${ch.channel_type})` }));
+	}
+
+	function addRuleRouteDraft() {
+		ruleRoutesDraft = [...ruleRoutesDraft, { channel_id: '', recipients: '', is_active: true, delivery_mode: 'immediate', digest_window_minutes: 15, escalation_channel_id: '', escalation_recipients: '', escalation_after_failures: 0 }];
+	}
+
+	function removeRuleRouteDraft(idx: number) {
+		ruleRoutesDraft = ruleRoutesDraft.filter((_, i) => i !== idx);
+	}
+
+	function updateRuleRouteDraft(idx: number, patch: Partial<RuleRouteDraft>) {
+		ruleRoutesDraft = ruleRoutesDraft.map((r, i) => (i === idx ? { ...r, ...patch } : r));
+	}
+
+	// ── Audit Log ────────────────────────────────────────────
+	async function loadAuditLogs() {
+		auditLoading = true;
+		try {
+			const params = new URLSearchParams();
+			params.set('limit', String(auditLimit));
+			if (auditTimeRange) params.set('timeRange', auditTimeRange);
+			if (auditAction) params.set('action', auditAction);
+			if (auditUsername) params.set('username', auditUsername);
+			if (auditSearch.trim()) params.set('search', auditSearch.trim());
+			const res = await apiGet<AuditLog[]>(`/api/governance/audit-logs?${params}`);
+			auditLogs = res ?? [];
+		} catch (e: any) {
+			toastError(e.message);
+		} finally {
+			auditLoading = false;
 		}
 	}
 
@@ -886,8 +1267,8 @@
 					disabled={syncing}
 					class="ds-btn-primary px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
 				>
-					<RefreshCw class={`w-4 h-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
-					{syncing ? 'Syncing...' : 'Sync Now'}
+					<RefreshCw class={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+
 				</button>
 			</div>
 		</div>
@@ -1649,6 +2030,7 @@
 														<th class="ds-table-th">Scope</th>
 														<th class="ds-table-th">Role</th>
 														<th class="ds-table-th">Severity</th>
+														<th class="ds-table-th">Mode</th>
 														<th class="ds-table-th">Status</th>
 														<th class="ds-table-th">Updated</th>
 														<th class="ds-table-th-right">Actions</th>
@@ -1678,6 +2060,17 @@
 																	}`}
 																>
 																	{policy.severity}
+																</span>
+															</td>
+															<td class="px-3 py-2.5">
+																<span
+																	class={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+																		policy.enforcement_mode === 'block'
+																			? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+																			: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
+																	}`}
+																>
+																	{policy.enforcement_mode}
 																</span>
 															</td>
 															<td class="px-3 py-2.5">
@@ -1783,6 +2176,418 @@
 						</div>
 						{/if}
 					{/if}
+
+					<!-- Query Log Tab -->
+					{#if activeTab === 'querylog'}
+						<div class="flex flex-wrap items-center gap-2 mb-3">
+							<div class="w-36">
+								<Combobox
+									options={qlTimeRangeOptions}
+									value={qlTimeRange}
+									onChange={(v) => qlTimeRange = v}
+								/>
+							</div>
+							<input
+								type="text"
+								placeholder="Search query or user..."
+								class="ds-input-sm w-48"
+								bind:value={qlSearch}
+							/>
+							<div class="w-36">
+								<Combobox
+									value={qlQueryKind}
+									placeholder="All kinds"
+									options={[
+										{ value: '', label: 'All kinds', keywords: 'all' },
+										{ value: 'Select', label: 'Select' },
+										{ value: 'Insert', label: 'Insert' },
+										{ value: 'Create', label: 'Create' },
+										{ value: 'Alter', label: 'Alter' },
+										{ value: 'Drop', label: 'Drop' },
+									]}
+									onChange={(v) => qlQueryKind = v}
+								/>
+							</div>
+							<div class="w-32">
+								<Combobox
+									value={qlStatus}
+									placeholder="All status"
+									options={[
+										{ value: '', label: 'All status', keywords: 'all' },
+										{ value: 'success', label: 'Success' },
+										{ value: 'error', label: 'Error' },
+									]}
+									onChange={(v) => qlStatus = v}
+								/>
+							</div>
+							<button
+								class="ds-btn-primary"
+								onclick={() => { qlOffset = 0; loadQueryLog() }}
+							>Search</button>
+							<button
+								class="ds-btn-ghost"
+								onclick={() => loadQueryLog()}
+								title="Refresh"
+							>
+								<RefreshCw size={14} />
+							</button>
+						</div>
+
+						{#if queryLogLoading}
+							<div class="flex items-center justify-center py-12"><Spinner /></div>
+						{:else if queryLogData.length === 0}
+							<p class="text-center text-sm text-gray-500 py-8">No query log entries found</p>
+						{:else}
+							<div class="ds-table-wrap">
+								<table class="ds-table">
+									<thead>
+										<tr class="ds-table-head-row">
+											<th class="w-6"></th>
+											<th class="ds-table-th">Time</th>
+											<th class="ds-table-th">User</th>
+											<th class="ds-table-th">Query</th>
+											<th class="ds-table-th-right">Duration</th>
+											<th class="ds-table-th-right">Rows</th>
+											<th class="ds-table-th">Status</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each queryLogData as row, i}
+											<tr
+												class="ds-table-row cursor-pointer"
+												onclick={() => expandedRow = expandedRow === i ? null : i}
+											>
+												<td class="py-2 px-1 text-gray-400">
+													{#if expandedRow === i}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}
+												</td>
+												<td class="ds-td-mono whitespace-nowrap">{formatTime(row.event_time)}</td>
+												<td class="ds-td-mono">{row.user}</td>
+												<td class="ds-td-mono max-w-xs truncate">{truncate(row.query ?? '', 60)}</td>
+												<td class="ds-td-right whitespace-nowrap">{row.query_duration_ms}ms</td>
+												<td class="ds-td-right">{row.read_rows ?? 0}</td>
+												<td class="ds-td">
+													{#if row.exception_code === 0}
+														<span class="ds-badge ds-badge-success">OK</span>
+													{:else}
+														<span class="ds-badge ds-badge-danger">Error</span>
+													{/if}
+												</td>
+											</tr>
+											{#if expandedRow === i}
+												<tr class="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-900">
+													<td colspan="7" class="p-3">
+														<pre class="text-xs text-gray-700 dark:text-gray-300 font-mono whitespace-pre-wrap break-all rounded p-3 border border-gray-200 dark:border-gray-800 bg-gray-100 dark:bg-gray-900">{row.query}</pre>
+														{#if row.exception}
+															<p class="text-xs text-red-500 mt-2"><strong>Error:</strong> {row.exception}</p>
+														{/if}
+													</td>
+												</tr>
+											{/if}
+										{/each}
+									</tbody>
+								</table>
+							</div>
+
+							<div class="flex items-center justify-between mt-3">
+								<span class="text-xs text-gray-500">Showing {qlOffset + 1}–{qlOffset + queryLogData.length}</span>
+								<div class="flex gap-2">
+									<button
+										class="ds-btn-outline disabled:opacity-50"
+										disabled={qlOffset === 0}
+										onclick={() => { qlOffset = Math.max(0, qlOffset - qlLimit); loadQueryLog() }}
+									>Prev</button>
+									<button
+										class="ds-btn-outline disabled:opacity-50"
+										disabled={queryLogData.length < qlLimit}
+										onclick={() => { qlOffset += qlLimit; loadQueryLog() }}
+									>Next</button>
+								</div>
+							</div>
+						{/if}
+					{/if}
+
+					<!-- Alerts Tab -->
+					{#if activeTab === 'alerts'}
+						{#if alertsLoading}
+							<div class="flex items-center justify-center py-12"><Spinner /></div>
+						{:else}
+							<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+								<div class="flex items-center gap-2">
+									<Bell size={16} class="text-ch-blue" />
+									<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Alerting Control Center</h2>
+									<HelpTip text="Define delivery channels and route policies. Complex create flows live in sheets to keep this page clean and easy to scan." />
+								</div>
+								<div class="flex flex-wrap items-center gap-2">
+									<button class="ds-btn-outline" onclick={() => channelSheetOpen = true}>New Channel</button>
+									<button class="ds-btn-outline" onclick={() => ruleSheetOpen = true}>New Rule</button>
+									<button class="ds-btn-outline" onclick={() => loadAlertsAdmin()} title="Refresh">
+										<RefreshCw size={14} />
+									</button>
+								</div>
+							</div>
+
+							<div class="ds-card p-3 mb-4">
+								<div class="flex flex-col md:flex-row gap-2 md:items-center md:justify-between">
+									<div class="flex items-center gap-2">
+										<span class="text-xs text-gray-500">Test recipients</span>
+										<HelpTip text="Used by the Test action on each channel. Enter comma-separated emails once, then test quickly." />
+									</div>
+									<div class="w-full md:w-[520px]">
+										<input class="ds-input-sm" placeholder="email1@company.com, email2@company.com" bind:value={alertTestRecipients} />
+									</div>
+								</div>
+							</div>
+
+							<div class="ds-card p-3 mb-4">
+								<div class="flex items-center gap-2 mb-2">
+									<h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Channels</h3>
+									<HelpTip text="Channels are provider credentials (SMTP, Resend, Brevo). Routes reference these channels for delivery." />
+								</div>
+								{#if alertChannels.length === 0}
+									<p class="text-sm text-gray-500 py-4">No alert channels configured.</p>
+								{:else}
+									<div class="ds-table-wrap max-h-[30vh] overflow-auto rounded border border-gray-200 dark:border-gray-800">
+										<table class="ds-table">
+											<thead>
+												<tr class="ds-table-head-row sticky top-0 bg-gray-50 dark:bg-gray-900 z-10">
+													<th class="ds-table-th">Name</th>
+													<th class="ds-table-th">Type</th>
+													<th class="ds-table-th">Active</th>
+													<th class="ds-table-th">Secret</th>
+													<th class="ds-table-th-right">Actions</th>
+												</tr>
+											</thead>
+											<tbody>
+												{#each alertChannels as channel}
+													<tr class="ds-table-row">
+														<td class="ds-td-strong">{channel.name}</td>
+														<td class="ds-td-mono">{channel.channel_type}</td>
+														<td class="ds-td">
+															<input
+																type="checkbox"
+																class="ds-checkbox"
+																checked={channel.is_active}
+																onchange={(e) => toggleAlertChannel(channel, (e.target as HTMLInputElement).checked)}
+															/>
+														</td>
+														<td class="ds-td">{channel.has_secret ? 'Configured' : 'Missing'}</td>
+														<td class="ds-td-right">
+															<div class="flex justify-end gap-2">
+																<button class="ds-btn-outline" onclick={() => testAlertChannelRecord(channel)}>Test</button>
+																<button class="text-xs text-red-500 hover:text-red-700" onclick={() => deleteAlertChannelRecord(channel)}>Delete</button>
+															</div>
+														</td>
+													</tr>
+												{/each}
+											</tbody>
+										</table>
+									</div>
+								{/if}
+							</div>
+
+							<div class="ds-card p-3 mb-4">
+								<div class="flex items-center gap-2 mb-2">
+									<h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Rules</h3>
+									<HelpTip text="Each rule watches event types/severity and contains one or more routes. Expand a rule to inspect recipients, digest windows, and escalation." />
+								</div>
+								{#if alertRules.length === 0}
+									<p class="text-sm text-gray-500 py-4">No alert rules configured.</p>
+								{:else}
+									<div class="space-y-2">
+										{#each alertRules as rule}
+											<details class="ds-card overflow-hidden">
+												<summary class="cursor-pointer list-none px-3 py-2.5 flex items-center justify-between bg-gray-50 dark:bg-gray-900">
+													<div class="min-w-0">
+														<p class="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{rule.name}</p>
+														<p class="text-[11px] text-gray-500">{rule.event_type} · min {rule.severity_min} · {rule.routes.length} routes</p>
+													</div>
+													<div class="flex items-center gap-2">
+														<label class="ds-checkbox-label text-xs">
+															<input
+																type="checkbox"
+																class="ds-checkbox"
+																checked={rule.enabled}
+																onchange={(e) => toggleAlertRule(rule, (e.target as HTMLInputElement).checked)}
+															/>
+															Enabled
+														</label>
+														<button class="text-xs text-red-500 hover:text-red-700" onclick={(e) => { e.preventDefault(); deleteAlertRuleRecord(rule) }}>Delete</button>
+													</div>
+												</summary>
+												<div class="border-t border-gray-200 dark:border-gray-800 p-3">
+													<div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3 text-xs">
+														<div class="ds-panel-muted p-2"><span class="text-gray-500">Cooldown</span><div class="font-medium text-gray-800 dark:text-gray-200">{rule.cooldown_seconds}s</div></div>
+														<div class="ds-panel-muted p-2"><span class="text-gray-500">Max Attempts</span><div class="font-medium text-gray-800 dark:text-gray-200">{rule.max_attempts}</div></div>
+														<div class="ds-panel-muted p-2"><span class="text-gray-500">Subject Template</span><div class="font-medium text-gray-800 dark:text-gray-200 truncate">{rule.subject_template || 'Default'}</div></div>
+														<div class="ds-panel-muted p-2"><span class="text-gray-500">Body Template</span><div class="font-medium text-gray-800 dark:text-gray-200 truncate">{rule.body_template || 'Default'}</div></div>
+													</div>
+													<div class="overflow-x-auto rounded border border-gray-200 dark:border-gray-800">
+														<table class="ds-table text-xs min-w-[980px]">
+															<thead>
+																<tr class="ds-table-head-row bg-gray-50 dark:bg-gray-900">
+																	<th class="ds-table-th">Channel</th>
+																	<th class="ds-table-th">Recipients</th>
+																	<th class="ds-table-th">Delivery</th>
+																	<th class="ds-table-th">Escalation</th>
+																	<th class="ds-table-th">Active</th>
+																</tr>
+															</thead>
+															<tbody>
+																{#each rule.routes as route}
+																	<tr class="ds-table-row">
+																		<td class="ds-td-mono">{route.channel_name} ({route.channel_type})</td>
+																		<td class="ds-td-mono truncate max-w-xs">{route.recipients.join(', ')}</td>
+																		<td class="ds-td-mono">{route.delivery_mode}{route.delivery_mode === 'digest' ? ` (${route.digest_window_minutes}m)` : ''}</td>
+																		<td class="ds-td-mono">
+																			{#if route.escalation_channel_name}
+																				{route.escalation_channel_name}
+																				{#if route.escalation_after_failures > 0}
+																					<span class="text-gray-500"> after {route.escalation_after_failures} fail</span>
+																				{/if}
+																			{:else}
+																				—
+																			{/if}
+																		</td>
+																		<td class="ds-td">{route.is_active ? 'yes' : 'no'}</td>
+																	</tr>
+																{/each}
+															</tbody>
+														</table>
+													</div>
+												</div>
+											</details>
+										{/each}
+									</div>
+								{/if}
+							</div>
+
+							<div class="ds-card p-3">
+								<div class="flex items-center gap-2 mb-2">
+									<h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Recent Alert Events</h3>
+									<div class="w-28">
+										<input class="ds-input-sm" type="number" bind:value={alertEventLimit} />
+									</div>
+									<button class="ds-btn-outline" onclick={() => loadAlertsAdmin()}>Refresh</button>
+								</div>
+								{#if alertEvents.length === 0}
+									<p class="text-sm text-gray-500 py-4">No alert events yet.</p>
+								{:else}
+									<div class="ds-table-wrap max-h-[30vh] overflow-auto rounded border border-gray-200 dark:border-gray-800">
+										<table class="ds-table">
+											<thead>
+												<tr class="ds-table-head-row sticky top-0 bg-gray-50 dark:bg-gray-900 z-10">
+													<th class="ds-table-th">Time</th>
+													<th class="ds-table-th">Type</th>
+													<th class="ds-table-th">Severity</th>
+													<th class="ds-table-th">Title</th>
+													<th class="ds-table-th">Status</th>
+												</tr>
+											</thead>
+											<tbody>
+												{#each alertEvents as evt}
+													<tr class="ds-table-row">
+														<td class="ds-td-mono">{formatTime(evt.created_at)}</td>
+														<td class="ds-td-mono">{evt.event_type}</td>
+														<td class="ds-td-mono">{evt.severity}</td>
+														<td class="ds-td">{evt.title}</td>
+														<td class="ds-td-mono">{evt.status}</td>
+													</tr>
+												{/each}
+											</tbody>
+										</table>
+									</div>
+								{/if}
+							</div>
+						{/if}
+					{/if}
+
+					<!-- Audit Log Tab -->
+					{#if activeTab === 'auditlog'}
+						<div class="flex flex-wrap items-center gap-2 mb-3">
+							<div class="w-32">
+								<Combobox
+									options={auditLimitOptions}
+									value={String(auditLimit)}
+									onChange={(v) => { auditLimit = Number(v) || 100; void loadAuditLogs() }}
+								/>
+							</div>
+							<div class="w-36">
+								<Combobox
+									options={auditTimeRangeOptions}
+									value={auditTimeRange}
+									placeholder="All time"
+									onChange={(v) => auditTimeRange = v}
+								/>
+							</div>
+							<input
+								type="text"
+								placeholder="Search action, user, details, IP..."
+								class="ds-input-sm w-64"
+								bind:value={auditSearch}
+							/>
+							<div class="w-48">
+								<Combobox
+									options={auditActionOptions}
+									value={auditAction}
+									placeholder="All actions"
+									onChange={(v) => auditAction = v}
+								/>
+							</div>
+							<div class="w-40">
+								<Combobox
+									options={auditUsernameOptions}
+									value={auditUsername}
+									placeholder="All users"
+									onChange={(v) => auditUsername = v}
+								/>
+							</div>
+							<button
+								class="ds-btn-primary"
+								onclick={() => loadAuditLogs()}
+							>Search</button>
+							<button
+								class="ds-btn-ghost"
+								onclick={() => loadAuditLogs()}
+								title="Refresh"
+							>
+								<RefreshCw size={14} />
+							</button>
+						</div>
+
+						{#if auditLoading}
+							<div class="flex items-center justify-center py-12"><Spinner /></div>
+						{:else if auditLogs.length === 0}
+							<p class="text-center text-sm text-gray-500 py-8">No audit logs found</p>
+						{:else}
+							<div class="ds-table-wrap">
+								<table class="ds-table">
+									<thead>
+										<tr class="ds-table-head-row">
+											<th class="ds-table-th">Timestamp</th>
+											<th class="ds-table-th">Action</th>
+											<th class="ds-table-th">User</th>
+											<th class="ds-table-th">Details</th>
+											<th class="ds-table-th">IP</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each auditLogs as log}
+											<tr class="ds-table-row">
+												<td class="ds-td-mono whitespace-nowrap">{formatTime(log.created_at)}</td>
+												<td class="ds-td">
+													<span class="ds-badge ds-badge-neutral font-mono">{log.action}</span>
+												</td>
+												<td class="ds-td-mono">{log.username ?? '—'}</td>
+												<td class="ds-td-mono max-w-xs truncate">{log.details ?? '—'}</td>
+												<td class="ds-td-mono">{log.ip_address ?? '—'}</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						{/if}
+					{/if}
+
 			</div>
 		</div>
 	</div>
@@ -2269,7 +3074,7 @@
 				</div>
 			</div>
 
-			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 				<div>
 					<label for="policy-severity" class="ds-form-label">Severity</label>
 					<Combobox
@@ -2277,6 +3082,15 @@
 						value={policyForm.severity}
 						onChange={(v) => policyForm.severity = v}
 						placeholder="Severity"
+					/>
+				</div>
+				<div>
+					<label for="policy-enforcement-mode" class="ds-form-label">Mode</label>
+					<Combobox
+						options={policyEnforcementModeOptions}
+						value={policyForm.enforcement_mode}
+						onChange={(v) => policyForm.enforcement_mode = v as Policy['enforcement_mode']}
+						placeholder="Mode"
 					/>
 				</div>
 				<label class="ds-panel-muted flex items-center gap-2 px-3 py-2 mt-6">
@@ -2319,3 +3133,271 @@
 	onconfirm={confirmDeletePolicy}
 	oncancel={cancelDeletePolicy}
 />
+
+<Sheet
+	open={channelSheetOpen}
+	title="Create Alert Channel"
+	size="xl"
+	onclose={() => channelSheetOpen = false}
+>
+	<form
+		class="space-y-4"
+		onsubmit={(e) => {
+			e.preventDefault();
+			void createAlertChannelRecord();
+		}}
+	>
+		<div class="flex items-center gap-2">
+			<p class="text-xs text-gray-500">Channels hold delivery credentials for alert notifications.</p>
+			<HelpTip text="Use SMTP for generic email relay, Resend/Brevo for API delivery. Add test recipients above in the main panel to validate setup quickly." />
+		</div>
+
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+			<label class="space-y-1">
+				<span class="text-xs text-gray-500">Channel Name</span>
+				<input class="ds-input-sm" placeholder="Ops SMTP" bind:value={channelForm.name} required />
+			</label>
+			<label class="space-y-1">
+				<span class="text-xs text-gray-500">Channel Type</span>
+				<Combobox
+					options={alertChannelTypeOptions}
+					value={channelForm.channel_type}
+					onChange={(v) => channelForm = { ...channelForm, channel_type: v as AlertChannelType }}
+				/>
+			</label>
+		</div>
+
+		{#if channelForm.channel_type === 'smtp'}
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+				<label class="space-y-1">
+					<span class="text-xs text-gray-500">SMTP Host</span>
+					<input class="ds-input-sm" placeholder="smtp.sendgrid.net" bind:value={channelForm.smtp_host} required />
+				</label>
+				<label class="space-y-1">
+					<span class="text-xs text-gray-500">SMTP Port</span>
+					<input class="ds-input-sm" type="number" min="1" max="65535" bind:value={channelForm.smtp_port} />
+				</label>
+				<label class="space-y-1">
+					<span class="text-xs text-gray-500">Username</span>
+					<input class="ds-input-sm" bind:value={channelForm.smtp_username} />
+				</label>
+				<label class="space-y-1">
+					<span class="text-xs text-gray-500">Password</span>
+					<input class="ds-input-sm" type="password" bind:value={channelForm.smtp_password} />
+				</label>
+				<label class="space-y-1">
+					<span class="text-xs text-gray-500">From Email</span>
+					<input class="ds-input-sm" type="email" placeholder="alerts@company.com" bind:value={channelForm.smtp_from_email} required />
+				</label>
+				<label class="space-y-1">
+					<span class="text-xs text-gray-500">From Name</span>
+					<input class="ds-input-sm" placeholder="CH-UI Alerts" bind:value={channelForm.smtp_from_name} />
+				</label>
+			</div>
+			<div class="flex flex-wrap items-center gap-4">
+				<label class="ds-checkbox-label text-xs">
+					<input type="checkbox" class="ds-checkbox" bind:checked={channelForm.smtp_use_tls} />
+					TLS
+				</label>
+				<label class="ds-checkbox-label text-xs">
+					<input type="checkbox" class="ds-checkbox" bind:checked={channelForm.smtp_starttls} />
+					STARTTLS
+				</label>
+			</div>
+		{:else}
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+				<label class="space-y-1 md:col-span-2">
+					<span class="text-xs text-gray-500">API Key</span>
+					<input class="ds-input-sm" type="password" bind:value={channelForm.api_key} required />
+				</label>
+				<label class="space-y-1">
+					<span class="text-xs text-gray-500">From Email</span>
+					<input class="ds-input-sm" type="email" placeholder="alerts@company.com" bind:value={channelForm.api_from_email} required />
+				</label>
+				<label class="space-y-1">
+					<span class="text-xs text-gray-500">From Name</span>
+					<input class="ds-input-sm" placeholder="CH-UI Alerts" bind:value={channelForm.api_from_name} />
+				</label>
+				<label class="space-y-1 md:col-span-2">
+					<span class="text-xs text-gray-500">Base URL (optional)</span>
+					<input class="ds-input-sm" placeholder="Leave empty for provider default" bind:value={channelForm.api_base_url} />
+				</label>
+			</div>
+		{/if}
+
+		<label class="ds-checkbox-label text-xs">
+			<input type="checkbox" class="ds-checkbox" bind:checked={channelForm.is_active} />
+			Active
+		</label>
+
+		<div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-800">
+			<button type="button" class="ds-btn-outline" onclick={() => channelSheetOpen = false}>Cancel</button>
+			<button type="submit" class="ds-btn-primary" disabled={!channelForm.name.trim()}>Create Channel</button>
+		</div>
+	</form>
+</Sheet>
+
+<Sheet
+	open={ruleSheetOpen}
+	title="Create Alert Rule"
+	size="xl"
+	onclose={() => ruleSheetOpen = false}
+>
+	<form
+		class="space-y-4"
+		onsubmit={(e) => {
+			e.preventDefault();
+			void createAlertRuleRecord();
+		}}
+	>
+		<div class="flex items-center gap-2">
+			<p class="text-xs text-gray-500">Rules map governance/system events to delivery routes and escalation behavior.</p>
+			<HelpTip text="Each route must include a channel and recipients. You can mix immediate and digest routes under the same rule." />
+		</div>
+
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+			<label class="space-y-1">
+				<span class="text-xs text-gray-500">Rule Name</span>
+				<input class="ds-input-sm" placeholder="Critical policy violations" bind:value={ruleForm.name} required />
+			</label>
+			<label class="space-y-1">
+				<span class="text-xs text-gray-500">Event Type</span>
+				<Combobox
+					options={alertEventTypeOptions}
+					value={ruleForm.event_type}
+					onChange={(v) => ruleForm = { ...ruleForm, event_type: v }}
+				/>
+			</label>
+			<label class="space-y-1">
+				<span class="text-xs text-gray-500">Minimum Severity</span>
+				<Combobox
+					options={alertSeverityOptions}
+					value={ruleForm.severity_min}
+					onChange={(v) => ruleForm = { ...ruleForm, severity_min: v }}
+				/>
+			</label>
+			<label class="space-y-1">
+				<span class="text-xs text-gray-500">Cooldown (seconds)</span>
+				<input class="ds-input-sm" type="number" min="0" bind:value={ruleForm.cooldown_seconds} />
+			</label>
+			<label class="space-y-1">
+				<span class="text-xs text-gray-500">Max Attempts</span>
+				<input class="ds-input-sm" type="number" min="1" bind:value={ruleForm.max_attempts} />
+			</label>
+			<label class="space-y-1">
+				<span class="text-xs text-gray-500">Subject Template</span>
+				<input class="ds-input-sm" placeholder="Optional" bind:value={ruleForm.subject_template} />
+			</label>
+			<label class="space-y-1 md:col-span-2">
+				<span class="text-xs text-gray-500">Body Template</span>
+				<input class="ds-input-sm" placeholder="Optional" bind:value={ruleForm.body_template} />
+			</label>
+		</div>
+
+		<label class="ds-checkbox-label text-xs">
+			<input type="checkbox" class="ds-checkbox" bind:checked={ruleForm.enabled} />
+			Enabled
+		</label>
+
+		<div class="space-y-2 border-t border-gray-200 dark:border-gray-800 pt-3">
+			<div class="flex items-center justify-between">
+				<h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Routes</h3>
+				<button type="button" class="ds-btn-outline" onclick={() => addRuleRouteDraft()}>Add Route</button>
+			</div>
+
+			{#if alertChannels.length === 0}
+				<p class="text-xs text-amber-600 dark:text-amber-400">Create at least one alert channel before adding routes.</p>
+			{/if}
+
+			{#each ruleRoutesDraft as route, idx}
+				<div class="ds-panel-muted p-3 space-y-3">
+					<div class="flex items-center justify-between">
+						<p class="text-xs font-semibold text-gray-700 dark:text-gray-300">Route {idx + 1}</p>
+						{#if ruleRoutesDraft.length > 1}
+							<button type="button" class="text-xs text-red-500 hover:text-red-700" onclick={() => removeRuleRouteDraft(idx)}>Remove</button>
+						{/if}
+					</div>
+					<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+						<label class="space-y-1">
+							<span class="text-xs text-gray-500">Channel</span>
+							<Combobox
+								options={alertChannelOptions()}
+								value={route.channel_id}
+								onChange={(v) => updateRuleRouteDraft(idx, { channel_id: v })}
+							/>
+						</label>
+						<label class="space-y-1">
+							<span class="text-xs text-gray-500">Recipients (comma-separated)</span>
+							<input
+								class="ds-input-sm"
+								placeholder="ops@company.com, data@company.com"
+								value={route.recipients}
+								oninput={(e) => updateRuleRouteDraft(idx, { recipients: (e.target as HTMLInputElement).value })}
+							/>
+						</label>
+						<label class="space-y-1">
+							<span class="text-xs text-gray-500">Delivery Mode</span>
+							<Combobox
+								options={routeDeliveryModeOptions}
+								value={route.delivery_mode}
+								onChange={(v) => updateRuleRouteDraft(idx, { delivery_mode: v as 'immediate' | 'digest' })}
+							/>
+						</label>
+						<label class="space-y-1">
+							<span class="text-xs text-gray-500">Digest Window (minutes)</span>
+							<input
+								class="ds-input-sm"
+								type="number"
+								min="1"
+								disabled={route.delivery_mode !== 'digest'}
+								value={route.digest_window_minutes}
+								oninput={(e) => updateRuleRouteDraft(idx, { digest_window_minutes: Number((e.target as HTMLInputElement).value) || 15 })}
+							/>
+						</label>
+						<label class="space-y-1">
+							<span class="text-xs text-gray-500">Escalation Channel</span>
+							<Combobox
+								options={alertChannelOptions()}
+								value={route.escalation_channel_id}
+								onChange={(v) => updateRuleRouteDraft(idx, { escalation_channel_id: v })}
+							/>
+						</label>
+						<label class="space-y-1">
+							<span class="text-xs text-gray-500">Escalation Recipients</span>
+							<input
+								class="ds-input-sm"
+								placeholder="manager@company.com"
+								value={route.escalation_recipients}
+								oninput={(e) => updateRuleRouteDraft(idx, { escalation_recipients: (e.target as HTMLInputElement).value })}
+							/>
+						</label>
+						<label class="space-y-1">
+							<span class="text-xs text-gray-500">Escalate After Failures</span>
+							<input
+								class="ds-input-sm"
+								type="number"
+								min="0"
+								value={route.escalation_after_failures}
+								oninput={(e) => updateRuleRouteDraft(idx, { escalation_after_failures: Number((e.target as HTMLInputElement).value) || 0 })}
+							/>
+						</label>
+					</div>
+					<label class="ds-checkbox-label text-xs">
+						<input
+							type="checkbox"
+							class="ds-checkbox"
+							checked={route.is_active}
+							onchange={(e) => updateRuleRouteDraft(idx, { is_active: (e.target as HTMLInputElement).checked })}
+						/>
+						Route active
+					</label>
+				</div>
+			{/each}
+		</div>
+
+		<div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-800">
+			<button type="button" class="ds-btn-outline" onclick={() => ruleSheetOpen = false}>Cancel</button>
+			<button type="submit" class="ds-btn-primary" disabled={!ruleForm.name.trim()}>Create Rule</button>
+		</div>
+	</form>
+</Sheet>

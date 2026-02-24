@@ -20,11 +20,8 @@
   }
 
   const proFeatures = [
-    'Dashboards and panel builder',
     'Scheduled query jobs',
-    'Brain AI workflows',
     'Governance, Access and Policy controls',
-    'Admin and multi-connection operations',
   ]
 </script>
 

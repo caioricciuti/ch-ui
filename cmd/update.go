@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/version"
 	"github.com/spf13/cobra"
@@ -37,7 +38,16 @@ var updateCmd = &cobra.Command{
 	RunE:  runUpdate,
 }
 
+var (
+	updateRestartServer bool
+	updatePIDFile       string
+	updateStopTimeout   time.Duration
+)
+
 func init() {
+	updateCmd.Flags().BoolVar(&updateRestartServer, "restart-server", true, "Automatically restart a running CH-UI server after update")
+	updateCmd.Flags().StringVar(&updatePIDFile, "pid-file", "ch-ui-server.pid", "Server PID file path used to detect/restart a running server")
+	updateCmd.Flags().DurationVar(&updateStopTimeout, "stop-timeout", 10*time.Second, "Graceful stop timeout used when restarting after update")
 	rootCmd.AddCommand(updateCmd)
 }
 
@@ -50,6 +60,20 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	currentBin, err = filepath.EvalSymlinks(currentBin)
 	if err != nil {
 		return fmt.Errorf("failed to resolve binary path: %w", err)
+	}
+
+	var runningPID int
+	var running bool
+	restartArgs := []string{"server", "--pid-file", updatePIDFile}
+	if updateRestartServer {
+		runningPID, running, err = getRunningServerPID(updatePIDFile)
+		if err != nil {
+			return fmt.Errorf("failed to inspect server status via PID file %q: %w", updatePIDFile, err)
+		}
+		if running {
+			restartArgs = detectServerRestartArgs(runningPID, updatePIDFile)
+			fmt.Printf("Detected running CH-UI server (PID %d); it will be restarted after update.\n", runningPID)
+		}
 	}
 
 	// Check write permissions
@@ -135,8 +159,137 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Updated successfully: %s → %s\n", version.Version, latestTag)
-	fmt.Println("Restart CH-UI to use the new version.")
+
+	if !updateRestartServer || !running {
+		fmt.Println("Restart CH-UI to use the new version.")
+		return nil
+	}
+
+	fmt.Printf("Restarting CH-UI server (PID %d)...\n", runningPID)
+	stopped, err := stopServer(updatePIDFile, updateStopTimeout)
+	if err != nil {
+		return fmt.Errorf("binary updated to %s but failed to stop running server: %w", latestTag, err)
+	}
+	if !stopped {
+		return fmt.Errorf("binary updated to %s but could not confirm server stop; run `ch-ui server restart --detach --pid-file %s`", latestTag, updatePIDFile)
+	}
+
+	prevPIDFile := serverPIDFile
+	serverPIDFile = updatePIDFile
+	pid, logPath, err := startDetachedServer(restartArgs)
+	serverPIDFile = prevPIDFile
+	if err != nil {
+		return fmt.Errorf("binary updated to %s and server stopped, but failed to start it again: %w", latestTag, err)
+	}
+
+	fmt.Printf("CH-UI server restarted in background (PID %d)\n", pid)
+	if logPath != "" {
+		fmt.Printf("Logs: %s\n", logPath)
+	}
+	fmt.Println("Update complete and running the new version.")
 	return nil
+}
+
+func detectServerRestartArgs(pid int, pidFile string) []string {
+	args, err := readProcessArgs(pid)
+	if err != nil {
+		return []string{"server", "--pid-file", pidFile}
+	}
+	sanitized := sanitizeServerStartArgs(args, pidFile)
+	if len(sanitized) == 0 {
+		return []string{"server", "--pid-file", pidFile}
+	}
+	return sanitized
+}
+
+func readProcessArgs(pid int) ([]string, error) {
+	if runtime.GOOS != "linux" {
+		return nil, fmt.Errorf("unsupported OS for process args inspection: %s", runtime.GOOS)
+	}
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return nil, err
+	}
+	parts := strings.Split(string(data), "\x00")
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("empty cmdline for PID %d", pid)
+	}
+	out := make([]string, 0, len(parts))
+	for i, part := range parts {
+		if i == 0 {
+			continue // executable path
+		}
+		if strings.TrimSpace(part) == "" {
+			continue
+		}
+		out = append(out, part)
+	}
+	return out, nil
+}
+
+func sanitizeServerStartArgs(args []string, pidFile string) []string {
+	// Safe fallback that keeps behavior predictable.
+	out := []string{"server"}
+
+	// Expect args from the running server process to start with "server"
+	// (or "server start" in older/manual invocations).
+	i := 0
+	if len(args) > 0 && args[0] == "server" {
+		i = 1
+		if i < len(args) && args[i] == "start" {
+			i++
+		}
+	}
+
+	for i < len(args) {
+		a := args[i]
+
+		switch {
+		case a == "server" || a == "start" || a == "stop" || a == "status" || a == "restart":
+			i++
+		case a == "--detach" || a == "-h" || a == "--help":
+			i++
+		case a == "--dev":
+			out = append(out, a)
+			i++
+		case a == "--port" || a == "-p" ||
+			a == "--config" || a == "-c" ||
+			a == "--clickhouse-url" ||
+			a == "--connection-name" ||
+			a == "--pid-file" ||
+			a == "--stop-timeout":
+			if i+1 < len(args) {
+				out = append(out, a, args[i+1])
+				i += 2
+				continue
+			}
+			i++
+		case strings.HasPrefix(a, "--port=") ||
+			strings.HasPrefix(a, "--config=") ||
+			strings.HasPrefix(a, "--clickhouse-url=") ||
+			strings.HasPrefix(a, "--connection-name=") ||
+			strings.HasPrefix(a, "--pid-file=") ||
+			strings.HasPrefix(a, "--stop-timeout="):
+			out = append(out, a)
+			i++
+		default:
+			i++
+		}
+	}
+
+	if !hasFlag(out, "--pid-file") {
+		out = append(out, "--pid-file", pidFile)
+	}
+	return out
+}
+
+func hasFlag(args []string, longName string) bool {
+	for _, a := range args {
+		if a == longName || strings.HasPrefix(a, longName+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 func fetchLatestRelease() (*ghRelease, error) {

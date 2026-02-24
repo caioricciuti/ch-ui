@@ -77,11 +77,11 @@ func (h *GovernanceHandler) Routes() chi.Router {
 
 	// Policies
 	r.Route("/policies", func(pr chi.Router) {
-		pr.Get("/", h.ListPolicies)
-		pr.Post("/", h.CreatePolicy)
-		pr.Get("/{id}", h.GetPolicy)
-		pr.Put("/{id}", h.UpdatePolicy)
-		pr.Delete("/{id}", h.DeletePolicy)
+		pr.With(middleware.RequireAdmin(h.DB)).Get("/", h.ListPolicies)
+		pr.With(middleware.RequireAdmin(h.DB)).Post("/", h.CreatePolicy)
+		pr.With(middleware.RequireAdmin(h.DB)).Get("/{id}", h.GetPolicy)
+		pr.With(middleware.RequireAdmin(h.DB)).Put("/{id}", h.UpdatePolicy)
+		pr.With(middleware.RequireAdmin(h.DB)).Delete("/{id}", h.DeletePolicy)
 	})
 
 	// Violations
@@ -95,6 +95,26 @@ func (h *GovernanceHandler) Routes() chi.Router {
 	r.With(middleware.RequireAdmin(h.DB)).Put("/incidents/{id}", h.UpdateIncident)
 	r.Get("/incidents/{id}/comments", h.ListIncidentComments)
 	r.With(middleware.RequireAdmin(h.DB)).Post("/incidents/{id}/comments", h.CreateIncidentComment)
+
+	// Audit logs
+	r.Get("/audit-logs", h.GetAuditLogs)
+
+	// ClickHouse query log
+	r.Get("/clickhouse-query-log", h.GetClickHouseQueryLog)
+
+	// Alerts management
+	r.Route("/alerts", func(ar chi.Router) {
+		ar.Get("/channels", h.ListAlertChannels)
+		ar.Post("/channels", h.CreateAlertChannel)
+		ar.Put("/channels/{id}", h.UpdateAlertChannel)
+		ar.Delete("/channels/{id}", h.DeleteAlertChannel)
+		ar.Post("/channels/{id}/test", h.TestAlertChannel)
+		ar.Get("/rules", h.ListAlertRules)
+		ar.Post("/rules", h.CreateAlertRule)
+		ar.Put("/rules/{id}", h.UpdateAlertRule)
+		ar.Delete("/rules/{id}", h.DeleteAlertRule)
+		ar.Get("/events", h.ListAlertEvents)
+	})
 
 	return r
 }
@@ -1208,14 +1228,15 @@ func (h *GovernanceHandler) CreatePolicy(w http.ResponseWriter, r *http.Request)
 	}
 
 	var body struct {
-		Name           string `json:"name"`
-		Description    string `json:"description"`
-		ObjectType     string `json:"object_type"`
-		ObjectDatabase string `json:"object_database"`
-		ObjectTable    string `json:"object_table"`
-		ObjectColumn   string `json:"object_column"`
-		RequiredRole   string `json:"required_role"`
-		Severity       string `json:"severity"`
+		Name            string `json:"name"`
+		Description     string `json:"description"`
+		ObjectType      string `json:"object_type"`
+		ObjectDatabase  string `json:"object_database"`
+		ObjectTable     string `json:"object_table"`
+		ObjectColumn    string `json:"object_column"`
+		RequiredRole    string `json:"required_role"`
+		Severity        string `json:"severity"`
+		EnforcementMode string `json:"enforcement_mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -1233,11 +1254,16 @@ func (h *GovernanceHandler) CreatePolicy(w http.ResponseWriter, r *http.Request)
 	if body.Severity == "" {
 		body.Severity = "warn"
 	}
+	enforcementMode, err := normalizePolicyEnforcementMode(body.EnforcementMode)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 
 	id, err := h.Store.CreatePolicy(
 		session.ConnectionID, body.Name, body.Description, body.ObjectType,
 		body.ObjectDatabase, body.ObjectTable, body.ObjectColumn,
-		body.RequiredRole, body.Severity, session.ClickhouseUser,
+		body.RequiredRole, body.Severity, enforcementMode, session.ClickhouseUser,
 	)
 	if err != nil {
 		slog.Error("Failed to create policy", "error", err)
@@ -1281,14 +1307,21 @@ func (h *GovernanceHandler) UpdatePolicy(w http.ResponseWriter, r *http.Request)
 	id := chi.URLParam(r, "id")
 
 	var body struct {
-		Name         string `json:"name"`
-		Description  string `json:"description"`
-		RequiredRole string `json:"required_role"`
-		Severity     string `json:"severity"`
-		Enabled      *bool  `json:"enabled"`
+		Name            string `json:"name"`
+		Description     string `json:"description"`
+		RequiredRole    string `json:"required_role"`
+		Severity        string `json:"severity"`
+		EnforcementMode string `json:"enforcement_mode"`
+		Enabled         *bool  `json:"enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		return
+	}
+
+	enforcementMode, err := normalizePolicyEnforcementMode(body.EnforcementMode)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -1297,7 +1330,7 @@ func (h *GovernanceHandler) UpdatePolicy(w http.ResponseWriter, r *http.Request)
 		enabled = *body.Enabled
 	}
 
-	if err := h.Store.UpdatePolicy(id, body.Name, body.Description, body.RequiredRole, body.Severity, enabled); err != nil {
+	if err := h.Store.UpdatePolicy(id, body.Name, body.Description, body.RequiredRole, body.Severity, enforcementMode, enabled); err != nil {
 		slog.Error("Failed to update policy", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update policy"})
 		return
@@ -1689,6 +1722,18 @@ func normalizeIncidentSeverity(v string) string {
 		return strings.ToLower(strings.TrimSpace(v))
 	default:
 		return "warn"
+	}
+}
+
+func normalizePolicyEnforcementMode(v string) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(v))
+	switch mode {
+	case "", "warn":
+		return "warn", nil
+	case "block":
+		return "block", nil
+	default:
+		return "", fmt.Errorf("enforcement_mode must be warn or block")
 	}
 }
 

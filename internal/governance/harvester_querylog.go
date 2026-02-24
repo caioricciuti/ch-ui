@@ -198,7 +198,7 @@ func (s *Syncer) syncQueryLog(ctx context.Context, creds CHCredentials) (*QueryL
 		for _, entry := range entries {
 			violations := EvaluatePolicies(connID, entry, policies, s.store)
 			for _, v := range violations {
-				violationID, err := s.store.CreateViolation(connID, v.PolicyID, v.QueryLogID, v.User, v.ViolationDetail, v.Severity)
+				violationID, err := s.store.CreateViolation(connID, v.PolicyID, v.QueryLogID, v.User, v.ViolationDetail, v.Severity, "post_exec", "")
 				if err != nil {
 					slog.Error("Failed to insert policy violation", "error", err)
 					continue

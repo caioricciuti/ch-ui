@@ -225,6 +225,7 @@ export interface Policy {
   object_column: string | null
   required_role: string
   severity: string
+  enforcement_mode: 'warn' | 'block'
   enabled: boolean
   created_by: string | null
   created_at: string
@@ -239,6 +240,8 @@ export interface PolicyViolation {
   ch_user: string
   violation_detail: string
   severity: string
+  detection_phase?: 'post_exec' | 'pre_exec_block' | string
+  request_endpoint?: string | null
   detected_at: string
   created_at: string
   policy_name?: string

@@ -1,7 +1,7 @@
 import { apiDel, apiGet, apiPost, apiPut } from './client'
 import type { AlertChannel, AlertEvent, AlertRule } from '../types/alerts'
 
-const BASE = '/api/admin/alerts'
+const BASE = '/api/governance/alerts'
 
 export type AlertRuleRoutePayload = {
   channel_id: string
