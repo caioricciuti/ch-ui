@@ -25,16 +25,24 @@
     LogOut,
     Search,
     ChevronDown,
+    ExternalLink,
   } from 'lucide-svelte'
 
   const session = $derived(getSession())
 
-  interface NavItem {
+  interface NavItemInternal {
     type: SingletonTab['type']
     label: string
     icon: typeof Bookmark
     pro?: boolean
   }
+  interface NavItemExternal {
+    type: 'external'
+    label: string
+    icon: typeof Bookmark
+    href: string
+  }
+  type NavItem = NavItemInternal | NavItemExternal
 
   const navItems: NavItem[] = [
     { type: 'saved-queries', label: 'Saved Queries', icon: Bookmark },
@@ -44,6 +52,7 @@
     { type: 'governance', label: 'Governance', icon: Scale, pro: true },
     { type: 'admin', label: 'Admin', icon: Shield },
     { type: 'settings', label: 'License', icon: Settings },
+    { type: 'external', label: 'CH-UI Docs', icon: ExternalLink, href: 'https://ch-ui.com/docs' },
   ]
 
   const MIN_WIDTH = 200
@@ -166,16 +175,28 @@
       <div class="flex-1"></div>
       <div class="flex flex-col items-center py-2 gap-1 border-t border-gray-200 dark:border-gray-800">
         {#each navItems as item}
-          <button
-            class="p-2 rounded transition-colors
-              {isNavItemActive(item.type)
-                ? 'text-ch-orange bg-orange-100/70 dark:bg-orange-500/18'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/40 dark:hover:bg-gray-800/40'}"
-            onclick={() => openSingletonTab(item.type, item.label)}
-            title={item.label}
-          >
-            <item.icon size={17} />
-          </button>
+          {#if item.type === 'external'}
+            <a
+              class="p-2 rounded transition-colors text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/40 dark:hover:bg-gray-800/40"
+              href={item.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={item.label}
+            >
+              <item.icon size={17} />
+            </a>
+          {:else}
+            <button
+              class="p-2 rounded transition-colors
+                {isNavItemActive(item.type)
+                  ? 'text-ch-orange bg-orange-100/70 dark:bg-orange-500/18'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/40 dark:hover:bg-gray-800/40'}"
+              onclick={() => openSingletonTab(item.type, item.label)}
+              title={item.label}
+            >
+              <item.icon size={17} />
+            </button>
+          {/if}
         {/each}
       </div>
       <!-- Connection status + actions (collapsed) -->
@@ -239,19 +260,31 @@
           {#if !menuCollapsed}
             <div class="py-1.5">
               {#each navItems as item}
-                <button
-                  class="flex items-center gap-2.5 w-full px-3.5 py-2 text-[13px] font-medium transition-colors
-                    {isNavItemActive(item.type)
-                      ? 'text-ch-orange bg-orange-100/70 dark:bg-orange-500/18 border-l-2 border-ch-orange'
-                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/40 dark:hover:bg-gray-800/40'}"
-                  onclick={() => openSingletonTab(item.type, item.label)}
-                >
-                  <item.icon size={15} />
-                  <span class="truncate">{item.label}</span>
-                  {#if item.pro && !licensedPro}
-                    <span class="ml-auto text-[10px] uppercase tracking-wider text-ch-orange font-semibold">Pro</span>
-                  {/if}
-                </button>
+                {#if item.type === 'external'}
+                  <a
+                    class="flex items-center gap-2.5 w-full px-3.5 py-2 text-[13px] font-medium transition-colors text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/40 dark:hover:bg-gray-800/40"
+                    href={item.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <item.icon size={15} />
+                    <span class="truncate">{item.label}</span>
+                  </a>
+                {:else}
+                  <button
+                    class="flex items-center gap-2.5 w-full px-3.5 py-2 text-[13px] font-medium transition-colors
+                      {isNavItemActive(item.type)
+                        ? 'text-ch-orange bg-orange-100/70 dark:bg-orange-500/18 border-l-2 border-ch-orange'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/40 dark:hover:bg-gray-800/40'}"
+                    onclick={() => openSingletonTab(item.type, item.label)}
+                  >
+                    <item.icon size={15} />
+                    <span class="truncate">{item.label}</span>
+                    {#if item.pro && !licensedPro}
+                      <span class="ml-auto text-[10px] uppercase tracking-wider text-ch-orange font-semibold">Pro</span>
+                    {/if}
+                  </button>
+                {/if}
               {/each}
             </div>
 

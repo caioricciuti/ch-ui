@@ -704,6 +704,15 @@ func (db *DB) runMigrations() error {
 	if err := db.ensureColumn("gov_policy_violations", "request_endpoint", "TEXT"); err != nil {
 		return err
 	}
+	if err := db.ensureColumn("brain_chats", "context_database", "TEXT"); err != nil {
+		return err
+	}
+	if err := db.ensureColumn("brain_chats", "context_table", "TEXT"); err != nil {
+		return err
+	}
+	if err := db.ensureColumn("brain_chats", "context_tables", "TEXT"); err != nil {
+		return err
+	}
 
 	// Drop legacy tables from the old SaaS schema
 	dropLegacy := []string{

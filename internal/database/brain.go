@@ -56,16 +56,19 @@ type BrainModelRuntime struct {
 
 // BrainChat stores a user chat thread.
 type BrainChat struct {
-	ID            string  `json:"id"`
-	ConnectionID  string  `json:"connection_id"`
-	Username      string  `json:"username"`
-	Title         string  `json:"title"`
-	ProviderID    *string `json:"provider_id"`
-	ModelID       *string `json:"model_id"`
-	Archived      bool    `json:"archived"`
-	LastMessageAt *string `json:"last_message_at"`
-	CreatedAt     string  `json:"created_at"`
-	UpdatedAt     string  `json:"updated_at"`
+	ID              string  `json:"id"`
+	ConnectionID    string  `json:"connection_id"`
+	Username        string  `json:"username"`
+	Title           string  `json:"title"`
+	ProviderID      *string `json:"provider_id"`
+	ModelID         *string `json:"model_id"`
+	Archived        bool    `json:"archived"`
+	LastMessageAt   *string `json:"last_message_at"`
+	ContextDatabase *string `json:"context_database"`
+	ContextTable    *string `json:"context_table"`
+	ContextTables   *string `json:"context_tables"`
+	CreatedAt       string  `json:"created_at"`
+	UpdatedAt       string  `json:"updated_at"`
 }
 
 // BrainMessage stores one chat turn.
@@ -671,7 +674,7 @@ func (db *DB) CreateBrainSkill(name, content, createdBy string, isActive, isDefa
 
 // GetBrainChatsByUser returns chats for a user scoped to connection.
 func (db *DB) GetBrainChatsByUser(username, connectionID string, includeArchived bool) ([]BrainChat, error) {
-	query := `SELECT id, connection_id, username, title, provider_id, model_id, archived, last_message_at, created_at, updated_at FROM brain_chats WHERE username = ? AND connection_id = ?`
+	query := `SELECT id, connection_id, username, title, provider_id, model_id, archived, last_message_at, context_database, context_table, context_tables, created_at, updated_at FROM brain_chats WHERE username = ? AND connection_id = ?`
 	args := []interface{}{username, connectionID}
 	if !includeArchived {
 		query += ` AND archived = 0`
@@ -702,25 +705,28 @@ func scanBrainChat(scanner interface {
 	Scan(dest ...interface{}) error
 }) (BrainChat, error) {
 	var c BrainChat
-	var providerID, modelID, lastMessageAt sql.NullString
+	var providerID, modelID, lastMessageAt, ctxDB, ctxTable, ctxTables sql.NullString
 	var archived int
-	if err := scanner.Scan(&c.ID, &c.ConnectionID, &c.Username, &c.Title, &providerID, &modelID, &archived, &lastMessageAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	if err := scanner.Scan(&c.ID, &c.ConnectionID, &c.Username, &c.Title, &providerID, &modelID, &archived, &lastMessageAt, &ctxDB, &ctxTable, &ctxTables, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return BrainChat{}, fmt.Errorf("scan brain chat: %w", err)
 	}
 	c.ProviderID = nullStringToPtr(providerID)
 	c.ModelID = nullStringToPtr(modelID)
 	c.LastMessageAt = nullStringToPtr(lastMessageAt)
+	c.ContextDatabase = nullStringToPtr(ctxDB)
+	c.ContextTable = nullStringToPtr(ctxTable)
+	c.ContextTables = nullStringToPtr(ctxTables)
 	c.Archived = intToBool(archived)
 	return c, nil
 }
 
 // GetBrainChatByIDForUser loads one chat if owned by user.
 func (db *DB) GetBrainChatByIDForUser(chatID, username string) (*BrainChat, error) {
-	row := db.conn.QueryRow(`SELECT id, connection_id, username, title, provider_id, model_id, archived, last_message_at, created_at, updated_at FROM brain_chats WHERE id = ? AND username = ?`, chatID, username)
+	row := db.conn.QueryRow(`SELECT id, connection_id, username, title, provider_id, model_id, archived, last_message_at, context_database, context_table, context_tables, created_at, updated_at FROM brain_chats WHERE id = ? AND username = ?`, chatID, username)
 	var c BrainChat
-	var providerID, modelID, lastMessageAt sql.NullString
+	var providerID, modelID, lastMessageAt, ctxDB, ctxTable, ctxTables sql.NullString
 	var archived int
-	if err := row.Scan(&c.ID, &c.ConnectionID, &c.Username, &c.Title, &providerID, &modelID, &archived, &lastMessageAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	if err := row.Scan(&c.ID, &c.ConnectionID, &c.Username, &c.Title, &providerID, &modelID, &archived, &lastMessageAt, &ctxDB, &ctxTable, &ctxTables, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -729,12 +735,15 @@ func (db *DB) GetBrainChatByIDForUser(chatID, username string) (*BrainChat, erro
 	c.ProviderID = nullStringToPtr(providerID)
 	c.ModelID = nullStringToPtr(modelID)
 	c.LastMessageAt = nullStringToPtr(lastMessageAt)
+	c.ContextDatabase = nullStringToPtr(ctxDB)
+	c.ContextTable = nullStringToPtr(ctxTable)
+	c.ContextTables = nullStringToPtr(ctxTables)
 	c.Archived = intToBool(archived)
 	return &c, nil
 }
 
 // CreateBrainChat creates a chat thread.
-func (db *DB) CreateBrainChat(username, connectionID, title, providerID, modelID string) (string, error) {
+func (db *DB) CreateBrainChat(username, connectionID, title, providerID, modelID, contextDatabase, contextTable, contextTables string) (string, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	id := uuid.NewString()
 	if strings.TrimSpace(title) == "" {
@@ -742,9 +751,9 @@ func (db *DB) CreateBrainChat(username, connectionID, title, providerID, modelID
 	}
 
 	if _, err := db.conn.Exec(
-		`INSERT INTO brain_chats (id, connection_id, username, title, provider_id, model_id, archived, last_message_at, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)`,
-		id, connectionID, username, strings.TrimSpace(title), nullableString(providerID), nullableString(modelID), now, now,
+		`INSERT INTO brain_chats (id, connection_id, username, title, provider_id, model_id, archived, last_message_at, context_database, context_table, context_tables, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?)`,
+		id, connectionID, username, strings.TrimSpace(title), nullableString(providerID), nullableString(modelID), nullableString(contextDatabase), nullableString(contextTable), nullableString(contextTables), now, now,
 	); err != nil {
 		return "", fmt.Errorf("create brain chat: %w", err)
 	}
@@ -752,9 +761,10 @@ func (db *DB) CreateBrainChat(username, connectionID, title, providerID, modelID
 }
 
 // UpdateBrainChat updates mutable chat properties.
-func (db *DB) UpdateBrainChat(chatID, title, providerID, modelID string, archived bool) error {
+func (db *DB) UpdateBrainChat(chatID, title, providerID, modelID string, archived bool, contextDatabase, contextTable, contextTables string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := db.conn.Exec(`UPDATE brain_chats SET title = ?, provider_id = ?, model_id = ?, archived = ?, updated_at = ? WHERE id = ?`, strings.TrimSpace(title), nullableString(providerID), nullableString(modelID), boolToInt(archived), now, chatID); err != nil {
+	if _, err := db.conn.Exec(`UPDATE brain_chats SET title = ?, provider_id = ?, model_id = ?, archived = ?, context_database = ?, context_table = ?, context_tables = ?, updated_at = ? WHERE id = ?`,
+		strings.TrimSpace(title), nullableString(providerID), nullableString(modelID), boolToInt(archived), nullableString(contextDatabase), nullableString(contextTable), nullableString(contextTables), now, chatID); err != nil {
 		return fmt.Errorf("update brain chat: %w", err)
 	}
 	return nil

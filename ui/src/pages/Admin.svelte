@@ -113,6 +113,7 @@
   let modelShowOnlyActive = $state(false)
   let providerSheetOpen = $state(false)
   let skillSheetOpen = $state(false)
+  let deletingProvider = $state<BrainProviderAdmin | null>(null)
 
 
   const roleOptions: ComboboxOption[] = [
@@ -590,8 +591,14 @@
     }
   }
 
-  async function deleteProvider(provider: BrainProviderAdmin) {
-    if (!confirm(`Delete provider \"${provider.name}\"?`)) return
+  function deleteProvider(provider: BrainProviderAdmin) {
+    deletingProvider = provider
+  }
+
+  async function confirmDeleteProvider() {
+    if (!deletingProvider) return
+    const provider = deletingProvider
+    deletingProvider = null
     try {
       await adminDeleteBrainProvider(provider.id)
       toastSuccess('Provider deleted')
@@ -1034,6 +1041,16 @@
   loading={tunnelDeleteLoading}
   onconfirm={confirmDeleteTunnel}
   oncancel={cancelDeleteTunnel}
+/>
+
+<ConfirmDialog
+  open={deletingProvider !== null}
+  title="Delete provider?"
+  description={deletingProvider ? `Delete "${deletingProvider.name}" and all its models? This cannot be undone.` : ''}
+  confirmLabel="Delete Provider"
+  destructive
+  onconfirm={confirmDeleteProvider}
+  oncancel={() => deletingProvider = null}
 />
 
   <!-- Content -->

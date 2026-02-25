@@ -45,7 +45,7 @@ func (h *BrainHandler) Routes(r chi.Router) {
 	r.Get("/chats", h.ListChats)
 	r.Post("/chats", h.CreateChat)
 	r.Get("/chats/{chatID}", h.GetChat)
-	r.Patch("/chats/{chatID}", h.UpdateChat)
+	r.Put("/chats/{chatID}", h.UpdateChat)
 	r.Delete("/chats/{chatID}", h.DeleteChat)
 	r.Get("/chats/{chatID}/messages", h.ListMessages)
 	r.Post("/chats/{chatID}/messages/stream", h.StreamMessage)
@@ -74,15 +74,19 @@ type createChatRequest struct {
 }
 
 type updateChatRequest struct {
-	Title    *string `json:"title"`
-	Archived *bool   `json:"archived"`
-	ModelID  *string `json:"modelId"`
+	Title           *string `json:"title"`
+	Archived        *bool   `json:"archived"`
+	ModelID         *string `json:"modelId"`
+	ContextDatabase *string `json:"contextDatabase"`
+	ContextTable    *string `json:"contextTable"`
+	ContextTables   *string `json:"contextTables"`
 }
 
 type streamMessageRequest struct {
-	Content       string         `json:"content"`
-	ModelID       string         `json:"modelId"`
-	SchemaContext *schemaContext `json:"schemaContext,omitempty"`
+	Content        string          `json:"content"`
+	ModelID        string          `json:"modelId"`
+	SchemaContext  *schemaContext   `json:"schemaContext,omitempty"`
+	SchemaContexts []schemaContext `json:"schemaContexts,omitempty"`
 }
 
 type runQueryArtifactRequest struct {
@@ -174,7 +178,7 @@ func (h *BrainHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 		providerID = rt.ProviderID
 	}
 
-	chatID, err := h.DB.CreateBrainChat(session.ClickhouseUser, session.ConnectionID, title, providerID, modelID)
+	chatID, err := h.DB.CreateBrainChat(session.ClickhouseUser, session.ConnectionID, title, providerID, modelID, "", "", "")
 	if err != nil {
 		slog.Error("Failed to create Brain chat", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create chat")
@@ -273,7 +277,38 @@ func (h *BrainHandler) UpdateChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.DB.UpdateBrainChat(chatID, title, providerID, modelID, archived); err != nil {
+	contextDatabase := ""
+	if chat.ContextDatabase != nil {
+		contextDatabase = *chat.ContextDatabase
+	}
+	contextTable := ""
+	if chat.ContextTable != nil {
+		contextTable = *chat.ContextTable
+	}
+	contextTables := ""
+	if chat.ContextTables != nil {
+		contextTables = *chat.ContextTables
+	}
+	if body.ContextDatabase != nil {
+		contextDatabase = strings.TrimSpace(*body.ContextDatabase)
+	}
+	if body.ContextTable != nil {
+		contextTable = strings.TrimSpace(*body.ContextTable)
+	}
+	// If database changes but table wasn't explicitly set, clear table
+	if body.ContextDatabase != nil && body.ContextTable == nil {
+		contextTable = ""
+	}
+	if body.ContextTables != nil {
+		contextTables = strings.TrimSpace(*body.ContextTables)
+		// When using new multi-context format, clear legacy fields
+		if contextTables != "" {
+			contextDatabase = ""
+			contextTable = ""
+		}
+	}
+
+	if err := h.DB.UpdateBrainChat(chatID, title, providerID, modelID, archived, contextDatabase, contextTable, contextTables); err != nil {
 		slog.Error("Failed to update Brain chat", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to update chat")
 		return
@@ -543,8 +578,27 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Merge single SchemaContext (legacy) with SchemaContexts array
+	var allContexts []schemaContext
+	if body.SchemaContext != nil {
+		allContexts = append(allContexts, *body.SchemaContext)
+	}
+	for _, sc := range body.SchemaContexts {
+		// Dedupe: skip if already present from legacy field
+		dup := false
+		for _, existing := range allContexts {
+			if existing.Database == sc.Database && existing.Table == sc.Table {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			allContexts = append(allContexts, sc)
+		}
+	}
+
 	providerMessages := make([]braincore.Message, 0, len(history)+1)
-	systemPrompt := h.buildSystemPrompt(body.SchemaContext)
+	systemPrompt := h.buildSystemPrompt(allContexts)
 	providerMessages = append(providerMessages, braincore.Message{Role: "system", Content: systemPrompt})
 
 	for _, msg := range history {
@@ -607,7 +661,19 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 	if title == "New Chat" || strings.TrimSpace(title) == "" {
 		title = autoTitle(prompt)
 	}
-	if err := h.DB.UpdateBrainChat(chatID, title, runtimeModel.ProviderID, runtimeModel.ModelID, chat.Archived); err != nil {
+	streamCtxDB := ""
+	if chat.ContextDatabase != nil {
+		streamCtxDB = *chat.ContextDatabase
+	}
+	streamCtxTable := ""
+	if chat.ContextTable != nil {
+		streamCtxTable = *chat.ContextTable
+	}
+	streamCtxTables := ""
+	if chat.ContextTables != nil {
+		streamCtxTables = *chat.ContextTables
+	}
+	if err := h.DB.UpdateBrainChat(chatID, title, runtimeModel.ProviderID, runtimeModel.ModelID, chat.Archived, streamCtxDB, streamCtxTable, streamCtxTables); err != nil {
 		slog.Warn("Failed to update chat title/model", "error", err)
 	}
 
@@ -674,8 +740,12 @@ func (h *BrainHandler) LegacyChat(w http.ResponseWriter, r *http.Request) {
 		cfg.APIKey = decrypted
 	}
 
+	var legacyContexts []schemaContext
+	if req.SchemaContext != nil {
+		legacyContexts = append(legacyContexts, *req.SchemaContext)
+	}
 	messages := make([]braincore.Message, 0, len(req.Messages)+1)
-	messages = append(messages, braincore.Message{Role: "system", Content: h.buildSystemPrompt(req.SchemaContext)})
+	messages = append(messages, braincore.Message{Role: "system", Content: h.buildSystemPrompt(legacyContexts)})
 	for _, msg := range req.Messages {
 		role := strings.ToLower(strings.TrimSpace(msg.Role))
 		if role != "user" && role != "assistant" {
@@ -733,7 +803,7 @@ func (h *BrainHandler) resolveRuntimeModel(chat *database.BrainChat, requestedMo
 	return rt, nil
 }
 
-func (h *BrainHandler) buildSystemPrompt(sc *schemaContext) string {
+func (h *BrainHandler) buildSystemPrompt(contexts []schemaContext) string {
 	skillPrompt := ""
 	skill, err := h.DB.GetActiveBrainSkill()
 	if err == nil && skill != nil {
@@ -744,33 +814,33 @@ func (h *BrainHandler) buildSystemPrompt(sc *schemaContext) string {
 	if skillPrompt != "" {
 		prompt += "\n\nActive skills:\n" + skillPrompt
 	}
-	if sc != nil {
-		prompt += buildSchemaPrompt(sc)
+	if len(contexts) > 0 {
+		prompt += buildMultiSchemaPrompt(contexts)
 	}
 	return prompt
 }
 
-func buildSchemaPrompt(sc *schemaContext) string {
+func buildMultiSchemaPrompt(contexts []schemaContext) string {
 	var sb strings.Builder
 	sb.WriteString("\n\nSchema context:\n")
-	if sc.Database != "" {
-		sb.WriteString("Database: " + sc.Database + "\n")
-	}
-	if sc.Table != "" {
-		sb.WriteString("Table: " + sc.Table + "\n")
-	}
-	if len(sc.Columns) > 0 {
-		sb.WriteString("Columns:\n")
-		for _, col := range sc.Columns {
-			sb.WriteString("- " + col.Name + " (" + col.Type + ")\n")
-		}
-	}
-	if sc.SampleData != nil {
-		raw, err := json.Marshal(sc.SampleData)
-		if err == nil {
-			sb.WriteString("Sample: ")
-			sb.WriteString(string(raw))
+	for i, sc := range contexts {
+		if i > 0 {
 			sb.WriteString("\n")
+		}
+		label := ""
+		if sc.Database != "" && sc.Table != "" {
+			label = sc.Database + "." + sc.Table
+		} else if sc.Database != "" {
+			label = sc.Database
+		} else if sc.Table != "" {
+			label = sc.Table
+		}
+		sb.WriteString(fmt.Sprintf("Table %d: %s\n", i+1, label))
+		if len(sc.Columns) > 0 {
+			sb.WriteString("Columns:\n")
+			for _, col := range sc.Columns {
+				sb.WriteString("- " + col.Name + " (" + col.Type + ")\n")
+			}
 		}
 	}
 	return sb.String()

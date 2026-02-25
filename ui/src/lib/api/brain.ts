@@ -23,7 +23,7 @@ export async function createBrainChat(payload: { title?: string; modelId?: strin
   return res.chat
 }
 
-export async function updateBrainChat(chatId: string, payload: { title?: string; archived?: boolean; modelId?: string }): Promise<void> {
+export async function updateBrainChat(chatId: string, payload: { title?: string; archived?: boolean; modelId?: string; contextDatabase?: string; contextTable?: string; contextTables?: string }): Promise<void> {
   await apiPut(`/api/brain/chats/${encodeURIComponent(chatId)}`, payload)
 }
 
@@ -55,7 +55,7 @@ export interface StreamEvent {
 
 export async function streamBrainMessage(
   chatId: string,
-  payload: { content: string; modelId?: string; schemaContext?: any },
+  payload: { content: string; modelId?: string; schemaContext?: any; schemaContexts?: any[] },
   onEvent: (event: StreamEvent) => void,
 ): Promise<void> {
   const response = await fetch(`/api/brain/chats/${encodeURIComponent(chatId)}/messages/stream`, {

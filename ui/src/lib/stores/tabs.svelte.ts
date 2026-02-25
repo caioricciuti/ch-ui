@@ -41,7 +41,7 @@ export interface HomeTab extends TabBase {
 }
 
 export interface SingletonTab extends TabBase {
-  type: 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance'
+  type: 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' 
 }
 
 export type Tab = HomeTab | QueryTab | TableTab | DatabaseTab | DashboardTab | SingletonTab

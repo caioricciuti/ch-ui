@@ -226,6 +226,9 @@
 	let alertEvents = $state<AlertEvent[]>([]);
 	let alertEventLimit = $state(50);
 	let alertTestRecipients = $state('');
+	let deletingNoteId = $state<string | null>(null);
+	let deletingChannel = $state<AlertChannel | null>(null);
+	let deletingRule = $state<AlertRule | null>(null);
 	let channelSheetOpen = $state(false);
 	let ruleSheetOpen = $state(false);
 	type RuleRouteDraft = {
@@ -727,9 +730,14 @@
 		}
 	}
 
-	async function deleteTableNote(noteId: string) {
-		if (!confirm('Delete this note?')) return;
-		if (!selectedTable) return;
+	function deleteTableNote(noteId: string) {
+		deletingNoteId = noteId;
+	}
+
+	async function confirmDeleteNote() {
+		if (!deletingNoteId || !selectedTable) return;
+		const noteId = deletingNoteId;
+		deletingNoteId = null;
 		try {
 			await apiDeleteObjectNote(noteId);
 			const notesRes = await fetchTableNotes(selectedTable.database_name, selectedTable.table_name);
@@ -1032,8 +1040,14 @@
 		}
 	}
 
-	async function deleteAlertChannelRecord(channel: AlertChannel) {
-		if (!confirm(`Delete channel "${channel.name}"?`)) return;
+	function deleteAlertChannelRecord(channel: AlertChannel) {
+		deletingChannel = channel;
+	}
+
+	async function confirmDeleteChannel() {
+		if (!deletingChannel) return;
+		const channel = deletingChannel;
+		deletingChannel = null;
 		try {
 			await adminDeleteAlertChannel(channel.id);
 			toastSuccess('Channel deleted');
@@ -1100,8 +1114,14 @@
 		}
 	}
 
-	async function deleteAlertRuleRecord(rule: AlertRule) {
-		if (!confirm(`Delete rule "${rule.name}"?`)) return;
+	function deleteAlertRuleRecord(rule: AlertRule) {
+		deletingRule = rule;
+	}
+
+	async function confirmDeleteRule() {
+		if (!deletingRule) return;
+		const rule = deletingRule;
+		deletingRule = null;
 		try {
 			await adminDeleteAlertRule(rule.id);
 			toastSuccess('Rule deleted');
@@ -3401,3 +3421,33 @@
 		</div>
 	</form>
 </Sheet>
+
+<ConfirmDialog
+	open={deletingNoteId !== null}
+	title="Delete note?"
+	description="Are you sure you want to delete this note? This cannot be undone."
+	confirmLabel="Delete"
+	destructive
+	onconfirm={confirmDeleteNote}
+	oncancel={() => deletingNoteId = null}
+/>
+
+<ConfirmDialog
+	open={deletingChannel !== null}
+	title="Delete channel?"
+	description={deletingChannel ? `Delete "${deletingChannel.name}"? This cannot be undone.` : ''}
+	confirmLabel="Delete"
+	destructive
+	onconfirm={confirmDeleteChannel}
+	oncancel={() => deletingChannel = null}
+/>
+
+<ConfirmDialog
+	open={deletingRule !== null}
+	title="Delete rule?"
+	description={deletingRule ? `Delete "${deletingRule.name}"? This cannot be undone.` : ''}
+	confirmLabel="Delete"
+	destructive
+	onconfirm={confirmDeleteRule}
+	oncancel={() => deletingRule = null}
+/>

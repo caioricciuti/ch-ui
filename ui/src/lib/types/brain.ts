@@ -1,3 +1,9 @@
+export interface SchemaContextEntry {
+  database: string
+  table: string
+  columns: { name: string; type: string }[]
+}
+
 export interface BrainChat {
   id: string
   connection_id: string
@@ -7,6 +13,9 @@ export interface BrainChat {
   model_id?: string | null
   archived: boolean
   last_message_at?: string | null
+  context_database?: string | null
+  context_table?: string | null
+  context_tables?: string | null
   created_at: string
   updated_at: string
 }

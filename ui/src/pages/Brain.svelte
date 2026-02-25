@@ -3,8 +3,7 @@
   import { openQueryTab } from '../lib/stores/tabs.svelte'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import { getDatabases, loadDatabases, loadTables, loadColumns } from '../lib/stores/schema.svelte'
-  import type { Database } from '../lib/types/schema'
-  import type { BrainArtifact, BrainChat, BrainMessage as BrainMessageType, BrainModelOption } from '../lib/types/brain'
+  import type { BrainArtifact, BrainChat, BrainMessage as BrainMessageType, BrainModelOption, SchemaContextEntry } from '../lib/types/brain'
   import type { ComboboxOption } from '../lib/components/common/Combobox.svelte'
   import {
     createBrainChat,
@@ -23,6 +22,10 @@
   import BrainMessage from '../lib/components/brain/BrainMessage.svelte'
   import BrainInput from '../lib/components/brain/BrainInput.svelte'
   import BrainEmptyState from '../lib/components/brain/BrainEmptyState.svelte'
+  import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
+  import InputDialog from '../lib/components/common/InputDialog.svelte'
+
+  const MAX_CONTEXTS = 10
 
   // ── State ──────────────────────────────────────────────────
   let loading = $state(true)
@@ -37,10 +40,15 @@
   let messagesEl: HTMLDivElement | undefined = $state()
   let runningSql = $state<string | null>(null)
 
-  // Schema context
-  let selectedDb = $state('')
-  let selectedTable = $state('')
-  let contextColumns = $state<{ name: string; type: string }[]>([])
+  // Multi-context state
+  let contexts = $state<SchemaContextEntry[]>([])
+  let headerDb = $state('')
+  let headerTable = $state('')
+
+  // Dialog state
+  let renamingChat = $state<BrainChat | null>(null)
+  let renameValue = $state('')
+  let deletingChat = $state<BrainChat | null>(null)
 
   // ── Derived ────────────────────────────────────────────────
   const artifactsByMessageId = $derived.by(() => {
@@ -54,36 +62,29 @@
     return map
   })
 
-  const contextLabel = $derived(
-    selectedDb && selectedTable && contextColumns.length > 0
-      ? `${selectedDb}.${selectedTable} (${contextColumns.length} cols)`
-      : ''
-  )
-
   const databaseOptions = $derived.by<ComboboxOption[]>(() =>
     getDatabases().map(db => ({
       value: db.name,
       label: db.name,
-      hint: `${db.tables?.length ?? 0} tables`,
       keywords: db.name,
     }))
   )
 
   const tableOptions = $derived.by<ComboboxOption[]>(() => {
-    const db = getDatabases().find(d => d.name === selectedDb)
+    const db = getDatabases().find(d => d.name === headerDb)
     const tables = db?.tables?.map(t => t.name) ?? []
     return tables.map(t => ({
       value: t,
       label: t,
-      hint: selectedDb,
-      keywords: `${selectedDb}.${t}`,
+      hint: headerDb,
+      keywords: `${headerDb}.${t}`,
     }))
   })
 
   // ── Lifecycle ──────────────────────────────────────────────
   onMount(async () => {
     const dbs = getDatabases()
-    if (dbs.length === 0) loadDatabases()
+    if (dbs.length === 0) await loadDatabases()
 
     await Promise.all([loadModels(), loadChats()])
     if (!selectedChatId) {
@@ -129,6 +130,9 @@
     const chat = chats.find(c => c.id === chatId)
     if (chat?.model_id) selectedModelId = chat.model_id
 
+    // Restore contexts
+    await restoreContexts(chat)
+
     try {
       const [msgs, arts] = await Promise.all([
         listBrainMessages(chatId),
@@ -143,12 +147,58 @@
     }
   }
 
-  async function renameChat(chat: BrainChat) {
-    const next = prompt('New chat name', chat.title)
-    if (!next) return
+  async function restoreContexts(chat: BrainChat | undefined) {
+    if (!chat) {
+      contexts = []
+      return
+    }
+
+    // Try new multi-context format first
+    if (chat.context_tables) {
+      try {
+        const parsed = JSON.parse(chat.context_tables) as { database: string; table: string }[]
+        const restored: SchemaContextEntry[] = []
+        for (const entry of parsed) {
+          const cols = await resolveColumns(entry.database, entry.table)
+          restored.push({ database: entry.database, table: entry.table, columns: cols })
+        }
+        contexts = restored
+        return
+      } catch {
+        // fall through to legacy
+      }
+    }
+
+    // Legacy single-context fallback
+    if (chat.context_database && chat.context_table) {
+      const cols = await resolveColumns(chat.context_database, chat.context_table)
+      contexts = [{ database: chat.context_database, table: chat.context_table, columns: cols }]
+    } else {
+      contexts = []
+    }
+  }
+
+  async function resolveColumns(dbName: string, tableName: string): Promise<{ name: string; type: string }[]> {
+    const db = getDatabases().find(d => d.name === dbName)
+    if (!db?.tables) await loadTables(dbName)
+    await loadColumns(dbName, tableName)
+    const freshDb = getDatabases().find(d => d.name === dbName)
+    const table = freshDb?.tables?.find(t => t.name === tableName)
+    return (table?.columns ?? []).map(c => ({ name: c.name, type: c.type }))
+  }
+
+  function renameChat(chat: BrainChat) {
+    renameValue = chat.title
+    renamingChat = chat
+  }
+
+  async function confirmRename(newTitle: string) {
+    if (!renamingChat) return
+    const chat = renamingChat
+    renamingChat = null
     try {
-      await updateBrainChat(chat.id, { title: next })
-      chats = chats.map(c => c.id === chat.id ? { ...c, title: next } : c)
+      await updateBrainChat(chat.id, { title: newTitle })
+      chats = chats.map(c => c.id === chat.id ? { ...c, title: newTitle } : c)
       if (selectedChatId === chat.id) {
         await selectChat(chat.id)
       }
@@ -157,8 +207,14 @@
     }
   }
 
-  async function removeChat(chat: BrainChat) {
-    if (!confirm(`Delete chat "${chat.title}"?`)) return
+  function removeChat(chat: BrainChat) {
+    deletingChat = chat
+  }
+
+  async function confirmDelete() {
+    if (!deletingChat) return
+    const chat = deletingChat
+    deletingChat = null
     try {
       await deleteBrainChat(chat.id)
       chats = chats.filter(c => c.id !== chat.id)
@@ -177,32 +233,59 @@
     }
   }
 
-  // ── Schema context ─────────────────────────────────────────
-  async function onDbChange(dbName: string) {
-    selectedDb = dbName
-    selectedTable = ''
-    contextColumns = []
+  // ── Multi-context management ──────────────────────────────
+  async function addContext(dbName: string, tableName: string) {
+    // Dedupe check
+    if (contexts.some(c => c.database === dbName && c.table === tableName)) return
+
+    if (contexts.length >= MAX_CONTEXTS) {
+      toastError(`Maximum ${MAX_CONTEXTS} table contexts allowed`)
+      return
+    }
+
+    const cols = await resolveColumns(dbName, tableName)
+    contexts = [...contexts, { database: dbName, table: tableName, columns: cols }]
+    persistContexts()
+  }
+
+  function removeContext(dbName: string, tableName: string) {
+    contexts = contexts.filter(c => !(c.database === dbName && c.table === tableName))
+    persistContexts()
+  }
+
+  function clearAllContexts() {
+    contexts = []
+    persistContexts()
+  }
+
+  function persistContexts() {
+    if (!selectedChatId) return
+    const serialized = contexts.length > 0
+      ? JSON.stringify(contexts.map(c => ({ database: c.database, table: c.table })))
+      : ''
+    updateBrainChat(selectedChatId, { contextTables: serialized }).catch(() => {})
+    chats = chats.map(c => c.id === selectedChatId ? { ...c, context_tables: serialized || null } : c)
+  }
+
+  // Header combobox handlers — additive workflow
+  async function onHeaderDbChange(dbName: string) {
+    headerDb = dbName
+    headerTable = ''
     if (dbName) {
       const db = getDatabases().find(d => d.name === dbName)
       if (!db?.tables) await loadTables(dbName)
     }
   }
 
-  async function onTableChange(tableName: string) {
-    selectedTable = tableName
-    contextColumns = []
-    if (selectedDb && tableName) {
-      await loadColumns(selectedDb, tableName)
-      const db = getDatabases().find(d => d.name === selectedDb)
-      const table = db?.tables?.find(t => t.name === tableName)
-      contextColumns = (table?.columns ?? []).map(c => ({ name: c.name, type: c.type }))
+  async function onHeaderTableChange(tableName: string) {
+    if (headerDb && tableName) {
+      await addContext(headerDb, tableName)
+      // Reset comboboxes after adding
+      headerDb = ''
+      headerTable = ''
+    } else {
+      headerTable = tableName
     }
-  }
-
-  function clearContext() {
-    selectedDb = ''
-    selectedTable = ''
-    contextColumns = []
   }
 
   // ── Chat actions ───────────────────────────────────────────
@@ -239,14 +322,14 @@
     messages = [...messages, tempUser, tempAssistant]
     const assistantIdx = messages.length - 1
 
-    let schemaContext: any = undefined
-    if (selectedDb && selectedTable && contextColumns.length > 0) {
-      schemaContext = {
-        database: selectedDb,
-        table: selectedTable,
-        columns: contextColumns,
-      }
-    }
+    // Build multi-schema contexts for the API
+    const schemaContexts = contexts.length > 0
+      ? contexts.map(c => ({
+          database: c.database,
+          table: c.table,
+          columns: c.columns,
+        }))
+      : undefined
 
     streaming = true
     await tick()
@@ -258,7 +341,7 @@
         {
           content: userPrompt,
           modelId: selectedModelId || undefined,
-          schemaContext,
+          schemaContexts,
         },
         (event) => {
           if (event.type === 'delta') {
@@ -321,15 +404,13 @@
     <BrainHeader
       {models}
       {selectedModelId}
-      {selectedDb}
-      {selectedTable}
-      {contextColumns}
+      selectedDb={headerDb}
+      selectedTable={headerTable}
       {databaseOptions}
       {tableOptions}
       onModelChange={(v) => selectedModelId = v}
-      onDbChange={(v) => { void onDbChange(v) }}
-      onTableChange={(v) => { void onTableChange(v) }}
-      onClearContext={clearContext}
+      onDbChange={(v) => { void onHeaderDbChange(v) }}
+      onTableChange={(v) => { void onHeaderTableChange(v) }}
     />
 
     <div class="flex-1 overflow-auto p-6 space-y-5" bind:this={messagesEl}>
@@ -353,10 +434,31 @@
     <BrainInput
       value={input}
       {streaming}
-      contextActive={!!contextLabel}
-      {contextLabel}
+      {contexts}
       onSend={sendMessage}
       onInput={(v) => input = v}
+      onAddContext={addContext}
+      onRemoveContext={removeContext}
+      onClearAllContexts={clearAllContexts}
     />
   </main>
 </div>
+
+<InputDialog
+  open={renamingChat !== null}
+  title="Rename chat"
+  placeholder="Chat name"
+  bind:value={renameValue}
+  onconfirm={confirmRename}
+  oncancel={() => renamingChat = null}
+/>
+
+<ConfirmDialog
+  open={deletingChat !== null}
+  title="Delete chat"
+  description={`Are you sure you want to delete "${deletingChat?.title}"? This cannot be undone.`}
+  confirmLabel="Delete"
+  destructive
+  onconfirm={confirmDelete}
+  oncancel={() => deletingChat = null}
+/>
