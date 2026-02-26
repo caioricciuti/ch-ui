@@ -49,7 +49,7 @@ func New(cfg *config.Config, u *ui.UI) *Connector {
 	return &Connector{
 		cfg:            cfg,
 		ui:             u,
-		chClient:       NewCHClient(cfg.ClickHouseURL),
+		chClient:       NewCHClient(cfg.ClickHouseURL, cfg.InsecureSkipVerify),
 		reconnectDelay: cfg.ReconnectDelay,
 		ctx:            ctx,
 		cancel:         cancel,

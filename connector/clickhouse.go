@@ -3,9 +3,12 @@ package connector
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -15,16 +18,35 @@ import (
 
 // CHClient handles ClickHouse query execution
 type CHClient struct {
-	baseURL    string
+	baseURL   string
+	transport *http.Transport
 	httpClient *http.Client
 }
 
 // NewCHClient creates a new ClickHouse HTTP client
-func NewCHClient(baseURL string) *CHClient {
+func NewCHClient(baseURL string, insecureSkipVerify bool) *CHClient {
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: insecureSkipVerify},
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 5 * time.Minute,
+		DisableKeepAlives:     false,
+		ForceAttemptHTTP2:     true,
+	}
+
 	return &CHClient{
-		baseURL: strings.TrimSuffix(baseURL, "/"),
+		baseURL:   strings.TrimSuffix(baseURL, "/"),
+		transport: transport,
 		httpClient: &http.Client{
-			Timeout: 5 * time.Minute, // Long timeout for large queries
+			Transport: transport,
+			Timeout:   5 * time.Minute,
 		},
 	}
 }
@@ -45,6 +67,47 @@ type QueryResult struct {
 type ColumnMeta struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
+}
+
+// isTransientError checks if an error is a transient connection error that
+// should be retried (e.g. server closed an idle keep-alive connection).
+func isTransientError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	if strings.Contains(s, "unexpected EOF") ||
+		strings.Contains(s, "connection reset by peer") ||
+		strings.Contains(s, "transport connection broken") ||
+		strings.Contains(s, "use of closed network connection") {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return false // real timeouts should not be retried
+	}
+	return false
+}
+
+// doWithRetry executes an HTTP request, retrying once on transient connection errors.
+func (c *CHClient) doWithRetry(req *http.Request, client *http.Client) (*http.Response, error) {
+	resp, err := client.Do(req)
+	if err != nil && isTransientError(err) {
+		// Close any idle connections that may be stale, then retry once.
+		c.transport.CloseIdleConnections()
+
+		// Clone the request for retry (the body must be re-readable).
+		retryReq := req.Clone(req.Context())
+		if req.GetBody != nil {
+			body, bodyErr := req.GetBody()
+			if bodyErr != nil {
+				return nil, err // return original error
+			}
+			retryReq.Body = body
+		}
+		return client.Do(retryReq)
+	}
+	return resp, err
 }
 
 // Execute runs a query against ClickHouse
@@ -78,8 +141,14 @@ func (c *CHClient) Execute(ctx context.Context, query, user, password string) (*
 
 	req.Header.Set("Content-Type", "text/plain")
 
-	// Execute
-	resp, err := c.httpClient.Do(req)
+	// GetBody allows doWithRetry to re-create the body on retry
+	bodyStr := finalQuery
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(bodyStr)), nil
+	}
+
+	// Execute with retry on transient connection errors
+	resp, err := c.doWithRetry(req, c.httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -148,7 +217,13 @@ func (c *CHClient) ExecuteRaw(ctx context.Context, query, user, password, format
 	}
 	req.Header.Set("Content-Type", "text/plain")
 
-	resp, err := c.httpClient.Do(req)
+	// GetBody allows doWithRetry to re-create the body on retry
+	bodyStr := finalQuery
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(bodyStr)), nil
+	}
+
+	resp, err := c.doWithRetry(req, c.httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -243,7 +318,8 @@ func (c *CHClient) ExecuteStreaming(
 	req.Header.Set("Content-Type", "text/plain")
 
 	// Use a client without timeout for streaming (context controls cancellation)
-	streamClient := &http.Client{}
+	// but share the configured transport for proper TLS and connection management.
+	streamClient := &http.Client{Transport: c.transport}
 	resp, err := streamClient.Do(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("request failed: %w", err)
