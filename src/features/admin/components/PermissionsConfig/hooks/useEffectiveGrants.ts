@@ -13,6 +13,9 @@ interface SystemGrantRow {
   access_type: string;
   database: string | null;
   table: string | null;
+  column: string | null;
+  is_partial_revoke: number;
+  grant_option: number;
   user_name?: string | null;
   role_name?: string | null;
 }
@@ -90,7 +93,10 @@ export function useEffectiveGrants(userName?: string): UseEffectiveGrantsResult 
           SELECT
             access_type,
             database,
-            table
+            table,
+            column,
+            is_partial_revoke,
+            grant_option
           FROM system.grants
           WHERE user_name = {userName:String}
           ORDER BY access_type, database, table
@@ -149,7 +155,10 @@ export function useEffectiveGrants(userName?: string): UseEffectiveGrantsResult 
               role_name,
               access_type,
               database,
-              table
+              table,
+              column,
+              is_partial_revoke,
+              grant_option
             FROM system.grants
             WHERE role_name IN (${roleNamesPlaceholders})
             ORDER BY role_name, access_type, database, table
@@ -184,7 +193,7 @@ export function useEffectiveGrants(userName?: string): UseEffectiveGrantsResult 
         // 4. Combine into effective grants with source information
         const combined: ExtendedGrantedPermission[] = [];
 
-        // Add direct grants
+        // Add direct grants (excluding partial revokes)
         for (const grant of transformedDirectGrants) {
           combined.push({
             ...grant,
@@ -192,7 +201,7 @@ export function useEffectiveGrants(userName?: string): UseEffectiveGrantsResult 
           });
         }
 
-        // Add role-inherited grants
+        // Add role-inherited grants (excluding partial revokes)
         for (const [roleName, grants] of roleGrantsMap.entries()) {
           for (const grant of grants) {
             combined.push({
@@ -248,6 +257,9 @@ function transformGrantToPermission(row: SystemGrantRow): GrantedPermission {
   return {
     permissionId,
     scope,
+    isPartialRevoke: row.is_partial_revoke === 1,
+    grantOption: row.grant_option === 1,
+    ...(row.column ? { columns: [row.column] } : {}),
   };
 }
 

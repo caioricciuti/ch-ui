@@ -30,6 +30,7 @@ import { Role } from "../CreateUser/PrivilegesSection/types";
 import { PendingChange } from "../PermissionsConfig/types";
 import { useGrants } from "../PermissionsConfig/hooks/useGrants";
 import useAppStore from "@/store";
+import { escapeIdentifier } from "@/features/admin/utils/sqlEscape";
 
 interface RoleListProps {
   roles: Role[];
@@ -79,7 +80,7 @@ const RoleList: React.FC<RoleListProps> = ({ roles, onEditRole, onAddChange }) =
   }, [roles, clickHouseClient]);
 
   const handleDeleteRole = async (role: Role) => {
-    const sqlStatements = [`DROP ROLE IF EXISTS ${role.name}`];
+    const sqlStatements = [`DROP ROLE IF EXISTS ${escapeIdentifier(role.name)}`];
 
     onAddChange({
       type: "DROP",

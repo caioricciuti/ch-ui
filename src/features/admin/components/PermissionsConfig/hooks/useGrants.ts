@@ -6,6 +6,9 @@ interface SystemGrantRow {
   access_type: string;
   database: string | null;
   table: string | null;
+  column: string | null;
+  is_partial_revoke: number;
+  grant_option: number;
 }
 
 interface UseGrantsOptions {
@@ -50,7 +53,10 @@ export function useGrants({ userName, roleName }: UseGrantsOptions) {
           SELECT
             access_type,
             database,
-            table
+            table,
+            column,
+            is_partial_revoke,
+            grant_option
           FROM system.grants
           ${whereClause}
           ORDER BY access_type, database, table
@@ -96,6 +102,9 @@ function transformGrantsToPermissions(rows: SystemGrantRow[]): GrantedPermission
     return {
       permissionId,
       scope,
+      isPartialRevoke: row.is_partial_revoke === 1,
+      grantOption: row.grant_option === 1,
+      ...(row.column ? { columns: [row.column] } : {}),
     };
   });
 }

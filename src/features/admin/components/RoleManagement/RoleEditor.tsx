@@ -19,6 +19,7 @@ import { useGrants } from "../PermissionsConfig/hooks/useGrants";
 import { useSqlGenerator } from "../PermissionsConfig/hooks/useSqlGenerator";
 import useMetadata from "../CreateUser/hooks/useMetadata";
 import { PendingChange } from "../PermissionsConfig/types";
+import { escapeIdentifier } from "@/features/admin/utils/sqlEscape";
 
 interface RoleEditorProps {
   role: Role | null;
@@ -58,7 +59,7 @@ const RoleEditor: React.FC<RoleEditorProps> = ({ role, isCreating, onClose, onAd
 
       if (isCreating) {
         // Create role
-        sqlStatements.push(`CREATE ROLE IF NOT EXISTS ${roleName}`);
+        sqlStatements.push(`CREATE ROLE IF NOT EXISTS ${escapeIdentifier(roleName)}`);
 
         // Grant privileges
         for (const grant of grants) {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import useAppStore from "@/store";
 import { Role } from "../../CreateUser/PrivilegesSection/types";
+import { escapeIdentifier } from "@/features/admin/utils/sqlEscape";
 
 interface SystemRoleRow {
   name: string;
@@ -102,7 +103,7 @@ export function useRoles(options: UseRolesOptions = {}): UseRolesResult {
         throw new Error("ClickHouse client not available");
       }
 
-      const query = `CREATE ROLE IF NOT EXISTS ${roleName}`;
+      const query = `CREATE ROLE IF NOT EXISTS ${escapeIdentifier(roleName)}`;
 
       try {
         await clickHouseClient.command({
@@ -126,7 +127,7 @@ export function useRoles(options: UseRolesOptions = {}): UseRolesResult {
         throw new Error("ClickHouse client not available");
       }
 
-      const query = `DROP ROLE IF EXISTS ${roleName}`;
+      const query = `DROP ROLE IF EXISTS ${escapeIdentifier(roleName)}`;
 
       try {
         await clickHouseClient.command({

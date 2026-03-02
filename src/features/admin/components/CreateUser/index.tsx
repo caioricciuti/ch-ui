@@ -25,6 +25,7 @@ import {
   formatScope,
 } from "./PrivilegesSection/permissions";
 import { PendingChange } from "../PermissionsConfig/types";
+import { escapeIdentifier, escapeStringLiteral, formatScopeSQL } from "@/features/admin/utils/sqlEscape";
 
 interface CreateNewUserProps {
   onBack: () => void;
@@ -87,13 +88,13 @@ const CreateNewUser: React.FC<CreateNewUserProps> = ({ onBack, onUserCreated, on
         statements.push(...grantQueries);
 
         if (value.roles.length > 0) {
-          const roleList = value.roles.join(", ");
-          statements.push(`GRANT ${roleList} TO ${value.username}`);
-          statements.push(`SET DEFAULT ROLE ${roleList} TO ${value.username}`);
+          const roleList = value.roles.map(r => escapeIdentifier(r)).join(", ");
+          statements.push(`GRANT ${roleList} TO ${escapeIdentifier(value.username)}`);
+          statements.push(`SET DEFAULT ROLE ${roleList} TO ${escapeIdentifier(value.username)}`);
         }
 
         if (value.settings.readonly) {
-          statements.push(`ALTER USER ${value.username} SETTINGS READONLY=1`);
+          statements.push(`ALTER USER ${escapeIdentifier(value.username)} SETTINGS READONLY=1`);
         }
 
         onAddChange({
@@ -133,16 +134,16 @@ const CreateNewUser: React.FC<CreateNewUserProps> = ({ onBack, onUserCreated, on
   };
 
   const buildUserCreationQuery = (data: CreateUserFormValues) => {
-    let query = `CREATE USER IF NOT EXISTS ${data.username}`;
+    let query = `CREATE USER IF NOT EXISTS ${escapeIdentifier(data.username)}`;
 
     if (onCluster && clusterName) {
-      query += ` ON CLUSTER ${clusterName}`;
+      query += ` ON CLUSTER ${escapeIdentifier(clusterName)}`;
     }
 
-    query += ` IDENTIFIED WITH sha256_password BY '${data.password}'`;
+    query += ` IDENTIFIED WITH sha256_password BY '${escapeStringLiteral(data.password)}'`;
 
     if (data.hostType !== "ANY") {
-      query += ` HOST ${data.hostType} '${data.hostValue}'`;
+      query += ` HOST ${data.hostType} '${escapeStringLiteral(data.hostValue)}'`;
     }
 
     if (data.validUntil) {
@@ -150,13 +151,13 @@ const CreateNewUser: React.FC<CreateNewUserProps> = ({ onBack, onUserCreated, on
     }
 
     if (data.defaultDatabase) {
-      query += ` DEFAULT DATABASE ${data.defaultDatabase}`;
+      query += ` DEFAULT DATABASE ${escapeIdentifier(data.defaultDatabase)}`;
     }
 
     query += ` GRANTEES ${data.grantees}`;
 
     if (data.settings.profile) {
-      query += ` SETTINGS PROFILE '${data.settings.profile}'`;
+      query += ` SETTINGS PROFILE '${escapeStringLiteral(data.settings.profile)}'`;
     }
     if (data.settings.readonly) {
       query += ` SETTINGS READONLY=1`;
@@ -182,14 +183,14 @@ const CreateNewUser: React.FC<CreateNewUserProps> = ({ onBack, onUserCreated, on
           continue;
         }
 
-        const scopeStr = formatScope(grant.scope);
+        const scopeStr = formatScopeSQL(grant.scope);
         const grantKey = `${permission.sqlPrivilege}:${scopeStr}`;
 
         if (grantedSet.has(grantKey)) continue;
         grantedSet.add(grantKey);
 
         queries.push(
-          `GRANT ${permission.sqlPrivilege} ON ${scopeStr} TO ${username}`
+          `GRANT ${permission.sqlPrivilege} ON ${scopeStr} TO ${escapeIdentifier(username)}`
         );
       }
 

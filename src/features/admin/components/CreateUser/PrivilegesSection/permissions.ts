@@ -1,4 +1,5 @@
 // Permission hierarchy definitions for ClickHouse GRANT system
+import { escapeIdentifier, formatScopeSQL } from "@/features/admin/utils/sqlEscape";
 
 export type ScopeType = "global" | "database" | "table";
 
@@ -20,6 +21,9 @@ export interface PermissionScope {
 export interface GrantedPermission {
   permissionId: string;
   scope: PermissionScope;
+  isPartialRevoke?: boolean;
+  grantOption?: boolean;
+  columns?: string[];
 }
 
 // Helper to create permission nodes
@@ -138,6 +142,48 @@ export const PERMISSION_HIERARCHY: PermissionNode[] = [
   perm("SHOW", "SHOW", "SHOW", ["global", "database", "table"], undefined, "View table structure"),
   perm("KILL_QUERY", "KILL QUERY", "KILL QUERY", ["global"], undefined, "Terminate running queries"),
   perm("SYSTEM", "SYSTEM", "SYSTEM", ["global"], undefined, "System administration"),
+
+  // Access management permissions
+  perm("CREATE_USER", "CREATE USER", "CREATE USER", ["global"], undefined, "Create user accounts"),
+  perm("CREATE_ROLE", "CREATE ROLE", "CREATE ROLE", ["global"], undefined, "Create roles"),
+  perm("ROLE_ADMIN", "ROLE ADMIN", "ROLE ADMIN", ["global"], undefined, "Grant roles to others"),
+  perm("SHOW_ACCESS", "SHOW ACCESS", "SHOW ACCESS", ["global"], undefined, "View access control objects"),
+
+  // Backup and recovery
+  perm("BACKUP", "BACKUP", "BACKUP", ["global"], undefined, "Create backups"),
+  perm("UNDROP_TABLE", "UNDROP TABLE", "UNDROP TABLE", ["global", "database"], undefined, "Restore dropped tables"),
+
+  // Additional query control
+  perm("KILL_TRANSACTION", "KILL TRANSACTION", "KILL TRANSACTION", ["global"], undefined, "Terminate running transactions"),
+
+  // Table engine control
+  perm("TABLE_ENGINE", "TABLE ENGINE", "TABLE ENGINE", ["global"], undefined, "Control which table engines can be used"),
+
+  // Introspection
+  perm("INTROSPECTION", "INTROSPECTION", "INTROSPECTION", ["global"], undefined, "Use introspection functions (addressToLine, demangle)"),
+  perm("dictGet", "dictGet", "dictGet", ["global", "database"], undefined, "Access dictionary functions"),
+
+  // Data sources
+  perm("SOURCES", "SOURCES", "SOURCES", ["global"], [
+    perm("S3", "S3", "S3", ["global"], undefined, "Access S3 data sources"),
+    perm("HDFS", "HDFS", "HDFS", ["global"], undefined, "Access HDFS data sources"),
+    perm("MYSQL", "MYSQL", "MYSQL", ["global"], undefined, "Access MySQL data sources"),
+    perm("POSTGRES", "POSTGRES", "POSTGRES", ["global"], undefined, "Access PostgreSQL data sources"),
+    perm("SQLITE", "SQLITE", "SQLITE", ["global"], undefined, "Access SQLite data sources"),
+    perm("ODBC", "ODBC", "ODBC", ["global"], undefined, "Access ODBC data sources"),
+    perm("JDBC", "JDBC", "JDBC", ["global"], undefined, "Access JDBC data sources"),
+    perm("MONGO", "MONGO", "MONGO", ["global"], undefined, "Access MongoDB data sources"),
+    perm("REDIS", "REDIS", "REDIS", ["global"], undefined, "Access Redis data sources"),
+    perm("KAFKA", "KAFKA", "KAFKA", ["global"], undefined, "Access Kafka data sources"),
+    perm("NATS", "NATS", "NATS", ["global"], undefined, "Access NATS data sources"),
+    perm("RABBITMQ", "RABBITMQ", "RABBITMQ", ["global"], undefined, "Access RabbitMQ data sources"),
+    perm("URL", "URL", "URL", ["global"], undefined, "Access URL data sources"),
+    perm("FILE", "FILE", "FILE", ["global"], undefined, "Access file data sources"),
+    perm("REMOTE", "REMOTE", "REMOTE", ["global"], undefined, "Access remote data sources"),
+    perm("CLUSTER", "CLUSTER", "CLUSTER", ["global"], undefined, "Access cluster data sources"),
+    perm("AZURE", "AZURE", "AZURE", ["global"], undefined, "Access Azure data sources"),
+    perm("HIVE", "HIVE", "HIVE", ["global"], undefined, "Access Hive data sources"),
+  ], "Data source access permissions"),
 ];
 
 // Utility functions
@@ -253,6 +299,6 @@ export function generateGrantSql(
   scope: PermissionScope,
   username: string
 ): string {
-  const scopeStr = formatScope(scope);
-  return `GRANT ${permission.sqlPrivilege} ON ${scopeStr} TO ${username}`;
+  const scopeStr = formatScopeSQL(scope);
+  return `GRANT ${permission.sqlPrivilege} ON ${scopeStr} TO ${escapeIdentifier(username)}`;
 }

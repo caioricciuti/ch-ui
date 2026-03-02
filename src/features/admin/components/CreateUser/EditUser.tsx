@@ -24,6 +24,7 @@ import {
 } from "./PrivilegesSection/permissions";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PendingChange } from "../PermissionsConfig/types";
+import { escapeIdentifier, escapeStringLiteral } from "@/features/admin/utils/sqlEscape";
 
 interface EditUserProps {
   username: string;
@@ -135,21 +136,21 @@ const EditUser: React.FC<EditUserProps> = ({
         const originalProfile = userInfo?.settings?.profile || "";
         if (currentProfile !== originalProfile && currentProfile !== "") {
           statements.push(
-            `ALTER USER ${username} SETTINGS PROFILE '${currentProfile}'`,
+            `ALTER USER ${escapeIdentifier(username)} SETTINGS PROFILE '${escapeStringLiteral(currentProfile)}'`,
           );
         }
 
         if (value.settings.readonly !== userInfo?.settings?.readonly) {
           const readonlyValue = value.settings.readonly ? 1 : 0;
           statements.push(
-            `ALTER USER ${username} SETTINGS READONLY=${readonlyValue}`,
+            `ALTER USER ${escapeIdentifier(username)} SETTINGS READONLY=${readonlyValue}`,
           );
         }
 
         // 5. Handle grantees change
         const currentGrantees = userInfo?.grantees_any === 1 ? "ANY" : "NONE";
         if (value.grantees !== currentGrantees) {
-          statements.push(`ALTER USER ${username} GRANTEES ${value.grantees}`);
+          statements.push(`ALTER USER ${escapeIdentifier(username)} GRANTEES ${value.grantees}`);
         }
 
         // 6. Handle permission changes - diff original vs new grants
@@ -216,8 +217,8 @@ const EditUser: React.FC<EditUserProps> = ({
           (value.roles.length !== originalRoleNames.size ||
             value.roles.some((r) => !originalRoleNames.has(r)))
         ) {
-          const roleList = value.roles.join(", ");
-          statements.push(`SET DEFAULT ROLE ${roleList} TO ${username}`);
+          const escapedRoles = value.roles.map(r => escapeIdentifier(r)).join(", ");
+          statements.push(`SET DEFAULT ROLE ${escapedRoles} TO ${escapeIdentifier(username)}`);
         }
 
         // Stage all changes instead of executing
