@@ -257,49 +257,47 @@ const EditUser: React.FC<EditUserProps> = ({
   const { generateAlterUser, generateGrant, generateRevoke, generateGrantRole, generateRevokeRole } =
     useSqlGenerator();
 
-  // Populate form when user data is loaded
+  // Populate form when user data and grants are both loaded
   useEffect(() => {
-    if (userInfo && directGrants) {
-      let hostType = "ANY";
-      let hostValue = "";
+    if (!userInfo || grantsLoading) return;
 
-      if (userInfo.host_ip?.length > 0) {
-        hostType = "IP";
-        hostValue = userInfo.host_ip.join(", ");
-      } else if (userInfo.host_names?.length > 0) {
-        hostType = "NAME";
-        hostValue = userInfo.host_names.join(", ");
-      } else if (userInfo.host_names_regexp?.length > 0) {
-        hostType = "REGEXP";
-        hostValue = userInfo.host_names_regexp.join(", ");
-      } else if (userInfo.host_names_like?.length > 0) {
-        hostType = "LIKE";
-        hostValue = userInfo.host_names_like.join(", ");
-      }
+    let hostType = "ANY";
+    let hostValue = "";
 
-      const grantees = userInfo.grantees_any === 1 ? "ANY" : "NONE";
-
-      form.reset({
-        username: userInfo.name,
-        password: "",
-        hostType,
-        hostValue,
-        validUntil: undefined,
-        roles: assignedRoles.map((r) => r.roleName),
-        defaultDatabase: userInfo.default_database || "",
-        grantees,
-        settings: {
-          profile: userInfo.settings?.profile || "",
-          readonly: userInfo.settings?.readonly || false,
-        },
-        privileges: {
-          grants: directGrants,
-        },
-      });
+    if (userInfo.host_ip?.length > 0) {
+      hostType = "IP";
+      hostValue = userInfo.host_ip.join(", ");
+    } else if (userInfo.host_names?.length > 0) {
+      hostType = "NAME";
+      hostValue = userInfo.host_names.join(", ");
+    } else if (userInfo.host_names_regexp?.length > 0) {
+      hostType = "REGEXP";
+      hostValue = userInfo.host_names_regexp.join(", ");
+    } else if (userInfo.host_names_like?.length > 0) {
+      hostType = "LIKE";
+      hostValue = userInfo.host_names_like.join(", ");
     }
-  // assignedRoles intentionally excluded — it's set in the same fetch as directGrants,
-  // so it's always fresh when directGrants changes. Including it causes extra form resets.
-  }, [userInfo, directGrants]);
+
+    const grantees = userInfo.grantees_any === 1 ? "ANY" : "NONE";
+
+    form.reset({
+      username: userInfo.name,
+      password: "",
+      hostType,
+      hostValue,
+      validUntil: undefined,
+      roles: assignedRoles.map((r) => r.roleName),
+      defaultDatabase: userInfo.default_database || "",
+      grantees,
+      settings: {
+        profile: userInfo.settings?.profile || "",
+        readonly: userInfo.settings?.readonly || false,
+      },
+      privileges: {
+        grants: directGrants,
+      },
+    });
+  }, [userInfo, grantsLoading]);
 
   const handleGeneratePassword = () => {
     const chars =
