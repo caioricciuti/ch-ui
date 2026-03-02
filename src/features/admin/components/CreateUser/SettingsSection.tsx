@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import {
   FormField,
@@ -22,6 +22,46 @@ interface SettingsSectionProps {
   profiles: string[];
 }
 
+function SettingsProfileField({
+  field,
+  profiles,
+}: {
+  field: any;
+  profiles: string[];
+}) {
+  const options = useMemo(() => {
+    const val = field.state.value;
+    if (val && !profiles.includes(val)) {
+      return [val, ...profiles];
+    }
+    return profiles;
+  }, [field.state.value, profiles]);
+
+  return (
+    <FormItem>
+      <FormLabel>Settings Profile</FormLabel>
+      <Select
+        onValueChange={(v) => field.handleChange(v)}
+        value={field.state.value}
+      >
+        <FormControl>
+          <SelectTrigger>
+            <SelectValue placeholder="Select settings profile" />
+          </SelectTrigger>
+        </FormControl>
+        <SelectContent>
+          {options.map((profile) => (
+            <SelectItem key={profile} value={profile}>
+              {profile}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <FormMessage />
+    </FormItem>
+  );
+}
+
 const SettingsSection: React.FC<SettingsSectionProps> = ({
   form,
   profiles,
@@ -36,27 +76,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
           form={form}
           name="settings.profile"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Settings Profile</FormLabel>
-              <Select
-                onValueChange={(v) => field.handleChange(v)}
-                value={field.state.value}
-              >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select settings profile" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {profiles.map((profile) => (
-                    <SelectItem key={profile} value={profile}>
-                      {profile}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
+            <SettingsProfileField field={field} profiles={profiles} />
           )}
         />
 

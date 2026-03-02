@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useMemo, useRef } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import {
   FormField,
@@ -72,6 +72,49 @@ function RolesField({
   );
 }
 
+function DefaultDatabaseField({
+  field,
+  databases,
+}: {
+  field: any;
+  databases: string[];
+}) {
+  // Ensure the current value is always in the options list so Radix Select
+  // can match it to a SelectItem and display it correctly. This handles the
+  // race where form.reset() sets a value before metadata.databases has loaded.
+  const options = useMemo(() => {
+    const val = field.state.value;
+    if (val && !databases.includes(val)) {
+      return [val, ...databases];
+    }
+    return databases;
+  }, [field.state.value, databases]);
+
+  return (
+    <FormItem>
+      <FormLabel>Default Database</FormLabel>
+      <Select
+        onValueChange={(v) => field.handleChange(v)}
+        value={field.state.value}
+      >
+        <FormControl>
+          <SelectTrigger>
+            <SelectValue placeholder="Select default database" />
+          </SelectTrigger>
+        </FormControl>
+        <SelectContent>
+          {options.map((db) => (
+            <SelectItem key={db} value={db}>
+              {db}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <FormMessage />
+    </FormItem>
+  );
+}
+
 const DatabaseRolesSection: React.FC<DatabaseRolesSectionProps> = ({
   form,
   roles,
@@ -101,29 +144,7 @@ const DatabaseRolesSection: React.FC<DatabaseRolesSectionProps> = ({
           form={form}
           name="defaultDatabase"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Default Database</FormLabel>
-              <Select
-                onValueChange={(v) => field.handleChange(v)}
-                value={field.state.value}
-              >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select default database">
-                      {field.state.value || undefined}
-                    </SelectValue>
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {databases.map((db) => (
-                    <SelectItem key={db} value={db}>
-                      {db}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
+            <DefaultDatabaseField field={field} databases={databases} />
           )}
         />
       </CardContent>
