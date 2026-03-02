@@ -11,7 +11,7 @@ ENV CHUI_VITE_MINIFY=true \
     CHUI_VITE_REPORT_COMPRESSED=false
 RUN bun run build
 
-FROM golang:1.24-alpine AS go-builder
+FROM golang:1.25-alpine AS go-builder
 WORKDIR /src
 
 ARG VERSION=dev

@@ -14,6 +14,7 @@
   import SinkNode from './nodes/SinkNode.svelte'
   import { SOURCE_NODE_TYPES, SINK_NODE_TYPES, type NodeType } from '../../types/pipelines'
   import { Radio, Webhook, Database, HardDrive } from 'lucide-svelte'
+  import { getTheme } from '../../stores/theme.svelte'
 
   interface Props {
     nodes: Node[]
@@ -54,11 +55,26 @@
     const type = e.dataTransfer?.getData('application/pipeline-node') as NodeType
     if (!type) return
 
-    const flowEl = e.currentTarget as HTMLElement
+    // Find the SvelteFlow container and its viewport element
+    const wrapper = e.currentTarget as HTMLElement
+    const flowEl = wrapper.querySelector('.svelte-flow') as HTMLElement
+    if (!flowEl) return
+
+    const viewport = flowEl.querySelector('.svelte-flow__viewport') as HTMLElement
+    if (!viewport) return
+
+    // Parse viewport transform: translate(tx, ty) scale(zoom)
+    const transform = viewport.style.transform
+    const match = transform.match(/translate\(([^,]+),\s*([^)]+)\)\s*scale\(([^)]+)\)/)
+    const tx = match ? parseFloat(match[1]) : 0
+    const ty = match ? parseFloat(match[2]) : 0
+    const zoom = match ? parseFloat(match[3]) : 1
+
+    // Convert screen coordinates to flow coordinates
     const rect = flowEl.getBoundingClientRect()
     const position = {
-      x: e.clientX - rect.left - 80,
-      y: e.clientY - rect.top - 20,
+      x: (e.clientX - rect.left - tx) / zoom,
+      y: (e.clientY - rect.top - ty) / zoom,
     }
 
     const allTypes = [...SOURCE_NODE_TYPES, ...SINK_NODE_TYPES]
@@ -142,6 +158,8 @@
       {edges}
       {nodeTypes}
       fitView
+      colorMode={getTheme()}
+      proOptions={{ hideAttribution: true }}
       onconnect={onConnect}
       onnodeclick={({ node }) => {
         if (node?.id) onNodeClick(node.id)
@@ -171,25 +189,76 @@
       defaultEdgeOptions={{ animated: true, style: 'stroke: #f97316; stroke-width: 2;' }}
     >
       <Controls />
-      <Background />
+      <Background gap={16} />
       <MiniMap />
     </SvelteFlow>
   </div>
 </div>
 
 <style>
+  /* Canvas background */
   :global(.svelte-flow) {
     background-color: #fafafa;
   }
-  :global(.dark .svelte-flow) {
+  :global(.svelte-flow.dark) {
     background-color: #0a0a0a;
   }
+
+  /* Edge styling */
   :global(.svelte-flow .svelte-flow__edge-path) {
     stroke: #f97316;
     stroke-width: 2;
   }
+
+  /* Handle sizing */
   :global(.svelte-flow .svelte-flow__handle) {
     width: 10px;
     height: 10px;
+  }
+
+  /* Controls — dark mode */
+  :global(.svelte-flow.dark .svelte-flow__controls) {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  }
+  :global(.svelte-flow.dark .svelte-flow__controls-button) {
+    background: #1a1a1a;
+    border-color: #333;
+    fill: #a3a3a3;
+    color: #a3a3a3;
+  }
+  :global(.svelte-flow.dark .svelte-flow__controls-button:hover) {
+    background: #2a2a2a;
+    fill: #f97316;
+    color: #f97316;
+  }
+
+  /* Controls — light mode */
+  :global(.svelte-flow .svelte-flow__controls) {
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  /* MiniMap — dark mode */
+  :global(.svelte-flow.dark .svelte-flow__minimap) {
+    background: #141414;
+    border: 1px solid #333;
+    border-radius: 8px;
+  }
+
+  /* MiniMap — light mode */
+  :global(.svelte-flow .svelte-flow__minimap) {
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Background dots */
+  :global(.svelte-flow .svelte-flow__background) {
+    --xy-background-pattern-dots-color-default: #e5e5e5;
+  }
+  :global(.svelte-flow.dark .svelte-flow__background) {
+    --xy-background-pattern-dots-color-default: #7e7d7d;
   }
 </style>
