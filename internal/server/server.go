@@ -13,6 +13,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/governance"
+	"github.com/caioricciuti/ch-ui/internal/pipelines"
 	"github.com/caioricciuti/ch-ui/internal/scheduler"
 	"github.com/caioricciuti/ch-ui/internal/server/handlers"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
@@ -22,16 +23,17 @@ import (
 
 // Server is the main HTTP server.
 type Server struct {
-	cfg        *config.Config
-	db         *database.DB
-	gateway    *tunnel.Gateway
-	scheduler  *scheduler.Runner
-	govSyncer  *governance.Syncer
-	guardrails *governance.GuardrailService
-	alerts     *alerts.Dispatcher
-	router     chi.Router
-	http       *http.Server
-	frontendFS fs.FS
+	cfg            *config.Config
+	db             *database.DB
+	gateway        *tunnel.Gateway
+	scheduler      *scheduler.Runner
+	pipelineRunner *pipelines.Runner
+	govSyncer      *governance.Syncer
+	guardrails     *governance.GuardrailService
+	alerts         *alerts.Dispatcher
+	router         chi.Router
+	http           *http.Server
+	frontendFS     fs.FS
 }
 
 // New creates a new Server with all routes configured.
@@ -40,21 +42,23 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS) *Server {
 	gw := tunnel.NewGateway(db)
 
 	sched := scheduler.NewRunner(db, gw, cfg.AppSecretKey)
+	pipeRunner := pipelines.NewRunner(db, gw, cfg)
 
 	govStore := governance.NewStore(db)
 	govSyncer := governance.NewSyncer(govStore, db, gw, cfg.AppSecretKey)
 	alertDispatcher := alerts.NewDispatcher(db, cfg)
 
 	s := &Server{
-		cfg:        cfg,
-		db:         db,
-		gateway:    gw,
-		scheduler:  sched,
-		govSyncer:  govSyncer,
-		guardrails: governance.NewGuardrailService(govStore, db),
-		alerts:     alertDispatcher,
-		router:     r,
-		frontendFS: frontendFS,
+		cfg:            cfg,
+		db:             db,
+		gateway:        gw,
+		scheduler:      sched,
+		pipelineRunner: pipeRunner,
+		govSyncer:      govSyncer,
+		guardrails:     governance.NewGuardrailService(govStore, db),
+		alerts:         alertDispatcher,
+		router:         r,
+		frontendFS:     frontendFS,
 	}
 
 	s.setupRoutes()
@@ -94,6 +98,9 @@ func (s *Server) setupRoutes() {
 
 	// ── Rate limiter (shared across handlers) ───────────────────────────
 	rateLimiter := middleware.NewRateLimiter(db)
+
+	// ── Webhook endpoint for pipelines (no session — uses token auth) ──
+	r.Post("/api/pipelines/webhook/{id}", pipelines.HandleWebhook)
 
 	// ── API routes ─────────────────────────────────────────────────────
 	r.Route("/api", func(api chi.Router) {
@@ -142,6 +149,10 @@ func (s *Server) setupRoutes() {
 			// Dashboards
 			dashboardsHandler := &handlers.DashboardsHandler{DB: db, Gateway: gw, Config: cfg}
 			protected.Mount("/dashboards", dashboardsHandler.Routes())
+
+			// Pipelines
+			pipelinesHandler := &handlers.PipelinesHandler{DB: db, Gateway: gw, Config: cfg, Runner: s.pipelineRunner}
+			protected.Mount("/pipelines", pipelinesHandler.Routes())
 
 			// Brain AI assistant
 			brainHandler := &handlers.BrainHandler{DB: db, Gateway: gw, Config: cfg}
@@ -211,6 +222,7 @@ func (s *Server) setupRoutes() {
 // Start starts the HTTP server.
 func (s *Server) Start() error {
 	s.scheduler.Start()
+	s.pipelineRunner.Start()
 	s.govSyncer.StartBackground()
 	s.alerts.Start()
 
@@ -222,6 +234,7 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	slog.Info("Graceful shutdown initiated")
 	s.scheduler.Stop()
+	s.pipelineRunner.Stop()
 	s.govSyncer.Stop()
 	s.alerts.Stop()
 	s.gateway.Stop()

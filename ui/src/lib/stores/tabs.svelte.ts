@@ -4,7 +4,7 @@ import { pushTabRouteForTab } from './router.svelte'
 
 // ── Tab types ────────────────────────────────────────────────────
 
-export type TabType = 'home' | 'query' | 'table' | 'database' | 'dashboard' | 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance'
+export type TabType = 'home' | 'query' | 'table' | 'database' | 'dashboard' | 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines'
 
 interface TabBase {
   id: string
@@ -41,7 +41,7 @@ export interface HomeTab extends TabBase {
 }
 
 export interface SingletonTab extends TabBase {
-  type: 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' 
+  type: 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines'
 }
 
 export type Tab = HomeTab | QueryTab | TableTab | DatabaseTab | DashboardTab | SingletonTab

@@ -33,6 +33,7 @@
     PanelLeft,
     PanelRight,
     House,
+    Workflow,
   } from 'lucide-svelte'
   import ContextMenu, { type ContextMenuItem } from '../common/ContextMenu.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
@@ -72,6 +73,7 @@
     'brain': Brain,
     'admin': Shield,
     'governance': Shield,
+    'pipelines': Workflow,
     'settings': Settings,
   }
 

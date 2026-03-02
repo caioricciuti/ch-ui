@@ -10,6 +10,7 @@
     Shield,
     SquareTerminal,
     Table2,
+    Workflow,
   } from 'lucide-svelte'
   import { getSession } from '../lib/stores/session.svelte'
   import { getTabs, openDashboardTab, openQueryTab, openSingletonTab } from '../lib/stores/tabs.svelte'
@@ -74,6 +75,13 @@
       run: () => openSingletonTab('brain', 'Brain'),
     },
     {
+      id: 'pipelines',
+      title: 'Pipelines',
+      description: 'Visual data pipeline builder',
+      icon: Workflow,
+      run: () => openSingletonTab('pipelines', 'Pipelines'),
+    },
+    {
       id: 'admin',
       title: 'Admin',
       description: 'Users, alerts, and audit controls',
@@ -127,6 +135,7 @@
     if (tab.type === 'admin') openSingletonTab('admin', 'Admin')
     if (tab.type === 'settings') openSingletonTab('settings', 'License')
     if (tab.type === 'governance') openSingletonTab('governance', 'Governance')
+    if (tab.type === 'pipelines') openSingletonTab('pipelines', 'Pipelines')
   }
 
   function recentSubtitle(tab: Tab): string {
@@ -146,6 +155,7 @@
       case 'admin':
       case 'settings':
       case 'governance':
+      case 'pipelines':
         return tab.name
       default:
         return 'Workspace item'
@@ -169,6 +179,7 @@
     if (tab.type === 'saved-queries') return Bookmark
     if (tab.type === 'schedules') return Clock3
     if (tab.type === 'brain') return Brain
+    if (tab.type === 'pipelines') return Workflow
     if (tab.type === 'admin' || tab.type === 'governance') return Shield
     return Home
   }

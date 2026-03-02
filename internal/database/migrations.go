@@ -687,6 +687,82 @@ func (db *DB) runMigrations() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_alert_digest_due ON alert_route_digests(status, next_attempt_at, bucket_end)`,
 		`CREATE INDEX IF NOT EXISTS idx_alert_digest_route ON alert_route_digests(route_id, bucket_start)`,
+
+		// ══════════════════════════════════════════════════════════════
+		// Pipeline tables (data ingestion pipelines)
+		// ══════════════════════════════════════════════════════════════
+
+		// Pipeline definitions
+		`CREATE TABLE IF NOT EXISTS pipelines (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT,
+			connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+			status TEXT NOT NULL DEFAULT 'draft',
+			config TEXT NOT NULL DEFAULT '{}',
+			created_by TEXT,
+			last_started_at TEXT,
+			last_stopped_at TEXT,
+			last_error TEXT,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_pipeline_conn ON pipelines(connection_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_pipeline_status ON pipelines(status)`,
+
+		// Pipeline graph nodes (sources and sinks)
+		`CREATE TABLE IF NOT EXISTS pipeline_nodes (
+			id TEXT PRIMARY KEY,
+			pipeline_id TEXT NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
+			node_type TEXT NOT NULL,
+			label TEXT NOT NULL,
+			position_x REAL NOT NULL DEFAULT 0,
+			position_y REAL NOT NULL DEFAULT 0,
+			config_encrypted TEXT NOT NULL DEFAULT '{}',
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_pipeline_node_pipeline ON pipeline_nodes(pipeline_id)`,
+
+		// Pipeline graph edges (connections between nodes)
+		`CREATE TABLE IF NOT EXISTS pipeline_edges (
+			id TEXT PRIMARY KEY,
+			pipeline_id TEXT NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
+			source_node_id TEXT NOT NULL REFERENCES pipeline_nodes(id) ON DELETE CASCADE,
+			target_node_id TEXT NOT NULL REFERENCES pipeline_nodes(id) ON DELETE CASCADE,
+			source_handle TEXT,
+			target_handle TEXT,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(pipeline_id, source_node_id, target_node_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_pipeline_edge_pipeline ON pipeline_edges(pipeline_id)`,
+
+		// Pipeline execution runs
+		`CREATE TABLE IF NOT EXISTS pipeline_runs (
+			id TEXT PRIMARY KEY,
+			pipeline_id TEXT NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
+			status TEXT NOT NULL DEFAULT 'running',
+			started_at TEXT NOT NULL,
+			finished_at TEXT,
+			rows_ingested INTEGER DEFAULT 0,
+			bytes_ingested INTEGER DEFAULT 0,
+			errors_count INTEGER DEFAULT 0,
+			last_error TEXT,
+			metrics_json TEXT DEFAULT '{}',
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_pipeline_run_pipeline ON pipeline_runs(pipeline_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_pipeline_run_started ON pipeline_runs(pipeline_id, started_at)`,
+
+		// Pipeline run logs
+		`CREATE TABLE IF NOT EXISTS pipeline_run_logs (
+			id TEXT PRIMARY KEY,
+			run_id TEXT NOT NULL REFERENCES pipeline_runs(id) ON DELETE CASCADE,
+			level TEXT NOT NULL DEFAULT 'info',
+			message TEXT NOT NULL,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_pipeline_run_log_run ON pipeline_run_logs(run_id, created_at)`,
 	}
 
 	for _, stmt := range stmts {

@@ -16,6 +16,7 @@
     Brain,
     Shield,
     Scale,
+    Workflow,
     Settings,
     PanelLeftClose,
     PanelLeftOpen,
@@ -47,6 +48,7 @@
   const navItems: NavItem[] = [
     { type: 'saved-queries', label: 'Saved Queries', icon: Bookmark },
     { type: 'dashboards', label: 'Dashboards', icon: LayoutDashboard },
+    { type: 'pipelines', label: 'Pipelines', icon: Workflow },
     { type: 'schedules', label: 'Schedules', icon: Clock, pro: true },
     { type: 'brain', label: 'Brain', icon: Brain },
     { type: 'governance', label: 'Governance', icon: Scale, pro: true },
