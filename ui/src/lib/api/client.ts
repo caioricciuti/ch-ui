@@ -1,9 +1,12 @@
+import { safeParse } from '../utils/safe-json'
+
 /** Base fetch wrapper with credentials and error handling */
 async function parseResponseBody(res: Response): Promise<any> {
   const contentType = (res.headers.get('content-type') || '').toLowerCase()
   if (contentType.includes('application/json')) {
     try {
-      return await res.json()
+      const text = await res.text()
+      return safeParse(text)
     } catch {
       return null
     }
