@@ -3,13 +3,14 @@
   import type { Pipeline } from '../lib/types/pipelines'
   import * as api from '../lib/api/pipelines'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
+  import { getCurrentPipelineId, pushPipelineDetail, pushPipelineList } from '../lib/stores/router.svelte'
   import PipelineList from '../lib/components/pipelines/PipelineList.svelte'
   import PipelineEditor from '../lib/components/pipelines/PipelineEditor.svelte'
   import InputDialog from '../lib/components/common/InputDialog.svelte'
 
   let pipelines = $state<Pipeline[]>([])
   let loading = $state(true)
-  let selectedPipelineId = $state<string | null>(null)
+  const selectedPipelineId = $derived(getCurrentPipelineId() ?? null)
   let showCreate = $state(false)
   let createName = $state('')
   let createLoading = $state(false)
@@ -39,7 +40,7 @@
       createName = ''
       await loadPipelines()
       // Open the editor for the newly created pipeline
-      selectedPipelineId = res.pipeline.id
+      pushPipelineDetail(res.pipeline.id)
     } catch (e: any) {
       toastError(e.message || 'Failed to create pipeline')
     } finally {
@@ -82,7 +83,7 @@
   <PipelineEditor
     pipelineId={selectedPipelineId}
     onBack={() => {
-      selectedPipelineId = null
+      pushPipelineList()
       loadPipelines()
     }}
   />
@@ -91,7 +92,7 @@
     {pipelines}
     {loading}
     onCreate={() => { showCreate = true }}
-    onSelect={(id) => { selectedPipelineId = id }}
+    onSelect={(id) => { pushPipelineDetail(id) }}
     onDelete={handleDelete}
     onStart={handleStart}
     onStop={handleStop}

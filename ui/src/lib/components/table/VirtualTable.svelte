@@ -4,6 +4,7 @@
   import TableHeader from './TableHeader.svelte'
   import TableCell from './TableCell.svelte'
   import { SearchX } from 'lucide-svelte'
+  import { getFormatNumbers } from '../../stores/number-format.svelte'
 
   const ROW_HEIGHT = 34
   const OVERSCAN = 5
@@ -38,7 +39,10 @@
 
   function estimateValueWidth(value: unknown): number {
     if (value === null || value === undefined) return 34
-    if (typeof value === 'number') return Math.max(60, estimateTextWidth(value.toLocaleString()) + 18)
+    if (typeof value === 'number') {
+      const display = getFormatNumbers() ? value.toLocaleString() : String(value)
+      return Math.max(60, estimateTextWidth(display) + 18)
+    }
     if (typeof value === 'boolean') return 58
     if (typeof value === 'string') {
       const str = value.length > 80 ? value.slice(0, 80) : value
@@ -144,6 +148,7 @@
   $effect(() => {
     const columns = meta
     const rows = data
+    const _fmt = getFormatNumbers()
     if (!columns.length) {
       widths = []
       baseWidths = []

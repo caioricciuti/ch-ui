@@ -14,7 +14,8 @@
     downloadFile,
   } from '../../utils/export'
   import { success, error } from '../../stores/toast.svelte'
-  import { Table2, BarChart3, Columns3, Sparkles, Copy, Download, ChevronUp, FileJson, FileText, Database } from 'lucide-svelte'
+  import { Table2, BarChart3, Columns3, Sparkles, Copy, Download, ChevronUp, FileJson, FileText, Database, Hash } from 'lucide-svelte'
+  import { getFormatNumbers, toggleFormatNumbers } from '../../stores/number-format.svelte'
 
   type Tab = 'data' | 'stats' | 'schema' | 'insights'
   type ExportFormat = 'csv' | 'tsv' | 'json' | 'jsoncompact' | 'jsonl' | 'markdown' | 'sql' | 'xml'
@@ -151,6 +152,20 @@
       {/if}
     {/if}
   </div>
+
+  <!-- Number format toggle -->
+  <div class="w-px h-4 bg-gray-300 dark:bg-gray-700 mx-1"></div>
+  <button
+    class="flex items-center gap-1 px-1.5 py-1 text-xs rounded-md transition-colors
+      {getFormatNumbers()
+        ? 'text-ch-orange bg-orange-100/60 dark:bg-orange-900/30'
+        : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}"
+    onclick={toggleFormatNumbers}
+    title={getFormatNumbers() ? 'Numbers formatted with separators (click to show raw)' : 'Numbers shown as raw values (click to format)'}
+  >
+    <Hash size={12} />
+    <span class="hidden sm:inline">{getFormatNumbers() ? 'Format Numbers' : 'Raw Numbers'}</span>
+  </button>
 
   <!-- Export buttons -->
   <div class="flex items-center gap-1">

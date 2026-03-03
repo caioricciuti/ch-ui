@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getDisplayType } from '../../utils/ch-types'
+  import { getFormatNumbers } from '../../stores/number-format.svelte'
 
   interface Props {
     value: unknown
@@ -21,7 +22,7 @@
   const formatted = $derived.by(() => {
     if (value === null || value === undefined) return null
     if (displayType === 'number' && typeof value === 'number') {
-      return value.toLocaleString()
+      return getFormatNumbers() ? value.toLocaleString() : String(value)
     }
     if (displayType === 'json' && typeof value === 'object') {
       return JSON.stringify(value)
