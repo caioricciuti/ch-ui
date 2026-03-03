@@ -21,8 +21,14 @@
 
   const formatted = $derived.by(() => {
     if (value === null || value === undefined) return null
-    if (displayType === 'number' && typeof value === 'number') {
-      return getFormatNumbers() ? value.toLocaleString() : String(value)
+    if (displayType === 'number') {
+      if (typeof value === 'number') {
+        return getFormatNumbers() ? value.toLocaleString() : String(value)
+      }
+      // Large integers arrive as strings to preserve precision (> Number.MAX_SAFE_INTEGER)
+      if (typeof value === 'string' && /^-?\d+$/.test(value)) {
+        return getFormatNumbers() ? BigInt(value).toLocaleString() : value
+      }
     }
     if (displayType === 'json' && typeof value === 'object') {
       return JSON.stringify(value)
@@ -31,7 +37,8 @@
   })
 
   const isNull = $derived(value === null || value === undefined)
-  const align = $derived(displayType === 'number' ? 'text-right' : 'text-left')
+  const isBigIntString = $derived(displayType === 'number' && typeof value === 'string' && /^-?\d+$/.test(value as string))
+  const align = $derived(displayType === 'number' || isBigIntString ? 'text-right' : 'text-left')
   const isUrl = $derived(displayType === 'string' && typeof value === 'string' && /^https?:\/\//i.test(value))
 
   async function handleCopyCell() {

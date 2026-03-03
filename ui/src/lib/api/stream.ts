@@ -1,4 +1,5 @@
 import type { ColumnMeta, QueryStats, StreamMessage } from '../types/query'
+import { safeParse } from '../utils/safe-json'
 
 /** Execute a streaming query via NDJSON. Calls the provided callbacks as data arrives. */
 export async function executeStreamQuery(
@@ -38,7 +39,7 @@ export async function executeStreamQuery(
     for (const line of lines) {
       if (!line.trim()) continue
       try {
-        const msg: StreamMessage = JSON.parse(line)
+        const msg: StreamMessage = safeParse(line)
         switch (msg.type) {
           case 'meta':
             onMeta(msg.meta)
@@ -62,7 +63,7 @@ export async function executeStreamQuery(
   // Process remaining buffer
   if (buf.trim()) {
     try {
-      const msg: StreamMessage = JSON.parse(buf)
+      const msg: StreamMessage = safeParse(buf)
       if (msg.type === 'done') onDone(msg.statistics, msg.total_rows)
       else if (msg.type === 'error') onError(msg.error)
     } catch {

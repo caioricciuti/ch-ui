@@ -87,6 +87,8 @@ export function generateSQLInsert(meta: ColumnMeta[], data: unknown[][], table =
       if (v === null || v === undefined) return 'NULL'
       if (typeof v === 'number' && Number.isFinite(v)) return String(v)
       if (typeof v === 'boolean') return v ? '1' : '0'
+      // Large integers are stored as strings by safeParse; emit them unquoted
+      if (typeof v === 'string' && /^-?\d+$/.test(v)) return v
       if (typeof v === 'object') return `'${escapeSQLString(JSON.stringify(v))}'`
       return `'${escapeSQLString(String(v))}'`
     })
