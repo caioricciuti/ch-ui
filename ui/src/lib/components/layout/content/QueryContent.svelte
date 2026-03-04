@@ -6,7 +6,7 @@
   import type { SavedQuery } from '../../../types/api'
   import { executeStreamQuery } from '../../../api/stream'
   import { apiPost, apiPut } from '../../../api/client'
-  import { appendDefaultLimit } from '../../../utils/sql'
+  import { getMaxResultRows } from '../../../stores/query-limit.svelte'
   import { error as toastError, success as toastSuccess } from '../../../stores/toast.svelte'
   import SqlEditor from '../../editor/SqlEditor.svelte'
   import Toolbar from '../../editor/Toolbar.svelte'
@@ -76,7 +76,7 @@
     if (abortController) abortController.abort()
     abortController = new AbortController()
 
-    const limitedQuery = appendDefaultLimit(query)
+    const maxResultRows = getMaxResultRows()
     const startTime = performance.now()
 
     // Reset telemetry and inline profile for this run
@@ -98,7 +98,8 @@
 
     try {
       await executeStreamQuery(
-        limitedQuery,
+        query,
+        maxResultRows,
         (meta) => {
           setTabResult(tab.id, { meta, running: true })
         },
@@ -126,7 +127,7 @@
             elapsedMs: Math.round(performance.now() - startTime),
             running: false,
           })
-          void loadInlineProfile(limitedQuery)
+          void loadInlineProfile(query)
         },
         (error) => {
           if (rafId) { cancelAnimationFrame(rafId); rafId = null }

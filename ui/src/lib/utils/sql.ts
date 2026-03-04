@@ -12,9 +12,3 @@ export function isWriteQuery(query: string): boolean {
 export function hasLimit(query: string): boolean {
   return LIMIT_PATTERN.test(query)
 }
-
-/** Append a default LIMIT if the query doesn't have one (for SELECT only) */
-export function appendDefaultLimit(query: string, limit = 1000): string {
-  if (isWriteQuery(query) || hasLimit(query)) return query
-  return query.replace(/;\s*$/, '') + ` LIMIT ${limit}`
-}

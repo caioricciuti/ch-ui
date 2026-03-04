@@ -161,7 +161,7 @@ func (g *Gateway) ExecuteQueryWithFormat(connectionID, sql, user, password, form
 // ExecuteStreamQuery sends a streaming query to the agent and returns channels for progressive consumption.
 // The caller must range over stream.ChunkCh, then select on stream.DoneCh/ErrorCh.
 // Call CleanupStream when done to release resources.
-func (g *Gateway) ExecuteStreamQuery(connectionID, sql, user, password string) (requestID string, stream *PendingStreamRequest, err error) {
+func (g *Gateway) ExecuteStreamQuery(connectionID, sql, user, password string, settings map[string]string) (requestID string, stream *PendingStreamRequest, err error) {
 	val, ok := g.tunnels.Load(connectionID)
 	if !ok {
 		return "", nil, errors.New("tunnel not connected")
@@ -185,6 +185,7 @@ func (g *Gateway) ExecuteStreamQuery(connectionID, sql, user, password string) (
 		Query:    sql,
 		User:     user,
 		Password: password,
+		Settings: settings,
 	}
 
 	data, _ := json.Marshal(msg)
