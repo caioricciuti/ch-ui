@@ -99,7 +99,9 @@ function DefaultDatabaseField({
       >
         <FormControl>
           <SelectTrigger>
-            <SelectValue placeholder="Select default database" />
+            <SelectValue placeholder="Select default database">
+              {field.state.value || undefined}
+            </SelectValue>
           </SelectTrigger>
         </FormControl>
         <SelectContent>

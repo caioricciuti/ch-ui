@@ -17,6 +17,11 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 
+const GRANTEES_LABELS: Record<string, string> = {
+  ANY: "Any",
+  NONE: "None",
+};
+
 interface SettingsSectionProps {
   form: any;
   profiles: string[];
@@ -46,7 +51,9 @@ function SettingsProfileField({
       >
         <FormControl>
           <SelectTrigger>
-            <SelectValue placeholder="Select settings profile" />
+            <SelectValue placeholder="Select settings profile">
+              {field.state.value || undefined}
+            </SelectValue>
           </SelectTrigger>
         </FormControl>
         <SelectContent>
@@ -113,7 +120,9 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               >
                 <FormControl>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select grantees" />
+                    <SelectValue placeholder="Select grantees">
+                      {field.state.value ? GRANTEES_LABELS[field.state.value] : undefined}
+                    </SelectValue>
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>

@@ -27,6 +27,15 @@ import { CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 
+const HOST_TYPE_LABELS: Record<string, string> = {
+  ANY: "Any Host",
+  LOCAL: "Local Only",
+  IP: "Specific IP",
+  NAME: "Host Name",
+  REGEXP: "Regular Expression",
+  LIKE: "Like Pattern",
+};
+
 interface AccessControlSectionProps {
   form: any;
 }
@@ -54,7 +63,9 @@ const AccessControlSection: React.FC<AccessControlSectionProps> = ({
               >
                 <FormControl>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select host type" />
+                    <SelectValue placeholder="Select host type">
+                      {field.state.value ? HOST_TYPE_LABELS[field.state.value] : undefined}
+                    </SelectValue>
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
