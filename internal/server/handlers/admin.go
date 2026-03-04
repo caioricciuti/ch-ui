@@ -13,6 +13,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/langfuse"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
@@ -20,9 +21,10 @@ import (
 // AdminHandler handles admin-only routes for ClickHouse management.
 // All routes require the admin role, enforced by middleware.RequireAdmin.
 type AdminHandler struct {
-	DB      *database.DB
-	Gateway *tunnel.Gateway
-	Config  *config.Config
+	DB       *database.DB
+	Gateway  *tunnel.Gateway
+	Config   *config.Config
+	Langfuse *langfuse.Client
 }
 
 // Routes registers all admin routes on the given chi.Router.
@@ -52,6 +54,12 @@ func (h *AdminHandler) Routes(r chi.Router) {
 	r.Get("/brain/skills", h.ListBrainSkills)
 	r.Post("/brain/skills", h.CreateBrainSkill)
 	r.Put("/brain/skills/{id}", h.UpdateBrainSkill)
+
+	// Langfuse observability
+	r.Get("/langfuse", h.GetLangfuseConfig)
+	r.Put("/langfuse", h.UpdateLangfuseConfig)
+	r.Delete("/langfuse", h.DeleteLangfuseConfig)
+	r.Post("/langfuse/test", h.TestLangfuseConnection)
 }
 
 // ---------- GET /users ----------

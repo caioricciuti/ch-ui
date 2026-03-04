@@ -23,11 +23,11 @@
   import Sheet from '../lib/components/common/Sheet.svelte'
   import HelpTip from '../lib/components/common/HelpTip.svelte'
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
-  import { Shield, RefreshCw, Users, Database, Activity, LogIn, ChevronDown, ChevronRight, Brain, UserPlus, KeyRound, Trash2, Plus, Copy } from 'lucide-svelte'
+  import { Shield, RefreshCw, Users, Database, Activity, LogIn, ChevronDown, ChevronRight, Brain, UserPlus, KeyRound, Trash2, Plus, Copy, Telescope } from 'lucide-svelte'
 
   // Tab state
-  type AdminTab = 'overview' | 'tunnels' | 'users' | 'brain'
-  const adminTabIds: AdminTab[] = ['overview', 'tunnels', 'users', 'brain']
+  type AdminTab = 'overview' | 'tunnels' | 'users' | 'brain' | 'langfuse'
+  const adminTabIds: AdminTab[] = ['overview', 'tunnels', 'users', 'brain', 'langfuse']
   let activeTab = $state<AdminTab>('overview')
 
   type TunnelConnection = {
@@ -115,6 +115,18 @@
   let skillSheetOpen = $state(false)
   let deletingProvider = $state<BrainProviderAdmin | null>(null)
 
+  // Langfuse
+  let langfuseLoading = $state(false)
+  let langfuseLoaded = $state(false)
+  let langfuseTesting = $state(false)
+  let langfuseSaving = $state(false)
+  let langfuseConfig = $state({
+    publicKey: '',
+    baseUrl: 'https://cloud.langfuse.com',
+    hasSecretKey: false,
+    enabled: false,
+  })
+  let langfuseSecretKey = $state('')
 
   const roleOptions: ComboboxOption[] = [
     { value: 'admin', label: 'admin' },
@@ -521,6 +533,9 @@
     if (tab === 'brain' && !brainLoading && brainProviders.length === 0 && brainSkills.length === 0) {
       loadBrainAdmin()
     }
+    if (tab === 'langfuse' && !langfuseLoaded) {
+      loadLangfuseConfig()
+    }
   }
 
   async function loadBrainAdmin() {
@@ -741,6 +756,101 @@
     }
   }
 
+  // ── Langfuse ──────────────────────────────────────────────────────────
+
+  async function loadLangfuseConfig() {
+    langfuseLoading = true
+    try {
+      const res = await apiGet<{
+        public_key: string
+        base_url: string
+        has_secret_key: boolean
+        enabled: boolean
+      }>('/api/admin/langfuse')
+      langfuseConfig = {
+        publicKey: res.public_key ?? '',
+        baseUrl: res.base_url || 'https://cloud.langfuse.com',
+        hasSecretKey: res.has_secret_key ?? false,
+        enabled: res.enabled ?? false,
+      }
+      langfuseSecretKey = ''
+      langfuseLoaded = true
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : 'Failed to load Langfuse config')
+    } finally {
+      langfuseLoading = false
+    }
+  }
+
+  async function saveLangfuseConfig() {
+    if (!langfuseConfig.publicKey.trim()) {
+      toastError('Public key is required')
+      return
+    }
+    if (!langfuseConfig.hasSecretKey && !langfuseSecretKey.trim()) {
+      toastError('Secret key is required')
+      return
+    }
+    langfuseSaving = true
+    try {
+      const payload: Record<string, string> = {
+        publicKey: langfuseConfig.publicKey.trim(),
+        baseUrl: langfuseConfig.baseUrl.trim() || 'https://cloud.langfuse.com',
+      }
+      if (langfuseSecretKey.trim()) {
+        payload.secretKey = langfuseSecretKey.trim()
+      }
+      const res = await apiPut<{ enabled: boolean }>('/api/admin/langfuse', payload)
+      langfuseConfig.enabled = res.enabled
+      langfuseConfig.hasSecretKey = true
+      langfuseSecretKey = ''
+      toastSuccess('Langfuse configuration saved')
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : 'Failed to save')
+    } finally {
+      langfuseSaving = false
+    }
+  }
+
+  async function deleteLangfuseConfig() {
+    try {
+      await apiDel('/api/admin/langfuse')
+      langfuseConfig = {
+        publicKey: '',
+        baseUrl: 'https://cloud.langfuse.com',
+        hasSecretKey: false,
+        enabled: false,
+      }
+      langfuseSecretKey = ''
+      toastSuccess('Langfuse configuration removed')
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : 'Failed to remove')
+    }
+  }
+
+  async function testLangfuseConnection() {
+    langfuseTesting = true
+    try {
+      const payload: Record<string, string> = {
+        publicKey: langfuseConfig.publicKey.trim(),
+        baseUrl: langfuseConfig.baseUrl.trim() || 'https://cloud.langfuse.com',
+      }
+      if (langfuseSecretKey.trim()) {
+        payload.secretKey = langfuseSecretKey.trim()
+      }
+      const res = await apiPost<{ connected: boolean; error?: string }>('/api/admin/langfuse/test', payload)
+      if (res.connected) {
+        toastSuccess('Connection successful')
+      } else {
+        toastError(`Connection failed: ${res.error ?? 'unknown error'}`)
+      }
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : 'Connection test failed')
+    } finally {
+      langfuseTesting = false
+    }
+  }
+
   function formatTime(ts: string): string {
     try {
       return new Date(ts).toLocaleString()
@@ -762,7 +872,7 @@
         <h1 class="ds-page-title">Admin Panel</h1>
       </div>
       <nav class="ds-tabs border-0 px-0 pt-0 gap-1 overflow-x-auto whitespace-nowrap" aria-label="Admin Tabs">
-        {#each [['overview', 'Overview'], ['tunnels', 'Tunnels'], ['users', 'Users'], ['brain', 'Brain']] as [key, label]}
+        {#each [['overview', 'Overview'], ['tunnels', 'Tunnels'], ['users', 'Users'], ['brain', 'Brain'], ['langfuse', 'Langfuse']] as [key, label]}
           <button
             class="ds-tab {activeTab === key ? 'ds-tab-active' : ''}"
             onclick={() => switchTab(key as AdminTab)}
@@ -1529,6 +1639,88 @@
           </div>
           <p class="text-xs text-gray-500 mb-2">Active prompt preview</p>
           <pre class="text-[11px] leading-relaxed whitespace-pre-wrap text-gray-600 dark:text-gray-300 max-h-36 overflow-auto rounded border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 p-2">{truncate(skillForm.content || '', 1200)}</pre>
+        </div>
+      {/if}
+
+    {:else if activeTab === 'langfuse'}
+      {#if langfuseLoading}
+        <div class="flex items-center justify-center py-12"><Spinner /></div>
+      {:else}
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+          <div class="flex items-center gap-2">
+            <Telescope size={16} class="text-ch-blue" />
+            <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Langfuse Observability</h2>
+          </div>
+          <div class="flex items-center gap-2">
+            {#if langfuseConfig.enabled}
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">Active</span>
+            {:else}
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">Inactive</span>
+            {/if}
+          </div>
+        </div>
+
+        <div class="ds-card p-4 mb-4">
+          <p class="text-xs text-gray-500 mb-4">
+            <a href="https://langfuse.com" target="_blank" rel="noopener" class="text-ch-blue hover:underline">Langfuse</a> provides LLM observability for Brain chat — traces, token usage, latency, and auto-scoring for every generation.
+          </p>
+
+          <div class="space-y-3">
+            <label class="block space-y-1">
+              <span class="text-xs text-gray-500">Base URL</span>
+              <input
+                class="ds-input-sm"
+                type="url"
+                placeholder="https://cloud.langfuse.com"
+                bind:value={langfuseConfig.baseUrl}
+              />
+            </label>
+
+            <label class="block space-y-1">
+              <span class="text-xs text-gray-500">Public Key</span>
+              <input
+                class="ds-input-sm font-mono"
+                type="text"
+                placeholder="pk-lf-..."
+                bind:value={langfuseConfig.publicKey}
+              />
+            </label>
+
+            <label class="block space-y-1">
+              <span class="text-xs text-gray-500">Secret Key</span>
+              <input
+                class="ds-input-sm font-mono"
+                type="password"
+                placeholder={langfuseConfig.hasSecretKey ? '(unchanged — enter new value to replace)' : 'sk-lf-...'}
+                bind:value={langfuseSecretKey}
+              />
+            </label>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-gray-200 dark:border-gray-800">
+            <button
+              class="ds-btn-primary"
+              onclick={() => saveLangfuseConfig()}
+              disabled={langfuseSaving}
+            >
+              {langfuseSaving ? 'Saving...' : 'Save'}
+            </button>
+            <button
+              class="ds-btn-outline"
+              onclick={() => testLangfuseConnection()}
+              disabled={langfuseTesting}
+            >
+              {langfuseTesting ? 'Testing...' : 'Test Connection'}
+            </button>
+            {#if langfuseConfig.hasSecretKey || langfuseConfig.publicKey}
+              <button
+                class="ds-btn-outline text-red-600 dark:text-red-400"
+                onclick={() => deleteLangfuseConfig()}
+              >
+                Remove
+              </button>
+            {/if}
+          </div>
         </div>
       {/if}
     {/if}

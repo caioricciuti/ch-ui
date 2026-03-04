@@ -26,9 +26,15 @@ type ProviderConfig struct {
 	APIKey  string
 }
 
+// ChatResult holds optional metadata returned after streaming completes.
+type ChatResult struct {
+	InputTokens  int
+	OutputTokens int
+}
+
 // Provider handles streaming chat and model discovery.
 type Provider interface {
-	StreamChat(ctx context.Context, cfg ProviderConfig, model string, messages []Message, onDelta func(string) error) error
+	StreamChat(ctx context.Context, cfg ProviderConfig, model string, messages []Message, onDelta func(string) error) (*ChatResult, error)
 	ListModels(ctx context.Context, cfg ProviderConfig) ([]string, error)
 }
 
@@ -50,10 +56,15 @@ type openAIProvider struct {
 }
 
 type openAIRequest struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	Stream      bool      `json:"stream"`
-	Temperature float64   `json:"temperature"`
+	Model         string                `json:"model"`
+	Messages      []Message             `json:"messages"`
+	Stream        bool                  `json:"stream"`
+	Temperature   float64               `json:"temperature"`
+	StreamOptions *openAIStreamOptions  `json:"stream_options,omitempty"`
+}
+
+type openAIStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type openAIChunk struct {
@@ -62,6 +73,10 @@ type openAIChunk struct {
 			Content string `json:"content"`
 		} `json:"delta"`
 	} `json:"choices"`
+	Usage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+	} `json:"usage"`
 }
 
 func ensureOpenAIV1Base(rawBase string) string {
@@ -116,20 +131,21 @@ func (p *openAIProvider) baseURL(cfg ProviderConfig) string {
 	return base
 }
 
-func (p *openAIProvider) StreamChat(ctx context.Context, cfg ProviderConfig, model string, messages []Message, onDelta func(string) error) error {
+func (p *openAIProvider) StreamChat(ctx context.Context, cfg ProviderConfig, model string, messages []Message, onDelta func(string) error) (*ChatResult, error) {
 	if strings.TrimSpace(cfg.APIKey) == "" {
-		return errors.New("provider API key is not configured")
+		return nil, errors.New("provider API key is not configured")
 	}
 
 	payload := openAIRequest{
-		Model:       model,
-		Messages:    messages,
-		Stream:      true,
-		Temperature: 0.1,
+		Model:         model,
+		Messages:      messages,
+		Stream:        true,
+		Temperature:   0.1,
+		StreamOptions: &openAIStreamOptions{IncludeUsage: true},
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal provider request: %w", err)
+		return nil, fmt.Errorf("marshal provider request: %w", err)
 	}
 	primaryBase := p.baseURL(cfg)
 	bases := []string{primaryBase}
@@ -145,14 +161,14 @@ func (p *openAIProvider) StreamChat(ctx context.Context, cfg ProviderConfig, mod
 		endpoint := base + "/chat/completions"
 		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 		if reqErr != nil {
-			return fmt.Errorf("create provider request: %w", reqErr)
+			return nil, fmt.Errorf("create provider request: %w", reqErr)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 
 		resp, doErr := p.client.Do(req)
 		if doErr != nil {
-			return fmt.Errorf("provider request failed: %w", doErr)
+			return nil, fmt.Errorf("provider request failed: %w", doErr)
 		}
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -163,9 +179,10 @@ func (p *openAIProvider) StreamChat(ctx context.Context, cfg ProviderConfig, mod
 			if idx < len(bases)-1 && shouldRetryOpenAIV1(resp.StatusCode, errBody) {
 				continue
 			}
-			return fmt.Errorf("provider error (%d): %s", resp.StatusCode, string(errBody))
+			return nil, fmt.Errorf("provider error (%d): %s", resp.StatusCode, string(errBody))
 		}
 
+		var result ChatResult
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -175,12 +192,16 @@ func (p *openAIProvider) StreamChat(ctx context.Context, cfg ProviderConfig, mod
 			data := strings.TrimPrefix(line, "data: ")
 			if data == "[DONE]" {
 				resp.Body.Close()
-				return nil
+				return &result, nil
 			}
 
 			var chunk openAIChunk
 			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 				continue
+			}
+			if chunk.Usage != nil {
+				result.InputTokens = chunk.Usage.PromptTokens
+				result.OutputTokens = chunk.Usage.CompletionTokens
 			}
 			for _, c := range chunk.Choices {
 				if c.Delta.Content == "" {
@@ -188,22 +209,22 @@ func (p *openAIProvider) StreamChat(ctx context.Context, cfg ProviderConfig, mod
 				}
 				if err := onDelta(c.Delta.Content); err != nil {
 					resp.Body.Close()
-					return err
+					return nil, err
 				}
 			}
 		}
 		if err := scanner.Err(); err != nil {
 			resp.Body.Close()
-			return fmt.Errorf("read provider stream: %w", err)
+			return nil, fmt.Errorf("read provider stream: %w", err)
 		}
 		resp.Body.Close()
-		return nil
+		return &result, nil
 	}
 
 	if lastStatus != 0 {
-		return fmt.Errorf("provider error (%d): %s", lastStatus, string(lastErrBody))
+		return nil, fmt.Errorf("provider error (%d): %s", lastStatus, string(lastErrBody))
 	}
-	return errors.New("provider request failed")
+	return nil, errors.New("provider request failed")
 }
 
 func (p *openAIProvider) ListModels(ctx context.Context, cfg ProviderConfig) ([]string, error) {
@@ -284,7 +305,7 @@ func (p *ollamaProvider) baseURL(cfg ProviderConfig) string {
 	return "http://localhost:11434"
 }
 
-func (p *ollamaProvider) StreamChat(ctx context.Context, cfg ProviderConfig, model string, messages []Message, onDelta func(string) error) error {
+func (p *ollamaProvider) StreamChat(ctx context.Context, cfg ProviderConfig, model string, messages []Message, onDelta func(string) error) (*ChatResult, error) {
 	payload := map[string]interface{}{
 		"model":    model,
 		"stream":   true,
@@ -292,27 +313,28 @@ func (p *ollamaProvider) StreamChat(ctx context.Context, cfg ProviderConfig, mod
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal provider request: %w", err)
+		return nil, fmt.Errorf("marshal provider request: %w", err)
 	}
 
 	url := p.baseURL(cfg) + "/api/chat"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("create provider request: %w", err)
+		return nil, fmt.Errorf("create provider request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("provider request failed: %w", err)
+		return nil, fmt.Errorf("provider request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("provider error (%d): %s", resp.StatusCode, string(errBody))
+		return nil, fmt.Errorf("provider error (%d): %s", resp.StatusCode, string(errBody))
 	}
 
+	var result ChatResult
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -321,32 +343,36 @@ func (p *ollamaProvider) StreamChat(ctx context.Context, cfg ProviderConfig, mod
 		}
 
 		var chunk struct {
-			Done    bool `json:"done"`
-			Message struct {
+			Done            bool `json:"done"`
+			Message         struct {
 				Content string `json:"content"`
 			} `json:"message"`
-			Error string `json:"error"`
+			Error           string `json:"error"`
+			PromptEvalCount int    `json:"prompt_eval_count"`
+			EvalCount       int    `json:"eval_count"`
 		}
 		if err := json.Unmarshal([]byte(line), &chunk); err != nil {
 			continue
 		}
 		if chunk.Error != "" {
-			return errors.New(chunk.Error)
+			return nil, errors.New(chunk.Error)
 		}
 		if chunk.Message.Content != "" {
 			if err := onDelta(chunk.Message.Content); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		if chunk.Done {
-			return nil
+			result.InputTokens = chunk.PromptEvalCount
+			result.OutputTokens = chunk.EvalCount
+			return &result, nil
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read provider stream: %w", err)
+		return nil, fmt.Errorf("read provider stream: %w", err)
 	}
-	return nil
+	return &result, nil
 }
 
 func (p *ollamaProvider) ListModels(ctx context.Context, cfg ProviderConfig) ([]string, error) {

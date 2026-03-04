@@ -13,9 +13,12 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/langfuse"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
+	"github.com/caioricciuti/ch-ui/internal/version"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 const baseBrainPrompt = `You are Brain, an expert ClickHouse assistant for analytics teams.
@@ -34,9 +37,10 @@ Output style:
 
 // BrainHandler handles Brain chat, persistence, and artifacts.
 type BrainHandler struct {
-	DB      *database.DB
-	Gateway *tunnel.Gateway
-	Config  *config.Config
+	DB       *database.DB
+	Gateway  *tunnel.Gateway
+	Config   *config.Config
+	Langfuse *langfuse.Client // nil when disabled
 }
 
 func (h *BrainHandler) Routes(r chi.Router) {
@@ -627,13 +631,15 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var built strings.Builder
-	streamErr := provider.StreamChat(r.Context(), providerCfg, runtimeModel.ModelName, providerMessages, func(delta string) error {
+	streamStart := time.Now()
+	chatResult, streamErr := provider.StreamChat(r.Context(), providerCfg, runtimeModel.ModelName, providerMessages, func(delta string) error {
 		if delta == "" {
 			return nil
 		}
 		built.WriteString(delta)
 		return writeSSE(w, flusher, map[string]interface{}{"type": "delta", "delta": delta, "messageId": assistantMessageID})
 	})
+	streamEnd := time.Now()
 
 	if streamErr != nil {
 		errMessage := streamErr.Error()
@@ -642,6 +648,29 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = h.DB.UpdateBrainMessage(assistantMessageID, built.String(), "error", errMessage)
 		_ = writeSSE(w, flusher, map[string]interface{}{"type": "error", "error": errMessage, "messageId": assistantMessageID})
+
+		// Langfuse: trace error
+		if h.Langfuse.IsEnabled() {
+			traceID := uuid.NewString()
+			h.Langfuse.LogTrace(langfuse.TraceParams{
+				ID: traceID, Name: "brain.chat",
+				UserID: session.ClickhouseUser, SessionID: chatID,
+				Input: prompt, Release: version.Version,
+				Tags:     []string{runtimeModel.ProviderKind, runtimeModel.ModelName, "brain", "error"},
+				Metadata: map[string]string{"connection_id": session.ConnectionID},
+			})
+			h.Langfuse.LogGeneration(langfuse.GenerationParams{
+				ID: uuid.NewString(), TraceID: traceID, Name: "StreamChat",
+				Model: runtimeModel.ModelName,
+				ModelParameters: map[string]interface{}{"temperature": 0.1},
+				Input: providerMessages, Output: errMessage,
+				StartTime: streamStart, EndTime: streamEnd, Level: "ERROR",
+			})
+			h.Langfuse.LogEvent(langfuse.EventParams{
+				TraceID: traceID, Name: "stream_error",
+				Input: errMessage, Level: "ERROR",
+			})
+		}
 		return
 	}
 
@@ -684,6 +713,66 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		Details:      strPtr(fmt.Sprintf("chat=%s user_msg=%s", chatID, userMessageID)),
 		IPAddress:    strPtr(r.RemoteAddr),
 	})
+
+	// Langfuse: trace + generation + auto-scores
+	if h.Langfuse.IsEnabled() {
+		traceID := uuid.NewString()
+		metadata := map[string]string{
+			"connection_id": session.ConnectionID,
+			"provider_kind": runtimeModel.ProviderKind,
+		}
+		if streamCtxDB != "" {
+			metadata["schema_database"] = streamCtxDB
+		}
+		if streamCtxTable != "" {
+			metadata["schema_table"] = streamCtxTable
+		}
+		h.Langfuse.LogTrace(langfuse.TraceParams{
+			ID: traceID, Name: "brain.chat",
+			UserID: session.ClickhouseUser, SessionID: chatID,
+			Input: prompt, Output: assistantText,
+			Release:  version.Version,
+			Tags:     []string{runtimeModel.ProviderKind, runtimeModel.ModelName, "brain"},
+			Metadata: metadata,
+		})
+
+		genParams := langfuse.GenerationParams{
+			ID: uuid.NewString(), TraceID: traceID, Name: "StreamChat",
+			Model:           runtimeModel.ModelName,
+			ModelParameters: map[string]interface{}{"temperature": 0.1},
+			Input:           providerMessages,
+			Output:          assistantText,
+			StartTime:       streamStart, EndTime: streamEnd,
+		}
+		if chatResult != nil && (chatResult.InputTokens > 0 || chatResult.OutputTokens > 0) {
+			genParams.Usage = &langfuse.Usage{
+				Input:  chatResult.InputTokens,
+				Output: chatResult.OutputTokens,
+				Total:  chatResult.InputTokens + chatResult.OutputTokens,
+			}
+		}
+		h.Langfuse.LogGeneration(genParams)
+
+		// Auto-scores
+		latencyMs := float64(streamEnd.Sub(streamStart).Milliseconds())
+		h.Langfuse.LogScore(langfuse.ScoreParams{
+			TraceID: traceID, Name: "latency_ms", Value: latencyMs, DataType: "NUMERIC",
+		})
+		hasSQLVal := 0.0
+		if containsSQL(assistantText) {
+			hasSQLVal = 1.0
+		}
+		h.Langfuse.LogScore(langfuse.ScoreParams{
+			TraceID: traceID, Name: "has_sql", Value: hasSQLVal, DataType: "BOOLEAN",
+		})
+		if chatResult != nil && chatResult.InputTokens > 0 {
+			efficiency := float64(chatResult.OutputTokens) / float64(chatResult.InputTokens)
+			h.Langfuse.LogScore(langfuse.ScoreParams{
+				TraceID: traceID, Name: "token_efficiency", Value: efficiency, DataType: "NUMERIC",
+				Comment: "output_tokens / input_tokens",
+			})
+		}
+	}
 
 	_ = writeSSE(w, flusher, map[string]interface{}{"type": "done", "messageId": assistantMessageID, "chatId": chatID})
 }
@@ -764,11 +853,62 @@ func (h *BrainHandler) LegacyChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := provider.StreamChat(r.Context(), cfg, rt.ModelName, messages, func(delta string) error {
+	var built strings.Builder
+	streamStart := time.Now()
+	chatResult, streamErr := provider.StreamChat(r.Context(), cfg, rt.ModelName, messages, func(delta string) error {
+		built.WriteString(delta)
 		return writeSSE(w, flusher, map[string]interface{}{"type": "delta", "delta": delta})
-	}); err != nil {
-		_ = writeSSE(w, flusher, map[string]interface{}{"type": "error", "error": err.Error()})
+	})
+	streamEnd := time.Now()
+
+	if streamErr != nil {
+		_ = writeSSE(w, flusher, map[string]interface{}{"type": "error", "error": streamErr.Error()})
+
+		// Langfuse: trace legacy error
+		if h.Langfuse.IsEnabled() {
+			traceID := uuid.NewString()
+			h.Langfuse.LogTrace(langfuse.TraceParams{
+				ID: traceID, Name: "brain.legacy_chat",
+				UserID: session.ClickhouseUser, Release: version.Version,
+				Tags: []string{rt.ProviderKind, rt.ModelName, "brain", "legacy", "error"},
+			})
+			h.Langfuse.LogGeneration(langfuse.GenerationParams{
+				ID: uuid.NewString(), TraceID: traceID, Name: "StreamChat",
+				Model: rt.ModelName, Input: messages, Output: streamErr.Error(),
+				StartTime: streamStart, EndTime: streamEnd, Level: "ERROR",
+			})
+		}
 		return
+	}
+
+	// Langfuse: trace legacy success
+	if h.Langfuse.IsEnabled() {
+		traceID := uuid.NewString()
+		h.Langfuse.LogTrace(langfuse.TraceParams{
+			ID: traceID, Name: "brain.legacy_chat",
+			UserID: session.ClickhouseUser, Release: version.Version,
+			Tags: []string{rt.ProviderKind, rt.ModelName, "brain", "legacy"},
+		})
+		genParams := langfuse.GenerationParams{
+			ID: uuid.NewString(), TraceID: traceID, Name: "StreamChat",
+			Model:           rt.ModelName,
+			ModelParameters: map[string]interface{}{"temperature": 0.1},
+			Input:           messages, Output: built.String(),
+			StartTime:       streamStart, EndTime: streamEnd,
+		}
+		if chatResult != nil && (chatResult.InputTokens > 0 || chatResult.OutputTokens > 0) {
+			genParams.Usage = &langfuse.Usage{
+				Input:  chatResult.InputTokens,
+				Output: chatResult.OutputTokens,
+				Total:  chatResult.InputTokens + chatResult.OutputTokens,
+			}
+		}
+		h.Langfuse.LogGeneration(genParams)
+
+		latencyMs := float64(streamEnd.Sub(streamStart).Milliseconds())
+		h.Langfuse.LogScore(langfuse.ScoreParams{
+			TraceID: traceID, Name: "latency_ms", Value: latencyMs, DataType: "NUMERIC",
+		})
 	}
 
 	_ = writeSSE(w, flusher, map[string]interface{}{"type": "done"})
@@ -872,4 +1012,10 @@ func autoTitle(prompt string) string {
 func isBrainReadOnlyQuery(query string) bool {
 	re := regexp.MustCompile(`(?is)^\s*(SELECT|WITH|SHOW|DESC|DESCRIBE|EXPLAIN)\b`)
 	return re.MatchString(query)
+}
+
+var sqlBlockPattern = regexp.MustCompile("(?i)```sql")
+
+func containsSQL(text string) bool {
+	return sqlBlockPattern.MatchString(text)
 }
