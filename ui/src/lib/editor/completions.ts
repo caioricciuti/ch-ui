@@ -18,6 +18,53 @@ const columnCache = new Map<string, Column[]>()
 const tableFetches = new Map<string, Promise<void>>()
 const columnFetches = new Map<string, Promise<void>>()
 
+// ── Model name cache for $ref() autocomplete ─────────────────────
+
+let cachedModelNames: { name: string; materialization: string; target_database: string }[] | null = null
+let modelFetchPromise: Promise<void> | null = null
+
+async function ensureModelsLoaded(): Promise<void> {
+  if (cachedModelNames !== null) return
+  if (modelFetchPromise) { await modelFetchPromise; return }
+  modelFetchPromise = (async () => {
+    try {
+      const { listModels } = await import('../api/models')
+      const res = await listModels()
+      cachedModelNames = (res.models ?? []).map((m: { name: string; materialization: string; target_database: string }) => ({
+        name: m.name,
+        materialization: m.materialization,
+        target_database: m.target_database,
+      }))
+    } catch {
+      cachedModelNames = []
+    } finally {
+      modelFetchPromise = null
+    }
+  })()
+  await modelFetchPromise
+}
+
+/** Invalidate model name cache (call after create/delete/rename). */
+export function refreshModelCache(): void {
+  cachedModelNames = null
+}
+
+function detectRefContext(doc: string, pos: number): { inside: boolean; nameStart: number } {
+  const before = doc.slice(Math.max(0, pos - 100), pos)
+  const match = before.match(/\$ref\(\s*([\w]*)$/)
+  if (!match) return { inside: false, nameStart: pos }
+  return { inside: true, nameStart: pos - match[1].length }
+}
+
+function buildModelCompletions(): Completion[] {
+  return (cachedModelNames ?? []).map((m) => ({
+    label: m.name,
+    type: 'class',
+    detail: `${m.materialization} \u2192 ${m.target_database}`,
+    boost: 50,
+  }))
+}
+
 type SqlContext = 'table' | 'column' | 'dot' | 'function' | 'default'
 
 interface TableRef {
@@ -439,6 +486,12 @@ function buildKeywordCompletions(): Completion[] {
 
 function buildSnippetCompletions(): Completion[] {
   return [
+    snippetCompletion('\\$ref(${model_name})', {
+      label: '$ref()',
+      type: 'snippet',
+      detail: 'Reference another model',
+      boost: 35,
+    }),
     snippetCompletion('SELECT ${columns}\nFROM ${database}.${table}\nLIMIT ${1000}', {
       label: 'SELECT … FROM',
       type: 'snippet',
@@ -500,6 +553,18 @@ export async function clickhouseCompletionSource(
 
   const doc = context.state.doc.toString()
   const beforeCursor = doc.slice(0, context.pos)
+
+  // Check for $ref() context first — return only model names
+  const refCtx = detectRefContext(doc, context.pos)
+  if (refCtx.inside) {
+    await ensureModelsLoaded()
+    return {
+      from: refCtx.nameStart,
+      options: buildModelCompletions(),
+      validFor: /^\w*$/,
+    }
+  }
+
   // Detect context at the cursor (not token start) so dot/function contexts are
   // classified correctly while the user is actively typing.
   const sqlCtx = detectContext(doc, context.pos)

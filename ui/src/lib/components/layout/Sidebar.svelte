@@ -17,6 +17,7 @@
     Shield,
     Scale,
     Workflow,
+    Boxes,
     Settings,
     PanelLeftClose,
     PanelLeftOpen,
@@ -49,6 +50,7 @@
     { type: 'saved-queries', label: 'Saved Queries', icon: Bookmark },
     { type: 'dashboards', label: 'Dashboards', icon: LayoutDashboard },
     { type: 'pipelines', label: 'Pipelines', icon: Workflow },
+    { type: 'models', label: 'Models', icon: Boxes },
     { type: 'schedules', label: 'Schedules', icon: Clock, pro: true },
     { type: 'brain', label: 'Brain', icon: Brain },
     { type: 'governance', label: 'Governance', icon: Scale, pro: true },
@@ -138,18 +140,7 @@
   >
     <!-- Collapse toggle + New query -->
     <div class="flex items-center {collapsed ? 'justify-center' : 'justify-between'} px-2 py-2 border-b border-gray-200 dark:border-gray-800 shrink-0">
-      {#if !collapsed}
-        <div class="flex items-center gap-1.5">
-          <img src={logo} alt="CH-UI" class="w-6 h-6 rounded-md ring-1 ring-white/20" />
-          <button
-            class="flex items-center gap-2 px-3 py-2 text-[13px] font-semibold text-gray-700 dark:text-gray-300 bg-gray-200/60 dark:bg-gray-800/60 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-md transition-colors"
-            onclick={() => openQueryTab()}
-          >
-            <Plus size={15} />
-            New Query
-          </button>
-        </div>
-      {/if}
+
       <button
         class="p-1 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800/60 transition-colors"
         onclick={toggleCollapse}

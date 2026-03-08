@@ -12,6 +12,7 @@ const TAB_PATHS: Record<string, string> = {
   'admin': '/admin',
   'governance': '/governance',
   'pipelines': '/pipelines',
+  'models': '/models',
   'settings': '/license',
 }
 
@@ -23,6 +24,7 @@ const PATH_TABS: Record<string, { type: SingletonTab['type']; label: string }> =
   '/admin': { type: 'admin', label: 'Admin' },
   '/governance': { type: 'governance', label: 'Governance' },
   '/pipelines': { type: 'pipelines', label: 'Pipelines' },
+  '/models': { type: 'models', label: 'Models' },
   '/settings': { type: 'settings', label: 'License' },
   '/license': { type: 'settings', label: 'License' },
 }

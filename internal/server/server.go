@@ -15,6 +15,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/governance"
 	"github.com/caioricciuti/ch-ui/internal/langfuse"
+	"github.com/caioricciuti/ch-ui/internal/models"
 	"github.com/caioricciuti/ch-ui/internal/pipelines"
 	"github.com/caioricciuti/ch-ui/internal/scheduler"
 	"github.com/caioricciuti/ch-ui/internal/server/handlers"
@@ -30,6 +31,7 @@ type Server struct {
 	gateway        *tunnel.Gateway
 	scheduler      *scheduler.Runner
 	pipelineRunner *pipelines.Runner
+	modelRunner    *models.Runner
 	govSyncer      *governance.Syncer
 	guardrails     *governance.GuardrailService
 	alerts         *alerts.Dispatcher
@@ -46,6 +48,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS) *Server {
 
 	sched := scheduler.NewRunner(db, gw, cfg.AppSecretKey)
 	pipeRunner := pipelines.NewRunner(db, gw, cfg)
+	modelRunner := models.NewRunner(db, gw, cfg.AppSecretKey)
 
 	govStore := governance.NewStore(db)
 	govSyncer := governance.NewSyncer(govStore, db, gw, cfg.AppSecretKey)
@@ -65,6 +68,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS) *Server {
 		gateway:        gw,
 		scheduler:      sched,
 		pipelineRunner: pipeRunner,
+		modelRunner:    modelRunner,
 		govSyncer:      govSyncer,
 		guardrails:     governance.NewGuardrailService(govStore, db),
 		alerts:         alertDispatcher,
@@ -165,6 +169,10 @@ func (s *Server) setupRoutes() {
 			// Pipelines
 			pipelinesHandler := &handlers.PipelinesHandler{DB: db, Gateway: gw, Config: cfg, Runner: s.pipelineRunner}
 			protected.Mount("/pipelines", pipelinesHandler.Routes())
+
+			// Models (dbt-like SQL transformations)
+			modelsHandler := &handlers.ModelsHandler{DB: db, Gateway: gw, Config: cfg, Runner: s.modelRunner}
+			protected.Mount("/models", modelsHandler.Routes())
 
 			// Brain AI assistant
 			brainHandler := &handlers.BrainHandler{DB: db, Gateway: gw, Config: cfg, Langfuse: s.langfuse}

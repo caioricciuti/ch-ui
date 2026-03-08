@@ -763,6 +763,57 @@ func (db *DB) runMigrations() error {
 			created_at TEXT DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_pipeline_run_log_run ON pipeline_run_logs(run_id, created_at)`,
+
+		// ── Models (dbt-like SQL transformations) ─────────────────────────
+		`CREATE TABLE IF NOT EXISTS models (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT DEFAULT '',
+			connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+			target_database TEXT NOT NULL DEFAULT 'default',
+			materialization TEXT NOT NULL DEFAULT 'view',
+			sql_body TEXT NOT NULL DEFAULT '',
+			table_engine TEXT NOT NULL DEFAULT 'MergeTree',
+			order_by TEXT NOT NULL DEFAULT 'tuple()',
+			status TEXT NOT NULL DEFAULT 'draft',
+			last_error TEXT,
+			last_run_at TEXT,
+			created_by TEXT,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(connection_id, name)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_model_conn ON models(connection_id)`,
+
+		`CREATE TABLE IF NOT EXISTS model_runs (
+			id TEXT PRIMARY KEY,
+			connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+			status TEXT NOT NULL DEFAULT 'running',
+			total_models INTEGER NOT NULL DEFAULT 0,
+			succeeded INTEGER NOT NULL DEFAULT 0,
+			failed INTEGER NOT NULL DEFAULT 0,
+			skipped INTEGER NOT NULL DEFAULT 0,
+			started_at TEXT NOT NULL,
+			finished_at TEXT,
+			triggered_by TEXT,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_model_run_conn ON model_runs(connection_id, started_at)`,
+
+		`CREATE TABLE IF NOT EXISTS model_run_results (
+			id TEXT PRIMARY KEY,
+			run_id TEXT NOT NULL REFERENCES model_runs(id) ON DELETE CASCADE,
+			model_id TEXT NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+			model_name TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			resolved_sql TEXT,
+			elapsed_ms INTEGER DEFAULT 0,
+			error TEXT,
+			started_at TEXT,
+			finished_at TEXT,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_model_result_run ON model_run_results(run_id)`,
 	}
 
 	for _, stmt := range stmts {

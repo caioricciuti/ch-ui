@@ -15,6 +15,7 @@
   import Admin from '../../../pages/Admin.svelte'
   import Governance from '../../../pages/Governance.svelte'
   import Pipelines from '../../../pages/Pipelines.svelte'
+  import Models from '../../../pages/Models.svelte'
   import Home from '../../../pages/Home.svelte'
 
   interface Props {
@@ -101,6 +102,8 @@
     <Governance />
   {:else if activeTab.type === 'pipelines'}
     <Pipelines />
+  {:else if activeTab.type === 'models'}
+    <Models />
   {:else if activeTab.type === 'home'}
     <Home />
   {/if}
