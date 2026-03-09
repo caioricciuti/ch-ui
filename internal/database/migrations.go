@@ -814,12 +814,34 @@ func (db *DB) runMigrations() error {
 			created_at TEXT DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_model_result_run ON model_run_results(run_id)`,
+
+		`CREATE TABLE IF NOT EXISTS model_schedules (
+			id TEXT PRIMARY KEY,
+			connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+			anchor_model_id TEXT REFERENCES models(id) ON DELETE CASCADE,
+			cron TEXT NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			last_run_at TEXT,
+			next_run_at TEXT,
+			last_status TEXT,
+			last_error TEXT,
+			created_by TEXT,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(connection_id, anchor_model_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_model_sched_conn ON model_schedules(connection_id)`,
 	}
 
 	for _, stmt := range stmts {
 		if _, err := db.conn.Exec(stmt); err != nil {
 			return err
 		}
+	}
+
+	// Migrate model_schedules: add anchor_model_id column if missing
+	if err := db.migrateModelSchedulesAnchor(); err != nil {
+		return fmt.Errorf("migrate model_schedules anchor: %w", err)
 	}
 
 	if err := db.ensureColumn("gov_policies", "enforcement_mode", "TEXT NOT NULL DEFAULT 'warn'"); err != nil {
@@ -902,6 +924,94 @@ Formatting:
 	}
 
 	slog.Info("Database migrations completed")
+	return nil
+}
+
+// migrateModelSchedulesAnchor detects old model_schedules without anchor_model_id
+// and migrates data to the new schema.
+func (db *DB) migrateModelSchedulesAnchor() error {
+	// Check if anchor_model_id column already exists
+	rows, err := db.conn.Query("PRAGMA table_info(model_schedules)")
+	if err != nil {
+		return nil // table may not exist yet
+	}
+	defer rows.Close()
+
+	hasAnchor := false
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dfltValue interface{}
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			return err
+		}
+		if strings.EqualFold(strings.TrimSpace(name), "anchor_model_id") {
+			hasAnchor = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if hasAnchor {
+		return nil // already migrated
+	}
+
+	slog.Info("Migrating model_schedules to add anchor_model_id")
+
+	// Rename old table
+	if _, err := db.conn.Exec("ALTER TABLE model_schedules RENAME TO model_schedules_old"); err != nil {
+		return fmt.Errorf("rename old table: %w", err)
+	}
+
+	// Create new table
+	if _, err := db.conn.Exec(`CREATE TABLE model_schedules (
+		id TEXT PRIMARY KEY,
+		connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+		anchor_model_id TEXT REFERENCES models(id) ON DELETE CASCADE,
+		cron TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		last_run_at TEXT,
+		next_run_at TEXT,
+		last_status TEXT,
+		last_error TEXT,
+		created_by TEXT,
+		created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+		updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(connection_id, anchor_model_id)
+	)`); err != nil {
+		return fmt.Errorf("create new table: %w", err)
+	}
+
+	// Copy data with backfill: pick the first model by name as anchor
+	if _, err := db.conn.Exec(`INSERT INTO model_schedules
+		(id, connection_id, anchor_model_id, cron, enabled, last_run_at, next_run_at,
+		 last_status, last_error, created_by, created_at, updated_at)
+		SELECT s.id, s.connection_id,
+			(SELECT m.id FROM models m WHERE m.connection_id = s.connection_id ORDER BY m.name ASC LIMIT 1),
+			s.cron, s.enabled, s.last_run_at, s.next_run_at,
+			s.last_status, s.last_error, s.created_by, s.created_at, s.updated_at
+		FROM model_schedules_old s`); err != nil {
+		return fmt.Errorf("copy data: %w", err)
+	}
+
+	// Drop old table
+	if _, err := db.conn.Exec("DROP TABLE model_schedules_old"); err != nil {
+		return fmt.Errorf("drop old table: %w", err)
+	}
+
+	// Delete orphaned schedules with no anchor
+	if _, err := db.conn.Exec("DELETE FROM model_schedules WHERE anchor_model_id IS NULL"); err != nil {
+		return fmt.Errorf("delete orphans: %w", err)
+	}
+
+	// Recreate index
+	if _, err := db.conn.Exec("CREATE INDEX IF NOT EXISTS idx_model_sched_conn ON model_schedules(connection_id)"); err != nil {
+		return fmt.Errorf("recreate index: %w", err)
+	}
+
+	slog.Info("model_schedules migration complete")
 	return nil
 }
 

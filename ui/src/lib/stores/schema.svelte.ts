@@ -31,8 +31,8 @@ export async function loadTables(dbName: string): Promise<void> {
   })
 
   try {
-    const res = await apiGet<{ tables: string[] }>(`/api/query/tables?database=${encodeURIComponent(dbName)}`)
-    const tables: Table[] = (res.tables ?? []).map(name => ({ name }))
+    const res = await apiGet<{ tables: Array<{ name: string; engine: string }> }>(`/api/query/tables?database=${encodeURIComponent(dbName)}`)
+    const tables: Table[] = (res.tables ?? []).map(t => ({ name: t.name, engine: t.engine }))
     databases = databases.map(db => {
       if (db.name !== dbName) return db
       return { ...db, tables, loading: false }

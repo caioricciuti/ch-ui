@@ -73,6 +73,69 @@ func BuildDAG(modelIDs []string, refsByID map[string][]string, nameToID map[stri
 	return g, nil
 }
 
+// ConnectedComponents returns groups of model IDs (independent pipelines).
+// Each group preserves topological order from g.Order.
+func (g *DepGraph) ConnectedComponents() [][]string {
+	all := make(map[string]bool, len(g.Order))
+	for _, id := range g.Order {
+		all[id] = true
+	}
+
+	visited := make(map[string]bool, len(g.Order))
+	var components [][]string
+
+	for _, id := range g.Order {
+		if visited[id] {
+			continue
+		}
+		// BFS on undirected edges
+		component := make(map[string]bool)
+		queue := []string{id}
+		for len(queue) > 0 {
+			cur := queue[0]
+			queue = queue[1:]
+			if visited[cur] {
+				continue
+			}
+			visited[cur] = true
+			component[cur] = true
+			for _, dep := range g.Deps[cur] {
+				if !visited[dep] && all[dep] {
+					queue = append(queue, dep)
+				}
+			}
+			for _, rev := range g.RevDeps[cur] {
+				if !visited[rev] && all[rev] {
+					queue = append(queue, rev)
+				}
+			}
+		}
+		// Filter g.Order to preserve topological order
+		var ordered []string
+		for _, oid := range g.Order {
+			if component[oid] {
+				ordered = append(ordered, oid)
+			}
+		}
+		components = append(components, ordered)
+	}
+
+	return components
+}
+
+// ComponentContaining returns the component that includes modelID,
+// preserving topological order from g.Order.
+func (g *DepGraph) ComponentContaining(modelID string) []string {
+	for _, comp := range g.ConnectedComponents() {
+		for _, id := range comp {
+			if id == modelID {
+				return comp
+			}
+		}
+	}
+	return nil
+}
+
 // GetUpstreamDeps returns the transitive upstream dependencies for a model ID.
 func GetUpstreamDeps(modelID string, deps map[string][]string) map[string]bool {
 	visited := make(map[string]bool)

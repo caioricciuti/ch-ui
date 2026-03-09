@@ -98,8 +98,8 @@ export async function fetchCompletions(): Promise<{ functions: string[]; keyword
 
 /** List tables in a database */
 export async function listTables(database: string): Promise<string[]> {
-  const res = await apiGet<{ tables: string[] }>(`/api/query/tables?database=${encodeURIComponent(database)}`)
-  return res.tables ?? []
+  const res = await apiGet<{ tables: Array<{ name: string; engine: string }> }>(`/api/query/tables?database=${encodeURIComponent(database)}`)
+  return (res.tables ?? []).map(t => t.name)
 }
 
 /** List columns for a table */

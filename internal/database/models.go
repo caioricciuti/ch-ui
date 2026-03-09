@@ -393,3 +393,175 @@ func scanModelRow(row *sql.Row) (*Model, error) {
 	m.CreatedBy = nullStringToPtr(createdBy)
 	return &m, nil
 }
+
+// ── Model Schedules ─────────────────────────────────────────────────
+
+// ModelSchedule represents a cron schedule for running a model pipeline.
+type ModelSchedule struct {
+	ID            string  `json:"id"`
+	ConnectionID  string  `json:"connection_id"`
+	AnchorModelID *string `json:"anchor_model_id"`
+	Cron          string  `json:"cron"`
+	Enabled       bool    `json:"enabled"`
+	LastRunAt     *string `json:"last_run_at"`
+	NextRunAt     *string `json:"next_run_at"`
+	LastStatus    *string `json:"last_status"`
+	LastError     *string `json:"last_error"`
+	CreatedBy     *string `json:"created_by"`
+	CreatedAt     string  `json:"created_at"`
+	UpdatedAt     string  `json:"updated_at"`
+}
+
+// GetModelSchedulesByConnection returns all schedules for a connection.
+func (db *DB) GetModelSchedulesByConnection(connectionID string) ([]ModelSchedule, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, connection_id, anchor_model_id, cron, enabled, last_run_at, next_run_at,
+		        last_status, last_error, created_by, created_at, updated_at
+		 FROM model_schedules WHERE connection_id = ?`, connectionID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get model schedules: %w", err)
+	}
+	defer rows.Close()
+
+	var schedules []ModelSchedule
+	for rows.Next() {
+		s, err := scanModelSchedule(rows)
+		if err != nil {
+			return nil, err
+		}
+		schedules = append(schedules, s)
+	}
+	return schedules, rows.Err()
+}
+
+// GetModelScheduleByAnchor returns the schedule for a specific pipeline anchor, or nil.
+func (db *DB) GetModelScheduleByAnchor(connectionID, anchorModelID string) (*ModelSchedule, error) {
+	row := db.conn.QueryRow(
+		`SELECT id, connection_id, anchor_model_id, cron, enabled, last_run_at, next_run_at,
+		        last_status, last_error, created_by, created_at, updated_at
+		 FROM model_schedules WHERE connection_id = ? AND anchor_model_id = ?`,
+		connectionID, anchorModelID,
+	)
+
+	var s ModelSchedule
+	var enabled int
+	var anchor, lastRun, nextRun, lastStatus, lastErr, createdBy sql.NullString
+	err := row.Scan(&s.ID, &s.ConnectionID, &anchor, &s.Cron, &enabled,
+		&lastRun, &nextRun, &lastStatus, &lastErr, &createdBy,
+		&s.CreatedAt, &s.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get model schedule by anchor: %w", err)
+	}
+	s.Enabled = enabled == 1
+	s.AnchorModelID = nullStringToPtr(anchor)
+	s.LastRunAt = nullStringToPtr(lastRun)
+	s.NextRunAt = nullStringToPtr(nextRun)
+	s.LastStatus = nullStringToPtr(lastStatus)
+	s.LastError = nullStringToPtr(lastErr)
+	s.CreatedBy = nullStringToPtr(createdBy)
+	return &s, nil
+}
+
+// UpsertModelSchedule creates or replaces a model schedule for a pipeline anchor.
+func (db *DB) UpsertModelSchedule(connectionID, anchorModelID, cron, nextRunAt, createdBy string) (string, error) {
+	id := uuid.NewString()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	var creator interface{}
+	if createdBy != "" {
+		creator = createdBy
+	}
+
+	_, err := db.conn.Exec(
+		`INSERT INTO model_schedules
+		 (id, connection_id, anchor_model_id, cron, enabled, next_run_at, created_by, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+		 ON CONFLICT(connection_id, anchor_model_id)
+		 DO UPDATE SET cron = excluded.cron, enabled = 1, next_run_at = excluded.next_run_at,
+		               created_by = excluded.created_by, updated_at = excluded.updated_at`,
+		id, connectionID, anchorModelID, cron, nextRunAt, creator, now, now,
+	)
+	if err != nil {
+		return "", fmt.Errorf("upsert model schedule: %w", err)
+	}
+	return id, nil
+}
+
+// UpdateModelScheduleStatusByID updates a schedule after a run attempt, by schedule ID.
+func (db *DB) UpdateModelScheduleStatusByID(scheduleID, status, lastError string, nextRunAt *string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	var errVal interface{}
+	if lastError != "" {
+		errVal = lastError
+	}
+
+	_, err := db.conn.Exec(
+		`UPDATE model_schedules SET last_run_at = ?, last_status = ?, last_error = ?,
+		        next_run_at = ?, updated_at = ?
+		 WHERE id = ?`,
+		now, status, errVal, nextRunAt, now, scheduleID,
+	)
+	if err != nil {
+		return fmt.Errorf("update model schedule status: %w", err)
+	}
+	return nil
+}
+
+// DeleteModelScheduleByAnchor removes the schedule for a specific pipeline anchor.
+func (db *DB) DeleteModelScheduleByAnchor(connectionID, anchorModelID string) error {
+	_, err := db.conn.Exec(
+		"DELETE FROM model_schedules WHERE connection_id = ? AND anchor_model_id = ?",
+		connectionID, anchorModelID,
+	)
+	if err != nil {
+		return fmt.Errorf("delete model schedule: %w", err)
+	}
+	return nil
+}
+
+// GetEnabledModelSchedules returns all enabled model schedules.
+func (db *DB) GetEnabledModelSchedules() ([]ModelSchedule, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, connection_id, anchor_model_id, cron, enabled, last_run_at, next_run_at,
+		        last_status, last_error, created_by, created_at, updated_at
+		 FROM model_schedules WHERE enabled = 1`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get enabled model schedules: %w", err)
+	}
+	defer rows.Close()
+
+	var schedules []ModelSchedule
+	for rows.Next() {
+		s, err := scanModelSchedule(rows)
+		if err != nil {
+			return nil, err
+		}
+		schedules = append(schedules, s)
+	}
+	return schedules, rows.Err()
+}
+
+func scanModelSchedule(rows *sql.Rows) (ModelSchedule, error) {
+	var s ModelSchedule
+	var enabled int
+	var anchor, lastRun, nextRun, lastStatus, lastErr, createdBy sql.NullString
+	if err := rows.Scan(&s.ID, &s.ConnectionID, &anchor, &s.Cron, &enabled,
+		&lastRun, &nextRun, &lastStatus, &lastErr, &createdBy,
+		&s.CreatedAt, &s.UpdatedAt); err != nil {
+		return s, fmt.Errorf("scan model schedule: %w", err)
+	}
+	s.Enabled = enabled == 1
+	s.AnchorModelID = nullStringToPtr(anchor)
+	s.LastRunAt = nullStringToPtr(lastRun)
+	s.NextRunAt = nullStringToPtr(nextRun)
+	s.LastStatus = nullStringToPtr(lastStatus)
+	s.LastError = nullStringToPtr(lastErr)
+	s.CreatedBy = nullStringToPtr(createdBy)
+	return s, nil
+}

@@ -81,3 +81,34 @@ export interface ValidationResult {
   valid: boolean
   errors: ValidationError[]
 }
+
+export interface ModelSchedule {
+  id: string
+  connection_id: string
+  anchor_model_id: string | null
+  cron: string
+  enabled: boolean
+  last_run_at: string | null
+  next_run_at: string | null
+  last_status: string | null
+  last_error: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface Pipeline {
+  anchor_model_id: string
+  model_ids: string[]
+  schedule: ModelSchedule | null
+}
+
+export interface ModelEditState {
+  modelName: string
+  description: string
+  targetDatabase: string
+  materialization: string
+  sqlBody: string
+  tableEngine: string
+  orderBy: string
+}

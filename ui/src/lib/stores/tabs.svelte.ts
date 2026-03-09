@@ -1,10 +1,11 @@
 import type { ColumnMeta, QueryStats } from '../types/query'
+import type { ModelEditState } from '../types/models'
 import { createUUID } from '../utils/uuid'
 import { pushTabRouteForTab } from './router.svelte'
 
 // ── Tab types ────────────────────────────────────────────────────
 
-export type TabType = 'home' | 'query' | 'table' | 'database' | 'dashboard' | 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines' | 'models'
+export type TabType = 'home' | 'query' | 'table' | 'database' | 'dashboard' | 'model' | 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines' | 'models'
 
 interface TabBase {
   id: string
@@ -36,6 +37,16 @@ export interface DashboardTab extends TabBase {
   dashboardId: string
 }
 
+export interface ModelTab extends TabBase {
+  type: 'model'
+  modelId: string
+  dirty: boolean
+  edit: ModelEditState
+  base: ModelEditState
+  status: string
+  lastError: string | null
+}
+
 export interface HomeTab extends TabBase {
   type: 'home'
 }
@@ -44,7 +55,7 @@ export interface SingletonTab extends TabBase {
   type: 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines' | 'models'
 }
 
-export type Tab = HomeTab | QueryTab | TableTab | DatabaseTab | DashboardTab | SingletonTab
+export type Tab = HomeTab | QueryTab | TableTab | DatabaseTab | DashboardTab | ModelTab | SingletonTab
 
 // ── Tab Groups (split view) ─────────────────────────────────────
 
@@ -636,7 +647,10 @@ export function markQueryTabSaved(id: string, options: { savedQueryId?: string; 
 
 export function isTabDirty(id: string): boolean {
   const tab = tabs.find((entry) => entry.id === id)
-  return !!(tab && tab.type === 'query' && tab.dirty)
+  if (!tab) return false
+  if (tab.type === 'query') return !!(tab as QueryTab).dirty
+  if (tab.type === 'model') return !!(tab as ModelTab).dirty
+  return false
 }
 
 // ── Reorder (within a group) ─────────────────────────────────────
@@ -770,6 +784,99 @@ export function unsplit(): void {
   const activeId = preferredActive === homeId ? homeId : (ordered.includes(preferredActive) ? preferredActive : homeId)
   groups = [{ id: 'left', tabIds: ordered, activeTabId: activeId }]
   focusedGroupId = 'left'
+  queueSave()
+}
+
+// ── Model tabs ──────────────────────────────────────────────────
+
+function modelEditEqual(a: ModelEditState, b: ModelEditState): boolean {
+  return a.modelName === b.modelName &&
+    a.description === b.description &&
+    a.targetDatabase === b.targetDatabase &&
+    a.materialization === b.materialization &&
+    a.sqlBody === b.sqlBody &&
+    a.tableEngine === b.tableEngine &&
+    a.orderBy === b.orderBy
+}
+
+interface ModelTabInput {
+  id: string
+  name: string
+  description: string
+  target_database: string
+  materialization: string
+  sql_body: string
+  table_engine: string
+  order_by: string
+  status: string
+  last_error: string | null
+}
+
+export function openModelTab(model: ModelTabInput, targetGroupId?: string): void {
+  const existing = tabs.find(t => t.type === 'model' && (t as ModelTab).modelId === model.id) as ModelTab | undefined
+  if (existing) {
+    setActiveTab(existing.id)
+    return
+  }
+
+  const editState: ModelEditState = {
+    modelName: model.name,
+    description: model.description,
+    targetDatabase: model.target_database,
+    materialization: model.materialization,
+    sqlBody: model.sql_body,
+    tableEngine: model.table_engine,
+    orderBy: model.order_by,
+  }
+
+  const tab: ModelTab = {
+    id: createUUID(),
+    type: 'model',
+    name: model.name,
+    modelId: model.id,
+    dirty: false,
+    edit: { ...editState },
+    base: { ...editState },
+    status: model.status,
+    lastError: model.last_error ?? null,
+  }
+
+  tabs = [...tabs, tab]
+  const gid = resolveTargetGroupId(targetGroupId)
+  groups = groups.map(g =>
+    g.id === gid ? { ...g, tabIds: [...g.tabIds, tab.id], activeTabId: tab.id } : g
+  )
+  focusedGroupId = gid
+  pushTabRouteForTab(tab)
+  queueSave()
+}
+
+export function updateModelTabEdit(tabId: string, partial: Partial<ModelEditState>): void {
+  tabs = tabs.map(tab => {
+    if (tab.id !== tabId || tab.type !== 'model') return tab
+    const modelTab = tab as ModelTab
+    const edit = { ...modelTab.edit, ...partial }
+    const dirty = !modelEditEqual(edit, modelTab.base)
+    const name = edit.modelName || modelTab.name
+    return { ...modelTab, edit, dirty, name }
+  })
+  queueSave()
+}
+
+export function markModelTabSaved(tabId: string, model: { name: string; status: string; last_error: string | null }): void {
+  tabs = tabs.map(tab => {
+    if (tab.id !== tabId || tab.type !== 'model') return tab
+    const modelTab = tab as ModelTab
+    return { ...modelTab, base: { ...modelTab.edit }, dirty: false, name: model.name, status: model.status, lastError: model.last_error }
+  })
+  queueSave()
+}
+
+export function updateModelTabStatus(tabId: string, status: string, lastError: string | null): void {
+  tabs = tabs.map(tab => {
+    if (tab.id !== tabId || tab.type !== 'model') return tab
+    return { ...tab, status, lastError }
+  })
   queueSave()
 }
 

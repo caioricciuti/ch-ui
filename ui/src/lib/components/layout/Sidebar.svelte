@@ -7,7 +7,6 @@
   import { openCommandPalette } from '../../stores/command-palette.svelte'
   import { isProActive, loadLicense } from '../../stores/license.svelte'
   import DatabaseTree from '../explorer/DatabaseTree.svelte'
-  import logo from '../../../assets/logo.png'
   import {
     Plus,
     Bookmark,
@@ -19,8 +18,6 @@
     Workflow,
     Boxes,
     Settings,
-    PanelLeftClose,
-    PanelLeftOpen,
     Database,
     Sun,
     Moon,
@@ -28,6 +25,8 @@
     Search,
     ChevronDown,
     ExternalLink,
+    ChevronLeft,
+    ChevronRight,
   } from 'lucide-svelte'
 
   const session = $derived(getSession())
@@ -65,7 +64,6 @@
   const COLLAPSED_WIDTH = 40
   const DEFAULT_WIDTH = 244
 
-  // Restore from localStorage
   const savedCollapsed = localStorage.getItem('ch-ui-sidebar-collapsed') === 'true'
   const savedWidth = parseInt(localStorage.getItem('ch-ui-sidebar-width') ?? String(DEFAULT_WIDTH), 10)
   const savedMenuCollapsed = localStorage.getItem('ch-ui-sidebar-menu-collapsed') === 'true'
@@ -79,9 +77,20 @@
 
   onMount(() => {
     loadLicense()
+
+    function handleKeydown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+        e.preventDefault()
+        toggleCollapse()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeydown)
+
     return () => {
       document.removeEventListener('mousemove', onDragMove)
       document.removeEventListener('mouseup', onDragEnd)
+      document.removeEventListener('keydown', handleKeydown)
     }
   })
 
@@ -102,6 +111,7 @@
   function isNavItemActive(type: SingletonTab['type']): boolean {
     if (!activeTab) return false
     if (type === 'dashboards') return activeTab.type === 'dashboards' || activeTab.type === 'dashboard'
+    if (type === 'models') return activeTab.type === 'models'
     return activeTab.type === type
   }
 
@@ -138,25 +148,9 @@
     class="flex flex-col border-r border-gray-200/80 dark:border-gray-800/80 bg-white dark:bg-gray-950 overflow-hidden transition-[width] {dragging ? 'duration-0' : 'duration-200'}"
     style="width: {collapsed ? COLLAPSED_WIDTH : sidebarWidth}px"
   >
-    <!-- Collapse toggle + New query -->
-    <div class="flex items-center {collapsed ? 'justify-center' : 'justify-between'} px-2 py-2 border-b border-gray-200 dark:border-gray-800 shrink-0">
-
-      <button
-        class="p-1 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800/60 transition-colors"
-        onclick={toggleCollapse}
-        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      >
-        {#if collapsed}
-          <PanelLeftOpen size={16} />
-        {:else}
-          <PanelLeftClose size={16} />
-        {/if}
-      </button>
-    </div>
-
     {#if collapsed}
       <!-- Collapsed: icon-only buttons -->
-      <div class="flex flex-col items-center py-2 gap-1">
+      <div class="flex flex-col items-center py-2 gap-1 mt-2">
         <button
           class="p-2 rounded text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/40 dark:hover:bg-gray-800/40"
           onclick={() => openQueryTab()}
@@ -220,6 +214,14 @@
             <LogOut size={17} />
           </button>
         {/if}
+        <!-- Expand button at bottom (collapsed state) -->
+        <button
+          class="p-2 rounded text-gray-500 dark:text-gray-400 hover:text-ch-blue dark:hover:text-ch-blue hover:bg-gray-200/40 dark:hover:bg-gray-800/40 transition-colors"
+          onclick={toggleCollapse}
+          title="Expand sidebar (⌘B)"
+        >
+          <ChevronRight size={17} />
+        </button>
       </div>
     {:else}
       <!-- Expanded: full sidebar -->
@@ -319,6 +321,14 @@
                       <LogOut size={14} />
                     </button>
                   {/if}
+                  <!-- Collapse button at bottom (expanded state) -->
+                  <button
+                    class="p-1 rounded text-gray-500 dark:text-gray-400 hover:text-ch-blue dark:hover:text-ch-blue hover:bg-gray-200/40 dark:hover:bg-gray-800/40 transition-colors"
+                    onclick={toggleCollapse}
+                    title="Collapse sidebar (⌘B)"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
                 </div>
               </div>
             </div>
@@ -328,7 +338,7 @@
     {/if}
   </nav>
 
-  <!-- Drag handle (horizontal width) -->
+  <!-- Drag handle (horizontal width resize) -->
   {#if !collapsed}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div

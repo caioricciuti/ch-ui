@@ -6,6 +6,18 @@ import (
 	"strings"
 )
 
+// stripSQLComments removes single-line (-- ...) and block (/* ... */) comments
+// so that $ref() inside comments is not treated as a real reference.
+func stripSQLComments(sql string) string {
+	// Remove block comments first (non-greedy, handles multiline)
+	blockRe := regexp.MustCompile(`(?s)/\*.*?\*/`)
+	sql = blockRe.ReplaceAllString(sql, "")
+	// Remove single-line comments
+	lineRe := regexp.MustCompile(`--[^\n]*`)
+	sql = lineRe.ReplaceAllString(sql, "")
+	return sql
+}
+
 // refPattern matches $ref(model_name) in SQL.
 // Model names follow ClickHouse identifier rules: [a-zA-Z_][a-zA-Z0-9_]*
 var refPattern = regexp.MustCompile(`\$ref\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)`)
@@ -25,8 +37,9 @@ func ValidateModelName(name string) error {
 }
 
 // ExtractRefs returns all model names referenced via $ref() in the SQL body.
+// $ref() occurrences inside SQL comments are ignored.
 func ExtractRefs(sqlBody string) []string {
-	matches := refPattern.FindAllStringSubmatch(sqlBody, -1)
+	matches := refPattern.FindAllStringSubmatch(stripSQLComments(sqlBody), -1)
 	seen := make(map[string]bool)
 	var refs []string
 	for _, m := range matches {
@@ -41,7 +54,9 @@ func ExtractRefs(sqlBody string) []string {
 
 // ResolveRefs replaces all $ref(model_name) with `target_database`.`model_name`.
 // modelTargets maps model_name -> target_database.
+// $ref() occurrences inside SQL comments are ignored (comments are stripped first).
 func ResolveRefs(sqlBody string, modelTargets map[string]string) (string, error) {
+	sqlBody = stripSQLComments(sqlBody)
 	var resolveErr error
 	resolved := refPattern.ReplaceAllStringFunc(sqlBody, func(match string) string {
 		sub := refPattern.FindStringSubmatch(match)

@@ -870,7 +870,7 @@ func (h *QueryHandler) ListTables(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := fmt.Sprintf("SHOW TABLES FROM %s", escapeIdentifier(db))
+	query := fmt.Sprintf("SELECT name, engine FROM system.tables WHERE database = '%s' ORDER BY name", escapeLiteral(db))
 
 	result, err := h.Gateway.ExecuteQuery(
 		session.ConnectionID,
@@ -884,12 +884,29 @@ func (h *QueryHandler) ListTables(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	names := extractNames(result.Data)
+	type tableInfo struct {
+		Name   string `json:"name"`
+		Engine string `json:"engine"`
+	}
+
+	var rows []map[string]interface{}
+	tables := []tableInfo{}
+	if len(result.Data) > 0 {
+		if err := json.Unmarshal(result.Data, &rows); err == nil {
+			for _, row := range rows {
+				name, _ := row["name"].(string)
+				engine, _ := row["engine"].(string)
+				if name != "" {
+					tables = append(tables, tableInfo{Name: name, Engine: engine})
+				}
+			}
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"tables":  names,
+		"tables":  tables,
 	})
 }
 

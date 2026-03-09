@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { getGroupActiveTab } from '../../stores/tabs.svelte'
-  import type { QueryTab, TableTab, DatabaseTab, DashboardTab } from '../../stores/tabs.svelte'
+  import type { QueryTab, TableTab, DatabaseTab, DashboardTab, ModelTab } from '../../stores/tabs.svelte'
   import { loadLicense, isProActive, isLicenseLoading } from '../../stores/license.svelte'
   import QueryContent from './content/QueryContent.svelte'
   import TableContent from './content/TableContent.svelte'
@@ -16,6 +16,7 @@
   import Governance from '../../../pages/Governance.svelte'
   import Pipelines from '../../../pages/Pipelines.svelte'
   import Models from '../../../pages/Models.svelte'
+  import ModelContent from './content/ModelContent.svelte'
   import Home from '../../../pages/Home.svelte'
 
   interface Props {
@@ -102,6 +103,10 @@
     <Governance />
   {:else if activeTab.type === 'pipelines'}
     <Pipelines />
+  {:else if activeTab.type === 'model'}
+    {#key activeTab.id}
+      <ModelContent tab={activeTab as ModelTab} />
+    {/key}
   {:else if activeTab.type === 'models'}
     <Models />
   {:else if activeTab.type === 'home'}

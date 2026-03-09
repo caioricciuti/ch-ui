@@ -14,7 +14,7 @@
     getTabs,
     getFocusedGroupId,
   } from '../../stores/tabs.svelte'
-  import type { QueryTab, Tab } from '../../stores/tabs.svelte'
+  import type { QueryTab, ModelTab, Tab } from '../../stores/tabs.svelte'
   import {
     Plus,
     X,
@@ -34,6 +34,7 @@
     PanelRight,
     House,
     Workflow,
+    Boxes,
   } from 'lucide-svelte'
   import ContextMenu, { type ContextMenuItem } from '../common/ContextMenu.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
@@ -74,6 +75,7 @@
     'admin': Shield,
     'governance': Shield,
     'pipelines': Workflow,
+    'model': Boxes,
     'settings': Settings,
   }
 
@@ -175,7 +177,12 @@
 
     const dirtyTabs = uniqueIds
       .map((id) => getTabs().find((tab) => tab.id === id))
-      .filter((tab): tab is QueryTab => !!tab && tab.type === 'query' && tab.dirty)
+      .filter((tab): tab is QueryTab | ModelTab => {
+        if (!tab) return false
+        if (tab.type === 'query') return !!(tab as QueryTab).dirty
+        if (tab.type === 'model') return !!(tab as ModelTab).dirty
+        return false
+      })
 
     if (dirtyTabs.length === 0) {
       uniqueIds.forEach((id) => closeTab(id))
@@ -472,7 +479,7 @@
         {/if}
       {/if}
 
-      {#if tab.type === 'query' && tab.dirty}
+      {#if (tab.type === 'query' && tab.dirty) || (tab.type === 'model' && (tab as ModelTab).dirty)}
         <span class="w-1.5 h-1.5 rounded-full bg-ch-orange shrink-0"></span>
       {/if}
 

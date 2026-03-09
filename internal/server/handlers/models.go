@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/models"
+	"github.com/caioricciuti/ch-ui/internal/scheduler"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
@@ -34,6 +36,12 @@ func (h *ModelsHandler) Routes() chi.Router {
 	r.Post("/run", h.RunAll)
 	r.Get("/runs", h.ListRuns)
 	r.Get("/runs/{runId}", h.GetRun)
+	r.Get("/pipelines", h.ListPipelines)
+	r.Post("/pipelines/{anchorId}/run", h.RunPipeline)
+	r.Get("/schedules", h.ListSchedules)
+	r.Get("/schedule/{anchorId}", h.GetSchedule)
+	r.Put("/schedule/{anchorId}", h.UpsertSchedule)
+	r.Delete("/schedule/{anchorId}", h.DeleteSchedule)
 
 	r.Route("/{id}", func(r chi.Router) {
 		r.Get("/", h.GetModel)
@@ -431,4 +439,207 @@ func (h *ModelsHandler) GetRun(w http.ResponseWriter, r *http.Request) {
 		"run":     run,
 		"results": results,
 	})
+}
+
+// ── Pipeline endpoints ──────────────────────────────────────────────
+
+// ListPipelines returns connected components with their schedules.
+func (h *ModelsHandler) ListPipelines(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
+		return
+	}
+
+	allModels, err := h.DB.GetModelsByConnection(session.ConnectionID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load models"})
+		return
+	}
+
+	if len(allModels) == 0 {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"pipelines": []interface{}{}})
+		return
+	}
+
+	nameToID := make(map[string]string)
+	var modelIDs []string
+	refsByID := make(map[string][]string)
+
+	for _, m := range allModels {
+		nameToID[m.Name] = m.ID
+		modelIDs = append(modelIDs, m.ID)
+		refsByID[m.ID] = models.ExtractRefs(m.SQLBody)
+	}
+
+	dag, dagErr := models.BuildDAG(modelIDs, refsByID, nameToID)
+	if dagErr != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("DAG error: %v", dagErr)})
+		return
+	}
+
+	components := dag.ConnectedComponents()
+
+	// Load all schedules for this connection
+	schedules, err := h.DB.GetModelSchedulesByConnection(session.ConnectionID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load schedules"})
+		return
+	}
+	schedByAnchor := make(map[string]database.ModelSchedule)
+	for _, s := range schedules {
+		if s.AnchorModelID != nil {
+			schedByAnchor[*s.AnchorModelID] = s
+		}
+	}
+
+	type pipelineResp struct {
+		AnchorModelID string                  `json:"anchor_model_id"`
+		ModelIDs      []string                `json:"model_ids"`
+		Schedule      *database.ModelSchedule `json:"schedule"`
+	}
+
+	var pipelines []pipelineResp
+	for _, comp := range components {
+		if len(comp) == 0 {
+			continue
+		}
+		anchor := comp[0] // first in topo order
+		p := pipelineResp{
+			AnchorModelID: anchor,
+			ModelIDs:      comp,
+		}
+		if s, ok := schedByAnchor[anchor]; ok {
+			p.Schedule = &s
+		} else {
+			// Check if any model in this component has a schedule
+			for _, id := range comp {
+				if s, ok := schedByAnchor[id]; ok {
+					p.Schedule = &s
+					break
+				}
+			}
+		}
+		pipelines = append(pipelines, p)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"pipelines": pipelines})
+}
+
+// RunPipeline triggers execution of a single pipeline (connected component).
+func (h *ModelsHandler) RunPipeline(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
+		return
+	}
+
+	anchorID := chi.URLParam(r, "anchorId")
+	runID, err := h.Runner.RunPipeline(session.ConnectionID, anchorID, session.ClickhouseUser)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"run_id": runID})
+}
+
+// ── Schedule endpoints ──────────────────────────────────────────────
+
+// ListSchedules returns all schedules for the current connection.
+func (h *ModelsHandler) ListSchedules(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
+		return
+	}
+
+	schedules, err := h.DB.GetModelSchedulesByConnection(session.ConnectionID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to list schedules"})
+		return
+	}
+	if schedules == nil {
+		schedules = []database.ModelSchedule{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"schedules": schedules})
+}
+
+// GetSchedule returns the schedule for a specific pipeline anchor.
+func (h *ModelsHandler) GetSchedule(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
+		return
+	}
+
+	anchorID := chi.URLParam(r, "anchorId")
+	sched, err := h.DB.GetModelScheduleByAnchor(session.ConnectionID, anchorID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get schedule"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"schedule": sched})
+}
+
+// UpsertSchedule creates or updates the schedule for a specific pipeline anchor.
+func (h *ModelsHandler) UpsertSchedule(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
+		return
+	}
+
+	anchorID := chi.URLParam(r, "anchorId")
+
+	var body struct {
+		Cron    string `json:"cron"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		return
+	}
+
+	if body.Cron == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cron expression is required"})
+		return
+	}
+	if !scheduler.ValidateCron(body.Cron) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid cron expression"})
+		return
+	}
+
+	var nextRunAt string
+	if next := scheduler.ComputeNextRun(body.Cron, time.Now().UTC()); next != nil {
+		nextRunAt = next.Format(time.RFC3339)
+	}
+
+	_, err := h.DB.UpsertModelSchedule(session.ConnectionID, anchorID, body.Cron, nextRunAt, session.ClickhouseUser)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to save schedule: %v", err)})
+		return
+	}
+
+	sched, _ := h.DB.GetModelScheduleByAnchor(session.ConnectionID, anchorID)
+	writeJSON(w, http.StatusOK, map[string]interface{}{"schedule": sched})
+}
+
+// DeleteSchedule removes the schedule for a specific pipeline anchor.
+func (h *ModelsHandler) DeleteSchedule(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
+		return
+	}
+
+	anchorID := chi.URLParam(r, "anchorId")
+	if err := h.DB.DeleteModelScheduleByAnchor(session.ConnectionID, anchorID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete schedule"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

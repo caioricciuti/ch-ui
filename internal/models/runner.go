@@ -62,6 +62,44 @@ func (r *Runner) RunAll(connectionID, triggeredBy string) (string, error) {
 	return r.execute(connectionID, triggeredBy, dag, idToModel, modelTargets, user, password)
 }
 
+// RunPipeline executes only the connected component containing anchorModelID.
+func (r *Runner) RunPipeline(connectionID, anchorModelID, triggeredBy string) (string, error) {
+	if err := r.acquireLock(connectionID); err != nil {
+		return "", err
+	}
+	defer r.releaseLock(connectionID)
+
+	if !r.gateway.IsTunnelOnline(connectionID) {
+		return "", fmt.Errorf("tunnel not connected")
+	}
+
+	user, password, err := r.findCredentials(connectionID)
+	if err != nil {
+		return "", fmt.Errorf("no credentials: %w", err)
+	}
+
+	allModels, err := r.db.GetModelsByConnection(connectionID)
+	if err != nil {
+		return "", fmt.Errorf("load models: %w", err)
+	}
+	if len(allModels) == 0 {
+		return "", fmt.Errorf("no models defined")
+	}
+
+	dag, idToModel, modelTargets, err := r.buildDAG(allModels)
+	if err != nil {
+		return "", err
+	}
+
+	component := dag.ComponentContaining(anchorModelID)
+	if len(component) == 0 {
+		return "", fmt.Errorf("anchor model not found in DAG")
+	}
+
+	dag.Order = component
+	return r.execute(connectionID, triggeredBy, dag, idToModel, modelTargets, user, password)
+}
+
 // RunSingle executes a single model and its upstream dependencies.
 func (r *Runner) RunSingle(connectionID, modelID, triggeredBy string) (string, error) {
 	if err := r.acquireLock(connectionID); err != nil {

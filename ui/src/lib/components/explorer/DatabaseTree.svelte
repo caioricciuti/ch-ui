@@ -41,7 +41,10 @@
     Plus,
     Upload,
     AlertTriangle,
+    Eye,
+    Layers,
   } from "lucide-svelte";
+  import type { Table } from "../../types/schema";
   import ContextMenu, {
     type ContextMenuItem,
   } from "../common/ContextMenu.svelte";
@@ -357,6 +360,21 @@
     return SYSTEM_DBS.includes(name);
   }
 
+  function getTableType(engine?: string): "view" | "materialized-view" | "table" {
+    if (!engine) return "table";
+    const e = engine.toLowerCase();
+    if (e === "materializedview" || e === "materialized view") return "materialized-view";
+    if (e === "view") return "view";
+    return "table";
+  }
+
+  function getTableTypeLabel(engine?: string): string {
+    const t = getTableType(engine);
+    if (t === "view") return "VIEW";
+    if (t === "materialized-view") return "MAT. VIEW";
+    return "";
+  }
+
   function closeMenu() {
     menu = null;
   }
@@ -584,11 +602,11 @@
     }
     uploadTablesLoading = true;
     try {
-      const response = await apiGet<{ tables: string[] }>(
+      const response = await apiGet<{ tables: Array<{ name: string; engine: string }> }>(
         `/api/query/tables?database=${encodeURIComponent(dbName)}`,
       );
       uploadTables = (response.tables ?? [])
-        .slice()
+        .map(t => t.name)
         .sort((a, b) => a.localeCompare(b));
     } catch {
       uploadTables = [];
@@ -1310,8 +1328,19 @@
                     class="flex items-center gap-1.5 flex-1 min-w-0 text-left"
                     onclick={() => selectTable(db.name, table.name)}
                   >
-                    <Table2 size={14} class="text-gray-500 shrink-0" />
+                    {#if getTableType(table.engine) === "view"}
+                      <Eye size={14} class="text-blue-400 shrink-0" />
+                    {:else if getTableType(table.engine) === "materialized-view"}
+                      <Layers size={14} class="text-purple-400 shrink-0" />
+                    {:else}
+                      <Table2 size={14} class="text-gray-500 shrink-0" />
+                    {/if}
                     <span class="truncate">{table.name}</span>
+                    {#if getTableTypeLabel(table.engine)}
+                      <span class="ml-1 text-[9px] font-medium px-1 py-0.5 rounded bg-gray-200/60 dark:bg-gray-700/60 text-gray-500 dark:text-gray-400 shrink-0"
+                        >{getTableTypeLabel(table.engine)}</span
+                      >
+                    {/if}
                     {#if table.loading}
                       <Spinner size="sm" class="ml-auto" />
                     {/if}

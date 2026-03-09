@@ -9,6 +9,7 @@ export interface Database {
 /** Table in the schema tree */
 export interface Table {
   name: string
+  engine?: string
   columns?: Column[]
   expanded?: boolean
   loading?: boolean

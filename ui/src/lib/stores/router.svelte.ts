@@ -13,6 +13,7 @@ const TAB_PATHS: Record<string, string> = {
   'governance': '/governance',
   'pipelines': '/pipelines',
   'models': '/models',
+  'model': '/models',
   'settings': '/license',
 }
 

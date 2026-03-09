@@ -32,6 +32,7 @@ type Server struct {
 	scheduler      *scheduler.Runner
 	pipelineRunner *pipelines.Runner
 	modelRunner    *models.Runner
+	modelScheduler *models.Scheduler
 	govSyncer      *governance.Syncer
 	guardrails     *governance.GuardrailService
 	alerts         *alerts.Dispatcher
@@ -49,6 +50,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS) *Server {
 	sched := scheduler.NewRunner(db, gw, cfg.AppSecretKey)
 	pipeRunner := pipelines.NewRunner(db, gw, cfg)
 	modelRunner := models.NewRunner(db, gw, cfg.AppSecretKey)
+	modelScheduler := models.NewScheduler(db, modelRunner)
 
 	govStore := governance.NewStore(db)
 	govSyncer := governance.NewSyncer(govStore, db, gw, cfg.AppSecretKey)
@@ -69,6 +71,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS) *Server {
 		scheduler:      sched,
 		pipelineRunner: pipeRunner,
 		modelRunner:    modelRunner,
+		modelScheduler: modelScheduler,
 		govSyncer:      govSyncer,
 		guardrails:     governance.NewGuardrailService(govStore, db),
 		alerts:         alertDispatcher,
@@ -243,6 +246,7 @@ func (s *Server) setupRoutes() {
 func (s *Server) Start() error {
 	s.scheduler.Start()
 	s.pipelineRunner.Start()
+	s.modelScheduler.Start()
 	s.govSyncer.StartBackground()
 	s.alerts.Start()
 	s.langfuse.Start()
@@ -256,6 +260,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	slog.Info("Graceful shutdown initiated")
 	s.scheduler.Stop()
 	s.pipelineRunner.Stop()
+	s.modelScheduler.Stop()
 	s.govSyncer.Stop()
 	s.alerts.Stop()
 	s.langfuse.Stop()
