@@ -59,9 +59,10 @@ type GatewayMessage struct {
 	QueryID        string `json:"query_id,omitempty"`       // Go agent
 	SQL            string `json:"sql,omitempty"`            // query (legacy)
 	Query          string `json:"query,omitempty"`          // query (Go agent)
-	User           string `json:"user,omitempty"`           // query, test
-	Password       string `json:"password,omitempty"`       // query, test
-	Format         string `json:"format,omitempty"`         // query
+	User           string            `json:"user,omitempty"`           // query, test
+	Password       string            `json:"password,omitempty"`       // query, test
+	Format         string            `json:"format,omitempty"`         // query
+	Settings       map[string]string `json:"settings,omitempty"`       // ClickHouse query settings (URL params)
 }
 
 // QueryResult represents a ClickHouse query result returned from the agent.

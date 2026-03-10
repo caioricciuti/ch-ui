@@ -402,7 +402,7 @@ func (c *Connector) executeStreamQuery(msg GatewayMessage) {
 		})
 	}
 
-	_, totalRows, err := c.chClient.ExecuteStreaming(c.ctx, sql, msg.User, msg.Password, 5000, onMeta, onChunk)
+	_, totalRows, err := c.chClient.ExecuteStreaming(c.ctx, sql, msg.User, msg.Password, 5000, msg.Settings, onMeta, onChunk)
 	elapsed := time.Since(start)
 
 	if err != nil {

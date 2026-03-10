@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,8 +59,9 @@ func (h *QueryHandler) Routes(r chi.Router) {
 // --- Request / Response types ---
 
 type executeQueryRequest struct {
-	Query   string `json:"query"`
-	Timeout int    `json:"timeout"` // seconds
+	Query         string `json:"query"`
+	Timeout       int    `json:"timeout"`       // seconds
+	MaxResultRows int    `json:"maxResultRows"` // server-side row cap via ClickHouse max_result_rows
 }
 
 type executeQueryResponse struct {
@@ -615,11 +617,23 @@ func (h *QueryHandler) StreamQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	maxRows := req.MaxResultRows
+	if maxRows <= 0 {
+		maxRows = 1000
+	}
+	if maxRows > 1_000_000 {
+		maxRows = 1_000_000
+	}
+
 	requestID, stream, err := h.Gateway.ExecuteStreamQuery(
 		session.ConnectionID,
 		query,
 		session.ClickhouseUser,
 		password,
+		map[string]string{
+			"max_result_rows":      strconv.Itoa(maxRows),
+			"result_overflow_mode": "break",
+		},
 	)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())

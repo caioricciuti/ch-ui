@@ -4,6 +4,7 @@ import { safeParse } from '../utils/safe-json'
 /** Execute a streaming query via NDJSON. Calls the provided callbacks as data arrives. */
 export async function executeStreamQuery(
   sql: string,
+  maxResultRows: number,
   onMeta: (meta: ColumnMeta[]) => void,
   onChunk: (rows: unknown[][], seq: number) => void,
   onDone: (stats: QueryStats | undefined, totalRows: number) => void,
@@ -13,7 +14,7 @@ export async function executeStreamQuery(
   const res = await fetch('/api/query/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: sql }),
+    body: JSON.stringify({ query: sql, maxResultRows }),
     credentials: 'include',
     signal,
   })

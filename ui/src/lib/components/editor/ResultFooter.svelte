@@ -14,8 +14,9 @@
     downloadFile,
   } from '../../utils/export'
   import { success, error } from '../../stores/toast.svelte'
-  import { Table2, BarChart3, Columns3, Sparkles, Copy, Download, ChevronUp, FileJson, FileText, Database, Hash } from 'lucide-svelte'
+  import { Table2, BarChart3, Columns3, Sparkles, Copy, Download, ChevronUp, FileJson, FileText, Database, Hash, AlertTriangle } from 'lucide-svelte'
   import { getFormatNumbers, toggleFormatNumbers } from '../../stores/number-format.svelte'
+  import { getMaxResultRows, setMaxResultRows } from '../../stores/query-limit.svelte'
 
   type Tab = 'data' | 'stats' | 'schema' | 'insights'
   type ExportFormat = 'csv' | 'tsv' | 'json' | 'jsoncompact' | 'jsonl' | 'markdown' | 'sql' | 'xml'
@@ -166,6 +167,25 @@
     <Hash size={12} />
     <span class="hidden sm:inline">{getFormatNumbers() ? 'Format Numbers' : 'Raw Numbers'}</span>
   </button>
+
+  <!-- Row limit input -->
+  <div class="w-px h-4 bg-gray-300 dark:bg-gray-700 mx-1"></div>
+  <div class="flex items-center gap-1">
+    {#if getMaxResultRows() > 10000}
+      <AlertTriangle size={12} class="text-amber-500" />
+    {/if}
+    <span class="text-xs text-gray-500">Max rows</span>
+    <input
+      type="number"
+      min="1"
+      class="w-16 px-1.5 py-0.5 text-xs rounded border focus:outline-none focus:ring-1
+        {getMaxResultRows() > 10000
+          ? 'border-amber-400 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 focus:ring-amber-400'
+          : 'border-gray-300 dark:border-gray-700 bg-transparent text-gray-600 dark:text-gray-300 focus:ring-ch-blue focus:border-ch-blue'}"
+      value={getMaxResultRows()}
+      onchange={(e) => setMaxResultRows(parseInt(e.currentTarget.value) || 1000)}
+    />
+  </div>
 
   <!-- Export buttons -->
   <div class="flex items-center gap-1">

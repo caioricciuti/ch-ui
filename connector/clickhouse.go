@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -258,6 +259,7 @@ func (c *CHClient) ExecuteStreaming(
 	ctx context.Context,
 	query, user, password string,
 	chunkSize int,
+	settings map[string]string,
 	onMeta func(meta json.RawMessage) error,
 	onChunk func(seq int, data json.RawMessage) error,
 ) (*json.RawMessage, int64, error) {
@@ -275,7 +277,8 @@ func (c *CHClient) ExecuteStreaming(
 		if limitRe := regexp.MustCompile(`(?i)\bLIMIT\s+\d+(\s*,\s*\d+)?(\s+OFFSET\s+\d+)?`); limitRe.MatchString(trimmed) {
 			metaQuery = limitRe.ReplaceAllString(trimmed, "LIMIT 0")
 		} else {
-			metaQuery = trimmed + " LIMIT 0"
+			// Use a newline so that trailing -- line comments don't swallow the injected clause
+			metaQuery = trimmed + "\nLIMIT 0"
 		}
 		metaResult, err := c.ExecuteRaw(ctx, metaQuery, user, password, "JSONCompact")
 		if err != nil {
@@ -299,13 +302,28 @@ func (c *CHClient) ExecuteStreaming(
 	// Now execute the actual query with JSONCompactEachRow for streaming
 	finalQuery := query
 	if !isWrite && !hasFormat {
-		finalQuery = strings.TrimRight(query, "; \n\t") + " FORMAT JSONCompactEachRow"
+		// Use a newline so trailing -- line comments don't swallow the FORMAT clause
+		finalQuery = strings.TrimRight(query, "; \n\t") + "\nFORMAT JSONCompactEachRow"
+	}
+
+	// Extract max_result_rows for precise client-side enforcement in the scanner loop.
+	var maxRows int64
+	if v, ok := settings["max_result_rows"]; ok {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			maxRows = n
+		}
 	}
 
 	params := url.Values{}
 	params.Set("default_format", "JSON")
-	// Request stats in HTTP header so we get them without parsing JSON
 	params.Set("send_progress_in_http_headers", "0")
+	// Pass settings as ClickHouse HTTP URL params for coarse server-side abort.
+	// max_result_rows + result_overflow_mode=break causes ClickHouse to stop at block
+	// granularity (~65k rows), preventing the server from doing unbounded work.
+	// The scanner loop below enforces the exact row count on top of this.
+	for k, v := range settings {
+		params.Set(k, v)
+	}
 	fullURL := c.baseURL + "/?" + params.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, strings.NewReader(finalQuery))
@@ -356,6 +374,11 @@ func (c *CHClient) ExecuteStreaming(
 		copy(row, line)
 		batch = append(batch, row)
 		totalRows++
+
+		// Enforce max_result_rows limit: break early (closes body, aborts ClickHouse query)
+		if maxRows > 0 && totalRows >= maxRows {
+			break
+		}
 
 		if len(batch) >= chunkSize {
 			chunkData, _ := json.Marshal(batch)
