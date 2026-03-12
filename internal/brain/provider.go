@@ -28,8 +28,9 @@ type ProviderConfig struct {
 
 // ChatResult holds optional metadata returned after streaming completes.
 type ChatResult struct {
-	InputTokens  int
-	OutputTokens int
+	InputTokens     int
+	OutputTokens    int
+	ModelParameters map[string]interface{}
 }
 
 // Provider handles streaming chat and model discovery.
@@ -56,11 +57,11 @@ type openAIProvider struct {
 }
 
 type openAIRequest struct {
-	Model         string                `json:"model"`
-	Messages      []Message             `json:"messages"`
-	Stream        bool                  `json:"stream"`
-	Temperature   float64               `json:"temperature"`
-	StreamOptions *openAIStreamOptions  `json:"stream_options,omitempty"`
+	Model         string               `json:"model"`
+	Messages      []Message            `json:"messages"`
+	Stream        bool                 `json:"stream"`
+	Temperature   *float64             `json:"temperature,omitempty"`
+	StreamOptions *openAIStreamOptions `json:"stream_options,omitempty"`
 }
 
 type openAIStreamOptions struct {
@@ -78,6 +79,8 @@ type openAIChunk struct {
 		CompletionTokens int `json:"completion_tokens"`
 	} `json:"usage"`
 }
+
+const openAIDefaultTemperature = 0.1
 
 func ensureOpenAIV1Base(rawBase string) string {
 	trimmed := strings.TrimRight(strings.TrimSpace(rawBase), "/")
@@ -131,22 +134,98 @@ func (p *openAIProvider) baseURL(cfg ProviderConfig) string {
 	return base
 }
 
+// DefaultModelParameters returns the default provider request parameters for one model.
+func DefaultModelParameters(kind, model string) map[string]interface{} {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "openai", "openai_compatible":
+		return openAIModelParameters(openAIRequestTemperature(model))
+	default:
+		return nil
+	}
+}
+
+func openAIRequestTemperature(model string) *float64 {
+	if openAIModelRequiresDefaultTemperature(model) {
+		return nil
+	}
+	temperature := openAIDefaultTemperature
+	return &temperature
+}
+
+func openAIModelRequiresDefaultTemperature(model string) bool {
+	name := strings.ToLower(strings.TrimSpace(model))
+	if slash := strings.LastIndex(name, "/"); slash >= 0 {
+		name = name[slash+1:]
+	}
+	return strings.HasPrefix(name, "o1") || strings.HasPrefix(name, "o3") || strings.HasPrefix(name, "o4")
+}
+
+func openAIModelParameters(temperature *float64) map[string]interface{} {
+	params := map[string]interface{}{}
+	if temperature != nil {
+		params["temperature"] = *temperature
+	}
+	return params
+}
+
+func isUnsupportedOpenAITemperature(status int, body []byte) bool {
+	if status != http.StatusBadRequest {
+		return false
+	}
+	msg := strings.ToLower(string(body))
+	return strings.Contains(msg, "temperature") &&
+		(strings.Contains(msg, "unsupported value") ||
+			strings.Contains(msg, "does not support") ||
+			strings.Contains(msg, "only the default"))
+}
+
 func (p *openAIProvider) StreamChat(ctx context.Context, cfg ProviderConfig, model string, messages []Message, onDelta func(string) error) (*ChatResult, error) {
 	if strings.TrimSpace(cfg.APIKey) == "" {
 		return nil, errors.New("provider API key is not configured")
 	}
 
+	temperatures := []*float64{openAIRequestTemperature(model)}
+	if temperatures[0] != nil {
+		temperatures = append(temperatures, nil)
+	}
+
+	var lastStatus int
+	var lastErrBody []byte
+	for attemptIdx, temperature := range temperatures {
+		result, status, errBody, err := p.streamChatAttempt(ctx, cfg, model, messages, temperature, onDelta)
+		if err != nil {
+			return nil, err
+		}
+		if status == 0 {
+			return result, nil
+		}
+		lastStatus = status
+		lastErrBody = errBody
+		if attemptIdx < len(temperatures)-1 && isUnsupportedOpenAITemperature(status, errBody) {
+			continue
+		}
+		return nil, fmt.Errorf("provider error (%d): %s", status, string(errBody))
+	}
+
+	if lastStatus != 0 {
+		return nil, fmt.Errorf("provider error (%d): %s", lastStatus, string(lastErrBody))
+	}
+	return nil, errors.New("provider request failed")
+}
+
+func (p *openAIProvider) streamChatAttempt(ctx context.Context, cfg ProviderConfig, model string, messages []Message, temperature *float64, onDelta func(string) error) (*ChatResult, int, []byte, error) {
 	payload := openAIRequest{
 		Model:         model,
 		Messages:      messages,
 		Stream:        true,
-		Temperature:   0.1,
+		Temperature:   temperature,
 		StreamOptions: &openAIStreamOptions{IncludeUsage: true},
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("marshal provider request: %w", err)
+		return nil, 0, nil, fmt.Errorf("marshal provider request: %w", err)
 	}
+
 	primaryBase := p.baseURL(cfg)
 	bases := []string{primaryBase}
 	v1Fallback := ensureOpenAIV1Base(primaryBase)
@@ -161,14 +240,14 @@ func (p *openAIProvider) StreamChat(ctx context.Context, cfg ProviderConfig, mod
 		endpoint := base + "/chat/completions"
 		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 		if reqErr != nil {
-			return nil, fmt.Errorf("create provider request: %w", reqErr)
+			return nil, 0, nil, fmt.Errorf("create provider request: %w", reqErr)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 
 		resp, doErr := p.client.Do(req)
 		if doErr != nil {
-			return nil, fmt.Errorf("provider request failed: %w", doErr)
+			return nil, 0, nil, fmt.Errorf("provider request failed: %w", doErr)
 		}
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -179,10 +258,10 @@ func (p *openAIProvider) StreamChat(ctx context.Context, cfg ProviderConfig, mod
 			if idx < len(bases)-1 && shouldRetryOpenAIV1(resp.StatusCode, errBody) {
 				continue
 			}
-			return nil, fmt.Errorf("provider error (%d): %s", resp.StatusCode, string(errBody))
+			return nil, resp.StatusCode, errBody, nil
 		}
 
-		var result ChatResult
+		result := ChatResult{ModelParameters: openAIModelParameters(temperature)}
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -192,7 +271,7 @@ func (p *openAIProvider) StreamChat(ctx context.Context, cfg ProviderConfig, mod
 			data := strings.TrimPrefix(line, "data: ")
 			if data == "[DONE]" {
 				resp.Body.Close()
-				return &result, nil
+				return &result, 0, nil, nil
 			}
 
 			var chunk openAIChunk
@@ -209,22 +288,22 @@ func (p *openAIProvider) StreamChat(ctx context.Context, cfg ProviderConfig, mod
 				}
 				if err := onDelta(c.Delta.Content); err != nil {
 					resp.Body.Close()
-					return nil, err
+					return nil, 0, nil, err
 				}
 			}
 		}
 		if err := scanner.Err(); err != nil {
 			resp.Body.Close()
-			return nil, fmt.Errorf("read provider stream: %w", err)
+			return nil, 0, nil, fmt.Errorf("read provider stream: %w", err)
 		}
 		resp.Body.Close()
-		return &result, nil
+		return &result, 0, nil, nil
 	}
 
 	if lastStatus != 0 {
-		return nil, fmt.Errorf("provider error (%d): %s", lastStatus, string(lastErrBody))
+		return nil, lastStatus, lastErrBody, nil
 	}
-	return nil, errors.New("provider request failed")
+	return nil, 0, nil, errors.New("provider request failed")
 }
 
 func (p *openAIProvider) ListModels(ctx context.Context, cfg ProviderConfig) ([]string, error) {
@@ -343,8 +422,8 @@ func (p *ollamaProvider) StreamChat(ctx context.Context, cfg ProviderConfig, mod
 		}
 
 		var chunk struct {
-			Done            bool `json:"done"`
-			Message         struct {
+			Done    bool `json:"done"`
+			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
 			Error           string `json:"error"`

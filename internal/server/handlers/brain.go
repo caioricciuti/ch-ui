@@ -89,7 +89,7 @@ type updateChatRequest struct {
 type streamMessageRequest struct {
 	Content        string          `json:"content"`
 	ModelID        string          `json:"modelId"`
-	SchemaContext  *schemaContext   `json:"schemaContext,omitempty"`
+	SchemaContext  *schemaContext  `json:"schemaContext,omitempty"`
 	SchemaContexts []schemaContext `json:"schemaContexts,omitempty"`
 }
 
@@ -646,6 +646,7 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		if errMessage == "" {
 			errMessage = "Unknown provider error"
 		}
+		modelParameters := brainModelParameters(chatResult, runtimeModel.ProviderKind, runtimeModel.ModelName)
 		_ = h.DB.UpdateBrainMessage(assistantMessageID, built.String(), "error", errMessage)
 		_ = writeSSE(w, flusher, map[string]interface{}{"type": "error", "error": errMessage, "messageId": assistantMessageID})
 
@@ -661,9 +662,9 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 			})
 			h.Langfuse.LogGeneration(langfuse.GenerationParams{
 				ID: uuid.NewString(), TraceID: traceID, Name: "StreamChat",
-				Model: runtimeModel.ModelName,
-				ModelParameters: map[string]interface{}{"temperature": 0.1},
-				Input: providerMessages, Output: errMessage,
+				Model:           runtimeModel.ModelName,
+				ModelParameters: modelParameters,
+				Input:           providerMessages, Output: errMessage,
 				StartTime: streamStart, EndTime: streamEnd, Level: "ERROR",
 			})
 			h.Langfuse.LogEvent(langfuse.EventParams{
@@ -717,6 +718,7 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 	// Langfuse: trace + generation + auto-scores
 	if h.Langfuse.IsEnabled() {
 		traceID := uuid.NewString()
+		modelParameters := brainModelParameters(chatResult, runtimeModel.ProviderKind, runtimeModel.ModelName)
 		metadata := map[string]string{
 			"connection_id": session.ConnectionID,
 			"provider_kind": runtimeModel.ProviderKind,
@@ -739,7 +741,7 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		genParams := langfuse.GenerationParams{
 			ID: uuid.NewString(), TraceID: traceID, Name: "StreamChat",
 			Model:           runtimeModel.ModelName,
-			ModelParameters: map[string]interface{}{"temperature": 0.1},
+			ModelParameters: modelParameters,
 			Input:           providerMessages,
 			Output:          assistantText,
 			StartTime:       streamStart, EndTime: streamEnd,
@@ -862,6 +864,7 @@ func (h *BrainHandler) LegacyChat(w http.ResponseWriter, r *http.Request) {
 	streamEnd := time.Now()
 
 	if streamErr != nil {
+		modelParameters := brainModelParameters(chatResult, rt.ProviderKind, rt.ModelName)
 		_ = writeSSE(w, flusher, map[string]interface{}{"type": "error", "error": streamErr.Error()})
 
 		// Langfuse: trace legacy error
@@ -875,7 +878,8 @@ func (h *BrainHandler) LegacyChat(w http.ResponseWriter, r *http.Request) {
 			h.Langfuse.LogGeneration(langfuse.GenerationParams{
 				ID: uuid.NewString(), TraceID: traceID, Name: "StreamChat",
 				Model: rt.ModelName, Input: messages, Output: streamErr.Error(),
-				StartTime: streamStart, EndTime: streamEnd, Level: "ERROR",
+				ModelParameters: modelParameters,
+				StartTime:       streamStart, EndTime: streamEnd, Level: "ERROR",
 			})
 		}
 		return
@@ -884,6 +888,7 @@ func (h *BrainHandler) LegacyChat(w http.ResponseWriter, r *http.Request) {
 	// Langfuse: trace legacy success
 	if h.Langfuse.IsEnabled() {
 		traceID := uuid.NewString()
+		modelParameters := brainModelParameters(chatResult, rt.ProviderKind, rt.ModelName)
 		h.Langfuse.LogTrace(langfuse.TraceParams{
 			ID: traceID, Name: "brain.legacy_chat",
 			UserID: session.ClickhouseUser, Release: version.Version,
@@ -892,9 +897,9 @@ func (h *BrainHandler) LegacyChat(w http.ResponseWriter, r *http.Request) {
 		genParams := langfuse.GenerationParams{
 			ID: uuid.NewString(), TraceID: traceID, Name: "StreamChat",
 			Model:           rt.ModelName,
-			ModelParameters: map[string]interface{}{"temperature": 0.1},
+			ModelParameters: modelParameters,
 			Input:           messages, Output: built.String(),
-			StartTime:       streamStart, EndTime: streamEnd,
+			StartTime: streamStart, EndTime: streamEnd,
 		}
 		if chatResult != nil && (chatResult.InputTokens > 0 || chatResult.OutputTokens > 0) {
 			genParams.Usage = &langfuse.Usage{
@@ -912,6 +917,13 @@ func (h *BrainHandler) LegacyChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = writeSSE(w, flusher, map[string]interface{}{"type": "done"})
+}
+
+func brainModelParameters(result *braincore.ChatResult, providerKind, model string) map[string]interface{} {
+	if result != nil && result.ModelParameters != nil {
+		return result.ModelParameters
+	}
+	return braincore.DefaultModelParameters(providerKind, model)
 }
 
 func (h *BrainHandler) resolveRuntimeModel(chat *database.BrainChat, requestedModelID string) (*database.BrainModelRuntime, error) {
