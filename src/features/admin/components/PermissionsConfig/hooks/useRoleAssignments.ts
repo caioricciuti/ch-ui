@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import useAppStore from "@/store";
 import { RoleAssignment } from "../../CreateUser/PrivilegesSection/types";
+import { escapeIdentifier } from "@/features/admin/utils/sqlEscape";
 
 interface SystemRoleGrantRow {
   granted_role_name: string;
@@ -104,7 +105,7 @@ export function useRoleAssignments(userName?: string): UseRoleAssignmentsResult 
       }
 
       const adminOptionClause = adminOption ? " WITH ADMIN OPTION" : "";
-      const query = `GRANT ${roleName} TO ${userName}${adminOptionClause}`;
+      const query = `GRANT ${escapeIdentifier(roleName)} TO ${escapeIdentifier(userName)}${adminOptionClause}`;
 
       try {
         await clickHouseClient.command({
@@ -128,7 +129,7 @@ export function useRoleAssignments(userName?: string): UseRoleAssignmentsResult 
         throw new Error("ClickHouse client or username not available");
       }
 
-      const query = `REVOKE ${roleName} FROM ${userName}`;
+      const query = `REVOKE ${escapeIdentifier(roleName)} FROM ${escapeIdentifier(userName)}`;
 
       try {
         await clickHouseClient.command({

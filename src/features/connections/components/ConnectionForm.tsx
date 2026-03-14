@@ -2,8 +2,8 @@
 // Form for creating/editing connections (no auth required)
 
 import { useState, useEffect } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "@tanstack/react-form";
+import { useStore } from "@tanstack/react-store";
 import * as z from "zod";
 import {
   Eye,
@@ -96,8 +96,7 @@ export default function ConnectionForm({
   const { saveConnection, updateConnectionById, activeConnectionId } = useConnectionStore();
   const setCredential = useAppStore((s) => s.setCredential);
 
-  const form = useForm<FormInput, unknown, FormData>({
-    resolver: zodResolver(formSchema),
+  const form = useForm({
     defaultValues: {
       name: connection?.name || "",
       url: connection?.url || "",
@@ -110,7 +109,19 @@ export default function ConnectionForm({
       clusterName: connection?.clusterName || "",
       isDefault: connection?.isDefault || false,
     },
+    validators: {
+      onMount: formSchema as any,
+      onChange: formSchema as any,
+      onSubmit: formSchema as any,
+    },
+    onSubmit: async ({ value }) => {
+      await onSubmitHandler(value as FormData);
+    },
   });
+
+  const useAdvanced = useStore(form.store, (s) => s.values.useAdvanced);
+  const isDistributed = useStore(form.store, (s) => s.values.isDistributed);
+  const canSubmit = useStore(form.store, (s) => s.canSubmit);
 
   useEffect(() => {
     if (connection?.useAdvanced) {
@@ -122,9 +133,9 @@ export default function ConnectionForm({
     setTestStatus({ loading: true, success: null, message: "" });
 
     try {
-      const formValues = form.getValues();
+      const formValues = form.state.values;
 
-      let baseUrl = formValues.url.replace(/\/+$/, "");
+      const baseUrl = formValues.url.replace(/\/+$/, "");
       const pathname = formValues.useAdvanced && formValues.customPath
         ? formValues.customPath
         : undefined;
@@ -172,7 +183,7 @@ export default function ConnectionForm({
     }
   };
 
-  const onSubmit = async (data: FormData) => {
+  const onSubmitHandler = async (data: FormData) => {
     setIsSubmitting(true);
 
     try {
@@ -239,10 +250,17 @@ export default function ConnectionForm({
   };
 
   return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+    <Form>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          form.handleSubmit();
+        }}
+        className="space-y-4"
+      >
         <FormField
-          control={form.control}
+          form={form}
           name="name"
           render={({ field }) => (
             <FormItem>
@@ -251,7 +269,9 @@ export default function ConnectionForm({
                 <Input
                   placeholder="My ClickHouse Server"
                   disabled={isSubmitting}
-                  {...field}
+                  value={field.state.value}
+                  onChange={(e) => field.handleChange(e.target.value)}
+                  onBlur={field.handleBlur}
                 />
               </FormControl>
               <FormDescription>
@@ -263,7 +283,7 @@ export default function ConnectionForm({
         />
 
         <FormField
-          control={form.control}
+          form={form}
           name="url"
           render={({ field }) => (
             <FormItem>
@@ -276,7 +296,9 @@ export default function ConnectionForm({
                   className="font-mono"
                   placeholder="https://your-clickhouse-host:8123"
                   disabled={isSubmitting}
-                  {...field}
+                  value={field.state.value}
+                  onChange={(e) => field.handleChange(e.target.value)}
+                  onBlur={field.handleBlur}
                 />
               </FormControl>
               <FormMessage />
@@ -286,7 +308,7 @@ export default function ConnectionForm({
 
         <div className="grid grid-cols-2 gap-4">
           <FormField
-            control={form.control}
+            form={form}
             name="username"
             render={({ field }) => (
               <FormItem>
@@ -299,7 +321,9 @@ export default function ConnectionForm({
                     className="font-mono"
                     placeholder="default"
                     disabled={isSubmitting}
-                    {...field}
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
                   />
                 </FormControl>
                 <FormMessage />
@@ -308,7 +332,7 @@ export default function ConnectionForm({
           />
 
           <FormField
-            control={form.control}
+            form={form}
             name="password"
             render={({ field }) => (
               <FormItem>
@@ -322,7 +346,9 @@ export default function ConnectionForm({
                       type={showPassword ? "text" : "password"}
                       placeholder="Enter password"
                       disabled={isSubmitting}
-                      {...field}
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
                     />
                     <Button
                       type="button"
@@ -346,13 +372,19 @@ export default function ConnectionForm({
         </div>
 
         <FormField
-          control={form.control}
+          form={form}
           name="requestTimeout"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Request Timeout (ms)</FormLabel>
               <FormControl>
-                <Input type="number" disabled={isSubmitting} {...field} />
+                <Input
+                  type="number"
+                  disabled={isSubmitting}
+                  value={field.state.value}
+                  onChange={(e) => field.handleChange(Number(e.target.value))}
+                  onBlur={field.handleBlur}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -361,14 +393,14 @@ export default function ConnectionForm({
 
         <div className="flex items-center gap-4">
           <FormField
-            control={form.control}
+            form={form}
             name="isDefault"
             render={({ field }) => (
               <FormItem className="flex items-center gap-2">
                 <FormControl>
                   <Checkbox
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
+                    checked={field.state.value}
+                    onCheckedChange={(checked) => field.handleChange(!!checked)}
                     disabled={isSubmitting}
                   />
                 </FormControl>
@@ -394,14 +426,14 @@ export default function ConnectionForm({
         {showAdvanced && (
           <div className="space-y-4 pt-2 border-t">
             <FormField
-              control={form.control}
+              form={form}
               name="useAdvanced"
               render={({ field }) => (
                 <FormItem className="flex items-center gap-2">
                   <FormControl>
                     <Checkbox
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
+                      checked={field.state.value}
+                      onCheckedChange={(checked) => field.handleChange(!!checked)}
                       disabled={isSubmitting}
                     />
                   </FormControl>
@@ -412,9 +444,9 @@ export default function ConnectionForm({
               )}
             />
 
-            {form.watch("useAdvanced") && (
+            {useAdvanced && (
               <FormField
-                control={form.control}
+                form={form}
                 name="customPath"
                 render={({ field }) => (
                   <FormItem>
@@ -423,7 +455,9 @@ export default function ConnectionForm({
                       <Input
                         placeholder="e.g., /clickhouse"
                         disabled={isSubmitting}
-                        {...field}
+                        value={field.state.value}
+                        onChange={(e) => field.handleChange(e.target.value)}
+                        onBlur={field.handleBlur}
                       />
                     </FormControl>
                     <FormMessage />
@@ -433,14 +467,14 @@ export default function ConnectionForm({
             )}
 
             <FormField
-              control={form.control}
+              form={form}
               name="isDistributed"
               render={({ field }) => (
                 <FormItem className="flex items-center gap-2">
                   <FormControl>
                     <Checkbox
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
+                      checked={field.state.value}
+                      onCheckedChange={(checked) => field.handleChange(!!checked)}
                       disabled={isSubmitting}
                     />
                   </FormControl>
@@ -451,9 +485,9 @@ export default function ConnectionForm({
               )}
             />
 
-            {form.watch("isDistributed") && (
+            {isDistributed && (
               <FormField
-                control={form.control}
+                form={form}
                 name="clusterName"
                 render={({ field }) => (
                   <FormItem>
@@ -462,7 +496,9 @@ export default function ConnectionForm({
                       <Input
                         placeholder="my_cluster"
                         disabled={isSubmitting}
-                        {...field}
+                        value={field.state.value}
+                        onChange={(e) => field.handleChange(e.target.value)}
+                        onBlur={field.handleBlur}
                       />
                     </FormControl>
                     <FormMessage />
@@ -488,7 +524,7 @@ export default function ConnectionForm({
               type="button"
               variant="outline"
               onClick={handleTestConnection}
-              disabled={!form.formState.isValid || testStatus.loading}
+              disabled={!canSubmit || testStatus.loading}
             >
               {testStatus.loading ? (
                 <>

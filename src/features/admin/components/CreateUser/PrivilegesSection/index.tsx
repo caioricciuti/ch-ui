@@ -3,6 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Info, Link2 } from "lucide-react";
+import { useStore } from "@tanstack/react-form";
 import { GrantedPermission } from "./permissions";
 import { ExtendedGrantedPermission, RoleAssignment } from "./types";
 import PrivilegesPanel from "./PrivilegesPanel";
@@ -13,11 +14,8 @@ interface PrivilegesSectionProps {
   form: any;
   databases?: string[];
   tables?: Map<string, string[]>;
-  /** Extended grants with role inheritance (for EditUser) */
   effectiveGrants?: ExtendedGrantedPermission[];
-  /** Assigned roles (for EditUser) */
   assignedRoles?: RoleAssignment[];
-  /** Whether to show role source badges */
   showRoleSource?: boolean;
 }
 
@@ -30,10 +28,10 @@ const PrivilegesSection: React.FC<PrivilegesSectionProps> = ({
   showRoleSource = false,
 }) => {
   const handleGrantsChange = useCallback((grants: GrantedPermission[]) => {
-    form.setValue("privileges.grants", grants, { shouldDirty: true });
+    form.setFieldValue("privileges.grants", grants);
   }, [form]);
 
-  const watchedGrants = form.watch("privileges.grants");
+  const watchedGrants = useStore(form.store, (s: any) => s.values.privileges.grants);
   const currentGrants = useMemo(() => {
     return watchedGrants && watchedGrants.length > 0 ? watchedGrants : EMPTY_GRANTS;
   }, [watchedGrants]);

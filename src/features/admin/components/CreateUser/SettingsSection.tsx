@@ -1,5 +1,4 @@
-// components/CreateNewUser/SettingsSection.tsx
-import React from "react";
+import React, { useMemo } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import {
   FormField,
@@ -18,9 +17,56 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 
+const GRANTEES_LABELS: Record<string, string> = {
+  ANY: "Any",
+  NONE: "None",
+};
+
 interface SettingsSectionProps {
   form: any;
   profiles: string[];
+}
+
+function SettingsProfileField({
+  field,
+  profiles,
+}: {
+  field: any;
+  profiles: string[];
+}) {
+  const options = useMemo(() => {
+    const val = field.state.value;
+    if (val && !profiles.includes(val)) {
+      return [val, ...profiles];
+    }
+    return profiles;
+  }, [field.state.value, profiles]);
+
+  return (
+    <FormItem>
+      <FormLabel>Settings Profile</FormLabel>
+      <Select
+        onValueChange={(v) => field.handleChange(v)}
+        value={field.state.value}
+      >
+        <FormControl>
+          <SelectTrigger>
+            <SelectValue placeholder="Select settings profile">
+              {field.state.value || undefined}
+            </SelectValue>
+          </SelectTrigger>
+        </FormControl>
+        <SelectContent>
+          {options.map((profile) => (
+            <SelectItem key={profile} value={profile}>
+              {profile}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <FormMessage />
+    </FormItem>
+  );
 }
 
 const SettingsSection: React.FC<SettingsSectionProps> = ({
@@ -34,39 +80,22 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
       </CardHeader>
       <CardContent className="space-y-4">
         <FormField
-          control={form.control}
+          form={form}
           name="settings.profile"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Settings Profile</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select settings profile" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {profiles.map((profile) => (
-                    <SelectItem key={profile} value={profile}>
-                      {profile}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
+            <SettingsProfileField field={field} profiles={profiles} />
           )}
         />
 
         <FormField
-          control={form.control}
+          form={form}
           name="settings.readonly"
           render={({ field }) => (
             <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
               <FormControl>
                 <Checkbox
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
+                  checked={field.state.value}
+                  onCheckedChange={(checked) => field.handleChange(!!checked)}
                 />
               </FormControl>
               <div className="space-y-1 leading-none">
@@ -80,15 +109,20 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
         />
 
         <FormField
-          control={form.control}
+          form={form}
           name="grantees"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Grantees</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select
+                onValueChange={(v) => field.handleChange(v)}
+                value={field.state.value}
+              >
                 <FormControl>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select grantees" />
+                    <SelectValue placeholder="Select grantees">
+                      {field.state.value ? GRANTEES_LABELS[field.state.value] : undefined}
+                    </SelectValue>
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>

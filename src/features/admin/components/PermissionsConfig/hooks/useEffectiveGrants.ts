@@ -13,6 +13,9 @@ interface SystemGrantRow {
   access_type: string;
   database: string | null;
   table: string | null;
+  column: string | null;
+  is_partial_revoke: number;
+  grant_option: number;
   user_name?: string | null;
   role_name?: string | null;
 }
@@ -90,24 +93,16 @@ export function useEffectiveGrants(userName?: string): UseEffectiveGrantsResult 
           SELECT
             access_type,
             database,
-            table
+            table,
+            column,
+            is_partial_revoke,
+            grant_option
           FROM system.grants
           WHERE user_name = {userName:String}
           ORDER BY access_type, database, table
         `;
 
-        const directResult = await clickHouseClient.query({
-          query: directGrantsQuery,
-          query_params: {
-            userName,
-          },
-        });
-
-        const directResponse = await directResult.json<{ data: SystemGrantRow[] }>();
-        const transformedDirectGrants = transformGrantsToPermissions(directResponse.data);
-        setDirectGrants(transformedDirectGrants);
-
-        // 2. Fetch role assignments for the user
+        // 1a. Fetch direct grants and role assignments in parallel
         const roleAssignmentsQuery = `
           SELECT
             granted_role_name,
@@ -117,25 +112,31 @@ export function useEffectiveGrants(userName?: string): UseEffectiveGrantsResult 
           ORDER BY granted_role_name
         `;
 
-        const roleAssignmentsResult = await clickHouseClient.query({
-          query: roleAssignmentsQuery,
-          query_params: {
-            userName,
-          },
-        });
+        const [directResult, roleAssignmentsResult] = await Promise.all([
+          clickHouseClient.query({
+            query: directGrantsQuery,
+            query_params: { userName },
+          }),
+          clickHouseClient.query({
+            query: roleAssignmentsQuery,
+            query_params: { userName },
+          }),
+        ]);
 
-        const roleAssignmentsResponse = await roleAssignmentsResult.json<{
-          data: SystemRoleGrantRow[];
-        }>();
+        const [directResponse, roleAssignmentsResponse] = await Promise.all([
+          directResult.json<{ data: SystemGrantRow[] }>(),
+          roleAssignmentsResult.json<{ data: SystemRoleGrantRow[] }>(),
+        ]);
+
+        const transformedDirectGrants = transformGrantsToPermissions(directResponse.data);
         const transformedRoleAssignments: RoleAssignment[] = roleAssignmentsResponse.data.map(
           (row) => ({
             roleName: row.granted_role_name,
             adminOption: row.with_admin_option === 1,
           })
         );
-        setAssignedRoles(transformedRoleAssignments);
 
-        // 3. Fetch grants for each assigned role
+        // 2. Fetch grants for each assigned role
         const roleGrantsMap = new Map<string, GrantedPermission[]>();
 
         if (transformedRoleAssignments.length > 0) {
@@ -149,7 +150,10 @@ export function useEffectiveGrants(userName?: string): UseEffectiveGrantsResult 
               role_name,
               access_type,
               database,
-              table
+              table,
+              column,
+              is_partial_revoke,
+              grant_option
             FROM system.grants
             WHERE role_name IN (${roleNamesPlaceholders})
             ORDER BY role_name, access_type, database, table
@@ -179,12 +183,10 @@ export function useEffectiveGrants(userName?: string): UseEffectiveGrantsResult 
           }
         }
 
-        setRoleGrants(roleGrantsMap);
-
-        // 4. Combine into effective grants with source information
+        // 3. Combine into effective grants with source information
         const combined: ExtendedGrantedPermission[] = [];
 
-        // Add direct grants
+        // Add direct grants (excluding partial revokes)
         for (const grant of transformedDirectGrants) {
           combined.push({
             ...grant,
@@ -192,7 +194,7 @@ export function useEffectiveGrants(userName?: string): UseEffectiveGrantsResult 
           });
         }
 
-        // Add role-inherited grants
+        // Add role-inherited grants (excluding partial revokes)
         for (const [roleName, grants] of roleGrantsMap.entries()) {
           for (const grant of grants) {
             combined.push({
@@ -203,6 +205,11 @@ export function useEffectiveGrants(userName?: string): UseEffectiveGrantsResult 
           }
         }
 
+        // 4. Set all state at once — no awaits between these calls,
+        // so React batches them into a single render
+        setDirectGrants(transformedDirectGrants);
+        setAssignedRoles(transformedRoleAssignments);
+        setRoleGrants(roleGrantsMap);
         setEffectiveGrants(combined);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : "Failed to fetch effective grants";
@@ -248,6 +255,9 @@ function transformGrantToPermission(row: SystemGrantRow): GrantedPermission {
   return {
     permissionId,
     scope,
+    isPartialRevoke: row.is_partial_revoke === 1,
+    grantOption: row.grant_option === 1,
+    ...(row.column ? { columns: [row.column] } : {}),
   };
 }
 

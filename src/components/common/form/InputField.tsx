@@ -1,30 +1,36 @@
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { HTMLProps } from "react";
-import { FieldValues, RegisterOptions, useFormContext } from "react-hook-form";
 
-
-interface Props<T extends FieldValues> extends HTMLProps<HTMLInputElement> {
-  rules?: Omit<RegisterOptions<FieldValues, string>, "disabled" | "valueAsNumber" | "valueAsDate" | "setValueAs"> | undefined,
-
+interface InputFieldProps {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  form: { Field: React.ComponentType<any> }
+  name: string
+  label?: string
+  placeholder?: string
+  validators?: Record<string, unknown>
 }
 
-const InputField = <T extends FieldValues>({ name, rules, label, placeholder }: Props<T>) => {
-  const context = useFormContext()
+function InputField({ form, name, label, placeholder, validators }: InputFieldProps) {
   return (
-    <FormField control={context.control}
-      name={name as string}
-      rules={rules}
+    <FormField
+      form={form}
+      name={name}
+      validators={validators}
       render={({ field }) => (
         <FormItem>
           <FormLabel>{label}</FormLabel>
           <FormControl>
-            <Input placeholder={placeholder} {...field} />
+            <Input
+              placeholder={placeholder}
+              value={field.state.value ?? ""}
+              onChange={(e) => field.handleChange(e.target.value)}
+              onBlur={field.handleBlur}
+            />
           </FormControl>
           <FormMessage />
         </FormItem>
-      )}>
-    </FormField>
+      )}
+    />
   )
 }
 

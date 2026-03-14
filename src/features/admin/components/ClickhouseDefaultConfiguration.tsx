@@ -8,30 +8,34 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Database } from "lucide-react";
-import { FormProvider, useForm } from "react-hook-form";
+import { useForm } from "@tanstack/react-form";
 import InputField from "@/components/common/form/InputField";
-import { ClickHouseSettings } from "@clickhouse/client-common";
+import type { ClickHouseSettings } from "@clickhouse/client-common";
 import { toast } from "sonner";
+
+const numericValidator = {
+  onChange: ({ value }: { value: unknown }) =>
+    !/^[0-9]+$/.test(String(value)) ? "Only numbers" : undefined,
+};
 
 export default function ClickhouseDefaultConfiguration() {
   const { updateConfiguration, clickhouseSettings } = useAppStore();
 
-  const methods = useForm<ClickHouseSettings>({
+  const form = useForm({
     defaultValues: {
       max_result_rows: clickhouseSettings.max_result_rows ?? "0",
       max_result_bytes: clickhouseSettings.max_result_bytes ?? "0",
       result_overflow_mode: clickhouseSettings.result_overflow_mode ?? "throw",
     },
+    onSubmit: async ({ value }) => {
+      try {
+        await updateConfiguration(value as ClickHouseSettings);
+        toast.success("Configuration updated successfully");
+      } catch (error) {
+        toast.error(`Failed to update configuration: ${error}`);
+      }
+    },
   });
-
-  const onSubmit = async (data: ClickHouseSettings) => {
-    try {
-      await updateConfiguration(data); // Assuming this is an async function
-      toast.success("Configuration updated successfully");
-    } catch (error) {
-      toast.error(`Failed to update configuration: ${error}`);
-    }
-  };
 
   return (
     <Card>
@@ -47,35 +51,29 @@ export default function ClickhouseDefaultConfiguration() {
       </CardHeader>
 
       <CardContent className="space-y-4">
-        <FormProvider {...methods}>
-          <form onSubmit={methods.handleSubmit(onSubmit)}>
-            <InputField
-              name="max_result_rows"
-              label="Max result rows"
-              rules={{
-                pattern: {
-                  value: /^[0-9]+$/,
-                  message: "Only numbers",
-                },
-              }}
-              required
-            />
-            <InputField
-              name="max_result_bytes"
-              label="Max result bytes"
-              rules={{
-                pattern: {
-                  value: /^[0-9]+$/,
-                  message: "Only numbers",
-                },
-              }}
-              required
-            />
-            <Button type="submit" className="w-full mt-6">
-              Save
-            </Button>
-          </form>
-        </FormProvider>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            form.handleSubmit();
+          }}
+        >
+          <InputField
+            form={form}
+            name="max_result_rows"
+            label="Max result rows"
+            validators={numericValidator}
+          />
+          <InputField
+            form={form}
+            name="max_result_bytes"
+            label="Max result bytes"
+            validators={numericValidator}
+          />
+          <Button type="submit" className="w-full mt-6">
+            Save
+          </Button>
+        </form>
       </CardContent>
     </Card>
   );

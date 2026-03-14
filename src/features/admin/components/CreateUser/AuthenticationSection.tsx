@@ -1,10 +1,14 @@
-// components/CreateNewUser/AuthenticationSection.tsx
 import React from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
+import {
+  FormField,
+  FormItem,
+  FormLabel,
+  FormControl,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Eye, EyeOff, Key } from "lucide-react";
 
 interface AuthenticationSectionProps {
@@ -27,17 +31,16 @@ const AuthenticationSection: React.FC<AuthenticationSectionProps> = ({
       </CardHeader>
       <CardContent className="space-y-4">
         <FormField
-          control={form.control}
+          form={form}
           name="username"
-          rules={{
-            required: "Username is required",
-            minLength: {
-              value: 3,
-              message: "Username must be at least 3 characters",
-            },
-            pattern: {
-              value: /^[a-zA-Z0-9_]+$/,
-              message: "Only letters, numbers, and underscores allowed",
+          validators={{
+            onChange: ({ value }: { value: string }) => {
+              if (!value) return "Username is required";
+              if (value.length < 3)
+                return "Username must be at least 3 characters";
+              if (!/^[a-zA-Z0-9_]+$/.test(value))
+                return "Only letters, numbers, and underscores allowed";
+              return undefined;
             },
           }}
           render={({ field }) => (
@@ -46,10 +49,12 @@ const AuthenticationSection: React.FC<AuthenticationSectionProps> = ({
               <FormControl>
                 <Input
                   placeholder="Enter username"
-                  {...field}
+                  value={field.state.value}
+                  onChange={(e) => field.handleChange(e.target.value)}
+                  onBlur={field.handleBlur}
                   readOnly={isEditMode}
                   disabled={isEditMode}
-                  className={isEditMode ? "bg-muted" : ""}
+                  className={isEditMode ? "bg-muted disabled:opacity-100 text-muted-foreground" : ""}
                 />
               </FormControl>
               <FormMessage />
@@ -58,31 +63,36 @@ const AuthenticationSection: React.FC<AuthenticationSectionProps> = ({
         />
 
         <FormField
-          control={form.control}
+          form={form}
           name="password"
-          rules={{
-            required: isEditMode ? false : "Password is required",
-            validate: (value: string) => {
-              // Skip validation if in edit mode and password is empty
-              if (isEditMode && !value) return true;
-
-              if (value.length < 8) {
+          validators={{
+            onChange: ({ value }: { value: string }) => {
+              if (isEditMode && !value) return undefined;
+              if (!isEditMode && !value) return "Password is required";
+              if (value && value.length < 8)
                 return "Password must be at least 8 characters";
-              }
-              return true;
+              return undefined;
             },
           }}
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{isEditMode ? "New Password (Optional)" : "Password"}</FormLabel>
+              <FormLabel>
+                {isEditMode ? "New Password (Optional)" : "Password"}
+              </FormLabel>
               <div className="flex space-x-2 w-full">
                 <FormControl>
                   <div className="relative flex-1">
                     <Input
                       type={showPassword ? "text" : "password"}
-                      placeholder={isEditMode ? "Leave blank to keep current password" : "Enter password"}
+                      placeholder={
+                        isEditMode
+                          ? "Leave blank to keep current password"
+                          : "Enter password"
+                      }
                       className="w-full"
-                      {...field}
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
                     />
                     <Button
                       type="button"

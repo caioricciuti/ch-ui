@@ -1,66 +1,50 @@
 import * as React from "react"
 import * as LabelPrimitive from "@radix-ui/react-label"
 import { Slot } from "@radix-ui/react-slot"
-import {
-  Controller,
-  ControllerProps,
-  FieldPath,
-  FieldValues,
-  FormProvider,
-  useFormContext,
-} from "react-hook-form"
+import type { AnyFieldApi } from "@tanstack/react-form"
 
 import { cn } from "@/lib/utils"
 import { Label } from "@/components/ui/label"
 
-const Form = FormProvider
+// TanStack Form does not use a Provider pattern. Form is a passthrough wrapper
+// for backwards compatibility so existing <Form> JSX does not break.
+function Form({ children }: { children: React.ReactNode; [key: string]: unknown }) {
+  return <>{children}</>
+}
+Form.displayName = "Form"
 
-type FormFieldContextValue<
-  TFieldValues extends FieldValues = FieldValues,
-  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>
-> = {
-  name: TName
+// --- FormField ---
+
+type FormFieldContextValue = {
+  fieldApi: AnyFieldApi
 }
 
-const FormFieldContext = React.createContext<FormFieldContextValue>(
-  {} as FormFieldContextValue
-)
+const FormFieldContext = React.createContext<FormFieldContextValue | null>(null)
 
-const FormField = <
-  TFieldValues extends FieldValues = FieldValues,
-  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>
->({
-  ...props
-}: ControllerProps<TFieldValues, TName>) => {
+// Structural type so the form prop accepts any TanStack React form instance
+// (which extends FormApi with a `.Field` React component).
+interface FormFieldProps {
+  form: { Field: React.ComponentType<any> }
+  name: string
+  validators?: Record<string, unknown>
+  render: (props: { field: AnyFieldApi }) => React.ReactNode
+}
+
+function FormField({ form, name, validators, render }: FormFieldProps) {
   return (
-    <FormFieldContext.Provider value={{ name: props.name }}>
-      <Controller {...props} />
-    </FormFieldContext.Provider>
+    <form.Field
+      name={name}
+      validators={validators}
+      children={(field: AnyFieldApi) => (
+        <FormFieldContext.Provider value={{ fieldApi: field }}>
+          {render({ field })}
+        </FormFieldContext.Provider>
+      )}
+    />
   )
 }
 
-const useFormField = () => {
-  const fieldContext = React.useContext(FormFieldContext)
-  const itemContext = React.useContext(FormItemContext)
-  const { getFieldState, formState } = useFormContext()
-
-  const fieldState = getFieldState(fieldContext.name, formState)
-
-  if (!fieldContext) {
-    throw new Error("useFormField should be used within <FormField>")
-  }
-
-  const { id } = itemContext
-
-  return {
-    id,
-    name: fieldContext.name,
-    formItemId: `${id}-form-item`,
-    formDescriptionId: `${id}-form-item-description`,
-    formMessageId: `${id}-form-item-message`,
-    ...fieldState,
-  }
-}
+// --- FormItem ---
 
 type FormItemContextValue = {
   id: string
@@ -84,6 +68,52 @@ const FormItem = React.forwardRef<
 })
 FormItem.displayName = "FormItem"
 
+// --- useFormField ---
+
+function extractErrorMessage(
+  errors: Array<unknown>
+): string | undefined {
+  if (errors.length === 0) return undefined
+
+  const first = errors[0]
+  if (typeof first === "string") return first
+  if (
+    first !== null &&
+    typeof first === "object" &&
+    "message" in first &&
+    typeof (first as { message: unknown }).message === "string"
+  ) {
+    return (first as { message: string }).message
+  }
+  return String(first)
+}
+
+function useFormField() {
+  const fieldContext = React.useContext(FormFieldContext)
+  const itemContext = React.useContext(FormItemContext)
+
+  if (!fieldContext) {
+    throw new Error("useFormField should be used within <FormField>")
+  }
+
+  const { fieldApi } = fieldContext
+  const { id } = itemContext
+
+  return {
+    id,
+    name: fieldApi.name as string,
+    formItemId: `${id}-form-item`,
+    formDescriptionId: `${id}-form-item-description`,
+    formMessageId: `${id}-form-item-message`,
+    error: extractErrorMessage(fieldApi.state.meta.errors),
+    isTouched: fieldApi.state.meta.isTouched,
+    isDirty: fieldApi.state.meta.isDirty,
+    isValidating: fieldApi.state.meta.isValidating,
+  }
+}
+
+// --- FormLabel ---
+
 const FormLabel = React.forwardRef<
   React.ElementRef<typeof LabelPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root>
@@ -100,6 +130,8 @@ const FormLabel = React.forwardRef<
   )
 })
 FormLabel.displayName = "FormLabel"
+
+// --- FormControl ---
 
 const FormControl = React.forwardRef<
   React.ElementRef<typeof Slot>,
@@ -123,6 +155,8 @@ const FormControl = React.forwardRef<
 })
 FormControl.displayName = "FormControl"
 
+// --- FormDescription ---
+
 const FormDescription = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLParagraphElement>
@@ -140,12 +174,14 @@ const FormDescription = React.forwardRef<
 })
 FormDescription.displayName = "FormDescription"
 
+// --- FormMessage ---
+
 const FormMessage = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLParagraphElement>
 >(({ className, children, ...props }, ref) => {
   const { error, formMessageId } = useFormField()
-  const body = error ? String(error?.message) : children
+  const body = error ?? children
 
   if (!body) {
     return null
@@ -172,4 +208,5 @@ export {
   FormDescription,
   FormMessage,
   FormField,
+  useFormField,
 }

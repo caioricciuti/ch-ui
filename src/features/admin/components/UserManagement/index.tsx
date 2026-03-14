@@ -23,6 +23,7 @@ import CreateNewUser from "../CreateUser/index";
 import EditUser from "../CreateUser/EditUser";
 import { generateRandomPassword } from "@/lib/utils";
 import { PendingChange } from "../PermissionsConfig/types";
+import { escapeIdentifier, escapeStringLiteral } from "@/features/admin/utils/sqlEscape";
 
 type ViewState =
   | { mode: "list" }
@@ -49,7 +50,7 @@ const UserTable: React.FC<UserTableProps> = ({ onAddChange, refreshTrigger: exte
 
   const fetchUserGrants = async (username: string) => {
     try {
-      const grantsResult = await runQuery(`SHOW GRANTS FOR ${username}`);
+      const grantsResult = await runQuery(`SHOW GRANTS FOR ${escapeIdentifier(username)}`);
       return grantsResult.data || [];
     } catch (error) {
       console.error(`Failed to fetch grants for ${username}:`, error);
@@ -59,7 +60,7 @@ const UserTable: React.FC<UserTableProps> = ({ onAddChange, refreshTrigger: exte
 
   const fetchUserSettings = async (username: string) => {
     try {
-      const settingsResult = await runQuery(`SHOW CREATE USER ${username}`);
+      const settingsResult = await runQuery(`SHOW CREATE USER ${escapeIdentifier(username)}`);
       const createStatement = settingsResult.data?.[0]?.statement || "";
       return {
         profile: (createStatement.match(/SETTINGS PROFILE '([^']+)'/) || [])[1],
@@ -132,8 +133,9 @@ const UserTable: React.FC<UserTableProps> = ({ onAddChange, refreshTrigger: exte
       entityName: username,
       description: `Delete user ${username}`,
       sqlStatements: [
-        `REVOKE ALL PRIVILEGES ON *.* FROM ${username}`,
-        `DROP USER IF EXISTS ${username}`,
+        `REVOKE ALL PRIVILEGES ON *.* FROM ${escapeIdentifier(username)}`,
+        `REVOKE ALL ROLES FROM ${escapeIdentifier(username)}`,
+        `DROP USER IF EXISTS ${escapeIdentifier(username)}`,
       ],
       originalState: { username },
       newState: null,
@@ -145,18 +147,22 @@ const UserTable: React.FC<UserTableProps> = ({ onAddChange, refreshTrigger: exte
 
   const handleRefreshPassword = async (username: string) => {
     const password = generateRandomPassword();
-    setNewPassword(password); // Store the new password
-    try {
-      await runQuery(
-        `ALTER USER ${username} IDENTIFIED WITH sha256_password BY '${password}'`
-      );
-      toast.success(`Password reset for ${username}`);
-      setShowResetPasswordDialog(false);
-    } catch (error: any) {
-      const errorMessage = error.message || "Failed to reset password";
-      setError(errorMessage);
-      toast.error(errorMessage);
-    }
+    setNewPassword(password);
+
+    onAddChange({
+      type: "ALTER",
+      entityType: "USER",
+      entityName: username,
+      description: `Reset password for ${username}`,
+      sqlStatements: [
+        `ALTER USER ${escapeIdentifier(username)} IDENTIFIED WITH sha256_password BY '${escapeStringLiteral(password)}'`,
+      ],
+      originalState: { username },
+      newState: { passwordReset: true },
+    });
+
+    toast.info(`Password reset for ${username} staged for review`);
+    setShowResetPasswordDialog(false);
   };
 
   const filteredUsers = useMemo(() => {
