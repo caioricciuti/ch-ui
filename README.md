@@ -523,3 +523,13 @@ When contributing, please include:
 - Expected behavior
 - Migration notes (if schema/API changed)
 - Screenshots (for UI changes)
+
+
+# Gitpod One-Click Demo
+
+## Try it now
+
+[![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/caioricciuti/ch-ui)
+
+> Launches a full CH-UI + ClickHouse environment in your browser. No install required.
+> Free tier: 50 hours/month, no credit card - Via Gitpod (https://www.gitpod.io/)

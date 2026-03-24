@@ -1,0 +1,32 @@
+image: gitpod/workspace-full
+
+tasks:
+  - name: ClickHouse
+    init: docker pull clickhouse/clickhouse-server:latest
+    command: |
+      docker run -d --rm \
+        --name clickhouse \
+        -p 8123:8123 \
+        -p 9000:9000 \
+        clickhouse/clickhouse-server:latest
+      echo "ClickHouse running on port 8123"
+
+  - name: CH-UI
+    init: |
+      curl -L -o ch-ui https://github.com/caioricciuti/ch-ui/releases/latest/download/ch-ui-linux-amd64
+      chmod +x ch-ui
+    command: |
+      # Wait for ClickHouse to be ready
+      echo "Waiting for ClickHouse..."
+      while ! curl -s http://localhost:8123/ping > /dev/null 2>&1; do sleep 1; done
+      echo "ClickHouse is up. Starting CH-UI..."
+      CLICKHOUSE_URL=http://localhost:8123 ./ch-ui
+
+ports:
+  - port: 3488
+    onOpen: open-browser
+    visibility: public
+  - port: 8123
+    onOpen: ignore
+  - port: 9000
+    onOpen: ignore
