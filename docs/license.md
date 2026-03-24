@@ -10,11 +10,16 @@ CH-UI uses a dual-license model: open source core + commercial Pro modules.
 
 The core of CH-UI is free and open source. This includes:
 
-- SQL Editor
-- Data Explorer
+- SQL Editor (multi-tab, formatting, profiling, streaming results, query plan analysis)
+- Schema Explorer (database/table/column browser, data preview)
 - Saved Queries
-- Single ClickHouse connection
-- Tunnel connector (`ch-ui connect`)
+- Dashboards (panel builder, multiple chart types, time ranges)
+- Brain AI Assistant (OpenAI, OpenAI-compatible, Ollama — multi-chat, artifacts, skills)
+- Data Pipelines (Webhook, S3, Kafka, Database sources into ClickHouse)
+- Models (dbt-style SQL transformations with DAG and materialization)
+- Admin Panel (user management, connection management, provider configuration)
+- Multi-connection management
+- Tunnel connector (`ch-ui connect`) for remote ClickHouse access
 - Embedded web frontend
 - All CLI commands
 
@@ -24,14 +29,12 @@ You can use, modify, and distribute CH-UI Core freely under the Apache 2.0 licen
 
 **License:** Commercial (proprietary)
 
-Pro modules extend CH-UI with advanced features:
+Pro modules extend CH-UI with enterprise features:
 
-- Dashboards & panel builder
-- Scheduled query jobs
-- Brain AI assistant
-- Governance, access, and policy controls
-- Admin panel
-- Multi-connection management
+- Scheduled query jobs (cron-based scheduling, execution history, timezone support)
+- Governance (metadata sync, query log analytics, data lineage, access matrix, tagging)
+- Policies and incident management (violation detection, incident workflow, severity tracking)
+- Alerting (SMTP, Resend, Brevo — rules by event type/severity, escalation)
 
 Pro features require a valid license file. Licenses are per-deployment and include a customer name, expiration date, and feature set.
 
@@ -48,11 +51,10 @@ Visit [ch-ui.com/pricing](https://ch-ui.com/pricing) or contact **c.ricciuti@ch-
 
 ## License boundary
 
-The licensing boundary is clear and scope-separated:
+The licensing boundary is enforced server-side via HTTP 402 middleware on Pro-only routes:
 
-- **Core files** (Apache 2.0): everything in the repository except Pro module handlers
-- **Pro module handlers**: `internal/server/handlers/` for dashboards, schedules, brain, admin, governance — these are proprietary
-- **Frontend Pro components**: UI components gated behind the Pro license check
+- **Free routes:** queries, saved queries, dashboards, pipelines, models, brain, admin, connections
+- **Pro routes:** `/api/schedules/*`, `/api/governance/*` (including alerts)
 
 The Pro license check is enforced both server-side (HTTP 402 middleware) and client-side (UI gate).
 
@@ -64,8 +66,11 @@ Yes, freely. Apache 2.0 allows commercial use.
 **Can I modify CH-UI Core?**
 Yes. You must retain the copyright notice and license.
 
-**Do I need Pro for a single ClickHouse connection?**
-No. Core supports one connection out of the box.
+**Do I need Pro for dashboards, Brain, or pipelines?**
+No. Dashboards, Brain AI, data pipelines, models, and admin are all free.
+
+**What features require Pro?**
+Only scheduled query jobs, governance (lineage, policies, incidents, access matrix), and alerting.
 
 **What happens when a Pro license expires?**
 Pro features become locked. Core features continue working. Your data is never lost.

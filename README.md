@@ -5,34 +5,48 @@
 <h1 align="center">CH-UI</h1>
 
 <p align="center">
-  ClickHouse workspace for teams that ship fast.<br/>
-  Querying, governance, AI copilot, scheduling, and operations in one binary.
+  <strong>The open-source ClickHouse management platform.</strong><br/>
+  SQL editor, dashboards, AI copilot, data pipelines, models, and admin — all in one binary. Free.
 </p>
 
 <p align="center">
   <a href="https://github.com/caioricciuti/ch-ui/releases"><img src="https://img.shields.io/github/v/release/caioricciuti/ch-ui?label=version" alt="Version" /></a>
   <a href="https://github.com/caioricciuti/ch-ui/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License" /></a>
   <a href="https://github.com/caioricciuti/ch-ui/stargazers"><img src="https://img.shields.io/github/stars/caioricciuti/ch-ui" alt="Stars" /></a>
+  <a href="https://github.com/caioricciuti/ch-ui/pkgs/container/ch-ui"><img src="https://img.shields.io/badge/docker-ghcr.io-blue" alt="Docker" /></a>
 </p>
 
 ---
 
-## Table Of Contents
+## Why CH-UI?
 
-- [What Is CH-UI?](#what-is-ch-ui)
-- [Why Teams Use CH-UI](#why-teams-use-ch-ui)
-- [Architecture](#architecture)
-- [Feature Overview](#feature-overview)
-- [Quick Start (Local)](#quick-start-local)
+Most ClickHouse tools give you a query box and call it a day. CH-UI gives you a full workspace — and almost everything is **free and open source**.
+
+Download one binary. Run it. Get:
+
+- A multi-tab **SQL editor** with formatting, profiling, and streaming results
+- **Dashboards** with a drag-and-drop panel builder and multiple chart types
+- **Brain** — an AI assistant that understands your schema (OpenAI, Ollama, or any compatible provider)
+- **Data pipelines** — visual builder for Webhook, S3, Kafka, and DB sources into ClickHouse
+- **Models** — dbt-style SQL transformations with dependency graphs and scheduling
+- **Admin panel** — user management, connection management, provider configuration
+- **Saved queries**, **schema explorer**, **connection management**, and more
+
+No Docker requirement. No external dependencies. No signup.
+
+---
+
+## Table of Contents
+
+- [Features (Free)](#features-free)
+- [Community vs Pro](#community-vs-pro)
+- [Quick Start](#quick-start)
 - [Quick Start (Docker)](#quick-start-docker)
-- [Change Local ClickHouse URL](#change-local-clickhouse-url)
-- [Can't Login?](#cant-login)
-- [Remote ClickHouse (VM2 Server + VM1 Agent)](#remote-clickhouse-vm2-server--vm1-agent)
-- [Tunnel Key Management (Server Host)](#tunnel-key-management-server-host)
+- [Architecture](#architecture)
+- [Remote ClickHouse (Tunnel)](#remote-clickhouse-tunnel)
 - [CLI Reference](#cli-reference)
 - [Configuration](#configuration)
 - [Production Checklist](#production-checklist)
-- [Governance, Brain, and Alerts](#governance-brain-and-alerts)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [Upgrade](#upgrade)
@@ -41,85 +55,129 @@
 
 ---
 
-## What Is CH-UI?
+## Features (Free)
 
-CH-UI is a self-hosted ClickHouse control plane that runs as a single executable.
+Everything below is included in the free Community edition under Apache 2.0.
 
-It includes:
-- A multi-tab SQL editor and explorer
-- Dashboards and scheduled jobs
-- Governance and access visibility
-- Brain (AI assistant with chat history and artifacts)
-- Admin workflows for users, providers, alerts, and operations
+### SQL Editor
 
-No Docker requirement. No extra backend services required to start.
+- Multi-tab interface with persistent state
+- CodeMirror 6 with SQL syntax highlighting and autocomplete
+- Query formatting and beautification
+- Streaming results via SSE — no timeout on long queries
+- Query profiling (pulls from `system.query_log`)
+- Query plan analysis (EXPLAIN with parsed tree view)
+- Configurable max result rows and query timeout
+- Guardrails enforcement (query validation before execution)
 
----
+### Schema Explorer
 
-## Why Teams Use CH-UI
+- Full database/table/column tree browser
+- Table data preview with pagination
+- Column type introspection
+- Search across databases and tables
 
-- Fast setup: download binary, run, open browser
-- Real operations: status, restart/stop, connector lifecycle, sync visibility
-- Production flow: tunnel architecture for remote ClickHouse
-- Governance value: lineage, incidents, policies, access matrix
-- AI that is practical: model/provider control, persisted chats, SQL-aware artifacts
+### Dashboards
 
----
+- Create unlimited dashboards
+- Drag-and-drop panel builder
+- Multiple chart types (line, bar, scatter, area, and more via uplot)
+- Time range selector with presets (1h, 24h, 7d, 30d, custom)
+- Timezone support
+- Auto-refresh control
+- Each panel runs its own SQL query against your ClickHouse
 
-## Architecture
+### Brain (AI Assistant)
 
-CH-UI supports two operating modes from the same binary:
-- `server`: web app + API + tunnel gateway
-- `connect`: lightweight agent that exposes local ClickHouse over secure WebSocket
+- Chat with your data using natural language
+- Multi-chat support with full history persistence
+- **Provider support:** OpenAI, OpenAI-compatible APIs (Groq, Together, etc.), Ollama (local LLMs)
+- Admin-controlled model and provider activation
+- Schema-aware context (attach up to 10 tables as context per chat)
+- SQL artifact generation — run generated queries directly from chat
+- Brain skills (configurable system prompts/instructions)
+- Token usage tracking
+- Langfuse integration for LLM observability
 
-```mermaid
-flowchart LR
-    U["Browser"] --> S["CH-UI Server\n(UI + API + Gateway)"]
-    S <--> DB["SQLite\n(state, settings, chats, governance cache)"]
-    A["ch-ui connect (Agent)"] <--> S
-    A --> CH["ClickHouse"]
-```
+### Data Pipelines
 
-For local development, the server starts an embedded connector automatically (localhost ClickHouse).
+- Visual pipeline canvas (drag-and-drop with XyFlow)
+- **Source connectors:** Webhook (inbound HTTP), Database (SQL query), S3, Kafka (with SCRAM auth)
+- **Sink:** ClickHouse (native insert with configurable batch size)
+- Pipeline start/stop controls
+- Run history, metrics, and error tracking
+- Real-time monitoring (rows ingested, bytes, batches, errors)
 
----
+### Models (SQL Transformations)
 
-## Feature Overview
+- dbt-style SQL models with `table`, `view`, and `incremental` materialization
+- Model dependency graph (DAG visualization)
+- Execution with dependency ordering
+- Run history and results tracking
+- Table engine configuration per model
+- Can be scheduled via the scheduler (Pro) or run manually
 
-### Community (Apache 2.0)
-- SQL editor + result views
-- Database/table explorer
-- Saved queries
-- Local-first single-binary runtime
+### Saved Queries
 
-### Pro (license required)
-- Dashboards and panel builder
-- Schedules and execution history
-- Brain (multi-chat, model/provider management, artifacts)
-- Governance (metadata, access, incidents, policies, lineage)
-- Admin panel and multi-connection operations
-- Alerts (SMTP, Resend, Brevo) for policy/schedule/governance events
+- Save queries with titles and descriptions
+- Sort by date, name, or query length
+- Filter, search, copy, and organize
+- Quick access from the sidebar
 
-See: [`docs/license.md`](docs/license.md)
+### Admin Panel
+
+- User management (create, delete, assign roles)
+- ClickHouse user management (create users, update passwords, delete)
+- Connection management with multi-connection support
+- Brain provider and model configuration
+- Brain skill management
+- Langfuse integration settings
+- System statistics dashboard
+
+### Connections & Tunnel
+
+- Multi-connection support (manage multiple ClickHouse instances)
+- Secure WebSocket tunnel for remote ClickHouse access
+- Token-based agent authentication
+- Connection health monitoring
+- Install connector as OS service (`ch-ui service install`)
+
+### Other
+
+- Dark mode
+- Session-based authentication with rate limiting
+- Security headers (CSP, X-Frame-Options, etc.)
+- Health check endpoint (`/health`)
+- Self-update (`ch-ui update`)
+- Shell completion generation
 
 ---
 
 ## Community vs Pro
 
-| Capability | Community | Pro |
+Almost everything is free. Pro adds enterprise governance and scheduling.
+
+| Capability | Community (Free) | Pro |
 |---|:---:|:---:|
-| SQL editor + explorer | Yes | Yes |
-| Saved queries | Yes | Yes |
-| Dashboards | - | Yes |
-| Schedules | - | Yes |
-| Brain (AI) | - | Yes |
-| Governance + incidents + policies | - | Yes |
-| Alerting channels/rules | - | Yes |
-| Multi-connection admin workflows | - | Yes |
+| SQL editor + explorer + formatting + profiling | **Yes** | Yes |
+| Saved queries | **Yes** | Yes |
+| Dashboards + panel builder | **Yes** | Yes |
+| Brain (AI assistant, multi-provider) | **Yes** | Yes |
+| Data pipelines (Webhook, S3, Kafka, DB) | **Yes** | Yes |
+| Models (SQL transformations, DAG) | **Yes** | Yes |
+| Admin panel + user management | **Yes** | Yes |
+| Multi-connection management | **Yes** | Yes |
+| Tunnel (remote ClickHouse) | **Yes** | Yes |
+| Scheduled query jobs + cron + history | - | **Yes** |
+| Governance (metadata, lineage, access matrix) | - | **Yes** |
+| Policies + incidents + violations | - | **Yes** |
+| Alerting (SMTP, Resend, Brevo) | - | **Yes** |
+
+See: [`docs/license.md`](docs/license.md)
 
 ---
 
-## Quick Start (Local)
+## Quick Start
 
 ### 1) Download
 
@@ -147,36 +205,26 @@ curl -L -o ch-ui https://github.com/caioricciuti/ch-ui/releases/latest/download/
 chmod +x ch-ui
 ```
 
-### Optional: verify checksum
-
+Optional — verify checksum:
 ```bash
 curl -L -o checksums.txt https://github.com/caioricciuti/ch-ui/releases/latest/download/checksums.txt
 sha256sum -c checksums.txt --ignore-missing
 ```
 
-### 2) Start server
-
-Install globally and run with `ch-ui`:
+### 2) Run
 
 ```bash
 sudo install -m 755 ch-ui /usr/local/bin/ch-ui
 ch-ui
 ```
 
-If you prefer not to install globally, run `./ch-ui` from the download folder.
+Or just `./ch-ui` from the download folder.
 
-Default address: `http://localhost:3488`
-
-### 3) Log in
-
-Use a ClickHouse user/password for the selected connection.
-For local setup, CH-UI uses the embedded connector against `http://localhost:8123` by default.
+Open `http://localhost:3488` and log in with your ClickHouse credentials.
 
 ---
 
 ## Quick Start (Docker)
-
-Run the official image:
 
 ```bash
 docker run --rm \
@@ -186,290 +234,128 @@ docker run --rm \
   ghcr.io/caioricciuti/ch-ui:latest
 ```
 
-Notes:
 - On Linux, replace `host.docker.internal` with a host/IP reachable from the container.
 - Persisted state is stored in `/app/data/ch-ui.db` (volume: `ch-ui-data`).
 
 ---
 
-## Change Local ClickHouse URL
+## Architecture
 
-If `Local ClickHouse` points to the wrong endpoint, restart CH-UI with one of the options below:
+CH-UI ships as a single binary with two operating modes:
+- **`server`** — web app + API + WebSocket tunnel gateway (default)
+- **`connect`** — lightweight agent that exposes local ClickHouse over secure WebSocket
 
-CLI flag:
-```bash
-ch-ui server --clickhouse-url http://127.0.0.1:8123
+```mermaid
+flowchart LR
+    U["Browser"] --> S["CH-UI Server\n(UI + API + Gateway)"]
+    S <--> DB["SQLite\n(state, settings, chats, dashboards)"]
+    A["ch-ui connect\n(Agent)"] <--> S
+    A --> CH["ClickHouse"]
 ```
 
-Environment variable:
-```bash
-CLICKHOUSE_URL=http://127.0.0.1:8123 ch-ui server
-```
+For local use, the server starts an embedded connector automatically against `localhost:8123`.
 
-Set a custom local connection name (optional):
-```bash
-ch-ui server --clickhouse-url http://127.0.0.1:8123 --connection-name "My Connection 1"
-```
-
-Environment variable equivalent:
-```bash
-CLICKHOUSE_URL=http://127.0.0.1:8123 CONNECTION_NAME="My Connection 1" ch-ui server
-```
-
-Config file (`server.yaml`):
-```yaml
-clickhouse_url: http://127.0.0.1:8123
-connection_name: My Connection 1
-```
-
-Then start with:
-```bash
-ch-ui server -c /etc/ch-ui/server.yaml
-```
-
-Priority order for this setting:
-- CLI flag (`--clickhouse-url`)
-- Environment variable (`CLICKHOUSE_URL`)
-- Config file (`server.yaml`)
-- Built-in default (`http://localhost:8123`)
-
-Connection display name priority:
-- CLI flag (`--connection-name`)
-- Environment variable (`CONNECTION_NAME`)
-- Config file (`connection_name`)
-- Built-in default (`Local ClickHouse`)
-
-Tip: The login page includes a **Can't login?** action that opens a setup sheet (URL + connection name only; credentials stay in Sign in).
-Changing this local URL does not require Admin access (Admin and multi-connection management are Pro-only).
+**Tech stack:** Go backend (chi v5, SQLite WAL mode), Svelte 5 frontend (TypeScript, Vite, TailwindCSS), embedded at build time.
 
 ---
 
-## Can't login?
+## Remote ClickHouse (Tunnel)
 
-Use this path when login fails and you need fast recovery from the login screen.
+Connect to ClickHouse instances running on other machines using the secure WebSocket tunnel.
 
-1. In login, click **Can't login?**.
-2. Set `ClickHouse URL` and `Connection Name`.
-3. Restart CH-UI with one command:
-
-```bash
-ch-ui server --clickhouse-url 'http://127.0.0.1:8123' --connection-name 'My Connection 1'
-```
-
-Or local binary:
-
-```bash
-./ch-ui server --clickhouse-url 'http://127.0.0.1:8123' --connection-name 'My Connection 1'
-```
-
-Docker:
-
-```bash
-docker run --rm -p 3488:3488 -v ch-ui-data:/app/data \
-  -e CLICKHOUSE_URL='http://127.0.0.1:8123' \
-  -e CONNECTION_NAME='My Connection 1' \
-  ghcr.io/caioricciuti/ch-ui:latest
-```
-
-Quick diagnosis:
-- `Authentication failed`: wrong credentials for selected connection.
-- `Connection unavailable` / `Unreachable`: wrong local URL or connector offline.
-- `Too many login attempts`: wait retry window; if URL was wrong, fix setup and restart first.
-
-Full guide: [`docs/cant-login.md`](docs/cant-login.md)
-
----
-
-## Remote ClickHouse (VM2 Server + VM1 Agent)
-
-This is the recommended production topology:
-- VM2: `ch-ui server`
-- VM1 (where ClickHouse runs): `ch-ui connect`
-
-### VM2: start CH-UI server
+**Server (VM2):**
 ```bash
 ch-ui server --port 3488
 ```
 
-### VM1: connect agent to VM2
+**Agent (VM1, where ClickHouse runs):**
 ```bash
 ch-ui connect --url wss://your-ch-ui-domain/connect --key cht_your_tunnel_token
 ```
 
-Notes:
-- Token can be generated in UI or via `ch-ui tunnel create` on the server host.
-- VM1 only needs outbound access to VM2 `/connect`.
-- If a stale session exists, add `--takeover`.
+### Tunnel key management
+
+Run these on the server host:
+
+```bash
+ch-ui tunnel create --name "vm1-clickhouse"   # Create connection + key
+ch-ui tunnel list                              # List all connections
+ch-ui tunnel show <connection-id>              # Show token + setup commands
+ch-ui tunnel rotate <connection-id>            # Rotate token (old one invalidated)
+ch-ui tunnel delete <connection-id>            # Delete connection
+```
+
+- Token can also be generated from the Admin UI.
+- Agent only needs outbound access to the server's `/connect` endpoint.
+- Add `--takeover` to replace a stale agent session.
+- Install as OS service: `ch-ui service install --key cht_xxx --url wss://host/connect`
 
 For full hardening guide: [`docs/production-runbook.md`](docs/production-runbook.md)
 
 ---
 
-## Tunnel Key Management (Server Host)
-
-Run these on the CH-UI server host (VM where `ch-ui.db` lives):
-
-```bash
-# Create a connection + key
-ch-ui tunnel create --name "vm1-clickhouse"
-
-# List all tunnel connections
-ch-ui tunnel list
-
-# Show full token + setup commands for one connection
-ch-ui tunnel show <connection-id>
-
-# Rotate token (old token becomes invalid immediately)
-ch-ui tunnel rotate <connection-id>
-
-# Delete a tunnel connection
-ch-ui tunnel delete <connection-id>
-```
-
-Useful flags:
-- `--config, -c` use a specific server config file
-- `--db` override SQLite path directly
-- `--url` force public websocket URL used in generated setup commands
-
----
-
 ## CLI Reference
 
-### If you are new, run these first
+### Quick start commands
 
-Local machine (fastest way):
 ```bash
-ch-ui
-```
-
-Remote setup (VM2 server + VM1 ClickHouse):
-```bash
-# VM2
-ch-ui server start --detach
-ch-ui tunnel create --name "vm1-clickhouse" --url wss://your-domain/connect
-
-# VM1
-ch-ui connect --url wss://your-domain/connect --key cht_xxx --clickhouse-url http://127.0.0.1:8123
+ch-ui                     # Start server (local ClickHouse)
+ch-ui server start --detach  # Start in background
+ch-ui server status          # Check if running
+ch-ui server stop            # Stop server
 ```
 
 ### Full command map
 
-Top-level commands:
-```bash
-ch-ui
-ch-ui server
-ch-ui connect
-ch-ui tunnel
-ch-ui service
-ch-ui update
-ch-ui version
-ch-ui completion
-ch-ui help
-```
+| Command | Description |
+|---|---|
+| `ch-ui` / `ch-ui server` | Start web app + API + gateway |
+| `ch-ui connect` | Start tunnel agent next to ClickHouse |
+| `ch-ui tunnel create/list/show/rotate/delete` | Manage tunnel keys (server host) |
+| `ch-ui service install/start/stop/status/logs/uninstall` | Manage connector as OS service |
+| `ch-ui update` | Update to latest release |
+| `ch-ui version` | Print version |
+| `ch-ui completion bash/zsh/fish` | Generate shell completions |
+| `ch-ui uninstall` | Remove CH-UI from system |
 
-### `server` (run CH-UI web app/API/gateway)
+### Server flags
 
-```bash
-ch-ui server
-ch-ui server start --detach
-ch-ui server status
-ch-ui server stop
-ch-ui server restart
-```
+| Flag | Default | Description |
+|---|---|---|
+| `--port, -p` | `3488` | HTTP port |
+| `--clickhouse-url` | `http://localhost:8123` | Local ClickHouse URL |
+| `--connection-name` | `Local ClickHouse` | Display name for local connection |
+| `--config, -c` | - | Path to `server.yaml` |
+| `--detach` | - | Run in background |
+| `--dev` | - | Development mode (proxy to Vite) |
 
-Common flags:
-- `--port, -p` HTTP port (default `3488`)
-- `--clickhouse-url` Local ClickHouse HTTP URL for embedded connection (default `http://localhost:8123`)
-- `--connection-name` Display name for embedded local connection (default `Local ClickHouse`)
-- `--config, -c` path to `server.yaml`
-- `--detach` run in background
-- `--pid-file` PID file location
-- `--stop-timeout` graceful stop timeout
-- `--dev` development mode (frontend proxy)
+### Connect flags
 
-### `connect` (agent next to ClickHouse)
-
-```bash
-ch-ui connect --url wss://host/connect --key cht_xxx --clickhouse-url http://127.0.0.1:8123
-ch-ui connect --detach
-ch-ui connect --takeover
-```
-
-Common flags:
-- `--url` WebSocket tunnel URL (`ws://` or `wss://`)
-- `--key` tunnel token (`cht_...`)
-- `--clickhouse-url` ClickHouse HTTP endpoint
-- `--config, -c` connector config file path
-- `--detach` run in background
-- `--takeover` replace currently connected agent for same token
-
-### `tunnel` (create/manage keys on server host)
-
-```bash
-ch-ui tunnel create --name "vm1-clickhouse"
-ch-ui tunnel list
-ch-ui tunnel show <connection-id>
-ch-ui tunnel rotate <connection-id>
-ch-ui tunnel delete <connection-id>
-```
-
-Common flags:
-- `--config, -c` path to `server.yaml`
-- `--db` override SQLite database path
-- `--url` public URL used when printing connect/service setup commands
-
-### `service` (install connector as OS service)
-
-```bash
-ch-ui service install --key cht_xxx --url wss://host/connect --clickhouse-url http://127.0.0.1:8123
-ch-ui service status
-ch-ui service start
-ch-ui service stop
-ch-ui service restart
-ch-ui service logs -f
-ch-ui service uninstall
-```
-
-### Other commands
-
-```bash
-ch-ui uninstall         # best-effort local uninstall + manual cleanup commands
-ch-ui update            # update binary to latest release
-ch-ui version           # print version
-ch-ui completion bash   # generate shell completion
-ch-ui help              # show help
-```
+| Flag | Default | Description |
+|---|---|---|
+| `--url` | - | WebSocket tunnel URL (`wss://`) |
+| `--key` | - | Tunnel token (`cht_...`) |
+| `--clickhouse-url` | `http://localhost:8123` | Local ClickHouse |
+| `--config, -c` | - | Path to `config.yaml` |
+| `--detach` | - | Run in background |
+| `--takeover` | - | Replace stale agent session |
 
 ---
 
 ## Configuration
 
-Good news: CH-UI works without config files.
+CH-UI works without config files. You only need them for production defaults or service-managed startup.
 
-You only need config files when:
-- you want production defaults
-- you want service-managed startup
-- you want to avoid passing flags every time
+### Config file locations
 
-### Where config files live
+| File | macOS | Linux |
+|---|---|---|
+| `server.yaml` | `~/.config/ch-ui/server.yaml` | `/etc/ch-ui/server.yaml` |
+| `config.yaml` | `~/.config/ch-ui/config.yaml` | `/etc/ch-ui/config.yaml` |
 
-- Server config (`server.yaml`)
-- macOS: `~/.config/ch-ui/server.yaml`
-- Linux: `/etc/ch-ui/server.yaml`
+**Priority:** CLI flags > environment variables > config file > built-in defaults
 
-- Connector config (`config.yaml`)
-- macOS: `~/.config/ch-ui/config.yaml`
-- Linux: `/etc/ch-ui/config.yaml`
-
-### How values are chosen (priority)
-
-Server:
-- CLI flags > environment variables > `server.yaml` > built-in defaults
-
-Connector:
-- CLI flags > environment variables > `config.yaml` > built-in defaults
-
-### Server config (`server.yaml`) explained
+### Server config
 
 ```yaml
 port: 3488
@@ -480,163 +366,108 @@ connection_name: Local ClickHouse
 app_secret_key: "change-this-in-production"
 allowed_origins:
   - https://ch-ui.yourcompany.com
-# optional override:
-# tunnel_url: wss://ch-ui.yourcompany.com/connect
 ```
 
-What each key means:
-
-| Key | Example | Default | Why it matters |
+| Key | Env var | Default | Description |
 |---|---|---|---|
-| `port` | `3488` | `3488` | HTTP port used by CH-UI server |
-| `app_url` | `https://ch-ui.example.com` | `http://localhost:<port>` | Public URL for links and tunnel URL inference |
-| `database_path` | `/var/lib/ch-ui/ch-ui.db` | `./data/ch-ui.db` | Where CH-UI stores app state |
-| `clickhouse_url` | `http://localhost:8123` | `http://localhost:8123` | Embedded local connection target |
-| `connection_name` | `My Connection 1` | `Local ClickHouse` | Display name shown in login/session for embedded local connection |
-| `app_secret_key` | random long string | auto-generated per install (persisted at `<database_dir>/.app_secret_key`) | Encrypts session credentials; set explicitly in production |
-| `allowed_origins` | `["https://ch-ui.example.com"]` | empty | CORS allowlist |
-| `tunnel_url` | `wss://ch-ui.example.com/connect` | derived from port | Explicit tunnel endpoint advertised to agents |
+| `port` | `PORT` | `3488` | HTTP port |
+| `app_url` | `APP_URL` | `http://localhost:<port>` | Public URL for links and tunnel inference |
+| `database_path` | `DATABASE_PATH` | `./data/ch-ui.db` | SQLite database location |
+| `clickhouse_url` | `CLICKHOUSE_URL` | `http://localhost:8123` | Embedded local connection target |
+| `connection_name` | `CONNECTION_NAME` | `Local ClickHouse` | Display name for local connection |
+| `app_secret_key` | `APP_SECRET_KEY` | auto-generated | Session encryption key |
+| `allowed_origins` | `ALLOWED_ORIGINS` | empty | CORS allowlist (comma-separated in env) |
+| `tunnel_url` | `TUNNEL_URL` | derived from port | Tunnel endpoint advertised to agents |
 
-Server environment variables:
-- `PORT`
-- `APP_URL`
-- `DATABASE_PATH`
-- `CLICKHOUSE_URL`
-- `CONNECTION_NAME`
-- `APP_SECRET_KEY`
-- `ALLOWED_ORIGINS` (comma-separated)
-- `TUNNEL_URL`
-
-If `APP_SECRET_KEY` is not configured, CH-UI generates a strong local key and persists it next to the database path as `.app_secret_key`.
-
-### Connector config (`config.yaml`) explained
+### Connector config
 
 ```yaml
 tunnel_token: "cht_your_token"
 clickhouse_url: "http://127.0.0.1:8123"
 tunnel_url: "wss://your-ch-ui-domain/connect"
-# insecure_skip_verify: false
 ```
 
-What each key means:
-
-| Key | Example | Default | Why it matters |
+| Key | Env var | Default | Description |
 |---|---|---|---|
-| `tunnel_token` | `cht_...` | none (required) | Auth key created on server (`ch-ui tunnel create`) |
-| `clickhouse_url` | `http://127.0.0.1:8123` | `http://localhost:8123` | Local ClickHouse for this VM |
-| `tunnel_url` | `wss://ch-ui.example.com/connect` | `ws://127.0.0.1:3488/connect` | Server gateway endpoint |
-| `insecure_skip_verify` | `false` | `false` | Only for insecure dev TLS setups |
+| `tunnel_token` | `TUNNEL_TOKEN` | required | Auth key from `ch-ui tunnel create` |
+| `clickhouse_url` | `CLICKHOUSE_URL` | `http://localhost:8123` | Local ClickHouse |
+| `tunnel_url` | `TUNNEL_URL` | `ws://127.0.0.1:3488/connect` | Server gateway endpoint |
 
-Connector environment variables:
-- `TUNNEL_TOKEN`
-- `CLICKHOUSE_URL`
-- `TUNNEL_URL`
-- `TUNNEL_INSECURE_SKIP_VERIFY`
+### Changing the local ClickHouse URL
 
-### Minimal production templates (copy/paste)
+```bash
+# CLI flag
+ch-ui server --clickhouse-url http://127.0.0.1:8123
 
-Server (`/etc/ch-ui/server.yaml`):
-```yaml
-port: 3488
-app_url: https://ch-ui.example.com
-database_path: /var/lib/ch-ui/ch-ui.db
-app_secret_key: "replace-with-a-long-random-secret"
-allowed_origins:
-  - https://ch-ui.example.com
+# Environment variable
+CLICKHOUSE_URL=http://127.0.0.1:8123 ch-ui server
+
+# With custom connection name
+ch-ui server --clickhouse-url http://127.0.0.1:8123 --connection-name "My ClickHouse"
 ```
 
-Connector (`/etc/ch-ui/config.yaml`):
-```yaml
-tunnel_token: "cht_replace_me"
-clickhouse_url: "http://127.0.0.1:8123"
-tunnel_url: "wss://ch-ui.example.com/connect"
-```
+The login page also has a **Can't login?** button that shows setup guidance.
 
 ---
 
 ## Production Checklist
 
-- Set a strong `APP_SECRET_KEY`
-- Set `APP_URL` to your public HTTPS URL
-- Configure `ALLOWED_ORIGINS`
-- Put CH-UI behind TLS reverse proxy
-- Ensure WebSocket upgrade support for `/connect`
-- Back up SQLite database (`database_path`)
-- Run connector as service on remote hosts
-
-Nginx example is included: [`ch-ui.conf`](ch-ui.conf)
+- [ ] Set a strong `APP_SECRET_KEY`
+- [ ] Set `APP_URL` to your public HTTPS URL
+- [ ] Configure `ALLOWED_ORIGINS`
+- [ ] Put CH-UI behind a TLS reverse proxy (Nginx example: [`ch-ui.conf`](ch-ui.conf))
+- [ ] Ensure WebSocket upgrade support for `/connect`
+- [ ] Back up SQLite database regularly
+- [ ] Run connector as OS service on remote hosts
 
 ### Backup and restore
 
-CH-UI state is stored in SQLite (`database_path`), so backup is simple:
-
 ```bash
+# Backup
 cp /var/lib/ch-ui/ch-ui.db /var/backups/ch-ui-$(date +%F).db
+
+# Restore — stop server first, then replace the DB file
 ```
-
-Restore by replacing the DB file while server is stopped.
-
----
-
-## Governance, Brain, and Alerts
-
-### Governance
-- Metadata sync (databases/tables/columns)
-- Query log + lineage ingestion
-- Access sync (users/roles/grants/matrix)
-- Policies and incidents workflow
-
-### Brain
-- Multiple chats per user/connection
-- Provider layer (OpenAI, OpenAI-compatible, Ollama)
-- Admin-controlled provider/model activation and defaults
-- Artifacts persisted in database
-
-### Alerts
-- Channel providers: SMTP, Resend, Brevo
-- Rules by event type/severity
-- Route-level delivery and escalation options
 
 ---
 
 ## Troubleshooting
 
-### `listen tcp :3488: bind: address already in use`
-Another process is already using the port.
+### Port already in use
 
-Check:
 ```bash
-ch-ui server status
-```
-Then stop old process:
-```bash
-ch-ui server stop
+ch-ui server status   # Check if already running
+ch-ui server stop     # Stop the old process
 ```
 
-If status says PID file is missing but port is in use, you likely upgraded from an older binary without PID management. Stop the old process once, then restart with current build.
+### Can't log in
 
-### Connector keeps failing auth (`invalid token`)
+- **Authentication failed** — wrong ClickHouse credentials
+- **Connection unavailable** — wrong URL or connector offline
+- **Too many attempts** — wait for retry window; fix URL first if needed
+
+Click **Can't login?** on the login page for guided recovery, or restart with:
+```bash
+ch-ui server --clickhouse-url 'http://127.0.0.1:8123'
+```
+
+Full guide: [`docs/cant-login.md`](docs/cant-login.md)
+
+### Connector auth fails (`invalid token`)
+
 - Verify you copied the latest `cht_...` token
-- Check active connections with `ch-ui tunnel list`
-- Regenerate with `ch-ui tunnel rotate <connection-id>` (or create a new one with `ch-ui tunnel create --name ...`)
-- Confirm agent uses correct `--url` and token pair
+- Check with `ch-ui tunnel list`
+- Rotate with `ch-ui tunnel rotate <connection-id>`
 
-### Login fails but no clarity
-CH-UI now surfaces explicit login states (invalid credentials, offline connection, retry window). Verify selected connection is online.
+### WebSocket fails behind proxy
 
-### Local ClickHouse unreachable at login
-If the `Local ClickHouse` connection is listed but unreachable:
-- Use login **Can't login?** to open setup guidance and generate a startup command
-- Restart CH-UI with `--clickhouse-url` or `CLICKHOUSE_URL`
-- Reload login and retry with your ClickHouse credentials
-
-### WebSocket/tunnel fails behind proxy
 Your proxy must forward upgrades on `/connect`:
 - `Upgrade` and `Connection: upgrade` headers
-- long read/send timeouts
-- buffering disabled for tunnel path
+- Long read/send timeouts
+- Buffering disabled for tunnel path
 
 ### Health check
+
 ```bash
 curl http://localhost:3488/health
 ```
@@ -645,31 +476,22 @@ curl http://localhost:3488/health
 
 ## Development
 
-Requirements:
-- Go 1.24+
-- Bun
+Requirements: Go 1.25+, Bun
 
 ```bash
 git clone https://github.com/caioricciuti/ch-ui.git
 cd ch-ui
-make build
-ch-ui
+make build    # Full production build (frontend + Go binary)
+./ch-ui
 ```
 
-Dev mode:
+Dev mode (two terminals):
 ```bash
-make dev
-# in another terminal
-cd ui && bun install && bun run dev
+make dev                              # Terminal 1: Go server
+cd ui && bun install && bun run dev   # Terminal 2: Vite dev server
 ```
 
-Useful targets:
-- `make build`
-- `make build-frontend`
-- `make build-go`
-- `make test`
-- `make vet`
-- `make clean`
+Useful targets: `make build` | `make test` | `make vet` | `make clean` | `make rebuild`
 
 ---
 
@@ -679,14 +501,14 @@ Useful targets:
 ch-ui update
 ```
 
-The updater downloads the latest release asset for your OS/arch, verifies checksum when available, and replaces the running binary on disk.
+Downloads the latest release for your OS/arch, verifies checksum, and replaces the binary.
 
 ---
 
 ## Legal
 
-- Core license: [`LICENSE`](LICENSE)
-- CH-UI licensing details: [`docs/license.md`](docs/license.md)
+- Core license: [`LICENSE`](LICENSE) (Apache 2.0)
+- Licensing details: [`docs/license.md`](docs/license.md)
 - Terms: [`docs/legal/terms-of-service.md`](docs/legal/terms-of-service.md)
 - Privacy: [`docs/legal/privacy-policy.md`](docs/legal/privacy-policy.md)
 
@@ -696,8 +518,8 @@ The updater downloads the latest release asset for your OS/arch, verifies checks
 
 Issues and PRs are welcome.
 
-If you are contributing features, include:
-- reproduction steps
-- expected behavior
-- migration notes (if schema/API changed)
-- screenshots for UI changes
+When contributing, please include:
+- Reproduction steps (for bugs)
+- Expected behavior
+- Migration notes (if schema/API changed)
+- Screenshots (for UI changes)
