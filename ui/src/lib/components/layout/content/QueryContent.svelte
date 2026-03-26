@@ -69,7 +69,7 @@
   }
 
   async function handleRun(sql?: string) {
-    const query = sql ?? editorComponent?.getValue() ?? ''
+    const query = sql ?? editorComponent?.getSelectedOrAll() ?? ''
     if (!query.trim()) return
 
     // Cancel any in-flight query

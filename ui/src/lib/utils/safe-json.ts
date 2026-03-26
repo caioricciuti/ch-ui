@@ -20,12 +20,14 @@
 import JSONbig from 'json-bigint'
 
 // Feature-detect TC39 reviver context.source support
+// The 3rd `context` parameter is TC39 Stage 4 but not yet in TypeScript's lib types.
 let hasReviverSource = false
 try {
-  JSON.parse('1', (_key, _value, ctx: any) => {
+  const probe = (_key: string, _value: unknown, ctx: { source?: string }): unknown => {
     if (typeof ctx?.source === 'string') hasReviverSource = true
     return _value
-  })
+  }
+  JSON.parse('1', probe as (key: string, value: unknown) => unknown)
 } catch {
   // Older environments may throw on the extra argument; fallback is used
 }
@@ -48,7 +50,7 @@ function getFallbackParser() {
  */
 export function safeParse(text: string): any {
   if (hasReviverSource) {
-    return JSON.parse(text, (key, value, ctx: any) => {
+    const reviver = (_key: string, value: unknown, ctx: { source: string }): unknown => {
       // ctx.source is the raw token string from the original JSON text.
       // If the parsed value rounded (i.e., it's a number that isn't a safe
       // integer) and the raw source was a plain integer literal, keep the
@@ -56,12 +58,13 @@ export function safeParse(text: string): any {
       if (
         typeof value === 'number' &&
         !Number.isSafeInteger(value) &&
-        /^-?\d+$/.test(ctx.source as string)
+        /^-?\d+$/.test(ctx.source)
       ) {
-        return ctx.source as string
+        return ctx.source
       }
       return value
-    })
+    }
+    return JSON.parse(text, reviver as (key: string, value: unknown) => unknown)
   }
 
   // Fallback for browsers without reviver context.source support

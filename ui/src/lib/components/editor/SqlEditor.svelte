@@ -198,6 +198,14 @@
   export function getValue(): string {
     return view?.state.doc.toString() ?? ''
   }
+
+  /** Get the selected text if any, otherwise the full document */
+  export function getSelectedOrAll(): string {
+    if (!view) return ''
+    const main = view.state.selection.main
+    const selected = view.state.sliceDoc(main.from, main.to).trim()
+    return selected || view.state.doc.toString()
+  }
 </script>
 
 <div bind:this={container} class="h-full w-full"></div>

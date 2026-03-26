@@ -186,7 +186,7 @@
           <div class="border-t border-gray-200 dark:border-gray-800 pt-3 flex flex-col gap-2.5">
             <TimeInput label="From" value={fromTime} onchange={(v) => fromTime = v} />
             <TimeInput label="To" value={toTime} onchange={(v) => toTime = v} />
-            <TimezoneSelect {timezone} onchange={(v) => timezone = v} />
+            <TimezoneSelect value={timezone} onchange={(v) => timezone = v} />
           </div>
 
           <div class="flex items-center justify-end gap-2 pt-1">
