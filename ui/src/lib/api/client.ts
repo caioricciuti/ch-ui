@@ -1,4 +1,5 @@
 import { safeParse } from '../utils/safe-json'
+import { withBase } from '../basePath'
 
 /** Base fetch wrapper with credentials and error handling */
 async function parseResponseBody(res: Response): Promise<any> {
@@ -38,7 +39,7 @@ async function request<T = unknown>(
   const isFormDataBody =
     typeof FormData !== 'undefined' && options.body instanceof FormData
 
-  const res = await fetch(url, {
+  const res = await fetch(withBase(url), {
     credentials: 'include',
     headers: {
       ...(isFormDataBody ? {} : { 'Content-Type': 'application/json' }),
@@ -52,7 +53,7 @@ async function request<T = unknown>(
 
   if (res.status === 401 && !isAuthEndpoint) {
     // Session expired — redirect to login
-    window.location.href = '/login'
+    window.location.href = withBase('/login')
     throw new Error('Session expired')
   }
 
