@@ -5,7 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   appType: 'spa',
   plugins: [svelte(), tailwindcss()],
-  base: '/',
+  base: process.env.VITE_BASE_PATH ? process.env.VITE_BASE_PATH + '/' : '/',
   resolve: {
     dedupe: [
       '@codemirror/state',

@@ -1,3 +1,4 @@
+import { withBase, stripBase } from '../basePath'
 import type { SingletonTab } from './tabs.svelte'
 import { getActiveTab, getTabs, openDashboardTab, openHomeTab, openSingletonTab, setActiveTab } from './tabs.svelte'
 
@@ -44,8 +45,9 @@ export function getCurrentPipelineId(): string | undefined {
 // ── URL helpers ──────────────────────────────────────────────────
 
 function buildUrl(path: string, tabId?: string): string {
-  if (tabId) return `${path}?tab=${tabId}`
-  return path
+  const fullPath = withBase(path)
+  if (tabId) return `${fullPath}?tab=${tabId}`
+  return fullPath
 }
 
 function currentTabParam(): string | null {
@@ -55,11 +57,10 @@ function currentTabParam(): string | null {
 function pushUrl(path: string, tabId?: string): void {
   const url = buildUrl(path, tabId)
   const currentPath = window.location.pathname
-  const currentTabId = currentTabParam()
 
-  if (currentPath !== path) {
+  if (currentPath !== withBase(path)) {
     history.pushState(null, '', url)
-  } else if (currentTabId !== tabId) {
+  } else if (currentTabParam() !== tabId) {
     history.replaceState(null, '', url)
   }
 }
@@ -112,7 +113,7 @@ export function pushPipelineList(): void {
 // ── Parse current URL ───────────────────────────────────────────
 
 export function parseRoute(): { type: string; dashboardId?: string; pipelineId?: string } {
-  const path = window.location.pathname
+  const path = stripBase(window.location.pathname)
 
   // /dashboards/:id
   const dashMatch = path.match(/^\/dashboards\/(.+)$/)
@@ -150,7 +151,7 @@ function tryRestoreFromTabParam(): boolean {
 }
 
 function updateSubRouteState(): void {
-  const match = window.location.pathname.match(/^\/pipelines\/(.+)$/)
+  const match = stripBase(window.location.pathname).match(/^\/pipelines\/(.+)$/)
   pipelineId = match?.[1]
 }
 
@@ -204,7 +205,7 @@ export function initRouter(): void {
   // Seed ?tab= if missing so a subsequent reload works
   const activeTab = getActiveTab()
   if (activeTab && !currentTabParam()) {
-    const url = buildUrl(window.location.pathname, activeTab.id)
+    const url = buildUrl(stripBase(window.location.pathname), activeTab.id)
     history.replaceState(null, '', url)
   }
 
