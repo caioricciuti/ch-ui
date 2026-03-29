@@ -132,9 +132,20 @@ export function fetchLineage(database: string, table: string) {
     .then((res: any) => res?.graph ?? res)
 }
 
-export function fetchLineageGraph() {
-  return apiGet<{ graph?: LineageGraph } | LineageGraph>(`${BASE}/lineage/graph`)
+export function fetchLineageGraph(includeColumns = false) {
+  const qs = includeColumns ? '?include_columns=true' : ''
+  return apiGet<{ graph?: LineageGraph } | LineageGraph>(`${BASE}/lineage/graph${qs}`)
     .then((res: any) => res?.graph ?? res)
+}
+
+export function fetchLineageWithColumns(database: string, table: string) {
+  return apiGet<{ graph?: LineageGraph } | LineageGraph>(
+    `${BASE}/lineage?database=${encodeURIComponent(database)}&table=${encodeURIComponent(table)}&include_columns=true`
+  ).then((res: any) => res?.graph ?? res)
+}
+
+export function fetchQueryByQueryID(queryId: string) {
+  return apiGet<{ entry: QueryLogEntry }>(`${BASE}/query-log/${encodeURIComponent(queryId)}`)
 }
 
 // ── Tags ────────────────────────────────────────────────────────

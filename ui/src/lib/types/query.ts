@@ -66,6 +66,25 @@ export interface QueryProfileResult {
   profile?: Record<string, unknown>
 }
 
+/** Per-table estimate from EXPLAIN ESTIMATE */
+export interface TableEstimate {
+  database: string
+  table: string
+  parts: number
+  rows: number
+  marks: number
+}
+
+/** Query cost estimate result */
+export interface QueryEstimateResult {
+  success: boolean
+  tables: TableEstimate[]
+  total_rows: number
+  total_parts: number
+  total_marks: number
+  error?: string
+}
+
 /** NDJSON stream message types */
 export type StreamMessage =
   | { type: 'meta'; meta: ColumnMeta[] }

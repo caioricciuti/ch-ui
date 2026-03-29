@@ -134,15 +134,22 @@ export interface TopQuery {
 
 // ── Lineage ─────────────────────────────────────────────────────
 
+export interface ColumnLineageEdge {
+  source_column: string
+  target_column: string
+}
+
 export interface LineageEdge {
   id: string
   source_database: string
   source_table: string
   target_database: string
   target_table: string
+  query_id: string
   edge_type: string
   ch_user: string
   detected_at: string
+  column_edges?: ColumnLineageEdge[]
 }
 
 export interface LineageNode {
@@ -150,6 +157,7 @@ export interface LineageNode {
   database: string
   table: string
   type: 'source' | 'target' | 'current'
+  columns?: GovColumn[]
 }
 
 export interface LineageGraph {

@@ -736,6 +736,79 @@ func scanLineageEdges(rows *sql.Rows) ([]LineageEdge, error) {
 	return results, nil
 }
 
+// ── Column Lineage ─────────────────────────────────────────────────────────
+
+// InsertColumnLineageEdge inserts a column-level lineage edge using INSERT OR IGNORE.
+func (s *Store) InsertColumnLineageEdge(edge ColumnLineageEdge) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.conn().Exec(
+		`INSERT OR IGNORE INTO gov_lineage_column_edges (id, lineage_edge_id, connection_id, source_column, target_column, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		edge.ID, edge.LineageEdgeID, edge.ConnectionID, edge.SourceColumn, edge.TargetColumn, now,
+	)
+	if err != nil {
+		return fmt.Errorf("insert column lineage edge: %w", err)
+	}
+	return nil
+}
+
+// GetColumnEdgesForEdgeIDs batch-loads column lineage edges for a set of lineage edge IDs.
+func (s *Store) GetColumnEdgesForEdgeIDs(edgeIDs []string) (map[string][]ColumnLineageEdge, error) {
+	result := make(map[string][]ColumnLineageEdge)
+	if len(edgeIDs) == 0 {
+		return result, nil
+	}
+
+	placeholders := make([]string, len(edgeIDs))
+	args := make([]interface{}, len(edgeIDs))
+	for i, id := range edgeIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := `SELECT id, lineage_edge_id, connection_id, source_column, target_column
+	          FROM gov_lineage_column_edges WHERE lineage_edge_id IN (` + strings.Join(placeholders, ",") + `)`
+
+	rows, err := s.conn().Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("get column lineage edges: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var e ColumnLineageEdge
+		if err := rows.Scan(&e.ID, &e.LineageEdgeID, &e.ConnectionID, &e.SourceColumn, &e.TargetColumn); err != nil {
+			return nil, fmt.Errorf("scan column lineage edge: %w", err)
+		}
+		result[e.LineageEdgeID] = append(result[e.LineageEdgeID], e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate column lineage edge rows: %w", err)
+	}
+	return result, nil
+}
+
+// GetQueryByQueryID returns a single query log entry by its ClickHouse query_id.
+func (s *Store) GetQueryByQueryID(connectionID, queryID string) (*QueryLogEntry, error) {
+	row := s.conn().QueryRow(
+		`SELECT id, connection_id, query_id, ch_user, query_text, normalized_hash, query_kind,
+		        event_time, duration_ms, read_rows, read_bytes, result_rows, written_rows,
+		        written_bytes, memory_usage, tables_used, is_error, error_message, created_at
+		 FROM gov_query_log WHERE connection_id = ? AND query_id = ? LIMIT 1`,
+		connectionID, queryID,
+	)
+
+	var e QueryLogEntry
+	if err := row.Scan(&e.ID, &e.ConnectionID, &e.QueryID, &e.User, &e.QueryText,
+		&e.NormalizedHash, &e.QueryKind, &e.EventTime, &e.DurationMs,
+		&e.ReadRows, &e.ReadBytes, &e.ResultRows, &e.WrittenRows,
+		&e.WrittenBytes, &e.MemoryUsage, &e.TablesUsed, &e.IsError,
+		&e.ErrorMessage, &e.CreatedAt); err != nil {
+		return nil, fmt.Errorf("get query by query_id: %w", err)
+	}
+	return &e, nil
+}
+
 // ── Tags ─────────────────────────────────────────────────────────────────────
 
 // GetTags returns all tags for a connection.

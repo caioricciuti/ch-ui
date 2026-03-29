@@ -26,6 +26,7 @@
 	import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte';
 	import Sheet from '../lib/components/common/Sheet.svelte';
 	import HelpTip from '../lib/components/common/HelpTip.svelte';
+	import LineageGraphView from '../lib/components/governance/LineageGraph.svelte';
 	import MiniTrendChart from '../lib/components/common/MiniTrendChart.svelte';
 	import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte';
 	import {
@@ -36,6 +37,7 @@
 		fetchQueryLog,
 		fetchTopQueries,
 		fetchLineageGraph,
+		fetchQueryByQueryID,
 		fetchAccessUsers,
 		fetchAccessRoles,
 		fetchAccessMatrix,
@@ -81,6 +83,7 @@
 		QueryLogEntry,
 		TopQuery,
 		LineageEdge,
+		LineageGraph,
 		ChUser,
 		ChRole,
 		AccessMatrixEntry,
@@ -147,6 +150,11 @@
 
 	// Lineage data
 	let lineageEdges = $state<LineageEdge[]>([]);
+	let lineageGraph = $state<LineageGraph | null>(null);
+	let lineageSearch = $state('');
+	let lineageSelectedEdge = $state<LineageEdge | null>(null);
+	let lineageQueryText = $state('');
+	let lineageSheetOpen = $state(false);
 
 	// Access data
 	let users = $state<ChUser[]>([]);
@@ -611,7 +619,8 @@
 	async function loadLineage() {
 		loading = true;
 		try {
-			const res = await fetchLineageGraph();
+			const res = await fetchLineageGraph(true);
+			lineageGraph = res ?? null;
 			lineageEdges = res?.edges ?? [];
 		} catch (err: any) {
 			toastError('Failed to load lineage: ' + err.message);
@@ -1687,35 +1696,64 @@
 
 					<!-- Lineage Tab -->
 					{#if activeTab === 'lineage'}
-						<div class="space-y-6">
-							{#if lineageEdges.length > 0}
-								<div class="overflow-x-auto">
-									<table class="ds-table">
-										<thead>
-											<tr class="ds-table-head-row">
-												<th class="ds-table-th">Source</th>
-												<th class="ds-table-th">Type</th>
-												<th class="ds-table-th">Target</th>
-												<th class="ds-table-th">User</th>
-												<th class="ds-table-th">Last Seen</th>
-											</tr>
-										</thead>
-										<tbody>
-											{#each lineageEdges as edge}
-												<tr class="ds-table-row">
-													<td class="py-2 px-3 text-gray-800 dark:text-gray-200 font-medium">{edge.source_database}.{edge.source_table}</td>
-													<td class="py-2 px-3">
-														<span class="inline-flex items-center px-1.5 py-0.5 rounded border border-orange-200 bg-orange-100 text-orange-900 dark:border-orange-700/60 dark:bg-orange-500/15 dark:text-orange-200 text-[11px]">
-															{edge.edge_type}
-														</span>
-													</td>
-													<td class="py-2 px-3 text-gray-800 dark:text-gray-200 font-medium">{edge.target_database}.{edge.target_table}</td>
-													<td class="py-2 px-3 text-gray-500 dark:text-gray-400">{edge.ch_user}</td>
-													<td class="py-2 px-3 text-xs text-gray-500 whitespace-nowrap">{formatTime(edge.detected_at)}</td>
-												</tr>
-											{/each}
-										</tbody>
-									</table>
+						<div class="space-y-4">
+							<!-- Toolbar -->
+							<div class="flex items-center gap-3">
+								<div class="relative flex-1 max-w-sm">
+									<Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+									<input
+										type="text"
+										placeholder="Filter by table or database..."
+										class="w-full pl-8 pr-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md text-gray-800 dark:text-gray-200 focus:outline-none focus:border-ch-blue"
+										bind:value={lineageSearch}
+									/>
+								</div>
+								<span class="text-xs text-gray-500">{lineageEdges.length} edge{lineageEdges.length !== 1 ? 's' : ''}</span>
+								<button
+									class="px-2.5 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-800 inline-flex items-center gap-1.5"
+									onclick={() => loadLineage()}
+								>
+									<RefreshCw size={12} />
+									Refresh
+								</button>
+							</div>
+
+							<!-- Graph -->
+							{#if lineageGraph && lineageGraph.nodes.length > 0}
+								<div class="h-[600px] border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
+									<LineageGraphView
+										graph={lineageGraph}
+										searchFilter={lineageSearch}
+										onedgeclick={(edge) => {
+											lineageSelectedEdge = edge;
+											lineageQueryText = '';
+											lineageSheetOpen = true;
+											if (edge.query_id) {
+												fetchQueryByQueryID(edge.query_id)
+													.then((res) => { lineageQueryText = res?.entry?.query_text ?? 'Query text not available'; })
+													.catch(() => { lineageQueryText = 'Failed to load query text'; });
+											}
+										}}
+									/>
+								</div>
+
+								<!-- Legend -->
+								<div class="flex items-center gap-4 text-xs text-gray-500">
+									<span class="inline-flex items-center gap-1.5">
+										<span class="w-3 h-0.5 bg-orange-500 rounded"></span> insert_select
+									</span>
+									<span class="inline-flex items-center gap-1.5">
+										<span class="w-3 h-0.5 bg-blue-500 rounded" style="border-top: 2px dashed;"></span> create_as_select
+									</span>
+									<span class="inline-flex items-center gap-1.5">
+										<span class="w-2 h-2 rounded-full border-2 border-blue-400"></span> source
+									</span>
+									<span class="inline-flex items-center gap-1.5">
+										<span class="w-2 h-2 rounded-full border-2 border-green-400"></span> target
+									</span>
+									<span class="inline-flex items-center gap-1.5">
+										<span class="w-2 h-2 rounded-full border-2 border-orange-400"></span> current
+									</span>
 								</div>
 							{:else}
 								<div class="ds-empty py-12">
@@ -1724,6 +1762,56 @@
 								</div>
 							{/if}
 						</div>
+
+						<!-- Edge detail sheet -->
+						{#if lineageSheetOpen && lineageSelectedEdge}
+							<Sheet title="Lineage Edge" open={lineageSheetOpen} onclose={() => lineageSheetOpen = false} size="lg">
+								<div class="space-y-4">
+									<div class="grid grid-cols-2 gap-3 text-sm">
+										<div>
+											<div class="text-xs text-gray-500 mb-1">Source</div>
+											<div class="font-medium text-gray-800 dark:text-gray-200">{lineageSelectedEdge.source_database}.{lineageSelectedEdge.source_table}</div>
+										</div>
+										<div>
+											<div class="text-xs text-gray-500 mb-1">Target</div>
+											<div class="font-medium text-gray-800 dark:text-gray-200">{lineageSelectedEdge.target_database}.{lineageSelectedEdge.target_table}</div>
+										</div>
+										<div>
+											<div class="text-xs text-gray-500 mb-1">Type</div>
+											<span class="inline-flex items-center px-1.5 py-0.5 rounded border border-orange-200 bg-orange-100 text-orange-900 dark:border-orange-700/60 dark:bg-orange-500/15 dark:text-orange-200 text-[11px]">
+												{lineageSelectedEdge.edge_type}
+											</span>
+										</div>
+										<div>
+											<div class="text-xs text-gray-500 mb-1">User</div>
+											<div class="text-gray-700 dark:text-gray-300">{lineageSelectedEdge.ch_user}</div>
+										</div>
+									</div>
+
+									{#if lineageSelectedEdge.column_edges && lineageSelectedEdge.column_edges.length > 0}
+										<div>
+											<div class="text-xs text-gray-500 mb-2">Column Mappings</div>
+											<div class="grid grid-cols-[1fr_auto_1fr] gap-x-3 gap-y-1 text-xs">
+												{#each lineageSelectedEdge.column_edges as ce}
+													<span class="font-mono text-gray-700 dark:text-gray-300">{ce.source_column}</span>
+													<span class="text-gray-400">&rarr;</span>
+													<span class="font-mono text-gray-700 dark:text-gray-300">{ce.target_column}</span>
+												{/each}
+											</div>
+										</div>
+									{/if}
+
+									<div>
+										<div class="text-xs text-gray-500 mb-2">Query</div>
+										{#if lineageQueryText}
+											<pre class="text-xs bg-gray-100 dark:bg-gray-800 rounded-lg p-3 overflow-auto max-h-80 text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{lineageQueryText}</pre>
+										{:else}
+											<div class="text-xs text-gray-500">Loading query...</div>
+										{/if}
+									</div>
+								</div>
+							</Sheet>
+						{/if}
 					{/if}
 
 					<!-- Access Tab -->

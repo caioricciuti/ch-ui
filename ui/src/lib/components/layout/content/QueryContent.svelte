@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { QueryTab } from '../../../stores/tabs.svelte'
   import { updateTabSQL, getTabResult, setTabResult, markQueryTabSaved } from '../../../stores/tabs.svelte'
-  import { formatSQL, explainQuery, fetchQueryPlan, runSampleQuery, fetchQueryProfile } from '../../../api/query'
-  import type { QueryPlanNode } from '../../../types/query'
+  import { formatSQL, explainQuery, fetchQueryPlan, runSampleQuery, fetchQueryProfile, estimateQuery } from '../../../api/query'
+  import type { QueryPlanNode, QueryEstimateResult } from '../../../types/query'
   import type { SavedQuery } from '../../../types/api'
   import { executeStreamQuery } from '../../../api/stream'
   import { apiPost, apiPut } from '../../../api/client'
@@ -48,6 +48,12 @@
   // Sampling mode from last sample action
   let samplingMode = $state<string | null>(null)
 
+  // Query cost estimate state
+  let estimate = $state<QueryEstimateResult | null>(null)
+  let estimateLoading = $state(false)
+  let estimateTimer: ReturnType<typeof setTimeout> | null = null
+  let lastEstimatedSQL = ''
+
   // Save modal state
   let showSaveModal = $state(false)
   let saveName = $state('')
@@ -58,6 +64,32 @@
 
   function handleSQLChange(sql: string) {
     updateTabSQL(tab.id, sql)
+    debouncedEstimate(sql)
+  }
+
+  function debouncedEstimate(sql: string) {
+    if (estimateTimer) clearTimeout(estimateTimer)
+    const trimmed = sql.trim()
+    if (!trimmed || trimmed === lastEstimatedSQL) return
+    // Only estimate SELECT/WITH queries
+    const upper = trimmed.toUpperCase()
+    if (!upper.startsWith('SELECT') && !upper.startsWith('WITH')) {
+      estimate = null
+      return
+    }
+    estimateTimer = setTimeout(() => void runEstimate(trimmed), 1500)
+  }
+
+  async function runEstimate(sql: string) {
+    lastEstimatedSQL = sql
+    estimateLoading = true
+    try {
+      estimate = await estimateQuery(sql)
+    } catch {
+      estimate = null
+    } finally {
+      estimateLoading = false
+    }
   }
 
   function toPositionalRows(meta: Array<{ name: string }>, rows: any[]): unknown[][] {
@@ -352,6 +384,8 @@
       onformat={handleFormat}
       onexplain={handleExplain}
       onsave={handleSaveClick}
+      {estimate}
+      {estimateLoading}
     />
     <div class="flex-1 min-h-0">
       <SqlEditor
@@ -399,6 +433,7 @@
       {profileLoading}
       {profileError}
       samplingMode={samplingMode}
+      {estimate}
     />
   </div>
 </div>

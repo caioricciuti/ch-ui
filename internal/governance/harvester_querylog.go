@@ -175,16 +175,29 @@ func (s *Syncer) syncQueryLog(ctx context.Context, creds CHCredentials) (*QueryL
 		result.NewWatermark = watermark
 	}
 
-	// Extract lineage from each entry
+	// Extract lineage (table + column level) from each entry
 	lineageCount := 0
 	for _, entry := range entries {
-		edges := ExtractLineage(connID, entry)
-		for _, edge := range edges {
-			if err := s.store.InsertLineageEdge(edge); err != nil {
+		results := ExtractLineageWithColumns(connID, entry)
+		for _, lr := range results {
+			if err := s.store.InsertLineageEdge(lr.Edge); err != nil {
 				slog.Error("Failed to insert lineage edge", "error", err)
 				continue
 			}
 			lineageCount++
+			// Insert column-level mappings
+			for _, cm := range lr.ColumnMappings {
+				colEdge := ColumnLineageEdge{
+					ID:            uuid.New().String(),
+					LineageEdgeID: lr.Edge.ID,
+					ConnectionID:  connID,
+					SourceColumn:  cm.SourceColumn,
+					TargetColumn:  cm.TargetColumn,
+				}
+				if err := s.store.InsertColumnLineageEdge(colEdge); err != nil {
+					slog.Error("Failed to insert column lineage edge", "error", err)
+				}
+			}
 		}
 	}
 	result.LineageEdgesFound = lineageCount

@@ -41,6 +41,7 @@ func (h *QueryHandler) Routes(r chi.Router) {
 	r.Post("/explain", h.ExplainQuery)
 	r.Post("/plan", h.QueryPlan)
 	r.Post("/profile", h.QueryProfile)
+	r.Post("/estimate", h.EstimateQuery)
 	r.Get("/databases", h.ListDatabases)
 	r.Get("/tables", h.ListTables)
 	r.Get("/columns", h.ListColumns)
@@ -382,6 +383,120 @@ func (h *QueryHandler) QueryPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, http.StatusBadGateway, "No plan information returned by ClickHouse")
+}
+
+// EstimateQuery handles POST /estimate and returns cost estimation via EXPLAIN ESTIMATE.
+func (h *QueryHandler) EstimateQuery(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+
+	var req explainRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	query := strings.TrimSpace(req.Query)
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "Query is required")
+		return
+	}
+
+	password, err := crypto.Decrypt(session.EncryptedPassword, h.Config.AppSecretKey)
+	if err != nil {
+		slog.Error("Failed to decrypt password", "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to decrypt credentials")
+		return
+	}
+
+	result, err := h.Gateway.ExecuteQuery(
+		session.ConnectionID,
+		"EXPLAIN ESTIMATE "+query,
+		session.ClickhouseUser,
+		password,
+		15*time.Second,
+	)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"success":      true,
+			"tables":       []interface{}{},
+			"total_rows":   0,
+			"total_parts":  0,
+			"total_marks":  0,
+			"error":        err.Error(),
+		})
+		return
+	}
+
+	rows := decodeRows(result.Data)
+
+	type tableEstimate struct {
+		Database string `json:"database"`
+		Table    string `json:"table"`
+		Parts    int64  `json:"parts"`
+		Rows     int64  `json:"rows"`
+		Marks    int64  `json:"marks"`
+	}
+
+	var tables []tableEstimate
+	var totalRows, totalParts, totalMarks int64
+
+	for _, row := range rows {
+		te := tableEstimate{
+			Database: fmt.Sprint(row["database"]),
+			Table:    fmt.Sprint(row["table"]),
+		}
+		if v, ok := row["parts"]; ok {
+			te.Parts = toInt64(v)
+		}
+		if v, ok := row["rows"]; ok {
+			te.Rows = toInt64(v)
+		}
+		if v, ok := row["marks"]; ok {
+			te.Marks = toInt64(v)
+		}
+		tables = append(tables, te)
+		totalRows += te.Rows
+		totalParts += te.Parts
+		totalMarks += te.Marks
+	}
+
+	if tables == nil {
+		tables = []tableEstimate{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":     true,
+		"tables":      tables,
+		"total_rows":  totalRows,
+		"total_parts": totalParts,
+		"total_marks": totalMarks,
+	})
+}
+
+// toInt64 converts an interface value to int64.
+func toInt64(v interface{}) int64 {
+	switch val := v.(type) {
+	case float64:
+		return int64(val)
+	case int64:
+		return val
+	case int:
+		return int64(val)
+	case string:
+		n, _ := strconv.ParseInt(val, 10, 64)
+		return n
+	case json.Number:
+		n, _ := val.Int64()
+		return n
+	default:
+		s := fmt.Sprint(v)
+		n, _ := strconv.ParseInt(s, 10, 64)
+		return n
+	}
 }
 
 // SampleQuery handles POST /sample and returns first N rows per shard when available.

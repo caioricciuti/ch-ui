@@ -145,16 +145,25 @@ type QueryLogEntry struct {
 }
 
 type LineageEdge struct {
-	ID             string `json:"id"`
-	ConnectionID   string `json:"connection_id"`
-	SourceDatabase string `json:"source_database"`
-	SourceTable    string `json:"source_table"`
-	TargetDatabase string `json:"target_database"`
-	TargetTable    string `json:"target_table"`
-	QueryID        string `json:"query_id"`
-	User           string `json:"ch_user"`
-	EdgeType       string `json:"edge_type"`
-	DetectedAt     string `json:"detected_at"`
+	ID             string              `json:"id"`
+	ConnectionID   string              `json:"connection_id"`
+	SourceDatabase string              `json:"source_database"`
+	SourceTable    string              `json:"source_table"`
+	TargetDatabase string              `json:"target_database"`
+	TargetTable    string              `json:"target_table"`
+	QueryID        string              `json:"query_id"`
+	User           string              `json:"ch_user"`
+	EdgeType       string              `json:"edge_type"`
+	DetectedAt     string              `json:"detected_at"`
+	ColumnEdges    []ColumnLineageEdge `json:"column_edges,omitempty"`
+}
+
+type ColumnLineageEdge struct {
+	ID            string `json:"id"`
+	LineageEdgeID string `json:"lineage_edge_id"`
+	ConnectionID  string `json:"connection_id"`
+	SourceColumn  string `json:"source_column"`
+	TargetColumn  string `json:"target_column"`
 }
 
 type TagEntry struct {
@@ -377,10 +386,11 @@ type CHCredentials struct {
 // ── Lineage graph (for API response) ─────────────────────────────────────────
 
 type LineageNode struct {
-	ID       string `json:"id"`
-	Database string `json:"database"`
-	Table    string `json:"table"`
-	Type     string `json:"type"` // "source", "target", "current"
+	ID       string      `json:"id"`
+	Database string      `json:"database"`
+	Table    string      `json:"table"`
+	Type     string      `json:"type"` // "source", "target", "current"
+	Columns  []GovColumn `json:"columns,omitempty"`
 }
 
 type LineageGraph struct {

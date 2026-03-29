@@ -385,6 +385,18 @@ func (db *DB) runMigrations() error {
 		`CREATE INDEX IF NOT EXISTS idx_gov_lineage_src ON gov_lineage_edges(connection_id, source_database, source_table)`,
 		`CREATE INDEX IF NOT EXISTS idx_gov_lineage_tgt ON gov_lineage_edges(connection_id, target_database, target_table)`,
 
+		// Governance column-level lineage edges
+		`CREATE TABLE IF NOT EXISTS gov_lineage_column_edges (
+			id TEXT PRIMARY KEY,
+			lineage_edge_id TEXT NOT NULL REFERENCES gov_lineage_edges(id) ON DELETE CASCADE,
+			connection_id TEXT NOT NULL,
+			source_column TEXT NOT NULL,
+			target_column TEXT NOT NULL,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(lineage_edge_id, source_column, target_column)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_gov_col_lineage_edge ON gov_lineage_column_edges(lineage_edge_id)`,
+
 		// Governance sensitivity tags
 		`CREATE TABLE IF NOT EXISTS gov_tags (
 			id TEXT PRIMARY KEY,

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ColumnMeta, QueryPlanNode, QueryStats } from '../../types/query'
+  import type { ColumnMeta, QueryPlanNode, QueryStats, QueryEstimateResult } from '../../types/query'
   import VirtualTable from '../table/VirtualTable.svelte'
   import Spinner from '../common/Spinner.svelte'
   import ResultFooter from './ResultFooter.svelte'
@@ -36,6 +36,7 @@
     profileLoading?: boolean
     profileError?: string | null
     samplingMode?: string | null
+    estimate?: QueryEstimateResult | null
   }
 
   let {
@@ -63,6 +64,7 @@
     profileLoading = false,
     profileError = null,
     samplingMode = null,
+    estimate = null,
   }: Props = $props()
 
   let activeTab = $state<Tab>('data')
@@ -128,6 +130,7 @@
         {profileLoading}
         {profileError}
         {samplingMode}
+        {estimate}
       />
     {:else}
       <SchemaPanel {meta} />

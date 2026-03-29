@@ -65,7 +65,8 @@ Everything below is included in the free Community edition under Apache 2.0.
 - CodeMirror 6 with SQL syntax highlighting and autocomplete
 - Query formatting and beautification
 - Streaming results via SSE — no timeout on long queries
-- Query profiling (pulls from `system.query_log`)
+- **Query cost estimation** — see estimated rows and parts to scan before running (like BigQuery's dry run)
+- Query profiling (pulls from `system.query_log`) with estimate vs actual accuracy comparison
 - Query plan analysis (EXPLAIN with parsed tree view)
 - Configurable max result rows and query timeout
 - Guardrails enforcement (query validation before execution)
@@ -169,7 +170,7 @@ Almost everything is free. Pro adds enterprise governance and scheduling.
 | Multi-connection management | **Yes** | Yes |
 | Tunnel (remote ClickHouse) | **Yes** | Yes |
 | Scheduled query jobs + cron + history | - | **Yes** |
-| Governance (metadata, lineage, access matrix) | - | **Yes** |
+| Governance (metadata, visual lineage graph, column-level lineage, access matrix) | - | **Yes** |
 | Policies + incidents + violations | - | **Yes** |
 | Alerting (SMTP, Resend, Brevo) | - | **Yes** |
 

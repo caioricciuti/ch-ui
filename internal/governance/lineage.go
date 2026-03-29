@@ -82,6 +82,162 @@ func ExtractLineage(connectionID string, entry QueryLogEntry) []LineageEdge {
 	return edges
 }
 
+// ── Column-level lineage ───────────────────────────────────────────────────
+
+// ColumnMapping represents a source→target column mapping within a lineage edge.
+type ColumnMapping struct {
+	SourceColumn string
+	TargetColumn string
+}
+
+// LineageResult bundles a table-level edge with its column mappings.
+type LineageResult struct {
+	Edge           LineageEdge
+	ColumnMappings []ColumnMapping
+}
+
+var (
+	// Matches INSERT INTO table (col1, col2, ...) — captures the parenthesized column list.
+	insertColsRe = regexp.MustCompile(`(?i)\bINSERT\s+INTO\s+` + tableRefPattern + `\s*\(([^)]+)\)`)
+	// Matches SELECT ... FROM — captures everything between SELECT and FROM.
+	selectClauseRe = regexp.MustCompile(`(?i)\bSELECT\s+(.*?)\s+FROM\b`)
+)
+
+// ExtractColumnLineage attempts to extract column-level mappings from an
+// INSERT INTO (cols) SELECT cols FROM ... pattern. Returns nil when the
+// pattern doesn't match or column counts differ (graceful degradation).
+func ExtractColumnLineage(query string) []ColumnMapping {
+	normalized := normaliseWhitespace(query)
+
+	// Extract target columns from INSERT INTO table (col1, col2, ...)
+	insertMatch := insertColsRe.FindStringSubmatch(normalized)
+	if insertMatch == nil {
+		return nil
+	}
+	// The column list is in the last capture group.
+	targetColsRaw := insertMatch[len(insertMatch)-1]
+	targetCols := splitAndTrimColumns(targetColsRaw)
+	if len(targetCols) == 0 {
+		return nil
+	}
+
+	// Extract source columns from SELECT clause.
+	selectMatch := selectClauseRe.FindStringSubmatch(normalized)
+	if selectMatch == nil || len(selectMatch) < 2 {
+		return nil
+	}
+	sourceExprs := splitSelectExpressions(selectMatch[1])
+	if len(sourceExprs) == 0 {
+		return nil
+	}
+
+	// Only zip when counts match — avoids incorrect mappings.
+	if len(targetCols) != len(sourceExprs) {
+		return nil
+	}
+
+	mappings := make([]ColumnMapping, 0, len(targetCols))
+	for i, target := range targetCols {
+		source := extractColumnName(sourceExprs[i])
+		if source == "" || source == "*" {
+			return nil // SELECT * or unparseable expression
+		}
+		mappings = append(mappings, ColumnMapping{
+			SourceColumn: source,
+			TargetColumn: target,
+		})
+	}
+	return mappings
+}
+
+// ExtractLineageWithColumns is like ExtractLineage but also returns column mappings.
+func ExtractLineageWithColumns(connectionID string, entry QueryLogEntry) []LineageResult {
+	edges := ExtractLineage(connectionID, entry)
+	if len(edges) == 0 {
+		return nil
+	}
+
+	columnMappings := ExtractColumnLineage(entry.QueryText)
+
+	results := make([]LineageResult, 0, len(edges))
+	for _, edge := range edges {
+		results = append(results, LineageResult{
+			Edge:           edge,
+			ColumnMappings: columnMappings, // Same mappings apply to all edges from this query
+		})
+	}
+	return results
+}
+
+// splitAndTrimColumns splits a comma-separated column list and trims whitespace/backticks.
+func splitAndTrimColumns(s string) []string {
+	parts := strings.Split(s, ",")
+	var result []string
+	for _, p := range parts {
+		col := strings.TrimSpace(p)
+		col = stripBackticks(col)
+		if col != "" {
+			result = append(result, col)
+		}
+	}
+	return result
+}
+
+// splitSelectExpressions splits SELECT expressions by commas, respecting
+// parenthesized sub-expressions (e.g., function calls).
+func splitSelectExpressions(s string) []string {
+	var result []string
+	depth := 0
+	start := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case ',':
+			if depth == 0 {
+				expr := strings.TrimSpace(s[start:i])
+				if expr != "" {
+					result = append(result, expr)
+				}
+				start = i + 1
+			}
+		}
+	}
+	// Last expression
+	expr := strings.TrimSpace(s[start:])
+	if expr != "" {
+		result = append(result, expr)
+	}
+	return result
+}
+
+// extractColumnName extracts the effective column name from a SELECT expression.
+// Handles: "col", "t.col", "expr AS alias", "expr alias".
+func extractColumnName(expr string) string {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return ""
+	}
+
+	// Check for AS alias (case-insensitive).
+	asRe := regexp.MustCompile(`(?i)\bAS\s+` + "(`[^`]+`|[a-zA-Z_][a-zA-Z0-9_]*)" + `\s*$`)
+	if m := asRe.FindStringSubmatch(expr); len(m) > 1 {
+		return stripBackticks(m[1])
+	}
+
+	// If no parens and no operators, take the last dotted part.
+	if !strings.ContainsAny(expr, "()+*/-") {
+		parts := strings.Fields(expr)
+		last := parts[len(parts)-1]
+		dotParts := strings.Split(last, ".")
+		return stripBackticks(dotParts[len(dotParts)-1])
+	}
+
+	return ""
+}
+
 // ── Internal helpers ────────────────────────────────────────────────────────
 
 // extractTarget returns the target table for INSERT INTO or CREATE TABLE/MV

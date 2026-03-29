@@ -55,6 +55,7 @@ func (h *GovernanceHandler) Routes() chi.Router {
 	// Query Log
 	r.Get("/query-log", h.ListQueryLog)
 	r.Get("/query-log/top", h.TopQueries)
+	r.Get("/query-log/{query_id}", h.GetQueryByQueryID)
 
 	// Lineage
 	r.Get("/lineage", h.GetLineage)
@@ -788,6 +789,12 @@ func (h *GovernanceHandler) GetLineage(w http.ResponseWriter, r *http.Request) {
 
 	allEdges := append(upstream, downstream...)
 
+	// Enrich: include_columns=true attaches column metadata to nodes and column edges to edges
+	if r.URL.Query().Get("include_columns") == "true" {
+		enrichLineageNodes(h.Store, connID, nodes)
+		enrichLineageEdges(h.Store, allEdges)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"graph": governance.LineageGraph{Nodes: nodes, Edges: allEdges},
 	})
@@ -832,9 +839,70 @@ func (h *GovernanceHandler) GetLineageGraph(w http.ResponseWriter, r *http.Reque
 		nodes = append(nodes, n)
 	}
 
+	// Enrich: include_columns=true attaches column metadata to nodes and column edges to edges
+	if r.URL.Query().Get("include_columns") == "true" {
+		enrichLineageNodes(h.Store, connID, nodes)
+		enrichLineageEdges(h.Store, edges)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"graph": governance.LineageGraph{Nodes: nodes, Edges: edges},
 	})
+}
+
+// enrichLineageNodes attaches column metadata from gov_columns to each node.
+func enrichLineageNodes(store *governance.Store, connID string, nodes []governance.LineageNode) {
+	for i := range nodes {
+		cols, err := store.GetColumns(connID, nodes[i].Database, nodes[i].Table)
+		if err != nil {
+			slog.Warn("Failed to get columns for lineage node", "node", nodes[i].ID, "error", err)
+			continue
+		}
+		nodes[i].Columns = cols
+	}
+}
+
+// enrichLineageEdges attaches column-level lineage edges to each table-level edge.
+func enrichLineageEdges(store *governance.Store, edges []governance.LineageEdge) {
+	edgeIDs := make([]string, 0, len(edges))
+	for _, e := range edges {
+		edgeIDs = append(edgeIDs, e.ID)
+	}
+
+	colEdgeMap, err := store.GetColumnEdgesForEdgeIDs(edgeIDs)
+	if err != nil {
+		slog.Warn("Failed to get column lineage edges", "error", err)
+		return
+	}
+
+	for i := range edges {
+		if colEdges, ok := colEdgeMap[edges[i].ID]; ok {
+			edges[i].ColumnEdges = colEdges
+		}
+	}
+}
+
+// GetQueryByQueryID returns a single query log entry by ClickHouse query_id.
+func (h *GovernanceHandler) GetQueryByQueryID(w http.ResponseWriter, r *http.Request) {
+	connID := h.connectionID(r)
+	if connID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
+		return
+	}
+
+	queryID := chi.URLParam(r, "query_id")
+	if queryID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "query_id is required"})
+		return
+	}
+
+	entry, err := h.Store.GetQueryByQueryID(connID, queryID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Query not found"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"entry": entry})
 }
 
 // ── Tags ─────────────────────────────────────────────────────────────────────

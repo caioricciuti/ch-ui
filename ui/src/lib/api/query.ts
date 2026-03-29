@@ -4,6 +4,7 @@ import type {
   ExplorerDataResponse,
   QueryPlanResult,
   QueryProfileResult,
+  QueryEstimateResult,
   SampleQueryResult,
 } from '../types/query'
 import type { Column } from '../types/schema'
@@ -48,6 +49,11 @@ export function fetchQueryPlan(query: string): Promise<QueryPlanResult> {
 /** Get inline profiling row from system.query_log for a query */
 export function fetchQueryProfile(query: string): Promise<QueryProfileResult> {
   return apiPost<QueryProfileResult>('/api/query/profile', { query })
+}
+
+/** Get query cost estimate via EXPLAIN ESTIMATE */
+export function estimateQuery(query: string): Promise<QueryEstimateResult> {
+  return apiPost<QueryEstimateResult>('/api/query/estimate', { query })
 }
 
 /** Execute sampling query: first N rows per shard with fallback to global sample */

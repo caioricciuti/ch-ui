@@ -1,11 +1,11 @@
 <script lang="ts">
-  import type { ColumnMeta, QueryPlanNode, QueryStats } from '../../types/query'
+  import type { ColumnMeta, QueryPlanNode, QueryStats, QueryEstimateResult } from '../../types/query'
   import { getDisplayType } from '../../utils/ch-types'
   import { formatBytes, formatElapsed, formatNumber } from '../../utils/format'
   import Combobox from '../common/Combobox.svelte'
   import type { ComboboxOption } from '../common/Combobox.svelte'
   import Spinner from '../common/Spinner.svelte'
-  import { Activity, Layers3, AreaChart, GitBranch, Gauge, RefreshCw, FlaskConical } from 'lucide-svelte'
+  import { Activity, Layers3, AreaChart, GitBranch, Gauge, RefreshCw, FlaskConical, Scale } from 'lucide-svelte'
 
   interface Props {
     meta: ColumnMeta[]
@@ -30,6 +30,7 @@
     profileLoading?: boolean
     profileError?: string | null
     samplingMode?: string | null
+    estimate?: QueryEstimateResult | null
   }
 
   let {
@@ -55,6 +56,7 @@
     profileLoading = false,
     profileError = null,
     samplingMode = null,
+    estimate = null,
   }: Props = $props()
 
   const encoder = new TextEncoder()
@@ -251,6 +253,38 @@
           No stream events yet
         {/if}
       </div>
+    </div>
+
+    <div class="surface-card rounded-xl p-3">
+      <div class="text-[11px] uppercase tracking-wider text-gray-500 inline-flex items-center gap-1.5"><Scale size={13} />Estimate vs Actual</div>
+      {#if estimate && estimate.success && !estimate.error && stats}
+        {@const actualRows = Number(stats.rows_read ?? 0)}
+        {@const estimatedRows = estimate.total_rows}
+        {@const accuracy = estimatedRows > 0 ? Math.round((Math.min(actualRows, estimatedRows) / Math.max(actualRows, estimatedRows)) * 100) : 0}
+        <div class="mt-2 grid grid-cols-2 gap-1.5 text-xs">
+          <div class="rounded-md bg-gray-100/70 dark:bg-gray-800/70 px-2 py-1">
+            <div class="text-gray-500">Estimated</div>
+            <div class="font-semibold text-gray-800 dark:text-gray-100">{formatNumber(estimatedRows)} rows</div>
+          </div>
+          <div class="rounded-md bg-gray-100/70 dark:bg-gray-800/70 px-2 py-1">
+            <div class="text-gray-500">Actual</div>
+            <div class="font-semibold text-gray-800 dark:text-gray-100">{formatNumber(actualRows)} rows</div>
+          </div>
+        </div>
+        <div class="mt-1.5 flex items-center gap-2">
+          <div class="flex-1 h-1.5 rounded bg-gray-200 dark:bg-gray-800 overflow-hidden">
+            <div class="h-full rounded {accuracy >= 80 ? 'bg-green-500' : accuracy >= 50 ? 'bg-yellow-500' : 'bg-red-500'}" style="width:{accuracy}%"></div>
+          </div>
+          <span class="text-xs font-medium {accuracy >= 80 ? 'text-green-600 dark:text-green-400' : accuracy >= 50 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}">{accuracy}%</span>
+        </div>
+      {:else if estimate && estimate.success && !estimate.error && !stats}
+        <div class="mt-2 text-xs text-gray-800 dark:text-gray-100">
+          <span class="font-semibold">{formatNumber(estimate.total_rows)}</span> rows · {estimate.total_parts} parts · {formatNumber(estimate.total_marks)} marks
+        </div>
+        <div class="mt-1 text-xs text-gray-500">Run the query to compare with actual.</div>
+      {:else}
+        <div class="mt-2 text-xs text-gray-500">No estimate available. Type a SELECT query.</div>
+      {/if}
     </div>
 
     <div class="surface-card rounded-xl p-3">
