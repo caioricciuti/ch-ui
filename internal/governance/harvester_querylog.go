@@ -75,6 +75,11 @@ func (s *Syncer) syncQueryLog(ctx context.Context, creds CHCredentials) (*QueryL
 	WHERE type = 'QueryFinish'
 	  AND is_initial_query = 1
 	  AND event_time > parseDateTimeBestEffort('%s')
+	  AND query_duration_ms >= 10
+	  AND query NOT LIKE '%%system.query_log%%'
+	  AND query NOT LIKE '%%system.tables%%'
+	  AND query NOT LIKE '%%system.columns%%'
+	  AND query NOT LIKE '%%system.grants%%'
 	ORDER BY event_time ASC
 	LIMIT %d`, watermark, queryLogBatchLimit)
 
@@ -100,6 +105,11 @@ func (s *Syncer) syncQueryLog(ctx context.Context, creds CHCredentials) (*QueryL
 	WHERE type = 'QueryFinish'
 	  AND is_initial_query = 1
 	  AND event_time > parseDateTimeBestEffort('%s')
+	  AND query_duration_ms >= 10
+	  AND query NOT LIKE '%%system.query_log%%'
+	  AND query NOT LIKE '%%system.tables%%'
+	  AND query NOT LIKE '%%system.columns%%'
+	  AND query NOT LIKE '%%system.grants%%'
 	ORDER BY event_time ASC
 	LIMIT %d`, watermark, queryLogBatchLimit)
 

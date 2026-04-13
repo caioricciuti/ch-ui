@@ -18,7 +18,11 @@
 		ChevronDown,
 		MessageSquare,
 		Siren,
-		Bell
+		Bell,
+		Settings as SettingsIcon,
+		Info,
+		X,
+		Lock
 	} from 'lucide-svelte';
 	import Spinner from '../lib/components/common/Spinner.svelte';
 	import Combobox from '../lib/components/common/Combobox.svelte';
@@ -37,6 +41,7 @@
 		fetchQueryLog,
 		fetchTopQueries,
 		fetchLineageGraph,
+		fetchViewGraph,
 		fetchQueryByQueryID,
 		fetchAccessUsers,
 		fetchAccessRoles,
@@ -57,7 +62,9 @@
 		fetchTableNotes,
 		createTableNote as apiCreateTableNote,
 		deleteObjectNote as apiDeleteObjectNote,
-		triggerSync
+		triggerSync,
+		fetchGovernanceSettings,
+		updateGovernanceSettings
 	} from '../lib/api/governance';
 	import { apiGet } from '../lib/api/client';
 	import type { AlertChannel, AlertChannelType, AlertEvent, AlertRule } from '../lib/types/alerts';
@@ -93,11 +100,12 @@
 		GovernanceIncident,
 		GovernanceIncidentComment,
 		GovernanceObjectComment,
-		SyncState
+		SyncState,
+		GovernanceSettings
 	} from '../lib/types/governance';
 
 	// State
-	type GovernanceTab = 'dashboard' | 'tables' | 'queries' | 'lineage' | 'access' | 'incidents' | 'policies' | 'querylog' | 'alerts' | 'auditlog';
+	type GovernanceTab = 'dashboard' | 'tables' | 'queries' | 'lineage' | 'viewgraph' | 'access' | 'incidents' | 'policies' | 'querylog' | 'alerts' | 'auditlog' | 'settings';
 	type OverPermissionGroup = {
 		userName: string;
 		alerts: OverPermission[];
@@ -113,17 +121,26 @@
 		{ id: 'tables', label: 'Tables' },
 		{ id: 'queries', label: 'Query Audit' },
 		{ id: 'lineage', label: 'Lineage' },
+		{ id: 'viewgraph', label: 'View Graph' },
 		{ id: 'access', label: 'Access' },
 		{ id: 'incidents', label: 'Incidents' },
 		{ id: 'policies', label: 'Policies' },
 		{ id: 'querylog', label: 'Query Log' },
 		{ id: 'alerts', label: 'Alerts' },
 		{ id: 'auditlog', label: 'Audit Log' },
+		{ id: 'settings', label: 'Settings' },
 	];
 
 	let activeTab = $state<GovernanceTab>('dashboard');
 	let loading = $state<boolean>(false);
 	let syncing = $state<boolean>(false);
+
+	// Sync settings (opt-in toggle + upgrade banner)
+	let govSettings = $state<GovernanceSettings | null>(null);
+	let govSettingsLoading = $state<boolean>(false);
+	let govToggleSaving = $state<boolean>(false);
+	let showEnableConfirm = $state<boolean>(false);
+	let showDisableConfirm = $state<boolean>(false);
 
 	// Dashboard data
 	let overview = $state<GovernanceOverview | null>(null);
@@ -155,6 +172,10 @@
 	let lineageSelectedEdge = $state<LineageEdge | null>(null);
 	let lineageQueryText = $state('');
 	let lineageSheetOpen = $state(false);
+
+	// View Graph data
+	let viewGraphData = $state<LineageGraph | null>(null);
+	let viewGraphSearch = $state('');
 
 	// Access data
 	let users = $state<ChUser[]>([]);
@@ -506,7 +527,7 @@
 		return 'info';
 	}
 
-	const governanceTabIds: GovernanceTab[] = ['dashboard', 'tables', 'queries', 'lineage', 'access', 'incidents', 'policies', 'querylog', 'alerts', 'auditlog'];
+	const governanceTabIds: GovernanceTab[] = ['dashboard', 'tables', 'queries', 'lineage', 'viewgraph', 'access', 'incidents', 'policies', 'querylog', 'alerts', 'auditlog', 'settings'];
 
 	function normalizeGovernanceTab(value: string | null | undefined): GovernanceTab {
 		const raw = (value ?? '').trim().toLowerCase();
@@ -558,6 +579,8 @@
 			loadQueries();
 		} else if (tab === 'lineage') {
 			loadLineage();
+		} else if (tab === 'viewgraph') {
+			loadViewGraph();
 		} else if (tab === 'access') {
 			loadAccess();
 		} else if (tab === 'incidents') {
@@ -570,7 +593,47 @@
 			loadAlertsAdmin();
 		} else if (tab === 'auditlog') {
 			loadAuditLogs();
+		} else if (tab === 'settings') {
+			loadGovernanceSettings();
 		}
+	}
+
+	async function loadGovernanceSettings() {
+		govSettingsLoading = true;
+		try {
+			govSettings = await fetchGovernanceSettings();
+		} catch (err: any) {
+			toastError('Failed to load governance settings: ' + err.message);
+		} finally {
+			govSettingsLoading = false;
+		}
+	}
+
+	async function persistGovernanceSettings(payload: { sync_enabled?: boolean; banner_dismissed?: boolean }) {
+		govToggleSaving = true;
+		try {
+			govSettings = await updateGovernanceSettings(payload);
+			if (payload.sync_enabled === true) toastSuccess('Governance sync enabled');
+			if (payload.sync_enabled === false) toastSuccess('Governance sync disabled');
+		} catch (err: any) {
+			toastError('Failed to update governance settings: ' + err.message);
+		} finally {
+			govToggleSaving = false;
+		}
+	}
+
+	async function dismissGovernanceUpgradeBanner() {
+		await persistGovernanceSettings({ banner_dismissed: true });
+	}
+
+	async function confirmEnableGovernanceSync() {
+		showEnableConfirm = false;
+		await persistGovernanceSettings({ sync_enabled: true });
+	}
+
+	async function confirmDisableGovernanceSync() {
+		showDisableConfirm = false;
+		await persistGovernanceSettings({ sync_enabled: false });
 	}
 
 	async function loadDashboard() {
@@ -629,6 +692,18 @@
 		}
 	}
 
+	async function loadViewGraph() {
+		loading = true;
+		try {
+			const res = await fetchViewGraph();
+			viewGraphData = res ?? null;
+		} catch (err: any) {
+			toastError('Failed to load view graph: ' + err.message);
+		} finally {
+			loading = false;
+		}
+	}
+
 	async function loadAccess() {
 		loading = true;
 		try {
@@ -682,6 +757,11 @@
 	}
 
 	async function handleSyncNow() {
+		if (govSettings && !govSettings.sync_enabled) {
+			toastError('Governance sync is disabled. Enable it in the Settings tab first.');
+			switchTab('settings');
+			return;
+		}
 		syncing = true;
 		try {
 			await triggerSync();
@@ -1267,10 +1347,36 @@
 			typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('tab')
 		);
 		switchTab(initialTab, true);
+		// Load settings in the background so the upgrade banner + sync-state
+		// indicator can render regardless of which tab the user lands on.
+		loadGovernanceSettings();
 	});
 </script>
 
 <div class="flex flex-col h-full">
+	{#if govSettings && !govSettings.sync_enabled && !govSettings.banner_dismissed}
+		<div class="flex items-start gap-3 border-b border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-100">
+			<Info class="w-5 h-5 flex-shrink-0 mt-0.5" />
+			<div class="flex-1 min-w-0">
+				<p class="font-medium">Governance background sync is now opt-in.</p>
+				<p class="mt-0.5 text-blue-800 dark:text-blue-200/90">
+					Your existing data is preserved, but the syncer is paused until you enable it explicitly.
+					<button
+						class="underline underline-offset-2 font-medium ml-1 hover:text-blue-950 dark:hover:text-white"
+						onclick={() => switchTab('settings')}
+					>Review settings →</button>
+				</p>
+			</div>
+			<button
+				class="flex-shrink-0 p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50"
+				aria-label="Dismiss banner"
+				onclick={dismissGovernanceUpgradeBanner}
+				disabled={govToggleSaving}
+			>
+				<X class="w-4 h-4" />
+			</button>
+		</div>
+	{/if}
 	<div class="border-b border-gray-200 dark:border-gray-800">
 		<div class="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between">
 			<div class="flex min-w-0 flex-col gap-2 md:flex-row md:items-center md:gap-4">
@@ -1303,8 +1409,8 @@
 		</div>
 	</div>
 
-	<div class="flex-1 overflow-auto p-4">
-		<div class="max-w-7xl mx-auto">
+	<div class={`flex-1 overflow-auto p-4 ${activeTab === 'viewgraph' || activeTab === 'lineage' ? 'flex flex-col' : ''}`}>
+		<div class={`${activeTab === 'viewgraph' || activeTab === 'lineage' ? 'flex-1 flex flex-col min-h-0' : 'max-w-7xl mx-auto'}`}>
 			{#if loading && !overview && !tables.length && !queryLog.length && !lineageEdges.length && !users.length && !policies.length}
 				<div class="flex justify-center items-center py-12">
 					<Spinner size="lg" />
@@ -1696,7 +1802,7 @@
 
 					<!-- Lineage Tab -->
 					{#if activeTab === 'lineage'}
-						<div class="space-y-4">
+						<div class="flex flex-col flex-1 min-h-0 gap-4">
 							<!-- Toolbar -->
 							<div class="flex items-center gap-3">
 								<div class="relative flex-1 max-w-sm">
@@ -1720,7 +1826,7 @@
 
 							<!-- Graph -->
 							{#if lineageGraph && lineageGraph.nodes.length > 0}
-								<div class="h-[600px] border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
+								<div class="flex-1 min-h-0 border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
 									<LineageGraphView
 										graph={lineageGraph}
 										searchFilter={lineageSearch}
@@ -1812,6 +1918,72 @@
 								</div>
 							</Sheet>
 						{/if}
+					{/if}
+
+					<!-- View Graph Tab -->
+					{#if activeTab === 'viewgraph'}
+						<div class="flex flex-col flex-1 min-h-0 gap-4">
+							<!-- Toolbar -->
+							<div class="flex items-center gap-3">
+								<div class="relative flex-1 max-w-sm">
+									<Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+									<input
+										type="text"
+										placeholder="Filter by table or view name..."
+										class="w-full pl-8 pr-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md text-gray-800 dark:text-gray-200 focus:outline-none focus:border-ch-blue"
+										bind:value={viewGraphSearch}
+									/>
+								</div>
+								<span class="text-xs text-gray-500">
+									{viewGraphData?.nodes?.length ?? 0} node{(viewGraphData?.nodes?.length ?? 0) !== 1 ? 's' : ''},
+									{viewGraphData?.edges?.length ?? 0} edge{(viewGraphData?.edges?.length ?? 0) !== 1 ? 's' : ''}
+								</span>
+								<button
+									class="px-2.5 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-800 inline-flex items-center gap-1.5"
+									onclick={() => loadViewGraph()}
+								>
+									<RefreshCw size={12} />
+									Refresh
+								</button>
+							</div>
+
+							<!-- Graph -->
+							{#if viewGraphData && viewGraphData.nodes.length > 0}
+								<div class="flex-1 min-h-0 border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
+									<LineageGraphView
+										graph={viewGraphData}
+										searchFilter={viewGraphSearch}
+									/>
+								</div>
+
+								<!-- Legend -->
+								<div class="flex items-center gap-4 text-xs text-gray-500">
+									<span class="inline-flex items-center gap-1.5">
+										<span class="w-3 h-0.5 bg-orange-500 rounded"></span> view_dependency (source &rarr; view)
+									</span>
+									<span class="inline-flex items-center gap-1.5">
+										<span class="w-3 h-0.5 bg-blue-500 rounded" style="border-top: 2px dashed;"></span> materialized_to (MV &rarr; target)
+									</span>
+									<span class="inline-flex items-center gap-1.5">
+										<span class="w-2 h-2 rounded-full border-2 border-blue-400"></span> source table
+									</span>
+									<span class="inline-flex items-center gap-1.5">
+										<span class="w-2 h-2 rounded-full border-2 border-orange-400"></span> materialized view
+									</span>
+									<span class="inline-flex items-center gap-1.5">
+										<span class="w-2 h-2 rounded-full border-2 border-green-400"></span> target table
+									</span>
+									<span class="inline-flex items-center gap-1.5">
+										<span class="w-2 h-2 rounded-full border-2 border-purple-400"></span> view
+									</span>
+								</div>
+							{:else}
+								<div class="ds-empty py-12">
+									<GitBranch class="w-12 h-12 mx-auto text-gray-400 mb-4" />
+									<p class="text-gray-500 dark:text-gray-400">No views or materialized views found. Create some views in your ClickHouse instance to see the dependency graph.</p>
+								</div>
+							{/if}
+						</div>
 					{/if}
 
 					<!-- Access Tab -->
@@ -2696,6 +2868,116 @@
 						{/if}
 					{/if}
 
+					<!-- Settings Tab -->
+					{#if activeTab === 'settings'}
+						<div class="space-y-4">
+							<div>
+								<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Governance Sync Settings</h2>
+								<p class="text-sm text-gray-500 mt-1">
+									Control the background syncer that collects metadata, query history, and access data from your ClickHouse cluster.
+								</p>
+							</div>
+
+							<!-- Status card -->
+							<div class="ds-card p-4">
+								{#if govSettingsLoading && !govSettings}
+									<div class="flex items-center justify-center py-6"><Spinner /></div>
+								{:else if govSettings}
+									<div class="flex flex-wrap items-start justify-between gap-4">
+										<div class="space-y-2">
+											<div class="flex items-center gap-2">
+												<span class="text-sm font-medium text-gray-700 dark:text-gray-300">Status:</span>
+												{#if govSettings.sync_enabled}
+													<span class="ds-badge ds-badge-success">Enabled</span>
+												{:else}
+													<span class="ds-badge ds-badge-neutral">Disabled</span>
+												{/if}
+												{#if govSettings.syncer_running}
+													<span class="ds-badge ds-badge-info">Running</span>
+												{:else if govSettings.sync_enabled}
+													<span class="ds-badge ds-badge-warning">Idle</span>
+												{/if}
+											</div>
+											{#if govSettings.updated_at}
+												<p class="text-xs text-gray-500">
+													Last changed {formatTime(govSettings.updated_at)}
+													{#if govSettings.updated_by}by <span class="font-mono">{govSettings.updated_by}</span>{/if}
+												</p>
+											{:else}
+												<p class="text-xs text-gray-500">Never configured (default: disabled)</p>
+											{/if}
+										</div>
+										<div class="flex items-center gap-2">
+											{#if govSettings.sync_enabled}
+												<button
+													class="ds-btn-secondary"
+													onclick={() => showDisableConfirm = true}
+													disabled={govToggleSaving}
+												>Disable sync</button>
+											{:else}
+												<button
+													class="ds-btn-primary"
+													onclick={() => showEnableConfirm = true}
+													disabled={govToggleSaving}
+												>Enable sync</button>
+											{/if}
+										</div>
+									</div>
+								{:else}
+									<p class="text-sm text-gray-500">Settings unavailable.</p>
+								{/if}
+							</div>
+
+							<!-- Disclosure panel -->
+							<div class="ds-card p-4 space-y-4 border-blue-200 dark:border-blue-900/50 bg-blue-50/40 dark:bg-blue-950/20">
+								<div class="flex items-start gap-2">
+									<Info class="w-5 h-5 flex-shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+									<div>
+										<h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">What governance sync does</h3>
+										<p class="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+											Read this before enabling. Sync runs every 5 minutes against your ClickHouse cluster.
+										</p>
+									</div>
+								</div>
+
+								<div class="grid gap-4 md:grid-cols-2">
+									<div>
+										<h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">What it collects</h4>
+										<ul class="text-sm text-gray-700 dark:text-gray-300 space-y-1 list-disc pl-5">
+											<li>Table and column metadata from <code class="font-mono text-xs">system.tables</code> / <code class="font-mono text-xs">system.columns</code></li>
+											<li>Recent queries from <code class="font-mono text-xs">system.query_log</code> (filtered: ≥10ms, no self-polls)</li>
+											<li>Users, roles, and grants from <code class="font-mono text-xs">system.users</code> / <code class="font-mono text-xs">system.grants</code></li>
+										</ul>
+									</div>
+									<div>
+										<h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Where it's stored</h4>
+										<p class="text-sm text-gray-700 dark:text-gray-300">
+											Local SQLite at <code class="font-mono text-xs">./data/ch-ui.db</code>. Never sent externally.
+										</p>
+									</div>
+									<div>
+										<h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">How it authenticates</h4>
+										<p class="text-sm text-gray-700 dark:text-gray-300">
+											Borrows ClickHouse credentials from an active admin session. Each borrow is recorded in the audit log
+											(<code class="font-mono text-xs">governance.credential_borrow</code>, rate-limited to once per connection per hour).
+										</p>
+									</div>
+									<div>
+										<h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Retention</h4>
+										<p class="text-sm text-gray-700 dark:text-gray-300">
+											30-day rolling window. Older query log and violation rows are pruned automatically at startup and every 5 minutes.
+										</p>
+									</div>
+								</div>
+							</div>
+
+							<p class="text-xs text-gray-500">
+								Toggle changes are written to the audit log (<code class="font-mono text-xs">governance.sync_toggle</code>).
+								Disabling stops the syncer immediately; collected data is preserved.
+							</p>
+						</div>
+					{/if}
+
 			</div>
 		</div>
 	</div>
@@ -3538,4 +3820,25 @@
 	destructive
 	onconfirm={confirmDeleteRule}
 	oncancel={() => deletingRule = null}
+/>
+
+<ConfirmDialog
+	open={showEnableConfirm}
+	title="Enable governance sync?"
+	description="The syncer will poll your ClickHouse cluster every 5 minutes, borrowing credentials from your admin session. Each borrow is recorded in the audit log. Make sure you've reviewed the disclosure on this page."
+	confirmLabel="I understand, enable"
+	loading={govToggleSaving}
+	onconfirm={confirmEnableGovernanceSync}
+	oncancel={() => showEnableConfirm = false}
+/>
+
+<ConfirmDialog
+	open={showDisableConfirm}
+	title="Disable governance sync?"
+	description="The syncer will stop immediately. Existing collected data is preserved and remains visible in the UI."
+	confirmLabel="Disable"
+	destructive
+	loading={govToggleSaving}
+	onconfirm={confirmDisableGovernanceSync}
+	oncancel={() => showDisableConfirm = false}
 />

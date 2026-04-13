@@ -17,18 +17,22 @@ const (
 	syncTickInterval = 5 * time.Minute
 	queryTimeout     = 60 * time.Second
 	staleDuration    = 10 * time.Minute
+	retentionDays    = 30
 )
 
 // Syncer orchestrates ClickHouse → SQLite governance synchronisation.
 // It runs periodic background syncs and supports on-demand sync for
 // individual connections.
 type Syncer struct {
-	store       *Store
-	db          *database.DB
-	gateway     *tunnel.Gateway
-	secret      string
-	activeSyncs sync.Map // connectionID → bool (prevents concurrent syncs per connection)
-	stopCh      chan struct{}
+	store          *Store
+	db             *database.DB
+	gateway        *tunnel.Gateway
+	secret         string
+	activeSyncs    sync.Map     // connectionID → bool (prevents concurrent syncs per connection)
+	lastBorrowLog  sync.Map     // connectionID → time.Time (rate-limits credential borrow audit rows)
+	mu             sync.Mutex
+	running        bool
+	stopCh         chan struct{}
 }
 
 // NewSyncer creates a new governance Syncer.
@@ -38,7 +42,6 @@ func NewSyncer(store *Store, db *database.DB, gw *tunnel.Gateway, secret string)
 		db:      db,
 		gateway: gw,
 		secret:  secret,
-		stopCh:  make(chan struct{}),
 	}
 }
 
@@ -48,16 +51,32 @@ func (s *Syncer) GetStore() *Store {
 }
 
 // StartBackground launches the background goroutine that ticks every 5 minutes
-// to sync governance data for all connected tunnels.
+// to sync governance data for all connected tunnels. Idempotent: a second call
+// while already running is a no-op.
 func (s *Syncer) StartBackground() {
+	s.mu.Lock()
+	if s.running {
+		s.mu.Unlock()
+		return
+	}
+	s.stopCh = make(chan struct{})
+	s.running = true
+	stopCh := s.stopCh
+	s.mu.Unlock()
+
 	go func() {
 		slog.Info("Governance syncer started", "interval", syncTickInterval)
+
+		if connections, err := s.db.GetConnections(); err == nil {
+			s.pruneRetention(connections)
+		}
+
 		ticker := time.NewTicker(syncTickInterval)
 		defer ticker.Stop()
 
 		for {
 			select {
-			case <-s.stopCh:
+			case <-stopCh:
 				slog.Info("Governance syncer stopped")
 				return
 			case <-ticker.C:
@@ -67,9 +86,23 @@ func (s *Syncer) StartBackground() {
 	}()
 }
 
-// Stop signals the background goroutine to stop.
+// Stop signals the background goroutine to stop. Safe to call when the syncer
+// is not running — a no-op in that case.
 func (s *Syncer) Stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.running {
+		return
+	}
 	close(s.stopCh)
+	s.running = false
+}
+
+// IsRunning reports whether the background goroutine is currently active.
+func (s *Syncer) IsRunning() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running
 }
 
 // SyncConnection runs all three governance sync phases (metadata, querylog, access)
@@ -140,6 +173,8 @@ func (s *Syncer) backgroundTick() {
 		return
 	}
 
+	s.pruneRetention(connections)
+
 	var wg sync.WaitGroup
 	for _, conn := range connections {
 		connID := conn.ID
@@ -192,6 +227,28 @@ func (s *Syncer) backgroundTick() {
 	wg.Wait()
 }
 
+// pruneRetention deletes query log and violation rows older than retentionDays
+// for every known connection, bounding SQLite growth on busy ClickHouse instances.
+func (s *Syncer) pruneRetention(connections []database.Connection) {
+	cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays).Format("2006-01-02 15:04:05")
+	for _, conn := range connections {
+		if n, err := s.store.CleanupOldQueryLogs(conn.ID, cutoff); err != nil {
+			slog.Warn("Governance retention prune (query_log) failed",
+				"connection", conn.ID, "error", err)
+		} else if n > 0 {
+			slog.Info("Governance retention pruned query_log",
+				"connection", conn.ID, "rows", n, "older_than", cutoff)
+		}
+		if n, err := s.store.CleanupOldViolations(conn.ID, cutoff); err != nil {
+			slog.Warn("Governance retention prune (violations) failed",
+				"connection", conn.ID, "error", err)
+		} else if n > 0 {
+			slog.Info("Governance retention pruned violations",
+				"connection", conn.ID, "rows", n, "older_than", cutoff)
+		}
+	}
+}
+
 // isSyncStale returns true if any sync type for the connection is older than staleDuration.
 func (s *Syncer) isSyncStale(connectionID string) bool {
 	syncTypes := []SyncType{SyncMetadata, SyncQueryLog, SyncAccess}
@@ -227,6 +284,7 @@ func (s *Syncer) findCredentials(connectionID string) (CHCredentials, error) {
 		if err != nil {
 			continue
 		}
+		s.auditCredentialBorrow(connectionID, sess)
 		return CHCredentials{
 			ConnectionID: connectionID,
 			User:         sess.ClickhouseUser,
@@ -235,6 +293,36 @@ func (s *Syncer) findCredentials(connectionID string) (CHCredentials, error) {
 	}
 
 	return CHCredentials{}, fmt.Errorf("no active sessions with valid credentials for connection %s", connectionID)
+}
+
+// auditCredentialBorrow writes one audit row per connection per hour when the
+// background syncer borrows credentials from an active session. A structured
+// debug log is emitted every time; the audit table only gets rate-limited
+// entries to avoid flooding it during frequent ticks.
+func (s *Syncer) auditCredentialBorrow(connectionID string, sess database.Session) {
+	slog.Debug("Governance syncer borrowed session credentials",
+		"connection", connectionID, "ch_user", sess.ClickhouseUser, "session_id", sess.ID)
+
+	now := time.Now()
+	if last, ok := s.lastBorrowLog.Load(connectionID); ok {
+		if t, ok := last.(time.Time); ok && now.Sub(t) < time.Hour {
+			return
+		}
+	}
+	s.lastBorrowLog.Store(connectionID, now)
+
+	details := fmt.Sprintf(`{"session_id":%q,"purpose":"background_sync"}`, sess.ID)
+	connID := connectionID
+	user := sess.ClickhouseUser
+	if err := s.db.CreateAuditLog(database.AuditLogParams{
+		Action:       "governance.credential_borrow",
+		Username:     &user,
+		ConnectionID: &connID,
+		Details:      &details,
+	}); err != nil {
+		slog.Warn("Failed to write credential borrow audit log",
+			"connection", connectionID, "error", err)
+	}
 }
 
 // executeQuery sends a SQL query through the tunnel and returns parsed rows.

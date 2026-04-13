@@ -182,7 +182,13 @@ func (s *Server) setupRoutes() {
 			protected.Route("/brain", brainHandler.Routes)
 
 			// Admin routes (require admin role)
-			adminHandler := &handlers.AdminHandler{DB: db, Gateway: gw, Config: cfg, Langfuse: s.langfuse}
+			adminHandler := &handlers.AdminHandler{
+				DB:        db,
+				Gateway:   gw,
+				Config:    cfg,
+				Langfuse:  s.langfuse,
+				GovSyncer: s.govSyncer,
+			}
 			protected.Route("/admin", func(ar chi.Router) {
 				adminHandler.Routes(ar)
 			})
@@ -247,7 +253,14 @@ func (s *Server) Start() error {
 	s.scheduler.Start()
 	s.pipelineRunner.Start()
 	s.modelScheduler.Start()
-	s.govSyncer.StartBackground()
+	switch {
+	case !s.cfg.IsPro():
+		slog.Info("Governance background sync disabled (requires Pro license)")
+	case !s.db.GovernanceSyncEnabled():
+		slog.Info("Governance background sync disabled (opt-in required; enable in Governance → Settings)")
+	default:
+		s.govSyncer.StartBackground()
+	}
 	s.alerts.Start()
 	s.langfuse.Start()
 

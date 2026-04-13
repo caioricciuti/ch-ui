@@ -1,5 +1,13 @@
 // ── Sync ────────────────────────────────────────────────────────
 
+export interface GovernanceSettings {
+  sync_enabled: boolean
+  updated_at: string
+  updated_by: string
+  banner_dismissed: boolean
+  syncer_running: boolean
+}
+
 export interface SyncState {
   id: string
   connection_id: string
@@ -156,7 +164,7 @@ export interface LineageNode {
   id: string
   database: string
   table: string
-  type: 'source' | 'target' | 'current'
+  type: 'source' | 'target' | 'current' | 'materialized_view' | 'view' | string
   columns?: GovColumn[]
 }
 

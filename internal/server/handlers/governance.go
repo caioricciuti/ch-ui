@@ -61,6 +61,9 @@ func (h *GovernanceHandler) Routes() chi.Router {
 	r.Get("/lineage", h.GetLineage)
 	r.Get("/lineage/graph", h.GetLineageGraph)
 
+	// View dependency graph (structural lineage from MV/View definitions)
+	r.Get("/view-graph", h.GetViewGraph)
+
 	// Tags
 	r.Get("/tags", h.ListTags)
 	r.Post("/tags", h.CreateTag)
@@ -147,6 +150,9 @@ func (h *GovernanceHandler) executeClickHouseSQL(creds *governance.CHCredentials
 }
 
 func (h *GovernanceHandler) triggerSyncAsync(creds governance.CHCredentials, syncType governance.SyncType) {
+	if !h.DB.GovernanceSyncEnabled() {
+		return
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -207,6 +213,14 @@ func (h *GovernanceHandler) GetOverview(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *GovernanceHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
+	if !h.DB.GovernanceSyncEnabled() {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "governance_sync_disabled",
+			"hint":  "Enable governance sync in Governance → Settings before triggering a sync.",
+		})
+		return
+	}
+
 	creds, err := h.getCredentials(r)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
@@ -231,6 +245,14 @@ func (h *GovernanceHandler) TriggerSync(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *GovernanceHandler) TriggerSingleSync(w http.ResponseWriter, r *http.Request) {
+	if !h.DB.GovernanceSyncEnabled() {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "governance_sync_disabled",
+			"hint":  "Enable governance sync in Governance → Settings before triggering a sync.",
+		})
+		return
+	}
+
 	syncType := governance.SyncType(chi.URLParam(r, "type"))
 	if syncType != governance.SyncMetadata && syncType != governance.SyncQueryLog && syncType != governance.SyncAccess {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid sync type. Use: metadata, query_log, access"})

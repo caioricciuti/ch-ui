@@ -57,13 +57,13 @@
 
   const flowEdges = $derived<Edge[]>(
     filteredGraph.edges.map((e) => {
-      const isCreate = e.edge_type === 'create_as_select'
+      const isDashed = e.edge_type === 'create_as_select' || e.edge_type === 'materialized_to'
       return {
         id: e.id,
         source: `${e.source_database}.${e.source_table}`,
         target: `${e.target_database}.${e.target_table}`,
         animated: true,
-        style: isCreate
+        style: isDashed
           ? 'stroke: #3b82f6; stroke-width: 2px; stroke-dasharray: 5 3;'
           : 'stroke: #f97316; stroke-width: 2px;',
       }

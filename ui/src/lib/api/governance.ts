@@ -1,6 +1,7 @@
 import { apiGet, apiPost, apiPut, apiDel } from './client'
 import type {
   GovernanceOverview,
+  GovernanceSettings,
   SyncResult,
   SyncState,
   GovDatabase,
@@ -41,6 +42,19 @@ export function triggerSingleSync(type: 'metadata' | 'query_log' | 'access') {
 
 export function fetchSyncStatus() {
   return apiGet<{ sync_states: SyncState[] }>(`${BASE}/sync/status`)
+}
+
+// ── Settings (admin) ────────────────────────────────────────────
+
+export function fetchGovernanceSettings() {
+  return apiGet<GovernanceSettings>('/api/admin/governance/settings')
+}
+
+export function updateGovernanceSettings(payload: {
+  sync_enabled?: boolean
+  banner_dismissed?: boolean
+}) {
+  return apiPut<GovernanceSettings>('/api/admin/governance/settings', payload)
 }
 
 // ── Metadata ────────────────────────────────────────────────────
@@ -135,6 +149,11 @@ export function fetchLineage(database: string, table: string) {
 export function fetchLineageGraph(includeColumns = false) {
   const qs = includeColumns ? '?include_columns=true' : ''
   return apiGet<{ graph?: LineageGraph } | LineageGraph>(`${BASE}/lineage/graph${qs}`)
+    .then((res: any) => res?.graph ?? res)
+}
+
+export function fetchViewGraph() {
+  return apiGet<{ graph?: LineageGraph } | LineageGraph>(`${BASE}/view-graph`)
     .then((res: any) => res?.graph ?? res)
 }
 

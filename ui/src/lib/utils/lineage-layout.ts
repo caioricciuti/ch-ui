@@ -9,7 +9,7 @@ export interface LineageFlowNode extends Node {
   data: {
     database: string
     table: string
-    nodeType: 'source' | 'target' | 'current'
+    nodeType: string
     columns: LineageNode['columns']
     linkedColumns: string[]
   }

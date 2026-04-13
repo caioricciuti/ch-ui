@@ -3,8 +3,39 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
+
+// Setting keys for governance features.
+const (
+	SettingGovernanceSyncEnabled     = "governance.sync_enabled"
+	SettingGovernanceUpgradeBanner   = "governance.upgrade_banner_dismissed"
+	SettingGovernanceSyncUpdatedBy   = "governance.sync_updated_by"
+	SettingGovernanceSyncUpdatedAt   = "governance.sync_updated_at"
+)
+
+// GovernanceSyncEnabled reports whether admins have opted in to the governance
+// background sync. Unset keys default to false (opt-in semantics).
+func (db *DB) GovernanceSyncEnabled() bool {
+	v, _ := db.GetSetting(SettingGovernanceSyncEnabled)
+	return strings.EqualFold(strings.TrimSpace(v), "true")
+}
+
+// SetGovernanceSyncEnabled stores the opt-in flag plus who/when toggled it.
+func (db *DB) SetGovernanceSyncEnabled(enabled bool, actor string) error {
+	val := "false"
+	if enabled {
+		val = "true"
+	}
+	if err := db.SetSetting(SettingGovernanceSyncEnabled, val); err != nil {
+		return err
+	}
+	if err := db.SetSetting(SettingGovernanceSyncUpdatedBy, actor); err != nil {
+		return err
+	}
+	return db.SetSetting(SettingGovernanceSyncUpdatedAt, time.Now().UTC().Format(time.RFC3339))
+}
 
 // GetSetting retrieves a setting value by key. Returns empty string if not found.
 func (db *DB) GetSetting(key string) (string, error) {
