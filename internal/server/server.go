@@ -247,7 +247,11 @@ func (s *Server) Start() error {
 	s.scheduler.Start()
 	s.pipelineRunner.Start()
 	s.modelScheduler.Start()
-	s.govSyncer.StartBackground()
+	if s.cfg.IsPro() {
+		s.govSyncer.StartBackground()
+	} else {
+		slog.Info("Governance background sync requires Pro license, skipping")
+	}
 	s.alerts.Start()
 	s.langfuse.Start()
 
