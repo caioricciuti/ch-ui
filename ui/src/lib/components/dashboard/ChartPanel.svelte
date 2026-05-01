@@ -145,6 +145,52 @@
     return { hooks: { init, setCursor } }
   }
 
+  function groupedBarPaths(seriesIdx: number, totalSeries: number): uPlot.Series.PathBuilder {
+    return (u, sidx, i0, i1) => {
+      const fill = new Path2D()
+      const stroke = new Path2D()
+
+      const n = u.data[0].length
+      if (n === 0) return { fill, stroke }
+
+      let slotPx: number
+      if (n > 1) {
+        const p0 = u.valToPos(u.data[0][0], 'x', true)
+        const p1 = u.valToPos(u.data[0][1], 'x', true)
+        slotPx = Math.abs(p1 - p0)
+      } else {
+        slotPx = u.over.clientWidth * 0.8
+      }
+
+      const groupPx = slotPx * 0.8
+      const barPx = Math.max(2, (groupPx / totalSeries) - 1)
+      const offset = totalSeries === 1
+        ? -barPx / 2
+        : -groupPx / 2 + seriesIdx * (groupPx / totalSeries) + 0.5
+
+      const zeroY = u.valToPos(0, 'y', true)
+
+      for (let i = i0; i <= i1; i++) {
+        const yVal = u.data[sidx][i]
+        if (yVal == null) continue
+
+        const cx = u.valToPos(u.data[0][i], 'x', true)
+        const yPos = u.valToPos(yVal as number, 'y', true)
+
+        const x = cx + offset
+        const y = Math.min(yPos, zeroY)
+        const h = Math.abs(zeroY - yPos)
+
+        if (barPx > 0 && h > 0) {
+          fill.rect(x, y, barPx, h)
+          stroke.rect(x, y, barPx, h)
+        }
+      }
+
+      return { fill, stroke }
+    }
+  }
+
   function buildOpts(w: number, h: number): uPlot.Options {
     const xMeta = meta.find(m => m.name === config.xColumn)
     const isTime = xMeta ? isDateType(xMeta.type) : false
@@ -167,7 +213,7 @@
 
       if (config.chartType === 'bar') {
         s.fill = color + '80'
-        s.paths = uPlot.paths.bars!({ size: [0.6, 100] })
+        s.paths = groupedBarPaths(i, yColumns.length)
       } else {
         s.fill = color + '1A'
       }

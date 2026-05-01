@@ -11,7 +11,8 @@
   import PanelEditor from '../lib/components/dashboard/PanelEditor.svelte'
   import DashboardGrid from '../lib/components/dashboard/DashboardGrid.svelte'
   import TimeRangeSelector from '../lib/components/dashboard/TimeRangeSelector.svelte'
-  import { LayoutDashboard, Plus, Trash2, ArrowLeft, RefreshCw } from 'lucide-svelte'
+  import ShareDialog from '../lib/components/dashboard/ShareDialog.svelte'
+  import { LayoutDashboard, Plus, Trash2, ArrowLeft, RefreshCw, Share2 } from 'lucide-svelte'
 
   interface Props {
     dashboardId?: string
@@ -47,6 +48,9 @@
   let confirmDescription = $state('')
   let confirmTargetDashboardId = $state<string | null>(null)
   let confirmTargetPanelId = $state<string | null>(null)
+
+  // Share dialog
+  let shareDialogOpen = $state(false)
 
   // Inline edit
   let editingTitle = $state(false)
@@ -353,6 +357,9 @@
             Panel builder mode
           </span>
         {:else}
+          <Button size="sm" variant="secondary" onclick={() => shareDialogOpen = true}>
+            <Share2 size={14} /> Share
+          </Button>
           <Button size="sm" variant="secondary" onclick={() => runAllPanelQueries()}>
             <RefreshCw size={14} /> Refresh
           </Button>
@@ -429,3 +436,12 @@
   onconfirm={confirmDelete}
   oncancel={() => confirmOpen = false}
 />
+
+{#if currentDashboard}
+  <ShareDialog
+    open={shareDialogOpen}
+    dashboardId={currentDashboard.id}
+    dashboardName={currentDashboard.name}
+    onclose={() => shareDialogOpen = false}
+  />
+{/if}

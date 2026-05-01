@@ -107,6 +107,36 @@ func (db *DB) runMigrations() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_panel_dashboard ON panels(dashboard_id)`,
 
+		// Dashboard sharing
+		`CREATE TABLE IF NOT EXISTS dashboard_shares (
+			id TEXT PRIMARY KEY,
+			dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+			token TEXT UNIQUE NOT NULL,
+			access_level TEXT NOT NULL DEFAULT 'viewer',
+			visibility TEXT NOT NULL DEFAULT 'public',
+			allowed_emails TEXT DEFAULT '[]',
+			connection_id TEXT NOT NULL,
+			clickhouse_user TEXT NOT NULL,
+			encrypted_password TEXT NOT NULL,
+			expires_at TEXT,
+			created_by TEXT,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_share_token ON dashboard_shares(token)`,
+		`CREATE INDEX IF NOT EXISTS idx_dashboard_share_dashboard ON dashboard_shares(dashboard_id)`,
+
+		// Magic-link invites for private dashboard shares
+		`CREATE TABLE IF NOT EXISTS dashboard_share_invites (
+			id TEXT PRIMARY KEY,
+			share_id TEXT NOT NULL REFERENCES dashboard_shares(id) ON DELETE CASCADE,
+			email TEXT NOT NULL,
+			token TEXT UNIQUE NOT NULL,
+			expires_at TEXT NOT NULL,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_share_invite_token ON dashboard_share_invites(token)`,
+		`CREATE INDEX IF NOT EXISTS idx_share_invite_share ON dashboard_share_invites(share_id)`,
+
 		// Schedules (was in ClickHouse, now SQLite)
 		`CREATE TABLE IF NOT EXISTS schedules (
 			id TEXT PRIMARY KEY,

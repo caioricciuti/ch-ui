@@ -111,17 +111,25 @@
     }
   })
 
-  // Auto-detect axes when results arrive
+  // Validate and auto-detect axes when query results change
   $effect(() => {
-    if (queryMeta.length > 0 && !xColumn && !yColumns.length) {
-      // Auto-pick first date column for X, or first column
+    if (queryMeta.length === 0) return
+
+    const colNames = new Set(queryMeta.map(m => m.name))
+
+    if (xColumn && !colNames.has(xColumn)) {
+      xColumn = ''
+    }
+    const validY = yColumns.filter(c => colNames.has(c))
+    if (validY.length !== yColumns.length) {
+      yColumns = validY
+    }
+
+    if (!xColumn) {
       const firstDate = dateColumns[0]
-      if (firstDate) {
-        xColumn = firstDate.name
-      } else if (queryMeta.length > 0) {
-        xColumn = queryMeta[0].name
-      }
-      // Auto-pick first numeric columns for Y
+      xColumn = firstDate ? firstDate.name : queryMeta[0].name
+    }
+    if (yColumns.length === 0) {
       const autoY = numericColumns.filter(m => m.name !== xColumn).slice(0, 3)
       if (autoY.length > 0) {
         yColumns = autoY.map(m => m.name)

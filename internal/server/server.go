@@ -136,6 +136,10 @@ func (s *Server) setupRoutes() {
 		licenseHandler := &handlers.LicenseHandler{DB: db, Config: cfg}
 		api.Get("/license", licenseHandler.GetLicense)
 
+		// Public dashboard endpoints (no session required)
+		publicDashboards := &handlers.DashboardsHandler{DB: db, Gateway: gw, Config: cfg}
+		api.Mount("/public/dashboards", publicDashboards.PublicRoutes())
+
 		// All routes below require a valid session
 		api.Group(func(protected chi.Router) {
 			protected.Use(middleware.Session(db, gw))

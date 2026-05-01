@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -240,6 +241,247 @@ func (db *DB) DeletePanel(id string) error {
 		return fmt.Errorf("delete panel: %w", err)
 	}
 	return nil
+}
+
+// ---------- Dashboard Shares ----------
+
+// DashboardShare represents a share link for a dashboard.
+type DashboardShare struct {
+	ID                string   `json:"id"`
+	DashboardID       string   `json:"dashboard_id"`
+	Token             string   `json:"token"`
+	AccessLevel       string   `json:"access_level"`
+	Visibility        string   `json:"visibility"`
+	AllowedEmails     []string `json:"allowed_emails"`
+	AllowedEmailsJSON string   `json:"-"`
+	ConnectionID      string   `json:"-"`
+	ClickhouseUser    string   `json:"-"`
+	EncryptedPassword string   `json:"-"`
+	ExpiresAt         *string  `json:"expires_at"`
+	CreatedBy         *string  `json:"created_by"`
+	CreatedAt         string   `json:"created_at"`
+}
+
+func (s *DashboardShare) parseEmails() {
+	s.AllowedEmails = []string{}
+	if s.AllowedEmailsJSON != "" {
+		_ = json.Unmarshal([]byte(s.AllowedEmailsJSON), &s.AllowedEmails)
+	}
+}
+
+// CreateDashboardShare creates a share link and returns the share record.
+func (db *DB) CreateDashboardShare(dashboardID, accessLevel, visibility, createdBy, connectionID, clickhouseUser, encryptedPassword string, allowedEmails []string, expiresAt *string) (*DashboardShare, error) {
+	id := uuid.NewString()
+	token := uuid.NewString()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	if visibility == "" {
+		visibility = "public"
+	}
+
+	var creator interface{}
+	if createdBy != "" {
+		creator = createdBy
+	}
+
+	emailsJSON := "[]"
+	if len(allowedEmails) > 0 {
+		raw, _ := json.Marshal(allowedEmails)
+		emailsJSON = string(raw)
+	}
+
+	_, err := db.conn.Exec(
+		`INSERT INTO dashboard_shares (id, dashboard_id, token, access_level, visibility, allowed_emails, connection_id, clickhouse_user, encrypted_password, expires_at, created_by, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, dashboardID, token, accessLevel, visibility, emailsJSON, connectionID, clickhouseUser, encryptedPassword, expiresAt, creator, now,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create dashboard share: %w", err)
+	}
+
+	return &DashboardShare{
+		ID:                id,
+		DashboardID:       dashboardID,
+		Token:             token,
+		AccessLevel:       accessLevel,
+		Visibility:        visibility,
+		AllowedEmails:     allowedEmails,
+		ConnectionID:      connectionID,
+		ClickhouseUser:    clickhouseUser,
+		EncryptedPassword: encryptedPassword,
+		ExpiresAt:         expiresAt,
+		CreatedBy:         &createdBy,
+		CreatedAt:         now,
+	}, nil
+}
+
+// GetDashboardSharesByDashboard returns all shares for a dashboard.
+func (db *DB) GetDashboardSharesByDashboard(dashboardID string) ([]DashboardShare, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, dashboard_id, token, access_level, visibility, allowed_emails, expires_at, created_by, created_at
+		 FROM dashboard_shares WHERE dashboard_id = ? ORDER BY created_at DESC`, dashboardID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get dashboard shares: %w", err)
+	}
+	defer rows.Close()
+
+	var shares []DashboardShare
+	for rows.Next() {
+		var s DashboardShare
+		var expiresAt, createdBy sql.NullString
+		if err := rows.Scan(&s.ID, &s.DashboardID, &s.Token, &s.AccessLevel, &s.Visibility, &s.AllowedEmailsJSON, &expiresAt, &createdBy, &s.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan dashboard share: %w", err)
+		}
+		s.ExpiresAt = nullStringToPtr(expiresAt)
+		s.CreatedBy = nullStringToPtr(createdBy)
+		s.parseEmails()
+		shares = append(shares, s)
+	}
+	return shares, rows.Err()
+}
+
+// GetDashboardShareByToken retrieves a share by its public token.
+func (db *DB) GetDashboardShareByToken(token string) (*DashboardShare, error) {
+	row := db.conn.QueryRow(
+		`SELECT id, dashboard_id, token, access_level, visibility, allowed_emails, connection_id, clickhouse_user, encrypted_password, expires_at, created_by, created_at
+		 FROM dashboard_shares WHERE token = ?`, token,
+	)
+
+	var s DashboardShare
+	var expiresAt, createdBy sql.NullString
+	err := row.Scan(&s.ID, &s.DashboardID, &s.Token, &s.AccessLevel, &s.Visibility, &s.AllowedEmailsJSON, &s.ConnectionID, &s.ClickhouseUser, &s.EncryptedPassword, &expiresAt, &createdBy, &s.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get dashboard share by token: %w", err)
+	}
+	s.ExpiresAt = nullStringToPtr(expiresAt)
+	s.CreatedBy = nullStringToPtr(createdBy)
+	s.parseEmails()
+	return &s, nil
+}
+
+// GetDashboardShareByID retrieves a share by ID with credentials.
+func (db *DB) GetDashboardShareByID(id string) (*DashboardShare, error) {
+	row := db.conn.QueryRow(
+		`SELECT id, dashboard_id, token, access_level, visibility, allowed_emails, connection_id, clickhouse_user, encrypted_password, expires_at, created_by, created_at
+		 FROM dashboard_shares WHERE id = ?`, id,
+	)
+
+	var s DashboardShare
+	var expiresAt, createdBy sql.NullString
+	err := row.Scan(&s.ID, &s.DashboardID, &s.Token, &s.AccessLevel, &s.Visibility, &s.AllowedEmailsJSON, &s.ConnectionID, &s.ClickhouseUser, &s.EncryptedPassword, &expiresAt, &createdBy, &s.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get dashboard share by id: %w", err)
+	}
+	s.ExpiresAt = nullStringToPtr(expiresAt)
+	s.CreatedBy = nullStringToPtr(createdBy)
+	s.parseEmails()
+	return &s, nil
+}
+
+// DeleteDashboardShare deletes a share by ID.
+func (db *DB) DeleteDashboardShare(id string) error {
+	_, err := db.conn.Exec("DELETE FROM dashboard_shares WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("delete dashboard share: %w", err)
+	}
+	return nil
+}
+
+// ---------- Dashboard Share Invites ----------
+
+// DashboardShareInvite represents a magic-link invite token.
+type DashboardShareInvite struct {
+	ID        string `json:"id"`
+	ShareID   string `json:"share_id"`
+	Email     string `json:"email"`
+	Token     string `json:"token"`
+	ExpiresAt string `json:"expires_at"`
+	CreatedAt string `json:"created_at"`
+}
+
+// CreateShareInvite creates a magic-link token for an email on a share.
+func (db *DB) CreateShareInvite(shareID, email string, ttl time.Duration) (*DashboardShareInvite, error) {
+	id := uuid.NewString()
+	token := uuid.NewString()
+	now := time.Now().UTC()
+
+	_, err := db.conn.Exec(
+		`INSERT INTO dashboard_share_invites (id, share_id, email, token, expires_at, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		id, shareID, email, token,
+		now.Add(ttl).Format(time.RFC3339),
+		now.Format(time.RFC3339),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create share invite: %w", err)
+	}
+	return &DashboardShareInvite{
+		ID:        id,
+		ShareID:   shareID,
+		Email:     email,
+		Token:     token,
+		ExpiresAt: now.Add(ttl).Format(time.RFC3339),
+		CreatedAt: now.Format(time.RFC3339),
+	}, nil
+}
+
+// GetShareInviteByToken retrieves an invite by its magic-link token.
+func (db *DB) GetShareInviteByToken(token string) (*DashboardShareInvite, error) {
+	row := db.conn.QueryRow(
+		`SELECT id, share_id, email, token, expires_at, created_at
+		 FROM dashboard_share_invites WHERE token = ?`, token,
+	)
+	var inv DashboardShareInvite
+	err := row.Scan(&inv.ID, &inv.ShareID, &inv.Email, &inv.Token, &inv.ExpiresAt, &inv.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get share invite by token: %w", err)
+	}
+	return &inv, nil
+}
+
+// ListShareInvites returns all invites for a share.
+func (db *DB) ListShareInvites(shareID string) ([]DashboardShareInvite, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, share_id, email, token, expires_at, created_at
+		 FROM dashboard_share_invites WHERE share_id = ? ORDER BY created_at DESC`, shareID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list share invites: %w", err)
+	}
+	defer rows.Close()
+
+	var invites []DashboardShareInvite
+	for rows.Next() {
+		var inv DashboardShareInvite
+		if err := rows.Scan(&inv.ID, &inv.ShareID, &inv.Email, &inv.Token, &inv.ExpiresAt, &inv.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan share invite: %w", err)
+		}
+		invites = append(invites, inv)
+	}
+	return invites, rows.Err()
+}
+
+// GetFirstActiveAlertChannel returns the first active email channel (SMTP/Resend/Brevo).
+func (db *DB) GetFirstActiveAlertChannel() (*AlertChannel, error) {
+	row := db.conn.QueryRow(
+		`SELECT id, name, channel_type, config_encrypted, is_active, created_by, created_at, updated_at
+		 FROM alert_channels WHERE is_active = 1 ORDER BY created_at ASC LIMIT 1`,
+	)
+	ch, err := scanAlertChannelRow(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return ch, err
 }
 
 type seededPanel struct {
