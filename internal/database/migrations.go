@@ -905,6 +905,22 @@ func (db *DB) runMigrations() error {
 		return err
 	}
 
+	if err := db.ensureColumn("dashboard_shares", "visibility", "TEXT NOT NULL DEFAULT 'public'"); err != nil {
+		return err
+	}
+	if err := db.ensureColumn("dashboard_shares", "allowed_emails", "TEXT DEFAULT '[]'"); err != nil {
+		return err
+	}
+	if err := db.ensureColumn("dashboard_shares", "connection_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := db.ensureColumn("dashboard_shares", "clickhouse_user", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := db.ensureColumn("dashboard_shares", "encrypted_password", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+
 	// Drop legacy tables from the old SaaS schema
 	dropLegacy := []string{
 		"DROP TABLE IF EXISTS organizations",

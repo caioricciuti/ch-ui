@@ -255,7 +255,9 @@ func runServer(cmd *cobra.Command) error {
 		if ea != nil {
 			ea.Stop()
 		}
-		return srv.Shutdown(context.Background())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), serverStopTimeout)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
 	}
 }
 
@@ -387,6 +389,14 @@ func preparePIDFileForStart(pidFile string) error {
 		return err
 	}
 	if running {
+		// In containers, PID 1 is always reused. A stale PID file from a
+		// previous run that recorded our own PID means the old process was
+		// killed before cleanup (e.g. Docker SIGKILL after stop timeout).
+		if pid == os.Getpid() {
+			slog.Warn("Removing stale PID file (matches current process)", "pid", pid, "file", pidFile)
+			_ = os.Remove(pidFile)
+			return nil
+		}
 		return fmt.Errorf("server already running (PID %d); stop it first with `ch-ui server stop`", pid)
 	}
 	return nil
