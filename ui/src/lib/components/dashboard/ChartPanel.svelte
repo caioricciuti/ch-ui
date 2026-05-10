@@ -22,14 +22,12 @@
 
   const plotData = $derived(toUPlotData(data, meta, config))
 
-  /** True when x column is categorical (String, not Date/Numeric) */
   const isCategorical = $derived.by(() => {
     const xMeta = meta.find(m => m.name === config.xColumn)
     if (!xMeta) return false
     return !isDateType(xMeta.type) && !isNumericType(xMeta.type)
   })
 
-  /** Category labels for the x-axis (only populated when categorical) */
   const xLabels = $derived(
     isCategorical ? data.map(row => String(row[config.xColumn!] ?? '')) : []
   )
@@ -44,10 +42,6 @@
 
   function gridColor(): string {
     return isDark() ? 'rgba(75,85,99,0.3)' : 'rgba(209,213,219,0.5)'
-  }
-
-  function escapeHtml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   }
 
   function tooltipPlugin(isTime: boolean, isCat: boolean, catLabels: string[]): uPlot.Plugin {
@@ -90,7 +84,6 @@
           ? (catLabels[idx] ?? String(xVal))
           : xVal.toLocaleString()
 
-      // Build tooltip using DOM methods to prevent XSS from series labels or values
       tooltip.textContent = ''
       const headerDiv = document.createElement('div')
       Object.assign(headerDiv.style, { fontWeight: '600', marginBottom: '4px', color: '#e4e4e7' })
@@ -102,7 +95,7 @@
         if (!s.show) continue
         const val = u.data[i][idx]
         const display = val == null
-          ? '\u2014'
+          ? '—'
           : Number(val).toLocaleString(undefined, { maximumFractionDigits: 2 })
         const color = typeof s.stroke === 'function' ? (s.stroke as Function)(u, i) : s.stroke
 
@@ -221,12 +214,10 @@
       series.push(s)
     }
 
-    // Build x-axis config based on data type
     let xAxisConfig: Record<string, any> = {}
     if (isTime) {
       // default time formatting
     } else if (isCat) {
-      // Categorical: show category labels at exact index positions
       xAxisConfig = {
         splits: (_u: uPlot) => catLabels.map((_: string, i: number) => i),
         values: (_u: uPlot, splits: number[]) => splits.map(i => catLabels[i] ?? ''),
@@ -270,40 +261,45 @@
     }
   }
 
-  function createChart() {
+  function destroyChart() {
     if (chart) {
       chart.destroy()
       chart = undefined
     }
+  }
+
+  function createChart() {
+    destroyChart()
     if (!container || !plotData[0]?.length || measuredWidth <= 0 || measuredHeight <= 0) return
 
     const opts = buildOpts(measuredWidth, measuredHeight)
     chart = new uPlot(opts, plotData, container)
   }
 
-  // ResizeObserver — measure container, use setSize for efficient resize
+  // Measure container using clientWidth/clientHeight (accounts for padding)
   $effect(() => {
     if (!container) return
-    const ro = new ResizeObserver(entries => {
-      const { width: w, height: h } = entries[0].contentRect
-      const fw = Math.floor(w)
-      const fh = Math.floor(h)
-      if (fw > 0 && fh > 0 && (fw !== measuredWidth || fh !== measuredHeight)) {
-        measuredWidth = fw
-        measuredHeight = fh
+    const ro = new ResizeObserver(() => {
+      const w = container.clientWidth
+      const h = container.clientHeight
+      if (w > 0 && h > 0 && (w !== measuredWidth || h !== measuredHeight)) {
+        measuredWidth = w
+        measuredHeight = h
       }
     })
     ro.observe(container)
     return () => ro.disconnect()
   })
 
-  // Resize chart efficiently when container dimensions change
+  // Resize chart efficiently when only container dimensions change
   $effect(() => {
     if (!chart || measuredWidth <= 0 || measuredHeight <= 0) return
     chart.setSize({ width: measuredWidth, height: measuredHeight })
   })
 
-  // Recreate chart when data/config changes (not dimensions)
+  // Recreate chart when data or config changes (not dimensions)
+  let recreateTimer: ReturnType<typeof setTimeout> | undefined
+
   $effect(() => {
     void plotData
     void config.chartType
@@ -311,9 +307,10 @@
     void config.yColumns
     void config.colors
 
-    if (container && measuredWidth > 0 && measuredHeight > 0) {
-      createChart()
-    }
+    if (!container || measuredWidth <= 0 || measuredHeight <= 0) return
+
+    clearTimeout(recreateTimer)
+    recreateTimer = setTimeout(() => createChart(), 16)
   })
 
   onMount(() => {
@@ -324,9 +321,10 @@
   })
 
   onDestroy(() => {
+    clearTimeout(recreateTimer)
     themeObserver?.disconnect()
-    chart?.destroy()
+    destroyChart()
   })
 </script>
 
-<div bind:this={container} class="w-full h-full"></div>
+<div bind:this={container} class="w-full h-full overflow-hidden"></div>

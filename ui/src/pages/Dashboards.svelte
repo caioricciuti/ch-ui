@@ -12,7 +12,8 @@
   import DashboardGrid from '../lib/components/dashboard/DashboardGrid.svelte'
   import TimeRangeSelector from '../lib/components/dashboard/TimeRangeSelector.svelte'
   import ShareDialog from '../lib/components/dashboard/ShareDialog.svelte'
-  import { LayoutDashboard, Plus, Trash2, ArrowLeft, RefreshCw, Share2 } from 'lucide-svelte'
+  import DashboardSettings from '../lib/components/dashboard/DashboardSettings.svelte'
+  import { LayoutDashboard, Plus, Trash2, ArrowLeft, RefreshCw, Share2, ChevronDown, Timer, Settings } from 'lucide-svelte'
 
   interface Props {
     dashboardId?: string
@@ -51,6 +52,75 @@
 
   // Share dialog
   let shareDialogOpen = $state(false)
+
+  // Dashboard settings
+  let settingsOpen = $state(false)
+
+  // Auto-refresh
+  const REFRESH_OPTIONS: { label: string; seconds: number }[] = [
+    { label: 'Off', seconds: 0 },
+    { label: '5s', seconds: 5 },
+    { label: '10s', seconds: 10 },
+    { label: '30s', seconds: 30 },
+    { label: '1m', seconds: 60 },
+    { label: '5m', seconds: 300 },
+    { label: '15m', seconds: 900 },
+    { label: '30m', seconds: 1800 },
+    { label: '1h', seconds: 3600 },
+  ]
+  let refreshInterval = $state(0)
+  let refreshTimer = $state<ReturnType<typeof setInterval> | null>(null)
+  let refreshDropdownOpen = $state(false)
+  let refreshDropdownEl = $state<HTMLDivElement>(undefined!)
+  let refreshBtnEl = $state<HTMLButtonElement>(undefined!)
+  let refreshCountdown = $state(0)
+  let countdownTimer = $state<ReturnType<typeof setInterval> | null>(null)
+
+  function setRefreshInterval(seconds: number) {
+    refreshInterval = seconds
+    refreshDropdownOpen = false
+
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+    if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+    refreshCountdown = seconds
+
+    if (seconds > 0) {
+      runAllPanelQueries()
+      refreshCountdown = seconds
+      countdownTimer = setInterval(() => {
+        refreshCountdown = Math.max(0, refreshCountdown - 1)
+      }, 1000)
+      refreshTimer = setInterval(() => {
+        refreshCountdown = seconds
+        runAllPanelQueries()
+      }, seconds * 1000)
+    }
+  }
+
+  $effect(() => {
+    if (refreshDropdownOpen) {
+      const handler = (e: MouseEvent) => {
+        if (!refreshDropdownEl?.contains(e.target as Node) && !refreshBtnEl?.contains(e.target as Node)) {
+          refreshDropdownOpen = false
+        }
+      }
+      document.addEventListener('mousedown', handler)
+      return () => document.removeEventListener('mousedown', handler)
+    }
+  })
+
+  // Clean up timers when leaving dashboard detail
+  $effect(() => {
+    const id = dashboardId
+    if (!id) {
+      if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+      if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+      refreshInterval = 0
+      refreshCountdown = 0
+    }
+  })
+
+  const refreshLabel = $derived(REFRESH_OPTIONS.find(o => o.seconds === refreshInterval)?.label ?? 'Off')
 
   // Inline edit
   let editingTitle = $state(false)
@@ -150,9 +220,14 @@
   }
 
   async function runPanelQuery(p: Panel) {
-    const updated = new Map(panelResults)
-    updated.set(p.id, { data: [], meta: [], loading: true })
-    panelResults = updated
+    const existing = panelResults.get(p.id)
+    const hasData = existing && (existing.data.length > 0 || existing.meta.length > 0)
+
+    if (!hasData) {
+      const updated = new Map(panelResults)
+      updated.set(p.id, { data: [], meta: [], loading: true })
+      panelResults = updated
+    }
 
     const rangeValue = dashboardTimeRange || '1h'
 
@@ -166,7 +241,8 @@
       panelResults = next
     } catch (e: any) {
       const next = new Map(panelResults)
-      next.set(p.id, { data: [], meta: [], error: e.message, loading: false })
+      const prev = panelResults.get(p.id)
+      next.set(p.id, { data: prev?.data ?? [], meta: prev?.meta ?? [], error: e.message, loading: false })
       panelResults = next
     }
   }
@@ -208,6 +284,32 @@
     runPanelQuery(savedPanel)
     panelEditorOpen = false
     toastSuccess(editingPanel?.id ? 'Panel updated' : 'Panel created')
+  }
+
+  async function duplicatePanel(p: Panel) {
+    if (!currentDashboard) return
+    try {
+      const maxY = panels.reduce((max, pan) => Math.max(max, pan.layout_y + pan.layout_h), 0)
+      const body: Record<string, unknown> = {
+        name: p.name + ' (copy)',
+        panel_type: p.panel_type,
+        query: p.query,
+        config: p.config,
+        layout_x: p.layout_x,
+        layout_y: maxY,
+        layout_w: p.layout_w,
+        layout_h: p.layout_h,
+      }
+      if (p.connection_id) body.connection_id = p.connection_id
+      const res = await apiPost<{ panel: Panel; id?: string }>(`/api/dashboards/${currentDashboard.id}/panels`, body)
+      if (res.panel) {
+        panels = [...panels, res.panel]
+        runPanelQuery(res.panel)
+      }
+      toastSuccess('Panel duplicated')
+    } catch (e: any) {
+      toastError('Failed to duplicate: ' + e.message)
+    }
   }
 
   async function deletePanel(panelId: string) {
@@ -357,12 +459,60 @@
             Panel builder mode
           </span>
         {:else}
+          <Button size="sm" variant="secondary" onclick={() => settingsOpen = true}>
+            <Settings size={14} /> Settings
+          </Button>
           <Button size="sm" variant="secondary" onclick={() => shareDialogOpen = true}>
             <Share2 size={14} /> Share
           </Button>
-          <Button size="sm" variant="secondary" onclick={() => runAllPanelQueries()}>
-            <RefreshCw size={14} /> Refresh
-          </Button>
+          <!-- Refresh with auto-refresh picker -->
+          <div class="relative flex items-center">
+            <button
+              class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-l-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              onclick={() => { runAllPanelQueries(); if (refreshInterval > 0) { refreshCountdown = refreshInterval } }}
+              title="Refresh now"
+            >
+              <RefreshCw size={13} class={refreshInterval > 0 ? 'animate-spin-slow text-ch-blue' : ''} />
+              {#if refreshInterval > 0}
+                <span class="tabular-nums text-ch-blue">{refreshCountdown}s</span>
+              {:else}
+                Refresh
+              {/if}
+            </button>
+            <button
+              bind:this={refreshBtnEl}
+              class="flex items-center px-1.5 py-1.5 text-xs rounded-r-md border border-l-0 border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              onclick={() => refreshDropdownOpen = !refreshDropdownOpen}
+              title="Auto-refresh interval"
+            >
+              <ChevronDown size={12} />
+            </button>
+
+            {#if refreshDropdownOpen}
+              <div
+                bind:this={refreshDropdownEl}
+                class="absolute right-0 top-full mt-1 z-50 w-36 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-hidden"
+              >
+                <div class="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
+                  <span class="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Auto refresh</span>
+                </div>
+                {#each REFRESH_OPTIONS as opt}
+                  <button
+                    class="w-full flex items-center justify-between px-3 py-1.5 text-xs transition-colors
+                      {refreshInterval === opt.seconds
+                        ? 'bg-orange-50 dark:bg-orange-900/20 text-ch-blue font-medium'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}"
+                    onclick={() => setRefreshInterval(opt.seconds)}
+                  >
+                    {opt.label}
+                    {#if refreshInterval === opt.seconds && opt.seconds > 0}
+                      <Timer size={11} class="text-ch-blue" />
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
           <Button size="sm" onclick={openAddPanel}>
             <Plus size={14} /> Add Panel
           </Button>
@@ -390,6 +540,7 @@
           {panelResults}
           onpanelschange={(updated) => { panels = updated }}
           oneditpanel={openEditPanel}
+          onduplicatepanel={duplicatePanel}
           ondeletepanel={requestDeletePanel}
         />
       {/if}
@@ -443,5 +594,12 @@
     dashboardId={currentDashboard.id}
     dashboardName={currentDashboard.name}
     onclose={() => shareDialogOpen = false}
+  />
+  <DashboardSettings
+    open={settingsOpen}
+    dashboard={currentDashboard}
+    {panels}
+    onclose={() => settingsOpen = false}
+    onimported={(d, p) => { currentDashboard = d; panels = p; runAllPanelQueries(p); settingsOpen = false }}
   />
 {/if}

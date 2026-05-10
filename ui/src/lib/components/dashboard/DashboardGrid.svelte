@@ -4,13 +4,14 @@
   import { error as toastError } from '../../stores/toast.svelte'
   import Spinner from '../common/Spinner.svelte'
   import ChartPanel from './ChartPanel.svelte'
-  import { getStatValue } from '../../utils/chart-transform'
+  import StatPanel from './StatPanel.svelte'
+  import { computeStat } from '../../utils/chart-transform'
   import {
     COLS, ROW_H, GAP, MIN_W, MIN_H,
     calcColW, gridToPixel, compact, containerHeight,
     type LayoutItem,
   } from '../../utils/grid-layout'
-  import { Pencil, Trash2, GripVertical } from 'lucide-svelte'
+  import { Pencil, Trash2, GripVertical, EllipsisVertical, Copy } from 'lucide-svelte'
 
   interface Props {
     dashboardId: string
@@ -18,10 +19,30 @@
     panelResults: Map<string, { data: any[]; meta: any[]; error?: string; loading: boolean }>
     onpanelschange: (panels: Panel[]) => void
     oneditpanel: (panel: Panel) => void
+    onduplicatepanel: (panel: Panel) => void
     ondeletepanel: (panelId: string) => void
   }
 
-  let { dashboardId, panels, panelResults, onpanelschange, oneditpanel, ondeletepanel }: Props = $props()
+  let { dashboardId, panels, panelResults, onpanelschange, oneditpanel, onduplicatepanel, ondeletepanel }: Props = $props()
+
+  // Panel dropdown menu
+  let menuOpenId = $state<string | null>(null)
+  let menuEl = $state<HTMLDivElement>(undefined!)
+
+  function toggleMenu(panelId: string, e: MouseEvent) {
+    e.stopPropagation()
+    menuOpenId = menuOpenId === panelId ? null : panelId
+  }
+
+  $effect(() => {
+    if (menuOpenId) {
+      const handler = (e: MouseEvent) => {
+        if (menuEl && !menuEl.contains(e.target as Node)) menuOpenId = null
+      }
+      document.addEventListener('mousedown', handler)
+      return () => document.removeEventListener('mousedown', handler)
+    }
+  })
 
   let gridEl = $state<HTMLDivElement>(undefined!)
   let containerWidth = $state(0)
@@ -231,36 +252,54 @@
               <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{panel.name}</span>
 
             </div>
-            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div class="relative opacity-0 group-hover:opacity-100 transition-opacity">
               <button
-                class="p-1 rounded text-gray-400 hover:text-ch-blue hover:bg-gray-200 dark:hover:bg-gray-700"
+                class="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700"
                 onpointerdown={(e) => e.stopPropagation()}
-                onclick={() => oneditpanel(panel)}
-                title="Edit"
+                onclick={(e) => toggleMenu(panel.id, e)}
+                title="Panel options"
               >
-                <Pencil size={12} />
+                <EllipsisVertical size={14} />
               </button>
-              <button
-                class="p-1 rounded text-gray-400 hover:text-red-400 hover:bg-gray-200 dark:hover:bg-gray-700"
-                onpointerdown={(e) => e.stopPropagation()}
-                onclick={() => ondeletepanel(panel.id)}
-                title="Delete"
-              >
-                <Trash2 size={12} />
-              </button>
+              {#if menuOpenId === panel.id}
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div
+                  bind:this={menuEl}
+                  class="absolute right-0 top-full mt-1 z-50 w-36 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-hidden"
+                  onpointerdown={(e) => e.stopPropagation()}
+                >
+                  <button
+                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    onclick={() => { menuOpenId = null; oneditpanel(panel) }}
+                  >
+                    <Pencil size={12} /> Edit
+                  </button>
+                  <button
+                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    onclick={() => { menuOpenId = null; onduplicatepanel(panel) }}
+                  >
+                    <Copy size={12} /> Duplicate
+                  </button>
+                  <div class="border-t border-gray-200 dark:border-gray-700"></div>
+                  <button
+                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    onclick={() => { menuOpenId = null; ondeletepanel(panel.id) }}
+                  >
+                    <Trash2 size={12} /> Delete
+                  </button>
+                </div>
+              {/if}
             </div>
           </div>
 
           <!-- Panel content -->
-          <div class="flex-1 overflow-hidden p-2">
+          <div class="flex-1 min-h-0 min-w-0 overflow-hidden p-2">
             {#if !result || result.loading}
               <div class="flex items-center justify-center h-full"><Spinner size="sm" /></div>
             {:else if result.error}
               <p class="text-xs text-red-500 p-2">{result.error}</p>
             {:else if panel.panel_type === 'stat'}
-              <div class="flex items-center justify-center h-full">
-                <span class="text-3xl font-bold text-gray-900 dark:text-gray-100">{getStatValue(result.data, result.meta)}</span>
-              </div>
+              <StatPanel stat={computeStat(result.data, result.meta, cfg)} />
             {:else if panel.panel_type === 'timeseries' || panel.panel_type === 'bar'}
               <ChartPanel data={result.data} meta={result.meta} config={cfg} />
             {:else}

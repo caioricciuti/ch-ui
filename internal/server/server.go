@@ -173,6 +173,10 @@ func (s *Server) setupRoutes() {
 			dashboardsHandler := &handlers.DashboardsHandler{DB: db, Gateway: gw, Config: cfg}
 			protected.Mount("/dashboards", dashboardsHandler.Routes())
 
+			// Telemetry (OpenTelemetry data exploration)
+			telemetryHandler := &handlers.TelemetryHandler{DB: db, Gateway: gw, Config: cfg}
+			protected.Mount("/telemetry", telemetryHandler.Routes())
+
 			// Pipelines
 			pipelinesHandler := &handlers.PipelinesHandler{DB: db, Gateway: gw, Config: cfg, Runner: s.pipelineRunner}
 			protected.Mount("/pipelines", pipelinesHandler.Routes())

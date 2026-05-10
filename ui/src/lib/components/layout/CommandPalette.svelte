@@ -154,6 +154,7 @@
           if (tab.type === 'admin') openSingletonTab('admin', 'Admin')
           if (tab.type === 'settings') openSingletonTab('settings', 'License')
           if (tab.type === 'governance') openSingletonTab('governance', 'Governance')
+          if (tab.type === 'telemetry') openSingletonTab('telemetry', 'Telemetry')
           if (tab.type === 'query') openQueryTab(tab.sql)
         },
       })

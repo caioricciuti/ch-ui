@@ -149,6 +149,11 @@ pre,
   color: #fdba74;
 }
 
+::selection {
+  background: rgba(249, 115, 22, 0.35);
+  color: inherit;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -165,6 +170,13 @@ pre,
 
 ::-webkit-scrollbar-thumb:hover {
   background-color: rgba(123, 123, 123, 0.62);
+}
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
 }
 
 @layer components {

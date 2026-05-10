@@ -27,6 +27,7 @@
     ExternalLink,
     ChevronLeft,
     ChevronRight,
+    Activity,
   } from 'lucide-svelte'
 
   const session = $derived(getSession())
@@ -48,6 +49,7 @@
   const navItems: NavItem[] = [
     { type: 'saved-queries', label: 'Saved Queries', icon: Bookmark },
     { type: 'dashboards', label: 'Dashboards', icon: LayoutDashboard },
+    { type: 'telemetry', label: 'Telemetry', icon: Activity },
     { type: 'pipelines', label: 'Pipelines', icon: Workflow },
     { type: 'models', label: 'Models', icon: Boxes },
     { type: 'schedules', label: 'Schedules', icon: Clock, pro: true },

@@ -119,6 +119,11 @@ export interface ScheduleRun {
   error: string | null
 }
 
+export interface StatThreshold {
+  value: number
+  color: string
+}
+
 /** Panel visualization config (stored as JSON in panel.config) */
 export interface PanelConfig {
   chartType: 'table' | 'stat' | 'timeseries' | 'bar'
@@ -126,6 +131,15 @@ export interface PanelConfig {
   yColumns?: string[]
   colors?: string[]
   legendPosition?: 'bottom' | 'right' | 'none'
+  // Stat-specific options
+  statField?: string
+  statCalculation?: 'last' | 'first' | 'mean' | 'sum' | 'min' | 'max' | 'count' | 'range'
+  statUnit?: 'none' | 'percent' | 'short' | 'bytes' | 'bps' | 'duration' | 'durationMs'
+  statPrefix?: string
+  statSuffix?: string
+  statDecimals?: number
+  statColorMode?: 'none' | 'value' | 'background'
+  statThresholds?: StatThreshold[]
 }
 
 /** Audit log entry */

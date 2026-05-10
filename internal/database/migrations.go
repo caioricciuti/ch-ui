@@ -873,6 +873,16 @@ func (db *DB) runMigrations() error {
 			UNIQUE(connection_id, anchor_model_id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_model_sched_conn ON model_schedules(connection_id)`,
+
+		// ── Telemetry config ─────────────────────────────────────────────
+		`CREATE TABLE IF NOT EXISTS telemetry_config (
+			id TEXT PRIMARY KEY,
+			connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+			config_json TEXT NOT NULL DEFAULT '{}',
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(connection_id)
+		)`,
 	}
 
 	for _, stmt := range stmts {

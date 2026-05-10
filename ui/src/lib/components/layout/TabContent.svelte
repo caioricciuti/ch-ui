@@ -15,6 +15,7 @@
   import Admin from '../../../pages/Admin.svelte'
   import Governance from '../../../pages/Governance.svelte'
   import Pipelines from '../../../pages/Pipelines.svelte'
+  import Telemetry from '../../../pages/Telemetry.svelte'
   import Models from '../../../pages/Models.svelte'
   import ModelContent from './content/ModelContent.svelte'
   import Home from '../../../pages/Home.svelte'
@@ -103,6 +104,8 @@
     <Governance />
   {:else if activeTab.type === 'pipelines'}
     <Pipelines />
+  {:else if activeTab.type === 'telemetry'}
+    <Telemetry />
   {:else if activeTab.type === 'model'}
     {#key activeTab.id}
       <ModelContent tab={activeTab as ModelTab} />

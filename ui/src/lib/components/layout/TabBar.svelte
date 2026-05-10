@@ -35,6 +35,7 @@
     House,
     Workflow,
     Boxes,
+    Activity,
   } from 'lucide-svelte'
   import ContextMenu, { type ContextMenuItem } from '../common/ContextMenu.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
@@ -75,6 +76,7 @@
     'admin': Shield,
     'governance': Shield,
     'pipelines': Workflow,
+    'telemetry': Activity,
     'model': Boxes,
     'settings': Settings,
   }

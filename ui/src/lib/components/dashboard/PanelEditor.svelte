@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Panel, PanelConfig } from '../../types/api'
+  import type { Panel, PanelConfig, StatThreshold } from '../../types/api'
   import type { ColumnMeta } from '../../types/query'
   import { apiPost, apiPut } from '../../api/client'
   import { formatSQL } from '../../api/query'
@@ -12,10 +12,12 @@
   import SqlEditor from '../editor/SqlEditor.svelte'
   import VirtualTable from '../table/VirtualTable.svelte'
   import ChartPanel from './ChartPanel.svelte'
-  import { isDateType, isNumericType, getStatValue, DEFAULT_COLORS } from '../../utils/chart-transform'
+  import StatPanel from './StatPanel.svelte'
+  import { isDateType, isNumericType, getStatValue, DEFAULT_COLORS, computeStat } from '../../utils/chart-transform'
   import { formatDashboardTimeRangeLabel } from '../../utils/dashboard-time'
   import { toDashboardTimeRangePayload } from '../../utils/dashboard-time'
-  import { Table2, Hash, TrendingUp, BarChart3, PanelsTopLeft } from 'lucide-svelte'
+  import ColorPicker from '../common/ColorPicker.svelte'
+  import { Table2, Hash, TrendingUp, BarChart3, PanelsTopLeft, Plus, X } from 'lucide-svelte'
 
   interface Props {
     dashboardId: string
@@ -40,6 +42,20 @@
   let colors = $state<string[]>([...DEFAULT_COLORS])
   let legendPosition = $state<'bottom' | 'right' | 'none'>('bottom')
 
+  // Stat-specific state
+  let statField = $state('')
+  let statCalculation = $state<NonNullable<PanelConfig['statCalculation']>>('last')
+  let statUnit = $state<NonNullable<PanelConfig['statUnit']>>('none')
+  let statPrefix = $state('')
+  let statSuffix = $state('')
+  let statDecimals = $state<number | undefined>(undefined)
+  let statColorMode = $state<NonNullable<PanelConfig['statColorMode']>>('none')
+  let statThresholds = $state<StatThreshold[]>([
+    { value: 0, color: '#22c55e' },
+    { value: 80, color: '#f59e0b' },
+    { value: 90, color: '#ef4444' },
+  ])
+
   // Query result state
   let queryData = $state<Record<string, unknown>[]>([])
   let queryMeta = $state<ColumnMeta[]>([])
@@ -62,7 +78,17 @@
     yColumns,
     colors,
     legendPosition,
+    statField: statField || undefined,
+    statCalculation,
+    statUnit,
+    statPrefix: statPrefix || undefined,
+    statSuffix: statSuffix || undefined,
+    statDecimals,
+    statColorMode,
+    statThresholds,
   })
+
+  const statPreview = $derived(computeStat(queryData, queryMeta, currentConfig))
 
   const dashboardRangeLabel = $derived(formatDashboardTimeRangeLabel(dashboardTimeRange))
   const xAxisOptions = $derived.by<ComboboxOption[]>(() => [
@@ -95,6 +121,19 @@
     yColumns = existingConfig.yColumns ?? []
     colors = existingConfig.colors ?? [...DEFAULT_COLORS]
     legendPosition = existingConfig.legendPosition ?? 'bottom'
+    // Stat options
+    statField = existingConfig.statField ?? ''
+    statCalculation = existingConfig.statCalculation ?? 'last'
+    statUnit = existingConfig.statUnit ?? 'none'
+    statPrefix = existingConfig.statPrefix ?? ''
+    statSuffix = existingConfig.statSuffix ?? ''
+    statDecimals = existingConfig.statDecimals
+    statColorMode = existingConfig.statColorMode ?? 'none'
+    statThresholds = existingConfig.statThresholds ?? [
+      { value: 0, color: '#22c55e' },
+      { value: 80, color: '#f59e0b' },
+      { value: 90, color: '#ef4444' },
+    ]
     queryData = []
     queryMeta = []
     queryError = null
@@ -288,11 +327,7 @@
         {:else if chartType === 'table'}
           <VirtualTable meta={vtMeta} data={vtData} />
         {:else if chartType === 'stat'}
-          <div class="flex items-center justify-center h-full">
-            <span class="text-5xl font-bold text-gray-900 dark:text-gray-100">
-              {getStatValue(queryData, queryMeta)}
-            </span>
-          </div>
+          <StatPanel stat={statPreview} />
         {:else}
           <ChartPanel
             data={queryData}
@@ -352,6 +387,173 @@
           </div>
         </div>
 
+        <!-- Stat config -->
+        {#if chartType === 'stat'}
+          <!-- Field selector -->
+          <div>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Field</label>
+            <Combobox
+              options={[
+                { value: '', label: 'Auto (first numeric)' },
+                ...queryMeta.map(col => ({ value: col.name, label: col.name, hint: col.type, keywords: `${col.name} ${col.type}` })),
+              ]}
+              value={statField}
+              onChange={(v) => statField = v}
+              placeholder="Auto"
+            />
+          </div>
+
+          <!-- Calculation -->
+          <div>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Calculation</label>
+            <div class="grid grid-cols-4 gap-1">
+              {#each ['last', 'first', 'mean', 'sum', 'min', 'max', 'count', 'range'] as calc}
+                <button
+                  class="py-1.5 px-1 rounded text-[11px] font-medium border transition-colors
+                    {statCalculation === calc
+                      ? 'border-ch-blue bg-orange-50 dark:bg-orange-900/20 text-ch-blue'
+                      : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300'}"
+                  onclick={() => statCalculation = calc as typeof statCalculation}
+                >
+                  {calc.charAt(0).toUpperCase() + calc.slice(1)}
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <!-- Unit -->
+          <div>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Unit</label>
+            <Combobox
+              options={[
+                { value: 'none', label: 'None' },
+                { value: 'short', label: 'Short (K/M/B)' },
+                { value: 'percent', label: 'Percent (%)' },
+                { value: 'bytes', label: 'Bytes (KB/MB/GB)' },
+                { value: 'bps', label: 'Bytes/sec' },
+                { value: 'duration', label: 'Duration (s)' },
+                { value: 'durationMs', label: 'Duration (ms)' },
+              ]}
+              value={statUnit}
+              onChange={(v) => statUnit = v as typeof statUnit}
+              placeholder="None"
+            />
+          </div>
+
+          <!-- Prefix / Suffix / Decimals row -->
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Prefix</label>
+              <input
+                type="text"
+                class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-gray-800 dark:text-gray-200"
+                placeholder="$"
+                bind:value={statPrefix}
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Suffix</label>
+              <input
+                type="text"
+                class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-gray-800 dark:text-gray-200"
+                placeholder="%"
+                bind:value={statSuffix}
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Decimals</label>
+              <input
+                type="number"
+                min="0"
+                max="10"
+                class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-gray-800 dark:text-gray-200"
+                placeholder="Auto"
+                value={statDecimals ?? ''}
+                oninput={(e) => {
+                  const v = (e.target as HTMLInputElement).value
+                  statDecimals = v === '' ? undefined : Number(v)
+                }}
+              />
+            </div>
+          </div>
+
+          <!-- Color mode -->
+          <div>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Color Mode</label>
+            <div class="grid grid-cols-3 gap-1">
+              {#each [
+                { value: 'none', label: 'None' },
+                { value: 'value', label: 'Value' },
+                { value: 'background', label: 'Background' },
+              ] as cm}
+                <button
+                  class="py-1.5 rounded text-[11px] font-medium border transition-colors
+                    {statColorMode === cm.value
+                      ? 'border-ch-blue bg-orange-50 dark:bg-orange-900/20 text-ch-blue'
+                      : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600'}"
+                  onclick={() => statColorMode = cm.value as typeof statColorMode}
+                >
+                  {cm.label}
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <!-- Thresholds -->
+          {#if statColorMode !== 'none'}
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-xs font-medium text-gray-700 dark:text-gray-300">Thresholds</label>
+                <button
+                  class="flex items-center gap-0.5 text-[11px] text-ch-blue hover:text-orange-600 transition-colors"
+                  onclick={() => {
+                    const lastVal = statThresholds.length > 0 ? statThresholds[statThresholds.length - 1].value + 10 : 0
+                    statThresholds = [...statThresholds, { value: lastVal, color: '#ef4444' }]
+                  }}
+                >
+                  <Plus size={12} /> Add
+                </button>
+              </div>
+              <div class="flex flex-col gap-1.5">
+                {#each statThresholds as threshold, i}
+                  <div class="flex items-center gap-2">
+                    <ColorPicker
+                      value={threshold.color}
+                      onchange={(c) => {
+                        const next = [...statThresholds]
+                        next[i] = { ...next[i], color: c }
+                        statThresholds = next
+                      }}
+                    />
+                    {#if i === 0}
+                      <span class="flex-1 text-xs text-gray-400">Base</span>
+                    {:else}
+                      <input
+                        type="number"
+                        value={threshold.value}
+                        oninput={(e) => {
+                          const next = [...statThresholds]
+                          next[i] = { ...next[i], value: Number((e.target as HTMLInputElement).value) }
+                          statThresholds = next
+                        }}
+                        class="flex-1 text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-gray-800 dark:text-gray-200"
+                      />
+                    {/if}
+                    {#if statThresholds.length > 1}
+                      <button
+                        class="p-0.5 rounded text-gray-400 hover:text-red-400 transition-colors"
+                        onclick={() => statThresholds = statThresholds.filter((_, j) => j !== i)}
+                      >
+                        <X size={14} />
+                      </button>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+        {/if}
+
         <!-- Chart config (only for timeseries/bar) -->
         {#if chartType === 'timeseries' || chartType === 'bar'}
           <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-100/60 dark:bg-gray-900/60 px-2.5 py-2">
@@ -402,11 +604,9 @@
               <div class="flex flex-col gap-1.5">
                 {#each yColumns as yCol, i}
                   <div class="flex items-center gap-2">
-                    <input
-                      type="color"
+                    <ColorPicker
                       value={colors[i] ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length]}
-                      oninput={(e) => updateColor(i, (e.target as HTMLInputElement).value)}
-                      class="w-6 h-6 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
+                      onchange={(c) => updateColor(i, c)}
                     />
                     <span class="text-xs text-gray-600 dark:text-gray-400 truncate">{yCol}</span>
                   </div>
