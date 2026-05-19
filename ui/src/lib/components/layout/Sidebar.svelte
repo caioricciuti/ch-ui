@@ -6,6 +6,7 @@
   import { toggleTheme, getTheme } from '../../stores/theme.svelte'
   import { openCommandPalette } from '../../stores/command-palette.svelte'
   import { isProActive, loadLicense } from '../../stores/license.svelte'
+  import { checkForUpdate, hasUpdate, getLatestVersion } from '../../stores/update-check.svelte'
   import DatabaseTree from '../explorer/DatabaseTree.svelte'
   import {
     Plus,
@@ -28,9 +29,11 @@
     ChevronLeft,
     ChevronRight,
     Activity,
+    ArrowUpCircle,
   } from 'lucide-svelte'
 
   const session = $derived(getSession())
+  const updateAvailable = $derived(session?.appVersion ? hasUpdate(session.appVersion) : false)
 
   interface NavItemInternal {
     type: SingletonTab['type']
@@ -79,6 +82,7 @@
 
   onMount(() => {
     loadLicense()
+    if (session?.appVersion) checkForUpdate(session.appVersion)
 
     function handleKeydown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
@@ -300,7 +304,21 @@
               {/if}
               <div class="flex items-center gap-1">
                 {#if session?.appVersion}
-                  <span class="text-[10px] text-gray-400 dark:text-gray-600 mr-auto">ch-ui {session.appVersion}</span>
+                  <span class="text-[10px] text-gray-400 dark:text-gray-600 mr-auto flex items-center gap-1">
+                    ch-ui {session.appVersion}
+                    {#if updateAvailable}
+                      <a
+                        href="https://github.com/caioricciuti/ch-ui/releases/latest"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-ch-blue/10 text-ch-blue hover:bg-ch-blue/20 transition-colors"
+                        title="Update available: {getLatestVersion()}"
+                      >
+                        <ArrowUpCircle size={10} />
+                        <span class="text-[9px] font-medium">{getLatestVersion()}</span>
+                      </a>
+                    {/if}
+                  </span>
                 {/if}
                 <div class="flex items-center gap-0.5 ml-auto">
                   <button

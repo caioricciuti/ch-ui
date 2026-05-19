@@ -17,8 +17,8 @@ WORKDIR /src
 ARG VERSION=dev
 ARG COMMIT=none
 ARG BUILD_DATE=unknown
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETOS
+ARG TARGETARCH
 
 COPY go.mod go.sum ./
 RUN go mod download
