@@ -30,6 +30,7 @@ type Panel struct {
 	ID           string  `json:"id"`
 	DashboardID  string  `json:"dashboard_id"`
 	Name         string  `json:"name"`
+	Description  string  `json:"description"`
 	PanelType    string  `json:"panel_type"`
 	Query        string  `json:"query"`
 	ConnectionID *string `json:"connection_id"`
@@ -146,7 +147,7 @@ func (db *DB) DeleteDashboard(id string) error {
 // GetPanelsByDashboard retrieves all panels for a dashboard.
 func (db *DB) GetPanelsByDashboard(dashboardID string) ([]Panel, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, dashboard_id, name, panel_type, query, connection_id, config, layout_x, layout_y, layout_w, layout_h, created_at, updated_at
+		`SELECT id, dashboard_id, name, description, panel_type, query, connection_id, config, layout_x, layout_y, layout_w, layout_h, created_at, updated_at
 		 FROM panels WHERE dashboard_id = ? ORDER BY layout_y ASC, layout_x ASC`,
 		dashboardID,
 	)
@@ -159,7 +160,7 @@ func (db *DB) GetPanelsByDashboard(dashboardID string) ([]Panel, error) {
 	for rows.Next() {
 		var p Panel
 		var connID sql.NullString
-		if err := rows.Scan(&p.ID, &p.DashboardID, &p.Name, &p.PanelType, &p.Query, &connID, &p.Config, &p.LayoutX, &p.LayoutY, &p.LayoutW, &p.LayoutH, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.DashboardID, &p.Name, &p.Description, &p.PanelType, &p.Query, &connID, &p.Config, &p.LayoutX, &p.LayoutY, &p.LayoutW, &p.LayoutH, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan panel: %w", err)
 		}
 		p.ConnectionID = nullStringToPtr(connID)
@@ -174,13 +175,13 @@ func (db *DB) GetPanelsByDashboard(dashboardID string) ([]Panel, error) {
 // GetPanelByID retrieves a panel by ID.
 func (db *DB) GetPanelByID(id string) (*Panel, error) {
 	row := db.conn.QueryRow(
-		`SELECT id, dashboard_id, name, panel_type, query, connection_id, config, layout_x, layout_y, layout_w, layout_h, created_at, updated_at
+		`SELECT id, dashboard_id, name, description, panel_type, query, connection_id, config, layout_x, layout_y, layout_w, layout_h, created_at, updated_at
 		 FROM panels WHERE id = ?`, id,
 	)
 
 	var p Panel
 	var connID sql.NullString
-	err := row.Scan(&p.ID, &p.DashboardID, &p.Name, &p.PanelType, &p.Query, &connID, &p.Config, &p.LayoutX, &p.LayoutY, &p.LayoutW, &p.LayoutH, &p.CreatedAt, &p.UpdatedAt)
+	err := row.Scan(&p.ID, &p.DashboardID, &p.Name, &p.Description, &p.PanelType, &p.Query, &connID, &p.Config, &p.LayoutX, &p.LayoutY, &p.LayoutW, &p.LayoutH, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -192,7 +193,7 @@ func (db *DB) GetPanelByID(id string) (*Panel, error) {
 }
 
 // CreatePanel creates a new panel and returns its ID.
-func (db *DB) CreatePanel(dashboardID, name, panelType, query, connectionID, config string, x, y, w, h int) (string, error) {
+func (db *DB) CreatePanel(dashboardID, name, description, panelType, query, connectionID, config string, x, y, w, h int) (string, error) {
 	id := uuid.NewString()
 	now := time.Now().UTC().Format(time.RFC3339)
 
@@ -205,9 +206,9 @@ func (db *DB) CreatePanel(dashboardID, name, panelType, query, connectionID, con
 	}
 
 	_, err := db.conn.Exec(
-		`INSERT INTO panels (id, dashboard_id, name, panel_type, query, connection_id, config, layout_x, layout_y, layout_w, layout_h, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, dashboardID, name, panelType, query, connID, config, x, y, w, h, now, now,
+		`INSERT INTO panels (id, dashboard_id, name, description, panel_type, query, connection_id, config, layout_x, layout_y, layout_w, layout_h, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, dashboardID, name, description, panelType, query, connID, config, x, y, w, h, now, now,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create panel: %w", err)
@@ -216,7 +217,7 @@ func (db *DB) CreatePanel(dashboardID, name, panelType, query, connectionID, con
 }
 
 // UpdatePanel updates a panel.
-func (db *DB) UpdatePanel(id, name, panelType, query, connectionID, config string, x, y, w, h int) error {
+func (db *DB) UpdatePanel(id, name, description, panelType, query, connectionID, config string, x, y, w, h int) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	var connID interface{}
@@ -225,8 +226,8 @@ func (db *DB) UpdatePanel(id, name, panelType, query, connectionID, config strin
 	}
 
 	_, err := db.conn.Exec(
-		`UPDATE panels SET name = ?, panel_type = ?, query = ?, connection_id = ?, config = ?, layout_x = ?, layout_y = ?, layout_w = ?, layout_h = ?, updated_at = ? WHERE id = ?`,
-		name, panelType, query, connID, config, x, y, w, h, now, id,
+		`UPDATE panels SET name = ?, description = ?, panel_type = ?, query = ?, connection_id = ?, config = ?, layout_x = ?, layout_y = ?, layout_w = ?, layout_h = ?, updated_at = ? WHERE id = ?`,
+		name, description, panelType, query, connID, config, x, y, w, h, now, id,
 	)
 	if err != nil {
 		return fmt.Errorf("update panel: %w", err)

@@ -930,6 +930,9 @@ func (db *DB) runMigrations() error {
 	if err := db.ensureColumn("dashboard_shares", "encrypted_password", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	if err := db.ensureColumn("panels", "description", "TEXT DEFAULT ''"); err != nil {
+		return err
+	}
 
 	// Drop legacy tables from the old SaaS schema
 	dropLegacy := []string{

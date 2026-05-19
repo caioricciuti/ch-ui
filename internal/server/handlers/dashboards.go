@@ -308,6 +308,7 @@ func (h *DashboardsHandler) CreatePanel(w http.ResponseWriter, r *http.Request) 
 
 	var body struct {
 		Name         string `json:"name"`
+		Description  string `json:"description"`
 		PanelType    string `json:"panel_type"`
 		Query        string `json:"query"`
 		ConnectionID string `json:"connection_id"`
@@ -327,6 +328,8 @@ func (h *DashboardsHandler) CreatePanel(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Name is required"})
 		return
 	}
+
+	description := strings.TrimSpace(body.Description)
 
 	query := strings.TrimSpace(body.Query)
 	if query == "" {
@@ -356,7 +359,7 @@ func (h *DashboardsHandler) CreatePanel(w http.ResponseWriter, r *http.Request) 
 		h2 = *body.LayoutH
 	}
 
-	id, err := h.DB.CreatePanel(dashboardID, name, panelType, query, connectionID, panelConfig, x, y, w2, h2)
+	id, err := h.DB.CreatePanel(dashboardID, name, description, panelType, query, connectionID, panelConfig, x, y, w2, h2)
 	if err != nil {
 		slog.Error("Failed to create panel", "error", err, "dashboard", dashboardID)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create panel"})
@@ -406,6 +409,7 @@ func (h *DashboardsHandler) UpdatePanel(w http.ResponseWriter, r *http.Request) 
 
 	var body struct {
 		Name         *string `json:"name"`
+		Description  *string `json:"description"`
 		PanelType    *string `json:"panel_type"`
 		Query        *string `json:"query"`
 		ConnectionID *string `json:"connection_id"`
@@ -421,6 +425,7 @@ func (h *DashboardsHandler) UpdatePanel(w http.ResponseWriter, r *http.Request) 
 	}
 
 	name := existing.Name
+	description := existing.Description
 	panelType := existing.PanelType
 	query := existing.Query
 	connectionID := ""
@@ -433,6 +438,10 @@ func (h *DashboardsHandler) UpdatePanel(w http.ResponseWriter, r *http.Request) 
 	changed := false
 	if body.Name != nil {
 		name = strings.TrimSpace(*body.Name)
+		changed = true
+	}
+	if body.Description != nil {
+		description = strings.TrimSpace(*body.Description)
 		changed = true
 	}
 	if body.PanelType != nil {
@@ -473,7 +482,7 @@ func (h *DashboardsHandler) UpdatePanel(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := h.DB.UpdatePanel(panelID, name, panelType, query, connectionID, panelConfig, x, y, pw, ph); err != nil {
+	if err := h.DB.UpdatePanel(panelID, name, description, panelType, query, connectionID, panelConfig, x, y, pw, ph); err != nil {
 		slog.Error("Failed to update panel", "error", err, "panel", panelID)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update panel"})
 		return
@@ -790,7 +799,9 @@ func (h *DashboardsHandler) InviteToShare(w http.ResponseWriter, r *http.Request
 	}
 
 	appURL := strings.TrimRight(h.Config.AppURL, "/")
-	if appURL == "" {
+	if origin := r.Header.Get("Origin"); origin != "" {
+		appURL = strings.TrimRight(origin, "/")
+	} else if appURL == "" {
 		appURL = fmt.Sprintf("http://localhost:%d", h.Config.Port)
 	}
 

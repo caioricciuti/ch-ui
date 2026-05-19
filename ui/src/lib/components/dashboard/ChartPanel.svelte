@@ -184,6 +184,53 @@
     }
   }
 
+  function stackedBarPaths(): uPlot.Series.PathBuilder {
+    return (u, sidx, i0, i1) => {
+      const fill = new Path2D()
+      const stroke = new Path2D()
+
+      const n = u.data[0].length
+      if (n === 0) return { fill, stroke }
+
+      let slotPx: number
+      if (n > 1) {
+        const p0 = u.valToPos(u.data[0][0], 'x', true)
+        const p1 = u.valToPos(u.data[0][1], 'x', true)
+        slotPx = Math.abs(p1 - p0)
+      } else {
+        slotPx = u.over.clientWidth * 0.8
+      }
+
+      const barPx = Math.max(2, slotPx * 0.7)
+      const offset = -barPx / 2
+
+      for (let i = i0; i <= i1; i++) {
+        const yVal = u.data[sidx][i]
+        if (yVal == null) continue
+
+        let baseline = 0
+        for (let s = 1; s < sidx; s++) {
+          baseline += Number(u.data[s][i]) || 0
+        }
+
+        const cx = u.valToPos(u.data[0][i], 'x', true)
+        const baseY = u.valToPos(baseline, 'y', true)
+        const topY = u.valToPos(baseline + (yVal as number), 'y', true)
+
+        const x = cx + offset
+        const y = Math.min(baseY, topY)
+        const h = Math.abs(baseY - topY)
+
+        if (barPx > 0 && h > 0) {
+          fill.rect(x, y, barPx, h)
+          stroke.rect(x, y, barPx, h)
+        }
+      }
+
+      return { fill, stroke }
+    }
+  }
+
   function buildOpts(w: number, h: number): uPlot.Options {
     const xMeta = meta.find(m => m.name === config.xColumn)
     const isTime = xMeta ? isDateType(xMeta.type) : false
@@ -206,7 +253,7 @@
 
       if (config.chartType === 'bar') {
         s.fill = color + '80'
-        s.paths = groupedBarPaths(i, yColumns.length)
+        s.paths = config.barMode === 'stacked' ? stackedBarPaths() : groupedBarPaths(i, yColumns.length)
       } else {
         s.fill = color + '1A'
       }
@@ -218,12 +265,16 @@
     if (isTime) {
       // default time formatting
     } else if (isCat) {
+      const maxLen = Math.max(...catLabels.map(l => l.length), 0)
+      const needsRotation = catLabels.length > 4 || maxLen > 8
+      const axisSize = needsRotation ? Math.min(maxLen * 6, 120) : 40
+
       xAxisConfig = {
         splits: (_u: uPlot) => catLabels.map((_: string, i: number) => i),
         values: (_u: uPlot, splits: number[]) => splits.map(i => catLabels[i] ?? ''),
-        gap: 8,
-        size: catLabels.length > 6 ? 60 : 40,
-        rotate: catLabels.length > 6 ? -45 : 0,
+        gap: 4,
+        size: axisSize,
+        rotate: needsRotation ? -45 : 0,
       }
     } else {
       xAxisConfig = {
@@ -247,14 +298,34 @@
           stroke: axisColor(),
           grid: { stroke: gridColor(), width: 1 },
           ticks: { stroke: gridColor(), width: 1 },
+          size: (_self: uPlot, values: string[] | null) => {
+            if (!values || values.length === 0) return 50
+            const maxLen = Math.max(...values.map(v => v.length))
+            return Math.max(40, maxLen * 8 + 12)
+          },
         },
       ],
       scales: {
         x: isTime
           ? { time: true }
           : isCat
-            ? { time: false, distr: 2 }
+            ? { time: false, distr: 2, range: (_u: uPlot, min: number, max: number) => [min - 0.5, max + 0.5] }
             : { time: false },
+        ...(config.chartType === 'bar' && config.barMode === 'stacked' ? {
+          y: {
+            range: () => {
+              let stackMax = 0
+              for (let i = 0; i < plotData[0].length; i++) {
+                let sum = 0
+                for (let s = 1; s < plotData.length; s++) {
+                  sum += Number(plotData[s][i]) || 0
+                }
+                if (sum > stackMax) stackMax = sum
+              }
+              return [0, stackMax * 1.05] as [number, number]
+            }
+          }
+        } : {}),
       },
       legend: { show: false },
       cursor: { drag: { x: true, y: false } },

@@ -10,10 +10,16 @@
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
   import PanelEditor from '../lib/components/dashboard/PanelEditor.svelte'
   import DashboardGrid from '../lib/components/dashboard/DashboardGrid.svelte'
+  import StatPanel from '../lib/components/dashboard/StatPanel.svelte'
+  import ChartPanel from '../lib/components/dashboard/ChartPanel.svelte'
+  import MarkdownPanel from '../lib/components/dashboard/MarkdownPanel.svelte'
+  import GaugePanel from '../lib/components/dashboard/GaugePanel.svelte'
+  import PiePanel from '../lib/components/dashboard/PiePanel.svelte'
+  import { computeStat } from '../lib/utils/chart-transform'
   import TimeRangeSelector from '../lib/components/dashboard/TimeRangeSelector.svelte'
   import ShareDialog from '../lib/components/dashboard/ShareDialog.svelte'
   import DashboardSettings from '../lib/components/dashboard/DashboardSettings.svelte'
-  import { LayoutDashboard, Plus, Trash2, ArrowLeft, RefreshCw, Share2, ChevronDown, Timer, Settings } from 'lucide-svelte'
+  import { LayoutDashboard, Plus, Trash2, ArrowLeft, RefreshCw, Share2, ChevronDown, Timer, Settings, Info, X } from 'lucide-svelte'
 
   interface Props {
     dashboardId?: string
@@ -55,6 +61,9 @@
 
   // Dashboard settings
   let settingsOpen = $state(false)
+
+  // Fullscreen panel view
+  let fullscreenPanel = $state<Panel | null>(null)
 
   // Auto-refresh
   const REFRESH_OPTIONS: { label: string; seconds: number }[] = [
@@ -220,6 +229,8 @@
   }
 
   async function runPanelQuery(p: Panel) {
+    if (p.panel_type === 'text') return
+
     const existing = panelResults.get(p.id)
     const hasData = existing && (existing.data.length > 0 || existing.meta.length > 0)
 
@@ -356,6 +367,21 @@
     }
   }
 
+  $effect(() => {
+    if (!fullscreenPanel) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') fullscreenPanel = null }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  })
+
+  function parsePanelConfig(configStr: string): import('../lib/types/api').PanelConfig {
+    try {
+      return JSON.parse(configStr || '{}')
+    } catch {
+      return { chartType: 'table' }
+    }
+  }
+
   function formatTime(ts: string): string {
     try {
       return new Date(ts).toLocaleString()
@@ -449,7 +475,15 @@
       {/if}
 
       {#if currentDashboard?.description}
-        <span class="text-xs text-gray-500 truncate max-w-[32ch]">{currentDashboard.description}</span>
+        <div class="relative group/info">
+          <Info size={16} class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-help" />
+          <div class="fixed z-[999] hidden group-hover/info:block" style="margin-top: 4px;">
+            <div class="bg-gray-900 dark:bg-gray-800 text-gray-100 text-sm rounded-lg px-4 py-3 shadow-lg w-max max-w-md leading-relaxed">
+              {currentDashboard.description}
+              <div class="absolute left-4 -top-1 w-2 h-2 bg-gray-900 dark:bg-gray-800 rotate-45"></div>
+            </div>
+          </div>
+        </div>
       {/if}
 
       <div class="ml-auto flex items-center gap-2">
@@ -542,6 +576,7 @@
           oneditpanel={openEditPanel}
           onduplicatepanel={duplicatePanel}
           ondeletepanel={requestDeletePanel}
+          onmaximizepanel={(p) => fullscreenPanel = p}
         />
       {/if}
     </div>
@@ -601,5 +636,69 @@
     {panels}
     onclose={() => settingsOpen = false}
     onimported={(d, p) => { currentDashboard = d; panels = p; runAllPanelQueries(p); settingsOpen = false }}
+    ondelete={() => { settingsOpen = false; requestDeleteDashboard(currentDashboard!.id) }}
   />
+{/if}
+
+{#if fullscreenPanel}
+  {@const fsResult = panelResults.get(fullscreenPanel.id)}
+  {@const fsCfg = parsePanelConfig(fullscreenPanel.config)}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="fixed inset-0 z-[9999] bg-white dark:bg-gray-950 flex flex-col"
+    onkeydown={(e) => { if (e.key === 'Escape') fullscreenPanel = null }}
+    tabindex="-1"
+  >
+    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800 shrink-0">
+      <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">{fullscreenPanel.name}</span>
+      <button
+        class="p-1.5 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800"
+        onclick={() => fullscreenPanel = null}
+      >
+        <X size={18} />
+      </button>
+    </div>
+    <div class="flex-1 min-h-0 overflow-hidden {fullscreenPanel.panel_type === 'text' ? '' : 'p-4'}">
+      {#if fullscreenPanel.panel_type === 'text'}
+        <MarkdownPanel content={fsCfg.content ?? ''} />
+      {:else if !fsResult || fsResult.loading}
+        <div class="flex items-center justify-center h-full"><Spinner /></div>
+      {:else if fsResult.error}
+        <p class="text-sm text-red-500 p-4">{fsResult.error}</p>
+      {:else if fullscreenPanel.panel_type === 'stat'}
+        <StatPanel stat={computeStat(fsResult.data, fsResult.meta, fsCfg)} />
+      {:else if fullscreenPanel.panel_type === 'gauge'}
+        <GaugePanel stat={computeStat(fsResult.data, fsResult.meta, fsCfg)} min={fsCfg.gaugeMin} max={fsCfg.gaugeMax} />
+      {:else if fullscreenPanel.panel_type === 'pie'}
+        <PiePanel data={fsResult.data} meta={fsResult.meta} config={fsCfg} />
+      {:else if fullscreenPanel.panel_type === 'timeseries' || fullscreenPanel.panel_type === 'bar'}
+        <ChartPanel data={fsResult.data} meta={fsResult.meta} config={fsCfg} />
+      {:else}
+        {#if fsResult.meta.length > 0}
+          <div class="overflow-auto h-full">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-gray-200 dark:border-gray-800">
+                  {#each fsResult.meta as col}
+                    <th class="text-left py-2 px-3 text-gray-500 font-medium whitespace-nowrap">{col.name}</th>
+                  {/each}
+                </tr>
+              </thead>
+              <tbody>
+                {#each fsResult.data as row}
+                  <tr class="border-b border-gray-100 dark:border-gray-900">
+                    {#each fsResult.meta as col}
+                      <td class="py-2 px-3 text-gray-700 dark:text-gray-300 whitespace-nowrap">{row[col.name] ?? '--'}</td>
+                    {/each}
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {:else}
+          <p class="text-sm text-gray-500 p-4">No data</p>
+        {/if}
+      {/if}
+    </div>
+  </div>
 {/if}

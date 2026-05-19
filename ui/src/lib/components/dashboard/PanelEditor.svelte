@@ -17,7 +17,10 @@
   import { formatDashboardTimeRangeLabel } from '../../utils/dashboard-time'
   import { toDashboardTimeRangePayload } from '../../utils/dashboard-time'
   import ColorPicker from '../common/ColorPicker.svelte'
-  import { Table2, Hash, TrendingUp, BarChart3, PanelsTopLeft, Plus, X } from 'lucide-svelte'
+  import MarkdownPanel from './MarkdownPanel.svelte'
+  import GaugePanel from './GaugePanel.svelte'
+  import PiePanel from './PiePanel.svelte'
+  import { Table2, Hash, TrendingUp, BarChart3, PanelsTopLeft, Plus, X, FileText, Gauge, PieChart } from 'lucide-svelte'
 
   interface Props {
     dashboardId: string
@@ -31,7 +34,9 @@
 
   // Form state
   let name = $state('')
+  let description = $state('')
   let query = $state('')
+  let content = $state('')
   let saving = $state(false)
   let running = $state(false)
   let formatting = $state(false)
@@ -41,6 +46,18 @@
   let yColumns = $state<string[]>([])
   let colors = $state<string[]>([...DEFAULT_COLORS])
   let legendPosition = $state<'bottom' | 'right' | 'none'>('bottom')
+
+  // Gauge-specific state
+  let gaugeMin = $state(0)
+  let gaugeMax = $state(100)
+
+  // Bar mode state
+  let barMode = $state<'grouped' | 'stacked'>('grouped')
+
+  // Pie-specific state
+  let pieLabelColumn = $state('')
+  let pieValueColumn = $state('')
+  let pieDonut = $state(false)
 
   // Stat-specific state
   let statField = $state('')
@@ -78,6 +95,13 @@
     yColumns,
     colors,
     legendPosition,
+    content: content || undefined,
+    barMode: chartType === 'bar' ? barMode : undefined,
+    gaugeMin: chartType === 'gauge' ? gaugeMin : undefined,
+    gaugeMax: chartType === 'gauge' ? gaugeMax : undefined,
+    pieDonut: chartType === 'pie' ? pieDonut : undefined,
+    pieLabelColumn: chartType === 'pie' && pieLabelColumn ? pieLabelColumn : undefined,
+    pieValueColumn: chartType === 'pie' && pieValueColumn ? pieValueColumn : undefined,
     statField: statField || undefined,
     statCalculation,
     statUnit,
@@ -115,12 +139,23 @@
     const existingConfig = parsePanelConfig(currentPanel)
 
     name = currentPanel?.name ?? ''
+    description = currentPanel?.description ?? ''
     query = currentPanel?.query ?? ''
+    content = existingConfig.content ?? ''
     chartType = existingConfig.chartType ?? (currentPanel?.panel_type as PanelConfig['chartType']) ?? 'table'
     xColumn = existingConfig.xColumn ?? ''
     yColumns = existingConfig.yColumns ?? []
     colors = existingConfig.colors ?? [...DEFAULT_COLORS]
     legendPosition = existingConfig.legendPosition ?? 'bottom'
+    // Gauge options
+    gaugeMin = existingConfig.gaugeMin ?? 0
+    gaugeMax = existingConfig.gaugeMax ?? 100
+    // Bar mode
+    barMode = existingConfig.barMode ?? 'grouped'
+    // Pie options
+    pieLabelColumn = existingConfig.pieLabelColumn ?? ''
+    pieValueColumn = existingConfig.pieValueColumn ?? ''
+    pieDonut = existingConfig.pieDonut ?? false
     // Stat options
     statField = existingConfig.statField ?? ''
     statCalculation = existingConfig.statCalculation ?? 'last'
@@ -236,9 +271,14 @@
   }
 
   async function handleSave() {
-    const sql = editorComponent?.getValue() ?? query
-    if (!name.trim() || !sql.trim()) {
-      toastError('Name and query are required')
+    const isText = chartType === 'text'
+    const sql = isText ? 'SELECT 1' : (editorComponent?.getValue() ?? query)
+    if (!name.trim()) {
+      toastError('Name is required')
+      return
+    }
+    if (!isText && !sql.trim()) {
+      toastError('Query is required')
       return
     }
     saving = true
@@ -247,6 +287,7 @@
       if (panel?.id) {
         const res = await apiPut<{ panel: Panel }>(`/api/dashboards/${dashboardId}/panels/${panel.id}`, {
           name: name.trim(),
+          description: description.trim(),
           panel_type: chartType,
           query: sql.trim(),
           config: configJson,
@@ -255,6 +296,7 @@
       } else {
         const res = await apiPost<{ panel: Panel }>(`/api/dashboards/${dashboardId}/panels`, {
           name: name.trim(),
+          description: description.trim(),
           panel_type: chartType,
           query: sql.trim(),
           config: configJson,
@@ -275,8 +317,11 @@
   const vizTypes: { type: PanelConfig['chartType']; label: string; icon: typeof Table2 }[] = [
     { type: 'table', label: 'Table', icon: Table2 },
     { type: 'stat', label: 'Stat', icon: Hash },
+    { type: 'gauge', label: 'Gauge', icon: Gauge },
     { type: 'timeseries', label: 'Time Series', icon: TrendingUp },
     { type: 'bar', label: 'Bar', icon: BarChart3 },
+    { type: 'pie', label: 'Pie', icon: PieChart },
+    { type: 'text', label: 'Text', icon: FileText },
   ]
 </script>
 
@@ -298,44 +343,70 @@
 
   <!-- Editor: left/right split -->
   <div class="flex flex-1 min-h-0 overflow-hidden">
-    <!-- Left side: Query workspace -->
+    <!-- Left side: Query workspace / Markdown editor -->
     <div class="flex-[3] flex flex-col border-r border-gray-200 dark:border-gray-800 min-w-0">
-      <Toolbar running={running} onrun={runQuery} onformat={handleFormat} onsave={handleSave} />
-
-      <!-- SQL Editor -->
-      <div class="h-[42%] min-h-[200px] shrink-0 border-b border-gray-200 dark:border-gray-800">
-        <SqlEditor
-          bind:this={editorComponent}
-          value={query}
-          onrun={runQuery}
-          onchange={(v) => query = v}
-        />
-      </div>
-
-      <!-- Result area -->
-      <div class="flex-1 min-h-0 overflow-auto">
-        {#if running}
-          <div class="flex items-center justify-center h-full"><Spinner /></div>
-        {:else if queryError}
-          <div class="p-4">
-            <p class="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 rounded p-3">{queryError}</p>
+      {#if chartType === 'text'}
+        <!-- Markdown editor -->
+        <div class="flex items-center px-3 py-2 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
+          <span class="text-xs font-medium text-gray-500">Markdown Editor</span>
+        </div>
+        <div class="flex flex-1 min-h-0">
+          <!-- Editor -->
+          <div class="flex-1 flex flex-col min-w-0 border-r border-gray-200 dark:border-gray-800">
+            <textarea
+              class="flex-1 w-full font-mono text-sm bg-transparent text-gray-800 dark:text-gray-200 resize-none p-4 focus:outline-none"
+              bind:value={content}
+              placeholder="# My Panel&#10;&#10;Write **markdown** here...&#10;&#10;- Lists&#10;- Links: [example](https://example.com)&#10;- `code` and more"
+              spellcheck="false"
+            ></textarea>
           </div>
-        {:else if queryData.length === 0 && queryMeta.length === 0}
-          <div class="flex items-center justify-center h-full text-gray-400 text-sm">
-            Run a query to see results
+          <!-- Live preview -->
+          <div class="flex-1 min-w-0 overflow-y-auto bg-gray-50/50 dark:bg-gray-950/50">
+            <MarkdownPanel content={content} />
           </div>
-        {:else if chartType === 'table'}
-          <VirtualTable meta={vtMeta} data={vtData} />
-        {:else if chartType === 'stat'}
-          <StatPanel stat={statPreview} />
-        {:else}
-          <ChartPanel
-            data={queryData}
-            meta={queryMeta}
-            config={currentConfig}
+        </div>
+      {:else}
+        <Toolbar running={running} onrun={runQuery} onformat={handleFormat} onsave={handleSave} />
+
+        <!-- SQL Editor -->
+        <div class="h-[42%] min-h-[200px] shrink-0 border-b border-gray-200 dark:border-gray-800">
+          <SqlEditor
+            bind:this={editorComponent}
+            value={query}
+            onrun={runQuery}
+            onchange={(v) => query = v}
           />
-        {/if}
-      </div>
+        </div>
+
+        <!-- Result area -->
+        <div class="flex-1 min-h-0 overflow-auto">
+          {#if running}
+            <div class="flex items-center justify-center h-full"><Spinner /></div>
+          {:else if queryError}
+            <div class="p-4">
+              <p class="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 rounded p-3">{queryError}</p>
+            </div>
+          {:else if queryData.length === 0 && queryMeta.length === 0}
+            <div class="flex items-center justify-center h-full text-gray-400 text-sm">
+              Run a query to see results
+            </div>
+          {:else if chartType === 'table'}
+            <VirtualTable meta={vtMeta} data={vtData} />
+          {:else if chartType === 'stat'}
+            <StatPanel stat={statPreview} />
+          {:else if chartType === 'gauge'}
+            <GaugePanel stat={statPreview} min={gaugeMin} max={gaugeMax} />
+          {:else if chartType === 'pie'}
+            <PiePanel data={queryData} meta={queryMeta} config={currentConfig} />
+          {:else}
+            <ChartPanel
+              data={queryData}
+              meta={queryMeta}
+              config={currentConfig}
+            />
+          {/if}
+        </div>
+      {/if}
     </div>
 
     <!-- Right side: Configuration -->
@@ -353,7 +424,20 @@
           />
         </div>
 
-        <!-- Available variables -->
+        <!-- Panel description -->
+        <div>
+          <label for="panel-description" class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+          <input
+            id="panel-description"
+            type="text"
+            class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-gray-800 dark:text-gray-200"
+            placeholder="Optional description"
+            bind:value={description}
+          />
+        </div>
+
+        <!-- Available variables (query panels only) -->
+        {#if chartType !== 'text'}
         <details class="group/vars">
           <summary class="flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300 list-none [&::-webkit-details-marker]:hidden">
             <span class="text-[10px] transition-transform group-open/vars:rotate-90">&#9654;</span>
@@ -366,6 +450,7 @@
             <div><code class="px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300">$__timeFrom</code> / <code class="px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300">$__timeTo</code> — Range boundaries</div>
           </div>
         </details>
+        {/if}
 
         <!-- Visualization type -->
         <div>
@@ -387,8 +472,8 @@
           </div>
         </div>
 
-        <!-- Stat config -->
-        {#if chartType === 'stat'}
+        <!-- Stat/Gauge config -->
+        {#if chartType === 'stat' || chartType === 'gauge'}
           <!-- Field selector -->
           <div>
             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Field</label>
@@ -552,6 +637,60 @@
               </div>
             </div>
           {/if}
+
+          <!-- Gauge min/max -->
+          {#if chartType === 'gauge'}
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Min</label>
+                <input
+                  type="number"
+                  class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-gray-800 dark:text-gray-200"
+                  bind:value={gaugeMin}
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Max</label>
+                <input
+                  type="number"
+                  class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-gray-800 dark:text-gray-200"
+                  bind:value={gaugeMax}
+                />
+              </div>
+            </div>
+          {/if}
+        {/if}
+
+        <!-- Pie config -->
+        {#if chartType === 'pie'}
+          <div>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Label Column</label>
+            <Combobox
+              options={[
+                { value: '', label: 'Auto (first string)' },
+                ...queryMeta.map(col => ({ value: col.name, label: col.name, hint: col.type, keywords: `${col.name} ${col.type}` })),
+              ]}
+              value={pieLabelColumn}
+              onChange={(v) => pieLabelColumn = v}
+              placeholder="Auto"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Value Column</label>
+            <Combobox
+              options={[
+                { value: '', label: 'Auto (first numeric)' },
+                ...queryMeta.map(col => ({ value: col.name, label: col.name, hint: col.type, keywords: `${col.name} ${col.type}` })),
+              ]}
+              value={pieValueColumn}
+              onChange={(v) => pieValueColumn = v}
+              placeholder="Auto"
+            />
+          </div>
+          <label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+            <input type="checkbox" class="ds-checkbox ds-checkbox-sm" bind:checked={pieDonut} />
+            Donut mode
+          </label>
         {/if}
 
         <!-- Chart config (only for timeseries/bar) -->
@@ -562,6 +701,26 @@
               Uses dashboard picker: <span class="text-ch-orange">{dashboardRangeLabel}</span>
             </p>
           </div>
+
+          <!-- Bar mode toggle -->
+          {#if chartType === 'bar'}
+            <div>
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Bar Mode</label>
+              <div class="grid grid-cols-2 gap-1">
+                {#each [{ value: 'grouped', label: 'Grouped' }, { value: 'stacked', label: 'Stacked' }] as bm}
+                  <button
+                    class="py-1.5 rounded text-[11px] font-medium border transition-colors
+                      {barMode === bm.value
+                        ? 'border-ch-blue bg-orange-50 dark:bg-orange-900/20 text-ch-blue'
+                        : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600'}"
+                    onclick={() => barMode = bm.value as typeof barMode}
+                  >
+                    {bm.label}
+                  </button>
+                {/each}
+              </div>
+            </div>
+          {/if}
 
           <!-- X-Axis column -->
           <div>

@@ -1,12 +1,16 @@
 <script lang="ts">
   import type { Dashboard, Panel, PanelConfig } from '../lib/types/api'
   import type { ColumnMeta } from '../lib/utils/chart-transform'
-  import { getStatValue } from '../lib/utils/chart-transform'
+  import { computeStat } from '../lib/utils/chart-transform'
   import { toDashboardTimeRangePayload } from '../lib/utils/dashboard-time'
   import { withBase } from '../lib/basePath'
   import { safeParse } from '../lib/utils/safe-json'
   import Spinner from '../lib/components/common/Spinner.svelte'
   import ChartPanel from '../lib/components/dashboard/ChartPanel.svelte'
+  import StatPanel from '../lib/components/dashboard/StatPanel.svelte'
+  import MarkdownPanel from '../lib/components/dashboard/MarkdownPanel.svelte'
+  import GaugePanel from '../lib/components/dashboard/GaugePanel.svelte'
+  import PiePanel from '../lib/components/dashboard/PiePanel.svelte'
   import TimeRangeSelector from '../lib/components/dashboard/TimeRangeSelector.svelte'
   import {
     COLS, ROW_H, GAP,
@@ -107,6 +111,8 @@
   }
 
   async function runPanelQuery(p: Panel) {
+    if (p.panel_type === 'text') return
+
     const updated = new Map(panelResults)
     updated.set(p.id, { data: [], meta: [], loading: true })
     panelResults = updated
@@ -216,15 +222,19 @@
               <div class="flex items-center px-3 py-2 border-b border-gray-200 dark:border-gray-800 bg-gray-100/50 dark:bg-gray-800/50 shrink-0">
                 <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{panel.name}</span>
               </div>
-              <div class="flex-1 overflow-hidden p-2">
-                {#if !result || result.loading}
+              <div class="flex-1 overflow-hidden {panel.panel_type === 'text' ? '' : 'p-2'}">
+                {#if panel.panel_type === 'text'}
+                  <MarkdownPanel content={cfg.content ?? ''} />
+                {:else if !result || result.loading}
                   <div class="flex items-center justify-center h-full"><Spinner size="sm" /></div>
                 {:else if result.error}
                   <p class="text-xs text-red-500 p-2">{result.error}</p>
                 {:else if panel.panel_type === 'stat'}
-                  <div class="flex items-center justify-center h-full">
-                    <span class="text-3xl font-bold">{getStatValue(result.data, result.meta)}</span>
-                  </div>
+                  <StatPanel stat={computeStat(result.data, result.meta, cfg)} />
+                {:else if panel.panel_type === 'gauge'}
+                  <GaugePanel stat={computeStat(result.data, result.meta, cfg)} min={cfg.gaugeMin} max={cfg.gaugeMax} />
+                {:else if panel.panel_type === 'pie'}
+                  <PiePanel data={result.data} meta={result.meta} config={cfg} />
                 {:else if panel.panel_type === 'timeseries' || panel.panel_type === 'bar'}
                   <ChartPanel data={result.data} meta={result.meta} config={cfg} />
                 {:else}

@@ -96,7 +96,13 @@
       })
       if (res.share) {
         shares = [res.share, ...shares]
-        toastSuccess('Share link created')
+        if (newVisibility === 'private') {
+          toastSuccess('Share link created — sending invites...')
+          await sendInvites(res.share)
+        } else {
+          toastSuccess('Share link created')
+          await copyToClipboard(getPublicUrl(res.share.token), 'Link')
+        }
         emailTags = []
         emailInput = ''
         newVisibility = 'public'
@@ -266,25 +272,7 @@
               </button>
             </div>
 
-            <!-- Allowed emails for private shares -->
-            {#if share.visibility === 'private' && share.allowed_emails?.length > 0}
-              <div class="flex flex-wrap gap-1 mb-2">
-                {#each share.allowed_emails as email}
-                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-[10px] text-gray-600 dark:text-gray-400">
-                    <Mail size={10} /> {email}
-                  </span>
-                {/each}
-              </div>
-              <button
-                class="flex items-center gap-1.5 text-[11px] font-medium text-ch-blue hover:text-ch-orange mb-2 disabled:opacity-50"
-                onclick={() => sendInvites(share)}
-                disabled={sendingInvites[share.id]}
-              >
-                <Send size={12} />
-                {sendingInvites[share.id] ? 'Sending...' : 'Send invite emails'}
-              </button>
-            {/if}
-
+            <!-- Share link -->
             <div class="flex items-center gap-1.5 mb-2">
               <input
                 type="text"
@@ -310,18 +298,39 @@
               </a>
             </div>
 
-            {#if share.visibility === 'public'}
+            <!-- Allowed emails for private shares -->
+            {#if share.visibility === 'private' && share.allowed_emails?.length > 0}
+              <div class="flex flex-wrap gap-1 mb-2">
+                {#each share.allowed_emails as email}
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-[10px] text-gray-600 dark:text-gray-400">
+                    <Mail size={10} /> {email}
+                  </span>
+                {/each}
+              </div>
               <button
-                class="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                onclick={() => copyToClipboard(getEmbedSnippet(share.token), 'Embed code')}
+                class="flex items-center gap-1.5 text-[11px] font-medium text-gray-500 hover:text-ch-blue disabled:opacity-50 px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                onclick={() => sendInvites(share)}
+                disabled={sendingInvites[share.id]}
               >
-                <Code size={12} /> Copy embed snippet
+                <Send size={12} />
+                {sendingInvites[share.id] ? 'Sending...' : 'Resend invites'}
               </button>
             {/if}
 
-            <p class="text-[10px] text-gray-400 mt-1.5">
-              Created {formatDate(share.created_at)}{share.created_by ? ` by ${share.created_by}` : ''}
-            </p>
+            <!-- Footer -->
+            <div class="flex items-center justify-between mt-2">
+              <p class="text-[10px] text-gray-400">
+                Created {formatDate(share.created_at)}{share.created_by ? ` by ${share.created_by}` : ''}
+              </p>
+              {#if share.visibility === 'public'}
+                <button
+                  class="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  onclick={() => copyToClipboard(getEmbedSnippet(share.token), 'Embed code')}
+                >
+                  <Code size={10} /> Embed
+                </button>
+              {/if}
+            </div>
           </div>
         {/each}
       </div>

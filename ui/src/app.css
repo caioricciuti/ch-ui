@@ -407,4 +407,26 @@ pre,
   .prose-brain hr { @apply my-3 border-gray-200 dark:border-gray-700; }
   .prose-brain strong { @apply font-semibold; }
   .prose-brain em { @apply italic; }
+
+  /* Dashboard markdown panel styling */
+  .prose-panel h1 { @apply text-xl font-bold mt-4 mb-2; }
+  .prose-panel h2 { @apply text-lg font-bold mt-3 mb-1.5; }
+  .prose-panel h3 { @apply text-base font-semibold mt-3 mb-1; }
+  .prose-panel h4, .prose-panel h5, .prose-panel h6 { @apply text-sm font-semibold mt-2 mb-1; }
+  .prose-panel p { @apply my-1.5 leading-relaxed; }
+  .prose-panel ul { @apply list-disc pl-5 my-1.5 space-y-0.5; }
+  .prose-panel ol { @apply list-decimal pl-5 my-1.5 space-y-0.5; }
+  .prose-panel li { @apply leading-relaxed; }
+  .prose-panel a { @apply text-ch-blue hover:underline; }
+  .prose-panel blockquote { @apply border-l-2 border-gray-300 dark:border-gray-600 pl-3 my-2 text-gray-600 dark:text-gray-400 italic; }
+  .prose-panel pre { @apply bg-gray-100 dark:bg-gray-800 rounded-lg p-3 my-2 overflow-x-auto text-xs font-mono; }
+  .prose-panel code { @apply bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded text-xs font-mono; }
+  .prose-panel pre code { @apply bg-transparent p-0; }
+  .prose-panel table { @apply min-w-full text-xs my-2 border border-gray-200 dark:border-gray-700 rounded; }
+  .prose-panel th { @apply px-2 py-1 text-left bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 font-semibold; }
+  .prose-panel td { @apply px-2 py-1 border-b border-gray-200/70 dark:border-gray-700/70; }
+  .prose-panel hr { @apply my-3 border-gray-200 dark:border-gray-700; }
+  .prose-panel strong { @apply font-semibold; }
+  .prose-panel em { @apply italic; }
+  .prose-panel img { @apply rounded-lg max-w-full my-2; }
 }

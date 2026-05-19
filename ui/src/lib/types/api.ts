@@ -76,6 +76,7 @@ export interface Panel {
   id: string
   dashboard_id: string
   name: string
+  description: string
   panel_type: string
   query: string
   connection_id: string | null
@@ -126,12 +127,18 @@ export interface StatThreshold {
 
 /** Panel visualization config (stored as JSON in panel.config) */
 export interface PanelConfig {
-  chartType: 'table' | 'stat' | 'timeseries' | 'bar'
+  chartType: 'table' | 'stat' | 'timeseries' | 'bar' | 'text' | 'gauge' | 'pie'
   xColumn?: string
   yColumns?: string[]
   colors?: string[]
   legendPosition?: 'bottom' | 'right' | 'none'
-  // Stat-specific options
+  content?: string
+  barMode?: 'grouped' | 'stacked'
+  gaugeMin?: number
+  gaugeMax?: number
+  pieDonut?: boolean
+  pieLabelColumn?: string
+  pieValueColumn?: string
   statField?: string
   statCalculation?: 'last' | 'first' | 'mean' | 'sum' | 'min' | 'max' | 'count' | 'range'
   statUnit?: 'none' | 'percent' | 'short' | 'bytes' | 'bps' | 'duration' | 'durationMs'

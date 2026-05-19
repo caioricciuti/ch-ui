@@ -4,7 +4,7 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import Sheet from '../common/Sheet.svelte'
   import Button from '../common/Button.svelte'
-  import { Download, Upload, Save, Copy, AlertTriangle } from 'lucide-svelte'
+  import { Download, Upload, Save, Copy, AlertTriangle, Trash2 } from 'lucide-svelte'
 
   interface Props {
     open: boolean
@@ -12,16 +12,20 @@
     panels: Panel[]
     onclose: () => void
     onimported: (dashboard: Dashboard, panels: Panel[]) => void
+    ondelete: () => void
   }
 
-  let { open, dashboard, panels, onclose, onimported }: Props = $props()
+  let { open, dashboard, panels, onclose, onimported, ondelete }: Props = $props()
 
-  let tab = $state<'json' | 'export'>('json')
+  let tab = $state<'general' | 'json' | 'export'>('general')
   let jsonText = $state('')
   let jsonError = $state<string | null>(null)
   let saving = $state(false)
+  let savingGeneral = $state(false)
   let importing = $state(false)
   let fileInput = $state<HTMLInputElement>(undefined!)
+  let generalName = $state('')
+  let generalDescription = $state('')
 
   function buildExportPayload(): Record<string, unknown> {
     return {
@@ -32,6 +36,7 @@
       },
       panels: panels.map(p => ({
         name: p.name,
+        description: p.description,
         panel_type: p.panel_type,
         query: p.query,
         config: safeParseJson(p.config),
@@ -51,7 +56,9 @@
     if (open) {
       jsonText = JSON.stringify(buildExportPayload(), null, 2)
       jsonError = null
-      tab = 'json'
+      generalName = dashboard.name
+      generalDescription = dashboard.description ?? ''
+      tab = 'general'
     }
   })
 
@@ -89,6 +96,7 @@
       for (const p of parsed.panels) {
         const res = await apiPost<{ panel: Panel }>(`/api/dashboards/${dashboard.id}/panels`, {
           name: p.name,
+          description: p.description ?? '',
           panel_type: p.panel_type,
           query: p.query,
           config: typeof p.config === 'string' ? p.config : JSON.stringify(p.config ?? {}),
@@ -157,12 +165,44 @@
       if (fileInput) fileInput.value = ''
     }
   }
+
+  async function saveGeneral() {
+    if (!generalName.trim()) {
+      toastError('Name is required')
+      return
+    }
+    savingGeneral = true
+    try {
+      await apiPut(`/api/dashboards/${dashboard.id}`, {
+        name: generalName.trim(),
+        description: generalDescription.trim() || null,
+      })
+      const updated = {
+        ...dashboard,
+        name: generalName.trim(),
+        description: generalDescription.trim() || null,
+      }
+      toastSuccess('Dashboard updated')
+      onimported(updated, panels)
+    } catch (e: any) {
+      toastError('Failed to save: ' + e.message)
+    } finally {
+      savingGeneral = false
+    }
+  }
 </script>
 
 <Sheet {open} title="Dashboard Settings" size="lg" {onclose}>
   <div class="flex flex-col gap-4 h-full">
     <!-- Tabs -->
     <div class="flex border-b border-gray-200 dark:border-gray-700">
+      <button
+        class="px-4 py-2 text-xs font-medium transition-colors
+          {tab === 'general'
+            ? 'text-ch-blue border-b-2 border-ch-blue'
+            : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}"
+        onclick={() => tab = 'general'}
+      >General</button>
       <button
         class="px-4 py-2 text-xs font-medium transition-colors
           {tab === 'json'
@@ -179,7 +219,45 @@
       >Export / Import</button>
     </div>
 
-    {#if tab === 'json'}
+    {#if tab === 'general'}
+      <div class="flex flex-col gap-4">
+        <div class="flex flex-col gap-1.5">
+          <label for="dashboard-name" class="text-xs font-medium text-gray-700 dark:text-gray-300">Name</label>
+          <input
+            id="dashboard-name"
+            type="text"
+            class="w-full text-sm bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-ch-blue/40 focus:border-ch-blue"
+            bind:value={generalName}
+            placeholder="Dashboard name"
+          />
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <label for="dashboard-description" class="text-xs font-medium text-gray-700 dark:text-gray-300">Description</label>
+          <textarea
+            id="dashboard-description"
+            class="w-full text-sm bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-800 dark:text-gray-200 resize-none focus:outline-none focus:ring-2 focus:ring-ch-blue/40 focus:border-ch-blue"
+            rows="3"
+            bind:value={generalDescription}
+            placeholder="Optional description"
+          ></textarea>
+        </div>
+        <div class="flex items-center justify-end">
+          <Button size="sm" loading={savingGeneral} onclick={saveGeneral}>
+            <Save size={13} /> Save
+          </Button>
+        </div>
+
+        <!-- Danger zone -->
+        <div class="mt-8 rounded-lg border border-red-300 dark:border-red-800 p-4">
+          <h3 class="text-sm font-medium text-red-600 dark:text-red-400 mb-1">Danger Zone</h3>
+          <p class="text-xs text-gray-500 mb-3">Permanently delete this dashboard and all its panels. This action cannot be undone.</p>
+          <Button size="sm" variant="danger" onclick={ondelete}>
+            <Trash2 size={13} /> Delete Dashboard
+          </Button>
+        </div>
+      </div>
+
+    {:else if tab === 'json'}
       <div class="flex flex-col gap-3 flex-1 min-h-0">
         <div class="flex items-center justify-between">
           <p class="text-xs text-gray-500">Edit the full dashboard configuration as JSON. Changes are applied when you click Apply.</p>

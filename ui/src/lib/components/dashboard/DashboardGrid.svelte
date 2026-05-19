@@ -5,13 +5,16 @@
   import Spinner from '../common/Spinner.svelte'
   import ChartPanel from './ChartPanel.svelte'
   import StatPanel from './StatPanel.svelte'
+  import MarkdownPanel from './MarkdownPanel.svelte'
+  import GaugePanel from './GaugePanel.svelte'
+  import PiePanel from './PiePanel.svelte'
   import { computeStat } from '../../utils/chart-transform'
   import {
     COLS, ROW_H, GAP, MIN_W, MIN_H,
     calcColW, gridToPixel, compact, containerHeight,
     type LayoutItem,
   } from '../../utils/grid-layout'
-  import { Pencil, Trash2, GripVertical, EllipsisVertical, Copy } from 'lucide-svelte'
+  import { Pencil, Trash2, GripVertical, EllipsisVertical, Copy, Info, Maximize2 } from 'lucide-svelte'
 
   interface Props {
     dashboardId: string
@@ -21,9 +24,10 @@
     oneditpanel: (panel: Panel) => void
     onduplicatepanel: (panel: Panel) => void
     ondeletepanel: (panelId: string) => void
+    onmaximizepanel?: (panel: Panel) => void
   }
 
-  let { dashboardId, panels, panelResults, onpanelschange, oneditpanel, onduplicatepanel, ondeletepanel }: Props = $props()
+  let { dashboardId, panels, panelResults, onpanelschange, oneditpanel, onduplicatepanel, ondeletepanel, onmaximizepanel }: Props = $props()
 
   // Panel dropdown menu
   let menuOpenId = $state<string | null>(null)
@@ -250,7 +254,17 @@
             <div class="flex items-center gap-2 min-w-0">
               <GripVertical size={12} class="text-gray-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
               <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{panel.name}</span>
-
+              {#if panel.description}
+                <div class="relative group/info shrink-0" onpointerdown={(e) => e.stopPropagation()}>
+                  <Info size={12} class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-help" />
+                  <div class="absolute left-0 top-full mt-1.5 z-50 hidden group-hover/info:block">
+                    <div class="bg-gray-900 dark:bg-gray-800 text-gray-100 text-xs rounded-lg px-3 py-2 shadow-lg max-w-xs whitespace-normal leading-relaxed">
+                      {panel.description}
+                      <div class="absolute left-3 -top-1 w-2 h-2 bg-gray-900 dark:bg-gray-800 rotate-45"></div>
+                    </div>
+                  </div>
+                </div>
+              {/if}
             </div>
             <div class="relative opacity-0 group-hover:opacity-100 transition-opacity">
               <button
@@ -276,6 +290,12 @@
                   </button>
                   <button
                     class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    onclick={() => { menuOpenId = null; onmaximizepanel?.(panel) }}
+                  >
+                    <Maximize2 size={12} /> Fullscreen
+                  </button>
+                  <button
+                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                     onclick={() => { menuOpenId = null; onduplicatepanel(panel) }}
                   >
                     <Copy size={12} /> Duplicate
@@ -293,13 +313,19 @@
           </div>
 
           <!-- Panel content -->
-          <div class="flex-1 min-h-0 min-w-0 overflow-hidden p-2">
-            {#if !result || result.loading}
+          <div class="flex-1 min-h-0 min-w-0 overflow-hidden {panel.panel_type === 'text' ? '' : 'p-2'}">
+            {#if panel.panel_type === 'text'}
+              <MarkdownPanel content={cfg.content ?? ''} />
+            {:else if !result || result.loading}
               <div class="flex items-center justify-center h-full"><Spinner size="sm" /></div>
             {:else if result.error}
               <p class="text-xs text-red-500 p-2">{result.error}</p>
             {:else if panel.panel_type === 'stat'}
               <StatPanel stat={computeStat(result.data, result.meta, cfg)} />
+            {:else if panel.panel_type === 'gauge'}
+              <GaugePanel stat={computeStat(result.data, result.meta, cfg)} min={cfg.gaugeMin} max={cfg.gaugeMax} />
+            {:else if panel.panel_type === 'pie'}
+              <PiePanel data={result.data} meta={result.meta} config={cfg} />
             {:else if panel.panel_type === 'timeseries' || panel.panel_type === 'bar'}
               <ChartPanel data={result.data} meta={result.meta} config={cfg} />
             {:else}
