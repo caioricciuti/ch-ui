@@ -47,6 +47,8 @@ func (h *QueryHandler) Routes(r chi.Router) {
 	r.Get("/columns", h.ListColumns)
 	r.Get("/data-types", h.ListDataTypes)
 	r.Get("/clusters", h.ListClusters)
+	r.Get("/cluster-info", h.GetClusterInfo)
+	r.Get("/node-info", h.GetNodeInfo)
 	r.Post("/schema/database", h.CreateDatabase)
 	r.Post("/schema/database/drop", h.DropDatabase)
 	r.Post("/schema/table", h.CreateTable)
@@ -1182,6 +1184,158 @@ func (h *QueryHandler) ListClusters(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":  true,
 		"clusters": extractNames(result.Data),
+	})
+}
+
+// GetClusterInfo handles GET /cluster-info and returns full cluster topology.
+func (h *QueryHandler) GetClusterInfo(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+
+	password, err := crypto.Decrypt(session.EncryptedPassword, h.Config.AppSecretKey)
+	if err != nil {
+		slog.Error("Failed to decrypt password", "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to decrypt credentials")
+		return
+	}
+
+	clusterQuery := `SELECT
+  cluster,
+  shard_num,
+  shard_weight,
+  replica_num,
+  host_name,
+  host_address,
+  port,
+  is_local
+FROM system.clusters
+WHERE cluster != ''
+ORDER BY cluster, shard_num, replica_num`
+
+	result, err := h.Gateway.ExecuteQuery(
+		session.ConnectionID,
+		clusterQuery,
+		session.ClickhouseUser,
+		password,
+		15*time.Second,
+	)
+	if err != nil {
+		slog.Warn("Failed to get cluster info", "error", err, "connection", session.ConnectionID)
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"success":    true,
+			"is_cluster": false,
+			"clusters":   []interface{}{},
+		})
+		return
+	}
+
+	rows := decodeRows(result.Data)
+
+	type nodeInfo struct {
+		ShardNum   interface{} `json:"shard_num"`
+		ReplicaNum interface{} `json:"replica_num"`
+		HostName   interface{} `json:"host_name"`
+		HostAddr   interface{} `json:"host_address"`
+		Port       interface{} `json:"port"`
+		IsLocal    interface{} `json:"is_local"`
+	}
+
+	type clusterInfo struct {
+		Name       string     `json:"name"`
+		Shards     int        `json:"shards"`
+		Replicas   int        `json:"replicas"`
+		TotalNodes int        `json:"total_nodes"`
+		Nodes      []nodeInfo `json:"nodes"`
+	}
+
+	clusterMap := make(map[string]*clusterInfo)
+	for _, row := range rows {
+		name := fmt.Sprint(row["cluster"])
+		ci, ok := clusterMap[name]
+		if !ok {
+			ci = &clusterInfo{Name: name}
+			clusterMap[name] = ci
+		}
+		ci.Nodes = append(ci.Nodes, nodeInfo{
+			ShardNum:   row["shard_num"],
+			ReplicaNum: row["replica_num"],
+			HostName:   row["host_name"],
+			HostAddr:   row["host_address"],
+			Port:       row["port"],
+			IsLocal:    row["is_local"],
+		})
+	}
+
+	clusters := make([]clusterInfo, 0, len(clusterMap))
+	for _, ci := range clusterMap {
+		shardSet := map[string]struct{}{}
+		replicaMax := 0
+		for _, n := range ci.Nodes {
+			shardSet[fmt.Sprint(n.ShardNum)] = struct{}{}
+			if rn := int(toInt64(n.ReplicaNum)); rn > replicaMax {
+				replicaMax = rn
+			}
+		}
+		ci.Shards = len(shardSet)
+		ci.Replicas = replicaMax
+		ci.TotalNodes = len(ci.Nodes)
+		clusters = append(clusters, *ci)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":    true,
+		"is_cluster": len(clusters) > 0,
+		"clusters":   clusters,
+	})
+}
+
+// GetNodeInfo handles GET /node-info and returns which ClickHouse node is
+// currently handling requests, plus basic server identity information.
+func (h *QueryHandler) GetNodeInfo(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+
+	password, err := crypto.Decrypt(session.EncryptedPassword, h.Config.AppSecretKey)
+	if err != nil {
+		slog.Error("Failed to decrypt password", "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to decrypt credentials")
+		return
+	}
+
+	nodeQuery := `SELECT
+  hostname() AS hostname,
+  hostName() AS fqdn,
+  version() AS version,
+  uptime() AS uptime_seconds,
+  currentDatabase() AS current_database`
+
+	result, err := h.Gateway.ExecuteQuery(
+		session.ConnectionID,
+		nodeQuery,
+		session.ClickhouseUser,
+		password,
+		10*time.Second,
+	)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	rows := decodeRows(result.Data)
+	if len(rows) == 0 {
+		writeError(w, http.StatusBadGateway, "No node info returned")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"node":    rows[0],
 	})
 }
 

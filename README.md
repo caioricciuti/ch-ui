@@ -42,6 +42,7 @@ No Docker requirement. No external dependencies. No signup.
 - [Community vs Pro](#community-vs-pro)
 - [Quick Start](#quick-start)
 - [Quick Start (Docker)](#quick-start-docker)
+- [CH-UI Cloud](#ch-ui-cloud)
 - [Architecture](#architecture)
 - [Remote ClickHouse (Tunnel)](#remote-clickhouse-tunnel)
 - [CLI Reference](#cli-reference)
@@ -237,6 +238,28 @@ docker run --rm \
 
 - On Linux, replace `host.docker.internal` with a host/IP reachable from the container.
 - Persisted state is stored in `/app/data/ch-ui.db` (volume: `ch-ui-data`).
+
+---
+
+## CH-UI Cloud
+
+Don't want to self-host? **[CH-UI Cloud](https://ch-ui.com)** is the managed version — same features, zero infrastructure.
+
+Connect your ClickHouse to the cloud using the lightweight `chui-agent`:
+
+```bash
+curl -fsSL https://console.ch-ui.com/install.sh | sh
+```
+
+Then connect:
+
+```bash
+chui-agent --url wss://yourorg.ch-ui.com/connect --key cht_your_token
+```
+
+`chui-agent` is a standalone 6MB binary — no server, no root, no config files. Get your token from the [CH-UI Cloud console](https://console.ch-ui.com).
+
+> **Note:** `chui-agent` is for CH-UI Cloud only. For self-hosted tunnel connections, use `ch-ui connect` (see [Remote ClickHouse (Tunnel)](#remote-clickhouse-tunnel) below).
 
 ---
 

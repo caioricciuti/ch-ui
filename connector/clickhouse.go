@@ -3,7 +3,9 @@ package connector
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,12 +21,18 @@ import (
 
 // CHClient handles ClickHouse query execution
 type CHClient struct {
-	baseURL   string
-	transport *http.Transport
+	baseURL    string
+	sessionID  string
+	transport  *http.Transport
 	httpClient *http.Client
 }
 
-// NewCHClient creates a new ClickHouse HTTP client
+// NewCHClient creates a new ClickHouse HTTP client.
+// A stable routing key is generated per client instance and sent as the
+// X-CH-UI-Session header so that ClickHouse-aware load balancers (chproxy,
+// HAProxy, etc.) can pin all requests from the same agent to the same node.
+// We intentionally do NOT use ClickHouse's session_id URL parameter because it
+// creates a server-side mutex that blocks concurrent queries.
 func NewCHClient(baseURL string, insecureSkipVerify bool) *CHClient {
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{
@@ -44,12 +52,19 @@ func NewCHClient(baseURL string, insecureSkipVerify bool) *CHClient {
 
 	return &CHClient{
 		baseURL:   strings.TrimSuffix(baseURL, "/"),
+		sessionID: generateSessionID(),
 		transport: transport,
 		httpClient: &http.Client{
 			Transport: transport,
 			Timeout:   5 * time.Minute,
 		},
 	}
+}
+
+func generateSessionID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return "ch-ui-" + hex.EncodeToString(b)
 }
 
 // QueryResult holds the result of a query execution
@@ -141,6 +156,7 @@ func (c *CHClient) Execute(ctx context.Context, query, user, password string) (*
 	}
 
 	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("X-CH-UI-Session", c.sessionID)
 
 	// GetBody allows doWithRetry to re-create the body on retry
 	bodyStr := finalQuery
@@ -217,6 +233,7 @@ func (c *CHClient) ExecuteRaw(ctx context.Context, query, user, password, format
 		req.SetBasicAuth(user, password)
 	}
 	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("X-CH-UI-Session", c.sessionID)
 
 	// GetBody allows doWithRetry to re-create the body on retry
 	bodyStr := finalQuery
@@ -334,6 +351,7 @@ func (c *CHClient) ExecuteStreaming(
 		req.SetBasicAuth(user, password)
 	}
 	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("X-CH-UI-Session", c.sessionID)
 
 	// Use a client without timeout for streaming (context controls cancellation)
 	// but share the configured transport for proper TLS and connection management.

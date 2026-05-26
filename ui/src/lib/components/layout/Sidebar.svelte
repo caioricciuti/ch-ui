@@ -7,6 +7,7 @@
   import { openCommandPalette } from '../../stores/command-palette.svelte'
   import { isProActive, loadLicense } from '../../stores/license.svelte'
   import { checkForUpdate, hasUpdate, getLatestVersion } from '../../stores/update-check.svelte'
+  import { fetchNodeInfo, fetchClusterInfo } from '../../api/query'
   import DatabaseTree from '../explorer/DatabaseTree.svelte'
   import {
     Plus,
@@ -30,9 +31,14 @@
     ChevronRight,
     Activity,
     ArrowUpCircle,
+    Server,
   } from 'lucide-svelte'
 
   const session = $derived(getSession())
+
+  let nodeHostname = $state<string | null>(null)
+  let clusterName = $state<string | null>(null)
+  let clusterNodeCount = $state(0)
   const updateAvailable = $derived(session?.appVersion ? hasUpdate(session.appVersion) : false)
 
   interface NavItemInternal {
@@ -80,9 +86,28 @@
   const licensedPro = $derived(isProActive())
   const activeTab = $derived(getActiveTab())
 
+  async function loadNodeAndClusterInfo() {
+    try {
+      const info = await fetchNodeInfo()
+      nodeHostname = info.node?.hostname ?? null
+    } catch {
+      nodeHostname = null
+    }
+    try {
+      const cluster = await fetchClusterInfo()
+      if (cluster.is_cluster && cluster.clusters.length > 0) {
+        clusterName = cluster.clusters[0].name
+        clusterNodeCount = cluster.clusters[0].total_nodes
+      }
+    } catch {
+      clusterName = null
+    }
+  }
+
   onMount(() => {
     loadLicense()
     if (session?.appVersion) checkForUpdate(session.appVersion)
+    if (session) loadNodeAndClusterInfo()
 
     function handleKeydown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
@@ -292,7 +317,7 @@
             <!-- Connection info + actions (expanded) -->
             <div class="px-3.5 py-2.5 border-t border-gray-200 dark:border-gray-800 shrink-0">
               {#if session}
-                <div class="flex items-center gap-2 mb-1.5">
+                <div class="flex items-center gap-2 mb-1">
                   <Database size={14} class="text-ch-blue shrink-0" />
                   <span class="text-[13px] font-semibold text-gray-700 dark:text-gray-300 truncate">{session.connectionName ?? 'CH-UI'}</span>
                   <span
@@ -301,6 +326,15 @@
                   ></span>
                   <span class="text-[10px] text-gray-400 truncate">{session.user}</span>
                 </div>
+                {#if nodeHostname}
+                  <div class="flex items-center gap-1.5 mb-1 px-0.5">
+                    <Server size={11} class="text-gray-400 shrink-0" />
+                    <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate" title="ClickHouse node: {nodeHostname}">{nodeHostname}</span>
+                    {#if clusterName}
+                      <span class="text-[9px] px-1 py-0.5 rounded bg-ch-blue/10 text-ch-blue font-medium truncate" title="Cluster: {clusterName} ({clusterNodeCount} nodes)">{clusterName} · {clusterNodeCount}n</span>
+                    {/if}
+                  </div>
+                {/if}
               {/if}
               <div class="flex items-center gap-1">
                 {#if session?.appVersion}

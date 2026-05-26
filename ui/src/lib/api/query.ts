@@ -116,6 +116,40 @@ export async function listColumns(database: string, table: string): Promise<Colu
   return res.columns ?? []
 }
 
+/** Fetch cluster topology info */
+export async function fetchClusterInfo(): Promise<{
+  is_cluster: boolean
+  clusters: Array<{
+    name: string
+    shards: number
+    replicas: number
+    total_nodes: number
+    nodes: Array<{
+      shard_num: number
+      replica_num: number
+      host_name: string
+      host_address: string
+      port: number
+      is_local: number
+    }>
+  }>
+}> {
+  return apiGet('/api/query/cluster-info')
+}
+
+/** Fetch current ClickHouse node identity */
+export async function fetchNodeInfo(): Promise<{
+  node: {
+    hostname: string
+    fqdn?: string
+    version: string
+    uptime_seconds: number
+    current_database?: string
+  }
+}> {
+  return apiGet('/api/query/node-info')
+}
+
 /** Fetch table metadata from system.tables */
 export async function fetchTableInfo(database: string, table: string): Promise<Record<string, any>> {
   const db = escapeLiteral(database)

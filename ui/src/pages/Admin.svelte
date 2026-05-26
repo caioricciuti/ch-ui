@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import type { AdminStats } from '../lib/types/api'
   import { apiGet, apiPut, apiDel, apiPost } from '../lib/api/client'
+  import { fetchClusterInfo, fetchNodeInfo } from '../lib/api/query'
   import type { BrainModelOption, BrainProviderAdmin, BrainSkill } from '../lib/types/brain'
   import {
     adminBulkUpdateBrainModels,
@@ -59,6 +60,13 @@
   let stats = $state<AdminStats | null>(null)
   let connections = $state<any[]>([])
   let statsLoading = $state(true)
+
+  // Cluster info
+  type ClusterNode = { shard_num: number; replica_num: number; host_name: string; host_address: string; port: number; is_local: number }
+  type ClusterDetail = { name: string; shards: number; replicas: number; total_nodes: number; nodes: ClusterNode[] }
+  let clusterInfo = $state<{ is_cluster: boolean; clusters: ClusterDetail[] }>({ is_cluster: false, clusters: [] })
+  let currentNode = $state<Record<string, unknown> | null>(null)
+  let clusterLoading = $state(false)
 
   // Tunnels
   let tunnels = $state<TunnelConnection[]>([])
@@ -179,9 +187,24 @@
     history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`)
   }
 
+  async function loadClusterInfo() {
+    clusterLoading = true
+    try {
+      const [cluster, node] = await Promise.all([fetchClusterInfo(), fetchNodeInfo()])
+      clusterInfo = cluster
+      currentNode = node.node ?? null
+    } catch {
+      clusterInfo = { is_cluster: false, clusters: [] }
+      currentNode = null
+    } finally {
+      clusterLoading = false
+    }
+  }
+
   onMount(() => {
     loadStats()
     loadConnections()
+    loadClusterInfo()
     const initialTab = normalizeAdminTab(
       typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('tab'),
     )
@@ -1206,6 +1229,85 @@
           {/each}
         </div>
       {/if}
+
+      <!-- Cluster Topology -->
+      <div class="mt-6">
+        <div class="flex items-center gap-2 mb-2">
+          <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Cluster Topology</h2>
+          <button class="ds-btn-ghost p-1" onclick={() => loadClusterInfo()} title="Refresh cluster info">
+            <RefreshCw size={12} />
+          </button>
+        </div>
+
+        {#if clusterLoading}
+          <div class="flex items-center justify-center py-6"><Spinner /></div>
+        {:else if !clusterInfo.is_cluster}
+          <div class="ds-panel p-3">
+            <p class="text-sm text-gray-500">Single-node setup detected (no cluster configuration found).</p>
+            {#if currentNode}
+              <div class="flex items-center gap-2 mt-2">
+                <span class="text-xs text-gray-400">Node:</span>
+                <span class="text-xs font-mono text-gray-700 dark:text-gray-300">{currentNode.hostname}</span>
+                <span class="text-[10px] text-gray-400">v{currentNode.version}</span>
+              </div>
+            {/if}
+          </div>
+        {:else}
+          {#if currentNode}
+            <div class="ds-panel p-3 mb-3 flex items-center gap-3">
+              <div class="w-2 h-2 rounded-full bg-green-500 shrink-0"></div>
+              <div>
+                <span class="text-xs text-gray-400">Current node: </span>
+                <span class="text-xs font-mono font-semibold text-gray-800 dark:text-gray-200">{currentNode.hostname}</span>
+                <span class="text-[10px] ml-2 text-gray-400">v{currentNode.version}</span>
+              </div>
+            </div>
+          {/if}
+
+          {#each clusterInfo.clusters as cluster}
+            <div class="ds-panel p-3 mb-2">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{cluster.name}</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-ch-blue/10 text-ch-blue font-medium">{cluster.shards} shard{cluster.shards !== 1 ? 's' : ''}</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-orange-100 dark:bg-orange-500/15 text-ch-orange font-medium">{cluster.replicas} replica{cluster.replicas !== 1 ? 's' : ''}</span>
+                <span class="text-[10px] text-gray-400">{cluster.total_nodes} node{cluster.total_nodes !== 1 ? 's' : ''}</span>
+              </div>
+              <div class="ds-table-wrap">
+                <table class="ds-table">
+                  <thead>
+                    <tr class="ds-table-head-row">
+                      <th class="ds-table-th">Host</th>
+                      <th class="ds-table-th">Address</th>
+                      <th class="ds-table-th">Port</th>
+                      <th class="ds-table-th">Shard</th>
+                      <th class="ds-table-th">Replica</th>
+                      <th class="ds-table-th">Local</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each cluster.nodes as node}
+                      <tr class="ds-table-row {node.is_local ? 'bg-green-50/50 dark:bg-green-500/5' : ''}">
+                        <td class="ds-td-mono font-semibold">{node.host_name}</td>
+                        <td class="ds-td-mono">{node.host_address}</td>
+                        <td class="ds-td-mono">{node.port}</td>
+                        <td class="ds-td">{node.shard_num}</td>
+                        <td class="ds-td">{node.replica_num}</td>
+                        <td class="ds-td">
+                          {#if node.is_local}
+                            <span class="w-2 h-2 rounded-full bg-green-500 inline-block" title="This node"></span>
+                          {:else}
+                            <span class="text-gray-400">—</span>
+                          {/if}
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {/each}
+        {/if}
+      </div>
 
     {:else if activeTab === 'tunnels'}
       <div class="flex flex-wrap items-end gap-2 mb-3">
