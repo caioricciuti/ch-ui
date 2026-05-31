@@ -20,7 +20,7 @@ func SecurityHeaders(isProduction bool) func(http.Handler) http.Handler {
 			} else {
 				w.Header().Set("X-Frame-Options", "DENY")
 				w.Header().Set("Content-Security-Policy",
-					"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://api.openai.com; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';")
+					"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://api.openai.com https://api.github.com; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';")
 			}
 
 			if isProduction {

@@ -20,6 +20,15 @@ export interface BrainChat {
   updated_at: string
 }
 
+export interface ToolCall {
+  id: string
+  tool: string
+  args?: Record<string, unknown>
+  status: 'pending_approval' | 'pending' | 'running' | 'success' | 'error' | 'declined'
+  result?: Record<string, unknown> | string
+  approvalId?: string
+}
+
 export interface BrainMessage {
   id: string
   chat_id: string
@@ -27,6 +36,7 @@ export interface BrainMessage {
   content: string
   status: string
   error?: string | null
+  toolCalls?: ToolCall[]
   created_at: string
   updated_at: string
 }
@@ -77,4 +87,17 @@ export interface BrainSkill {
   created_by?: string | null
   created_at: string
   updated_at: string
+}
+
+export type MentionRef =
+  | { type: 'table'; database: string; table: string }
+  | { type: 'dashboard'; id: string; name: string }
+  | { type: 'pipeline'; id: string; name: string }
+  | { type: 'model'; id: string; name: string }
+  | { type: 'saved_query'; id: string; name: string }
+
+export interface EntityContext {
+  type: 'dashboard' | 'pipeline' | 'model' | 'saved_query'
+  id: string
+  name: string
 }

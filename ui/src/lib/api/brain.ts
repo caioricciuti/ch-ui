@@ -47,23 +47,39 @@ export async function runBrainQueryArtifact(chatId: string, payload: { query: st
 }
 
 export interface StreamEvent {
-  type: 'delta' | 'done' | 'error'
+  type: 'delta' | 'done' | 'error' | 'tool_call_pending_approval' | 'tool_call_start' | 'tool_call_result'
   delta?: string
   error?: string
   messageId?: string
   chatId?: string
+  toolCallId?: string
+  approvalId?: string
+  tool?: string
+  args?: Record<string, unknown>
+  status?: string
+  result?: Record<string, unknown>
+}
+
+export async function approveBrainToolCall(approvalId: string): Promise<void> {
+  await apiPost(`/api/brain/approvals/${encodeURIComponent(approvalId)}/approve`)
+}
+
+export async function declineBrainToolCall(approvalId: string): Promise<void> {
+  await apiPost(`/api/brain/approvals/${encodeURIComponent(approvalId)}/decline`)
 }
 
 export async function streamBrainMessage(
   chatId: string,
-  payload: { content: string; modelId?: string; schemaContext?: any; schemaContexts?: any[] },
+  payload: { content: string; modelId?: string; schemaContext?: any; schemaContexts?: any[]; entityContexts?: { type: string; id: string; name: string }[] },
   onEvent: (event: StreamEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch(withBase(`/api/brain/chats/${encodeURIComponent(chatId)}/messages/stream`), {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    signal,
   })
 
   if (!response.ok) {

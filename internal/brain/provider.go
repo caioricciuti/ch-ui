@@ -11,7 +11,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
+
+// ErrToolsUnsupported is returned by CallWithTools when the provider does
+// not implement the toolsCapable interface (e.g. Ollama).
+var ErrToolsUnsupported = errors.New("provider does not support tool calling")
 
 // Message represents one chat message for provider calls.
 type Message struct {
@@ -39,12 +44,21 @@ type Provider interface {
 	ListModels(ctx context.Context, cfg ProviderConfig) ([]string, error)
 }
 
+var sharedHTTPClient = &http.Client{
+	Timeout: 5 * time.Minute,
+	Transport: &http.Transport{
+		MaxIdleConns:        20,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
+
 func NewProvider(kind string) (Provider, error) {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "openai", "openai_compatible":
-		return &openAIProvider{client: &http.Client{}}, nil
+		return &openAIProvider{client: sharedHTTPClient}, nil
 	case "ollama":
-		return &ollamaProvider{client: &http.Client{}}, nil
+		return &ollamaProvider{client: sharedHTTPClient}, nil
 	default:
 		return nil, fmt.Errorf("unsupported provider kind: %s", kind)
 	}
@@ -379,7 +393,9 @@ type ollamaProvider struct {
 
 func (p *ollamaProvider) baseURL(cfg ProviderConfig) string {
 	if strings.TrimSpace(cfg.BaseURL) != "" {
-		return strings.TrimRight(cfg.BaseURL, "/")
+		base := strings.TrimRight(cfg.BaseURL, "/")
+		base = strings.TrimSuffix(base, "/v1")
+		return base
 	}
 	return "http://localhost:11434"
 }

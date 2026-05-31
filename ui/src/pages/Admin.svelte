@@ -24,11 +24,15 @@
   import Sheet from '../lib/components/common/Sheet.svelte'
   import HelpTip from '../lib/components/common/HelpTip.svelte'
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
-  import { Shield, RefreshCw, Users, Database, Activity, LogIn, ChevronDown, ChevronRight, Brain, UserPlus, KeyRound, Trash2, Plus, Copy, Telescope } from 'lucide-svelte'
+  import { Shield, RefreshCw, Users, Database, Activity, LogIn, ChevronDown, ChevronRight, Brain, UserPlus, KeyRound, Trash2, Plus, Copy, GitBranch, CloudDownload, Check, X as XIcon } from 'lucide-svelte'
+  import { isProActive } from '../lib/stores/license.svelte'
+  import { getSession } from '../lib/stores/session.svelte'
+  import { getGitHubIntegration, saveGitHubIntegration, deleteGitHubIntegration, testGitHubConnection, triggerGitHubSync, getGitHubSyncLogs } from '../lib/api/github'
+  import type { GitHubIntegration, GitHubSyncLog } from '../lib/types/models'
 
   // Tab state
-  type AdminTab = 'overview' | 'tunnels' | 'users' | 'brain' | 'langfuse'
-  const adminTabIds: AdminTab[] = ['overview', 'tunnels', 'users', 'brain', 'langfuse']
+  type AdminTab = 'overview' | 'tunnels' | 'users' | 'brain' | 'github'
+  const adminTabIds: AdminTab[] = ['overview', 'tunnels', 'users', 'brain', 'github']
   let activeTab = $state<AdminTab>('overview')
 
   type TunnelConnection = {
@@ -123,19 +127,6 @@
   let skillSheetOpen = $state(false)
   let deletingProvider = $state<BrainProviderAdmin | null>(null)
 
-  // Langfuse
-  let langfuseLoading = $state(false)
-  let langfuseLoaded = $state(false)
-  let langfuseTesting = $state(false)
-  let langfuseSaving = $state(false)
-  let langfuseConfig = $state({
-    publicKey: '',
-    baseUrl: 'https://cloud.langfuse.com',
-    hasSecretKey: false,
-    enabled: false,
-  })
-  let langfuseSecretKey = $state('')
-
   const roleOptions: ComboboxOption[] = [
     { value: 'admin', label: 'admin' },
     { value: 'analyst', label: 'analyst' },
@@ -143,14 +134,19 @@
   ]
 
   const providerKindOptions: ComboboxOption[] = [
-    { value: 'openai', label: 'openai' },
-    { value: 'openai_compatible', label: 'openai_compatible' },
-    { value: 'ollama', label: 'ollama' },
+    { value: 'openai', label: 'OpenAI' },
+    { value: 'openai_compatible', label: 'OpenAI Compatible' },
+    { value: 'ollama', label: 'Ollama (local)' },
   ]
+  const providerKindDescriptions: Record<string, string> = {
+    openai: 'Official OpenAI API — GPT-4o, o3, etc.',
+    openai_compatible: 'Any provider with an OpenAI-compatible API (Together, Groq, Azure, etc.)',
+    ollama: 'Local Ollama instance — no API key needed',
+  }
   const providerBaseUrls: Record<string, string> = {
     openai: 'https://api.openai.com/v1',
     openai_compatible: '',
-    ollama: 'http://localhost:11434/v1',
+    ollama: 'http://localhost:11434',
   }
   const clickHouseAuthTypeOptions: ComboboxOption[] = [
     { value: 'sha256_password', label: 'sha256_password' },
@@ -161,17 +157,120 @@
   let providerForm = $state({
     name: '',
     kind: 'openai',
-    baseUrl: '',
+    baseUrl: 'https://api.openai.com/v1',
     apiKey: '',
     isActive: true,
     isDefault: false,
   })
+  let providerCreating = $state(false)
+  let providerError = $state('')
   let skillForm = $state({
     name: 'Default Brain Skill',
     content: '',
     isActive: true,
     isDefault: true,
   })
+
+  // GitHub integration state
+  let ghIntegration = $state<GitHubIntegration | null>(null)
+  let ghLoading = $state(false)
+  let ghSaving = $state(false)
+  let ghTesting = $state(false)
+  let ghTestResult = $state<{ success: boolean; error?: string } | null>(null)
+  let ghSyncing = $state(false)
+  let ghSyncLogs = $state<GitHubSyncLog[]>([])
+  let ghForm = $state({ repo: '', branch: 'main', path: 'models/', pat: '' })
+
+  async function loadGitHubTab() {
+    const session = getSession()
+    if (!session) return
+    ghLoading = true
+    try {
+      const [integration, logs] = await Promise.all([
+        getGitHubIntegration(session.connectionId),
+        getGitHubSyncLogs(session.connectionId).catch(() => []),
+      ])
+      ghIntegration = integration
+      ghSyncLogs = logs
+      if (integration) {
+        ghForm.repo = integration.repo
+        ghForm.branch = integration.branch
+        ghForm.path = integration.path
+        ghForm.pat = ''
+      }
+    } catch (e: unknown) {
+      toastError((e as Error).message || 'Failed to load GitHub integration')
+    } finally {
+      ghLoading = false
+    }
+  }
+
+  async function handleGitHubSave() {
+    const session = getSession()
+    if (!session) return
+    ghSaving = true
+    try {
+      await saveGitHubIntegration(session.connectionId, {
+        repo: ghForm.repo,
+        branch: ghForm.branch,
+        path: ghForm.path,
+        pat: ghForm.pat || undefined,
+      })
+      toastSuccess('GitHub integration saved')
+      ghForm.pat = ''
+      await loadGitHubTab()
+    } catch (e: unknown) {
+      toastError((e as Error).message || 'Failed to save')
+    } finally {
+      ghSaving = false
+    }
+  }
+
+  async function handleGitHubTest() {
+    const session = getSession()
+    if (!session) return
+    ghTesting = true
+    ghTestResult = null
+    try {
+      ghTestResult = await testGitHubConnection(session.connectionId)
+    } catch (e: unknown) {
+      ghTestResult = { success: false, error: (e as Error).message }
+    } finally {
+      ghTesting = false
+    }
+  }
+
+  async function handleGitHubSync() {
+    const session = getSession()
+    if (!session) return
+    ghSyncing = true
+    try {
+      const result = await triggerGitHubSync(session.connectionId)
+      const parts: string[] = []
+      if (result.created > 0) parts.push(`${result.created} created`)
+      if (result.updated > 0) parts.push(`${result.updated} updated`)
+      if (result.deleted > 0) parts.push(`${result.deleted} deleted`)
+      toastSuccess(parts.length > 0 ? `Sync: ${parts.join(', ')}` : 'Already up to date')
+      await loadGitHubTab()
+    } catch (e: unknown) {
+      toastError((e as Error).message || 'Sync failed')
+    } finally {
+      ghSyncing = false
+    }
+  }
+
+  async function handleGitHubDelete() {
+    const session = getSession()
+    if (!session) return
+    try {
+      await deleteGitHubIntegration(session.connectionId)
+      ghIntegration = null
+      ghForm = { repo: '', branch: 'main', path: 'models/', pat: '' }
+      toastSuccess('GitHub integration removed')
+    } catch (e: unknown) {
+      toastError((e as Error).message || 'Failed to remove')
+    }
+  }
 
   function normalizeAdminTab(value: string | null | undefined): AdminTab {
     const raw = (value ?? '').trim().toLowerCase()
@@ -556,8 +655,8 @@
     if (tab === 'brain' && !brainLoading && brainProviders.length === 0 && brainSkills.length === 0) {
       loadBrainAdmin()
     }
-    if (tab === 'langfuse' && !langfuseLoaded) {
-      loadLangfuseConfig()
+    if (tab === 'github' && !ghLoading && !ghIntegration) {
+      loadGitHubTab()
     }
   }
 
@@ -594,15 +693,25 @@
   }
 
 
+  function resetProviderForm() {
+    providerForm = { name: '', kind: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: '', isActive: true, isDefault: false }
+    providerError = ''
+    providerCreating = false
+  }
+
   async function createProvider() {
+    providerError = ''
+    providerCreating = true
     try {
       await adminCreateBrainProvider(providerForm)
       toastSuccess('Brain provider created')
-      providerForm = { ...providerForm, name: '', apiKey: '', isDefault: false }
+      resetProviderForm()
       providerSheetOpen = false
       await loadBrainAdmin()
     } catch (e: any) {
-      toastError(e.message)
+      providerError = e.message || 'Failed to create provider'
+    } finally {
+      providerCreating = false
     }
   }
 
@@ -779,101 +888,6 @@
     }
   }
 
-  // ── Langfuse ──────────────────────────────────────────────────────────
-
-  async function loadLangfuseConfig() {
-    langfuseLoading = true
-    try {
-      const res = await apiGet<{
-        public_key: string
-        base_url: string
-        has_secret_key: boolean
-        enabled: boolean
-      }>('/api/admin/langfuse')
-      langfuseConfig = {
-        publicKey: res.public_key ?? '',
-        baseUrl: res.base_url || 'https://cloud.langfuse.com',
-        hasSecretKey: res.has_secret_key ?? false,
-        enabled: res.enabled ?? false,
-      }
-      langfuseSecretKey = ''
-      langfuseLoaded = true
-    } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : 'Failed to load Langfuse config')
-    } finally {
-      langfuseLoading = false
-    }
-  }
-
-  async function saveLangfuseConfig() {
-    if (!langfuseConfig.publicKey.trim()) {
-      toastError('Public key is required')
-      return
-    }
-    if (!langfuseConfig.hasSecretKey && !langfuseSecretKey.trim()) {
-      toastError('Secret key is required')
-      return
-    }
-    langfuseSaving = true
-    try {
-      const payload: Record<string, string> = {
-        publicKey: langfuseConfig.publicKey.trim(),
-        baseUrl: langfuseConfig.baseUrl.trim() || 'https://cloud.langfuse.com',
-      }
-      if (langfuseSecretKey.trim()) {
-        payload.secretKey = langfuseSecretKey.trim()
-      }
-      const res = await apiPut<{ enabled: boolean }>('/api/admin/langfuse', payload)
-      langfuseConfig.enabled = res.enabled
-      langfuseConfig.hasSecretKey = true
-      langfuseSecretKey = ''
-      toastSuccess('Langfuse configuration saved')
-    } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : 'Failed to save')
-    } finally {
-      langfuseSaving = false
-    }
-  }
-
-  async function deleteLangfuseConfig() {
-    try {
-      await apiDel('/api/admin/langfuse')
-      langfuseConfig = {
-        publicKey: '',
-        baseUrl: 'https://cloud.langfuse.com',
-        hasSecretKey: false,
-        enabled: false,
-      }
-      langfuseSecretKey = ''
-      toastSuccess('Langfuse configuration removed')
-    } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : 'Failed to remove')
-    }
-  }
-
-  async function testLangfuseConnection() {
-    langfuseTesting = true
-    try {
-      const payload: Record<string, string> = {
-        publicKey: langfuseConfig.publicKey.trim(),
-        baseUrl: langfuseConfig.baseUrl.trim() || 'https://cloud.langfuse.com',
-      }
-      if (langfuseSecretKey.trim()) {
-        payload.secretKey = langfuseSecretKey.trim()
-      }
-      const res = await apiPost<{ connected: boolean; error?: string }>('/api/admin/langfuse/test', payload)
-      if (res.connected) {
-        toastSuccess('Connection successful')
-      } else {
-        toastError(`Connection failed: ${res.error ?? 'unknown error'}`)
-      }
-    } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : 'Connection test failed')
-    } finally {
-      langfuseTesting = false
-    }
-  }
-
   function formatTime(ts: string): string {
     try {
       return new Date(ts).toLocaleString()
@@ -895,7 +909,7 @@
         <h1 class="ds-page-title">Admin Panel</h1>
       </div>
       <nav class="ds-tabs border-0 px-0 pt-0 gap-1 overflow-x-auto whitespace-nowrap" aria-label="Admin Tabs">
-        {#each [['overview', 'Overview'], ['tunnels', 'Tunnels'], ['users', 'Users'], ['brain', 'Brain'], ['langfuse', 'Langfuse']] as [key, label]}
+        {#each [['overview', 'Overview'], ['tunnels', 'Tunnels'], ['users', 'Users'], ['brain', 'Brain'], ['github', 'GitHub']] as [key, label]}
           <button
             class="ds-tab {activeTab === key ? 'ds-tab-active' : ''}"
             onclick={() => switchTab(key as AdminTab)}
@@ -909,67 +923,94 @@
 
 <Sheet
   open={providerSheetOpen}
-  title="Create Brain Provider"
+  title="Add AI Provider"
   size="lg"
-  onclose={() => providerSheetOpen = false}
+  onclose={() => { providerSheetOpen = false; resetProviderForm() }}
 >
   <form
-    class="space-y-4"
+    class="space-y-5"
     onsubmit={(e) => {
       e.preventDefault()
       void createProvider()
     }}
   >
-    <div class="flex items-center gap-2">
-      <p class="text-xs text-gray-500">Provider controls which model catalog is available to all users.</p>
-      <HelpTip text="OpenAI works with managed API keys. OpenAI-compatible is for custom gateways. Ollama usually uses local/base URL endpoints." />
+    <!-- Kind selection -->
+    <div>
+      <span class="ds-form-label">Provider Type</span>
+      <div class="grid grid-cols-3 gap-2 mt-1">
+        {#each providerKindOptions as opt}
+          <button
+            type="button"
+            class="text-left rounded-lg border p-3 transition-all {providerForm.kind === opt.value
+              ? 'border-ch-blue bg-orange-50 dark:bg-orange-950/20 ring-1 ring-ch-blue/30'
+              : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'}"
+            onclick={() => { providerForm = { ...providerForm, kind: opt.value, baseUrl: providerBaseUrls[opt.value] ?? '' }; providerError = '' }}
+          >
+            <span class="text-sm font-medium text-gray-900 dark:text-gray-100">{opt.label}</span>
+            <p class="text-[11px] text-gray-500 mt-0.5 leading-snug">{providerKindDescriptions[opt.value]}</p>
+          </button>
+        {/each}
+      </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <label class="space-y-1">
-        <span class="text-xs text-gray-500">Provider Name</span>
-        <input class="ds-input-sm" placeholder="OpenAI Prod" bind:value={providerForm.name} required />
+    <!-- Connection details -->
+    <div class="space-y-3">
+      <label class="block space-y-1">
+        <span class="ds-form-label">Display Name</span>
+        <input class="ds-input-sm" placeholder={providerForm.kind === 'ollama' ? 'Local Ollama' : providerForm.kind === 'openai' ? 'OpenAI' : 'My Provider'} bind:value={providerForm.name} required />
       </label>
-      <label class="space-y-1">
-        <span class="text-xs text-gray-500">Provider Kind</span>
-        <Combobox
-          options={providerKindOptions}
-          value={providerForm.kind}
-          onChange={(v) => providerForm = { ...providerForm, kind: v, baseUrl: providerBaseUrls[v] ?? '' }}
-        />
-      </label>
-      <label class="space-y-1 md:col-span-2">
-        <span class="text-xs text-gray-500">Base URL</span>
+
+      <label class="block space-y-1">
+        <span class="ds-form-label">Base URL</span>
         <input
-          class="ds-input-sm"
-          placeholder={providerForm.kind === 'ollama'
-            ? 'http://localhost:11434/v1'
-            : providerForm.kind === 'openai_compatible'
-              ? 'https://your-gateway.example.com'
-              : 'https://api.openai.com/v1'}
+          class="ds-input-sm font-mono text-xs"
+          placeholder={providerForm.kind === 'openai_compatible' ? 'https://your-gateway.example.com/v1' : ''}
           bind:value={providerForm.baseUrl}
         />
+        {#if providerForm.kind !== 'openai_compatible'}
+          <p class="text-[11px] text-gray-400 mt-1">Pre-filled for {providerKindOptions.find(o => o.value === providerForm.kind)?.label}. Change only if using a proxy.</p>
+        {:else}
+          <p class="text-[11px] text-gray-400 mt-1">The OpenAI-compatible /v1 endpoint of your provider.</p>
+        {/if}
       </label>
-      <label class="space-y-1 md:col-span-2">
-        <span class="text-xs text-gray-500">API Key</span>
-        <input class="ds-input-sm" type="password" placeholder="sk-..." bind:value={providerForm.apiKey} />
-      </label>
+
+      {#if providerForm.kind !== 'ollama'}
+        <label class="block space-y-1">
+          <span class="ds-form-label">API Key</span>
+          <input class="ds-input-sm font-mono text-xs" type="password" placeholder="sk-..." bind:value={providerForm.apiKey} />
+        </label>
+      {:else}
+        <div class="ds-panel-muted p-3 rounded-lg">
+          <p class="text-xs text-gray-500">Ollama runs locally — no API key needed. Make sure Ollama is running on the configured URL.</p>
+        </div>
+      {/if}
     </div>
 
-    <div class="flex flex-wrap items-center gap-4">
+    <!-- Options -->
+    <div class="flex items-center gap-5 pt-1">
       <label class="ds-checkbox-label text-xs">
         <input type="checkbox" class="ds-checkbox" bind:checked={providerForm.isActive} />
         Active
       </label>
       <label class="ds-checkbox-label text-xs">
         <input type="checkbox" class="ds-checkbox" bind:checked={providerForm.isDefault} />
-        Default provider
+        Set as default
       </label>
     </div>
 
-    <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-800">
-      <button type="button" class="ds-btn-outline" onclick={() => providerSheetOpen = false}>Cancel</button>
-      <button type="submit" class="ds-btn-primary" disabled={!providerForm.name.trim()}>Create Provider</button>
+    <!-- Error -->
+    {#if providerError}
+      <div class="rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 p-3">
+        <p class="text-xs font-medium text-red-700 dark:text-red-300">{providerError}</p>
+      </div>
+    {/if}
+
+    <!-- Actions -->
+    <div class="flex items-center justify-end gap-2 pt-3 border-t border-gray-200 dark:border-gray-800">
+      <button type="button" class="ds-btn-outline" onclick={() => { providerSheetOpen = false; resetProviderForm() }}>Cancel</button>
+      <button type="submit" class="ds-btn-primary" disabled={!providerForm.name.trim() || providerCreating}>
+        {providerCreating ? 'Creating...' : 'Create Provider'}
+      </button>
     </div>
   </form>
 </Sheet>
@@ -1555,75 +1596,117 @@
       {#if brainLoading}
         <div class="flex items-center justify-center py-12"><Spinner /></div>
       {:else}
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-          <div class="flex items-center gap-2">
-            <Brain size={16} class="text-ch-blue" />
-            <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Brain Control Center</h2>
-            <HelpTip text="Manage AI providers and model availability for all users. Use provider accordions to keep large model lists manageable." />
+        <!-- Header -->
+        <div class="flex flex-col gap-1 mb-6">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-orange-100 dark:bg-orange-500/15">
+                <Brain size={16} class="text-ch-blue" />
+              </div>
+              <div>
+                <h2 class="text-base font-semibold text-gray-900 dark:text-gray-100">Brain Control Center</h2>
+                <p class="text-xs text-gray-500">Manage AI providers, models, and system prompt</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button class="ds-btn-ghost" onclick={() => loadBrainAdmin()} title="Refresh">
+                <RefreshCw size={14} />
+              </button>
+            </div>
           </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <button class="ds-btn-outline" onclick={() => providerSheetOpen = true}>Add Provider</button>
-            <button class="ds-btn-outline" onclick={() => openSkillSheet()}>Edit Global Skill</button>
-            <button class="ds-btn-outline" onclick={() => loadBrainAdmin()} title="Refresh">
-              <RefreshCw size={14} />
+        </div>
+
+        <!-- Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+          <div class="ds-stat-card">
+            <div class="flex items-center gap-2 text-gray-500 text-xs mb-1">
+              <div class="w-1.5 h-1.5 rounded-full bg-ch-blue"></div>
+              Providers
+            </div>
+            <div class="text-2xl font-bold text-gray-900 dark:text-gray-100">{brainProviders.length}</div>
+            <div class="text-[11px] text-gray-400 mt-0.5">{brainProviders.filter(p => p.is_active).length} active</div>
+          </div>
+          <div class="ds-stat-card">
+            <div class="flex items-center gap-2 text-gray-500 text-xs mb-1">
+              <div class="w-1.5 h-1.5 rounded-full bg-green-500"></div>
+              Models
+            </div>
+            <div class="text-2xl font-bold text-gray-900 dark:text-gray-100">{brainModels.length}</div>
+            <div class="text-[11px] text-gray-400 mt-0.5">{brainModels.filter(m => m.is_active).length} active</div>
+          </div>
+          <div class="ds-stat-card">
+            <div class="flex items-center gap-2 text-gray-500 text-xs mb-1">
+              <div class="w-1.5 h-1.5 rounded-full {brainProviders.some(p => p.is_default) ? 'bg-green-500' : 'bg-yellow-500'}"></div>
+              Default Provider
+            </div>
+            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100 mt-1">{brainProviders.find(p => p.is_default)?.name || 'None'}</div>
+          </div>
+          <div class="ds-stat-card">
+            <div class="flex items-center gap-2 text-gray-500 text-xs mb-1">
+              <div class="w-1.5 h-1.5 rounded-full {skillForm.content ? 'bg-green-500' : 'bg-yellow-500'}"></div>
+              System Prompt
+            </div>
+            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100 mt-1">{skillForm.isActive ? 'Active' : 'Inactive'}</div>
+          </div>
+        </div>
+
+        <!-- Providers Section -->
+        <div class="mb-8">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Providers</h3>
+            <button class="ds-btn-primary" onclick={() => providerSheetOpen = true}>
+              <Plus size={14} />
+              Add Provider
             </button>
           </div>
-        </div>
 
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-          <div class="ds-panel p-2.5">
-            <div class="text-[11px] text-gray-500">Providers</div>
-            <div class="text-lg font-semibold text-gray-900 dark:text-gray-100">{brainProviders.length}</div>
-          </div>
-          <div class="ds-panel p-2.5">
-            <div class="text-[11px] text-gray-500">Active Providers</div>
-            <div class="text-lg font-semibold text-gray-900 dark:text-gray-100">{brainProviders.filter(p => p.is_active).length}</div>
-          </div>
-          <div class="ds-panel p-2.5">
-            <div class="text-[11px] text-gray-500">Models</div>
-            <div class="text-lg font-semibold text-gray-900 dark:text-gray-100">{brainModels.length}</div>
-          </div>
-          <div class="ds-panel p-2.5">
-            <div class="text-[11px] text-gray-500">Active Models</div>
-            <div class="text-lg font-semibold text-gray-900 dark:text-gray-100">{brainModels.filter(m => m.is_active).length}</div>
-          </div>
-        </div>
+          {#if brainProviders.length === 0}
+            <div class="ds-empty">
+              <Brain size={24} class="mx-auto mb-3 text-gray-400" />
+              <p class="text-sm text-gray-500 mb-1">No providers configured</p>
+              <p class="text-xs text-gray-400 mb-4">Add an OpenAI-compatible provider to enable Brain</p>
+              <button class="ds-btn-primary" onclick={() => providerSheetOpen = true}>Create First Provider</button>
+            </div>
+          {:else}
+            <div class="space-y-2">
+              {#each brainProviders as provider}
+                <div class="ds-card p-4 flex flex-col md:flex-row md:items-center gap-3">
+                  <div class="flex items-center gap-3 flex-1 min-w-0">
+                    <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 shrink-0">
+                      <span class="text-sm font-bold text-gray-600 dark:text-gray-300">{provider.name.charAt(0).toUpperCase()}</span>
+                    </div>
+                    <div class="min-w-0">
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium text-sm text-gray-900 dark:text-gray-100">{provider.name}</span>
+                        <span class="ds-badge ds-badge-neutral">{provider.kind}</span>
+                        {#if provider.is_default}
+                          <span class="ds-badge ds-badge-brand">Default</span>
+                        {/if}
+                      </div>
+                      <div class="text-xs text-gray-500 font-mono truncate mt-0.5">{provider.base_url || 'Default endpoint'}</div>
+                    </div>
+                  </div>
 
-        {#if brainProviders.length === 0}
-          <div class="ds-empty">
-            <p class="text-sm text-gray-500 mb-2">No Brain providers configured yet.</p>
-            <button class="ds-btn-primary" onclick={() => providerSheetOpen = true}>Create First Provider</button>
-          </div>
-        {:else}
-          <div class="ds-table-wrap mb-5 max-h-[32vh] overflow-auto rounded-lg border border-gray-200 dark:border-gray-800">
-            <table class="ds-table">
-              <thead>
-                <tr class="ds-table-head-row sticky top-0 bg-gray-50 dark:bg-gray-900 z-10">
-                  <th class="ds-table-th">Provider</th>
-                  <th class="ds-table-th">Kind</th>
-                  <th class="ds-table-th">Base URL</th>
-                  <th class="ds-table-th">Key</th>
-                  <th class="ds-table-th">Active</th>
-                  <th class="ds-table-th">Default</th>
-                  <th class="ds-table-th-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each brainProviders as provider}
-                  <tr class="ds-table-row">
-                    <td class="ds-td-strong">{provider.name}</td>
-                    <td class="ds-td-mono">{provider.kind}</td>
-                    <td class="ds-td-mono max-w-sm truncate">{provider.base_url || '—'}</td>
-                    <td class="ds-td">{provider.has_api_key ? 'Configured' : 'Missing'}</td>
-                    <td class="ds-td">
+                  <div class="flex items-center gap-4 shrink-0">
+                    <div class="flex items-center gap-1.5">
+                      {#if provider.has_api_key}
+                        <span class="ds-badge ds-badge-success">Key set</span>
+                      {:else}
+                        <span class="ds-badge ds-badge-danger">No key</span>
+                      {/if}
+                    </div>
+
+                    <label class="ds-checkbox-label text-xs gap-1.5">
                       <input
                         type="checkbox"
                         class="ds-checkbox"
                         checked={provider.is_active}
                         onchange={(e) => toggleProvider(provider, 'is_active', (e.target as HTMLInputElement).checked)}
                       />
-                    </td>
-                    <td class="ds-td">
+                      Active
+                    </label>
+
+                    <label class="ds-checkbox-label text-xs gap-1.5">
                       <input
                         type="radio"
                         class="ds-radio"
@@ -1631,200 +1714,295 @@
                         checked={provider.is_default}
                         onchange={() => toggleProvider(provider, 'is_default', true)}
                       />
-                    </td>
-                    <td class="ds-td-right">
-                      <div class="flex justify-end gap-2">
-                        <button class="ds-btn-outline" onclick={() => syncProviderModels(provider)}>Sync Models</button>
-                        <button class="text-xs text-red-500 hover:text-red-700" onclick={() => deleteProvider(provider)}>Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {/if}
+                      Default
+                    </label>
 
-        <div class="ds-panel p-3 mb-3">
-          <div class="flex items-center gap-2 mb-2">
-            <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Brain Models</h3>
-            <HelpTip text="Models are grouped by provider. Expand a provider accordion to activate/deactivate models and choose defaults." />
+                    <div class="flex items-center gap-1 border-l border-gray-200 dark:border-gray-700 pl-3">
+                      <button class="ds-btn-outline text-xs" onclick={() => syncProviderModels(provider)}>Sync Models</button>
+                      <button class="ds-icon-btn text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" onclick={() => deleteProvider(provider)} title="Delete provider">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+        <!-- Models Section -->
+        <div class="mb-8">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Models</h3>
+              <HelpTip text="Activate models to make them available in Brain chat. Set one default per provider." />
+            </div>
+            <div class="flex items-center gap-2">
+              <button class="ds-btn-outline text-xs" onclick={() => runModelBulkAction('activate_recommended')}>Activate Recommended</button>
+              <button class="ds-btn-outline text-xs" onclick={() => runModelBulkAction('activate_all')}>Activate All</button>
+              <button class="ds-btn-outline text-xs" onclick={() => runModelBulkAction('deactivate_all')}>Deactivate All</button>
+            </div>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
-            <Combobox
-              options={providerFilterOptions()}
-              value={modelProviderFilter}
-              onChange={(v) => modelProviderFilter = v}
-            />
+
+          <div class="flex items-center gap-2 mb-3">
+            <div class="w-40">
+              <Combobox
+                options={providerFilterOptions()}
+                value={modelProviderFilter}
+                onChange={(v) => modelProviderFilter = v}
+              />
+            </div>
             <input
-              class="ds-input-sm md:col-span-2"
+              class="ds-input-sm flex-1"
               placeholder="Search models..."
               bind:value={modelSearch}
             />
-            <label class="ds-checkbox-label text-xs px-2">
-              <input type="checkbox" class="ds-checkbox" bind:checked={modelShowOnlyActive} />
-              Show only active
+            <label class="ds-checkbox-label text-xs whitespace-nowrap">
+              <input type="checkbox" class="ds-checkbox ds-checkbox-sm" bind:checked={modelShowOnlyActive} />
+              Active only
             </label>
           </div>
-          <div class="mt-2 flex flex-wrap items-center gap-2">
-            <button class="ds-btn-outline" onclick={() => runModelBulkAction('activate_recommended')}>Activate Recommended</button>
-            <button class="ds-btn-outline" onclick={() => runModelBulkAction('activate_all')}>Activate All</button>
-            <button class="ds-btn-outline" onclick={() => runModelBulkAction('deactivate_all')}>Deactivate All</button>
-          </div>
+
+          {#if brainModels.length === 0}
+            <p class="text-sm text-gray-500 py-4 text-center">No models synced yet. Add a provider and click "Sync Models".</p>
+          {:else}
+            <div class="space-y-2">
+              {#each visibleProvidersForModels() as provider}
+                {@const providerModels = modelsForProvider(provider.id)}
+                <details class="ds-card overflow-hidden" open={modelProviderFilter === provider.id || (!modelProviderFilter && provider.is_default)}>
+                  <summary class="cursor-pointer list-none px-4 py-3 flex items-center justify-between bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800/80 transition-colors">
+                    <div class="flex items-center gap-2.5">
+                      <div class="flex items-center justify-center w-6 h-6 rounded bg-gray-200 dark:bg-gray-800">
+                        <span class="text-[10px] font-bold text-gray-600 dark:text-gray-400">{provider.name.charAt(0).toUpperCase()}</span>
+                      </div>
+                      <span class="font-medium text-sm text-gray-900 dark:text-gray-100">{provider.name}</span>
+                      <span class="ds-badge ds-badge-neutral">{provider.kind}</span>
+                    </div>
+                    <div class="flex items-center gap-3 text-xs">
+                      <span class="ds-badge ds-badge-success">{providerModels.filter(m => m.is_active).length} active</span>
+                      <span class="text-gray-500">{providerModels.length} total</span>
+                    </div>
+                  </summary>
+                  <div class="max-h-[40vh] overflow-auto border-t border-gray-200 dark:border-gray-800">
+                    {#if providerModels.length > 0}
+                      <table class="ds-table">
+                        <thead>
+                          <tr class="ds-table-head-row sticky top-0 bg-gray-50 dark:bg-gray-900 z-10">
+                            <th class="ds-table-th">Model</th>
+                            <th class="ds-table-th w-20 text-center">Active</th>
+                            <th class="ds-table-th w-20 text-center">Default</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {#each providerModels as model}
+                            <tr class="ds-table-row">
+                              <td class="ds-td-mono">{model.display_name || model.name}</td>
+                              <td class="ds-td text-center">
+                                <input
+                                  type="checkbox"
+                                  class="ds-checkbox"
+                                  checked={model.is_active}
+                                  onchange={(e) => updateModel(model, 'is_active', (e.target as HTMLInputElement).checked)}
+                                />
+                              </td>
+                              <td class="ds-td text-center">
+                                <input
+                                  type="radio"
+                                  class="ds-radio"
+                                  name={"default-model-" + model.provider_id}
+                                  checked={model.is_default}
+                                  onchange={() => updateModel(model, 'is_default', true)}
+                                />
+                              </td>
+                            </tr>
+                          {/each}
+                        </tbody>
+                      </table>
+                    {:else}
+                      <p class="text-xs text-gray-500 px-4 py-6 text-center">No models match current filters.</p>
+                    {/if}
+                  </div>
+                </details>
+              {/each}
+            </div>
+          {/if}
         </div>
 
-        {#if brainModels.length === 0}
-          <p class="text-sm text-gray-500 mb-6">No models synced yet.</p>
-        {:else}
-          <div class="space-y-2 mb-6">
-            {#each visibleProvidersForModels() as provider}
-              {@const providerModels = modelsForProvider(provider.id)}
-              <details class="ds-card overflow-hidden" open={modelProviderFilter === provider.id || (!modelProviderFilter && provider.is_default)}>
-                <summary class="cursor-pointer list-none px-3 py-2.5 flex items-center justify-between bg-gray-50 dark:bg-gray-900">
-                  <div class="flex items-center gap-2">
-                    <span class="font-medium text-gray-900 dark:text-gray-100">{provider.name}</span>
-                    <span class="text-[11px] text-gray-500">{provider.kind}</span>
-                  </div>
-                  <div class="flex items-center gap-2 text-xs">
-                    <span class="ds-badge ds-badge-neutral">{providerModels.filter(m => m.is_active).length} active</span>
-                    <span class="text-gray-500">{providerModels.length} total</span>
-                  </div>
-                </summary>
-                <div class="max-h-[36vh] overflow-auto border-t border-gray-200 dark:border-gray-800">
-                  {#if providerModels.length > 0}
-                    <table class="ds-table">
-                      <thead>
-                        <tr class="ds-table-head-row sticky top-0 bg-gray-50 dark:bg-gray-900 z-10">
-                          <th class="ds-table-th">Model</th>
-                          <th class="ds-table-th">Active</th>
-                          <th class="ds-table-th">Default</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {#each providerModels as model}
-                          <tr class="ds-table-row">
-                            <td class="ds-td-mono">{model.display_name || model.name}</td>
-                            <td class="ds-td">
-                              <input
-                                type="checkbox"
-                                class="ds-checkbox"
-                                checked={model.is_active}
-                                onchange={(e) => updateModel(model, 'is_active', (e.target as HTMLInputElement).checked)}
-                              />
-                            </td>
-                            <td class="ds-td">
-                              <input
-                                type="radio"
-                                class="ds-radio"
-                                name={"default-model-" + model.provider_id}
-                                checked={model.is_default}
-                                onchange={() => updateModel(model, 'is_default', true)}
-                              />
-                            </td>
-                          </tr>
-                        {/each}
-                      </tbody>
-                    </table>
-                  {:else}
-                    <p class="text-xs text-gray-500 px-3 py-4">No models match current filters for this provider.</p>
-                  {/if}
-                </div>
-              </details>
-            {/each}
+        <!-- System Prompt Section -->
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">System Prompt</h3>
+              {#if skillForm.isActive}
+                <span class="ds-badge ds-badge-success">Active</span>
+              {:else}
+                <span class="ds-badge ds-badge-neutral">Inactive</span>
+              {/if}
+            </div>
+            <button class="ds-btn-outline" onclick={() => openSkillSheet()}>Edit Prompt</button>
           </div>
-        {/if}
-
-        <div class="ds-card p-3">
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Global Brain Skill</h3>
-            <button class="ds-btn-outline" onclick={() => openSkillSheet()}>Open Skill Sheet</button>
+          <div class="ds-card overflow-hidden">
+            <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{skillForm.name || 'Default Skill'}</span>
+                <span class="text-[11px] text-gray-400">Steers SQL safety, artifacts, and tool behavior</span>
+              </div>
+            </div>
+            <pre class="text-[11px] leading-relaxed whitespace-pre-wrap text-gray-600 dark:text-gray-400 max-h-44 overflow-auto p-4">{truncate(skillForm.content || 'No system prompt configured.', 1500)}</pre>
           </div>
-          <p class="text-xs text-gray-500 mb-2">Active prompt preview</p>
-          <pre class="text-[11px] leading-relaxed whitespace-pre-wrap text-gray-600 dark:text-gray-300 max-h-36 overflow-auto rounded border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 p-2">{truncate(skillForm.content || '', 1200)}</pre>
         </div>
       {/if}
 
-    {:else if activeTab === 'langfuse'}
-      {#if langfuseLoading}
+    {:else if activeTab === 'github'}
+      {#if !isProActive()}
+        <div class="flex flex-col items-center justify-center py-16 text-center">
+          <GitBranch size={32} class="text-gray-400 mb-3" />
+          <h2 class="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-1">GitHub Model Sync</h2>
+          <p class="text-sm text-gray-500 max-w-md">Connect a GitHub repository and sync your SQL models. Requires a Pro license.</p>
+        </div>
+      {:else if ghLoading}
         <div class="flex items-center justify-center py-12"><Spinner /></div>
       {:else}
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-          <div class="flex items-center gap-2">
-            <Telescope size={16} class="text-ch-blue" />
-            <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Langfuse Observability</h2>
-          </div>
-          <div class="flex items-center gap-2">
-            {#if langfuseConfig.enabled}
-              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">Active</span>
-            {:else}
-              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">Inactive</span>
-            {/if}
-          </div>
-        </div>
-
-        <div class="ds-card p-4 mb-4">
-          <p class="text-xs text-gray-500 mb-4">
-            <a href="https://langfuse.com" target="_blank" rel="noopener" class="text-ch-blue hover:underline">Langfuse</a> provides LLM observability for Brain chat — traces, token usage, latency, and auto-scoring for every generation.
-          </p>
-
-          <div class="space-y-3">
-            <label class="block space-y-1">
-              <span class="text-xs text-gray-500">Base URL</span>
-              <input
-                class="ds-input-sm"
-                type="url"
-                placeholder="https://cloud.langfuse.com"
-                bind:value={langfuseConfig.baseUrl}
-              />
-            </label>
-
-            <label class="block space-y-1">
-              <span class="text-xs text-gray-500">Public Key</span>
-              <input
-                class="ds-input-sm font-mono"
-                type="text"
-                placeholder="pk-lf-..."
-                bind:value={langfuseConfig.publicKey}
-              />
-            </label>
-
-            <label class="block space-y-1">
-              <span class="text-xs text-gray-500">Secret Key</span>
-              <input
-                class="ds-input-sm font-mono"
-                type="password"
-                placeholder={langfuseConfig.hasSecretKey ? '(unchanged — enter new value to replace)' : 'sk-lf-...'}
-                bind:value={langfuseSecretKey}
-              />
-            </label>
+        <div class="max-w-2xl mx-auto space-y-6">
+          <!-- Header -->
+          <div class="flex items-center gap-3">
+            <GitBranch size={20} class="text-gray-600 dark:text-gray-400" />
+            <div>
+              <h2 class="text-base font-semibold text-gray-800 dark:text-gray-200">GitHub Model Sync</h2>
+              <p class="text-xs text-gray-500">Pull models from a GitHub repository. GitHub is the source of truth.</p>
+            </div>
           </div>
 
-          <div class="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-gray-200 dark:border-gray-800">
-            <button
-              class="ds-btn-primary"
-              onclick={() => saveLangfuseConfig()}
-              disabled={langfuseSaving}
-            >
-              {langfuseSaving ? 'Saving...' : 'Save'}
-            </button>
-            <button
-              class="ds-btn-outline"
-              onclick={() => testLangfuseConnection()}
-              disabled={langfuseTesting}
-            >
-              {langfuseTesting ? 'Testing...' : 'Test Connection'}
-            </button>
-            {#if langfuseConfig.hasSecretKey || langfuseConfig.publicKey}
-              <button
-                class="ds-btn-outline text-red-600 dark:text-red-400"
-                onclick={() => deleteLangfuseConfig()}
-              >
-                Remove
+          <!-- Form -->
+          <div class="space-y-4 p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/50">
+            <div>
+              <label for="gh-repo" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Repository</label>
+              <input id="gh-repo" type="text" bind:value={ghForm.repo} placeholder="owner/repo"
+                class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-ch-blue/40 outline-none" />
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label for="gh-branch" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Branch</label>
+                <input id="gh-branch" type="text" bind:value={ghForm.branch} placeholder="main"
+                  class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-ch-blue/40 outline-none" />
+              </div>
+              <div>
+                <label for="gh-path" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Models path</label>
+                <input id="gh-path" type="text" bind:value={ghForm.path} placeholder="models/"
+                  class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-ch-blue/40 outline-none" />
+              </div>
+            </div>
+            <div>
+              <label for="gh-pat" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                Personal Access Token
+                {#if ghIntegration?.has_pat}
+                  <span class="text-green-500 font-normal ml-1">(configured)</span>
+                {/if}
+              </label>
+              <input id="gh-pat" type="password" bind:value={ghForm.pat} placeholder={ghIntegration?.has_pat ? 'Leave blank to keep current token' : 'ghp_...'}
+                class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-ch-blue/40 outline-none" />
+              <p class="text-[10px] text-gray-400 mt-1">Needs <code>repo</code> scope (or <code>contents:read</code> for fine-grained tokens)</p>
+            </div>
+
+            <div class="flex items-center gap-2 pt-2">
+              <button onclick={handleGitHubSave} disabled={ghSaving || !ghForm.repo}
+                class="px-4 py-2 text-xs font-medium rounded-lg bg-ch-blue text-white hover:bg-ch-blue/90 disabled:opacity-50 transition-colors">
+                {ghSaving ? 'Saving...' : 'Save'}
               </button>
+              {#if ghIntegration?.has_pat}
+                <button onclick={handleGitHubTest} disabled={ghTesting}
+                  class="px-4 py-2 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors">
+                  {ghTesting ? 'Testing...' : 'Test Connection'}
+                </button>
+              {/if}
+              {#if ghIntegration}
+                <button onclick={handleGitHubDelete}
+                  class="px-4 py-2 text-xs font-medium rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors ml-auto">
+                  Remove
+                </button>
+              {/if}
+            </div>
+
+            {#if ghTestResult}
+              <div class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs {ghTestResult.success ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'}">
+                {#if ghTestResult.success}
+                  <Check size={14} /> Connection successful
+                {:else}
+                  <XIcon size={14} /> {ghTestResult.error || 'Connection failed'}
+                {/if}
+              </div>
             {/if}
+          </div>
+
+          <!-- Sync controls -->
+          {#if ghIntegration?.has_pat}
+            <div class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/50">
+              <CloudDownload size={16} class="text-gray-500 shrink-0" />
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Sync models from GitHub</p>
+                <p class="text-[11px] text-gray-400">Pull .sql files from <code class="text-[10px]">{ghIntegration.repo}/{ghIntegration.path}</code> on <code class="text-[10px]">{ghIntegration.branch}</code></p>
+              </div>
+              <button onclick={handleGitHubSync} disabled={ghSyncing}
+                class="px-4 py-2 text-xs font-medium rounded-lg bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-50 transition-colors shrink-0">
+                {ghSyncing ? 'Syncing...' : 'Sync Now'}
+              </button>
+            </div>
+
+            <!-- Webhook URL -->
+            <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/50">
+              <p class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Webhook URL (optional)</p>
+              <p class="text-[10px] text-gray-400 mb-2">Add this as a GitHub webhook to auto-sync on push.</p>
+              <code class="block text-[11px] bg-gray-100 dark:bg-gray-800 px-3 py-2 rounded text-gray-600 dark:text-gray-400 break-all select-all">
+                {window.location.origin}/api/github/webhook/{getSession()?.connectionId ?? ''}
+              </code>
+            </div>
+          {/if}
+
+          <!-- Sync history -->
+          {#if ghSyncLogs.length > 0}
+            <div>
+              <h3 class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Sync History</h3>
+              <div class="space-y-1">
+                {#each ghSyncLogs.slice(0, 10) as log (log.id)}
+                  <div class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs bg-white dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700">
+                    <span class="w-2 h-2 rounded-full shrink-0 {log.status === 'success' ? 'bg-green-400' : log.status === 'error' ? 'bg-red-400' : log.status === 'partial' ? 'bg-yellow-400' : 'bg-blue-400'}"></span>
+                    <span class="text-gray-600 dark:text-gray-400 tabular-nums">{new Date(log.started_at).toLocaleString()}</span>
+                    <span class="text-gray-500">
+                      {log.models_created > 0 ? `+${log.models_created}` : ''}
+                      {log.models_updated > 0 ? ` ~${log.models_updated}` : ''}
+                      {log.models_deleted > 0 ? ` -${log.models_deleted}` : ''}
+                      {log.models_created === 0 && log.models_updated === 0 && log.models_deleted === 0 ? 'no changes' : ''}
+                    </span>
+                    {#if log.commit_sha}
+                      <span class="ml-auto text-[10px] text-gray-400 font-mono">{log.commit_sha.slice(0, 7)}</span>
+                    {/if}
+                    {#if log.triggered_by}
+                      <span class="text-[10px] text-gray-400">{log.triggered_by}</span>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          <!-- File format help -->
+          <div class="p-4 rounded-lg border border-dashed border-gray-300 dark:border-gray-600">
+            <p class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Model file format</p>
+            <pre class="text-[11px] text-gray-500 dark:text-gray-400 whitespace-pre leading-relaxed">---
+materialization: table
+target_database: default
+table_engine: MergeTree
+order_by: (id, created_at)
+description: My model
+---
+SELECT id, count() as events
+FROM $ref(raw_events)
+GROUP BY id</pre>
+            <p class="text-[10px] text-gray-400 mt-2">Filename becomes the model name. YAML header is optional (defaults: materialization=view, target_database=default).</p>
           </div>
         </div>
       {/if}
+
     {/if}
   </div>
 </div>

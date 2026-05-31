@@ -13,8 +13,8 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	ghclient "github.com/caioricciuti/ch-ui/internal/github"
 	"github.com/caioricciuti/ch-ui/internal/governance"
-	"github.com/caioricciuti/ch-ui/internal/langfuse"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
@@ -22,11 +22,11 @@ import (
 // AdminHandler handles admin-only routes for ClickHouse management.
 // All routes require the admin role, enforced by middleware.RequireAdmin.
 type AdminHandler struct {
-	DB        *database.DB
-	Gateway   *tunnel.Gateway
-	Config    *config.Config
-	Langfuse  *langfuse.Client
-	GovSyncer *governance.Syncer
+	DB            *database.DB
+	Gateway       *tunnel.Gateway
+	Config        *config.Config
+	GovSyncer     *governance.Syncer
+	GitHubSyncer  *ghclient.Syncer
 }
 
 // Routes registers all admin routes on the given chi.Router.
@@ -57,17 +57,19 @@ func (h *AdminHandler) Routes(r chi.Router) {
 	r.Post("/brain/skills", h.CreateBrainSkill)
 	r.Put("/brain/skills/{id}", h.UpdateBrainSkill)
 
-	// Langfuse observability
-	r.Get("/langfuse", h.GetLangfuseConfig)
-	r.Put("/langfuse", h.UpdateLangfuseConfig)
-	r.Delete("/langfuse", h.DeleteLangfuseConfig)
-	r.Post("/langfuse/test", h.TestLangfuseConnection)
-
-	// Governance feature toggle (Pro; stays admin-only, not Pro-gated at this
-	// level so admins can inspect/disable the toggle even when the license
-	// lapses — the syncer itself is Pro-gated at startup).
+	// Governance feature toggle
 	r.Get("/governance/settings", h.GetGovernanceSettings)
 	r.Put("/governance/settings", h.UpdateGovernanceSettings)
+
+	// GitHub model sync (Pro)
+	r.Route("/github/{connectionId}", func(sub chi.Router) {
+		sub.Get("/", h.GetGitHubIntegration)
+		sub.Put("/", h.SaveGitHubIntegration)
+		sub.Delete("/", h.DeleteGitHubIntegration)
+		sub.Post("/test", h.TestGitHubConnection)
+		sub.Post("/sync", h.TriggerGitHubSync)
+		sub.Get("/logs", h.GetGitHubSyncLogs)
+	})
 }
 
 // ---------- GET /users ----------

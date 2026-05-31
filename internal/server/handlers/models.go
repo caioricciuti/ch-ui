@@ -159,6 +159,10 @@ func (h *ModelsHandler) UpdateModel(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Model not found"})
 		return
 	}
+	if existing.Source == "github" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "This model is managed by GitHub — edit it in your repository and re-sync"})
+		return
+	}
 
 	var body struct {
 		Name            string `json:"name"`
@@ -217,6 +221,11 @@ func (h *ModelsHandler) UpdateModel(w http.ResponseWriter, r *http.Request) {
 // DeleteModel removes a model.
 func (h *ModelsHandler) DeleteModel(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	existing, _ := h.DB.GetModelByID(id)
+	if existing != nil && existing.Source == "github" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "This model is managed by GitHub — remove it from your repository and re-sync"})
+		return
+	}
 	if err := h.DB.DeleteModel(id); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete model"})
 		return

@@ -11,10 +11,9 @@ import (
 
 	"github.com/caioricciuti/ch-ui/internal/alerts"
 	"github.com/caioricciuti/ch-ui/internal/config"
-	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	ghclient "github.com/caioricciuti/ch-ui/internal/github"
 	"github.com/caioricciuti/ch-ui/internal/governance"
-	"github.com/caioricciuti/ch-ui/internal/langfuse"
 	"github.com/caioricciuti/ch-ui/internal/models"
 	"github.com/caioricciuti/ch-ui/internal/pipelines"
 	"github.com/caioricciuti/ch-ui/internal/scheduler"
@@ -34,9 +33,9 @@ type Server struct {
 	modelRunner    *models.Runner
 	modelScheduler *models.Scheduler
 	govSyncer      *governance.Syncer
+	githubSyncer   *ghclient.Syncer
 	guardrails     *governance.GuardrailService
 	alerts         *alerts.Dispatcher
-	langfuse       *langfuse.Client
 	router         chi.Router
 	http           *http.Server
 	frontendFS     fs.FS
@@ -54,15 +53,8 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS) *Server {
 
 	govStore := governance.NewStore(db)
 	govSyncer := governance.NewSyncer(govStore, db, gw, cfg.AppSecretKey)
+	githubSyncer := ghclient.NewSyncer(db, cfg.AppSecretKey)
 	alertDispatcher := alerts.NewDispatcher(db, cfg)
-	lfClient := langfuse.New()
-
-	// Load Langfuse config from database settings (if configured via admin UI)
-	if lfCfg, err := loadLangfuseConfigFromDB(db, cfg.AppSecretKey); err != nil {
-		slog.Warn("Failed to load Langfuse config from database", "error", err)
-	} else if lfCfg.Enabled() {
-		lfClient.Reconfigure(lfCfg)
-	}
 
 	s := &Server{
 		cfg:            cfg,
@@ -73,9 +65,9 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS) *Server {
 		modelRunner:    modelRunner,
 		modelScheduler: modelScheduler,
 		govSyncer:      govSyncer,
+		githubSyncer:   githubSyncer,
 		guardrails:     governance.NewGuardrailService(govStore, db),
 		alerts:         alertDispatcher,
-		langfuse:       lfClient,
 		router:         r,
 		frontendFS:     frontendFS,
 	}
@@ -118,8 +110,9 @@ func (s *Server) setupRoutes() {
 	// ── Rate limiter (shared across handlers) ───────────────────────────
 	rateLimiter := middleware.NewRateLimiter(db)
 
-	// ── Webhook endpoint for pipelines (no session — uses token auth) ──
+	// ── Webhook endpoints (no session — uses token auth) ──
 	r.Post("/api/pipelines/webhook/{id}", pipelines.HandleWebhook)
+	r.Post("/api/github/webhook/{connectionId}", handlers.GitHubWebhookHandler(db, cfg, s.githubSyncer))
 
 	// ── API routes ─────────────────────────────────────────────────────
 	r.Route("/api", func(api chi.Router) {
@@ -186,16 +179,16 @@ func (s *Server) setupRoutes() {
 			protected.Mount("/models", modelsHandler.Routes())
 
 			// Brain AI assistant
-			brainHandler := &handlers.BrainHandler{DB: db, Gateway: gw, Config: cfg, Langfuse: s.langfuse}
+			brainHandler := &handlers.BrainHandler{DB: db, Gateway: gw, Config: cfg, ModelRunner: s.modelRunner, PipelineRunner: s.pipelineRunner}
 			protected.Route("/brain", brainHandler.Routes)
 
 			// Admin routes (require admin role)
 			adminHandler := &handlers.AdminHandler{
-				DB:        db,
-				Gateway:   gw,
-				Config:    cfg,
-				Langfuse:  s.langfuse,
-				GovSyncer: s.govSyncer,
+				DB:           db,
+				Gateway:      gw,
+				Config:       cfg,
+				GovSyncer:    s.govSyncer,
+				GitHubSyncer: s.githubSyncer,
 			}
 			protected.Route("/admin", func(ar chi.Router) {
 				adminHandler.Routes(ar)
@@ -270,7 +263,12 @@ func (s *Server) Start() error {
 		s.govSyncer.StartBackground()
 	}
 	s.alerts.Start()
-	s.langfuse.Start()
+
+	if s.cfg.IsPro() {
+		if n, err := s.db.SweepStaleBrainApprovals(10 * time.Minute); err == nil && n > 0 {
+			slog.Info("Swept stale brain approvals", "count", n)
+		}
+	}
 
 	slog.Info("Server listening", "addr", s.http.Addr)
 	return s.http.ListenAndServe()
@@ -284,39 +282,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.modelScheduler.Stop()
 	s.govSyncer.Stop()
 	s.alerts.Stop()
-	s.langfuse.Stop()
 	s.gateway.Stop()
 	return s.http.Shutdown(ctx)
 }
 
-// loadLangfuseConfigFromDB reads Langfuse configuration from the settings table.
-func loadLangfuseConfigFromDB(db *database.DB, appSecretKey string) (langfuse.Config, error) {
-	var cfg langfuse.Config
-
-	publicKey, err := db.GetSetting("langfuse.public_key")
-	if err != nil {
-		return cfg, err
-	}
-	cfg.PublicKey = publicKey
-
-	encryptedSecret, err := db.GetSetting("langfuse.secret_key")
-	if err != nil {
-		return cfg, err
-	}
-	if encryptedSecret != "" {
-		decrypted, err := crypto.Decrypt(encryptedSecret, appSecretKey)
-		if err != nil {
-			return cfg, fmt.Errorf("decrypt langfuse secret: %w", err)
-		}
-		cfg.SecretKey = decrypted
-	}
-
-	baseURL, err := db.GetSetting("langfuse.base_url")
-	if err != nil {
-		return cfg, err
-	}
-	cfg.BaseURL = baseURL
-	cfg.NormalizeBaseURL()
-
-	return cfg, nil
-}

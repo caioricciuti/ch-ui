@@ -17,8 +17,43 @@ export interface Model {
   last_error: string | null
   last_run_at: string | null
   created_by: string | null
+  source: 'manual' | 'github'
   created_at: string
   updated_at: string
+}
+
+export interface GitHubIntegration {
+  enabled: boolean
+  repo: string
+  branch: string
+  path: string
+  has_pat: boolean
+  has_webhook_secret: boolean
+  last_sync_sha: string
+}
+
+export interface GitHubSyncLog {
+  id: string
+  connection_id: string
+  status: string
+  models_created: number
+  models_updated: number
+  models_deleted: number
+  models_unchanged: number
+  error: string | null
+  triggered_by: string | null
+  started_at: string
+  finished_at: string | null
+  commit_sha: string | null
+  created_at: string
+}
+
+export interface GitHubSyncResult {
+  created: number
+  updated: number
+  deleted: number
+  unchanged: number
+  commit_sha: string
 }
 
 export interface ModelRun {

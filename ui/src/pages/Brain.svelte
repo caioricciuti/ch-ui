@@ -3,8 +3,7 @@
   import { openQueryTab } from '../lib/stores/tabs.svelte'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import { getDatabases, loadDatabases, loadTables, loadColumns } from '../lib/stores/schema.svelte'
-  import type { BrainArtifact, BrainChat, BrainMessage as BrainMessageType, BrainModelOption, SchemaContextEntry } from '../lib/types/brain'
-  import type { ComboboxOption } from '../lib/components/common/Combobox.svelte'
+  import type { BrainArtifact, BrainChat, BrainMessage as BrainMessageType, BrainModelOption, MentionRef, EntityContext } from '../lib/types/brain'
   import {
     createBrainChat,
     deleteBrainChat,
@@ -25,8 +24,6 @@
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
   import InputDialog from '../lib/components/common/InputDialog.svelte'
 
-  const MAX_CONTEXTS = 10
-
   // ── State ──────────────────────────────────────────────────
   let loading = $state(true)
   let chats = $state<BrainChat[]>([])
@@ -34,16 +31,19 @@
   let selectedChatId = $state<string>('')
   let messages = $state<BrainMessageType[]>([])
   let artifacts = $state<BrainArtifact[]>([])
-  let input = $state('')
   let streaming = $state(false)
+  let streamController: AbortController | null = $state(null)
+
+  function stopStreaming() {
+    if (streamController) {
+      streamController.abort()
+      streamController = null
+    }
+  }
   let selectedModelId = $state('')
   let messagesEl: HTMLDivElement | undefined = $state()
   let runningSql = $state<string | null>(null)
-
-  // Multi-context state
-  let contexts = $state<SchemaContextEntry[]>([])
-  let headerDb = $state('')
-  let headerTable = $state('')
+  let brainInput: { setText: (t: string) => void; focus: () => void } | undefined = $state()
 
   // Dialog state
   let renamingChat = $state<BrainChat | null>(null)
@@ -62,25 +62,6 @@
     return map
   })
 
-  const databaseOptions = $derived.by<ComboboxOption[]>(() =>
-    getDatabases().map(db => ({
-      value: db.name,
-      label: db.name,
-      keywords: db.name,
-    }))
-  )
-
-  const tableOptions = $derived.by<ComboboxOption[]>(() => {
-    const db = getDatabases().find(d => d.name === headerDb)
-    const tables = db?.tables?.map(t => t.name) ?? []
-    return tables.map(t => ({
-      value: t,
-      label: t,
-      hint: headerDb,
-      keywords: `${headerDb}.${t}`,
-    }))
-  })
-
   // ── Lifecycle ──────────────────────────────────────────────
   onMount(async () => {
     const dbs = getDatabases()
@@ -91,6 +72,15 @@
       await createChat('New Chat')
     }
     loading = false
+
+    try {
+      const seed = sessionStorage.getItem('ch-ui-brain-prompt-seed')
+      if (seed) {
+        sessionStorage.removeItem('ch-ui-brain-prompt-seed')
+        await tick()
+        brainInput?.setText(seed)
+      }
+    } catch { /* private mode etc. */ }
   })
 
   // ── API functions ──────────────────────────────────────────
@@ -130,9 +120,6 @@
     const chat = chats.find(c => c.id === chatId)
     if (chat?.model_id) selectedModelId = chat.model_id
 
-    // Restore contexts
-    await restoreContexts(chat)
-
     try {
       const [msgs, arts] = await Promise.all([
         listBrainMessages(chatId),
@@ -144,37 +131,6 @@
       scrollToBottom()
     } catch (e: any) {
       toastError(e.message)
-    }
-  }
-
-  async function restoreContexts(chat: BrainChat | undefined) {
-    if (!chat) {
-      contexts = []
-      return
-    }
-
-    // Try new multi-context format first
-    if (chat.context_tables) {
-      try {
-        const parsed = JSON.parse(chat.context_tables) as { database: string; table: string }[]
-        const restored: SchemaContextEntry[] = []
-        for (const entry of parsed) {
-          const cols = await resolveColumns(entry.database, entry.table)
-          restored.push({ database: entry.database, table: entry.table, columns: cols })
-        }
-        contexts = restored
-        return
-      } catch {
-        // fall through to legacy
-      }
-    }
-
-    // Legacy single-context fallback
-    if (chat.context_database && chat.context_table) {
-      const cols = await resolveColumns(chat.context_database, chat.context_table)
-      contexts = [{ database: chat.context_database, table: chat.context_table, columns: cols }]
-    } else {
-      contexts = []
     }
   }
 
@@ -233,72 +189,16 @@
     }
   }
 
-  // ── Multi-context management ──────────────────────────────
-  async function addContext(dbName: string, tableName: string) {
-    // Dedupe check
-    if (contexts.some(c => c.database === dbName && c.table === tableName)) return
-
-    if (contexts.length >= MAX_CONTEXTS) {
-      toastError(`Maximum ${MAX_CONTEXTS} table contexts allowed`)
-      return
-    }
-
-    const cols = await resolveColumns(dbName, tableName)
-    contexts = [...contexts, { database: dbName, table: tableName, columns: cols }]
-    persistContexts()
-  }
-
-  function removeContext(dbName: string, tableName: string) {
-    contexts = contexts.filter(c => !(c.database === dbName && c.table === tableName))
-    persistContexts()
-  }
-
-  function clearAllContexts() {
-    contexts = []
-    persistContexts()
-  }
-
-  function persistContexts() {
-    if (!selectedChatId) return
-    const serialized = contexts.length > 0
-      ? JSON.stringify(contexts.map(c => ({ database: c.database, table: c.table })))
-      : ''
-    updateBrainChat(selectedChatId, { contextTables: serialized }).catch(() => {})
-    chats = chats.map(c => c.id === selectedChatId ? { ...c, context_tables: serialized || null } : c)
-  }
-
-  // Header combobox handlers — additive workflow
-  async function onHeaderDbChange(dbName: string) {
-    headerDb = dbName
-    headerTable = ''
-    if (dbName) {
-      const db = getDatabases().find(d => d.name === dbName)
-      if (!db?.tables) await loadTables(dbName)
-    }
-  }
-
-  async function onHeaderTableChange(tableName: string) {
-    if (headerDb && tableName) {
-      await addContext(headerDb, tableName)
-      // Reset comboboxes after adding
-      headerDb = ''
-      headerTable = ''
-    } else {
-      headerTable = tableName
-    }
-  }
-
   // ── Chat actions ───────────────────────────────────────────
-  async function sendMessage() {
-    if (!input.trim() || streaming) return
+  async function sendMessage(text: string, mentions: MentionRef[]) {
+    if (!text.trim() || streaming) return
 
     if (!selectedChatId) {
       await createChat('New Chat')
       if (!selectedChatId) return
     }
 
-    const userPrompt = input.trim()
-    input = ''
+    const userPrompt = text.trim()
 
     const tempUser: BrainMessageType = {
       id: `tmp-user-${Date.now()}`,
@@ -322,16 +222,23 @@
     messages = [...messages, tempUser, tempAssistant]
     const assistantIdx = messages.length - 1
 
-    // Build multi-schema contexts for the API
-    const schemaContexts = contexts.length > 0
-      ? contexts.map(c => ({
-          database: c.database,
-          table: c.table,
-          columns: c.columns,
+    // Build contexts from inline mentions
+    const tableMentions = mentions.filter((m): m is MentionRef & { type: 'table' } => m.type === 'table')
+    const entityMentions = mentions.filter((m): m is Exclude<MentionRef, { type: 'table' }> => m.type !== 'table')
+
+    const schemaContexts = tableMentions.length > 0
+      ? await Promise.all(tableMentions.map(async (m) => {
+          const cols = await resolveColumns(m.database, m.table)
+          return { database: m.database, table: m.table, columns: cols }
         }))
       : undefined
 
+    const entityContexts: EntityContext[] | undefined = entityMentions.length > 0
+      ? entityMentions.map(m => ({ type: m.type, id: m.id, name: m.name }))
+      : undefined
+
     streaming = true
+    streamController = new AbortController()
     await tick()
     scrollToBottom()
 
@@ -342,15 +249,55 @@
           content: userPrompt,
           modelId: selectedModelId || undefined,
           schemaContexts,
+          entityContexts,
         },
         (event) => {
           if (event.type === 'delta') {
             const delta = event.delta ?? ''
             messages = messages.map((m, i) => i === assistantIdx ? { ...m, content: m.content + delta } : m)
+          } else if (event.type === 'tool_call_start') {
+            const tc = { id: event.toolCallId ?? '', tool: event.tool ?? '', args: event.args, status: 'pending' as const }
+            messages = messages.map((m, i) => {
+              if (i !== assistantIdx) return m
+              const list = m.toolCalls ?? []
+              const idx = list.findIndex(x => x.id === tc.id)
+              if (idx >= 0) {
+                const copy = list.slice()
+                copy[idx] = { ...copy[idx], status: 'pending', args: tc.args ?? copy[idx].args }
+                return { ...m, toolCalls: copy }
+              }
+              return { ...m, toolCalls: [...list, tc] }
+            })
+          } else if (event.type === 'tool_call_pending_approval') {
+            const tc = {
+              id: event.toolCallId ?? '',
+              tool: event.tool ?? '',
+              args: event.args,
+              status: 'pending_approval' as const,
+              approvalId: event.approvalId,
+            }
+            messages = messages.map((m, i) => {
+              if (i !== assistantIdx) return m
+              const list = m.toolCalls ?? []
+              return { ...m, toolCalls: [...list, tc] }
+            })
+          } else if (event.type === 'tool_call_result') {
+            messages = messages.map((m, i) => {
+              if (i !== assistantIdx) return m
+              const list = (m.toolCalls ?? []).map(tc =>
+                tc.id === event.toolCallId
+                  ? { ...tc, status: (event.status ?? 'success') as 'success' | 'error' | 'declined', result: event.result }
+                  : tc
+              )
+              return { ...m, toolCalls: list }
+            })
           } else if (event.type === 'error') {
             messages = messages.map((m, i) => i === assistantIdx ? { ...m, content: m.content || `Error: ${event.error ?? 'Unknown error'}`, status: 'error' } : m)
+          } else if (event.type === 'done') {
+            messages = messages.map((m, i) => i === assistantIdx ? { ...m, status: 'complete' } : m)
           }
         },
+        streamController?.signal,
       )
 
       await Promise.all([
@@ -358,9 +305,22 @@
         loadChats(),
       ])
     } catch (e: any) {
-      messages = messages.map((m, i) => i === assistantIdx ? { ...m, content: m.content || `Error: ${e.message}`, status: 'error' } : m)
+      if (e?.name === 'AbortError') {
+        messages = messages.map((m, i) => i === assistantIdx ? { ...m, content: m.content || '_Stopped by user._', status: 'complete' } : m)
+      } else {
+        messages = messages.map((m, i) => {
+          if (i !== assistantIdx) return m
+          const list = (m.toolCalls ?? []).map(tc =>
+            tc.status === 'pending' || tc.status === 'pending_approval'
+              ? { ...tc, status: 'declined' as const, result: { error: 'Connection dropped before approval.' } }
+              : tc
+          )
+          return { ...m, content: m.content || `Error: ${e.message}`, status: 'error' as const, toolCalls: list }
+        })
+      }
     } finally {
       streaming = false
+      streamController = null
       await tick()
       scrollToBottom()
     }
@@ -404,18 +364,12 @@
     <BrainHeader
       {models}
       {selectedModelId}
-      selectedDb={headerDb}
-      selectedTable={headerTable}
-      {databaseOptions}
-      {tableOptions}
       onModelChange={(v) => selectedModelId = v}
-      onDbChange={(v) => { void onHeaderDbChange(v) }}
-      onTableChange={(v) => { void onHeaderTableChange(v) }}
     />
 
     <div class="flex-1 overflow-auto p-6 space-y-5" bind:this={messagesEl}>
       {#if messages.length === 0}
-        <BrainEmptyState />
+        <BrainEmptyState onPick={(p) => brainInput?.setText(p)} />
       {:else}
         {#each messages as msg, i (msg.id)}
           <BrainMessage
@@ -432,14 +386,10 @@
     </div>
 
     <BrainInput
-      value={input}
       {streaming}
-      {contexts}
       onSend={sendMessage}
-      onInput={(v) => input = v}
-      onAddContext={addContext}
-      onRemoveContext={removeContext}
-      onClearAllContexts={clearAllContexts}
+      onStop={stopStreaming}
+      bind:this={brainInput}
     />
   </main>
 </div>

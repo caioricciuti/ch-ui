@@ -2,6 +2,9 @@
   import { onMount } from 'svelte'
   import type { Model, ModelRun, ModelRunResult, ModelSchedule, DAGNode, DAGEdge, Pipeline } from '../lib/types/models'
   import * as api from '../lib/api/models'
+  import { triggerGitHubSync, getGitHubIntegration } from '../lib/api/github'
+  import { isProActive } from '../lib/stores/license.svelte'
+  import { getSession } from '../lib/stores/session.svelte'
   import { refreshModelCache } from '../lib/editor/completions'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import { openModelTab } from '../lib/stores/tabs.svelte'
@@ -40,12 +43,15 @@
     Timer,
     X,
     Info,
+    CloudDownload,
   } from 'lucide-svelte'
 
   // ── State ──────────────────────────────────────────────────────────
 
   let models = $state<Model[]>([])
   let loading = $state(true)
+  let syncing = $state(false)
+  let hasGitHubIntegration = $state(false)
 
   // DAG overlay
   let showDAG = $state(false)
@@ -133,11 +139,16 @@
   function getContextItems(): ContextMenuItem[] {
     const m = contextMenu?.model
     if (!m) return []
-    return [
+    const items: ContextMenuItem[] = [
       { id: 'open', label: 'Open', icon: Eye, onSelect: () => selectModel(m.id) },
-      { id: 'sep1', separator: true },
-      { id: 'delete', label: 'Delete', icon: Trash2, danger: true, onSelect: () => handleDelete(m.id) },
     ]
+    if (m.source !== 'github') {
+      items.push(
+        { id: 'sep1', separator: true },
+        { id: 'delete', label: 'Delete', icon: Trash2, danger: true, onSelect: () => handleDelete(m.id) },
+      )
+    }
+    return items
   }
 
   // Delete confirm
@@ -158,7 +169,40 @@
     await loadModels()
     loadDAG()
     loadPipelines()
+    checkGitHubIntegration()
   })
+
+  async function checkGitHubIntegration() {
+    if (!isProActive()) return
+    try {
+      const session = getSession()
+      if (!session) return
+      const integration = await getGitHubIntegration(session.connectionId)
+      hasGitHubIntegration = !!(integration?.enabled && integration?.has_pat)
+    } catch { /* ignore */ }
+  }
+
+  async function handleGitHubSync() {
+    const session = getSession()
+    if (!session || syncing) return
+    syncing = true
+    try {
+      const result = await triggerGitHubSync(session.connectionId)
+      const parts: string[] = []
+      if (result.created > 0) parts.push(`${result.created} created`)
+      if (result.updated > 0) parts.push(`${result.updated} updated`)
+      if (result.deleted > 0) parts.push(`${result.deleted} deleted`)
+      if (result.unchanged > 0) parts.push(`${result.unchanged} unchanged`)
+      toastSuccess(parts.length > 0 ? `Sync complete: ${parts.join(', ')}` : 'Already up to date')
+      await loadModels()
+      loadDAG()
+      loadPipelines()
+    } catch (e: unknown) {
+      toastError((e as Error).message || 'Sync failed')
+    } finally {
+      syncing = false
+    }
+  }
 
   // ── Data loading ───────────────────────────────────────────────────
 
@@ -438,6 +482,16 @@
     >
       <History size={13} /> History
     </button>
+    {#if hasGitHubIntegration}
+      <button
+        onclick={handleGitHubSync}
+        disabled={syncing}
+        class="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded text-gray-600 dark:text-gray-300 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-40 transition-colors"
+        title="Sync models from GitHub"
+      >
+        <CloudDownload size={13} class={syncing ? 'animate-pulse' : ''} /> {syncing ? 'Syncing...' : 'Sync GitHub'}
+      </button>
+    {/if}
     <button
       onclick={handleCreate}
       class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-orange-500 text-white hover:bg-orange-600 transition-colors font-medium"
@@ -529,6 +583,9 @@
                         <Eye size={14} class="text-blue-400 shrink-0" />
                       {/if}
                       <span class="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate flex-1">{model.name}</span>
+                      {#if model.source === 'github'}
+                        <span title="Managed by GitHub — edit in your repository"><GitBranch size={12} class="text-purple-400 shrink-0" /></span>
+                      {/if}
                       <span class="w-2 h-2 rounded-full {statusDot(model.status)} shrink-0" title={model.status}></span>
                       <button
                         onclick={(e) => openContextMenuFromButton(e, model)}

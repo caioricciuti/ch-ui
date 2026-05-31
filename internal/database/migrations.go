@@ -281,6 +281,23 @@ func (db *DB) runMigrations() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_brain_skill_active ON brain_skills(is_active)`,
 
+		// Brain approval queue (Pro feature — agentic tool approval)
+		`CREATE TABLE IF NOT EXISTS brain_approvals (
+			id TEXT PRIMARY KEY,
+			chat_id TEXT NOT NULL,
+			message_id TEXT NOT NULL,
+			tool_call_id TEXT NOT NULL,
+			tool_name TEXT NOT NULL,
+			args_json TEXT NOT NULL DEFAULT '{}',
+			status TEXT NOT NULL DEFAULT 'pending',
+			requested_by TEXT,
+			decided_by TEXT,
+			decided_at TEXT,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_brain_approvals_chat ON brain_approvals(chat_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_brain_approvals_status ON brain_approvals(status, created_at)`,
+
 		// ══════════════════════════════════════════════════════════════
 		// Governance tables (Pro feature)
 		// ══════════════════════════════════════════════════════════════
@@ -883,6 +900,22 @@ func (db *DB) runMigrations() error {
 			updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(connection_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS github_sync_logs (
+			id TEXT PRIMARY KEY,
+			connection_id TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'running',
+			models_created INTEGER DEFAULT 0,
+			models_updated INTEGER DEFAULT 0,
+			models_deleted INTEGER DEFAULT 0,
+			models_unchanged INTEGER DEFAULT 0,
+			error TEXT,
+			triggered_by TEXT,
+			started_at TEXT NOT NULL,
+			finished_at TEXT,
+			commit_sha TEXT,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_github_sync_conn ON github_sync_logs(connection_id, started_at)`,
 	}
 
 	for _, stmt := range stmts {
@@ -931,6 +964,9 @@ func (db *DB) runMigrations() error {
 		return err
 	}
 	if err := db.ensureColumn("panels", "description", "TEXT DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := db.ensureColumn("models", "source", "TEXT NOT NULL DEFAULT 'manual'"); err != nil {
 		return err
 	}
 

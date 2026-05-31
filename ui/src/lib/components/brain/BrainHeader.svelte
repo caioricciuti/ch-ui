@@ -7,26 +7,10 @@
   interface Props {
     models: BrainModelOption[]
     selectedModelId: string
-    selectedDb: string
-    selectedTable: string
-    databaseOptions: ComboboxOption[]
-    tableOptions: ComboboxOption[]
     onModelChange: (modelId: string) => void
-    onDbChange: (db: string) => void
-    onTableChange: (table: string) => void
   }
 
-  let {
-    models,
-    selectedModelId,
-    selectedDb,
-    selectedTable,
-    databaseOptions,
-    tableOptions,
-    onModelChange,
-    onDbChange,
-    onTableChange,
-  }: Props = $props()
+  let { models, selectedModelId, onModelChange }: Props = $props()
 
   const modelOptions = $derived.by<ComboboxOption[]>(() =>
     models.map(m => ({
@@ -42,28 +26,7 @@
   <Brain size={18} class="text-ch-blue shrink-0" />
   <h1 class="text-lg font-semibold text-gray-900 dark:text-gray-100 shrink-0">Brain</h1>
 
-  <!-- Context controls -->
-  <div class="flex items-center gap-2 ml-2">
-    <div class="w-40">
-      <Combobox
-        options={databaseOptions}
-        value={selectedDb}
-        placeholder="+ Database..."
-        onChange={(v) => onDbChange(v)}
-      />
-    </div>
-
-    {#if selectedDb}
-      <div class="w-40">
-        <Combobox
-          options={tableOptions}
-          value={selectedTable}
-          placeholder="+ Table..."
-          onChange={(v) => onTableChange(v)}
-        />
-      </div>
-    {/if}
-  </div>
+  <p class="text-xs text-muted-foreground ml-1 hidden sm:block">Type <kbd class="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-[10px] font-mono">@</kbd> in the input to add context</p>
 
   <div class="ml-auto w-72 max-w-[35%] shrink-0">
     <Combobox

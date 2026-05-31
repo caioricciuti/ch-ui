@@ -23,6 +23,7 @@ type Model struct {
 	LastError       *string `json:"last_error"`
 	LastRunAt       *string `json:"last_run_at"`
 	CreatedBy       *string `json:"created_by"`
+	Source          string  `json:"source"`
 	CreatedAt       string  `json:"created_at"`
 	UpdatedAt       string  `json:"updated_at"`
 }
@@ -64,7 +65,7 @@ func (db *DB) GetModelsByConnection(connectionID string) ([]Model, error) {
 	rows, err := db.conn.Query(
 		`SELECT id, name, description, connection_id, target_database, materialization,
 		        sql_body, table_engine, order_by, status, last_error, last_run_at,
-		        created_by, created_at, updated_at
+		        created_by, source, created_at, updated_at
 		 FROM models WHERE connection_id = ? ORDER BY name ASC`, connectionID,
 	)
 	if err != nil {
@@ -91,7 +92,7 @@ func (db *DB) GetModelByID(id string) (*Model, error) {
 	row := db.conn.QueryRow(
 		`SELECT id, name, description, connection_id, target_database, materialization,
 		        sql_body, table_engine, order_by, status, last_error, last_run_at,
-		        created_by, created_at, updated_at
+		        created_by, source, created_at, updated_at
 		 FROM models WHERE id = ?`, id,
 	)
 	m, err := scanModelRow(row)
@@ -109,7 +110,7 @@ func (db *DB) GetModelByName(connectionID, name string) (*Model, error) {
 	row := db.conn.QueryRow(
 		`SELECT id, name, description, connection_id, target_database, materialization,
 		        sql_body, table_engine, order_by, status, last_error, last_run_at,
-		        created_by, created_at, updated_at
+		        created_by, source, created_at, updated_at
 		 FROM models WHERE connection_id = ? AND name = ?`, connectionID, name,
 	)
 	m, err := scanModelRow(row)
@@ -369,7 +370,7 @@ func scanModel(rows *sql.Rows) (Model, error) {
 	if err := rows.Scan(&m.ID, &m.Name, &m.Description, &m.ConnectionID,
 		&m.TargetDatabase, &m.Materialization, &m.SQLBody, &m.TableEngine,
 		&m.OrderBy, &m.Status, &lastErr, &lastRun, &createdBy,
-		&m.CreatedAt, &m.UpdatedAt); err != nil {
+		&m.Source, &m.CreatedAt, &m.UpdatedAt); err != nil {
 		return m, fmt.Errorf("scan model: %w", err)
 	}
 	m.LastError = nullStringToPtr(lastErr)
@@ -384,7 +385,7 @@ func scanModelRow(row *sql.Row) (*Model, error) {
 	err := row.Scan(&m.ID, &m.Name, &m.Description, &m.ConnectionID,
 		&m.TargetDatabase, &m.Materialization, &m.SQLBody, &m.TableEngine,
 		&m.OrderBy, &m.Status, &lastErr, &lastRun, &createdBy,
-		&m.CreatedAt, &m.UpdatedAt)
+		&m.Source, &m.CreatedAt, &m.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -392,6 +393,40 @@ func scanModelRow(row *sql.Row) (*Model, error) {
 	m.LastRunAt = nullStringToPtr(lastRun)
 	m.CreatedBy = nullStringToPtr(createdBy)
 	return &m, nil
+}
+
+// SetModelSource updates the source field of a model.
+func (db *DB) SetModelSource(id, source string) error {
+	_, err := db.conn.Exec(`UPDATE models SET source = ?, updated_at = ? WHERE id = ?`,
+		source, time.Now().UTC().Format(time.RFC3339), id)
+	if err != nil {
+		return fmt.Errorf("set model source: %w", err)
+	}
+	return nil
+}
+
+// GetModelsByConnectionAndSource returns models filtered by source.
+func (db *DB) GetModelsByConnectionAndSource(connectionID, source string) ([]Model, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, name, description, connection_id, target_database, materialization,
+		        sql_body, table_engine, order_by, status, last_error, last_run_at,
+		        created_by, source, created_at, updated_at
+		 FROM models WHERE connection_id = ? AND source = ? ORDER BY name ASC`, connectionID, source,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get models by source: %w", err)
+	}
+	defer rows.Close()
+
+	var models []Model
+	for rows.Next() {
+		m, err := scanModel(rows)
+		if err != nil {
+			return nil, err
+		}
+		models = append(models, m)
+	}
+	return models, rows.Err()
 }
 
 // ── Model Schedules ─────────────────────────────────────────────────
