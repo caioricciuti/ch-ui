@@ -1700,12 +1700,12 @@
     </div>
 
     {#if createTableErrorMessage}
-      <div class="rounded-lg border border-red-500/40 bg-red-500/10 p-3">
-        <div class="text-xs font-semibold text-red-200 mb-1">
+      <div class="rounded-lg border border-red-200 dark:border-red-500/40 bg-red-50 dark:bg-red-500/10 p-3">
+        <div class="text-xs font-semibold text-red-700 dark:text-red-200 mb-1">
           Create Table Error
         </div>
         <pre
-          class="text-[11px] whitespace-pre-wrap break-words max-h-36 overflow-auto text-red-100">{createTableErrorMessage}</pre>
+          class="text-[11px] whitespace-pre-wrap break-words max-h-36 overflow-auto text-red-800 dark:text-red-100">{createTableErrorMessage}</pre>
       </div>
     {/if}
 
@@ -1741,9 +1741,9 @@
     }}
   >
     <div
-      class="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200 flex items-start gap-2"
+      class="rounded-lg border border-red-200 dark:border-red-500/40 bg-red-50 dark:bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-200 flex items-start gap-2"
     >
-      <AlertTriangle size={16} class="mt-0.5 text-red-400" />
+      <AlertTriangle size={16} class="mt-0.5 text-red-500 dark:text-red-400" />
       <div>
         This will permanently delete <strong>{deleteDatabaseForm.name}</strong> and
         all tables inside it.
@@ -2096,10 +2096,10 @@
     </div>
 
     {#if uploadErrorMessage}
-      <div class="rounded-lg border border-red-500/40 bg-red-500/10 p-3">
-        <div class="text-xs font-semibold text-red-200 mb-1">Upload Error</div>
+      <div class="rounded-lg border border-red-200 dark:border-red-500/40 bg-red-50 dark:bg-red-500/10 p-3">
+        <div class="text-xs font-semibold text-red-700 dark:text-red-200 mb-1">Upload Error</div>
         <pre
-          class="text-[11px] whitespace-pre-wrap break-words max-h-36 overflow-auto text-red-100">{uploadErrorMessage}</pre>
+          class="text-[11px] whitespace-pre-wrap break-words max-h-36 overflow-auto text-red-800 dark:text-red-100">{uploadErrorMessage}</pre>
       </div>
     {/if}
 
@@ -2159,9 +2159,9 @@
     }}
   >
     <div
-      class="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200 flex items-start gap-2"
+      class="rounded-lg border border-red-200 dark:border-red-500/40 bg-red-50 dark:bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-200 flex items-start gap-2"
     >
-      <AlertTriangle size={16} class="mt-0.5 text-red-400" />
+      <AlertTriangle size={16} class="mt-0.5 text-red-500 dark:text-red-400" />
       <div>
         This will permanently delete <strong
           >{deleteTableForm.database}.{deleteTableForm.name}</strong
