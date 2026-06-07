@@ -368,6 +368,30 @@
     }
   }
 
+  // ClickHouse >= 24.9 returns auth_type as Array(Enum8) (multiple auth methods),
+  // older versions return a scalar Enum8 string. Normalize both shapes.
+  const CH_PASSWORD_AUTH_TYPES = [
+    'no_password',
+    'plaintext_password',
+    'sha256_password',
+    'double_sha1_password',
+  ]
+
+  function formatCHAuthType(value: unknown): string {
+    if (Array.isArray(value)) {
+      const parts = value.filter(v => typeof v === 'string' && v.trim())
+      return parts.length > 0 ? parts.join(', ') : '—'
+    }
+    if (typeof value === 'string' && value.trim()) return value
+    return '—'
+  }
+
+  function normalizeCHAuthTypeForForm(value: unknown): string {
+    const raw = Array.isArray(value) ? value[0] : value
+    const lowered = typeof raw === 'string' ? raw.toLowerCase() : ''
+    return CH_PASSWORD_AUTH_TYPES.includes(lowered) ? lowered : 'sha256_password'
+  }
+
   function formatCHDefaultRoles(row: any): string {
     if (row?.default_roles_all === 1 || row?.default_roles_all === true) return 'ALL'
     const list = row?.default_roles_list
@@ -404,10 +428,10 @@
     createCHUserSheetOpen = true
   }
 
-  function openUpdateCHUserPasswordSheet(username: string, authType: string | null | undefined) {
+  function openUpdateCHUserPasswordSheet(username: string, authType: unknown) {
     selectedCHUserName = username
     updateCHUserPasswordForm = {
-      authType: (authType || 'sha256_password').toLowerCase(),
+      authType: normalizeCHAuthTypeForForm(authType),
       password: '',
       ifExists: true,
     }
@@ -1563,7 +1587,7 @@
                 {#each chUsers as row}
                   <tr class="ds-table-row">
                     <td class="ds-td-mono">{row.name}</td>
-                    <td class="ds-td-mono">{row.auth_type ?? '—'}</td>
+                    <td class="ds-td-mono">{formatCHAuthType(row.auth_type)}</td>
                     <td class="ds-td-mono">{row.storage ?? '—'}</td>
                     <td class="ds-td-mono truncate max-w-xs">{formatCHDefaultRoles(row)}</td>
                     <td class="ds-td-right">

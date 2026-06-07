@@ -5,7 +5,7 @@ import { pushTabRouteForTab } from './router.svelte'
 
 // ── Tab types ────────────────────────────────────────────────────
 
-export type TabType = 'home' | 'query' | 'table' | 'database' | 'dashboard' | 'model' | 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines' | 'models' | 'telemetry'
+export type TabType = 'home' | 'query' | 'table' | 'database' | 'dashboard' | 'model' | 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines' | 'models' | 'telemetry' | 'cluster-health'
 
 interface TabBase {
   id: string
@@ -52,7 +52,7 @@ export interface HomeTab extends TabBase {
 }
 
 export interface SingletonTab extends TabBase {
-  type: 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines' | 'models' | 'telemetry'
+  type: 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines' | 'models' | 'telemetry' | 'cluster-health'
 }
 
 export type Tab = HomeTab | QueryTab | TableTab | DatabaseTab | DashboardTab | ModelTab | SingletonTab
@@ -627,6 +627,22 @@ export function renameTab(id: string, name: string): void {
   if (isHomeTabId(id)) return
   tabs = tabs.map(t => (t.id === id ? { ...t, name } : t))
   queueSave()
+}
+
+// Rename any open query tabs linked to a saved query (e.g. after renaming it in
+// the Saved Queries list) so the tab title stays in sync.
+export function renameSavedQueryTabs(savedQueryId: string, name: string): void {
+  const trimmed = name.trim()
+  if (!savedQueryId || !trimmed) return
+  let changed = false
+  tabs = tabs.map((tab) => {
+    if (tab.type === 'query' && (tab as QueryTab).savedQueryId === savedQueryId && tab.name !== trimmed) {
+      changed = true
+      return { ...tab, name: trimmed }
+    }
+    return tab
+  })
+  if (changed) queueSave()
 }
 
 export function markQueryTabSaved(id: string, options: { savedQueryId?: string; name?: string; baseSql?: string } = {}): void {

@@ -8,6 +8,11 @@
   import { apiPost, apiPut } from '../../../api/client'
   import { getMaxResultRows } from '../../../stores/query-limit.svelte'
   import { error as toastError, success as toastSuccess } from '../../../stores/toast.svelte'
+  import { detectQueryParams } from '../../../utils/query-params'
+  import { isProActive, loadLicense } from '../../../stores/license.svelte'
+  import { openSingletonTab } from '../../../stores/tabs.svelte'
+  import { onMount } from 'svelte'
+  import { Lock, Braces, X } from 'lucide-svelte'
   import SqlEditor from '../../editor/SqlEditor.svelte'
   import Toolbar from '../../editor/Toolbar.svelte'
   import ResultPanel from '../../editor/ResultPanel.svelte'
@@ -62,7 +67,33 @@
 
   const result = $derived(getTabResult(tab.id))
 
+  // ── Query parameters ({name:Type}) — Pro feature ──
+  // The component is keyed per tab id, so seeding currentSql once in onMount is
+  // safe; it's kept in sync afterwards by the editor's onchange handler.
+  let currentSql = $state('')
+  const detectedParams = $derived(detectQueryParams(currentSql))
+  const proActive = $derived(isProActive())
+  let paramValues = $state<Record<string, string>>({})
+  let showParamsPanel = $state(false)
+  let autoOpenedFor = ''
+
+  // Auto-open the parameters panel the first time a new set of params appears,
+  // so users discover it — but respect a manual close for that same set.
+  $effect(() => {
+    const sig = detectedParams.map((p) => p.name).join(',')
+    if (sig && sig !== autoOpenedFor) {
+      showParamsPanel = true
+      autoOpenedFor = sig
+    }
+  })
+
+  onMount(() => {
+    currentSql = tab.sql ?? ''
+    void loadLicense()
+  })
+
   function handleSQLChange(sql: string) {
+    currentSql = sql
     updateTabSQL(tab.id, sql)
     debouncedEstimate(sql)
   }
@@ -103,6 +134,17 @@
   async function handleRun(sql?: string) {
     const query = sql ?? editorComponent?.getSelectedOrAll() ?? ''
     if (!query.trim()) return
+
+    // Query parameters ({name:Type}) are a Pro feature. Block non-Pro users with
+    // an upsell rather than letting ClickHouse fail with an unbound-parameter error.
+    const runParams = detectQueryParams(query)
+    if (runParams.length > 0 && !proActive) {
+      toastError('Query parameters are a Pro feature — upgrade to run parameterized queries.')
+      return
+    }
+    const params = runParams.length > 0
+      ? Object.fromEntries(runParams.map(p => [p.name, paramValues[p.name] ?? '']))
+      : undefined
 
     // Cancel any in-flight query
     if (abortController) abortController.abort()
@@ -167,6 +209,7 @@
           setTabResult(tab.id, { error, running: false, elapsedMs: Math.round(performance.now() - startTime) })
         },
         abortController.signal,
+        params,
       )
     } catch (e: any) {
       // AbortError is expected on cancel
@@ -293,6 +336,13 @@
     }
   }
 
+  // Default param values to persist with a saved query, or undefined when none.
+  function paramDefaultsFor(sql: string): Record<string, string> | undefined {
+    const list = detectQueryParams(sql)
+    if (list.length === 0) return undefined
+    return Object.fromEntries(list.map(p => [p.name, paramValues[p.name] ?? '']))
+  }
+
   function handleSaveClick() {
     if (tab.savedQueryId) {
       void saveLinkedSavedQuery()
@@ -311,6 +361,7 @@
     try {
       await apiPut(`/api/saved-queries/${tab.savedQueryId}`, {
         query: sql,
+        parameters: paramDefaultsFor(sql) ?? {},
       })
       markQueryTabSaved(tab.id, { baseSql: sql })
       toastSuccess('Saved query updated')
@@ -331,6 +382,7 @@
         name: saveName.trim(),
         description: saveDescription.trim(),
         query: sql,
+        parameters: paramDefaultsFor(sql) ?? {},
       })
       if (created?.id) {
         markQueryTabSaved(tab.id, {
@@ -384,6 +436,9 @@
       onformat={handleFormat}
       onexplain={handleExplain}
       onsave={handleSaveClick}
+      onparams={() => (showParamsPanel = !showParamsPanel)}
+      paramCount={detectedParams.length}
+      paramsActive={showParamsPanel}
       {estimate}
       {estimateLoading}
     />
@@ -396,6 +451,79 @@
       />
     </div>
   </div>
+
+  <!-- Query parameters panel (Pro) -->
+  {#if showParamsPanel}
+    <div class="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-900/40">
+      <div class="flex items-center justify-between px-3 py-1.5 border-b border-gray-200/70 dark:border-gray-800/70">
+        <div class="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200">
+          <Braces size={13} class="text-ch-orange" />
+          Query Parameters
+          {#if detectedParams.length > 0}
+            <span class="text-gray-400 font-normal">· {detectedParams.length} detected</span>
+          {/if}
+        </div>
+        <button class="ds-icon-btn" onclick={() => (showParamsPanel = false)} title="Close" aria-label="Close parameters">
+          <X size={14} />
+        </button>
+      </div>
+
+      <div class="px-3 py-2.5">
+        {#if detectedParams.length === 0}
+          <!-- Educational empty state -->
+          <p class="text-xs text-gray-500 dark:text-gray-400">
+            Add bind parameters to your SQL with
+            <code class="px-1 py-0.5 rounded bg-gray-200/70 dark:bg-gray-800 font-mono text-[11px]">{'{name:Type}'}</code>
+            syntax — they'll appear here with an input for each. For example:
+          </p>
+          <pre class="mt-2 text-[11px] font-mono text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-950/40 border border-gray-200 dark:border-gray-800 rounded-md px-2.5 py-2 overflow-x-auto">SELECT * FROM events
+WHERE user_id = {'{user_id:UInt64}'}
+  AND created_at >= {'{since:DateTime}'}</pre>
+          {#if !proActive}
+            <p class="mt-2 text-[11px] text-gray-400 flex items-center gap-1">
+              <Lock size={11} class="text-ch-orange" /> Running parameterized queries is a Pro feature.
+            </p>
+          {/if}
+        {:else if proActive}
+          <div class="flex flex-wrap gap-3">
+            {#each detectedParams as p (p.name)}
+              <label class="flex flex-col gap-1">
+                <span class="text-[11px] font-mono text-gray-500">
+                  {p.name}<span class="text-gray-400">:{p.type}</span>
+                </span>
+                <input
+                  class="ds-input-sm w-44"
+                  bind:value={paramValues[p.name]}
+                  placeholder={`value (${p.type})`}
+                  spellcheck="false"
+                  onkeydown={(e) => { if (e.key === 'Enter') handleRun() }}
+                />
+              </label>
+            {/each}
+          </div>
+          <p class="mt-2 text-[11px] text-gray-400">
+            Values are bound safely by ClickHouse and saved as defaults with the query.
+          </p>
+        {:else}
+          <!-- Pro upsell -->
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+              <Lock size={14} class="text-ch-orange shrink-0" />
+              <span>
+                This query uses <strong>{detectedParams.length}</strong>
+                parameter{detectedParams.length === 1 ? '' : 's'}
+                (<span class="font-mono">{detectedParams.map((p) => p.name).join(', ')}</span>).
+                Query parameters are a <strong>Pro</strong> feature.
+              </span>
+            </div>
+            <button class="ds-btn-primary px-2.5 py-1 shrink-0" onclick={() => openSingletonTab('settings', 'License')}>
+              Upgrade
+            </button>
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
 
   <!-- Drag handle -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->

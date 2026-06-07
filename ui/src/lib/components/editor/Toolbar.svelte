@@ -1,6 +1,6 @@
 <script lang="ts">
   import Button from '../common/Button.svelte'
-  import { Play, Square, AlignLeft, BookOpen, Save, Zap } from 'lucide-svelte'
+  import { Play, Square, AlignLeft, BookOpen, Save, Zap, Braces } from 'lucide-svelte'
   import type { QueryEstimateResult } from '../../types/query'
   import { formatNumber } from '../../utils/format'
 
@@ -11,11 +11,14 @@
     onformat?: () => void
     onexplain?: () => void
     onsave?: () => void
+    onparams?: () => void
+    paramCount?: number
+    paramsActive?: boolean
     estimate?: QueryEstimateResult | null
     estimateLoading?: boolean
   }
 
-  let { running = false, onrun, oncancel, onformat, onexplain, onsave, estimate = null, estimateLoading = false }: Props = $props()
+  let { running = false, onrun, oncancel, onformat, onexplain, onsave, onparams, paramCount = 0, paramsActive = false, estimate = null, estimateLoading = false }: Props = $props()
 
   const estimateLabel = $derived.by(() => {
     if (estimateLoading) return 'Estimating...'
@@ -51,6 +54,16 @@
     <Button size="sm" variant="ghost" onclick={onexplain}>
       <BookOpen size={14} />
       Explain
+    </Button>
+  {/if}
+
+  {#if onparams}
+    <Button size="sm" variant={paramsActive ? 'secondary' : 'ghost'} onclick={onparams}>
+      <Braces size={14} />
+      Parameters
+      {#if paramCount > 0}
+        <span class="ml-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-ch-orange/20 text-ch-orange text-[10px] font-semibold">{paramCount}</span>
+      {/if}
     </Button>
   {/if}
 

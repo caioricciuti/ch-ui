@@ -11,11 +11,12 @@ export async function executeStreamQuery(
   onDone: (stats: QueryStats | undefined, totalRows: number) => void,
   onError: (error: string) => void,
   signal?: AbortSignal,
+  params?: Record<string, string>,
 ): Promise<void> {
   const res = await fetch(withBase('/api/query/stream'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: sql, maxResultRows }),
+    body: JSON.stringify({ query: sql, maxResultRows, params }),
     credentials: 'include',
     signal,
   })

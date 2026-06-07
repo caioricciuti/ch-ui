@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/alerts"
+	"github.com/caioricciuti/ch-ui/internal/clusterhealth"
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	ghclient "github.com/caioricciuti/ch-ui/internal/github"
@@ -33,6 +34,7 @@ type Server struct {
 	modelRunner    *models.Runner
 	modelScheduler *models.Scheduler
 	govSyncer      *governance.Syncer
+	chHarvester    *clusterhealth.Harvester
 	githubSyncer   *ghclient.Syncer
 	guardrails     *governance.GuardrailService
 	alerts         *alerts.Dispatcher
@@ -53,6 +55,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS) *Server {
 
 	govStore := governance.NewStore(db)
 	govSyncer := governance.NewSyncer(govStore, db, gw, cfg.AppSecretKey)
+	chHarvester := clusterhealth.NewHarvester(clusterhealth.NewStore(db), db, gw, cfg.AppSecretKey)
 	githubSyncer := ghclient.NewSyncer(db, cfg.AppSecretKey)
 	alertDispatcher := alerts.NewDispatcher(db, cfg)
 
@@ -65,6 +68,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS) *Server {
 		modelRunner:    modelRunner,
 		modelScheduler: modelScheduler,
 		govSyncer:      govSyncer,
+		chHarvester:    chHarvester,
 		githubSyncer:   githubSyncer,
 		guardrails:     governance.NewGuardrailService(govStore, db),
 		alerts:         alertDispatcher,
@@ -157,8 +161,8 @@ func (s *Server) setupRoutes() {
 				cr.Post("/{id}/regenerate-token", connectionsHandler.RegenerateToken)
 			})
 
-			// Saved queries (community)
-			savedQueriesHandler := &handlers.SavedQueriesHandler{DB: db}
+			// Saved queries (community; parameterized run is Pro-gated inside Routes)
+			savedQueriesHandler := &handlers.SavedQueriesHandler{DB: db, Gateway: gw, Config: cfg}
 			protected.Route("/saved-queries", savedQueriesHandler.Routes)
 
 			// ── Community features ─────────────────────────────────────
@@ -209,6 +213,13 @@ func (s *Server) setupRoutes() {
 					Syncer: s.govSyncer,
 				}
 				pro.Mount("/governance", govHandler.Routes())
+
+				// Cluster Health (Operations & Database monitoring)
+				clusterHealthHandler := &handlers.ClusterHealthHandler{
+					DB: db, Gateway: gw, Config: cfg,
+					Store: s.chHarvester.GetStore(),
+				}
+				pro.Mount("/cluster-health", clusterHealthHandler.Routes())
 			})
 		})
 	})
@@ -262,6 +273,11 @@ func (s *Server) Start() error {
 	default:
 		s.govSyncer.StartBackground()
 	}
+	if s.cfg.IsPro() {
+		s.chHarvester.StartBackground()
+	} else {
+		slog.Info("Cluster health harvester disabled (requires Pro license)")
+	}
 	s.alerts.Start()
 
 	if s.cfg.IsPro() {
@@ -281,8 +297,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.pipelineRunner.Stop()
 	s.modelScheduler.Stop()
 	s.govSyncer.Stop()
+	s.chHarvester.Stop()
 	s.alerts.Stop()
 	s.gateway.Stop()
 	return s.http.Shutdown(ctx)
 }
-

@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import type { SavedQuery } from '../lib/types/api'
-  import { apiGet, apiDel, apiPost } from '../lib/api/client'
-  import { openQueryTab, openSavedQueryTab } from '../lib/stores/tabs.svelte'
+  import { apiGet, apiDel, apiPost, apiPut } from '../lib/api/client'
+  import { openQueryTab, openSavedQueryTab, renameSavedQueryTabs } from '../lib/stores/tabs.svelte'
+  import { detectQueryParams } from '../lib/utils/query-params'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import Button from '../lib/components/common/Button.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
@@ -11,6 +12,7 @@
   import Sheet from '../lib/components/common/Sheet.svelte'
   import ContextMenu, { type ContextMenuItem } from '../lib/components/common/ContextMenu.svelte'
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
+  import InputDialog from '../lib/components/common/InputDialog.svelte'
   import {
     Play,
     Trash2,
@@ -24,6 +26,7 @@
     Hash,
     AlignLeft,
     Eye,
+    Pencil,
   } from 'lucide-svelte'
 
   let queries = $state<SavedQuery[]>([])
@@ -46,6 +49,11 @@
   let confirmLoading = $state(false)
   let pendingDeleteId = $state<string | null>(null)
   let pendingDeleteName = $state('')
+
+  let renameOpen = $state(false)
+  let renameLoading = $state(false)
+  let renameId = $state<string | null>(null)
+  let renameValue = $state('')
 
   onMount(loadQueries)
 
@@ -173,6 +181,39 @@
     }
   }
 
+  function requestRename(query: SavedQuery) {
+    renameId = query.id
+    renameValue = query.name
+    renameOpen = true
+    closeContextMenu()
+  }
+
+  function cancelRename() {
+    renameOpen = false
+    renameId = null
+    renameValue = ''
+  }
+
+  async function confirmRename(newName: string) {
+    const name = newName.trim()
+    if (!renameId || !name) return
+    renameLoading = true
+    try {
+      const updated = await apiPut<SavedQuery>(`/api/saved-queries/${renameId}`, { name })
+      const finalName = updated?.name ?? name
+      queries = queries.map((q) => (q.id === renameId ? { ...q, name: finalName } : q))
+      if (selectedQuery?.id === renameId) selectedQuery = { ...selectedQuery, name: finalName }
+      // Keep any open tab linked to this saved query in sync.
+      renameSavedQueryTabs(renameId, finalName)
+      toastSuccess('Query renamed')
+      cancelRename()
+    } catch (e: any) {
+      toastError(e.message)
+    } finally {
+      renameLoading = false
+    }
+  }
+
   function requestDelete(query: SavedQuery) {
     pendingDeleteName = query.name
     pendingDeleteId = query.id
@@ -239,6 +280,17 @@
     searchTerm = ''
   }
 
+  // Stored default values for a saved query's parameters ({name: value}).
+  function storedParamDefaults(q: SavedQuery): Record<string, string> {
+    if (!q.parameters) return {}
+    try {
+      const parsed = JSON.parse(q.parameters)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
   function closeContextMenu() {
     contextMenu = null
   }
@@ -283,6 +335,13 @@
         onSelect: () => openDetails(row),
       },
       { id: 'sep-main', separator: true },
+      {
+        id: 'rename',
+        label: 'Rename',
+        icon: Pencil,
+        shortcut: 'F2',
+        onSelect: () => requestRename(row),
+      },
       {
         id: 'copy',
         label: 'Copy SQL',
@@ -501,6 +560,17 @@
   oncancel={cancelDelete}
 />
 
+<InputDialog
+  open={renameOpen}
+  title="Rename saved query"
+  placeholder="Query name"
+  bind:value={renameValue}
+  confirmLabel="Rename"
+  loading={renameLoading}
+  onconfirm={confirmRename}
+  oncancel={cancelRename}
+/>
+
 <ContextMenu
   open={!!contextMenu}
   x={contextMenu?.x ?? 0}
@@ -543,6 +613,27 @@
         </div>
       {/if}
 
+      {#if detectQueryParams(selectedQuery.query).length > 0}
+        {@const defaults = storedParamDefaults(selectedQuery)}
+        <div class="ds-panel-muted p-3">
+          <div class="text-[11px] uppercase tracking-wider text-gray-500 mb-2 flex items-center gap-1.5">
+            Parameters <span class="ds-badge ds-badge-brand">Pro</span>
+          </div>
+          <div class="space-y-1.5">
+            {#each detectQueryParams(selectedQuery.query) as p (p.name)}
+              <div class="flex items-center gap-2 text-xs">
+                <span class="font-mono text-gray-700 dark:text-gray-300">{p.name}<span class="text-gray-400">:{p.type}</span></span>
+                {#if defaults[p.name]}
+                  <span class="text-gray-400">default</span>
+                  <span class="font-mono text-gray-600 dark:text-gray-300">{defaults[p.name]}</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
+          <p class="mt-2 text-[11px] text-gray-400">Open in the editor to set values and run, or call <span class="font-mono">POST /api/saved-queries/{selectedQuery.id}/run</span>.</p>
+        </div>
+      {/if}
+
       <div class="ds-panel-muted p-3">
         <div class="text-[11px] uppercase tracking-wider text-gray-500 mb-2">SQL</div>
         <pre class="text-[12px] leading-relaxed text-gray-800 dark:text-gray-200 font-mono overflow-x-auto whitespace-pre p-2 rounded-md bg-gray-100 dark:bg-gray-950 border border-gray-200 dark:border-gray-800">{selectedQuery.query}</pre>
@@ -551,6 +642,9 @@
       <div class="flex items-center gap-2 flex-wrap">
         <Button size="sm" onclick={() => selectedQuery && openInEditor(selectedQuery)}>
           <Play size={13} /> Open in Editor
+        </Button>
+        <Button size="sm" variant="secondary" onclick={() => selectedQuery && requestRename(selectedQuery)}>
+          <Pencil size={13} /> Rename
         </Button>
         <Button size="sm" variant="secondary" onclick={() => selectedQuery && copySQL(selectedQuery)}>
           <Copy size={13} /> Copy SQL

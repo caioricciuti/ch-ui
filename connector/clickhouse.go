@@ -127,7 +127,7 @@ func (c *CHClient) doWithRetry(req *http.Request, client *http.Client) (*http.Re
 }
 
 // Execute runs a query against ClickHouse
-func (c *CHClient) Execute(ctx context.Context, query, user, password string) (*QueryResult, error) {
+func (c *CHClient) Execute(ctx context.Context, query, user, password string, settings map[string]string) (*QueryResult, error) {
 	// Determine if this is a read or write query
 	isWrite := isWriteQuery(query)
 	hasFormat := hasFormatClause(query)
@@ -135,6 +135,10 @@ func (c *CHClient) Execute(ctx context.Context, query, user, password string) (*
 	// Build URL with parameters
 	params := url.Values{}
 	params.Set("default_format", "JSON")
+	// Forward query settings and bind parameters (e.g. param_<name>) as URL params.
+	for k, v := range settings {
+		params.Set(k, v)
+	}
 
 	// For read queries without explicit FORMAT, add FORMAT JSON
 	finalQuery := query
@@ -209,7 +213,7 @@ func (c *CHClient) Execute(ctx context.Context, query, user, password string) (*
 
 // ExecuteRaw runs a query and returns the raw ClickHouse response bytes without intermediate parsing.
 // The format parameter controls the FORMAT clause appended to read queries (e.g. "JSONCompact").
-func (c *CHClient) ExecuteRaw(ctx context.Context, query, user, password, format string) (json.RawMessage, error) {
+func (c *CHClient) ExecuteRaw(ctx context.Context, query, user, password, format string, settings map[string]string) (json.RawMessage, error) {
 	isWrite := isWriteQuery(query)
 	hasFormat := hasFormatClause(query)
 
@@ -223,6 +227,10 @@ func (c *CHClient) ExecuteRaw(ctx context.Context, query, user, password, format
 
 	params := url.Values{}
 	params.Set("default_format", "JSON")
+	// Forward query settings and bind parameters (e.g. param_<name>) as URL params.
+	for k, v := range settings {
+		params.Set(k, v)
+	}
 	fullURL := c.baseURL + "/?" + params.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, strings.NewReader(finalQuery))
@@ -297,7 +305,7 @@ func (c *CHClient) ExecuteStreaming(
 			// Use a newline so that trailing -- line comments don't swallow the injected clause
 			metaQuery = trimmed + "\nLIMIT 0"
 		}
-		metaResult, err := c.ExecuteRaw(ctx, metaQuery, user, password, "JSONCompact")
+		metaResult, err := c.ExecuteRaw(ctx, metaQuery, user, password, "JSONCompact", settings)
 		if err != nil {
 			return nil, 0, fmt.Errorf("metadata query failed: %w", err)
 		}
@@ -429,7 +437,7 @@ func (c *CHClient) ExecuteStreaming(
 func (c *CHClient) TestConnection(ctx context.Context, user, password string) (string, error) {
 	query := "SELECT version() as version FORMAT JSON"
 
-	result, err := c.Execute(ctx, query, user, password)
+	result, err := c.Execute(ctx, query, user, password, nil)
 	if err != nil {
 		return "", err
 	}

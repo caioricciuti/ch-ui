@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/caioricciuti/ch-ui/internal/database"
 )
 
 func RegisterUpdates(r *Registry) {
@@ -63,7 +65,16 @@ var updateSavedQuery = Tool{
 		if current.ConnectionID != nil {
 			connID = *current.ConnectionID
 		}
-		if err := tctx.DB.UpdateSavedQuery(in.ID, name, desc, sql, connID); err != nil {
+		params := database.UpdateSavedQueryParams{
+			Name:         name,
+			Description:  desc,
+			Query:        sql,
+			ConnectionID: connID,
+		}
+		if current.Parameters != nil {
+			params.Parameters = *current.Parameters
+		}
+		if err := tctx.DB.UpdateSavedQuery(in.ID, params); err != nil {
 			return nil, fmt.Errorf("update saved query: %w", err)
 		}
 		return map[string]any{

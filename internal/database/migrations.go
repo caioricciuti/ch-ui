@@ -73,6 +73,7 @@ func (db *DB) runMigrations() error {
 			name TEXT NOT NULL,
 			description TEXT,
 			query TEXT NOT NULL,
+			parameters TEXT,
 			connection_id TEXT REFERENCES connections(id) ON DELETE SET NULL,
 			created_by TEXT,
 			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -916,6 +917,36 @@ func (db *DB) runMigrations() error {
 			created_at TEXT DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_github_sync_conn ON github_sync_logs(connection_id, started_at)`,
+
+		// Cluster Health (Pro) — per-connection monitoring settings.
+		`CREATE TABLE IF NOT EXISTS ch_health_settings (
+			connection_id TEXT PRIMARY KEY REFERENCES connections(id) ON DELETE CASCADE,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			retention_days INTEGER NOT NULL DEFAULT 7,
+			poll_interval_seconds INTEGER NOT NULL DEFAULT 60,
+			long_query_threshold_seconds INTEGER NOT NULL DEFAULT 30,
+			updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+
+		// Cluster Health (Pro) — lightweight per-node time-series samples.
+		// Only compact numeric aggregates are stored; detailed drill-down lists
+		// are fetched live. Pruned on a configurable TTL (default 7 days).
+		`CREATE TABLE IF NOT EXISTS ch_health_samples (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+			cluster TEXT NOT NULL DEFAULT '',
+			node TEXT NOT NULL DEFAULT '',
+			captured_at TEXT NOT NULL,
+			replication_max_delay REAL NOT NULL DEFAULT 0,
+			replication_queue_total INTEGER NOT NULL DEFAULT 0,
+			replicas_readonly INTEGER NOT NULL DEFAULT 0,
+			merges_running INTEGER NOT NULL DEFAULT 0,
+			mutations_pending INTEGER NOT NULL DEFAULT 0,
+			parts_max_active INTEGER NOT NULL DEFAULT 0,
+			parts_pressure_pct REAL NOT NULL DEFAULT 0,
+			long_queries INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ch_health_samples_conn_time ON ch_health_samples(connection_id, captured_at)`,
 	}
 
 	for _, stmt := range stmts {
@@ -967,6 +998,10 @@ func (db *DB) runMigrations() error {
 		return err
 	}
 	if err := db.ensureColumn("models", "source", "TEXT NOT NULL DEFAULT 'manual'"); err != nil {
+		return err
+	}
+	// Query parameters (Pro): JSON object of default {name: value} bindings.
+	if err := db.ensureColumn("saved_queries", "parameters", "TEXT"); err != nil {
 		return err
 	}
 

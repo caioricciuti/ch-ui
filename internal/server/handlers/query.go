@@ -62,9 +62,33 @@ func (h *QueryHandler) Routes(r chi.Router) {
 // --- Request / Response types ---
 
 type executeQueryRequest struct {
-	Query         string `json:"query"`
-	Timeout       int    `json:"timeout"`       // seconds
-	MaxResultRows int    `json:"maxResultRows"` // server-side row cap via ClickHouse max_result_rows
+	Query         string            `json:"query"`
+	Timeout       int               `json:"timeout"`       // seconds
+	MaxResultRows int               `json:"maxResultRows"` // server-side row cap via ClickHouse max_result_rows
+	Params        map[string]string `json:"params"`        // ClickHouse bind parameters: {name:Type} → param_<name>
+}
+
+// chParamName validates a ClickHouse query-parameter name (a plain identifier),
+// guarding the param_<name> URL key we build from user input.
+var chParamName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// buildParamSettings converts {name: value} bind parameters into the
+// ClickHouse URL-param settings the agent forwards (param_<name>=value).
+// Invalid names are skipped. Returns nil when there are no valid params.
+func buildParamSettings(params map[string]string) map[string]string {
+	if len(params) == 0 {
+		return nil
+	}
+	settings := make(map[string]string, len(params))
+	for name, value := range params {
+		if chParamName.MatchString(name) {
+			settings["param_"+name] = value
+		}
+	}
+	if len(settings) == 0 {
+		return nil
+	}
+	return settings
 }
 
 type executeQueryResponse struct {
@@ -189,13 +213,14 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Execute query via tunnel
+	// Execute query via tunnel, forwarding any bind parameters.
 	start := time.Now()
-	result, err := h.Gateway.ExecuteQuery(
+	result, err := h.Gateway.ExecuteQueryWithSettings(
 		session.ConnectionID,
 		query,
 		session.ClickhouseUser,
 		password,
+		buildParamSettings(req.Params),
 		timeout,
 	)
 	elapsed := time.Since(start).Milliseconds()
@@ -742,15 +767,21 @@ func (h *QueryHandler) StreamQuery(w http.ResponseWriter, r *http.Request) {
 		maxRows = 1_000_000
 	}
 
+	settings := map[string]string{
+		"max_result_rows":      strconv.Itoa(maxRows),
+		"result_overflow_mode": "break",
+	}
+	// Merge any bind parameters (param_<name>) into the query settings.
+	for k, v := range buildParamSettings(req.Params) {
+		settings[k] = v
+	}
+
 	requestID, stream, err := h.Gateway.ExecuteStreamQuery(
 		session.ConnectionID,
 		query,
 		session.ClickhouseUser,
 		password,
-		map[string]string{
-			"max_result_rows":      strconv.Itoa(maxRows),
-			"result_overflow_mode": "break",
-		},
+		settings,
 	)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())

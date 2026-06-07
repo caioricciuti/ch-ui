@@ -318,7 +318,7 @@ func (c *Connector) executeQuery(msg GatewayMessage) {
 
 	// If a compact format is requested, use ExecuteRaw to avoid intermediate parsing
 	if format != "" && format != "JSON" {
-		raw, err := c.chClient.ExecuteRaw(c.ctx, sql, msg.User, msg.Password, format)
+		raw, err := c.chClient.ExecuteRaw(c.ctx, sql, msg.User, msg.Password, format, msg.Settings)
 		elapsed := time.Since(start)
 
 		if err != nil {
@@ -345,7 +345,7 @@ func (c *Connector) executeQuery(msg GatewayMessage) {
 	}
 
 	// Legacy JSON path — parse into structured result
-	result, err := c.chClient.Execute(c.ctx, sql, msg.User, msg.Password)
+	result, err := c.chClient.Execute(c.ctx, sql, msg.User, msg.Password, msg.Settings)
 	elapsed := time.Since(start)
 
 	if err != nil {

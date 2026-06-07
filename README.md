@@ -173,6 +173,8 @@ Almost everything is free. Pro adds enterprise governance and scheduling.
 | Scheduled query jobs + cron + history | - | **Yes** |
 | Governance (metadata, visual lineage graph, column-level lineage, access matrix) | - | **Yes** |
 | Policies + incidents + violations | - | **Yes** |
+| Cluster Health (replication, Keeper, merges/mutations, parts pressure, long queries) | - | **Yes** |
+| Query parameters (`{name:Type}` bind params + saved-query run API) | - | **Yes** |
 | Alerting (SMTP, Resend, Brevo) | - | **Yes** |
 
 See: [`docs/license.md`](docs/license.md)

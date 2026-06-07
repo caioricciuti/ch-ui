@@ -37,6 +37,13 @@ func (g *Gateway) GetConnectedCount() int {
 
 // ExecuteQuery sends a SQL query to the agent via the tunnel and waits for a result.
 func (g *Gateway) ExecuteQuery(connectionID, sql, user, password string, timeout time.Duration) (*QueryResult, error) {
+	return g.ExecuteQueryWithSettings(connectionID, sql, user, password, nil, timeout)
+}
+
+// ExecuteQueryWithSettings is like ExecuteQuery but forwards ClickHouse query
+// settings — including bind parameters (param_<name>) — to the agent, which
+// passes them to ClickHouse as URL params.
+func (g *Gateway) ExecuteQueryWithSettings(connectionID, sql, user, password string, settings map[string]string, timeout time.Duration) (*QueryResult, error) {
 	val, ok := g.tunnels.Load(connectionID)
 	if !ok {
 		return nil, errors.New("tunnel not connected")
@@ -59,6 +66,7 @@ func (g *Gateway) ExecuteQuery(connectionID, sql, user, password string, timeout
 		Query:    sql,
 		User:     user,
 		Password: password,
+		Settings: settings,
 	}
 
 	data, _ := json.Marshal(msg)

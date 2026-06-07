@@ -57,6 +57,7 @@ export interface SavedQuery {
   name: string
   query: string
   description?: string
+  parameters?: string | null // JSON object of default {name: value} bind params
   created_at: string
   updated_at: string
 }

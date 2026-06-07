@@ -242,6 +242,10 @@
     await tick()
     scrollToBottom()
 
+    // Track stream-level errors so we don't reload messages from the server
+    // afterwards (which would discard a client-only error message — see #113).
+    let streamErrored = false
+
     try {
       await streamBrainMessage(
         selectedChatId,
@@ -292,6 +296,7 @@
               return { ...m, toolCalls: list }
             })
           } else if (event.type === 'error') {
+            streamErrored = true
             messages = messages.map((m, i) => i === assistantIdx ? { ...m, content: m.content || `Error: ${event.error ?? 'Unknown error'}`, status: 'error' } : m)
           } else if (event.type === 'done') {
             messages = messages.map((m, i) => i === assistantIdx ? { ...m, status: 'complete' } : m)
@@ -300,10 +305,17 @@
         streamController?.signal,
       )
 
-      await Promise.all([
-        selectChat(selectedChatId),
-        loadChats(),
-      ])
+      // On a stream error the error message is client-only (not persisted), so
+      // reloading the conversation from the server would wipe it (#113). Refresh
+      // only the chat list in that case; otherwise reload the canonical messages.
+      if (streamErrored) {
+        await loadChats()
+      } else {
+        await Promise.all([
+          selectChat(selectedChatId),
+          loadChats(),
+        ])
+      }
     } catch (e: any) {
       if (e?.name === 'AbortError') {
         messages = messages.map((m, i) => i === assistantIdx ? { ...m, content: m.content || '_Stopped by user._', status: 'complete' } : m)
