@@ -165,6 +165,10 @@ func (s *Server) setupRoutes() {
 			savedQueriesHandler := &handlers.SavedQueriesHandler{DB: db, Gateway: gw, Config: cfg}
 			protected.Route("/saved-queries", savedQueriesHandler.Routes)
 
+			// Query history (community)
+			queryHistoryHandler := &handlers.QueryHistoryHandler{DB: db, Config: cfg}
+			protected.Route("/query-history", queryHistoryHandler.Routes)
+
 			// ── Community features ─────────────────────────────────────
 			// Dashboards
 			dashboardsHandler := &handlers.DashboardsHandler{DB: db, Gateway: gw, Config: cfg}

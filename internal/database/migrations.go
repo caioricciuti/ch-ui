@@ -183,6 +183,20 @@ func (db *DB) runMigrations() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at)`,
 
+		// Per-user query execution history (full SQL + metrics, pruned per user)
+		`CREATE TABLE IF NOT EXISTS query_history (
+			id TEXT PRIMARY KEY,
+			connection_id TEXT,
+			clickhouse_user TEXT NOT NULL,
+			query_text TEXT NOT NULL,
+			status TEXT NOT NULL,
+			error_message TEXT,
+			elapsed_ms INTEGER,
+			rows_returned INTEGER,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_qh_user_time ON query_history(clickhouse_user, connection_id, created_at DESC)`,
+
 		// Brain providers (admin-managed)
 		`CREATE TABLE IF NOT EXISTS brain_providers (
 			id TEXT PRIMARY KEY,

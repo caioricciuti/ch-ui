@@ -14,9 +14,10 @@
     downloadFile,
   } from '../../utils/export'
   import { success, error } from '../../stores/toast.svelte'
-  import { Table2, BarChart3, Columns3, Sparkles, Copy, Download, ChevronUp, FileJson, FileText, Database, Hash, AlertTriangle } from 'lucide-svelte'
+  import { Table2, BarChart3, Columns3, Sparkles, Copy, Download, ChevronUp, FileJson, FileText, Database, Hash, AlertTriangle, ListFilter, CloudCog } from 'lucide-svelte'
   import { getFormatNumbers, toggleFormatNumbers } from '../../stores/number-format.svelte'
   import { getMaxResultRows, setMaxResultRows } from '../../stores/query-limit.svelte'
+  import { getResultFiltersEnabled, toggleResultFiltersEnabled } from '../../stores/result-filters.svelte'
 
   type Tab = 'data' | 'stats' | 'schema' | 'insights'
   type ExportFormat = 'csv' | 'tsv' | 'json' | 'jsoncompact' | 'jsonl' | 'markdown' | 'sql' | 'xml'
@@ -30,9 +31,13 @@
     elapsedMs?: number
     streamRows?: number
     streamChunks?: number
+    /** Unfiltered row count when client-side filters hide rows. */
+    totalRows?: number | null
+    /** Rows came from a server-side filtered/ordered re-query. */
+    serverApplied?: boolean
   }
 
-  let { activeTab, onTabChange, meta, data, stats = null, elapsedMs = 0, streamRows = 0, streamChunks = 0 }: Props = $props()
+  let { activeTab, onTabChange, meta, data, stats = null, elapsedMs = 0, streamRows = 0, streamChunks = 0, totalRows = null, serverApplied = false }: Props = $props()
   let copyMenuOpen = $state(false)
   let downloadMenuOpen = $state(false)
   let copyMenuRef = $state<HTMLDivElement | null>(null)
@@ -136,7 +141,17 @@
 
   <!-- Info chips -->
   <div class="flex items-center gap-3 text-xs text-gray-500 flex-1 min-w-0">
-    <span>{formatNumber(rowCount)} rows</span>
+    {#if totalRows !== null && totalRows !== rowCount}
+      <span>{formatNumber(rowCount)} of {formatNumber(totalRows)} rows</span>
+    {:else}
+      <span>{formatNumber(rowCount)} rows</span>
+    {/if}
+    {#if serverApplied}
+      <span class="flex items-center gap-1 text-ch-orange" title="Filters/ordering were applied by re-running the query on the server">
+        <CloudCog size={12} />
+        server-filtered
+      </span>
+    {/if}
     {#if elapsedMs > 0}
       <span>{formatElapsed(elapsedMs / 1000)}</span>
     {/if}
@@ -153,6 +168,22 @@
       {/if}
     {/if}
   </div>
+
+  <!-- Result filters toggle -->
+  <div class="w-px h-4 bg-gray-300 dark:bg-gray-700 mx-1"></div>
+  <button
+    class="flex items-center gap-1 px-1.5 py-1 text-xs rounded-md transition-colors
+      {getResultFiltersEnabled()
+        ? 'text-ch-orange bg-orange-100/60 dark:bg-orange-900/30'
+        : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}"
+    onclick={toggleResultFiltersEnabled}
+    title={getResultFiltersEnabled()
+      ? 'Column sorting & filtering enabled — click headers to sort, hover for filters (click to disable)'
+      : 'Column sorting & filtering disabled (click to enable)'}
+  >
+    <ListFilter size={12} />
+    <span class="hidden sm:inline">Filters</span>
+  </button>
 
   <!-- Number format toggle -->
   <div class="w-px h-4 bg-gray-300 dark:bg-gray-700 mx-1"></div>

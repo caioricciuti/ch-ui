@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ColumnMeta } from '../../types/query'
   import { getDisplayType, isRightAligned } from '../../utils/ch-types'
-  import { ArrowUp, ArrowDown } from 'lucide-svelte'
+  import { ArrowUp, ArrowDown, Filter } from 'lucide-svelte'
 
   interface Props {
     columns: ColumnMeta[]
@@ -9,12 +9,20 @@
     sortColumn?: string
     sortDir?: 'asc' | 'desc'
     onsort?: (column: string) => void
+    filteredColumns?: string[]
+    onfilterclick?: (column: string, e: MouseEvent) => void
     onresize?: (index: number, width: number) => void
     onfitcolumn?: (index: number) => void
     onfitall?: () => void
   }
 
-  let { columns, widths, sortColumn = '', sortDir = 'asc', onsort, onresize, onfitcolumn, onfitall }: Props = $props()
+  let { columns, widths, sortColumn = '', sortDir = 'asc', onsort, filteredColumns = [], onfilterclick, onresize, onfitcolumn, onfitall }: Props = $props()
+
+  function handleFilterClick(e: MouseEvent, column: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    onfilterclick?.(column, e)
+  }
 
   let resizing = $state<{ index: number; startX: number; startWidth: number } | null>(null)
 
@@ -89,7 +97,9 @@
         {#if onsort}
           <button
             type="button"
-            class="w-full flex items-center gap-2 min-w-0 {isRightAligned(col.type) ? 'justify-end' : ''} hover:text-gray-800 dark:hover:text-gray-200"
+            class="w-full flex items-center gap-2 min-w-0 hover:text-gray-800 dark:hover:text-gray-200
+              {isRightAligned(col.type) ? 'justify-end' : ''}
+              {onfilterclick ? (isRightAligned(col.type) ? 'pl-5' : 'pr-6') : ''}"
             onclick={() => onsort?.(col.name)}
           >
             <span class="truncate font-semibold text-[11px]" title={col.name}>{col.name}</span>
@@ -111,6 +121,24 @@
               {compactTypeLabel(col.type)}
             </span>
           </div>
+        {/if}
+
+        <!-- Column filter -->
+        {#if onfilterclick}
+          {@const active = filteredColumns.includes(col.name)}
+          <button
+            type="button"
+            class="absolute top-1/2 -translate-y-1/2 {isRightAligned(col.type) ? 'left-1' : 'right-3'} p-0.5 rounded transition-opacity
+              {active
+                ? 'text-ch-orange opacity-100'
+                : 'text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 hover:text-gray-700 dark:hover:text-gray-200'}"
+            onclick={(e) => handleFilterClick(e, col.name)}
+            onmousedown={(e) => e.stopPropagation()}
+            title={active ? `Edit filter on ${col.name}` : `Filter ${col.name}`}
+            aria-label={`Filter ${col.name} column`}
+          >
+            <Filter size={11} fill={active ? 'currentColor' : 'none'} />
+          </button>
         {/if}
 
         <!-- Resize handle -->

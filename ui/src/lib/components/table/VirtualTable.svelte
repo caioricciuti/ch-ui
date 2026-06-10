@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
   import type { ColumnMeta } from '../../types/query'
+  import type { ColumnFilter } from '../../utils/result-filters'
   import TableHeader from './TableHeader.svelte'
   import TableCell from './TableCell.svelte'
+  import FilterPopover from './FilterPopover.svelte'
   import { SearchX } from 'lucide-svelte'
   import { getFormatNumbers } from '../../stores/number-format.svelte'
 
@@ -20,9 +22,20 @@
     sortColumn?: string
     sortDir?: 'asc' | 'desc'
     onsort?: (column: string) => void
+    filters?: ColumnFilter[]
+    onfilterchange?: (column: string, filter: ColumnFilter | null) => void
   }
 
-  let { meta, data, totalRows, sortColumn = '', sortDir = 'asc', onsort }: Props = $props()
+  let { meta, data, totalRows, sortColumn = '', sortDir = 'asc', onsort, filters = [], onfilterchange }: Props = $props()
+
+  let filterPopover = $state<{ column: string; x: number; y: number } | null>(null)
+
+  function handleFilterClick(column: string, e: MouseEvent) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    filterPopover = filterPopover?.column === column
+      ? null
+      : { column, x: rect.left, y: rect.bottom + 6 }
+  }
 
   let container: HTMLDivElement
   let scrollTop = $state(0)
@@ -181,6 +194,19 @@
     return () => cancelAnimationFrame(raf)
   })
 
+  // Close any open filter popover when a new result set arrives.
+  $effect(() => {
+    meta
+    filterPopover = null
+  })
+
+  // Row selection is positional, so it's meaningless once sorting/filtering
+  // rearranges the rows — drop it whenever the data array is replaced.
+  $effect(() => {
+    data
+    selectedRow = null
+  })
+
   const rowCount = $derived(data.length)
   const totalHeight = $derived(rowCount * ROW_HEIGHT)
   const startIdx = $derived(Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN))
@@ -240,6 +266,8 @@
       {sortColumn}
       {sortDir}
       {onsort}
+      filteredColumns={filters.map((f) => f.column)}
+      onfilterclick={onfilterchange ? handleFilterClick : undefined}
       onresize={handleResize}
       onfitcolumn={handleFitColumn}
       onfitall={handleFitAll}
@@ -288,9 +316,27 @@
         </div>
         <p class="text-sm font-semibold text-gray-800 dark:text-gray-200">No rows returned</p>
         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          Your query executed successfully, but nothing matched the current filters.
+          {#if filters.length > 0}
+            No rows match the active filters.
+          {:else}
+            Your query executed successfully, but returned no rows.
+          {/if}
         </p>
       </div>
     </div>
+  {/if}
+
+  {#if filterPopover}
+    {@const popoverMeta = meta.find((c) => c.name === filterPopover!.column)}
+    <FilterPopover
+      column={filterPopover.column}
+      chType={popoverMeta?.type ?? 'String'}
+      current={filters.find((f) => f.column === filterPopover!.column) ?? null}
+      x={filterPopover.x}
+      y={filterPopover.y}
+      onapply={(filter) => { onfilterchange?.(filter.column, filter); filterPopover = null }}
+      onclear={() => { onfilterchange?.(filterPopover!.column, null); filterPopover = null }}
+      onclose={() => (filterPopover = null)}
+    />
   {/if}
 </div>

@@ -14,7 +14,8 @@
 
   interface Props {
     value?: string
-    onrun?: (sql: string) => void
+    /** sql is trimmed; from is its offset in the document (for error mapping). */
+    onrun?: (sql: string, from?: number) => void
     onchange?: (sql: string) => void
   }
 
@@ -118,13 +119,27 @@
       : [lightTheme, syntaxHighlighting(lightHighlight)]
   }
 
+  // The backend trims the SQL before execution, so error positions index the
+  // trimmed text — return trimmed text plus its document offset to keep
+  // jump-to-error mapping exact.
+  function pickRunnable(state: EditorState): { text: string; from: number } {
+    const main = state.selection.main
+    const selected = state.sliceDoc(main.from, main.to)
+    if (selected.trim()) {
+      const lead = selected.length - selected.trimStart().length
+      return { text: selected.trim(), from: main.from + lead }
+    }
+    const doc = state.doc.toString()
+    const lead = doc.length - doc.trimStart().length
+    return { text: doc.trim(), from: lead }
+  }
+
   const runKeyBinding = keymap.of([
     {
       key: 'Mod-Enter',
       run: (v) => {
-        const main = v.state.selection.main
-        const selected = v.state.sliceDoc(main.from, main.to).trim()
-        onrun?.(selected || v.state.doc.toString())
+        const picked = pickRunnable(v.state)
+        onrun?.(picked.text, picked.from)
         return true
       },
     },
@@ -205,6 +220,26 @@
     const main = view.state.selection.main
     const selected = view.state.sliceDoc(main.from, main.to).trim()
     return selected || view.state.doc.toString()
+  }
+
+  /** Like getSelectedOrAll, but trimmed and with the document offset of the
+   * returned text — needed to map server error positions into the editor. */
+  export function getSelectedOrAllWithRange(): { text: string; from: number } {
+    if (!view) return { text: '', from: 0 }
+    return pickRunnable(view.state)
+  }
+
+  /** Select a range (clamped to the document), scroll it into view and focus. */
+  export function selectRange(from: number, to: number) {
+    if (!view) return
+    const len = view.state.doc.length
+    const anchor = Math.max(0, Math.min(from, len))
+    const head = Math.max(anchor, Math.min(to, len))
+    view.dispatch({
+      selection: { anchor, head },
+      effects: EditorView.scrollIntoView(anchor, { y: 'center' }),
+    })
+    view.focus()
   }
 </script>
 

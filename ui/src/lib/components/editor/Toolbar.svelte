@@ -1,6 +1,6 @@
 <script lang="ts">
   import Button from '../common/Button.svelte'
-  import { Play, Square, AlignLeft, BookOpen, Save, Zap, Braces } from 'lucide-svelte'
+  import { Play, Square, AlignLeft, BookOpen, Save, Zap, Braces, History } from 'lucide-svelte'
   import type { QueryEstimateResult } from '../../types/query'
   import { formatNumber } from '../../utils/format'
 
@@ -12,13 +12,14 @@
     onexplain?: () => void
     onsave?: () => void
     onparams?: () => void
+    onhistory?: () => void
     paramCount?: number
     paramsActive?: boolean
     estimate?: QueryEstimateResult | null
     estimateLoading?: boolean
   }
 
-  let { running = false, onrun, oncancel, onformat, onexplain, onsave, onparams, paramCount = 0, paramsActive = false, estimate = null, estimateLoading = false }: Props = $props()
+  let { running = false, onrun, oncancel, onformat, onexplain, onsave, onparams, onhistory, paramCount = 0, paramsActive = false, estimate = null, estimateLoading = false }: Props = $props()
 
   const estimateLabel = $derived.by(() => {
     if (estimateLoading) return 'Estimating...'
@@ -80,6 +81,13 @@
   {/if}
 
   <div class="flex-1"></div>
+
+  {#if onhistory}
+    <Button size="sm" variant="ghost" onclick={onhistory}>
+      <History size={14} />
+      History
+    </Button>
+  {/if}
 
   {#if onsave}
     <Button size="sm" variant="ghost" onclick={onsave}>

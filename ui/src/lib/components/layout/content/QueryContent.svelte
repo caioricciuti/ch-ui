@@ -1,6 +1,20 @@
+<script lang="ts" module>
+  // One in-flight stream per tab, shared across remounts: the component is
+  // keyed by tab id, so switching tabs (or split-moving) destroys the instance
+  // while the stream keeps running. Keeping the controller here lets the
+  // remounted instance cancel or supersede it.
+  const tabAborts = new Map<string, AbortController>()
+
+  // Backend stream handler hard-caps maxRows (internal/server/handlers/query.go).
+  const BACKEND_MAX_ROWS = 1_000_000
+</script>
+
 <script lang="ts">
   import type { QueryTab } from '../../../stores/tabs.svelte'
-  import { updateTabSQL, getTabResult, setTabResult, markQueryTabSaved } from '../../../stores/tabs.svelte'
+  import { updateTabSQL, getTabResult, setTabResult, getTabResultView, setTabResultView, resetTabResultView, markQueryTabSaved } from '../../../stores/tabs.svelte'
+  import type { ColumnFilter, ResultSort } from '../../../utils/result-filters'
+  import { filterRows, sortRows, cycleSort, isWrappableQuery, buildWrappedQuery } from '../../../utils/result-filters'
+  import { getResultFiltersEnabled } from '../../../stores/result-filters.svelte'
   import { formatSQL, explainQuery, fetchQueryPlan, runSampleQuery, fetchQueryProfile, estimateQuery } from '../../../api/query'
   import type { QueryPlanNode, QueryEstimateResult } from '../../../types/query'
   import type { SavedQuery } from '../../../types/api'
@@ -9,13 +23,16 @@
   import { getMaxResultRows } from '../../../stores/query-limit.svelte'
   import { error as toastError, success as toastSuccess } from '../../../stores/toast.svelte'
   import { detectQueryParams } from '../../../utils/query-params'
+  import { parseCHError, byteToCharOffset } from '../../../utils/ch-error'
   import { isProActive, loadLicense } from '../../../stores/license.svelte'
-  import { openSingletonTab } from '../../../stores/tabs.svelte'
+  import { openSingletonTab, openQueryTab } from '../../../stores/tabs.svelte'
   import { onMount } from 'svelte'
   import { Lock, Braces, X } from 'lucide-svelte'
   import SqlEditor from '../../editor/SqlEditor.svelte'
   import Toolbar from '../../editor/Toolbar.svelte'
   import ResultPanel from '../../editor/ResultPanel.svelte'
+  import Sheet from '../../common/Sheet.svelte'
+  import QueryHistoryPanel from '../../editor/QueryHistoryPanel.svelte'
 
   interface Props {
     tab: QueryTab
@@ -28,7 +45,6 @@
   let splitPercent = $state(isNaN(savedSplit) ? 40 : savedSplit)
   let dragging = $state(false)
   let containerEl: HTMLDivElement
-  let abortController: AbortController | null = null
 
   // Stream telemetry for the viewer
   let streamRows = $state(0)
@@ -58,6 +74,19 @@
   let estimateLoading = $state(false)
   let estimateTimer: ReturnType<typeof setTimeout> | null = null
   let lastEstimatedSQL = ''
+
+  // Query history drawer
+  let showHistorySheet = $state(false)
+
+  function handleHistoryOpen(sql: string) {
+    showHistorySheet = false
+    openQueryTab(sql)
+  }
+
+  function handleHistoryInsert(sql: string) {
+    showHistorySheet = false
+    editorComponent?.setValue(sql)
+  }
 
   // Save modal state
   let showSaveModal = $state(false)
@@ -131,24 +160,11 @@
     })
   }
 
-  async function handleRun(sql?: string) {
-    const query = sql ?? editorComponent?.getSelectedOrAll() ?? ''
-    if (!query.trim()) return
-
-    // Query parameters ({name:Type}) are a Pro feature. Block non-Pro users with
-    // an upsell rather than letting ClickHouse fail with an unbound-parameter error.
-    const runParams = detectQueryParams(query)
-    if (runParams.length > 0 && !proActive) {
-      toastError('Query parameters are a Pro feature — upgrade to run parameterized queries.')
-      return
-    }
-    const params = runParams.length > 0
-      ? Object.fromEntries(runParams.map(p => [p.name, paramValues[p.name] ?? '']))
-      : undefined
-
-    // Cancel any in-flight query
-    if (abortController) abortController.abort()
-    abortController = new AbortController()
+  async function runStreamingQuery(query: string, params: Record<string, string> | undefined, opts: { baseRun?: boolean } = {}) {
+    // Cancel any in-flight query for this tab (even one started before a remount)
+    tabAborts.get(tab.id)?.abort()
+    const abortController = new AbortController()
+    tabAborts.set(tab.id, abortController)
 
     const maxResultRows = getMaxResultRows()
     const startTime = performance.now()
@@ -168,6 +184,7 @@
     let rowBuffer: unknown[][] = []
     let rafId: number | null = null
 
+    setTabResultView(tab.id, { executedSql: query })
     setTabResult(tab.id, { running: true, error: null, meta: [], data: [], stats: null, elapsedMs: 0 })
 
     try {
@@ -201,6 +218,13 @@
             elapsedMs: Math.round(performance.now() - startTime),
             running: false,
           })
+          if (opts.baseRun) {
+            // Hitting the limit means the in-memory rows are a partial view, so
+            // sort/filter must go through a server-side re-query (issue #117).
+            // The backend hard-caps at 1M rows regardless of the requested limit.
+            const effectiveLimit = Math.min(maxResultRows, BACKEND_MAX_ROWS)
+            setTabResultView(tab.id, { truncated: rowBuffer.length >= effectiveLimit })
+          }
           void loadInlineProfile(query)
         },
         (error) => {
@@ -220,12 +244,142 @@
     }
   }
 
-  function handleCancel() {
-    if (abortController) {
-      abortController.abort()
-      abortController = null
-      setTabResult(tab.id, { running: false })
+  async function handleRun(sql?: string, sqlFrom?: number) {
+    let query: string
+    let queryFrom: number
+    if (sql !== undefined) {
+      const lead = sql.length - sql.trimStart().length
+      query = sql.trim()
+      queryFrom = sqlFrom !== undefined ? sqlFrom + lead : -1
+    } else {
+      const picked = editorComponent?.getSelectedOrAllWithRange()
+      query = picked?.text ?? ''
+      queryFrom = picked?.from ?? -1
     }
+    if (!query) return
+
+    // Query parameters ({name:Type}) are a Pro feature. Block non-Pro users with
+    // an upsell rather than letting ClickHouse fail with an unbound-parameter error.
+    const runParams = detectQueryParams(query)
+    if (runParams.length > 0 && !proActive) {
+      toastError('Query parameters are a Pro feature — upgrade to run parameterized queries.')
+      return
+    }
+    const params = runParams.length > 0
+      ? Object.fromEntries(runParams.map(p => [p.name, paramValues[p.name] ?? '']))
+      : undefined
+
+    resetTabResultView(tab.id, {
+      baseSql: query,
+      executedFrom: queryFrom,
+      baseParams: params,
+      wrappable: isWrappableQuery(query),
+    })
+    await runStreamingQuery(query, params, { baseRun: true })
+  }
+
+  // ── Result filtering & ordering (issue #117) ──
+  // Client mode sorts/filters the in-memory rows; server mode re-runs the query
+  // wrapped in SELECT * FROM (...) so truncated results are ordered over the
+  // full dataset instead of just the loaded page.
+  const CLIENT_OP_MAX_ROWS = 50_000
+
+  const view = $derived(getTabResultView(tab.id))
+  // When a server-side re-query produced the current rows, the data is
+  // physically filtered — the toggle must not hide that provenance (chips,
+  // badge) or the escape path (removing filters re-runs the base query).
+  const filtersEnabled = $derived(getResultFiltersEnabled() || view.serverApplied)
+
+  const displayData = $derived.by(() => {
+    const rows = result?.data ?? []
+    if (!filtersEnabled || view.serverApplied) return rows
+    const meta = result?.meta ?? []
+    let out = rows
+    if (view.filters.length > 0) out = filterRows(out, meta, view.filters)
+    if (view.sort) out = sortRows(out, meta, view.sort)
+    return out
+  })
+
+  function applyView(sort: ResultSort | null, filters: ColumnFilter[]) {
+    if (!result || result.running) return
+    const needsServer = view.serverApplied || view.truncated || result.data.length > CLIENT_OP_MAX_ROWS
+    if (needsServer && view.wrappable && view.baseSql) {
+      const hasView = sort !== null || filters.length > 0
+      setTabResultView(tab.id, { sort, filters, serverApplied: hasView })
+      // The clear-filters re-run carries the marker too: it's grid mechanics,
+      // not a user-initiated run, so it must not land in query history.
+      const sql = hasView
+        ? buildWrappedQuery(view.baseSql, filters, sort, result.meta, getMaxResultRows())
+        : `/* ch-ui:result-filter */ ${view.baseSql}`
+      // Re-running the base query replaces the in-memory data under the
+      // current limit, so truncation must be recomputed for it.
+      void runStreamingQuery(sql, view.baseParams, { baseRun: !hasView })
+    } else {
+      setTabResultView(tab.id, { sort, filters, serverApplied: false })
+    }
+  }
+
+  function handleSortToggle(column: string) {
+    applyView(cycleSort(view.sort, column), view.filters)
+  }
+
+  function handleFilterChange(column: string, filter: ColumnFilter | null) {
+    const next = view.filters.filter((f) => f.column !== column)
+    if (filter) next.push(filter)
+    applyView(view.sort, next)
+  }
+
+  function handleClearFilters() {
+    applyView(view.sort, [])
+  }
+
+  // ── Error position → editor jump ──
+  // ClickHouse reports "failed at position N" as an offset into the executed
+  // SQL. Only map it back when the parser says the position indexes the query
+  // itself, the executed text was the plain editor SQL (not a wrapped/marked
+  // grid re-query), and that text is still present in the doc — anchored at
+  // the offset it was run from, so duplicated fragments resolve correctly.
+  const errorJump = $derived.by(() => {
+    if (!result?.error) return null
+    const parsed = parseCHError(result.error)
+    if (parsed.position === null || !parsed.positionInQuery) return null
+    if (!view.executedSql || view.executedSql !== view.baseSql) return null
+    const base = view.executedFrom >= 0 && currentSql.startsWith(view.executedSql, view.executedFrom)
+      ? view.executedFrom
+      : currentSql.indexOf(view.executedSql)
+    if (base < 0) return null
+    const from = base + byteToCharOffset(view.executedSql, parsed.position - 1)
+    // Select the offending token only if the document actually has it at the
+    // target (newer servers report it without the wrapping quotes).
+    let to = from
+    if (parsed.token) {
+      for (const cand of [parsed.token, `'${parsed.token}'`]) {
+        if (currentSql.startsWith(cand, from)) {
+          to = from + cand.length
+          break
+        }
+      }
+    }
+    // Label line/col from the mapped document position — ClickHouse's own
+    // line/col are relative to the executed fragment, not the document.
+    const before = currentSql.slice(0, from)
+    const line = (before.match(/\n/g)?.length ?? 0) + 1
+    const col = from - before.lastIndexOf('\n')
+    return { from, to, line, col }
+  })
+
+  function handleGoToError() {
+    const jump = errorJump
+    if (jump) editorComponent?.selectRange(jump.from, jump.to)
+  }
+
+  function handleCancel() {
+    const controller = tabAborts.get(tab.id)
+    if (controller) {
+      controller.abort()
+      tabAborts.delete(tab.id)
+    }
+    setTabResult(tab.id, { running: false })
   }
 
   async function handleFormat() {
@@ -249,6 +403,8 @@
     profileError = null
     samplingMode = null
 
+    tabAborts.get(tab.id)?.abort()
+    resetTabResultView(tab.id)
     setTabResult(tab.id, { running: true, error: null, meta: [], data: [], stats: null })
 
     try {
@@ -292,6 +448,8 @@
     const sql = editorComponent?.getValue() ?? ''
     if (!sql.trim()) return
 
+    tabAborts.get(tab.id)?.abort()
+    resetTabResultView(tab.id)
     setTabResult(tab.id, { running: true, error: null, meta: [], data: [], stats: null })
     samplingMode = null
 
@@ -436,6 +594,7 @@
       onformat={handleFormat}
       onexplain={handleExplain}
       onsave={handleSaveClick}
+      onhistory={() => (showHistorySheet = true)}
       onparams={() => (showParamsPanel = !showParamsPanel)}
       paramCount={detectedParams.length}
       paramsActive={showParamsPanel}
@@ -538,12 +697,23 @@ WHERE user_id = {'{user_id:UInt64}'}
   <div class="flex-1 min-h-[80px] min-h-0 overflow-hidden flex flex-col">
     <ResultPanel
       meta={result?.meta ?? []}
-      data={result?.data ?? []}
+      data={displayData}
       loading={result?.running ?? false}
       error={result?.error ?? null}
       stats={result?.stats ?? null}
       elapsedMs={result?.elapsedMs ?? 0}
       running={result?.running ?? false}
+      totalRows={filtersEnabled && !view.serverApplied && view.filters.length > 0 ? (result?.data.length ?? 0) : null}
+      sort={filtersEnabled ? view.sort : null}
+      filters={filtersEnabled ? view.filters : []}
+      serverApplied={view.serverApplied}
+      partialView={filtersEnabled && view.truncated && !view.wrappable && (view.sort !== null || view.filters.length > 0)}
+      onsort={filtersEnabled ? handleSortToggle : undefined}
+      onfilterchange={filtersEnabled ? handleFilterChange : undefined}
+      onclearfilters={handleClearFilters}
+      ongotoerror={errorJump ? handleGoToError : undefined}
+      errorTargetLine={errorJump?.line ?? null}
+      errorTargetCol={errorJump?.col ?? null}
       {streamRows}
       {streamChunks}
       {streamStartedAt}
@@ -570,6 +740,11 @@ WHERE user_id = {'{user_id:UInt64}'}
 {#if dragging}
   <div class="fixed inset-0 z-50 cursor-row-resize"></div>
 {/if}
+
+<!-- Query history drawer -->
+<Sheet open={showHistorySheet} title="Query History" size="md" onclose={() => (showHistorySheet = false)}>
+  <QueryHistoryPanel onopen={handleHistoryOpen} oninsert={handleHistoryInsert} />
+</Sheet>
 
 <!-- Save query modal -->
 {#if showSaveModal}

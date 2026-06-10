@@ -1,4 +1,5 @@
 import type { ColumnMeta, QueryStats } from '../types/query'
+import type { ColumnFilter, ResultSort } from '../utils/result-filters'
 import type { ModelEditState } from '../types/models'
 import { createUUID } from '../utils/uuid'
 import { pushTabRouteForTab } from './router.svelte'
@@ -74,6 +75,42 @@ export interface TabResult {
   elapsedMs: number
   error: string | null
   running: boolean
+}
+
+// Sort/filter view over a tab's result (issue #117). Lives beside TabResult so
+// it survives tab switches; reset on every fresh run.
+export interface ResultViewState {
+  sort: ResultSort | null
+  filters: ColumnFilter[]
+  /** Current result.data came from a server-side wrapped re-query. */
+  serverApplied: boolean
+  /** SQL of the run that produced the base result (wrapping target). */
+  baseSql: string
+  /** The exact SQL most recently sent to the server for this tab (may be a
+   * wrapped/marked grid re-query, unlike baseSql). Used to map error
+   * positions back into the editor only when it matches baseSql. */
+  executedSql: string
+  /** Document offset of baseSql at run time (-1 when unknown); resolves the
+   * right occurrence when the same fragment appears multiple times. */
+  executedFrom: number
+  /** Bind parameters used by that run, re-sent on wrapped re-queries. */
+  baseParams: Record<string, string> | undefined
+  /** The base run hit the row limit, so in-memory data is partial. */
+  truncated: boolean
+  /** baseSql can be wrapped as SELECT * FROM (...) for server-side mode. */
+  wrappable: boolean
+}
+
+const DEFAULT_RESULT_VIEW: ResultViewState = {
+  sort: null,
+  filters: [],
+  serverApplied: false,
+  baseSql: '',
+  executedSql: '',
+  executedFrom: -1,
+  baseParams: undefined,
+  truncated: false,
+  wrappable: false,
 }
 
 // ── Persistence ─────────────────────────────────────────────────
@@ -262,6 +299,7 @@ let tabs = $state<Tab[]>(initial.tabs.map((tab) => {
 let groups = $state<TabGroup[]>(initial.groups)
 let focusedGroupId = $state<string>(initial.focusedGroupId)
 let results = $state<Map<string, TabResult>>(new Map())
+let resultViews = $state<Map<string, ResultViewState>>(new Map())
 
 // Auto-save on any change (debounced via microtask)
 let saveQueued = false
@@ -363,6 +401,26 @@ export function clearTabResult(tabId: string): void {
   const updated = new Map(results)
   updated.delete(tabId)
   results = updated
+  const views = new Map(resultViews)
+  views.delete(tabId)
+  resultViews = views
+}
+
+export function getTabResultView(tabId: string): ResultViewState {
+  return resultViews.get(tabId) ?? DEFAULT_RESULT_VIEW
+}
+
+export function setTabResultView(tabId: string, partial: Partial<ResultViewState>): void {
+  const current = resultViews.get(tabId) ?? DEFAULT_RESULT_VIEW
+  const updated = new Map(resultViews)
+  updated.set(tabId, { ...current, ...partial })
+  resultViews = updated
+}
+
+export function resetTabResultView(tabId: string, partial: Partial<ResultViewState> = {}): void {
+  const updated = new Map(resultViews)
+  updated.set(tabId, { ...DEFAULT_RESULT_VIEW, ...partial })
+  resultViews = updated
 }
 
 // ── Actions ─────────────────────────────────────────────────────
