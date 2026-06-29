@@ -4,7 +4,7 @@
   import TabGroup from './TabGroup.svelte'
   import CommandPalette from './CommandPalette.svelte'
   import { getGroups, isSplit, setFocusedGroup, splitTabToSide, openQueryTab } from '../../stores/tabs.svelte'
-  import { openCommandPalette } from '../../stores/command-palette.svelte'
+  import { openCommandPalette, toggleCommandPalette } from '../../stores/command-palette.svelte'
 
   const groups = $derived(getGroups())
   const split = $derived(isSplit())
@@ -51,7 +51,7 @@
 
     if (mod && e.key.toLowerCase() === 'k') {
       e.preventDefault()
-      openCommandPalette()
+      toggleCommandPalette()
       return
     }
 

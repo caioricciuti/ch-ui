@@ -5,6 +5,17 @@ All notable changes to CH-UI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Command palette no longer enters an infinite Svelte update loop
+  (`effect_update_depth_exceeded`) when opened: the open routine runs `loadAll()`
+  inside `untrack()` so its writes to the databases/data stores can't re-trigger
+  the effect that started it (#129).
+- `⌘/Ctrl+K` now toggles the command palette, so pressing it again closes the
+  palette as the help text describes (#129).
+
 ## [2.5.2] - 2026-06-29
 
 ### Fixed

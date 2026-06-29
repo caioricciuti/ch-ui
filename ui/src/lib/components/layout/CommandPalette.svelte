@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, onMount } from 'svelte'
+  import { tick, onMount, untrack } from 'svelte'
   import {
     Search, Plus, Table2, Sparkles, LayoutDashboard, Bookmark, Clock,
     Brain, Shield, Settings, Moon, Sun, LogOut, SquareTerminal, Home,
@@ -526,11 +526,17 @@
 
   $effect(() => {
     if (!open) return
-    query = ''
-    selectedIdx = 0
-    scopeGroup = null
-    loadAll()
-    tick().then(() => inputEl?.focus())
+    // Run the open routine untracked: loadAll() mutates the databases/data
+    // stores, and without untrack the effect would subscribe to its own writes
+    // and re-run forever (effect_update_depth_exceeded). The only dependency we
+    // want here is `open` flipping to true.
+    untrack(() => {
+      query = ''
+      selectedIdx = 0
+      scopeGroup = null
+      loadAll()
+      tick().then(() => inputEl?.focus())
+    })
   })
 
   const scopeChip = $derived.by(() => {
