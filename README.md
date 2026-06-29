@@ -432,6 +432,11 @@ ch-ui server --clickhouse-url http://127.0.0.1:8123 --connection-name "My ClickH
 
 The login page also has a **Can't login?** button that shows setup guidance.
 
+CH-UI can connect to ClickHouse either directly (point `CLICKHOUSE_URL` at the
+endpoint, including a reverse-proxied `https://` one) or via an outbound tunnel
+that keeps ClickHouse fully private. See
+[`docs/connecting-to-clickhouse.md`](docs/connecting-to-clickhouse.md).
+
 ---
 
 ## Production Checklist
