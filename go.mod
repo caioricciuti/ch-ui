@@ -11,7 +11,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/lib/pq v1.12.3
-	github.com/minio/minio-go/v7 v7.2.0
+	github.com/minio/minio-go/v7 v7.2.1
 	github.com/spf13/cobra v1.10.2
 	github.com/xdg-go/scram v1.2.0
 	github.com/xitongsys/parquet-go v1.6.2
@@ -19,7 +19,7 @@ require (
 	golang.org/x/crypto v0.53.0
 	golang.org/x/oauth2 v0.36.0
 	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/sqlite v1.52.0
+	modernc.org/sqlite v1.53.0
 )
 
 require (
@@ -63,7 +63,7 @@ require (
 	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	gopkg.in/ini.v1 v1.67.2 // indirect
-	modernc.org/libc v1.72.3 // indirect
+	modernc.org/libc v1.73.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
