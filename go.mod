@@ -3,7 +3,7 @@ module github.com/caioricciuti/ch-ui
 go 1.25.12
 
 require (
-	github.com/IBM/sarama v1.50.3
+	github.com/IBM/sarama v1.60.0
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/fatih/color v1.19.0
 	github.com/go-chi/chi/v5 v5.3.1
@@ -19,7 +19,7 @@ require (
 	golang.org/x/crypto v0.54.0
 	golang.org/x/oauth2 v0.36.0
 	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/sqlite v1.53.0
+	modernc.org/sqlite v1.54.0
 )
 
 require (
@@ -39,7 +39,7 @@ require (
 	github.com/jcmturner/gofork v1.7.6 // indirect
 	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
-	github.com/klauspost/compress v1.18.6 // indirect
+	github.com/klauspost/compress v1.19.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.11 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
@@ -58,12 +58,12 @@ require (
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/net v0.56.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	gopkg.in/ini.v1 v1.67.2 // indirect
-	modernc.org/libc v1.73.4 // indirect
+	modernc.org/libc v1.74.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
