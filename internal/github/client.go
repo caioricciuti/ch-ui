@@ -117,9 +117,16 @@ func (c *Client) GetTree(owner, repo, branch string) ([]TreeEntry, error) {
 	return result.Tree, nil
 }
 
-// FilterSQLFiles returns tree entries that are .sql blobs under the given path prefix.
+// FilterSQLFiles returns tree entries that are .sql blobs under the given path
+// prefix, recursing into subdirectories. dbt projects nest models under folders
+// like models/staging/ and models/marts/, so a non-recursive scan of the
+// configured path would miss every model in a standard layout. An empty prefix
+// matches the whole repo.
 func FilterSQLFiles(entries []TreeEntry, pathPrefix string) []TreeEntry {
-	pathPrefix = strings.TrimSuffix(pathPrefix, "/") + "/"
+	pathPrefix = strings.TrimSuffix(pathPrefix, "/")
+	if pathPrefix != "" {
+		pathPrefix += "/"
+	}
 	var filtered []TreeEntry
 	for _, e := range entries {
 		if e.Type != "blob" {
@@ -129,11 +136,6 @@ func FilterSQLFiles(entries []TreeEntry, pathPrefix string) []TreeEntry {
 			continue
 		}
 		if !strings.HasSuffix(strings.ToLower(e.Path), ".sql") {
-			continue
-		}
-		// Skip files in subdirectories (only top-level .sql files in the path)
-		rel := strings.TrimPrefix(e.Path, pathPrefix)
-		if strings.Contains(rel, "/") {
 			continue
 		}
 		filtered = append(filtered, e)
