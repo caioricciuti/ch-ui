@@ -4,7 +4,7 @@
     Search, Plus, Table2, Sparkles, LayoutDashboard, Bookmark, Clock,
     Brain, Shield, Settings, Moon, Sun, LogOut, SquareTerminal, Home,
     Workflow, Boxes, Activity, FileText, GitBranch, ChartBar,
-    Network, KeyRound, Scale, MessageSquare, HeartPulse, Gauge,
+    Network, KeyRound, Scale, MessageSquare, HeartPulse, Gauge, Coins,
     Cpu, Info, Hash, Zap,
   } from 'lucide-svelte'
   import { closeCommandPalette, isCommandPaletteOpen } from '../../stores/command-palette.svelte'
@@ -121,6 +121,7 @@
       mkPage('governance', 'Governance', Scale, () => openSingletonTab('governance', 'Governance'), { keywords: 'access policies rules audit' }),
       mkPage('cluster-health', 'Cluster Health', HeartPulse, () => openSingletonTab('cluster-health', 'Cluster Health'), { keywords: 'replication merges mutations parts keeper backups monitoring' }),
       mkPage('query-insights', 'Query Insights', Gauge, () => openSingletonTab('query-insights', 'Query Insights'), { keywords: 'query log latency slow p95 errors memory insights analytics' }),
+      mkPage('cost-center', 'Cost Center', Coins, () => openSingletonTab('cost-center', 'Cost Center'), { keywords: 'costs chargeback showback spend budget billing finops teams' }),
       mkPage('telemetry', 'Telemetry', Activity, () => openSingletonTab('telemetry', 'Telemetry'), { keywords: 'otel observability logs traces metrics' }),
       mkPage('admin', 'Admin', Shield, () => openSingletonTab('admin', 'Admin'), { keywords: 'users audit query log' }),
       mkPage('settings', 'Settings', Settings, () => openSingletonTab('settings', 'Settings'), { keywords: 'config preferences license' }),

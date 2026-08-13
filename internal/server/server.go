@@ -294,6 +294,10 @@ func (s *Server) setupRoutes() {
 				// Query Insights (system.query_log analytics)
 				queryInsightsHandler := &handlers.QueryInsightsHandler{DB: db, Gateway: gw, Config: cfg}
 				pro.Mount("/query-insights", queryInsightsHandler.Routes())
+
+				// Cost Center (showback/chargeback over query_log + parts)
+				costsHandler := &handlers.CostsHandler{DB: db, Gateway: gw, Config: cfg}
+				pro.Mount("/costs", costsHandler.Routes())
 			})
 		})
 	})

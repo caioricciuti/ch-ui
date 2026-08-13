@@ -33,7 +33,7 @@
     ArrowUpCircle,
     Server,
     HeartPulse,
-    Gauge,
+    Gauge, Coins,
   } from 'lucide-svelte'
 
   const session = $derived(getSession())
@@ -69,6 +69,7 @@
     { type: 'governance', label: 'Governance', icon: Scale, pro: true },
     { type: 'cluster-health', label: 'Cluster Health', icon: HeartPulse, pro: true },
     { type: 'query-insights', label: 'Query Insights', icon: Gauge, pro: true },
+    { type: 'cost-center', label: 'Cost Center', icon: Coins, pro: true },
     { type: 'admin', label: 'Admin', icon: Shield, adminOnly: true },
     { type: 'settings', label: 'License', icon: Settings },
     { type: 'external', label: 'CH-UI Docs', icon: ExternalLink, href: 'https://ch-ui.com/docs' },

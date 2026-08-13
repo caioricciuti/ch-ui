@@ -6,7 +6,7 @@ import { pushTabRouteForTab } from './router.svelte'
 
 // ── Tab types ────────────────────────────────────────────────────
 
-export type TabType = 'home' | 'query' | 'table' | 'database' | 'dashboard' | 'model' | 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines' | 'models' | 'telemetry' | 'cluster-health' | 'query-insights'
+export type TabType = 'home' | 'query' | 'table' | 'database' | 'dashboard' | 'model' | 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines' | 'models' | 'telemetry' | 'cluster-health' | 'query-insights' | 'cost-center'
 
 interface TabBase {
   id: string
@@ -53,7 +53,7 @@ export interface HomeTab extends TabBase {
 }
 
 export interface SingletonTab extends TabBase {
-  type: 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines' | 'models' | 'telemetry' | 'cluster-health' | 'query-insights'
+  type: 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines' | 'models' | 'telemetry' | 'cluster-health' | 'query-insights' | 'cost-center'
 }
 
 export type Tab = HomeTab | QueryTab | TableTab | DatabaseTab | DashboardTab | ModelTab | SingletonTab

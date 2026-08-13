@@ -16,6 +16,7 @@
   import Governance from '../../../pages/Governance.svelte'
   import ClusterHealth from '../../../pages/ClusterHealth.svelte'
   import QueryInsights from '../../../pages/QueryInsights.svelte'
+  import CostCenter from '../../../pages/CostCenter.svelte'
   import Pipelines from '../../../pages/Pipelines.svelte'
   import Telemetry from '../../../pages/Telemetry.svelte'
   import Models from '../../../pages/Models.svelte'
@@ -31,7 +32,7 @@
   const activeTab = $derived(getGroupActiveTab(groupId))
   const proActive = $derived(isProActive())
   const licenseLoading = $derived(isLicenseLoading())
-  const requiresPro = $derived(!!activeTab && ['schedules', 'governance', 'cluster-health', 'query-insights'].includes(activeTab.type))
+  const requiresPro = $derived(!!activeTab && ['schedules', 'governance', 'cluster-health', 'query-insights', 'cost-center'].includes(activeTab.type))
   let licenseChecked = $state(false)
 
   onMount(() => {
@@ -59,6 +60,8 @@
         return 'Cluster Health'
       case 'query-insights':
         return 'Query Insights'
+      case 'cost-center':
+        return 'Cost Center'
       default:
         return 'this section'
     }
@@ -112,6 +115,8 @@
     <ClusterHealth />
   {:else if activeTab.type === 'query-insights'}
     <QueryInsights />
+  {:else if activeTab.type === 'cost-center'}
+    <CostCenter />
   {:else if activeTab.type === 'pipelines'}
     <Pipelines />
   {:else if activeTab.type === 'telemetry'}

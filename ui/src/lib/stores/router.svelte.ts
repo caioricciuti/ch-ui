@@ -18,6 +18,7 @@ const TAB_PATHS: Record<string, string> = {
   'telemetry': '/telemetry',
   'cluster-health': '/cluster-health',
   'query-insights': '/query-insights',
+  'cost-center': '/cost-center',
   'settings': '/license',
 }
 
@@ -33,6 +34,7 @@ const PATH_TABS: Record<string, { type: SingletonTab['type']; label: string }> =
   '/telemetry': { type: 'telemetry', label: 'Telemetry' },
   '/cluster-health': { type: 'cluster-health', label: 'Cluster Health' },
   '/query-insights': { type: 'query-insights', label: 'Query Insights' },
+  '/cost-center': { type: 'cost-center', label: 'Cost Center' },
   '/settings': { type: 'settings', label: 'License' },
   '/license': { type: 'settings', label: 'License' },
 }

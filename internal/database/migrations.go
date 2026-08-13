@@ -861,6 +861,15 @@ func (db *DB) runMigrations() error {
 			updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(connection_id)
 		)`,
+		// ── Cost Center config (Pro) ─────────────────────────────────────
+		`CREATE TABLE IF NOT EXISTS costs_config (
+			id TEXT PRIMARY KEY,
+			connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+			config_json TEXT NOT NULL DEFAULT '{}',
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(connection_id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS github_sync_logs (
 			id TEXT PRIMARY KEY,
 			connection_id TEXT NOT NULL,
