@@ -5,6 +5,24 @@ All notable changes to CH-UI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.2] - 2026-08-13
+
+### Fixed
+
+- Telemetry time filters now work with `DateTime64` columns: RFC3339 bounds
+  are validated and rendered via `parseDateTime64BestEffort` instead of raw
+  string literals that failed with `TYPE_MISMATCH` (#143).
+- Telemetry Setup Wizard values are actually used: the saved logs
+  database/table is loaded on mount and passed up from the wizard, so the
+  Log Explorer no longer falls back to `default.otel_logs` (#142).
+- Queries with negative `LIMIT` (e.g. `LIMIT -10`) no longer fail: the
+  column-metadata rewrite now recognizes negative limits and offsets (#139).
+
+### Changed
+
+- Dependency bumps: `github.com/IBM/sarama` 1.60.1, `modernc.org/sqlite`
+  (go-dependencies group), `docker/login-action` 4.5.2 (#144, #140).
+
 ## [2.6.1] - 2026-07-23
 
 ### Added
