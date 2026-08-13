@@ -297,15 +297,7 @@ func (c *CHClient) ExecuteStreaming(
 
 	// Get column metadata via a LIMIT 0 query with JSONCompact, or send empty meta for writes
 	if !isWrite && !hasFormat {
-		trimmed := strings.TrimRight(query, "; \n\t")
-		var metaQuery string
-		if limitRe := regexp.MustCompile(`(?i)\bLIMIT\s+\d+(\s*,\s*\d+)?(\s+OFFSET\s+\d+)?`); limitRe.MatchString(trimmed) {
-			metaQuery = limitRe.ReplaceAllString(trimmed, "LIMIT 0")
-		} else {
-			// Use a newline so that trailing -- line comments don't swallow the injected clause
-			metaQuery = trimmed + "\nLIMIT 0"
-		}
-		metaResult, err := c.ExecuteRaw(ctx, metaQuery, user, password, "JSONCompact", settings)
+		metaResult, err := c.ExecuteRaw(ctx, buildMetaQuery(query), user, password, "JSONCompact", settings)
 		if err != nil {
 			return nil, 0, fmt.Errorf("metadata query failed: %w", err)
 		}
@@ -457,6 +449,21 @@ var (
 	formatPattern     = regexp.MustCompile(`(?i)\bFORMAT\s+\w+\s*$`)
 	commentPattern    = regexp.MustCompile(`(?m)^\s*--.*$`)
 )
+
+// metaLimitRe matches an existing LIMIT clause, including negative limits/offsets
+// (LIMIT -10 means "all but the last 10 rows" since ClickHouse 25.x).
+var metaLimitRe = regexp.MustCompile(`(?i)\bLIMIT\s+-?\d+(\s*,\s*-?\d+)?(\s+OFFSET\s+-?\d+)?`)
+
+// buildMetaQuery rewrites a query to return zero rows so column metadata can be
+// fetched cheaply before streaming the real result.
+func buildMetaQuery(query string) string {
+	trimmed := strings.TrimRight(query, "; \n\t")
+	if metaLimitRe.MatchString(trimmed) {
+		return metaLimitRe.ReplaceAllString(trimmed, "LIMIT 0")
+	}
+	// Use a newline so that trailing -- line comments don't swallow the injected clause
+	return trimmed + "\nLIMIT 0"
+}
 
 func isWriteQuery(query string) bool {
 	// Strip leading comments
