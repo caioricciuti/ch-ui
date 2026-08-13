@@ -35,6 +35,16 @@ func (h *TelemetryHandler) Routes() chi.Router {
 	return r
 }
 
+// timestampCondition validates an RFC3339 bound and renders it via
+// parseDateTime64BestEffort so it compares cleanly against both DateTime and
+// DateTime64 columns (a raw 'T...Z' string literal fails on DateTime64).
+func timestampCondition(op, value string) (string, error) {
+	if _, err := time.Parse(time.RFC3339, value); err != nil {
+		return "", fmt.Errorf("invalid timestamp %q: expected RFC3339", value)
+	}
+	return fmt.Sprintf("Timestamp %s parseDateTime64BestEffort('%s')", op, escapeString(value)), nil
+}
+
 func sanitizeIdentifier(s string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
@@ -124,10 +134,20 @@ func (h *TelemetryHandler) QueryLogs(w http.ResponseWriter, r *http.Request) {
 
 	var conditions []string
 	if body.TimeFrom != "" {
-		conditions = append(conditions, fmt.Sprintf("Timestamp >= '%s'", escapeString(body.TimeFrom)))
+		cond, err := timestampCondition(">=", body.TimeFrom)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		conditions = append(conditions, cond)
 	}
 	if body.TimeTo != "" {
-		conditions = append(conditions, fmt.Sprintf("Timestamp <= '%s'", escapeString(body.TimeTo)))
+		cond, err := timestampCondition("<=", body.TimeTo)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		conditions = append(conditions, cond)
 	}
 	if len(body.Severity) > 0 {
 		quoted := make([]string, len(body.Severity))
@@ -254,10 +274,20 @@ func (h *TelemetryHandler) LogHistogram(w http.ResponseWriter, r *http.Request) 
 
 	var conditions []string
 	if body.TimeFrom != "" {
-		conditions = append(conditions, fmt.Sprintf("Timestamp >= '%s'", escapeString(body.TimeFrom)))
+		cond, err := timestampCondition(">=", body.TimeFrom)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		conditions = append(conditions, cond)
 	}
 	if body.TimeTo != "" {
-		conditions = append(conditions, fmt.Sprintf("Timestamp <= '%s'", escapeString(body.TimeTo)))
+		cond, err := timestampCondition("<=", body.TimeTo)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		conditions = append(conditions, cond)
 	}
 	if len(body.Severity) > 0 {
 		quoted := make([]string, len(body.Severity))
