@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { fetchTelemetrySchema } from '../lib/api/telemetry'
-  import type { TelemetryTable } from '../lib/types/telemetry'
+  import { fetchTelemetrySchema, getTelemetryConfig } from '../lib/api/telemetry'
+  import type { TelemetryTable, TelemetryConfig } from '../lib/types/telemetry'
   import LogExplorer from '../lib/components/telemetry/LogExplorer.svelte'
   import SetupWizard from '../lib/components/telemetry/SetupWizard.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
@@ -48,12 +48,35 @@
     }
   }
 
-  function handleConfigured() {
+  function handleConfigured(db: string, table: string) {
+    logsDatabase = db
+    logsTable = table
     needsSetup = false
     hasLogs = true
   }
 
-  onMount(() => {
+  // A saved config takes priority over the otel_% auto-detect scan, so custom
+  // table names survive a reload instead of resetting to default.otel_logs.
+  async function loadSavedConfig(): Promise<boolean> {
+    try {
+      const res = await getTelemetryConfig()
+      if (!res.config?.config_json) return false
+      const cfg = JSON.parse(res.config.config_json) as Partial<TelemetryConfig>
+      if (!cfg.logsDatabase || !cfg.logsTable) return false
+      logsDatabase = cfg.logsDatabase
+      logsTable = cfg.logsTable
+      hasLogs = true
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  onMount(async () => {
+    if (await loadSavedConfig()) {
+      loading = false
+      return
+    }
     detectSchema()
   })
 </script>

@@ -6,7 +6,7 @@
 
   interface Props {
     onretry: () => void
-    onconfigured: () => void
+    onconfigured: (logsDatabase: string, logsTable: string) => void
   }
 
   let { onretry, onconfigured }: Props = $props()
@@ -31,7 +31,7 @@
         metricsPrefix,
       })
       toastSuccess('Telemetry config saved')
-      onconfigured()
+      onconfigured(logsDatabase, logsTable)
     } catch (e: unknown) {
       toastError('Failed to save config: ' + (e instanceof Error ? e.message : String(e)))
     } finally {
