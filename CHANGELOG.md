@@ -5,6 +5,21 @@ All notable changes to CH-UI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-08-13
+
+### Added
+
+- **Cost Center (Pro)**: showback/chargeback analytics for self-hosted
+  ClickHouse. Prices real consumption from `system.query_log` (CPU
+  core-hours via `OSCPUVirtualTimeMicroseconds`) and `system.parts`
+  (GB-month storage) with configurable rates and currency. Includes
+  team attribution via user-to-team rules with an allocation-coverage
+  KPI, compute spend trend stacked by team, per-team/per-user tables,
+  top cost-driving query patterns, storage cost per table with
+  compression ratio, failed-query waste tracking, and CSV showback
+  export. Cluster-aware with local-node fallback, soft-fails when
+  `query_log` is unavailable.
+
 ## [2.6.2] - 2026-08-13
 
 ### Fixed
