@@ -20,6 +20,7 @@ type AgentMessage struct {
 	HostInfo   json.RawMessage `json:"host_info,omitempty"`  // host_info
 	Seq        int             `json:"seq,omitempty"`        // query_stream_chunk sequence number
 	TotalRows  int64           `json:"total_rows,omitempty"` // query_stream_end total row count
+	Progress   json.RawMessage `json:"progress,omitempty"`   // query_stream_progress snapshot
 }
 
 // GetMessageID returns the message ID from either legacy or Go agent format.

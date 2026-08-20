@@ -5,6 +5,32 @@ All notable changes to CH-UI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Live query progress in the editor** (#147): while a query runs, the result
+  panel shows elapsed time, percent complete, rows and bytes read, and read
+  throughput — the numbers ClickHouse's own `/play` reports. Progress is sampled
+  from `system.processes` (300 ms) and streamed to the browser as `progress`
+  messages on the existing NDJSON query stream. Statements that work while the
+  connection is open report progress too (`INSERT ... SELECT`, `OPTIMIZE TABLE
+  ... FINAL`); mutations still run in the background, so their readout covers
+  only the statement.
+- Finished streaming queries now report rows and bytes read. Previously only
+  elapsed time was available, because `JSONCompactEachRow` carries no
+  statistics; the numbers now come from ClickHouse's `X-ClickHouse-Summary`
+  header reconciled with the last progress sample. The readout stays in place
+  after the query ends, so a query too short to report progress still shows
+  what it read (the duplicate rows/bytes chips were dropped from the result
+  footer).
+
+### Fixed
+
+- Cancelling a query (or closing the tab) now stops it on ClickHouse. The agent
+  tags every streamed query with a `query_id`, and an abandoned stream is killed
+  with `KILL QUERY` instead of being left to run to completion unattended.
+
 ## [2.7.0] - 2026-08-13
 
 ### Added

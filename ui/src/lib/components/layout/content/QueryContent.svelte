@@ -16,7 +16,7 @@
   import { filterRows, sortRows, cycleSort, isWrappableQuery, buildWrappedQuery } from '../../../utils/result-filters'
   import { getResultFiltersEnabled } from '../../../stores/result-filters.svelte'
   import { formatSQL, explainQuery, fetchQueryPlan, runSampleQuery, fetchQueryProfile, estimateQuery } from '../../../api/query'
-  import type { QueryPlanNode, QueryEstimateResult } from '../../../types/query'
+  import type { QueryPlanNode, QueryEstimateResult, QueryProgress } from '../../../types/query'
   import type { SavedQuery } from '../../../types/api'
   import { executeStreamQuery } from '../../../api/stream'
   import { apiPost, apiPut } from '../../../api/client'
@@ -53,6 +53,8 @@
   let streamChunks = $state(0)
   let streamStartedAt = $state<number | null>(null)
   let streamLastChunkAt = $state<number | null>(null)
+  // Live progress of the running query (rows read, throughput, percent done).
+  let streamProgress = $state<QueryProgress | null>(null)
 
   // Query plan state
   let planNodes = $state<QueryPlanNode[]>([])
@@ -210,6 +212,7 @@
     streamChunks = 0
     streamStartedAt = Date.now()
     streamLastChunkAt = null
+    streamProgress = null
     profile = null
     profileAvailable = false
     profileReason = null
@@ -270,6 +273,9 @@
         },
         abortController.signal,
         params,
+        (progress) => {
+          streamProgress = progress
+        },
       )
     } catch (e: any) {
       // AbortError is expected on cancel
@@ -805,6 +811,7 @@ WHERE user_id = {'{user_id:UInt64}'}
       {streamChunks}
       {streamStartedAt}
       {streamLastChunkAt}
+      progress={streamProgress}
       planNodes={planNodes}
       planLines={planLines}
       planSource={planSource}

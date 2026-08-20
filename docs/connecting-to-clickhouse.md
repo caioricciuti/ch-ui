@@ -55,3 +55,32 @@ outbound WebSocket to the CH-UI server. See the
 
 Both are first-class — the tunnel is a zero-exposure convenience, not a sign that
 the reverse-proxy model is unsupported.
+
+## ClickHouse grants used by the editor
+
+The editor shows live progress for a running query — elapsed time, percent
+complete, rows and bytes read, read throughput — and keeps the readout with the
+final numbers once the query finishes. The numbers are sampled from
+`system.processes` every 300 ms by the agent, using the credentials of the
+signed-in user:
+
+```sql
+GRANT SELECT ON system.processes TO your_user;
+```
+
+Progress is not limited to `SELECT`: statements that do their work while the
+connection is open report it too, such as `INSERT ... SELECT` and `OPTIMIZE
+TABLE ... FINAL`. Mutations (`ALTER TABLE ... UPDATE`/`DELETE`) are the
+exception — ClickHouse accepts the statement and runs the mutation in the
+background, so the readout covers only the statement itself; follow the mutation
+in `system.mutations`.
+
+The grant is optional. Without it the samples fail, the progress readout stays
+empty, and queries run exactly as before — the final row count, elapsed time and
+rows/bytes read still come from ClickHouse's response summary. The samples are
+run with `log_queries=0`, so they never appear in `system.query_log`, query
+history or Query Insights.
+
+Cancelling a query in the editor issues `KILL QUERY` for that query's
+`query_id`. A user can always kill their own queries, so no extra grant is
+needed.
