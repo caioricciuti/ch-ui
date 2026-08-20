@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   panel shows elapsed time, percent complete, rows and bytes read, and read
   throughput — the numbers ClickHouse's own `/play` reports. Progress is sampled
   from `system.processes` (300 ms) and streamed to the browser as `progress`
-  messages on the existing NDJSON query stream. Statements that work while the
+  messages on the existing NDJSON query stream. A user without `SELECT` on
+  `system.processes` gets no live readout and no errors: the first refused
+  sample stops sampling for that query. Statements that work while the
   connection is open report progress too (`INSERT ... SELECT`, `OPTIMIZE TABLE
   ... FINAL`); mutations still run in the background, so their readout covers
   only the statement.

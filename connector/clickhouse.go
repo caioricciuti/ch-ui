@@ -326,7 +326,13 @@ func (c *CHClient) watchProgress(ctx context.Context, queryID, user, password st
 		case <-ticker.C:
 		}
 
-		p, ok := c.fetchProgress(ctx, queryID, user, password)
+		p, ok, denied := c.fetchProgress(ctx, queryID, user, password)
+		if denied {
+			// The user may not read system.processes, and that will not change
+			// while this query runs. Stop sampling instead of failing three
+			// times a second for the rest of the query.
+			return
+		}
 		if !ok {
 			// The row is gone the moment the query finishes; keep sampling in
 			// case this was a transient failure and the query is still running.
@@ -341,9 +347,10 @@ func (c *CHClient) watchProgress(ctx context.Context, queryID, user, password st
 }
 
 // fetchProgress reads one progress snapshot for queryID from system.processes.
-// The second return value is false when no snapshot is available (query not
-// running, no permission, sample failed).
-func (c *CHClient) fetchProgress(ctx context.Context, queryID, user, password string) (QueryProgress, bool) {
+// The second return value is false when no snapshot is available (the query is
+// not running any more, or the sample failed). The third is true when the
+// server refused the read, which no amount of retrying will fix.
+func (c *CHClient) fetchProgress(ctx context.Context, queryID, user, password string) (QueryProgress, bool, bool) {
 	var p QueryProgress
 
 	sampleCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -356,14 +363,14 @@ func (c *CHClient) fetchProgress(ctx context.Context, queryID, user, password st
 	// polling does not pollute the user's own query history or insights.
 	raw, err := c.ExecuteRaw(sampleCtx, sql, user, password, "JSONCompact", map[string]string{"log_queries": "0"})
 	if err != nil {
-		return p, false
+		return p, false, isProgressDenied(err)
 	}
 
 	var resp struct {
 		Data [][]json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil || len(resp.Data) == 0 || len(resp.Data[0]) < 5 {
-		return p, false
+		return p, false, false
 	}
 
 	row := resp.Data[0]
@@ -372,7 +379,32 @@ func (c *CHClient) fetchProgress(ctx context.Context, queryID, user, password st
 	p.TotalRows = jsonUint(row[2])
 	p.MemoryUsage = int64(jsonUint(row[3]))
 	p.Elapsed = jsonFloat(row[4])
-	return p, true
+	return p, true, false
+}
+
+// isProgressDenied reports whether ClickHouse refused the progress read for a
+// reason that will not change mid-query: the user lacks the grant on
+// system.processes, or the table is not exposed at all. Anything else (a
+// dropped connection, a timeout) is treated as transient and retried.
+func isProgressDenied(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	for _, marker := range []string{
+		"ACCESS_DENIED",
+		"Not enough privileges",
+		"NOT_ENOUGH_PRIVILEGES",
+		"UNKNOWN_TABLE",
+		"UNKNOWN_DATABASE",
+		"readonly mode",
+		"READONLY",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // jsonUint parses a JSON number that ClickHouse may have quoted (UInt64 values

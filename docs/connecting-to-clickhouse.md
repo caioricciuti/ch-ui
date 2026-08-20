@@ -75,8 +75,8 @@ exception — ClickHouse accepts the statement and runs the mutation in the
 background, so the readout covers only the statement itself; follow the mutation
 in `system.mutations`.
 
-The grant is optional. Without it the samples fail, the progress readout stays
-empty, and queries run exactly as before — the final row count, elapsed time and
+The grant is optional. Without it the first sample is refused, sampling stops
+for that query, the live readout stays empty, and queries run exactly as before — the final row count, elapsed time and
 rows/bytes read still come from ClickHouse's response summary. The samples are
 run with `log_queries=0`, so they never appear in `system.query_log`, query
 history or Query Insights.

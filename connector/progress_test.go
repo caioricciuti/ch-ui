@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -83,9 +84,12 @@ func TestFetchProgress(t *testing.T) {
 	defer srv.Close()
 
 	c := NewCHClient(srv.URL, false)
-	p, ok := c.fetchProgress(context.Background(), "abc-123", "default", "")
+	p, ok, denied := c.fetchProgress(context.Background(), "abc-123", "default", "")
 	if !ok {
 		t.Fatal("expected a progress snapshot")
+	}
+	if denied {
+		t.Error("a successful sample must not report a denial")
 	}
 	want := QueryProgress{ReadRows: 1024, ReadBytes: 8192, TotalRows: 4096, MemoryUsage: 512, Elapsed: 1.25}
 	if p != want {
@@ -103,8 +107,12 @@ func TestFetchProgressNoRunningQuery(t *testing.T) {
 	defer srv.Close()
 
 	c := NewCHClient(srv.URL, false)
-	if _, ok := c.fetchProgress(context.Background(), "gone", "default", ""); ok {
+	_, ok, denied := c.fetchProgress(context.Background(), "gone", "default", "")
+	if ok {
 		t.Error("expected no snapshot when the query is not running")
+	}
+	if denied {
+		t.Error("a finished query is not a permission problem — sampling must keep going")
 	}
 }
 
@@ -117,8 +125,100 @@ func TestFetchProgressDeniedIsSilent(t *testing.T) {
 	defer srv.Close()
 
 	c := NewCHClient(srv.URL, false)
-	if _, ok := c.fetchProgress(context.Background(), "denied", "reader", ""); ok {
+	_, ok, denied := c.fetchProgress(context.Background(), "denied", "reader", "")
+	if ok {
 		t.Error("expected no snapshot when system.processes is denied")
+	}
+	if !denied {
+		t.Error("a privilege error must be reported as denied so sampling stops")
+	}
+}
+
+func TestIsProgressDenied(t *testing.T) {
+	denied := []string{
+		"ClickHouse error: Code: 497. DB::Exception: u: Not enough privileges. (ACCESS_DENIED)",
+		"ClickHouse error: Code: 60. DB::Exception: Unknown table system.processes. (UNKNOWN_TABLE)",
+		"ClickHouse error: Code: 164. DB::Exception: Cannot modify 'log_queries' setting in readonly mode. (READONLY)",
+	}
+	for _, msg := range denied {
+		if !isProgressDenied(errors.New(msg)) {
+			t.Errorf("expected denial for %q", msg)
+		}
+	}
+
+	transient := []string{
+		"request failed: dial tcp 127.0.0.1:8123: connect: connection refused",
+		"request failed: context deadline exceeded",
+		"failed to read response: unexpected EOF",
+	}
+	for _, msg := range transient {
+		if isProgressDenied(errors.New(msg)) {
+			t.Errorf("expected retry for %q", msg)
+		}
+	}
+	if isProgressDenied(nil) {
+		t.Error("nil error is not a denial")
+	}
+}
+
+func TestExecuteStreamingStopsSamplingWhenDenied(t *testing.T) {
+	var mu sync.Mutex
+	samples := 0
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := make([]byte, r.ContentLength)
+		r.Body.Read(body)
+		query := string(body)
+
+		switch {
+		case strings.Contains(query, "system.processes"):
+			mu.Lock()
+			samples++
+			mu.Unlock()
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte("Code: 497. DB::Exception: reader: Not enough privileges. (ACCESS_DENIED)"))
+
+		case strings.Contains(query, "LIMIT 0"):
+			w.Write([]byte(`{"meta":[{"name":"number","type":"UInt64"}],"data":[],"rows":0}`))
+
+		default:
+			flusher := w.(http.Flusher)
+			w.Write([]byte("[1]\n"))
+			flusher.Flush()
+			// Long enough for several sampling intervals to elapse.
+			time.Sleep(1500 * time.Millisecond)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewCHClient(srv.URL, false)
+
+	var progressCalls int
+	_, rows, err := c.ExecuteStreaming(
+		context.Background(),
+		"stream-denied",
+		"SELECT number FROM numbers(1)",
+		"reader", "",
+		1,
+		nil,
+		func(json.RawMessage) error { return nil },
+		func(int, json.RawMessage) error { return nil },
+		func(QueryProgress) { progressCalls++ },
+	)
+	if err != nil {
+		t.Fatalf("a denied progress read must not fail the query: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("rows = %d, want 1", rows)
+	}
+	if progressCalls != 0 {
+		t.Errorf("progress callbacks = %d, want 0", progressCalls)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if samples != 1 {
+		t.Errorf("sampled system.processes %d times, want exactly 1 before giving up", samples)
 	}
 }
 
