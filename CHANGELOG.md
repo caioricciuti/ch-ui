@@ -5,7 +5,7 @@ All notable changes to CH-UI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.8.0] - 2026-08-23
 
 ### Added
 
@@ -32,6 +32,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cancelling a query (or closing the tab) now stops it on ClickHouse. The agent
   tags every streamed query with a `query_id`, and an abandoned stream is killed
   with `KILL QUERY` instead of being left to run to completion unattended.
+- Metadata probe for SELECT queries now wraps the statement as
+  `SELECT * FROM (query) LIMIT 0` instead of rewriting the `LIMIT` clause
+  textually (#139). Immune to `LIMIT` expressions (`10*2`), `WITH TIES`, and
+  negative limits with unusual spacing. Non-wrappable statements (`SHOW`,
+  `DESCRIBE`) keep the textual path. Suggested by @mywalcoin-gif.
+
+### Security
+
+- Go toolchain bumped to 1.25.14: govulncheck flagged six standard-library
+  vulnerabilities in 1.25.12 (`net/http`, `crypto/tls`, `net/url`,
+  `encoding/xml`, `encoding/asn1`).
+- Dependency bumps: chi 5.3.2, minio-go 7.3.0, golang.org/x/crypto 0.55.0,
+  modernc.org/sqlite 1.57.0, docker/login-action 4.6.0.
 
 ## [2.7.0] - 2026-08-13
 
@@ -284,6 +297,7 @@ best features live here, behind the same offline-verified Pro license.
 - Cluster Health (Pro): operations and database monitoring.
 - Result filters and ClickHouse error parsing in the query results view.
 
+[2.8.0]: https://github.com/caioricciuti/ch-ui/compare/v2.7.0...v2.8.0
 [2.5.3]: https://github.com/caioricciuti/ch-ui/compare/v2.5.2...v2.5.3
 [2.5.2]: https://github.com/caioricciuti/ch-ui/compare/v2.5.1...v2.5.2
 [2.5.1]: https://github.com/caioricciuti/ch-ui/compare/v2.5.0...v2.5.1
