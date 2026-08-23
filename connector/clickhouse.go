@@ -454,10 +454,33 @@ var (
 // (LIMIT -10 means "all but the last 10 rows" since ClickHouse 25.x).
 var metaLimitRe = regexp.MustCompile(`(?i)\bLIMIT\s+-?\d+(\s*,\s*-?\d+)?(\s+OFFSET\s+-?\d+)?`)
 
+// metaWrapRe matches statement kinds that can safely live inside an outer
+// SELECT * FROM (...): SELECT, WITH, and parenthesized queries.
+// The caller passes the query with leading whitespace/comments already stripped.
+var metaWrapRe = regexp.MustCompile(`(?is)^\s*(?:SELECT|WITH)\b|^\s*\(`)
+
+// metaSkipRe strips leading whitespace and whole-line -- comments so the
+// statement kind can be detected regardless of how the query was formatted.
+var metaSkipRe = regexp.MustCompile(`(?s)^(?:\s|--[^\n]*\n)*`)
+
 // buildMetaQuery rewrites a query to return zero rows so column metadata can be
 // fetched cheaply before streaming the real result.
+//
+// SELECT / WITH / parenthesized statements are wrapped in an outer subquery
+// (SELECT * FROM (<query>) LIMIT 0). Wrapping is immune to the whole tail of
+// textual cases a LIMIT rewrite keeps missing — LIMIT with an expression like
+// 10*2, WITH TIES, negative limits/offsets, odd whitespace and comment
+// placement — and ClickHouse short-circuits the outer LIMIT 0 to just the
+// header anyway.
+//
+// Statements that cannot live inside a subquery (SHOW, DESCRIBE, INSERT, ...)
+// keep the textual rewrite path.
 func buildMetaQuery(query string) string {
 	trimmed := strings.TrimRight(query, "; \n\t")
+	head := metaSkipRe.ReplaceAllString(trimmed, "")
+	if metaWrapRe.MatchString(head) {
+		return "SELECT * FROM (\n" + trimmed + "\n) LIMIT 0"
+	}
 	if metaLimitRe.MatchString(trimmed) {
 		return metaLimitRe.ReplaceAllString(trimmed, "LIMIT 0")
 	}
