@@ -860,6 +860,15 @@ func (h *QueryHandler) StreamQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	defer h.Gateway.CleanupStream(session.ConnectionID, requestID)
 
+	// The browser aborts the fetch when the user cancels a query or closes the
+	// tab. Tell the agent so ClickHouse stops working on a result nobody wants.
+	streamFinished := false
+	defer func() {
+		if !streamFinished {
+			h.Gateway.CancelStreamQuery(session.ConnectionID, requestID)
+		}
+	}()
+
 	// Record exactly one history entry per dispatched query. The deferred call
 	// covers client disconnects (ctx.Done) — the query still ran on ClickHouse,
 	// and a cancelled long query is exactly what users look for in history.
@@ -895,7 +904,9 @@ func (h *QueryHandler) StreamQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read chunks until channel is closed or client disconnects
+	// Read chunks until channel is closed or client disconnects. Progress
+	// snapshots are interleaved so a query that emits no rows until it finishes
+	// still reports rows read and throughput while it runs.
 	seq := 0
 	for {
 		select {
@@ -906,6 +917,9 @@ func (h *QueryHandler) StreamQuery(w http.ResponseWriter, r *http.Request) {
 			enc.Encode(map[string]interface{}{"type": "chunk", "data": chunk, "seq": seq})
 			flusher.Flush()
 			seq++
+		case progress := <-stream.ProgressCh:
+			enc.Encode(map[string]interface{}{"type": "progress", "progress": progress})
+			flusher.Flush()
 		case <-ctx.Done():
 			return
 		}
@@ -915,6 +929,7 @@ streamDone:
 	// ChunkCh closed — read final done or error
 	select {
 	case donePayload := <-stream.DoneCh:
+		streamFinished = true
 		var done tunnel.StreamDone
 		json.Unmarshal(donePayload, &done)
 		enc.Encode(map[string]interface{}{
@@ -925,6 +940,7 @@ streamDone:
 		flusher.Flush()
 		recordHistory("success", "", done.TotalRows)
 	case err := <-stream.ErrorCh:
+		streamFinished = true
 		enc.Encode(map[string]interface{}{"type": "error", "error": err.Error()})
 		flusher.Flush()
 		recordHistory("error", err.Error(), 0)

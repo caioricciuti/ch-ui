@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ColumnMeta, QueryStats } from '../../types/query'
-  import { formatNumber, formatElapsed, formatBytes } from '../../utils/format'
+  import { formatNumber, formatElapsed } from '../../utils/format'
   import {
     generateCSV,
     generateTSV,
@@ -159,14 +159,8 @@
       <span>{formatNumber(streamRows)} streamed</span>
       <span>{formatNumber(streamChunks)} chunks</span>
     {/if}
-    {#if stats}
-      {#if stats.rows_read}
-        <span>{formatNumber(stats.rows_read)} read</span>
-      {/if}
-      {#if stats.bytes_read}
-        <span>{formatBytes(stats.bytes_read)}</span>
-      {/if}
-    {/if}
+    <!-- Rows and bytes read live in the progress readout above the results, so
+         they are not repeated here. -->
   </div>
 
   <!-- Result filters toggle -->

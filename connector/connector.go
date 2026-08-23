@@ -40,6 +40,19 @@ type Connector struct {
 
 	// Reconnection
 	reconnectDelay time.Duration
+
+	// In-flight streaming queries, so a cancel from the server can stop the
+	// query on ClickHouse instead of leaving it running unattended.
+	streamsMu sync.Mutex
+	streams   map[string]*inFlightStream
+}
+
+// inFlightStream tracks what is needed to stop a streaming query: the context
+// that aborts the local HTTP read, plus the credentials to issue KILL QUERY.
+type inFlightStream struct {
+	cancel   context.CancelFunc
+	user     string
+	password string
 }
 
 // New creates a new Connector instance
@@ -51,6 +64,7 @@ func New(cfg *config.Config, u *ui.UI) *Connector {
 		ui:             u,
 		chClient:       NewCHClient(cfg.ClickHouseURL, cfg.InsecureSkipVerify),
 		reconnectDelay: cfg.ReconnectDelay,
+		streams:        make(map[string]*inFlightStream),
 		ctx:            ctx,
 		cancel:         cancel,
 		done:           make(chan struct{}),
@@ -302,7 +316,7 @@ func (c *Connector) handleMessage(msg GatewayMessage) {
 		go c.testConnection(msg)
 
 	case MsgTypeCancelQuery:
-		c.ui.Debug("Cancel query requested for %s (not implemented)", msg.QueryID)
+		c.cancelStream(msg.QueryID)
 
 	default:
 		c.ui.Debug("Unknown message type: %s", msg.Type)
@@ -377,12 +391,53 @@ func (c *Connector) executeQuery(msg GatewayMessage) {
 	})
 }
 
+// registerStream stores the cancel function of a streaming query and returns a
+// context that is cancelled when the server abandons the query.
+func (c *Connector) registerStream(queryID, user, password string) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(c.ctx)
+
+	c.streamsMu.Lock()
+	c.streams[queryID] = &inFlightStream{cancel: cancel, user: user, password: password}
+	c.streamsMu.Unlock()
+
+	return ctx, func() {
+		c.streamsMu.Lock()
+		delete(c.streams, queryID)
+		c.streamsMu.Unlock()
+		cancel()
+	}
+}
+
+// cancelStream stops an in-flight streaming query: it aborts the local read and
+// asks ClickHouse to kill the query, which also ends progress sampling.
+func (c *Connector) cancelStream(queryID string) {
+	c.streamsMu.Lock()
+	stream, ok := c.streams[queryID]
+	delete(c.streams, queryID)
+	c.streamsMu.Unlock()
+
+	if !ok {
+		c.ui.Debug("Cancel for unknown query %s (already finished)", queryID)
+		return
+	}
+
+	c.ui.Debug("Cancelling query %s", queryID)
+	stream.cancel()
+
+	if err := c.chClient.KillQuery(c.ctx, queryID, stream.user, stream.password); err != nil {
+		c.ui.Debug("KILL QUERY for %s failed: %v", queryID, err)
+	}
+}
+
 func (c *Connector) executeStreamQuery(msg GatewayMessage) {
 	start := time.Now()
 	queryID := msg.QueryID
 	sql := msg.Query
 
 	c.ui.Debug("Stream query %s: %s", queryID, truncateStr(sql, 80))
+
+	queryCtx, releaseStream := c.registerStream(queryID, msg.User, msg.Password)
+	defer releaseStream()
 
 	// Send chunks as they arrive
 	onMeta := func(meta json.RawMessage) error {
@@ -402,10 +457,34 @@ func (c *Connector) executeStreamQuery(msg GatewayMessage) {
 		})
 	}
 
-	_, totalRows, err := c.chClient.ExecuteStreaming(c.ctx, sql, msg.User, msg.Password, 5000, msg.Settings, onMeta, onChunk)
+	// Progress is sampled on a background goroutine; the last snapshot also
+	// supplies the rows/bytes read reported when the stream ends.
+	var progressMu sync.Mutex
+	var lastProgress QueryProgress
+	onProgress := func(p QueryProgress) {
+		progressMu.Lock()
+		lastProgress = p
+		progressMu.Unlock()
+
+		snapshot := p
+		if err := c.send(AgentMessage{
+			Type:     MsgTypeQueryStreamProgress,
+			QueryID:  queryID,
+			Progress: &snapshot,
+		}); err != nil {
+			c.ui.Debug("Failed to send progress for %s: %v", queryID, err)
+		}
+	}
+
+	summary, totalRows, err := c.chClient.ExecuteStreaming(queryCtx, queryID, sql, msg.User, msg.Password, 5000, msg.Settings, onMeta, onChunk, onProgress)
 	elapsed := time.Since(start)
 
 	if err != nil {
+		// A cancelled query is expected, not a failure to report back.
+		if queryCtx.Err() != nil {
+			c.ui.Debug("Stream query %s cancelled after %s", queryID, elapsed)
+			return
+		}
 		c.ui.QueryError(queryID, err)
 		c.send(AgentMessage{
 			Type:    MsgTypeQueryStreamError,
@@ -419,12 +498,31 @@ func (c *Connector) executeStreamQuery(msg GatewayMessage) {
 	c.lastQueryTime.Store(time.Now().UnixNano())
 	c.ui.QueryLog(queryID, elapsed, int(totalRows))
 
+	progressMu.Lock()
+	final := lastProgress
+	progressMu.Unlock()
+
+	// Both numbers are snapshots of counters that only grow, so the larger one
+	// is the later one: the summary header is exact for queries that emit their
+	// output at the end, the last sample is closer for queries that stream rows.
+	rowsRead, bytesRead := final.ReadRows, final.ReadBytes
+	if summary != nil {
+		if summary.ReadRows > rowsRead {
+			rowsRead = summary.ReadRows
+		}
+		if summary.ReadBytes > bytesRead {
+			bytesRead = summary.ReadBytes
+		}
+	}
+
 	c.send(AgentMessage{
 		Type:      MsgTypeQueryStreamEnd,
 		QueryID:   queryID,
 		TotalRows: totalRows,
 		Stats: &QueryStats{
-			Elapsed: elapsed.Seconds(),
+			Elapsed:   elapsed.Seconds(),
+			RowsRead:  rowsRead,
+			BytesRead: bytesRead,
 		},
 	})
 }

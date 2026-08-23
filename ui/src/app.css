@@ -430,3 +430,26 @@ pre,
   .prose-panel em { @apply italic; }
   .prose-panel img { @apply rounded-lg max-w-full my-2; }
 }
+
+/* Indeterminate query-progress sweep: used while a running query reports no
+   total row estimate, so the bar cannot show a real percentage. */
+@keyframes query-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.animate-query-sweep {
+  animation: query-sweep 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-query-sweep {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}

@@ -3,6 +3,7 @@ package tunnel
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -178,10 +179,11 @@ func (g *Gateway) ExecuteStreamQuery(connectionID, sql, user, password string, s
 
 	requestID = uuid.NewString()
 	stream = &PendingStreamRequest{
-		MetaCh:  make(chan json.RawMessage, 1),
-		ChunkCh: make(chan json.RawMessage, 8),
-		DoneCh:  make(chan json.RawMessage, 1),
-		ErrorCh: make(chan error, 1),
+		MetaCh:     make(chan json.RawMessage, 1),
+		ChunkCh:    make(chan json.RawMessage, 8),
+		ProgressCh: make(chan json.RawMessage, 1),
+		DoneCh:     make(chan json.RawMessage, 1),
+		ErrorCh:    make(chan error, 1),
 	}
 	t.Pending.Store(requestID, stream)
 
@@ -206,6 +208,29 @@ func (g *Gateway) ExecuteStreamQuery(connectionID, sql, user, password string, s
 	}
 
 	return requestID, stream, nil
+}
+
+// CancelStreamQuery tells the agent to abort a streaming query it is still
+// running, so a query the user cancelled stops consuming ClickHouse resources.
+func (g *Gateway) CancelStreamQuery(connectionID, requestID string) {
+	val, ok := g.tunnels.Load(connectionID)
+	if !ok {
+		return
+	}
+	t := val.(*ConnectedTunnel)
+
+	data, _ := json.Marshal(GatewayMessage{
+		Type:    "cancel_query",
+		ID:      requestID,
+		QueryID: requestID,
+	})
+
+	t.mu.Lock()
+	err := t.WS.WriteMessage(websocket.TextMessage, data)
+	t.mu.Unlock()
+	if err != nil {
+		slog.Debug("Failed to send query cancellation", "request_id", requestID, "error", err)
+	}
 }
 
 // CleanupStream removes a pending stream request from the tunnel's pending map.

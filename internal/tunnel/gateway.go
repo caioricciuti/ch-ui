@@ -82,10 +82,11 @@ type PendingRequest struct {
 
 // PendingStreamRequest represents a streaming query waiting for chunked responses.
 type PendingStreamRequest struct {
-	MetaCh  chan json.RawMessage // receives query_stream_start meta
-	ChunkCh chan json.RawMessage // receives query_stream_chunk data (buffered)
-	DoneCh  chan json.RawMessage // receives query_stream_end statistics
-	ErrorCh chan error
+	MetaCh     chan json.RawMessage // receives query_stream_start meta
+	ChunkCh    chan json.RawMessage // receives query_stream_chunk data (buffered)
+	ProgressCh chan json.RawMessage // receives query_stream_progress snapshots (latest wins)
+	DoneCh     chan json.RawMessage // receives query_stream_end statistics
+	ErrorCh    chan error
 }
 
 // ConnectedTunnel represents an active tunnel agent connection.
@@ -209,6 +210,9 @@ func (g *Gateway) readLoop(conn *websocket.Conn) {
 
 		case "query_stream_chunk":
 			g.handleStreamChunk(connID, &msg)
+
+		case "query_stream_progress":
+			g.handleStreamProgress(connID, &msg)
 
 		case "query_stream_end":
 			g.handleStreamEnd(connID, &msg)
@@ -474,6 +478,45 @@ func (g *Gateway) handleStreamChunk(connID string, msg *AgentMessage) {
 	}
 
 	pending.ChunkCh <- msg.Data // backpressure: blocks if consumer is slow
+}
+
+// handleStreamProgress forwards a progress snapshot to the waiting HTTP handler.
+// Snapshots are disposable: if the consumer has not picked up the previous one,
+// it is dropped so a slow reader can never stall the agent's socket.
+func (g *Gateway) handleStreamProgress(connID string, msg *AgentMessage) {
+	id := msg.GetMessageID()
+	if connID == "" || id == "" || len(msg.Progress) == 0 {
+		return
+	}
+
+	val, ok := g.tunnels.Load(connID)
+	if !ok {
+		return
+	}
+	t := val.(*ConnectedTunnel)
+
+	pendingVal, ok := t.Pending.Load(id)
+	if !ok {
+		return
+	}
+	pending, ok := pendingVal.(*PendingStreamRequest)
+	if !ok || pending.ProgressCh == nil {
+		return
+	}
+
+	select {
+	case pending.ProgressCh <- msg.Progress:
+	default:
+		// Replace the stale snapshot with this newer one when possible.
+		select {
+		case <-pending.ProgressCh:
+		default:
+		}
+		select {
+		case pending.ProgressCh <- msg.Progress:
+		default:
+		}
+	}
 }
 
 func (g *Gateway) handleStreamEnd(connID string, msg *AgentMessage) {

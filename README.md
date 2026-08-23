@@ -65,6 +65,9 @@ Everything below is included in the free Community edition under Apache 2.0.
 - CodeMirror 6 with SQL syntax highlighting and autocomplete
 - Query formatting and beautification
 - Streaming results via SSE — no timeout on long queries
+- **Live query progress** — elapsed time, percent complete, rows/bytes read and
+  read throughput while the query is still running (needs `SELECT` on
+  `system.processes`)
 - **Query cost estimation** — see estimated rows and parts to scan before running (like BigQuery's dry run)
 - Query profiling (pulls from `system.query_log`) with estimate vs actual accuracy comparison
 - Query plan analysis (EXPLAIN with parsed tree view)

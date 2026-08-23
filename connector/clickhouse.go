@@ -277,17 +277,217 @@ type StreamChunk struct {
 	Data json.RawMessage `json:"data"` // JSON array of arrays: [[v1,v2],[v3,v4],...]
 }
 
+// QueryProgress is a point-in-time snapshot of a running query, sampled from
+// system.processes while the query streams. Zero values mean "not reported":
+// total_rows_approx is 0 for sources ClickHouse cannot size up front.
+type QueryProgress struct {
+	ReadRows    uint64  `json:"read_rows"`
+	ReadBytes   uint64  `json:"read_bytes"`
+	TotalRows   uint64  `json:"total_rows"`
+	MemoryUsage int64   `json:"memory_usage"`
+	Elapsed     float64 `json:"elapsed"`
+}
+
+// progressPollInterval is how often system.processes is sampled for a running
+// query. Each sample is a sub-millisecond system-table read.
+const progressPollInterval = 300 * time.Millisecond
+
+// isSafeQueryID reports whether an ID can be embedded in SQL as-is. Gateway IDs
+// are UUIDs; anything else is refused rather than escaped, so the progress query
+// can never carry a payload.
+func isSafeQueryID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// watchProgress samples a running query's progress until ctx is cancelled,
+// calling onProgress for every snapshot that differs from the previous one.
+// Progress is best-effort: a user without access to system.processes, or a
+// balancer that routes the sample to another node, simply gets no updates.
+func (c *CHClient) watchProgress(ctx context.Context, queryID, user, password string, onProgress func(QueryProgress)) {
+	ticker := time.NewTicker(progressPollInterval)
+	defer ticker.Stop()
+
+	var last QueryProgress
+	seen := false
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		p, ok, denied := c.fetchProgress(ctx, queryID, user, password)
+		if denied {
+			// The user may not read system.processes, and that will not change
+			// while this query runs. Stop sampling instead of failing three
+			// times a second for the rest of the query.
+			return
+		}
+		if !ok {
+			// The row is gone the moment the query finishes; keep sampling in
+			// case this was a transient failure and the query is still running.
+			continue
+		}
+		if seen && p == last {
+			continue
+		}
+		last, seen = p, true
+		onProgress(p)
+	}
+}
+
+// fetchProgress reads one progress snapshot for queryID from system.processes.
+// The second return value is false when no snapshot is available (the query is
+// not running any more, or the sample failed). The third is true when the
+// server refused the read, which no amount of retrying will fix.
+func (c *CHClient) fetchProgress(ctx context.Context, queryID, user, password string) (QueryProgress, bool, bool) {
+	var p QueryProgress
+
+	sampleCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	sql := "SELECT read_rows, read_bytes, total_rows_approx, memory_usage, elapsed" +
+		" FROM system.processes WHERE query_id = '" + queryID + "'"
+
+	// log_queries=0 keeps the samples out of system.query_log so progress
+	// polling does not pollute the user's own query history or insights.
+	raw, err := c.ExecuteRaw(sampleCtx, sql, user, password, "JSONCompact", map[string]string{"log_queries": "0"})
+	if err != nil {
+		return p, false, isProgressDenied(err)
+	}
+
+	var resp struct {
+		Data [][]json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil || len(resp.Data) == 0 || len(resp.Data[0]) < 5 {
+		return p, false, false
+	}
+
+	row := resp.Data[0]
+	p.ReadRows = jsonUint(row[0])
+	p.ReadBytes = jsonUint(row[1])
+	p.TotalRows = jsonUint(row[2])
+	p.MemoryUsage = int64(jsonUint(row[3]))
+	p.Elapsed = jsonFloat(row[4])
+	return p, true, false
+}
+
+// isProgressDenied reports whether ClickHouse refused the progress read for a
+// reason that will not change mid-query: the user lacks the grant on
+// system.processes, or the table is not exposed at all. Anything else (a
+// dropped connection, a timeout) is treated as transient and retried.
+func isProgressDenied(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	for _, marker := range []string{
+		"ACCESS_DENIED",
+		"Not enough privileges",
+		"NOT_ENOUGH_PRIVILEGES",
+		"UNKNOWN_TABLE",
+		"UNKNOWN_DATABASE",
+		"readonly mode",
+		"READONLY",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// jsonUint parses a JSON number that ClickHouse may have quoted (UInt64 values
+// are emitted as strings to survive JSON's 53-bit integer range).
+func jsonUint(raw json.RawMessage) uint64 {
+	n, err := strconv.ParseUint(strings.Trim(string(raw), `"`), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func jsonFloat(raw json.RawMessage) float64 {
+	f, err := strconv.ParseFloat(strings.Trim(string(raw), `"`), 64)
+	if err != nil {
+		return 0
+	}
+	return f
+}
+
+// KillQuery asks ClickHouse to stop a running query. Closing the HTTP request
+// is not enough on its own: a query that produces no output until it finishes
+// never writes to the socket, so it never notices the client is gone.
+func (c *CHClient) KillQuery(ctx context.Context, queryID, user, password string) error {
+	if !isSafeQueryID(queryID) {
+		return fmt.Errorf("unsafe query id")
+	}
+
+	killCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	sql := "KILL QUERY WHERE query_id = '" + queryID + "' ASYNC"
+	_, err := c.ExecuteRaw(killCtx, sql, user, password, "JSONCompact", map[string]string{"log_queries": "0"})
+	return err
+}
+
+// QuerySummary is ClickHouse's own accounting for a query, read from the
+// X-ClickHouse-Summary response header. The header is written when the response
+// headers are flushed, so it is exact for queries that produce their output at
+// the end (aggregations) and a partial snapshot for queries that stream rows.
+type QuerySummary struct {
+	ReadRows  uint64
+	ReadBytes uint64
+	ElapsedNS uint64
+}
+
+// parseSummary reads X-ClickHouse-Summary from a response header set.
+func parseSummary(h http.Header) (*QuerySummary, bool) {
+	raw := h.Get("X-ClickHouse-Summary")
+	if raw == "" {
+		return nil, false
+	}
+	var payload struct {
+		ReadRows  json.RawMessage `json:"read_rows"`
+		ReadBytes json.RawMessage `json:"read_bytes"`
+		ElapsedNS json.RawMessage `json:"elapsed_ns"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return nil, false
+	}
+	return &QuerySummary{
+		ReadRows:  jsonUint(payload.ReadRows),
+		ReadBytes: jsonUint(payload.ReadBytes),
+		ElapsedNS: jsonUint(payload.ElapsedNS),
+	}, true
+}
+
 // ExecuteStreaming runs a query using JSONCompactEachRow format, reading the response
 // line-by-line without buffering the entire result. It calls onMeta with column metadata,
-// then onChunk for each batch of chunkSize rows, and returns final statistics.
+// then onChunk for each batch of chunkSize rows, and returns ClickHouse's own
+// summary of the run (nil when the server did not report one).
+// When queryID is set and onProgress is non-nil, the query is tagged with that
+// query_id and onProgress receives live progress sampled from system.processes.
 func (c *CHClient) ExecuteStreaming(
 	ctx context.Context,
+	queryID string,
 	query, user, password string,
 	chunkSize int,
 	settings map[string]string,
 	onMeta func(meta json.RawMessage) error,
 	onChunk func(seq int, data json.RawMessage) error,
-) (*json.RawMessage, int64, error) {
+	onProgress func(p QueryProgress),
+) (*QuerySummary, int64, error) {
 	isWrite := isWriteQuery(query)
 	hasFormat := hasFormatClause(query)
 
@@ -334,6 +534,13 @@ func (c *CHClient) ExecuteStreaming(
 	params := url.Values{}
 	params.Set("default_format", "JSON")
 	params.Set("send_progress_in_http_headers", "0")
+	// Tagging the query lets us sample its progress from system.processes.
+	// ClickHouse reports progress as repeated HTTP header updates, which a Go
+	// client cannot read until the response ends, so sampling is what works.
+	trackProgress := onProgress != nil && isSafeQueryID(queryID)
+	if trackProgress {
+		params.Set("query_id", queryID)
+	}
 	// Pass settings as ClickHouse HTTP URL params for coarse server-side abort.
 	// max_result_rows + result_overflow_mode=break causes ClickHouse to stop at block
 	// granularity (~65k rows), preventing the server from doing unbounded work.
@@ -356,6 +563,13 @@ func (c *CHClient) ExecuteStreaming(
 	// Use a client without timeout for streaming (context controls cancellation)
 	// but share the configured transport for proper TLS and connection management.
 	streamClient := &http.Client{Transport: c.transport}
+
+	if trackProgress {
+		sampleCtx, stopSampling := context.WithCancel(ctx)
+		defer stopSampling()
+		go c.watchProgress(sampleCtx, queryID, user, password, onProgress)
+	}
+
 	resp, err := streamClient.Do(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("request failed: %w", err)
@@ -366,6 +580,11 @@ func (c *CHClient) ExecuteStreaming(
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, 0, fmt.Errorf("ClickHouse error: %s", string(body))
 	}
+
+	// ClickHouse reports its accounting in a response header, so it is available
+	// before the body is read. Rows that stream out make it a partial snapshot;
+	// the caller reconciles it with the sampled progress.
+	summary, _ := parseSummary(resp.Header)
 
 	// Read line by line, accumulate chunks
 	scanner := bufio.NewScanner(resp.Body)
@@ -420,9 +639,7 @@ func (c *CHClient) ExecuteStreaming(
 		}
 	}
 
-	// We don't get statistics from JSONCompactEachRow format directly.
-	// Return nil stats — the server can compute elapsed time itself.
-	return nil, totalRows, nil
+	return summary, totalRows, nil
 }
 
 // TestConnection verifies connectivity and returns the ClickHouse version

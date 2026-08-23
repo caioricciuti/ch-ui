@@ -28,6 +28,8 @@ type AgentMessage struct {
 	HostInfo  *HostInfo   `json:"host_info,omitempty"`  // Host machine metrics
 	Seq       int         `json:"seq,omitempty"`        // Chunk sequence number (for streaming)
 	TotalRows int64       `json:"total_rows,omitempty"` // Total row count (for streaming)
+
+	Progress *QueryProgress `json:"progress,omitempty"` // Live progress of a running query (for streaming)
 }
 
 // QueryStats contains query execution statistics
@@ -58,6 +60,9 @@ const (
 	MsgTypeHostInfo         = "host_info"
 	MsgTypeQueryStreamStart = "query_stream_start"
 	MsgTypeQueryStreamChunk = "query_stream_chunk"
-	MsgTypeQueryStreamEnd   = "query_stream_end"
-	MsgTypeQueryStreamError = "query_stream_error"
+	// MsgTypeQueryStreamProgress carries a progress snapshot of a query that is
+	// still running, so the UI can show rows read and throughput live.
+	MsgTypeQueryStreamProgress = "query_stream_progress"
+	MsgTypeQueryStreamEnd      = "query_stream_end"
+	MsgTypeQueryStreamError    = "query_stream_error"
 )

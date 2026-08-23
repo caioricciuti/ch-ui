@@ -1,15 +1,17 @@
 <script lang="ts">
-  import type { ColumnMeta, QueryPlanNode, QueryStats, QueryEstimateResult } from '../../types/query'
+  import type { ColumnMeta, QueryPlanNode, QueryStats, QueryEstimateResult, QueryProgress } from '../../types/query'
   import type { ColumnFilter, ResultSort } from '../../utils/result-filters'
   import { OPERATOR_LABELS, isUnaryOperator } from '../../utils/result-filters'
   import VirtualTable from '../table/VirtualTable.svelte'
   import Spinner from '../common/Spinner.svelte'
   import ResultFooter from './ResultFooter.svelte'
   import StatsPanel from './StatsPanel.svelte'
+  import QueryProgressBar from './QueryProgressBar.svelte'
   import SchemaPanel from './SchemaPanel.svelte'
   import InsightsPanel from './InsightsPanel.svelte'
   import { computeColumnStats } from '../../utils/stats'
   import { parseCHError } from '../../utils/ch-error'
+  import { formatNumber } from '../../utils/format'
   import { SquareTerminal, AlertTriangle, X, Filter, Lightbulb, Crosshair } from 'lucide-svelte'
 
   type Tab = 'data' | 'stats' | 'schema' | 'insights'
@@ -26,6 +28,8 @@
     streamChunks?: number
     streamStartedAt?: number | null
     streamLastChunkAt?: number | null
+    /** Live progress of the running query; null before the first snapshot. */
+    progress?: QueryProgress | null
     planNodes?: QueryPlanNode[]
     planLines?: string[]
     planSource?: string
@@ -70,6 +74,7 @@
     streamChunks = 0,
     streamStartedAt = null,
     streamLastChunkAt = null,
+    progress = null,
     planNodes = [],
     planLines = [],
     planSource = '',
@@ -119,6 +124,13 @@
 </script>
 
 <div class="flex flex-col flex-1 min-h-0">
+  <!-- Query progress and statistics (rows read, throughput, percent done) stay
+       above every state: live while the query runs, then as the final numbers
+       for the run — a query too short to report progress still shows them. -->
+  {#if running || stats}
+    <QueryProgressBar {progress} startedAt={streamStartedAt} {running} {stats} {elapsedMs} />
+  {/if}
+
   <!-- Active filters stay visible in every state (including errors from a
        server-side re-query) so a failing filter can always be removed. -->
   {#if filters.length > 0 || partialView}
@@ -156,6 +168,9 @@
     <div class="flex flex-col items-center justify-center flex-1 gap-2 text-gray-500">
       <Spinner size="sm" />
       <span class="text-sm">Executing query...</span>
+      {#if streamRows > 0}
+        <span class="text-xs text-gray-400 dark:text-gray-600 tabular-nums">{formatNumber(streamRows)} rows received</span>
+      {/if}
     </div>
   {:else if error && parsedError}
     <div class="flex-1 p-4 overflow-auto">

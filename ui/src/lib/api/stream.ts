@@ -1,5 +1,5 @@
 import { withBase } from '../basePath'
-import type { ColumnMeta, QueryStats, StreamMessage } from '../types/query'
+import type { ColumnMeta, QueryProgress, QueryStats, StreamMessage } from '../types/query'
 import { safeParse } from '../utils/safe-json'
 
 /** Execute a streaming query via NDJSON. Calls the provided callbacks as data arrives. */
@@ -12,6 +12,7 @@ export async function executeStreamQuery(
   onError: (error: string) => void,
   signal?: AbortSignal,
   params?: Record<string, string>,
+  onProgress?: (progress: QueryProgress) => void,
 ): Promise<void> {
   const res = await fetch(withBase('/api/query/stream'), {
     method: 'POST',
@@ -49,6 +50,9 @@ export async function executeStreamQuery(
             break
           case 'chunk':
             onChunk(msg.data, msg.seq)
+            break
+          case 'progress':
+            onProgress?.(msg.progress)
             break
           case 'done':
             onDone(msg.statistics, msg.total_rows)

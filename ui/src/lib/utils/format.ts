@@ -3,6 +3,25 @@ export function formatNumber(n: number): string {
   return n.toLocaleString()
 }
 
+/**
+ * Format a count compactly with a short scale suffix ("491.09B"), for progress
+ * readouts where the exact digits do not matter but the magnitude does.
+ */
+export function formatCompactNumber(n: number): string {
+  const abs = Math.abs(n)
+  if (abs < 1_000) return abs < 10 ? n.toFixed(abs % 1 === 0 ? 0 : 2) : n.toFixed(0)
+  const units: [number, string][] = [
+    [1e12, 'T'],
+    [1e9, 'B'],
+    [1e6, 'M'],
+    [1e3, 'K'],
+  ]
+  for (const [scale, suffix] of units) {
+    if (abs >= scale) return `${(n / scale).toFixed(2)}${suffix}`
+  }
+  return n.toFixed(0)
+}
+
 /** Format bytes to human readable (KB, MB, GB). Optional fixed decimal places. */
 export function formatBytes(bytes: number, decimals?: number): string {
   if (bytes === 0) return '0 B'

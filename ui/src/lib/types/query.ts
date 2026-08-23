@@ -19,6 +19,18 @@ export interface QueryStats {
   bytes_read: number
 }
 
+/**
+ * Live progress of a running query, sampled from system.processes.
+ * `total_rows` is ClickHouse's total_rows_approx and is 0 when unknown.
+ */
+export interface QueryProgress {
+  read_rows: number
+  read_bytes: number
+  total_rows: number
+  memory_usage: number
+  elapsed: number
+}
+
 /** Explorer data response (server-side paginated) */
 export interface ExplorerDataResponse {
   success: boolean
@@ -89,5 +101,6 @@ export interface QueryEstimateResult {
 export type StreamMessage =
   | { type: 'meta'; meta: ColumnMeta[] }
   | { type: 'chunk'; data: unknown[][]; seq: number }
+  | { type: 'progress'; progress: QueryProgress }
   | { type: 'done'; statistics?: QueryStats; total_rows: number }
   | { type: 'error'; error: string }
