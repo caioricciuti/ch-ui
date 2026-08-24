@@ -235,6 +235,9 @@
               {#if entry.status === 'success' && entry.rows_returned !== null}
                 <span>{formatNumber(entry.rows_returned)} rows</span>
               {/if}
+              {#if entry.source === 'mcp'}
+                <span class="px-1 py-px rounded text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300" title="Executed through the MCP server">MCP</span>
+              {/if}
 
               <div class="flex-1"></div>
 

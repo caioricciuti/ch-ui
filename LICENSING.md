@@ -42,6 +42,7 @@ Change Date, each version converts automatically to Apache 2.0.
 - `internal/scheduler/` — scheduled query jobs
 - `internal/alerts/` — alert rules and dispatch (SMTP/Resend/Brevo)
 - `internal/github/` — GitHub model sync
+- `internal/costs/` — Cost Center showback/chargeback analytics
 - `internal/license/` — the commercial licensing/entitlement machinery itself
 
 ### Pro files in shared packages
@@ -55,7 +56,9 @@ Change Date, each version converts automatically to Apache 2.0.
 - `internal/server/handlers/admin_governance.go`
 - `internal/server/handlers/clusterhealth.go`
 - `internal/server/handlers/queryinsights.go`
+- `internal/server/handlers/costs.go`
 - `internal/server/handlers/admin_github.go`
+- `internal/mcpserver/tools_pro.go` — Pro MCP tools (Query Insights, Cost Center)
 
 The corresponding Pro UI (the Svelte pages/components for Governance, Cluster
 Health, Query Insights, Schedules, and Alerts) is covered by the same BSL 1.1

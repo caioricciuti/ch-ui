@@ -21,6 +21,7 @@ type QueryHistoryEntry struct {
 	ErrorMessage *string `json:"error_message"`
 	ElapsedMS    *int64  `json:"elapsed_ms"`
 	RowsReturned *int64  `json:"rows_returned"`
+	Source       string  `json:"source"`
 	CreatedAt    string  `json:"created_at"`
 }
 
@@ -33,6 +34,8 @@ type CreateQueryHistoryParams struct {
 	ErrorMessage string
 	ElapsedMS    int64
 	RowsReturned int64
+	// Source is where the query came from: "editor" (default) or "mcp".
+	Source string
 }
 
 // CreateQueryHistoryEntry records a query execution and prunes old entries
@@ -41,9 +44,13 @@ func (db *DB) CreateQueryHistoryEntry(params CreateQueryHistoryParams) error {
 	id := uuid.NewString()
 	// Millisecond-precision timestamp: CURRENT_TIMESTAMP is second-resolution,
 	// which makes ordering (and prune victims) unstable for rapid runs.
+	source := params.Source
+	if source == "" {
+		source = "editor"
+	}
 	_, err := db.conn.Exec(
-		`INSERT INTO query_history (id, connection_id, clickhouse_user, query_text, status, error_message, elapsed_ms, rows_returned, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
+		`INSERT INTO query_history (id, connection_id, clickhouse_user, query_text, status, error_message, elapsed_ms, rows_returned, source, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
 		id,
 		nilIfEmpty(params.ConnectionID),
 		params.User,
@@ -52,6 +59,7 @@ func (db *DB) CreateQueryHistoryEntry(params CreateQueryHistoryParams) error {
 		nilIfEmpty(params.ErrorMessage),
 		params.ElapsedMS,
 		params.RowsReturned,
+		source,
 	)
 	if err != nil {
 		return fmt.Errorf("create query history entry: %w", err)
@@ -105,7 +113,7 @@ func (db *DB) GetQueryHistory(user, connectionID, search, status string, limit, 
 	}
 
 	query := fmt.Sprintf(
-		`SELECT id, connection_id, clickhouse_user, query_text, status, error_message, elapsed_ms, rows_returned, created_at
+		`SELECT id, connection_id, clickhouse_user, query_text, status, error_message, elapsed_ms, rows_returned, source, created_at
 		 FROM query_history WHERE %s
 		 ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
 		strings.Join(where, " AND "),
@@ -123,7 +131,7 @@ func (db *DB) GetQueryHistory(user, connectionID, search, status string, limit, 
 		var e QueryHistoryEntry
 		var connID, errMsg sql.NullString
 		var elapsed, rowsReturned sql.NullInt64
-		if err := rows.Scan(&e.ID, &connID, &e.User, &e.QueryText, &e.Status, &errMsg, &elapsed, &rowsReturned, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &connID, &e.User, &e.QueryText, &e.Status, &errMsg, &elapsed, &rowsReturned, &e.Source, &e.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan query history entry: %w", err)
 		}
 		e.ConnectionID = nullStringToPtr(connID)

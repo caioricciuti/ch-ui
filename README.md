@@ -144,6 +144,14 @@ Everything below is included in the free Community edition under Apache 2.0.
 - Connection health monitoring
 - Install connector as OS service (`ch-ui service install`)
 
+### MCP Server
+
+- Embedded [Model Context Protocol](https://modelcontextprotocol.io) server at `/mcp` (streamable HTTP), in the same binary
+- Connect Claude Code, claude.ai, or Cursor with a revocable `chm_` key; read-only tools for schema browsing, SELECT queries, and query plans
+- Server-side enforcement (`readonly`, row/time caps) + every AI query recorded in query history and the audit log
+- Pro: Query Insights and Cost Center exposed as structured tools
+- Docs: [docs/mcp.md](docs/mcp.md)
+
 ### Other
 
 - Dark mode

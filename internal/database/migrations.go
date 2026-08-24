@@ -12,7 +12,7 @@ import (
 // schemaVersion is the current database schema version. Bump it (date-based)
 // whenever schema-affecting migrations are added below. It is recorded in the
 // settings table after a successful migration run for upgrade observability.
-const schemaVersion = "2026.07.02"
+const schemaVersion = "2026.08.24"
 
 func (db *DB) runMigrations() error {
 	var prev string
@@ -870,6 +870,22 @@ func (db *DB) runMigrations() error {
 			updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(connection_id)
 		)`,
+		// ── MCP server keys ──────────────────────────────────────────────
+		`CREATE TABLE IF NOT EXISTS mcp_keys (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			key_hash TEXT NOT NULL UNIQUE,
+			key_prefix TEXT NOT NULL,
+			connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+			ch_user TEXT NOT NULL,
+			ch_password_enc TEXT NOT NULL,
+			allowed_databases TEXT NOT NULL DEFAULT '',
+			created_by TEXT NOT NULL DEFAULT '',
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			last_used_at TEXT,
+			revoked_at TEXT
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_mcp_keys_hash ON mcp_keys(key_hash)`,
 		`CREATE TABLE IF NOT EXISTS github_sync_logs (
 			id TEXT PRIMARY KEY,
 			connection_id TEXT NOT NULL,
@@ -999,6 +1015,10 @@ func (db *DB) runMigrations() error {
 		return err
 	}
 	if err := db.ensureColumn("connections", "clickhouse_url", "TEXT"); err != nil {
+		return err
+	}
+	// Where a query came from: 'editor' (default) or 'mcp'.
+	if err := db.ensureColumn("query_history", "source", "TEXT NOT NULL DEFAULT 'editor'"); err != nil {
 		return err
 	}
 	// Pre-existing embedded connections are direct by definition.

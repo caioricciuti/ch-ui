@@ -17,6 +17,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/embedded"
 	ghclient "github.com/caioricciuti/ch-ui/internal/github"
 	"github.com/caioricciuti/ch-ui/internal/governance"
+	"github.com/caioricciuti/ch-ui/internal/mcpserver"
 	"github.com/caioricciuti/ch-ui/internal/models"
 	"github.com/caioricciuti/ch-ui/internal/oidc"
 	"github.com/caioricciuti/ch-ui/internal/pipelines"
@@ -165,6 +166,14 @@ func (s *Server) setupRoutes() {
 	// ── WebSocket tunnel endpoint (agent authenticates via token) ────────
 	r.HandleFunc("/connect", gw.HandleWebSocket)
 
+	// ── Embedded MCP server (streamable HTTP; chm_ bearer keys) ──────────
+	r.Handle("/mcp", mcpserver.Handler(mcpserver.Deps{
+		DB:         db,
+		Gateway:    gw,
+		Config:     cfg,
+		Guardrails: s.guardrails,
+	}))
+
 	// ── Rate limiter (shared across handlers) ───────────────────────────
 	rateLimiter := middleware.NewRateLimiter(db)
 
@@ -267,6 +276,10 @@ func (s *Server) setupRoutes() {
 			protected.Route("/admin", func(ar chi.Router) {
 				adminHandler.Routes(ar)
 			})
+
+			// MCP key management (admin-only: keys carry CH credentials)
+			mcpKeysHandler := &handlers.MCPKeysHandler{DB: db, Config: cfg}
+			protected.With(middleware.RequireAdmin(db)).Route("/mcp-keys", mcpKeysHandler.Routes)
 
 			// ── Pro-only features ──────────────────────────────────────
 			protected.Group(func(pro chi.Router) {

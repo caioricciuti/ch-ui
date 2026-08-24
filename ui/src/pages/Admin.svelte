@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import MCPKeysPanel from '../lib/components/admin/MCPKeysPanel.svelte'
   import type { AdminStats } from '../lib/types/api'
   import { apiGet, apiPut, apiDel, apiPost, ApiError } from '../lib/api/client'
   import { formatDate } from '../lib/utils/format'
@@ -36,8 +37,8 @@
   import type { SSOSettings } from '../lib/api/sso'
 
   // Tab state
-  type AdminTab = 'overview' | 'tunnels' | 'users' | 'brain' | 'github'
-  const adminTabIds: AdminTab[] = ['overview', 'tunnels', 'users', 'brain', 'github']
+  type AdminTab = 'overview' | 'tunnels' | 'users' | 'brain' | 'github' | 'mcp'
+  const adminTabIds: AdminTab[] = ['overview', 'tunnels', 'users', 'brain', 'github', 'mcp']
   let activeTab = $state<AdminTab>('overview')
 
   type TunnelConnection = {
@@ -1106,7 +1107,7 @@
         <h1 class="ds-page-title">Admin Panel</h1>
       </div>
       <nav class="ds-tabs border-0 px-0 pt-0 gap-1 overflow-x-auto whitespace-nowrap" aria-label="Admin Tabs">
-        {#each [['overview', 'Overview'], ['tunnels', 'Connections'], ['users', 'Users'], ['brain', 'Brain'], ['github', 'GitHub']] as [key, label]}
+        {#each [['overview', 'Overview'], ['tunnels', 'Connections'], ['users', 'Users'], ['brain', 'Brain'], ['github', 'GitHub'], ['mcp', 'MCP Server']] as [key, label]}
           <button
             class="ds-tab {activeTab === key ? 'ds-tab-active' : ''}"
             onclick={() => switchTab(key as AdminTab)}
@@ -2417,6 +2418,9 @@ GROUP BY id</pre>
           </div>
         </div>
       {/if}
+
+    {:else if activeTab === 'mcp'}
+      <MCPKeysPanel />
 
     {/if}
   </div>

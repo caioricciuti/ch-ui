@@ -9,6 +9,7 @@ export interface QueryHistoryEntry {
   error_message: string | null
   elapsed_ms: number | null
   rows_returned: number | null
+  source?: string
   created_at: string
 }
 

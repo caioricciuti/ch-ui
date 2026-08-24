@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Embedded MCP server**: CH-UI now serves the Model Context Protocol over
+  streamable HTTP at `/mcp`, in the same binary. AI clients (Claude Code,
+  claude.ai custom connectors, Cursor) authenticate with revocable `chm_` keys
+  (SHA-256 at rest, admin-managed in Admin → MCP Server) that bind a
+  connection, a dedicated ClickHouse user, and an optional database allowlist.
+  Free tools: `list_databases`, `list_tables`, `describe_table`, `run_select`,
+  `explain_query`. Pro tools: `query_insights_top`, `costs_summary`. Safety is
+  server-side: forced `readonly=2`, row caps (default 100, max 2000), 60s
+  execution limit, a read-only statement gate, and governance guardrails (Pro).
+  Every MCP query is recorded in query history (tagged MCP) and the audit log
+  (`mcp.query.execute`), and carries `log_comment='ch-ui:mcp'`. See docs/mcp.md.
+- New dependency: `github.com/modelcontextprotocol/go-sdk` v1.7.0 (official MCP
+  Go SDK, Apache-2.0, maintained with Google).
 - Browser icons: the app shipped without a favicon, so browsers fell back to
   requesting `/favicon.ico`, got the SPA's `index.html` from the catch-all
   route, and showed a blank tab icon. `ui/public` now carries a `favicon.ico`
@@ -18,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   two rings, drawn thicker than in the logo so they survive 16 px, while the
   full mark — whose lettering blurs into the rings below ~48 px — is used from
   192 px up.
+||||||| parent of 2148ac7 (feat(mcp): embed a Model Context Protocol server at /mcp)
 
 ## [2.8.0] - 2026-08-23
 
