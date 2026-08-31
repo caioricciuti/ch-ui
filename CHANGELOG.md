@@ -5,7 +5,7 @@ All notable changes to CH-UI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.9.0] - 2026-08-31
 
 ### Added
 
@@ -332,6 +332,7 @@ best features live here, behind the same offline-verified Pro license.
 - Cluster Health (Pro): operations and database monitoring.
 - Result filters and ClickHouse error parsing in the query results view.
 
+[2.9.0]: https://github.com/caioricciuti/ch-ui/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/caioricciuti/ch-ui/compare/v2.7.0...v2.8.0
 [2.5.3]: https://github.com/caioricciuti/ch-ui/compare/v2.5.2...v2.5.3
 [2.5.2]: https://github.com/caioricciuti/ch-ui/compare/v2.5.1...v2.5.2
