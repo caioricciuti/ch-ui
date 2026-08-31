@@ -71,3 +71,6 @@ CLAUDE.md
 /demo
 demo/license.json
 demo/.env.demo.local
+
+# Python bytecode from ui/scripts helpers
+__pycache__/
