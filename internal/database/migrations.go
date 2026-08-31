@@ -12,7 +12,7 @@ import (
 // schemaVersion is the current database schema version. Bump it (date-based)
 // whenever schema-affecting migrations are added below. It is recorded in the
 // settings table after a successful migration run for upgrade observability.
-const schemaVersion = "2026.08.24"
+const schemaVersion = "2026.08.31"
 
 func (db *DB) runMigrations() error {
 	var prev string
@@ -879,6 +879,7 @@ func (db *DB) runMigrations() error {
 			connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
 			ch_user TEXT NOT NULL,
 			ch_password_enc TEXT NOT NULL,
+			scopes TEXT NOT NULL DEFAULT 'read',
 			allowed_databases TEXT NOT NULL DEFAULT '',
 			created_by TEXT NOT NULL DEFAULT '',
 			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -1019,6 +1020,11 @@ func (db *DB) runMigrations() error {
 	}
 	// Where a query came from: 'editor' (default) or 'mcp'.
 	if err := db.ensureColumn("query_history", "source", "TEXT NOT NULL DEFAULT 'editor'"); err != nil {
+		return err
+	}
+	// MCP key scopes: 'read' (default) or 'read_write' (create tools enabled).
+	// Covers dev databases created before the column joined the table DDL.
+	if err := db.ensureColumn("mcp_keys", "scopes", "TEXT NOT NULL DEFAULT 'read'"); err != nil {
 		return err
 	}
 	// Pre-existing embedded connections are direct by definition.

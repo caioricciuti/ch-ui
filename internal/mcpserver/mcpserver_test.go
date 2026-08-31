@@ -128,7 +128,7 @@ func testDeps(t *testing.T) (Deps, string) {
 		t.Fatalf("encrypt: %v", err)
 	}
 	plaintext, hash, prefix := GenerateKey()
-	if _, err := db.CreateMCPKey("test key", hash, prefix, connID, "default", enc, "", "admin"); err != nil {
+	if _, err := db.CreateMCPKey("test key", hash, prefix, connID, "default", enc, "read", "", "admin"); err != nil {
 		t.Fatalf("create mcp key: %v", err)
 	}
 

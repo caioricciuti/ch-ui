@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`mcp.query.execute`), and carries `log_comment='ch-ui:mcp'`. See docs/mcp.md.
 - New dependency: `github.com/modelcontextprotocol/go-sdk` v1.7.0 (official MCP
   Go SDK, Apache-2.0, maintained with Google).
+- **MCP write tools, behind per-key scopes**: keys are `read` (default) or
+  `read + write`. Write keys get `save_query`, `create_dashboard` (SQL panels,
+  automatic layout), `create_model` and `create_pipeline` — all created as
+  drafts tagged `mcp:<key name>`, audit-logged, and never executed from MCP
+  (models/pipelines are started from the UI). Every key also gets
+  `list_saved_queries` / `list_dashboards` / `list_models` / `list_pipelines`.
+  These write to CH-UI's own store, never to ClickHouse data.
 - Browser icons: the app shipped without a favicon, so browsers fell back to
   requesting `/favicon.ico`, got the SPA's `index.html` from the catch-all
   route, and showed a blank tab icon. `ui/public` now carries a `favicon.ico`

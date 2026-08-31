@@ -46,6 +46,7 @@ type createMCPKeyRequest struct {
 	ConnectionID     string `json:"connection_id"`
 	CHUser           string `json:"ch_user"`
 	CHPassword       string `json:"ch_password"`
+	Scopes           string `json:"scopes"` // "read" (default) or "read_write"
 	AllowedDatabases string `json:"allowed_databases"`
 }
 
@@ -79,7 +80,11 @@ func (h *MCPKeysHandler) create(w http.ResponseWriter, r *http.Request) {
 	if sess := middleware.GetSession(r); sess != nil {
 		createdBy = sess.ClickhouseUser
 	}
-	key, err := h.DB.CreateMCPKey(req.Name, hash, prefix, req.ConnectionID, req.CHUser, encrypted, req.AllowedDatabases, createdBy)
+	scopes := req.Scopes
+	if scopes != "read_write" {
+		scopes = "read"
+	}
+	key, err := h.DB.CreateMCPKey(req.Name, hash, prefix, req.ConnectionID, req.CHUser, encrypted, scopes, req.AllowedDatabases, createdBy)
 	if err != nil {
 		slog.Error("MCP keys: create failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create MCP key")

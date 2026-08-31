@@ -35,7 +35,12 @@ An MCP key binds three things:
   filter, not a security boundary; use ClickHouse grants for enforcement.
 
 Keys are bearer tokens (`chm_` prefix). Only a SHA-256 hash is stored; revoke
-them any time in Settings. There is no unauthenticated mode.
+them any time in Admin. There is no unauthenticated mode.
+
+Each key has a **scope**: `read` (default) or `read + write`. Write scope adds
+tools that create CH-UI entities (saved queries, dashboards, draft models and
+pipelines) in CH-UI's own store — it never lets the AI write ClickHouse data,
+and a read key never even sees the write tools.
 
 ## Tools
 
@@ -46,8 +51,17 @@ them any time in Settings. There is no unauthenticated mode.
 | `describe_table` | Columns, types, comments, sorting/partition keys |
 | `run_select` | Read-only SQL (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN), row-capped |
 | `explain_query` | `EXPLAIN indexes = 1` plan for a SELECT |
+| `list_saved_queries` / `list_dashboards` / `list_models` / `list_pipelines` | What already exists, before creating |
+| `save_query` (write scope) | Save a query to the shared library |
+| `create_dashboard` (write scope) | Dashboard with SQL panels, auto-laid-out |
+| `create_model` (write scope) | Draft SQL model (view or table, `$ref()` supported) |
+| `create_pipeline` (write scope) | Draft pipeline: kafka/webhook/database/s3 source wired to a ClickHouse sink |
 | `query_insights_top` (Pro) | Top query patterns by p95 latency, memory, or frequency |
 | `costs_summary` (Pro) | Cost Center spend summary with your configured rates |
+
+Write tools create **drafts** tagged `mcp:<key name>`: models and pipelines
+never run from MCP — you review and press play in the UI. Every create is
+audit-logged.
 
 ## Safety model
 

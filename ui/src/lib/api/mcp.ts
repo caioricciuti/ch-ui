@@ -6,6 +6,7 @@ export interface MCPKey {
   key_prefix: string
   connection_id: string
   ch_user: string
+  scopes: 'read' | 'read_write'
   allowed_databases: string
   created_by: string
   created_at: string
@@ -23,6 +24,7 @@ export interface CreateMCPKeyRequest {
   connection_id: string
   ch_user: string
   ch_password: string
+  scopes: 'read' | 'read_write'
   allowed_databases: string
 }
 

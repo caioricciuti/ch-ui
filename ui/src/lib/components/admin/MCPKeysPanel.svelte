@@ -29,6 +29,7 @@
   let chUser = $state('')
   let chPassword = $state('')
   let allowedDatabases = $state('')
+  let allowWrite = $state(false)
 
   // One-time reveal of the freshly created key.
   let revealed = $state<{ secret: string; name: string } | null>(null)
@@ -74,6 +75,7 @@
         connection_id: connectionId,
         ch_user: chUser.trim(),
         ch_password: chPassword,
+        scopes: allowWrite ? 'read_write' : 'read',
         allowed_databases: allowedDatabases.trim(),
       })
       revealed = { secret: res.secret, name: res.key.name }
@@ -81,6 +83,7 @@
       chUser = ''
       chPassword = ''
       allowedDatabases = ''
+      allowWrite = false
       showForm = false
       success('MCP key created')
       await load()
@@ -187,6 +190,13 @@
         <span class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Database allowlist (optional, comma-separated)</span>
         <input class="ds-input-sm mt-1 w-full" bind:value={allowedDatabases} placeholder="analytics, logs" />
       </label>
+      <label class="flex items-start gap-2 sm:col-span-2 cursor-pointer">
+        <input type="checkbox" class="mt-0.5" bind:checked={allowWrite} />
+        <span class="text-xs text-gray-600 dark:text-gray-300">
+          <span class="font-medium">Allow write tools</span> — the key can create saved queries, dashboards, and draft models/pipelines in CH-UI.
+          Nothing runs or touches ClickHouse data; read-only keys never see these tools.
+        </span>
+      </label>
       <div class="sm:col-span-2 flex gap-2">
         <button class="ds-btn-primary px-3 py-1.5" onclick={submit} disabled={creating}>
           {creating ? 'Creating…' : 'Create key'}
@@ -209,6 +219,7 @@
             <th class="ds-table-th">Key</th>
             <th class="ds-table-th">Connection</th>
             <th class="ds-table-th">CH user</th>
+            <th class="ds-table-th">Scope</th>
             <th class="ds-table-th">Databases</th>
             <th class="ds-table-th">Last used</th>
             <th class="ds-table-th">Status</th>
@@ -222,6 +233,13 @@
               <td class="ds-td ds-td-mono">{k.key_prefix}</td>
               <td class="ds-td">{connectionName(k.connection_id)}</td>
               <td class="ds-td ds-td-mono">{k.ch_user}</td>
+              <td class="ds-td">
+                {#if k.scopes === 'read_write'}
+                  <span class="ds-badge ds-badge-brand">read + write</span>
+                {:else}
+                  <span class="ds-badge">read</span>
+                {/if}
+              </td>
               <td class="ds-td">{k.allowed_databases || 'all'}</td>
               <td class="ds-td">{k.last_used_at ? formatDate(k.last_used_at) : 'never'}</td>
               <td class="ds-td">

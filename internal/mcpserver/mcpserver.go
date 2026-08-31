@@ -138,6 +138,10 @@ func buildServer(deps Deps, ak *authedKey) *mcp.Server {
 	}, nil)
 
 	registerFreeTools(srv, deps, ak)
+	registerListTools(srv, deps, ak)
+	if ak.key.Scopes == "read_write" {
+		registerWriteTools(srv, deps, ak)
+	}
 	if deps.Config != nil && deps.Config.IsPro() {
 		registerProTools(srv, deps, ak)
 	}

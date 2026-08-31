@@ -22,6 +22,9 @@ type MCPKey struct {
 	// ClickHouse user's grants are the real permission boundary.
 	CHUser        string `json:"ch_user"`
 	CHPasswordEnc string `json:"-"`
+	// Scopes is 'read' or 'read_write'. Write tools (create saved queries,
+	// dashboards, models, pipelines) are registered only for read_write keys.
+	Scopes string `json:"scopes"`
 	// AllowedDatabases is a comma-separated list of database names the key may
 	// touch. Empty means all databases the ClickHouse user can see.
 	AllowedDatabases string  `json:"allowed_databases"`
@@ -31,7 +34,10 @@ type MCPKey struct {
 	RevokedAt        *string `json:"revoked_at"`
 }
 
-func (db *DB) CreateMCPKey(name, keyHash, keyPrefix, connectionID, chUser, chPasswordEnc, allowedDatabases, createdBy string) (*MCPKey, error) {
+func (db *DB) CreateMCPKey(name, keyHash, keyPrefix, connectionID, chUser, chPasswordEnc, scopes, allowedDatabases, createdBy string) (*MCPKey, error) {
+	if scopes != "read_write" {
+		scopes = "read"
+	}
 	k := &MCPKey{
 		ID:               uuid.New().String(),
 		Name:             name,
@@ -40,14 +46,15 @@ func (db *DB) CreateMCPKey(name, keyHash, keyPrefix, connectionID, chUser, chPas
 		ConnectionID:     connectionID,
 		CHUser:           chUser,
 		CHPasswordEnc:    chPasswordEnc,
+		Scopes:           scopes,
 		AllowedDatabases: allowedDatabases,
 		CreatedBy:        createdBy,
 		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
 	}
 	_, err := db.conn.Exec(
-		`INSERT INTO mcp_keys (id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, allowed_databases, created_by, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		k.ID, k.Name, k.KeyHash, k.KeyPrefix, k.ConnectionID, k.CHUser, k.CHPasswordEnc, k.AllowedDatabases, k.CreatedBy, k.CreatedAt,
+		`INSERT INTO mcp_keys (id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, scopes, allowed_databases, created_by, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		k.ID, k.Name, k.KeyHash, k.KeyPrefix, k.ConnectionID, k.CHUser, k.CHPasswordEnc, k.Scopes, k.AllowedDatabases, k.CreatedBy, k.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create mcp key: %w", err)
@@ -59,7 +66,7 @@ func (db *DB) CreateMCPKey(name, keyHash, keyPrefix, connectionID, chUser, chPas
 // nil when no such key exists.
 func (db *DB) GetMCPKeyByHash(keyHash string) (*MCPKey, error) {
 	row := db.conn.QueryRow(
-		`SELECT id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, allowed_databases, created_by, created_at, last_used_at, revoked_at
+		`SELECT id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, scopes, allowed_databases, created_by, created_at, last_used_at, revoked_at
 		 FROM mcp_keys WHERE key_hash = ? AND revoked_at IS NULL`, keyHash,
 	)
 	return scanMCPKey(row)
@@ -67,7 +74,7 @@ func (db *DB) GetMCPKeyByHash(keyHash string) (*MCPKey, error) {
 
 func (db *DB) ListMCPKeys() ([]*MCPKey, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, allowed_databases, created_by, created_at, last_used_at, revoked_at
+		`SELECT id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, scopes, allowed_databases, created_by, created_at, last_used_at, revoked_at
 		 FROM mcp_keys ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -116,7 +123,7 @@ type rowScanner interface{ Scan(dest ...any) error }
 func scanMCPKey(row rowScanner) (*MCPKey, error) {
 	var k MCPKey
 	err := row.Scan(&k.ID, &k.Name, &k.KeyHash, &k.KeyPrefix, &k.ConnectionID,
-		&k.CHUser, &k.CHPasswordEnc, &k.AllowedDatabases, &k.CreatedBy, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt)
+		&k.CHUser, &k.CHPasswordEnc, &k.Scopes, &k.AllowedDatabases, &k.CreatedBy, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
