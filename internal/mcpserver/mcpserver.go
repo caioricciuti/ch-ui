@@ -21,7 +21,10 @@ import (
 	"encoding/hex"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -113,11 +116,78 @@ func authMiddleware(deps Deps, next http.Handler) http.Handler {
 			return
 		}
 
-		go deps.DB.TouchMCPKey(k.ID)
+		if !limiter.allow(k.ID) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", strconv.Itoa(int(rateWindow.Seconds())))
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte(`{"error":"rate limit exceeded for this MCP key"}`))
+			return
+		}
+		touchKey(deps, k.ID)
 
 		ctx := context.WithValue(r.Context(), ctxKey, &authedKey{key: k, chPassword: password})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// ---- per-key rate limit and last-used throttle ----
+
+const (
+	// rateLimit is the number of MCP HTTP requests one key may make per
+	// rateWindow. Each tool call is one request; an agent loop that trips this
+	// is misbehaving, not working.
+	rateLimit  = 120
+	rateWindow = time.Minute
+
+	// touchInterval bounds how often last_used_at is written per key; a
+	// SQLite write per request is wasted I/O.
+	touchInterval = time.Minute
+)
+
+// keyLimiter is a fixed-window counter per key. In-memory on purpose: the
+// budget is per process and resets on restart, which is fine for abuse
+// control (the ClickHouse settings are the real resource guard).
+type keyLimiter struct {
+	mu      sync.Mutex
+	windows map[string]*rateEntry
+}
+
+type rateEntry struct {
+	start time.Time
+	count int
+}
+
+var limiter = &keyLimiter{windows: make(map[string]*rateEntry)}
+
+func (l *keyLimiter) allow(keyID string) bool {
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	e, ok := l.windows[keyID]
+	if !ok || now.Sub(e.start) >= rateWindow {
+		l.windows[keyID] = &rateEntry{start: now, count: 1}
+		if len(l.windows) > 4096 { // keys revoked long ago; drop stale windows
+			for id, w := range l.windows {
+				if now.Sub(w.start) >= rateWindow {
+					delete(l.windows, id)
+				}
+			}
+		}
+		return true
+	}
+	e.count++
+	return e.count <= rateLimit
+}
+
+var lastTouch sync.Map // key ID -> time.Time
+
+func touchKey(deps Deps, keyID string) {
+	now := time.Now()
+	if v, ok := lastTouch.Load(keyID); ok && now.Sub(v.(time.Time)) < touchInterval {
+		return
+	}
+	lastTouch.Store(keyID, now)
+	go deps.DB.TouchMCPKey(keyID)
 }
 
 func unauthorized(w http.ResponseWriter, msg string) {
@@ -132,6 +202,38 @@ func unauthorized(w http.ResponseWriter, msg string) {
 // short, clients prepend it to the system prompt.
 const serverInstructions = `CH-UI exposes one ClickHouse connection. Work schema-first: call list_databases, then list_tables, then describe_table before writing SQL; describe_table returns the sorting key, use it in WHERE clauses to avoid full scans. run_select is read-only, capped at 100 rows by default (max_rows up to 2000) and 60 seconds; aggregate or add LIMIT rather than paging through raw rows. Use explain_query before running an expensive query on a large table. ClickHouse SQL specifics: use toDate/toStartOfHour for time bucketing, uniq()/uniqExact() for distinct counts, and backticks for identifiers; there is no implicit type coercion between String and numbers. Tools with readOnlyHint=false only create drafts in CH-UI (saved queries, dashboards, models, pipelines); nothing they create runs against ClickHouse until a human reviews it in the UI.`
 
+// auditToolCalls writes one audit row per tools/call so every tool, not just
+// run_select, is attributable to a key. run_select keeps its own richer
+// mcp.query.execute row (with the SQL in query history) and is skipped here.
+func auditToolCalls(deps Deps, ak *authedKey) mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			res, err := next(ctx, method, req)
+			if method != "tools/call" {
+				return res, err
+			}
+			name := ""
+			switch p := req.GetParams().(type) {
+			case *mcp.CallToolParamsRaw:
+				name = p.Name
+			case *mcp.CallToolParams:
+				name = p.Name
+			}
+			if name == "" || name == "run_select" {
+				return res, err
+			}
+			status := "ok"
+			if err != nil {
+				status = "error"
+			} else if r, ok := res.(*mcp.CallToolResult); ok && r.IsError {
+				status = "error"
+			}
+			audit(deps, ak, "mcp.tool.call", "mcp key: "+ak.key.Name+", tool: "+name+", status: "+status)
+			return res, err
+		}
+	}
+}
+
 // buildServer assembles the per-request MCP server bound to the authenticated
 // key. Free tools are always registered; Pro tools only with an active
 // license.
@@ -142,6 +244,7 @@ func buildServer(deps Deps, ak *authedKey) *mcp.Server {
 		Version: version.Version,
 	}, &mcp.ServerOptions{Instructions: serverInstructions})
 
+	srv.AddReceivingMiddleware(auditToolCalls(deps, ak))
 	registerFreeTools(srv, deps, ak)
 	registerListTools(srv, deps, ak)
 	if ak.key.Scopes == "read_write" {

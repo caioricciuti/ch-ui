@@ -118,7 +118,7 @@ func jsonResult(v any) *mcp.CallToolResult {
 
 // runCH executes sql through the tunnel gateway with the key's credentials and
 // the given extra settings, returning decoded rows.
-func runCH(deps Deps, ak *authedKey, sql string, extra map[string]string, timeout time.Duration) ([]map[string]any, error) {
+func runCH(ctx context.Context, deps Deps, ak *authedKey, sql string, extra map[string]string, timeout time.Duration) ([]map[string]any, error) {
 	if !deps.Gateway.IsTunnelOnline(ak.key.ConnectionID) {
 		return nil, fmt.Errorf("connection %q is offline: its agent/tunnel is not connected to CH-UI", ak.key.ConnectionID)
 	}
@@ -130,7 +130,7 @@ func runCH(deps Deps, ak *authedKey, sql string, extra map[string]string, timeou
 	for k, v := range extra {
 		settings[k] = v
 	}
-	result, err := deps.Gateway.ExecuteQueryWithSettings(ak.key.ConnectionID, sql, ak.key.CHUser, ak.chPassword, settings, timeout)
+	result, err := deps.Gateway.ExecuteQueryWithSettingsCtx(ctx, ak.key.ConnectionID, sql, ak.key.CHUser, ak.chPassword, settings, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +232,7 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Annotations: ann,
 		Description: "List the databases visible to this connection (filtered by the key's database allowlist).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
-		rows, err := runCH(deps, ak,
+		rows, err := runCH(ctx, deps, ak,
 			"SELECT name, engine FROM system.databases WHERE name NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema') ORDER BY name FORMAT JSON",
 			nil, metaTimeout)
 		if err != nil {
@@ -262,7 +262,7 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		if !dbAllowed(ak.key, args.Database) {
 			return errResult("database %q is not in this key's allowlist", args.Database), nil, nil
 		}
-		rows, err := runCH(deps, ak,
+		rows, err := runCH(ctx, deps, ak,
 			"SELECT name, engine, total_rows, total_bytes, comment FROM system.tables WHERE database = {db:String} ORDER BY name FORMAT JSON",
 			map[string]string{"param_db": args.Database}, metaTimeout)
 		if err != nil {
@@ -284,7 +284,7 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		if !dbAllowed(ak.key, args.Database) {
 			return errResult("database %q is not in this key's allowlist", args.Database), nil, nil
 		}
-		cols, err := runCH(deps, ak,
+		cols, err := runCH(ctx, deps, ak,
 			"SELECT name, type, default_kind, default_expression, comment, is_in_primary_key, is_in_sorting_key, is_in_partition_key FROM system.columns WHERE database = {db:String} AND table = {tbl:String} ORDER BY position FORMAT JSON",
 			map[string]string{"param_db": args.Database, "param_tbl": args.Table}, metaTimeout)
 		if err != nil {
@@ -293,7 +293,7 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		if len(cols) == 0 {
 			return errResult("table %s.%s not found", args.Database, args.Table), nil, nil
 		}
-		meta, err := runCH(deps, ak,
+		meta, err := runCH(ctx, deps, ak,
 			"SELECT engine, partition_key, sorting_key, primary_key, total_rows, total_bytes FROM system.tables WHERE database = {db:String} AND name = {tbl:String} FORMAT JSON",
 			map[string]string{"param_db": args.Database, "param_tbl": args.Table}, metaTimeout)
 		out := map[string]any{"database": args.Database, "table": args.Table, "columns": cols}
@@ -337,7 +337,7 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		}
 
 		start := time.Now()
-		rows, err := runCH(deps, ak, sql, settings, queryTimeout)
+		rows, err := runCH(ctx, deps, ak, sql, settings, queryTimeout)
 		elapsed := time.Since(start)
 		if err != nil {
 			recordQuery(deps, ak, sql, "error", err.Error(), elapsed, 0)
@@ -382,7 +382,7 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		if trailingFormatRe.MatchString(sql) {
 			return errResult("omit the FORMAT clause"), nil, nil
 		}
-		rows, err := runCH(deps, ak, "EXPLAIN indexes = 1\n"+sql+"\nFORMAT JSON", nil, metaTimeout)
+		rows, err := runCH(ctx, deps, ak, "EXPLAIN indexes = 1\n"+sql+"\nFORMAT JSON", nil, metaTimeout)
 		if err != nil {
 			return errResult("explain failed: %v", err), nil, nil
 		}

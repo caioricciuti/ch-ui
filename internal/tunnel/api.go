@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -45,6 +46,13 @@ func (g *Gateway) ExecuteQuery(connectionID, sql, user, password string, timeout
 // settings — including bind parameters (param_<name>) — to the agent, which
 // passes them to ClickHouse as URL params.
 func (g *Gateway) ExecuteQueryWithSettings(connectionID, sql, user, password string, settings map[string]string, timeout time.Duration) (*QueryResult, error) {
+	return g.ExecuteQueryWithSettingsCtx(context.Background(), connectionID, sql, user, password, settings, timeout)
+}
+
+// ExecuteQueryWithSettingsCtx is ExecuteQueryWithSettings bound to a context:
+// when ctx is cancelled before the agent answers, the query is cancelled on
+// the agent side too and ctx.Err() is returned.
+func (g *Gateway) ExecuteQueryWithSettingsCtx(ctx context.Context, connectionID, sql, user, password string, settings map[string]string, timeout time.Duration) (*QueryResult, error) {
 	val, ok := g.tunnels.Load(connectionID)
 	if !ok {
 		return nil, errors.New("tunnel not connected")
@@ -87,19 +95,26 @@ func (g *Gateway) ExecuteQueryWithSettings(connectionID, sql, user, password str
 		return &result, nil
 	case err := <-pending.ErrorCh:
 		return nil, err
+	case <-ctx.Done():
+		t.sendCancel(requestID)
+		return nil, ctx.Err()
 	case <-time.After(timeout):
-		// Send cancel to agent
-		cancel := GatewayMessage{
-			Type:    "cancel_query",
-			ID:      requestID,
-			QueryID: requestID,
-		}
-		cancelData, _ := json.Marshal(cancel)
-		t.mu.Lock()
-		t.WS.WriteMessage(websocket.TextMessage, cancelData)
-		t.mu.Unlock()
+		t.sendCancel(requestID)
 		return nil, errors.New("query timeout")
 	}
+}
+
+// sendCancel asks the agent to kill a query it is still running.
+func (t *ConnectedTunnel) sendCancel(requestID string) {
+	cancel := GatewayMessage{
+		Type:    "cancel_query",
+		ID:      requestID,
+		QueryID: requestID,
+	}
+	cancelData, _ := json.Marshal(cancel)
+	t.mu.Lock()
+	t.WS.WriteMessage(websocket.TextMessage, cancelData)
+	t.mu.Unlock()
 }
 
 // ExecuteQueryWithFormat sends a SQL query with a specific output format and returns the raw result.

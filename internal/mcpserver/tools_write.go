@@ -288,7 +288,7 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Name:        "list_saved_queries",
 		Title:       title,
 		Annotations: ann,
-		Description: "List the saved queries in this CH-UI instance (name, description, creator).",
+		Description: "List the saved queries usable on this connection (name, description, creator): queries bound to this connection plus connection-independent ones.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		queries, err := deps.DB.GetSavedQueries()
 		if err != nil {
@@ -296,6 +296,9 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		}
 		out := make([]map[string]any, 0, len(queries))
 		for _, q := range queries {
+			if q.ConnectionID != nil && *q.ConnectionID != "" && *q.ConnectionID != ak.key.ConnectionID {
+				continue
+			}
 			out = append(out, map[string]any{"id": q.ID, "name": q.Name, "description": q.Description, "created_by": q.CreatedBy})
 		}
 		return jsonResult(map[string]any{"saved_queries": out}), nil, nil
@@ -306,7 +309,7 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Name:        "list_dashboards",
 		Title:       title,
 		Annotations: ann,
-		Description: "List the dashboards in this CH-UI instance.",
+		Description: "List the dashboards in this CH-UI instance. Dashboards are not bound to one connection; their panels may query other connections.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		dashboards, err := deps.DB.GetDashboards()
 		if err != nil {
@@ -345,7 +348,7 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Name:        "list_pipelines",
 		Title:       title,
 		Annotations: ann,
-		Description: "List the data pipelines in this CH-UI instance (name, status).",
+		Description: "List the data pipelines on this connection (name, status).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		pipelines, err := deps.DB.GetPipelines()
 		if err != nil {
@@ -353,6 +356,9 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		}
 		out := make([]map[string]any, 0, len(pipelines))
 		for _, p := range pipelines {
+			if p.ConnectionID != ak.key.ConnectionID {
+				continue
+			}
 			out = append(out, map[string]any{"id": p.ID, "name": p.Name, "status": p.Status, "created_by": p.CreatedBy})
 		}
 		return jsonResult(map[string]any{"pipelines": out}), nil, nil
