@@ -127,6 +127,11 @@ func unauthorized(w http.ResponseWriter, msg string) {
 	w.Write([]byte(`{"error":"` + msg + `"}`))
 }
 
+// serverInstructions is sent to the client at initialize/discover time. It is
+// the one place to tell the model how to work with this server well; keep it
+// short, clients prepend it to the system prompt.
+const serverInstructions = `CH-UI exposes one ClickHouse connection. Work schema-first: call list_databases, then list_tables, then describe_table before writing SQL; describe_table returns the sorting key, use it in WHERE clauses to avoid full scans. run_select is read-only, capped at 100 rows by default (max_rows up to 2000) and 60 seconds; aggregate or add LIMIT rather than paging through raw rows. Use explain_query before running an expensive query on a large table. ClickHouse SQL specifics: use toDate/toStartOfHour for time bucketing, uniq()/uniqExact() for distinct counts, and backticks for identifiers; there is no implicit type coercion between String and numbers. Tools with readOnlyHint=false only create drafts in CH-UI (saved queries, dashboards, models, pipelines); nothing they create runs against ClickHouse until a human reviews it in the UI.`
+
 // buildServer assembles the per-request MCP server bound to the authenticated
 // key. Free tools are always registered; Pro tools only with an active
 // license.
@@ -135,7 +140,7 @@ func buildServer(deps Deps, ak *authedKey) *mcp.Server {
 		Name:    "ch-ui",
 		Title:   "CH-UI — self-hosted ClickHouse console",
 		Version: version.Version,
-	}, nil)
+	}, &mcp.ServerOptions{Instructions: serverInstructions})
 
 	registerFreeTools(srv, deps, ak)
 	registerListTools(srv, deps, ak)

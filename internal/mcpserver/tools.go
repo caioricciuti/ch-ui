@@ -73,6 +73,32 @@ func sanitizeForHistory(q string) string {
 	return s
 }
 
+// readOnlyTool returns the metadata for a tool that never modifies anything:
+// title plus the spec's readOnlyHint/idempotentHint/openWorldHint. Clients use
+// these to skip confirmation prompts, and connector directories require them.
+func readOnlyTool(title string) (string, *mcp.ToolAnnotations) {
+	closed := false
+	return title, &mcp.ToolAnnotations{
+		Title:          title,
+		ReadOnlyHint:   true,
+		IdempotentHint: true,
+		OpenWorldHint:  &closed,
+	}
+}
+
+// additiveTool returns the metadata for a tool that creates CH-UI entities but
+// never deletes or overwrites: readOnlyHint=false, destructiveHint=false.
+func additiveTool(title string) (string, *mcp.ToolAnnotations) {
+	f := false
+	return title, &mcp.ToolAnnotations{
+		Title:           title,
+		ReadOnlyHint:    false,
+		DestructiveHint: &f,
+		IdempotentHint:  false,
+		OpenWorldHint:   &f,
+	}
+}
+
 // errResult renders a tool-level error (IsError, not a protocol error) so the
 // model can read it and correct course.
 func errResult(format string, args ...any) *mcp.CallToolResult {
@@ -199,8 +225,11 @@ type explainArgs struct {
 }
 
 func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
+	title, ann := readOnlyTool("List databases")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_databases",
+		Title:       title,
+		Annotations: ann,
 		Description: "List the databases visible to this connection (filtered by the key's database allowlist).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		rows, err := runCH(deps, ak,
@@ -220,8 +249,11 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		return jsonResult(map[string]any{"databases": out}), nil, nil
 	})
 
+	title, ann = readOnlyTool("List tables")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_tables",
+		Title:       title,
+		Annotations: ann,
 		Description: "List tables in a database with engine, row count and size on disk.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args listTablesArgs) (*mcp.CallToolResult, any, error) {
 		if args.Database == "" {
@@ -239,8 +271,11 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		return jsonResult(map[string]any{"database": args.Database, "tables": rows}), nil, nil
 	})
 
+	title, ann = readOnlyTool("Describe table")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "describe_table",
+		Title:       title,
+		Annotations: ann,
 		Description: "Describe a table: columns, types, comments, and the CREATE statement's sorting/partition keys.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args describeTableArgs) (*mcp.CallToolResult, any, error) {
 		if args.Database == "" || args.Table == "" {
@@ -268,8 +303,11 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		return jsonResult(out), nil, nil
 	})
 
+	title, ann = readOnlyTool("Run read-only SQL")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "run_select",
+		Title:       title,
+		Annotations: ann,
 		Description: "Run a read-only SQL statement (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN) and return the rows as JSON. Row-capped and time-limited; write statements are rejected and the session runs with readonly enforced. Every call is recorded in CH-UI query history and the audit log.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args runSelectArgs) (*mcp.CallToolResult, any, error) {
 		sql := strings.TrimSpace(args.SQL)
@@ -326,8 +364,11 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
 	})
 
+	title, ann = readOnlyTool("Explain query plan")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "explain_query",
+		Title:       title,
+		Annotations: ann,
 		Description: "Show ClickHouse's execution plan for a SELECT (EXPLAIN indexes = 1), useful to understand index usage and full scans before running an expensive query.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args explainArgs) (*mcp.CallToolResult, any, error) {
 		sql := strings.TrimSpace(args.SQL)

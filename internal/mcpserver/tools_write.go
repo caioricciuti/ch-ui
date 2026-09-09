@@ -86,8 +86,11 @@ var pipelineSourceTypes = map[string]bool{
 }
 
 func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
+	title, ann := additiveTool("Save query")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "save_query",
+		Title:       title,
+		Annotations: ann,
 		Description: "Save a SQL query in CH-UI's saved queries library (visible to every user of this instance).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args saveQueryArgs) (*mcp.CallToolResult, any, error) {
 		name := strings.TrimSpace(args.Name)
@@ -109,8 +112,11 @@ func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		return jsonResult(map[string]any{"id": id, "name": name, "note": "saved; find it under Saved Queries"}), nil, nil
 	})
 
+	title, ann = additiveTool("Create dashboard")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "create_dashboard",
+		Title:       title,
+		Annotations: ann,
 		Description: "Create a CH-UI dashboard with SQL panels. Panels lay out automatically two per row unless x/y coordinates are given.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createDashboardArgs) (*mcp.CallToolResult, any, error) {
 		name := strings.TrimSpace(args.Name)
@@ -167,8 +173,11 @@ func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		return jsonResult(map[string]any{"id": dashID, "name": name, "panels": created}), nil, nil
 	})
 
+	title, ann = additiveTool("Create draft model")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "create_model",
+		Title:       title,
+		Annotations: ann,
 		Description: "Create a CH-UI SQL model as a draft. Models materialize as a view or table when run from the UI; reference other models with $ref(model_name). Model names are unique per connection.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createModelArgs) (*mcp.CallToolResult, any, error) {
 		name := strings.TrimSpace(args.Name)
@@ -215,8 +224,11 @@ func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		}), nil, nil
 	})
 
+	title, ann = additiveTool("Create draft pipeline")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "create_pipeline",
+		Title:       title,
+		Annotations: ann,
 		Description: "Create a CH-UI data pipeline as a draft: one source (kafka, webhook, database, or s3) wired to a ClickHouse sink table. Source settings can be completed in the UI; the pipeline never starts from here.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createPipelineArgs) (*mcp.CallToolResult, any, error) {
 		name := strings.TrimSpace(args.Name)
@@ -271,8 +283,11 @@ func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 // can see what already exists before creating (model names are unique per
 // connection). Available to every key.
 func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
+	title, ann := readOnlyTool("List saved queries")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_saved_queries",
+		Title:       title,
+		Annotations: ann,
 		Description: "List the saved queries in this CH-UI instance (name, description, creator).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		queries, err := deps.DB.GetSavedQueries()
@@ -286,8 +301,11 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		return jsonResult(map[string]any{"saved_queries": out}), nil, nil
 	})
 
+	title, ann = readOnlyTool("List dashboards")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_dashboards",
+		Title:       title,
+		Annotations: ann,
 		Description: "List the dashboards in this CH-UI instance.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		dashboards, err := deps.DB.GetDashboards()
@@ -301,8 +319,11 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		return jsonResult(map[string]any{"dashboards": out}), nil, nil
 	})
 
+	title, ann = readOnlyTool("List models")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_models",
+		Title:       title,
+		Annotations: ann,
 		Description: "List the SQL models on this connection (name, status, materialization).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		modelRows, err := deps.DB.GetModelsByConnection(ak.key.ConnectionID)
@@ -319,8 +340,11 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		return jsonResult(map[string]any{"models": out}), nil, nil
 	})
 
+	title, ann = readOnlyTool("List pipelines")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_pipelines",
+		Title:       title,
+		Annotations: ann,
 		Description: "List the data pipelines in this CH-UI instance (name, status).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		pipelines, err := deps.DB.GetPipelines()
