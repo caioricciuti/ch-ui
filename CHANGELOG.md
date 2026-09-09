@@ -5,6 +5,19 @@ All notable changes to CH-UI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.3] - 2026-09-09
+
+### Changed
+
+- `modernc.org/sqlite` 1.58.0 (SQLite 3.53.4), which carries upstream's fix for
+  the journal-rollback data-corruption bug and replaces the interim
+  super-journal patch. `modernc.org/libc` 1.75.6 and `modernc.org/memory`
+  1.12.1 move in lockstep (#153).
+- `github.com/coreos/go-oidc/v3` 3.21.0: JWKS entries with unsupported key
+  types are skipped instead of failing SSO verification (#153).
+- CI pins `govulncheck` to v1.7.0; `@latest` now requires Go 1.26 and broke
+  the backend job (#155).
+
 ## [2.9.0] - 2026-08-31
 
 ### Added
@@ -332,6 +345,7 @@ best features live here, behind the same offline-verified Pro license.
 - Cluster Health (Pro): operations and database monitoring.
 - Result filters and ClickHouse error parsing in the query results view.
 
+[2.9.3]: https://github.com/caioricciuti/ch-ui/compare/v2.9.0...v2.9.3
 [2.9.0]: https://github.com/caioricciuti/ch-ui/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/caioricciuti/ch-ui/compare/v2.7.0...v2.8.0
 [2.5.3]: https://github.com/caioricciuti/ch-ui/compare/v2.5.2...v2.5.3
