@@ -60,6 +60,8 @@ export interface SavedQuery {
   query: string
   description?: string
   parameters?: string | null // JSON object of default {name: value} bind params
+  /** Reviewed by a human; AI clients prefer verified queries. */
+  verified?: boolean
   created_at: string
   updated_at: string
 }

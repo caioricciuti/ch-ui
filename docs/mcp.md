@@ -134,10 +134,13 @@ the write-scope tools are `readOnlyHint: false, destructiveHint: false`
 
 | Tool | What it does |
 |---|---|
+| `search_catalog` | Find tables, columns, saved queries and dashboards whose name or comment contains a term. The first call to make when the model does not know where the data lives |
 | `list_databases` | Databases visible to the connection (allowlist-filtered) |
 | `list_tables` | Tables in a database with engine, rows, size. `like` filter, `page_size` (default 50, max 500), `cursor` |
-| `describe_table` | Columns, types, comments, sorting/partition keys |
-| `run_select` | Read-only SQL (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN). `max_rows` (default 100, max 2000), `format` json or csv |
+| `describe_table` | Columns with types, comments, compressed/uncompressed size; engine, keys, `CREATE TABLE` statement; active parts, partitions, last modification; `sample_rows` (default 3, max 20, 0 to skip) |
+| `estimate_query` | `EXPLAIN ESTIMATE` for a SELECT: parts, rows and marks per table, totals, and a plain assessment. No data is read |
+| `run_select` | Read-only SQL (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN). `max_rows` (default 100, max 2000), `format` json or csv, `max_bytes` budget |
+| `run_saved_query` | Run a saved query by `id` or `name` with `params` for its `{name:Type}` parameters. Reports whether the query is **verified** |
 | `explain_query` | `EXPLAIN indexes = 1` plan for a SELECT |
 | `list_saved_queries` / `list_dashboards` / `list_models` / `list_pipelines` | What already exists on this connection, paginated (`page_size`, `cursor`) |
 | `save_query` (write scope) | Save a query to the shared library |
@@ -156,6 +159,19 @@ RFC 4180 block (header row, ClickHouse column order), which costs roughly half
 the tokens of JSON for wide results; the metadata follows as a second text
 block. Results are capped at `max_rows` exactly, and `truncated: true` tells
 the model to filter or aggregate.
+
+**Byte budget.** `max_bytes` on `run_select` and `run_saved_query` maps to
+ClickHouse's `max_bytes_to_read`: the query is aborted once it has read more
+uncompressed bytes than the budget. The intended loop is `estimate_query`
+first, then `run_select` with a budget sized from the estimate. Nothing else
+in the ClickHouse MCP space offers a pre-flight estimate today.
+
+**Verified saved queries.** In Saved Queries, mark a query as verified once a
+human has confirmed the SQL is correct. `run_saved_query`, `search_catalog`
+and `list_saved_queries` surface the flag, and the server's instructions
+tell the model to prefer verified queries over writing new SQL for the same
+question. Verification is a review mark, not a permission: unverified saved
+queries still run.
 
 Write tools create **drafts** tagged `mcp:<key name>`: models and pipelines
 never run from MCP — you review and press play in the UI. Every create is
@@ -190,6 +206,10 @@ Layered, server-side, not prompt-side:
 - The connection's agent must be online; tools return a clear "offline" error
   otherwise.
 - Pro tools appear only when a Pro license is active.
-- The server sends short instructions to the model at connect time (work
-  schema-first, use the sorting key, aggregate rather than page). Good prompts
-  on the client side still help: tell the model which database matters.
+- The server sends short instructions to the model at connect time (search
+  the catalog first, describe before querying, use the sorting key, prefer
+  verified saved queries, estimate before big scans). Good prompts on the
+  client side still help: tell the model which database matters.
+- For Claude Code there is a plugin with a ClickHouse analytics skill that
+  teaches the model this workflow in more depth; see
+  `integrations/claude-code-plugin/README.md`.

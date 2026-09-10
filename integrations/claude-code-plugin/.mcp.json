@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "ch-ui": {
+      "type": "http",
+      "url": "${CH_UI_URL}/mcp",
+      "headers": { "Authorization": "Bearer ${CH_UI_MCP_KEY}" }
+    }
+  }
+}

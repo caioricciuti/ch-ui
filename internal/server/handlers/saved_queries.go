@@ -116,6 +116,7 @@ func (h *SavedQueriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Query        string            `json:"query"`
 		Parameters   map[string]string `json:"parameters"`
 		ConnectionID string            `json:"connection_id"`
+		Verified     bool              `json:"verified"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -145,6 +146,7 @@ func (h *SavedQueriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Parameters:   marshalParams(body.Parameters),
 		ConnectionID: connectionID,
 		CreatedBy:    session.ClickhouseUser,
+		Verified:     body.Verified,
 	})
 	if err != nil {
 		slog.Error("Failed to create saved query", "error", err)
@@ -198,6 +200,7 @@ func (h *SavedQueriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		Query        *string           `json:"query"`
 		Parameters   map[string]string `json:"parameters"`
 		ConnectionID *string           `json:"connection_id"`
+		Verified     *bool             `json:"verified"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -208,6 +211,7 @@ func (h *SavedQueriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		Name:       existing.Name,
 		Query:      existing.Query,
 		Parameters: deref(existing.Parameters),
+		Verified:   existing.Verified,
 	}
 	if existing.Description != nil {
 		params.Description = *existing.Description
@@ -245,6 +249,10 @@ func (h *SavedQueriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.ConnectionID != nil {
 		params.ConnectionID = strings.TrimSpace(*body.ConnectionID)
+		changed = true
+	}
+	if body.Verified != nil {
+		params.Verified = *body.Verified
 		changed = true
 	}
 
