@@ -84,7 +84,18 @@ func Handler(deps Deps) http.Handler {
 			return nil
 		}
 		return buildServer(deps, ak)
-	}, &mcp.StreamableHTTPOptions{Stateless: true})
+	}, &mcp.StreamableHTTPOptions{
+		Stateless: true,
+		// The SDK's DNS-rebinding guard rejects any request that arrives on a
+		// loopback socket with a non-loopback Host header. That is exactly what
+		// a reverse proxy on the same host produces (upstream 127.0.0.1:3488,
+		// Host: ch-ui.example.com), so every proxied MCP client got a 403
+		// "invalid Host header". The guard exists for unauthenticated local
+		// servers a browser page could reach via rebinding; /mcp requires a
+		// bearer key or OAuth token on every request and browsers never attach
+		// those ambiently, so a rebinding page gets the same 401 as anyone.
+		DisableLocalhostProtection: true,
+	})
 
 	return authMiddleware(deps, streamable)
 }
