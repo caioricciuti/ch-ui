@@ -119,11 +119,6 @@ func authMiddleware(deps Deps, next http.Handler) http.Handler {
 			}
 			return
 		}
-		if k.Expired(time.Now()) {
-			unauthorized(w, "MCP key expired; rotate it in Admin → MCP Server")
-			return
-		}
-
 		password, err := crypto.Decrypt(k.CHPasswordEnc, deps.Config.AppSecretKey)
 		if err != nil {
 			http.Error(w, `{"error":"failed to decrypt key credentials"}`, http.StatusInternalServerError)
