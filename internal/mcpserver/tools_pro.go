@@ -52,7 +52,7 @@ func registerProTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 			rng = queryinsights.DefaultRange
 		}
 		sql := builder("", rng, queryinsights.Filters{})
-		rows, err := runCH(deps, ak, sql, map[string]string{"log_comment": queryinsights.LogComment}, metaTimeout)
+		rows, err := runCH(ctx, deps, ak, sql, map[string]string{"log_comment": queryinsights.LogComment}, metaTimeout)
 		if err != nil {
 			return errResult("query_insights_top failed (is system.query_log accessible to this key's ClickHouse user?): %v", err), nil, nil
 		}
@@ -72,7 +72,7 @@ func registerProTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		}
 		cfg, isDefault := loadCostsConfig(deps, ak.key.ConnectionID)
 		sql := costs.SummaryQuery("", rng, cfg)
-		rows, err := runCH(deps, ak, sql, map[string]string{"log_comment": costs.LogComment}, metaTimeout)
+		rows, err := runCH(ctx, deps, ak, sql, map[string]string{"log_comment": costs.LogComment}, metaTimeout)
 		if err != nil {
 			return errResult("costs_summary failed (is system.query_log accessible to this key's ClickHouse user?): %v", err), nil, nil
 		}

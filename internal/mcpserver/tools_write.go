@@ -279,6 +279,20 @@ func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 	})
 }
 
+// pagedResult renders one page of an in-memory list under key, with
+// next_cursor when more items remain.
+func pagedResult(key string, items []map[string]any, args pageArgs) *mcp.CallToolResult {
+	page, next, err := pageOf(items, args.Cursor, clampPageSize(args.PageSize))
+	if err != nil {
+		return errResult("invalid cursor; pass the next_cursor value from the previous page")
+	}
+	out := map[string]any{key: page}
+	if next != "" {
+		out["next_cursor"] = next
+	}
+	return jsonResult(out)
+}
+
 // registerListTools exposes read-only listings of CH-UI entities so a client
 // can see what already exists before creating (model names are unique per
 // connection). Available to every key.
@@ -288,17 +302,20 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Name:        "list_saved_queries",
 		Title:       title,
 		Annotations: ann,
-		Description: "List the saved queries in this CH-UI instance (name, description, creator).",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+		Description: "List the saved queries usable on this connection (name, description, creator): queries bound to this connection plus connection-independent ones.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args pageArgs) (*mcp.CallToolResult, any, error) {
 		queries, err := deps.DB.GetSavedQueries()
 		if err != nil {
 			return errResult("failed to list saved queries: %v", err), nil, nil
 		}
 		out := make([]map[string]any, 0, len(queries))
 		for _, q := range queries {
+			if q.ConnectionID != nil && *q.ConnectionID != "" && *q.ConnectionID != ak.key.ConnectionID {
+				continue
+			}
 			out = append(out, map[string]any{"id": q.ID, "name": q.Name, "description": q.Description, "created_by": q.CreatedBy})
 		}
-		return jsonResult(map[string]any{"saved_queries": out}), nil, nil
+		return pagedResult("saved_queries", out, args), nil, nil
 	})
 
 	title, ann = readOnlyTool("List dashboards")
@@ -306,8 +323,8 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Name:        "list_dashboards",
 		Title:       title,
 		Annotations: ann,
-		Description: "List the dashboards in this CH-UI instance.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+		Description: "List the dashboards in this CH-UI instance. Dashboards are not bound to one connection; their panels may query other connections.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args pageArgs) (*mcp.CallToolResult, any, error) {
 		dashboards, err := deps.DB.GetDashboards()
 		if err != nil {
 			return errResult("failed to list dashboards: %v", err), nil, nil
@@ -316,7 +333,7 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		for _, d := range dashboards {
 			out = append(out, map[string]any{"id": d.ID, "name": d.Name, "description": d.Description, "created_by": d.CreatedBy})
 		}
-		return jsonResult(map[string]any{"dashboards": out}), nil, nil
+		return pagedResult("dashboards", out, args), nil, nil
 	})
 
 	title, ann = readOnlyTool("List models")
@@ -325,7 +342,7 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Title:       title,
 		Annotations: ann,
 		Description: "List the SQL models on this connection (name, status, materialization).",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args pageArgs) (*mcp.CallToolResult, any, error) {
 		modelRows, err := deps.DB.GetModelsByConnection(ak.key.ConnectionID)
 		if err != nil {
 			return errResult("failed to list models: %v", err), nil, nil
@@ -337,7 +354,7 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 				"materialization": m.Materialization, "target_database": m.TargetDatabase,
 			})
 		}
-		return jsonResult(map[string]any{"models": out}), nil, nil
+		return pagedResult("models", out, args), nil, nil
 	})
 
 	title, ann = readOnlyTool("List pipelines")
@@ -345,16 +362,19 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Name:        "list_pipelines",
 		Title:       title,
 		Annotations: ann,
-		Description: "List the data pipelines in this CH-UI instance (name, status).",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+		Description: "List the data pipelines on this connection (name, status).",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args pageArgs) (*mcp.CallToolResult, any, error) {
 		pipelines, err := deps.DB.GetPipelines()
 		if err != nil {
 			return errResult("failed to list pipelines: %v", err), nil, nil
 		}
 		out := make([]map[string]any, 0, len(pipelines))
 		for _, p := range pipelines {
+			if p.ConnectionID != ak.key.ConnectionID {
+				continue
+			}
 			out = append(out, map[string]any{"id": p.ID, "name": p.Name, "status": p.Status, "created_by": p.CreatedBy})
 		}
-		return jsonResult(map[string]any{"pipelines": out}), nil, nil
+		return pagedResult("pipelines", out, args), nil, nil
 	})
 }
