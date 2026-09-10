@@ -28,6 +28,7 @@
     AlignLeft,
     Eye,
     Pencil,
+    BadgeCheck,
   } from 'lucide-svelte'
 
   let queries = $state<SavedQuery[]>([])
@@ -195,6 +196,20 @@
     renameValue = ''
   }
 
+  // Verified marks a query a human reviewed as correct. The MCP server tells
+  // AI clients to prefer verified queries over writing new SQL.
+  async function toggleVerified(q: SavedQuery) {
+    const next = !q.verified
+    try {
+      await apiPut<SavedQuery>(`/api/saved-queries/${q.id}`, { verified: next })
+      queries = queries.map((row) => (row.id === q.id ? { ...row, verified: next } : row))
+      if (selectedQuery?.id === q.id) selectedQuery = { ...selectedQuery, verified: next }
+      toastSuccess(next ? 'Marked as verified' : 'Verified mark removed')
+    } catch (e: any) {
+      toastError(e.message)
+    }
+  }
+
   async function confirmRename(newName: string) {
     const name = newName.trim()
     if (!renameId || !name) return
@@ -320,6 +335,12 @@
         icon: Pencil,
         shortcut: 'F2',
         onSelect: () => requestRename(row),
+      },
+      {
+        id: 'verify',
+        label: row.verified ? 'Remove verified mark' : 'Mark as verified',
+        icon: BadgeCheck,
+        onSelect: () => toggleVerified(row),
       },
       {
         id: 'copy',
@@ -475,6 +496,11 @@
                       <span class="brand-pill rounded-md px-1.5 py-0.5 text-[10px] font-semibold">
                         {countLines(query.query)} lines
                       </span>
+                      {#if query.verified}
+                        <span class="ds-badge ds-badge-success inline-flex items-center gap-1" title="Reviewed by a human; AI clients prefer verified queries">
+                          <BadgeCheck size={11} /> verified
+                        </span>
+                      {/if}
                     </div>
                     {#if query.description?.trim()}
                       <p class="mt-1 text-xs text-gray-500 line-clamp-2">{query.description}</p>
@@ -591,6 +617,18 @@
           <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">{selectedQuery.description}</p>
         </div>
       {/if}
+
+      <div class="ds-panel-muted p-3 flex items-center justify-between gap-3">
+        <div>
+          <div class="text-[11px] uppercase tracking-wider text-gray-500">Verified for AI</div>
+          <p class="mt-1 text-xs text-gray-600 dark:text-gray-400">
+            {selectedQuery.verified ? 'Reviewed by a human. MCP clients prefer this query over writing new SQL.' : 'Not reviewed. Mark it once the SQL is known to be correct.'}
+          </p>
+        </div>
+        <Button size="sm" variant="secondary" onclick={() => selectedQuery && toggleVerified(selectedQuery)}>
+          <BadgeCheck size={13} /> {selectedQuery.verified ? 'Unmark' : 'Mark verified'}
+        </Button>
+      </div>
 
       {#if detectQueryParams(selectedQuery.query).length > 0}
         {@const defaults = storedParamDefaults(selectedQuery)}

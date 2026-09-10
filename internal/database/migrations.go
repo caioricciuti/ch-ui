@@ -973,6 +973,9 @@ func (db *DB) runMigrations() error {
 	if err := db.ensureColumn("mcp_keys", "expires_at", "TEXT"); err != nil {
 		return err
 	}
+	if err := db.ensureColumn("saved_queries", "verified", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 
 	if err := db.ensureColumn("dashboard_shares", "visibility", "TEXT NOT NULL DEFAULT 'public'"); err != nil {
 		return err

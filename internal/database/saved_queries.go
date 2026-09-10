@@ -17,8 +17,11 @@ type SavedQuery struct {
 	Parameters   *string `json:"parameters"` // JSON object of default {name: value} bindings
 	ConnectionID *string `json:"connection_id"`
 	CreatedBy    *string `json:"created_by"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
+	// Verified marks a query a human has reviewed as correct. AI clients
+	// (MCP run_saved_query) surface it so the model prefers vetted SQL.
+	Verified  bool   `json:"verified"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 // CreateSavedQueryParams holds parameters for creating a saved query.
@@ -29,6 +32,7 @@ type CreateSavedQueryParams struct {
 	Parameters   string
 	ConnectionID string
 	CreatedBy    string
+	Verified     bool
 }
 
 // UpdateSavedQueryParams holds the updatable fields of a saved query.
@@ -38,12 +42,13 @@ type UpdateSavedQueryParams struct {
 	Query        string
 	Parameters   string
 	ConnectionID string
+	Verified     bool
 }
 
 // GetSavedQueries retrieves all saved queries.
 func (db *DB) GetSavedQueries() ([]SavedQuery, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, name, description, query, parameters, connection_id, created_by, created_at, updated_at
+		`SELECT id, name, description, query, parameters, connection_id, created_by, verified, created_at, updated_at
 		 FROM saved_queries ORDER BY updated_at DESC`,
 	)
 	if err != nil {
@@ -55,7 +60,7 @@ func (db *DB) GetSavedQueries() ([]SavedQuery, error) {
 	for rows.Next() {
 		var q SavedQuery
 		var desc, params, connID, createdBy sql.NullString
-		if err := rows.Scan(&q.ID, &q.Name, &desc, &q.Query, &params, &connID, &createdBy, &q.CreatedAt, &q.UpdatedAt); err != nil {
+		if err := rows.Scan(&q.ID, &q.Name, &desc, &q.Query, &params, &connID, &createdBy, &q.Verified, &q.CreatedAt, &q.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan saved query: %w", err)
 		}
 		q.Description = nullStringToPtr(desc)
@@ -73,13 +78,13 @@ func (db *DB) GetSavedQueries() ([]SavedQuery, error) {
 // GetSavedQueryByID retrieves a saved query by ID.
 func (db *DB) GetSavedQueryByID(id string) (*SavedQuery, error) {
 	row := db.conn.QueryRow(
-		`SELECT id, name, description, query, parameters, connection_id, created_by, created_at, updated_at
+		`SELECT id, name, description, query, parameters, connection_id, created_by, verified, created_at, updated_at
 		 FROM saved_queries WHERE id = ?`, id,
 	)
 
 	var q SavedQuery
 	var desc, params, connID, createdBy sql.NullString
-	err := row.Scan(&q.ID, &q.Name, &desc, &q.Query, &params, &connID, &createdBy, &q.CreatedAt, &q.UpdatedAt)
+	err := row.Scan(&q.ID, &q.Name, &desc, &q.Query, &params, &connID, &createdBy, &q.Verified, &q.CreatedAt, &q.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -99,10 +104,10 @@ func (db *DB) CreateSavedQuery(params CreateSavedQueryParams) (string, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err := db.conn.Exec(
-		`INSERT INTO saved_queries (id, name, description, query, parameters, connection_id, created_by, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO saved_queries (id, name, description, query, parameters, connection_id, created_by, verified, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, params.Name, nilIfEmpty(params.Description), params.Query, nilIfEmpty(params.Parameters),
-		nilIfEmpty(params.ConnectionID), nilIfEmpty(params.CreatedBy), now, now,
+		nilIfEmpty(params.ConnectionID), nilIfEmpty(params.CreatedBy), params.Verified, now, now,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create saved query: %w", err)
@@ -115,9 +120,9 @@ func (db *DB) UpdateSavedQuery(id string, params UpdateSavedQueryParams) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err := db.conn.Exec(
-		`UPDATE saved_queries SET name = ?, description = ?, query = ?, parameters = ?, connection_id = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE saved_queries SET name = ?, description = ?, query = ?, parameters = ?, connection_id = ?, verified = ?, updated_at = ? WHERE id = ?`,
 		params.Name, nilIfEmpty(params.Description), params.Query, nilIfEmpty(params.Parameters),
-		nilIfEmpty(params.ConnectionID), now, id,
+		nilIfEmpty(params.ConnectionID), params.Verified, now, id,
 	)
 	if err != nil {
 		return fmt.Errorf("update saved query: %w", err)

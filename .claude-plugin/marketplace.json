@@ -1,0 +1,18 @@
+{
+  "name": "ch-ui",
+  "owner": { "name": "Caio Ricciuti", "url": "https://github.com/caioricciuti" },
+  "metadata": {
+    "description": "Plugins for CH-UI, the self-hosted ClickHouse console.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "ch-ui",
+      "source": "./integrations/claude-code-plugin",
+      "description": "CH-UI MCP server connection plus a ClickHouse analytics skill.",
+      "version": "1.0.0",
+      "category": "database",
+      "keywords": ["clickhouse", "sql", "analytics", "mcp"]
+    }
+  ]
+}

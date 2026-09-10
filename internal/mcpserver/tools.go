@@ -368,14 +368,19 @@ type pageArgs struct {
 }
 
 type describeTableArgs struct {
-	Database string `json:"database" jsonschema:"the database the table lives in"`
-	Table    string `json:"table" jsonschema:"the table to describe"`
+	Database   string `json:"database" jsonschema:"the database the table lives in"`
+	Table      string `json:"table" jsonschema:"the table to describe"`
+	SampleRows int    `json:"sample_rows,omitempty" jsonschema:"number of sample rows to include (default 3, max 20, 0 to skip)"`
 }
 
 type runSelectArgs struct {
 	SQL     string `json:"sql" jsonschema:"the read-only SQL statement to run (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN)"`
 	MaxRows int    `json:"max_rows,omitempty" jsonschema:"maximum rows to return (default 100, max 2000)"`
 	Format  string `json:"format,omitempty" jsonschema:"result format: json (default, rows as objects) or csv (header + rows, about half the tokens for wide results)"`
+	// MaxBytes maps to ClickHouse max_bytes_to_read: the query is aborted
+	// once it has read more uncompressed bytes than this. Use estimate_query
+	// first to size it.
+	MaxBytes int64 `json:"max_bytes,omitempty" jsonschema:"abort if the query reads more than this many uncompressed bytes (0 = no budget); size it with estimate_query"`
 }
 
 type explainArgs struct {
@@ -463,21 +468,50 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		if !dbAllowed(ak.key, args.Database) {
 			return errResult("database %q is not in this key's allowlist", args.Database), nil, nil
 		}
+		params := map[string]string{"param_db": args.Database, "param_tbl": args.Table}
 		cols, err := runCH(ctx, deps, ak,
-			"SELECT name, type, default_kind, default_expression, comment, is_in_primary_key, is_in_sorting_key, is_in_partition_key FROM system.columns WHERE database = {db:String} AND table = {tbl:String} ORDER BY position FORMAT JSON",
-			map[string]string{"param_db": args.Database, "param_tbl": args.Table}, metaTimeout)
+			"SELECT name, type, default_kind, default_expression, comment, is_in_primary_key, is_in_sorting_key, is_in_partition_key, data_compressed_bytes, data_uncompressed_bytes FROM system.columns WHERE database = {db:String} AND table = {tbl:String} ORDER BY position FORMAT JSON",
+			params, metaTimeout)
 		if err != nil {
 			return errResult("describe_table failed: %v", err), nil, nil
 		}
 		if len(cols) == 0 {
 			return errResult("table %s.%s not found", args.Database, args.Table), nil, nil
 		}
-		meta, err := runCH(ctx, deps, ak,
-			"SELECT engine, partition_key, sorting_key, primary_key, total_rows, total_bytes FROM system.tables WHERE database = {db:String} AND name = {tbl:String} FORMAT JSON",
-			map[string]string{"param_db": args.Database, "param_tbl": args.Table}, metaTimeout)
 		out := map[string]any{"database": args.Database, "table": args.Table, "columns": cols}
+
+		meta, err := runCH(ctx, deps, ak,
+			"SELECT engine, partition_key, sorting_key, primary_key, total_rows, total_bytes, comment, create_table_query, metadata_modification_time FROM system.tables WHERE database = {db:String} AND name = {tbl:String} FORMAT JSON",
+			params, metaTimeout)
 		if err == nil && len(meta) == 1 {
 			out["table_info"] = meta[0]
+		}
+
+		// Parts give freshness and physical size; system.parts may be off
+		// limits to a locked-down user, so this is best effort.
+		parts, err := runCH(ctx, deps, ak,
+			"SELECT count() AS active_parts, uniqExact(partition_id) AS partitions, sum(rows) AS rows, sum(data_compressed_bytes) AS compressed_bytes, sum(data_uncompressed_bytes) AS uncompressed_bytes, max(modification_time) AS last_modified FROM system.parts WHERE active AND database = {db:String} AND table = {tbl:String} FORMAT JSON",
+			params, metaTimeout)
+		if err == nil && len(parts) == 1 {
+			out["storage"] = parts[0]
+		}
+
+		n := args.SampleRows
+		if req.Params != nil && !argProvided(req, "sample_rows") {
+			n = 3
+		}
+		if n > 20 {
+			n = 20
+		}
+		if n > 0 {
+			sampleSQL := fmt.Sprintf("SELECT * FROM %s.%s LIMIT %d FORMAT JSON", quoteIdent(args.Database), quoteIdent(args.Table), n)
+			if blocked := checkGuardrails(deps, ak, sampleSQL, "/mcp/describe_table"); blocked != nil {
+				out["sample_note"] = "sample rows withheld by governance policy"
+			} else if sample, err := runCH(ctx, deps, ak, sampleSQL, map[string]string{"max_result_rows": strconv.Itoa(n), "max_execution_time": "10"}, metaTimeout); err != nil {
+				out["sample_note"] = "sample rows unavailable: " + err.Error()
+			} else {
+				out["sample_rows"] = sample
+			}
 		}
 		return jsonResult(out), nil, nil
 	})
@@ -489,87 +523,10 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Annotations: ann,
 		Description: "Run a read-only SQL statement (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN) and return the rows as JSON. Row-capped and time-limited; write statements are rejected and the session runs with readonly enforced. Every call is recorded in CH-UI query history and the audit log.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args runSelectArgs) (*mcp.CallToolResult, any, error) {
-		sql := strings.TrimSpace(args.SQL)
-		if sql == "" {
-			return errResult("sql is required"), nil, nil
-		}
-		if !isReadOnlyStatement(sql) {
-			return errResult("only read-only statements are allowed (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN); INTO OUTFILE is rejected"), nil, nil
-		}
-		if trailingFormatRe.MatchString(sql) {
-			return errResult("omit the FORMAT clause; results are always returned as JSON"), nil, nil
-		}
-		if blocked := checkGuardrails(deps, ak, sql, "/mcp/run_select"); blocked != nil {
-			return blocked, nil, nil
-		}
-
-		maxRows := args.MaxRows
-		if maxRows <= 0 {
-			maxRows = defaultMaxRows
-		}
-		if maxRows > hardMaxRows {
-			maxRows = hardMaxRows
-		}
-		settings := map[string]string{
-			"max_result_rows":    strconv.Itoa(maxRows),
-			"max_execution_time": strconv.Itoa(int(queryTimeout.Seconds())),
-		}
-
-		format := strings.ToLower(strings.TrimSpace(args.Format))
-		if format == "" {
-			format = "json"
-		}
-		if format != "json" && format != "csv" {
-			return errResult("format must be json or csv"), nil, nil
-		}
-
-		start := time.Now()
-		res, err := runCHFull(ctx, deps, ak, sql, settings, queryTimeout)
-		elapsed := time.Since(start)
-		if err != nil {
-			recordQuery(deps, ak, sql, "error", err.Error(), elapsed, 0)
-			return errResult("query failed: %v", err), nil, nil
-		}
-		rows := res.Rows
-		// result_overflow_mode=break stops at block granularity, so ClickHouse
-		// may hand back more than max_result_rows; trim so the cap is exact.
-		truncated := len(rows) >= maxRows
-		if len(rows) > maxRows {
-			rows = rows[:maxRows]
-		}
-		recordQuery(deps, ak, sql, "success", "", elapsed, int64(len(rows)))
-
-		meta := map[string]any{
-			"row_count":  len(rows),
-			"elapsed_ms": elapsed.Milliseconds(),
-		}
-		if len(res.Columns) > 0 {
-			meta["columns"] = res.Columns
-		}
-		if res.Stats != nil {
-			meta["stats"] = map[string]any{"rows_read": res.Stats.RowsRead, "bytes_read": res.Stats.BytesRead}
-		}
-		if truncated {
-			meta["truncated"] = true
-			meta["note"] = fmt.Sprintf("result capped at %d rows; add filters, aggregate, or raise max_rows (up to %d)", maxRows, hardMaxRows)
-		}
-
-		if format == "csv" {
-			body := toCSV(res.Columns, rows)
-			if len(body) > maxResultBytes {
-				return errResult("result too large (%d KB, cap %d KB): select fewer columns, add filters, or aggregate", len(body)/1024, maxResultBytes/1024), nil, nil
-			}
-			mb, _ := json.Marshal(meta)
-			return &mcp.CallToolResult{Content: []mcp.Content{
-				&mcp.TextContent{Text: body},
-				&mcp.TextContent{Text: string(mb)},
-			}}, nil, nil
-		}
-		if rows == nil {
-			rows = []map[string]any{}
-		}
-		meta["rows"] = rows
-		return jsonResult(meta), nil, nil
+		return runReadQuery(ctx, deps, ak, readQuery{
+			SQL: args.SQL, MaxRows: args.MaxRows, Format: args.Format, MaxBytes: args.MaxBytes,
+			Endpoint: "/mcp/run_select",
+		}), nil, nil
 	})
 
 	title, ann = readOnlyTool("Explain query plan")
@@ -597,3 +554,131 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		return jsonResult(map[string]any{"plan": rows}), nil, nil
 	})
 }
+
+// readQuery is the input of runReadQuery, shared by run_select and
+// run_saved_query.
+type readQuery struct {
+	SQL      string
+	MaxRows  int
+	Format   string
+	MaxBytes int64
+	Extra    map[string]string // additional ClickHouse settings, e.g. param_*
+	Endpoint string            // guardrail endpoint label
+	Meta     map[string]any    // merged into the result envelope
+}
+
+// runReadQuery validates, executes and records a read-only statement and
+// renders the result envelope. Every guard applies regardless of which tool
+// the SQL came from.
+func runReadQuery(ctx context.Context, deps Deps, ak *authedKey, q readQuery) *mcp.CallToolResult {
+	sql := strings.TrimSpace(q.SQL)
+	if sql == "" {
+		return errResult("sql is required")
+	}
+	if !isReadOnlyStatement(sql) {
+		return errResult("only read-only statements are allowed (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN); INTO OUTFILE is rejected")
+	}
+	if trailingFormatRe.MatchString(sql) {
+		return errResult("omit the FORMAT clause; results are always returned as JSON")
+	}
+	if blocked := checkGuardrails(deps, ak, sql, q.Endpoint); blocked != nil {
+		return blocked
+	}
+	format := strings.ToLower(strings.TrimSpace(q.Format))
+	if format == "" {
+		format = "json"
+	}
+	if format != "json" && format != "csv" {
+		return errResult("format must be json or csv")
+	}
+	maxRows := q.MaxRows
+	if maxRows <= 0 {
+		maxRows = defaultMaxRows
+	}
+	if maxRows > hardMaxRows {
+		maxRows = hardMaxRows
+	}
+	settings := map[string]string{
+		"max_result_rows":    strconv.Itoa(maxRows),
+		"max_execution_time": strconv.Itoa(int(queryTimeout.Seconds())),
+	}
+	if q.MaxBytes > 0 {
+		settings["max_bytes_to_read"] = strconv.FormatInt(q.MaxBytes, 10)
+		settings["read_overflow_mode"] = "throw"
+	}
+	for k, v := range q.Extra {
+		settings[k] = v
+	}
+
+	start := time.Now()
+	res, err := runCHFull(ctx, deps, ak, sql, settings, queryTimeout)
+	elapsed := time.Since(start)
+	if err != nil {
+		recordQuery(deps, ak, sql, "error", err.Error(), elapsed, 0)
+		return errResult("query failed: %v", err)
+	}
+	rows := res.Rows
+	// result_overflow_mode=break stops at block granularity, so ClickHouse
+	// may hand back more than max_result_rows; trim so the cap is exact.
+	truncated := len(rows) >= maxRows
+	if len(rows) > maxRows {
+		rows = rows[:maxRows]
+	}
+	recordQuery(deps, ak, sql, "success", "", elapsed, int64(len(rows)))
+
+	meta := map[string]any{
+		"row_count":  len(rows),
+		"elapsed_ms": elapsed.Milliseconds(),
+	}
+	for k, v := range q.Meta {
+		meta[k] = v
+	}
+	if len(res.Columns) > 0 {
+		meta["columns"] = res.Columns
+	}
+	if res.Stats != nil {
+		meta["stats"] = map[string]any{"rows_read": res.Stats.RowsRead, "bytes_read": res.Stats.BytesRead}
+	}
+	if truncated {
+		meta["truncated"] = true
+		meta["note"] = fmt.Sprintf("result capped at %d rows; add filters, aggregate, or raise max_rows (up to %d)", maxRows, hardMaxRows)
+	}
+
+	if format == "csv" {
+		body := toCSV(res.Columns, rows)
+		if len(body) > maxResultBytes {
+			return errResult("result too large (%d KB, cap %d KB): select fewer columns, add filters, or aggregate", len(body)/1024, maxResultBytes/1024)
+		}
+		mb, _ := json.Marshal(meta)
+		return &mcp.CallToolResult{Content: []mcp.Content{
+			&mcp.TextContent{Text: body},
+			&mcp.TextContent{Text: string(mb)},
+		}}
+	}
+	if rows == nil {
+		rows = []map[string]any{}
+	}
+	meta["rows"] = rows
+	return jsonResult(meta)
+}
+
+// quoteIdent backtick-quotes a ClickHouse identifier.
+func quoteIdent(s string) string {
+	return "`" + strings.ReplaceAll(s, "`", "\\`") + "`"
+}
+
+// argProvided reports whether the raw call carried the named argument, so a
+// zero value can be told apart from an omitted one.
+func argProvided(req *mcp.CallToolRequest, name string) bool {
+	if req == nil || req.Params == nil || len(req.Params.Arguments) == 0 {
+		return false
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(req.Params.Arguments, &m) != nil {
+		return false
+	}
+	_, ok := m[name]
+	return ok
+}
+
+func jsonUnmarshal(text string, v any) error { return json.Unmarshal([]byte(text), v) }

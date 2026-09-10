@@ -1,0 +1,10 @@
+{
+  "name": "ch-ui",
+  "description": "CH-UI: connect Claude Code to your self-hosted ClickHouse through CH-UI's governed MCP server, with a skill that teaches the schema-first ClickHouse analytics workflow.",
+  "version": "1.0.0",
+  "author": { "name": "Caio Ricciuti", "url": "https://github.com/caioricciuti/ch-ui" },
+  "homepage": "https://github.com/caioricciuti/ch-ui/blob/main/docs/mcp.md",
+  "repository": "https://github.com/caioricciuti/ch-ui",
+  "license": "Apache-2.0",
+  "keywords": ["clickhouse", "sql", "analytics", "mcp", "database"]
+}
