@@ -4,12 +4,13 @@
   import {
     listMCPKeys,
     createMCPKey,
+    rotateMCPKey,
     revokeMCPKey,
     type MCPKey,
   } from '../../api/mcp'
   import { success, error as toastError } from '../../stores/toast.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
-  import { Plug, Plus, Copy, Trash2 } from 'lucide-svelte'
+  import { Plug, Plus, Copy, Trash2, RefreshCw } from 'lucide-svelte'
   import { formatDate } from '../../utils/format'
 
   interface ConnectionRow {
@@ -30,12 +31,22 @@
   let chPassword = $state('')
   let allowedDatabases = $state('')
   let allowWrite = $state(false)
+  let expiresInDays = $state(90)
+
+  const expiryOptions = [
+    { days: 30, label: '30 days' },
+    { days: 90, label: '90 days' },
+    { days: 365, label: '1 year' },
+    { days: 0, label: 'Never' },
+  ]
 
   // One-time reveal of the freshly created key.
   let revealed = $state<{ secret: string; name: string } | null>(null)
 
   let revokeTarget = $state<MCPKey | null>(null)
   let revoking = $state(false)
+  let rotateTarget = $state<MCPKey | null>(null)
+  let rotating = $state(false)
 
   const mcpUrl = $derived(`${window.location.origin}/mcp`)
   const claudeCodeCmd = $derived(
@@ -77,6 +88,7 @@
         ch_password: chPassword,
         scopes: allowWrite ? 'read_write' : 'read',
         allowed_databases: allowedDatabases.trim(),
+        expires_in_days: expiresInDays,
       })
       revealed = { secret: res.secret, name: res.key.name }
       name = ''
@@ -84,6 +96,7 @@
       chPassword = ''
       allowedDatabases = ''
       allowWrite = false
+      expiresInDays = 90
       showForm = false
       success('MCP key created')
       await load()
@@ -107,6 +120,26 @@
     } finally {
       revoking = false
     }
+  }
+
+  async function confirmRotate() {
+    if (!rotateTarget) return
+    rotating = true
+    try {
+      const res = await rotateMCPKey(rotateTarget.id)
+      revealed = { secret: res.secret, name: res.key.name }
+      success(`Key "${rotateTarget.name}" rotated; the old secret no longer works`)
+      rotateTarget = null
+      await load()
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Failed to rotate key')
+    } finally {
+      rotating = false
+    }
+  }
+
+  function isExpired(k: MCPKey): boolean {
+    return !!k.expires_at && new Date(k.expires_at).getTime() <= Date.now()
   }
 
   async function copyText(value: string, label: string) {
@@ -137,9 +170,10 @@
 
   <p class="text-xs text-gray-500 dark:text-gray-400">
     CH-UI embeds a Model Context Protocol server at <span class="font-mono">{mcpUrl}</span>. AI clients
-    (Claude Code, claude.ai, Cursor) connect with a key and get read-only, row-capped tools: schema
+    (Claude Code, Cursor, VS Code, Zed) connect with a key and get read-only, row-capped tools: schema
     browsing, SELECT queries, and query plans, all recorded in query history and the audit log.
     The key's ClickHouse user grants are the real permission boundary: use a locked-down user.
+    Keys can expire and be rotated in place; rotating keeps the binding and reveals a new secret once.
   </p>
 
   {#if revealed}
@@ -186,9 +220,17 @@
         <span class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">ClickHouse password</span>
         <input class="ds-input-sm mt-1 w-full" type="password" bind:value={chPassword} autocomplete="new-password" />
       </label>
-      <label class="block sm:col-span-2">
+      <label class="block">
         <span class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Database allowlist (optional, comma-separated)</span>
         <input class="ds-input-sm mt-1 w-full" bind:value={allowedDatabases} placeholder="analytics, logs" />
+      </label>
+      <label class="block">
+        <span class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Expires</span>
+        <select class="ds-input-sm mt-1 w-full" bind:value={expiresInDays}>
+          {#each expiryOptions as o}
+            <option value={o.days}>{o.label}</option>
+          {/each}
+        </select>
       </label>
       <label class="flex items-start gap-2 sm:col-span-2 cursor-pointer">
         <input type="checkbox" class="mt-0.5" bind:checked={allowWrite} />
@@ -222,6 +264,7 @@
             <th class="ds-table-th">Scope</th>
             <th class="ds-table-th">Databases</th>
             <th class="ds-table-th">Last used</th>
+            <th class="ds-table-th">Expires</th>
             <th class="ds-table-th">Status</th>
             <th class="ds-table-th ds-td-right"></th>
           </tr>
@@ -242,22 +285,34 @@
               </td>
               <td class="ds-td">{k.allowed_databases || 'all'}</td>
               <td class="ds-td">{k.last_used_at ? formatDate(k.last_used_at) : 'never'}</td>
+              <td class="ds-td">{k.expires_at ? formatDate(k.expires_at) : 'never'}</td>
               <td class="ds-td">
                 {#if k.revoked_at}
                   <span class="ds-badge ds-badge-danger">revoked</span>
+                {:else if isExpired(k)}
+                  <span class="ds-badge ds-badge-danger">expired</span>
                 {:else}
                   <span class="ds-badge ds-badge-success">active</span>
                 {/if}
               </td>
               <td class="ds-td ds-td-right">
                 {#if !k.revoked_at}
-                  <button
-                    class="ds-btn-outline px-2 py-1"
-                    title="Revoke key"
-                    onclick={() => (revokeTarget = k)}
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                  <span class="inline-flex gap-1">
+                    <button
+                      class="ds-btn-outline px-2 py-1"
+                      title="Rotate key (new secret, same binding)"
+                      onclick={() => (rotateTarget = k)}
+                    >
+                      <RefreshCw size={13} />
+                    </button>
+                    <button
+                      class="ds-btn-outline px-2 py-1"
+                      title="Revoke key"
+                      onclick={() => (revokeTarget = k)}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </span>
                 {/if}
               </td>
             </tr>
@@ -267,6 +322,17 @@
     </div>
   {/if}
 </section>
+
+<ConfirmDialog
+  open={rotateTarget !== null}
+  title="Rotate MCP key"
+  description={`Rotate "${rotateTarget?.name ?? ''}"? A new secret is issued with the same connection, user, scope and expiry; the current secret stops working immediately. Update every client that uses it.`}
+  confirmLabel="Rotate"
+  destructive={false}
+  loading={rotating}
+  onconfirm={confirmRotate}
+  oncancel={() => (rotateTarget = null)}
+/>
 
 <ConfirmDialog
   open={revokeTarget !== null}

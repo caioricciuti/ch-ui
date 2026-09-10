@@ -108,3 +108,49 @@ func TestEveryToolCallIsAudited(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+func TestExpiredAndRotatedKeys(t *testing.T) {
+	deps, key := testDeps(t)
+	h := Handler(deps)
+	keys, _ := deps.DB.ListMCPKeys()
+	conn := keys[0].ConnectionID
+
+	// An expired key is refused with 401.
+	past := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	expPlain, expHash, expPrefix := GenerateKey()
+	if _, err := deps.DB.CreateMCPKey(database.CreateMCPKeyParams{Name: "expired", KeyHash: expHash, KeyPrefix: expPrefix, ConnectionID: conn, CHUser: "default", CHPasswordEnc: keys[0].CHPasswordEnc, ExpiresAt: &past}); err != nil {
+		t.Fatalf("create expired key: %v", err)
+	}
+	if rec := mcpRequest(t, h, expPlain, initializeBody); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "expired") {
+		t.Errorf("expired key: want 401 expired, got %d %s", rec.Code, rec.Body.String())
+	}
+
+	// A future expiry still works.
+	future := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	okPlain, okHash, okPrefix := GenerateKey()
+	if _, err := deps.DB.CreateMCPKey(database.CreateMCPKeyParams{Name: "fresh", KeyHash: okHash, KeyPrefix: okPrefix, ConnectionID: conn, CHUser: "default", CHPasswordEnc: keys[0].CHPasswordEnc, ExpiresAt: &future}); err != nil {
+		t.Fatalf("create fresh key: %v", err)
+	}
+	if rec := mcpRequest(t, h, okPlain, initializeBody); rec.Code != http.StatusOK {
+		t.Errorf("fresh key: want 200, got %d", rec.Code)
+	}
+
+	// Rotation: old secret dies, new one carries the binding.
+	newPlain, newHash, newPrefix := GenerateKey()
+	rotated, err := deps.DB.RotateMCPKey(keys[0].ID, newHash, newPrefix, "admin")
+	if err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	if rotated.ConnectionID != conn || rotated.Scopes != keys[0].Scopes || rotated.Name != keys[0].Name {
+		t.Errorf("rotated key lost its binding: %+v", rotated)
+	}
+	if rec := mcpRequest(t, h, key, initializeBody); rec.Code != http.StatusUnauthorized {
+		t.Errorf("old secret after rotation: want 401, got %d", rec.Code)
+	}
+	if rec := mcpRequest(t, h, newPlain, initializeBody); rec.Code != http.StatusOK {
+		t.Errorf("new secret after rotation: want 200, got %d", rec.Code)
+	}
+	if _, err := deps.DB.RotateMCPKey(keys[0].ID, "x", "y", "admin"); err == nil {
+		t.Error("rotating an already revoked key should fail")
+	}
+}

@@ -34,11 +34,11 @@ func writeDeps(t *testing.T) (Deps, string, string) {
 	enc, _ := crypto.Encrypt("chpass", cfg.AppSecretKey)
 
 	readKey, readHash, readPrefix := GenerateKey()
-	if _, err := db.CreateMCPKey("reader", readHash, readPrefix, connID, "default", enc, "read", "", "admin"); err != nil {
+	if _, err := db.CreateMCPKey(database.CreateMCPKeyParams{Name: "reader", KeyHash: readHash, KeyPrefix: readPrefix, ConnectionID: connID, CHUser: "default", CHPasswordEnc: enc, Scopes: "read", CreatedBy: "admin"}); err != nil {
 		t.Fatalf("create read key: %v", err)
 	}
 	writeKey, writeHash, writePrefix := GenerateKey()
-	if _, err := db.CreateMCPKey("writer", writeHash, writePrefix, connID, "default", enc, "read_write", "", "admin"); err != nil {
+	if _, err := db.CreateMCPKey(database.CreateMCPKeyParams{Name: "writer", KeyHash: writeHash, KeyPrefix: writePrefix, ConnectionID: connID, CHUser: "default", CHPasswordEnc: enc, Scopes: "read_write", CreatedBy: "admin"}); err != nil {
 		t.Fatalf("create write key: %v", err)
 	}
 

@@ -970,6 +970,9 @@ func (db *DB) runMigrations() error {
 	if err := db.ensureColumn("brain_chats", "context_tables", "TEXT"); err != nil {
 		return err
 	}
+	if err := db.ensureColumn("mcp_keys", "expires_at", "TEXT"); err != nil {
+		return err
+	}
 
 	if err := db.ensureColumn("dashboard_shares", "visibility", "TEXT NOT NULL DEFAULT 'public'"); err != nil {
 		return err
