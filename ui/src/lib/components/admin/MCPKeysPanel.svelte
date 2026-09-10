@@ -174,6 +174,9 @@
     browsing, SELECT queries, and query plans, all recorded in query history and the audit log.
     The key's ClickHouse user grants are the real permission boundary: use a locked-down user.
     Keys can expire and be rotated in place; rotating keeps the binding and reveals a new secret once.
+    Clients that use OAuth (claude.ai, ChatGPT, or the sign-in flow in Claude Code, Cursor and VS Code) get
+    short-lived tokens tied to the person who approved them; those show up here as <span class="font-mono">oauth</span>
+    grants and can be revoked the same way.
   </p>
 
   {#if revealed}
@@ -272,7 +275,12 @@
         <tbody>
           {#each keys as k (k.id)}
             <tr class="ds-table-row">
-              <td class="ds-td ds-td-strong">{k.name}</td>
+              <td class="ds-td ds-td-strong">
+                {k.name}
+                {#if k.kind === 'oauth'}
+                  <span class="ds-badge ml-1" title={`OAuth grant by ${k.subject} to client ${k.client_id}`}>oauth</span>
+                {/if}
+              </td>
               <td class="ds-td ds-td-mono">{k.key_prefix}</td>
               <td class="ds-td">{connectionName(k.connection_id)}</td>
               <td class="ds-td ds-td-mono">{k.ch_user}</td>
@@ -298,13 +306,15 @@
               <td class="ds-td ds-td-right">
                 {#if !k.revoked_at}
                   <span class="inline-flex gap-1">
-                    <button
-                      class="ds-btn-outline px-2 py-1"
-                      title="Rotate key (new secret, same binding)"
-                      onclick={() => (rotateTarget = k)}
-                    >
-                      <RefreshCw size={13} />
-                    </button>
+                    {#if k.kind !== 'oauth'}
+                      <button
+                        class="ds-btn-outline px-2 py-1"
+                        title="Rotate key (new secret, same binding)"
+                        onclick={() => (rotateTarget = k)}
+                      >
+                        <RefreshCw size={13} />
+                      </button>
+                    {/if}
                     <button
                       class="ds-btn-outline px-2 py-1"
                       title="Revoke key"

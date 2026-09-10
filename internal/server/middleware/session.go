@@ -63,6 +63,9 @@ func Session(db *database.DB, _ *tunnel.Gateway) func(http.Handler) http.Handler
 				EncryptedPassword: session.EncryptedPassword,
 				UserRole:          role,
 			}
+			if session.AuthSubject != nil {
+				info.AuthSubject = *session.AuthSubject
+			}
 
 			ctx := SetSession(r.Context(), info)
 			next.ServeHTTP(w, r.WithContext(ctx))

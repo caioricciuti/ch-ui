@@ -174,6 +174,15 @@ func (s *Server) setupRoutes() {
 		Guardrails: s.guardrails,
 	}))
 
+	// ── OAuth 2.1 authorization server for /mcp ─────────────────────────
+	oauthHandler := &handlers.OAuthHandler{DB: db, Config: cfg}
+	r.Get("/.well-known/oauth-protected-resource", oauthHandler.ProtectedResourceMetadata)
+	r.Get("/.well-known/oauth-protected-resource/mcp", oauthHandler.ProtectedResourceMetadata)
+	r.Get("/.well-known/oauth-authorization-server", oauthHandler.AuthorizationServerMetadata)
+	r.Get("/oauth/authorize", oauthHandler.Authorize)
+	r.With(middleware.IPRateLimit(60, time.Minute)).Post("/oauth/token", oauthHandler.Token)
+	r.With(middleware.IPRateLimit(20, time.Minute)).Post("/oauth/register", oauthHandler.Register)
+
 	// ── Rate limiter (shared across handlers) ───────────────────────────
 	rateLimiter := middleware.NewRateLimiter(db)
 
@@ -234,6 +243,9 @@ func (s *Server) setupRoutes() {
 					ar.Put("/{id}/sso-account", connectionsHandler.SetSSOAccount)
 				})
 			})
+
+			// OAuth consent (the SPA page calls these with the session cookie)
+			protected.Route("/oauth/consent", oauthHandler.ConsentRoutes)
 
 			// Saved queries (community; parameterized run is Pro-gated inside Routes)
 			savedQueriesHandler := &handlers.SavedQueriesHandler{DB: db, Gateway: gw, Config: cfg}

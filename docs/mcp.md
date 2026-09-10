@@ -1,16 +1,63 @@
 # MCP server
 
 CH-UI embeds a [Model Context Protocol](https://modelcontextprotocol.io) server,
-so AI clients (Claude Code, Cursor, VS Code, Zed, and any other MCP client that
-can send a bearer header) can browse schemas and run read-only queries against
-your self-hosted ClickHouse — through CH-UI, with CH-UI's auth, guardrails, and
+so AI clients (claude.ai, ChatGPT, Claude Code, Cursor, VS Code, Zed, and any
+other MCP client) can browse schemas and run read-only queries against your
+self-hosted ClickHouse — through CH-UI, with CH-UI's auth, guardrails, and
 audit trail. No ClickHouse credentials on laptops, no extra process: it is the
 same `ch-ui` binary, serving streamable HTTP at `/mcp`.
+
+Two ways to authenticate:
+
+- **Sign in with OAuth** (recommended): the client sends you to CH-UI, you
+  approve, and it gets a short-lived token tied to *you*: your connection,
+  your ClickHouse grants, your name in the audit log. This is what claude.ai
+  and ChatGPT require, and what Claude Code, Cursor and VS Code do when you
+  add the server without a header.
+- **An admin-created key** (`chm_...`): a bearer token bound to a dedicated
+  ClickHouse user. Right for CI, scripts, and shared read-only access.
 
 The server speaks the current MCP revision (2026-07-28, stateless) and the
 earlier handshake-based revisions, so old and new clients both work.
 
-## Connect a client
+## Connect a client with OAuth
+
+Give the client the URL `https://your-ch-ui.example.com/mcp` and nothing
+else. It discovers CH-UI's authorization server from the `401` response,
+registers itself (or presents a Client ID Metadata Document), and opens the
+consent page in your browser. Sign in to CH-UI if you are not already, review
+what the client asks for, and click **Allow access**.
+
+- **claude.ai / Claude Desktop**: Settings → Connectors → Add custom
+  connector → paste the URL. No client id or secret needed.
+- **ChatGPT**: add the URL as an MCP server in developer mode / plugins.
+- **Claude Code**: `claude mcp add --transport http ch-ui https://your-ch-ui.example.com/mcp`
+  then `/mcp` and choose *Authenticate*.
+- **Cursor, VS Code, Zed, Devin**: add the URL without a `headers` block; the
+  client offers to sign in.
+
+What the person approving needs to know:
+
+- The token runs queries **as them**: their connection, their ClickHouse user
+  (or the SSO service account), their guardrails. Every call is audited under
+  their name (`mcp.oauth.consent`, then the usual `mcp.query.execute` and
+  `mcp.tool.call` rows).
+- Scope `read` is the default. Scope `write` (draft creation in CH-UI) is only
+  granted to admin and analyst roles.
+- Access tokens last one hour and are refreshed silently by the client for up
+  to 30 days of use. Admins see and revoke grants in **Admin → MCP Server**
+  (badge `oauth`).
+- CH-UI is the authorization server; nothing leaves your deployment. It
+  supports authorization code + PKCE (S256, mandatory), refresh token
+  rotation, Dynamic Client Registration for public clients, and Client ID
+  Metadata Documents (fetched over https only, no redirects, private
+  addresses refused). Metadata lives at
+  `/.well-known/oauth-protected-resource` and
+  `/.well-known/oauth-authorization-server`.
+- Behind a reverse proxy, forward `X-Forwarded-Proto` and `X-Forwarded-Host`
+  (or set `app_url`) so the metadata advertises the public origin.
+
+## Connect a client with a key
 
 Create a key in **Admin → MCP Server** (admin only). The key is shown once.
 Keep it out of shell history and config files where you can: every snippet
@@ -79,18 +126,10 @@ All take a URL plus a `headers` map; use the same
 `Authorization: Bearer chm_...` header as above. Check the client's docs for
 the file location.
 
-### claude.ai and Claude Desktop
+### claude.ai, Claude Desktop, ChatGPT
 
-Custom connectors in claude.ai require OAuth. The only header-based option is
-the org-scoped `static_headers` beta, which an organization admin has to
-enable; if you have it, add the same `Authorization` header there. Per-user
-OAuth login for CH-UI's MCP server is planned; until then, claude.ai users
-should use Claude Code.
-
-### ChatGPT
-
-ChatGPT plugins (formerly apps/connectors) accept OAuth only, so CH-UI's MCP
-server cannot be added to ChatGPT yet.
+These accept OAuth only; use the OAuth section above. (claude.ai's org-scoped
+`static_headers` beta also works with a key if your organization enabled it.)
 
 ## What a key is
 

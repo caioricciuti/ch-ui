@@ -18,6 +18,9 @@ type SessionInfo struct {
 	ClickhouseUser    string
 	EncryptedPassword string
 	UserRole          string
+	// AuthSubject is the human identity (OIDC email) when it differs from
+	// ClickhouseUser; empty for password logins.
+	AuthSubject string
 }
 
 // SetSession stores the session in the request context.

@@ -887,6 +887,45 @@ func (db *DB) runMigrations() error {
 			revoked_at TEXT
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_mcp_keys_hash ON mcp_keys(key_hash)`,
+		// ── OAuth 2.1 authorization server for the MCP endpoint ─────────
+		`CREATE TABLE IF NOT EXISTS oauth_clients (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			redirect_uris TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS oauth_requests (
+			id TEXT PRIMARY KEY,
+			client_id TEXT NOT NULL,
+			client_name TEXT NOT NULL,
+			redirect_uri TEXT NOT NULL,
+			scope TEXT NOT NULL,
+			state TEXT NOT NULL,
+			code_challenge TEXT NOT NULL,
+			expires_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS oauth_codes (
+			code_hash TEXT PRIMARY KEY,
+			client_id TEXT NOT NULL,
+			client_name TEXT NOT NULL,
+			redirect_uri TEXT NOT NULL,
+			scope TEXT NOT NULL,
+			code_challenge TEXT NOT NULL,
+			connection_id TEXT NOT NULL,
+			ch_user TEXT NOT NULL,
+			ch_password_enc TEXT NOT NULL,
+			subject TEXT NOT NULL,
+			expires_at TEXT NOT NULL,
+			used_at TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+			token_hash TEXT PRIMARY KEY,
+			key_id TEXT NOT NULL REFERENCES mcp_keys(id) ON DELETE CASCADE,
+			client_id TEXT NOT NULL,
+			scope TEXT NOT NULL,
+			expires_at TEXT NOT NULL,
+			revoked_at TEXT
+		)`,
 		`CREATE TABLE IF NOT EXISTS github_sync_logs (
 			id TEXT PRIMARY KEY,
 			connection_id TEXT NOT NULL,
@@ -971,6 +1010,15 @@ func (db *DB) runMigrations() error {
 		return err
 	}
 	if err := db.ensureColumn("mcp_keys", "expires_at", "TEXT"); err != nil {
+		return err
+	}
+	if err := db.ensureColumn("mcp_keys", "kind", "TEXT NOT NULL DEFAULT 'api'"); err != nil {
+		return err
+	}
+	if err := db.ensureColumn("mcp_keys", "subject", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := db.ensureColumn("mcp_keys", "client_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := db.ensureColumn("saved_queries", "verified", "INTEGER NOT NULL DEFAULT 0"); err != nil {

@@ -9,6 +9,7 @@
   import Spinner from './lib/components/common/Spinner.svelte'
   import Login from './pages/Login.svelte'
   import PublicDashboard from './pages/PublicDashboard.svelte'
+  import OAuthConsent from './pages/OAuthConsent.svelte'
   import logo from './assets/logo.png'
 
   function getPublicDashboardToken(): string | null {
@@ -19,9 +20,18 @@
 
   let publicToken = $state(getPublicDashboardToken())
 
+  // /oauth/consent?request=<id>: the MCP OAuth consent page. It needs a
+  // session (Login renders first when there is none) but not the workspace.
+  function getOAuthRequestId(): string | null {
+    if (stripBase(window.location.pathname) !== '/oauth/consent') return null
+    return new URLSearchParams(window.location.search).get('request')
+  }
+  let oauthRequestId = $state(getOAuthRequestId())
+
   onMount(async () => {
     if (publicToken) return
     await initSession()
+    if (oauthRequestId) return
     initRouter()
   })
 
@@ -41,6 +51,8 @@
   </div>
 {:else if !authenticated}
   <Login />
+{:else if oauthRequestId}
+  <OAuthConsent requestId={oauthRequestId} />
 {:else}
   <Shell />
 {/if}
