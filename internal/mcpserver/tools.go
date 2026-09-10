@@ -1,7 +1,10 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -20,6 +23,9 @@ const (
 
 	defaultMaxRows = 100
 	hardMaxRows    = 2000
+
+	defaultPageSize = 50
+	hardMaxPageSize = 500
 
 	// maxResultBytes caps the serialized rows returned to the client; MCP
 	// results land in an LLM context window, not a data pipeline.
@@ -113,12 +119,145 @@ func jsonResult(v any) *mcp.CallToolResult {
 	if err != nil {
 		return errResult("failed to serialize result: %v", err)
 	}
+	if len(b) > maxResultBytes {
+		return errResult("result too large (%d KB, cap %d KB): use a smaller page_size, select fewer columns, add filters, or aggregate", len(b)/1024, maxResultBytes/1024)
+	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}
+}
+
+// ---- pagination ----
+//
+// Every list tool returns at most page_size items and a next_cursor when more
+// exist. Cursors are opaque to the client: base64url of either "name:<last>"
+// (keyset, for system tables) or "off:<n>" (offset, for CH-UI's own lists).
+
+func encodeCursor(kind, v string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(kind + ":" + v))
+}
+
+func decodeCursor(c string) (kind, v string, err error) {
+	if c == "" {
+		return "", "", nil
+	}
+	b, err := base64.RawURLEncoding.DecodeString(c)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid cursor")
+	}
+	kind, v, ok := strings.Cut(string(b), ":")
+	if !ok {
+		return "", "", fmt.Errorf("invalid cursor")
+	}
+	return kind, v, nil
+}
+
+func clampPageSize(n int) int {
+	if n <= 0 {
+		return defaultPageSize
+	}
+	if n > hardMaxPageSize {
+		return hardMaxPageSize
+	}
+	return n
+}
+
+// pageOf slices an in-memory list by an offset cursor and returns the page
+// plus the next cursor ("" when this is the last page).
+func pageOf(items []map[string]any, cursor string, pageSize int) ([]map[string]any, string, error) {
+	kind, v, err := decodeCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
+	offset := 0
+	if kind == "off" {
+		if offset, err = strconv.Atoi(v); err != nil || offset < 0 {
+			return nil, "", fmt.Errorf("invalid cursor")
+		}
+	} else if kind != "" {
+		return nil, "", fmt.Errorf("invalid cursor")
+	}
+	if offset >= len(items) {
+		return []map[string]any{}, "", nil
+	}
+	end := offset + pageSize
+	next := ""
+	if end < len(items) {
+		next = encodeCursor("off", strconv.Itoa(end))
+	} else {
+		end = len(items)
+	}
+	return items[offset:end], next, nil
+}
+
+// chColumn is one entry of ClickHouse's JSON "meta" array, which preserves
+// column order (rows decode into maps and lose it).
+type chColumn struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// chStats is ClickHouse's JSON "statistics" block.
+type chStats struct {
+	Elapsed   float64 `json:"elapsed"`
+	RowsRead  int64   `json:"rows_read"`
+	BytesRead int64   `json:"bytes_read"`
+}
+
+// chResult is a decoded gateway result with column order and server stats.
+type chResult struct {
+	Rows    []map[string]any
+	Columns []chColumn
+	Stats   *chStats
+}
+
+// toCSV renders rows as RFC 4180 CSV with a header, in ClickHouse column
+// order. Roughly half the tokens of the JSON envelope for wide results.
+func toCSV(cols []chColumn, rows []map[string]any) string {
+	var buf bytes.Buffer
+	w := csv.NewWriter(&buf)
+	header := make([]string, len(cols))
+	for i, c := range cols {
+		header[i] = c.Name
+	}
+	w.Write(header)
+	rec := make([]string, len(cols))
+	for _, r := range rows {
+		for i, c := range cols {
+			rec[i] = cellString(r[c.Name])
+		}
+		w.Write(rec)
+	}
+	w.Flush()
+	return buf.String()
+}
+
+func cellString(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(x)
+	default:
+		b, _ := json.Marshal(x)
+		return string(b)
+	}
 }
 
 // runCH executes sql through the tunnel gateway with the key's credentials and
 // the given extra settings, returning decoded rows.
 func runCH(ctx context.Context, deps Deps, ak *authedKey, sql string, extra map[string]string, timeout time.Duration) ([]map[string]any, error) {
+	res, err := runCHFull(ctx, deps, ak, sql, extra, timeout)
+	if err != nil {
+		return nil, err
+	}
+	return res.Rows, nil
+}
+
+// runCHFull is runCH keeping ClickHouse's column metadata and statistics.
+func runCHFull(ctx context.Context, deps Deps, ak *authedKey, sql string, extra map[string]string, timeout time.Duration) (*chResult, error) {
 	if !deps.Gateway.IsTunnelOnline(ak.key.ConnectionID) {
 		return nil, fmt.Errorf("connection %q is offline: its agent/tunnel is not connected to CH-UI", ak.key.ConnectionID)
 	}
@@ -134,13 +273,22 @@ func runCH(ctx context.Context, deps Deps, ak *authedKey, sql string, extra map[
 	if err != nil {
 		return nil, err
 	}
-	var rows []map[string]any
+	out := &chResult{}
 	if len(result.Data) > 0 {
-		if err := json.Unmarshal(result.Data, &rows); err != nil {
+		if err := json.Unmarshal(result.Data, &out.Rows); err != nil {
 			return nil, fmt.Errorf("failed to decode result rows: %w", err)
 		}
 	}
-	return rows, nil
+	if len(result.Meta) > 0 {
+		json.Unmarshal(result.Meta, &out.Columns) // best effort; rows still usable
+	}
+	if len(result.Stats) > 0 {
+		var st chStats
+		if json.Unmarshal(result.Stats, &st) == nil {
+			out.Stats = &st
+		}
+	}
+	return out, nil
 }
 
 // allowedDBs returns the key's database allowlist as a set; nil means
@@ -208,6 +356,15 @@ func checkGuardrails(deps Deps, ak *authedKey, sql, endpoint string) *mcp.CallTo
 
 type listTablesArgs struct {
 	Database string `json:"database" jsonschema:"the database to list tables from"`
+	Like     string `json:"like,omitempty" jsonschema:"optional SQL LIKE pattern on the table name, e.g. %events%"`
+	PageSize int    `json:"page_size,omitempty" jsonschema:"tables per page (default 50, max 500)"`
+	Cursor   string `json:"cursor,omitempty" jsonschema:"opaque cursor from a previous next_cursor to fetch the next page"`
+}
+
+// pageArgs is the shared pagination input of CH-UI's own list tools.
+type pageArgs struct {
+	PageSize int    `json:"page_size,omitempty" jsonschema:"items per page (default 50, max 500)"`
+	Cursor   string `json:"cursor,omitempty" jsonschema:"opaque cursor from a previous next_cursor to fetch the next page"`
 }
 
 type describeTableArgs struct {
@@ -218,6 +375,7 @@ type describeTableArgs struct {
 type runSelectArgs struct {
 	SQL     string `json:"sql" jsonschema:"the read-only SQL statement to run (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN)"`
 	MaxRows int    `json:"max_rows,omitempty" jsonschema:"maximum rows to return (default 100, max 2000)"`
+	Format  string `json:"format,omitempty" jsonschema:"result format: json (default, rows as objects) or csv (header + rows, about half the tokens for wide results)"`
 }
 
 type explainArgs struct {
@@ -262,13 +420,34 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		if !dbAllowed(ak.key, args.Database) {
 			return errResult("database %q is not in this key's allowlist", args.Database), nil, nil
 		}
+		kind, after, err := decodeCursor(args.Cursor)
+		if err != nil || (kind != "" && kind != "name") {
+			return errResult("invalid cursor; pass the next_cursor value from the previous page"), nil, nil
+		}
+		pageSize := clampPageSize(args.PageSize)
+		like := strings.TrimSpace(args.Like)
+		if like == "" {
+			like = "%"
+		}
+		// Keyset pagination on name (unique per database); fetch one extra row
+		// to know whether a next page exists.
 		rows, err := runCH(ctx, deps, ak,
-			"SELECT name, engine, total_rows, total_bytes, comment FROM system.tables WHERE database = {db:String} ORDER BY name FORMAT JSON",
-			map[string]string{"param_db": args.Database}, metaTimeout)
+			"SELECT name, engine, total_rows, total_bytes, comment FROM system.tables WHERE database = {db:String} AND name > {after:String} AND name LIKE {like:String} ORDER BY name LIMIT {lim:UInt32} FORMAT JSON",
+			map[string]string{"param_db": args.Database, "param_after": after, "param_like": like, "param_lim": strconv.Itoa(pageSize + 1)}, metaTimeout)
 		if err != nil {
 			return errResult("list_tables failed: %v", err), nil, nil
 		}
-		return jsonResult(map[string]any{"database": args.Database, "tables": rows}), nil, nil
+		out := map[string]any{"database": args.Database}
+		if len(rows) > pageSize {
+			rows = rows[:pageSize]
+			last, _ := rows[len(rows)-1]["name"].(string)
+			out["next_cursor"] = encodeCursor("name", last)
+		}
+		if rows == nil {
+			rows = []map[string]any{}
+		}
+		out["tables"] = rows
+		return jsonResult(out), nil, nil
 	})
 
 	title, ann = readOnlyTool("Describe table")
@@ -336,32 +515,61 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 			"max_execution_time": strconv.Itoa(int(queryTimeout.Seconds())),
 		}
 
+		format := strings.ToLower(strings.TrimSpace(args.Format))
+		if format == "" {
+			format = "json"
+		}
+		if format != "json" && format != "csv" {
+			return errResult("format must be json or csv"), nil, nil
+		}
+
 		start := time.Now()
-		rows, err := runCH(ctx, deps, ak, sql, settings, queryTimeout)
+		res, err := runCHFull(ctx, deps, ak, sql, settings, queryTimeout)
 		elapsed := time.Since(start)
 		if err != nil {
 			recordQuery(deps, ak, sql, "error", err.Error(), elapsed, 0)
 			return errResult("query failed: %v", err), nil, nil
 		}
+		rows := res.Rows
+		// result_overflow_mode=break stops at block granularity, so ClickHouse
+		// may hand back more than max_result_rows; trim so the cap is exact.
+		truncated := len(rows) >= maxRows
+		if len(rows) > maxRows {
+			rows = rows[:maxRows]
+		}
 		recordQuery(deps, ak, sql, "success", "", elapsed, int64(len(rows)))
 
-		payload := map[string]any{
-			"rows":       rows,
+		meta := map[string]any{
 			"row_count":  len(rows),
 			"elapsed_ms": elapsed.Milliseconds(),
 		}
-		if len(rows) >= maxRows {
-			payload["truncated"] = true
-			payload["note"] = fmt.Sprintf("result capped at %d rows; add filters or LIMIT for more precision", maxRows)
+		if len(res.Columns) > 0 {
+			meta["columns"] = res.Columns
 		}
-		b, jerr := json.Marshal(payload)
-		if jerr != nil {
-			return errResult("failed to serialize result: %v", jerr), nil, nil
+		if res.Stats != nil {
+			meta["stats"] = map[string]any{"rows_read": res.Stats.RowsRead, "bytes_read": res.Stats.BytesRead}
 		}
-		if len(b) > maxResultBytes {
-			return errResult("result too large (%d KB, cap %d KB): select fewer columns, add filters, or aggregate", len(b)/1024, maxResultBytes/1024), nil, nil
+		if truncated {
+			meta["truncated"] = true
+			meta["note"] = fmt.Sprintf("result capped at %d rows; add filters, aggregate, or raise max_rows (up to %d)", maxRows, hardMaxRows)
 		}
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
+
+		if format == "csv" {
+			body := toCSV(res.Columns, rows)
+			if len(body) > maxResultBytes {
+				return errResult("result too large (%d KB, cap %d KB): select fewer columns, add filters, or aggregate", len(body)/1024, maxResultBytes/1024), nil, nil
+			}
+			mb, _ := json.Marshal(meta)
+			return &mcp.CallToolResult{Content: []mcp.Content{
+				&mcp.TextContent{Text: body},
+				&mcp.TextContent{Text: string(mb)},
+			}}, nil, nil
+		}
+		if rows == nil {
+			rows = []map[string]any{}
+		}
+		meta["rows"] = rows
+		return jsonResult(meta), nil, nil
 	})
 
 	title, ann = readOnlyTool("Explain query plan")
