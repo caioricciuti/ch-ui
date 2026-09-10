@@ -14,6 +14,11 @@ export interface MCPKey {
   expires_at: string | null
   last_used_at: string | null
   revoked_at: string | null
+  /** 'api' for admin-created keys, 'oauth' for tokens a person granted via OAuth. */
+  kind: 'api' | 'oauth'
+  /** The person who granted an OAuth token. */
+  subject: string
+  client_id: string
 }
 
 export interface MCPKeysResult {

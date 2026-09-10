@@ -20,6 +20,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -92,25 +93,30 @@ func Handler(deps Deps) http.Handler {
 // the ClickHouse password, and stashes the result in the request context.
 func authMiddleware(deps Deps, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		prm := BaseURL(r, deps.Config) + "/.well-known/oauth-protected-resource/mcp"
 		token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer"))
 		if token == "" || !keyFormatRe.MatchString(token) {
-			unauthorized(w, "missing or malformed MCP key; pass 'Authorization: Bearer chm_...'")
+			unauthorized(w, prm, "missing or malformed token; pass 'Authorization: Bearer chm_...' or sign in with OAuth")
 			return
 		}
 
 		k, err := deps.DB.GetMCPKeyByHash(HashKey(token))
 		if err != nil || k == nil {
-			unauthorized(w, "unknown or revoked MCP key")
+			unauthorized(w, prm, "unknown or revoked token")
 			return
 		}
 		// Constant-time confirmation of the full hash (lookup already matched;
 		// this guards against store lookups ever becoming prefix-based).
 		if subtle.ConstantTimeCompare([]byte(k.KeyHash), []byte(HashKey(token))) != 1 {
-			unauthorized(w, "unknown or revoked MCP key")
+			unauthorized(w, prm, "unknown or revoked token")
 			return
 		}
 		if k.Expired(time.Now()) {
-			unauthorized(w, "MCP key expired; rotate it in Admin → MCP Server")
+			if k.Kind == "oauth" {
+				unauthorized(w, prm, "access token expired; use the refresh token or sign in again")
+			} else {
+				unauthorized(w, prm, "MCP key expired; rotate it in Admin → MCP Server")
+			}
 			return
 		}
 
@@ -194,11 +200,36 @@ func touchKey(deps Deps, keyID string) {
 	go deps.DB.TouchMCPKey(keyID)
 }
 
-func unauthorized(w http.ResponseWriter, msg string) {
+// unauthorized answers 401 with the RFC 9728 pointer OAuth-capable clients
+// use to discover the authorization server.
+func unauthorized(w http.ResponseWriter, resourceMetadata, msg string) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("WWW-Authenticate", `Bearer realm="ch-ui-mcp"`)
+	w.Header().Set("WWW-Authenticate", `Bearer realm="ch-ui-mcp", resource_metadata="`+resourceMetadata+`", scope="read"`)
 	w.WriteHeader(http.StatusUnauthorized)
 	w.Write([]byte(`{"error":"` + msg + `"}`))
+}
+
+// BaseURL returns the public origin CH-UI is reached at, for OAuth metadata
+// and redirects. Reverse-proxy headers win, then the request itself, then
+// the configured app_url.
+func BaseURL(r *http.Request, cfg *config.Config) string {
+	if r != nil && r.Host != "" {
+		scheme := "http"
+		if r.TLS != nil || strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https") {
+			scheme = "https"
+		}
+		host := r.Host
+		if fh := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); fh != "" {
+			host = fh
+		}
+		return scheme + "://" + host
+	}
+	if cfg != nil && strings.TrimSpace(cfg.AppURL) != "" {
+		if u, err := url.Parse(cfg.AppURL); err == nil && u.Host != "" {
+			return u.Scheme + "://" + u.Host
+		}
+	}
+	return "http://localhost"
 }
 
 // serverInstructions is sent to the client at initialize/discover time. It is
