@@ -5,6 +5,60 @@ All notable changes to CH-UI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.0] - 2026-09-10
+
+The MCP server catches up with the field. No dependency changes.
+
+### Added
+
+- **OAuth 2.1 sign-in for the MCP server**: CH-UI is its own authorization
+  server for `/mcp`. Clients that only speak OAuth (claude.ai custom
+  connectors, ChatGPT) and the sign-in path of Claude Code, Cursor and VS
+  Code connect as the signed-in person: their connection, their ClickHouse
+  grants, their name in the audit log. Discovery metadata under
+  `/.well-known`, Dynamic Client Registration for public clients, Client ID
+  Metadata Documents (SSRF-guarded), PKCE S256 mandatory, a consent page in
+  the UI, one-hour access tokens with refresh rotation, admin revocation
+  (#163).
+- **Catalog tools for better plans**: `search_catalog` (tables, columns,
+  saved queries, dashboards by name or comment), `estimate_query`
+  (`EXPLAIN ESTIMATE` totals with a plain assessment), `run_saved_query`
+  (by id or name, with parameters), and a `max_bytes` budget on
+  `run_select` mapped to `max_bytes_to_read` (#162).
+- **Verified saved queries**: a human review mark on saved queries, toggled
+  from the Saved Queries page and surfaced to AI clients, which are told
+  to prefer verified SQL (#162).
+- **Claude Code plugin** at `integrations/claude-code-plugin` with a
+  `clickhouse-analytics` skill; `claude plugin marketplace add
+  caioricciuti/ch-ui` (#162).
+- **MCP key expiry and rotation**: keys expire (default 90 days from the
+  UI) and rotate in place with the same binding (#161).
+- **Pagination and CSV**: `list_tables` and the CH-UI list tools take
+  `page_size` and `cursor`; `run_select` offers `format: csv`, returns
+  column types and `rows_read` / `bytes_read` (#160).
+- **Tool titles and annotations** on every tool, plus server instructions
+  sent at connect time (#156).
+
+### Changed
+
+- `describe_table` returns the `CREATE TABLE` statement, per-column sizes,
+  active parts, partitions, last modification and sample rows (#162).
+- `/mcp` is rate limited to 120 requests per minute per key; every tool
+  call is audited (`mcp.tool.call`), not only `run_select` (#160).
+- `list_saved_queries` and `list_pipelines` are scoped to the key's
+  connection (#160).
+- `docs/mcp.md` rewritten: OAuth-first setup, per-client snippets, honest
+  scope of the database allowlist (#160, #163).
+
+### Fixed
+
+- A client disconnect or MCP cancel now cancels the ClickHouse query on
+  the agent instead of running to the 60 s timeout (#160).
+- `run_select` trims rows to `max_rows` exactly; `result_overflow_mode=break`
+  could return more (#160).
+- The 200 KB response cap applies to every tool, not only `run_select`
+  (#160).
+
 ## [2.9.3] - 2026-09-09
 
 ### Changed
@@ -345,6 +399,7 @@ best features live here, behind the same offline-verified Pro license.
 - Cluster Health (Pro): operations and database monitoring.
 - Result filters and ClickHouse error parsing in the query results view.
 
+[2.10.0]: https://github.com/caioricciuti/ch-ui/compare/v2.9.3...v2.10.0
 [2.9.3]: https://github.com/caioricciuti/ch-ui/compare/v2.9.0...v2.9.3
 [2.9.0]: https://github.com/caioricciuti/ch-ui/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/caioricciuti/ch-ui/compare/v2.7.0...v2.8.0
