@@ -5,6 +5,22 @@ All notable changes to CH-UI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.1] - 2026-09-10
+
+Hotfix for MCP behind a reverse proxy. No dependency changes.
+
+### Fixed
+
+- **MCP clients got `403 Forbidden: invalid Host header` through a reverse
+  proxy.** The MCP Go SDK's DNS-rebinding guard rejects requests that reach a
+  loopback listener with a public Host header, which is exactly what the
+  shipped nginx layout (`upstream 127.0.0.1:3488`, `Host $host`) produces.
+  The guard ran after the key had already been accepted, so clients reported
+  it as an auth failure. `/mcp` requires a bearer key or OAuth token on every
+  request, so the guard added nothing; it is now off, with a regression test.
+  Docker deployments were not affected. Workaround on 2.10.0:
+  `MCPGODEBUG=disablelocalhostprotection=1` on the CH-UI process (#164).
+
 ## [2.10.0] - 2026-09-10
 
 The MCP server catches up with the field. No dependency changes.
@@ -399,6 +415,7 @@ best features live here, behind the same offline-verified Pro license.
 - Cluster Health (Pro): operations and database monitoring.
 - Result filters and ClickHouse error parsing in the query results view.
 
+[2.10.1]: https://github.com/caioricciuti/ch-ui/compare/v2.10.0...v2.10.1
 [2.10.0]: https://github.com/caioricciuti/ch-ui/compare/v2.9.3...v2.10.0
 [2.9.3]: https://github.com/caioricciuti/ch-ui/compare/v2.9.0...v2.9.3
 [2.9.0]: https://github.com/caioricciuti/ch-ui/compare/v2.8.0...v2.9.0
