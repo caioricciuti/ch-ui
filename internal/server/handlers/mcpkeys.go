@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -25,8 +26,12 @@ type MCPKeysHandler struct {
 func (h *MCPKeysHandler) Routes(r chi.Router) {
 	r.Get("/", h.list)
 	r.Post("/", h.create)
+	r.Post("/{id}/rotate", h.rotate)
 	r.Delete("/{id}", h.revoke)
 }
+
+// maxKeyLifetimeDays bounds expires_in_days; 0 means the key never expires.
+const maxKeyLifetimeDays = 3650
 
 func (h *MCPKeysHandler) list(w http.ResponseWriter, r *http.Request) {
 	keys, err := h.DB.ListMCPKeys()
@@ -48,6 +53,7 @@ type createMCPKeyRequest struct {
 	CHPassword       string `json:"ch_password"`
 	Scopes           string `json:"scopes"` // "read" (default) or "read_write"
 	AllowedDatabases string `json:"allowed_databases"`
+	ExpiresInDays    int    `json:"expires_in_days"` // 0 = never
 }
 
 func (h *MCPKeysHandler) create(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +90,20 @@ func (h *MCPKeysHandler) create(w http.ResponseWriter, r *http.Request) {
 	if scopes != "read_write" {
 		scopes = "read"
 	}
-	key, err := h.DB.CreateMCPKey(req.Name, hash, prefix, req.ConnectionID, req.CHUser, encrypted, scopes, req.AllowedDatabases, createdBy)
+	if req.ExpiresInDays < 0 || req.ExpiresInDays > maxKeyLifetimeDays {
+		writeError(w, http.StatusBadRequest, "expires_in_days must be between 0 (never) and 3650")
+		return
+	}
+	var expiresAt *string
+	if req.ExpiresInDays > 0 {
+		e := time.Now().UTC().AddDate(0, 0, req.ExpiresInDays).Format(time.RFC3339)
+		expiresAt = &e
+	}
+	key, err := h.DB.CreateMCPKey(database.CreateMCPKeyParams{
+		Name: req.Name, KeyHash: hash, KeyPrefix: prefix, ConnectionID: req.ConnectionID,
+		CHUser: req.CHUser, CHPasswordEnc: encrypted, Scopes: scopes,
+		AllowedDatabases: req.AllowedDatabases, CreatedBy: createdBy, ExpiresAt: expiresAt,
+	})
 	if err != nil {
 		slog.Error("MCP keys: create failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create MCP key")
@@ -92,6 +111,27 @@ func (h *MCPKeysHandler) create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The plaintext key is returned exactly once, at creation.
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"success": true,
+		"key":     key,
+		"secret":  plaintext,
+	})
+}
+
+// rotate issues a replacement key with the same binding and revokes the old
+// one. The new plaintext is returned exactly once, like create.
+func (h *MCPKeysHandler) rotate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	plaintext, hash, prefix := mcpserver.GenerateKey()
+	rotatedBy := ""
+	if sess := middleware.GetSession(r); sess != nil {
+		rotatedBy = sess.ClickhouseUser
+	}
+	key, err := h.DB.RotateMCPKey(id, hash, prefix, rotatedBy)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "MCP key not found or already revoked")
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"success": true,
 		"key":     key,

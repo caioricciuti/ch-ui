@@ -109,6 +109,10 @@ func authMiddleware(deps Deps, next http.Handler) http.Handler {
 			unauthorized(w, "unknown or revoked MCP key")
 			return
 		}
+		if k.Expired(time.Now()) {
+			unauthorized(w, "MCP key expired; rotate it in Admin → MCP Server")
+			return
+		}
 
 		password, err := crypto.Decrypt(k.CHPasswordEnc, deps.Config.AppSecretKey)
 		if err != nil {

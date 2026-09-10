@@ -114,6 +114,12 @@ them any time in Admin. There is no unauthenticated mode. Each key is limited
 to 120 requests per minute; over that the server answers `429` with
 `Retry-After`.
 
+Keys **expire** (default 90 days when created from the UI; 30 days, 1 year,
+or never are the other options) and can be **rotated** in place: rotation
+issues a new secret with the same connection, ClickHouse user, scope,
+allowlist and expiry, and revokes the old one in the same transaction. An
+expired key gets `401` with an "expired" message so the client shows why.
+
 Each key has a **scope**: `read` (default) or `read + write`. Write scope adds
 tools that create CH-UI entities (saved queries, dashboards, draft models and
 pipelines) in CH-UI's own store — it never lets the AI write ClickHouse data,

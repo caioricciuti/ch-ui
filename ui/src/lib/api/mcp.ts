@@ -10,6 +10,8 @@ export interface MCPKey {
   allowed_databases: string
   created_by: string
   created_at: string
+  /** RFC 3339 instant after which the key is rejected; null = never. */
+  expires_at: string | null
   last_used_at: string | null
   revoked_at: string | null
 }
@@ -26,6 +28,8 @@ export interface CreateMCPKeyRequest {
   ch_password: string
   scopes: 'read' | 'read_write'
   allowed_databases: string
+  /** Days until the key expires; 0 or omitted = never. */
+  expires_in_days?: number
 }
 
 export interface CreateMCPKeyResult {
@@ -41,6 +45,11 @@ export function listMCPKeys(): Promise<MCPKeysResult> {
 
 export function createMCPKey(req: CreateMCPKeyRequest): Promise<CreateMCPKeyResult> {
   return apiPost<CreateMCPKeyResult>('/api/mcp-keys', req)
+}
+
+/** Issues a replacement key with the same binding and revokes the old one. */
+export function rotateMCPKey(id: string): Promise<CreateMCPKeyResult> {
+  return apiPost<CreateMCPKeyResult>(`/api/mcp-keys/${encodeURIComponent(id)}/rotate`)
 }
 
 export function revokeMCPKey(id: string): Promise<{ success: boolean }> {
