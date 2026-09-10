@@ -36,8 +36,11 @@ var insightSections = map[string]func(cluster string, rng queryinsights.Range, f
 }
 
 func registerProTools(srv *mcp.Server, deps Deps, ak *authedKey) {
+	title, ann := readOnlyTool("Top query patterns")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "query_insights_top",
+		Title:       title,
+		Annotations: ann,
 		Description: "Top query patterns from system.query_log, grouped by normalized query: slowest (p95), most memory-hungry, or most frequent. Requires the ClickHouse user to have access to system.query_log.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args insightsArgs) (*mcp.CallToolResult, any, error) {
 		builder, ok := insightSections[args.Section]
@@ -56,8 +59,11 @@ func registerProTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		return jsonResult(map[string]any{"section": args.Section, "range": rng.Name, "patterns": rows}), nil, nil
 	})
 
+	title, ann = readOnlyTool("Cost summary")
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "costs_summary",
+		Title:       title,
+		Annotations: ann,
 		Description: "Cost Center summary for this connection: compute spend from real CPU consumption, spend on failed queries, core-hours, and scan volume, priced with the connection's configured rates.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args costsArgs) (*mcp.CallToolResult, any, error) {
 		rng, ok := costs.RangeSpec(args.Range)

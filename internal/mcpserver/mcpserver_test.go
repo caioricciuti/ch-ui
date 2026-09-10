@@ -249,3 +249,68 @@ func TestErrResultShape(t *testing.T) {
 		t.Errorf("unexpected: %s", b)
 	}
 }
+
+// sseData returns the JSON payload of the first "data:" line in a streamable
+// HTTP response, which the SDK frames as server-sent events.
+func sseData(t *testing.T, body string) []byte {
+	t.Helper()
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "data:") {
+			return []byte(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		}
+	}
+	t.Fatalf("no data line in response: %s", body)
+	return nil
+}
+
+// Every tool must carry a title and spec annotations: clients use
+// readOnlyHint/destructiveHint to decide whether to ask for confirmation, and
+// connector directories reject tools without them.
+func TestToolAnnotations(t *testing.T) {
+	// Write-scope key so the additive tools are listed too.
+	deps, _, key := writeDeps(t)
+	h := Handler(deps)
+
+	rec := mcpRequest(t, h, key, initializeBody)
+	if !strings.Contains(rec.Body.String(), "schema-first") {
+		t.Errorf("initialize should carry server instructions, got: %s", rec.Body.String())
+	}
+
+	rec = mcpRequest(t, h, key, `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
+	var resp struct {
+		Result struct {
+			Tools []struct {
+				Name        string `json:"name"`
+				Title       string `json:"title"`
+				Annotations *struct {
+					Title           string `json:"title"`
+					ReadOnlyHint    bool   `json:"readOnlyHint"`
+					DestructiveHint *bool  `json:"destructiveHint"`
+				} `json:"annotations"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(sseData(t, rec.Body.String()), &resp); err != nil {
+		t.Fatalf("decode tools/list: %v: %s", err, rec.Body.String())
+	}
+	if len(resp.Result.Tools) < 13 {
+		t.Fatalf("expected free + list + write tools, got %d", len(resp.Result.Tools))
+	}
+	writeTools := map[string]bool{"save_query": true, "create_dashboard": true, "create_model": true, "create_pipeline": true}
+	for _, tool := range resp.Result.Tools {
+		if tool.Title == "" || tool.Annotations == nil || tool.Annotations.Title == "" {
+			t.Errorf("%s: missing title or annotations", tool.Name)
+			continue
+		}
+		if writeTools[tool.Name] {
+			if tool.Annotations.ReadOnlyHint {
+				t.Errorf("%s: write tool must not be readOnlyHint", tool.Name)
+			}
+			if tool.Annotations.DestructiveHint == nil || *tool.Annotations.DestructiveHint {
+				t.Errorf("%s: additive tool must set destructiveHint=false", tool.Name)
+			}
+		} else if !tool.Annotations.ReadOnlyHint {
+			t.Errorf("%s: read tool must be readOnlyHint", tool.Name)
+		}
+	}
+}
