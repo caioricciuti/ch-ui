@@ -33,9 +33,10 @@ const (
 )
 
 const (
-	EventTypePolicyViolation = "policy.violation"
-	EventTypeScheduleFailed  = "schedule.failed"
-	EventTypeScheduleSlow    = "schedule.slow"
+	EventTypePolicyViolation  = "policy.violation"
+	EventTypeScheduleFailed   = "schedule.failed"
+	EventTypeScheduleSlow     = "schedule.slow"
+	EventTypeTelemetryMonitor = "telemetry.monitor"
 )
 
 const (
