@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -38,10 +39,20 @@ func (h *DashboardsHandler) Routes() chi.Router {
 	r.With(writer).Post("/", h.CreateDashboard)
 	r.Post("/query", h.ExecutePanelQuery)
 
+	// Folders (nested) organize dashboards; stars are per user.
+	r.Get("/folders", h.ListFolders)
+	r.With(writer).Post("/folders", h.CreateFolder)
+	r.With(writer).Put("/folders/{folderId}", h.UpdateFolder)
+	r.With(writer).Delete("/folders/{folderId}", h.DeleteFolder)
+
 	r.Route("/{id}", func(r chi.Router) {
 		r.Get("/", h.GetDashboard)
 		r.With(writer).Put("/", h.UpdateDashboard)
 		r.With(writer).Delete("/", h.DeleteDashboard)
+		r.With(writer).Put("/move", h.MoveDashboard)
+		r.With(writer).Put("/tags", h.SetDashboardTags)
+		r.Post("/star", h.StarDashboard)
+		r.Delete("/star", h.UnstarDashboard)
 
 		// Panel CRUD
 		r.With(writer).Post("/panels", h.CreatePanel)
@@ -74,7 +85,11 @@ func (h *DashboardsHandler) ListDashboards(w http.ResponseWriter, r *http.Reques
 		slog.Warn("Failed to ensure default system dashboard", "error", err)
 	}
 
-	dashboards, err := h.DB.GetDashboards()
+	forUser := ""
+	if session := middleware.GetSession(r); session != nil {
+		forUser = session.ClickhouseUser
+	}
+	dashboards, err := h.DB.GetDashboards(forUser)
 	if err != nil {
 		slog.Error("Failed to list dashboards", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to list dashboards")
@@ -96,7 +111,11 @@ func (h *DashboardsHandler) GetDashboard(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	dashboard, err := h.DB.GetDashboardByID(id)
+	forUser := ""
+	if session := middleware.GetSession(r); session != nil {
+		forUser = session.ClickhouseUser
+	}
+	dashboard, err := h.DB.GetDashboardByIDFor(id, forUser)
 	if err != nil {
 		slog.Error("Failed to get dashboard", "error", err, "id", id)
 		writeError(w, http.StatusInternalServerError, "Failed to get dashboard")
@@ -131,8 +150,10 @@ func (h *DashboardsHandler) CreateDashboard(w http.ResponseWriter, r *http.Reque
 	}
 
 	var body struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		FolderID    string   `json:"folder_id"`
+		Tags        []string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
@@ -144,12 +165,30 @@ func (h *DashboardsHandler) CreateDashboard(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "Name is required")
 		return
 	}
+	folderID := strings.TrimSpace(body.FolderID)
+	if folderID != "" {
+		folder, err := h.DB.GetDashboardFolder(folderID)
+		if err != nil || folder == nil {
+			writeError(w, http.StatusBadRequest, "Folder not found")
+			return
+		}
+	}
 
 	id, err := h.DB.CreateDashboard(name, strings.TrimSpace(body.Description), session.ClickhouseUser)
 	if err != nil {
 		slog.Error("Failed to create dashboard", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create dashboard")
 		return
+	}
+	if folderID != "" {
+		if err := h.DB.SetDashboardFolder(id, folderID); err != nil {
+			slog.Warn("Failed to place new dashboard in folder", "error", err, "id", id)
+		}
+	}
+	if len(body.Tags) > 0 {
+		if err := h.DB.SetDashboardTags(id, body.Tags); err != nil {
+			slog.Warn("Failed to tag new dashboard", "error", err, "id", id)
+		}
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
@@ -286,6 +325,272 @@ func (h *DashboardsHandler) DeleteDashboard(w http.ResponseWriter, r *http.Reque
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+// ---------- Folders, moving, tags, stars ----------
+
+// ListFolders returns every dashboard folder (flat; the client builds the tree).
+func (h *DashboardsHandler) ListFolders(w http.ResponseWriter, r *http.Request) {
+	folders, err := h.DB.ListDashboardFolders()
+	if err != nil {
+		slog.Error("Failed to list dashboard folders", "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to list folders")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"folders": folders})
+}
+
+// CreateFolder creates a folder, optionally under a parent.
+func (h *DashboardsHandler) CreateFolder(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+	var body struct {
+		Name     string `json:"name"`
+		ParentID string `json:"parent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "Name is required")
+		return
+	}
+	parentID := strings.TrimSpace(body.ParentID)
+	if parentID != "" {
+		parent, err := h.DB.GetDashboardFolder(parentID)
+		if err != nil || parent == nil {
+			writeError(w, http.StatusBadRequest, "Parent folder not found")
+			return
+		}
+	}
+	id, err := h.DB.CreateDashboardFolder(name, parentID, session.ClickhouseUser)
+	if err == database.ErrFolderNameTaken {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	if err != nil {
+		slog.Error("Failed to create dashboard folder", "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to create folder")
+		return
+	}
+	h.DB.CreateAuditLog(database.AuditLogParams{
+		Action:   "dashboard.folder.created",
+		Username: strPtr(session.ClickhouseUser),
+		Details:  strPtr(name),
+	})
+	folder, err := h.DB.GetDashboardFolder(id)
+	if err != nil || folder == nil {
+		writeJSON(w, http.StatusCreated, map[string]string{"id": id})
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"folder": folder})
+}
+
+// UpdateFolder renames a folder and/or moves it under another parent.
+func (h *DashboardsHandler) UpdateFolder(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+	id := chi.URLParam(r, "folderId")
+	var body struct {
+		Name     *string `json:"name"`
+		ParentID *string `json:"parent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	if body.Name == nil && body.ParentID == nil {
+		writeError(w, http.StatusBadRequest, "No fields to update")
+		return
+	}
+	if body.Name != nil && strings.TrimSpace(*body.Name) == "" {
+		writeError(w, http.StatusBadRequest, "Name cannot be empty")
+		return
+	}
+	if body.ParentID != nil && strings.TrimSpace(*body.ParentID) != "" {
+		parent, err := h.DB.GetDashboardFolder(strings.TrimSpace(*body.ParentID))
+		if err != nil || parent == nil {
+			writeError(w, http.StatusBadRequest, "Parent folder not found")
+			return
+		}
+	}
+	err := h.DB.UpdateDashboardFolder(id, body.Name, body.ParentID)
+	switch {
+	case err == sql.ErrNoRows:
+		writeError(w, http.StatusNotFound, "Folder not found")
+		return
+	case err == database.ErrFolderNameTaken, err == database.ErrFolderCycle:
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	case err != nil:
+		slog.Error("Failed to update dashboard folder", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to update folder")
+		return
+	}
+	folder, _ := h.DB.GetDashboardFolder(id)
+	details := id
+	if folder != nil {
+		details = folder.Name
+	}
+	h.DB.CreateAuditLog(database.AuditLogParams{
+		Action:   "dashboard.folder.updated",
+		Username: strPtr(session.ClickhouseUser),
+		Details:  strPtr(details),
+	})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"folder": folder})
+}
+
+// DeleteFolder removes a folder; its contents move up one level.
+func (h *DashboardsHandler) DeleteFolder(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+	id := chi.URLParam(r, "folderId")
+	folder, err := h.DB.GetDashboardFolder(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to load folder")
+		return
+	}
+	if folder == nil {
+		writeError(w, http.StatusNotFound, "Folder not found")
+		return
+	}
+	if err := h.DB.DeleteDashboardFolder(id); err != nil {
+		slog.Error("Failed to delete dashboard folder", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to delete folder")
+		return
+	}
+	h.DB.CreateAuditLog(database.AuditLogParams{
+		Action:   "dashboard.folder.deleted",
+		Username: strPtr(session.ClickhouseUser),
+		Details:  strPtr(folder.Name),
+	})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+// MoveDashboard places a dashboard in a folder (empty folder_id: root).
+func (h *DashboardsHandler) MoveDashboard(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	existing, err := h.DB.GetDashboardByID(id)
+	if err != nil || existing == nil {
+		writeError(w, http.StatusNotFound, "Dashboard not found")
+		return
+	}
+	var body struct {
+		FolderID string `json:"folder_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	folderID := strings.TrimSpace(body.FolderID)
+	if folderID != "" {
+		folder, err := h.DB.GetDashboardFolder(folderID)
+		if err != nil || folder == nil {
+			writeError(w, http.StatusBadRequest, "Folder not found")
+			return
+		}
+	}
+	if err := h.DB.SetDashboardFolder(id, folderID); err != nil {
+		slog.Error("Failed to move dashboard", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to move dashboard")
+		return
+	}
+	h.DB.CreateAuditLog(database.AuditLogParams{
+		Action:   "dashboard.moved",
+		Username: strPtr(session.ClickhouseUser),
+		Details:  strPtr(existing.Name),
+	})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+// SetDashboardTags replaces a dashboard's tags.
+func (h *DashboardsHandler) SetDashboardTags(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	existing, err := h.DB.GetDashboardByID(id)
+	if err != nil || existing == nil {
+		writeError(w, http.StatusNotFound, "Dashboard not found")
+		return
+	}
+	var body struct {
+		Tags []string `json:"tags"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	if len(body.Tags) > 20 {
+		writeError(w, http.StatusBadRequest, "At most 20 tags")
+		return
+	}
+	for _, t := range body.Tags {
+		if len(strings.TrimSpace(t)) > 40 {
+			writeError(w, http.StatusBadRequest, "Tags are limited to 40 characters")
+			return
+		}
+	}
+	if err := h.DB.SetDashboardTags(id, body.Tags); err != nil {
+		slog.Error("Failed to set dashboard tags", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to set tags")
+		return
+	}
+	updated, _ := h.DB.GetDashboardByIDFor(id, session.ClickhouseUser)
+	writeJSON(w, http.StatusOK, map[string]interface{}{"dashboard": updated})
+}
+
+// StarDashboard and UnstarDashboard toggle the session user's star. Viewers
+// may star: it is personal state, not a change to the dashboard.
+func (h *DashboardsHandler) StarDashboard(w http.ResponseWriter, r *http.Request) {
+	h.setStar(w, r, true)
+}
+
+func (h *DashboardsHandler) UnstarDashboard(w http.ResponseWriter, r *http.Request) {
+	h.setStar(w, r, false)
+}
+
+func (h *DashboardsHandler) setStar(w http.ResponseWriter, r *http.Request, on bool) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	existing, err := h.DB.GetDashboardByID(id)
+	if err != nil || existing == nil {
+		writeError(w, http.StatusNotFound, "Dashboard not found")
+		return
+	}
+	if on {
+		err = h.DB.StarDashboard(id, session.ClickhouseUser)
+	} else {
+		err = h.DB.UnstarDashboard(id, session.ClickhouseUser)
+	}
+	if err != nil {
+		slog.Error("Failed to update dashboard star", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to update star")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "starred": on})
 }
 
 // ---------- Panel CRUD ----------

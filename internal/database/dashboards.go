@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,12 +18,16 @@ const (
 
 // Dashboard represents a dashboard record.
 type Dashboard struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Description *string `json:"description"`
-	CreatedBy   *string `json:"created_by"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description *string  `json:"description"`
+	FolderID    *string  `json:"folder_id"`
+	Tags        []string `json:"tags"`
+	// Starred by the user the list was fetched for.
+	Starred   bool    `json:"starred"`
+	CreatedBy *string `json:"created_by"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 // Panel represents a dashboard panel.
@@ -43,11 +48,15 @@ type Panel struct {
 	UpdatedAt    string  `json:"updated_at"`
 }
 
-// GetDashboards retrieves all dashboards.
-func (db *DB) GetDashboards() ([]Dashboard, error) {
+// GetDashboards retrieves all dashboards, with `Starred` resolved for the
+// given user (empty user: nothing is starred).
+func (db *DB) GetDashboards(forUser string) ([]Dashboard, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, name, description, created_by, created_at, updated_at
-		 FROM dashboards ORDER BY updated_at DESC`,
+		`SELECT d.id, d.name, d.description, d.folder_id, d.tags, d.created_by, d.created_at, d.updated_at,
+		        CASE WHEN s.dashboard_id IS NULL THEN 0 ELSE 1 END AS starred
+		 FROM dashboards d
+		 LEFT JOIN dashboard_stars s ON s.dashboard_id = d.id AND s.username = ?
+		 ORDER BY d.updated_at DESC`, forUser,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get dashboards: %w", err)
@@ -56,14 +65,11 @@ func (db *DB) GetDashboards() ([]Dashboard, error) {
 
 	var dashboards []Dashboard
 	for rows.Next() {
-		var d Dashboard
-		var desc, createdBy sql.NullString
-		if err := rows.Scan(&d.ID, &d.Name, &desc, &createdBy, &d.CreatedAt, &d.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan dashboard: %w", err)
+		d, err := scanDashboard(rows)
+		if err != nil {
+			return nil, err
 		}
-		d.Description = nullStringToPtr(desc)
-		d.CreatedBy = nullStringToPtr(createdBy)
-		dashboards = append(dashboards, d)
+		dashboards = append(dashboards, *d)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate dashboard rows: %w", err)
@@ -71,25 +77,75 @@ func (db *DB) GetDashboards() ([]Dashboard, error) {
 	return dashboards, nil
 }
 
-// GetDashboardByID retrieves a dashboard by ID.
-func (db *DB) GetDashboardByID(id string) (*Dashboard, error) {
-	row := db.conn.QueryRow(
-		`SELECT id, name, description, created_by, created_at, updated_at
-		 FROM dashboards WHERE id = ?`, id,
-	)
+type dashboardScanner interface {
+	Scan(dest ...interface{}) error
+}
 
+func scanDashboard(row dashboardScanner) (*Dashboard, error) {
 	var d Dashboard
-	var desc, createdBy sql.NullString
-	err := row.Scan(&d.ID, &d.Name, &desc, &createdBy, &d.CreatedAt, &d.UpdatedAt)
+	var desc, createdBy, folderID, tags sql.NullString
+	var starred int
+	if err := row.Scan(&d.ID, &d.Name, &desc, &folderID, &tags, &createdBy, &d.CreatedAt, &d.UpdatedAt, &starred); err != nil {
+		return nil, err
+	}
+	d.Description = nullStringToPtr(desc)
+	d.CreatedBy = nullStringToPtr(createdBy)
+	d.FolderID = nullStringToPtr(folderID)
+	d.Tags = decodeTags(tags.String)
+	d.Starred = starred == 1
+	return &d, nil
+}
+
+func decodeTags(raw string) []string {
+	out := []string{}
+	if strings.TrimSpace(raw) == "" {
+		return out
+	}
+	_ = json.Unmarshal([]byte(raw), &out)
+	if out == nil {
+		out = []string{}
+	}
+	return out
+}
+
+func encodeTags(tags []string) string {
+	clean := make([]string, 0, len(tags))
+	seen := map[string]bool{}
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t == "" || seen[strings.ToLower(t)] {
+			continue
+		}
+		seen[strings.ToLower(t)] = true
+		clean = append(clean, t)
+	}
+	raw, _ := json.Marshal(clean)
+	return string(raw)
+}
+
+// GetDashboardByID retrieves a dashboard by ID. `Starred` is false; use
+// GetDashboardByIDFor to resolve it for a user.
+func (db *DB) GetDashboardByID(id string) (*Dashboard, error) {
+	return db.GetDashboardByIDFor(id, "")
+}
+
+// GetDashboardByIDFor retrieves a dashboard with `Starred` resolved for a user.
+func (db *DB) GetDashboardByIDFor(id, forUser string) (*Dashboard, error) {
+	row := db.conn.QueryRow(
+		`SELECT d.id, d.name, d.description, d.folder_id, d.tags, d.created_by, d.created_at, d.updated_at,
+		        CASE WHEN s.dashboard_id IS NULL THEN 0 ELSE 1 END AS starred
+		 FROM dashboards d
+		 LEFT JOIN dashboard_stars s ON s.dashboard_id = d.id AND s.username = ?
+		 WHERE d.id = ?`, forUser, id,
+	)
+	d, err := scanDashboard(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get dashboard by id: %w", err)
 	}
-	d.Description = nullStringToPtr(desc)
-	d.CreatedBy = nullStringToPtr(createdBy)
-	return &d, nil
+	return d, nil
 }
 
 // CreateDashboard creates a new dashboard and returns its ID.
@@ -131,6 +187,47 @@ func (db *DB) UpdateDashboard(id, name, description string) error {
 	)
 	if err != nil {
 		return fmt.Errorf("update dashboard: %w", err)
+	}
+	return nil
+}
+
+// SetDashboardFolder moves a dashboard into a folder (empty id: root).
+func (db *DB) SetDashboardFolder(id, folderID string) error {
+	var folder interface{}
+	if folderID != "" {
+		folder = folderID
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.conn.Exec("UPDATE dashboards SET folder_id = ?, updated_at = ? WHERE id = ?", folder, now, id); err != nil {
+		return fmt.Errorf("move dashboard: %w", err)
+	}
+	return nil
+}
+
+// SetDashboardTags replaces a dashboard's tags (trimmed, de-duplicated).
+func (db *DB) SetDashboardTags(id string, tags []string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.conn.Exec("UPDATE dashboards SET tags = ?, updated_at = ? WHERE id = ?", encodeTags(tags), now, id); err != nil {
+		return fmt.Errorf("set dashboard tags: %w", err)
+	}
+	return nil
+}
+
+// StarDashboard marks a dashboard as starred for a user; UnstarDashboard undoes it.
+func (db *DB) StarDashboard(id, username string) error {
+	_, err := db.conn.Exec(
+		"INSERT OR IGNORE INTO dashboard_stars (dashboard_id, username, created_at) VALUES (?, ?, ?)",
+		id, username, time.Now().UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return fmt.Errorf("star dashboard: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) UnstarDashboard(id, username string) error {
+	if _, err := db.conn.Exec("DELETE FROM dashboard_stars WHERE dashboard_id = ? AND username = ?", id, username); err != nil {
+		return fmt.Errorf("unstar dashboard: %w", err)
 	}
 	return nil
 }

@@ -20,7 +20,7 @@ var listDashboards = Tool{
 	Description: "List every dashboard in the workspace (id, name, description, updated_at). ALWAYS call this before create_dashboard so you don't duplicate one that already exists.",
 	Parameters:  mustJSON(map[string]any{"type": "object", "properties": map[string]any{}}),
 	Handler: func(tctx Context, _ json.RawMessage) (any, error) {
-		ds, err := tctx.DB.GetDashboards()
+		ds, err := tctx.DB.GetDashboards("")
 		if err != nil {
 			return nil, fmt.Errorf("list dashboards: %w", err)
 		}
