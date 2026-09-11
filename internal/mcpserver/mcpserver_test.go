@@ -1,7 +1,9 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -175,6 +177,27 @@ func TestAuthRejections(t *testing.T) {
 	}
 	if rec := mcpRequest(t, h, key, initializeBody); rec.Code != http.StatusUnauthorized {
 		t.Errorf("revoked key: want 401, got %d", rec.Code)
+	}
+}
+
+// A reverse proxy on the same host forwards to 127.0.0.1 with the public
+// hostname in Host. The MCP SDK's DNS-rebinding guard turns that into a 403
+// unless disabled; /mcp is bearer-authenticated so the guard must stay off.
+func TestProxiedRequestOnLoopbackIsNotRejected(t *testing.T) {
+	deps, key := testDeps(t)
+	h := Handler(deps)
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(initializeBody))
+	req.Host = "ch-ui.example.com"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Authorization", "Bearer "+key)
+	ctx := context.WithValue(req.Context(), http.LocalAddrContextKey, &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 3488})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req.WithContext(ctx))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("proxied initialize on loopback: want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -91,7 +91,10 @@ const SQL_KEYWORDS = new Set([
 /** Lightweight SQL syntax highlighting — returns HTML with colored spans. */
 export function highlightSQL(sql: string): string {
   return sql.replace(
-    /('(?:[^'\\]|\\.)*')|("(?:[^"\\]|\\.)*")|(--[^\n]*)|(\b\d+(?:\.\d+)?\b)|(\b[A-Za-z_]\w*\b)/g,
+    // The final ([\s\S]) group matches every character the named groups do
+    // not, so it reaches the escapeHtml fallthrough below. Without it, a raw
+    // "<" between tokens went straight into {@html}.
+    /('(?:[^'\\]|\\.)*')|("(?:[^"\\]|\\.)*")|(--[^\n]*)|(\b\d+(?:\.\d+)?\b)|(\b[A-Za-z_]\w*\b)|([\s\S])/g,
     (match, singleStr: string, doubleStr: string, comment: string, num: string, word: string) => {
       if (singleStr || doubleStr)
         return `<span class="text-success">${escapeHtml(match)}</span>`
