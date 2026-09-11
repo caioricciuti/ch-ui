@@ -49,7 +49,7 @@
     <div class="flex items-center justify-center gap-2 py-10 text-xs text-fg-3"><Spinner size="sm" /> Scanning system.tables…</div>
   {:else if proposals.length === 0}
     <EmptyState size="compact" title="Nothing found" description="No table with the exporter's columns (Body + SeverityText, SpanId + Duration, or otel_metrics_*).">
-      <a class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg" href="https://github.com/caioricciuti/ch-ui/blob/main/docs/telemetry.md" target="_blank" rel="noopener noreferrer">Read the setup guide</a>
+      <a class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg" href="https://ch-ui.com/docs/telemetry/" target="_blank" rel="noopener noreferrer">Read the setup guide</a>
     </EmptyState>
   {:else}
     <div class="divide-y divide-edge-subtle rounded-lg border border-edge-subtle bg-surface">

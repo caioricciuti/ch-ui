@@ -205,7 +205,7 @@
         primary={canWrite ? { label: 'Detect sources', onclick: detect } : undefined}
         secondary={canWrite ? { label: 'New source', onclick: () => { editing = null; editorOpen = true } } : undefined}
       >
-        <a class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg" href="https://github.com/caioricciuti/ch-ui/blob/main/docs/telemetry.md" target="_blank" rel="noopener noreferrer">Read the setup guide</a>
+        <a class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg" href="https://ch-ui.com/docs/telemetry/" target="_blank" rel="noopener noreferrer">Read the setup guide</a>
       </EmptyState>
     {:else}
       <DataTable {columns} {rows} rowKey={(r) => r.id} sort={{ key: 'kind', dir: 'asc' }} emptyTitle="No sources"

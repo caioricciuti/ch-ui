@@ -496,7 +496,7 @@
                 class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
               ><FileText size={12} /> Apache-2.0 text <ExternalLink size={12} /></a>
               <a
-                href="https://github.com/caioricciuti/ch-ui/blob/main/docs/license.md"
+                href="https://ch-ui.com/docs/license/"
                 target="_blank"
                 rel="noreferrer"
                 class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
