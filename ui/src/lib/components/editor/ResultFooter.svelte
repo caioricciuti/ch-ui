@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ColumnMeta, QueryStats } from '../../types/query'
+  import type { ColumnMeta } from '../../types/query'
   import { formatNumber, formatElapsed } from '../../utils/format'
   import {
     generateCSV,
@@ -27,7 +27,6 @@
     onTabChange: (tab: Tab) => void
     meta: ColumnMeta[]
     data: unknown[][]
-    stats?: QueryStats | null
     elapsedMs?: number
     streamRows?: number
     streamChunks?: number
@@ -37,11 +36,18 @@
     serverApplied?: boolean
   }
 
-  let { activeTab, onTabChange, meta, data, stats = null, elapsedMs = 0, streamRows = 0, streamChunks = 0, totalRows = null, serverApplied = false }: Props = $props()
-  let copyMenuOpen = $state(false)
-  let downloadMenuOpen = $state(false)
-  let copyMenuRef = $state<HTMLDivElement | null>(null)
-  let downloadMenuRef = $state<HTMLDivElement | null>(null)
+  let { activeTab, onTabChange, meta, data, elapsedMs = 0, streamRows = 0, streamChunks = 0, totalRows = null, serverApplied = false }: Props = $props()
+  let exportMenuOpen = $state(false)
+  let exportMenuRef = $state<HTMLDivElement | null>(null)
+  let rowsMenuOpen = $state(false)
+  let rowsMenuRef = $state<HTMLDivElement | null>(null)
+
+  // Row limit presets. The trigger always derives from the store, so the
+  // displayed value cannot drift from the real limit (a one-way `value=`
+  // binding used to show 1,000 while 100,000 was in effect).
+  const ROW_PRESETS = [1000, 10000, 50000, 100000, 500000]
+  const WARN_ABOVE = 10000
+  const fmtRows = (n: number) => (n >= 1000 ? `${n / 1000}K` : String(n))
 
   const rowCount = $derived(data.length)
 
@@ -55,8 +61,8 @@
   const tabClass = (id: Tab) =>
     `flex items-center gap-1 px-2 py-1 text-xs font-medium transition-colors ${
       activeTab === id
-        ? 'text-ch-blue border-b-2 border-ch-blue'
-        : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 border-b-2 border-transparent'
+        ? 'text-ch-orange border-b-2 border-ch-orange'
+        : 'text-fg-3 hover:text-fg border-b-2 border-transparent'
     }`
 
   const formatOptions: { id: ExportFormat | 'parquet'; label: string; ext: string; mime: string; icon: typeof FileText; disabled?: boolean }[] = [
@@ -90,7 +96,7 @@
     try {
       await copyToClipboard(payloadFor(format))
       success(`Copied ${formatNumber(rowCount)} rows as ${format.toUpperCase()}`)
-      copyMenuOpen = false
+      exportMenuOpen = false
     } catch {
       error('Failed to copy to clipboard')
     }
@@ -103,18 +109,18 @@
     const filename = `query_results.${opt.ext}`
     downloadFile(payloadFor(format), filename, opt.mime)
     success(`Downloaded ${filename}`)
-    downloadMenuOpen = false
+    exportMenuOpen = false
   }
 
   function closeMenus() {
-    copyMenuOpen = false
-    downloadMenuOpen = false
+    exportMenuOpen = false
+    rowsMenuOpen = false
   }
 
   function handleWindowClick(e: MouseEvent) {
     const target = e.target as Node | null
     if (!target) return
-    if (copyMenuRef?.contains(target) || downloadMenuRef?.contains(target)) return
+    if (exportMenuRef?.contains(target) || rowsMenuRef?.contains(target)) return
     closeMenus()
   }
 
@@ -125,7 +131,7 @@
 
 <svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
 
-<div class="flex items-center gap-1 px-2 py-0.5 border-t border-gray-200 dark:border-gray-800 bg-gray-100/50 dark:bg-gray-900/50 shrink-0 h-9 select-none">
+<div class="flex items-center gap-1 px-2 py-0.5 border-t border-edge-subtle bg-surface shrink-0 h-9 select-none">
   <!-- Tabs -->
   <div class="flex items-center gap-0.5">
     {#each tabs as tab}
@@ -137,10 +143,10 @@
   </div>
 
   <!-- Divider -->
-  <div class="w-px h-4 bg-gray-300 dark:bg-gray-700 mx-1"></div>
+  <div class="w-px h-4 bg-edge mx-1"></div>
 
   <!-- Info chips -->
-  <div class="flex items-center gap-3 text-xs text-gray-500 flex-1 min-w-0">
+  <div class="flex items-center gap-3 text-xs text-fg-3 flex-1 min-w-0">
     {#if totalRows !== null && totalRows !== rowCount}
       <span>{formatNumber(rowCount)} of {formatNumber(totalRows)} rows</span>
     {:else}
@@ -164,12 +170,12 @@
   </div>
 
   <!-- Result filters toggle -->
-  <div class="w-px h-4 bg-gray-300 dark:bg-gray-700 mx-1"></div>
+  <div class="w-px h-4 bg-edge mx-1"></div>
   <button
     class="flex items-center gap-1 px-1.5 py-1 text-xs rounded-md transition-colors
       {getResultFiltersEnabled()
-        ? 'text-ch-orange bg-orange-100/60 dark:bg-orange-900/30'
-        : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}"
+        ? 'bg-surface-2 text-fg'
+        : 'text-fg-3 hover:bg-hover hover:text-fg'}"
     onclick={toggleResultFiltersEnabled}
     title={getResultFiltersEnabled()
       ? 'Column sorting & filtering enabled — click headers to sort, hover for filters (click to disable)'
@@ -180,12 +186,12 @@
   </button>
 
   <!-- Number format toggle -->
-  <div class="w-px h-4 bg-gray-300 dark:bg-gray-700 mx-1"></div>
+  <div class="w-px h-4 bg-edge mx-1"></div>
   <button
     class="flex items-center gap-1 px-1.5 py-1 text-xs rounded-md transition-colors
       {getFormatNumbers()
-        ? 'text-ch-orange bg-orange-100/60 dark:bg-orange-900/30'
-        : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}"
+        ? 'bg-surface-2 text-fg'
+        : 'text-fg-3 hover:bg-hover hover:text-fg'}"
     onclick={toggleFormatNumbers}
     title={getFormatNumbers() ? 'Numbers formatted with separators (click to show raw)' : 'Numbers shown as raw values (click to format)'}
   >
@@ -193,89 +199,83 @@
     <span class="hidden sm:inline">{getFormatNumbers() ? 'Format Numbers' : 'Raw Numbers'}</span>
   </button>
 
-  <!-- Row limit input -->
-  <div class="w-px h-4 bg-gray-300 dark:bg-gray-700 mx-1"></div>
-  <div class="flex items-center gap-1">
-    {#if getMaxResultRows() > 10000}
-      <AlertTriangle size={12} class="text-amber-500" />
+  <!-- Row limit: presets, with the current value always read from the store -->
+  <div class="w-px h-4 bg-edge mx-1"></div>
+  <div class="relative" bind:this={rowsMenuRef}>
+    <button
+      class="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs transition-colors hover:bg-hover hover:text-fg {getMaxResultRows() > WARN_ABOVE ? 'text-warning' : 'text-fg-3'}"
+      onclick={() => { rowsMenuOpen = !rowsMenuOpen; exportMenuOpen = false }}
+      title={getMaxResultRows() > WARN_ABOVE ? 'Large limits load a lot of rows into the browser' : 'Maximum rows fetched per query'}
+      aria-haspopup="menu"
+      aria-expanded={rowsMenuOpen}
+    >
+      {#if getMaxResultRows() > WARN_ABOVE}<AlertTriangle size={12} />{/if}
+      Rows: {fmtRows(getMaxResultRows())}
+      <ChevronUp size={12} class="opacity-70" />
+    </button>
+    {#if rowsMenuOpen}
+      <div class="surface-card absolute bottom-full right-0 z-20 mb-1 w-44 rounded-md p-1" role="menu">
+        {#each ROW_PRESETS as n}
+          <button
+            class="flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-xs transition-colors {getMaxResultRows() === n ? 'bg-hover text-fg' : 'text-fg-2 hover:bg-hover hover:text-fg'}"
+            role="menuitemradio"
+            aria-checked={getMaxResultRows() === n}
+            onclick={() => { setMaxResultRows(n); closeMenus() }}
+          >
+            <span class="tabular-nums">{fmtRows(n)}</span>
+            {#if n > WARN_ABOVE}<span class="text-[10px] text-warning">heavy</span>{/if}
+          </button>
+        {/each}
+      </div>
     {/if}
-    <span class="text-xs text-gray-500">Max rows</span>
-    <input
-      type="number"
-      min="1"
-      class="w-16 px-1.5 py-0.5 text-xs rounded border focus:outline-none focus:ring-1
-        {getMaxResultRows() > 10000
-          ? 'border-amber-400 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 focus:ring-amber-400'
-          : 'border-gray-300 dark:border-gray-700 bg-transparent text-gray-600 dark:text-gray-300 focus:ring-ch-blue focus:border-ch-blue'}"
-      value={getMaxResultRows()}
-      onchange={(e) => setMaxResultRows(parseInt(e.currentTarget.value) || 1000)}
-    />
   </div>
 
-  <!-- Export buttons -->
-  <div class="flex items-center gap-1">
-    <div class="relative" bind:this={copyMenuRef}>
-      <button
-        class="flex items-center gap-1.5 px-2 py-1 text-xs border border-gray-300 dark:border-gray-700 rounded-md text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors"
-        onclick={() => {
-          copyMenuOpen = !copyMenuOpen
-          if (copyMenuOpen) downloadMenuOpen = false
-        }}
-      >
-        <Copy size={12} />
-        Copy
-        <ChevronUp size={12} class="opacity-70" />
-      </button>
+  <!-- Export: one menu, copy or download in any format -->
+  <div class="relative" bind:this={exportMenuRef}>
+    <button
+      class="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-fg-3 transition-colors hover:bg-hover hover:text-fg"
+      onclick={() => { exportMenuOpen = !exportMenuOpen; rowsMenuOpen = false }}
+      aria-haspopup="menu"
+      aria-expanded={exportMenuOpen}
+    >
+      <Download size={12} />
+      Export
+      <ChevronUp size={12} class="opacity-70" />
+    </button>
 
-      {#if copyMenuOpen}
-        <div class="absolute right-0 bottom-full mb-1 w-44 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50/98 dark:bg-gray-900/98 backdrop-blur-xl shadow-xl p-1 z-20">
-          {#each formatOptions as option}
-            <button
-              class="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded-md text-left transition-colors
-                {option.disabled
-                  ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed'
-                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-800'}"
-              onclick={() => !option.disabled && handleCopy(option.id)}
-              disabled={option.disabled}
-            >
-              <option.icon size={12} />
-              {option.label}
-            </button>
-          {/each}
+    {#if exportMenuOpen}
+      <div class="surface-card absolute bottom-full right-0 z-20 mb-1 w-80 rounded-md p-1" role="menu">
+        <div class="grid grid-cols-2 gap-1">
+          <div>
+            <div class="flex items-center gap-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-fg-4"><Copy size={10} /> Copy</div>
+            {#each formatOptions as option (option.id)}
+              <button
+                class="flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-xs transition-colors {option.disabled ? 'cursor-not-allowed text-fg-4' : 'text-fg-2 hover:bg-hover hover:text-fg'}"
+                onclick={() => !option.disabled && handleCopy(option.id)}
+                disabled={option.disabled}
+                role="menuitem"
+              >
+                <option.icon size={12} />
+                {option.label}
+              </button>
+            {/each}
+          </div>
+          <div class="border-l border-edge-subtle pl-1">
+            <div class="flex items-center gap-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-fg-4"><Download size={10} /> Download</div>
+            {#each formatOptions as option (option.id)}
+              <button
+                class="flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-xs transition-colors {option.disabled ? 'cursor-not-allowed text-fg-4' : 'text-fg-2 hover:bg-hover hover:text-fg'}"
+                onclick={() => !option.disabled && handleDownload(option.id)}
+                disabled={option.disabled}
+                role="menuitem"
+              >
+                <option.icon size={12} />
+                {option.label}
+              </button>
+            {/each}
+          </div>
         </div>
-      {/if}
-    </div>
-
-    <div class="relative" bind:this={downloadMenuRef}>
-      <button
-        class="flex items-center gap-1.5 px-2 py-1 text-xs border border-gray-300 dark:border-gray-700 rounded-md text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors"
-        onclick={() => {
-          downloadMenuOpen = !downloadMenuOpen
-          if (downloadMenuOpen) copyMenuOpen = false
-        }}
-      >
-        <Download size={12} />
-        Download
-        <ChevronUp size={12} class="opacity-70" />
-      </button>
-
-      {#if downloadMenuOpen}
-        <div class="absolute right-0 bottom-full mb-1 w-44 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50/98 dark:bg-gray-900/98 backdrop-blur-xl shadow-xl p-1 z-20">
-          {#each formatOptions as option}
-            <button
-              class="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded-md text-left transition-colors
-                {option.disabled
-                  ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed'
-                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-800'}"
-              onclick={() => !option.disabled && handleDownload(option.id)}
-              disabled={option.disabled}
-            >
-              <option.icon size={12} />
-              {option.label}
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
+      </div>
+    {/if}
   </div>
 </div>

@@ -28,20 +28,18 @@
     if (isStart || isEnd) {
       parts.push('bg-ch-orange text-white font-semibold')
     } else if (rangeStart && rangeEnd && isInRange(date, rangeStart, rangeEnd)) {
-      parts.push('bg-orange-100 dark:bg-orange-900/25 text-ch-orange')
+      parts.push('bg-accent-soft text-accent')
     } else if (rangeStart && !rangeEnd && hoverDate) {
-      const lo = date.getTime() < rangeStart.getTime() ? date : rangeStart
-      const hi = date.getTime() < rangeStart.getTime() ? rangeStart : date
       const hd = hoverDate.getTime() < rangeStart.getTime() ? hoverDate : hoverDate
       const previewStart = hd < rangeStart ? hd : rangeStart
       const previewEnd = hd < rangeStart ? rangeStart : hd
       if (isInRange(date, previewStart, previewEnd) && !isSameDay(date, rangeStart)) {
-        parts.push('bg-orange-50 dark:bg-orange-900/15 text-orange-400 dark:text-orange-300')
+        parts.push('bg-accent/8 text-accent/70')
       } else if (!isToday(date)) {
-        parts.push('text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700')
+        parts.push('text-fg-2 hover:bg-hover')
       }
     } else if (!isToday(date)) {
-      parts.push('text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700')
+      parts.push('text-fg-2 hover:bg-hover')
     }
 
     if (isToday(date) && !isStart && !isEnd) {
@@ -53,13 +51,13 @@
 </script>
 
 <div class="select-none">
-  <div class="text-center text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">
+  <div class="text-center text-sm font-semibold text-fg mb-2">
     {title}
   </div>
 
   <div class="grid grid-cols-7 gap-0.5 mb-1">
     {#each WEEKDAYS as day}
-      <div class="h-8 w-8 flex items-center justify-center text-[10px] font-medium text-gray-400 dark:text-gray-500">
+      <div class="h-8 w-8 flex items-center justify-center text-[10px] font-medium text-fg-4">
         {day}
       </div>
     {/each}

@@ -150,9 +150,9 @@
   <!-- Search + filters -->
   <div class="flex items-center gap-2 shrink-0">
     <div class="relative flex-1">
-      <Search size={13} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+      <Search size={13} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-4" />
       <input
-        class="w-full pl-8 pr-7 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 text-gray-700 dark:text-gray-200 focus:outline-none focus:border-ch-blue"
+        class="w-full pl-8 pr-7 py-1.5 text-xs rounded-md border border-edge bg-canvas text-fg-2 focus:outline-none focus:border-ch-orange"
         placeholder="Search history..."
         bind:value={search}
         oninput={handleSearchInput}
@@ -160,7 +160,7 @@
       />
       {#if search}
         <button
-          class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          class="absolute right-2 top-1/2 -translate-y-1/2 text-fg-4 hover:text-fg-2"
           onclick={() => { search = ''; void load() }}
           aria-label="Clear search"
         >
@@ -169,13 +169,13 @@
       {/if}
     </div>
 
-    <div class="flex items-center rounded-md border border-gray-300 dark:border-gray-700 overflow-hidden">
+    <div class="flex items-center rounded-md border border-edge overflow-hidden">
       {#each statusOptions as opt}
         <button
           class="px-2 py-1.5 text-xs transition-colors
             {statusFilter === opt.value
-              ? 'bg-ch-blue text-white'
-              : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+              ? 'bg-ch-orange text-white'
+              : 'text-fg-3 hover:bg-hover'}"
           onclick={() => setStatusFilter(opt.value)}
         >{opt.label}</button>
       {/each}
@@ -184,8 +184,8 @@
     <button
       class="px-2 py-1.5 text-xs rounded-md border transition-colors
         {confirmClear
-          ? 'border-red-400 text-red-500 bg-red-50 dark:bg-red-900/20'
-          : 'border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:text-red-500 hover:border-red-300'}"
+          ? 'border-danger/40 text-danger bg-danger-soft'
+          : 'border-edge text-fg-3 hover:text-danger hover:border-danger/40'}"
       onclick={handleClear}
       title="Delete all history entries for this connection"
     >{confirmClear ? 'Confirm?' : 'Clear all'}</button>
@@ -193,40 +193,40 @@
 
   <!-- Entries -->
   {#if loading && entries.length === 0}
-    <div class="flex items-center justify-center flex-1 text-gray-500">
+    <div class="flex items-center justify-center flex-1 text-fg-3">
       <Spinner size="sm" />
     </div>
   {:else if loadError}
-    <div class="flex-1 p-3 text-sm text-red-600 dark:text-red-400">{loadError}</div>
+    <div class="flex-1 p-3 text-[13px] text-danger">{loadError}</div>
   {:else if entries.length === 0}
-    <div class="flex flex-col items-center justify-center flex-1 gap-2 text-gray-400 dark:text-gray-600">
-      <History size={26} class="text-gray-300 dark:text-gray-700" />
+    <div class="flex flex-col items-center justify-center flex-1 gap-2 text-fg-4">
+      <History size={26} class="text-fg-4" />
       <p class="text-sm">No queries in history yet</p>
-      <p class="text-xs text-gray-300 dark:text-gray-700">Queries you run are recorded automatically</p>
+      <p class="text-xs text-fg-4">Queries you run are recorded automatically</p>
     </div>
   {:else}
     <div class="flex-1 overflow-y-auto -mx-1 px-1">
       <ul class="flex flex-col gap-1.5">
         {#each entries as entry (entry.id)}
-          <li class="group rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950/60 hover:border-ch-blue/40 transition-colors">
+          <li class="group rounded-md border border-edge-subtle bg-canvas/60 hover:border-ch-orange/40 transition-colors">
             <button
               class="w-full text-left px-3 pt-2 pb-1"
               onclick={() => onopen(entry.query_text)}
               title="Open in a new query tab"
             >
-              <pre class="font-mono text-[11px] leading-4 text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words line-clamp-2">{entry.query_text}</pre>
+              <pre class="font-mono text-[11px] leading-4 text-fg-2 whitespace-pre-wrap break-words line-clamp-2">{entry.query_text}</pre>
               {#if entry.status === 'error' && entry.error_message}
-                <p class="mt-1 text-[11px] text-red-500 dark:text-red-400 truncate" title={entry.error_message}>{entry.error_message}</p>
+                <p class="mt-1 text-[11px] text-danger truncate" title={entry.error_message}>{entry.error_message}</p>
               {/if}
             </button>
 
-            <div class="flex items-center gap-2.5 px-3 pb-2 text-[11px] text-gray-400 dark:text-gray-500">
+            <div class="flex items-center gap-2.5 px-3 pb-2 text-[11px] text-fg-4">
               {#if entry.status === 'success'}
-                <CircleCheck size={11} class="text-emerald-500 shrink-0" />
+                <CircleCheck size={11} class="text-success shrink-0" />
               {:else if entry.status === 'cancelled'}
-                <CircleMinus size={11} class="text-gray-400 shrink-0" />
+                <CircleMinus size={11} class="text-fg-4 shrink-0" />
               {:else}
-                <CircleX size={11} class="text-red-500 shrink-0" />
+                <CircleX size={11} class="text-danger shrink-0" />
               {/if}
               <span title={formatAbsolute(entry.created_at)}>{formatRelative(entry.created_at)}</span>
               {#if entry.elapsed_ms !== null}
@@ -236,22 +236,22 @@
                 <span>{formatNumber(entry.rows_returned)} rows</span>
               {/if}
               {#if entry.source === 'mcp'}
-                <span class="px-1 py-px rounded text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300" title="Executed through the MCP server">MCP</span>
+                <span class="px-1 py-px rounded text-[10px] font-medium bg-info-soft text-info" title="Executed through the MCP server">MCP</span>
               {/if}
 
               <div class="flex-1"></div>
 
               <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200" onclick={() => onopen(entry.query_text)} title="Open in new tab" aria-label="Open in new tab">
+                <button class="p-1 rounded hover:bg-hover hover:text-fg" onclick={() => onopen(entry.query_text)} title="Open in new tab" aria-label="Open in new tab">
                   <ExternalLink size={12} />
                 </button>
-                <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200" onclick={() => oninsert(entry.query_text)} title="Replace current editor contents (undo with Cmd/Ctrl+Z)" aria-label="Replace current editor contents">
+                <button class="p-1 rounded hover:bg-hover hover:text-fg" onclick={() => oninsert(entry.query_text)} title="Replace current editor contents (undo with Cmd/Ctrl+Z)" aria-label="Replace current editor contents">
                   <Replace size={12} />
                 </button>
-                <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200" onclick={() => handleCopy(entry.query_text)} title="Copy SQL" aria-label="Copy SQL">
+                <button class="p-1 rounded hover:bg-hover hover:text-fg" onclick={() => handleCopy(entry.query_text)} title="Copy SQL" aria-label="Copy SQL">
                   <Copy size={12} />
                 </button>
-                <button class="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500" onclick={() => handleDelete(entry.id)} title="Delete entry" aria-label="Delete entry">
+                <button class="p-1 rounded hover:bg-danger-soft hover:text-danger" onclick={() => handleDelete(entry.id)} title="Delete entry" aria-label="Delete entry">
                   <Trash2 size={12} />
                 </button>
               </div>
@@ -263,7 +263,7 @@
       {#if hasMore}
         <div class="flex justify-center py-3">
           <button
-            class="px-3 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+            class="px-3 py-1.5 text-xs rounded-md border border-edge text-fg-2 hover:bg-hover disabled:opacity-50"
             onclick={() => void load(false)}
             disabled={loading}
           >{loading ? 'Loading...' : 'Load more'}</button>

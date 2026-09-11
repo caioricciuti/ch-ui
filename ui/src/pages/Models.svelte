@@ -11,6 +11,13 @@
   import { openModelTab } from '../lib/stores/tabs.svelte'
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
   import ContextMenu from '../lib/components/common/ContextMenu.svelte'
+  import PageHeader from '../lib/components/common/PageHeader.svelte'
+  import Button from '../lib/components/common/Button.svelte'
+  import Badge from '../lib/components/common/Badge.svelte'
+  import EmptyState from '../lib/components/common/EmptyState.svelte'
+  import Modal from '../lib/components/common/Modal.svelte'
+  import FormField from '../lib/components/common/FormField.svelte'
+  import Input from '../lib/components/common/Input.svelte'
   import type { ContextMenuItem } from '../lib/components/common/ContextMenu.svelte'
   import {
     SvelteFlow,
@@ -427,145 +434,133 @@
 
   // ── Helpers ────────────────────────────────────────────────────────
 
-  function statusBadge(status: string): string {
+  type StatusTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info'
+
+  function statusTone(status: string): StatusTone {
     switch (status) {
-      case 'success': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-      case 'error': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-      case 'partial': return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-      case 'running': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-      default: return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+      case 'success': return 'success'
+      case 'error': return 'danger'
+      case 'partial': return 'warning'
+      case 'running': return 'info'
+      default: return 'neutral'
     }
   }
 
   function statusDot(status: string): string {
     switch (status) {
-      case 'success': return 'bg-green-500'
-      case 'error': return 'bg-red-500'
-      default: return 'bg-gray-400'
+      case 'success': return 'bg-success'
+      case 'error': return 'bg-danger'
+      default: return 'bg-fg-4'
     }
   }
+
+  const SCHEDULE_PRESETS = [
+    { label: 'Every hour', cron: '0 * * * *' },
+    { label: 'Every 6h', cron: '0 */6 * * *' },
+    { label: 'Daily midnight', cron: '0 0 * * *' },
+    { label: 'Weekly Mon 2am', cron: '0 2 * * 1' },
+  ]
 </script>
 
-<div class="flex flex-col h-full overflow-hidden">
-  <!-- ─── Toolbar ─────────────────────────────────────────────────── -->
-  <div class="flex items-center gap-3 px-4 py-2.5 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 shrink-0">
-    <Boxes size={18} class="text-orange-500 shrink-0" />
-    <h1 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Model Pipeline</h1>
-    {#if !loading}
-      <span class="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums">{models.length} model{models.length !== 1 ? 's' : ''}</span>
-    {/if}
-    <div class="flex-1"></div>
-    <button
-      onclick={handleRunAll}
-      disabled={running || models.length === 0}
-      class="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded text-gray-600 dark:text-gray-300 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 disabled:opacity-40 transition-colors"
-      title="Run all models in dependency order"
-    >
-      <Play size={13} /> {running ? 'Running...' : 'Run Pipeline'}
-    </button>
-    <button
-      onclick={openDAG}
-      disabled={models.length === 0}
-      class="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded text-gray-600 dark:text-gray-300 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20 disabled:opacity-40 transition-colors"
-      title="Dependency graph"
-    >
-      <GitBranch size={13} /> DAG
-    </button>
-    <button
-      onclick={openHistory}
-      class="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded text-gray-600 dark:text-gray-300 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
-      title="Run history"
-    >
-      <History size={13} /> History
-    </button>
-    {#if hasGitHubIntegration}
-      <button
-        onclick={handleGitHubSync}
-        disabled={syncing}
-        class="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded text-gray-600 dark:text-gray-300 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-40 transition-colors"
-        title="Sync models from GitHub"
+<div class="flex h-full min-h-0 flex-col overflow-hidden">
+  <PageHeader title="Models" subtitle="SQL transformations that run in dependency order">
+    {#snippet meta()}
+      {#if !loading}
+        <Badge tone="neutral">{models.length} model{models.length !== 1 ? 's' : ''}</Badge>
+      {/if}
+    {/snippet}
+    {#snippet actions()}
+      <Button
+        size="sm"
+        variant="outline"
+        onclick={handleRunAll}
+        disabled={running || models.length === 0}
+        title="Run all models in dependency order"
       >
-        <CloudDownload size={13} class={syncing ? 'animate-pulse' : ''} /> {syncing ? 'Syncing...' : 'Sync GitHub'}
-      </button>
-    {/if}
-    <button
-      onclick={handleCreate}
-      class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-orange-500 text-white hover:bg-orange-600 transition-colors font-medium"
-    >
-      <Plus size={14} /> New Model
-    </button>
-  </div>
+        <Play size={13} /> {running ? 'Running...' : 'Run pipeline'}
+      </Button>
+      <Button size="sm" variant="outline" onclick={openDAG} disabled={models.length === 0} title="Dependency graph">
+        <GitBranch size={13} /> DAG
+      </Button>
+      <Button size="sm" variant="outline" onclick={openHistory} title="Run history">
+        <History size={13} /> History
+      </Button>
+      {#if hasGitHubIntegration}
+        <Button size="sm" variant="outline" onclick={handleGitHubSync} disabled={syncing} title="Sync models from GitHub">
+          <CloudDownload size={13} class={syncing ? 'animate-pulse' : ''} /> {syncing ? 'Syncing...' : 'Sync GitHub'}
+        </Button>
+      {/if}
+      <Button size="sm" onclick={handleCreate}>
+        <Plus size={14} /> New model
+      </Button>
+    {/snippet}
+  </PageHeader>
 
   <!-- ─── Content ─────────────────────────────────────────────────── -->
-  <div class="flex-1 min-h-0 overflow-auto">
+  <div class="min-h-0 flex-1 overflow-auto">
     {#if loading}
-      <div class="flex items-center justify-center h-full text-gray-400 text-sm">Loading...</div>
+      <div class="flex h-full items-center justify-center text-[13px] text-fg-3">Loading...</div>
     {:else if models.length === 0}
-      <div class="flex flex-col items-center justify-center h-full gap-4 text-gray-400 dark:text-gray-500">
-        <Boxes size={56} strokeWidth={1} class="opacity-20" />
-        <div class="text-center space-y-1">
-          <p class="text-sm font-medium text-gray-500 dark:text-gray-400">No models yet</p>
-          <p class="text-xs">Models are SQL transformations that form a pipeline. They can reference each other with <code class="text-[11px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono">$ref(model_name)</code> and run in dependency order.</p>
-        </div>
-        <button
-          onclick={handleCreate}
-          class="flex items-center gap-1.5 text-xs px-4 py-2 rounded bg-orange-500 text-white hover:bg-orange-600 transition-colors font-medium"
-        >
-          <Plus size={14} /> Create your first model
-        </button>
+      <div class="flex h-full items-center justify-center">
+        <EmptyState
+          icon={Boxes}
+          title="No models yet"
+          description="Models are SQL transformations that form a pipeline. They can reference each other with $ref(model_name) and run in dependency order."
+          primary={{ label: 'Create your first model', onclick: handleCreate }}
+        />
       </div>
     {:else}
       {#if !infoDismissed}
-        <div class="mx-4 mt-4 mb-0 flex items-start gap-2.5 px-3 py-2.5 rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50/70 dark:bg-blue-950/30 text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-          <Info size={14} class="text-blue-400 shrink-0 mt-0.5" />
+        <div class="mx-5 mt-5 flex items-start gap-2.5 rounded-md bg-info-soft px-3 py-2.5 text-xs leading-relaxed text-fg-2">
+          <Info size={14} class="mt-0.5 shrink-0 text-info" />
           <p class="flex-1">
-            Models are SQL transformations that form a pipeline. Use <code class="text-[11px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 font-mono text-blue-700 dark:text-blue-300">$ref(model_name)</code> to reference other models.
-            <span class="font-semibold">Run Pipeline</span> executes all models in dependency order — if a model fails, its dependents are automatically skipped.
+            Models are SQL transformations that form a pipeline. Use <code class="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-[11px] text-fg">$ref(model_name)</code> to reference other models.
+            <span class="font-semibold">Run pipeline</span> executes all models in dependency order; if a model fails, its dependents are skipped.
           </p>
-          <button onclick={dismissInfo} class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 shrink-0 mt-0.5" title="Dismiss">
+          <button onclick={dismissInfo} class="mt-0.5 shrink-0 text-fg-4 hover:text-fg" title="Dismiss" aria-label="Dismiss">
             <X size={14} />
           </button>
         </div>
       {/if}
-      <div class="p-4 space-y-4">
+      <div class="space-y-4 p-5">
         {#each pipelines as pipeline (pipeline.anchor_model_id)}
           {@const pipelineModels = pipeline.model_ids.map(id => modelById.get(id)).filter((m): m is Model => !!m)}
           {#if pipelineModels.length > 0}
-            <div class="rounded-lg border border-gray-200 dark:border-gray-700/80 bg-white dark:bg-gray-900/30 overflow-hidden">
+            <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
               <!-- Pipeline header -->
-              <div class="flex items-center gap-2.5 px-4 py-2.5 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700/60">
-                <Boxes size={14} class="text-orange-400 shrink-0" />
-                <span class="text-xs font-medium text-gray-600 dark:text-gray-300">
+              <div class="flex items-center gap-2.5 border-b border-edge-subtle px-4 py-2">
+                <Boxes size={14} class="shrink-0 text-fg-3" />
+                <span class="text-xs font-medium text-fg-2">
                   {pipelineModels.length} model{pipelineModels.length !== 1 ? 's' : ''}
                 </span>
                 <div class="flex-1"></div>
-                <button
+                <Button
+                  size="xs"
+                  variant="ghost"
                   onclick={() => handleRunPipeline(pipeline.anchor_model_id)}
                   disabled={runningPipeline === pipeline.anchor_model_id || running}
-                  class="flex items-center gap-1 text-[11px] px-2 py-1 rounded text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 disabled:opacity-40 transition-colors"
                   title="Run this pipeline"
                 >
                   <Play size={11} />
                   {runningPipeline === pipeline.anchor_model_id ? 'Running...' : 'Run'}
-                </button>
-                <button
+                </Button>
+                <Button
+                  size="xs"
+                  variant={pipeline.schedule ? 'secondary' : 'ghost'}
+                  class={pipeline.schedule ? 'font-mono' : ''}
                   onclick={() => openPipelineSchedule(pipeline.anchor_model_id, pipeline.schedule)}
-                  class="flex items-center gap-1 text-[11px] px-2 py-1 rounded transition-colors
-                    {pipeline.schedule
-                      ? 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 font-mono'
-                      : 'text-gray-500 dark:text-gray-400 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20'}"
                   title={pipeline.schedule ? `Schedule: ${pipeline.schedule.cron}` : 'No schedule'}
                 >
                   <Timer size={11} />
                   {pipeline.schedule ? pipeline.schedule.cron : 'No schedule'}
-                </button>
+                </Button>
               </div>
               <!-- Model cards grid -->
-              <div class="p-3 grid gap-3 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
+              <div class="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 p-3">
                 {#each pipelineModels as model (model.id)}
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
                   <div
-                    class="group relative flex flex-col gap-2 p-3.5 rounded-lg border border-gray-200 dark:border-gray-700/80 bg-white dark:bg-gray-900/50 hover:border-orange-300 dark:hover:border-orange-500/40 hover:shadow-sm cursor-pointer transition-all"
+                    class="group relative flex cursor-pointer flex-col gap-2 rounded-md border border-edge-subtle bg-surface p-3.5 transition-colors hover:border-edge-strong hover:bg-hover"
                     onclick={() => selectModel(model.id)}
                     oncontextmenu={(e) => openContextMenu(e, model)}
                     onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') selectModel(model.id) }}
@@ -574,44 +569,43 @@
                   >
                     <div class="flex items-center gap-2">
                       {#if model.materialization === 'table'}
-                        <Table2 size={14} class="text-orange-400 shrink-0" />
+                        <Table2 size={14} class="shrink-0 text-accent" />
                       {:else}
-                        <Eye size={14} class="text-blue-400 shrink-0" />
+                        <Eye size={14} class="shrink-0 text-info" />
                       {/if}
-                      <span class="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate flex-1">{model.name}</span>
+                      <span class="flex-1 truncate text-[13px] font-semibold text-fg">{model.name}</span>
                       {#if model.source === 'github'}
-                        <span title="Managed by GitHub — edit in your repository"><GitBranch size={12} class="text-purple-400 shrink-0" /></span>
+                        <span title="Managed by GitHub: edit in your repository"><GitBranch size={12} class="shrink-0 text-fg-3" /></span>
                       {/if}
-                      <span class="w-2 h-2 rounded-full {statusDot(model.status)} shrink-0" title={model.status}></span>
+                      <span class="h-2 w-2 shrink-0 rounded-full {statusDot(model.status)}" title={model.status}></span>
                       <button
                         onclick={(e) => openContextMenuFromButton(e, model)}
-                        class="p-1 rounded opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200/70 dark:hover:bg-gray-800/70 transition-all"
+                        class="rounded-sm p-1 text-fg-4 opacity-0 transition-colors hover:bg-active hover:text-fg group-hover:opacity-100 focus-visible:opacity-100"
                         title="More actions"
+                        aria-label="More actions"
                       >
                         <MoreHorizontal size={15} />
                       </button>
                     </div>
-                    <div class="flex items-center gap-2 text-[11px] text-gray-400 dark:text-gray-500">
-                      <span class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-medium">
-                        {model.materialization}
-                      </span>
+                    <div class="flex items-center gap-2 text-[11px] text-fg-4">
+                      <Badge tone="neutral">{model.materialization}</Badge>
                       <span class="truncate">{model.target_database}</span>
                       {#if model.last_run_at}
                         <span class="ml-auto shrink-0" title="Last run">{formatDate(model.last_run_at)}</span>
                       {/if}
                     </div>
                     {#if upstreamMap.get(model.id)?.length}
-                      <div class="flex items-center gap-1.5 flex-wrap">
-                        <GitBranch size={11} class="text-orange-400 shrink-0" />
+                      <div class="flex flex-wrap items-center gap-1.5">
+                        <GitBranch size={11} class="shrink-0 text-fg-4" />
                         {#each upstreamMap.get(model.id)! as dep}
-                          <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 font-medium">{dep}</span>
+                          <Badge tone="brand">{dep}</Badge>
                         {/each}
                       </div>
                     {/if}
                     {#if model.last_error}
-                      <p class="text-[11px] text-red-500 dark:text-red-400 truncate" title={model.last_error}>{model.last_error}</p>
+                      <p class="truncate text-[11px] text-danger" title={model.last_error}>{model.last_error}</p>
                     {:else if model.description}
-                      <p class="text-[11px] text-gray-400 dark:text-gray-500 truncate">{model.description}</p>
+                      <p class="truncate text-[11px] text-fg-4">{model.description}</p>
                     {/if}
                   </div>
                 {/each}
@@ -626,18 +620,18 @@
   <!-- ─── Schedule Footer ──────────────────────────────────────────── -->
   {#if !loading && pipelines.length > 0}
     {@const scheduledPipelines = pipelines.filter(p => p.schedule)}
-    <div class="shrink-0 flex items-center gap-2 px-4 py-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 text-xs text-gray-500 dark:text-gray-400">
-      <Timer size={13} class="shrink-0 text-gray-400 dark:text-gray-500" />
+    <div class="flex shrink-0 items-center gap-2 border-t border-edge-subtle bg-surface px-5 py-2 text-xs text-fg-3">
+      <Timer size={13} class="shrink-0 text-fg-4" />
       {#if scheduledPipelines.length > 0}
         <span>{scheduledPipelines.length} pipeline{scheduledPipelines.length !== 1 ? 's' : ''} scheduled</span>
         {#each scheduledPipelines as sp}
           {@const anchorModel = modelById.get(sp.anchor_model_id)}
-          <span class="text-gray-300 dark:text-gray-600">·</span>
-          <span class="font-mono text-gray-600 dark:text-gray-300" title={anchorModel?.name ?? sp.anchor_model_id}>
+          <span class="text-fg-4">·</span>
+          <span class="font-mono text-fg-2" title={anchorModel?.name ?? sp.anchor_model_id}>
             {sp.schedule?.cron}
           </span>
           {#if sp.schedule?.last_status}
-            <span class="{sp.schedule.last_status === 'success' ? 'text-green-600 dark:text-green-400' : sp.schedule.last_status === 'error' ? 'text-red-600 dark:text-red-400' : ''} font-medium">
+            <span class="font-medium {sp.schedule.last_status === 'success' ? 'text-success' : sp.schedule.last_status === 'error' ? 'text-danger' : ''}">
               {sp.schedule.last_status}
             </span>
           {/if}
@@ -652,26 +646,17 @@
 <!-- ─── DAG Overlay ──────────────────────────────────────────────── -->
 {#if showDAG}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex flex-col bg-white dark:bg-gray-950" role="dialog" tabindex="-1">
-    <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
-      <GitBranch size={18} class="text-orange-500" />
-      <h2 class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-1">Dependency Graph</h2>
-      <button
-        onclick={loadDAG}
-        class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1"
-      >
+  <div class="fixed inset-0 z-50 flex flex-col bg-canvas" role="dialog" tabindex="-1">
+    <div class="flex h-12 shrink-0 items-center gap-3 border-b border-edge-subtle px-5">
+      <h2 class="flex-1 text-[15px] font-semibold tracking-[-0.01em] text-fg">Dependency graph</h2>
+      <Button size="sm" variant="ghost" onclick={loadDAG}>
         <RefreshCw size={12} /> Refresh
-      </button>
-      <button
-        onclick={() => { showDAG = false }}
-        class="text-xs px-3 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-      >
-        Close
-      </button>
+      </Button>
+      <Button size="sm" variant="outline" onclick={() => { showDAG = false }}>Close</Button>
     </div>
-    <div class="flex-1 min-h-0">
+    <div class="min-h-0 flex-1">
       {#if dagNodes.length === 0}
-        <div class="flex items-center justify-center h-full text-gray-400 text-sm">
+        <div class="flex h-full items-center justify-center text-[13px] text-fg-3">
           {models.length === 0 ? 'No models to show' : 'Loading DAG...'}
         </div>
       {:else}
@@ -694,78 +679,67 @@
 <!-- ─── History Overlay ──────────────────────────────────────────── -->
 {#if showHistory}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex flex-col bg-white dark:bg-gray-950" role="dialog" tabindex="-1">
-    <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
-      <History size={18} class="text-orange-500" />
-      <h2 class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-1">Run History</h2>
-      <button
-        onclick={loadRuns}
-        class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1"
-      >
+  <div class="fixed inset-0 z-50 flex flex-col bg-canvas" role="dialog" tabindex="-1">
+    <div class="flex h-12 shrink-0 items-center gap-3 border-b border-edge-subtle px-5">
+      <h2 class="flex-1 text-[15px] font-semibold tracking-[-0.01em] text-fg">Run history</h2>
+      <Button size="sm" variant="ghost" onclick={loadRuns}>
         <RefreshCw size={12} /> Refresh
-      </button>
-      <button
-        onclick={() => { showHistory = false }}
-        class="text-xs px-3 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-      >
-        Close
-      </button>
+      </Button>
+      <Button size="sm" variant="outline" onclick={() => { showHistory = false }}>Close</Button>
     </div>
-    <div class="flex-1 min-h-0 overflow-auto">
+    <div class="min-h-0 flex-1 overflow-auto">
       {#if runs.length === 0}
-        <div class="flex items-center justify-center h-64 text-gray-400 text-sm">No runs yet</div>
+        <EmptyState icon={History} title="No runs yet" description="Run the pipeline and each run shows up here with per-model results." />
       {:else}
-        <div class="p-4 space-y-2">
+        <div class="mx-auto w-full max-w-6xl space-y-2 px-5 py-5">
           {#each runs as run (run.id)}
-            <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+            <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
               <button
                 onclick={() => toggleRunExpand(run.id)}
-                class="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors text-left"
+                class="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-hover"
               >
                 {#if expandedRunId === run.id}
-                  <ChevronDown size={14} class="text-gray-400 shrink-0" />
+                  <ChevronDown size={14} class="shrink-0 text-fg-4" />
                 {:else}
-                  <ChevronRight size={14} class="text-gray-400 shrink-0" />
+                  <ChevronRight size={14} class="shrink-0 text-fg-4" />
                 {/if}
-                <span class="text-[10px] px-2 py-0.5 rounded-full {statusBadge(run.status)} font-medium uppercase tracking-wide">
-                  {run.status}
-                </span>
-                <span class="text-xs text-gray-600 dark:text-gray-300 flex-1">
+                <Badge tone={statusTone(run.status)} class="uppercase tracking-wide">{run.status}</Badge>
+                <span class="flex-1 text-xs text-fg-2">
                   {run.total_models} models
-                  <span class="text-gray-400">|</span>
-                  <span class="text-green-600 dark:text-green-400">{run.succeeded} ok</span>
+                  <span class="text-fg-4">|</span>
+                  <span class="text-success">{run.succeeded} ok</span>
                   {#if run.failed > 0}
-                    <span class="text-gray-400">|</span>
-                    <span class="text-red-600 dark:text-red-400">{run.failed} failed</span>
+                    <span class="text-fg-4">|</span>
+                    <span class="text-danger">{run.failed} failed</span>
                   {/if}
                   {#if run.skipped > 0}
-                    <span class="text-gray-400">|</span>
-                    <span class="text-gray-500">{run.skipped} skipped</span>
+                    <span class="text-fg-4">|</span>
+                    <span class="text-fg-3">{run.skipped} skipped</span>
                   {/if}
                 </span>
-                <span class="text-[10px] text-gray-400">{formatDate(run.started_at)}</span>
+                <span class="text-[11px] tabular-nums text-fg-4">{formatDate(run.started_at)}</span>
               </button>
 
               {#if expandedRunId === run.id && runResults[run.id]}
-                <div class="border-t border-gray-200 dark:border-gray-700">
+                <div class="border-t border-edge-subtle">
                   {#each runResults[run.id] as result (result.id)}
-                    <div class="flex items-center gap-3 px-4 py-2 text-xs border-b border-gray-100 dark:border-gray-800 last:border-0">
+                    <div class="flex items-center gap-3 border-b border-edge-subtle px-4 py-2 text-xs last:border-0">
                       <span class="shrink-0">
                         {#if result.status === 'success'}
-                          <CheckCircle size={14} class="text-green-500" />
+                          <CheckCircle size={14} class="text-success" />
                         {:else if result.status === 'error'}
-                          <XCircle size={14} class="text-red-500" />
+                          <XCircle size={14} class="text-danger" />
                         {:else if result.status === 'skipped'}
-                          <SkipForward size={14} class="text-gray-400" />
+                          <SkipForward size={14} class="text-fg-4" />
                         {:else}
-                          <Clock size={14} class="text-blue-400" />
+                          <Clock size={14} class="text-info" />
                         {/if}
                       </span>
-                      <span class="font-medium text-gray-700 dark:text-gray-300 min-w-[120px]">{result.model_name}</span>
-                      <span class="text-[10px] px-1.5 py-0.5 rounded-full {statusBadge(result.status)}">{result.status}</span>
-                      <span class="text-gray-400">{result.elapsed_ms}ms</span>
+                      <span class="min-w-[120px] font-medium text-fg-2">{result.model_name}</span>
+                      <Badge tone={statusTone(result.status)}>{result.status}</Badge>
+                      <span class="tabular-nums text-fg-4">{result.elapsed_ms}ms</span>
                       {#if result.error}
-                        <span class="text-red-500 truncate flex-1" title={result.error}>{result.error}</span>
+                        <span class="flex-1 truncate text-danger" title={result.error}>{result.error}</span>
                       {/if}
                     </div>
                   {/each}
@@ -779,125 +753,68 @@
   </div>
 {/if}
 
-<!-- ─── Schedule Overlay ─────────────────────────────────────────── -->
-{#if showSchedule}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-    role="dialog"
-    tabindex="-1"
-    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') showSchedule = false }}
-    onclick={() => { showSchedule = false }}
-  >
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-md border border-gray-200 dark:border-gray-700"
-      onclick={(e: MouseEvent) => e.stopPropagation()}
-      onkeydown={() => {}}
-    >
-      <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-        <Timer size={16} class="text-orange-500" />
-        <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-1">
-          Pipeline Schedule
-          {#if scheduleAnchorId}
-            {@const anchorModel = modelById.get(scheduleAnchorId)}
-            {#if anchorModel}
-              <span class="font-normal text-gray-400 dark:text-gray-500 ml-1">({anchorModel.name})</span>
-            {/if}
-          {/if}
-        </h3>
-        <button onclick={() => { showSchedule = false }} class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-          <X size={16} />
-        </button>
-      </div>
+<!-- ─── Schedule dialog ──────────────────────────────────────────── -->
+<Modal
+  open={showSchedule}
+  title="Pipeline schedule"
+  description={scheduleAnchorId && modelById.get(scheduleAnchorId)
+    ? `Runs the models grouped under ${modelById.get(scheduleAnchorId)?.name} in dependency order.`
+    : 'Runs the models in this pipeline group in dependency order.'}
+  size="sm"
+  onclose={() => { showSchedule = false }}
+>
+  <div class="space-y-4">
+    <FormField label="Cron expression (5-field)" for="sched-cron">
+      <Input id="sched-cron" bind:value={schedCron} placeholder="0 */6 * * *" mono spellcheck={false} />
+    </FormField>
 
-      <div class="p-4 space-y-4">
-        <!-- Cron input -->
-        <p class="text-[11px] text-gray-400 dark:text-gray-500">Runs the models in this pipeline group in dependency order on this schedule.</p>
-        <div>
-          <label for="sched-cron" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Cron Expression (5-field)</label>
-          <input
-            id="sched-cron"
-            type="text"
-            bind:value={schedCron}
-            placeholder="0 */6 * * *"
-            class="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 bg-transparent text-gray-800 dark:text-gray-200 focus:border-orange-400 focus:outline-none font-mono"
-          />
-        </div>
-
-        <!-- Presets -->
-        <div class="flex flex-wrap gap-1.5">
-          {#each [
-            { label: 'Every hour', cron: '0 * * * *' },
-            { label: 'Every 6h', cron: '0 */6 * * *' },
-            { label: 'Daily midnight', cron: '0 0 * * *' },
-            { label: 'Weekly Mon 2am', cron: '0 2 * * 1' },
-          ] as preset}
-            <button
-              onclick={() => { schedCron = preset.cron }}
-              class="text-[10px] px-2 py-1 rounded border transition-colors
-                {schedCron === preset.cron
-                  ? 'border-orange-400 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400'
-                  : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-gray-400'}"
-            >
-              {preset.label}
-            </button>
-          {/each}
-        </div>
-
-        <!-- Status info -->
-        {#if schedule}
-          <div class="text-xs space-y-1 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/50 rounded p-3">
-            <div class="flex justify-between">
-              <span>Status</span>
-              <span class="font-medium {schedule.last_status === 'success' ? 'text-green-600 dark:text-green-400' : schedule.last_status === 'error' ? 'text-red-600 dark:text-red-400' : ''}">
-                {schedule.last_status ?? 'pending'}
-              </span>
-            </div>
-            <div class="flex justify-between">
-              <span>Next run</span>
-              <span>{formatDate(schedule.next_run_at)}</span>
-            </div>
-            <div class="flex justify-between">
-              <span>Last run</span>
-              <span>{formatDate(schedule.last_run_at)}</span>
-            </div>
-            {#if schedule.last_error}
-              <div class="text-red-500 dark:text-red-400 mt-1 text-[10px] break-all">{schedule.last_error}</div>
-            {/if}
-          </div>
-        {/if}
-
-        <!-- Actions -->
-        <div class="flex items-center gap-2 pt-2">
-          <button
-            onclick={handleSaveSchedule}
-            disabled={schedSaving || !schedCron.trim()}
-            class="flex items-center gap-1 text-xs px-3 py-1.5 rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 transition-colors font-medium"
-          >
-            <Save size={12} /> {schedSaving ? 'Saving...' : 'Save'}
-          </button>
-          {#if schedule}
-            <button
-              onclick={handleDeleteSchedule}
-              disabled={schedSaving}
-              class="flex items-center gap-1 text-xs px-3 py-1.5 rounded border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors"
-            >
-              <Trash2 size={12} /> Remove
-            </button>
-          {/if}
-          <div class="flex-1"></div>
-          <button
-            onclick={() => { showSchedule = false }}
-            class="text-xs px-3 py-1.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          >
-            Close
-          </button>
-        </div>
-      </div>
+    <div class="flex flex-wrap gap-1.5">
+      {#each SCHEDULE_PRESETS as preset}
+        <Button
+          size="xs"
+          variant={schedCron === preset.cron ? 'secondary' : 'outline'}
+          onclick={() => { schedCron = preset.cron }}
+        >
+          {preset.label}
+        </Button>
+      {/each}
     </div>
+
+    {#if schedule}
+      <div class="space-y-1 rounded-md bg-surface-2 p-3 text-xs text-fg-3">
+        <div class="flex justify-between">
+          <span>Status</span>
+          <span class="font-medium {schedule.last_status === 'success' ? 'text-success' : schedule.last_status === 'error' ? 'text-danger' : 'text-fg-2'}">
+            {schedule.last_status ?? 'pending'}
+          </span>
+        </div>
+        <div class="flex justify-between">
+          <span>Next run</span>
+          <span class="tabular-nums text-fg-2">{formatDate(schedule.next_run_at)}</span>
+        </div>
+        <div class="flex justify-between">
+          <span>Last run</span>
+          <span class="tabular-nums text-fg-2">{formatDate(schedule.last_run_at)}</span>
+        </div>
+        {#if schedule.last_error}
+          <div class="mt-1 break-all text-[11px] text-danger">{schedule.last_error}</div>
+        {/if}
+      </div>
+    {/if}
   </div>
-{/if}
+
+  {#snippet footer()}
+    {#if schedule}
+      <Button size="sm" variant="ghost" class="mr-auto text-danger hover:text-danger" onclick={handleDeleteSchedule} disabled={schedSaving}>
+        <Trash2 size={12} /> Remove
+      </Button>
+    {/if}
+    <Button size="sm" variant="outline" onclick={() => { showSchedule = false }}>Close</Button>
+    <Button size="sm" onclick={handleSaveSchedule} disabled={!schedCron.trim()} loading={schedSaving}>
+      <Save size={12} /> Save
+    </Button>
+  {/snippet}
+</Modal>
 
 <ConfirmDialog
   open={confirmDeleteOpen}

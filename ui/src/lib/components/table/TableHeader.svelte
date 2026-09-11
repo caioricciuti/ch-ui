@@ -65,39 +65,37 @@
 
   function typeTone(type: string): string {
     switch (getDisplayType(type)) {
+      // One quiet tone for every type: the column name leads, the type is a
+      // hint. The display type still drives alignment and cell rendering.
       case 'number':
-        return 'text-orange-700 dark:text-orange-300 bg-orange-100/70 dark:bg-orange-500/15 border-orange-200/70 dark:border-orange-500/25'
       case 'date':
-        return 'text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-500/15 border-emerald-200/70 dark:border-emerald-500/25'
       case 'bool':
-        return 'text-fuchsia-700 dark:text-fuchsia-300 bg-fuchsia-100/70 dark:bg-fuchsia-500/12 border-fuchsia-200/70 dark:border-fuchsia-500/20'
       case 'json':
-        return 'text-sky-700 dark:text-sky-300 bg-sky-100/70 dark:bg-sky-500/12 border-sky-200/70 dark:border-sky-500/20'
       default:
-        return 'text-gray-600 dark:text-gray-300 bg-gray-100/80 dark:bg-gray-800/80 border-gray-200/75 dark:border-gray-700/75'
+        return 'text-fg-4 bg-surface-2 border-transparent'
     }
   }
 </script>
 
-<thead class="sticky top-0 z-10 bg-gray-100 dark:bg-gray-900">
-  <tr class="border-b border-gray-300 dark:border-gray-700">
+<thead class="sticky top-0 z-10 bg-surface-2">
+  <tr class="border-b border-edge">
     <!-- Row number header -->
     <th
-      class="sticky left-0 z-20 px-2.5 py-2 text-xs font-semibold text-gray-700 dark:text-gray-200 border-r border-gray-200 dark:border-gray-800 text-center select-none bg-gray-100 dark:bg-gray-900"
+      class="sticky left-0 z-20 px-2.5 py-2 text-xs font-semibold text-fg-2 border-r border-edge-subtle text-center select-none bg-surface-2"
       style="width:60px;max-width:60px;min-width:60px"
       ondblclick={() => onfitall?.()}
       title="Double-click to auto-fit all columns"
     >#</th>
     {#each columns as col, i}
       <th
-        class="px-2.5 py-2 text-xs font-medium text-gray-500 dark:text-gray-400 border-r border-gray-200/60 dark:border-gray-800/60 select-none relative group bg-gray-100 dark:bg-gray-900
+        class="px-2.5 py-2 text-xs font-medium text-fg-3 border-r border-edge-subtle select-none relative group bg-surface-2
           {isRightAligned(col.type) ? 'text-right' : 'text-left'}"
         style="width:{widths[i]}px;max-width:{widths[i]}px;min-width:{widths[i]}px"
       >
         {#if onsort}
           <button
             type="button"
-            class="w-full flex items-center gap-2 min-w-0 hover:text-gray-800 dark:hover:text-gray-200
+            class="w-full flex items-center gap-2 min-w-0 hover:text-fg
               {isRightAligned(col.type) ? 'justify-end' : ''}
               {onfilterclick ? (isRightAligned(col.type) ? 'pl-5' : 'pr-6') : ''}"
             onclick={() => onsort?.(col.name)}
@@ -131,7 +129,7 @@
             class="absolute top-1/2 -translate-y-1/2 {isRightAligned(col.type) ? 'left-1' : 'right-3'} p-0.5 rounded transition-opacity
               {active
                 ? 'text-ch-orange opacity-100'
-                : 'text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 hover:text-gray-700 dark:hover:text-gray-200'}"
+                : 'text-fg-4 opacity-0 group-hover:opacity-100 hover:text-fg'}"
             onclick={(e) => handleFilterClick(e, col.name)}
             onmousedown={(e) => e.stopPropagation()}
             title={active ? `Edit filter on ${col.name}` : `Filter ${col.name}`}

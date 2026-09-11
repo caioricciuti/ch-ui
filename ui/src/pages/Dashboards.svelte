@@ -1,14 +1,16 @@
 <script lang="ts">
-  import type { Dashboard, Panel } from '../lib/types/api'
+  import { goTo, navigate } from '../lib/stores/router.svelte'
+  import type { Dashboard, DashboardFolder, Panel } from '../lib/types/api'
   import { apiGet, apiPost, apiPut, apiDel } from '../lib/api/client'
+  import { listDashboardFolders, setDashboardStar, deleteDashboard as apiDeleteDashboard } from '../lib/api/dashboards'
+  import DashboardBrowser from '../lib/components/dashboard/DashboardBrowser.svelte'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
-  import { openDashboardTab, openSingletonTab } from '../lib/stores/tabs.svelte'
   import { toDashboardTimeRangePayload } from '../lib/utils/dashboard-time'
-  import { formatDate } from '../lib/utils/format'
   import Button from '../lib/components/common/Button.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
-  import Sheet from '../lib/components/common/Sheet.svelte'
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
+  import Badge from '../lib/components/common/Badge.svelte'
+  import Tooltip from '../lib/components/common/Tooltip.svelte'
   import PanelEditor from '../lib/components/dashboard/PanelEditor.svelte'
   import DashboardGrid from '../lib/components/dashboard/DashboardGrid.svelte'
   import StatPanel from '../lib/components/dashboard/StatPanel.svelte'
@@ -20,7 +22,7 @@
   import TimeRangeSelector from '../lib/components/dashboard/TimeRangeSelector.svelte'
   import ShareDialog from '../lib/components/dashboard/ShareDialog.svelte'
   import DashboardSettings from '../lib/components/dashboard/DashboardSettings.svelte'
-  import { LayoutDashboard, Plus, Trash2, ArrowLeft, RefreshCw, Share2, ChevronDown, Timer, Settings, Info, X } from 'lucide-svelte'
+  import { Plus, RefreshCw, Share2, ChevronDown, ChevronRight, Star, Timer, Settings, Info, X } from 'lucide-svelte'
 
   interface Props {
     dashboardId?: string
@@ -28,9 +30,19 @@
 
   let { dashboardId }: Props = $props()
 
-  // List view
-  let dashboards = $state<Dashboard[]>([])
-  let listLoading = $state(true)
+  // Folders, for the breadcrumb of the detail view
+  let folders = $state<DashboardFolder[]>([])
+  const folderCrumbs = $derived.by(() => {
+    if (!currentDashboard?.folder_id) return [] as DashboardFolder[]
+    const byId = new Map(folders.map((f) => [f.id, f]))
+    const out: DashboardFolder[] = []
+    let cur = byId.get(currentDashboard.folder_id)
+    for (let i = 0; cur && i < 64; i++) {
+      out.unshift(cur)
+      cur = cur.parent_id ? byId.get(cur.parent_id) : undefined
+    }
+    return out
+  })
 
   // Detail view
   let currentDashboard = $state<Dashboard | null>(null)
@@ -40,12 +52,6 @@
   let detailError = $state<string | null>(null)
   let loadedDashboardId = $state<string | null>(null)
   let dashboardTimeRange = $state(localStorage.getItem('ch-ui-dashboard-time-range') ?? '1h')
-
-  // Create dashboard sheet
-  let showCreateModal = $state(false)
-  let createName = $state('')
-  let createDesc = $state('')
-  let creating = $state(false)
 
   // Panel editor page
   let panelEditorOpen = $state(false)
@@ -130,8 +136,6 @@
     }
   })
 
-  const refreshLabel = $derived(REFRESH_OPTIONS.find(o => o.seconds === refreshInterval)?.label ?? 'Off')
-
   // Inline edit
   let editingTitle = $state(false)
   let titleInput = $state('')
@@ -145,56 +149,19 @@
         panelResults = new Map()
         loadedDashboardId = null
       }
-      void loadDashboards()
       return
     }
     if (loadedDashboardId === id) return
     loadedDashboardId = id
     void loadDashboardDetail(id)
+    if (folders.length === 0) listDashboardFolders().then((f) => (folders = f)).catch(() => {})
   })
-
-  async function loadDashboards() {
-    listLoading = true
-    try {
-      const res = await apiGet<{ dashboards: Dashboard[] }>('/api/dashboards')
-      dashboards = res.dashboards ?? []
-    } catch (e: any) {
-      toastError(e.message)
-    } finally {
-      listLoading = false
-    }
-  }
-
-  async function createDashboard() {
-    if (!createName.trim()) {
-      toastError('Name is required')
-      return
-    }
-    creating = true
-    try {
-      const res = await apiPost<{ dashboard: Dashboard }>('/api/dashboards', {
-        name: createName.trim(),
-        description: createDesc.trim(),
-      })
-      showCreateModal = false
-      createName = ''
-      createDesc = ''
-      await loadDashboards()
-      if (res.dashboard) {
-        openDashboardTab(res.dashboard.id, res.dashboard.name)
-      }
-    } catch (e: any) {
-      toastError(e.message)
-    } finally {
-      creating = false
-    }
-  }
 
   async function deleteDashboard(id: string) {
     try {
-      await apiDel(`/api/dashboards/${id}`)
-      dashboards = dashboards.filter(d => d.id !== id)
+      await apiDeleteDashboard(id)
       toastSuccess('Dashboard deleted')
+      goTo('dashboards', 'Dashboards')
     } catch (e: any) {
       toastError(e.message)
     }
@@ -217,12 +184,24 @@
     }
   }
 
-  function openDashboardFromList(d: Dashboard) {
-    openDashboardTab(d.id, d.name)
+  function openDashboardListTab() {
+    goTo('dashboards', 'Dashboards')
   }
 
-  function openDashboardListTab() {
-    openSingletonTab('dashboards', 'Dashboards')
+  function openFolderInList(folderId: string) {
+    navigate(`/dashboards?folder=${encodeURIComponent(folderId)}`)
+  }
+
+  async function toggleCurrentStar() {
+    if (!currentDashboard) return
+    const next = !currentDashboard.starred
+    currentDashboard = { ...currentDashboard, starred: next }
+    try {
+      await setDashboardStar(currentDashboard.id, next)
+    } catch (e: any) {
+      currentDashboard = { ...currentDashboard, starred: !next }
+      toastError(e.message)
+    }
   }
 
   function runAllPanelQueries(panelsToRun = panels) {
@@ -385,133 +364,89 @@
 
 </script>
 
-<div class="flex flex-col h-full">
+<div class="flex h-full min-h-0 flex-col">
   {#if !dashboardId}
-    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-      <div class="flex items-center gap-3">
-        <LayoutDashboard size={18} class="text-ch-blue" />
-        <h1 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Dashboards</h1>
-      </div>
-      <Button size="sm" onclick={() => { showCreateModal = true }}>
-        <Plus size={14} /> Create Dashboard
-      </Button>
-    </div>
-
-    <div class="flex-1 overflow-auto p-4">
-      {#if listLoading}
-        <div class="flex items-center justify-center py-12"><Spinner /></div>
-      {:else if dashboards.length === 0}
-        <div class="text-center py-12 text-gray-500">
-          <LayoutDashboard size={36} class="mx-auto mb-2 text-gray-300 dark:text-gray-700" />
-          <p class="mb-1">No dashboards yet</p>
-          <p class="text-xs text-gray-400 dark:text-gray-600">Create a dashboard to visualize your ClickHouse data</p>
-        </div>
-      {:else}
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {#each dashboards as dashboard (dashboard.id)}
-            <div
-              class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4 hover:border-gray-300 dark:hover:border-gray-700 transition-colors cursor-pointer group"
-              onclick={() => openDashboardFromList(dashboard)}
-              role="button"
-              tabindex="0"
-              onkeydown={(e) => { if (e.key === 'Enter') openDashboardFromList(dashboard) }}
-            >
-              <div class="flex items-start justify-between">
-                <div class="flex-1 min-w-0">
-                  <h3 class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{dashboard.name}</h3>
-                  {#if dashboard.description}
-                    <p class="text-xs text-gray-500 mt-1 truncate">{dashboard.description}</p>
-                  {/if}
-                </div>
-                <button
-                  class="p-1.5 rounded text-gray-400 hover:text-red-400 hover:bg-gray-200 dark:hover:bg-gray-800 opacity-0 group-hover:opacity-100 transition-opacity"
-                  onclick={(e) => { e.stopPropagation(); requestDeleteDashboard(dashboard.id) }}
-                  title="Delete"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-              <div class="flex items-center gap-3 mt-3 text-xs text-gray-400">
-                <span>by {dashboard.created_by}</span>
-                <span>{formatDate(dashboard.updated_at)}</span>
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </div>
+    <DashboardBrowser />
   {:else}
-    <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-      <button
-        class="p-1.5 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800"
-        onclick={openDashboardListTab}
-        title="Back to dashboard list"
-      >
-        <ArrowLeft size={16} />
-      </button>
+    <div class="flex h-12 shrink-0 items-center gap-2 border-b border-edge-subtle px-5">
+      <nav class="flex min-w-0 items-center gap-1 text-[13px]" aria-label="Breadcrumb">
+        <button class="shrink-0 text-fg-3 transition-colors hover:text-fg" onclick={openDashboardListTab}>Dashboards</button>
+        {#each folderCrumbs as crumb (crumb.id)}
+          <ChevronRight size={13} class="shrink-0 text-fg-4" />
+          <button class="shrink-0 truncate text-fg-3 transition-colors hover:text-fg" onclick={() => openFolderInList(crumb.id)}>{crumb.name}</button>
+        {/each}
+        <ChevronRight size={13} class="shrink-0 text-fg-4" />
+        {#if editingTitle}
+          <input
+            type="text"
+            class="h-7 border-b border-accent bg-transparent text-[15px] font-semibold tracking-[-0.01em] text-fg outline-none"
+            bind:value={titleInput}
+            onkeydown={(e) => { if (e.key === 'Enter') saveDashboardTitle(); if (e.key === 'Escape') editingTitle = false }}
+            onblur={saveDashboardTitle}
+          />
+        {:else}
+          <h1
+            class="cursor-text truncate text-[15px] font-semibold tracking-[-0.01em] text-fg"
+            ondblclick={() => { editingTitle = true; titleInput = currentDashboard?.name ?? '' }}
+            title="Double-click to rename"
+          >
+            {currentDashboard?.name ?? 'Dashboard'}
+          </h1>
+        {/if}
+      </nav>
 
-      {#if editingTitle}
-        <input
-          type="text"
-          class="text-lg font-semibold bg-transparent border-b border-ch-blue text-gray-900 dark:text-gray-100 outline-none"
-          bind:value={titleInput}
-          onkeydown={(e) => { if (e.key === 'Enter') saveDashboardTitle(); if (e.key === 'Escape') editingTitle = false }}
-          onblur={saveDashboardTitle}
-        />
-      {:else}
-        <h1
-          class="text-lg font-semibold text-gray-900 dark:text-gray-100 cursor-pointer hover:text-ch-blue"
-          ondblclick={() => { editingTitle = true; titleInput = currentDashboard?.name ?? '' }}
-          title="Double-click to rename"
+      {#if currentDashboard}
+        <button
+          class="shrink-0 rounded p-0.5 transition-colors {currentDashboard.starred ? 'text-warning' : 'text-fg-4 hover:text-fg'}"
+          onclick={toggleCurrentStar}
+          aria-label={currentDashboard.starred ? 'Unstar' : 'Star'}
+          aria-pressed={currentDashboard.starred}
+          title={currentDashboard.starred ? 'Unstar' : 'Star'}
         >
-          {currentDashboard?.name ?? 'Dashboard'}
-        </h1>
+          <Star size={14} fill={currentDashboard.starred ? 'currentColor' : 'none'} />
+        </button>
+        {#each currentDashboard.tags.slice(0, 4) as t (t)}<Badge>{t}</Badge>{/each}
       {/if}
 
       {#if currentDashboard?.description}
-        <div class="relative group/info">
-          <Info size={16} class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-help" />
-          <div class="fixed z-[999] hidden group-hover/info:block" style="margin-top: 4px;">
-            <div class="bg-gray-900 dark:bg-gray-800 text-gray-100 text-sm rounded-lg px-4 py-3 shadow-lg w-max max-w-md leading-relaxed">
-              {currentDashboard.description}
-              <div class="absolute left-4 -top-1 w-2 h-2 bg-gray-900 dark:bg-gray-800 rotate-45"></div>
-            </div>
-          </div>
-        </div>
+        <Tooltip text={currentDashboard.description} side="bottom">
+          <span class="inline-flex cursor-help text-fg-4 hover:text-fg"><Info size={14} /></span>
+        </Tooltip>
       {/if}
 
       <div class="ml-auto flex items-center gap-2">
         <TimeRangeSelector value={dashboardTimeRange} onchange={handleTimeRangeChange} />
         {#if panelEditorOpen}
-          <span class="text-xs text-gray-500 dark:text-gray-400">
+          <span class="text-xs text-fg-3">
             Panel builder mode
           </span>
         {:else}
-          <Button size="sm" variant="secondary" onclick={() => settingsOpen = true}>
+          <Button size="sm" variant="outline" onclick={() => settingsOpen = true}>
             <Settings size={14} /> Settings
           </Button>
-          <Button size="sm" variant="secondary" onclick={() => shareDialogOpen = true}>
+          <Button size="sm" variant="outline" onclick={() => shareDialogOpen = true}>
             <Share2 size={14} /> Share
           </Button>
           <!-- Refresh with auto-refresh picker -->
           <div class="relative flex items-center">
             <button
-              class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-l-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              class="inline-flex h-7 items-center gap-1.5 rounded-l-md border border-edge bg-transparent px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
               onclick={() => { runAllPanelQueries(); if (refreshInterval > 0) { refreshCountdown = refreshInterval } }}
               title="Refresh now"
             >
-              <RefreshCw size={13} class={refreshInterval > 0 ? 'animate-spin-slow text-ch-blue' : ''} />
+              <RefreshCw size={13} class={refreshInterval > 0 ? 'animate-spin-slow text-accent' : ''} />
               {#if refreshInterval > 0}
-                <span class="tabular-nums text-ch-blue">{refreshCountdown}s</span>
+                <span class="tabular-nums text-accent">{refreshCountdown}s</span>
               {:else}
                 Refresh
               {/if}
             </button>
             <button
               bind:this={refreshBtnEl}
-              class="flex items-center px-1.5 py-1.5 text-xs rounded-r-md border border-l-0 border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              class="inline-flex h-7 items-center rounded-r-md border border-l-0 border-edge bg-transparent px-1.5 text-fg-3 transition-colors hover:bg-hover hover:text-fg"
               onclick={() => refreshDropdownOpen = !refreshDropdownOpen}
               title="Auto-refresh interval"
+              aria-label="Auto-refresh interval"
             >
               <ChevronDown size={12} />
             </button>
@@ -519,22 +454,19 @@
             {#if refreshDropdownOpen}
               <div
                 bind:this={refreshDropdownEl}
-                class="absolute right-0 top-full mt-1 z-50 w-36 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-hidden"
+                class="surface-card absolute right-0 top-full z-50 mt-1 w-36 overflow-hidden rounded-md py-1"
               >
-                <div class="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
-                  <span class="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Auto refresh</span>
+                <div class="px-3 py-1.5">
+                  <span class="text-[10px] font-medium uppercase tracking-wider text-fg-4">Auto refresh</span>
                 </div>
                 {#each REFRESH_OPTIONS as opt}
                   <button
-                    class="w-full flex items-center justify-between px-3 py-1.5 text-xs transition-colors
-                      {refreshInterval === opt.seconds
-                        ? 'bg-orange-50 dark:bg-orange-900/20 text-ch-blue font-medium'
-                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}"
+                    class="flex w-full items-center justify-between px-3 py-1.5 text-xs transition-colors {refreshInterval === opt.seconds ? 'bg-accent-soft font-medium text-accent' : 'text-fg-2 hover:bg-hover'}"
                     onclick={() => setRefreshInterval(opt.seconds)}
                   >
                     {opt.label}
                     {#if refreshInterval === opt.seconds && opt.seconds > 0}
-                      <Timer size={11} class="text-ch-blue" />
+                      <Timer size={11} class="text-accent" />
                     {/if}
                   </button>
                 {/each}
@@ -560,7 +492,7 @@
       {:else if detailLoading}
         <div class="flex items-center justify-center py-12"><Spinner /></div>
       {:else if detailError}
-        <div class="text-sm text-red-500 bg-red-100/20 dark:bg-red-900/20 border border-red-300/50 dark:border-red-800/50 rounded-lg p-3">{detailError}</div>
+        <div class="rounded-md border border-danger/30 bg-danger-soft p-3 text-[13px] text-danger">{detailError}</div>
       {:else if currentDashboard}
         <DashboardGrid
           dashboardId={currentDashboard.id}
@@ -576,35 +508,6 @@
     </div>
   {/if}
 </div>
-
-<Sheet open={showCreateModal} title="Create Dashboard" size="sm" onclose={() => showCreateModal = false}>
-  <div class="flex flex-col gap-3">
-    <div>
-      <label for="dashboard-create-name" class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
-      <input
-        id="dashboard-create-name"
-        type="text"
-        class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-gray-800 dark:text-gray-200"
-        placeholder="My Dashboard"
-        bind:value={createName}
-      />
-    </div>
-    <div>
-      <label for="dashboard-create-description" class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
-      <input
-        id="dashboard-create-description"
-        type="text"
-        class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-gray-800 dark:text-gray-200"
-        placeholder="Optional description"
-        bind:value={createDesc}
-      />
-    </div>
-    <div class="flex justify-end gap-2 pt-2">
-      <Button variant="secondary" size="sm" onclick={() => showCreateModal = false}>Cancel</Button>
-      <Button size="sm" loading={creating} onclick={createDashboard}>Create</Button>
-    </div>
-  </div>
-</Sheet>
 
 <ConfirmDialog
   open={confirmOpen}
@@ -639,18 +542,15 @@
   {@const fsCfg = parsePanelConfig(fullscreenPanel.config)}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="fixed inset-0 z-[9999] bg-white dark:bg-gray-950 flex flex-col"
+    class="fixed inset-0 z-[9999] bg-canvas flex flex-col"
     onkeydown={(e) => { if (e.key === 'Escape') fullscreenPanel = null }}
     tabindex="-1"
   >
-    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800 shrink-0">
-      <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">{fullscreenPanel.name}</span>
-      <button
-        class="p-1.5 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800"
-        onclick={() => fullscreenPanel = null}
-      >
-        <X size={18} />
-      </button>
+    <div class="flex h-12 shrink-0 items-center justify-between border-b border-edge-subtle px-5">
+      <span class="text-[15px] font-semibold tracking-[-0.01em] text-fg">{fullscreenPanel.name}</span>
+      <Button icon variant="ghost" size="sm" aria-label="Close" onclick={() => fullscreenPanel = null}>
+        <X size={16} />
+      </Button>
     </div>
     <div class="flex-1 min-h-0 overflow-hidden {fullscreenPanel.panel_type === 'text' ? '' : 'p-4'}">
       {#if fullscreenPanel.panel_type === 'text'}
@@ -658,7 +558,7 @@
       {:else if !fsResult || fsResult.loading}
         <div class="flex items-center justify-center h-full"><Spinner /></div>
       {:else if fsResult.error}
-        <p class="text-sm text-red-500 p-4">{fsResult.error}</p>
+        <p class="p-4 text-[13px] text-danger">{fsResult.error}</p>
       {:else if fullscreenPanel.panel_type === 'stat'}
         <StatPanel stat={computeStat(fsResult.data, fsResult.meta, fsCfg)} />
       {:else if fullscreenPanel.panel_type === 'gauge'}
@@ -670,19 +570,19 @@
       {:else}
         {#if fsResult.meta.length > 0}
           <div class="overflow-auto h-full">
-            <table class="w-full text-sm">
+            <table class="ds-table">
               <thead>
-                <tr class="border-b border-gray-200 dark:border-gray-800">
+                <tr class="ds-table-head-row">
                   {#each fsResult.meta as col}
-                    <th class="text-left py-2 px-3 text-gray-500 font-medium whitespace-nowrap">{col.name}</th>
+                    <th class="ds-table-th">{col.name}</th>
                   {/each}
                 </tr>
               </thead>
               <tbody>
                 {#each fsResult.data as row}
-                  <tr class="border-b border-gray-100 dark:border-gray-900">
+                  <tr class="ds-table-row-static">
                     {#each fsResult.meta as col}
-                      <td class="py-2 px-3 text-gray-700 dark:text-gray-300 whitespace-nowrap">{row[col.name] ?? '--'}</td>
+                      <td class="ds-td whitespace-nowrap">{row[col.name] ?? '--'}</td>
                     {/each}
                   </tr>
                 {/each}
@@ -690,7 +590,7 @@
             </table>
           </div>
         {:else}
-          <p class="text-sm text-gray-500 p-4">No data</p>
+          <p class="p-4 text-[13px] text-fg-3">No data</p>
         {/if}
       {/if}
     </div>

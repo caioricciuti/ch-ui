@@ -52,22 +52,19 @@
       <span
         class="font-semibold opacity-80"
         style="font-size: {affixSize}px; {isValue ? `color: ${stat.color}` : isBg ? 'color: rgba(255,255,255,0.75)' : ''}"
-        class:text-gray-900={!isValue && !isBg}
-        class:dark:text-gray-100={!isValue && !isBg}
+        class:text-fg={!isValue && !isBg}
       >{stat.prefix}</span>
     {/if}
     <span
       class="font-bold"
       style={isValue ? `color: ${stat.color}` : isBg ? 'color: white' : ''}
-      class:text-gray-900={!isValue && !isBg}
-      class:dark:text-gray-100={!isValue && !isBg}
+      class:text-fg={!isValue && !isBg}
     >{stat.value}</span>
     {#if stat.suffix}
       <span
         class="font-semibold opacity-80"
         style="font-size: {affixSize}px; {isValue ? `color: ${stat.color}` : isBg ? 'color: rgba(255,255,255,0.75)' : ''}"
-        class:text-gray-900={!isValue && !isBg}
-        class:dark:text-gray-100={!isValue && !isBg}
+        class:text-fg={!isValue && !isBg}
       >{stat.suffix}</span>
     {/if}
   </div>

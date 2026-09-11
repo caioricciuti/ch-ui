@@ -195,26 +195,26 @@
 <Sheet {open} title="Dashboard Settings" size="lg" {onclose}>
   <div class="flex flex-col gap-4 h-full">
     <!-- Tabs -->
-    <div class="flex border-b border-gray-200 dark:border-gray-700">
+    <div class="flex border-b border-edge-subtle">
       <button
         class="px-4 py-2 text-xs font-medium transition-colors
-          {tab === 'general'
-            ? 'text-ch-blue border-b-2 border-ch-blue'
-            : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}"
+ {tab === 'general'
+            ? 'text-accent border-b-2 border-ch-orange'
+            : 'text-fg-4 hover:text-fg'}"
         onclick={() => tab = 'general'}
       >General</button>
       <button
         class="px-4 py-2 text-xs font-medium transition-colors
-          {tab === 'json'
-            ? 'text-ch-blue border-b-2 border-ch-blue'
-            : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}"
+ {tab === 'json'
+            ? 'text-accent border-b-2 border-ch-orange'
+            : 'text-fg-4 hover:text-fg'}"
         onclick={() => tab = 'json'}
       >JSON Editor</button>
       <button
         class="px-4 py-2 text-xs font-medium transition-colors
-          {tab === 'export'
-            ? 'text-ch-blue border-b-2 border-ch-blue'
-            : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}"
+ {tab === 'export'
+            ? 'text-accent border-b-2 border-ch-orange'
+            : 'text-fg-4 hover:text-fg'}"
         onclick={() => tab = 'export'}
       >Export / Import</button>
     </div>
@@ -222,20 +222,20 @@
     {#if tab === 'general'}
       <div class="flex flex-col gap-4">
         <div class="flex flex-col gap-1.5">
-          <label for="dashboard-name" class="text-xs font-medium text-gray-700 dark:text-gray-300">Name</label>
+          <label for="dashboard-name" class="text-xs font-medium text-fg-2">Name</label>
           <input
             id="dashboard-name"
             type="text"
-            class="w-full text-sm bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-ch-blue/40 focus:border-ch-blue"
+            class="w-full text-sm bg-canvas border border-edge rounded-lg px-3 py-2 text-fg focus:outline-none focus:border-accent"
             bind:value={generalName}
             placeholder="Dashboard name"
           />
         </div>
         <div class="flex flex-col gap-1.5">
-          <label for="dashboard-description" class="text-xs font-medium text-gray-700 dark:text-gray-300">Description</label>
+          <label for="dashboard-description" class="text-xs font-medium text-fg-2">Description</label>
           <textarea
             id="dashboard-description"
-            class="w-full text-sm bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-800 dark:text-gray-200 resize-none focus:outline-none focus:ring-2 focus:ring-ch-blue/40 focus:border-ch-blue"
+            class="w-full text-sm bg-canvas border border-edge rounded-lg px-3 py-2 text-fg resize-none focus:outline-none focus:border-accent"
             rows="3"
             bind:value={generalDescription}
             placeholder="Optional description"
@@ -248,9 +248,9 @@
         </div>
 
         <!-- Danger zone -->
-        <div class="mt-8 rounded-lg border border-red-300 dark:border-red-800 p-4">
-          <h3 class="text-sm font-medium text-red-600 dark:text-red-400 mb-1">Danger Zone</h3>
-          <p class="text-xs text-gray-500 mb-3">Permanently delete this dashboard and all its panels. This action cannot be undone.</p>
+        <div class="mt-8 rounded-lg border border-danger/40 p-4">
+          <h3 class="text-sm font-medium text-danger mb-1">Danger Zone</h3>
+          <p class="text-xs text-fg-3 mb-3">Permanently delete this dashboard and all its panels. This action cannot be undone.</p>
           <Button size="sm" variant="danger" onclick={ondelete}>
             <Trash2 size={13} /> Delete Dashboard
           </Button>
@@ -260,18 +260,18 @@
     {:else if tab === 'json'}
       <div class="flex flex-col gap-3 flex-1 min-h-0">
         <div class="flex items-center justify-between">
-          <p class="text-xs text-gray-500">Edit the full dashboard configuration as JSON. Changes are applied when you click Apply.</p>
+          <p class="text-xs text-fg-3">Edit the full dashboard configuration as JSON. Changes are applied when you click Apply.</p>
         </div>
 
         {#if jsonError}
-          <div class="flex items-center gap-2 px-3 py-2 text-xs text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg">
+          <div class="flex items-center gap-2 px-3 py-2 text-xs text-danger bg-danger-soft rounded-md">
             <AlertTriangle size={14} />
             {jsonError}
           </div>
         {/if}
 
         <textarea
-          class="flex-1 min-h-[300px] w-full font-mono text-xs bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded-lg p-3 text-gray-800 dark:text-gray-200 resize-none focus:outline-none focus:ring-2 focus:ring-ch-blue/40 focus:border-ch-blue"
+          class="flex-1 min-h-[300px] w-full font-mono text-xs bg-canvas border border-edge rounded-lg p-3 text-fg resize-none focus:outline-none focus:border-accent"
           bind:value={jsonText}
           oninput={() => jsonError = null}
           spellcheck="false"
@@ -290,9 +290,9 @@
     {:else}
       <div class="flex flex-col gap-6">
         <!-- Export -->
-        <div class="rounded-lg border border-gray-200 dark:border-gray-800 p-4">
-          <h3 class="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">Export Dashboard</h3>
-          <p class="text-xs text-gray-500 mb-3">Download the full dashboard configuration including all panels as a JSON file.</p>
+        <div class="rounded-lg border border-edge-subtle p-4">
+          <h3 class="text-sm font-medium text-fg mb-1">Export Dashboard</h3>
+          <p class="text-xs text-fg-3 mb-3">Download the full dashboard configuration including all panels as a JSON file.</p>
           <div class="flex gap-2">
             <Button size="sm" onclick={handleExport}>
               <Download size={13} /> Download JSON
@@ -304,14 +304,14 @@
         </div>
 
         <!-- Import -->
-        <div class="rounded-lg border border-gray-200 dark:border-gray-800 p-4">
-          <h3 class="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">Import Dashboard</h3>
-          <p class="text-xs text-gray-500 mb-3">Upload a dashboard JSON file. This will replace all current panels.</p>
+        <div class="rounded-lg border border-edge-subtle p-4">
+          <h3 class="text-sm font-medium text-fg mb-1">Import Dashboard</h3>
+          <p class="text-xs text-fg-3 mb-3">Upload a dashboard JSON file. This will replace all current panels.</p>
           <div class="flex items-center gap-2">
             <Button size="sm" variant="secondary" loading={importing} onclick={triggerImport}>
               <Upload size={13} /> Upload JSON File
             </Button>
-            <span class="text-[11px] text-gray-400">Loads into the JSON editor for review before applying</span>
+            <span class="text-[11px] text-fg-4">Loads into the JSON editor for review before applying</span>
           </div>
           <input
             bind:this={fileInput}
@@ -323,9 +323,9 @@
         </div>
 
         <!-- Info -->
-        <div class="rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-800 p-4">
-          <h3 class="text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">JSON Format</h3>
-          <pre class="text-[11px] text-gray-500 font-mono leading-relaxed">{"{"}
+        <div class="rounded-lg bg-surface border border-edge-subtle p-4">
+          <h3 class="text-sm font-medium text-fg mb-2">JSON Format</h3>
+          <pre class="text-[11px] text-fg-3 font-mono leading-relaxed">{"{"}
   "version": 1,
   "dashboard": {"{"} "name": "...", "description": "..." {"}"},
   "panels": [

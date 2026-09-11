@@ -13,7 +13,6 @@
   import PiePanel from '../lib/components/dashboard/PiePanel.svelte'
   import TimeRangeSelector from '../lib/components/dashboard/TimeRangeSelector.svelte'
   import {
-    COLS, ROW_H, GAP,
     calcColW, gridToPixel, compact, containerHeight,
     type LayoutItem,
   } from '../lib/utils/grid-layout'
@@ -158,18 +157,18 @@
   }
 </script>
 
-<div class="flex flex-col h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">
+<div class="flex flex-col h-screen bg-canvas text-fg">
   <!-- Header -->
-  <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800 shrink-0">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-edge-subtle shrink-0">
     <div class="flex items-center gap-3">
       <img src={logo} alt="CH-UI" class="w-7 h-7 rounded-lg" />
       {#if dashboard}
         <div class="flex items-center gap-2">
-          <LayoutDashboard size={16} class="text-ch-blue" />
+          <LayoutDashboard size={16} class="text-accent" />
           <h1 class="text-sm font-semibold">{dashboard.name}</h1>
         </div>
         {#if dashboard.description}
-          <span class="text-xs text-gray-500 truncate max-w-[40ch]">{dashboard.description}</span>
+          <span class="text-xs text-fg-3 truncate max-w-[40ch]">{dashboard.description}</span>
         {/if}
       {/if}
     </div>
@@ -177,7 +176,7 @@
       <div class="flex items-center gap-2">
         <TimeRangeSelector value={dashboardTimeRange} onchange={handleTimeRangeChange} />
         <button
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-edge text-fg-2 hover:bg-hover"
           onclick={() => runAllPanelQueries()}
         >
           <RefreshCw size={12} /> Refresh
@@ -193,17 +192,17 @@
     {:else if error}
       <div class="flex flex-col items-center justify-center py-20 gap-3">
         {#if isPrivateError}
-          <Lock size={36} class="text-gray-400 dark:text-gray-600" />
-          <p class="text-sm font-medium text-gray-700 dark:text-gray-300">This dashboard is private</p>
-          <p class="text-xs text-gray-500 max-w-sm text-center">Access requires an invite. Check your email for a magic link from the dashboard owner.</p>
+          <Lock size={36} class="text-fg-4" />
+          <p class="text-sm font-medium text-fg-2">This dashboard is private</p>
+          <p class="text-xs text-fg-3 max-w-sm text-center">Access requires an invite. Check your email for a magic link from the dashboard owner.</p>
         {:else}
-          <LayoutDashboard size={36} class="text-gray-300 dark:text-gray-700" />
-          <p class="text-sm text-red-500">{error}</p>
+          <LayoutDashboard size={36} class="text-fg-4" />
+          <p class="text-[13px] text-danger">{error}</p>
         {/if}
       </div>
     {:else if panels.length === 0}
-      <div class="flex flex-col items-center justify-center py-20 gap-2 text-gray-500">
-        <LayoutDashboard size={36} class="text-gray-300 dark:text-gray-700" />
+      <div class="flex flex-col items-center justify-center py-20 gap-2 text-fg-3">
+        <LayoutDashboard size={36} class="text-fg-4" />
         <p class="text-sm">This dashboard has no panels</p>
       </div>
     {:else}
@@ -215,12 +214,12 @@
           {@const cfg = parsePanelConfig(panel.config)}
           {#if pos}
             <div
-              class="absolute flex flex-col bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden"
+              class="absolute flex flex-col bg-surface border border-edge-subtle rounded-lg overflow-hidden"
               style="left:{pos.left}px; top:{pos.top}px; width:{pos.width}px; height:{pos.height}px;
                 transition: left 0.15s ease, top 0.15s ease, width 0.15s ease, height 0.15s ease;"
             >
-              <div class="flex items-center px-3 py-2 border-b border-gray-200 dark:border-gray-800 bg-gray-100/50 dark:bg-gray-800/50 shrink-0">
-                <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{panel.name}</span>
+              <div class="flex items-center px-3 py-2 border-b border-edge-subtle bg-surface-2 shrink-0">
+                <span class="text-xs font-medium text-fg-2 truncate">{panel.name}</span>
               </div>
               <div class="flex-1 overflow-hidden {panel.panel_type === 'text' ? '' : 'p-2'}">
                 {#if panel.panel_type === 'text'}
@@ -228,7 +227,7 @@
                 {:else if !result || result.loading}
                   <div class="flex items-center justify-center h-full"><Spinner size="sm" /></div>
                 {:else if result.error}
-                  <p class="text-xs text-red-500 p-2">{result.error}</p>
+                  <p class="text-xs text-danger p-2">{result.error}</p>
                 {:else if panel.panel_type === 'stat'}
                   <StatPanel stat={computeStat(result.data, result.meta, cfg)} />
                 {:else if panel.panel_type === 'gauge'}
@@ -242,17 +241,17 @@
                     <div class="overflow-auto h-full">
                       <table class="w-full text-xs">
                         <thead>
-                          <tr class="border-b border-gray-200 dark:border-gray-800">
+                          <tr class="border-b border-edge-subtle">
                             {#each result.meta as col}
-                              <th class="text-left py-1 px-2 text-gray-500 font-medium whitespace-nowrap">{col.name}</th>
+                              <th class="text-left py-1 px-2 text-fg-3 font-medium whitespace-nowrap">{col.name}</th>
                             {/each}
                           </tr>
                         </thead>
                         <tbody>
                           {#each result.data.slice(0, 100) as row}
-                            <tr class="border-b border-gray-100 dark:border-gray-900">
+                            <tr class="border-b border-edge-subtle">
                               {#each result.meta as col}
-                                <td class="py-1 px-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">{row[col.name] ?? '--'}</td>
+                                <td class="py-1 px-2 text-fg-2 whitespace-nowrap">{row[col.name] ?? '--'}</td>
                               {/each}
                             </tr>
                           {/each}
@@ -260,7 +259,7 @@
                       </table>
                     </div>
                   {:else}
-                    <p class="text-xs text-gray-500 p-2">No data</p>
+                    <p class="text-xs text-fg-3 p-2">No data</p>
                   {/if}
                 {/if}
               </div>

@@ -160,7 +160,7 @@
   }
 </script>
 
-<div class="flex flex-col h-full">
+<div class="flex h-full min-h-0 flex-col">
   {#if loading}
     <div class="flex items-center justify-center h-full">
       <Spinner />
@@ -176,7 +176,7 @@
       onStop={handleStop}
     />
 
-    <div class="flex flex-1 min-h-0">
+    <div class="flex min-h-0 flex-1">
       <PipelineCanvas
         {nodes}
         {edges}
@@ -188,15 +188,19 @@
       />
 
       {#if selectedNode}
-        <NodeConfigPanel
-          nodeId={selectedNode.id}
-          nodeType={selectedNode.data.node_type as NodeType}
-          label={selectedNode.data.label as string}
-          config={(selectedNode.data.config || {}) as Record<string, unknown>}
-          {pipelineId}
-          onUpdate={handleNodeConfigUpdate}
-          onClose={() => { selectedNodeId = null }}
-        />
+        <!-- Keyed: the panel copies label/config into local state on mount,
+             so switching nodes must remount it or edits land on the old node. -->
+        {#key selectedNode.id}
+          <NodeConfigPanel
+            nodeId={selectedNode.id}
+            nodeType={selectedNode.data.node_type as NodeType}
+            label={selectedNode.data.label as string}
+            config={(selectedNode.data.config || {}) as Record<string, unknown>}
+            {pipelineId}
+            onUpdate={handleNodeConfigUpdate}
+            onClose={() => { selectedNodeId = null }}
+          />
+        {/key}
       {/if}
     </div>
 
@@ -208,7 +212,7 @@
       }}
     />
   {:else}
-    <div class="flex items-center justify-center h-full text-gray-500">
+    <div class="flex h-full items-center justify-center text-[13px] text-fg-3">
       Pipeline not found
     </div>
   {/if}

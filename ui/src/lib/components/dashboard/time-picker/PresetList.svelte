@@ -18,39 +18,39 @@
     <button
       type="button"
       class="text-left px-3 py-1.5 text-xs rounded transition-colors whitespace-nowrap
-        {currentValue === preset.value
-          ? 'text-ch-orange bg-orange-100/60 dark:bg-orange-900/20 font-medium'
-          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-800 dark:hover:text-gray-200'}"
+ {currentValue === preset.value
+          ? 'text-accent bg-accent-soft font-medium'
+          : 'text-fg-2 hover:bg-hover hover:text-fg'}"
       onclick={() => onselect(preset.value)}
     >
       {preset.label}
     </button>
   {/each}
 
-  <div class="border-t border-gray-200 dark:border-gray-700 my-1.5"></div>
+  <div class="border-t border-edge-subtle my-1.5"></div>
 
   {#each namedPresets as preset}
     <button
       type="button"
       class="text-left px-3 py-1.5 text-xs rounded transition-colors whitespace-nowrap
-        {currentValue === preset.value
-          ? 'text-ch-orange bg-orange-100/60 dark:bg-orange-900/20 font-medium'
-          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-800 dark:hover:text-gray-200'}"
+ {currentValue === preset.value
+          ? 'text-accent bg-accent-soft font-medium'
+          : 'text-fg-2 hover:bg-hover hover:text-fg'}"
       onclick={() => onselect(preset.value)}
     >
       {preset.label}
     </button>
   {/each}
 
-  <div class="border-t border-gray-200 dark:border-gray-700 my-1.5"></div>
+  <div class="border-t border-edge-subtle my-1.5"></div>
 
   {#each durationPresets as preset}
     <button
       type="button"
       class="text-left px-3 py-1.5 text-xs rounded transition-colors whitespace-nowrap
-        {currentValue === preset.value
-          ? 'text-ch-orange bg-orange-100/60 dark:bg-orange-900/20 font-medium'
-          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-800 dark:hover:text-gray-200'}"
+ {currentValue === preset.value
+          ? 'text-accent bg-accent-soft font-medium'
+          : 'text-fg-2 hover:bg-hover hover:text-fg'}"
       onclick={() => onselect(preset.value)}
     >
       {preset.label}

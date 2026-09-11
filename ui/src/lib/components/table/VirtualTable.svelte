@@ -11,14 +11,13 @@
   const ROW_HEIGHT = 34
   const OVERSCAN = 5
   const ROW_NUMBER_WIDTH = 60
-  const MIN_COL_WIDTH = 120
+  const MIN_COL_WIDTH = 80
   const MAX_COL_WIDTH = 720
   const SAMPLE_ROWS = 160
 
   interface Props {
     meta: ColumnMeta[]
     data: unknown[][]
-    totalRows?: number
     sortColumn?: string
     sortDir?: 'asc' | 'desc'
     onsort?: (column: string) => void
@@ -26,7 +25,7 @@
     onfilterchange?: (column: string, filter: ColumnFilter | null) => void
   }
 
-  let { meta, data, totalRows, sortColumn = '', sortDir = 'asc', onsort, filters = [], onfilterchange }: Props = $props()
+  let { meta, data, sortColumn = '', sortDir = 'asc', onsort, filters = [], onfilterchange }: Props = $props()
 
   let filterPopover = $state<{ column: string; x: number; y: number } | null>(null)
 
@@ -131,18 +130,23 @@
     const targetSet = new Set(targets)
     const weightSum = targets.reduce((sum, i) => sum + Math.max(1, Math.sqrt(source[i])), 0)
 
+    // Each column may grow to at most MAX_GROWTH times its natural width;
+    // beyond that the viewport keeps empty space on the right, which reads
+    // better than values floating 400 px away from their header.
+    const MAX_GROWTH = 1.6
     let consumed = 0
     const grown = source.map((w, i) => {
       if (!targetSet.has(i)) return w
       const gain = Math.floor((extra * Math.max(1, Math.sqrt(source[i]))) / weightSum)
-      consumed += gain
-      return w + gain
+      const capped = Math.min(gain, Math.round(w * (MAX_GROWTH - 1)))
+      consumed += capped
+      return w + capped
     })
 
-    // Allocate remaining pixels so width matches viewport exactly.
+    // Hand out the last few pixels only while columns are still under their cap.
     let remainder = extra - consumed
     for (let i = 0; i < grown.length && remainder > 0; i++) {
-      if (targetSet.has(i)) {
+      if (targetSet.has(i) && grown[i] < Math.round(source[i] * MAX_GROWTH)) {
         grown[i] += 1
         remainder--
       }
@@ -161,7 +165,7 @@
   $effect(() => {
     const columns = meta
     const rows = data
-    const _fmt = getFormatNumbers()
+    getFormatNumbers() // subscribe: number formatting changes column widths
     if (!columns.length) {
       widths = []
       baseWidths = []
@@ -252,7 +256,7 @@
   })
 </script>
 
-<div bind:this={container} class="relative flex-1 overflow-auto bg-white dark:bg-gray-950" onscroll={handleScroll}>
+<div bind:this={container} class="relative flex-1 overflow-auto bg-canvas" onscroll={handleScroll}>
   <table class="text-sm border-collapse table-fixed" style="width:{tableWidth}px;min-width:{tableWidth}px">
     <colgroup>
       <col style="width:{ROW_NUMBER_WIDTH}px;min-width:{ROW_NUMBER_WIDTH}px;max-width:{ROW_NUMBER_WIDTH}px" />
@@ -280,16 +284,16 @@
         {#each visibleRows as row, vi (startIdx + vi)}
           {@const absIdx = startIdx + vi}
           <tr
-            class="group h-[34px] border-b border-gray-100 dark:border-gray-900 hover:bg-orange-50/70 dark:hover:bg-ch-orange/8 cursor-default
-              {absIdx % 2 === 1 ? 'bg-gray-50 dark:bg-gray-900' : 'bg-white dark:bg-gray-950'}
-              {selectedRow === absIdx ? 'bg-orange-100 dark:bg-orange-950' : ''}"
+            class="group h-[34px] border-b border-edge-subtle hover:bg-hover cursor-default
+              {absIdx % 2 === 1 ? 'bg-surface' : 'bg-canvas'}
+              {selectedRow === absIdx ? 'bg-accent-soft' : ''}"
             onclick={() => selectedRow = absIdx}
           >
             <td
-              class="sticky left-0 z-[2] px-2.5 text-right text-xs font-semibold text-gray-700 dark:text-gray-200 border-r border-gray-200 dark:border-gray-800 tabular-nums select-none
-                {absIdx % 2 === 1 ? 'bg-gray-50 dark:bg-gray-900' : 'bg-white dark:bg-gray-950'}
-                {selectedRow === absIdx ? 'bg-orange-100 dark:bg-orange-950' : ''}
-                group-hover:bg-orange-50 dark:group-hover:bg-orange-900/60"
+              class="sticky left-0 z-[2] px-2.5 text-right text-xs font-semibold text-fg-2 border-r border-edge-subtle tabular-nums select-none
+                {absIdx % 2 === 1 ? 'bg-surface' : 'bg-canvas'}
+                {selectedRow === absIdx ? 'bg-accent-soft' : ''}
+                group-hover:bg-hover"
               style="width:{ROW_NUMBER_WIDTH}px;max-width:{ROW_NUMBER_WIDTH}px;min-width:{ROW_NUMBER_WIDTH}px"
             >{absIdx + 1}</td>
             {#each meta as col, ci}
@@ -310,12 +314,12 @@
 
   {#if rowCount === 0 && meta.length > 0}
     <div class="absolute inset-x-0 top-[35px] bottom-0 grid place-items-center p-6 pointer-events-none">
-      <div class="max-w-md rounded-xl border border-gray-200/80 dark:border-gray-800/80 bg-gray-50/90 dark:bg-gray-900/65 px-6 py-5 text-center shadow-lg">
-        <div class="mx-auto mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-300">
+      <div class="max-w-md rounded-md border border-edge-subtle bg-surface px-6 py-5 text-center shadow-lg">
+        <div class="mx-auto mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-fg-3">
           <SearchX size={18} />
         </div>
-        <p class="text-sm font-semibold text-gray-800 dark:text-gray-200">No rows returned</p>
-        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+        <p class="text-sm font-semibold text-fg">No rows returned</p>
+        <p class="mt-1 text-xs text-fg-3">
           {#if filters.length > 0}
             No rows match the active filters.
           {:else}

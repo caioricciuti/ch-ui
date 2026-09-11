@@ -3,7 +3,6 @@
   import { listConnections, getAuthConfig } from "../lib/api/auth";
   import { login, getError } from "../lib/stores/session.svelte";
   import type { Connection } from "../lib/types/api";
-  import Button from "../lib/components/common/Button.svelte";
   import Combobox from "../lib/components/common/Combobox.svelte";
   import Spinner from "../lib/components/common/Spinner.svelte";
   import Sheet from "../lib/components/common/Sheet.svelte";
@@ -12,9 +11,6 @@
     WifiOff,
     Database,
     ShieldCheck,
-    Terminal,
-    Layers,
-    Zap,
     ArrowRight,
     AlertTriangle,
     BookOpen,
@@ -155,131 +151,70 @@
   );
 </script>
 
-<div class="login-root">
-  <!-- Left Panel — Branding -->
-  <div class="left-panel">
-    <div class="left-panel-noise"></div>
-    <div class="left-panel-grid"></div>
-
-    <div class="left-content">
-      <div class="logo-block">
-        <img src={logo} alt="CH-UI" class="logo-img" />
-        <div class="logo-text">
-          <span class="logo-name">CH-UI</span>
-          <span class="logo-version">v2.0</span>
-        </div>
+<div class="relative flex h-full w-full overflow-hidden bg-canvas text-fg">
+  <!-- Backdrop: 40 px grid on the theme's subtle edge color, plus one soft orange halo behind the form -->
+  <div
+    class="pointer-events-none absolute inset-0 opacity-[0.35]"
+    style="background-image: linear-gradient(var(--edge-subtle) 1px, transparent 1px), linear-gradient(90deg, var(--edge-subtle) 1px, transparent 1px); background-size: 40px 40px;"
+  ></div>
+  <div class="pointer-events-none absolute left-1/2 top-1/4 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-accent/12 blur-[140px]"></div>
+  <!-- Sign-in form, centered; the page is the form and nothing else. -->
+  <main class="relative flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-12">
+    <div class="w-full max-w-[400px]">
+      <div class="mb-8 flex items-center gap-3">
+        <img src={logo} alt="CH-UI" class="h-9 w-9 rounded-lg" />
+        <span class="text-base font-semibold tracking-tight">CH-UI</span>
       </div>
 
-      <h2 class="hero-title">
-        Your ClickHouse<br />
-        <span class="hero-accent">command center.</span>
-      </h2>
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h1 class="text-[26px] font-semibold tracking-[-0.02em]">Sign in</h1>
+          <p class="mt-1 text-[14px] text-fg-3">Connect to your ClickHouse instance</p>
+        </div>
+        <button
+          type="button"
+          class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] font-medium text-fg-3 transition-colors hover:bg-hover hover:text-fg"
+          onclick={() => (showSetupSheet = true)}
+        >
+          <BookOpen size={14} />
+          Can't login?
+        </button>
+      </div>
 
-      <p class="hero-sub">
-        Query, explore, and manage your ClickHouse clusters with a modern
-        workspace built for speed.
+      <p class="mt-6 inline-flex items-center gap-1.5 text-[12px] text-fg-3">
+        <ShieldCheck size={13} class="text-success" />
+        Credentials are sent straight to your ClickHouse server.
       </p>
 
-      <div class="features">
-        <div class="feature-item">
-          <div class="feature-icon">
-            <Terminal size={16} />
-          </div>
-          <div>
-            <span class="feature-label">SQL Editor</span>
-            <span class="feature-desc"
-              >Multi-tab query workspace with autocomplete</span
-            >
-          </div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-icon">
-            <Layers size={16} />
-          </div>
-          <div>
-            <span class="feature-label">Schema Explorer</span>
-            <span class="feature-desc"
-              >Browse databases, tables, and columns</span
-            >
-          </div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-icon">
-            <Zap size={16} />
-          </div>
-          <div>
-            <span class="feature-label">Performance</span>
-            <span class="feature-desc"
-              >Real-time metrics and query profiling</span
-            >
-          </div>
-        </div>
-      </div>
-
-      <div class="left-footer">
-        <span class="left-footer-text">Open Source</span>
-        <span class="left-footer-dot"></span>
-        <span class="left-footer-text">Self-Hosted</span>
-        <span class="left-footer-dot"></span>
-        <span class="left-footer-text">Apache License 2.0</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- Right Panel — Login Form -->
-  <div class="right-panel">
-    <div class="right-content">
-      <div class="form-header">
-        <div class="form-title-row">
-          <h1 class="form-title">Sign in</h1>
-          <button
-            type="button"
-            class="cant-login-link"
-            onclick={() => (showSetupSheet = true)}
-          >
-            <BookOpen size={13} />
-            Can't login?
-          </button>
-        </div>
-        <p class="form-subtitle">Connect to your ClickHouse instance</p>
-      </div>
-
-      <div class="secure-badge">
-        <ShieldCheck size={12} />
-        <span>Credentials are sent directly to your server</span>
-      </div>
-
       {#if loadingConnections}
-        <div class="loading-state">
-          <Spinner />
-          <span class="loading-text">Discovering connections...</span>
+        <div class="mt-10 flex items-center gap-3 text-[13px] text-fg-3">
+          <Spinner size="sm" />
+          Discovering connections…
         </div>
       {:else if connections.length === 0}
-        <div class="empty-state">
-          <Database size={28} class="empty-icon" />
-          <p class="empty-title">No connections configured</p>
-          <p class="empty-desc">
-            No local connection is ready yet. Open setup and restart CH-UI with
-            the correct URL.
+        <div class="mt-10">
+          <div class="flex h-11 w-11 items-center justify-center rounded-md bg-surface-2 text-fg-3">
+            <Database size={20} />
+          </div>
+          <h3 class="mt-4 text-[15px] font-semibold">No connections configured</h3>
+          <p class="mt-1 text-[13px] leading-relaxed text-fg-3">
+            No local connection is ready yet. Open setup and restart CH-UI with the correct URL.
           </p>
           <button
             type="button"
-            class="empty-setup-btn"
+            class="mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-[13px] font-medium text-accent-fg hover:brightness-110"
             onclick={() => (showSetupSheet = true)}
           >
             <BookOpen size={14} />
-            Can't login? Open setup guide
+            Open setup guide
           </button>
         </div>
       {:else}
-        <form onsubmit={handleSubmit} class="login-form">
-          <!-- Connection -->
-          <div class="field">
-            <label class="field-label" for="connection">
-              <Database size={12} class="field-label-icon" />
-              Connection
-            </label>
+        <form onsubmit={handleSubmit} class="mt-8 space-y-5">
+          <div>
+            <label class="mb-1.5 block text-[13px] font-medium text-fg-2" for="connection">Connection</label>
             <Combobox
+              size="lg"
               options={connections.map((conn) => ({
                 value: conn.id,
                 label: conn.name,
@@ -293,916 +228,174 @@
             {#if selectedId}
               {@const selected = connections.find((c) => c.id === selectedId)}
               {#if selected}
-                <div class="conn-status">
+                <p class="mt-1.5 inline-flex items-center gap-1.5 text-[12px] {selected.online ? 'text-success' : 'text-warning'}">
                   {#if selected.online}
-                    <Wifi size={11} class="status-online" />
-                    <span class="status-text-online">Connected</span>
+                    <Wifi size={12} /> Connected
                   {:else}
-                    <WifiOff size={11} class="status-offline" />
-                    <span class="status-text-offline">Unreachable</span>
+                    <WifiOff size={12} /> Unreachable
                   {/if}
-                </div>
+                </p>
               {/if}
             {/if}
           </div>
 
-          <!-- Username -->
-          <div class="field">
-            <label class="field-label" for="username">Username</label>
+          <div>
+            <label class="mb-1.5 block text-[13px] font-medium text-fg-2" for="username">Username</label>
             <input
               id="username"
               type="text"
               bind:value={username}
               placeholder="default"
               autocomplete="username"
-              class="field-input"
+              class="h-10 w-full rounded-md border border-edge bg-surface px-3 text-[14px] text-fg placeholder:text-fg-4 transition-colors hover:border-edge-strong focus:border-accent focus:outline-none"
             />
           </div>
 
-          <!-- Password -->
-          <div class="field">
-            <label class="field-label" for="password">Password</label>
+          <div>
+            <label class="mb-1.5 block text-[13px] font-medium text-fg-2" for="password">Password</label>
             <input
               id="password"
               type="password"
               bind:value={password}
               placeholder="Optional"
               autocomplete="current-password"
-              class="field-input"
+              class="h-10 w-full rounded-md border border-edge bg-surface px-3 text-[14px] text-fg placeholder:text-fg-4 transition-colors hover:border-edge-strong focus:border-accent focus:outline-none"
             />
           </div>
 
           {#if error}
-            <div class="error-block">
-              <div class="error-header">
+            <div class="rounded-md border border-danger/30 bg-danger-soft px-3.5 py-3 text-[13px]" role="alert">
+              <p class="inline-flex items-center gap-1.5 font-semibold text-danger">
                 <AlertTriangle size={14} />
-                <p class="error-title">{loginHelp?.title ?? "Login failed"}</p>
-              </div>
-              <p class="error-text">{error}</p>
+                {loginHelp?.title ?? "Login failed"}
+              </p>
+              <p class="mt-1 text-fg-2">{error}</p>
               {#if loginHelp?.detail}
-                <p class="error-help">{loginHelp.detail}</p>
+                <p class="mt-1 text-fg-3">{loginHelp.detail}</p>
               {/if}
               {#if showSetupRecoveryCTA}
                 <button
                   type="button"
-                  class="error-setup-btn"
+                  class="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md border border-edge bg-surface px-3 text-[12px] font-medium text-fg-2 hover:bg-hover hover:text-fg"
                   onclick={() => (showSetupSheet = true)}
                 >
                   <BookOpen size={13} />
-                  Can't login? Open setup guide
+                  Open setup guide
                 </button>
                 {#if errorKind === "rateLimit"}
-                  <p class="error-recovery-note">
-                    If retries came from the wrong local URL, update setup and
-                    restart CH-UI before trying again.
+                  <p class="mt-2 text-[12px] text-fg-3">
+                    If retries came from the wrong local URL, update setup and restart CH-UI before trying again.
                   </p>
                 {/if}
               {/if}
             </div>
           {/if}
 
-          <Button
+          <button
             type="submit"
-            loading={submitting}
-            disabled={!canSubmit}
+            class="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-accent text-[14px] font-semibold text-accent-fg transition-[filter] hover:brightness-110 active:brightness-95 disabled:opacity-50 disabled:pointer-events-none"
+            disabled={!canSubmit || submitting}
           >
-            <span class="btn-inner">
-              Connect
-              <ArrowRight size={14} />
-            </span>
-          </Button>
+            {#if submitting}
+              <Spinner size="sm" />
+            {/if}
+            Connect
+            <ArrowRight size={15} />
+          </button>
 
           {#if ssoEnabled}
-            <div class="my-3 flex items-center gap-3 text-xs text-gray-400">
-              <span class="h-px flex-1 bg-gray-300 dark:bg-gray-700"></span>
+            <div class="flex items-center gap-3 text-[12px] text-fg-4">
+              <span class="h-px flex-1 bg-edge"></span>
               or
-              <span class="h-px flex-1 bg-gray-300 dark:bg-gray-700"></span>
+              <span class="h-px flex-1 bg-edge"></span>
             </div>
             {#if ssoError}
-              <div class="mb-2 rounded-md bg-red-50 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600 dark:text-red-400">
-                {ssoError}
-              </div>
+              <div class="rounded-md bg-danger-soft px-3 py-2 text-[12px] text-danger">{ssoError}</div>
             {/if}
-            <Button
+            <button
               type="button"
-              variant="secondary"
+              class="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-edge bg-surface text-[14px] font-medium text-fg transition-colors hover:bg-hover"
               onclick={() => (window.location.href = ssoLoginUrl)}
             >
-              <span class="btn-inner">
-                <ShieldCheck size={14} />
-                Sign in with SSO
-              </span>
-            </Button>
+              <ShieldCheck size={15} />
+              Sign in with SSO
+            </button>
           {/if}
         </form>
       {/if}
 
       <Sheet
         open={showSetupSheet}
-        title="Can't Login? Setup Guide"
+        title="Can't login? Setup guide"
         size="lg"
         onclose={() => (showSetupSheet = false)}
       >
-        <div class="setup-sheet">
-          <p class="setup-sheet-intro">
-            Set URL/name, run one command, restart CH-UI, then return to Sign in.
+        <div class="space-y-5 text-[13px]">
+          <p class="text-fg-2">
+            Set the URL and name, run one command, restart CH-UI, then return to sign in.
           </p>
-          <div class="setup-sheet-inputs">
-            <div class="field">
-              <label class="field-label" for="sheet-clickhouse-url">
-                ClickHouse URL
-              </label>
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label class="mb-1.5 block text-[13px] font-medium text-fg-2" for="sheet-clickhouse-url">ClickHouse URL</label>
               <input
                 id="sheet-clickhouse-url"
                 type="url"
                 bind:value={setupClickHouseURL}
                 placeholder="http://localhost:8123"
-                class="field-input"
+                class="ds-input"
               />
             </div>
-            <div class="field">
-              <label class="field-label" for="sheet-connection-name">
-                Connection Name
-              </label>
+            <div>
+              <label class="mb-1.5 block text-[13px] font-medium text-fg-2" for="sheet-connection-name">Connection name</label>
               <input
                 id="sheet-connection-name"
                 type="text"
                 bind:value={setupConnectionName}
                 placeholder="Local ClickHouse"
-                class="field-input"
+                class="ds-input"
               />
             </div>
           </div>
-          <ol class="setup-sheet-steps">
-            <li>Stop any running <code>ch-ui server</code> process.</li>
+          <ol class="list-decimal space-y-1.5 pl-5 text-fg-2">
+            <li>Stop any running <code class="rounded bg-surface-2 px-1 py-0.5 font-mono text-[12px]">ch-ui server</code> process.</li>
             <li>Run one setup command with your URL and connection name.</li>
-            <li>
-              Open <code>http://localhost:3488</code> and sign in with your ClickHouse
-              credentials.
-            </li>
+            <li>Open <code class="rounded bg-surface-2 px-1 py-0.5 font-mono text-[12px]">http://localhost:3488</code> and sign in with your ClickHouse credentials.</li>
           </ol>
 
-          <div class="setup-command-block">
-            <p class="setup-command-title">Run with globally installed `ch-ui`</p>
-            <pre>{localCommand}</pre>
-          </div>
+          {#each [
+            ['Run with globally installed ch-ui', localCommand],
+            ['Run with local binary', localCommandWithBinary],
+            ['Run with Docker', dockerCommand],
+          ] as [title, cmd]}
+            <div>
+              <p class="mb-1.5 text-[12px] font-medium text-fg-3">{title}</p>
+              <pre class="overflow-x-auto rounded-md bg-surface-2 p-3 font-mono text-[12px] leading-relaxed text-fg">{cmd}</pre>
+            </div>
+          {/each}
 
-          <div class="setup-command-block">
-            <p class="setup-command-title">Run with local binary</p>
-            <pre>{localCommandWithBinary}</pre>
-          </div>
-
-          <div class="setup-command-block">
-            <p class="setup-command-title">Run with Docker</p>
-            <pre>{dockerCommand}</pre>
-          </div>
-
-          <div class="setup-sheet-links">
-            <a
-              href={quickHelpURL}
-              target="_blank"
-              rel="noopener"
-              class="setup-doc-link"
-            >
-              Can't login? Quick path
-              <ExternalLink size={12} />
+          <div class="flex flex-wrap gap-4">
+            <a href={quickHelpURL} target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-accent hover:underline">
+              Can't login? Quick path <ExternalLink size={12} />
             </a>
-            <a
-              href={cantLoginDocsURL}
-              target="_blank"
-              rel="noopener"
-              class="setup-doc-link"
-            >
-              Full Can't login doc
-              <ExternalLink size={12} />
+            <a href={cantLoginDocsURL} target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-accent hover:underline">
+              Full Can't login doc <ExternalLink size={12} />
             </a>
-            <a
-              href={dockerDocsURL}
-              target="_blank"
-              rel="noopener"
-              class="setup-doc-link"
-            >
-              Docker Quick Start
-              <ExternalLink size={12} />
+            <a href={dockerDocsURL} target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-accent hover:underline">
+              Docker Quick Start <ExternalLink size={12} />
             </a>
           </div>
 
-          <p class="setup-security-note">
-            Setup never stores ClickHouse credentials and commands never include
-            passwords.
+          <p class="text-[12px] text-fg-3">
+            Setup never stores ClickHouse credentials and commands never include passwords.
           </p>
         </div>
       </Sheet>
 
-      <div class="right-footer">
-        <a
-          href="https://github.com/caioricciuti/ch-ui"
-          target="_blank"
-          rel="noopener"
-          class="footer-link"
-        >
-          GitHub
-        </a>
-        <span class="footer-sep">/</span>
-        <a
-          href={cantLoginDocsURL}
-          target="_blank"
-          rel="noopener"
-          class="footer-link"
-        >
-          Docs
-        </a>
-      </div>
     </div>
+  </main>
+
+  <div class="absolute bottom-6 right-6 z-10 flex items-center gap-5 text-[13px] text-fg-3">
+    <a href="https://github.com/caioricciuti/ch-ui" target="_blank" rel="noopener" class="transition-colors hover:text-fg">GitHub</a>
+    <a href={cantLoginDocsURL} target="_blank" rel="noopener" class="transition-colors hover:text-fg">Docs</a>
   </div>
 </div>
-
-<style>
-  /* ── Root layout ── */
-  .login-root {
-    display: flex;
-    min-height: 100vh;
-    min-height: 100dvh;
-    font-family:
-      "DM Sans",
-      "SF Pro Display",
-      -apple-system,
-      system-ui,
-      sans-serif;
-  }
-
-  /* ── Left panel ── */
-  .left-panel {
-    position: relative;
-    flex: 1 1 50%;
-    display: none;
-    background: linear-gradient(145deg, #0c1220 0%, #0f1a2e 40%, #132240 100%);
-    overflow: hidden;
-  }
-
-  @media (min-width: 960px) {
-    .left-panel {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-  }
-
-  .left-panel-noise {
-    position: absolute;
-    inset: 0;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
-    background-size: 200px 200px;
-    pointer-events: none;
-    z-index: 1;
-  }
-
-  .left-panel-grid {
-    position: absolute;
-    inset: 0;
-    background-image: linear-gradient(
-        rgba(255, 255, 255, 0.015) 1px,
-        transparent 1px
-      ),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
-    background-size: 48px 48px;
-    pointer-events: none;
-    z-index: 1;
-  }
-
-  .left-content {
-    position: relative;
-    z-index: 2;
-    max-width: 420px;
-    padding: 3rem 2.5rem;
-  }
-
-  /* Logo */
-  .logo-block {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 2.5rem;
-  }
-
-  .logo-img {
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-  }
-
-  .logo-text {
-    display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
-  }
-
-  .logo-name {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: #f0f4f8;
-    letter-spacing: -0.02em;
-  }
-
-  .logo-version {
-    font-size: 0.65rem;
-    font-weight: 500;
-    color: rgba(255, 255, 255, 0.3);
-    background: rgba(255, 255, 255, 0.05);
-    padding: 0.15rem 0.4rem;
-    border-radius: 4px;
-    letter-spacing: 0.04em;
-  }
-
-  /* Hero text */
-  .hero-title {
-    font-size: 2rem;
-    font-weight: 700;
-    line-height: 1.2;
-    color: #e2e8f0;
-    letter-spacing: -0.03em;
-    margin-bottom: 1rem;
-  }
-
-  .hero-accent {
-    background: linear-gradient(135deg, #facc15 0%, #f59e0b 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  .hero-sub {
-    font-size: 0.875rem;
-    line-height: 1.6;
-    color: rgba(226, 232, 240, 0.5);
-    margin-bottom: 2.5rem;
-    max-width: 340px;
-  }
-
-  /* Features list */
-  .features {
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-    margin-bottom: 3rem;
-  }
-
-  .feature-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-  }
-
-  .feature-icon {
-    flex-shrink: 0;
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
-    color: #facc15;
-  }
-
-  .feature-label {
-    display: block;
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #e2e8f0;
-    letter-spacing: -0.01em;
-    margin-bottom: 0.1rem;
-  }
-
-  .feature-desc {
-    display: block;
-    font-size: 0.72rem;
-    color: rgba(226, 232, 240, 0.4);
-    line-height: 1.4;
-  }
-
-  /* Left footer */
-  .left-footer {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-  }
-
-  .left-footer-text {
-    font-size: 0.68rem;
-    color: rgba(226, 232, 240, 0.3);
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    font-weight: 500;
-  }
-
-  .left-footer-dot {
-    width: 3px;
-    height: 3px;
-    border-radius: 50%;
-    background: rgba(226, 232, 240, 0.15);
-  }
-
-  /* ── Right panel ── */
-  .right-panel {
-    flex: 1 1 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #fafbfc;
-    padding: 2rem 1.5rem;
-  }
-
-  :global(.dark) .right-panel {
-    background: #0d1117;
-  }
-
-  .right-content {
-    width: 100%;
-    max-width: 380px;
-  }
-
-  /* Form header */
-  .form-header {
-    margin-bottom: 1.75rem;
-  }
-
-  .form-title {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #111827;
-    letter-spacing: -0.03em;
-    margin-bottom: 0.35rem;
-  }
-
-  :global(.dark) .form-title {
-    color: #f0f4f8;
-  }
-
-  .form-subtitle {
-    font-size: 0.8rem;
-    color: #6b7280;
-  }
-
-  :global(.dark) .form-subtitle {
-    color: #6b7280;
-  }
-
-  /* Secure badge */
-  .secure-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.68rem;
-    font-weight: 500;
-    color: #16a34a;
-    background: rgba(22, 163, 74, 0.06);
-    border: 1px solid rgba(22, 163, 74, 0.12);
-    border-radius: 6px;
-    padding: 0.3rem 0.6rem;
-    margin-bottom: 1.5rem;
-  }
-
-  :global(.dark) .secure-badge {
-    color: #4ade80;
-    background: rgba(74, 222, 128, 0.06);
-    border-color: rgba(74, 222, 128, 0.1);
-  }
-
-  .form-title-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-
-  .cant-login-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    border: 1px solid #f59e0b;
-    background: rgba(254, 243, 199, 0.7);
-    color: #9a3412;
-    border-radius: 9px;
-    font-size: 0.75rem;
-    font-weight: 700;
-    padding: 0.5rem 0.7rem;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .cant-login-link:hover {
-    background: rgba(254, 243, 199, 1);
-  }
-
-  :global(.dark) .cant-login-link {
-    border-color: rgba(245, 158, 11, 0.5);
-    background: rgba(245, 158, 11, 0.16);
-    color: #fbbf24;
-  }
-
-  .empty-setup-btn,
-  .error-setup-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.35rem;
-    border: 1px solid #f59e0b;
-    background: rgba(254, 243, 199, 0.65);
-    color: #9a3412;
-    border-radius: 9px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    padding: 0.45rem 0.65rem;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .empty-setup-btn {
-    margin-top: 0.8rem;
-  }
-
-  .error-setup-btn {
-    margin-top: 0.5rem;
-  }
-
-  .empty-setup-btn:hover,
-  .error-setup-btn:hover {
-    background: rgba(254, 243, 199, 1);
-  }
-
-  :global(.dark) .empty-setup-btn,
-  :global(.dark) .error-setup-btn {
-    border-color: rgba(245, 158, 11, 0.55);
-    background: rgba(245, 158, 11, 0.16);
-    color: #fbbf24;
-  }
-
-  .setup-doc-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.72rem;
-    color: #1d4ed8;
-    text-decoration: none;
-    font-weight: 600;
-  }
-
-  .setup-doc-link:hover {
-    color: #1e40af;
-  }
-
-  :global(.dark) .setup-doc-link {
-    color: #60a5fa;
-  }
-
-  :global(.dark) .setup-doc-link:hover {
-    color: #93c5fd;
-  }
-
-  .setup-sheet {
-    display: flex;
-    flex-direction: column;
-    gap: 0.9rem;
-  }
-
-  .setup-sheet-inputs {
-    display: grid;
-    gap: 0.85rem;
-  }
-
-  .setup-sheet code {
-    font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
-    font-size: 0.72rem;
-    background: rgba(15, 23, 42, 0.06);
-    border: 1px solid rgba(15, 23, 42, 0.1);
-    border-radius: 6px;
-    padding: 0.08rem 0.3rem;
-  }
-
-  :global(.dark) .setup-sheet code {
-    background: rgba(148, 163, 184, 0.15);
-    border-color: rgba(148, 163, 184, 0.25);
-  }
-
-  .setup-sheet-intro {
-    margin: 0;
-    font-size: 0.8rem;
-    color: #374151;
-    line-height: 1.45;
-  }
-
-  :global(.dark) .setup-sheet-intro {
-    color: #d1d5db;
-  }
-
-  .setup-sheet-steps {
-    margin: 0;
-    padding-left: 1.1rem;
-    font-size: 0.77rem;
-    line-height: 1.45;
-    color: #4b5563;
-  }
-
-  .setup-sheet-steps li + li {
-    margin-top: 0.2rem;
-  }
-
-  :global(.dark) .setup-sheet-steps {
-    color: #9ca3af;
-  }
-
-  .setup-sheet-links {
-    display: flex;
-    gap: 0.9rem;
-    flex-wrap: wrap;
-  }
-
-  .setup-security-note {
-    margin: 0;
-    font-size: 0.72rem;
-    line-height: 1.4;
-    color: #9a3412;
-  }
-
-  :global(.dark) .setup-security-note {
-    color: #fbbf24;
-  }
-
-  .setup-command-block {
-    border: 1px solid #e5e7eb;
-    background: #ffffff;
-    border-radius: 10px;
-    padding: 0.6rem 0.7rem;
-  }
-
-  :global(.dark) .setup-command-block {
-    border-color: #2d3748;
-    background: rgba(255, 255, 255, 0.02);
-  }
-
-  .setup-command-title {
-    margin: 0 0 0.4rem;
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    color: #6b7280;
-    font-weight: 700;
-  }
-
-  .setup-command-block pre {
-    margin: 0;
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-size: 0.75rem;
-    line-height: 1.45;
-    color: #111827;
-    font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
-  }
-
-  :global(.dark) .setup-command-block pre {
-    color: #e5e7eb;
-  }
-
-  /* Loading state */
-  .loading-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 3rem 0;
-  }
-
-  .loading-text {
-    font-size: 0.75rem;
-    color: #9ca3af;
-  }
-
-  /* Empty state */
-  .empty-state {
-    text-align: center;
-    padding: 2.5rem 1rem;
-  }
-
-  .empty-state :global(.empty-icon) {
-    color: #d1d5db;
-    margin: 0 auto 0.75rem;
-  }
-
-  :global(.dark) .empty-state :global(.empty-icon) {
-    color: #4b5563;
-  }
-
-  .empty-title {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #374151;
-    margin-bottom: 0.3rem;
-  }
-
-  :global(.dark) .empty-title {
-    color: #d1d5db;
-  }
-
-  .empty-desc {
-    font-size: 0.75rem;
-    color: #9ca3af;
-    max-width: 280px;
-    margin: 0 auto;
-    line-height: 1.5;
-  }
-
-  /* Form */
-  .login-form {
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .field-label {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.72rem;
-    font-weight: 600;
-    color: #6b7280;
-    margin-bottom: 0.4rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  :global(.dark) .field-label {
-    color: #6b7280;
-  }
-
-  .field-input {
-    width: 100%;
-    background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 0.6rem 0.85rem;
-    font-size: 0.85rem;
-    color: #111827;
-    transition:
-      border-color 0.15s,
-      box-shadow 0.15s;
-    outline: none;
-    font-family: inherit;
-  }
-
-  .field-input::placeholder {
-    color: #c9cdd4;
-  }
-
-  .field-input:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-  }
-
-  :global(.dark) .field-input {
-    background: rgba(255, 255, 255, 0.03);
-    border-color: #2d3748;
-    color: #e2e8f0;
-  }
-
-  :global(.dark) .field-input::placeholder {
-    color: #4a5568;
-  }
-
-  :global(.dark) .field-input:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
-  }
-
-  /* Connection status */
-  .conn-status {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    margin-top: 0.4rem;
-  }
-
-  .status-text-online {
-    color: #16a34a;
-  }
-
-  :global(.dark) .status-text-online {
-    color: #4ade80;
-  }
-
-  .status-text-offline {
-    color: #d97706;
-  }
-
-  :global(.dark) .status-text-offline {
-    color: #fbbf24;
-  }
-
-  .status-text-online,
-  .status-text-offline {
-    font-size: 0.7rem;
-    font-weight: 500;
-  }
-
-  /* Error */
-  .error-block {
-    background: rgba(239, 68, 68, 0.06);
-    border: 1px solid rgba(239, 68, 68, 0.15);
-    border-radius: 8px;
-    padding: 0.5rem 0.75rem;
-  }
-
-  .error-header {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    margin-bottom: 0.3rem;
-    color: #dc2626;
-  }
-
-  .error-title {
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: inherit;
-  }
-
-  .error-text {
-    font-size: 0.78rem;
-    color: #dc2626;
-  }
-
-  :global(.dark) .error-text {
-    color: #f87171;
-  }
-
-  .error-help {
-    margin-top: 0.35rem;
-    font-size: 0.72rem;
-    color: #b45309;
-  }
-
-  :global(.dark) .error-help {
-    color: #fbbf24;
-  }
-
-  .error-recovery-note {
-    margin-top: 0.35rem;
-    font-size: 0.7rem;
-    line-height: 1.4;
-    color: #9a3412;
-  }
-
-  :global(.dark) .error-recovery-note {
-    color: #fbbf24;
-  }
-
-  /* Button inner */
-  .btn-inner {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.4rem;
-  }
-
-  /* Right footer */
-  .right-footer {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    margin-top: 2rem;
-    padding-top: 1.25rem;
-    border-top: 1px solid #f0f0f0;
-  }
-
-  :global(.dark) .right-footer {
-    border-top-color: rgba(255, 255, 255, 0.05);
-  }
-
-  .footer-link {
-    font-size: 0.72rem;
-    color: #9ca3af;
-    text-decoration: none;
-    transition: color 0.15s;
-  }
-
-  .footer-link:hover {
-    color: #3b82f6;
-  }
-
-  .footer-sep {
-    font-size: 0.65rem;
-    color: #d1d5db;
-  }
-
-  :global(.dark) .footer-sep {
-    color: #374151;
-  }
-</style>

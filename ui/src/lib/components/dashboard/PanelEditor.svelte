@@ -13,7 +13,7 @@
   import VirtualTable from '../table/VirtualTable.svelte'
   import ChartPanel from './ChartPanel.svelte'
   import StatPanel from './StatPanel.svelte'
-  import { isDateType, isNumericType, getStatValue, DEFAULT_COLORS, computeStat } from '../../utils/chart-transform'
+  import { isDateType, isNumericType, DEFAULT_COLORS, computeStat } from '../../utils/chart-transform'
   import { formatDashboardTimeRangeLabel } from '../../utils/dashboard-time'
   import { toDashboardTimeRangePayload } from '../../utils/dashboard-time'
   import ColorPicker from '../common/ColorPicker.svelte'
@@ -39,7 +39,6 @@
   let content = $state('')
   let saving = $state(false)
   let running = $state(false)
-  let formatting = $state(false)
 
   let chartType = $state<PanelConfig['chartType']>('table')
   let xColumn = $state('')
@@ -243,7 +242,6 @@
   async function handleFormat() {
     const sql = editorComponent?.getValue() ?? query
     if (!sql.trim()) return
-    formatting = true
     try {
       const formatted = await formatSQL(sql)
       editorComponent?.setValue(formatted)
@@ -251,8 +249,6 @@
       toastSuccess('Query formatted')
     } catch (e: any) {
       toastError(e.message)
-    } finally {
-      formatting = false
     }
   }
 
@@ -326,10 +322,10 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-edge-subtle">
     <div class="flex items-center gap-2">
-      <PanelsTopLeft size={16} class="text-ch-orange" />
-      <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+      <PanelsTopLeft size={16} class="text-accent" />
+      <h2 class="text-sm font-semibold text-fg">
         {panel?.id ? 'Edit Panel' : 'New Panel'}
       </h2>
     </div>
@@ -344,24 +340,24 @@
   <!-- Editor: left/right split -->
   <div class="flex flex-1 min-h-0 overflow-hidden">
     <!-- Left side: Query workspace / Markdown editor -->
-    <div class="flex-[3] flex flex-col border-r border-gray-200 dark:border-gray-800 min-w-0">
+    <div class="flex-[3] flex flex-col border-r border-edge-subtle min-w-0">
       {#if chartType === 'text'}
         <!-- Markdown editor -->
-        <div class="flex items-center px-3 py-2 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
-          <span class="text-xs font-medium text-gray-500">Markdown Editor</span>
+        <div class="flex items-center px-3 py-2 border-b border-edge-subtle bg-surface">
+          <span class="text-xs font-medium text-fg-3">Markdown Editor</span>
         </div>
         <div class="flex flex-1 min-h-0">
           <!-- Editor -->
-          <div class="flex-1 flex flex-col min-w-0 border-r border-gray-200 dark:border-gray-800">
+          <div class="flex-1 flex flex-col min-w-0 border-r border-edge-subtle">
             <textarea
-              class="flex-1 w-full font-mono text-sm bg-transparent text-gray-800 dark:text-gray-200 resize-none p-4 focus:outline-none"
+              class="flex-1 w-full font-mono text-sm bg-transparent text-fg resize-none p-4 focus:outline-none"
               bind:value={content}
               placeholder="# My Panel&#10;&#10;Write **markdown** here...&#10;&#10;- Lists&#10;- Links: [example](https://example.com)&#10;- `code` and more"
               spellcheck="false"
             ></textarea>
           </div>
           <!-- Live preview -->
-          <div class="flex-1 min-w-0 overflow-y-auto bg-gray-50/50 dark:bg-gray-950/50">
+          <div class="flex-1 min-w-0 overflow-y-auto bg-surface">
             <MarkdownPanel content={content} />
           </div>
         </div>
@@ -369,7 +365,7 @@
         <Toolbar running={running} onrun={runQuery} onformat={handleFormat} onsave={handleSave} />
 
         <!-- SQL Editor -->
-        <div class="h-[42%] min-h-[200px] shrink-0 border-b border-gray-200 dark:border-gray-800">
+        <div class="h-[42%] min-h-[200px] shrink-0 border-b border-edge-subtle">
           <SqlEditor
             bind:this={editorComponent}
             value={query}
@@ -384,10 +380,10 @@
             <div class="flex items-center justify-center h-full"><Spinner /></div>
           {:else if queryError}
             <div class="p-4">
-              <p class="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 rounded p-3">{queryError}</p>
+              <p class="text-[13px] text-danger bg-danger-soft rounded-md p-3">{queryError}</p>
             </div>
           {:else if queryData.length === 0 && queryMeta.length === 0}
-            <div class="flex items-center justify-center h-full text-gray-400 text-sm">
+            <div class="flex items-center justify-center h-full text-fg-4 text-sm">
               Run a query to see results
             </div>
           {:else if chartType === 'table'}
@@ -414,11 +410,11 @@
       <div class="p-4 flex flex-col gap-4">
         <!-- Panel name -->
         <div>
-          <label for="panel-name" class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Panel Name</label>
+          <label for="panel-name" class="block text-xs font-medium text-fg-2 mb-1">Panel Name</label>
           <input
             id="panel-name"
             type="text"
-            class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-gray-800 dark:text-gray-200"
+            class="w-full text-sm bg-transparent border border-edge rounded px-3 py-2 text-fg"
             placeholder="My Panel"
             bind:value={name}
           />
@@ -426,11 +422,11 @@
 
         <!-- Panel description -->
         <div>
-          <label for="panel-description" class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+          <label for="panel-description" class="block text-xs font-medium text-fg-2 mb-1">Description</label>
           <input
             id="panel-description"
             type="text"
-            class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-gray-800 dark:text-gray-200"
+            class="w-full text-sm bg-transparent border border-edge rounded px-3 py-2 text-fg"
             placeholder="Optional description"
             bind:value={description}
           />
@@ -439,30 +435,30 @@
         <!-- Available variables (query panels only) -->
         {#if chartType !== 'text'}
         <details class="group/vars">
-          <summary class="flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300 list-none [&::-webkit-details-marker]:hidden">
+          <summary class="flex items-center gap-1.5 text-xs font-medium text-fg-3 cursor-pointer select-none hover:text-fg list-none [&::-webkit-details-marker]:hidden">
             <span class="text-[10px] transition-transform group-open/vars:rotate-90">&#9654;</span>
             Available Variables
           </summary>
-          <div class="mt-2 space-y-1.5 text-[11px] text-gray-500 dark:text-gray-400">
-            <div><code class="px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300">$__timestamp(col)</code> — DateTime range filter</div>
-            <div><code class="px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300">$__timeFilter(col)</code> — Epoch range filter</div>
-            <div><code class="px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300">$__interval</code> — Aggregation interval (seconds)</div>
-            <div><code class="px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300">$__timeFrom</code> / <code class="px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300">$__timeTo</code> — Range boundaries</div>
+          <div class="mt-2 space-y-1.5 text-[11px] text-fg-3">
+            <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timestamp(col)</code> — DateTime range filter</div>
+            <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timeFilter(col)</code> — Epoch range filter</div>
+            <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__interval</code> — Aggregation interval (seconds)</div>
+            <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timeFrom</code> / <code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timeTo</code> — Range boundaries</div>
           </div>
         </details>
         {/if}
 
         <!-- Visualization type -->
         <div>
-          <p class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Visualization</p>
+          <p class="block text-xs font-medium text-fg-2 mb-2">Visualization</p>
           <div class="grid grid-cols-4 gap-1.5">
             {#each vizTypes as vt}
               {@const Icon = vt.icon}
               <button
                 class="flex flex-col items-center gap-1 py-2 px-1 rounded-md border text-xs transition-colors
-                  {chartType === vt.type
-                    ? 'border-ch-blue bg-orange-50 dark:bg-orange-900/20 text-ch-blue'
-                    : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300'}"
+ {chartType === vt.type
+                    ? 'border-accent bg-accent-soft text-accent'
+                    : 'border-edge-subtle text-fg-3 hover:border-edge hover:text-fg'}"
                 onclick={() => chartType = vt.type}
               >
                 <Icon size={16} />
@@ -476,7 +472,7 @@
         {#if chartType === 'stat' || chartType === 'gauge'}
           <!-- Field selector -->
           <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Field</label>
+            <label class="block text-xs font-medium text-fg-2 mb-1">Field</label>
             <Combobox
               options={[
                 { value: '', label: 'Auto (first numeric)' },
@@ -490,14 +486,14 @@
 
           <!-- Calculation -->
           <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Calculation</label>
+            <label class="block text-xs font-medium text-fg-2 mb-1">Calculation</label>
             <div class="grid grid-cols-4 gap-1">
               {#each ['last', 'first', 'mean', 'sum', 'min', 'max', 'count', 'range'] as calc}
                 <button
                   class="py-1.5 px-1 rounded text-[11px] font-medium border transition-colors
-                    {statCalculation === calc
-                      ? 'border-ch-blue bg-orange-50 dark:bg-orange-900/20 text-ch-blue'
-                      : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300'}"
+ {statCalculation === calc
+                      ? 'border-accent bg-accent-soft text-accent'
+                      : 'border-edge-subtle text-fg-3 hover:border-edge hover:text-fg'}"
                   onclick={() => statCalculation = calc as typeof statCalculation}
                 >
                   {calc.charAt(0).toUpperCase() + calc.slice(1)}
@@ -508,7 +504,7 @@
 
           <!-- Unit -->
           <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Unit</label>
+            <label class="block text-xs font-medium text-fg-2 mb-1">Unit</label>
             <Combobox
               options={[
                 { value: 'none', label: 'None' },
@@ -528,30 +524,30 @@
           <!-- Prefix / Suffix / Decimals row -->
           <div class="grid grid-cols-3 gap-2">
             <div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Prefix</label>
+              <label class="block text-xs font-medium text-fg-2 mb-1">Prefix</label>
               <input
                 type="text"
-                class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-gray-800 dark:text-gray-200"
+                class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
                 placeholder="$"
                 bind:value={statPrefix}
               />
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Suffix</label>
+              <label class="block text-xs font-medium text-fg-2 mb-1">Suffix</label>
               <input
                 type="text"
-                class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-gray-800 dark:text-gray-200"
+                class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
                 placeholder="%"
                 bind:value={statSuffix}
               />
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Decimals</label>
+              <label class="block text-xs font-medium text-fg-2 mb-1">Decimals</label>
               <input
                 type="number"
                 min="0"
                 max="10"
-                class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-gray-800 dark:text-gray-200"
+                class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
                 placeholder="Auto"
                 value={statDecimals ?? ''}
                 oninput={(e) => {
@@ -564,7 +560,7 @@
 
           <!-- Color mode -->
           <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Color Mode</label>
+            <label class="block text-xs font-medium text-fg-2 mb-1">Color Mode</label>
             <div class="grid grid-cols-3 gap-1">
               {#each [
                 { value: 'none', label: 'None' },
@@ -573,9 +569,9 @@
               ] as cm}
                 <button
                   class="py-1.5 rounded text-[11px] font-medium border transition-colors
-                    {statColorMode === cm.value
-                      ? 'border-ch-blue bg-orange-50 dark:bg-orange-900/20 text-ch-blue'
-                      : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600'}"
+ {statColorMode === cm.value
+                      ? 'border-accent bg-accent-soft text-accent'
+                      : 'border-edge-subtle text-fg-3 hover:border-edge '}"
                   onclick={() => statColorMode = cm.value as typeof statColorMode}
                 >
                   {cm.label}
@@ -588,9 +584,9 @@
           {#if statColorMode !== 'none'}
             <div>
               <div class="flex items-center justify-between mb-1">
-                <label class="text-xs font-medium text-gray-700 dark:text-gray-300">Thresholds</label>
+                <label class="text-xs font-medium text-fg-2">Thresholds</label>
                 <button
-                  class="flex items-center gap-0.5 text-[11px] text-ch-blue hover:text-orange-600 transition-colors"
+                  class="flex items-center gap-0.5 text-[11px] text-accent hover:underline transition-colors"
                   onclick={() => {
                     const lastVal = statThresholds.length > 0 ? statThresholds[statThresholds.length - 1].value + 10 : 0
                     statThresholds = [...statThresholds, { value: lastVal, color: '#ef4444' }]
@@ -611,7 +607,7 @@
                       }}
                     />
                     {#if i === 0}
-                      <span class="flex-1 text-xs text-gray-400">Base</span>
+                      <span class="flex-1 text-xs text-fg-4">Base</span>
                     {:else}
                       <input
                         type="number"
@@ -621,12 +617,12 @@
                           next[i] = { ...next[i], value: Number((e.target as HTMLInputElement).value) }
                           statThresholds = next
                         }}
-                        class="flex-1 text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-gray-800 dark:text-gray-200"
+                        class="flex-1 text-sm bg-transparent border border-edge rounded px-2 py-1 text-fg"
                       />
                     {/if}
                     {#if statThresholds.length > 1}
                       <button
-                        class="p-0.5 rounded text-gray-400 hover:text-red-400 transition-colors"
+                        class="p-0.5 rounded text-fg-4 hover:text-danger transition-colors"
                         onclick={() => statThresholds = statThresholds.filter((_, j) => j !== i)}
                       >
                         <X size={14} />
@@ -642,18 +638,18 @@
           {#if chartType === 'gauge'}
             <div class="grid grid-cols-2 gap-2">
               <div>
-                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Min</label>
+                <label class="block text-xs font-medium text-fg-2 mb-1">Min</label>
                 <input
                   type="number"
-                  class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-gray-800 dark:text-gray-200"
+                  class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
                   bind:value={gaugeMin}
                 />
               </div>
               <div>
-                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Max</label>
+                <label class="block text-xs font-medium text-fg-2 mb-1">Max</label>
                 <input
                   type="number"
-                  class="w-full text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-gray-800 dark:text-gray-200"
+                  class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
                   bind:value={gaugeMax}
                 />
               </div>
@@ -664,7 +660,7 @@
         <!-- Pie config -->
         {#if chartType === 'pie'}
           <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Label Column</label>
+            <label class="block text-xs font-medium text-fg-2 mb-1">Label Column</label>
             <Combobox
               options={[
                 { value: '', label: 'Auto (first string)' },
@@ -676,7 +672,7 @@
             />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Value Column</label>
+            <label class="block text-xs font-medium text-fg-2 mb-1">Value Column</label>
             <Combobox
               options={[
                 { value: '', label: 'Auto (first numeric)' },
@@ -687,7 +683,7 @@
               placeholder="Auto"
             />
           </div>
-          <label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+          <label class="flex items-center gap-2 text-xs text-fg-2 cursor-pointer">
             <input type="checkbox" class="ds-checkbox ds-checkbox-sm" bind:checked={pieDonut} />
             Donut mode
           </label>
@@ -695,24 +691,24 @@
 
         <!-- Chart config (only for timeseries/bar) -->
         {#if chartType === 'timeseries' || chartType === 'bar'}
-          <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-100/60 dark:bg-gray-900/60 px-2.5 py-2">
-            <p class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Time Scope</p>
-            <p class="mt-0.5 text-xs text-gray-700 dark:text-gray-300">
-              Uses dashboard picker: <span class="text-ch-orange">{dashboardRangeLabel}</span>
+          <div class="rounded-lg border border-edge-subtle bg-surface-2 px-2.5 py-2">
+            <p class="text-[11px] uppercase tracking-wide text-fg-3">Time Scope</p>
+            <p class="mt-0.5 text-xs text-fg-2">
+              Uses dashboard picker: <span class="text-accent">{dashboardRangeLabel}</span>
             </p>
           </div>
 
           <!-- Bar mode toggle -->
           {#if chartType === 'bar'}
             <div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Bar Mode</label>
+              <label class="block text-xs font-medium text-fg-2 mb-1">Bar Mode</label>
               <div class="grid grid-cols-2 gap-1">
                 {#each [{ value: 'grouped', label: 'Grouped' }, { value: 'stacked', label: 'Stacked' }] as bm}
                   <button
                     class="py-1.5 rounded text-[11px] font-medium border transition-colors
-                      {barMode === bm.value
-                        ? 'border-ch-blue bg-orange-50 dark:bg-orange-900/20 text-ch-blue'
-                        : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300 dark:hover:border-gray-600'}"
+ {barMode === bm.value
+                        ? 'border-accent bg-accent-soft text-accent'
+                        : 'border-edge-subtle text-fg-3 hover:border-edge '}"
                     onclick={() => barMode = bm.value as typeof barMode}
                   >
                     {bm.label}
@@ -724,7 +720,7 @@
 
           <!-- X-Axis column -->
           <div>
-            <label for="x-axis-column" class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">X-Axis Column</label>
+            <label for="x-axis-column" class="block text-xs font-medium text-fg-2 mb-1">X-Axis Column</label>
             <Combobox
               options={xAxisOptions}
               value={xColumn}
@@ -735,13 +731,13 @@
 
           <!-- Y-Axis columns -->
           <div>
-            <p class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Y-Axis Columns</p>
+            <p class="block text-xs font-medium text-fg-2 mb-1">Y-Axis Columns</p>
             {#if queryMeta.length === 0}
-              <p class="text-xs text-gray-400">Run a query first</p>
+              <p class="text-xs text-fg-4">Run a query first</p>
             {:else}
               <div class="flex flex-col gap-1 max-h-40 overflow-y-auto">
                 {#each queryMeta.filter(m => m.name !== xColumn) as col}
-                  <label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 rounded px-2 py-1">
+                  <label class="flex items-center gap-2 text-xs text-fg-2 cursor-pointer hover:bg-hover rounded px-2 py-1">
                     <input
                       type="checkbox"
                       class="ds-checkbox ds-checkbox-sm"
@@ -749,7 +745,7 @@
                       onchange={() => toggleYColumn(col.name)}
                     />
                     <span class="truncate">{col.name}</span>
-                    <span class="text-gray-400 ml-auto shrink-0">{col.type}</span>
+                    <span class="text-fg-4 ml-auto shrink-0">{col.type}</span>
                   </label>
                 {/each}
               </div>
@@ -759,7 +755,7 @@
           <!-- Series colors -->
           {#if yColumns.length > 0}
             <div>
-              <p class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Series Colors</p>
+              <p class="block text-xs font-medium text-fg-2 mb-1">Series Colors</p>
               <div class="flex flex-col gap-1.5">
                 {#each yColumns as yCol, i}
                   <div class="flex items-center gap-2">
@@ -767,7 +763,7 @@
                       value={colors[i] ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length]}
                       onchange={(c) => updateColor(i, c)}
                     />
-                    <span class="text-xs text-gray-600 dark:text-gray-400 truncate">{yCol}</span>
+                    <span class="text-xs text-fg-2 truncate">{yCol}</span>
                   </div>
                 {/each}
               </div>
@@ -776,7 +772,7 @@
 
           <!-- Legend position -->
           <div>
-            <label for="legend-position" class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Legend</label>
+            <label for="legend-position" class="block text-xs font-medium text-fg-2 mb-1">Legend</label>
             <Combobox
               options={legendOptions}
               value={legendPosition}

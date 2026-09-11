@@ -251,7 +251,7 @@
 </script>
 
 {#if options.length > 0 || (!entitiesLoaded && query.includes('/'))}
-  <div class="absolute bottom-full left-0 right-0 mb-1 max-h-60 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg z-50" bind:this={listEl}>
+  <div class="absolute bottom-full left-0 right-0 mb-1 max-h-60 overflow-auto rounded-lg border border-edge-subtle bg-surface shadow-lg z-50" bind:this={listEl}>
     {#if !entitiesLoaded && query.includes('/') && options.length === 0}
       <div class="px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
         <Loader2 size={12} class="animate-spin" />
@@ -261,7 +261,7 @@
     {#each options as opt, i (opt.key)}
       <button
         class="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors
-          {i === selectedIndex ? 'bg-ch-blue/10 text-ch-blue' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+ {i === selectedIndex ? 'bg-accent-soft text-accent' : 'text-fg-2 hover:bg-hover'}"
         onmouseenter={() => selectedIndex = i}
         onclick={() => opt.action()}
       >

@@ -32,8 +32,23 @@
     type ClusterHealthSettings,
   } from '../lib/api/clusterHealth'
   import TrendChart from '../lib/components/common/TrendChart.svelte'
-  import Modal from '../lib/components/common/Modal.svelte'
+  import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
+  import Sheet from '../lib/components/common/Sheet.svelte'
+  import PageHeader from '../lib/components/common/PageHeader.svelte'
+  import PageBody from '../lib/components/common/PageBody.svelte'
+  import Button from '../lib/components/common/Button.svelte'
+  import Badge from '../lib/components/common/Badge.svelte'
+  import Tabs from '../lib/components/common/Tabs.svelte'
+  import Stat from '../lib/components/common/Stat.svelte'
+  import Panel from '../lib/components/common/Panel.svelte'
+  import EmptyState from '../lib/components/common/EmptyState.svelte'
+  import Spinner from '../lib/components/common/Spinner.svelte'
+  import FormField from '../lib/components/common/FormField.svelte'
+  import Input from '../lib/components/common/Input.svelte'
+  import Select from '../lib/components/common/Select.svelte'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
+  import { getSection } from '../lib/stores/nav.svelte'
+  import { PAGE_SECTIONS } from '../lib/routes'
 
   // ── State ──────────────────────────────────────────────────────────────────
   let summary = $state<HealthSummary | null>(null)
@@ -48,8 +63,18 @@
   let savingSettings = $state(false)
   let settingsForm = $state<ClusterHealthSettings | null>(null)
 
-  let activeSection = $state<LiveSection>('replication')
+  // Sections come from the sidebar (?section=); 'overview' is the summary,
+  // everything else is one live system table.
+  type SectionId = 'overview' | LiveSection
+  const SECTION_META = PAGE_SECTIONS['cluster-health'] ?? []
+  const activeSection = $derived.by<SectionId>(() => {
+    const s = getSection()
+    return s && SECTION_META.some((m) => m.id === s) ? (s as SectionId) : 'overview'
+  })
+  const activeLabel = $derived(SECTION_META.find((m) => m.id === activeSection)?.label ?? 'Overview')
+
   let sectionResult = $state<LiveResult | null>(null)
+  let loadedSection = $state<LiveSection | null>(null)
   let sectionLoading = $state(false)
 
   // ── Filters (client-side: section rows are already loaded and capped) ──────
@@ -57,13 +82,6 @@
   let searchFilter = $state('')
   let historyRange = $state<'1h' | '6h' | '24h' | '7d'>('6h')
   const HISTORY_RANGES: Array<'1h' | '6h' | '24h' | '7d'> = ['1h', '6h', '24h', '7d']
-
-  const hasFilters = $derived(nodeFilter !== null || searchFilter.trim() !== '')
-
-  function clearFilters() {
-    nodeFilter = null
-    searchFilter = ''
-  }
 
   function rowMatchesFilters(row: Record<string, unknown>): boolean {
     if (nodeFilter && String(row.node ?? '') !== nodeFilter) return false
@@ -112,7 +130,7 @@
       key: 'replication-queue',
       label: 'Queue Issues',
       icon: AlertTriangle,
-      empty: 'No stalled or failing replication tasks. 🎉',
+      empty: 'No stalled or failing replication tasks.',
       columns: [
         { key: 'node', label: 'Node', mono: true },
         { key: 'database', label: 'Database', mono: true },
@@ -229,7 +247,42 @@
     },
   ]
 
-  const activeSpec = $derived(SECTIONS.find(s => s.key === activeSection) ?? SECTIONS[0])
+  // Parts pressure is usually a fraction of a percent on a healthy cluster;
+  // rounding to whole numbers would show 0% for every point.
+  function fmtPct(v: number): string {
+    if (v === 0) return '0%'
+    if (Math.abs(v) < 1) return `${v.toFixed(2)}%`
+    if (Math.abs(v) < 10) return `${v.toFixed(1)}%`
+    return `${Math.round(v)}%`
+  }
+  function fmtSeconds(v: number): string {
+    if (v === 0) return '0s'
+    if (Math.abs(v) < 1) return `${v.toFixed(2)}s`
+    if (Math.abs(v) < 10) return `${v.toFixed(1)}s`
+    return `${Math.round(v)}s`
+  }
+
+  const activeSpec = $derived(SECTIONS.find((sp) => sp.key === activeSection) ?? SECTIONS[0])
+
+  // Counts, sizes and durations read better right-aligned.
+  const NUMERIC_KEYS = new Set([
+    'absolute_delay', 'queue_size', 'inserts_in_queue', 'merges_in_queue', 'active_replicas', 'total_replicas',
+    'num_tries', 'num_postponed', 'elapsed', 'progress', 'num_parts', 'memory', 'parts_to_do', 'read_rows',
+    'parts', 'rows', 'size', 'free', 'total', 'used_pct', 'port', 'session_uptime_elapsed_seconds', 'total_size',
+  ])
+  function toDataColumns(spec: SectionSpec): DataColumn<Record<string, unknown>>[] {
+    return spec.columns.map((c) => ({
+      key: c.key,
+      label: c.label,
+      mono: c.mono,
+      truncate: c.mono,
+      align: NUMERIC_KEYS.has(c.key) ? 'right' : 'left',
+      format: (v) => (v === null || v === undefined || v === '' ? '—' : String(v)),
+    }))
+  }
+  const sectionColumns = $derived(toDataColumns(activeSpec))
+  const sectionRows = $derived((sectionResult?.data ?? []).filter(rowMatchesFilters))
+
 
   // ── Derived aggregates ─────────────────────────────────────────────────────
   const nodes = $derived(summary?.nodes ?? [])
@@ -252,6 +305,20 @@
     }
   })
 
+  // Nodes table on the overview. NodeSample is an interface, so spread it
+  // into a plain record for the generic table.
+  const nodeRows = $derived(filteredNodes.map((n) => ({ ...n })))
+  const NODE_COLUMNS: DataColumn<Record<string, unknown>>[] = [
+    { key: 'node', label: 'Node', mono: true },
+    { key: 'replication_max_delay', label: 'Repl. delay (s)', align: 'right' },
+    { key: 'replication_queue_total', label: 'Queue', align: 'right', format: fmtNum },
+    { key: 'replicas_readonly', label: 'Readonly', align: 'right' },
+    { key: 'merges_running', label: 'Merges', align: 'right', format: fmtNum },
+    { key: 'mutations_pending', label: 'Mutations', align: 'right', format: fmtNum },
+    { key: 'parts_max_active', label: 'Max parts', align: 'right', format: fmtNum },
+    { key: 'long_queries', label: 'Long queries', align: 'right', format: fmtNum },
+  ]
+
   // ── Status thresholds ──────────────────────────────────────────────────────
   type Status = 'ok' | 'warn' | 'crit'
   function band(value: number, warn: number, crit: number): Status {
@@ -259,14 +326,18 @@
     if (value >= warn) return 'warn'
     return 'ok'
   }
-  function badgeClass(s: Status): string {
-    return s === 'crit' ? 'ds-badge-danger' : s === 'warn' ? 'ds-badge-warn' : 'ds-badge-success'
+  function badgeTone(s: Status): 'danger' | 'warning' | 'success' {
+    return s === 'crit' ? 'danger' : s === 'warn' ? 'warning' : 'success'
   }
-  function tileBorder(s: Status): string {
-    if (s === 'crit') return 'border-red-400/50 dark:border-red-500/40'
-    if (s === 'warn') return 'border-amber-400/50 dark:border-amber-500/40'
-    return 'border-gray-200 dark:border-gray-800'
+  function statTone(s: Status): 'danger' | 'warning' | 'default' {
+    return s === 'crit' ? 'danger' : s === 'warn' ? 'warning' : 'default'
   }
+
+  const rangeItems = HISTORY_RANGES.map((r) => ({ id: r, label: r }))
+  const nodeOptions = $derived([
+    { value: '', label: 'All nodes' },
+    ...nodes.map((n) => ({ value: n.node, label: n.node })),
+  ])
 
   // ── Trend series (one series per node, aligned on captured_at) ─────────────
   const NODE_COLORS = ['#f97316', '#0ea5e9', '#10b981', '#a855f7', '#f59e0b', '#ec4899', '#84cc16', '#ef4444']
@@ -306,12 +377,6 @@
     if (!isFinite(n)) return String(v ?? '—')
     return n.toLocaleString()
   }
-  function cell(row: Record<string, unknown>, key: string): string {
-    const v = row[key]
-    if (v === null || v === undefined || v === '') return '—'
-    return String(v)
-  }
-
   // ── Data loading ───────────────────────────────────────────────────────────
   async function loadSummary(initial = false) {
     if (initial) loading = true
@@ -344,17 +409,29 @@
   }
 
   async function loadSection(section: LiveSection) {
-    activeSection = section
-    sectionLoading = true
-    sectionResult = null
+    // Switching sections shows a spinner; the periodic refresh of the same
+    // section swaps rows in place so the table does not flicker.
+    if (loadedSection !== section) {
+      sectionResult = null
+      sectionLoading = true
+    }
+    loadedSection = section
     try {
-      sectionResult = await fetchLive(section)
+      const res = await fetchLive(section)
+      if (loadedSection === section) sectionResult = res
     } catch (e: any) {
       toastError(e?.message ?? 'Failed to load section')
     } finally {
-      sectionLoading = false
+      if (loadedSection === section) sectionLoading = false
     }
   }
+
+  // Follow the sidebar: load a live section when it becomes active.
+  $effect(() => {
+    const section = activeSection
+    if (section === 'overview' || section === loadedSection) return
+    void loadSection(section)
+  })
 
   async function loadSettings() {
     try {
@@ -394,7 +471,7 @@
     timer = setInterval(() => {
       if (document.visibilityState === 'visible') {
         loadSummary()
-        if (sectionResult) loadSection(activeSection)
+        if (activeSection !== 'overview') loadSection(activeSection)
       }
     }, UI_REFRESH_MS)
   }
@@ -407,342 +484,207 @@
 
   onMount(async () => {
     await Promise.all([loadSummary(true), loadSettings(), loadHistory()])
-    await loadSection('replication')
     startPolling()
   })
   onDestroy(stopPolling)
 </script>
 
-<div class="flex flex-col h-full overflow-hidden">
-  <!-- Header -->
-  <div class="ds-page-header">
-    <!-- w-full: ds-page-header is itself flex, so this wrapper must stretch
-         for justify-between to push the controls to the far right. -->
-    <div class="w-full flex items-center justify-between gap-4">
-      <div class="flex items-center gap-3 min-w-0">
-        <HeartPulse size={20} class="text-ch-orange shrink-0" />
-        <div class="min-w-0">
-          <h1 class="ds-page-title">Cluster Health</h1>
-          <p class="ds-page-subtitle">
-            Operations &amp; database monitoring across all nodes
-          </p>
-        </div>
-      </div>
-      <div class="flex items-center gap-2 shrink-0">
-        {#if summary}
-          <span class="ds-badge ds-badge-neutral inline-flex items-center gap-1.5">
-            <Server size={12} />
-            {#if summary.is_cluster}
-              {summary.cluster} · {nodes.length} node{nodes.length === 1 ? '' : 's'}
-            {:else}
-              Single node
-            {/if}
-          </span>
-        {/if}
-        {#if summary?.degraded}
-          <span class="ds-badge ds-badge-warn inline-flex items-center gap-1.5" title="Some nodes could not be reached; showing local node only">
-            <AlertTriangle size={12} /> Degraded
-          </span>
-        {/if}
-        <button class="ds-icon-btn" onclick={() => loadSummary()} title="Refresh" aria-label="Refresh">
-          <RefreshCw size={15} class={refreshing ? 'animate-spin' : ''} />
-        </button>
-        <button class="ds-btn-outline px-2.5 py-1.5 inline-flex items-center gap-1.5" onclick={openSettings}>
-          <Settings2 size={14} /> Settings
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Filter bar: node + search filters apply to tiles, charts and sections -->
-  <div class="flex items-center gap-2 flex-wrap px-4 py-2 border-b border-gray-200 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-900/40">
-    <div class="relative">
-      <Search size={13} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-      <input
-        class="w-64 pl-8 pr-7 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 text-gray-700 dark:text-gray-200 focus:outline-none focus:border-ch-blue"
-        placeholder="Filter rows (table, database, reason...)"
-        bind:value={searchFilter}
-        spellcheck="false"
-      />
-      {#if searchFilter}
-        <button
-          class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-          onclick={() => (searchFilter = '')}
-          aria-label="Clear search"
-        >
-          <X size={13} />
-        </button>
+<div class="flex h-full min-h-0 flex-col">
+  <PageHeader title="Cluster Health" subtitle={activeLabel}>
+    {#snippet meta()}
+      {#if summary}
+        <Badge tone="neutral">
+          <Server size={11} />
+          {#if summary.is_cluster}
+            {summary.cluster} · {nodes.length} node{nodes.length === 1 ? '' : 's'}
+          {:else}
+            Single node
+          {/if}
+        </Badge>
       {/if}
-    </div>
+      {#if summary?.degraded}
+        <Badge tone="warning" title="Some nodes could not be reached; showing local node only">
+          <AlertTriangle size={11} /> Degraded
+        </Badge>
+      {/if}
+    {/snippet}
+    {#snippet actions()}
+      <Tabs variant="segmented" size="sm" items={rangeItems} value={historyRange} onchange={(id) => setHistoryRange(id as typeof historyRange)} />
+      <Button icon variant="ghost" size="sm" aria-label="Refresh" title="Refresh" onclick={() => loadSummary()}>
+        <RefreshCw size={14} class={refreshing ? 'animate-spin' : ''} />
+      </Button>
+      <Button variant="outline" size="sm" onclick={openSettings}>
+        <Settings2 size={13} /> Settings
+      </Button>
+    {/snippet}
+  </PageHeader>
 
-    {#if nodes.length > 1}
-      <select
-        class="px-2 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 text-gray-700 dark:text-gray-200 focus:outline-none focus:border-ch-blue"
-        value={nodeFilter ?? ''}
-        onchange={(e) => (nodeFilter = e.currentTarget.value || null)}
-      >
-        <option value="">All nodes</option>
-        {#each nodes as n}
-          <option value={n.node}>{n.node}</option>
-        {/each}
-      </select>
-    {/if}
-
-    {#if nodeFilter}
-      <span class="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 text-[11px] rounded-md border border-orange-200/70 dark:border-orange-500/25 bg-orange-100/60 dark:bg-orange-500/10 text-orange-800 dark:text-orange-300">
-        <Server size={10} class="shrink-0" />
-        <span class="font-mono">{nodeFilter}</span>
-        <button class="p-0.5 rounded hover:bg-orange-200/70 dark:hover:bg-orange-500/20" onclick={() => (nodeFilter = null)} aria-label="Remove node filter">
-          <X size={10} />
-        </button>
-      </span>
-    {/if}
-
-    {#if hasFilters}
-      <button
-        class="px-1.5 py-0.5 text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 rounded hover:bg-gray-200 dark:hover:bg-gray-800"
-        onclick={clearFilters}
-      >Clear all</button>
-    {/if}
-
-    <div class="flex-1"></div>
-
-    <!-- Trend history range -->
-    <div class="ds-segment">
-      {#each HISTORY_RANGES as r}
-        <button
-          class="ds-segment-btn {historyRange === r ? 'ds-segment-btn-active' : ''}"
-          onclick={() => setHistoryRange(r)}
-        >{r}</button>
-      {/each}
-    </div>
-  </div>
-
-  <div class="flex-1 overflow-auto p-4 space-y-5">
-    {#if loading}
-      <div class="ds-empty">Loading cluster health…</div>
-    {:else if error}
-      <div class="ds-panel p-6 flex items-start gap-3 text-sm">
-        <AlertTriangle size={18} class="text-red-500 shrink-0 mt-0.5" />
-        <div>
-          <div class="font-semibold text-gray-900 dark:text-gray-100">Couldn't load cluster health</div>
-          <div class="text-gray-500 mt-1">{error}</div>
-          <button class="ds-btn-outline px-2.5 py-1.5 mt-3" onclick={() => loadSummary(true)}>Retry</button>
-        </div>
-      </div>
-    {:else if summary}
-      <!-- Headline tiles -->
+  {#if loading}
+    <div class="flex flex-1 items-center justify-center"><Spinner /></div>
+  {:else if error}
+    <EmptyState icon={AlertTriangle} title="Couldn't load cluster health" description={error} primary={{ label: 'Retry', onclick: () => loadSummary(true) }} />
+  {:else if summary}
+    {#if activeSection === 'overview'}
       {@const delayStatus = band(agg.maxDelay, 10, 60)}
       {@const queueStatus = band(agg.totalQueue, 10, 100)}
       {@const roStatus = agg.readonly > 0 ? 'crit' : 'ok'}
       {@const partsStatus = band(agg.partsPressure, 50, 80)}
       {@const mutStatus = band(agg.mutations, 1, 5)}
       {@const lqStatus = band(agg.longQueries, 1, 5)}
-      <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <div class="ds-stat-card border {tileBorder(delayStatus)}">
-          <div class="flex items-center gap-2 text-gray-500 text-xs mb-1"><GitBranch size={14} /> Max repl. delay</div>
-          <div class="text-2xl font-bold text-gray-900 dark:text-gray-100">{agg.maxDelay}<span class="text-sm font-normal text-gray-500"> s</span></div>
-        </div>
-        <div class="ds-stat-card border {tileBorder(queueStatus)}">
-          <div class="flex items-center gap-2 text-gray-500 text-xs mb-1"><Layers size={14} /> Repl. queue</div>
-          <div class="text-2xl font-bold text-gray-900 dark:text-gray-100">{fmtNum(agg.totalQueue)}</div>
-        </div>
-        <div class="ds-stat-card border {tileBorder(roStatus)}">
-          <div class="flex items-center gap-2 text-gray-500 text-xs mb-1"><AlertTriangle size={14} /> Readonly replicas</div>
-          <div class="text-2xl font-bold text-gray-900 dark:text-gray-100">{agg.readonly}</div>
-        </div>
-        <div class="ds-stat-card border {tileBorder(partsStatus)}">
-          <div class="flex items-center gap-2 text-gray-500 text-xs mb-1"><Database size={14} /> Parts pressure</div>
-          <div class="text-2xl font-bold text-gray-900 dark:text-gray-100">{agg.partsPressure.toFixed(0)}<span class="text-sm font-normal text-gray-500">%</span></div>
-          <div class="text-[11px] text-gray-400 mt-0.5">{fmtNum(agg.partsMax)} / {fmtNum(summary.parts_limits?.parts_to_throw_insert)} parts</div>
-        </div>
-        <div class="ds-stat-card border {tileBorder(mutStatus)}">
-          <div class="flex items-center gap-2 text-gray-500 text-xs mb-1"><Wrench size={14} /> Mutations pending</div>
-          <div class="text-2xl font-bold text-gray-900 dark:text-gray-100">{fmtNum(agg.mutations)}</div>
-          <div class="text-[11px] text-gray-400 mt-0.5">{fmtNum(agg.merges)} merges running</div>
-        </div>
-        <div class="ds-stat-card border {tileBorder(lqStatus)}">
-          <div class="flex items-center gap-2 text-gray-500 text-xs mb-1"><Timer size={14} /> Long queries</div>
-          <div class="text-2xl font-bold text-gray-900 dark:text-gray-100">{fmtNum(agg.longQueries)}</div>
-          <div class="text-[11px] text-gray-400 mt-0.5">&gt; {summary.threshold_seconds}s</div>
-        </div>
-      </div>
-
-      <!-- Trends (one series per node) -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div class="ds-card p-3">
-          <div class="text-xs text-gray-500 mb-2 flex items-center gap-2"><GitBranch size={13} /> Replication delay · last {historyRange}</div>
-          {#if delayChart.x.length > 1}
-            <TrendChart x={delayChart.x} series={delayChart.series} height={150} yLabel="seconds" formatY={(v) => `${Math.round(v)}s`} />
-          {:else}
-            <div class="h-[150px] grid place-items-center text-xs text-gray-400">Not enough history yet — samples arrive as the harvester polls</div>
+      <PageBody width="lg">
+        <div class="space-y-5">
+          {#if nodeFilter}
+            <div class="flex items-center gap-2 text-xs text-fg-3">
+              Showing
+              <Badge tone="brand" class="pr-0.5">
+                <Server size={10} class="shrink-0" />
+                <span class="font-mono">{nodeFilter}</span>
+                <button class="rounded-sm p-0.5 hover:bg-accent-soft" onclick={() => (nodeFilter = null)} aria-label="Show all nodes">
+                  <X size={10} />
+                </button>
+              </Badge>
+            </div>
           {/if}
-        </div>
-        <div class="ds-card p-3">
-          <div class="text-xs text-gray-500 mb-2 flex items-center gap-2"><Database size={13} /> Parts pressure · last {historyRange}</div>
-          {#if partsChart.x.length > 1}
-            <TrendChart x={partsChart.x} series={partsChart.series} height={150} yLabel="% of limit" formatY={(v) => `${Math.round(v)}%`} />
-          {:else}
-            <div class="h-[150px] grid place-items-center text-xs text-gray-400">Not enough history yet — samples arrive as the harvester polls</div>
-          {/if}
-        </div>
-      </div>
 
-      <!-- Per-node table -->
-      {#if filteredNodes.length > 0}
-        <div class="ds-table-wrap">
-          <table class="ds-table">
-            <thead>
-              <tr class="ds-table-head-row">
-                <th class="ds-table-th">Node</th>
-                <th class="ds-table-th-right">Repl. delay (s)</th>
-                <th class="ds-table-th-right">Queue</th>
-                <th class="ds-table-th-right">Readonly</th>
-                <th class="ds-table-th-right">Merges</th>
-                <th class="ds-table-th-right">Mutations</th>
-                <th class="ds-table-th-right">Max parts</th>
-                <th class="ds-table-th-right">Long queries</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each filteredNodes as n}
-                <tr class="ds-table-row">
-                  <td class="ds-td-mono">
-                    <span class="inline-flex items-center gap-1">
-                      {n.node}
-                      {#if nodes.length > 1 && !nodeFilter}
-                        <button
-                          class="opacity-40 hover:opacity-100 transition-opacity"
-                          onclick={() => (nodeFilter = n.node)}
-                          title="Filter the page by this node"
-                          aria-label={`Filter by node ${n.node}`}
-                        >
-                          <Funnel size={11} />
-                        </button>
-                      {/if}
-                    </span>
-                  </td>
-                  <td class="ds-td-right">
-                    <span class="ds-badge {badgeClass(band(n.replication_max_delay, 10, 60))}">{n.replication_max_delay}</span>
-                  </td>
-                  <td class="ds-td-right">{fmtNum(n.replication_queue_total)}</td>
-                  <td class="ds-td-right">
-                    {#if n.replicas_readonly > 0}<span class="ds-badge ds-badge-danger">{n.replicas_readonly}</span>{:else}0{/if}
-                  </td>
-                  <td class="ds-td-right">{fmtNum(n.merges_running)}</td>
-                  <td class="ds-td-right">{fmtNum(n.mutations_pending)}</td>
-                  <td class="ds-td-right">{fmtNum(n.parts_max_active)}</td>
-                  <td class="ds-td-right">{fmtNum(n.long_queries)}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      {/if}
-
-      <!-- Drill-down sections -->
-      <div>
-        <div class="ds-segment flex-wrap mb-3">
-          {#each SECTIONS as s}
-            <button
-              class="ds-segment-btn {activeSection === s.key ? 'ds-segment-btn-active' : ''} inline-flex items-center gap-1.5"
-              onclick={() => loadSection(s.key)}
-            >
-              <s.icon size={13} /> {s.label}
-            </button>
-          {/each}
-        </div>
-
-        {#if sectionLoading}
-          <div class="ds-empty">Loading {activeSpec.label.toLowerCase()}…</div>
-        {:else if sectionResult && !sectionResult.supported}
-          <div class="ds-panel-muted p-4 text-sm text-gray-500 flex items-center gap-2">
-            <AlertTriangle size={15} /> {activeSpec.label} is not available on this ClickHouse deployment.
+          <!-- Headline tiles -->
+          <div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <Stat label="Max repl. delay" value={`${agg.maxDelay} s`} tone={statTone(delayStatus)} />
+            <Stat label="Repl. queue" value={fmtNum(agg.totalQueue)} tone={statTone(queueStatus)} />
+            <Stat label="Readonly replicas" value={agg.readonly} tone={statTone(roStatus)} />
+            <Stat label="Parts pressure" value={fmtPct(agg.partsPressure)} tone={statTone(partsStatus)} hint={`${fmtNum(agg.partsMax)} / ${fmtNum(summary.parts_limits?.parts_to_throw_insert)} parts`} />
+            <Stat label="Mutations pending" value={fmtNum(agg.mutations)} tone={statTone(mutStatus)} hint={`${fmtNum(agg.merges)} merges running`} />
+            <Stat label="Long queries" value={fmtNum(agg.longQueries)} tone={statTone(lqStatus)} hint={`> ${summary.threshold_seconds}s`} />
           </div>
-        {:else if sectionResult && sectionResult.data.length === 0}
-          <div class="ds-empty">{activeSpec.empty}</div>
-        {:else if sectionResult}
-          {@const visibleRows = sectionResult.data.filter(rowMatchesFilters)}
-          {#if sectionResult.degraded}
-            <div class="text-[11px] text-amber-600 dark:text-amber-500 mb-2 flex items-center gap-1.5">
-              <AlertTriangle size={12} /> Showing local node only — remote nodes were unreachable.
-            </div>
-          {/if}
-          {#if visibleRows.length === 0}
-            <div class="ds-panel-muted p-4 text-sm text-gray-500 flex items-center gap-2">
-              No rows match the current filters.
-              <button class="text-ch-blue hover:underline" onclick={clearFilters}>Clear filters</button>
-            </div>
-          {:else}
-            {#if visibleRows.length < sectionResult.data.length}
-              <div class="text-[11px] text-gray-400 mb-2">
-                Showing {visibleRows.length} of {sectionResult.data.length} rows
-              </div>
-            {/if}
-            <div class="ds-table-wrap">
-              <table class="ds-table">
-                <thead>
-                  <tr class="ds-table-head-row">
-                    {#each activeSpec.columns as col}
-                      <th class="ds-table-th">{col.label}</th>
-                    {/each}
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each visibleRows as row}
-                    <tr class="ds-table-row">
-                      {#each activeSpec.columns as col}
-                        <td class={col.mono ? 'ds-td-mono max-w-xs truncate' : 'ds-td'} title={cell(row, col.key)}>
-                          {cell(row, col.key)}
-                        </td>
-                      {/each}
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          {/if}
-        {/if}
-      </div>
 
-      {#if lastUpdated}
-        <div class="text-[11px] text-gray-400 text-right">
-          Updated {lastUpdated.toLocaleTimeString()} · auto-refresh every {UI_REFRESH_MS / 1000}s
+          <!-- Trends (one series per node) -->
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <Panel title="Replication delay" description={`Last ${historyRange}`} padding="sm">
+              {#if delayChart.x.length > 1}
+                <TrendChart x={delayChart.x} series={delayChart.series} height={150} formatY={fmtSeconds} />
+              {:else}
+                <div class="grid h-[150px] place-items-center text-xs text-fg-4">Not enough history yet. Samples arrive as the harvester polls.</div>
+              {/if}
+            </Panel>
+            <Panel title="Parts pressure" description={`Last ${historyRange}`} padding="sm">
+              {#if partsChart.x.length > 1}
+                <TrendChart x={partsChart.x} series={partsChart.series} height={150} formatY={fmtPct} />
+              {:else}
+                <div class="grid h-[150px] place-items-center text-xs text-fg-4">Not enough history yet. Samples arrive as the harvester polls.</div>
+              {/if}
+            </Panel>
+          </div>
+
+          <!-- Per-node table -->
+          {#if nodeRows.length > 0}
+            <DataTable columns={NODE_COLUMNS} rows={nodeRows} rowKey={(r) => String(r.node)} emptyTitle="No nodes reported">
+              {#snippet cell(row, col, value)}
+                {#if col.key === 'replication_max_delay'}
+                  <Badge tone={badgeTone(band(Number(row.replication_max_delay) || 0, 10, 60))}>{value}</Badge>
+                {:else if col.key === 'replicas_readonly'}
+                  {#if Number(row.replicas_readonly) > 0}<Badge tone="danger">{value}</Badge>{:else}0{/if}
+                {:else}
+                  {value}
+                {/if}
+              {/snippet}
+              {#snippet actions(row)}
+                {#if nodes.length > 1 && !nodeFilter}
+                  <Button icon variant="ghost" size="xs" onclick={() => (nodeFilter = String(row.node))} title="Filter the page by this node" aria-label={`Filter by node ${row.node}`}>
+                    <Funnel size={12} />
+                  </Button>
+                {/if}
+              {/snippet}
+            </DataTable>
+          {/if}
+
+          {#if lastUpdated}
+            <div class="text-right text-[11px] text-fg-4">
+              Updated {lastUpdated.toLocaleTimeString()} · auto-refresh every {UI_REFRESH_MS / 1000}s
+            </div>
+          {/if}
         </div>
-      {/if}
+      </PageBody>
+    {:else}
+      <!-- One live system table, filling the viewport -->
+      <div class="flex min-h-0 flex-1 flex-col">
+        <div class="flex h-10 shrink-0 items-center gap-2 px-5">
+          <div class="relative">
+            <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-4" />
+            <Input size="sm" type="search" class="w-64 pl-8 pr-7" placeholder="Filter rows" bind:value={searchFilter} spellcheck={false} />
+            {#if searchFilter}
+              <button class="absolute right-2 top-1/2 -translate-y-1/2 text-fg-4 hover:text-fg" onclick={() => (searchFilter = '')} aria-label="Clear search">
+                <X size={13} />
+              </button>
+            {/if}
+          </div>
+          {#if nodes.length > 1}
+            <Select size="sm" class="w-44" options={nodeOptions} value={nodeFilter ?? ''} onchange={(v) => (nodeFilter = v || null)} />
+          {/if}
+          {#if nodeFilter}
+            <Badge tone="brand" class="pr-0.5">
+              <Server size={10} class="shrink-0" />
+              <span class="font-mono">{nodeFilter}</span>
+              <button class="rounded-sm p-0.5 hover:bg-accent-soft" onclick={() => (nodeFilter = null)} aria-label="Remove node filter">
+                <X size={10} />
+              </button>
+            </Badge>
+          {/if}
+          <div class="flex-1"></div>
+          {#if sectionResult?.degraded}
+            <span class="inline-flex items-center gap-1 text-[11px] text-warning">
+              <AlertTriangle size={12} /> Local node only, remote nodes unreachable
+            </span>
+          {/if}
+          {#if sectionResult?.supported}
+            <span class="text-[11px] tabular-nums text-fg-4">
+              {sectionRows.length === sectionResult.data.length ? `${sectionRows.length} rows` : `${sectionRows.length} of ${sectionResult.data.length} rows`}
+            </span>
+          {/if}
+        </div>
+
+        <div class="min-h-0 flex-1 px-5 pb-4">
+          {#if sectionLoading && !sectionResult}
+            <div class="flex h-full items-center justify-center"><Spinner /></div>
+          {:else if sectionResult && !sectionResult.supported}
+            <EmptyState icon={AlertTriangle} title={`${activeSpec.label} is not available on this ClickHouse deployment`} />
+          {:else if sectionResult}
+            <div class="h-full overflow-hidden rounded-lg border border-edge-subtle bg-surface">
+              <DataTable
+                fill
+                columns={sectionColumns}
+                rows={sectionRows}
+                emptyTitle={sectionResult.data.length === 0 ? activeSpec.empty : 'No rows match the current filters'}
+              />
+            </div>
+          {/if}
+        </div>
+      </div>
     {/if}
-  </div>
+  {/if}
 </div>
 
 <!-- Settings modal -->
-<Modal open={showSettings} title="Monitoring Settings" onclose={() => (showSettings = false)}>
+<Sheet open={showSettings} title="Monitoring settings" description="How the collector samples this cluster and how long history is kept." onclose={() => (showSettings = false)}>
   {#if settingsForm}
     <div class="space-y-4">
       <label class="ds-checkbox-label">
         <input type="checkbox" class="ds-checkbox" bind:checked={settingsForm.enabled} />
         Enable background collection
       </label>
-      <div>
-        <div class="ds-form-label">History retention (days)</div>
-        <input type="number" min="1" max="365" class="ds-input-sm w-full" bind:value={settingsForm.retention_days} />
-        <p class="text-[11px] text-gray-400 mt-1">Samples older than this are pruned to keep storage small. Default 7.</p>
-      </div>
-      <div>
-        <div class="ds-form-label">Poll interval (seconds)</div>
-        <input type="number" min="15" max="3600" class="ds-input-sm w-full" bind:value={settingsForm.poll_interval_seconds} />
-        <p class="text-[11px] text-gray-400 mt-1">How often each cluster is sampled. Minimum 15s.</p>
-      </div>
-      <div>
-        <div class="ds-form-label">Long-query threshold (seconds)</div>
-        <input type="number" min="1" max="3600" class="ds-input-sm w-full" bind:value={settingsForm.long_query_threshold_seconds} />
-        <p class="text-[11px] text-gray-400 mt-1">Queries running longer than this count as "long". Default 30.</p>
-      </div>
-      <div class="flex justify-end gap-2 pt-2">
-        <button class="ds-btn-ghost px-3 py-1.5" onclick={() => (showSettings = false)}>Cancel</button>
-        <button class="ds-btn-primary px-3 py-1.5 inline-flex items-center gap-1.5" disabled={savingSettings} onclick={persistSettings}>
-          <Save size={14} /> {savingSettings ? 'Saving…' : 'Save'}
-        </button>
-      </div>
+      <FormField label="History retention (days)" for="ch-retention" hint="Samples older than this are pruned to keep storage small. Default 7.">
+        <Input id="ch-retention" type="number" min={1} max={365} class="w-32 tabular-nums" bind:value={settingsForm.retention_days} />
+      </FormField>
+      <FormField label="Poll interval (seconds)" for="ch-poll" hint="How often each cluster is sampled. Minimum 15s.">
+        <Input id="ch-poll" type="number" min={15} max={3600} class="w-32 tabular-nums" bind:value={settingsForm.poll_interval_seconds} />
+      </FormField>
+      <FormField label="Long-query threshold (seconds)" for="ch-threshold" hint='Queries running longer than this count as "long". Default 30.'>
+        <Input id="ch-threshold" type="number" min={1} max={3600} class="w-32 tabular-nums" bind:value={settingsForm.long_query_threshold_seconds} />
+      </FormField>
     </div>
   {/if}
-</Modal>
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" onclick={() => (showSettings = false)}>Cancel</Button>
+    <Button size="sm" loading={savingSettings} onclick={persistSettings}>
+      <Save size={13} /> Save
+    </Button>
+  {/snippet}
+</Sheet>

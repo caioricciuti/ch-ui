@@ -131,7 +131,7 @@
 
 <div bind:this={containerEl} class="w-full h-full overflow-hidden relative">
   {#if slices.length === 0}
-    <div class="flex items-center justify-center h-full text-xs text-gray-400">No data</div>
+    <div class="flex items-center justify-center h-full text-xs text-fg-4">No data</div>
   {:else}
     <canvas bind:this={canvasEl} class="absolute inset-0"></canvas>
   {/if}

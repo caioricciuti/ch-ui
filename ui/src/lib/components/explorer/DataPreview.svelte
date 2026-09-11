@@ -45,26 +45,26 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-800 bg-gray-100/50 dark:bg-gray-900/50 text-sm text-gray-700 dark:text-gray-300">
-    <span class="text-gray-500">{database}.</span><span class="font-medium">{table}</span>
-    <span class="ml-2 text-xs text-gray-400">First {SAMPLE_LIMIT} rows</span>
+  <div class="px-3 py-2 border-b border-edge-subtle bg-surface text-[13px] text-fg-2">
+    <span class="text-fg-3">{database}.</span><span class="font-medium">{table}</span>
+    <span class="ml-2 text-xs text-fg-4">First {SAMPLE_LIMIT} rows</span>
   </div>
 
   {#if loading && meta.length === 0}
     <div class="flex items-center justify-center flex-1 gap-2">
       <Spinner size="sm" />
-      <span class="text-sm text-gray-500">Loading...</span>
+      <span class="text-[13px] text-fg-3">Loading...</span>
     </div>
   {:else if error}
     <div class="p-4">
-      <div class="bg-red-100/20 dark:bg-red-900/20 border border-red-300/50 dark:border-red-800/50 rounded-lg p-3 text-sm text-red-700 dark:text-red-300">
+      <div class="rounded-md bg-danger-soft p-3 text-[13px] text-fg">
         {error}
       </div>
     </div>
   {:else if meta.length > 0}
     <VirtualTable {meta} {data} />
   {:else}
-    <div class="flex items-center justify-center flex-1 text-gray-400 dark:text-gray-600 text-sm">
+    <div class="flex items-center justify-center flex-1 text-fg-4 text-[13px]">
       Select a table to preview data
     </div>
   {/if}

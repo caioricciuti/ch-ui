@@ -7,11 +7,11 @@
 
   let { content }: Props = $props()
 
-  const html = $derived(content ? renderMarkdown(content) : '<p class="text-gray-400">No content</p>')
+  const html = $derived(content ? renderMarkdown(content) : '<p class="text-fg-4">No content</p>')
 </script>
 
 <div class="w-full h-full overflow-y-auto px-4 py-3">
-  <div class="prose-panel text-sm text-gray-800 dark:text-gray-200">
+  <div class="prose-panel text-sm text-fg">
     {@html html}
   </div>
 </div>

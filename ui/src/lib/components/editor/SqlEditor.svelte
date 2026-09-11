@@ -26,10 +26,10 @@
   const themeCompartment = new Compartment()
 
   const lightTheme = EditorView.theme({
-    '&': { backgroundColor: 'rgba(255,255,255,0.94)' },
-    '.cm-gutters': { backgroundColor: '#f4f4f5', borderRight: '1px solid #d4d4d8' },
-    '.cm-activeLineGutter': { backgroundColor: '#ececef' },
-    '.cm-activeLine': { backgroundColor: '#f3f4f6' },
+    '&': { backgroundColor: 'var(--surface)' },
+    '.cm-gutters': { backgroundColor: 'var(--surface)', borderRight: '1px solid var(--edge-subtle)', color: 'var(--fg-4)' },
+    '.cm-activeLineGutter': { backgroundColor: 'var(--hover)' },
+    '.cm-activeLine': { backgroundColor: 'var(--hover)' },
     '.cm-selectionBackground': { backgroundColor: '#fed7aa !important' },
     '&.cm-focused .cm-selectionBackground': { backgroundColor: '#fdba74 !important' },
     '.cm-cursor': { borderLeftColor: '#1f2126' },
@@ -56,10 +56,10 @@
   }, { dark: false })
 
   const darkTheme = EditorView.theme({
-    '&': { backgroundColor: 'rgba(22,23,28,0.96)', color: '#f3f4f6' },
-    '.cm-gutters': { backgroundColor: 'rgba(28,30,36,0.96)', borderRight: '1px solid #42454f', color: '#a5a8b2' },
-    '.cm-activeLine': { backgroundColor: 'rgba(249,115,22,0.12)' },
-    '.cm-activeLineGutter': { backgroundColor: 'rgba(249,115,22,0.18)' },
+    '&': { backgroundColor: 'var(--canvas)', color: 'var(--fg)' },
+    '.cm-gutters': { backgroundColor: 'var(--canvas)', borderRight: '1px solid var(--edge-subtle)', color: 'var(--fg-4)' },
+    '.cm-activeLine': { backgroundColor: 'var(--hover)' },
+    '.cm-activeLineGutter': { backgroundColor: 'var(--hover)' },
     '.cm-selectionBackground': { backgroundColor: 'rgba(251,146,60,0.32) !important' },
     '.cm-matchingBracket': { backgroundColor: 'rgba(249,115,22,0.22)', outline: '1px solid rgba(251,146,60,0.9)' },
     '.cm-panels': { backgroundColor: '#18191f', color: '#fed7aa' },
@@ -178,6 +178,8 @@
           }
         }),
         EditorView.lineWrapping,
+        // SQL is not prose: no browser spell-check squiggles under identifiers
+        EditorView.contentAttributes.of({ spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off' }),
       ],
     })
 

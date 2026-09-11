@@ -361,7 +361,7 @@
   }
 </script>
 
-<div class="flex h-full">
+<div class="flex h-full min-h-0">
   <BrainSidebar
     {chats}
     {selectedChatId}
@@ -372,14 +372,15 @@
     onDeleteChat={removeChat}
   />
 
-  <main class="flex-1 flex flex-col min-w-0">
+  <main class="flex min-h-0 min-w-0 flex-1 flex-col">
     <BrainHeader
       {models}
       {selectedModelId}
+      chatTitle={chats.find((c) => c.id === selectedChatId)?.title}
       onModelChange={(v) => selectedModelId = v}
     />
 
-    <div class="flex-1 overflow-auto p-6 space-y-5" bind:this={messagesEl}>
+    <div class="min-h-0 flex-1 space-y-5 overflow-auto p-6" bind:this={messagesEl}>
       {#if messages.length === 0}
         <BrainEmptyState onPick={(p) => brainInput?.setText(p)} />
       {:else}

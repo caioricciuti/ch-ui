@@ -219,9 +219,9 @@
 </script>
 
 {#if panels.length === 0}
-  <div class="text-center py-12 text-gray-500">
+  <div class="text-center py-12 text-fg-3">
     <p class="mb-1">No panels yet</p>
-    <p class="text-xs text-gray-400 dark:text-gray-600">Add a panel with a SQL query to visualize data</p>
+    <p class="text-xs text-fg-4">Add a panel with a SQL query to visualize data</p>
   </div>
 {:else}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -240,27 +240,27 @@
       {@const isActive = (mode === 'dragging' || mode === 'resizing') && activeId === panel.id}
       {#if pos}
         <div
-          class="absolute flex flex-col bg-gray-50 dark:bg-gray-900 border rounded-lg overflow-hidden group
-            {isActive ? 'border-ch-blue ring-2 ring-ch-blue/30 z-20' : 'border-gray-200 dark:border-gray-800'}"
+          class="absolute flex flex-col bg-surface border rounded-lg overflow-hidden group
+ {isActive ? 'border-ch-orange ring-2 ring-ch-orange/30 z-20' : 'border-edge-subtle'}"
           style="left:{pos.left}px; top:{pos.top}px; width:{pos.width}px; height:{pos.height}px;
             {isActive ? '' : 'transition: left 0.15s ease, top 0.15s ease, width 0.15s ease, height 0.15s ease;'}"
         >
           <!-- Panel header — drag handle -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
-            class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-800 bg-gray-100/50 dark:bg-gray-800/50 cursor-grab active:cursor-grabbing select-none shrink-0"
+            class="flex items-center justify-between px-3 py-2 border-b border-edge-subtle bg-surface-2 cursor-grab active:cursor-grabbing select-none shrink-0"
             onpointerdown={(e) => handleDragStart(panel.id, e)}
           >
             <div class="flex items-center gap-2 min-w-0">
-              <GripVertical size={12} class="text-gray-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-              <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{panel.name}</span>
+              <GripVertical size={12} class="text-fg-4 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+              <span class="text-xs font-medium text-fg-2 truncate">{panel.name}</span>
               {#if panel.description}
                 <div class="relative group/info shrink-0" onpointerdown={(e) => e.stopPropagation()}>
-                  <Info size={12} class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-help" />
+                  <Info size={12} class="text-fg-4 hover:text-fg cursor-help" />
                   <div class="absolute left-0 top-full mt-1.5 z-50 hidden group-hover/info:block">
-                    <div class="bg-gray-900 dark:bg-gray-800 text-gray-100 text-xs rounded-lg px-3 py-2 shadow-lg max-w-xs whitespace-normal leading-relaxed">
+                    <div class="bg-surface text-fg-4 text-xs rounded-lg px-3 py-2 shadow-lg max-w-xs whitespace-normal leading-relaxed">
                       {panel.description}
-                      <div class="absolute left-3 -top-1 w-2 h-2 bg-gray-900 dark:bg-gray-800 rotate-45"></div>
+                      <div class="absolute left-3 -top-1 w-2 h-2 bg-surface rotate-45"></div>
                     </div>
                   </div>
                 </div>
@@ -268,7 +268,7 @@
             </div>
             <div class="relative opacity-0 group-hover:opacity-100 transition-opacity">
               <button
-                class="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700"
+                class="p-1 rounded text-fg-4 hover:text-fg hover:bg-hover"
                 onpointerdown={(e) => e.stopPropagation()}
                 onclick={(e) => toggleMenu(panel.id, e)}
                 title="Panel options"
@@ -279,30 +279,30 @@
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div
                   bind:this={menuEl}
-                  class="absolute right-0 top-full mt-1 z-50 w-36 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-hidden"
+                  class="absolute right-0 top-full mt-1 z-50 w-36 bg-surface border border-edge-subtle rounded-lg shadow-xl overflow-hidden"
                   onpointerdown={(e) => e.stopPropagation()}
                 >
                   <button
-                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-fg-2 hover:bg-hover transition-colors"
                     onclick={() => { menuOpenId = null; oneditpanel(panel) }}
                   >
                     <Pencil size={12} /> Edit
                   </button>
                   <button
-                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-fg-2 hover:bg-hover transition-colors"
                     onclick={() => { menuOpenId = null; onmaximizepanel?.(panel) }}
                   >
                     <Maximize2 size={12} /> Fullscreen
                   </button>
                   <button
-                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-fg-2 hover:bg-hover transition-colors"
                     onclick={() => { menuOpenId = null; onduplicatepanel(panel) }}
                   >
                     <Copy size={12} /> Duplicate
                   </button>
-                  <div class="border-t border-gray-200 dark:border-gray-700"></div>
+                  <div class="border-t border-edge-subtle"></div>
                   <button
-                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-danger hover:bg-danger-soft transition-colors"
                     onclick={() => { menuOpenId = null; ondeletepanel(panel.id) }}
                   >
                     <Trash2 size={12} /> Delete
@@ -319,7 +319,7 @@
             {:else if !result || result.loading}
               <div class="flex items-center justify-center h-full"><Spinner size="sm" /></div>
             {:else if result.error}
-              <p class="text-xs text-red-500 p-2">{result.error}</p>
+              <p class="text-xs text-danger p-2">{result.error}</p>
             {:else if panel.panel_type === 'stat'}
               <StatPanel stat={computeStat(result.data, result.meta, cfg)} />
             {:else if panel.panel_type === 'gauge'}
@@ -334,17 +334,17 @@
                 <div class="overflow-auto h-full">
                   <table class="w-full text-xs">
                     <thead>
-                      <tr class="border-b border-gray-200 dark:border-gray-800">
+                      <tr class="border-b border-edge-subtle">
                         {#each result.meta as col}
-                          <th class="text-left py-1 px-2 text-gray-500 font-medium whitespace-nowrap">{col.name}</th>
+                          <th class="text-left py-1 px-2 text-fg-3 font-medium whitespace-nowrap">{col.name}</th>
                         {/each}
                       </tr>
                     </thead>
                     <tbody>
                       {#each result.data.slice(0, 100) as row}
-                        <tr class="border-b border-gray-100 dark:border-gray-900">
+                        <tr class="border-b border-edge-subtle">
                           {#each result.meta as col}
-                            <td class="py-1 px-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">{row[col.name] ?? '--'}</td>
+                            <td class="py-1 px-2 text-fg-2 whitespace-nowrap">{row[col.name] ?? '--'}</td>
                           {/each}
                         </tr>
                       {/each}
@@ -352,7 +352,7 @@
                   </table>
                 </div>
               {:else}
-                <p class="text-xs text-gray-500 p-2">No data</p>
+                <p class="text-xs text-fg-3 p-2">No data</p>
               {/if}
             {/if}
           </div>
@@ -363,7 +363,7 @@
             class="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-end p-0.5"
             onpointerdown={(e) => handleResizeStart(panel.id, e)}
           >
-            <svg viewBox="0 0 6 6" class="w-3 h-3 text-gray-400">
+            <svg viewBox="0 0 6 6" class="w-3 h-3 text-fg-4">
               <circle cx="5" cy="1" r="0.7" fill="currentColor" />
               <circle cx="5" cy="5" r="0.7" fill="currentColor" />
               <circle cx="1" cy="5" r="0.7" fill="currentColor" />
@@ -377,7 +377,7 @@
     {#if ghostLayout && mode !== 'idle' && colW > 0}
       {@const ghostPos = gridToPixel(ghostLayout, colW)}
       <div
-        class="absolute rounded-lg border-2 border-dashed border-ch-blue/60 bg-ch-blue/12 pointer-events-none z-10"
+        class="absolute rounded-lg border-2 border-dashed border-ch-orange/60 bg-accent-soft pointer-events-none z-10"
         style="left:{ghostPos.left}px; top:{ghostPos.top}px; width:{ghostPos.width}px; height:{ghostPos.height}px;
           transition: left 0.1s ease, top 0.1s ease, width 0.1s ease, height 0.1s ease;"
       ></div>

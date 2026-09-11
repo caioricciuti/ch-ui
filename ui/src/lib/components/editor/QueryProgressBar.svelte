@@ -93,7 +93,7 @@
 </script>
 
 <div
-  class="relative overflow-hidden border-b border-gray-200 dark:border-gray-800 bg-gray-100/70 dark:bg-gray-900/60 shrink-0"
+  class="relative overflow-hidden border-b border-edge-subtle bg-surface-2 shrink-0"
   role="progressbar"
   aria-label={running ? 'Query progress' : 'Query statistics'}
   aria-valuemin={0}
@@ -107,17 +107,17 @@
        finished query gets no fill — the numbers are the result. -->
   {#if running && percent !== null}
     <div
-      class="absolute inset-y-0 left-0 bg-ch-blue/15 dark:bg-ch-blue/20 transition-[width] duration-300 ease-linear"
+      class="absolute inset-y-0 left-0 bg-accent/20 transition-[width] duration-300 ease-linear"
       style="width: {percent}%"
     ></div>
   {:else if running && progress}
-    <div class="absolute inset-y-0 left-0 w-1/4 bg-ch-blue/15 dark:bg-ch-blue/20 animate-query-sweep"></div>
+    <div class="absolute inset-y-0 left-0 w-1/4 bg-accent/20 animate-query-sweep"></div>
   {/if}
 
-  <div class="relative flex items-center justify-between gap-2 px-2 py-1 text-[11px] text-gray-600 dark:text-gray-300">
+  <div class="relative flex items-center justify-between gap-2 px-2 py-1 text-[11px] text-fg-2">
     <span class="flex items-center gap-1.5 shrink-0 tabular-nums">
       <span
-        class="size-1.5 rounded-full {running ? 'bg-ch-blue animate-pulse' : 'bg-gray-400 dark:bg-gray-600'}"
+        class="size-1.5 rounded-full {running ? 'bg-ch-orange animate-pulse' : 'bg-fg-4'}"
         aria-hidden="true"
       ></span>
       {elapsed.toFixed(2)}s
@@ -126,19 +126,19 @@
     {#if readRows !== null}
       <span class="flex items-center gap-1.5 min-w-0 justify-end tabular-nums">
         {#if percent !== null}
-          <span class="shrink-0 font-medium text-ch-blue">{percent.toFixed(1)}%</span>
+          <span class="shrink-0 font-medium text-ch-orange">{percent.toFixed(1)}%</span>
         {/if}
-        <span class="truncate text-gray-500 dark:text-gray-400">
+        <span class="truncate text-fg-3">
           read {formatCompactNumber(readRows)} {readRows === 1 ? 'row' : 'rows'}{readBytes !== null ? ` · ${formatBytes(readBytes)}` : ''}
         </span>
         {#if rowsPerSec !== null && bytesPerSec !== null}
-          <span class="hidden lg:inline shrink-0 text-gray-400 dark:text-gray-500">
+          <span class="hidden lg:inline shrink-0 text-fg-4">
             {formatCompactNumber(rowsPerSec)} rows/s · {formatBytes(bytesPerSec)}/s
           </span>
         {/if}
       </span>
     {:else}
-      <span class="truncate text-gray-400 dark:text-gray-500">{running ? 'Running…' : 'No read statistics reported'}</span>
+      <span class="truncate text-fg-4">{running ? 'Running…' : 'No read statistics reported'}</span>
     {/if}
   </div>
 </div>

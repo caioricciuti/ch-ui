@@ -2,6 +2,7 @@
   import { shiftMonth } from '../../../utils/calendar'
   import { ChevronLeft, ChevronRight } from 'lucide-svelte'
   import CalendarMonth from './CalendarMonth.svelte'
+  import Button from '../../common/Button.svelte'
 
   interface Props {
     rangeStart: Date | null
@@ -33,22 +34,12 @@
 
 <div>
   <div class="flex items-center justify-between mb-3 px-1">
-    <button
-      type="button"
-      class="ds-icon-btn"
-      onclick={prev}
-      title="Previous month"
-    >
+    <Button icon variant="ghost" size="sm" onclick={prev} title="Previous month" aria-label="Previous month">
       <ChevronLeft size={16} />
-    </button>
-    <button
-      type="button"
-      class="ds-icon-btn"
-      onclick={next}
-      title="Next month"
-    >
+    </Button>
+    <Button icon variant="ghost" size="sm" onclick={next} title="Next month" aria-label="Next month">
       <ChevronRight size={16} />
-    </button>
+    </Button>
   </div>
 
   <div class="flex gap-8">

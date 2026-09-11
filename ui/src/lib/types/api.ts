@@ -71,7 +71,22 @@ export interface Dashboard {
   id: string
   name: string
   description: string | null
+  /** Folder the dashboard lives in; null is the root. */
+  folder_id: string | null
+  tags: string[]
+  /** Starred by the current user. */
+  starred: boolean
   created_by: string
+  created_at: string
+  updated_at: string
+}
+
+/** Dashboard folder; folders nest through parent_id. */
+export interface DashboardFolder {
+  id: string
+  name: string
+  parent_id: string | null
+  created_by: string | null
   created_at: string
   updated_at: string
 }
