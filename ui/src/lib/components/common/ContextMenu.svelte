@@ -122,22 +122,22 @@
   ></div>
   <div
     bind:this={menuEl}
-    class="fixed z-[96] min-w-[230px] max-w-[320px] rounded-xl border border-gray-200/80 dark:border-gray-700/80 bg-white/96 dark:bg-gray-900/96 backdrop-blur-xl shadow-[0_16px_40px_rgba(0,0,0,0.35)] py-1.5"
+    class="surface-card fixed z-[96] min-w-[220px] max-w-[320px] rounded-md py-1"
     style={`left:${left}px;top:${top}px`}
     role="menu"
   >
     {#each items as item, i (item.id)}
       {#if item.separator}
-        <div class="my-1 h-px bg-gray-200/90 dark:bg-gray-800/90"></div>
+        <div class="my-1 h-px bg-edge-subtle"></div>
       {:else}
         {@const Icon = item.icon}
         <button
-          class="group/menuitem flex w-full items-center justify-between gap-3 px-3 py-2 text-[13px] transition-colors
+          class="group/menuitem mx-1 flex w-[calc(100%-8px)] items-center justify-between gap-3 rounded-sm px-2 py-1.5 text-[13px] transition-colors
             {item.disabled
-              ? 'text-gray-400 cursor-not-allowed'
+              ? 'cursor-not-allowed text-fg-4'
               : item.danger
-                ? (highlightedIndex === i ? 'bg-red-500/12 text-red-500 dark:text-red-400' : 'text-red-500 dark:text-red-400 hover:bg-red-500/10')
-                : (highlightedIndex === i ? 'bg-ch-blue/12 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200/70 dark:hover:bg-gray-800/70')}"
+                ? (highlightedIndex === i ? 'bg-danger-soft text-danger' : 'text-danger hover:bg-danger-soft')
+                : (highlightedIndex === i ? 'bg-hover text-fg' : 'text-fg-2 hover:bg-hover')}"
           role="menuitem"
           disabled={item.disabled}
           onmouseenter={() => !item.disabled && (highlightedIndex = i)}
@@ -150,7 +150,7 @@
             <span class="truncate">{item.label}</span>
           </span>
           {#if item.shortcut}
-            <kbd class="text-[11px] px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 font-medium">{item.shortcut}</kbd>
+            <kbd class="rounded-sm border border-edge px-1 font-sans text-[10px] leading-4 text-fg-4">{item.shortcut}</kbd>
           {/if}
         </button>
       {/if}
