@@ -5,6 +5,20 @@ All notable changes to CH-UI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- In-app documentation links (the Telemetry setup guide, the can't-login help
+  and the license policy) and the MCP OAuth metadata
+  (`resource_documentation`, `service_documentation`) point at
+  ch-ui.com/docs instead of GitHub blob URLs.
+- The alert rule validation error lists `telemetry.monitor` as an accepted
+  `event_type`. The check itself already accepted it.
+- `docs/telemetry.md` corrected against the code: how monitors borrow
+  credentials, query history, the real query limits, when a monitor raises
+  an alert, and the aggregations each metric type offers.
+
 ## [2.11.0] - 2026-09-11
 
 A rebuilt interface and a real telemetry stack. No dependency changes.

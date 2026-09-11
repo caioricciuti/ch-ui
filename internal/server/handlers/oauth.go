@@ -70,7 +70,7 @@ func (h *OAuthHandler) ProtectedResourceMetadata(w http.ResponseWriter, r *http.
 		"scopes_supported":         supportedScopes,
 		"bearer_methods_supported": []string{"header"},
 		"resource_name":            "CH-UI MCP server",
-		"resource_documentation":   "https://github.com/caioricciuti/ch-ui/blob/main/docs/mcp.md",
+		"resource_documentation":   "https://ch-ui.com/docs/mcp/",
 	})
 }
 
@@ -91,7 +91,7 @@ func (h *OAuthHandler) AuthorizationServerMetadata(w http.ResponseWriter, r *htt
 		"token_endpoint_auth_methods_supported": []string{"none"},
 		"scopes_supported":                      supportedScopes,
 		"client_id_metadata_document_supported": true,
-		"service_documentation":                 "https://github.com/caioricciuti/ch-ui/blob/main/docs/mcp.md",
+		"service_documentation":                 "https://ch-ui.com/docs/mcp/",
 	})
 }
 

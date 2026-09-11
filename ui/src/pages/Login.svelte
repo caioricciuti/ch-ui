@@ -136,7 +136,7 @@
   const loginHelp = $derived(buildLoginHelp(errorKind));
   const showSetupRecoveryCTA = $derived(errorKind === "connection" || errorKind === "rateLimit");
   const quickHelpURL = "https://github.com/caioricciuti/ch-ui#cant-login";
-  const cantLoginDocsURL = "https://github.com/caioricciuti/ch-ui/blob/main/docs/cant-login.md";
+  const cantLoginDocsURL = "https://ch-ui.com/docs/cant-login/";
   const dockerDocsURL = "https://github.com/caioricciuti/ch-ui#quick-start-docker";
   const normalizedSetupURL = $derived(setupClickHouseURL.trim() || "http://localhost:8123");
   const normalizedSetupConnectionName = $derived(setupConnectionName.trim() || "Local ClickHouse");

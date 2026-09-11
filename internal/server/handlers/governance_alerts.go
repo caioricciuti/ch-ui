@@ -364,7 +364,7 @@ func (h *GovernanceHandler) CreateAlertRule(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if !isSupportedEventType(eventType) {
-		writeError(w, http.StatusBadRequest, "event_type must be policy.violation, schedule.failed, schedule.slow, or *")
+		writeError(w, http.StatusBadRequest, "event_type must be policy.violation, schedule.failed, schedule.slow, telemetry.monitor, or *")
 		return
 	}
 	if !isSupportedSeverity(severityMin) {
@@ -481,7 +481,7 @@ func (h *GovernanceHandler) UpdateAlertRule(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if !isSupportedEventType(eventType) {
-		writeError(w, http.StatusBadRequest, "event_type must be policy.violation, schedule.failed, schedule.slow, or *")
+		writeError(w, http.StatusBadRequest, "event_type must be policy.violation, schedule.failed, schedule.slow, telemetry.monitor, or *")
 		return
 	}
 	if !isSupportedSeverity(severityMin) {
