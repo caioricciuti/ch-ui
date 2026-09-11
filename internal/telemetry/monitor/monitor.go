@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/safe"
 	"github.com/caioricciuti/ch-ui/internal/telemetry"
@@ -158,18 +157,11 @@ func monitorDue(m *database.TelemetryMonitor, now time.Time) bool {
 }
 
 func (r *MonitorRunner) findCredentials(connectionID string) (Credentials, error) {
-	sessions, err := r.db.GetActiveSessionsByConnection(connectionID, 3)
+	user, password, err := r.db.BorrowSessionCredentials(connectionID, "telemetry.monitor", r.secret)
 	if err != nil {
-		return Credentials{}, fmt.Errorf("load sessions: %w", err)
+		return Credentials{}, err
 	}
-	for _, sess := range sessions {
-		password, err := crypto.Decrypt(sess.EncryptedPassword, r.secret)
-		if err != nil {
-			continue
-		}
-		return Credentials{User: sess.ClickhouseUser, Password: password}, nil
-	}
-	return Credentials{}, fmt.Errorf("no active session with usable credentials for connection %s", connectionID)
+	return Credentials{User: user, Password: password}, nil
 }
 
 // ValidateMonitor checks a monitor's fields before storing it.

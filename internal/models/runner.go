@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
@@ -357,16 +356,5 @@ func (r *Runner) releaseLock(connectionID string) {
 }
 
 func (r *Runner) findCredentials(connectionID string) (string, string, error) {
-	sessions, err := r.db.GetActiveSessionsByConnection(connectionID, 3)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to load sessions: %w", err)
-	}
-	for _, s := range sessions {
-		password, err := crypto.Decrypt(s.EncryptedPassword, r.secret)
-		if err != nil {
-			continue
-		}
-		return s.ClickhouseUser, password, nil
-	}
-	return "", "", fmt.Errorf("no active sessions with valid credentials for connection %s", connectionID)
+	return r.db.BorrowSessionCredentials(connectionID, "model", r.secret)
 }

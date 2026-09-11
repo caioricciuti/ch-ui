@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
@@ -182,18 +181,5 @@ func inferClickHouseType(v interface{}) string {
 
 // findCredentials retrieves ClickHouse credentials from active sessions.
 func (s *ClickHouseSink) findCredentials(connectionID string) (string, string, error) {
-	sessions, err := s.db.GetActiveSessionsByConnection(connectionID, 3)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to load sessions: %w", err)
-	}
-
-	for _, sess := range sessions {
-		password, err := crypto.Decrypt(sess.EncryptedPassword, s.secretKey)
-		if err != nil {
-			continue
-		}
-		return sess.ClickhouseUser, password, nil
-	}
-
-	return "", "", fmt.Errorf("no active sessions with valid credentials for connection %s", connectionID)
+	return s.db.BorrowSessionCredentials(connectionID, "pipeline", s.secretKey)
 }
