@@ -10,6 +10,7 @@
 </script>
 
 <script lang="ts">
+  import { goTo } from '../../../stores/router.svelte'
   import type { QueryTab } from '../../../stores/tabs.svelte'
   import { updateTabSQL, getTabResult, setTabResult, getTabResultView, setTabResultView, resetTabResultView, markQueryTabSaved } from '../../../stores/tabs.svelte'
   import type { ColumnFilter, ResultSort } from '../../../utils/result-filters'
@@ -25,13 +26,14 @@
   import { detectQueryParams } from '../../../utils/query-params'
   import { parseCHError, byteToCharOffset } from '../../../utils/ch-error'
   import { isProActive, loadLicense } from '../../../stores/license.svelte'
-  import { openSingletonTab, openQueryTab } from '../../../stores/tabs.svelte'
+  import { openQueryTab } from '../../../stores/tabs.svelte'
   import { generateSQL } from '../../../api/brain'
   import { onMount } from 'svelte'
-  import { Lock, Braces, X, Sparkles } from 'lucide-svelte'
+  import { Lock, X, Sparkles } from 'lucide-svelte'
   import Button from '../../common/Button.svelte'
   import SqlEditor from '../../editor/SqlEditor.svelte'
   import Toolbar from '../../editor/Toolbar.svelte'
+  import ParamsPopover from '../../editor/ParamsPopover.svelte'
   import ResultPanel from '../../editor/ResultPanel.svelte'
   import Sheet from '../../common/Sheet.svelte'
   import QueryHistoryPanel from '../../editor/QueryHistoryPanel.svelte'
@@ -43,8 +45,13 @@
   let { tab }: Props = $props()
 
   let editorComponent: SqlEditor
-  const savedSplit = parseFloat(localStorage.getItem('ch-ui-split-percent') ?? '40')
+  const savedSplitRaw = localStorage.getItem('ch-ui-split-percent')
+  const savedSplit = parseFloat(savedSplitRaw ?? '40')
   let splitPercent = $state(isNaN(savedSplit) ? 40 : savedSplit)
+  // Until the user drags the splitter, the editor pane sizes itself to the
+  // SQL (a two-line query does not deserve half the screen) and the results
+  // get the rest. A drag switches to the fixed percentage and remembers it.
+  let userSized = $state(savedSplitRaw !== null)
   let dragging = $state(false)
   let containerEl: HTMLDivElement
 
@@ -107,18 +114,19 @@
   const detectedParams = $derived(detectQueryParams(currentSql))
   const proActive = $derived(isProActive())
   let paramValues = $state<Record<string, string>>({})
+  // The parameters popover is anchored to the toolbar button. It never opens
+  // on its own: Run opens it when a value is missing, the button toggles it.
   let showParamsPanel = $state(false)
-  let autoOpenedFor = ''
+  let paramsButtonEl = $state<HTMLButtonElement | null>(null)
+  let paramsAnchor = $state({ x: 16, y: 80 })
+  let focusParam = $state<string | null>(null)
 
-  // Auto-open the parameters panel the first time a new set of params appears,
-  // so users discover it — but respect a manual close for that same set.
-  $effect(() => {
-    const sig = detectedParams.map((p) => p.name).join(',')
-    if (sig && sig !== autoOpenedFor) {
-      showParamsPanel = true
-      autoOpenedFor = sig
-    }
-  })
+  function openParams(focus: string | null = null) {
+    const rect = paramsButtonEl?.getBoundingClientRect()
+    if (rect) paramsAnchor = { x: rect.left, y: rect.bottom + 6 }
+    focusParam = focus
+    showParamsPanel = true
+  }
 
   onMount(() => {
     currentSql = tab.sql ?? ''
@@ -305,6 +313,13 @@
     const runParams = detectQueryParams(query)
     if (runParams.length > 0 && !proActive) {
       toastError('Query parameters are a Pro feature — upgrade to run parameterized queries.')
+      return
+    }
+    // A parameter without a value would fail in ClickHouse; ask for it here,
+    // with the cursor already in the first empty field.
+    const missing = runParams.find((p) => !(paramValues[p.name] ?? '').trim())
+    if (missing) {
+      openParams(missing.name)
       return
     }
     const params = runParams.length > 0
@@ -620,15 +635,24 @@
 
   function onDragEnd() {
     dragging = false
+    userSized = true
     document.removeEventListener('mousemove', onDragMove)
     document.removeEventListener('mouseup', onDragEnd)
     localStorage.setItem('ch-ui-split-percent', String(splitPercent))
   }
+
+  const EDITOR_LINE_PX = 20
+  const editorPaneStyle = $derived.by(() => {
+    if (userSized) return `height: ${splitPercent}%`
+    const lines = Math.max(4, currentSql.split('\n').length)
+    const chrome = 40 + 16 + (showAsk ? 48 : 0) // toolbar, editor padding, Ask AI bar
+    return `height: ${lines * EDITOR_LINE_PX + chrome}px; max-height: 55%`
+  })
 </script>
 
 <div class="flex flex-col h-full overflow-hidden" bind:this={containerEl}>
   <!-- Editor pane -->
-  <div class="flex flex-col min-h-[80px] overflow-hidden border-b border-gray-200 dark:border-gray-800" style="height: {splitPercent}%">
+  <div class="flex flex-col min-h-[80px] overflow-hidden border-b border-edge-subtle" style={editorPaneStyle}>
     <Toolbar
       running={result?.running ?? false}
       onrun={() => handleRun()}
@@ -640,16 +664,17 @@
       askPro={proActive}
       onsave={handleSaveClick}
       onhistory={() => (showHistorySheet = true)}
-      onparams={() => (showParamsPanel = !showParamsPanel)}
+      onparams={() => (showParamsPanel ? (showParamsPanel = false) : openParams())}
       paramCount={detectedParams.length}
       paramsActive={showParamsPanel}
+      bind:paramsEl={paramsButtonEl}
       {estimate}
       {estimateLoading}
     />
 
     <!-- Ask AI (text-to-SQL) bar -->
     {#if showAsk}
-      <div class="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-ch-orange/5">
+      <div class="shrink-0 border-b border-edge-subtle bg-ch-orange/5">
         {#if proActive}
           <div class="flex items-center gap-2 px-3 py-2">
             <Sparkles size={15} class="text-ch-orange shrink-0" />
@@ -664,30 +689,28 @@
             <Button size="sm" onclick={handleAsk} loading={asking} disabled={!askQuestion.trim()}>
               Generate
             </Button>
-            <button class="ds-icon-btn" onclick={() => (showAsk = false)} title="Close" aria-label="Close Ask AI">
+            <Button icon variant="ghost" size="sm" onclick={() => (showAsk = false)} title="Close" aria-label="Close Ask AI">
               <X size={14} />
-            </button>
+            </Button>
           </div>
-          <p class="px-3 pb-2 -mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+          <p class="px-3 pb-2 -mt-1 text-[11px] text-fg-3">
             Grounded in this connection's schema and your documented models. Always review generated SQL before running.
           </p>
         {:else}
           <!-- Pro upsell -->
           <div class="flex items-center justify-between gap-3 px-3 py-2">
-            <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
-              <Lock size={14} class="text-ch-orange shrink-0" />
+            <div class="flex items-center gap-2 text-xs text-fg-2">
+              <Lock size={14} class="text-accent shrink-0" />
               <span>
                 <strong>Ask AI</strong> turns a plain-English question into a ClickHouse query grounded in your schema.
                 It's a <strong>Pro</strong> feature.
               </span>
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <button class="ds-btn-primary px-2.5 py-1" onclick={() => openSingletonTab('settings', 'License')}>
-                Upgrade
-              </button>
-              <button class="ds-icon-btn" onclick={() => (showAsk = false)} title="Close" aria-label="Close Ask AI">
+              <Button size="sm" onclick={() => goTo('settings', 'License')}>Upgrade</Button>
+              <Button icon variant="ghost" size="sm" onclick={() => (showAsk = false)} title="Close" aria-label="Close Ask AI">
                 <X size={14} />
-              </button>
+              </Button>
             </div>
           </div>
         {/if}
@@ -704,86 +727,28 @@
     </div>
   </div>
 
-  <!-- Query parameters panel (Pro) -->
-  {#if showParamsPanel}
-    <div class="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-900/40">
-      <div class="flex items-center justify-between px-3 py-1.5 border-b border-gray-200/70 dark:border-gray-800/70">
-        <div class="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200">
-          <Braces size={13} class="text-ch-orange" />
-          Query Parameters
-          {#if detectedParams.length > 0}
-            <span class="text-gray-400 font-normal">· {detectedParams.length} detected</span>
-          {/if}
-        </div>
-        <button class="ds-icon-btn" onclick={() => (showParamsPanel = false)} title="Close" aria-label="Close parameters">
-          <X size={14} />
-        </button>
-      </div>
-
-      <div class="px-3 py-2.5">
-        {#if detectedParams.length === 0}
-          <!-- Educational empty state -->
-          <p class="text-xs text-gray-500 dark:text-gray-400">
-            Add bind parameters to your SQL with
-            <code class="px-1 py-0.5 rounded bg-gray-200/70 dark:bg-gray-800 font-mono text-[11px]">{'{name:Type}'}</code>
-            syntax — they'll appear here with an input for each. For example:
-          </p>
-          <pre class="mt-2 text-[11px] font-mono text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-950/40 border border-gray-200 dark:border-gray-800 rounded-md px-2.5 py-2 overflow-x-auto">SELECT * FROM events
-WHERE user_id = {'{user_id:UInt64}'}
-  AND created_at >= {'{since:DateTime}'}</pre>
-          {#if !proActive}
-            <p class="mt-2 text-[11px] text-gray-400 flex items-center gap-1">
-              <Lock size={11} class="text-ch-orange" /> Running parameterized queries is a Pro feature.
-            </p>
-          {/if}
-        {:else if proActive}
-          <div class="flex flex-wrap gap-3">
-            {#each detectedParams as p (p.name)}
-              <label class="flex flex-col gap-1">
-                <span class="text-[11px] font-mono text-gray-500">
-                  {p.name}<span class="text-gray-400">:{p.type}</span>
-                </span>
-                <input
-                  class="ds-input-sm w-44"
-                  bind:value={paramValues[p.name]}
-                  placeholder={`value (${p.type})`}
-                  spellcheck="false"
-                  onkeydown={(e) => { if (e.key === 'Enter') handleRun() }}
-                />
-              </label>
-            {/each}
-          </div>
-          <p class="mt-2 text-[11px] text-gray-400">
-            Values are bound safely by ClickHouse and saved as defaults with the query.
-          </p>
-        {:else}
-          <!-- Pro upsell -->
-          <div class="flex items-center justify-between gap-3">
-            <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
-              <Lock size={14} class="text-ch-orange shrink-0" />
-              <span>
-                This query uses <strong>{detectedParams.length}</strong>
-                parameter{detectedParams.length === 1 ? '' : 's'}
-                (<span class="font-mono">{detectedParams.map((p) => p.name).join(', ')}</span>).
-                Query parameters are a <strong>Pro</strong> feature.
-              </span>
-            </div>
-            <button class="ds-btn-primary px-2.5 py-1 shrink-0" onclick={() => openSingletonTab('settings', 'License')}>
-              Upgrade
-            </button>
-          </div>
-        {/if}
-      </div>
-    </div>
+  <!-- Query parameters (Pro): popover anchored to the toolbar button, never reflows the page -->
+  {#if showParamsPanel && detectedParams.length > 0}
+    <ParamsPopover
+      params={detectedParams}
+      bind:values={paramValues}
+      {proActive}
+      {focusParam}
+      x={paramsAnchor.x}
+      y={paramsAnchor.y}
+      onclose={() => (showParamsPanel = false)}
+      onrun={() => { showParamsPanel = false; void handleRun() }}
+      onupgrade={() => goTo('settings', 'License')}
+    />
   {/if}
 
   <!-- Drag handle -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="h-1 shrink-0 cursor-row-resize group flex items-center justify-center hover:bg-ch-blue/20 transition-colors {dragging ? 'bg-ch-blue/30' : 'bg-gray-200 dark:bg-gray-800'}"
+    class="h-1 shrink-0 cursor-row-resize group flex items-center justify-center hover:bg-ch-orange/20 transition-colors {dragging ? 'bg-ch-orange/30' : 'bg-surface-2'}"
     onmousedown={onDragStart}
   >
-    <div class="w-8 h-0.5 rounded-full {dragging ? 'bg-ch-blue' : 'bg-gray-600 group-hover:bg-ch-blue/60'} transition-colors"></div>
+    <div class="w-8 h-0.5 rounded-full {dragging ? 'bg-ch-orange' : 'bg-fg-4 group-hover:bg-accent/60'} transition-colors"></div>
   </div>
 
   <!-- Results pane -->
@@ -850,39 +815,39 @@ WHERE user_id = {'{user_id:UInt64}'}
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg p-5 w-96 shadow-xl"
+      class="bg-surface border border-edge rounded-md p-5 w-96 shadow-xl"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => e.stopPropagation()}
       tabindex="-1"
     >
-      <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3">Save Query</h3>
+      <h3 class="text-sm font-semibold text-fg mb-3">Save Query</h3>
 
       <label class="block mb-2">
-        <span class="text-xs text-gray-500 dark:text-gray-400">Name</span>
+        <span class="text-xs text-fg-3">Name</span>
         <input
           type="text"
-          class="mt-1 w-full px-2.5 py-1.5 bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:border-ch-blue"
+          class="mt-1 w-full px-2.5 py-1.5 bg-surface-2 border border-edge rounded text-sm text-fg focus:outline-none focus:border-ch-orange"
           bind:value={saveName}
           onkeydown={(e) => e.key === 'Enter' && handleSaveConfirm()}
         />
       </label>
 
       <label class="block mb-4">
-        <span class="text-xs text-gray-500 dark:text-gray-400">Description (optional)</span>
+        <span class="text-xs text-fg-3">Description (optional)</span>
         <input
           type="text"
-          class="mt-1 w-full px-2.5 py-1.5 bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:border-ch-blue"
+          class="mt-1 w-full px-2.5 py-1.5 bg-surface-2 border border-edge rounded text-sm text-fg focus:outline-none focus:border-ch-orange"
           bind:value={saveDescription}
         />
       </label>
 
       <div class="flex justify-end gap-2">
         <button
-          class="px-3 py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 rounded hover:bg-gray-200 dark:hover:bg-gray-800"
+          class="px-3 py-1.5 text-xs text-fg-3 hover:text-fg rounded hover:bg-hover"
           onclick={() => showSaveModal = false}
         >Cancel</button>
         <button
-          class="px-3 py-1.5 text-xs bg-ch-blue text-white rounded hover:bg-ch-blue/80 disabled:opacity-50"
+          class="px-3 py-1.5 text-xs bg-ch-orange text-white rounded hover:bg-ch-orange/80 disabled:opacity-50"
           onclick={handleSaveConfirm}
           disabled={saving || !saveName.trim()}
         >{saving ? 'Saving...' : 'Save'}</button>

@@ -287,10 +287,10 @@
   const metrics = $derived.by(() => {
     if (!tableInfo || Object.keys(tableInfo).length === 0) return []
     return [
-      { label: 'Rows', value: formatNumber(Number(tableInfo.total_rows ?? 0)), icon: Rows3, color: 'text-ch-orange' },
+      { label: 'Rows', value: formatNumber(Number(tableInfo.total_rows ?? 0)), icon: Rows3, color: 'text-accent' },
       { label: 'Size', value: formatBytes(Number(tableInfo.total_bytes ?? 0)), icon: HardDrive, color: 'text-ch-green' },
-      { label: 'Engine', value: tableInfo.engine ?? '—', icon: Database, color: 'text-ch-orange' },
-      { label: 'Last Modified', value: formatDate(tableInfo.metadata_modification_time), icon: Clock, color: 'text-gray-500' },
+      { label: 'Engine', value: tableInfo.engine ?? '—', icon: Database, color: 'text-accent' },
+      { label: 'Last Modified', value: formatDate(tableInfo.metadata_modification_time), icon: Clock, color: 'text-fg-3' },
     ]
   })
 
@@ -309,14 +309,14 @@
 
 <div class="flex flex-col h-full">
   <!-- Header -->
-  <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-gray-100/40 dark:bg-gray-900/45 shrink-0">
-    <Table2 size={16} class="text-ch-orange shrink-0" />
+  <div class="flex items-center gap-3 px-4 py-3 border-b border-edge-subtle bg-surface-2 shrink-0">
+    <Table2 size={16} class="text-accent shrink-0" />
     <div class="min-w-0">
-      <span class="text-sm text-gray-500">{tab.database}.</span>
-      <span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{tab.table}</span>
+      <span class="text-sm text-fg-3">{tab.database}.</span>
+      <span class="text-sm font-medium text-fg truncate">{tab.table}</span>
     </div>
     <button
-      class="ml-1 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+      class="ml-1 p-1 rounded hover:bg-hover transition-colors text-fg-4 hover:text-fg"
       onclick={handleRefresh}
       title="Refresh table info"
     >
@@ -325,12 +325,12 @@
   </div>
 
   <!-- Sub-tab bar -->
-  <div class="flex items-center gap-1 px-3 py-1.5 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 shrink-0">
+  <div class="flex items-center gap-1 px-3 py-1.5 border-b border-edge-subtle bg-canvas shrink-0">
     {#each subTabs as st}
       <button
         class="px-3 py-1.5 text-xs rounded-md transition-colors whitespace-nowrap {activeSubTab === st.id
-          ? 'bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-medium'
-          : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200/50 dark:hover:bg-gray-800/50'}"
+ ? 'bg-surface-2 text-fg font-medium'
+          : 'text-fg-3 hover:text-fg hover:bg-hover'}"
         onclick={() => switchTab(st.id)}
       >{st.label}</button>
     {/each}
@@ -342,23 +342,23 @@
       {#if infoLoading}
         <div class="flex items-center justify-center py-12 gap-2">
           <Spinner size="sm" />
-          <span class="text-sm text-gray-500">Loading table info...</span>
+          <span class="text-sm text-fg-3">Loading table info...</span>
         </div>
       {:else if infoError}
         <div class="p-4">
-          <div class="bg-red-100/20 dark:bg-red-900/20 border border-red-300/50 dark:border-red-800/50 rounded-lg p-3 text-sm text-red-700 dark:text-red-300">{infoError}</div>
+          <div class="rounded-md bg-danger-soft p-3 text-[13px] text-fg">{infoError}</div>
         </div>
       {:else}
         <!-- Metric cards -->
         <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 p-4">
           {#each metrics as m}
             {@const Icon = m.icon}
-            <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
+            <div class="bg-surface border border-edge-subtle rounded-md p-4">
               <div class="flex items-center gap-2 mb-2">
                 <Icon size={14} class={m.color} />
-                <span class="text-xs text-gray-500 uppercase tracking-wider">{m.label}</span>
+                <span class="text-xs text-fg-3 uppercase tracking-wider">{m.label}</span>
               </div>
-              <div class="text-xl font-semibold text-gray-800 dark:text-gray-200 truncate">{m.value}</div>
+              <div class="text-xl font-semibold text-fg truncate">{m.value}</div>
             </div>
           {/each}
         </div>
@@ -366,24 +366,24 @@
         <!-- Detail rows (keys) — only if any keys exist -->
         {#if hasKeys}
           <div class="px-4 pb-4">
-            <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
-              <h3 class="text-xs text-gray-500 uppercase tracking-wider mb-3">Storage Keys</h3>
+            <div class="bg-surface border border-edge-subtle rounded-md p-4">
+              <h3 class="text-xs text-fg-3 uppercase tracking-wider mb-3">Storage Keys</h3>
               <div class="grid grid-cols-[140px_1fr] gap-y-2 gap-x-3 text-sm">
               {#if tableInfo.partition_key}
-                <span class="text-gray-500 inline-flex items-center gap-2"><LayoutGrid size={13} class="shrink-0" />Partition Key</span>
-                <code class="text-xs text-gray-700 dark:text-gray-300 font-mono truncate">{tableInfo.partition_key}</code>
+                <span class="text-fg-3 inline-flex items-center gap-2"><LayoutGrid size={13} class="shrink-0" />Partition Key</span>
+                <code class="text-xs text-fg-2 font-mono truncate">{tableInfo.partition_key}</code>
               {/if}
               {#if tableInfo.sorting_key}
-                <span class="text-gray-500 inline-flex items-center gap-2"><Key size={13} class="shrink-0" />Sorting Key</span>
-                <code class="text-xs text-gray-700 dark:text-gray-300 font-mono truncate">{tableInfo.sorting_key}</code>
+                <span class="text-fg-3 inline-flex items-center gap-2"><Key size={13} class="shrink-0" />Sorting Key</span>
+                <code class="text-xs text-fg-2 font-mono truncate">{tableInfo.sorting_key}</code>
               {/if}
               {#if tableInfo.primary_key}
-                <span class="text-gray-500 inline-flex items-center gap-2"><Key size={13} class="text-ch-orange shrink-0" />Primary Key</span>
-                <code class="text-xs text-gray-700 dark:text-gray-300 font-mono truncate">{tableInfo.primary_key}</code>
+                <span class="text-fg-3 inline-flex items-center gap-2"><Key size={13} class="text-accent shrink-0" />Primary Key</span>
+                <code class="text-xs text-fg-2 font-mono truncate">{tableInfo.primary_key}</code>
               {/if}
               {#if tableInfo.sampling_key}
-                <span class="text-gray-500 inline-flex items-center gap-2"><Key size={13} class="shrink-0" />Sampling Key</span>
-                <code class="text-xs text-gray-700 dark:text-gray-300 font-mono truncate">{tableInfo.sampling_key}</code>
+                <span class="text-fg-3 inline-flex items-center gap-2"><Key size={13} class="shrink-0" />Sampling Key</span>
+                <code class="text-xs text-fg-2 font-mono truncate">{tableInfo.sampling_key}</code>
               {/if}
               </div>
             </div>
@@ -394,22 +394,22 @@
         {#if tableInfo.create_table_query}
           <div class="px-4 pb-5">
             <div class="mb-2.5 flex items-center justify-between">
-              <h4 class="text-xs text-gray-500 uppercase tracking-wider">Create Table SQL</h4>
-              <span class="text-[11px] text-gray-400">Syntax highlighted</span>
+              <h4 class="text-xs text-fg-3 uppercase tracking-wider">Create Table SQL</h4>
+              <span class="text-[11px] text-fg-4">Syntax highlighted</span>
             </div>
-            <div class="relative bg-gray-50/80 dark:bg-gray-900/80 border border-gray-200 dark:border-gray-800 rounded-xl p-2">
+            <div class="relative bg-surface border border-edge-subtle rounded-md p-2">
               <button
-                class="absolute top-2 right-2 z-10 p-1.5 rounded-md bg-gray-200/80 dark:bg-gray-800/80 hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                class="absolute top-2 right-2 z-10 p-1.5 rounded-md bg-surface-2 hover:bg-hover transition-colors text-fg-3 hover:text-fg"
                 onclick={handleCopy}
                 title="Copy CREATE TABLE"
               >
                 {#if copied}
-                  <Check size={13} class="text-green-500" />
+                  <Check size={13} class="text-success" />
                 {:else}
                   <Copy size={13} />
                 {/if}
               </button>
-              <div class="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-800" bind:this={cmContainer}></div>
+              <div class="rounded-lg overflow-hidden border border-edge-subtle" bind:this={cmContainer}></div>
             </div>
           </div>
         {/if}
@@ -419,23 +419,23 @@
       {#if schemaLoading}
         <div class="flex items-center justify-center py-12 gap-2">
           <Spinner size="sm" />
-          <span class="text-sm text-gray-500">Loading schema...</span>
+          <span class="text-sm text-fg-3">Loading schema...</span>
         </div>
       {:else if schemaError}
         <div class="p-4">
-          <div class="bg-red-100/20 dark:bg-red-900/20 border border-red-300/50 dark:border-red-800/50 rounded-lg p-3 text-sm text-red-700 dark:text-red-300">{schemaError}</div>
+          <div class="rounded-md bg-danger-soft p-3 text-[13px] text-fg">{schemaError}</div>
         </div>
       {:else if schemaMeta.length > 0}
-        <div class="flex items-center justify-end px-3 py-1.5 border-b border-gray-200 dark:border-gray-800">
+        <div class="flex items-center justify-end px-3 py-1.5 border-b border-edge-subtle">
           <button
             class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md transition-colors
-              bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+ bg-surface-2 text-fg-2 hover:bg-hover"
             onclick={openSchemaCopyMenu}
             title="Copy schema to clipboard"
           >
             <Copy size={12} />
             Copy Schema
-            <ChevronDown size={11} class="text-gray-400 transition-transform {schemaCopyMenuOpen ? 'rotate-180' : ''}" />
+            <ChevronDown size={11} class="text-fg-4 transition-transform {schemaCopyMenuOpen ? 'rotate-180' : ''}" />
           </button>
         </div>
         <ContextMenu
@@ -447,7 +447,7 @@
         />
         <VirtualTable meta={schemaMeta} data={schemaData} />
       {:else}
-        <div class="flex items-center justify-center py-12 text-gray-400 dark:text-gray-600 text-sm">No schema data</div>
+        <div class="flex items-center justify-center py-12 text-fg-4 text-sm">No schema data</div>
       {/if}
 
     {:else if activeSubTab === 'data'}

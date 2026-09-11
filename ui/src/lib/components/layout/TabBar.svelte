@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Button from '../common/Button.svelte'
   import {
     getGroupTabs,
     getGroupActiveTabId,
@@ -68,7 +69,6 @@
     'query': SquareTerminal,
     'table': Table2,
     'database': Database,
-    'dashboard': LayoutDashboard,
     'saved-queries': Bookmark,
     'dashboards': LayoutDashboard,
     'schedules': Clock,
@@ -100,11 +100,6 @@
     e.preventDefault()
     e.stopPropagation()
     tabMenu = { tabId, x: e.clientX, y: e.clientY }
-  }
-
-  function getMenuTab(): Tab | undefined {
-    if (!tabMenu) return undefined
-    return getTabs().find(t => t.id === tabMenu?.tabId)
   }
 
   function startRename(tab: Tab) {
@@ -427,7 +422,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="relative flex items-center border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 overflow-x-auto shrink-0 whitespace-nowrap"
+  class="relative flex h-9 shrink-0 items-end overflow-x-auto whitespace-nowrap border-b border-edge-subtle bg-sidebar"
   ondragover={handleContainerDragOver}
   ondrop={handleContainerDrop}
 >
@@ -435,13 +430,13 @@
     {@const Icon = getIcon(tab)}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="group/tab flex items-center gap-2 h-9 text-[13px] border-r border-gray-200 dark:border-gray-800 shrink-0 cursor-pointer select-none
-        {isHomeTab(tab) ? 'px-2.5 w-10 justify-center' : 'px-3.5 max-w-[260px]'}
+      class="group/tab relative flex h-9 shrink-0 cursor-pointer select-none items-center gap-2 text-[13px] transition-colors
+        {isHomeTab(tab) ? 'w-10 justify-center px-2.5' : 'max-w-[240px] pl-3 pr-2'}
         {tab.id === activeId
-          ? 'bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 border-b-2 border-b-ch-blue'
-          : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100/50 dark:hover:bg-gray-900/50'}
+          ? 'bg-canvas text-fg shadow-[inset_0_2px_0_var(--accent)]'
+          : 'text-fg-3 hover:bg-hover hover:text-fg'}
         {dragTabId === tab.id ? 'opacity-40' : ''}
-        {dropTargetIndex === i && dragTabId !== tab.id ? 'border-l-2 !border-l-ch-blue' : ''}"
+        {dropTargetIndex === i && dragTabId !== tab.id ? 'shadow-[inset_2px_0_0_var(--accent)]' : ''}"
       draggable={!isHomeTab(tab)}
       onclick={() => handleTabClick(tab.id)}
       oncontextmenu={(e) => openTabMenu(e, tab.id)}
@@ -462,12 +457,12 @@
       aria-selected={tab.id === activeId}
       title={tab.name}
     >
-      <Icon size={13} class="shrink-0" />
+      <Icon size={13} class="shrink-0 {tab.id === activeId ? 'text-accent' : ''}" />
 
       {#if editingTabId === tab.id}
         <input
           type="text"
-          class="w-full bg-transparent border-b border-ch-blue text-[13px] outline-none text-gray-800 dark:text-gray-200 leading-none"
+          class="w-full border-b border-accent bg-transparent text-[13px] leading-none text-fg outline-none"
           bind:value={editingName}
           onblur={commitRename}
           onkeydown={handleRenameKeydown}
@@ -481,13 +476,9 @@
         {/if}
       {/if}
 
-      {#if (tab.type === 'query' && tab.dirty) || (tab.type === 'model' && (tab as ModelTab).dirty)}
-        <span class="w-1.5 h-1.5 rounded-full bg-ch-orange shrink-0"></span>
-      {/if}
-
       {#if getTabs().length > 1 && !isHomeTab(tab)}
         <button
-          class="p-0.5 rounded text-gray-400 hover:text-ch-blue hover:bg-gray-300 dark:hover:bg-gray-700 shrink-0 opacity-0 group-hover/tab:opacity-100 transition-opacity"
+          class="shrink-0 rounded-sm p-0.5 text-fg-4 opacity-0 transition-opacity hover:bg-active hover:text-fg group-hover/tab:opacity-100"
           onclick={(e) => handleSplit(e, tab.id)}
           title="Split tab"
         >
@@ -496,32 +487,32 @@
       {/if}
 
       {#if !isHomeTab(tab)}
-        <button
-          class="ml-auto p-0.5 rounded hover:bg-gray-300 dark:hover:bg-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 shrink-0"
-          onclick={(e: MouseEvent) => { e.stopPropagation(); requestCloseTabs([tab.id]) }}
-          title="Close tab"
-        >
-          <X size={13} />
-        </button>
+        {@const dirty = (tab.type === 'query' && tab.dirty) || (tab.type === 'model' && (tab as ModelTab).dirty)}
+        <span class="relative ml-auto flex h-4 w-4 shrink-0 items-center justify-center">
+          {#if dirty}
+            <span class="h-1.5 w-1.5 rounded-full bg-accent group-hover/tab:hidden" title="Unsaved changes"></span>
+          {/if}
+          <button
+            class="absolute inset-0 items-center justify-center rounded-sm text-fg-4 hover:bg-active hover:text-fg {dirty ? 'hidden group-hover/tab:flex' : 'flex opacity-0 group-hover/tab:opacity-100'} {tab.id === activeId && !dirty ? 'opacity-100' : ''}"
+            onclick={(e: MouseEvent) => { e.stopPropagation(); requestCloseTabs([tab.id]) }}
+            title="Close tab"
+          >
+            <X size={12} />
+          </button>
+        </span>
       {/if}
     </div>
   {/each}
 
-  <button
-    class="px-2.5 h-9 text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200/50 dark:hover:bg-gray-800/50 shrink-0"
-    onclick={() => openQueryTab('', groupId)}
-    title="New query"
-  >
+  <Button icon variant="ghost" size="sm" class="mx-1 self-center" onclick={() => openQueryTab('', groupId)} title="New query" aria-label="New query">
     <Plus size={15} />
-  </button>
+  </Button>
 
   {#if !split && dragTabId}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="mx-1 my-1 px-2.5 py-1 text-[11px] rounded-md border border-dashed transition-colors shrink-0
-      {splitDropActive
-        ? 'border-ch-blue text-ch-blue bg-ch-blue/10'
-        : 'border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400'}"
+      class="mx-1 my-1 shrink-0 self-center rounded-md border border-dashed px-2.5 py-1 text-[11px] transition-colors
+      {splitDropActive ? 'border-accent bg-accent-soft text-accent' : 'border-edge text-fg-3'}"
       ondragover={handleSplitDropOver}
       ondragleave={handleSplitDropLeave}
       ondrop={handleSplitDrop}

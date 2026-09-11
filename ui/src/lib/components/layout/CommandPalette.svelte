@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goTo, pushDashboardDetail } from '../../stores/router.svelte'
   import { tick, onMount, untrack } from 'svelte'
   import {
     Search, Plus, Table2, Sparkles, LayoutDashboard, Bookmark, Clock,
@@ -8,16 +9,15 @@
     Cpu, Info, Hash, Zap,
   } from 'lucide-svelte'
   import { closeCommandPalette, isCommandPaletteOpen } from '../../stores/command-palette.svelte'
-  import {
-    openQueryTab, openSingletonTab, openTableTab, openDashboardTab,
-    getTabs, openHomeTab,
-  } from '../../stores/tabs.svelte'
-  import type { SingletonTab } from '../../stores/tabs.svelte'
+  import { openQueryTab, openTableTab, getTabs, openHomeTab } from '../../stores/tabs.svelte'
+  import type { PageRoute } from '../../routes'
   import { getDatabases, loadDatabases, loadTables } from '../../stores/schema.svelte'
   import { getSession, logout } from '../../stores/session.svelte'
   import { getTheme, toggleTheme } from '../../stores/theme.svelte'
   import { isProActive } from '../../stores/license.svelte'
   import { listWorkspaceDashboards, listWorkspaceSavedQueries } from '../../api/workspace'
+  import { listDashboardFolders, folderPath } from '../../api/dashboards'
+  import type { DashboardFolder } from '../../types/api'
   import { listModels } from '../../api/models'
   import { listPipelines } from '../../api/pipelines'
   import { listBrainChats } from '../../api/brain'
@@ -75,7 +75,8 @@
   let scopeGroup = $state<Group | null>(null)
 
   let savedQueries = $state<Array<{ id: string; name: string; description?: string | null }>>([])
-  let dashboards = $state<Array<{ id: string; name: string; description?: string | null }>>([])
+  let dashboards = $state<Array<{ id: string; name: string; description?: string | null; folder_id?: string | null }>>([])
+  let dashboardFolders = $state<DashboardFolder[]>([])
   let models = $state<Array<{ id: string; name: string; description?: string | null; target_database?: string }>>([])
   let pipelines = $state<Array<{ id: string; name: string; description?: string | null; status?: string }>>([])
   let brainChats = $state<Array<{ id: string; title: string }>>([])
@@ -112,19 +113,19 @@
 
     items.push(
       mkPage('home', 'Home', Home, () => openHomeTab(), { weight: 10, keywords: 'home start workspace' }),
-      mkPage('saved-queries', 'Saved Queries', Bookmark, () => openSingletonTab('saved-queries', 'Saved Queries'), { keywords: 'bookmarks queries history' }),
-      mkPage('dashboards', 'Dashboards', LayoutDashboard, () => openSingletonTab('dashboards', 'Dashboards'), { keywords: 'charts panels metrics dash' }),
-      mkPage('schedules', 'Schedules', Clock, () => openSingletonTab('schedules', 'Schedules'), { keywords: 'cron runs scheduled jobs' }),
-      mkPage('brain', 'Brain AI', Brain, () => openSingletonTab('brain', 'Brain'), { keywords: 'ai assistant chat agent llm' }),
-      mkPage('pipelines', 'Pipelines', Workflow, () => openSingletonTab('pipelines', 'Pipelines'), { keywords: 'ingest etl streams' }),
-      mkPage('models', 'Models', Boxes, () => openSingletonTab('models', 'Models'), { keywords: 'dbt models materialize' }),
-      mkPage('governance', 'Governance', Scale, () => openSingletonTab('governance', 'Governance'), { keywords: 'access policies rules audit' }),
-      mkPage('cluster-health', 'Cluster Health', HeartPulse, () => openSingletonTab('cluster-health', 'Cluster Health'), { keywords: 'replication merges mutations parts keeper backups monitoring' }),
-      mkPage('query-insights', 'Query Insights', Gauge, () => openSingletonTab('query-insights', 'Query Insights'), { keywords: 'query log latency slow p95 errors memory insights analytics' }),
-      mkPage('cost-center', 'Cost Center', Coins, () => openSingletonTab('cost-center', 'Cost Center'), { keywords: 'costs chargeback showback spend budget billing finops teams' }),
-      mkPage('telemetry', 'Telemetry', Activity, () => openSingletonTab('telemetry', 'Telemetry'), { keywords: 'otel observability logs traces metrics' }),
-      mkPage('admin', 'Admin', Shield, () => openSingletonTab('admin', 'Admin'), { keywords: 'users audit query log' }),
-      mkPage('settings', 'Settings', Settings, () => openSingletonTab('settings', 'Settings'), { keywords: 'config preferences license' }),
+      mkPage('saved-queries', 'Saved Queries', Bookmark, () => goTo('saved-queries', 'Saved Queries'), { keywords: 'bookmarks queries history' }),
+      mkPage('dashboards', 'Dashboards', LayoutDashboard, () => goTo('dashboards', 'Dashboards'), { keywords: 'charts panels metrics dash' }),
+      mkPage('schedules', 'Schedules', Clock, () => goTo('schedules', 'Schedules'), { keywords: 'cron runs scheduled jobs' }),
+      mkPage('brain', 'Brain AI', Brain, () => goTo('brain', 'Brain'), { keywords: 'ai assistant chat agent llm' }),
+      mkPage('pipelines', 'Pipelines', Workflow, () => goTo('pipelines', 'Pipelines'), { keywords: 'ingest etl streams' }),
+      mkPage('models', 'Models', Boxes, () => goTo('models', 'Models'), { keywords: 'dbt models materialize' }),
+      mkPage('governance', 'Governance', Scale, () => goTo('governance', 'Governance'), { keywords: 'access policies rules audit' }),
+      mkPage('cluster-health', 'Cluster Health', HeartPulse, () => goTo('cluster-health', 'Cluster Health'), { keywords: 'replication merges mutations parts keeper backups monitoring' }),
+      mkPage('query-insights', 'Query Insights', Gauge, () => goTo('query-insights', 'Query Insights'), { keywords: 'query log latency slow p95 errors memory insights analytics' }),
+      mkPage('cost-center', 'Cost Center', Coins, () => goTo('cost-center', 'Cost Center'), { keywords: 'costs chargeback showback spend budget billing finops teams' }),
+      mkPage('telemetry', 'Telemetry', Activity, () => goTo('telemetry', 'Telemetry'), { keywords: 'otel observability logs traces metrics' }),
+      mkPage('admin', 'Admin', Shield, () => goTo('admin', 'Admin'), { keywords: 'users audit query log' }),
+      mkPage('settings', 'Settings', Settings, () => goTo('settings', 'Settings'), { keywords: 'config preferences license' }),
     )
 
     if (pro) {
@@ -145,7 +146,7 @@
           keywords: kw,
           run: () => {
             setTelemetryTab(slug)
-            openSingletonTab('telemetry', 'Telemetry')
+            goTo('telemetry', 'Telemetry')
           },
         })
       }
@@ -157,10 +158,10 @@
 
     if (pro) {
       items.push(
-        mkAction('new-dashboard', 'New Dashboard', Plus, undefined, () => openSingletonTab('dashboards', 'Dashboards'), 'create dashboard'),
-        mkAction('new-model', 'New Model', Plus, undefined, () => openSingletonTab('models', 'Models'), 'create model dbt'),
-        mkAction('new-pipeline', 'New Pipeline', Plus, undefined, () => openSingletonTab('pipelines', 'Pipelines'), 'create pipeline'),
-        mkAction('new-brain-chat', 'New Brain Chat', Plus, undefined, () => openSingletonTab('brain', 'Brain'), 'new chat brain ai'),
+        mkAction('new-dashboard', 'New Dashboard', Plus, undefined, () => goTo('dashboards', 'Dashboards'), 'create dashboard'),
+        mkAction('new-model', 'New Model', Plus, undefined, () => goTo('models', 'Models'), 'create model dbt'),
+        mkAction('new-pipeline', 'New Pipeline', Plus, undefined, () => goTo('pipelines', 'Pipelines'), 'create pipeline'),
+        mkAction('new-brain-chat', 'New Brain Chat', Plus, undefined, () => goTo('brain', 'Brain'), 'new chat brain ai'),
       )
     }
 
@@ -187,7 +188,7 @@
     return items
   }
 
-  function mkPage(slug: SingletonTab['type'] | 'home', label: string, icon: typeof Search,
+  function mkPage(slug: PageRoute | 'home', label: string, icon: typeof Search,
     run: () => void, extras: Partial<CommandItem> = {}): CommandItem {
     return { id: `page-${slug}`, group: 'page', label, sub: 'Open page', icon, run, ...extras }
   }
@@ -217,7 +218,7 @@
         label: q.name,
         sub: q.description || 'Saved query',
         icon: Bookmark,
-        run: () => openSingletonTab('saved-queries', 'Saved Queries'),
+        run: () => goTo('saved-queries', 'Saved Queries'),
       })
     }
 
@@ -226,9 +227,9 @@
         id: `dash-${d.id}`,
         group: 'dashboard',
         label: d.name,
-        sub: d.description || 'Dashboard',
+        sub: folderPath(dashboardFolders, d.folder_id).join(' / ') || d.description || 'Dashboard',
         icon: LayoutDashboard,
-        run: () => openDashboardTab(d.id, d.name),
+        run: () => pushDashboardDetail(d.id),
       })
     }
 
@@ -239,7 +240,7 @@
         label: m.name,
         sub: m.target_database ? `Model · ${m.target_database}` : (m.description || 'Model'),
         icon: Cpu,
-        run: () => openSingletonTab('models', 'Models'),
+        run: () => goTo('models', 'Models'),
       })
     }
 
@@ -250,7 +251,7 @@
         label: p.name,
         sub: p.status ? `Pipeline · ${p.status}` : (p.description || 'Pipeline'),
         icon: Workflow,
-        run: () => openSingletonTab('pipelines', 'Pipelines'),
+        run: () => goTo('pipelines', 'Pipelines'),
       })
     }
 
@@ -261,7 +262,7 @@
         label: c.title || 'Untitled chat',
         sub: 'Brain chat',
         icon: MessageSquare,
-        run: () => openSingletonTab('brain', 'Brain'),
+        run: () => goTo('brain', 'Brain'),
       })
     }
 
@@ -299,13 +300,7 @@
         ? SquareTerminal
         : tab.type === 'table'
           ? Table2
-          : tab.type === 'dashboard'
-            ? LayoutDashboard
-            : tab.type === 'brain'
-              ? Brain
-              : tab.type === 'telemetry'
-                ? Activity
-                : Sparkles
+          : Sparkles
       items.push({
         id,
         group: 'recent',
@@ -314,9 +309,8 @@
         icon,
         run: () => {
           if (tab.type === 'table') openTableTab(tab.database, tab.table)
-          else if (tab.type === 'dashboard') openDashboardTab(tab.dashboardId, tab.name)
           else if (tab.type === 'query') openQueryTab(tab.sql)
-          else openSingletonTab(tab.type as SingletonTab['type'], tab.name)
+          else goTo(tab.type as unknown as PageRoute)
         },
       })
     }
@@ -355,7 +349,7 @@
         try {
           sessionStorage.setItem('ch-ui-brain-prompt-seed', t)
         } catch {}
-        openSingletonTab('brain', 'Brain')
+        goTo('brain', 'Brain')
       },
     }
   })
@@ -450,12 +444,14 @@
       listModels().then(r => r.models ?? []).catch(() => []),
       listPipelines().then(r => r.pipelines ?? []).catch(() => []),
       listBrainChats(false).catch(() => []),
+      listDashboardFolders().catch((): DashboardFolder[] => []),
     ])
     if (results[0].status === 'fulfilled') savedQueries = results[0].value
     if (results[1].status === 'fulfilled') dashboards = results[1].value
     if (results[2].status === 'fulfilled') models = results[2].value
     if (results[3].status === 'fulfilled') pipelines = results[3].value
     if (results[4].status === 'fulfilled') brainChats = results[4].value
+    if (results[5].status === 'fulfilled') dashboardFolders = results[5].value
   }
 
   function persistRecent(id: string) {
@@ -551,17 +547,17 @@
 {#if open}
   <button
     type="button"
-    class="fixed inset-0 z-[80] bg-gray-950/45 backdrop-blur-sm"
+    class="fixed inset-0 z-[80] bg-canvas/45 backdrop-blur-sm"
     aria-label="Close command palette"
     onclick={() => closeCommandPalette()}
   ></button>
   <div class="fixed inset-0 z-[81] flex items-start justify-center pt-[10vh] px-4 pointer-events-none">
-    <div class="surface-card w-full max-w-2xl rounded-2xl overflow-hidden pointer-events-auto">
+    <div class="surface-card w-full max-w-2xl rounded-lg overflow-hidden pointer-events-auto">
       <!-- Input row -->
-      <div class="flex items-center gap-2 px-3 py-2.5 border-b border-gray-200/80 dark:border-gray-800/80">
-        <Search size={14} class="text-gray-500 shrink-0" />
+      <div class="flex items-center gap-2 px-3 py-2.5 border-b border-edge-subtle">
+        <Search size={14} class="text-fg-3 shrink-0" />
         {#if scopeChip}
-          <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-ch-blue/10 text-ch-blue text-[10px] font-medium shrink-0">
+          <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-accent-soft text-accent text-[10px] font-medium shrink-0">
             <Hash size={10} />
             {scopeChip.label}
           </span>
@@ -574,19 +570,19 @@
           placeholder={scopeChip
             ? `Search ${scopeChip.label.toLowerCase()}…`
             : pro ? 'Search anything · try ? for help' : 'Search actions, tables, tabs...'}
-          class="w-full bg-transparent text-sm text-gray-800 dark:text-gray-200 placeholder:text-gray-400 outline-none"
+          class="w-full bg-transparent text-sm text-fg placeholder:text-fg-4 outline-none"
         />
-        <span class="text-[10px] text-gray-400 px-2 py-1 rounded border border-gray-300/70 dark:border-gray-700/80 shrink-0">ESC</span>
+        <span class="text-[10px] text-fg-4 px-2 py-1 rounded border border-edge shrink-0">ESC</span>
       </div>
 
       <!-- Results -->
       <div class="max-h-[60vh] overflow-y-auto p-1.5">
         {#if grouped.length === 0}
-          <div class="px-3 py-10 text-center text-sm text-gray-500">
-            <Search size={20} class="mx-auto mb-2 text-gray-400" />
+          <div class="px-3 py-10 text-center text-sm text-fg-3">
+            <Search size={20} class="mx-auto mb-2 text-fg-4" />
             No match for "{parsed.term || query}"
             {#if pro}
-              <div class="mt-3 text-[11px] text-gray-400">
+              <div class="mt-3 text-[11px] text-fg-4">
                 Try <code class="text-[10px]">?</code> for help · <code class="text-[10px]">&gt;</code> for actions · <code class="text-[10px]">t:</code> for tables
               </div>
             {/if}
@@ -594,10 +590,10 @@
         {:else if pro}
           {#each grouped as g (g.group)}
             <div class="px-2 pt-2 pb-1 flex items-center gap-2">
-              <span class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-medium">
+              <span class="text-[10px] uppercase tracking-wide text-fg-3 font-medium">
                 {GROUP_LABEL[g.group]}
               </span>
-              <span class="text-[10px] text-gray-400">{g.items.length}</span>
+              <span class="text-[10px] text-fg-4">{g.items.length}</span>
             </div>
             {#each g.items as entry (entry.item.id)}
               {@const item = entry.item}
@@ -605,28 +601,28 @@
               {@const active = flatIdx === selectedIdx}
               <button
                 class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors
-                  {active ? 'bg-ch-blue/10 text-ch-blue' : 'hover:bg-gray-200/55 dark:hover:bg-gray-800/60 text-gray-700 dark:text-gray-300'}"
+                  {active ? 'bg-accent-soft text-accent' : 'hover:bg-hover text-fg-2'}"
                 onclick={() => runCommand(item)}
                 onmouseenter={() => (selectedIdx = flatIdx)}
               >
-                <item.icon size={15} class={active ? 'text-ch-blue' : 'text-gray-500'} />
+                <item.icon size={15} class={active ? 'text-ch-orange' : 'text-fg-3'} />
                 <span class="flex-1 min-w-0">
                   <span class="block text-sm font-medium truncate">
                     {#each highlight(item.label, parsed.term) as h}
-                      <span class={h.on ? 'text-ch-blue font-semibold' : ''}>{h.ch}</span>
+                      <span class={h.on ? 'text-ch-orange font-semibold' : ''}>{h.ch}</span>
                     {/each}
                   </span>
                   {#if item.sub}
-                    <span class="block text-[11px] text-gray-500 dark:text-gray-400 truncate">{item.sub}</span>
+                    <span class="block text-[11px] text-fg-3 truncate">{item.sub}</span>
                   {/if}
                 </span>
                 {#if item.shortcut}
-                  <span class="text-[10px] text-gray-500 px-1.5 py-0.5 rounded border border-gray-300/70 dark:border-gray-700/80 font-mono shrink-0">
+                  <span class="text-[10px] text-fg-3 px-1.5 py-0.5 rounded border border-edge font-mono shrink-0">
                     {item.shortcut}
                   </span>
                 {/if}
                 {#if active}
-                  <span class="text-[10px] text-gray-500 px-2 py-1 rounded border border-gray-300/70 dark:border-gray-700/80 shrink-0">ENTER</span>
+                  <span class="text-[10px] text-fg-3 px-2 py-1 rounded border border-edge shrink-0">ENTER</span>
                 {/if}
               </button>
             {/each}
@@ -634,19 +630,19 @@
         {:else}
           {#each flat as item, idx (item.id)}
             <button
-              class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors {idx === selectedIdx ? 'bg-ch-blue/10 text-ch-blue' : 'hover:bg-gray-200/55 dark:hover:bg-gray-800/60 text-gray-700 dark:text-gray-300'}"
+              class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors {idx === selectedIdx ? 'bg-accent-soft text-accent' : 'hover:bg-hover text-fg-2'}"
               onclick={() => runCommand(item)}
               onmouseenter={() => selectedIdx = idx}
             >
-              <item.icon size={15} class={idx === selectedIdx ? 'text-ch-blue' : 'text-gray-500'} />
+              <item.icon size={15} class={idx === selectedIdx ? 'text-ch-orange' : 'text-fg-3'} />
               <span class="flex-1 min-w-0">
                 <span class="block text-sm font-medium truncate">{item.label}</span>
                 {#if item.sub}
-                  <span class="block text-[11px] text-gray-500 dark:text-gray-400 truncate">{item.sub}</span>
+                  <span class="block text-[11px] text-fg-3 truncate">{item.sub}</span>
                 {/if}
               </span>
               {#if idx === selectedIdx}
-                <span class="text-[10px] text-gray-500 px-2 py-1 rounded border border-gray-300/70 dark:border-gray-700/80">ENTER</span>
+                <span class="text-[10px] text-fg-3 px-2 py-1 rounded border border-edge">ENTER</span>
               {/if}
             </button>
           {/each}
@@ -654,7 +650,7 @@
       </div>
 
       <!-- Footer -->
-      <div class="px-3 py-2 border-t border-gray-200/80 dark:border-gray-800/80 text-[11px] text-gray-500 dark:text-gray-400 flex items-center justify-between">
+      <div class="px-3 py-2 border-t border-edge-subtle text-[11px] text-fg-3 flex items-center justify-between">
         <span>
           <span class="font-medium">↑↓</span> navigate · <span class="font-medium">↵</span> run · <span class="font-medium">esc</span> close
         </span>

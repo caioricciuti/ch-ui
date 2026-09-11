@@ -1,39 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getActiveTab, openQueryTab, openSingletonTab, openTableTab } from '../../stores/tabs.svelte'
-  import type { SingletonTab } from '../../stores/tabs.svelte'
+  import Button from '../common/Button.svelte'
+  import { goTo, goWorkspace, getRouteType } from '../../stores/router.svelte'
+  import { groupForRoute, NAV_GROUPS, ADMIN_ONLY_ROUTES, type NavGroup } from '../../routes'
   import { getSession, logout } from '../../stores/session.svelte'
   import { toggleTheme, getTheme } from '../../stores/theme.svelte'
   import { openCommandPalette } from '../../stores/command-palette.svelte'
-  import { isProActive, loadLicense } from '../../stores/license.svelte'
+  import { loadLicense } from '../../stores/license.svelte'
   import { checkForUpdate, hasUpdate, getLatestVersion } from '../../stores/update-check.svelte'
   import { fetchNodeInfo, fetchClusterInfo } from '../../api/query'
-  import DatabaseTree from '../explorer/DatabaseTree.svelte'
   import {
-    Plus,
-    Bookmark,
-    LayoutDashboard,
-    Clock,
-    Brain,
-    Shield,
-    Scale,
-    Workflow,
-    Boxes,
-    Settings,
-    Database,
-    Sun,
-    Moon,
-    LogOut,
-    Search,
-    ChevronDown,
-    ExternalLink,
-    ChevronLeft,
-    ChevronRight,
-    Activity,
-    ArrowUpCircle,
-    Server,
-    HeartPulse,
-    Gauge, Coins,
+    Compass, LayoutDashboard, Hammer, Activity, Settings, SquareTerminal,
+    Sun, Moon, LogOut, Search, ArrowUpCircle,
   } from 'lucide-svelte'
 
   const session = $derived(getSession())
@@ -43,57 +21,37 @@
   let clusterNodeCount = $state(0)
   const updateAvailable = $derived(session?.appVersion ? hasUpdate(session.appVersion) : false)
 
-  interface NavItemInternal {
-    type: SingletonTab['type']
-    label: string
-    icon: typeof Bookmark
-    pro?: boolean
-    adminOnly?: boolean
+  // One icon per group. Six is learnable; fourteen is not.
+  const GROUP_ICONS: Record<NavGroup['id'], typeof Compass> = {
+    query: SquareTerminal,
+    explore: Compass,
+    visualize: LayoutDashboard,
+    build: Hammer,
+    operate: Activity,
+    settings: Settings,
   }
-  interface NavItemExternal {
-    type: 'external'
-    label: string
-    icon: typeof Bookmark
-    href: string
-  }
-  type NavItem = NavItemInternal | NavItemExternal
 
-  const navItems: NavItem[] = [
-    { type: 'saved-queries', label: 'Saved Queries', icon: Bookmark },
-    { type: 'dashboards', label: 'Dashboards', icon: LayoutDashboard },
-    { type: 'telemetry', label: 'Telemetry', icon: Activity },
-    { type: 'pipelines', label: 'Pipelines', icon: Workflow },
-    { type: 'models', label: 'Models', icon: Boxes },
-    { type: 'schedules', label: 'Schedules', icon: Clock, pro: true },
-    { type: 'brain', label: 'Brain', icon: Brain },
-    { type: 'governance', label: 'Governance', icon: Scale, pro: true },
-    { type: 'cluster-health', label: 'Cluster Health', icon: HeartPulse, pro: true },
-    { type: 'query-insights', label: 'Query Insights', icon: Gauge, pro: true },
-    { type: 'cost-center', label: 'Cost Center', icon: Coins, pro: true },
-    { type: 'admin', label: 'Admin', icon: Shield, adminOnly: true },
-    { type: 'settings', label: 'License', icon: Settings },
-    { type: 'external', label: 'CH-UI Docs', icon: ExternalLink, href: 'https://ch-ui.com/docs' },
-  ]
-
-  const MIN_WIDTH = 200
-  const MAX_WIDTH = 500
-  const COLLAPSE_THRESHOLD = 120
-  const COLLAPSED_WIDTH = 40
-  const DEFAULT_WIDTH = 244
-
-  const savedCollapsed = localStorage.getItem('ch-ui-sidebar-collapsed') === 'true'
-  const savedWidth = parseInt(localStorage.getItem('ch-ui-sidebar-width') ?? String(DEFAULT_WIDTH), 10)
-  const savedMenuCollapsed = localStorage.getItem('ch-ui-sidebar-menu-collapsed') === 'true'
-
-  let collapsed = $state(savedCollapsed)
-  let sidebarWidth = $state(isNaN(savedWidth) ? DEFAULT_WIDTH : savedWidth)
-  let menuCollapsed = $state(savedMenuCollapsed)
-  let dragging = $state(false)
-  const licensedPro = $derived(isProActive())
-  const activeTab = $derived(getActiveTab())
-  const visibleNavItems = $derived(
-    navItems.filter((item) => item.type === 'external' || !item.adminOnly || session?.role === 'admin'),
+  const activeGroup = $derived(groupForRoute(getRouteType()))
+  const railGroups = NAV_GROUPS.filter((g) => g.id !== 'settings' && g.id !== 'query')
+  const settingsGroup = NAV_GROUPS.find((g) => g.id === 'settings')!
+  const settingsFirst = $derived(
+    settingsGroup.routes.find((r) => !ADMIN_ONLY_ROUTES.has(r) || session?.role === 'admin') ?? 'settings',
   )
+  const connectionTitle = $derived(
+    session
+      ? [
+          `${session.connectionName ?? 'CH-UI'} as ${session.user}`,
+          nodeHostname ?? '',
+          clusterName ? `${clusterName} (${clusterNodeCount} nodes)` : '',
+          session.connectionOnline ? 'Connected' : 'Disconnected',
+        ].filter(Boolean).join('\n')
+      : '',
+  )
+
+  function openGroup(g: NavGroup) {
+    // Land on the group's first page; the panel lists the rest.
+    goTo(g.routes[0])
+  }
 
   async function loadNodeAndClusterInfo() {
     try {
@@ -114,306 +72,86 @@
   }
 
   onMount(() => {
-    loadLicense()
-    if (session?.appVersion) checkForUpdate(session.appVersion)
-    if (session) loadNodeAndClusterInfo()
-
-    function handleKeydown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
-        e.preventDefault()
-        toggleCollapse()
-      }
-    }
-
-    document.addEventListener('keydown', handleKeydown)
-
-    return () => {
-      document.removeEventListener('mousemove', onDragMove)
-      document.removeEventListener('mouseup', onDragEnd)
-      document.removeEventListener('keydown', handleKeydown)
-    }
+    void loadLicense()
+    if (session?.appVersion) void checkForUpdate(session.appVersion)
+    if (session) void loadNodeAndClusterInfo()
   })
 
-  function toggleCollapse() {
-    collapsed = !collapsed
-    localStorage.setItem('ch-ui-sidebar-collapsed', String(collapsed))
-  }
-
-  function toggleMenuCollapsed() {
-    menuCollapsed = !menuCollapsed
-    localStorage.setItem('ch-ui-sidebar-menu-collapsed', String(menuCollapsed))
-  }
-
-  function handleSelectTable(database: string, table: string) {
-    openTableTab(database, table)
-  }
-
-  function isNavItemActive(type: SingletonTab['type']): boolean {
-    if (!activeTab) return false
-    if (type === 'dashboards') return activeTab.type === 'dashboards' || activeTab.type === 'dashboard'
-    if (type === 'models') return activeTab.type === 'models'
-    return activeTab.type === type
-  }
-
-  // ── Drag handle logic ──
-  function onDragStart(e: MouseEvent) {
-    e.preventDefault()
-    dragging = true
-    document.addEventListener('mousemove', onDragMove)
-    document.addEventListener('mouseup', onDragEnd)
-  }
-
-  function onDragMove(e: MouseEvent) {
-    const newWidth = e.clientX
-    if (newWidth < COLLAPSE_THRESHOLD) {
-      collapsed = true
-      localStorage.setItem('ch-ui-sidebar-collapsed', 'true')
-    } else {
-      collapsed = false
-      localStorage.setItem('ch-ui-sidebar-collapsed', 'false')
-      sidebarWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth))
-    }
-  }
-
-  function onDragEnd() {
-    dragging = false
-    document.removeEventListener('mousemove', onDragMove)
-    document.removeEventListener('mouseup', onDragEnd)
-    localStorage.setItem('ch-ui-sidebar-width', String(sidebarWidth))
-  }
 </script>
 
-<div class="flex shrink-0 h-full">
-  <nav
-    class="flex flex-col border-r border-gray-200/80 dark:border-gray-800/80 bg-white dark:bg-gray-950 overflow-hidden transition-[width] {dragging ? 'duration-0' : 'duration-200'}"
-    style="width: {collapsed ? COLLAPSED_WIDTH : sidebarWidth}px"
+<nav class="flex h-full w-12 shrink-0 flex-col items-center border-r border-edge-subtle bg-sidebar py-2" aria-label="Primary">
+  <Button icon variant="ghost" size="sm" onclick={openCommandPalette} title="Search or run a command (⌘K)" aria-label="Command menu">
+    <Search size={15} />
+  </Button>
+
+  <span class="my-1.5 h-px w-5 bg-edge"></span>
+
+  <button
+    class="relative inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors {activeGroup.id === 'query' ? 'bg-active text-accent' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
+    onclick={goWorkspace}
+    title="Query workspace (⌥N for a new query)"
+    aria-label="Query"
+    aria-current={activeGroup.id === 'query' ? 'page' : undefined}
   >
-    {#if collapsed}
-      <!-- Collapsed: icon-only buttons -->
-      <div class="flex flex-col items-center py-2 gap-1 mt-2">
-        <button
-          class="p-2 rounded text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/40 dark:hover:bg-gray-800/40"
-          onclick={() => openQueryTab()}
-          title="New Query"
-        >
-          <Plus size={17} />
-        </button>
-      </div>
-      <div class="flex-1"></div>
-      <div class="flex flex-col items-center py-2 gap-1 border-t border-gray-200 dark:border-gray-800">
-        {#each visibleNavItems as item}
-          {#if item.type === 'external'}
-            <a
-              class="p-2 rounded transition-colors text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/40 dark:hover:bg-gray-800/40"
-              href={item.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={item.label}
-            >
-              <item.icon size={17} />
-            </a>
-          {:else}
-            <button
-              class="p-2 rounded transition-colors
-                {isNavItemActive(item.type)
-                  ? 'text-ch-orange bg-orange-100/70 dark:bg-orange-500/18'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/40 dark:hover:bg-gray-800/40'}"
-              onclick={() => openSingletonTab(item.type, item.label)}
-              title={item.label}
-            >
-              <item.icon size={17} />
-            </button>
-          {/if}
-        {/each}
-      </div>
-      <!-- Connection status + actions (collapsed) -->
-      <div class="flex flex-col items-center py-2 gap-1 border-t border-gray-200 dark:border-gray-800">
-        {#if session}
-          <span
-            class="w-2 h-2 rounded-full my-1 {session.connectionOnline ? 'bg-green-500' : 'bg-red-500'}"
-            title={session.connectionOnline ? 'Connected' : 'Disconnected'}
-          ></span>
-        {/if}
-        <button
-          class="p-2 rounded text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/40 dark:hover:bg-gray-800/40"
-          onclick={toggleTheme}
-          title="Toggle theme"
-        >
-          {#if getTheme() === 'dark'}
-            <Sun size={17} />
-          {:else}
-            <Moon size={17} />
-          {/if}
-        </button>
-        {#if session}
-          <button
-            class="p-2 rounded text-gray-500 dark:text-gray-400 hover:text-red-400 hover:bg-gray-200/40 dark:hover:bg-gray-800/40"
-            onclick={logout}
-            title="Logout"
-          >
-            <LogOut size={17} />
-          </button>
-        {/if}
-        <!-- Expand button at bottom (collapsed state) -->
-        <button
-          class="p-2 rounded text-gray-500 dark:text-gray-400 hover:text-ch-blue dark:hover:text-ch-blue hover:bg-gray-200/40 dark:hover:bg-gray-800/40 transition-colors"
-          onclick={toggleCollapse}
-          title="Expand sidebar (⌘B)"
-        >
-          <ChevronRight size={17} />
-        </button>
-      </div>
-    {:else}
-      <!-- Expanded: full sidebar -->
-      <div class="px-2.5 py-1.5 border-b border-gray-200 dark:border-gray-800">
-        <button
-          class="w-full flex items-center gap-2 px-3 py-2 text-[12px] font-medium rounded-md border border-gray-300/70 dark:border-gray-700/70 text-gray-600 dark:text-gray-300 bg-gray-100/60 dark:bg-gray-900/55 hover:border-ch-blue/50 hover:text-ch-blue transition-colors"
-          onclick={openCommandPalette}
-          title="Open command palette"
-        >
-          <Search size={14} />
-          <span class="flex-1 text-left">Command Menu</span>
-          <kbd class="text-[10px] px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-700 text-gray-500">⌘K / ⌥K</kbd>
-        </button>
-      </div>
-      <div class="flex-1 min-h-0 flex flex-col">
-        <div class="flex-1 min-h-0 overflow-auto border-b border-gray-200 dark:border-gray-800">
-          <DatabaseTree onSelectTable={handleSelectTable} />
-        </div>
+    {#if activeGroup.id === 'query'}<span class="absolute -left-2 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent"></span>{/if}
+    <SquareTerminal size={16} />
+  </button>
 
-        <div class="shrink-0 border-t border-gray-200 dark:border-gray-800">
-          <button
-            class="w-full flex items-center gap-2 px-3.5 py-2 text-[12px] font-medium text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100/70 dark:hover:bg-gray-900/60 transition-colors"
-            onclick={toggleMenuCollapsed}
-            title={menuCollapsed ? 'Expand menu section' : 'Collapse menu section'}
-            aria-expanded={!menuCollapsed}
-          >
-            <span class="uppercase tracking-wide">Menu</span>
-            <ChevronDown size={14} class="ml-auto transition-transform {menuCollapsed ? '' : 'rotate-180'}" />
-          </button>
-
-          {#if !menuCollapsed}
-            <div class="py-1.5">
-              {#each visibleNavItems as item}
-                {#if item.type === 'external'}
-                  <a
-                    class="flex items-center gap-2.5 w-full px-3.5 py-2 text-[13px] font-medium transition-colors text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/40 dark:hover:bg-gray-800/40"
-                    href={item.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <item.icon size={15} />
-                    <span class="truncate">{item.label}</span>
-                  </a>
-                {:else}
-                  <button
-                    class="flex items-center gap-2.5 w-full px-3.5 py-2 text-[13px] font-medium transition-colors
-                      {isNavItemActive(item.type)
-                        ? 'text-ch-orange bg-orange-100/70 dark:bg-orange-500/18 border-l-2 border-ch-orange'
-                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/40 dark:hover:bg-gray-800/40'}"
-                    onclick={() => openSingletonTab(item.type, item.label)}
-                  >
-                    <item.icon size={15} />
-                    <span class="truncate">{item.label}</span>
-                    {#if item.pro && !licensedPro}
-                      <span class="ml-auto text-[10px] uppercase tracking-wider text-ch-orange font-semibold">Pro</span>
-                    {/if}
-                  </button>
-                {/if}
-              {/each}
-            </div>
-
-            <!-- Connection info + actions (expanded) -->
-            <div class="px-3.5 py-2.5 border-t border-gray-200 dark:border-gray-800 shrink-0">
-              {#if session}
-                <div class="flex items-center gap-2 mb-1">
-                  <Database size={14} class="text-ch-blue shrink-0" />
-                  <span class="text-[13px] font-semibold text-gray-700 dark:text-gray-300 truncate">{session.connectionName ?? 'CH-UI'}</span>
-                  <span
-                    class="w-1.5 h-1.5 rounded-full shrink-0 {session.connectionOnline ? 'bg-green-500' : 'bg-red-500'}"
-                    title={session.connectionOnline ? 'Connected' : 'Disconnected'}
-                  ></span>
-                  <span class="text-[10px] text-gray-400 truncate">{session.user}</span>
-                </div>
-                {#if nodeHostname}
-                  <div class="flex items-center gap-1.5 mb-1 px-0.5">
-                    <Server size={11} class="text-gray-400 shrink-0" />
-                    <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate" title="ClickHouse node: {nodeHostname}">{nodeHostname}</span>
-                    {#if clusterName}
-                      <span class="text-[9px] px-1 py-0.5 rounded bg-ch-blue/10 text-ch-blue font-medium truncate" title="Cluster: {clusterName} ({clusterNodeCount} nodes)">{clusterName} · {clusterNodeCount}n</span>
-                    {/if}
-                  </div>
-                {/if}
-              {/if}
-              <div class="flex items-center gap-1">
-                {#if session?.appVersion}
-                  <span class="text-[10px] text-gray-400 dark:text-gray-600 mr-auto flex items-center gap-1">
-                    ch-ui {session.appVersion}
-                    {#if updateAvailable}
-                      <a
-                        href="https://github.com/caioricciuti/ch-ui/releases/latest"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-ch-blue/10 text-ch-blue hover:bg-ch-blue/20 transition-colors"
-                        title="Update available: {getLatestVersion()}"
-                      >
-                        <ArrowUpCircle size={10} />
-                        <span class="text-[9px] font-medium">{getLatestVersion()}</span>
-                      </a>
-                    {/if}
-                  </span>
-                {/if}
-                <div class="flex items-center gap-0.5 ml-auto">
-                  <button
-                    class="p-1 rounded text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/40 dark:hover:bg-gray-800/40 transition-colors"
-                    onclick={toggleTheme}
-                    title="Toggle theme"
-                  >
-                    {#if getTheme() === 'dark'}
-                      <Sun size={14} />
-                    {:else}
-                      <Moon size={14} />
-                    {/if}
-                  </button>
-                  {#if session}
-                    <button
-                      class="p-1 rounded text-gray-500 dark:text-gray-400 hover:text-red-400 hover:bg-gray-200/40 dark:hover:bg-gray-800/40 transition-colors"
-                      onclick={logout}
-                      title="Logout"
-                    >
-                      <LogOut size={14} />
-                    </button>
-                  {/if}
-                  <!-- Collapse button at bottom (expanded state) -->
-                  <button
-                    class="p-1 rounded text-gray-500 dark:text-gray-400 hover:text-ch-blue dark:hover:text-ch-blue hover:bg-gray-200/40 dark:hover:bg-gray-800/40 transition-colors"
-                    onclick={toggleCollapse}
-                    title="Collapse sidebar (⌘B)"
-                  >
-                    <ChevronLeft size={14} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          {/if}
-        </div>
-      </div>
-    {/if}
-  </nav>
-
-  <!-- Drag handle (horizontal width resize) -->
-  {#if !collapsed}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="w-1 shrink-0 cursor-col-resize group flex items-center justify-center hover:bg-ch-blue/20 transition-colors {dragging ? 'bg-ch-blue/30' : ''}"
-      onmousedown={onDragStart}
+  {#each railGroups as g}
+    {@const Icon = GROUP_ICONS[g.id]}
+    {@const active = activeGroup.id === g.id}
+    <button
+      class="relative mt-1 inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors {active ? 'bg-active text-fg' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
+      onclick={() => openGroup(g)}
+      title={g.label}
+      aria-label={g.label}
+      aria-current={active ? 'page' : undefined}
     >
-      <div class="h-8 w-0.5 rounded-full {dragging ? 'bg-ch-blue' : 'bg-gray-300 dark:bg-gray-700 group-hover:bg-ch-blue/60'} transition-colors"></div>
-    </div>
-  {/if}
-</div>
+      {#if active}<span class="absolute -left-2 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent"></span>{/if}
+      <Icon size={16} />
+    </button>
+  {/each}
 
-<!-- Drag overlay -->
-{#if dragging}
-  <div class="fixed inset-0 z-50 cursor-col-resize"></div>
-{/if}
+  <div class="flex-1"></div>
+
+  {#if updateAvailable}
+    <a
+      href="https://github.com/caioricciuti/ch-ui/releases/latest" target="_blank" rel="noopener noreferrer"
+      class="mb-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-accent hover:bg-hover"
+      title="Update available: {getLatestVersion()} (running {session?.appVersion})"
+      aria-label="Update available"
+    >
+      <ArrowUpCircle size={15} />
+    </a>
+  {/if}
+
+  <button
+    class="relative inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors {activeGroup.id === 'settings' ? 'bg-active text-fg' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
+    onclick={() => goTo(settingsFirst)}
+    title="Settings"
+    aria-label="Settings"
+    aria-current={activeGroup.id === 'settings' ? 'page' : undefined}
+  >
+    {#if activeGroup.id === 'settings'}<span class="absolute -left-2 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent"></span>{/if}
+    <Settings size={16} />
+  </button>
+
+  <span class="my-1.5 h-px w-5 bg-edge"></span>
+
+  {#if session}
+    <span
+      class="my-1 h-1.5 w-1.5 rounded-full {session.connectionOnline ? 'bg-success' : 'bg-danger'}"
+      title={connectionTitle}
+      role="img"
+      aria-label={session.connectionOnline ? 'Connected' : 'Disconnected'}
+    ></span>
+  {/if}
+  <Button icon variant="ghost" size="sm" onclick={toggleTheme} title="Toggle theme" aria-label="Toggle theme">
+    {#if getTheme() === 'dark'}<Sun size={15} />{:else}<Moon size={15} />{/if}
+  </Button>
+  {#if session}
+    <Button icon variant="ghost" size="sm" class="hover:text-danger" onclick={logout} title="Log out ({session.user})" aria-label="Log out">
+      <LogOut size={15} />
+    </Button>
+  {/if}
+</nav>

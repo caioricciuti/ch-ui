@@ -1,4 +1,5 @@
 import type { ColumnMeta, QueryStats } from '../types/query'
+import { isPageRouteType } from '../routes'
 import type { ColumnFilter, ResultSort } from '../utils/result-filters'
 import type { ModelEditState } from '../types/models'
 import { createUUID } from '../utils/uuid'
@@ -6,7 +7,7 @@ import { pushTabRouteForTab } from './router.svelte'
 
 // ── Tab types ────────────────────────────────────────────────────
 
-export type TabType = 'home' | 'query' | 'table' | 'database' | 'dashboard' | 'model' | 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines' | 'models' | 'telemetry' | 'cluster-health' | 'query-insights' | 'cost-center'
+export type TabType = 'home' | 'query' | 'table' | 'database' | 'model'
 
 interface TabBase {
   id: string
@@ -33,11 +34,6 @@ export interface DatabaseTab extends TabBase {
   database: string
 }
 
-export interface DashboardTab extends TabBase {
-  type: 'dashboard'
-  dashboardId: string
-}
-
 export interface ModelTab extends TabBase {
   type: 'model'
   modelId: string
@@ -52,11 +48,7 @@ export interface HomeTab extends TabBase {
   type: 'home'
 }
 
-export interface SingletonTab extends TabBase {
-  type: 'saved-queries' | 'settings' | 'dashboards' | 'schedules' | 'brain' | 'admin' | 'governance' | 'pipelines' | 'models' | 'telemetry' | 'cluster-health' | 'query-insights' | 'cost-center'
-}
-
-export type Tab = HomeTab | QueryTab | TableTab | DatabaseTab | DashboardTab | ModelTab | SingletonTab
+export type Tab = HomeTab | QueryTab | TableTab | DatabaseTab | ModelTab
 
 // ── Tab Groups (split view) ─────────────────────────────────────
 
@@ -142,6 +134,12 @@ function loadTabs(): StorageFormat {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed.tabs)) {
+        // Areas that became pages (and the old dashboard tab type) are no
+        // longer tabs; drop stale ones instead of rendering nothing.
+        const TAB_TYPES: ReadonlySet<string> = new Set(['home', 'query', 'table', 'database', 'model'])
+        parsed.tabs = parsed.tabs.filter((t: { type?: string }) => !!t.type && TAB_TYPES.has(t.type) && !isPageRouteType(t.type))
+      }
       if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) {
         // Derive nextNum from existing query tab names
         for (const t of parsed.tabs) {
@@ -567,56 +565,6 @@ export function openDatabaseTab(database: string, targetGroupId?: string): void 
   queueSave()
 }
 
-export function openDashboardTab(dashboardId: string, name = 'Dashboard', targetGroupId?: string): void {
-  const existing = tabs.find(
-    t => t.type === 'dashboard' && t.dashboardId === dashboardId,
-  ) as DashboardTab | undefined
-  if (existing) {
-    setActiveTab(existing.id)
-    return
-  }
-
-  const tab: DashboardTab = {
-    id: createUUID(),
-    type: 'dashboard',
-    name,
-    dashboardId,
-  }
-
-  tabs = [...tabs, tab]
-  const gid = resolveTargetGroupId(targetGroupId)
-  groups = groups.map(g =>
-    g.id === gid ? { ...g, tabIds: [...g.tabIds, tab.id], activeTabId: tab.id } : g,
-  )
-  focusedGroupId = gid
-  pushTabRouteForTab(tab)
-  queueSave()
-}
-
-export function openSingletonTab(type: SingletonTab['type'], name: string, targetGroupId?: string): void {
-  const existing = tabs.find(t => t.type === type)
-  if (existing) {
-    if (existing.name !== name) {
-      tabs = tabs.map((tab) => (tab.id === existing.id ? { ...tab, name } : tab))
-      queueSave()
-    }
-    setActiveTab(existing.id)
-    return
-  }
-  const tab: SingletonTab = {
-    id: createUUID(),
-    type,
-    name,
-  }
-  tabs = [...tabs, tab]
-  const gid = resolveTargetGroupId(targetGroupId)
-  groups = groups.map(g =>
-    g.id === gid ? { ...g, tabIds: [...g.tabIds, tab.id], activeTabId: tab.id } : g
-  )
-  focusedGroupId = gid
-  pushTabRouteForTab(tab)
-  queueSave()
-}
 
 // ── Close / update ───────────────────────────────────────────────
 
