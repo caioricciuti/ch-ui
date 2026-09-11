@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/safe"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
@@ -30,15 +29,14 @@ const (
 // It runs periodic background syncs and supports on-demand sync for
 // individual connections.
 type Syncer struct {
-	store         *Store
-	db            *database.DB
-	gateway       *tunnel.Gateway
-	secret        string
-	activeSyncs   sync.Map // connectionID → bool (prevents concurrent syncs per connection)
-	lastBorrowLog sync.Map // connectionID → time.Time (rate-limits credential borrow audit rows)
-	mu            sync.Mutex
-	running       bool
-	stopCh        chan struct{}
+	store       *Store
+	db          *database.DB
+	gateway     *tunnel.Gateway
+	secret      string
+	activeSyncs sync.Map // connectionID → bool (prevents concurrent syncs per connection)
+	mu          sync.Mutex
+	running     bool
+	stopCh      chan struct{}
 }
 
 // NewSyncer creates a new governance Syncer.
@@ -281,55 +279,11 @@ func (s *Syncer) isSyncStale(connectionID string) bool {
 // findCredentials borrows credentials from an active session for the given connection.
 // It tries up to 3 recent sessions and returns the first one with a valid password.
 func (s *Syncer) findCredentials(connectionID string) (CHCredentials, error) {
-	sessions, err := s.db.GetActiveSessionsByConnection(connectionID, 3)
+	user, password, err := s.db.BorrowSessionCredentials(connectionID, "governance", s.secret)
 	if err != nil {
-		return CHCredentials{}, fmt.Errorf("failed to load sessions: %w", err)
+		return CHCredentials{}, err
 	}
-
-	for _, sess := range sessions {
-		password, err := crypto.Decrypt(sess.EncryptedPassword, s.secret)
-		if err != nil {
-			continue
-		}
-		s.auditCredentialBorrow(connectionID, sess)
-		return CHCredentials{
-			ConnectionID: connectionID,
-			User:         sess.ClickhouseUser,
-			Password:     password,
-		}, nil
-	}
-
-	return CHCredentials{}, fmt.Errorf("no active sessions with valid credentials for connection %s", connectionID)
-}
-
-// auditCredentialBorrow writes one audit row per connection per hour when the
-// background syncer borrows credentials from an active session. A structured
-// debug log is emitted every time; the audit table only gets rate-limited
-// entries to avoid flooding it during frequent ticks.
-func (s *Syncer) auditCredentialBorrow(connectionID string, sess database.Session) {
-	slog.Debug("Governance syncer borrowed session credentials",
-		"connection", connectionID, "ch_user", sess.ClickhouseUser, "session_id", sess.ID)
-
-	now := time.Now()
-	if last, ok := s.lastBorrowLog.Load(connectionID); ok {
-		if t, ok := last.(time.Time); ok && now.Sub(t) < time.Hour {
-			return
-		}
-	}
-	s.lastBorrowLog.Store(connectionID, now)
-
-	details := fmt.Sprintf(`{"session_id":%q,"purpose":"background_sync"}`, sess.ID)
-	connID := connectionID
-	user := sess.ClickhouseUser
-	if err := s.db.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.credential_borrow",
-		Username:     &user,
-		ConnectionID: &connID,
-		Details:      &details,
-	}); err != nil {
-		slog.Warn("Failed to write credential borrow audit log",
-			"connection", connectionID, "error", err)
-	}
+	return CHCredentials{ConnectionID: connectionID, User: user, Password: password}, nil
 }
 
 // executeQuery sends a SQL query through the tunnel and returns parsed rows.

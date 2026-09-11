@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/safe"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
@@ -216,18 +215,11 @@ func (h *Harvester) pruneRetention(connections []database.Connection) {
 
 // findCredentials borrows credentials from an active session for the connection.
 func (h *Harvester) findCredentials(connectionID string) (CHCredentials, error) {
-	sessions, err := h.db.GetActiveSessionsByConnection(connectionID, 3)
+	user, password, err := h.db.BorrowSessionCredentials(connectionID, "cluster_health", h.secret)
 	if err != nil {
-		return CHCredentials{}, fmt.Errorf("failed to load sessions: %w", err)
+		return CHCredentials{}, err
 	}
-	for _, sess := range sessions {
-		password, err := crypto.Decrypt(sess.EncryptedPassword, h.secret)
-		if err != nil {
-			continue
-		}
-		return CHCredentials{ConnectionID: connectionID, User: sess.ClickhouseUser, Password: password}, nil
-	}
-	return CHCredentials{}, fmt.Errorf("no active sessions with valid credentials for connection %s", connectionID)
+	return CHCredentials{ConnectionID: connectionID, User: user, Password: password}, nil
 }
 
 // executeQuery runs a SQL statement through the tunnel and parses the JSON rows.
