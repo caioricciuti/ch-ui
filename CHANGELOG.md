@@ -5,6 +5,65 @@ All notable changes to CH-UI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.11.0] - 2026-09-11
+
+A rebuilt interface and a real telemetry stack. No dependency changes.
+
+### Added
+
+- **Telemetry, rebuilt**: logs, traces, metrics, a service map, monitors and
+  saved searches over the OpenTelemetry ClickHouse exporter's tables. Sources
+  let you point CH-UI at any database and table and say which column plays
+  which role, with one-click detection for the exporter's own layout and a
+  `DESCRIBE`-backed allowlist so only mapped columns ever reach SQL. A
+  HyperDX-style search language (free text, phrases, `field:value`,
+  comparisons, existence, `AND`/`OR`/`NOT`, wildcards) compiles to guarded
+  ClickHouse SQL. Trace detail assembles the span tree server-side and draws a
+  waterfall with span events, links and correlated logs. Monitors evaluate a
+  search on a schedule and raise alert events through existing channels
+  (#166).
+- **Dashboard folders**: nested folders with per-user stars and tags, drag to
+  move, cycle-checked reparenting, and deletion that re-parents contents one
+  level up in a transaction. Folder paths show in the command palette (#166).
+
+### Changed
+
+- **The whole interface**: one page header, one table, one sheet, one empty
+  state, one set of tokens. Drill-downs became sidebar sections instead of tab
+  strips you had to scroll to reach; only the query workspace keeps tabs.
+  Saved Queries, Governance, Admin, Settings, MCP and the dashboard browser
+  were rebuilt on the shared primitives. Charts share one floating tooltip.
+  Light mode is a real theme rather than a set of overrides, and Inter and
+  JetBrains Mono are served by the app instead of a CDN (#166).
+- Traces, metrics, the service map and monitors require a Pro licence,
+  matching the other Operate depth. Logs, sources and saved searches stay
+  community (#166).
+
+### Fixed
+
+- **SMTP alert channels could never be created from the UI.** The form sent
+  `smtp_host`, `smtp_port`, `smtp_username` and `smtp_password` while the
+  dispatcher and its validation read `host`, `port`, `username` and
+  `password` (#166).
+- **Span events and links never appeared.** Source detection blanked the
+  `Events` and `Links` Nested prefixes, because ClickHouse describes them
+  flattened as `Events.Name` and a plain column lookup always missed. Sources
+  already saved with the empty value repair themselves (#166).
+- **A firing monitor raised a new alert event on every evaluation.** The
+  fingerprint bucket was derived from the monitor's own interval, so
+  consecutive runs never shared one and de-duplication never engaged. A 30
+  second monitor left firing for a day meant thousands of events and a
+  notification for each. It now emits on the transition into firing, like the
+  audit log beside it (#166).
+
+### Security
+
+- **Brain's SQL highlighter could inject HTML into a rendered message.**
+  `highlightSQL` built markup from a regex that matched only strings,
+  comments, numbers and words; every other character, `<` included, fell
+  through untouched into `{@html}`. All characters are now escaped, with
+  regression tests (#165).
+
 ## [2.10.1] - 2026-09-10
 
 Hotfix for MCP behind a reverse proxy. No dependency changes.
