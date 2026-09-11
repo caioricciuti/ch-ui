@@ -105,7 +105,7 @@ func registerCatalogTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		out["saved_queries"] = saved
 
 		dashboards := []map[string]any{}
-		if all, err := deps.DB.GetDashboards(); err == nil {
+		if all, err := deps.DB.GetDashboards(""); err == nil {
 			for _, d := range all {
 				desc := ""
 				if d.Description != nil {

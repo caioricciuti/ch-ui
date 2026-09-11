@@ -3,6 +3,11 @@
   import Sidebar from './Sidebar.svelte'
   import TabGroup from './TabGroup.svelte'
   import CommandPalette from './CommandPalette.svelte'
+  import PageRouter from './PageRouter.svelte'
+  import ContextPanel from './ContextPanel.svelte'
+  import { getRouteType } from '../../stores/router.svelte'
+  import { togglePanel } from '../../stores/nav.svelte'
+  import { groupForRoute, isPageRouteType } from '../../routes'
   import { getGroups, isSplit, setFocusedGroup, splitTabToSide, openQueryTab } from '../../stores/tabs.svelte'
   import { openCommandPalette, toggleCommandPalette } from '../../stores/command-palette.svelte'
 
@@ -62,6 +67,12 @@
     }
 
     if (isTypingTarget) return
+
+    if (mod && e.key.toLowerCase() === 'b' && !isPageRouteType(getRouteType())) {
+      e.preventDefault()
+      togglePanel(groupForRoute(getRouteType()).id)
+      return
+    }
 
     if ((mod && e.shiftKey && e.key.toLowerCase() === 'n') || (e.altKey && e.key.toLowerCase() === 'n')) {
       e.preventDefault()
@@ -141,14 +152,26 @@
   function handleContentDragLeave() {
     edgeSplitSide = null
   }
+
+  const onPage = $derived(isPageRouteType(getRouteType()))
 </script>
 
 <svelte:window ondragend={resetEdgeSplitState} ondrop={resetEdgeSplitState} />
 
 <div class="flex h-full">
   <Sidebar />
+  <ContextPanel />
+
+  <!-- Pages: full-screen product areas driven by the URL -->
+  <div class="flex min-w-0 flex-1 flex-col overflow-hidden" hidden={!onPage}>
+    <PageRouter />
+  </div>
+
+  <!-- Workspace: the tab groups. Stays mounted while a page is shown so
+       running queries and results survive navigation. -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
+    hidden={onPage}
     class="relative flex flex-1 min-w-0"
     bind:this={containerEl}
     ondragover={handleContentDragOver}
@@ -179,11 +202,11 @@
         <!-- Resize handle between split panes -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
-          class="w-1 shrink-0 cursor-col-resize group/split flex items-center justify-center hover:bg-ch-blue/20 transition-colors {resizing ? 'bg-ch-blue/30' : ''}"
+          class="group/split flex w-1 shrink-0 cursor-col-resize items-center justify-center transition-colors hover:bg-active {resizing ? 'bg-accent/60' : 'bg-edge-subtle'}"
           onmousedown={onResizeStart}
           ondblclick={() => splitPercent = 50}
         >
-          <div class="h-8 w-0.5 rounded-full {resizing ? 'bg-ch-blue' : 'bg-gray-300 dark:bg-gray-700 group-hover/split:bg-ch-blue/60'} transition-colors"></div>
+          <div class="h-8 w-0.5 rounded-full transition-colors {resizing ? 'bg-accent' : 'bg-edge-strong group-hover/split:bg-accent/60'}"></div>
         </div>
       {/if}
     {/each}
@@ -197,7 +220,7 @@
           ondragover={(e) => handleEdgeDragOver('left', e)}
           ondrop={(e) => handleEdgeDrop('left', e)}
         >
-          <div class="absolute inset-0 transition-colors {edgeSplitSide === 'left' ? 'bg-ch-blue/16 border-r border-ch-blue/50' : 'bg-transparent'}"></div>
+          <div class="absolute inset-0 transition-colors {edgeSplitSide === 'left' ? 'bg-accent-soft border-r border-accent/50' : 'bg-transparent'}"></div>
         </div>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
@@ -206,7 +229,7 @@
           ondragover={(e) => handleEdgeDragOver('right', e)}
           ondrop={(e) => handleEdgeDrop('right', e)}
         >
-          <div class="absolute inset-0 transition-colors {edgeSplitSide === 'right' ? 'bg-ch-blue/16 border-l border-ch-blue/50' : 'bg-transparent'}"></div>
+          <div class="absolute inset-0 transition-colors {edgeSplitSide === 'right' ? 'bg-accent-soft border-l border-accent/50' : 'bg-transparent'}"></div>
         </div>
       </div>
     {/if}

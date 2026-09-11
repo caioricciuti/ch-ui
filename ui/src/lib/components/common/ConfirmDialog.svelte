@@ -27,15 +27,12 @@
   }: Props = $props()
 </script>
 
-<Modal {open} title={title} onclose={oncancel}>
-  <div class="space-y-4">
-    {#if description}
-      <p class="text-sm text-gray-600 dark:text-gray-300">{description}</p>
-    {/if}
-
-    <div class="flex items-center justify-end gap-2 pt-1">
-      <Button size="sm" variant="secondary" onclick={oncancel} disabled={loading}>{cancelLabel}</Button>
-      <Button size="sm" variant={destructive ? 'danger' : 'primary'} onclick={onconfirm} {loading}>{confirmLabel}</Button>
-    </div>
-  </div>
+<Modal {open} {title} size="sm" onclose={oncancel}>
+  {#if description}
+    <p class="text-[13px] leading-relaxed text-fg-2">{description}</p>
+  {/if}
+  {#snippet footer()}
+    <Button size="sm" variant="outline" onclick={oncancel} disabled={loading}>{cancelLabel}</Button>
+    <Button size="sm" variant={destructive ? 'danger' : 'primary'} onclick={onconfirm} {loading}>{confirmLabel}</Button>
+  {/snippet}
 </Modal>

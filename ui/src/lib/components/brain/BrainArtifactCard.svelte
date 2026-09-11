@@ -3,6 +3,7 @@
   import type { PanelConfig } from '../../types/api'
   import { isDateType, isNumericType } from '../../utils/chart-transform'
   import ChartPanel from '../dashboard/ChartPanel.svelte'
+  import Badge from '../common/Badge.svelte'
   import { ChevronRight, BarChart3, Table } from 'lucide-svelte'
 
   interface Props {
@@ -61,33 +62,33 @@
   })
 </script>
 
-<div class="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-900/50 overflow-hidden">
+<div class="mt-2 rounded-lg border border-edge-subtle bg-surface overflow-hidden">
   <div class="flex items-center gap-2 px-3 py-2">
     <button
-      class="flex items-center gap-2 flex-1 text-left hover:bg-gray-100 dark:hover:bg-gray-800/50 -mx-1 px-1 rounded transition-colors"
+      class="flex items-center gap-2 flex-1 text-left hover:bg-hover -mx-1 px-1 rounded transition-colors"
       onclick={() => expanded = !expanded}
     >
-      <ChevronRight size={14} class="text-gray-400 transition-transform {expanded ? 'rotate-90' : ''}" />
-      <span class="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">{artifact.title}</span>
+      <ChevronRight size={14} class="text-fg-4 transition-transform {expanded ? 'rotate-90' : ''}" />
+      <span class="text-xs font-semibold text-fg truncate">{artifact.title}</span>
       {#if rows.length > 0}
-        <span class="ds-badge ds-badge-neutral">{rows.length} rows</span>
+        <Badge tone="neutral">{rows.length} rows</Badge>
       {/if}
       {#if elapsed}
-        <span class="text-[11px] text-gray-500">{elapsed}s</span>
+        <span class="text-[11px] text-fg-3">{elapsed}s</span>
       {/if}
     </button>
 
     {#if chartConfig && expanded}
-      <div class="flex items-center rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden shrink-0">
+      <div class="flex items-center rounded-md border border-edge-subtle overflow-hidden shrink-0">
         <button
-          class="p-1 transition-colors {viewMode === 'chart' ? 'bg-ch-blue/10 text-ch-blue' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}"
+          class="p-1 transition-colors {viewMode === 'chart' ? 'bg-accent-soft text-accent' : 'text-fg-4 hover:text-fg'}"
           onclick={() => viewMode = 'chart'}
           title="Chart view"
         >
           <BarChart3 size={13} />
         </button>
         <button
-          class="p-1 transition-colors border-l border-gray-200 dark:border-gray-700 {viewMode === 'table' ? 'bg-ch-blue/10 text-ch-blue' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}"
+          class="p-1 transition-colors border-l border-edge-subtle {viewMode === 'table' ? 'bg-accent-soft text-accent' : 'text-fg-4 hover:text-fg'}"
           onclick={() => viewMode = 'table'}
           title="Table view"
         >
@@ -100,24 +101,24 @@
   {#if expanded}
     {#if artifact.type === 'query_result' && payload}
       {#if viewMode === 'chart' && chartConfig}
-        <div class="border-t border-gray-200 dark:border-gray-700 h-[220px]">
+        <div class="border-t border-edge-subtle h-[220px]">
           <ChartPanel data={rows} meta={payload.meta} config={chartConfig} />
         </div>
       {:else if cols.length > 0}
-        <div class="border-t border-gray-200 dark:border-gray-700 max-h-[240px] overflow-auto">
+        <div class="border-t border-edge-subtle max-h-[240px] overflow-auto">
           <table class="min-w-full text-[11px] font-mono">
-            <thead class="bg-gray-100 dark:bg-gray-800 sticky top-0">
+            <thead class="bg-surface-2 sticky top-0">
               <tr>
                 {#each cols as col}
-                  <th class="px-2 py-1 text-left text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap">{col}</th>
+                  <th class="px-2 py-1 text-left text-fg-2 border-b border-edge-subtle whitespace-nowrap">{col}</th>
                 {/each}
               </tr>
             </thead>
             <tbody>
               {#each rows as row}
-                <tr class="odd:bg-white/70 even:bg-gray-50/70 dark:odd:bg-gray-900/30 dark:even:bg-gray-800/30">
+                <tr class="odd:bg-surface even:bg-surface-2">
                   {#each cols as col}
-                    <td class="px-2 py-1 border-b border-gray-200/70 dark:border-gray-700/70 align-top whitespace-nowrap">{String(row[col] ?? '')}</td>
+                    <td class="px-2 py-1 border-b border-edge-subtle align-top whitespace-nowrap">{String(row[col] ?? '')}</td>
                   {/each}
                 </tr>
               {/each}
@@ -127,20 +128,20 @@
       {/if}
 
       {#if payload?.query}
-        <details class="border-t border-gray-200 dark:border-gray-700 px-3 py-2">
-          <summary class="text-[11px] text-ch-blue cursor-pointer">View query</summary>
-          <pre class="mt-1 text-[11px] whitespace-pre-wrap bg-gray-100 dark:bg-gray-800 rounded p-2 max-h-40 overflow-auto">{payload.query}</pre>
+        <details class="border-t border-edge-subtle px-3 py-2">
+          <summary class="text-[11px] text-accent cursor-pointer">View query</summary>
+          <pre class="mt-1 text-[11px] whitespace-pre-wrap bg-surface-2 rounded p-2 max-h-40 overflow-auto">{payload.query}</pre>
         </details>
       {/if}
 
-      <details class="border-t border-gray-200 dark:border-gray-700 px-3 py-2">
-        <summary class="text-[11px] text-ch-blue cursor-pointer">View raw payload</summary>
-        <pre class="mt-1 text-[11px] whitespace-pre-wrap bg-gray-100 dark:bg-gray-800 rounded p-2 max-h-52 overflow-auto">{artifact.content}</pre>
+      <details class="border-t border-edge-subtle px-3 py-2">
+        <summary class="text-[11px] text-accent cursor-pointer">View raw payload</summary>
+        <pre class="mt-1 text-[11px] whitespace-pre-wrap bg-surface-2 rounded p-2 max-h-52 overflow-auto">{artifact.content}</pre>
       </details>
     {:else}
-      <details class="border-t border-gray-200 dark:border-gray-700 px-3 py-2">
-        <summary class="text-[11px] text-ch-blue cursor-pointer">View payload</summary>
-        <pre class="mt-1 text-[11px] whitespace-pre-wrap bg-gray-100 dark:bg-gray-800 rounded p-2 max-h-52 overflow-auto">{artifact.content}</pre>
+      <details class="border-t border-edge-subtle px-3 py-2">
+        <summary class="text-[11px] text-accent cursor-pointer">View payload</summary>
+        <pre class="mt-1 text-[11px] whitespace-pre-wrap bg-surface-2 rounded p-2 max-h-52 overflow-auto">{artifact.content}</pre>
       </details>
     {/if}
   {/if}

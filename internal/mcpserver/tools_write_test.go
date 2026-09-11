@@ -112,7 +112,7 @@ func TestCreateDashboardTool(t *testing.T) {
 	if strings.Contains(res, "isError") {
 		t.Fatalf("create_dashboard failed: %s", res)
 	}
-	dashboards, err := deps.DB.GetDashboards()
+	dashboards, err := deps.DB.GetDashboards("")
 	if err != nil || len(dashboards) != 1 {
 		t.Fatalf("expected 1 dashboard, got %d (%v)", len(dashboards), err)
 	}

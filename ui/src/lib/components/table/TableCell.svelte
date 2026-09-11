@@ -52,24 +52,24 @@
 </script>
 
 <td
-  class="px-2.5 truncate border-r border-gray-200/60 dark:border-gray-800/60 {align}"
+  class="px-2.5 truncate border-r border-edge-subtle {align}"
   style="width:{width}px;max-width:{width}px;min-width:{width}px"
   title={isNull ? 'NULL' : `${rawValue}\n\nDouble-click to copy`}
   ondblclick={handleCopyCell}
 >
   {#if isNull}
-    <span class="inline-flex items-center rounded-sm px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-gray-200/80 dark:bg-gray-800 text-gray-500 dark:text-gray-400">Null</span>
+    <span class="inline-flex items-center rounded-sm px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-surface-2 text-fg-3">Null</span>
   {:else if displayType === 'bool'}
-    <span class="inline-flex items-center rounded-sm px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {value ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-500/12' : 'text-rose-700 dark:text-rose-300 bg-rose-100/70 dark:bg-rose-500/12'}">
+    <span class="inline-flex items-center rounded-sm px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {value ? 'text-success bg-success-soft' : 'text-danger bg-danger-soft'}">
       {String(value)}
     </span>
   {:else if isUrl}
-    <span class="font-mono text-[12px] text-orange-700 dark:text-orange-300">{formatted}</span>
+    <span class="font-mono text-[12px] text-accent">{formatted}</span>
   {:else if displayType === 'json'}
-    <span class="font-mono text-xs text-gray-500 dark:text-gray-400">{formatted}</span>
+    <span class="font-mono text-xs text-fg-3">{formatted}</span>
   {:else if displayType === 'number' || displayType === 'date'}
-    <span class="font-mono tabular-nums text-[12px] {displayType === 'number' ? 'text-gray-800 dark:text-gray-200' : 'text-gray-700 dark:text-gray-300'}">{formatted}</span>
+    <span class="font-mono tabular-nums text-[12px] {displayType === 'number' ? 'text-fg' : 'text-fg-2'}">{formatted}</span>
   {:else}
-    <span class="text-[12px] text-gray-700 dark:text-gray-300">{formatted}</span>
+    <span class="text-[12px] text-fg-2">{formatted}</span>
   {/if}
 </td>

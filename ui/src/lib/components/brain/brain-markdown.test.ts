@@ -26,9 +26,9 @@ describe('highlightSQL', () => {
   it('still highlights keywords, strings, numbers and comments', () => {
     const out = highlightSQL("SELECT count() FROM t WHERE x = 'y' -- note\nLIMIT 10")
     expect(out).toContain('font-semibold">SELECT</span>')
-    expect(out).toContain(`text-green-600 dark:text-green-400">'y'</span>`)
+    expect(out).toContain(`text-success">'y'</span>`)
     expect(out).toContain('italic">-- note</span>')
-    expect(out).toContain('text-amber-600 dark:text-amber-400">10</span>')
+    expect(out).toContain('text-warning">10</span>')
   })
 
   it('round-trips text with no tokens at all', () => {

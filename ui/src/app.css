@@ -2,97 +2,218 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-@theme {
-  --font-sans: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+/* ─── Fonts (self-hosted, see public/fonts/README.md) ─────────────────── */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Medium.woff2") format("woff2");
+}
 
-  /* Compatibility token still referenced in components */
-  --color-ch-blue: #f97316;
+/* ─── Design tokens ────────────────────────────────────────────────────
+   Semantic tokens live on :root / .dark and are exposed to Tailwind via
+   @theme inline, so `bg-surface`, `text-fg-3`, `border-edge` etc. work.
+   Rules: spacing and surface contrast before borders; borders are
+   low-alpha neutrals; orange is an accent (rails, primary CTA, focus,
+   important status), never a fill for whole rows. */
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Brand */
   --color-ch-orange: #f97316;
   --color-ch-green: #10b981;
 
-  /* Neutral grayscale (no blue cast) */
+  /* Neutral ramp, true neutral (no blue cast). Still used by legacy
+     `gray-*` utilities during the migration; new code uses semantic tokens. */
   --color-gray-50: #f7f7f8;
-  --color-gray-100: #efeff1;
-  --color-gray-200: #dfdfe2;
-  --color-gray-300: #c8c9ce;
-  --color-gray-400: #a2a5ad;
-  --color-gray-500: #7a7e88;
-  --color-gray-600: #5f646d;
-  --color-gray-700: #494d55;
-  --color-gray-800: #33363d;
-  --color-gray-900: #1f2126;
-  --color-gray-950: #121316;
+  --color-gray-100: #f0f0f2;
+  --color-gray-200: #e2e2e6;
+  --color-gray-300: #cdcdd3;
+  --color-gray-400: #a0a1a9;
+  --color-gray-500: #8a8a8a;
+  --color-gray-600: #666666;
+  --color-gray-700: #404040;
+  --color-gray-800: #262626;
+  --color-gray-900: #141414;
+  --color-gray-950: #0a0a0a;
+
+  /* Radii: tighter than Tailwind defaults; a dev tool, not a marketing site */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-2xl: 10px;
+
+  /* Elevation: only floating things cast shadows */
+  --shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.10), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-modal: 0 16px 48px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.08);
+
+  --ease-out-quick: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --color-canvas: var(--canvas);
+  --color-sidebar: var(--sidebar);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-elevated: var(--elevated);
+  --color-hover: var(--hover);
+  --color-active: var(--active);
 
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-fg-4: var(--fg-4);
+
+  --color-edge-subtle: var(--edge-subtle);
+  --color-edge: var(--edge);
+  --color-edge-strong: var(--edge-strong);
+
   --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ring: var(--accent-ring);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  /* Compatibility aliases for the shadcn-style names still in use */
+  --color-background: var(--canvas);
+  --color-foreground: var(--fg);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--fg);
+  --color-popover: var(--elevated);
+  --color-popover-foreground: var(--fg);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-fg);
+  --color-secondary: var(--surface-2);
+  --color-secondary-foreground: var(--fg-2);
+  --color-muted: var(--surface-2);
+  --color-muted-foreground: var(--fg-3);
+  --color-accent-foreground: var(--fg);
+  --color-destructive: var(--danger);
+  --color-border: var(--edge);
+  --color-input: var(--edge);
+  --color-ring: var(--accent-ring);
 }
 
 :root {
-  --radius: 0.425rem;
-  --background: #f7f7f8;
-  --foreground: #1b1d22;
-  --card: #ffffff;
-  --card-foreground: #1b1d22;
-  --popover: #ffffff;
-  --popover-foreground: #1b1d22;
-  --primary: #f97316;
-  --primary-foreground: #fffaf5;
-  --secondary: #efeff1;
-  --secondary-foreground: #2a2d33;
-  --muted: #efeff1;
-  --muted-foreground: #626773;
-  --accent: #efeff1;
-  --accent-foreground: #2a2d33;
-  --destructive: #dc2626;
-  --border: #d6d7dc;
-  --input: #d6d7dc;
-  --ring: #fb923c;
+  color-scheme: light;
+
+  --canvas: #f6f6f7;
+  --sidebar: #f0f0f2;
+  --surface: #ffffff;
+  --surface-2: #f3f3f5;
+  --elevated: #ffffff;
+  --hover: rgba(0, 0, 0, 0.045);
+  --active: rgba(0, 0, 0, 0.08);
+
+  --fg: #18181b;
+  --fg-2: #3f3f46;
+  --fg-3: #6b6c76;
+  --fg-4: #a0a1a9;
+
+  --edge-subtle: rgba(0, 0, 0, 0.06);
+  --edge: rgba(0, 0, 0, 0.11);
+  --edge-strong: rgba(0, 0, 0, 0.20);
+
+  --accent: #ea580c;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(249, 115, 22, 0.12);
+  --accent-ring: rgba(249, 115, 22, 0.5);
+
+  --success: #15803d;
+  --success-soft: rgba(22, 163, 74, 0.12);
+  --warning: #b45309;
+  --warning-soft: rgba(217, 119, 6, 0.14);
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.10);
+  --info: #2563eb;
+  --info-soft: rgba(37, 99, 235, 0.10);
+
+  /* legacy names still referenced by a few components */
+  --radius: 6px;
+  --background: var(--canvas);
+  --foreground: var(--fg);
+  --card: var(--surface);
+  --card-foreground: var(--fg);
+  --popover: var(--elevated);
+  --popover-foreground: var(--fg);
+  --primary: var(--accent);
+  --primary-foreground: var(--accent-fg);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--fg-2);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--fg-3);
+  --destructive: var(--danger);
+  --border: var(--edge);
+  --input: var(--edge);
+  --ring: var(--accent-ring);
 }
 
 .dark {
-  --background: #131418;
-  --foreground: #f3f4f6;
-  --card: #1b1d22;
-  --card-foreground: #f3f4f6;
-  --popover: #1b1d22;
-  --popover-foreground: #f3f4f6;
-  --primary: #fb923c;
-  --primary-foreground: #1a1613;
-  --secondary: #282b32;
-  --secondary-foreground: #f3f4f6;
-  --muted: #282b32;
-  --muted-foreground: #a4a8b2;
-  --accent: #282b32;
-  --accent-foreground: #f3f4f6;
-  --destructive: #ef4444;
-  --border: rgba(255, 255, 255, 0.11);
-  --input: rgba(255, 255, 255, 0.14);
-  --ring: #fdba74;
+  color-scheme: dark;
+
+  --canvas: #000000;
+  --sidebar: #000000;
+  --surface: #0a0a0a;
+  --surface-2: #141414;
+  --elevated: #111111;
+  --hover: rgba(255, 255, 255, 0.06);
+  --active: rgba(255, 255, 255, 0.11);
+
+  --fg: #ededed;
+  --fg-2: #c8c8c8;
+  --fg-3: #8f8f8f;
+  --fg-4: #5c5c5c;
+
+  --edge-subtle: rgba(255, 255, 255, 0.08);
+  --edge: rgba(255, 255, 255, 0.13);
+  --edge-strong: rgba(255, 255, 255, 0.22);
+
+  --accent: #f97316;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(249, 115, 22, 0.16);
+  --accent-ring: rgba(251, 146, 60, 0.55);
+
+  --success: #4ade80;
+  --success-soft: rgba(34, 197, 94, 0.14);
+  --warning: #fbbf24;
+  --warning-soft: rgba(245, 158, 11, 0.16);
+  --danger: #f87171;
+  --danger-soft: rgba(239, 68, 68, 0.14);
+  --info: #60a5fa;
+  --info-soft: rgba(59, 130, 246, 0.14);
+
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
 }
+
+/* ─── Base ─────────────────────────────────────────────────────────────── */
 
 html,
 body {
@@ -100,291 +221,167 @@ body {
 }
 
 * {
-  border-color: var(--border);
-  outline-color: color-mix(in oklab, var(--ring), transparent 50%);
+  border-color: var(--edge);
   scrollbar-width: thin;
-  scrollbar-color: rgba(123, 123, 123, 0.45) transparent;
+  scrollbar-color: color-mix(in oklab, var(--fg-4), transparent 40%) transparent;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--canvas);
+  color: var(--fg);
   font-family: var(--font-sans);
-  font-weight: 450;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 400;
+  font-feature-settings: "liga" 1, "calt" 1, "cv11" 1;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-h1,
-h2,
-h3 {
+h1, h2, h3 {
   letter-spacing: -0.012em;
+  font-weight: 600;
 }
 
-code,
-pre,
-.font-mono {
+code, pre, kbd, .font-mono {
   font-family: var(--font-mono);
+  font-feature-settings: "liga" 0, "calt" 0;
 }
 
-.surface-card {
-  background: color-mix(in oklab, var(--card), transparent 1%);
-  border: 1px solid color-mix(in oklab, var(--border), transparent 8%);
-  box-shadow: 0 8px 24px rgba(10, 10, 10, 0.18);
-}
+/* Data columns line up when numbers are tabular by default in mono text */
+.font-mono, .tabular-nums { font-variant-numeric: tabular-nums; }
 
-.dark .surface-card {
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
-}
-
-.brand-pill {
-  background: color-mix(in oklab, #f97316 16%, transparent);
-  border: 1px solid color-mix(in oklab, #f97316 38%, transparent);
-  color: #f97316;
-}
-
-.dark .brand-pill {
-  background: color-mix(in oklab, #fb923c 18%, transparent);
-  border-color: color-mix(in oklab, #fb923c 40%, transparent);
-  color: #fdba74;
+/* One focus treatment for everything: visible, keyboard only */
+:focus { outline: none; }
+:focus-visible:not(input):not(textarea):not(select):not([contenteditable]):not(.cm-content) {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
 }
 
 ::selection {
-  background: rgba(249, 115, 22, 0.35);
+  background: rgba(249, 115, 22, 0.30);
   color: inherit;
 }
 
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* Chrome paints autofilled fields blue; keep them on our surface */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--surface) inset;
+  -webkit-text-fill-color: var(--fg);
+  caret-color: var(--fg);
+  transition: background-color 9999s ease-out 0s;
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(123, 123, 123, 0.45);
+  background-color: color-mix(in oklab, var(--fg-4), transparent 40%);
   border-radius: 10px;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(123, 123, 123, 0.62);
+  background-color: color-mix(in oklab, var(--fg-4), transparent 15%);
 }
 
-@keyframes spin-slow {
-  to { transform: rotate(360deg); }
-}
-.animate-spin-slow {
-  animation: spin-slow 3s linear infinite;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
+/* Bare `rounded` is a fixed 4px in Tailwind; keep it on our scale. Same
+   layer as the generated utilities and later in source, so it wins. */
+@layer utilities {
+  .rounded { border-radius: var(--radius-sm); }
+}
+
+/* Floating surfaces: popovers, menus, palette, modals */
+.surface-card {
+  background: var(--elevated);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow-popover);
+}
+
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+.animate-spin-slow { animation: spin-slow 3s linear infinite; }
+
+/* ─── Shared component classes (ds-*) ─────────────────────────────────
+   What is left here is the table system (ds-table-*, ds-td-*), the native
+   checkbox/radio styles, and the base classes the primitives in
+   lib/components/common reuse (ds-input, ds-select, ds-segment, ds-badge).
+   Pages compose the primitives; they do not add new ds-* classes. */
 @layer components {
-  .ds-page-header {
-    @apply flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800;
-  }
 
-  .ds-page-title {
-    @apply text-xl font-semibold text-gray-900 dark:text-gray-100;
-  }
-
-  .ds-page-subtitle {
-    @apply text-xs text-gray-500 dark:text-gray-400;
-  }
-
-  .ds-tabs {
-    @apply flex gap-1 px-4 pt-2 border-b border-gray-200 dark:border-gray-800;
-  }
-
-  .ds-tab {
-    @apply px-3.5 py-2.5 text-[13px] font-semibold rounded-t transition-colors text-gray-500 hover:text-gray-700 dark:hover:text-gray-300;
-  }
-
-  .ds-tab-active {
-    @apply text-ch-blue border-b-2 border-ch-blue bg-orange-50 dark:bg-orange-950/20;
-  }
-
-  .ds-card {
-    @apply rounded-lg border border-gray-200 dark:border-gray-800 bg-transparent;
-  }
-
-  .ds-panel {
-    @apply rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900;
-    box-shadow: 0 8px 24px rgba(10, 10, 10, 0.18);
-  }
-
-  .dark .ds-panel {
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
-  }
-
-  .ds-panel-muted {
-    @apply rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-100/70 dark:bg-gray-900/70;
-  }
-
-  .ds-stat-card {
-    @apply rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 p-4;
-  }
-
-  .ds-form-label {
-    @apply block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1;
-  }
-
+  /* Forms */
   .ds-input {
-    @apply w-full rounded border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 text-[14px] text-gray-700 dark:text-gray-300;
-    @apply focus:outline-none focus:ring-2 focus:ring-ch-blue/40 focus:border-ch-blue;
+    @apply h-8 w-full rounded-md border border-edge bg-surface px-2.5 text-[13px] text-fg placeholder:text-fg-4 transition-colors duration-100;
+    @apply hover:border-edge-strong focus:border-accent focus:outline-none;
   }
-
   .ds-input-sm {
-    @apply w-full rounded border border-gray-300 dark:border-gray-700 bg-transparent px-2.5 py-1.5 text-[13px] text-gray-700 dark:text-gray-300;
-    @apply focus:outline-none focus:ring-2 focus:ring-ch-blue/40 focus:border-ch-blue;
+    @apply h-7 w-full rounded-md border border-edge bg-surface px-2 text-xs text-fg placeholder:text-fg-4 transition-colors duration-100;
+    @apply hover:border-edge-strong focus:border-accent focus:outline-none;
   }
-
   .ds-select {
-    @apply rounded border border-gray-300 dark:border-gray-700 bg-transparent px-2.5 py-1.5 text-[13px] text-gray-700 dark:text-gray-300;
-    @apply focus:outline-none focus:ring-2 focus:ring-ch-blue/40 focus:border-ch-blue;
+    @apply h-7 rounded-md border border-edge bg-surface px-2 text-xs text-fg transition-colors duration-100;
+    @apply hover:border-edge-strong focus:border-accent focus:outline-none;
   }
 
-  .ds-textarea {
-    @apply w-full rounded border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 text-sm text-gray-700 dark:text-gray-300;
-    @apply focus:outline-none focus:ring-2 focus:ring-ch-blue/40 focus:border-ch-blue;
-  }
-
-  .ds-btn-primary {
-    @apply inline-flex items-center justify-center gap-1.5 rounded px-3 py-1.5 text-[13px] font-medium text-white bg-ch-blue border border-orange-500 transition-colors;
-    @apply hover:bg-orange-600;
-  }
-
-  .ds-btn-ghost {
-    @apply inline-flex items-center justify-center gap-1 rounded p-1.5 text-gray-500 transition-colors;
-    @apply hover:text-ch-blue hover:bg-gray-200 dark:hover:bg-gray-800;
-  }
-
-  .ds-btn-outline {
-    @apply inline-flex items-center justify-center gap-1 rounded border border-gray-300 dark:border-gray-700 px-2.5 py-1.5 text-[13px] font-medium text-gray-700 dark:text-gray-300 transition-colors;
-    @apply hover:border-ch-blue hover:text-ch-blue;
-  }
-
-  .ds-icon-btn {
-    @apply inline-flex items-center justify-center rounded p-1.5 text-gray-500 transition-colors;
-    @apply hover:text-ch-blue hover:bg-gray-200 dark:hover:bg-gray-800;
-  }
-
+  /* Segmented control: the active segment is a raised surface, not orange */
   .ds-segment {
-    @apply inline-flex rounded-lg border border-gray-300/80 dark:border-gray-700/80 bg-gray-100/70 dark:bg-gray-900/65 p-1;
+    @apply inline-flex items-center rounded-md bg-surface-2 p-0.5;
   }
-
   .ds-segment-btn {
-    @apply px-2.5 h-7 rounded-md text-xs transition-colors text-gray-500 hover:text-gray-700 dark:hover:text-gray-300;
+    @apply h-6 rounded-[5px] px-2.5 text-xs font-medium text-fg-3 transition-colors duration-100 hover:text-fg;
   }
-
   .ds-segment-btn-active {
-    @apply bg-orange-100 dark:bg-orange-500/15 text-ch-orange;
+    @apply bg-surface text-fg;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 1px var(--edge-subtle);
   }
 
-  .ds-table-wrap {
-    @apply overflow-x-auto;
-  }
-
-  .ds-table {
-    @apply w-full text-sm;
-  }
-
-  .ds-table-head-row {
-    @apply border-b border-gray-200 dark:border-gray-800;
-  }
-
+  /* Tables */
+  .ds-table-wrap { @apply overflow-x-auto; }
+  .ds-table { @apply w-full text-[13px]; }
+  .ds-table-head-row { @apply border-b border-edge; }
   .ds-table-th {
-    @apply text-left py-2 px-3 text-gray-500 font-medium;
+    @apply h-8 text-left px-3 text-xs font-medium text-fg-3 whitespace-nowrap;
   }
-
   .ds-table-th-right {
-    @apply text-right py-2 px-3 text-gray-500 font-medium;
+    @apply h-8 text-right px-3 text-xs font-medium text-fg-3 whitespace-nowrap;
   }
-
   .ds-table-th-compact {
-    @apply text-left py-1.5 px-2 text-[11px] text-gray-500 font-medium;
+    @apply h-7 text-left px-2 text-[11px] font-medium text-fg-3 whitespace-nowrap;
   }
-
   .ds-table-th-right-compact {
-    @apply text-right py-1.5 px-2 text-[11px] text-gray-500 font-medium;
+    @apply h-7 text-right px-2 text-[11px] font-medium text-fg-3 whitespace-nowrap;
   }
-
   .ds-table-row {
-    @apply border-b border-gray-100 dark:border-gray-900 hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-colors;
+    @apply border-b border-edge-subtle transition-colors duration-75 hover:bg-hover;
   }
+  .ds-table-row-static { @apply border-b border-edge-subtle; }
+  .ds-td { @apply py-1.5 px-3 text-fg-2; }
+  .ds-td-strong { @apply py-1.5 px-3 text-fg font-medium; }
+  .ds-td-right { @apply py-1.5 px-3 text-right text-fg-2 tabular-nums; }
+  .ds-td-mono { @apply py-1.5 px-3 text-xs text-fg-2 font-mono; }
+  .ds-td-compact { @apply py-1 px-2 text-xs text-fg-2; }
+  .ds-td-compact-strong { @apply py-1 px-2 text-xs text-fg font-medium; }
 
-  .ds-table-row-static {
-    @apply border-b border-gray-100 dark:border-gray-900;
-  }
-
-  .ds-td {
-    @apply py-2 px-3 text-gray-500 dark:text-gray-400;
-  }
-
-  .ds-td-strong {
-    @apply py-2 px-3 text-gray-800 dark:text-gray-200 font-medium;
-  }
-
-  .ds-td-right {
-    @apply py-2 px-3 text-right text-gray-500 dark:text-gray-400;
-  }
-
-  .ds-td-mono {
-    @apply py-2 px-3 text-xs text-gray-500 font-mono;
-  }
-
-  .ds-td-compact {
-    @apply py-1.5 px-2 text-xs text-gray-500 dark:text-gray-400;
-  }
-
-  .ds-td-compact-strong {
-    @apply py-1.5 px-2 text-xs text-gray-800 dark:text-gray-200 font-medium;
-  }
-
+  /* Badges */
   .ds-badge {
-    @apply inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium;
-  }
-
-  .ds-badge-neutral {
-    @apply bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300;
-  }
-
-  .ds-badge-success {
-    @apply bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300;
-  }
-
-  .ds-badge-danger {
-    @apply bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300;
-  }
-
-  .ds-badge-warn {
-    @apply bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300;
-  }
-
-  .ds-badge-brand {
-    @apply border border-orange-200 dark:border-orange-700/60 bg-orange-100 dark:bg-orange-500/15 text-orange-900 dark:text-orange-200;
-  }
-
-  .ds-empty {
-    @apply text-center py-10 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900;
+    @apply inline-flex h-5 items-center gap-1 rounded px-1.5 text-[11px] font-medium leading-none whitespace-nowrap bg-surface-2 text-fg-2;
   }
 
   .ds-checkbox {
-    @apply h-4 w-4 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 accent-ch-blue;
-    @apply focus:outline-none focus:ring-2 focus:ring-ch-blue/35 focus:ring-offset-0;
+    @apply h-4 w-4 rounded-[3px] border border-edge-strong bg-surface accent-accent;
   }
-
-  .ds-checkbox-sm {
-    @apply h-3.5 w-3.5;
-  }
-
+  .ds-checkbox-sm { @apply h-3.5 w-3.5; }
   .ds-checkbox-label {
-    @apply inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 select-none;
+    @apply inline-flex items-center gap-2 text-[13px] text-fg-2 select-none;
   }
-
   .ds-radio {
-    @apply h-4 w-4 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 accent-ch-blue;
-    @apply focus:outline-none focus:ring-2 focus:ring-ch-blue/35 focus:ring-offset-0;
+    @apply h-4 w-4 border border-edge-strong bg-surface accent-accent;
   }
 
   /* Brain chat markdown output styling */
@@ -396,15 +393,15 @@ pre,
   .prose-brain ul { @apply list-disc pl-5 my-1.5 space-y-0.5; }
   .prose-brain ol { @apply list-decimal pl-5 my-1.5 space-y-0.5; }
   .prose-brain li { @apply leading-relaxed; }
-  .prose-brain a { @apply text-ch-blue hover:underline; }
-  .prose-brain blockquote { @apply border-l-2 border-gray-300 dark:border-gray-600 pl-3 my-2 text-gray-600 dark:text-gray-400 italic; }
-  .prose-brain pre { @apply bg-gray-100 dark:bg-gray-800 rounded-lg p-3 my-2 overflow-x-auto text-xs font-mono; }
-  .prose-brain code { @apply bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded text-xs font-mono; }
+  .prose-brain a { @apply text-accent hover:underline; }
+  .prose-brain blockquote { @apply border-l-2 border-edge-strong pl-3 my-2 text-fg-3 italic; }
+  .prose-brain pre { @apply bg-surface-2 rounded-md p-3 my-2 overflow-x-auto text-xs font-mono; }
+  .prose-brain code { @apply bg-surface-2 px-1 py-0.5 rounded text-xs font-mono; }
   .prose-brain pre code { @apply bg-transparent p-0; }
-  .prose-brain table { @apply min-w-full text-xs my-2 border border-gray-200 dark:border-gray-700 rounded; }
-  .prose-brain th { @apply px-2 py-1 text-left bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 font-semibold; }
-  .prose-brain td { @apply px-2 py-1 border-b border-gray-200/70 dark:border-gray-700/70; }
-  .prose-brain hr { @apply my-3 border-gray-200 dark:border-gray-700; }
+  .prose-brain table { @apply min-w-full text-xs my-2 border border-edge rounded; }
+  .prose-brain th { @apply px-2 py-1 text-left bg-surface-2 border-b border-edge font-semibold; }
+  .prose-brain td { @apply px-2 py-1 border-b border-edge-subtle; }
+  .prose-brain hr { @apply my-3 border-edge; }
   .prose-brain strong { @apply font-semibold; }
   .prose-brain em { @apply italic; }
 
@@ -417,15 +414,15 @@ pre,
   .prose-panel ul { @apply list-disc pl-5 my-1.5 space-y-0.5; }
   .prose-panel ol { @apply list-decimal pl-5 my-1.5 space-y-0.5; }
   .prose-panel li { @apply leading-relaxed; }
-  .prose-panel a { @apply text-ch-blue hover:underline; }
-  .prose-panel blockquote { @apply border-l-2 border-gray-300 dark:border-gray-600 pl-3 my-2 text-gray-600 dark:text-gray-400 italic; }
-  .prose-panel pre { @apply bg-gray-100 dark:bg-gray-800 rounded-lg p-3 my-2 overflow-x-auto text-xs font-mono; }
-  .prose-panel code { @apply bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded text-xs font-mono; }
+  .prose-panel a { @apply text-accent hover:underline; }
+  .prose-panel blockquote { @apply border-l-2 border-edge-strong pl-3 my-2 text-fg-3 italic; }
+  .prose-panel pre { @apply bg-surface-2 rounded-md p-3 my-2 overflow-x-auto text-xs font-mono; }
+  .prose-panel code { @apply bg-surface-2 px-1 py-0.5 rounded text-xs font-mono; }
   .prose-panel pre code { @apply bg-transparent p-0; }
-  .prose-panel table { @apply min-w-full text-xs my-2 border border-gray-200 dark:border-gray-700 rounded; }
-  .prose-panel th { @apply px-2 py-1 text-left bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 font-semibold; }
-  .prose-panel td { @apply px-2 py-1 border-b border-gray-200/70 dark:border-gray-700/70; }
-  .prose-panel hr { @apply my-3 border-gray-200 dark:border-gray-700; }
+  .prose-panel table { @apply min-w-full text-xs my-2 border border-edge rounded; }
+  .prose-panel th { @apply px-2 py-1 text-left bg-surface-2 border-b border-edge font-semibold; }
+  .prose-panel td { @apply px-2 py-1 border-b border-edge-subtle; }
+  .prose-panel hr { @apply my-3 border-edge; }
   .prose-panel strong { @apply font-semibold; }
   .prose-panel em { @apply italic; }
   .prose-panel img { @apply rounded-lg max-w-full my-2; }

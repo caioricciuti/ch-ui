@@ -105,42 +105,42 @@
 
 <div class="flex flex-1 min-h-0">
   <!-- Node Palette -->
-  <div class="w-44 border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 p-2 overflow-auto">
-    <p class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 px-1">
+  <div class="w-44 border-r border-edge-subtle bg-canvas p-2 overflow-auto">
+    <p class="text-[10px] font-semibold text-fg-3 uppercase tracking-wider mb-2 px-1">
       Sources
     </p>
     {#each SOURCE_NODE_TYPES as source}
       {@const Icon = sourceIcons[source.type] || Radio}
       <div
-        class="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 cursor-grab hover:border-orange-300 dark:hover:border-orange-700 transition-colors text-xs"
+        class="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-lg border border-edge-subtle bg-surface cursor-grab hover:border-edge-strong transition-colors text-xs"
         draggable="true"
         ondragstart={(e: DragEvent) => onDragStart(e, source.type)}
         role="button"
         tabindex={0}
       >
-        <Icon size={14} class="text-gray-500 shrink-0" />
+        <Icon size={14} class="text-fg-3 shrink-0" />
         <div class="min-w-0">
-          <div class="font-medium text-gray-700 dark:text-gray-300 text-xs">{source.label}</div>
-          <div class="text-[9px] text-gray-400 dark:text-gray-500 truncate">{source.description}</div>
+          <div class="font-medium text-fg-2 text-xs">{source.label}</div>
+          <div class="text-[9px] text-fg-4 truncate">{source.description}</div>
         </div>
       </div>
     {/each}
 
-    <p class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-3 mb-2 px-1">
+    <p class="text-[10px] font-semibold text-fg-3 uppercase tracking-wider mt-3 mb-2 px-1">
       Sinks
     </p>
     {#each SINK_NODE_TYPES as sink}
       <div
-        class="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 cursor-grab hover:border-orange-400 dark:hover:border-orange-600 transition-colors text-xs"
+        class="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-lg border border-accent/40 bg-accent-soft cursor-grab hover:border-accent transition-colors text-xs"
         draggable="true"
         ondragstart={(e: DragEvent) => onDragStart(e, sink.type)}
         role="button"
         tabindex={0}
       >
-        <Database size={14} class="text-orange-500 shrink-0" />
+        <Database size={14} class="text-accent shrink-0" />
         <div class="min-w-0">
-          <div class="font-medium text-gray-700 dark:text-gray-300 text-xs">{sink.label}</div>
-          <div class="text-[9px] text-gray-400 dark:text-gray-500 truncate">{sink.description}</div>
+          <div class="font-medium text-fg-2 text-xs">{sink.label}</div>
+          <div class="text-[9px] text-fg-4 truncate">{sink.description}</div>
         </div>
       </div>
     {/each}

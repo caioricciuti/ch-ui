@@ -325,7 +325,7 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Annotations: ann,
 		Description: "List the dashboards in this CH-UI instance. Dashboards are not bound to one connection; their panels may query other connections.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args pageArgs) (*mcp.CallToolResult, any, error) {
-		dashboards, err := deps.DB.GetDashboards()
+		dashboards, err := deps.DB.GetDashboards("")
 		if err != nil {
 			return errResult("failed to list dashboards: %v", err), nil, nil
 		}

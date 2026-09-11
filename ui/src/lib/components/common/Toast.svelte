@@ -11,19 +11,22 @@
   duration={4400}
   offset={16}
   mobileOffset={12}
-  gap={10}
+  gap={8}
   containerAriaLabel="CH-UI notifications"
 />
 
 <style>
   :global([data-sonner-toaster]) {
-    --width: min(92vw, 26rem);
+    --width: min(92vw, 24rem);
+    font-family: var(--font-sans);
   }
 
   :global([data-sonner-toast][data-styled='true']) {
-    border-radius: 12px;
-    backdrop-filter: blur(8px);
-    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--edge);
+    background: var(--elevated);
+    color: var(--fg);
+    box-shadow: var(--shadow-popover);
   }
 
   :global([data-sonner-toast][data-styled='true'] [data-title]) {
@@ -35,11 +38,11 @@
   :global([data-sonner-toast][data-styled='true'] [data-description]) {
     font-size: 12px;
     line-height: 1.4;
-    opacity: 0.9;
+    color: var(--fg-3);
   }
 
   :global([data-sonner-toast][data-styled='true'] [data-close-button]) {
-    opacity: 0.72;
+    opacity: 0.7;
   }
 
   :global([data-sonner-toast][data-styled='true'] [data-close-button]:hover) {

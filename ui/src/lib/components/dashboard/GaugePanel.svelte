@@ -110,8 +110,8 @@
       <!-- Needle dot -->
       <circle cx={needleX} cy={needleY} r={dotR} fill={stat.color || '#f97316'} />
       <!-- Min/Max labels -->
-      <text x={cx - radius} y={cy + strokeW / 2 + 14} text-anchor="middle" class="fill-gray-400" style="font-size: 10px">{minVal}</text>
-      <text x={cx + radius} y={cy + strokeW / 2 + 14} text-anchor="middle" class="fill-gray-400" style="font-size: 10px">{maxVal}</text>
+      <text x={cx - radius} y={cy + strokeW / 2 + 14} text-anchor="middle" class="fill-fg-4" style="font-size: 10px">{minVal}</text>
+      <text x={cx + radius} y={cy + strokeW / 2 + 14} text-anchor="middle" class="fill-fg-4" style="font-size: 10px">{maxVal}</text>
     </svg>
     <!-- Value text -->
     <div class="absolute inset-0 flex items-center justify-center" style="padding-top: {radius * 0.3}px">
@@ -120,22 +120,19 @@
           <span
             class="font-semibold opacity-80"
             style="font-size: {affixSize}px; {isValue ? `color: ${stat.color}` : ''}"
-            class:text-gray-900={!isValue && !isBg}
-            class:dark:text-gray-100={!isValue && !isBg}
+            class:text-fg={!isValue && !isBg}
           >{stat.prefix}</span>
         {/if}
         <span
           class="font-bold"
           style={isValue ? `color: ${stat.color}` : ''}
-          class:text-gray-900={!isValue && !isBg}
-          class:dark:text-gray-100={!isValue && !isBg}
+          class:text-fg={!isValue && !isBg}
         >{stat.value}</span>
         {#if stat.suffix}
           <span
             class="font-semibold opacity-80"
             style="font-size: {affixSize}px; {isValue ? `color: ${stat.color}` : ''}"
-            class:text-gray-900={!isValue && !isBg}
-            class:dark:text-gray-100={!isValue && !isBg}
+            class:text-fg={!isValue && !isBg}
           >{stat.suffix}</span>
         {/if}
       </div>

@@ -10,7 +10,14 @@
   import Spinner from '../lib/components/common/Spinner.svelte'
   import Sheet from '../lib/components/common/Sheet.svelte'
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
-  import { Clock, Plus, Play, Trash2, ChevronDown, ChevronRight, FileText, ExternalLink } from 'lucide-svelte'
+  import PageHeader from '../lib/components/common/PageHeader.svelte'
+  import PageBody from '../lib/components/common/PageBody.svelte'
+  import Badge from '../lib/components/common/Badge.svelte'
+  import EmptyState from '../lib/components/common/EmptyState.svelte'
+  import FormField from '../lib/components/common/FormField.svelte'
+  import Input from '../lib/components/common/Input.svelte'
+  import Panel from '../lib/components/common/Panel.svelte'
+  import { Clock, Plus, Play, Trash2, ChevronDown, ChevronRight, FileText, ExternalLink, Pencil } from 'lucide-svelte'
 
   let schedules = $state<Schedule[]>([])
   let loading = $state(true)
@@ -262,98 +269,101 @@
     showRunSheet = false
   }
 
-  function statusBadge(status: string | null): { cls: string; label: string } {
+  type BadgeTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'brand'
+  function statusBadge(status: string | null): { tone: BadgeTone; label: string } {
     switch (status) {
-      case 'success': return { cls: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300', label: 'Success' }
-      case 'error': return { cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300', label: 'Error' }
-      case 'running': return { cls: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300', label: 'Running' }
-      default: return { cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500', label: status ?? 'Pending' }
+      case 'success': return { tone: 'success', label: 'Success' }
+      case 'error': return { tone: 'danger', label: 'Error' }
+      case 'running': return { tone: 'brand', label: 'Running' }
+      default: return { tone: 'neutral', label: status ?? 'Pending' }
     }
   }
 </script>
 
-<div class="flex flex-col h-full">
-  <div class="ds-page-header">
-    <div class="flex items-center gap-3">
-      <Clock size={18} class="text-ch-orange" />
-      <h1 class="ds-page-title">Scheduled Queries</h1>
-    </div>
-    <Button size="sm" onclick={openCreateModal}>
-      <Plus size={14} /> Create Schedule
-    </Button>
-  </div>
+<div class="flex h-full min-h-0 flex-col">
+  <PageHeader title="Scheduled Queries" subtitle="Run saved queries on a cron, with run history.">
+    {#snippet meta()}
+      {#if !loading}<Badge>{schedules.length}</Badge>{/if}
+    {/snippet}
+    {#snippet actions()}
+      <Button size="sm" onclick={openCreateModal}>
+        <Plus size={14} /> Create Schedule
+      </Button>
+    {/snippet}
+  </PageHeader>
 
-  <div class="flex-1 overflow-auto p-4">
+  <PageBody width="md">
     {#if loading}
       <div class="flex items-center justify-center py-12"><Spinner /></div>
     {:else if schedules.length === 0}
-      <div class="ds-empty text-gray-500">
-        <Clock size={36} class="mx-auto mb-2 text-gray-300 dark:text-gray-700" />
-        <p class="mb-1">No scheduled queries yet</p>
-        <p class="text-xs text-gray-400 dark:text-gray-600">Create a schedule to run saved queries automatically</p>
-      </div>
+      <EmptyState
+        icon={Clock}
+        title="No scheduled queries yet"
+        description="Create a schedule to run saved queries automatically."
+        primary={{ label: 'Create Schedule', onclick: openCreateModal }}
+      />
     {:else}
-      <div class="flex flex-col gap-2">
+      <div class="flex flex-col gap-3">
         {#each schedules as schedule (schedule.id)}
           {@const badge = statusBadge(schedule.last_status)}
           {@const queryRef = savedQueryMap.get(schedule.saved_query_id)}
-          <div class="ds-panel rounded-xl overflow-hidden">
-            <div class="flex items-center gap-3 p-3 border-b border-gray-200/70 dark:border-gray-800/70">
-              <button
-                class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
+            <div class="flex items-center gap-3 p-3 {expandedSchedule === schedule.id ? 'border-b border-edge-subtle' : ''}">
+              <Button
+                icon
+                variant="ghost"
+                size="xs"
+                aria-label={expandedSchedule === schedule.id ? 'Hide runs' : 'View runs'}
                 onclick={() => toggleRuns(schedule.id)}
-                title="View runs"
               >
                 {#if expandedSchedule === schedule.id}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
-              </button>
+              </Button>
 
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{schedule.name}</span>
-                  <code class="ds-badge ds-badge-neutral font-mono">{schedule.cron}</code>
-                  <span class="text-xs text-gray-400">{schedule.timezone}</span>
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-[13px] font-semibold text-fg">{schedule.name}</span>
+                  <Badge class="font-mono">{schedule.cron}</Badge>
+                  <span class="text-xs text-fg-4">{schedule.timezone}</span>
                 </div>
-                <div class="flex items-center gap-3 mt-1 text-xs text-gray-500 flex-wrap">
-                  <span class="px-1.5 py-0.5 rounded {badge.cls}">{badge.label}</span>
+                <div class="mt-1 flex flex-wrap items-center gap-3 text-xs text-fg-3">
+                  <Badge tone={badge.tone} dot>{badge.label}</Badge>
                   <span>Last: {formatDate(schedule.last_run_at)}</span>
                   <span>Next: {formatDate(schedule.next_run_at)}</span>
                   {#if queryRef}
-                    <span class="text-gray-400">{queryRef.name}</span>
+                    <span class="text-fg-4">{queryRef.name}</span>
                   {/if}
                 </div>
               </div>
 
               <button
-                class="relative w-9 h-5 rounded-full transition-colors {schedule.enabled ? 'bg-ch-blue' : 'bg-gray-300 dark:bg-gray-700'}"
+                role="switch"
+                aria-checked={schedule.enabled}
+                aria-label={schedule.enabled ? 'Disable schedule' : 'Enable schedule'}
+                class="relative h-5 w-9 shrink-0 rounded-full transition-colors {schedule.enabled ? 'bg-accent' : 'bg-edge-strong'}"
                 onclick={() => toggleEnabled(schedule)}
                 title={schedule.enabled ? 'Disable' : 'Enable'}
               >
-                <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform {schedule.enabled ? 'translate-x-4' : ''}"></span>
+                <span class="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform {schedule.enabled ? 'translate-x-4' : ''}"></span>
               </button>
 
-              <div class="flex items-center gap-1">
-                <button
-                  class="ds-icon-btn disabled:opacity-50"
+              <div class="flex items-center gap-0.5">
+                <Button
+                  icon
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Run now"
+                  title="Run now"
                   onclick={() => manualRun(schedule.id)}
                   disabled={runningId === schedule.id}
-                  title="Run now"
                 >
                   {#if runningId === schedule.id}<Spinner size="sm" />{:else}<Play size={14} />{/if}
-                </button>
-                <button
-                  class="ds-icon-btn hover:text-gray-700 dark:hover:text-gray-300"
-                  onclick={() => openEditModal(schedule)}
-                  title="Edit"
-                >
-                  <Clock size={14} />
-                </button>
-                <button
-                  class="ds-icon-btn hover:text-red-500 dark:hover:text-red-400"
-                  onclick={() => askDeleteSchedule(schedule.id)}
-                  title="Delete"
-                >
+                </Button>
+                <Button icon variant="ghost" size="sm" aria-label="Edit" title="Edit" onclick={() => openEditModal(schedule)}>
+                  <Pencil size={14} />
+                </Button>
+                <Button icon variant="ghost" size="sm" aria-label="Delete" title="Delete" class="hover:text-danger" onclick={() => askDeleteSchedule(schedule.id)}>
                   <Trash2 size={14} />
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -362,9 +372,9 @@
                 {#if runsLoading}
                   <div class="flex items-center justify-center py-4"><Spinner size="sm" /></div>
                 {:else if runs.length === 0}
-                  <p class="text-xs text-gray-500 py-2">No runs yet</p>
+                  <p class="py-2 text-xs text-fg-3">No runs yet</p>
                 {:else}
-                  <div class="overflow-x-auto">
+                  <div class="ds-table-wrap">
                     <table class="ds-table text-xs">
                       <thead>
                         <tr class="ds-table-head-row">
@@ -381,17 +391,14 @@
                           {@const rb = statusBadge(run.status)}
                           <tr class="ds-table-row">
                             <td class="ds-td-compact">{formatDate(run.started_at)}</td>
-                            <td class="ds-td-compact"><span class="ds-badge {rb.cls}">{rb.label}</span></td>
-                            <td class="ds-td-compact text-right">{run.elapsed_ms}ms</td>
-                            <td class="ds-td-compact text-right">{run.rows_affected}</td>
-                            <td class="ds-td-compact text-red-500 max-w-xs truncate">{run.error ?? '—'}</td>
+                            <td class="ds-td-compact"><Badge tone={rb.tone}>{rb.label}</Badge></td>
+                            <td class="ds-td-compact text-right tabular-nums">{run.elapsed_ms}ms</td>
+                            <td class="ds-td-compact text-right tabular-nums">{run.rows_affected}</td>
+                            <td class="ds-td-compact max-w-xs truncate text-danger">{run.error ?? '—'}</td>
                             <td class="ds-td-compact text-right">
-                              <button
-                                class="ds-btn-outline px-2 py-1"
-                                onclick={() => openRunDetails(schedule, run)}
-                              >
+                              <Button size="xs" variant="outline" onclick={() => openRunDetails(schedule, run)}>
                                 <FileText size={12} /> View
-                              </button>
+                              </Button>
                             </td>
                           </tr>
                         {/each}
@@ -400,13 +407,9 @@
                   </div>
                   {#if runsHasMore}
                     <div class="mt-2 flex justify-center">
-                      <button
-                        class="ds-btn-outline px-3 py-1.5 disabled:opacity-60"
-                        onclick={() => loadRuns(schedule.id, true)}
-                        disabled={runsLoadingMore}
-                      >
-                        {#if runsLoadingMore}<Spinner size="sm" />{:else}Load {RUNS_PAGE_SIZE} more{/if}
-                      </button>
+                      <Button size="sm" variant="outline" loading={runsLoadingMore} onclick={() => loadRuns(schedule.id, true)}>
+                        Load {RUNS_PAGE_SIZE} more
+                      </Button>
                     </div>
                   {/if}
                 {/if}
@@ -416,25 +419,26 @@
         {/each}
       </div>
     {/if}
-  </div>
+  </PageBody>
 </div>
 
 <Sheet open={showModal} title={editingId ? 'Edit Schedule' : 'Create Schedule'} size="sm" onclose={() => showModal = false}>
-  <div class="flex flex-col gap-3">
-    <div>
-      <label for="schedule-name" class="ds-form-label">Name</label>
-      <input
-        id="schedule-name"
-        type="text"
-        class="ds-input"
-        placeholder="e.g. Daily Aggregation"
-        bind:value={formName}
-      />
-    </div>
+  {#snippet footer()}
+    <Button variant="outline" size="sm" onclick={() => showModal = false}>Cancel</Button>
+    <Button size="sm" loading={saving} onclick={saveSchedule} disabled={!editingId && (savedQueriesLoading || savedQueries.length === 0)}>
+      {editingId ? 'Update' : 'Create'}
+    </Button>
+  {/snippet}
+  <div class="flex flex-col gap-4">
+    <FormField label="Name" for="schedule-name">
+      <Input id="schedule-name" placeholder="e.g. Daily Aggregation" bind:value={formName} />
+    </FormField>
 
     {#if !editingId}
-      <div>
-        <p class="ds-form-label">Saved Query</p>
+      <FormField
+        label="Saved Query"
+        error={savedQueries.length === 0 && !savedQueriesLoading ? 'No saved queries available. Create one first in Saved Queries.' : undefined}
+      >
         <Combobox
           options={savedQueries.map((q) => ({
             value: q.id,
@@ -448,50 +452,20 @@
           disabled={savedQueriesLoading || savedQueries.length === 0}
           onChange={(id) => formSavedQueryId = id}
         />
-        {#if savedQueries.length === 0}
-          <p class="mt-1 text-xs text-amber-500">No saved queries available. Create one first in Saved Queries.</p>
-        {/if}
-      </div>
+      </FormField>
     {/if}
 
-    <div>
-      <label for="schedule-cron" class="ds-form-label">Cron Expression</label>
-      <input
-        id="schedule-cron"
-        type="text"
-        class="ds-input font-mono"
-        placeholder="0 */6 * * *"
-        bind:value={formCron}
-      />
-      <p class="text-xs text-gray-400 mt-1">e.g. <code>0 */6 * * *</code> = every 6 hours</p>
-    </div>
+    <FormField label="Cron Expression" for="schedule-cron" hint="e.g. 0 */6 * * * = every 6 hours">
+      <Input id="schedule-cron" mono placeholder="0 */6 * * *" bind:value={formCron} />
+    </FormField>
 
-    <div class="flex gap-3">
-      <div class="flex-1">
-        <label for="schedule-timezone" class="ds-form-label">Timezone</label>
-        <input
-          id="schedule-timezone"
-          type="text"
-          class="ds-input"
-          bind:value={formTimezone}
-        />
-      </div>
-      <div class="flex-1">
-        <label for="schedule-timeout" class="ds-form-label">Timeout (ms)</label>
-        <input
-          id="schedule-timeout"
-          type="number"
-          class="ds-input"
-          bind:value={formTimeout}
-        />
-      </div>
-    </div>
-
-    <div class="flex justify-end gap-2 pt-2">
-      <Button variant="secondary" size="sm" onclick={() => showModal = false}>Cancel</Button>
-      <Button size="sm" loading={saving} onclick={saveSchedule} disabled={!editingId && (savedQueriesLoading || savedQueries.length === 0)}>
-        {editingId ? 'Update' : 'Create'}
-      </Button>
+    <div class="grid grid-cols-2 gap-3">
+      <FormField label="Timezone" for="schedule-timezone">
+        <Input id="schedule-timezone" bind:value={formTimezone} />
+      </FormField>
+      <FormField label="Timeout (ms)" for="schedule-timeout">
+        <Input id="schedule-timeout" type="number" bind:value={formTimeout} />
+      </FormField>
     </div>
   </div>
 </Sheet>
@@ -501,62 +475,61 @@
     {@const runBadge = statusBadge(selectedRun.status)}
     {@const saved = savedQueryMap.get(selectedSchedule.saved_query_id)}
 
-    <div class="space-y-5">
+    <div class="space-y-4">
       <div class="grid grid-cols-2 gap-3">
-        <div class="surface-card rounded-lg p-3">
-          <p class="text-xs text-gray-500 mb-1">Schedule</p>
-          <p class="text-sm font-semibold text-gray-800 dark:text-gray-100">{selectedSchedule.name}</p>
-          <p class="text-xs text-gray-500 mt-1 font-mono">{selectedSchedule.cron} ({selectedSchedule.timezone})</p>
-        </div>
-        <div class="surface-card rounded-lg p-3">
-          <p class="text-xs text-gray-500 mb-1">Run Status</p>
-          <span class="inline-flex px-2 py-1 rounded text-xs font-medium {runBadge.cls}">{runBadge.label}</span>
-          <p class="text-xs text-gray-500 mt-1">ID: <span class="font-mono">{selectedRun.id}</span></p>
-        </div>
+        <Panel variant="muted" padding="sm">
+          <p class="text-[11px] font-medium uppercase tracking-wider text-fg-3">Schedule</p>
+          <p class="mt-1 text-[13px] font-semibold text-fg">{selectedSchedule.name}</p>
+          <p class="mt-1 font-mono text-xs text-fg-3">{selectedSchedule.cron} ({selectedSchedule.timezone})</p>
+        </Panel>
+        <Panel variant="muted" padding="sm">
+          <p class="text-[11px] font-medium uppercase tracking-wider text-fg-3">Run Status</p>
+          <div class="mt-1"><Badge tone={runBadge.tone}>{runBadge.label}</Badge></div>
+          <p class="mt-1 text-xs text-fg-3">ID: <span class="font-mono">{selectedRun.id}</span></p>
+        </Panel>
       </div>
 
-      <div class="grid grid-cols-2 gap-3">
-        <div class="surface-card rounded-lg p-3">
-          <p class="text-xs text-gray-500">Started</p>
-          <p class="text-sm text-gray-800 dark:text-gray-100 mt-1">{formatDate(selectedRun.started_at)}</p>
-        </div>
-        <div class="surface-card rounded-lg p-3">
-          <p class="text-xs text-gray-500">Finished</p>
-          <p class="text-sm text-gray-800 dark:text-gray-100 mt-1">{formatDate(selectedRun.finished_at)}</p>
-        </div>
-        <div class="surface-card rounded-lg p-3">
-          <p class="text-xs text-gray-500">Elapsed</p>
-          <p class="text-sm text-gray-800 dark:text-gray-100 mt-1">{selectedRun.elapsed_ms} ms</p>
-        </div>
-        <div class="surface-card rounded-lg p-3">
-          <p class="text-xs text-gray-500">Rows Affected</p>
-          <p class="text-sm text-gray-800 dark:text-gray-100 mt-1">{selectedRun.rows_affected}</p>
-        </div>
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Panel variant="muted" padding="sm">
+          <p class="text-[11px] font-medium uppercase tracking-wider text-fg-3">Started</p>
+          <p class="mt-1 text-[13px] text-fg">{formatDate(selectedRun.started_at)}</p>
+        </Panel>
+        <Panel variant="muted" padding="sm">
+          <p class="text-[11px] font-medium uppercase tracking-wider text-fg-3">Finished</p>
+          <p class="mt-1 text-[13px] text-fg">{formatDate(selectedRun.finished_at)}</p>
+        </Panel>
+        <Panel variant="muted" padding="sm">
+          <p class="text-[11px] font-medium uppercase tracking-wider text-fg-3">Elapsed</p>
+          <p class="mt-1 text-[13px] tabular-nums text-fg">{selectedRun.elapsed_ms} ms</p>
+        </Panel>
+        <Panel variant="muted" padding="sm">
+          <p class="text-[11px] font-medium uppercase tracking-wider text-fg-3">Rows Affected</p>
+          <p class="mt-1 text-[13px] tabular-nums text-fg">{selectedRun.rows_affected}</p>
+        </Panel>
       </div>
 
       {#if selectedRun.error}
-        <div class="surface-card rounded-lg p-3 border-red-400/40">
-          <p class="text-xs font-medium text-red-500 mb-1">Error</p>
-          <pre class="text-xs text-red-400 whitespace-pre-wrap break-all font-mono">{selectedRun.error}</pre>
+        <div class="rounded-md border border-danger/30 bg-danger-soft p-3">
+          <p class="mb-1 text-xs font-medium text-danger">Error</p>
+          <pre class="whitespace-pre-wrap break-all font-mono text-xs text-danger">{selectedRun.error}</pre>
         </div>
       {/if}
 
-      <div class="surface-card rounded-lg p-3">
-        <div class="flex items-center justify-between gap-2 mb-2">
-          <p class="text-xs font-medium text-gray-600 dark:text-gray-300">Saved Query</p>
+      <Panel variant="muted" padding="sm" title="Saved Query">
+        {#snippet actions()}
           {#if saved}
-            <button class="inline-flex items-center gap-1 text-xs text-ch-blue hover:underline" onclick={openScheduleQueryInEditor}>
+            <Button size="xs" variant="ghost" onclick={openScheduleQueryInEditor}>
               <ExternalLink size={12} /> Open in editor
-            </button>
+            </Button>
           {/if}
-        </div>
+        {/snippet}
         {#if saved}
-          <p class="text-sm text-gray-800 dark:text-gray-100 mb-2">{saved.name}</p>
-          <pre class="text-xs font-mono text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-900 rounded p-2 overflow-auto max-h-48">{saved.query}</pre>
+          <p class="mb-2 text-[13px] text-fg">{saved.name}</p>
+          <pre class="max-h-48 overflow-auto rounded-md border border-edge-subtle bg-surface p-2 font-mono text-xs text-fg-2">{saved.query}</pre>
         {:else}
-          <p class="text-xs text-gray-500">Saved query metadata not available.</p>
+          <p class="text-xs text-fg-3">Saved query metadata not available.</p>
         {/if}
-      </div>
+      </Panel>
     </div>
   {/if}
 </Sheet>

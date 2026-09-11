@@ -296,7 +296,7 @@
   }
 </script>
 
-<div class="border-t border-gray-200 dark:border-gray-800 p-4">
+<div class="border-t border-edge-subtle p-4">
   <div class="relative flex items-end gap-2">
     {#if mentionActive}
       <BrainMentionDropdown
@@ -309,7 +309,7 @@
     {/if}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="brain-editable flex-1 text-sm bg-transparent border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-800 dark:text-gray-200 min-h-[44px] max-h-[200px] overflow-auto focus:outline-none focus:ring-2 focus:ring-ch-blue/40 focus:border-ch-blue/50 transition-colors"
+      class="brain-editable flex-1 text-sm bg-transparent border border-edge rounded-lg px-3 py-2 text-fg min-h-[44px] max-h-[200px] overflow-auto focus:outline-none focus:border-accent/50 transition-colors"
       contenteditable={!streaming}
       role="textbox"
       data-placeholder="Ask Brain about your data... (type @ to mention tables, dashboards, pipelines, models)"

@@ -229,22 +229,22 @@
 
 <div class="flex-1 overflow-auto min-h-0 p-4 space-y-4">
   <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-    <div class="surface-card rounded-xl p-3">
-      <div class="text-[11px] uppercase tracking-wider text-gray-500 inline-flex items-center gap-1.5"><Activity size={13} />Runtime</div>
-      <div class="mt-2 text-xl font-semibold text-gray-800 dark:text-gray-100">{elapsedMs > 0 ? formatElapsed(elapsedSeconds) : '\u2014'}</div>
-      <div class="mt-1 text-xs text-gray-500">{formatNumber(data.length)} rows returned</div>
+    <div class="surface-card rounded-md p-3">
+      <div class="text-[11px] uppercase tracking-wider text-fg-3 inline-flex items-center gap-1.5"><Activity size={13} />Runtime</div>
+      <div class="mt-2 text-xl font-semibold text-fg">{elapsedMs > 0 ? formatElapsed(elapsedSeconds) : '\u2014'}</div>
+      <div class="mt-1 text-xs text-fg-3">{formatNumber(data.length)} rows returned</div>
     </div>
 
-    <div class="surface-card rounded-xl p-3">
-      <div class="text-[11px] uppercase tracking-wider text-gray-500 inline-flex items-center gap-1.5"><Gauge size={13} />Inline Profiling</div>
-      <div class="mt-2 text-sm font-semibold text-gray-800 dark:text-gray-100">{rowsPerSec > 0 ? formatNumber(Math.round(rowsPerSec)) : '0'} rows/s</div>
-      <div class="mt-1 text-xs text-gray-500">{throughputBytesPerSec > 0 ? formatBytes(throughputBytesPerSec) : '0 B'}/s (estimated)</div>
+    <div class="surface-card rounded-md p-3">
+      <div class="text-[11px] uppercase tracking-wider text-fg-3 inline-flex items-center gap-1.5"><Gauge size={13} />Inline Profiling</div>
+      <div class="mt-2 text-sm font-semibold text-fg">{rowsPerSec > 0 ? formatNumber(Math.round(rowsPerSec)) : '0'} rows/s</div>
+      <div class="mt-1 text-xs text-fg-3">{throughputBytesPerSec > 0 ? formatBytes(throughputBytesPerSec) : '0 B'}/s (estimated)</div>
     </div>
 
-    <div class="surface-card rounded-xl p-3">
-      <div class="text-[11px] uppercase tracking-wider text-gray-500 inline-flex items-center gap-1.5"><Layers3 size={13} />Streaming Viewer</div>
-      <div class="mt-2 text-sm font-semibold text-gray-800 dark:text-gray-100">{formatNumber(streamRows || data.length)} rows, {formatNumber(streamChunks)} chunks</div>
-      <div class="mt-1 text-xs text-gray-500">
+    <div class="surface-card rounded-md p-3">
+      <div class="text-[11px] uppercase tracking-wider text-fg-3 inline-flex items-center gap-1.5"><Layers3 size={13} />Streaming Viewer</div>
+      <div class="mt-2 text-sm font-semibold text-fg">{formatNumber(streamRows || data.length)} rows, {formatNumber(streamChunks)} chunks</div>
+      <div class="mt-1 text-xs text-fg-3">
         {#if running}
           Live ingest running...
         {:else if streamLastChunkAt}
@@ -255,64 +255,64 @@
       </div>
     </div>
 
-    <div class="surface-card rounded-xl p-3">
-      <div class="text-[11px] uppercase tracking-wider text-gray-500 inline-flex items-center gap-1.5"><Scale size={13} />Estimate vs Actual</div>
+    <div class="surface-card rounded-md p-3">
+      <div class="text-[11px] uppercase tracking-wider text-fg-3 inline-flex items-center gap-1.5"><Scale size={13} />Estimate vs Actual</div>
       {#if estimate && estimate.success && !estimate.error && stats}
         {@const actualRows = Number(stats.rows_read ?? 0)}
         {@const estimatedRows = estimate.total_rows}
         {@const accuracy = estimatedRows > 0 ? Math.round((Math.min(actualRows, estimatedRows) / Math.max(actualRows, estimatedRows)) * 100) : 0}
         <div class="mt-2 grid grid-cols-2 gap-1.5 text-xs">
-          <div class="rounded-md bg-gray-100/70 dark:bg-gray-800/70 px-2 py-1">
-            <div class="text-gray-500">Estimated</div>
-            <div class="font-semibold text-gray-800 dark:text-gray-100">{formatNumber(estimatedRows)} rows</div>
+          <div class="rounded-md bg-surface-2 px-2 py-1">
+            <div class="text-fg-3">Estimated</div>
+            <div class="font-semibold text-fg">{formatNumber(estimatedRows)} rows</div>
           </div>
-          <div class="rounded-md bg-gray-100/70 dark:bg-gray-800/70 px-2 py-1">
-            <div class="text-gray-500">Actual</div>
-            <div class="font-semibold text-gray-800 dark:text-gray-100">{formatNumber(actualRows)} rows</div>
+          <div class="rounded-md bg-surface-2 px-2 py-1">
+            <div class="text-fg-3">Actual</div>
+            <div class="font-semibold text-fg">{formatNumber(actualRows)} rows</div>
           </div>
         </div>
         <div class="mt-1.5 flex items-center gap-2">
-          <div class="flex-1 h-1.5 rounded bg-gray-200 dark:bg-gray-800 overflow-hidden">
-            <div class="h-full rounded {accuracy >= 80 ? 'bg-green-500' : accuracy >= 50 ? 'bg-yellow-500' : 'bg-red-500'}" style="width:{accuracy}%"></div>
+          <div class="flex-1 h-1.5 rounded bg-surface-2 overflow-hidden">
+            <div class="h-full rounded {accuracy >= 80 ? 'bg-success' : accuracy >= 50 ? 'bg-warning' : 'bg-danger'}" style="width:{accuracy}%"></div>
           </div>
-          <span class="text-xs font-medium {accuracy >= 80 ? 'text-green-600 dark:text-green-400' : accuracy >= 50 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}">{accuracy}%</span>
+          <span class="text-xs font-medium {accuracy >= 80 ? 'text-success' : accuracy >= 50 ? 'text-warning' : 'text-danger'}">{accuracy}%</span>
         </div>
       {:else if estimate && estimate.success && !estimate.error && !stats}
-        <div class="mt-2 text-xs text-gray-800 dark:text-gray-100">
+        <div class="mt-2 text-xs text-fg">
           <span class="font-semibold">{formatNumber(estimate.total_rows)}</span> rows · {estimate.total_parts} parts · {formatNumber(estimate.total_marks)} marks
         </div>
-        <div class="mt-1 text-xs text-gray-500">Run the query to compare with actual.</div>
+        <div class="mt-1 text-xs text-fg-3">Run the query to compare with actual.</div>
       {:else}
-        <div class="mt-2 text-xs text-gray-500">No estimate available. Type a SELECT query.</div>
+        <div class="mt-2 text-xs text-fg-3">No estimate available. Type a SELECT query.</div>
       {/if}
     </div>
 
-    <div class="surface-card rounded-xl p-3">
-      <div class="text-[11px] uppercase tracking-wider text-gray-500 inline-flex items-center gap-1.5"><FlaskConical size={13} />Sampling</div>
+    <div class="surface-card rounded-md p-3">
+      <div class="text-[11px] uppercase tracking-wider text-fg-3 inline-flex items-center gap-1.5"><FlaskConical size={13} />Sampling</div>
       <div class="mt-2 flex items-center gap-2">
         <input
           type="number"
           min="1"
           max="500"
           bind:value={samplePerShard}
-          class="w-24 px-2 py-1 text-xs rounded-md bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700"
+          class="w-24 px-2 py-1 text-xs rounded-md bg-surface-2 border border-edge"
         />
         <button
-          class="px-2.5 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-800"
+          class="px-2.5 py-1 text-xs rounded-md border border-edge hover:bg-hover"
           onclick={handleSample}
           disabled={!onSample || running}
         >Sample / shard</button>
       </div>
-      <div class="mt-1 text-xs text-gray-500">Mode: {samplingMode ?? 'none'}</div>
+      <div class="mt-1 text-xs text-fg-3">Mode: {samplingMode ?? 'none'}</div>
     </div>
   </div>
 
   <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-    <div class="surface-card rounded-xl p-3">
+    <div class="surface-card rounded-md p-3">
       <div class="flex items-center justify-between mb-3">
-        <div class="text-[11px] uppercase tracking-wider text-gray-500 inline-flex items-center gap-1.5"><GitBranch size={13} />Query Plan Visualizer</div>
+        <div class="text-[11px] uppercase tracking-wider text-fg-3 inline-flex items-center gap-1.5"><GitBranch size={13} />Query Plan Visualizer</div>
         <button
-          class="px-2.5 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-800 inline-flex items-center gap-1.5"
+          class="px-2.5 py-1 text-xs rounded-md border border-edge hover:bg-hover inline-flex items-center gap-1.5"
           onclick={() => onLoadPlan?.()}
           disabled={!onLoadPlan || planLoading}
         >
@@ -321,26 +321,26 @@
         </button>
       </div>
       {#if planLoading}
-        <div class="text-xs text-gray-500">Loading query plan...</div>
+        <div class="text-xs text-fg-3">Loading query plan...</div>
       {:else if planError}
-        <div class="text-xs text-red-500">{planError}</div>
+        <div class="text-xs text-danger">{planError}</div>
       {:else if planFlow.length > 0}
-        <div class="text-[11px] text-gray-500 mb-2">Source: {planSource} · {formatNumber(planFlow.length)} stages</div>
-        <div class="max-h-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-900/60 p-2.5">
+        <div class="text-[11px] text-fg-3 mb-2">Source: {planSource} · {formatNumber(planFlow.length)} stages</div>
+        <div class="max-h-64 overflow-auto rounded-md border border-edge-subtle bg-surface p-2.5">
           <div class="space-y-2">
             {#each planFlow as node, i (node.id)}
               <div class="relative" style={`margin-left:${node.level * 14}px`}>
                 {#if i < planFlow.length - 1}
-                  <div class="absolute left-3 top-7 h-6 w-px bg-gray-300 dark:bg-gray-700"></div>
+                  <div class="absolute left-3 top-7 h-6 w-px bg-edge"></div>
                 {/if}
                 <div class="flex items-start gap-2">
-                  <div class="mt-0.5 w-6 h-6 rounded-full border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-[10px] font-semibold text-gray-600 dark:text-gray-300 flex items-center justify-center">
+                  <div class="mt-0.5 w-6 h-6 rounded-full border border-edge bg-surface-2 text-[10px] font-semibold text-fg-2 flex items-center justify-center">
                     {node.index}
                   </div>
-                  <div class="flex-1 min-w-0 rounded-md border border-gray-200 dark:border-gray-800 bg-white/60 dark:bg-gray-950/40 px-2.5 py-1.5">
-                    <div class="text-xs font-semibold text-gray-700 dark:text-gray-200">{node.title}</div>
+                  <div class="flex-1 min-w-0 rounded-md border border-edge-subtle bg-white/60 px-2.5 py-1.5">
+                    <div class="text-xs font-semibold text-fg-2">{node.title}</div>
                     {#if node.detail}
-                      <div class="text-[11px] text-gray-500 mt-0.5 break-words">{node.detail}</div>
+                      <div class="text-[11px] text-fg-3 mt-0.5 break-words">{node.detail}</div>
                     {/if}
                   </div>
                 </div>
@@ -349,26 +349,26 @@
           </div>
         </div>
       {:else}
-        <div class="text-xs text-gray-500">No plan loaded yet.</div>
+        <div class="text-xs text-fg-3">No plan loaded yet.</div>
       {/if}
     </div>
 
-    <div class="surface-card rounded-xl p-3">
-      <div class="text-[11px] uppercase tracking-wider text-gray-500 inline-flex items-center gap-1.5 mb-3"><Layers3 size={13} />Columnar Memory View</div>
+    <div class="surface-card rounded-md p-3">
+      <div class="text-[11px] uppercase tracking-wider text-fg-3 inline-flex items-center gap-1.5 mb-3"><Layers3 size={13} />Columnar Memory View</div>
       {#if columnMemory.length === 0}
-        <div class="text-xs text-gray-500">Run a query with rows to estimate per-column memory.</div>
+        <div class="text-xs text-fg-3">Run a query with rows to estimate per-column memory.</div>
       {:else}
         <div class="space-y-2 max-h-64 overflow-auto pr-1">
           {#each columnMemory as col}
             <div>
               <div class="flex items-center justify-between text-xs">
-                <span class="font-mono text-gray-700 dark:text-gray-300 truncate pr-3">{col.name}</span>
-                <span class="text-gray-500">{formatBytes(col.bytes)} ({col.pct.toFixed(1)}%)</span>
+                <span class="font-mono text-fg-2 truncate pr-3">{col.name}</span>
+                <span class="text-fg-3">{formatBytes(col.bytes)} ({col.pct.toFixed(1)}%)</span>
               </div>
-              <div class="mt-1 h-1.5 rounded bg-gray-200 dark:bg-gray-800 overflow-hidden">
+              <div class="mt-1 h-1.5 rounded bg-surface-2 overflow-hidden">
                 <div class="h-full bg-ch-orange/80" style={`width:${Math.max(3, col.pct)}%`}></div>
               </div>
-              <div class="mt-0.5 text-[11px] text-gray-500">{col.type} · avg {formatBytes(col.avgBytes)}/row</div>
+              <div class="mt-0.5 text-[11px] text-fg-3">{col.type} · avg {formatBytes(col.avgBytes)}/row</div>
             </div>
           {/each}
         </div>
@@ -377,9 +377,9 @@
   </div>
 
   <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-    <div class="surface-card rounded-xl p-3">
+    <div class="surface-card rounded-md p-3">
       <div class="flex items-center justify-between mb-3">
-        <div class="text-[11px] uppercase tracking-wider text-gray-500 inline-flex items-center gap-1.5"><AreaChart size={13} />Histogram Per Column</div>
+        <div class="text-[11px] uppercase tracking-wider text-fg-3 inline-flex items-center gap-1.5"><AreaChart size={13} />Histogram Per Column</div>
         <div class="flex items-center gap-2">
           <div class="w-56">
             <Combobox
@@ -389,68 +389,68 @@
               placeholder="Numeric column"
             />
           </div>
-          <input type="range" min="6" max="24" step="1" bind:value={histogramBins} />
+          <input type="range" min="6" max="24" step="1" bind:value={histogramBins} class="h-1 w-full cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent" aria-label="Histogram bins" />
         </div>
       </div>
 
       {#if !histogram || histogram.length === 0}
-        <div class="text-xs text-gray-500">No numeric values available for histogram.</div>
+        <div class="text-xs text-fg-3">No numeric values available for histogram.</div>
       {:else}
         <div class="space-y-1.5">
           {#each histogram as bin}
             <div class="grid grid-cols-[90px_1fr_42px] items-center gap-2 text-[11px]">
-              <span class="text-gray-500 font-mono truncate">{bin.from.toFixed(2)}</span>
-              <div class="h-3 rounded bg-gray-200 dark:bg-gray-800 overflow-hidden">
+              <span class="text-fg-3 font-mono truncate">{bin.from.toFixed(2)}</span>
+              <div class="h-3 rounded bg-surface-2 overflow-hidden">
                 <div class="h-full bg-ch-orange/80" style={`width:${Math.max(bin.widthPct, 2)}%`}></div>
               </div>
-              <span class="text-right text-gray-600 dark:text-gray-400">{bin.count}</span>
+              <span class="text-right text-fg-2">{bin.count}</span>
             </div>
           {/each}
         </div>
       {/if}
     </div>
 
-    <div class="surface-card rounded-xl p-3">
-      <div class="text-[11px] uppercase tracking-wider text-gray-500 inline-flex items-center gap-1.5 mb-3"><Gauge size={13} />Inline Profile Events</div>
+    <div class="surface-card rounded-md p-3">
+      <div class="text-[11px] uppercase tracking-wider text-fg-3 inline-flex items-center gap-1.5 mb-3"><Gauge size={13} />Inline Profile Events</div>
       {#if profileLoading}
-        <div class="text-xs text-gray-500">Loading profile from system.query_log...</div>
+        <div class="text-xs text-fg-3">Loading profile from system.query_log...</div>
       {:else if profileError}
-        <div class="text-xs text-red-500">{profileError}</div>
+        <div class="text-xs text-danger">{profileError}</div>
       {:else if profileAvailable && profile}
         <div class="grid grid-cols-2 gap-2 text-xs">
-          <div class="rounded-md bg-gray-100/70 dark:bg-gray-800/70 px-2 py-1.5">
-            <div class="text-gray-500">Duration</div>
-            <div class="font-semibold text-gray-800 dark:text-gray-100">{profileNumber('query_duration_ms')} ms</div>
+          <div class="rounded-md bg-surface-2 px-2 py-1.5">
+            <div class="text-fg-3">Duration</div>
+            <div class="font-semibold text-fg">{profileNumber('query_duration_ms')} ms</div>
           </div>
-          <div class="rounded-md bg-gray-100/70 dark:bg-gray-800/70 px-2 py-1.5">
-            <div class="text-gray-500">Memory</div>
-            <div class="font-semibold text-gray-800 dark:text-gray-100">{formatBytes(profileNumber('memory_usage'))}</div>
+          <div class="rounded-md bg-surface-2 px-2 py-1.5">
+            <div class="text-fg-3">Memory</div>
+            <div class="font-semibold text-fg">{formatBytes(profileNumber('memory_usage'))}</div>
           </div>
-          <div class="rounded-md bg-gray-100/70 dark:bg-gray-800/70 px-2 py-1.5">
-            <div class="text-gray-500">Read Rows</div>
-            <div class="font-semibold text-gray-800 dark:text-gray-100">{formatNumber(profileNumber('read_rows'))}</div>
+          <div class="rounded-md bg-surface-2 px-2 py-1.5">
+            <div class="text-fg-3">Read Rows</div>
+            <div class="font-semibold text-fg">{formatNumber(profileNumber('read_rows'))}</div>
           </div>
-          <div class="rounded-md bg-gray-100/70 dark:bg-gray-800/70 px-2 py-1.5">
-            <div class="text-gray-500">Read Bytes</div>
-            <div class="font-semibold text-gray-800 dark:text-gray-100">{formatBytes(profileNumber('read_bytes'))}</div>
+          <div class="rounded-md bg-surface-2 px-2 py-1.5">
+            <div class="text-fg-3">Read Bytes</div>
+            <div class="font-semibold text-fg">{formatBytes(profileNumber('read_bytes'))}</div>
           </div>
-          <div class="rounded-md bg-gray-100/70 dark:bg-gray-800/70 px-2 py-1.5">
-            <div class="text-gray-500">Result Rows</div>
-            <div class="font-semibold text-gray-800 dark:text-gray-100">{formatNumber(profileNumber('result_rows'))}</div>
+          <div class="rounded-md bg-surface-2 px-2 py-1.5">
+            <div class="text-fg-3">Result Rows</div>
+            <div class="font-semibold text-fg">{formatNumber(profileNumber('result_rows'))}</div>
           </div>
-          <div class="rounded-md bg-gray-100/70 dark:bg-gray-800/70 px-2 py-1.5">
-            <div class="text-gray-500">Selected Marks</div>
-            <div class="font-semibold text-gray-800 dark:text-gray-100">{formatNumber(profileNumber('selected_marks'))}</div>
+          <div class="rounded-md bg-surface-2 px-2 py-1.5">
+            <div class="text-fg-3">Selected Marks</div>
+            <div class="font-semibold text-fg">{formatNumber(profileNumber('selected_marks'))}</div>
           </div>
         </div>
       {:else}
-        <div class="text-xs text-gray-500">{profileReason ?? 'No profile row available yet.'}</div>
+        <div class="text-xs text-fg-3">{profileReason ?? 'No profile row available yet.'}</div>
       {/if}
     </div>
   </div>
 
   {#if stats}
-    <div class="text-[11px] text-gray-500">
+    <div class="text-[11px] text-fg-3">
       Stream started: {streamStartedAt ? new Date(streamStartedAt).toLocaleTimeString() : '\u2014'}
       · rows_read: {formatNumber(Number(stats.rows_read ?? 0))}
       · bytes_read: {formatBytes(Number(stats.bytes_read ?? 0))}

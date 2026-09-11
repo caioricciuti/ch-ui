@@ -6,20 +6,29 @@
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import { formatNumber, formatBytes } from '../lib/utils/format'
   import TrendChart from '../lib/components/common/TrendChart.svelte'
+  import PageHeader from '../lib/components/common/PageHeader.svelte'
+  import PageBody from '../lib/components/common/PageBody.svelte'
+  import Button from '../lib/components/common/Button.svelte'
+  import Badge from '../lib/components/common/Badge.svelte'
+  import Tabs from '../lib/components/common/Tabs.svelte'
+  import Stat from '../lib/components/common/Stat.svelte'
+  import Panel from '../lib/components/common/Panel.svelte'
+  import EmptyState from '../lib/components/common/EmptyState.svelte'
+  import Spinner from '../lib/components/common/Spinner.svelte'
+  import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
+  import { getSection } from '../lib/stores/nav.svelte'
+  import { PAGE_SECTIONS } from '../lib/routes'
+  import Sheet from '../lib/components/common/Sheet.svelte'
+  import FormField from '../lib/components/common/FormField.svelte'
+  import Input from '../lib/components/common/Input.svelte'
+  import Select from '../lib/components/common/Select.svelte'
   import {
-    Coins, RefreshCw, AlertTriangle, Server, Users, Table2, Activity,
-    ExternalLink, Settings2, Download, X, Plus, Trash2, PieChart, Flame,
+    RefreshCw, AlertTriangle, Server, ExternalLink, Settings2, Download, Plus, Trash2,
   } from 'lucide-svelte'
 
-  type SectionKey = 'teams' | 'users' | 'queries' | 'storage'
-
-  interface ColumnSpec {
-    key: string
-    label: string
-    mono?: boolean
-    right?: boolean
-    format?: (v: unknown) => string
-  }
+  type Row = Record<string, unknown>
+  type SectionKey = 'overview' | 'teams' | 'users' | 'queries' | 'storage'
+  type ColumnSpec = DataColumn<Row>
 
   const num = (v: unknown) => Number(v ?? 0) || 0
   const fmtNum = (v: unknown) => formatNumber(num(v))
@@ -51,8 +60,16 @@
   let queriesResult = $state<CostsResult | null>(null)
   let queriesLoading = $state(false)
   let meta = $state<{ cluster: string; is_cluster: boolean; degraded: boolean }>({ cluster: '', is_cluster: false, degraded: false })
-  let activeSection = $state<SectionKey>('teams')
   let loadSeq = 0
+
+  // The sidebar drives `?section=`; anything unknown lands on the overview.
+  const SECTION_LABELS: Record<SectionKey, string> = Object.fromEntries(
+    (PAGE_SECTIONS['cost-center'] ?? []).map((s) => [s.id, s.label]),
+  ) as Record<SectionKey, string>
+  const activeSection = $derived.by<SectionKey>(() => {
+    const s = getSection()
+    return s && s in SECTION_LABELS ? (s as SectionKey) : 'overview'
+  })
 
   // ── Settings drawer ──
   let settingsOpen = $state(false)
@@ -159,65 +176,73 @@
   // ── Section tables ──
   const TEAM_COLUMNS: ColumnSpec[] = [
     { key: 'team', label: 'Team', mono: true },
-    { key: 'compute_cost', label: 'Compute cost', right: true, format: fmtCost },
-    { key: 'share', label: 'Share', right: true, format: (v) => `${num(v).toFixed(1)}%` },
-    { key: 'failed_cost', label: 'Failed-query cost', right: true, format: fmtCost },
-    { key: 'cpu_core_hours', label: 'CPU core-h', right: true, format: (v) => num(v).toFixed(2) },
-    { key: 'read_bytes', label: 'Scanned', right: true, format: fmtBytes },
-    { key: 'queries', label: 'Queries', right: true, format: fmtNum },
-    { key: 'users', label: 'Users', right: true, format: fmtNum },
+    { key: 'compute_cost', label: 'Compute cost', align: 'right', format: fmtCost },
+    { key: 'share', label: 'Share', align: 'right', format: (v) => `${num(v).toFixed(1)}%` },
+    { key: 'failed_cost', label: 'Failed-query cost', align: 'right', format: fmtCost },
+    { key: 'cpu_core_hours', label: 'CPU core-h', align: 'right', format: (v) => num(v).toFixed(2) },
+    { key: 'read_bytes', label: 'Scanned', align: 'right', format: fmtBytes },
+    { key: 'queries', label: 'Queries', align: 'right', format: fmtNum },
+    { key: 'users', label: 'Users', align: 'right', format: fmtNum },
   ]
   const USER_COLUMNS: ColumnSpec[] = [
     { key: 'user', label: 'User', mono: true },
     { key: 'team', label: 'Team' },
-    { key: 'compute_cost', label: 'Compute cost', right: true, format: fmtCost },
-    { key: 'failed_cost', label: 'Failed-query cost', right: true, format: fmtCost },
-    { key: 'cpu_core_hours', label: 'CPU core-h', right: true, format: (v) => num(v).toFixed(2) },
-    { key: 'read_bytes', label: 'Scanned', right: true, format: fmtBytes },
-    { key: 'queries', label: 'Queries', right: true, format: fmtNum },
-    { key: 'failures', label: 'Failures', right: true, format: fmtNum },
+    { key: 'compute_cost', label: 'Compute cost', align: 'right', format: fmtCost },
+    { key: 'failed_cost', label: 'Failed-query cost', align: 'right', format: fmtCost },
+    { key: 'cpu_core_hours', label: 'CPU core-h', align: 'right', format: (v) => num(v).toFixed(2) },
+    { key: 'read_bytes', label: 'Scanned', align: 'right', format: fmtBytes },
+    { key: 'queries', label: 'Queries', align: 'right', format: fmtNum },
+    { key: 'failures', label: 'Failures', align: 'right', format: fmtNum },
   ]
   const QUERY_COLUMNS: ColumnSpec[] = [
-    { key: 'sample_query', label: 'Query pattern', mono: true },
-    { key: 'compute_cost', label: 'Total cost', right: true, format: fmtCost },
-    { key: 'cost_per_run', label: 'Cost / run', right: true, format: fmtCost },
-    { key: 'runs', label: 'Runs', right: true, format: fmtNum },
-    { key: 'users', label: 'Users', right: true, format: fmtNum },
-    { key: 'read_bytes', label: 'Scanned', right: true, format: fmtBytes },
-    { key: 'last_seen', label: 'Last seen', right: true, format: fmtTime },
+    { key: 'sample_query', label: 'Query pattern', mono: true, truncate: true, width: '40%' },
+    { key: 'compute_cost', label: 'Total cost', align: 'right', format: fmtCost },
+    { key: 'cost_per_run', label: 'Cost / run', align: 'right', format: fmtCost },
+    { key: 'runs', label: 'Runs', align: 'right', format: fmtNum },
+    { key: 'users', label: 'Users', align: 'right', format: fmtNum },
+    { key: 'read_bytes', label: 'Scanned', align: 'right', format: fmtBytes },
+    { key: 'last_seen', label: 'Last seen', align: 'right', format: fmtTime },
   ]
   const STORAGE_COLUMNS: ColumnSpec[] = [
     { key: 'database', label: 'Database', mono: true },
     { key: 'table', label: 'Table', mono: true },
-    { key: 'monthly_cost', label: 'Cost / month', right: true, format: fmtCost },
-    { key: 'bytes_on_disk', label: 'On disk', right: true, format: fmtBytes },
-    { key: 'uncompressed_bytes', label: 'Uncompressed', right: true, format: fmtBytes },
-    { key: 'ratio', label: 'Compression', right: true },
-    { key: 'total_rows', label: 'Rows', right: true, format: fmtNum },
+    { key: 'monthly_cost', label: 'Cost / month', align: 'right', format: fmtCost },
+    { key: 'bytes_on_disk', label: 'On disk', align: 'right', format: fmtBytes },
+    { key: 'uncompressed_bytes', label: 'Uncompressed', align: 'right', format: fmtBytes },
+    { key: 'ratio', label: 'Compression', align: 'right', format: (_v, row) => compressionRatio(row), sortValue: (row) => compressionValue(row) },
+    { key: 'total_rows', label: 'Rows', align: 'right', format: fmtNum },
   ]
 
-  const SECTIONS: { key: SectionKey; label: string; icon: typeof Users; columns: ColumnSpec[] }[] = [
-    { key: 'teams', label: 'Teams', icon: PieChart, columns: TEAM_COLUMNS },
-    { key: 'users', label: 'Users', icon: Users, columns: USER_COLUMNS },
-    { key: 'queries', label: 'Cost drivers', icon: Flame, columns: QUERY_COLUMNS },
-    { key: 'storage', label: 'Storage', icon: Table2, columns: STORAGE_COLUMNS },
-  ]
-  const activeSpec = $derived(SECTIONS.find((s) => s.key === activeSection) ?? SECTIONS[0])
+  const SECTION_COLUMNS: Record<Exclude<SectionKey, 'overview'>, ColumnSpec[]> = {
+    teams: TEAM_COLUMNS,
+    users: USER_COLUMNS,
+    queries: QUERY_COLUMNS,
+    storage: STORAGE_COLUMNS,
+  }
+  const activeColumns = $derived(activeSection === 'overview' ? [] : SECTION_COLUMNS[activeSection])
 
-  const sectionRows = $derived.by<Record<string, unknown>[]>(() => {
+  const sectionRows = $derived.by<Row[]>(() => {
     switch (activeSection) {
       case 'teams': return teamRows
       case 'users': return userRows
       case 'queries': return queriesResult?.data ?? []
       case 'storage': return storageRows
+      case 'overview': return []
     }
   })
 
-  function compressionRatio(row: Record<string, unknown>): string {
+  const rangeItems = RANGES.map((r) => ({ id: r.value, label: r.label }))
+  const currencyOptions = CURRENCIES.map((c) => ({ value: c, label: c }))
+
+  function compressionValue(row: Row): number {
     const disk = num(row.bytes_on_disk)
     const raw = num(row.uncompressed_bytes)
-    if (disk <= 0 || raw <= 0) return '—'
-    return `${(raw / disk).toFixed(1)}×`
+    return disk > 0 && raw > 0 ? raw / disk : 0
+  }
+
+  function compressionRatio(row: Row): string {
+    const ratio = compressionValue(row)
+    return ratio > 0 ? `${ratio.toFixed(1)}×` : '—'
   }
 
   const knownCluster = () => (meta.is_cluster && meta.cluster ? meta.cluster : undefined)
@@ -273,10 +298,11 @@
     }
   }
 
-  function selectSection(key: SectionKey) {
-    activeSection = key
-    if (key === 'queries' && !queriesResult && !queriesLoading) void loadQueries()
-  }
+  // Cost drivers are the expensive call, so they load only when that
+  // section is open and not already loaded.
+  $effect(() => {
+    if (activeSection === 'queries' && !queriesResult && !queriesLoading) void loadQueries()
+  })
 
   function setRange(r: CostsRange) {
     if (range === r) return
@@ -284,30 +310,30 @@
     void loadAll(true)
   }
 
-  function openPattern(row: Record<string, unknown>) {
+  function openPattern(row: Row) {
     let sql = String(row.sample_query ?? '')
     if (!sql) return
     if (sql.length >= SAMPLE_QUERY_CAP) {
-      sql = `-- ⚠ Query text truncated by Cost Center — fetch the full text from system.query_log by query hash.\n${sql}`
+      sql = `-- NOTE: query text truncated by Cost Center — fetch the full text from system.query_log by query hash.\n${sql}`
     }
     openQueryTab(sql)
   }
 
   // ── CSV showback export of the active section ──
   function exportCsv() {
-    const spec = activeSpec
+    const columns = activeColumns
     const rows = sectionRows
-    if (!rows.length) return
+    if (!rows.length || !columns.length) return
     const esc = (v: unknown) => {
       const s = String(v ?? '')
       return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s
     }
-    const header = spec.columns.map((c) => esc(c.label)).join(',')
+    const header = columns.map((c) => esc(c.label)).join(',')
     const body = rows.map((r) =>
-      spec.columns.map((c) => esc(c.key === 'ratio' ? compressionRatio(r) : r[c.key])).join(','),
+      columns.map((c) => esc(c.key === 'ratio' ? compressionRatio(r) : r[c.key])).join(','),
     )
     const csv = [
-      `# CH-UI Cost Center showback — section: ${spec.label}, range: ${range}, currency: ${currency}, exported: ${new Date().toISOString()}`,
+      `# CH-UI Cost Center showback — section: ${SECTION_LABELS[activeSection]}, range: ${range}, currency: ${currency}, exported: ${new Date().toISOString()}`,
       header, ...body,
     ].join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
@@ -368,296 +394,171 @@
   })
 </script>
 
-<div class="flex flex-col h-full overflow-hidden">
-  <!-- Header -->
-  <div class="ds-page-header">
-    <div class="w-full flex items-center justify-between gap-4">
-      <div class="flex items-center gap-3 min-w-0">
-        <Coins size={20} class="text-ch-orange shrink-0" />
-        <div class="min-w-0">
-          <h1 class="ds-page-title">Cost Center</h1>
-          <p class="ds-page-subtitle">Showback and chargeback: who spends what on this cluster</p>
+{#snippet headerMeta()}
+  {#if meta.is_cluster}
+    <Badge tone="neutral"><Server size={11} /> {meta.cluster}</Badge>
+  {/if}
+  {#if meta.degraded}
+    <Badge tone="warning" title="Some nodes could not be reached; showing local node only">
+      <AlertTriangle size={11} /> Degraded
+    </Badge>
+  {/if}
+{/snippet}
+
+{#snippet teamCell(row: Row, col: ColumnSpec, value: string)}
+  {#if col.key === 'team' && value === UNALLOCATED}
+    <span class="italic text-fg-4">{value}</span>
+  {:else}
+    {value}
+  {/if}
+{/snippet}
+
+{#snippet openAction(row: Row)}
+  <Button icon variant="ghost" size="xs" onclick={() => openPattern(row)} title="Open in a new query tab" aria-label="Open query in a new tab">
+    <ExternalLink size={13} />
+  </Button>
+{/snippet}
+
+<div class="flex h-full min-h-0 flex-col">
+  <PageHeader title="Cost Center" subtitle={SECTION_LABELS[activeSection]} meta={headerMeta}>
+    {#snippet actions()}
+      <Tabs variant="segmented" size="sm" items={rangeItems} value={range} onchange={(id) => setRange(id as CostsRange)} />
+      <Button icon variant="ghost" size="sm" aria-label="Refresh" title="Refresh" onclick={() => loadAll()}>
+        <RefreshCw size={14} class={refreshing ? 'animate-spin' : ''} />
+      </Button>
+      <Button variant="outline" size="sm" onclick={openSettings}>
+        <Settings2 size={13} /> Cost model
+      </Button>
+    {/snippet}
+  </PageHeader>
+
+  {#if loading}
+    <div class="flex flex-1 items-center justify-center"><Spinner /></div>
+  {:else if error}
+    <PageBody width="lg">
+      <EmptyState icon={AlertTriangle} title="Couldn't load the cost center" description={error} primary={{ label: 'Retry', onclick: () => loadAll(true) }} />
+    </PageBody>
+  {:else if unsupported}
+    <PageBody width="lg">
+      <EmptyState icon={AlertTriangle} title="system.query_log is not available">
+        <p class="max-w-[52ch] text-[13px] leading-relaxed text-fg-3">
+          The Cost Center prices real consumption from ClickHouse's query log. Enable it with
+          <code class="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-[11px]">&lt;query_log&gt;</code>
+          in the server config, run a few queries, then refresh.
+        </p>
+      </EmptyState>
+    </PageBody>
+  {:else if activeSection === 'overview'}
+    <PageBody width="lg">
+      <div class="space-y-5">
+        {#if isDefaultConfig}
+          <Panel variant="muted" padding="sm">
+            <div class="flex flex-wrap items-center gap-2 text-xs text-fg-2">
+              <AlertTriangle size={13} class="shrink-0 text-warning" />
+              Using default rates ({fmtMoney(config?.cpuPerCoreHour)}/core-hour, {fmtMoney(config?.storageGBMonth)}/GB-month).
+              <button class="text-accent hover:underline" onclick={openSettings}>Set your real rates and teams</button>
+            </div>
+          </Panel>
+        {/if}
+
+        <div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <Stat label={`Compute cost · ${range}`} value={fmtMoney(summary?.compute_cost)} hint={`${num(summary?.cpu_core_hours).toFixed(1)} CPU core-hours`} />
+          <Stat label="Failed-query cost" value={fmtMoney(summary?.failed_cost)} tone={num(summary?.failed_cost) > 0 ? 'danger' : 'default'} hint={`${fmtNum(summary?.failed_queries)} failed queries`} />
+          <Stat label="Storage / month" value={fmtMoney(storageMonthlyCost)} hint={`${storageRows.length} tables priced`} />
+          <Stat label="Allocated" value={`${coverage.toFixed(0)}%`} tone={coverage < 80 ? 'warning' : 'default'} hint="of compute spend mapped to a team" />
+          <Stat label="Queries" value={fmtNum(summary?.total_queries)} hint={`${fmtNum(summary?.active_users)} active users`} />
+          <Stat label="Data scanned" value={fmtBytes(summary?.read_bytes)} />
         </div>
+
+        <Panel title="Compute spend by team" description={`Last ${range}`} padding="sm">
+          {#if trendChart.x.length > 1}
+            <TrendChart x={trendChart.x} series={trendChart.series} height={200} formatY={(v) => fmtMoney(v)} />
+          {:else}
+            <div class="grid h-[200px] place-items-center text-xs text-fg-4">Not enough data for this range yet</div>
+          {/if}
+        </Panel>
       </div>
-      <div class="flex items-center gap-2 shrink-0">
-        {#if meta.is_cluster}
-          <span class="ds-badge ds-badge-neutral inline-flex items-center gap-1.5">
-            <Server size={12} /> {meta.cluster}
-          </span>
+    </PageBody>
+  {:else}
+    <div class="flex min-h-0 flex-1 flex-col">
+      <div class="flex h-10 shrink-0 items-center gap-3 px-5">
+        <span class="text-[13px] font-semibold text-fg">{SECTION_LABELS[activeSection]}</span>
+        <span class="ml-auto text-xs text-fg-4">{fmtNum(sectionRows.length)} rows</span>
+        <Button variant="outline" size="sm" onclick={exportCsv} disabled={!sectionRows.length} title="Export this table as a CSV showback report">
+          <Download size={13} /> Export CSV
+        </Button>
+      </div>
+      <div class="flex min-h-0 flex-1 flex-col px-5 pb-4">
+        {#if activeSection === 'queries' && queriesLoading}
+          <div class="flex flex-1 items-center justify-center"><Spinner /></div>
+        {:else}
+          <DataTable
+            fill
+            class="flex-1 rounded-lg border border-edge-subtle bg-surface"
+            columns={activeColumns}
+            rows={sectionRows}
+            emptyTitle="Nothing recorded for this range"
+            cell={activeSection === 'teams' || activeSection === 'users' ? teamCell : undefined}
+            actions={activeSection === 'queries' ? openAction : undefined}
+          />
         {/if}
-        {#if meta.degraded}
-          <span class="ds-badge ds-badge-warn inline-flex items-center gap-1.5" title="Some nodes could not be reached; showing local node only">
-            <AlertTriangle size={12} /> Degraded
-          </span>
-        {/if}
-        <div class="ds-segment">
-          {#each RANGES as r}
-            <button
-              class="ds-segment-btn {range === r.value ? 'ds-segment-btn-active' : ''}"
-              onclick={() => setRange(r.value)}
-            >{r.label}</button>
-          {/each}
-        </div>
-        <button class="ds-icon-btn" onclick={openSettings} title="Cost model settings" aria-label="Cost model settings">
-          <Settings2 size={15} />
-        </button>
-        <button class="ds-icon-btn" onclick={() => loadAll()} title="Refresh" aria-label="Refresh">
-          <RefreshCw size={15} class={refreshing ? 'animate-spin' : ''} />
-        </button>
       </div>
     </div>
-  </div>
-
-  <div class="flex-1 overflow-auto p-4 space-y-5">
-    {#if loading}
-      <div class="ds-empty">Loading cost center…</div>
-    {:else if error}
-      <div class="ds-panel p-6 flex items-start gap-3 text-sm">
-        <AlertTriangle size={18} class="text-red-500 shrink-0 mt-0.5" />
-        <div>
-          <div class="font-semibold text-gray-900 dark:text-gray-100">Couldn't load the cost center</div>
-          <div class="text-gray-500 mt-1">{error}</div>
-          <button class="ds-btn-outline px-2.5 py-1.5 mt-3" onclick={() => loadAll(true)}>Retry</button>
-        </div>
-      </div>
-    {:else if unsupported}
-      <div class="ds-panel p-6 flex items-start gap-3 text-sm">
-        <AlertTriangle size={18} class="text-amber-500 shrink-0 mt-0.5" />
-        <div>
-          <div class="font-semibold text-gray-900 dark:text-gray-100">system.query_log is not available</div>
-          <div class="text-gray-500 mt-1">
-            The Cost Center prices real consumption from ClickHouse's query log. Enable it with
-            <code class="px-1 py-0.5 rounded bg-gray-200/70 dark:bg-gray-800 font-mono text-[11px]">&lt;query_log&gt;</code>
-            in the server config, run a few queries, then refresh.
-          </div>
-        </div>
-      </div>
-    {:else}
-      {#if isDefaultConfig}
-        <div class="ds-panel-muted px-4 py-2.5 text-xs text-gray-600 dark:text-gray-300 flex items-center gap-2">
-          <AlertTriangle size={13} class="text-amber-500 shrink-0" />
-          Using default rates ({fmtMoney(config?.cpuPerCoreHour)}/core-hour, {fmtMoney(config?.storageGBMonth)}/GB-month).
-          <button class="text-ch-blue hover:underline" onclick={openSettings}>Set your real rates and teams</button>
-        </div>
-      {/if}
-
-      <!-- Headline tiles -->
-      <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <div class="ds-stat-card border border-gray-200 dark:border-gray-800">
-          <div class="flex items-center gap-2 text-gray-500 text-xs mb-1"><Coins size={14} /> Compute cost · {range}</div>
-          <div class="text-2xl font-bold text-gray-900 dark:text-gray-100">{fmtMoney(summary?.compute_cost)}</div>
-          <div class="text-[11px] text-gray-400 mt-0.5">{num(summary?.cpu_core_hours).toFixed(1)} CPU core-hours</div>
-        </div>
-        <div class="ds-stat-card border {num(summary?.failed_cost) > 0 ? 'border-red-300/70 dark:border-red-800/70' : 'border-gray-200 dark:border-gray-800'}">
-          <div class="flex items-center gap-2 text-gray-500 text-xs mb-1"><Flame size={14} /> Failed-query cost</div>
-          <div class="text-2xl font-bold {num(summary?.failed_cost) > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-gray-100'}">{fmtMoney(summary?.failed_cost)}</div>
-          <div class="text-[11px] text-gray-400 mt-0.5">{fmtNum(summary?.failed_queries)} failed queries</div>
-        </div>
-        <div class="ds-stat-card border border-gray-200 dark:border-gray-800">
-          <div class="flex items-center gap-2 text-gray-500 text-xs mb-1"><Table2 size={14} /> Storage / month</div>
-          <div class="text-2xl font-bold text-gray-900 dark:text-gray-100">{fmtMoney(storageMonthlyCost)}</div>
-          <div class="text-[11px] text-gray-400 mt-0.5">{storageRows.length} tables priced</div>
-        </div>
-        <div class="ds-stat-card border border-gray-200 dark:border-gray-800">
-          <div class="flex items-center gap-2 text-gray-500 text-xs mb-1"><PieChart size={14} /> Allocated</div>
-          <div class="text-2xl font-bold {coverage < 80 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-gray-100'}">{coverage.toFixed(0)}%</div>
-          <div class="text-[11px] text-gray-400 mt-0.5">of compute spend mapped to a team</div>
-        </div>
-        <div class="ds-stat-card border border-gray-200 dark:border-gray-800">
-          <div class="flex items-center gap-2 text-gray-500 text-xs mb-1"><Activity size={14} /> Queries</div>
-          <div class="text-2xl font-bold text-gray-900 dark:text-gray-100">{fmtNum(summary?.total_queries)}</div>
-          <div class="text-[11px] text-gray-400 mt-0.5">{fmtNum(summary?.active_users)} active users</div>
-        </div>
-        <div class="ds-stat-card border border-gray-200 dark:border-gray-800">
-          <div class="flex items-center gap-2 text-gray-500 text-xs mb-1"><Table2 size={14} /> Data scanned</div>
-          <div class="text-2xl font-bold text-gray-900 dark:text-gray-100">{fmtBytes(summary?.read_bytes)}</div>
-        </div>
-      </div>
-
-      <!-- Spend trend by team -->
-      <div class="ds-card p-3">
-        <div class="text-xs text-gray-500 mb-2 flex items-center gap-2"><Coins size={13} /> Compute spend by team · {range}</div>
-        {#if trendChart.x.length > 1}
-          <TrendChart x={trendChart.x} series={trendChart.series} height={170} yLabel={currency} formatY={(v) => fmtMoney(v)} />
-        {:else}
-          <div class="h-[170px] grid place-items-center text-xs text-gray-400">Not enough data for this range yet</div>
-        {/if}
-      </div>
-
-      <!-- Section tables -->
-      <div>
-        <div class="flex items-center gap-2 mb-3">
-          <div class="ds-segment flex-wrap">
-            {#each SECTIONS as s}
-              <button
-                class="ds-segment-btn {activeSection === s.key ? 'ds-segment-btn-active' : ''} inline-flex items-center gap-1.5"
-                onclick={() => selectSection(s.key)}
-              >
-                <s.icon size={13} /> {s.label}
-              </button>
-            {/each}
-          </div>
-          <div class="flex-1"></div>
-          <button
-            class="ds-btn-outline px-2.5 py-1.5 inline-flex items-center gap-1.5 text-xs"
-            onclick={exportCsv}
-            disabled={!sectionRows.length}
-            title="Export this table as a CSV showback report"
-          >
-            <Download size={13} /> Export CSV
-          </button>
-        </div>
-
-        {#if activeSection === 'queries' && queriesLoading}
-          <div class="ds-empty">Loading cost drivers…</div>
-        {:else if sectionRows.length === 0}
-          <div class="ds-panel-muted p-4 text-sm text-gray-500">Nothing recorded for this range.</div>
-        {:else}
-          <div class="ds-table-wrap">
-            <table class="ds-table">
-              <thead>
-                <tr class="ds-table-head-row">
-                  {#each activeSpec.columns as c}
-                    <th class={c.right ? 'ds-table-th-right' : 'ds-table-th'}>{c.label}</th>
-                  {/each}
-                  {#if activeSection === 'queries'}<th class="ds-table-th-right"></th>{/if}
-                </tr>
-              </thead>
-              <tbody>
-                {#each sectionRows as row}
-                  <tr class="ds-table-row">
-                    {#each activeSpec.columns as c}
-                      <td class="{c.right ? 'ds-td-right' : c.mono ? 'ds-td-mono' : 'ds-td'} {c.key === 'sample_query' ? 'max-w-md' : ''}">
-                        {#if c.key === 'sample_query'}
-                          <span class="block truncate font-mono text-[11px]" title={String(row[c.key] ?? '')}>{String(row[c.key] ?? '')}</span>
-                        {:else if c.key === 'ratio'}
-                          {compressionRatio(row)}
-                        {:else if c.key === 'team'}
-                          <span class={String(row[c.key]) === UNALLOCATED ? 'text-gray-400 italic' : ''}>{String(row[c.key] ?? '')}</span>
-                        {:else}
-                          {c.format ? c.format(row[c.key]) : String(row[c.key] ?? '')}
-                        {/if}
-                      </td>
-                    {/each}
-                    {#if activeSection === 'queries'}
-                      <td class="ds-td-right">
-                        <button
-                          class="ds-icon-btn"
-                          onclick={() => openPattern(row)}
-                          title="Open in a new query tab"
-                          aria-label="Open query in a new tab"
-                        >
-                          <ExternalLink size={13} />
-                        </button>
-                      </td>
-                    {/if}
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {/if}
-      </div>
-    {/if}
-  </div>
+  {/if}
 </div>
 
-<!-- Cost model settings drawer -->
-{#if settingsOpen}
-  <div class="fixed inset-0 z-50 flex">
-    <button
-      class="flex-1 bg-black/30"
-      onclick={() => (settingsOpen = false)}
-      aria-label="Close settings"
-    ></button>
-    <div class="w-full max-w-md h-full bg-white dark:bg-gray-950 border-l border-gray-200 dark:border-gray-800 flex flex-col">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-        <h2 class="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-          <Settings2 size={15} /> Cost model
-        </h2>
-        <button class="ds-icon-btn" onclick={() => (settingsOpen = false)} aria-label="Close">
-          <X size={15} />
-        </button>
+<!-- Cost model settings -->
+<Sheet open={settingsOpen} title="Cost model" description="Rates and team mappings used to price consumption." onclose={() => (settingsOpen = false)}>
+  <div class="space-y-5">
+    <div class="grid grid-cols-3 gap-3">
+      <FormField label="Currency" for="cc-currency">
+        <Select id="cc-currency" size="sm" options={currencyOptions} bind:value={draft.currency} />
+      </FormField>
+      <FormField label="CPU / core-hour" for="cc-cpu">
+        <Input id="cc-cpu" type="number" min="0" step="0.001" size="sm" class="tabular-nums" bind:value={draft.cpuPerCoreHour} />
+      </FormField>
+      <FormField label="Storage / GB-month" for="cc-storage">
+        <Input id="cc-storage" type="number" min="0" step="0.001" size="sm" class="tabular-nums" bind:value={draft.storageGBMonth} />
+      </FormField>
+    </div>
+    <p class="text-xs leading-relaxed text-fg-4">
+      Derive the CPU rate from what a core costs you per hour (instance price ÷ vCPUs, or amortized hardware).
+      Compute spend is CPU time × rate; storage is on-disk bytes × the monthly rate.
+    </p>
+
+    <div>
+      <div class="mb-2 flex items-center justify-between">
+        <h3 class="text-[13px] font-semibold text-fg">Teams (cost centers)</h3>
+        <Button variant="outline" size="xs" onclick={addTeam}>
+          <Plus size={12} /> Add team
+        </Button>
       </div>
-
-      <div class="flex-1 overflow-auto p-4 space-y-5">
-        <div class="grid grid-cols-3 gap-3">
-          <div>
-            <label class="block text-[10px] font-medium text-gray-500 uppercase mb-1" for="cc-currency">Currency</label>
-            <select
-              id="cc-currency"
-              bind:value={draft.currency}
-              class="w-full text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200"
-            >
-              {#each CURRENCIES as c}<option value={c}>{c}</option>{/each}
-            </select>
+      <p class="mb-3 text-xs leading-relaxed text-fg-4">
+        Map ClickHouse users to teams: exact names or prefixes ending with * (e.g. <code class="font-mono">etl_*</code>).
+        First match wins; unmatched users land in {UNALLOCATED}.
+      </p>
+      {#if draft.teams.length === 0}
+        <Panel variant="muted" padding="sm">
+          <p class="text-xs text-fg-3">No teams yet. All spend shows as {UNALLOCATED}.</p>
+        </Panel>
+      {/if}
+      <div class="space-y-2">
+        {#each draft.teams as team, i}
+          <div class="flex items-start gap-2 rounded-md border border-edge-subtle p-2">
+            <div class="flex-1 space-y-1.5">
+              <Input size="sm" placeholder="Team name" bind:value={team.name} />
+              <Input size="sm" mono placeholder="Users: analyst_1, etl_*, airflow" bind:value={draftUsers[i]} />
+            </div>
+            <Button icon variant="ghost" size="sm" class="mt-0.5" onclick={() => removeTeam(i)} title="Remove team" aria-label="Remove team">
+              <Trash2 size={13} />
+            </Button>
           </div>
-          <div>
-            <label class="block text-[10px] font-medium text-gray-500 uppercase mb-1" for="cc-cpu">CPU / core-hour</label>
-            <input
-              id="cc-cpu" type="number" min="0" step="0.001"
-              bind:value={draft.cpuPerCoreHour}
-              class="w-full text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200"
-            />
-          </div>
-          <div>
-            <label class="block text-[10px] font-medium text-gray-500 uppercase mb-1" for="cc-storage">Storage / GB-month</label>
-            <input
-              id="cc-storage" type="number" min="0" step="0.001"
-              bind:value={draft.storageGBMonth}
-              class="w-full text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200"
-            />
-          </div>
-        </div>
-        <p class="text-[11px] text-gray-400">
-          Derive the CPU rate from what a core costs you per hour (instance price ÷ vCPUs, or amortized hardware).
-          Compute spend is CPU time × rate; storage is on-disk bytes × the monthly rate.
-        </p>
-
-        <div>
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="text-xs font-medium text-gray-700 dark:text-gray-300">Teams (cost centers)</h3>
-            <button class="ds-btn-outline px-2 py-1 text-[11px] inline-flex items-center gap-1" onclick={addTeam}>
-              <Plus size={12} /> Add team
-            </button>
-          </div>
-          <p class="text-[11px] text-gray-400 mb-3">
-            Map ClickHouse users to teams: exact names or prefixes ending with * (e.g. <code class="font-mono">etl_*</code>).
-            First match wins; unmatched users land in {UNALLOCATED}.
-          </p>
-          {#if draft.teams.length === 0}
-            <div class="ds-panel-muted p-3 text-xs text-gray-500">No teams yet — all spend shows as {UNALLOCATED}.</div>
-          {/if}
-          <div class="space-y-2">
-            {#each draft.teams as team, i}
-              <div class="flex items-start gap-2 rounded-md border border-gray-200 dark:border-gray-800 p-2">
-                <div class="flex-1 space-y-1.5">
-                  <input
-                    type="text" placeholder="Team name"
-                    bind:value={team.name}
-                    class="w-full text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200"
-                  />
-                  <input
-                    type="text" placeholder="Users: analyst_1, etl_*, airflow"
-                    bind:value={draftUsers[i]}
-                    class="w-full text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 font-mono text-gray-800 dark:text-gray-200"
-                  />
-                </div>
-                <button class="ds-icon-btn mt-0.5" onclick={() => removeTeam(i)} title="Remove team" aria-label="Remove team">
-                  <Trash2 size={13} />
-                </button>
-              </div>
-            {/each}
-          </div>
-        </div>
-      </div>
-
-      <div class="px-4 py-3 border-t border-gray-200 dark:border-gray-800 flex justify-end gap-2">
-        <button class="ds-btn-outline px-3 py-1.5 text-xs" onclick={() => (settingsOpen = false)}>Cancel</button>
-        <button class="ds-btn-primary px-3 py-1.5 text-xs" disabled={saving} onclick={saveSettings}>
-          {saving ? 'Saving…' : 'Save'}
-        </button>
+        {/each}
       </div>
     </div>
   </div>
-{/if}
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" onclick={() => (settingsOpen = false)}>Cancel</Button>
+    <Button size="sm" loading={saving} onclick={saveSettings}>Save</Button>
+  {/snippet}
+</Sheet>

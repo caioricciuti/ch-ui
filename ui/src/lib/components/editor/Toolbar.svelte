@@ -1,6 +1,9 @@
 <script lang="ts">
-  import Button from '../common/Button.svelte'
   import { Play, Square, AlignLeft, BookOpen, Save, Zap, Braces, History, Sparkles } from 'lucide-svelte'
+  import Button from '../common/Button.svelte'
+
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+  const runShortcut = isMac ? '⌘↵' : 'Ctrl+↵'
   import type { QueryEstimateResult } from '../../types/query'
   import { formatNumber } from '../../utils/format'
 
@@ -18,11 +21,13 @@
     onhistory?: () => void
     paramCount?: number
     paramsActive?: boolean
+    /** The Parameters button element, so the parent can anchor its popover to it. */
+    paramsEl?: HTMLButtonElement | null
     estimate?: QueryEstimateResult | null
     estimateLoading?: boolean
   }
 
-  let { running = false, onrun, oncancel, onformat, onexplain, onask, askActive = false, askPro = true, onsave, onparams, onhistory, paramCount = 0, paramsActive = false, estimate = null, estimateLoading = false }: Props = $props()
+  let { running = false, onrun, oncancel, onformat, onexplain, onask, askActive = false, askPro = true, onsave, onparams, onhistory, paramCount = 0, paramsActive = false, paramsEl = $bindable(null), estimate = null, estimateLoading = false }: Props = $props()
 
   const estimateLabel = $derived.by(() => {
     if (estimateLoading) return 'Estimating...'
@@ -34,78 +39,90 @@
   })
 </script>
 
-<div class="flex items-center gap-2 px-2 py-1.5 border-b border-gray-200 dark:border-gray-800 bg-gray-100/50 dark:bg-gray-900/50">
+<div class="flex h-10 items-center gap-1 border-b border-edge-subtle bg-surface px-2">
+  <!-- Primary: the one thing you press all the time -->
   {#if running && oncancel}
-    <Button size="sm" variant="ghost" onclick={oncancel}>
-      <Square size={14} class="text-red-400" />
-      <span class="text-red-400">Cancel</span>
-    </Button>
+    <button class="inline-flex h-7 items-center gap-1.5 rounded-md bg-danger-soft px-3 text-[13px] font-medium text-danger transition-colors hover:brightness-110" onclick={oncancel}>
+      <Square size={13} />
+      Cancel
+    </button>
   {:else}
-    <Button size="sm" onclick={onrun} loading={running}>
-      <Play size={14} />
+    <Button size="sm" onclick={onrun} title="Run query ({runShortcut})">
+      <Play size={13} />
       Run
+      <kbd class="ml-1 rounded-sm bg-black/15 px-1 font-sans text-[10px] font-medium leading-4 text-accent-fg/85">{runShortcut}</kbd>
     </Button>
   {/if}
 
+  <span class="mx-1 h-4 w-px bg-edge"></span>
+
+  <!-- One-shot actions -->
   {#if onformat}
-    <Button size="sm" variant="ghost" onclick={onformat}>
-      <AlignLeft size={14} />
+    <Button variant="ghost" size="sm" onclick={onformat} title="Format SQL">
+      <AlignLeft size={13} />
       Format
     </Button>
   {/if}
-
   {#if onexplain}
-    <Button size="sm" variant="ghost" onclick={onexplain}>
-      <BookOpen size={14} />
+    <Button variant="ghost" size="sm" onclick={onexplain} title="Explain query plan">
+      <BookOpen size={13} />
       Explain
     </Button>
   {/if}
 
+  <!-- Modes: pressed state so they read as toggles -->
   {#if onask}
-    <Button size="sm" variant={askActive ? 'secondary' : 'ghost'} onclick={onask}>
-      <Sparkles size={14} class="text-ch-orange" />
+    <button
+      class="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {askActive ? 'bg-accent-soft text-accent' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
+      onclick={onask}
+      aria-pressed={askActive}
+      title="Ask AI to write or edit the query"
+    >
+      <Sparkles size={13} />
       Ask AI
       {#if !askPro}
-        <span class="ml-1 text-[10px] uppercase tracking-wider text-ch-orange font-semibold">Pro</span>
+        <span class="text-[10px] font-semibold uppercase tracking-wider text-accent">Pro</span>
       {/if}
-    </Button>
+    </button>
   {/if}
-
-  {#if onparams}
-    <Button size="sm" variant={paramsActive ? 'secondary' : 'ghost'} onclick={onparams}>
-      <Braces size={14} />
+  {#if onparams && paramCount > 0}
+    <button
+      bind:this={paramsEl}
+      class="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {paramsActive ? 'bg-accent-soft text-accent' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
+      onclick={onparams}
+      aria-pressed={paramsActive}
+      title="Set values for the {'{name:Type}'} parameters in this query"
+    >
+      <Braces size={13} />
       Parameters
-      {#if paramCount > 0}
-        <span class="ml-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-ch-orange/20 text-ch-orange text-[10px] font-semibold">{paramCount}</span>
-      {/if}
-    </Button>
+      <span class="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/15 px-1 text-[10px] font-semibold tabular-nums text-accent">{paramCount}</span>
+    </button>
   {/if}
 
+  <!-- Readout, not a control -->
   {#if estimateLabel}
-    <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-ch-blue/10 dark:bg-ch-blue/15 text-ch-blue text-xs font-medium border border-ch-blue/20">
+    <span class="ml-2 inline-flex items-center gap-1 text-xs text-fg-3" title="Estimated scan from EXPLAIN ESTIMATE">
       <Zap size={12} />
       {estimateLabel}
-    </div>
+    </span>
   {:else if estimateLoading}
-    <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500 text-xs">
+    <span class="ml-2 inline-flex items-center gap-1 text-xs text-fg-4">
       <Zap size={12} class="animate-pulse" />
-      Estimating...
-    </div>
+      Estimating…
+    </span>
   {/if}
 
   <div class="flex-1"></div>
 
+  <!-- Utility: icons only -->
   {#if onhistory}
-    <Button size="sm" variant="ghost" onclick={onhistory}>
+    <Button icon variant="ghost" size="sm" onclick={onhistory} title="Query history" aria-label="Query history">
       <History size={14} />
-      History
     </Button>
   {/if}
-
   {#if onsave}
-    <Button size="sm" variant="ghost" onclick={onsave}>
+    <Button icon variant="ghost" size="sm" onclick={onsave} title="Save query" aria-label="Save query">
       <Save size={14} />
-      Save
     </Button>
   {/if}
 </div>

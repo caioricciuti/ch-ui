@@ -30,28 +30,28 @@
   ]
 </script>
 
-<div class="h-full flex items-center justify-center px-6">
-  <div class="max-w-2xl w-full text-center">
-    <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-ch-blue/10 mb-4">
-      <Brain size={28} class="text-ch-blue" />
+<div class="flex h-full items-center justify-center px-6">
+  <div class="w-full max-w-2xl text-center">
+    <div class="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-md bg-surface-2 text-fg-3">
+      <Brain size={18} strokeWidth={1.75} />
     </div>
-    <h2 class="text-lg font-semibold text-foreground mb-1">Brain can act on your workspace</h2>
-    <p class="text-sm text-muted-foreground mb-6">
-      Ask anything. Brain reads your real ClickHouse and (with your approval) creates models, dashboards, panels, and queries for you.
+    <h2 class="text-[14px] font-semibold text-fg">Brain can act on your workspace</h2>
+    <p class="mx-auto mt-1 max-w-[46ch] text-[13px] leading-relaxed text-fg-3">
+      Ask anything. Brain reads your real ClickHouse and, with your approval, creates models, dashboards, panels and queries for you.
     </p>
     {#if onPick}
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+      <div class="mt-6 grid grid-cols-1 gap-2 text-left sm:grid-cols-2">
         {#each suggestions as s}
           <button
             type="button"
             onclick={() => onPick?.(s.prompt)}
-            class="group p-3 rounded-lg border border-border bg-card/40 hover:bg-card hover:border-ch-blue/40 transition-colors"
+            class="group rounded-lg border border-edge-subtle bg-surface p-3 text-left transition-colors hover:border-edge-strong hover:bg-hover"
           >
-            <div class="flex items-center gap-2 mb-1">
-              <s.icon size={14} class="text-ch-blue" />
-              <span class="text-xs font-medium text-foreground">{s.title}</span>
+            <div class="mb-1 flex items-center gap-2">
+              <s.icon size={14} class="text-accent" />
+              <span class="text-xs font-medium text-fg">{s.title}</span>
             </div>
-            <p class="text-[11px] text-muted-foreground line-clamp-2">{s.prompt}</p>
+            <p class="line-clamp-2 text-[11px] leading-relaxed text-fg-3">{s.prompt}</p>
           </button>
         {/each}
       </div>

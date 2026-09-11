@@ -2,6 +2,7 @@
   import type { ColumnFilter, FilterOperator } from '../../utils/result-filters'
   import { OPERATOR_LABELS, operatorsFor, isUnaryOperator, isValidFilterValue } from '../../utils/result-filters'
   import { Filter, X } from 'lucide-svelte'
+  import Button from '../common/Button.svelte'
 
   interface Props {
     column: string
@@ -60,22 +61,22 @@
 
 <div
   bind:this={panelEl}
-  class="fixed z-50 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50/98 dark:bg-gray-900/98 backdrop-blur-xl shadow-xl p-2.5"
+  class="fixed z-50 rounded-md border border-edge bg-surface backdrop-blur-xl shadow-xl p-2.5"
   style="left:{left}px;top:{top}px;width:{PANEL_WIDTH}px"
 >
   <div class="flex items-center justify-between mb-2">
-    <div class="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200 min-w-0">
-      <Filter size={12} class="text-ch-orange shrink-0" />
+    <div class="flex items-center gap-1.5 text-xs font-semibold text-fg-2 min-w-0">
+      <Filter size={12} class="text-accent shrink-0" />
       <span class="truncate" title={column}>{column}</span>
     </div>
-    <button class="ds-icon-btn" onclick={onclose} title="Close" aria-label="Close filter">
+    <Button icon variant="ghost" size="sm" onclick={onclose} title="Close" aria-label="Close filter">
       <X size={13} />
-    </button>
+    </Button>
   </div>
 
   <div class="flex flex-col gap-2">
     <select
-      class="w-full px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 text-gray-700 dark:text-gray-200 focus:outline-none focus:border-ch-blue"
+      class="w-full px-2 py-1 text-xs rounded border border-edge bg-canvas text-fg-2 focus:outline-none focus:border-ch-orange"
       bind:value={operator}
     >
       {#each operators as op}
@@ -86,29 +87,29 @@
     {#if !isUnaryOperator(operator)}
       <input
         bind:this={inputEl}
-        class="w-full px-2 py-1 text-xs rounded border bg-white dark:bg-gray-950 text-gray-700 dark:text-gray-200 focus:outline-none
+        class="w-full px-2 py-1 text-xs rounded border bg-canvas text-fg-2 focus:outline-none
           {valueInvalid
-            ? 'border-red-400 dark:border-red-500 focus:border-red-400'
-            : 'border-gray-300 dark:border-gray-700 focus:border-ch-blue'}"
+            ? 'border-danger focus:border-danger'
+            : 'border-edge focus:border-ch-orange'}"
         placeholder="Value"
         bind:value
         spellcheck="false"
         onkeydown={(e) => { if (e.key === 'Enter') apply() }}
       />
       {#if valueInvalid}
-        <p class="text-[11px] text-red-500 dark:text-red-400">This column is numeric — enter a number.</p>
+        <p class="text-[11px] text-danger">This column is numeric — enter a number.</p>
       {/if}
     {/if}
 
     <div class="flex justify-end gap-1.5">
       {#if current}
         <button
-          class="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 rounded hover:bg-gray-200 dark:hover:bg-gray-800"
+          class="px-2 py-1 text-xs text-fg-3 hover:text-fg rounded hover:bg-hover"
           onclick={onclear}
         >Clear</button>
       {/if}
       <button
-        class="px-2.5 py-1 text-xs bg-ch-blue text-white rounded hover:bg-ch-blue/80 disabled:opacity-50"
+        class="px-2.5 py-1 text-xs bg-ch-orange text-white rounded hover:bg-ch-orange/80 disabled:opacity-50"
         onclick={apply}
         disabled={!canApply}
       >Apply</button>

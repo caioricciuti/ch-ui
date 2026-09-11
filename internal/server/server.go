@@ -24,6 +24,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/scheduler"
 	"github.com/caioricciuti/ch-ui/internal/server/handlers"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
+	"github.com/caioricciuti/ch-ui/internal/telemetry/monitor"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"github.com/go-chi/chi/v5"
 )
@@ -39,6 +40,7 @@ type Server struct {
 	modelScheduler *models.Scheduler
 	govSyncer      *governance.Syncer
 	chHarvester    *clusterhealth.Harvester
+	monitorRunner  *monitor.MonitorRunner
 	githubSyncer   *ghclient.Syncer
 	guardrails     *governance.GuardrailService
 	alerts         *alerts.Dispatcher
@@ -63,6 +65,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 	govStore := governance.NewStore(db)
 	govSyncer := governance.NewSyncer(govStore, db, gw, cfg.AppSecretKey)
 	chHarvester := clusterhealth.NewHarvester(clusterhealth.NewStore(db), db, gw, cfg.AppSecretKey)
+	monitorRunner := monitor.NewMonitorRunner(db, gw, cfg.AppSecretKey)
 	githubSyncer := ghclient.NewSyncer(db, cfg.AppSecretKey)
 	alertDispatcher := alerts.NewDispatcher(db, cfg)
 
@@ -113,6 +116,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 		modelScheduler: modelScheduler,
 		govSyncer:      govSyncer,
 		chHarvester:    chHarvester,
+		monitorRunner:  monitorRunner,
 		githubSyncer:   githubSyncer,
 		guardrails:     governance.NewGuardrailService(govStore, db),
 		alerts:         alertDispatcher,
@@ -383,6 +387,7 @@ func (s *Server) Start() error {
 	} else {
 		slog.Info("Cluster health harvester disabled (requires Pro license)")
 	}
+	s.monitorRunner.Start()
 	s.alerts.Start()
 
 	if s.cfg.IsPro() {
@@ -449,6 +454,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.modelScheduler.Stop()
 	s.govSyncer.Stop()
 	s.chHarvester.Stop()
+	s.monitorRunner.Stop()
 	s.alerts.Stop()
 	s.gateway.Stop()
 	s.auditFwd.Close()

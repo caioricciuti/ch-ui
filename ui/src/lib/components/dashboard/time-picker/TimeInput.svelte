@@ -32,8 +32,8 @@
 </script>
 
 <div class="flex items-center gap-2">
-  <Clock3 size={13} class="text-gray-400 shrink-0" />
-  <span class="text-xs text-gray-500 dark:text-gray-400 w-10 shrink-0">{label}:</span>
+  <Clock3 size={13} class="text-fg-4 shrink-0" />
+  <span class="text-xs text-fg-3 w-10 shrink-0">{label}:</span>
   <div class="flex items-center gap-1">
     <input
       type="number"
@@ -44,7 +44,7 @@
       onchange={(e) => update('h', e.currentTarget.value)}
       onfocus={selectOnFocus}
     />
-    <span class="text-xs text-gray-400">:</span>
+    <span class="text-xs text-fg-4">:</span>
     <input
       type="number"
       min="0"
@@ -54,7 +54,7 @@
       onchange={(e) => update('m', e.currentTarget.value)}
       onfocus={selectOnFocus}
     />
-    <span class="text-xs text-gray-400">:</span>
+    <span class="text-xs text-fg-4">:</span>
     <input
       type="number"
       min="0"

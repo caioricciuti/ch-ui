@@ -971,6 +971,75 @@ func (db *DB) runMigrations() error {
 			parts_pressure_pct REAL NOT NULL DEFAULT 0,
 			long_queries INTEGER NOT NULL DEFAULT 0
 		)`,
+
+		// Dashboard folders (nested) and per-user stars, Grafana style.
+		`CREATE TABLE IF NOT EXISTS dashboard_folders (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			parent_id TEXT REFERENCES dashboard_folders(id) ON DELETE CASCADE,
+			created_by TEXT,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_folders_parent_name
+			ON dashboard_folders(COALESCE(parent_id, ''), name)`,
+		// Telemetry sources: which ClickHouse tables hold OTel logs, traces
+		// and metrics on a connection, with their column mappings.
+		`CREATE TABLE IF NOT EXISTS telemetry_sources (
+			id TEXT PRIMARY KEY,
+			connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+			kind TEXT NOT NULL,
+			name TEXT NOT NULL,
+			database_name TEXT NOT NULL,
+			table_name TEXT NOT NULL DEFAULT '',
+			config_json TEXT NOT NULL DEFAULT '{}',
+			enabled INTEGER NOT NULL DEFAULT 1,
+			created_by TEXT,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_telemetry_sources_conn ON telemetry_sources(connection_id, kind)`,
+		`CREATE TABLE IF NOT EXISTS telemetry_saved_searches (
+			id TEXT PRIMARY KEY,
+			connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+			kind TEXT NOT NULL,
+			name TEXT NOT NULL,
+			query TEXT NOT NULL DEFAULT '',
+			range_preset TEXT NOT NULL DEFAULT '1h',
+			source_id TEXT,
+			created_by TEXT,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_telemetry_saved_conn ON telemetry_saved_searches(connection_id, kind)`,
+		`CREATE TABLE IF NOT EXISTS telemetry_monitors (
+			id TEXT PRIMARY KEY,
+			connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			source_id TEXT NOT NULL,
+			query TEXT NOT NULL DEFAULT '',
+			window_seconds INTEGER NOT NULL DEFAULT 300,
+			interval_seconds INTEGER NOT NULL DEFAULT 60,
+			comparator TEXT NOT NULL DEFAULT 'gt',
+			threshold REAL NOT NULL DEFAULT 0,
+			severity TEXT NOT NULL DEFAULT 'warn',
+			enabled INTEGER NOT NULL DEFAULT 1,
+			last_run_at TEXT,
+			last_value REAL,
+			last_state TEXT NOT NULL DEFAULT 'ok',
+			last_error TEXT,
+			created_by TEXT,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_telemetry_monitors_conn ON telemetry_monitors(connection_id, enabled)`,
+		`CREATE TABLE IF NOT EXISTS dashboard_stars (
+			dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+			username TEXT NOT NULL,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (dashboard_id, username)
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_ch_health_samples_conn_time ON ch_health_samples(connection_id, captured_at)`,
 	}
 
@@ -989,6 +1058,21 @@ func (db *DB) runMigrations() error {
 	// alert_rule_channels; route policies/digests/escalation were removed.
 	if err := db.migrateAlertRoutesToRuleChannels(); err != nil {
 		return fmt.Errorf("migrate alert routes to rule channels: %w", err)
+	}
+
+	// Dashboards can live in a folder and carry tags (JSON array of strings).
+	if err := db.ensureColumn("dashboards", "folder_id", "TEXT REFERENCES dashboard_folders(id) ON DELETE SET NULL"); err != nil {
+		return err
+	}
+	if err := db.ensureColumn("dashboards", "tags", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
+		return err
+	}
+	if _, err := db.conn.Exec("CREATE INDEX IF NOT EXISTS idx_dashboards_folder ON dashboards(folder_id)"); err != nil {
+		return fmt.Errorf("index dashboards.folder_id: %w", err)
+	}
+
+	if err := db.MigrateTelemetryConfigToSources(); err != nil {
+		return fmt.Errorf("migrate telemetry config to sources: %w", err)
 	}
 
 	if err := db.ensureColumn("gov_policies", "enforcement_mode", "TEXT NOT NULL DEFAULT 'warn'"); err != nil {

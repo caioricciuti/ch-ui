@@ -1,6 +1,5 @@
 import type { PanelConfig, StatThreshold } from '../types/api'
 import type uPlot from 'uplot'
-import { formatBytes } from './format'
 
 export interface ColumnMeta {
   name: string
@@ -194,19 +193,6 @@ function formatWithDecimals(n: number, decimals?: number): string {
 const SI_SUFFIXES = ['', 'K', 'M', 'B', 'T']
 const BYTE_SUFFIXES = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
 
-function formatShort(n: number, decimals?: number): string {
-  const abs = Math.abs(n)
-  if (abs < 1000) return formatWithDecimals(n, decimals)
-  let tier = Math.floor(Math.log10(abs) / 3)
-  if (tier >= SI_SUFFIXES.length) tier = SI_SUFFIXES.length - 1
-  const scaled = n / Math.pow(1000, tier)
-  return formatWithDecimals(scaled, decimals ?? 1) + SI_SUFFIXES[tier]
-}
-
-function formatBps(n: number, decimals?: number): string {
-  return formatBytes(n, decimals) + '/s'
-}
-
 function formatDuration(seconds: number, decimals?: number): string {
   const abs = Math.abs(seconds)
   if (abs < 0.001) return formatWithDecimals(seconds * 1_000_000, decimals ?? 0) + ' µs'
@@ -215,23 +201,6 @@ function formatDuration(seconds: number, decimals?: number): string {
   if (abs < 3600) return formatWithDecimals(seconds / 60, decimals ?? 1) + ' min'
   if (abs < 86400) return formatWithDecimals(seconds / 3600, decimals ?? 1) + ' h'
   return formatWithDecimals(seconds / 86400, decimals ?? 1) + ' d'
-}
-
-function formatDurationMs(ms: number, decimals?: number): string {
-  return formatDuration(ms / 1000, decimals)
-}
-
-function formatUnit(n: number, unit: PanelConfig['statUnit'], decimals?: number): string {
-  switch (unit) {
-    case 'percent':    return formatWithDecimals(n, decimals ?? 1) + '%'
-    case 'short':      return formatShort(n, decimals)
-    case 'bytes':      return formatBytes(n, decimals)
-    case 'bps':        return formatBps(n, decimals)
-    case 'duration':   return formatDuration(n, decimals)
-    case 'durationMs': return formatDurationMs(n, decimals)
-    case 'none':
-    default:           return formatWithDecimals(n, decimals)
-  }
 }
 
 const DEFAULT_THRESHOLDS: StatThreshold[] = [

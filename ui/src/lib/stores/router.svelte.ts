@@ -1,42 +1,54 @@
 import { withBase, stripBase } from '../basePath'
-import type { SingletonTab } from './tabs.svelte'
-import { getActiveTab, getTabs, openDashboardTab, openHomeTab, openSingletonTab, setActiveTab } from './tabs.svelte'
+import { getActiveTab, getTabs, openHomeTab, setActiveTab } from './tabs.svelte'
+import { isPageRouteType, PAGE_ROUTES, PATH_TO_PAGE, type PageRoute } from '../routes'
+import { syncSectionFromUrl } from './nav.svelte'
+
+// ── Current route type (reactive) ────────────────────────────────
+// Pages (see lib/routes.ts) render from this; the tab workspace shows when
+// the route is not a page.
+
+let routeType = $state<string>('home')
+
+export function getRouteType(): string {
+  return routeType
+}
+
+function syncRouteType(): void {
+  routeType = parseRoute().type
+  syncSectionFromUrl()
+}
+
+/** Navigate to a page URL. The tab workspace keeps its state underneath. */
+export function navigate(path: string): void {
+  if (window.location.pathname !== withBase(path)) {
+    history.pushState(null, '', withBase(path))
+  }
+  syncRouteType()
+  updateSubRouteState()
+}
+
+/** Open a product area page. */
+export function goTo(type: PageRoute, _label?: string): void {
+  navigate(PAGE_ROUTES[type].path)
+}
+
+/** Return to the query workspace, on whatever tab was active there. */
+export function goWorkspace(): void {
+  const active = getActiveTab()
+  if (active) pushTabRouteForTab(active)
+  else navigate('/')
+}
 
 // ── URL ↔ Tab mapping ────────────────────────────────────────────
 
+// Workspace tab types all map to '/'. Product areas live in PAGE_ROUTES;
+// dashboard and pipeline detail are sub-routes of their pages.
 const TAB_PATHS: Record<string, string> = {
-  'home': '/',
-  'saved-queries': '/saved-queries',
-  'dashboards': '/dashboards',
-  'schedules': '/schedules',
-  'brain': '/brain',
-  'admin': '/admin',
-  'governance': '/governance',
-  'pipelines': '/pipelines',
-  'models': '/models',
-  'model': '/models',
-  'telemetry': '/telemetry',
-  'cluster-health': '/cluster-health',
-  'query-insights': '/query-insights',
-  'cost-center': '/cost-center',
-  'settings': '/license',
-}
-
-const PATH_TABS: Record<string, { type: SingletonTab['type']; label: string }> = {
-  '/saved-queries': { type: 'saved-queries', label: 'Saved Queries' },
-  '/dashboards': { type: 'dashboards', label: 'Dashboards' },
-  '/schedules': { type: 'schedules', label: 'Schedules' },
-  '/brain': { type: 'brain', label: 'Brain' },
-  '/admin': { type: 'admin', label: 'Admin' },
-  '/governance': { type: 'governance', label: 'Governance' },
-  '/pipelines': { type: 'pipelines', label: 'Pipelines' },
-  '/models': { type: 'models', label: 'Models' },
-  '/telemetry': { type: 'telemetry', label: 'Telemetry' },
-  '/cluster-health': { type: 'cluster-health', label: 'Cluster Health' },
-  '/query-insights': { type: 'query-insights', label: 'Query Insights' },
-  '/cost-center': { type: 'cost-center', label: 'Cost Center' },
-  '/settings': { type: 'settings', label: 'License' },
-  '/license': { type: 'settings', label: 'License' },
+  home: '/',
+  query: '/',
+  table: '/',
+  database: '/',
+  model: '/',
 }
 
 // Prevents pushState during popstate-triggered tab activation
@@ -45,9 +57,14 @@ let suppressPush = false
 // ── Pipeline sub-route state ─────────────────────────────────────
 
 let pipelineId = $state<string | undefined>(undefined)
+let dashboardId = $state<string | undefined>(undefined)
 
 export function getCurrentPipelineId(): string | undefined {
   return pipelineId
+}
+
+export function getCurrentDashboardId(): string | undefined {
+  return dashboardId
 }
 
 // ── URL helpers ──────────────────────────────────────────────────
@@ -71,6 +88,7 @@ function pushUrl(path: string, tabId?: string): void {
   } else if (currentTabParam() !== tabId) {
     history.replaceState(null, '', url)
   }
+  syncRouteType()
 }
 
 // ── Push helpers ─────────────────────────────────────────────────
@@ -82,39 +100,33 @@ export function pushTabRoute(tabType: string): void {
   pushUrl(path, activeTab?.id)
 }
 
-export function pushTabRouteForTab(tab: { id: string; type: string; dashboardId?: string }): void {
+export function pushTabRouteForTab(tab: { id: string; type: string }): void {
   if (suppressPush) return
-  if (tab.type === 'dashboard' && tab.dashboardId) {
-    pushUrl(`/dashboards/${tab.dashboardId}`, tab.id)
-    return
-  }
   const path = TAB_PATHS[tab.type] ?? '/'
   pushUrl(path, tab.id)
 }
 
 export function pushDashboardDetail(id: string): void {
   if (suppressPush) return
-  const dashTab = getTabs().find(t => t.type === 'dashboard' && 'dashboardId' in t && t.dashboardId === id)
-  pushUrl('/dashboards/' + id, dashTab?.id)
+  navigate('/dashboards/' + id)
+  dashboardId = id
 }
 
 export function pushDashboardList(): void {
   if (suppressPush) return
-  const tab = getTabs().find(t => t.type === 'dashboards')
-  pushUrl('/dashboards', tab?.id)
+  navigate('/dashboards')
+  dashboardId = undefined
 }
 
 export function pushPipelineDetail(id: string): void {
   if (suppressPush) return
-  const tab = getTabs().find(t => t.type === 'pipelines')
-  pushUrl('/pipelines/' + id, tab?.id)
+  navigate('/pipelines/' + id)
   pipelineId = id
 }
 
 export function pushPipelineList(): void {
   if (suppressPush) return
-  const tab = getTabs().find(t => t.type === 'pipelines')
-  pushUrl('/pipelines', tab?.id)
+  navigate('/pipelines')
   pipelineId = undefined
 }
 
@@ -126,7 +138,7 @@ export function parseRoute(): { type: string; dashboardId?: string; pipelineId?:
   // /dashboards/:id
   const dashMatch = path.match(/^\/dashboards\/(.+)$/)
   if (dashMatch) {
-    return { type: 'dashboard', dashboardId: dashMatch[1] }
+    return { type: 'dashboards', dashboardId: dashMatch[1] }
   }
 
   // /pipelines/:id
@@ -135,10 +147,10 @@ export function parseRoute(): { type: string; dashboardId?: string; pipelineId?:
     return { type: 'pipelines', pipelineId: pipeMatch[1] }
   }
 
-  // Known singleton paths
-  const entry = PATH_TABS[path]
-  if (entry) {
-    return { type: entry.type }
+  // Product area pages
+  const page = PATH_TO_PAGE[path]
+  if (page) {
+    return { type: page }
   }
 
   // Default: home (query editor)
@@ -159,8 +171,9 @@ function tryRestoreFromTabParam(): boolean {
 }
 
 function updateSubRouteState(): void {
-  const match = stripBase(window.location.pathname).match(/^\/pipelines\/(.+)$/)
-  pipelineId = match?.[1]
+  const path = stripBase(window.location.pathname)
+  pipelineId = path.match(/^\/pipelines\/(.+)$/)?.[1]
+  dashboardId = path.match(/^\/dashboards\/(.+)$/)?.[1]
 }
 
 // ── Sync URL → tab state ────────────────────────────────────────
@@ -168,31 +181,13 @@ function updateSubRouteState(): void {
 function syncRouteToTabs(): void {
   const route = parseRoute()
 
-  // Update pipeline sub-route state
   pipelineId = route.pipelineId
+  dashboardId = route.dashboardId
 
-  if (route.type === 'home') {
-    openHomeTab()
-    return
-  }
-  if (route.type === 'dashboard' && route.dashboardId) {
-    suppressPush = true
-    openDashboardTab(route.dashboardId, 'Dashboard')
-    suppressPush = false
-    return
-  }
-  if (route.type === 'pipelines') {
-    suppressPush = true
-    openSingletonTab('pipelines', 'Pipelines')
-    suppressPush = false
-    return
-  }
-  const entry = PATH_TABS[TAB_PATHS[route.type]]
-  if (entry) {
-    suppressPush = true
-    openSingletonTab(entry.type, entry.label)
-    suppressPush = false
-  }
+  // Pages are not tabs: nothing to open, the PageRouter renders from routeType.
+  if (isPageRouteType(route.type)) return
+  // Workspace root: make sure something is open
+  if (!getActiveTab()) openHomeTab()
 }
 
 // ── Initialize ──────────────────────────────────────────────────
@@ -203,23 +198,27 @@ export function initRouter(): void {
   if (initialized) return
   initialized = true
 
+  syncRouteType()
+  const onPage = isPageRouteType(routeType)
+
   // On initial load, try ?tab= param first (survives reload reliably)
-  if (!tryRestoreFromTabParam()) {
+  if (onPage || !tryRestoreFromTabParam()) {
     // Fallback: sync from URL pathname
     syncRouteToTabs()
   }
   updateSubRouteState()
 
-  // Seed ?tab= if missing so a subsequent reload works
+  // Seed ?tab= if missing so a subsequent reload works (workspace only)
   const activeTab = getActiveTab()
-  if (activeTab && !currentTabParam()) {
+  if (!onPage && activeTab && !currentTabParam()) {
     const url = buildUrl(stripBase(window.location.pathname), activeTab.id)
     history.replaceState(null, '', url)
   }
 
   // Handle browser back/forward
   window.addEventListener('popstate', () => {
-    if (!tryRestoreFromTabParam()) {
+    syncRouteType()
+    if (isPageRouteType(routeType) || !tryRestoreFromTabParam()) {
       syncRouteToTabs()
     }
     updateSubRouteState()

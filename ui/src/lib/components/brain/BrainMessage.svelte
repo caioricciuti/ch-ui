@@ -101,14 +101,14 @@
 
 {#if message.role === 'user'}
   <div class="flex justify-end">
-    <div class="max-w-[80%] bg-ch-blue text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap">{message.content}</div>
+    <div class="max-w-[80%] bg-ch-orange text-white rounded-lg rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap">{message.content}</div>
   </div>
 {:else}
   <div class="flex justify-start">
     <div class="max-w-[85%] min-w-0">
       {#if phaseLabel}
-        <div class="inline-flex items-center gap-2 mb-2 px-2 py-1 rounded-full bg-ch-blue/10 text-ch-blue text-[11px]">
-          <span class="inline-block w-1.5 h-1.5 rounded-full bg-ch-blue animate-pulse"></span>
+        <div class="inline-flex items-center gap-2 mb-2 px-2 py-1 rounded-full bg-accent-soft text-accent text-[11px]">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-ch-orange animate-pulse"></span>
           {phaseLabel}
         </div>
       {/if}
@@ -121,7 +121,7 @@
       {#if message.content}
         {#each segments as seg}
           {#if seg.type === 'markdown'}
-            <div class="prose-brain text-sm text-gray-800 dark:text-gray-200">{@html seg.html}</div>
+            <div class="prose-brain text-sm text-fg">{@html seg.html}</div>
           {:else if seg.type === 'sql'}
             <BrainSqlBlock
               sql={seg.content}
@@ -140,7 +140,7 @@
           {/each}
         {/if}
       {:else if streaming && isLastMessage && (!message.toolCalls || message.toolCalls.length === 0)}
-        <div class="bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-bl-sm px-4 py-3">
+        <div class="bg-surface-2 rounded-lg rounded-bl-sm px-4 py-3">
           <Spinner size="sm" />
         </div>
       {/if}

@@ -16,6 +16,8 @@
     placeholder?: string
     emptyText?: string
     disabled?: boolean
+    /** md = 32 px control (default); lg = 40 px, for standalone forms like sign-in */
+    size?: 'md' | 'lg'
     onChange?: (value: string) => void
   }
 
@@ -25,6 +27,7 @@
     placeholder = 'Select...',
     emptyText = 'No matches',
     disabled = false,
+    size = 'md',
     onChange,
   }: Props = $props()
 
@@ -114,14 +117,14 @@
 <div class="relative" bind:this={rootEl}>
   <button
     type="button"
-    class="ds-input flex items-center gap-2 text-left"
+    class="ds-input flex items-center gap-2 text-left {size === 'lg' ? 'h-10 px-3 text-[14px]' : ''}"
     onclick={open ? closeMenu : openMenu}
     disabled={disabled}
   >
-    <span class="flex-1 truncate {selected ? '' : 'text-gray-400 dark:text-gray-500'}">
+    <span class="flex-1 truncate {selected ? '' : 'text-fg-4'}">
       {selected?.label ?? placeholder}
     </span>
-    <ChevronDown size={14} class="text-gray-500 {open ? 'rotate-180' : ''} transition-transform" />
+    <ChevronDown size={14} class="text-fg-3 {open ? 'rotate-180' : ''} transition-transform" />
   </button>
 
   {#if open}
@@ -132,13 +135,13 @@
       onclick={(e) => { e.preventDefault(); closeMenu() }}
       onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && closeMenu()}
     ></div>
-    <div class="absolute z-[66] w-full min-w-[220px] rounded-xl surface-card overflow-hidden shadow-2xl {openUpward ? 'bottom-full mb-1' : 'mt-1'}">
-      <div class="flex items-center gap-2 px-2.5 py-2 border-b border-gray-200/70 dark:border-gray-800/70">
-        <Search size={13} class="text-gray-500" />
+    <div class="absolute z-[66] w-full min-w-[220px] rounded-md surface-card overflow-hidden {openUpward ? 'bottom-full mb-1' : 'mt-1'}">
+      <div class="flex items-center gap-2 px-2.5 py-2 border-b border-edge-subtle">
+        <Search size={13} class="text-fg-3" />
         <input
           bind:this={inputEl}
           bind:value={query}
-          class="w-full bg-transparent text-sm text-gray-800 dark:text-gray-200 placeholder:text-gray-400 outline-none"
+          class="w-full bg-transparent text-[13px] text-fg placeholder:text-fg-4 outline-none"
           type="text"
           placeholder="Type to search"
         />
@@ -146,12 +149,12 @@
 
       <div class="max-h-56 overflow-y-auto p-1.5">
         {#if filtered.length === 0}
-          <div class="px-2.5 py-8 text-center text-xs text-gray-500">{emptyText}</div>
+          <div class="px-2.5 py-8 text-center text-xs text-fg-3">{emptyText}</div>
         {:else}
           {#each filtered as opt, idx (opt.value)}
             <button
               type="button"
-              class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left transition-colors {idx === highlighted ? 'bg-ch-blue/10 text-ch-blue' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200/55 dark:hover:bg-gray-800/55'}"
+              class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm text-left transition-colors {idx === highlighted ? 'bg-hover text-fg' : 'text-fg-2 hover:bg-hover'}"
               onclick={(e) => { e.preventDefault(); selectOption(opt) }}
               onmouseenter={() => highlighted = idx}
               disabled={opt.disabled}
@@ -159,11 +162,11 @@
               <span class="flex-1 min-w-0">
                 <span class="block text-sm truncate">{opt.label}</span>
                 {#if opt.hint}
-                  <span class="block text-[11px] text-gray-500 dark:text-gray-400 truncate">{opt.hint}</span>
+                  <span class="block text-[11px] text-fg-3 truncate">{opt.hint}</span>
                 {/if}
               </span>
               {#if value === opt.value}
-                <Check size={13} class="text-ch-blue" />
+                <Check size={13} class="text-accent" />
               {/if}
             </button>
           {/each}

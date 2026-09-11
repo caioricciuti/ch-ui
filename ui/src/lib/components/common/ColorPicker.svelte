@@ -56,7 +56,7 @@
 <div class="relative inline-flex">
   <button
     bind:this={triggerEl}
-    class="w-6 h-6 rounded-md border border-gray-300 dark:border-gray-600 cursor-pointer shrink-0 transition-shadow hover:ring-2 hover:ring-offset-1 hover:ring-gray-300 dark:hover:ring-gray-600 dark:ring-offset-gray-900"
+    class="w-6 h-6 rounded-md border border-edge cursor-pointer shrink-0 transition-shadow hover:ring-2 hover:ring-edge-strong"
     style="background-color: {value}"
     onclick={toggle}
     type="button"
@@ -65,25 +65,25 @@
   {#if open}
     <div
       bind:this={panelEl}
-      class="absolute z-[100] w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl overflow-hidden"
+      class="absolute z-[100] w-64 surface-card rounded-lg overflow-hidden"
       style={openAbove ? 'bottom: 32px; left: 0;' : 'top: 32px; left: 0;'}
     >
       <!-- Tabs -->
-      <div class="flex border-b border-gray-200 dark:border-gray-700">
+      <div class="flex border-b border-edge-subtle">
         <button
           type="button"
           class="flex-1 text-xs font-medium py-2 transition-colors
             {tab === 'palette'
-              ? 'text-ch-blue border-b-2 border-ch-blue'
-              : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}"
+              ? 'text-fg shadow-[inset_0_-2px_0_var(--accent)]'
+              : 'text-fg-3 hover:text-fg'}"
           onclick={() => tab = 'palette'}
         >Colors</button>
         <button
           type="button"
           class="flex-1 text-xs font-medium py-2 transition-colors
             {tab === 'custom'
-              ? 'text-ch-blue border-b-2 border-ch-blue'
-              : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}"
+              ? 'text-fg shadow-[inset_0_-2px_0_var(--accent)]'
+              : 'text-fg-3 hover:text-fg'}"
           onclick={() => tab = 'custom'}
         >Custom</button>
       </div>
@@ -92,13 +92,13 @@
         <div class="p-3 space-y-2.5">
           {#each PALETTE as group}
             <div class="flex items-center gap-2.5">
-              <span class="text-[10px] text-gray-400 dark:text-gray-500 w-11 shrink-0 text-right font-medium">{group.label}</span>
+              <span class="text-[10px] text-fg-4 w-11 shrink-0 text-right font-medium">{group.label}</span>
               <div class="flex gap-1.5 flex-1">
                 {#each group.colors as color}
                   <button
                     type="button"
                     class="w-[22px] h-[22px] rounded-full cursor-pointer transition-all hover:scale-[1.2]
-                      {value.toLowerCase() === color.toLowerCase() ? 'ring-2 ring-offset-2 ring-ch-blue dark:ring-offset-gray-900 scale-[1.1]' : ''}"
+                      {value.toLowerCase() === color.toLowerCase() ? 'ring-2 ring-offset-2 ring-accent ring-offset-elevated scale-[1.1]' : ''}"
                     style="background-color: {color}"
                     onclick={() => select(color)}
                     title={color}
@@ -118,17 +118,17 @@
               oninput={(e) => {
                 customHex = (e.target as HTMLInputElement).value
               }}
-              class="w-full h-32 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer p-0"
+              class="w-full h-32 rounded-md border border-edge cursor-pointer p-0"
             />
           </div>
 
           <!-- Hex input + apply -->
           <div class="flex items-center gap-2">
-            <div class="flex items-center flex-1 border border-gray-300 dark:border-gray-700 rounded-md overflow-hidden">
-              <span class="px-2 py-1.5 text-xs text-gray-400 bg-gray-50 dark:bg-gray-800 border-r border-gray-300 dark:border-gray-700">#</span>
+            <div class="flex items-center flex-1 border border-edge rounded-md overflow-hidden">
+              <span class="px-2 py-1.5 text-xs text-fg-4 bg-surface-2 border-r border-edge">#</span>
               <input
                 type="text"
-                class="flex-1 text-xs bg-transparent px-2 py-1.5 text-gray-800 dark:text-gray-200 font-mono outline-none"
+                class="flex-1 text-xs bg-transparent px-2 py-1.5 text-fg font-mono outline-none"
                 placeholder="000000"
                 value={customHex.replace(/^#/, '')}
                 oninput={(e) => {
@@ -145,7 +145,7 @@
             </div>
             <button
               type="button"
-              class="px-3 py-1.5 text-xs font-medium rounded-md bg-ch-blue text-white hover:bg-orange-600 transition-colors disabled:opacity-40"
+              class="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-accent-fg hover:brightness-110 transition-colors disabled:opacity-40"
               disabled={!customHex.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/)}
               onclick={() => select(customHex)}
             >Apply</button>
@@ -153,8 +153,8 @@
 
           <!-- Preview swatch -->
           <div class="flex items-center gap-2">
-            <span class="text-[10px] text-gray-400">Preview</span>
-            <div class="w-8 h-8 rounded-md border border-gray-200 dark:border-gray-700" style="background-color: {customHex}"></div>
+            <span class="text-[10px] text-fg-4">Preview</span>
+            <div class="w-8 h-8 rounded-md border border-edge" style="background-color: {customHex}"></div>
           </div>
         </div>
       {/if}

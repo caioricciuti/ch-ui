@@ -2,19 +2,14 @@
   import type { Pipeline } from '../../types/pipelines'
   import { formatDate } from '../../utils/format'
   import Button from '../common/Button.svelte'
+  import Badge from '../common/Badge.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
+  import EmptyState from '../common/EmptyState.svelte'
+  import Input from '../common/Input.svelte'
+  import PageBody from '../common/PageBody.svelte'
+  import PageHeader from '../common/PageHeader.svelte'
   import Spinner from '../common/Spinner.svelte'
-  import {
-    Plus,
-    Trash2,
-    Play,
-    Square,
-    Pencil,
-    Workflow,
-    AlertCircle,
-    Clock,
-    Radio,
-  } from 'lucide-svelte'
+  import { Plus, Trash2, Play, Square, Workflow } from 'lucide-svelte'
 
   interface Props {
     pipelines: Pipeline[]
@@ -37,139 +32,95 @@
       : pipelines,
   )
 
-  function statusColor(status: string): string {
+  type Tone = 'neutral' | 'success' | 'warning' | 'danger'
+
+  function statusTone(status: string): Tone {
     switch (status) {
       case 'running':
-        return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+        return 'success'
       case 'error':
-        return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+        return 'danger'
       case 'starting':
       case 'stopping':
-        return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-      case 'draft':
-        return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+        return 'warning'
       default:
-        return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+        return 'neutral'
     }
   }
-
-  function statusIcon(status: string) {
-    switch (status) {
-      case 'running':
-        return Radio
-      case 'error':
-        return AlertCircle
-      case 'starting':
-      case 'stopping':
-        return Clock
-      default:
-        return Workflow
-    }
-  }
-
 </script>
 
-<div class="flex flex-col h-full">
-  <!-- Header -->
-  <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-    <div class="flex items-center gap-3">
-      <Workflow size={18} class="text-ch-blue" />
-      <h1 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Pipelines</h1>
-      <span class="text-xs text-gray-400 dark:text-gray-600">{pipelines.length} total</span>
-    </div>
-    <div class="flex items-center gap-2">
-      <input
-        bind:value={search}
-        type="text"
-        placeholder="Search pipelines..."
-        class="h-8 w-52 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
-      />
+<div class="flex h-full min-h-0 flex-col">
+  <PageHeader title="Pipelines" subtitle="Stream data into ClickHouse from external sources">
+    {#snippet meta()}
+      {#if !loading}
+        <Badge tone="neutral">{pipelines.length} total</Badge>
+      {/if}
+    {/snippet}
+    {#snippet actions()}
+      <Input size="sm" type="search" bind:value={search} placeholder="Search pipelines" class="w-52" />
       <Button size="sm" onclick={onCreate}>
-        <Plus size={14} /> New Pipeline
+        <Plus size={14} /> New pipeline
       </Button>
-    </div>
-  </div>
+    {/snippet}
+  </PageHeader>
 
-  <!-- Content -->
-  <div class="flex-1 overflow-auto p-4">
+  <PageBody width="lg">
     {#if loading}
       <div class="flex items-center justify-center py-12"><Spinner /></div>
     {:else if filtered.length === 0}
-      <div class="text-center py-12 text-gray-500">
-        <Workflow size={36} class="mx-auto mb-2 text-gray-300 dark:text-gray-700" />
-        {#if search.trim()}
-          <p class="mb-1">No pipelines match "{search}"</p>
-        {:else}
-          <p class="mb-1">No pipelines yet</p>
-          <p class="text-xs text-gray-400 dark:text-gray-600">Create a pipeline to start ingesting data into ClickHouse</p>
-        {/if}
-      </div>
+      {#if search.trim()}
+        <EmptyState icon={Workflow} title="No pipelines match “{search}”" secondary={{ label: 'Clear search', onclick: () => (search = '') }} />
+      {:else}
+        <EmptyState
+          icon={Workflow}
+          title="No pipelines yet"
+          description="A pipeline connects a source (Kafka, HTTP, files) to a ClickHouse table and keeps rows flowing."
+          primary={{ label: 'New pipeline', onclick: onCreate }}
+        />
+      {/if}
     {:else}
-      <div class="grid gap-3 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {#each filtered as pipeline (pipeline.id)}
           <div
-            class="group text-left rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 hover:border-orange-300 dark:hover:border-orange-700 hover:shadow-sm transition-all cursor-pointer"
+            class="group cursor-pointer rounded-lg border border-edge-subtle bg-surface p-4 text-left transition-colors hover:border-edge-strong hover:bg-hover"
             onclick={() => onSelect(pipeline.id)}
             onkeydown={(e) => { if (e.key === 'Enter') onSelect(pipeline.id) }}
             role="button"
             tabindex={0}
           >
-            <div class="flex items-start justify-between mb-3">
-              <div class="flex-1 min-w-0">
-                <h3 class="font-medium text-sm text-gray-900 dark:text-gray-100 truncate">{pipeline.name}</h3>
+            <div class="mb-3 flex items-start justify-between gap-2">
+              <div class="min-w-0 flex-1">
+                <h3 class="truncate text-[13px] font-medium text-fg">{pipeline.name}</h3>
                 {#if pipeline.description}
-                  <p class="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">{pipeline.description}</p>
+                  <p class="mt-0.5 truncate text-xs text-fg-3">{pipeline.description}</p>
                 {/if}
               </div>
-              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium {statusColor(pipeline.status)}">
-                {#if pipeline.status === 'running'}
-                  <Radio size={10} />
-                {:else if pipeline.status === 'error'}
-                  <AlertCircle size={10} />
-                {:else if pipeline.status === 'starting' || pipeline.status === 'stopping'}
-                  <Clock size={10} />
-                {:else}
-                  <Workflow size={10} />
-                {/if}
-                {pipeline.status}
-              </span>
+              <Badge tone={statusTone(pipeline.status)} dot={pipeline.status === 'running'}>{pipeline.status}</Badge>
             </div>
 
             <div class="flex items-center justify-between">
-              <span class="text-[10px] text-gray-400 dark:text-gray-600">
+              <span class="text-[11px] text-fg-4">
                 Updated {formatDate(pipeline.updated_at)}
               </span>
-              <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-              <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onclick={(e: MouseEvent) => e.stopPropagation()}>
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <div role="presentation" class="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" onclick={(e: MouseEvent) => e.stopPropagation()}>
                 {#if pipeline.status === 'running' || pipeline.status === 'starting'}
-                  <button
-                    class="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
-                    title="Stop pipeline"
-                    onclick={() => onStop(pipeline.id)}
-                  >
-                    <Square size={14} />
-                  </button>
+                  <Button icon size="xs" variant="ghost" title="Stop pipeline" aria-label="Stop pipeline" onclick={() => onStop(pipeline.id)}>
+                    <Square size={13} />
+                  </Button>
                 {:else}
-                  <button
-                    class="p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/30 text-green-500"
-                    title="Start pipeline"
-                    onclick={() => onStart(pipeline.id)}
-                  >
-                    <Play size={14} />
-                  </button>
+                  <Button icon size="xs" variant="ghost" title="Start pipeline" aria-label="Start pipeline" onclick={() => onStart(pipeline.id)}>
+                    <Play size={13} />
+                  </Button>
                 {/if}
-                <button
-                  class="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-500"
-                  title="Delete pipeline"
-                  onclick={() => { confirmDelete = pipeline }}
-                >
-                  <Trash2 size={14} />
-                </button>
+                <Button icon size="xs" variant="ghost" class="hover:text-danger" title="Delete pipeline" aria-label="Delete pipeline" onclick={() => { confirmDelete = pipeline }}>
+                  <Trash2 size={13} />
+                </Button>
               </div>
             </div>
 
             {#if pipeline.last_error && pipeline.status === 'error'}
-              <div class="mt-2 px-2 py-1 rounded bg-red-50 dark:bg-red-900/20 text-[10px] text-red-600 dark:text-red-400 truncate">
+              <div class="mt-2 truncate rounded-sm bg-danger-soft px-2 py-1 text-[11px] text-danger" title={pipeline.last_error}>
                 {pipeline.last_error}
               </div>
             {/if}
@@ -177,7 +128,7 @@
         {/each}
       </div>
     {/if}
-  </div>
+  </PageBody>
 </div>
 
 <ConfirmDialog

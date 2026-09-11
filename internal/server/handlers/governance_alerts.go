@@ -694,7 +694,7 @@ func isSupportedChannelType(v string) bool {
 
 func isSupportedEventType(v string) bool {
 	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "*", "any", alerts.EventTypePolicyViolation, alerts.EventTypeScheduleFailed, alerts.EventTypeScheduleSlow:
+	case "*", "any", alerts.EventTypePolicyViolation, alerts.EventTypeScheduleFailed, alerts.EventTypeScheduleSlow, alerts.EventTypeTelemetryMonitor:
 		return true
 	default:
 		return false

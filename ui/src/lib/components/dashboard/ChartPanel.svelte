@@ -5,6 +5,7 @@
   import type { PanelConfig } from '../../types/api'
   import { toUPlotData, DEFAULT_COLORS, isDateType, isNumericType, type ColumnMeta } from '../../utils/chart-transform'
   import { getTheme } from '../../stores/theme.svelte'
+  import { tooltipPlugin } from '../../utils/uplot-tooltip'
 
   interface Props {
     data: Record<string, unknown>[]
@@ -42,100 +43,6 @@
 
   function gridColor(): string {
     return isDark() ? 'rgba(75,85,99,0.3)' : 'rgba(209,213,219,0.5)'
-  }
-
-  function tooltipPlugin(isTime: boolean, isCat: boolean, catLabels: string[]): uPlot.Plugin {
-    let tooltip: HTMLDivElement
-
-    function init(u: uPlot) {
-      tooltip = document.createElement('div')
-      Object.assign(tooltip.style, {
-        position: 'absolute',
-        display: 'none',
-        pointerEvents: 'none',
-        background: 'rgba(24,24,27,0.94)',
-        color: '#f3f4f6',
-        borderRadius: '6px',
-        padding: '8px 10px',
-        fontSize: '11px',
-        lineHeight: '1.5',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-        zIndex: '100',
-        whiteSpace: 'nowrap',
-        fontFamily: 'ui-monospace, monospace',
-      })
-      u.over.appendChild(tooltip)
-
-      u.over.addEventListener('mouseleave', () => { tooltip.style.display = 'none' })
-      u.over.addEventListener('mouseenter', () => { tooltip.style.display = 'block' })
-    }
-
-    function setCursor(u: uPlot) {
-      const { idx, left, top } = u.cursor
-      if (idx == null || left == null || top == null) {
-        tooltip.style.display = 'none'
-        return
-      }
-
-      const xVal = u.data[0][idx]
-      const header = isTime
-        ? new Date(xVal * 1000).toLocaleString()
-        : isCat
-          ? (catLabels[idx] ?? String(xVal))
-          : xVal.toLocaleString()
-
-      tooltip.textContent = ''
-      const headerDiv = document.createElement('div')
-      Object.assign(headerDiv.style, { fontWeight: '600', marginBottom: '4px', color: '#e4e4e7' })
-      headerDiv.textContent = String(header)
-      tooltip.appendChild(headerDiv)
-
-      for (let i = 1; i < u.series.length; i++) {
-        const s = u.series[i]
-        if (!s.show) continue
-        const val = u.data[i][idx]
-        const display = val == null
-          ? '—'
-          : Number(val).toLocaleString(undefined, { maximumFractionDigits: 2 })
-        const color = typeof s.stroke === 'function' ? (s.stroke as Function)(u, i) : s.stroke
-
-        const row = document.createElement('div')
-        Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '6px' })
-
-        const dot = document.createElement('span')
-        Object.assign(dot.style, { width: '8px', height: '8px', borderRadius: '50%', background: String(color ?? ''), flexShrink: '0' })
-        row.appendChild(dot)
-
-        const label = document.createElement('span')
-        Object.assign(label.style, { color: '#a1a1aa', flex: '1' })
-        label.textContent = String(s.label ?? '')
-        row.appendChild(label)
-
-        const value = document.createElement('span')
-        Object.assign(value.style, { fontWeight: '600', marginLeft: '12px' })
-        value.textContent = display
-        row.appendChild(value)
-
-        tooltip.appendChild(row)
-      }
-
-      const ow = u.over.clientWidth
-      const tw = tooltip.offsetWidth
-      const th = tooltip.offsetHeight
-      const pad = 10
-
-      let x = left + pad
-      let y = top - th - pad
-
-      if (x + tw > ow) x = left - tw - pad
-      if (y < 0) y = top + pad
-
-      tooltip.style.left = x + 'px'
-      tooltip.style.top = y + 'px'
-      tooltip.style.display = 'block'
-    }
-
-    return { hooks: { init, setCursor } }
   }
 
   function groupedBarPaths(seriesIdx: number, totalSeries: number): uPlot.Series.PathBuilder {
@@ -286,7 +193,11 @@
       width: w,
       height: h,
       series,
-      plugins: [tooltipPlugin(isTime, isCat, catLabels)],
+      plugins: [tooltipPlugin({
+        formatX: (xVal, idx) => isTime
+          ? new Date(xVal * 1000).toLocaleString()
+          : isCat ? (catLabels[idx] ?? String(xVal)) : xVal.toLocaleString(),
+      })],
       axes: [
         {
           stroke: axisColor(),

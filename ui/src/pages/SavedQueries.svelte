@@ -8,12 +8,17 @@
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import Button from '../lib/components/common/Button.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
-  import Combobox from '../lib/components/common/Combobox.svelte'
-  import type { ComboboxOption } from '../lib/components/common/Combobox.svelte'
+  import Input from '../lib/components/common/Input.svelte'
   import Sheet from '../lib/components/common/Sheet.svelte'
   import ContextMenu, { type ContextMenuItem } from '../lib/components/common/ContextMenu.svelte'
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
   import InputDialog from '../lib/components/common/InputDialog.svelte'
+  import PageHeader from '../lib/components/common/PageHeader.svelte'
+  import PageBody from '../lib/components/common/PageBody.svelte'
+  import Panel from '../lib/components/common/Panel.svelte'
+  import Badge from '../lib/components/common/Badge.svelte'
+  import EmptyState from '../lib/components/common/EmptyState.svelte'
+  import Tabs from '../lib/components/common/Tabs.svelte'
   import {
     Play,
     Trash2,
@@ -23,24 +28,23 @@
     MoreHorizontal,
     Copy,
     CopyPlus,
-    CalendarClock,
-    Hash,
-    AlignLeft,
+    FileCode2,
     Eye,
     Pencil,
     BadgeCheck,
+    ChevronUp,
+    ChevronDown,
   } from 'lucide-svelte'
 
   let queries = $state<SavedQuery[]>([])
   let loading = $state(true)
 
   let searchTerm = $state('')
-  type SortMode = 'updated-desc' | 'updated-asc' | 'name-asc' | 'name-desc' | 'length-desc'
-  type FilterMode = 'all' | 'described' | 'undescribed'
-  type DensityMode = 'comfortable' | 'compact'
-  let sortMode = $state<SortMode>('updated-desc')
-  let filterMode = $state<FilterMode>('all')
-  let densityMode = $state<DensityMode>('comfortable')
+  type SortKey = 'name' | 'updated'
+  type Scope = 'all' | 'verified'
+  let sortKey = $state<SortKey>('updated')
+  let sortDir = $state<'asc' | 'desc'>('desc')
+  let scope = $state<Scope>('all')
 
   let detailsOpen = $state(false)
   let selectedQuery = $state<SavedQuery | null>(null)
@@ -59,37 +63,12 @@
 
   onMount(loadQueries)
 
-  const filterModeOptions: ComboboxOption[] = [
-    { value: 'all', label: 'All' },
-    { value: 'described', label: 'With description' },
-    { value: 'undescribed', label: 'No description' },
-  ]
-
-  const sortModeOptions: ComboboxOption[] = [
-    { value: 'updated-desc', label: 'Recently updated' },
-    { value: 'updated-asc', label: 'Oldest updated' },
-    { value: 'name-asc', label: 'Name A-Z' },
-    { value: 'name-desc', label: 'Name Z-A' },
-    { value: 'length-desc', label: 'Longest SQL' },
-  ]
-
-  const totalCount = $derived(queries.length)
-  const describedCount = $derived.by(() => queries.filter((q) => !!q.description?.trim()).length)
-  const recentCount = $derived.by(() => {
-    const now = Date.now()
-    return queries.filter((q) => {
-      const ts = parseTime(q.updated_at)
-      return ts > 0 && now - ts <= 7 * 24 * 60 * 60 * 1000
-    }).length
-  })
-  const totalSqlChars = $derived.by(() => queries.reduce((acc, q) => acc + q.query.length, 0))
+  const verifiedCount = $derived(queries.filter((q) => q.verified).length)
 
   const visibleQueries = $derived.by(() => {
     const term = searchTerm.trim().toLowerCase()
-    let rows = queries.filter((q) => {
-      const hasDesc = !!q.description?.trim()
-      if (filterMode === 'described' && !hasDesc) return false
-      if (filterMode === 'undescribed' && hasDesc) return false
+    const rows = queries.filter((q) => {
+      if (scope === 'verified' && !q.verified) return false
       if (!term) return true
       return (
         q.name.toLowerCase().includes(term) ||
@@ -97,25 +76,24 @@
         q.query.toLowerCase().includes(term)
       )
     })
-
-    rows = rows.slice().sort((a, b) => {
-      switch (sortMode) {
-        case 'updated-asc':
-          return parseTime(a.updated_at) - parseTime(b.updated_at)
-        case 'name-asc':
-          return a.name.localeCompare(b.name)
-        case 'name-desc':
-          return b.name.localeCompare(a.name)
-        case 'length-desc':
-          return b.query.length - a.query.length
-        case 'updated-desc':
-        default:
-          return parseTime(b.updated_at) - parseTime(a.updated_at)
-      }
-    })
-
-    return rows
+    const dir = sortDir === 'asc' ? 1 : -1
+    return rows.slice().sort((a, b) =>
+      sortKey === 'name'
+        ? a.name.localeCompare(b.name) * dir
+        : (parseTime(a.updated_at) - parseTime(b.updated_at)) * dir,
+    )
   })
+
+  // Click a column header to sort by it; click again to flip. Name defaults
+  // to A-Z, Updated to newest first, the way a file manager does it.
+  function sortBy(key: SortKey) {
+    if (sortKey === key) {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc'
+    } else {
+      sortKey = key
+      sortDir = key === 'name' ? 'asc' : 'desc'
+    }
+  }
 
   async function loadQueries() {
     loading = true
@@ -264,12 +242,6 @@
     return sql.split(/\r?\n/).length
   }
 
-  function sqlPreview(sql: string, maxLines = 3): string {
-    const lines = sql.split(/\r?\n/).slice(0, maxLines)
-    const suffix = countLines(sql) > maxLines ? '\n...' : ''
-    return lines.join('\n') + suffix
-  }
-
   function clearSearch() {
     searchTerm = ''
   }
@@ -370,188 +342,119 @@
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && closeContextMenu()} />
 
-<div class="flex flex-col h-full overflow-hidden">
-  <div class="ds-page-header shrink-0">
-    <div class="flex items-center gap-3">
-      <AlignLeft size={17} class="text-ch-orange" />
-      <h1 class="ds-page-title">Saved Queries</h1>
-    </div>
-    <Button size="sm" variant="secondary" onclick={() => { void loadQueries() }}>
-      <RefreshCw size={14} /> Refresh
-    </Button>
-  </div>
+<div class="flex h-full min-h-0 flex-col">
+  <PageHeader title="Saved Queries" subtitle="Saved from the editor, reusable by people and MCP clients.">
+    {#snippet meta()}
+      {#if !loading}<Badge>{queries.length}</Badge>{/if}
+    {/snippet}
+    {#snippet actions()}
+      <Button icon variant="ghost" size="sm" aria-label="Refresh" title="Refresh" onclick={() => { void loadQueries() }}>
+        <RefreshCw size={14} />
+      </Button>
+    {/snippet}
+  </PageHeader>
 
-  <div class="flex-1 overflow-auto p-4">
-    <div class="mx-auto max-w-6xl space-y-4">
-      <section class="ds-panel rounded-xl p-4">
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div class="ds-panel-muted p-3">
-            <div class="text-[11px] uppercase tracking-wider text-gray-500">Total</div>
-            <div class="mt-1 text-2xl font-semibold text-gray-900 dark:text-gray-100">{totalCount}</div>
-          </div>
-          <div class="ds-panel-muted p-3">
-            <div class="text-[11px] uppercase tracking-wider text-gray-500">Updated 7d</div>
-            <div class="mt-1 text-2xl font-semibold text-ch-orange">{recentCount}</div>
-          </div>
-          <div class="ds-panel-muted p-3">
-            <div class="text-[11px] uppercase tracking-wider text-gray-500">With Description</div>
-            <div class="mt-1 text-2xl font-semibold text-gray-900 dark:text-gray-100">{describedCount}</div>
-          </div>
-          <div class="ds-panel-muted p-3">
-            <div class="text-[11px] uppercase tracking-wider text-gray-500">SQL Characters</div>
-            <div class="mt-1 text-2xl font-semibold text-gray-900 dark:text-gray-100">{totalSqlChars.toLocaleString()}</div>
-          </div>
-        </div>
-      </section>
-
-      <section class="ds-panel rounded-xl p-3.5">
-        <div class="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto_auto] gap-2.5">
-          <div class="flex items-center gap-2 rounded-lg border border-gray-300/80 dark:border-gray-700/80 bg-gray-100/60 dark:bg-gray-900/60 px-2.5">
-            <Search size={14} class="text-gray-500 shrink-0" />
-            <input
-              type="text"
-              class="w-full h-9 bg-transparent text-[13px] outline-none text-gray-800 dark:text-gray-200 placeholder:text-gray-500"
-              placeholder="Search name, description, or SQL..."
-              bind:value={searchTerm}
-            />
+  <PageBody width="md">
+    {#if loading}
+      <div class="flex items-center justify-center py-14"><Spinner /></div>
+    {:else if queries.length === 0}
+      <EmptyState
+        icon={FileCode2}
+        title="No saved queries yet"
+        description="Save a query from the SQL editor and it will show up here."
+        primary={{ label: 'Open the editor', onclick: () => openQueryTab() }}
+      />
+    {:else}
+      <div class="space-y-3">
+        <div class="flex items-center gap-2">
+          <div class="relative flex-1">
+            <Search size={14} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-4" />
+            <Input type="search" class="pl-8 pr-8" placeholder="Search by name, description or SQL" bind:value={searchTerm} spellcheck={false} />
             {#if searchTerm}
-              <button
-                class="rounded p-1 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200/70 dark:hover:bg-gray-800/70"
-                onclick={clearSearch}
-                title="Clear search"
-              >
+              <Button icon variant="ghost" size="xs" class="absolute right-1 top-1/2 -translate-y-1/2" aria-label="Clear search" onclick={clearSearch}>
                 <X size={13} />
-              </button>
+              </Button>
             {/if}
           </div>
-
-          <label class="inline-flex items-center gap-2 px-0.5 text-[12px] font-medium text-gray-500">
-            Filter
-            <div class="min-w-44">
-              <Combobox
-                options={filterModeOptions}
-                value={filterMode}
-                onChange={(v) => filterMode = v as FilterMode}
-              />
-            </div>
-          </label>
-
-          <label class="inline-flex items-center gap-2 px-0.5 text-[12px] font-medium text-gray-500">
-            Sort
-            <div class="min-w-56">
-              <Combobox
-                options={sortModeOptions}
-                value={sortMode}
-                onChange={(v) => sortMode = v as SortMode}
-              />
-            </div>
-          </label>
-
-          <div class="ds-segment">
-            <button
-              class="ds-segment-btn {densityMode === 'comfortable' ? 'ds-segment-btn-active' : ''}"
-              onclick={() => densityMode = 'comfortable'}
-            >
-              Comfortable
-            </button>
-            <button
-              class="ds-segment-btn {densityMode === 'compact' ? 'ds-segment-btn-active' : ''}"
-              onclick={() => densityMode = 'compact'}
-            >
-              Compact
-            </button>
-          </div>
+          <Tabs
+            variant="segmented"
+            items={[{ id: 'all', label: 'All', count: queries.length }, { id: 'verified', label: 'Verified', count: verifiedCount }]}
+            value={scope}
+            onchange={(id) => scope = id as Scope}
+          />
         </div>
-      </section>
 
-      {#if loading}
-        <div class="flex items-center justify-center py-14"><Spinner /></div>
-      {:else if queries.length === 0}
-        <div class="ds-empty rounded-xl p-8">
-          <p class="text-sm text-gray-500">No saved queries yet</p>
-          <p class="text-xs text-gray-400 mt-1">Save a query from the SQL editor and it will appear here.</p>
-          <div class="mt-4">
-            <Button size="sm" onclick={() => openQueryTab()}>
-              <Play size={14} /> Open New Query
-            </Button>
-          </div>
-        </div>
-      {:else if visibleQueries.length === 0}
-        <div class="ds-empty rounded-xl p-8">
-          <p class="text-sm text-gray-500">No query matches your filters.</p>
-          <p class="text-xs text-gray-400 mt-1">Try another search, filter, or sorting mode.</p>
-        </div>
-      {:else}
-        <div class="grid grid-cols-1 gap-3">
-          {#each visibleQueries as query (query.id)}
-            <article
-              class="ds-panel rounded-xl transition-colors hover:border-orange-400/45"
-              oncontextmenu={(e) => openContextMenu(e, query)}
-            >
-              <div class="px-4 py-3">
-                <div class="flex items-start gap-3">
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-2 flex-wrap">
-                      <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{query.name}</h3>
-                      <span class="brand-pill rounded-md px-1.5 py-0.5 text-[10px] font-semibold">
-                        {countLines(query.query)} lines
-                      </span>
-                      {#if query.verified}
-                        <span class="ds-badge ds-badge-success inline-flex items-center gap-1" title="Reviewed by a human; AI clients prefer verified queries">
-                          <BadgeCheck size={11} /> verified
-                        </span>
-                      {/if}
-                    </div>
-                    {#if query.description?.trim()}
-                      <p class="mt-1 text-xs text-gray-500 line-clamp-2">{query.description}</p>
-                    {/if}
-                  </div>
-
-                  <button
-                    class="rounded-md p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200/70 dark:hover:bg-gray-800/70"
-                    onclick={(e) => openContextMenuFromButton(e, query)}
-                    title="More actions"
+        {#if visibleQueries.length === 0}
+          <EmptyState
+            icon={Search}
+            title="Nothing matches"
+            description={scope === 'verified' ? 'No verified query matches. Verified queries are the ones a person reviewed.' : 'Try another search.'}
+            secondary={{ label: 'Clear search', onclick: () => { clearSearch(); scope = 'all' } }}
+          />
+        {:else}
+          <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
+            <table class="w-full table-fixed text-[13px]">
+              <colgroup>
+                <col style="width: 38%" />
+                <col />
+                <col style="width: 120px" />
+                <col style="width: 88px" />
+              </colgroup>
+              <thead>
+                <tr class="border-b border-edge-subtle">
+                  <th class="h-8 px-3 text-left text-xs font-medium text-fg-3" aria-sort={sortKey === 'name' ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}>
+                    <button class="inline-flex items-center gap-1 hover:text-fg" onclick={() => sortBy('name')}>
+                      Name
+                      {#if sortKey === 'name'}{#if sortDir === 'asc'}<ChevronUp size={12} />{:else}<ChevronDown size={12} />{/if}{/if}
+                    </button>
+                  </th>
+                  <th class="h-8 px-3 text-left text-xs font-medium text-fg-3">Description</th>
+                  <th class="h-8 px-3 text-left text-xs font-medium text-fg-3" aria-sort={sortKey === 'updated' ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}>
+                    <button class="inline-flex items-center gap-1 hover:text-fg" onclick={() => sortBy('updated')}>
+                      Updated
+                      {#if sortKey === 'updated'}{#if sortDir === 'asc'}<ChevronUp size={12} />{:else}<ChevronDown size={12} />{/if}{/if}
+                    </button>
+                  </th>
+                  <th class="h-8 px-3"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each visibleQueries as query (query.id)}
+                  <tr
+                    class="group cursor-default border-b border-edge-subtle last:border-b-0 transition-colors hover:bg-hover"
+                    ondblclick={() => openInEditor(query)}
+                    oncontextmenu={(e) => openContextMenu(e, query)}
                   >
-                    <MoreHorizontal size={15} />
-                  </button>
-                </div>
-
-                <pre class="mt-3 ds-panel-muted p-3 text-[12px] leading-relaxed text-gray-700 dark:text-gray-300 font-mono overflow-x-auto whitespace-pre">{sqlPreview(query.query, densityMode === 'compact' ? 2 : 4)}</pre>
-
-                <div class="mt-3 flex items-center justify-between gap-3 flex-wrap">
-                  <div class="flex items-center gap-3 text-[11px] text-gray-500">
-                    <span class="inline-flex items-center gap-1"><CalendarClock size={12} /> {formatRelativeTime(query.updated_at)}</span>
-                    <span class="inline-flex items-center gap-1"><Hash size={12} /> {query.query.length.toLocaleString()} chars</span>
-                  </div>
-
-                  <div class="inline-flex items-center gap-1.5">
-                    <button
-                      class="ds-btn-outline px-2.5 py-1.5"
-                      onclick={() => openDetails(query)}
-                    >
-                      <Eye size={12} /> Details
-                    </button>
-                    <button
-                      class="ds-btn-outline px-2.5 py-1.5"
-                      onclick={() => copySQL(query)}
-                    >
-                      <Copy size={12} /> Copy SQL
-                    </button>
-                    <button
-                      class="ds-btn-primary px-2.5 py-1.5"
-                      onclick={() => openInEditor(query)}
-                    >
-                      <Play size={12} /> Open
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </article>
-          {/each}
-        </div>
-      {/if}
-    </div>
-  </div>
+                    <td class="px-3 py-2">
+                      <button class="flex w-full min-w-0 items-center gap-2.5 text-left" onclick={() => openInEditor(query)} title="Open in the editor">
+                        <FileCode2 size={15} strokeWidth={1.75} class="shrink-0 text-fg-3" />
+                        <span class="truncate font-medium text-fg">{query.name}</span>
+                        {#if query.verified}
+                          <BadgeCheck size={13} class="shrink-0 text-success" aria-label="Verified" />
+                        {/if}
+                      </button>
+                    </td>
+                    <td class="truncate px-3 py-2 text-fg-3">{query.description?.trim() || ''}</td>
+                    <td class="px-3 py-2 text-fg-3 tabular-nums" title={formatDate(query.updated_at)}>{formatRelativeTime(query.updated_at)}</td>
+                    <td class="px-2 py-1.5">
+                      <div class="flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                        <Button icon variant="ghost" size="sm" aria-label="Open in the editor" title="Open" onclick={() => openInEditor(query)}>
+                          <Play size={14} />
+                        </Button>
+                        <Button icon variant="ghost" size="sm" aria-label="More actions" onclick={(e) => openContextMenuFromButton(e, query)}>
+                          <MoreHorizontal size={15} />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
+      </div>
+    {/if}
+  </PageBody>
 </div>
 
 <ConfirmDialog
@@ -587,92 +490,68 @@
 <Sheet
   open={detailsOpen}
   title={selectedQuery?.name ?? 'Saved Query'}
+  description={selectedQuery ? `Updated ${formatDate(selectedQuery.updated_at)} · created ${formatDate(selectedQuery.created_at)} · ${countLines(selectedQuery.query)} lines` : undefined}
   size="lg"
   onclose={closeDetails}
 >
   {#if selectedQuery}
     <div class="space-y-4">
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div class="ds-panel-muted p-3">
-          <div class="text-[11px] uppercase tracking-wider text-gray-500">Updated</div>
-          <div class="mt-1 text-sm text-gray-900 dark:text-gray-100">{formatDate(selectedQuery.updated_at)}</div>
-        </div>
-        <div class="ds-panel-muted p-3">
-          <div class="text-[11px] uppercase tracking-wider text-gray-500">Created</div>
-          <div class="mt-1 text-sm text-gray-900 dark:text-gray-100">{formatDate(selectedQuery.created_at)}</div>
-        </div>
-        <div class="ds-panel-muted p-3">
-          <div class="text-[11px] uppercase tracking-wider text-gray-500">Line Count</div>
-          <div class="mt-1 text-sm text-gray-900 dark:text-gray-100">{countLines(selectedQuery.query)}</div>
-        </div>
-        <div class="ds-panel-muted p-3">
-          <div class="text-[11px] uppercase tracking-wider text-gray-500">Characters</div>
-          <div class="mt-1 text-sm text-gray-900 dark:text-gray-100">{selectedQuery.query.length.toLocaleString()}</div>
-        </div>
-      </div>
-
       {#if selectedQuery.description?.trim()}
-        <div class="ds-panel-muted p-3">
-          <div class="text-[11px] uppercase tracking-wider text-gray-500">Description</div>
-          <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">{selectedQuery.description}</p>
-        </div>
+        <p class="text-[13px] leading-relaxed text-fg-2">{selectedQuery.description}</p>
       {/if}
 
-      <div class="ds-panel-muted p-3 flex items-center justify-between gap-3">
-        <div>
-          <div class="text-[11px] uppercase tracking-wider text-gray-500">Verified for AI</div>
-          <p class="mt-1 text-xs text-gray-600 dark:text-gray-400">
-            {selectedQuery.verified ? 'Reviewed by a human. MCP clients prefer this query over writing new SQL.' : 'Not reviewed. Mark it once the SQL is known to be correct.'}
-          </p>
-        </div>
-        <Button size="sm" variant="secondary" onclick={() => selectedQuery && toggleVerified(selectedQuery)}>
-          <BadgeCheck size={13} /> {selectedQuery.verified ? 'Unmark' : 'Mark verified'}
-        </Button>
-      </div>
+      <Panel variant="muted" padding="sm" title="Verified for AI">
+        {#snippet actions()}
+          <Button size="sm" variant="outline" onclick={() => selectedQuery && toggleVerified(selectedQuery)}>
+            <BadgeCheck size={13} /> {selectedQuery?.verified ? 'Unmark' : 'Mark verified'}
+          </Button>
+        {/snippet}
+        <p class="text-xs text-fg-2">
+          {selectedQuery.verified ? 'Reviewed by a person. MCP clients prefer this query over writing new SQL.' : 'Not reviewed. Mark it once the SQL is known to be correct.'}
+        </p>
+      </Panel>
 
       {#if detectQueryParams(selectedQuery.query).length > 0}
         {@const defaults = storedParamDefaults(selectedQuery)}
-        <div class="ds-panel-muted p-3">
-          <div class="text-[11px] uppercase tracking-wider text-gray-500 mb-2 flex items-center gap-1.5">
-            Parameters <span class="ds-badge ds-badge-brand">Pro</span>
-          </div>
+        <Panel variant="muted" padding="sm" title="Parameters">
+          {#snippet actions()}<Badge tone="brand">Pro</Badge>{/snippet}
           <div class="space-y-1.5">
             {#each detectQueryParams(selectedQuery.query) as p (p.name)}
               <div class="flex items-center gap-2 text-xs">
-                <span class="font-mono text-gray-700 dark:text-gray-300">{p.name}<span class="text-gray-400">:{p.type}</span></span>
+                <span class="font-mono text-fg-2">{p.name}<span class="text-fg-4">:{p.type}</span></span>
                 {#if defaults[p.name]}
-                  <span class="text-gray-400">default</span>
-                  <span class="font-mono text-gray-600 dark:text-gray-300">{defaults[p.name]}</span>
+                  <span class="text-fg-4">default</span>
+                  <span class="font-mono text-fg-2">{defaults[p.name]}</span>
                 {/if}
               </div>
             {/each}
           </div>
-          <p class="mt-2 text-[11px] text-gray-400">Open in the editor to set values and run, or call <span class="font-mono">POST /api/saved-queries/{selectedQuery.id}/run</span>.</p>
-        </div>
+          <p class="mt-2 text-[11px] text-fg-4">Open in the editor to set values and run, or call <span class="font-mono">POST /api/saved-queries/{selectedQuery.id}/run</span>.</p>
+        </Panel>
       {/if}
 
-      <div class="ds-panel-muted p-3">
-        <div class="text-[11px] uppercase tracking-wider text-gray-500 mb-2">SQL</div>
-        <pre class="text-[12px] leading-relaxed text-gray-800 dark:text-gray-200 font-mono overflow-x-auto whitespace-pre p-2 rounded-md bg-gray-100 dark:bg-gray-950 border border-gray-200 dark:border-gray-800">{selectedQuery.query}</pre>
-      </div>
-
-      <div class="flex items-center gap-2 flex-wrap">
-        <Button size="sm" onclick={() => selectedQuery && openInEditor(selectedQuery)}>
-          <Play size={13} /> Open in Editor
-        </Button>
-        <Button size="sm" variant="secondary" onclick={() => selectedQuery && requestRename(selectedQuery)}>
+      <pre class="overflow-x-auto whitespace-pre rounded-md border border-edge-subtle bg-surface-2 p-3 font-mono text-xs leading-relaxed text-fg">{selectedQuery.query}</pre>
+    </div>
+  {/if}
+  {#snippet footer()}
+    <div class="flex w-full flex-wrap items-center gap-2">
+      <Button size="sm" variant="danger" onclick={() => selectedQuery && requestDelete(selectedQuery)}>
+        <Trash2 size={13} /> Delete
+      </Button>
+      <div class="ml-auto flex items-center gap-2">
+        <Button size="sm" variant="outline" onclick={() => selectedQuery && requestRename(selectedQuery)}>
           <Pencil size={13} /> Rename
         </Button>
-        <Button size="sm" variant="secondary" onclick={() => selectedQuery && copySQL(selectedQuery)}>
-          <Copy size={13} /> Copy SQL
-        </Button>
-        <Button size="sm" variant="secondary" onclick={() => selectedQuery && duplicateQuery(selectedQuery)}>
+        <Button size="sm" variant="outline" onclick={() => selectedQuery && duplicateQuery(selectedQuery)}>
           <CopyPlus size={13} /> Duplicate
         </Button>
-        <Button size="sm" variant="danger" onclick={() => selectedQuery && requestDelete(selectedQuery)}>
-          <Trash2 size={13} /> Delete
+        <Button size="sm" variant="outline" onclick={() => selectedQuery && copySQL(selectedQuery)}>
+          <Copy size={13} /> Copy SQL
+        </Button>
+        <Button size="sm" onclick={() => selectedQuery && openInEditor(selectedQuery)}>
+          <Play size={13} /> Open
         </Button>
       </div>
     </div>
-  {/if}
+  {/snippet}
 </Sheet>

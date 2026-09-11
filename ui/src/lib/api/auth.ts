@@ -17,10 +17,6 @@ interface ConnectionsResponse {
   connections: Connection[]
 }
 
-interface SessionResponse {
-  success: boolean
-  session: Session
-}
 
 export interface AuthConfig {
   password_login: boolean

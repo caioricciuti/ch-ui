@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { PipelineStatus } from '../../types/pipelines'
   import Button from '../common/Button.svelte'
-  import { ArrowLeft, Save, Play, Square, RotateCcw } from 'lucide-svelte'
+  import Badge from '../common/Badge.svelte'
+  import { ArrowLeft, Save, Play, Square } from 'lucide-svelte'
 
   interface Props {
     pipelineName: string
@@ -16,40 +17,37 @@
   let { pipelineName, status, saving, onBack, onSave, onStart, onStop }: Props = $props()
 
   const isRunning = $derived(status === 'running' || status === 'starting')
+
+  const tone = $derived(
+    status === 'running' ? 'success'
+    : status === 'error' ? 'danger'
+    : status === 'starting' || status === 'stopping' ? 'warning'
+    : 'neutral',
+  )
 </script>
 
-<div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950">
-  <div class="flex items-center gap-2">
-    <button
-      class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"
-      onclick={onBack}
-      title="Back to pipelines"
-    >
-      <ArrowLeft size={16} />
-    </button>
-    <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate max-w-[300px]">
-      {pipelineName}
-    </h2>
-    <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium {
-      status === 'running' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-      status === 'error' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
-      status === 'draft' ? 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' :
-      'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-    }">{status}</span>
+<header class="flex h-12 shrink-0 items-center gap-3 border-b border-edge-subtle px-5">
+  <Button icon size="sm" variant="ghost" class="-ml-2" onclick={onBack} title="Back to pipelines" aria-label="Back to pipelines">
+    <ArrowLeft size={15} />
+  </Button>
+  <div class="flex min-w-0 items-baseline gap-3">
+    <span class="shrink-0 text-[13px] text-fg-3">Pipelines</span>
+    <h1 class="truncate text-[15px] font-semibold tracking-[-0.01em] text-fg">{pipelineName}</h1>
   </div>
+  <Badge {tone} dot={status === 'running'}>{status}</Badge>
 
-  <div class="flex items-center gap-2">
-    <Button size="sm" variant="secondary" onclick={onSave} loading={saving}>
-      <Save size={14} /> Save
+  <div class="ml-auto flex shrink-0 items-center gap-2">
+    <Button size="sm" variant="outline" onclick={onSave} loading={saving}>
+      <Save size={13} /> Save
     </Button>
     {#if isRunning}
       <Button size="sm" variant="danger" onclick={onStop}>
-        <Square size={14} /> Stop
+        <Square size={13} /> Stop
       </Button>
     {:else}
       <Button size="sm" onclick={onStart}>
-        <Play size={14} /> Run
+        <Play size={13} /> Run
       </Button>
     {/if}
   </div>
-</div>
+</header>

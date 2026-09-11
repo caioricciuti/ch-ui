@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { getSection, setSection } from '../lib/stores/nav.svelte'
   import { apiGet, apiPost } from '../lib/api/client'
   import type { LicenseInfo } from '../lib/types/api'
   import { success, error as toastError } from '../lib/stores/toast.svelte'
@@ -12,22 +13,18 @@
     requestBillingPortal,
     LicenseServerError,
   } from '../lib/license-server'
-  import {
-    Settings as SettingsIcon,
-    Shield,
-    ShieldCheck,
-    ShieldAlert,
-    Upload,
-    X,
-    Sparkles,
-    FileText,
-    ExternalLink,
-    Building2,
-    Scale,
-    KeyRound,
-    ChevronRight,
-  } from 'lucide-svelte'
-  import logo from '../assets/logo.png'
+  import { Shield, ShieldCheck, ShieldAlert, Upload, X, FileText, ExternalLink, KeyRound, ChevronRight } from 'lucide-svelte'
+  import Badge from '../lib/components/common/Badge.svelte'
+  import Button from '../lib/components/common/Button.svelte'
+  import FormField from '../lib/components/common/FormField.svelte'
+  import Input from '../lib/components/common/Input.svelte'
+  import PageBody from '../lib/components/common/PageBody.svelte'
+  import PageHeader from '../lib/components/common/PageHeader.svelte'
+  import Panel from '../lib/components/common/Panel.svelte'
+  import SectionHeader from '../lib/components/common/SectionHeader.svelte'
+  import Spinner from '../lib/components/common/Spinner.svelte'
+  import Stat from '../lib/components/common/Stat.svelte'
+  import Textarea from '../lib/components/common/Textarea.svelte'
 
   let license = $state<LicenseInfo | null>(null)
   let loading = $state(true)
@@ -113,10 +110,8 @@
 
   function syncSettingsTabParam(tab: SettingsTab) {
     if (typeof window === 'undefined') return
-    const url = new URL(window.location.href)
-    if (url.searchParams.get('tab') === tab) return
-    url.searchParams.set('tab', tab)
-    history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`)
+    if (!window.location.pathname.endsWith('/license')) return
+    setSection(tab)
   }
 
   function switchTab(tab: SettingsTab, syncUrl = true) {
@@ -126,7 +121,7 @@
 
   onMount(() => {
     const initialTab = normalizeSettingsTab(
-      typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('tab'),
+      typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('section'),
     )
     switchTab(initialTab, true)
     void loadLicense()
@@ -272,338 +267,188 @@
   function openFilePicker() {
     fileInput?.click()
   }
+
+  // The context panel changes ?section=; follow it.
+  $effect(() => {
+    const next = getSection()
+    if (next === null) return
+    const tab = normalizeSettingsTab(next)
+    if (tab !== activeTab) switchTab(tab, false)
+  })
 </script>
 
-<div class="h-full overflow-auto">
-  <div class="max-w-7xl mx-auto p-6 space-y-4">
-    <section class="ds-panel overflow-hidden">
-      <div class="px-5 py-4 border-b border-orange-300/25 dark:border-orange-700/35 bg-gradient-to-r from-orange-100/60 via-transparent to-transparent dark:from-orange-500/10 dark:via-transparent">
-        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div class="flex items-center gap-4 min-w-0">
-            <div class="h-16 w-16 rounded-2xl border border-orange-300/40 dark:border-orange-700/40 bg-gray-100 dark:bg-gray-900 grid place-items-center overflow-hidden shrink-0">
-              <img src={logo} alt="CH-UI logo" class="h-12 w-12 object-contain" />
-            </div>
-            <div class="min-w-0">
-              <div class="flex items-center gap-2 text-gray-900 dark:text-gray-100">
-                <SettingsIcon size={18} class="text-ch-orange" />
-                <h1 class="text-2xl font-semibold leading-tight">CH-UI License</h1>
+<div class="flex h-full flex-col">
+  <PageHeader title="License" subtitle={settingsTabItems.find((t) => t.id === activeTab)?.label}>
+    {#snippet meta()}
+      {#if licenseState === 'loading'}
+        <Badge tone="neutral">Checking license…</Badge>
+      {:else if licenseState === 'pro'}
+        <Badge tone="success">Pro Active</Badge>
+      {:else if licenseState === 'expired'}
+        <Badge tone="danger">Pro Expired</Badge>
+      {:else}
+        <Badge tone="neutral">Community</Badge>
+      {/if}
+      <Badge tone="brand" class="uppercase">{license?.edition || 'community'}</Badge>
+    {/snippet}
+  </PageHeader>
+
+  <PageBody width="md">
+    {#if activeTab === 'license'}
+      <div class="space-y-8">
+        <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Stat size="md" label="Edition" value={license?.edition || 'community'} />
+          <Stat size="md" label="Customer" value={license?.customer || 'Open Source Deployment'} />
+          <Stat size="md" label="License ID" value={license?.license_id || '—'} />
+          <Stat size="md" label="Expiration" value={formatDate(license?.expires_at)} />
+        </div>
+
+        <div>
+          <SectionHeader title="License status" description="Core capabilities are enabled under Apache-2.0. A Pro license unlocks the proprietary modules." />
+          {#if loading}
+            <div class="flex items-center justify-center py-6"><Spinner /></div>
+          {:else if proActive}
+            <Panel padding="none">
+              <div class="flex flex-wrap items-center gap-3 px-4 py-3">
+                <ShieldCheck size={16} class="text-success" />
+                <Badge tone="success">Pro License Active</Badge>
+                <span class="text-xs text-fg-3">ID: {license?.license_id || '—'}</span>
               </div>
-              <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">Identity, licensing, entitlements, and legal scope controls</p>
-            </div>
-          </div>
-
-          <div class="flex items-center gap-2 flex-wrap">
-            {#if licenseState === 'loading'}
-              <span class="ds-badge ds-badge-neutral">Checking license...</span>
-            {:else if licenseState === 'pro'}
-              <span class="ds-badge ds-badge-success">Pro Active</span>
-            {:else if licenseState === 'expired'}
-              <span class="ds-badge ds-badge-danger">Pro Expired</span>
-            {:else}
-              <span class="ds-badge ds-badge-neutral">Community Edition</span>
-            {/if}
-            <span class="ds-badge ds-badge-brand uppercase">{license?.edition || 'community'}</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 p-5">
-        <div class="ds-panel-muted px-3 py-2">
-          <p class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Edition</p>
-          <p class="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">{license?.edition || 'community'}</p>
-        </div>
-        <div class="ds-panel-muted px-3 py-2">
-          <p class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Customer</p>
-          <p class="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">{license?.customer || 'Open Source Deployment'}</p>
-        </div>
-        <div class="ds-panel-muted px-3 py-2">
-          <p class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">License ID</p>
-          <p class="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{license?.license_id || '—'}</p>
-        </div>
-        <div class="ds-panel-muted px-3 py-2">
-          <p class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Expiration</p>
-          <p class="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">{formatDate(license?.expires_at)}</p>
-        </div>
-      </div>
-    </section>
-
-    <div class="ds-panel p-2">
-      <nav class="ds-tabs border-0 px-1 pt-0 gap-1 overflow-x-auto whitespace-nowrap" aria-label="License Tabs">
-        {#each settingsTabItems as item}
-          <button
-            type="button"
-            class="ds-tab {activeTab === item.id ? 'ds-tab-active' : ''}"
-            onclick={() => switchTab(item.id)}
-          >
-            {item.label}
-          </button>
-        {/each}
-      </nav>
-    </div>
-
-    <div class="grid grid-cols-1 xl:grid-cols-[1.55fr_1fr] gap-4">
-      {#if activeTab === 'license'}
-      <section class="ds-panel p-5 space-y-4">
-        <div class="flex items-center gap-2">
-          <Sparkles size={16} class="text-ch-orange" />
-          <h2 class="text-sm font-semibold text-gray-800 dark:text-gray-200 uppercase tracking-wide">License Control</h2>
-        </div>
-
-        {#if loading}
-          <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-            <div class="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin"></div>
-            Loading license status...
-          </div>
-        {:else if proActive}
-          <div class="space-y-4">
-            <div class="flex items-center gap-2">
-              <ShieldCheck size={18} class="text-emerald-500" />
-              <span class="ds-badge ds-badge-success">Pro License Active</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">ID: {license?.license_id || '—'}</span>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div class="ds-panel-muted p-3">
-                <p class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Customer</p>
-                <p class="text-sm font-medium text-gray-900 dark:text-gray-100 mt-1">{license?.customer || '—'}</p>
+              <div class="divide-y divide-edge-subtle border-t border-edge-subtle px-4">
+                <FormField layout="row" label="Customer">
+                  <p class="text-[13px] text-fg">{license?.customer || '—'}</p>
+                </FormField>
+                <FormField layout="row" label="Expires">
+                  <p class="text-[13px] text-fg">{formatDate(license?.expires_at)}</p>
+                </FormField>
               </div>
-              <div class="ds-panel-muted p-3">
-                <p class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Expires</p>
-                <p class="text-sm font-medium text-gray-900 dark:text-gray-100 mt-1">{formatDate(license?.expires_at)}</p>
-              </div>
-            </div>
-
-            <div class="pt-2 border-t border-gray-200 dark:border-gray-800">
-              {#if showConfirmDeactivate}
-                <div class="ds-panel-muted p-3 border-red-400/35">
-                  <p class="text-sm text-red-500">Deactivate this Pro license and downgrade to Community Edition?</p>
-                  <div class="flex items-center gap-2 flex-wrap mt-2">
-                    <button
-                      onclick={deactivate}
-                      disabled={deactivating}
-                      class="ds-btn-primary px-3 py-1 border-red-500 bg-red-600 hover:bg-red-700 disabled:opacity-50"
-                    >
-                      {deactivating ? 'Deactivating...' : 'Confirm Deactivate'}
-                    </button>
-                    <button
-                      onclick={() => showConfirmDeactivate = false}
-                      class="ds-btn-outline px-3 py-1"
-                    >
-                      Cancel
-                    </button>
+              <div class="flex flex-wrap items-center justify-between gap-3 border-t border-edge-subtle px-4 py-3">
+                {#if showConfirmDeactivate}
+                  <span class="text-[13px] text-danger">Deactivate this Pro license and downgrade to Community Edition?</span>
+                  <div class="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onclick={() => showConfirmDeactivate = false}>Cancel</Button>
+                    <Button size="sm" variant="danger" loading={deactivating} onclick={deactivate}>
+                      {deactivating ? 'Deactivating…' : 'Confirm deactivate'}
+                    </Button>
                   </div>
-                </div>
-              {:else}
-                <button
-                  onclick={() => showConfirmDeactivate = true}
-                  class="text-xs text-red-500 hover:text-red-400"
-                >
-                  Deactivate License
-                </button>
-              {/if}
-            </div>
-          </div>
-        {:else if expiredLicense}
-          <div class="space-y-3">
-            <div class="flex items-center gap-2">
-              <ShieldAlert size={18} class="text-red-500" />
-              <span class="ds-badge ds-badge-danger">License Expired</span>
-            </div>
-            <div class="text-sm text-gray-500 dark:text-gray-400">Customer: {license?.customer || '—'}</div>
-            <div class="text-sm text-red-500">Expired on {formatDate(license?.expires_at)}</div>
-            <p class="text-sm text-gray-500 dark:text-gray-400">Activate a new Pro license to restore proprietary features.</p>
-          </div>
-        {:else}
-          <div class="space-y-3">
-            <div class="flex items-center gap-2">
-              <Shield size={18} class="text-gray-400" />
-              <span class="ds-badge ds-badge-neutral">Community Edition</span>
-            </div>
-            <p class="text-sm text-gray-500 dark:text-gray-400">
-              Core capabilities are enabled under Apache-2.0. Activate Pro to unlock proprietary modules.
-            </p>
-
-            <div class="ds-panel-muted p-4 space-y-3">
-              <div class="flex items-center gap-2">
-                <Sparkles size={14} class="text-ch-orange" />
-                <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Start free 30-day trial</h3>
+                {:else}
+                  <span class="text-xs text-fg-3">Deactivating removes Pro features from this instance until a license is activated again.</span>
+                  <Button size="sm" variant="outline" class="text-danger hover:text-danger" onclick={() => showConfirmDeactivate = true}>Deactivate license</Button>
+                {/if}
               </div>
-              <p class="text-xs text-gray-500 dark:text-gray-400">
-                Try every Pro feature for 30 days — no card required. One trial per email; the license is also sent to your inbox.
-              </p>
-              <div class="flex items-end gap-2 flex-wrap">
-                <label class="flex flex-col gap-1">
-                  <span class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Email</span>
-                  <input
-                    type="email"
-                    bind:value={trialEmail}
-                    placeholder="you@company.com"
-                    class="ds-input-sm w-56"
-                  />
-                </label>
-                <label class="flex flex-col gap-1">
-                  <span class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Name (optional)</span>
-                  <input
-                    type="text"
-                    bind:value={trialName}
-                    placeholder="Your name"
-                    class="ds-input-sm w-44"
-                  />
-                </label>
-                <button
-                  onclick={startFreeTrial}
-                  disabled={trialLoading || !trialEmailValid}
-                  class="ds-btn-primary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {trialLoading ? 'Starting trial...' : 'Start free trial'}
-                </button>
+            </Panel>
+          {:else if expiredLicense}
+            <Panel>
+              <div class="flex flex-wrap items-center gap-3">
+                <ShieldAlert size={16} class="text-danger" />
+                <Badge tone="danger">License Expired</Badge>
+                <span class="text-xs text-fg-3">Customer: {license?.customer || '—'}</span>
               </div>
-              {#if trialHint}
-                <p class="text-xs text-amber-600 dark:text-amber-400">{trialHint}</p>
-              {/if}
-            </div>
-          </div>
-        {/if}
+              <p class="mt-3 text-[13px] text-danger">Expired on {formatDate(license?.expires_at)}</p>
+              <p class="mt-1 text-[13px] text-fg-3">Activate a new Pro license to restore proprietary features.</p>
+            </Panel>
+          {:else}
+            <Panel padding="none">
+              <div class="flex flex-wrap items-center gap-3 px-4 py-3">
+                <Shield size={16} class="text-fg-4" />
+                <Badge tone="neutral">Community Edition</Badge>
+                <span class="text-xs text-fg-3">Try every Pro feature for 30 days, no card required. One trial per email; the license is also sent to your inbox.</span>
+              </div>
+              <div class="divide-y divide-edge-subtle border-t border-edge-subtle px-4">
+                <FormField layout="row" label="Email" for="trial-email" required hint="Where the trial license is sent.">
+                  <Input id="trial-email" type="email" bind:value={trialEmail} placeholder="you@company.com" autocomplete="email" />
+                </FormField>
+                <FormField layout="row" label="Name" for="trial-name" hint="Optional.">
+                  <Input id="trial-name" type="text" bind:value={trialName} placeholder="Your name" />
+                </FormField>
+              </div>
+              <div class="flex flex-wrap items-center justify-between gap-3 border-t border-edge-subtle px-4 py-3">
+                <span class="text-xs {trialHint ? 'text-warning' : 'text-fg-3'}">{trialHint || 'Free 30-day trial of Pro.'}</span>
+                <Button size="sm" loading={trialLoading} disabled={!trialEmailValid} onclick={startFreeTrial}>
+                  {trialLoading ? 'Starting trial…' : 'Start free trial'}
+                </Button>
+              </div>
+            </Panel>
+          {/if}
+        </div>
 
-        {#if !proActive}
-          <div class="pt-3 border-t border-gray-200 dark:border-gray-800 space-y-3">
-            <div class="flex items-center justify-between flex-wrap gap-2">
-              <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Activate Pro License</h3>
-              <div class="flex items-center gap-3">
-                <button
-                  onclick={buyProLicense}
-                  disabled={checkoutLoading}
-                  class="ds-btn-primary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {checkoutLoading ? 'Opening checkout...' : 'Buy Pro License'} <ExternalLink size={13} />
-                </button>
+        {#if !loading && !proActive}
+          <div>
+            <SectionHeader title="Activate Pro" description="Paste the signed license JSON or upload the license file you received by email.">
+              {#snippet actions()}
                 <a
                   href="https://ch-ui.com/pricing?utm_source=app&utm_medium=license_page"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline underline-offset-2"
-                >
-                  or see pricing
-                </a>
+                  class="text-xs text-fg-3 underline underline-offset-2 hover:text-fg"
+                >Pricing</a>
                 <a
                   href="https://ch-ui.com/license"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline underline-offset-2"
-                >
-                  Lost your license? Enterprise?
-                </a>
-              </div>
-            </div>
-
-            {#if inputMode === 'idle'}
-              <div class="flex items-center gap-2 flex-wrap">
-                <button
-                  onclick={() => inputMode = 'paste'}
-                  class="ds-btn-outline px-4 py-2"
-                >
-                  Paste License JSON
-                </button>
-                <button
-                  onclick={openFilePicker}
-                  class="ds-btn-outline px-4 py-2"
-                >
-                  <Upload size={14} /> Upload License File
-                </button>
-              </div>
-            {:else}
-              <div class="space-y-3">
-                <div class="relative">
-                  <textarea
-                    bind:value={licenseInput}
-                    placeholder="Paste signed license JSON here..."
-                    rows={8}
-                    class="ds-textarea text-xs font-mono resize-y"
-                  ></textarea>
-                  <button
-                    onclick={() => { licenseInput = ''; inputMode = 'idle' }}
-                    class="absolute top-2 right-2 text-gray-400 hover:text-gray-200"
-                    title="Cancel"
-                  >
-                    <X size={14} />
-                  </button>
+                  class="text-xs text-fg-3 underline underline-offset-2 hover:text-fg"
+                >Lost your license? Enterprise?</a>
+                <Button size="sm" loading={checkoutLoading} onclick={buyProLicense}>
+                  {checkoutLoading ? 'Opening checkout…' : 'Buy Pro License'} <ExternalLink size={13} />
+                </Button>
+              {/snippet}
+            </SectionHeader>
+            <Panel>
+              {#if inputMode === 'idle'}
+                <div class="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="outline" onclick={() => inputMode = 'paste'}>Paste License JSON</Button>
+                  <Button size="sm" variant="outline" onclick={openFilePicker}><Upload size={14} /> Upload License File</Button>
                 </div>
-                <div class="flex items-center gap-2 flex-wrap">
-                  <button
-                    onclick={activate}
-                    disabled={activating || !licenseInput.trim()}
-                    class="ds-btn-primary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {activating ? 'Activating...' : 'Activate License'}
-                  </button>
-                  <button
-                    onclick={openFilePicker}
-                    class="ds-btn-outline px-4 py-2"
-                  >
-                    <Upload size={14} /> Replace from File
-                  </button>
+              {:else}
+                <div class="space-y-3">
+                  <div class="relative">
+                    <Textarea bind:value={licenseInput} placeholder="Paste signed license JSON here…" rows={8} mono class="resize-y pr-8" />
+                    <Button icon size="xs" variant="ghost" class="absolute top-1.5 right-1.5" aria-label="Cancel" onclick={() => { licenseInput = ''; inputMode = 'idle' }}>
+                      <X size={13} />
+                    </Button>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <Button size="sm" loading={activating} disabled={!licenseInput.trim()} onclick={activate}>
+                      {activating ? 'Activating…' : 'Activate License'}
+                    </Button>
+                    <Button size="sm" variant="outline" onclick={openFilePicker}><Upload size={14} /> Replace from File</Button>
+                  </div>
                 </div>
-              </div>
-            {/if}
+              {/if}
+            </Panel>
           </div>
         {/if}
 
-        <div class="pt-3 border-t border-gray-200 dark:border-gray-800">
-          <button
-            onclick={() => manageOpen = !manageOpen}
-            class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-            aria-expanded={manageOpen}
-          >
-            <ChevronRight size={12} class="transition-transform {manageOpen ? 'rotate-90' : ''}" />
-            Manage license & billing
-          </button>
-
+        <div>
+          <SectionHeader title="Manage license & billing" description="Re-send a license file or get a Stripe billing-portal link by email.">
+            {#snippet actions()}
+              <Button size="sm" variant="ghost" aria-pressed={manageOpen} onclick={() => manageOpen = !manageOpen}>
+                <ChevronRight size={12} class="transition-transform {manageOpen ? 'rotate-90' : ''}" />
+                {manageOpen ? 'Hide' : 'Show'}
+              </Button>
+            {/snippet}
+          </SectionHeader>
           {#if manageOpen}
-            <div class="mt-3 space-y-2">
-              <div class="ds-panel-muted p-3 flex items-end justify-between gap-3 flex-wrap">
-                <div class="min-w-0">
-                  <p class="text-xs font-semibold text-gray-800 dark:text-gray-200">Resend license email</p>
-                  <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">Get your license file re-sent to the email used at purchase or trial.</p>
-                </div>
-                <div class="flex items-center gap-2 flex-wrap">
-                  <input
-                    type="email"
-                    bind:value={resendEmail}
-                    placeholder="you@company.com"
-                    class="ds-input-sm w-52"
-                  />
-                  <button
-                    onclick={submitResend}
-                    disabled={resendLoading || !resendEmail.trim()}
-                    class="ds-btn-outline px-3 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {resendLoading ? 'Sending...' : 'Resend'}
-                  </button>
-                </div>
+            <Panel padding="none">
+              <div class="divide-y divide-edge-subtle px-4">
+                <FormField layout="row" label="Resend license email" for="resend-email" hint="Get your license file re-sent to the email used at purchase or trial.">
+                  <div class="flex items-center gap-2">
+                    <Input id="resend-email" type="email" bind:value={resendEmail} placeholder="you@company.com" autocomplete="email" />
+                    <Button size="md" variant="outline" loading={resendLoading} disabled={!resendEmail.trim()} onclick={submitResend}>
+                      {resendLoading ? 'Sending…' : 'Resend'}
+                    </Button>
+                  </div>
+                </FormField>
+                <FormField layout="row" label="Manage billing" for="portal-email" hint="Receive a secure Stripe billing-portal link by email.">
+                  <div class="flex items-center gap-2">
+                    <Input id="portal-email" type="email" bind:value={portalEmail} placeholder="you@company.com" autocomplete="email" />
+                    <Button size="md" variant="outline" loading={portalLoading} disabled={!portalEmail.trim()} onclick={submitPortal}>
+                      {portalLoading ? 'Sending…' : 'Email link'}
+                    </Button>
+                  </div>
+                </FormField>
               </div>
-
-              <div class="ds-panel-muted p-3 flex items-end justify-between gap-3 flex-wrap">
-                <div class="min-w-0">
-                  <p class="text-xs font-semibold text-gray-800 dark:text-gray-200">Manage billing</p>
-                  <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">Receive a secure Stripe billing-portal link by email.</p>
-                </div>
-                <div class="flex items-center gap-2 flex-wrap">
-                  <input
-                    type="email"
-                    bind:value={portalEmail}
-                    placeholder="you@company.com"
-                    class="ds-input-sm w-52"
-                  />
-                  <button
-                    onclick={submitPortal}
-                    disabled={portalLoading || !portalEmail.trim()}
-                    class="ds-btn-outline px-3 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {portalLoading ? 'Sending...' : 'Email link'}
-                  </button>
-                </div>
-              </div>
-            </div>
+            </Panel>
           {/if}
         </div>
 
@@ -614,105 +459,77 @@
           onchange={handleFileUpload}
           class="hidden"
         />
-      </section>
-      {/if}
+      </div>
 
-      {#if activeTab === 'license' || activeTab === 'instance' || activeTab === 'legal'}
-      <aside class="space-y-4">
-        {#if activeTab === 'license' || activeTab === 'instance'}
-        <section class="ds-panel p-5">
-          <div class="flex items-center gap-2 mb-3">
-            <Building2 size={16} class="text-ch-orange" />
-            <h2 class="text-sm font-semibold text-gray-800 dark:text-gray-200 uppercase tracking-wide">Brand & Instance</h2>
-          </div>
+    {:else if activeTab === 'instance'}
+      <div class="space-y-8">
+        <div>
+          <SectionHeader title="Instance" description="Who this session is and what it is connected to." />
+          <Panel padding="none">
+            <div class="divide-y divide-edge-subtle px-4">
+              <FormField layout="row" label="Connected as">
+                <p class="text-[13px] text-fg">{session?.user || '—'}</p>
+              </FormField>
+              <FormField layout="row" label="Role">
+                <p class="text-[13px] text-fg">{session?.role || '—'}</p>
+              </FormField>
+              <FormField layout="row" label="Connection">
+                <p class="text-[13px] text-fg">{session?.connectionName || '—'}</p>
+              </FormField>
+              <FormField layout="row" label="Version">
+                <p class="py-1.5 font-mono text-[13px] text-fg">{session?.version || '—'}</p>
+              </FormField>
+            </div>
+          </Panel>
+        </div>
+      </div>
 
-          <div class="flex items-center gap-3">
-            <img src={logo} alt="CH-UI mark" class="h-12 w-12 rounded-xl border border-orange-300/35 dark:border-orange-700/35 bg-gray-100 dark:bg-gray-900 p-1.5" />
-            <div>
-              <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">CH-UI</p>
-              <p class="text-xs text-gray-500 dark:text-gray-400">ClickHouse operations and analytics control surface</p>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
-            <div class="ds-panel-muted p-2.5">
-              <p class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Connected As</p>
-              <p class="text-xs font-medium text-gray-800 dark:text-gray-200 mt-1">{session?.user || '—'}</p>
-            </div>
-            <div class="ds-panel-muted p-2.5">
-              <p class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Role</p>
-              <p class="text-xs font-medium text-gray-800 dark:text-gray-200 mt-1 uppercase">{session?.role || '—'}</p>
-            </div>
-            <div class="ds-panel-muted p-2.5">
-              <p class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Connection</p>
-              <p class="text-xs font-medium text-gray-800 dark:text-gray-200 mt-1">{session?.connectionName || '—'}</p>
-            </div>
-            <div class="ds-panel-muted p-2.5">
-              <p class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Version</p>
-              <p class="text-xs font-medium text-gray-800 dark:text-gray-200 mt-1">{session?.version || '—'}</p>
-            </div>
-          </div>
-        </section>
-        {/if}
-
-        {#if activeTab === 'license' || activeTab === 'legal'}
-        <section class="ds-panel p-5">
-          <div class="flex items-center gap-2 mb-3">
-            <Scale size={16} class="text-ch-orange" />
-            <h2 class="text-sm font-semibold text-gray-800 dark:text-gray-200 uppercase tracking-wide">Legal Scope</h2>
-          </div>
-
-          <div class="space-y-2">
-            {#each legalScopes as item}
-              <div class="ds-panel-muted p-3">
-                <div class="flex items-center justify-between gap-2 mb-1.5">
-                  <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{item.title}</p>
-                  <span class="ds-badge {item.badge === 'Apache-2.0' ? 'ds-badge-success' : item.badge === 'Proprietary' ? 'ds-badge-danger' : 'ds-badge-brand'}">{item.badge}</span>
+    {:else if activeTab === 'legal'}
+      <div class="space-y-8">
+        <div>
+          <SectionHeader title="Legal scope" description="Apache terms apply to Core. Commercial terms apply to Pro-only modules and entitlements.">
+            {#snippet actions()}
+              <a
+                href="https://www.apache.org/licenses/LICENSE-2.0"
+                target="_blank"
+                rel="noreferrer"
+                class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
+              ><FileText size={12} /> Apache-2.0 text <ExternalLink size={12} /></a>
+              <a
+                href="https://github.com/caioricciuti/ch-ui/blob/main/docs/license.md"
+                target="_blank"
+                rel="noreferrer"
+                class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
+              ><KeyRound size={12} /> License policy <ExternalLink size={12} /></a>
+              <a
+                href="https://github.com/caioricciuti/ch-ui/blob/main/docs/legal/terms-of-service.md"
+                target="_blank"
+                rel="noreferrer"
+                class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
+              >Terms <ExternalLink size={12} /></a>
+              <a
+                href="https://github.com/caioricciuti/ch-ui/blob/main/docs/legal/privacy-policy.md"
+                target="_blank"
+                rel="noreferrer"
+                class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
+              >Privacy <ExternalLink size={12} /></a>
+            {/snippet}
+          </SectionHeader>
+          <Panel padding="none">
+            <div class="divide-y divide-edge-subtle px-4">
+              {#each legalScopes as item}
+                <div class="flex items-start justify-between gap-4 py-3">
+                  <div class="min-w-0">
+                    <p class="text-[13px] font-medium text-fg">{item.title}</p>
+                    <p class="mt-0.5 text-xs leading-relaxed text-fg-3">{item.description}</p>
+                  </div>
+                  <Badge tone={item.badge === 'Apache-2.0' ? 'success' : item.badge === 'Proprietary' ? 'danger' : 'brand'}>{item.badge}</Badge>
                 </div>
-                <p class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{item.description}</p>
-              </div>
-            {/each}
-          </div>
-
-          <div class="mt-3 flex items-center gap-2 flex-wrap">
-            <a
-              href="https://www.apache.org/licenses/LICENSE-2.0"
-              target="_blank"
-              rel="noreferrer"
-              class="ds-btn-outline px-3 py-1"
-            >
-              <FileText size={12} /> Apache-2.0 Text <ExternalLink size={12} />
-            </a>
-            <a
-              href="https://github.com/caioricciuti/ch-ui/blob/main/docs/license.md"
-              target="_blank"
-              rel="noreferrer"
-              class="ds-btn-outline px-3 py-1"
-            >
-              <KeyRound size={12} /> CH-UI License Policy <ExternalLink size={12} />
-            </a>
-            <a
-              href="https://github.com/caioricciuti/ch-ui/blob/main/docs/legal/terms-of-service.md"
-              target="_blank"
-              rel="noreferrer"
-              class="ds-btn-outline px-3 py-1"
-            >
-              Terms <ExternalLink size={12} />
-            </a>
-            <a
-              href="https://github.com/caioricciuti/ch-ui/blob/main/docs/legal/privacy-policy.md"
-              target="_blank"
-              rel="noreferrer"
-              class="ds-btn-outline px-3 py-1"
-            >
-              Privacy <ExternalLink size={12} />
-            </a>
-          </div>
-        </section>
-        {/if}
-      </aside>
-      {/if}
-    </div>
-
-  </div>
+              {/each}
+            </div>
+          </Panel>
+        </div>
+      </div>
+    {/if}
+  </PageBody>
 </div>

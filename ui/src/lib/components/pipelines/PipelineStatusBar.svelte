@@ -63,9 +63,9 @@
 </script>
 
 {#if isRunning || rowsIngested > 0}
-  <div class="flex items-center gap-4 px-4 py-1.5 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 text-[11px] text-gray-500 dark:text-gray-400">
+  <div class="flex shrink-0 items-center gap-4 border-t border-edge-subtle bg-surface px-5 py-1.5 text-[11px] tabular-nums text-fg-3">
     {#if isRunning}
-      <span class="flex items-center gap-1 text-green-500">
+      <span class="flex items-center gap-1 text-success">
         <Activity size={12} class="animate-pulse" />
         Running
       </span>
@@ -87,7 +87,7 @@
     </span>
 
     {#if errorsCount > 0}
-      <span class="flex items-center gap-1 text-red-500" title="Errors">
+      <span class="flex items-center gap-1 text-danger" title="Errors">
         <AlertTriangle size={12} />
         {formatNumber(errorsCount)} errors
       </span>

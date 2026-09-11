@@ -2,6 +2,13 @@ import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import tailwindcss from '@tailwindcss/vite'
 
+// Backend the dev server proxies to. Defaults to a local `ch-ui server --dev`;
+// point it at any running CH-UI (e.g. CHUI_DEV_PROXY=https://ch-ui.example.com)
+// to develop the UI against real data without running a backend here.
+const backend = process.env.CHUI_DEV_PROXY?.replace(/\/+$/, '') || 'http://127.0.0.1:3488'
+const wsBackend = backend.replace(/^http/, 'ws')
+const proxyOpts = { target: backend, changeOrigin: true, secure: false }
+
 export default defineConfig({
   appType: 'spa',
   plugins: [svelte(), tailwindcss()],
@@ -23,11 +30,16 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     proxy: {
-      '/api': 'http://127.0.0.1:3488',
-      '/connect': { target: 'ws://127.0.0.1:3488', ws: true },
-      '/health': 'http://127.0.0.1:3488',
-      '/install': 'http://127.0.0.1:3488',
-      '/download': 'http://127.0.0.1:3488',
+      '/api': proxyOpts,
+      '/connect': { target: wsBackend, ws: true, changeOrigin: true, secure: false },
+      '/health': proxyOpts,
+      '/install': proxyOpts,
+      '/download': proxyOpts,
+      '/mcp': proxyOpts,
+      '/.well-known': proxyOpts,
+      '/oauth/authorize': proxyOpts,
+      '/oauth/token': proxyOpts,
+      '/oauth/register': proxyOpts,
     },
   },
   preview: {

@@ -10,6 +10,7 @@
   import TimeInput from './time-picker/TimeInput.svelte'
   import TimezoneSelect from './time-picker/TimezoneSelect.svelte'
   import PresetList from './time-picker/PresetList.svelte'
+  import Button from '../common/Button.svelte'
 
   interface Props {
     value: string
@@ -151,20 +152,20 @@
 <div class="relative" bind:this={rootEl}>
   <!-- Trigger button -->
   <button
-    class="inline-flex items-center gap-1.5 text-xs bg-transparent border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-ch-orange transition-colors"
+    class="inline-flex items-center gap-1.5 text-xs bg-transparent border border-edge rounded px-2 py-1 text-fg-2 hover:border-ch-orange transition-colors"
     onclick={() => open = !open}
     title="Select dashboard time range"
   >
-    <Clock3 size={12} class="text-ch-orange" />
+    <Clock3 size={12} class="text-accent" />
     <span class="max-w-[220px] truncate">{label}</span>
-    <ChevronDown size={12} class="text-gray-400 transition-transform {open ? 'rotate-180' : ''}" />
+    <ChevronDown size={12} class="text-fg-4 transition-transform {open ? 'rotate-180' : ''}" />
   </button>
 
   <!-- Popover -->
   {#if open}
     <div
-      class="absolute right-0 mt-2 z-[70] surface-card rounded-xl border border-gray-200 dark:border-gray-800 shadow-xl backdrop-blur-xl
-        sm:w-[750px] max-w-[95vw] overflow-hidden"
+      class="absolute right-0 mt-2 z-[70] surface-card rounded-md border border-edge-subtle shadow-xl backdrop-blur-xl
+ sm:w-[750px] max-w-[95vw] overflow-hidden"
     >
       <div class="relative">
         <!-- Left: Calendar + time inputs (defines the popover height) -->
@@ -178,32 +179,26 @@
           />
 
           {#if rangeDescription}
-            <div class="text-center text-xs text-gray-500 dark:text-gray-400 font-mono">
+            <div class="text-center text-xs text-fg-3 font-mono">
               {rangeDescription}
             </div>
           {/if}
 
-          <div class="border-t border-gray-200 dark:border-gray-800 pt-3 flex flex-col gap-2.5">
+          <div class="border-t border-edge-subtle pt-3 flex flex-col gap-2.5">
             <TimeInput label="From" value={fromTime} onchange={(v) => fromTime = v} />
             <TimeInput label="To" value={toTime} onchange={(v) => toTime = v} />
             <TimezoneSelect value={timezone} onchange={(v) => timezone = v} />
           </div>
 
           <div class="flex items-center justify-end gap-2 pt-1">
-            <button class="ds-btn-outline px-3 py-1.5 text-xs" onclick={cancel}>Cancel</button>
-            <button
-              class="ds-btn-primary px-3 py-1.5 text-xs"
-              onclick={applyCalendarRange}
-              disabled={!rangeStart || !rangeEnd}
-            >
-              Apply
-            </button>
+            <Button variant="outline" size="sm" onclick={cancel}>Cancel</Button>
+            <Button size="sm" onclick={applyCalendarRange} disabled={!rangeStart || !rangeEnd}>Apply</Button>
           </div>
         </div>
 
         <!-- Right: Presets sidebar — absolutely positioned, scrolls within calendar height -->
-        <div class="border-t sm:border-t-0 sm:border-l border-gray-200 dark:border-gray-800
-          w-full max-h-[50vh]
+        <div class="border-t sm:border-t-0 sm:border-l border-edge-subtle
+ w-full max-h-[50vh]
           sm:absolute sm:top-0 sm:right-0 sm:bottom-0 sm:w-[185px] sm:max-h-none
           py-3 overflow-y-auto">
           <PresetList currentValue={value} onselect={applyPreset} />

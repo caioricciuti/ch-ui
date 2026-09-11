@@ -67,14 +67,14 @@
   }
 </script>
 
-<div class="flex flex-col h-full border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 w-72">
+<div class="flex flex-col h-full border-l border-edge-subtle bg-canvas w-72">
   <!-- Header -->
-  <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-800">
-    <h3 class="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+  <div class="flex items-center justify-between px-3 py-2 border-b border-edge-subtle">
+    <h3 class="text-xs font-semibold text-fg-2 uppercase tracking-wider">
       Node Config
     </h3>
     <button
-      class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400"
+      class="p-1 rounded hover:bg-hover text-fg-4"
       onclick={onClose}
     >
       <X size={14} />
@@ -85,7 +85,7 @@
   <div class="flex-1 overflow-auto p-3 space-y-3">
     <!-- Label -->
     <div>
-      <label for="node-label-input" class="block text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
+      <label for="node-label-input" class="block text-[10px] font-medium text-fg-3 uppercase tracking-wider mb-1">
         Label
       </label>
       <input
@@ -93,27 +93,27 @@
         type="text"
         value={localLabel}
         oninput={(e) => handleLabelChange((e.target as HTMLInputElement).value)}
-        class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
+        class="w-full rounded-md border border-edge bg-surface px-2.5 py-1.5 text-xs text-fg hover:border-edge-strong focus:border-accent focus:outline-none"
       />
     </div>
 
-    <div class="border-t border-gray-200 dark:border-gray-800 pt-3">
-      <p class="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+    <div class="border-t border-edge-subtle pt-3">
+      <p class="text-[10px] font-medium text-fg-3 uppercase tracking-wider mb-2">
         {nodeType.replace('source_', '').replace('sink_', '')} Settings
       </p>
     </div>
 
     {#each fields as field (field.key)}
       <div>
-        <label class="flex items-center gap-1 text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
+        <label class="flex items-center gap-1 text-[10px] font-medium text-fg-3 uppercase tracking-wider mb-1">
           {field.label}
           {#if field.required}
-            <span class="text-red-400">*</span>
+            <span class="text-danger">*</span>
           {/if}
           {#if field.help}
             <span class="relative group">
-              <HelpCircle size={10} class="text-gray-400 cursor-help" />
-              <span class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 w-48 p-1.5 rounded bg-gray-900 dark:bg-gray-100 text-[9px] text-white dark:text-gray-900 hidden group-hover:block z-50 shadow-lg">
+              <HelpCircle size={10} class="text-fg-4 cursor-help" />
+              <span class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 w-48 p-1.5 rounded bg-surface text-[9px] text-white hidden group-hover:block z-50 shadow-lg">
                 {field.help}
               </span>
             </span>
@@ -126,20 +126,20 @@
             value={String(getFieldValue(field))}
             placeholder={field.placeholder}
             oninput={(e) => handleChange(field.key, (e.target as HTMLInputElement).value)}
-            class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
+            class="w-full rounded-md border border-edge bg-surface px-2.5 py-1.5 text-xs text-fg hover:border-edge-strong focus:border-accent focus:outline-none"
           />
         {:else if field.type === 'number'}
           <input
             type="number"
             value={Number(getFieldValue(field)) || 0}
             oninput={(e) => handleChange(field.key, Number((e.target as HTMLInputElement).value))}
-            class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
+            class="w-full rounded-md border border-edge bg-surface px-2.5 py-1.5 text-xs text-fg hover:border-edge-strong focus:border-accent focus:outline-none"
           />
         {:else if field.type === 'select'}
           <select
             value={String(getFieldValue(field))}
             onchange={(e) => handleChange(field.key, (e.target as HTMLSelectElement).value)}
-            class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
+            class="w-full rounded-md border border-edge bg-surface px-2.5 py-1.5 text-xs text-fg hover:border-edge-strong focus:border-accent focus:outline-none"
           >
             {#each field.options || [] as opt}
               <option value={opt.value}>{opt.label}</option>
@@ -151,13 +151,13 @@
             placeholder={field.placeholder}
             oninput={(e) => handleChange(field.key, (e.target as HTMLTextAreaElement).value)}
             rows={3}
-            class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none font-mono"
+            class="w-full rounded-md border border-edge bg-surface px-2.5 py-1.5 text-xs text-fg hover:border-edge-strong focus:border-accent focus:outline-none resize-none font-mono"
           ></textarea>
         {:else if field.type === 'toggle'}
           <button
             aria-label={field.label}
             class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {
-              getFieldValue(field) ? 'bg-orange-500' : 'bg-gray-300 dark:bg-gray-700'
+ getFieldValue(field) ? 'bg-accent' : 'bg-edge'
             }"
             onclick={() => {
               if (field.key === 'auth_enabled') {
@@ -168,15 +168,15 @@
             }}
           >
             <span
-              class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm {
-                getFieldValue(field) ? 'translate-x-4' : 'translate-x-0.5'
+              class="inline-block h-3.5 w-3.5 transform rounded-full bg-surface transition-transform shadow-sm {
+ getFieldValue(field) ? 'translate-x-4' : 'translate-x-0.5'
               }"
             ></span>
           </button>
           {#if field.key === 'auth_enabled' && getFieldValue(field) && localConfig['auth_token']}
             <div class="mt-2">
-              <label class="flex items-center gap-1 text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
-                <Shield size={10} class="text-orange-500" />
+              <label class="flex items-center gap-1 text-[10px] font-medium text-fg-3 uppercase tracking-wider mb-1">
+                <Shield size={10} class="text-accent" />
                 Bearer Token
               </label>
               <div class="flex items-center gap-1">
@@ -184,10 +184,10 @@
                   type="text"
                   value={String(localConfig['auth_token'])}
                   readonly
-                  class="flex-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-300 font-mono select-all cursor-text"
+                  class="flex-1 rounded-lg border border-edge bg-surface px-2.5 py-1.5 text-xs text-fg-2 font-mono select-all cursor-text"
                 />
                 <button
-                  class="p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 shrink-0"
+                  class="p-1.5 rounded-lg border border-edge hover:bg-hover text-fg-3 shrink-0"
                   title="Copy token"
                   onclick={() => {
                     navigator.clipboard.writeText(String(localConfig['auth_token']))
@@ -196,13 +196,13 @@
                   }}
                 >
                   {#if copiedToken}
-                    <Check size={12} class="text-green-500" />
+                    <Check size={12} class="text-success" />
                   {:else}
                     <Copy size={12} />
                   {/if}
                 </button>
               </div>
-              <p class="text-[9px] text-gray-400 mt-1">
+              <p class="text-[9px] text-fg-4 mt-1">
                 Use header: Authorization: Bearer {String(localConfig['auth_token']).slice(0, 8)}...
               </p>
             </div>
@@ -214,10 +214,10 @@
               type="text"
               value={webhookUrl}
               readonly
-              class="flex-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-300 font-mono select-all cursor-text"
+              class="flex-1 rounded-lg border border-edge bg-surface px-2.5 py-1.5 text-xs text-fg-2 font-mono select-all cursor-text"
             />
             <button
-              class="p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 shrink-0"
+              class="p-1.5 rounded-lg border border-edge hover:bg-hover text-fg-3 shrink-0"
               title="Copy URL"
               onclick={() => {
                 navigator.clipboard.writeText(webhookUrl)
@@ -226,7 +226,7 @@
               }}
             >
               {#if copied}
-                <Check size={12} class="text-green-500" />
+                <Check size={12} class="text-success" />
               {:else}
                 <Copy size={12} />
               {/if}

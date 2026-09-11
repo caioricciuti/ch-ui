@@ -97,13 +97,13 @@ export function highlightSQL(sql: string): string {
     /('(?:[^'\\]|\\.)*')|("(?:[^"\\]|\\.)*")|(--[^\n]*)|(\b\d+(?:\.\d+)?\b)|(\b[A-Za-z_]\w*\b)|([\s\S])/g,
     (match, singleStr: string, doubleStr: string, comment: string, num: string, word: string) => {
       if (singleStr || doubleStr)
-        return `<span class="text-green-600 dark:text-green-400">${escapeHtml(match)}</span>`
+        return `<span class="text-success">${escapeHtml(match)}</span>`
       if (comment)
-        return `<span class="text-gray-400 italic">${escapeHtml(match)}</span>`
+        return `<span class="text-fg-4 italic">${escapeHtml(match)}</span>`
       if (num)
-        return `<span class="text-amber-600 dark:text-amber-400">${escapeHtml(match)}</span>`
+        return `<span class="text-warning">${escapeHtml(match)}</span>`
       if (word && SQL_KEYWORDS.has(word.toUpperCase()))
-        return `<span class="text-blue-500 dark:text-blue-400 font-semibold">${escapeHtml(match)}</span>`
+        return `<span class="text-info font-semibold">${escapeHtml(match)}</span>`
       return escapeHtml(match)
     },
   )

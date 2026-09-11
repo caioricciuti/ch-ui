@@ -168,27 +168,27 @@
 
 <Sheet {open} title="Share Dashboard" size="md" onclose={onclose}>
   <div class="flex flex-col gap-4">
-    <p class="text-xs text-gray-500 dark:text-gray-400">
-      Share <span class="font-medium text-gray-700 dark:text-gray-300">{dashboardName}</span> with a public link or invite specific people via email.
+    <p class="text-xs text-fg-3">
+      Share <span class="font-medium text-fg-2">{dashboardName}</span> with a public link or invite specific people via email.
     </p>
 
     <!-- Create new share -->
-    <div class="border border-gray-200 dark:border-gray-800 rounded-lg p-3 space-y-3">
+    <div class="border border-edge-subtle rounded-lg p-3 space-y-3">
       <div class="flex gap-2">
         <button
           class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors
-            {newVisibility === 'public'
-              ? 'border-ch-blue bg-orange-50 dark:bg-orange-900/20 text-ch-blue'
-              : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300'}"
+ {newVisibility === 'public'
+              ? 'border-accent bg-accent-soft text-accent'
+              : 'border-edge-subtle text-fg-3 hover:border-edge'}"
           onclick={() => newVisibility = 'public'}
         >
           <Globe size={14} /> Public
         </button>
         <button
           class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors
-            {newVisibility === 'private'
-              ? 'border-ch-blue bg-orange-50 dark:bg-orange-900/20 text-ch-blue'
-              : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300'}"
+ {newVisibility === 'private'
+              ? 'border-accent bg-accent-soft text-accent'
+              : 'border-edge-subtle text-fg-3 hover:border-edge'}"
           onclick={() => newVisibility = 'private'}
         >
           <Lock size={14} /> Invite Only
@@ -197,12 +197,12 @@
 
       {#if newVisibility === 'private'}
         <div>
-          <label for="share-email-input" class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Invite emails</label>
-          <div class="flex flex-wrap gap-1.5 p-2 border border-gray-300 dark:border-gray-700 rounded bg-transparent min-h-[36px] focus-within:border-ch-blue">
+          <label for="share-email-input" class="block text-xs font-medium text-fg-2 mb-1">Invite emails</label>
+          <div class="flex flex-wrap gap-1.5 p-2 border border-edge rounded bg-transparent min-h-[36px] focus-within:border-ch-orange">
             {#each emailTags as email}
-              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-xs text-gray-700 dark:text-gray-300">
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-2 text-xs text-fg-2">
                 {email}
-                <button class="hover:text-red-400" onclick={() => removeEmail(email)}>
+                <button class="hover:text-danger" onclick={() => removeEmail(email)}>
                   <X size={10} />
                 </button>
               </span>
@@ -210,17 +210,17 @@
             <input
               id="share-email-input"
               type="text"
-              class="flex-1 min-w-[140px] text-xs bg-transparent outline-none text-gray-800 dark:text-gray-200 placeholder-gray-400"
+              class="flex-1 min-w-[140px] text-xs bg-transparent outline-none text-fg placeholder:text-fg-4"
               placeholder={emailTags.length === 0 ? 'user@example.com, ...' : 'Add more...'}
               bind:value={emailInput}
               onkeydown={handleEmailKeydown}
               onblur={addEmail}
             />
           </div>
-          <p class="text-[10px] text-gray-400 mt-1">Press Enter or comma to add. Magic links will be sent via your configured email channel.</p>
+          <p class="text-[10px] text-fg-4 mt-1">Press Enter or comma to add. Magic links will be sent via your configured email channel.</p>
         </div>
       {:else}
-        <p class="text-[11px] text-gray-400">Anyone with the link can view this dashboard without logging in.</p>
+        <p class="text-[11px] text-fg-4">Anyone with the link can view this dashboard without logging in.</p>
       {/if}
 
       <div class="flex justify-end">
@@ -234,31 +234,31 @@
     {#if loading}
       <div class="flex justify-center py-6"><Spinner /></div>
     {:else if shares.length === 0}
-      <div class="text-center py-6 text-gray-400 dark:text-gray-600">
+      <div class="text-center py-6 text-fg-4">
         <Link size={24} class="mx-auto mb-2" />
         <p class="text-xs">No share links yet</p>
       </div>
     {:else}
       <div class="flex flex-col gap-3">
         {#each shares as share (share.id)}
-          <div class="border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+          <div class="border border-edge-subtle rounded-lg p-3">
             <div class="flex items-center justify-between mb-2">
               <div class="flex items-center gap-2">
                 {#if share.visibility === 'private'}
-                  <span class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400">
+                  <span class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded bg-info-soft text-info">
                     <Lock size={10} /> invite only
                   </span>
                 {:else}
-                  <span class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                  <span class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded bg-success-soft text-success">
                     <Globe size={10} /> public
                   </span>
                 {/if}
                 {#if share.expires_at}
-                  <span class="text-[10px] text-gray-400">expires {formatDate(share.expires_at)}</span>
+                  <span class="text-[10px] text-fg-4">expires {formatDate(share.expires_at)}</span>
                 {/if}
               </div>
               <button
-                class="p-1 rounded text-gray-400 hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                class="p-1 rounded text-fg-4 hover:text-danger hover:bg-hover"
                 onclick={() => deleteShare(share.id)}
                 title="Revoke"
               >
@@ -272,10 +272,10 @@
                 type="text"
                 readonly
                 value={getPublicUrl(share.token)}
-                class="flex-1 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1.5 text-gray-600 dark:text-gray-400 font-mono"
+                class="flex-1 text-xs bg-surface-2 border border-edge-subtle rounded px-2 py-1.5 text-fg-2 font-mono"
               />
               <button
-                class="p-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                class="p-1.5 rounded border border-edge-subtle text-fg-3 hover:text-fg hover:bg-hover"
                 onclick={() => copyToClipboard(getPublicUrl(share.token), 'Link')}
                 title="Copy link"
               >
@@ -285,7 +285,7 @@
                 href={getPublicUrl(share.token)}
                 target="_blank"
                 rel="noopener noreferrer"
-                class="p-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                class="p-1.5 rounded border border-edge-subtle text-fg-3 hover:text-fg hover:bg-hover"
                 title="Open in new tab"
               >
                 <ExternalLink size={14} />
@@ -296,13 +296,13 @@
             {#if share.visibility === 'private' && share.allowed_emails?.length > 0}
               <div class="flex flex-wrap gap-1 mb-2">
                 {#each share.allowed_emails as email}
-                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-[10px] text-gray-600 dark:text-gray-400">
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-2 text-[10px] text-fg-2">
                     <Mail size={10} /> {email}
                   </span>
                 {/each}
               </div>
               <button
-                class="flex items-center gap-1.5 text-[11px] font-medium text-gray-500 hover:text-ch-blue disabled:opacity-50 px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                class="flex items-center gap-1.5 text-[11px] font-medium text-fg-3 hover:text-fg disabled:opacity-50 px-2 py-1 rounded border border-edge-subtle hover:bg-hover"
                 onclick={() => sendInvites(share)}
                 disabled={sendingInvites[share.id]}
               >
@@ -313,12 +313,12 @@
 
             <!-- Footer -->
             <div class="flex items-center justify-between mt-2">
-              <p class="text-[10px] text-gray-400">
+              <p class="text-[10px] text-fg-4">
                 Created {formatDate(share.created_at)}{share.created_by ? ` by ${share.created_by}` : ''}
               </p>
               {#if share.visibility === 'public'}
                 <button
-                  class="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  class="flex items-center gap-1 text-[10px] text-fg-4 hover:text-fg"
                   onclick={() => copyToClipboard(getEmbedSnippet(share.token), 'Embed code')}
                 >
                   <Code size={10} /> Embed

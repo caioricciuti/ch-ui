@@ -21,6 +21,11 @@
   } from "../../stores/toast.svelte";
   import Spinner from "../common/Spinner.svelte";
   import Sheet from "../common/Sheet.svelte";
+  import Button from "../common/Button.svelte";
+  import FormField from "../common/FormField.svelte";
+  import Input from "../common/Input.svelte";
+  import Panel from "../common/Panel.svelte";
+  import Tabs from "../common/Tabs.svelte";
   import Combobox, { type ComboboxOption } from "../common/Combobox.svelte";
   import {
     Database,
@@ -44,7 +49,6 @@
     Eye,
     Layers,
   } from "lucide-svelte";
-  import type { Table } from "../../types/schema";
   import ContextMenu, {
     type ContextMenuItem,
   } from "../common/ContextMenu.svelte";
@@ -1202,21 +1206,21 @@
   class="flex flex-col h-full text-[13px]"
   oncontextmenu={(e) => openContextMenu(e, { kind: "root" })}
 >
-  <div class="px-2.5 py-2 border-b border-gray-200 dark:border-gray-800">
+  <div class="px-2.5 py-2 border-b border-edge-subtle">
     <div class="flex items-center gap-1.5">
       <div
-        class="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-200/60 dark:bg-gray-800/60 rounded-md border border-gray-300/50 dark:border-gray-700/50 focus-within:border-gray-400 dark:focus-within:border-gray-600 flex-1"
+        class="flex items-center gap-1.5 px-2.5 py-1.5 bg-surface-2 rounded-md border border-edge focus-within:border-edge-strong flex-1"
       >
-        <Search size={13} class="text-gray-500 shrink-0" />
+        <Search size={13} class="text-fg-3 shrink-0" />
         <input
           type="text"
           placeholder="Filter databases and tables..."
-          class="flex-1 bg-transparent text-[13px] text-gray-700 dark:text-gray-300 placeholder-gray-400 dark:placeholder-gray-600 outline-none"
+          class="flex-1 bg-transparent text-[13px] text-fg-2 placeholder:text-fg-4 outline-none"
           bind:value={searchTerm}
         />
         {#if searchTerm}
           <button
-            class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+            class="text-fg-3 hover:text-fg"
             onclick={() => (searchTerm = "")}
           >
             <X size={13} />
@@ -1224,25 +1228,33 @@
         {/if}
       </div>
 
-      <button
-        class="ds-btn-outline h-[34px] px-2 shrink-0"
+      <Button
+        variant="outline"
+        size="lg"
+        icon
+        class="h-[34px] w-[34px]"
         onclick={openSchemaActionsMenu}
         title="Schema actions"
+        aria-label="Schema actions"
       >
         <MoreHorizontal size={14} />
-      </button>
-      <button
-        class="ds-btn-outline h-[34px] px-2 shrink-0"
+      </Button>
+      <Button
+        variant="outline"
+        size="lg"
+        icon
+        class="h-[34px] w-[34px]"
         onclick={refreshSchema}
         title="Refresh schema"
+        aria-label="Refresh schema"
         disabled={loading}
       >
         <RefreshCw size={14} class={loading ? "animate-spin" : ""} />
-      </button>
+      </Button>
     </div>
 
     {#if !canManageSchema}
-      <p class="mt-1 px-0.5 text-[10px] text-gray-500">
+      <p class="mt-1 px-0.5 text-[10px] text-fg-3">
         Schema create/delete actions require admin role
       </p>
     {/if}
@@ -1255,7 +1267,7 @@
       </div>
     {:else if filteredDatabases.length === 0}
       <div
-        class="flex items-center justify-center py-8 text-xs text-gray-400 dark:text-gray-600"
+        class="flex items-center justify-center py-8 text-xs text-fg-4"
       >
         {searchTerm ? "No matches" : "No databases"}
       </div>
@@ -1263,7 +1275,7 @@
       {#each filteredDatabases as db}
         <div>
           <div
-            class="group flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left hover:bg-gray-200/50 dark:hover:bg-gray-800/50 text-gray-700 dark:text-gray-300"
+            class="group flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left hover:bg-hover text-fg-2"
             oncontextmenu={(e) =>
               openContextMenu(e, { kind: "database", database: db.name })}
           >
@@ -1272,25 +1284,27 @@
               onclick={() => toggleDatabase(db.name)}
             >
               {#if db.expanded}
-                <ChevronDown size={15} class="text-gray-500 shrink-0" />
+                <ChevronDown size={15} class="text-fg-3 shrink-0" />
               {:else}
-                <ChevronRight size={15} class="text-gray-500 shrink-0" />
+                <ChevronRight size={15} class="text-fg-3 shrink-0" />
               {/if}
             </button>
             <button
               class="flex items-center gap-1.5 flex-1 min-w-0 text-left"
               onclick={() => toggleDatabase(db.name)}
             >
-              <Database size={15} class="text-ch-blue shrink-0" />
+              <Database size={15} class="text-accent shrink-0" />
               <span class="truncate">{db.name}</span>
               {#if db.loading}
                 <Spinner size="sm" class="ml-auto" />
               {/if}
             </button>
             <button
-              class="shrink-0 p-0.5 rounded text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"
+              class="shrink-0 p-0.5 rounded text-fg-4 hover:text-fg opacity-0 group-hover:opacity-100 transition-opacity"
               onclick={(e) =>
                 openContextMenu(e, { kind: "database", database: db.name })}
+              title="Database actions"
+              aria-label="Actions for {db.name}"
             >
               <MoreHorizontal size={15} />
             </button>
@@ -1300,7 +1314,7 @@
             {#each db.tables as table}
               <div>
                 <div
-                  class="group flex items-center w-full pl-7 pr-1.5 py-1.5 text-gray-500 dark:text-gray-400 hover:bg-gray-200/50 dark:hover:bg-gray-800/50"
+                  class="group flex items-center w-full pl-7 pr-1.5 py-1.5 text-fg-3 hover:bg-hover"
                   oncontextmenu={(e) =>
                     openContextMenu(e, {
                       kind: "table",
@@ -1315,12 +1329,12 @@
                     {#if table.expanded}
                       <ChevronDown
                         size={13}
-                        class="text-gray-400 dark:text-gray-600"
+                        class="text-fg-4"
                       />
                     {:else}
                       <ChevronRight
                         size={13}
-                        class="text-gray-400 dark:text-gray-600"
+                        class="text-fg-4"
                       />
                     {/if}
                   </button>
@@ -1329,15 +1343,15 @@
                     onclick={() => selectTable(db.name, table.name)}
                   >
                     {#if getTableType(table.engine) === "view"}
-                      <Eye size={14} class="text-blue-400 shrink-0" />
+                      <Eye size={14} class="text-info shrink-0" />
                     {:else if getTableType(table.engine) === "materialized-view"}
-                      <Layers size={14} class="text-purple-400 shrink-0" />
+                      <Layers size={14} class="text-fg-3 shrink-0" />
                     {:else}
-                      <Table2 size={14} class="text-gray-500 shrink-0" />
+                      <Table2 size={14} class="text-fg-3 shrink-0" />
                     {/if}
                     <span class="truncate">{table.name}</span>
                     {#if getTableTypeLabel(table.engine)}
-                      <span class="ml-1 text-[9px] font-medium px-1 py-0.5 rounded bg-gray-200/60 dark:bg-gray-700/60 text-gray-500 dark:text-gray-400 shrink-0"
+                      <span class="ml-1 text-[9px] font-medium px-1 py-0.5 rounded bg-surface-2 text-fg-3 shrink-0"
                         >{getTableTypeLabel(table.engine)}</span
                       >
                     {/if}
@@ -1347,13 +1361,15 @@
                   </button>
 
                   <button
-                    class="shrink-0 p-0.5 rounded text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                    class="shrink-0 p-0.5 rounded text-fg-4 hover:text-fg opacity-0 group-hover:opacity-100 transition-opacity"
                     onclick={(e) =>
                       openContextMenu(e, {
                         kind: "table",
                         database: db.name,
                         table: table.name,
                       })}
+                    title="Table actions"
+                    aria-label="Actions for {table.name}"
                   >
                     <MoreHorizontal size={15} />
                   </button>
@@ -1362,12 +1378,12 @@
                 {#if table.expanded && table.columns}
                   {#each table.columns as col}
                     <div
-                      class="flex items-center gap-1.5 pl-12 pr-2 py-0.5 text-[11px] text-gray-500"
+                      class="flex items-center gap-1.5 pl-12 pr-2 py-0.5 text-[11px] text-fg-3"
                     >
                       <Columns3 size={12} class="shrink-0" />
                       <span class="truncate">{col.name}</span>
                       <span
-                        class="ml-auto text-gray-400 dark:text-gray-600 truncate"
+                        class="ml-auto text-fg-4 truncate"
                         >{col.type}</span
                       >
                     </div>
@@ -1404,16 +1420,13 @@
     }}
   >
     <div class="grid gap-4 md:grid-cols-2">
-      <div>
-        <div class="ds-form-label">Database Name</div>
-        <input
-          class="ds-input"
+      <FormField label="Database Name">
+        <Input
           placeholder="analytics"
           bind:value={createDatabaseForm.name}
         />
-      </div>
-      <div>
-        <div class="ds-form-label">Database Engine</div>
+      </FormField>
+      <FormField label="Database Engine">
         <Combobox
           options={databaseEngineOptions}
           value={createDatabaseForm.engine}
@@ -1421,12 +1434,11 @@
             (createDatabaseForm = { ...createDatabaseForm, engine: value })}
           placeholder="Select engine"
         />
-      </div>
+      </FormField>
     </div>
 
     <div class="grid gap-4 md:grid-cols-2">
-      <div>
-        <div class="ds-form-label">Cluster (optional)</div>
+      <FormField label="Cluster (optional)">
         <Combobox
           options={clusterOptions}
           value={createDatabaseForm.onCluster}
@@ -1435,7 +1447,7 @@
           placeholder={clustersLoading ? "Loading clusters..." : "No cluster"}
           disabled={clustersLoading}
         />
-      </div>
+      </FormField>
       <div class="flex items-end pb-2">
         <label class="ds-checkbox-label">
           <input
@@ -1448,25 +1460,25 @@
       </div>
     </div>
 
-    <div class="ds-panel-muted p-3 text-xs text-gray-600 dark:text-gray-300">
+    <Panel variant="muted" padding="sm" class="text-xs text-fg-2">
       Creates a database with selected engine. If cluster is set, operation runs
       with <code>ON CLUSTER</code>.
-    </div>
+    </Panel>
 
     <div class="flex items-center justify-end gap-2 pt-1">
-      <button
-        type="button"
-        class="ds-btn-outline"
-        onclick={() => (createDatabaseSheetOpen = false)}>Cancel</button
+      <Button
+        variant="outline"
+        size="sm"
+        onclick={() => (createDatabaseSheetOpen = false)}>Cancel</Button
       >
-      <button
+      <Button
         type="submit"
-        class="ds-btn-primary"
+        size="sm"
         disabled={createDatabaseSubmitting}
       >
         <FolderPlus size={14} />
         {createDatabaseSubmitting ? "Creating..." : "Create Database"}
-      </button>
+      </Button>
     </div>
   </form>
 </Sheet>
@@ -1485,8 +1497,7 @@
     }}
   >
     <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-      <div>
-        <div class="ds-form-label">Database</div>
+      <FormField label="Database">
         <Combobox
           options={databaseOptions}
           value={createTableForm.database}
@@ -1494,17 +1505,14 @@
             (createTableForm = { ...createTableForm, database: value })}
           placeholder="Select database"
         />
-      </div>
-      <div>
-        <div class="ds-form-label">Table Name</div>
-        <input
-          class="ds-input"
+      </FormField>
+      <FormField label="Table Name">
+        <Input
           placeholder="events"
           bind:value={createTableForm.name}
         />
-      </div>
-      <div>
-        <div class="ds-form-label">Engine</div>
+      </FormField>
+      <FormField label="Engine">
         <Combobox
           options={tableEngineOptions}
           value={createTableForm.engine}
@@ -1512,9 +1520,8 @@
             (createTableForm = { ...createTableForm, engine: value })}
           placeholder="Select engine"
         />
-      </div>
-      <div>
-        <div class="ds-form-label">Cluster (optional)</div>
+      </FormField>
+      <FormField label="Cluster (optional)">
         <Combobox
           options={clusterOptions}
           value={createTableForm.onCluster}
@@ -1523,25 +1530,20 @@
           placeholder={clustersLoading ? "Loading clusters..." : "No cluster"}
           disabled={clustersLoading}
         />
-      </div>
+      </FormField>
     </div>
 
-    <div class="ds-panel p-3 space-y-3">
-      <div class="flex items-center justify-between gap-2">
-        <div>
-          <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">
-            Columns
-          </h3>
-          <p class="text-[11px] text-gray-500">
-            Type is selected from ClickHouse data types (parametric families are
-            prefilled with valid templates).
-          </p>
-        </div>
-        <button type="button" class="ds-btn-outline" onclick={addTableColumn}>
+    <Panel
+      title="Columns"
+      description="Type is selected from ClickHouse data types (parametric families are prefilled with valid templates)."
+      padding="sm"
+    >
+      {#snippet actions()}
+        <Button variant="outline" size="sm" onclick={addTableColumn}>
           <Plus size={13} />
           Add Column
-        </button>
-      </div>
+        </Button>
+      {/snippet}
       <div class="overflow-x-auto overflow-y-visible pb-1">
         <table class="ds-table min-w-[760px]">
           <thead>
@@ -1557,8 +1559,8 @@
             {#each createTableForm.columns as col}
               <tr class="ds-table-row-static">
                 <td class="py-2 px-3 align-top">
-                  <input
-                    class="ds-input-sm"
+                  <Input size="sm"
+                    
                     value={col.name}
                     oninput={(e) =>
                       updateTableColumn(col.id, {
@@ -1580,8 +1582,8 @@
                   />
                 </td>
                 <td class="py-2 px-3 align-top">
-                  <input
-                    class="ds-input-sm"
+                  <Input size="sm"
+                    
                     value={col.defaultExpression}
                     oninput={(e) =>
                       updateTableColumn(col.id, {
@@ -1592,8 +1594,8 @@
                   />
                 </td>
                 <td class="py-2 px-3 align-top">
-                  <input
-                    class="ds-input-sm"
+                  <Input size="sm"
+                    
                     value={col.comment}
                     oninput={(e) =>
                       updateTableColumn(col.id, {
@@ -1603,82 +1605,71 @@
                   />
                 </td>
                 <td class="py-2 px-3 align-top text-right">
-                  <button
-                    type="button"
-                    class="ds-btn-ghost text-red-500 hover:text-red-600"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon
+                    aria-label="Remove column"
+                    class="text-danger"
                     onclick={() => removeTableColumn(col.id)}
                     disabled={createTableForm.columns.length <= 1}
                   >
                     <Trash2 size={13} />
-                  </button>
+                  </Button>
                 </td>
               </tr>
             {/each}
           </tbody>
         </table>
       </div>
-    </div>
+    </Panel>
 
     <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-      <div>
-        <div class="ds-form-label">ORDER BY</div>
-        <input
-          class="ds-input"
+      <FormField label="ORDER BY">
+        <Input
           placeholder="tuple()"
           bind:value={createTableForm.orderBy}
         />
-      </div>
-      <div>
-        <div class="ds-form-label">PARTITION BY</div>
-        <input
-          class="ds-input"
+      </FormField>
+      <FormField label="PARTITION BY">
+        <Input
           placeholder="toYYYYMM(created_at)"
           bind:value={createTableForm.partitionBy}
         />
-      </div>
-      <div>
-        <div class="ds-form-label">PRIMARY KEY</div>
-        <input
-          class="ds-input"
+      </FormField>
+      <FormField label="PRIMARY KEY">
+        <Input
           placeholder="id"
           bind:value={createTableForm.primaryKey}
         />
-      </div>
-      <div>
-        <div class="ds-form-label">SAMPLE BY</div>
-        <input
-          class="ds-input"
+      </FormField>
+      <FormField label="SAMPLE BY">
+        <Input
           placeholder="cityHash64(id)"
           bind:value={createTableForm.sampleBy}
         />
-      </div>
-      <div>
-        <div class="ds-form-label">TTL</div>
-        <input
-          class="ds-input"
+      </FormField>
+      <FormField label="TTL">
+        <Input
           placeholder="created_at + INTERVAL 90 DAY"
           bind:value={createTableForm.ttl}
         />
-      </div>
-      <div>
-        <div class="ds-form-label">SETTINGS</div>
-        <input
-          class="ds-input"
+      </FormField>
+      <FormField label="SETTINGS">
+        <Input
           placeholder="index_granularity = 8192"
           bind:value={createTableForm.settings}
         />
-      </div>
+      </FormField>
     </div>
 
     <div class="grid gap-4 md:grid-cols-2">
-      <div>
-        <div class="ds-form-label">Table Comment (optional)</div>
-        <input
-          class="ds-input"
+      <FormField label="Table Comment (optional)">
+        <Input
           placeholder="Fact table for product analytics"
           bind:value={createTableForm.comment}
         />
-      </div>
+      </FormField>
       <div class="flex items-end pb-2">
         <label class="ds-checkbox-label">
           <input
@@ -1691,38 +1682,38 @@
       </div>
     </div>
 
-    <div class="ds-panel-muted p-3 space-y-1">
-      <div class="text-xs font-semibold text-gray-700 dark:text-gray-200">
+    <Panel variant="muted" padding="sm">
+      <div class="text-xs font-semibold text-fg-2 mb-1">
         Command Preview
       </div>
       <pre
-        class="text-[11px] max-h-36 overflow-auto whitespace-pre-wrap break-all text-gray-600 dark:text-gray-300">{buildCreateTableCommandPreview()}</pre>
-    </div>
+        class="text-[11px] max-h-36 overflow-auto whitespace-pre-wrap break-all text-fg-2">{buildCreateTableCommandPreview()}</pre>
+    </Panel>
 
     {#if createTableErrorMessage}
-      <div class="rounded-lg border border-red-200 dark:border-red-500/40 bg-red-50 dark:bg-red-500/10 p-3">
-        <div class="text-xs font-semibold text-red-700 dark:text-red-200 mb-1">
+      <div class="rounded-md bg-danger-soft p-3">
+        <div class="text-xs font-semibold text-danger mb-1">
           Create Table Error
         </div>
         <pre
-          class="text-[11px] whitespace-pre-wrap break-words max-h-36 overflow-auto text-red-800 dark:text-red-100">{createTableErrorMessage}</pre>
+          class="text-[11px] whitespace-pre-wrap break-words max-h-36 overflow-auto text-fg-2">{createTableErrorMessage}</pre>
       </div>
     {/if}
 
     <div class="flex items-center justify-end gap-2 pt-1">
-      <button
-        type="button"
-        class="ds-btn-outline"
-        onclick={() => (createTableSheetOpen = false)}>Cancel</button
+      <Button
+        variant="outline"
+        size="sm"
+        onclick={() => (createTableSheetOpen = false)}>Cancel</Button
       >
-      <button
+      <Button
         type="submit"
-        class="ds-btn-primary"
+        size="sm"
         disabled={createTableSubmitting}
       >
         <TableProperties size={14} />
         {createTableSubmitting ? "Creating..." : "Create Table"}
-      </button>
+      </Button>
     </div>
   </form>
 </Sheet>
@@ -1741,9 +1732,9 @@
     }}
   >
     <div
-      class="rounded-lg border border-red-200 dark:border-red-500/40 bg-red-50 dark:bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-200 flex items-start gap-2"
+      class="rounded-md bg-danger-soft p-3 text-[13px] text-fg flex items-start gap-2"
     >
-      <AlertTriangle size={16} class="mt-0.5 text-red-500 dark:text-red-400" />
+      <AlertTriangle size={16} class="mt-0.5 text-danger" />
       <div>
         This will permanently delete <strong>{deleteDatabaseForm.name}</strong> and
         all tables inside it.
@@ -1751,8 +1742,7 @@
     </div>
 
     <div class="grid gap-4 md:grid-cols-2">
-      <div>
-        <div class="ds-form-label">Cluster (optional)</div>
+      <FormField label="Cluster (optional)">
         <Combobox
           options={clusterOptions}
           value={deleteDatabaseForm.onCluster}
@@ -1761,7 +1751,7 @@
           placeholder={clustersLoading ? "Loading clusters..." : "No cluster"}
           disabled={clustersLoading}
         />
-      </div>
+      </FormField>
       <div class="flex items-end pb-2">
         <label class="ds-checkbox-label">
           <input
@@ -1774,30 +1764,29 @@
       </div>
     </div>
 
-    <div>
-      <div class="ds-form-label">Type database name to confirm</div>
-      <input
-        class="ds-input"
+    <FormField label="Type database name to confirm">
+      <Input
         bind:value={deleteDatabaseForm.typedName}
         placeholder={deleteDatabaseForm.name}
       />
-    </div>
+    </FormField>
 
     <div class="flex items-center justify-end gap-2 pt-1">
-      <button
-        type="button"
-        class="ds-btn-outline"
-        onclick={() => (deleteDatabaseSheetOpen = false)}>Cancel</button
+      <Button
+        variant="outline"
+        size="sm"
+        onclick={() => (deleteDatabaseSheetOpen = false)}>Cancel</Button
       >
-      <button
+      <Button
         type="submit"
-        class="inline-flex items-center justify-center gap-1.5 rounded px-3 py-1.5 text-[13px] font-medium text-white bg-red-600 border border-red-500 transition-colors hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
+        variant="danger"
+        size="sm"
         disabled={deleteDatabaseSubmitting ||
           deleteDatabaseForm.typedName.trim() !== deleteDatabaseForm.name}
       >
         <Trash2 size={14} />
         {deleteDatabaseSubmitting ? "Deleting..." : "Delete Database"}
-      </button>
+      </Button>
     </div>
   </form>
 </Sheet>
@@ -1815,120 +1804,87 @@
       submitUpload();
     }}
   >
-    <div class="ds-panel p-3 space-y-3">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">
-            Source File
-          </h3>
-          <p class="text-[11px] text-gray-500">
-            Accepted formats: CSV, Parquet, JSON, JSONL.
-          </p>
-        </div>
-        <button
-          type="button"
-          class="ds-btn-outline"
+    <Panel title="Source File" description="Accepted formats: CSV, Parquet, JSON, JSONL." padding="sm">
+      {#snippet actions()}
+        <Button
+          variant="outline"
+          size="sm"
           onclick={discoverUploadSchema}
           disabled={!uploadSourceFile || uploadDiscovering}
         >
           <Upload size={13} />
           {uploadDiscovering ? "Discovering..." : "Discover Schema"}
-        </button>
-      </div>
+        </Button>
+      {/snippet}
 
       <input
         type="file"
-        class="ds-input"
+        class="ds-input cursor-pointer file:mr-3 file:rounded-sm file:border-0 file:bg-surface-2 file:px-2 file:py-0.5 file:text-xs file:text-fg-2"
         accept={uploadAccept}
         onchange={onUploadFileSelected}
       />
 
-      <div class="grid gap-3 md:grid-cols-3">
-        <div class="ds-panel-muted p-2.5">
-          <div class="text-[10px] uppercase tracking-wide text-gray-500">
+      <div class="mt-3 grid gap-3 md:grid-cols-3">
+        <Panel variant="muted" padding="sm">
+          <div class="text-[11px] font-medium uppercase tracking-wider text-fg-3">
             Rows detected
           </div>
-          <div
-            class="mt-0.5 text-sm font-semibold text-gray-800 dark:text-gray-200"
-          >
+          <div class="mt-0.5 text-[13px] font-semibold text-fg">
             {uploadRowsDetected || "—"}
           </div>
-        </div>
-        <div class="ds-panel-muted p-2.5">
-          <div class="text-[10px] uppercase tracking-wide text-gray-500">
+        </Panel>
+        <Panel variant="muted" padding="sm">
+          <div class="text-[11px] font-medium uppercase tracking-wider text-fg-3">
             Format
           </div>
-          <div
-            class="mt-0.5 text-sm font-semibold text-gray-800 dark:text-gray-200"
-          >
+          <div class="mt-0.5 text-[13px] font-semibold text-fg">
             {uploadSourceFormat || "—"}
           </div>
-        </div>
-        <div class="ds-panel-muted p-2.5">
-          <div class="text-[10px] uppercase tracking-wide text-gray-500">
+        </Panel>
+        <Panel variant="muted" padding="sm">
+          <div class="text-[11px] font-medium uppercase tracking-wider text-fg-3">
             Columns
           </div>
-          <div
-            class="mt-0.5 text-sm font-semibold text-gray-800 dark:text-gray-200"
-          >
+          <div class="mt-0.5 text-[13px] font-semibold text-fg">
             {uploadColumns.length || "—"}
           </div>
-        </div>
+        </Panel>
       </div>
-    </div>
+    </Panel>
 
-    <div class="ds-panel p-3 space-y-3">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">
-          Target
-        </h3>
-        <div
-          class="inline-flex rounded-lg border border-gray-300 dark:border-gray-700 overflow-hidden"
-        >
-          <button
-            type="button"
-            class="px-3 py-1.5 text-xs {uploadForm.mode === 'new'
-              ? 'bg-ch-blue/20 text-ch-blue'
-              : 'text-gray-500 hover:bg-gray-200/55 dark:hover:bg-gray-800/55'}"
-            onclick={() => (uploadForm = { ...uploadForm, mode: "new" })}
-          >
-            Create New Table
-          </button>
-          <button
-            type="button"
-            class="px-3 py-1.5 text-xs border-l border-gray-300 dark:border-gray-700 {uploadForm.mode ===
-            'existing'
-              ? 'bg-ch-blue/20 text-ch-blue'
-              : 'text-gray-500 hover:bg-gray-200/55 dark:hover:bg-gray-800/55'}"
-            onclick={() => (uploadForm = { ...uploadForm, mode: "existing" })}
-          >
-            Existing Table
-          </button>
-        </div>
-      </div>
+    <Panel title="Target" padding="sm">
+      {#snippet actions()}
+        <Tabs
+          variant="segmented"
+          size="sm"
+          items={[
+            { id: "new", label: "Create New Table" },
+            { id: "existing", label: "Existing Table" },
+          ]}
+          value={uploadForm.mode}
+          onchange={(id) =>
+            (uploadForm = { ...uploadForm, mode: id as UploadTargetMode })}
+        />
+      {/snippet}
 
       <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <div>
-          <div class="ds-form-label">Database</div>
+        <FormField label="Database">
           <Combobox
             options={databaseOptions}
             value={uploadForm.database}
             onChange={onUploadDatabaseChange}
             placeholder="Select database"
           />
-        </div>
+        </FormField>
 
         {#if uploadForm.mode === "new"}
-          <div>
-            <div class="ds-form-label">Table Name</div>
-            <input
-              class="ds-input"
+          <FormField label="Table Name">
+            <Input
               bind:value={uploadForm.tableName}
               placeholder="events_upload"
             />
-          </div>
-          <div>
-            <div class="ds-form-label">Engine</div>
+          </FormField>
+          <FormField label="Engine">
             <Combobox
               options={tableEngineOptions}
               value={uploadForm.engine}
@@ -1936,9 +1892,8 @@
                 (uploadForm = { ...uploadForm, engine: value })}
               placeholder="Select engine"
             />
-          </div>
-          <div>
-            <div class="ds-form-label">Cluster (optional)</div>
+          </FormField>
+          <FormField label="Cluster (optional)">
             <Combobox
               options={clusterOptions}
               value={uploadForm.onCluster}
@@ -1949,10 +1904,9 @@
                 : "No cluster"}
               disabled={clustersLoading}
             />
-          </div>
+          </FormField>
         {:else}
-          <div class="md:col-span-3">
-            <div class="ds-form-label">Target Table</div>
+          <FormField label="Target Table" class="md:col-span-3">
             <Combobox
               options={uploadTableOptions}
               value={uploadForm.existingTable}
@@ -1963,36 +1917,30 @@
                 : "Select table"}
               disabled={uploadTablesLoading || !uploadForm.database}
             />
-          </div>
+          </FormField>
         {/if}
       </div>
 
       {#if uploadForm.mode === "new"}
-        <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <div class="ds-form-label">ORDER BY</div>
-            <input
-              class="ds-input"
+        <div class="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <FormField label="ORDER BY">
+            <Input
               bind:value={uploadForm.orderBy}
               placeholder="tuple()"
             />
-          </div>
-          <div>
-            <div class="ds-form-label">PARTITION BY</div>
-            <input
-              class="ds-input"
+          </FormField>
+          <FormField label="PARTITION BY">
+            <Input
               bind:value={uploadForm.partitionBy}
               placeholder="toYYYYMM(created_at)"
             />
-          </div>
-          <div>
-            <div class="ds-form-label">PRIMARY KEY</div>
-            <input
-              class="ds-input"
+          </FormField>
+          <FormField label="PRIMARY KEY">
+            <Input
               bind:value={uploadForm.primaryKey}
               placeholder="id"
             />
-          </div>
+          </FormField>
           <div class="flex items-end pb-2">
             <label class="ds-checkbox-label">
               <input
@@ -2003,30 +1951,19 @@
               IF NOT EXISTS
             </label>
           </div>
-          <div class="md:col-span-2 lg:col-span-4">
-            <div class="ds-form-label">Table Comment (optional)</div>
-            <input
-              class="ds-input"
+          <FormField label="Table Comment (optional)" class="md:col-span-2 lg:col-span-4">
+            <Input
               bind:value={uploadForm.comment}
               placeholder="Uploaded dataset table"
             />
-          </div>
+          </FormField>
         </div>
       {/if}
-    </div>
+    </Panel>
 
-    <div class="ds-panel p-3 space-y-3">
-      <div class="flex items-center justify-between gap-2">
-        <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">
-          Discovered Columns
-        </h3>
-        <span class="text-[11px] text-gray-500"
-          >Edit inferred types before upload if needed.</span
-        >
-      </div>
-
+    <Panel title="Discovered Columns" description="Edit inferred types before upload if needed." padding="sm">
       {#if uploadColumns.length === 0}
-        <div class="text-xs text-gray-500">
+        <div class="text-xs text-fg-3">
           Run "Discover Schema" to populate columns.
         </div>
       {:else}
@@ -2043,8 +1980,8 @@
               {#each uploadColumns as col}
                 <tr class="ds-table-row-static">
                   <td class="py-2 px-3 align-top">
-                    <input
-                      class="ds-input-sm"
+                    <Input size="sm"
+                      
                       value={col.name}
                       oninput={(e) =>
                         updateUploadColumn(col.id, {
@@ -2065,7 +2002,7 @@
                     />
                   </td>
                   <td
-                    class="py-2 px-3 align-top text-xs text-gray-500 dark:text-gray-400"
+                    class="py-2 px-3 align-top text-xs text-fg-3"
                   >
                     <span class="line-clamp-2 break-all"
                       >{col.sample || "—"}</span
@@ -2077,70 +2014,67 @@
           </table>
         </div>
       {/if}
-    </div>
+    </Panel>
 
-    <div class="ds-panel-muted p-3">
-      <div class="text-xs font-medium text-gray-700 dark:text-gray-200 mb-1">
+    <Panel variant="muted" padding="sm">
+      <div class="text-xs font-medium text-fg-2 mb-1">
         Preview
       </div>
       {#if uploadPreviewRows.length === 0}
-        <div class="text-xs text-gray-500">No preview rows yet.</div>
+        <div class="text-xs text-fg-3">No preview rows yet.</div>
       {:else}
         <pre
-          class="text-[11px] max-h-40 overflow-auto whitespace-pre-wrap break-all text-gray-600 dark:text-gray-300">{JSON.stringify(
+          class="text-[11px] max-h-40 overflow-auto whitespace-pre-wrap break-all text-fg-2">{JSON.stringify(
             uploadPreviewRows.slice(0, 5),
             null,
             2,
           )}</pre>
       {/if}
-    </div>
+    </Panel>
 
     {#if uploadErrorMessage}
-      <div class="rounded-lg border border-red-200 dark:border-red-500/40 bg-red-50 dark:bg-red-500/10 p-3">
-        <div class="text-xs font-semibold text-red-700 dark:text-red-200 mb-1">Upload Error</div>
+      <div class="rounded-md bg-danger-soft p-3">
+        <div class="text-xs font-semibold text-danger mb-1">Upload Error</div>
         <pre
-          class="text-[11px] whitespace-pre-wrap break-words max-h-36 overflow-auto text-red-800 dark:text-red-100">{uploadErrorMessage}</pre>
+          class="text-[11px] whitespace-pre-wrap break-words max-h-36 overflow-auto text-fg-2">{uploadErrorMessage}</pre>
       </div>
     {/if}
 
     {#if uploadCreateSQL || uploadInsertSQL}
-      <div class="ds-panel p-3 space-y-2">
-        <div class="text-xs font-semibold text-gray-800 dark:text-gray-200">
-          Executed Commands
-        </div>
+      <Panel title="Executed Commands" padding="sm">
         {#if uploadCreateSQL}
-          <div>
-            <div class="text-[11px] text-gray-500 mb-1">CREATE TABLE</div>
+          <div class="mb-2">
+            <div class="text-[11px] text-fg-3 mb-1">CREATE TABLE</div>
             <pre
-              class="text-[11px] max-h-32 overflow-auto whitespace-pre-wrap break-all text-gray-600 dark:text-gray-300">{uploadCreateSQL}</pre>
+              class="text-[11px] max-h-32 overflow-auto whitespace-pre-wrap break-all text-fg-2">{uploadCreateSQL}</pre>
           </div>
         {/if}
         {#if uploadInsertSQL}
           <div>
-            <div class="text-[11px] text-gray-500 mb-1">
+            <div class="text-[11px] text-fg-3 mb-1">
               INSERT (sample/batch)
             </div>
             <pre
-              class="text-[11px] max-h-32 overflow-auto whitespace-pre-wrap break-all text-gray-600 dark:text-gray-300">{uploadInsertSQL}</pre>
+              class="text-[11px] max-h-32 overflow-auto whitespace-pre-wrap break-all text-fg-2">{uploadInsertSQL}</pre>
           </div>
         {/if}
-      </div>
+      </Panel>
     {/if}
 
     <div class="flex items-center justify-end gap-2 pt-1">
-      <button
-        type="button"
-        class="ds-btn-outline"
-        onclick={() => (uploadSheetOpen = false)}>Cancel</button
+      <Button
+        variant="outline"
+        size="sm"
+        onclick={() => (uploadSheetOpen = false)}>Cancel</Button
       >
-      <button
+      <Button
         type="submit"
-        class="ds-btn-primary"
+        size="sm"
         disabled={uploadSubmitting || uploadDiscovering}
       >
         <Upload size={14} />
         {uploadSubmitting ? "Uploading..." : "Upload Data"}
-      </button>
+      </Button>
     </div>
   </form>
 </Sheet>
@@ -2159,9 +2093,9 @@
     }}
   >
     <div
-      class="rounded-lg border border-red-200 dark:border-red-500/40 bg-red-50 dark:bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-200 flex items-start gap-2"
+      class="rounded-md bg-danger-soft p-3 text-[13px] text-fg flex items-start gap-2"
     >
-      <AlertTriangle size={16} class="mt-0.5 text-red-500 dark:text-red-400" />
+      <AlertTriangle size={16} class="mt-0.5 text-danger" />
       <div>
         This will permanently delete <strong
           >{deleteTableForm.database}.{deleteTableForm.name}</strong
@@ -2170,8 +2104,7 @@
     </div>
 
     <div class="grid gap-4 md:grid-cols-2">
-      <div>
-        <div class="ds-form-label">Cluster (optional)</div>
+      <FormField label="Cluster (optional)">
         <Combobox
           options={clusterOptions}
           value={deleteTableForm.onCluster}
@@ -2180,7 +2113,7 @@
           placeholder={clustersLoading ? "Loading clusters..." : "No cluster"}
           disabled={clustersLoading}
         />
-      </div>
+      </FormField>
       <div class="flex items-end pb-2">
         <label class="ds-checkbox-label">
           <input
@@ -2193,31 +2126,30 @@
       </div>
     </div>
 
-    <div>
-      <div class="ds-form-label">Type full name to confirm</div>
-      <input
-        class="ds-input"
+    <FormField label="Type full name to confirm">
+      <Input
         bind:value={deleteTableForm.typedName}
         placeholder={`${deleteTableForm.database}.${deleteTableForm.name}`}
       />
-    </div>
+    </FormField>
 
     <div class="flex items-center justify-end gap-2 pt-1">
-      <button
-        type="button"
-        class="ds-btn-outline"
-        onclick={() => (deleteTableSheetOpen = false)}>Cancel</button
+      <Button
+        variant="outline"
+        size="sm"
+        onclick={() => (deleteTableSheetOpen = false)}>Cancel</Button
       >
-      <button
+      <Button
         type="submit"
-        class="inline-flex items-center justify-center gap-1.5 rounded px-3 py-1.5 text-[13px] font-medium text-white bg-red-600 border border-red-500 transition-colors hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
+        variant="danger"
+        size="sm"
         disabled={deleteTableSubmitting ||
           deleteTableForm.typedName.trim() !==
             `${deleteTableForm.database}.${deleteTableForm.name}`}
       >
         <Trash2 size={14} />
         {deleteTableSubmitting ? "Deleting..." : "Delete Table"}
-      </button>
+      </Button>
     </div>
   </form>
 </Sheet>

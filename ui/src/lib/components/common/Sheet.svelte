@@ -2,16 +2,20 @@
   import type { Snippet } from 'svelte'
   import { fly, fade } from 'svelte/transition'
   import { X } from 'lucide-svelte'
+  import Button from './Button.svelte'
+  import { trapFocus } from '../../utils/focus-trap'
 
   interface Props {
     open: boolean
     title?: string
+    description?: string
     size?: 'sm' | 'md' | 'lg' | 'xl'
     onclose: () => void
     children: Snippet
+    footer?: Snippet
   }
 
-  let { open, title = '', size = 'md', onclose, children }: Props = $props()
+  let { open, title = '', description = '', size = 'md', onclose, children, footer }: Props = $props()
 
   const sizeClasses: Record<string, string> = {
     sm: 'max-w-md',
@@ -19,41 +23,48 @@
     lg: 'max-w-3xl',
     xl: 'max-w-6xl',
   }
+  const titleId = `sheet-title-${Math.random().toString(36).slice(2, 8)}`
 
   function handleKeydown(e: KeyboardEvent) {
-    if (!open) return
-    if (e.key === 'Escape') onclose()
+    if (open && e.key === 'Escape') onclose()
   }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-  <!-- Backdrop -->
-  <div
-    class="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
-    onclick={onclose}
-    role="presentation"
-    transition:fade={{ duration: 150 }}
-  ></div>
+  <div class="fixed inset-0 z-40 bg-black/50" onclick={onclose} role="presentation" transition:fade={{ duration: 120 }}></div>
 
-  <!-- Sheet -->
   <div
-    class="fixed inset-y-0 right-0 z-50 w-full {sizeClasses[size]} flex flex-col bg-gray-50/95 dark:bg-gray-900/95 backdrop-blur-xl border-l border-gray-200/80 dark:border-gray-800/80 shadow-2xl"
+    class="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-edge bg-elevated {sizeClasses[size]}"
+    style="box-shadow: var(--shadow-modal)"
     role="dialog"
     aria-modal="true"
-    transition:fly={{ x: 300, duration: 200 }}
+    aria-labelledby={title ? titleId : undefined}
+    tabindex="-1"
+    use:trapFocus
+    transition:fly={{ x: 320, duration: 180 }}
   >
     {#if title}
-      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-800 shrink-0">
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
-        <button class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" onclick={onclose}>
-          <X size={18} />
-        </button>
+      <div class="flex shrink-0 items-start justify-between gap-4 border-b border-edge-subtle px-5 py-4">
+        <div class="min-w-0">
+          <h2 id={titleId} class="text-[15px] font-semibold text-fg">{title}</h2>
+          {#if description}
+            <p class="mt-0.5 text-[13px] text-fg-3">{description}</p>
+          {/if}
+        </div>
+        <Button icon variant="ghost" size="sm" class="-mr-1.5 -mt-1" onclick={onclose} aria-label="Close">
+          <X size={15} />
+        </Button>
       </div>
     {/if}
-    <div class="flex-1 overflow-auto p-5">
+    <div class="min-h-0 flex-1 overflow-auto p-5">
       {@render children()}
     </div>
+    {#if footer}
+      <div class="flex shrink-0 items-center justify-end gap-2 border-t border-edge-subtle px-5 py-3">
+        {@render footer()}
+      </div>
+    {/if}
   </div>
 {/if}

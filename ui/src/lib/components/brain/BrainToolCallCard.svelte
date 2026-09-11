@@ -159,16 +159,16 @@
   }
   function statusClass(s?: string): string {
     switch (s) {
-      case 'pending_approval': return 'text-amber-500'
-      case 'error': return 'text-red-500'
+      case 'pending_approval': return 'text-warning'
+      case 'error': return 'text-danger'
       case 'declined': return 'text-muted-foreground'
-      case 'success': default: return 'text-green-500'
+      case 'success': default: return 'text-success'
     }
   }
 </script>
 
 <div
-  class="w-full {compact ? 'mb-1' : 'mb-2'} rounded-lg border bg-card/60 text-xs overflow-hidden {isApproval ? 'border-amber-500/40 bg-amber-500/5' : 'border-border'}"
+  class="w-full {compact ? 'mb-1' : 'mb-2'} rounded-lg border bg-card/60 text-xs overflow-hidden {isApproval ? 'border-warning/40 bg-warning-soft' : 'border-edge-subtle'}"
 >
   <button
     type="button"
@@ -189,9 +189,9 @@
       <span class="text-muted-foreground truncate">{summary}</span>
     {/if}
     {#if isApproval}
-      <span class="ml-auto text-[10px] uppercase tracking-wide text-amber-600 font-semibold">Needs approval</span>
+      <span class="ml-auto text-[10px] uppercase tracking-wide text-warning font-semibold">Needs approval</span>
     {:else if localDecision === 'approved' && effectiveStatus === 'pending'}
-      <span class="ml-auto text-[10px] uppercase tracking-wide text-ch-blue font-semibold">Running…</span>
+      <span class="ml-auto text-[10px] uppercase tracking-wide text-accent font-semibold">Running…</span>
     {:else if localDecision === 'declined' && effectiveStatus === 'declined'}
       <span class="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Declined</span>
     {:else}
@@ -202,7 +202,7 @@
   </button>
 
   {#if isApproval}
-    <div class="border-t border-amber-500/30 px-3 py-2 flex flex-wrap items-center gap-2">
+    <div class="border-t border-warning/30 px-3 py-2 flex flex-wrap items-center gap-2">
       <p class="text-[11px] text-muted-foreground flex-1 min-w-0">
         Brain wants to <strong class="text-foreground">{label.toLowerCase()}</strong>. Review the details and approve to run.
       </p>
@@ -216,14 +216,14 @@
         type="button"
         onclick={onApprove}
         disabled={deciding}
-        class="px-3 py-1 rounded-md text-[11px] font-medium bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-50"
+        class="px-3 py-1 rounded-md text-[11px] font-medium bg-warning hover:brightness-110 text-white disabled:opacity-50"
       >Approve</button>
     </div>
   {/if}
 
   {#if openUrl && effectiveStatus === 'success' && isWrite}
     <div class="border-t border-border px-3 py-2 bg-background/50">
-      <a href={openUrl} class="text-[11px] text-ch-blue hover:underline">Open →</a>
+      <a href={openUrl} class="text-[11px] text-accent hover:underline">Open →</a>
     </div>
   {/if}
 

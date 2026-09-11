@@ -137,18 +137,18 @@
 
   function statusBadgeClass(status: string): string {
     switch (status) {
-      case 'success': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-      case 'error': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-      case 'running': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-      default: return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+      case 'success': return 'bg-success-soft text-success'
+      case 'error': return 'bg-danger-soft text-danger'
+      case 'running': return 'bg-info-soft text-info'
+      default: return 'bg-surface-2 text-fg-2 '
     }
   }
 
   function statusDot(status: string): string {
     switch (status) {
-      case 'success': return 'bg-green-500'
-      case 'error': return 'bg-red-500'
-      default: return 'bg-gray-400'
+      case 'success': return 'bg-success'
+      case 'error': return 'bg-danger'
+      default: return 'bg-fg-4'
     }
   }
 
@@ -178,52 +178,52 @@
 
 <div class="flex flex-col h-full overflow-hidden" bind:this={containerEl}>
   <!-- Config toolbar -->
-  <div class="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 shrink-0 flex-wrap">
+  <div class="flex items-center gap-2 px-3 py-2 border-b border-edge-subtle bg-surface shrink-0 flex-wrap">
     <input
       type="text"
       value={tab.edit.modelName}
       oninput={(e) => updateModelTabEdit(tab.id, { modelName: (e.target as HTMLInputElement).value })}
-      class="text-sm font-semibold bg-transparent border-0 border-b border-transparent hover:border-gray-300 dark:hover:border-gray-600 focus:border-orange-400 focus:outline-none text-gray-800 dark:text-gray-200 px-1 py-0.5 min-w-[120px] max-w-[200px]"
+      class="text-sm font-semibold bg-transparent border-0 border-b border-transparent hover:border-edge focus:border-accent focus:outline-none text-fg px-1 py-0.5 min-w-[120px] max-w-[200px]"
       placeholder="model_name"
     />
-    <span class="text-gray-300 dark:text-gray-600">|</span>
-    <label for="model-target-db-{tab.id}" class="text-[10px] text-gray-400 uppercase tracking-wide">db</label>
+    <span class="text-fg-4">|</span>
+    <label for="model-target-db-{tab.id}" class="text-[10px] text-fg-4 uppercase tracking-wide">db</label>
     <input
       id="model-target-db-{tab.id}"
       type="text"
       value={tab.edit.targetDatabase}
       oninput={(e) => updateModelTabEdit(tab.id, { targetDatabase: (e.target as HTMLInputElement).value })}
-      class="text-xs bg-transparent border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 w-24 text-gray-700 dark:text-gray-300 focus:border-orange-400 focus:outline-none"
+      class="text-xs bg-transparent border border-edge rounded px-1.5 py-0.5 w-24 text-fg-2 focus:border-accent focus:outline-none"
     />
-    <span class="text-gray-300 dark:text-gray-600">|</span>
+    <span class="text-fg-4">|</span>
     <!-- Materialization toggle -->
-    <div class="flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden">
+    <div class="flex rounded border border-edge overflow-hidden">
       <button
         onclick={() => updateModelTabEdit(tab.id, { materialization: 'view' })}
         class="flex items-center gap-1 text-[10px] px-2 py-0.5 transition-colors
-          {tab.edit.materialization === 'view'
-            ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400'
-            : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+ {tab.edit.materialization === 'view'
+            ? 'bg-accent-soft text-accent'
+            : 'text-fg-3 hover:bg-hover'}"
       >
         <Eye size={11} /> View
       </button>
       <button
         onclick={() => updateModelTabEdit(tab.id, { materialization: 'table' })}
-        class="flex items-center gap-1 text-[10px] px-2 py-0.5 border-l border-gray-300 dark:border-gray-600 transition-colors
-          {tab.edit.materialization === 'table'
-            ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400'
-            : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+        class="flex items-center gap-1 text-[10px] px-2 py-0.5 border-l border-edge transition-colors
+ {tab.edit.materialization === 'table'
+            ? 'bg-accent-soft text-accent'
+            : 'text-fg-3 hover:bg-hover'}"
       >
         <Table2 size={11} /> Table
       </button>
     </div>
 
     {#if tab.edit.materialization === 'table'}
-      <span class="text-gray-300 dark:text-gray-600">|</span>
+      <span class="text-fg-4">|</span>
       <select
         value={tab.edit.tableEngine}
         onchange={(e) => updateModelTabEdit(tab.id, { tableEngine: (e.target as HTMLSelectElement).value })}
-        class="text-[10px] bg-transparent border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-gray-700 dark:text-gray-300 focus:outline-none"
+        class="text-[10px] bg-transparent border border-edge rounded px-1 py-0.5 text-fg-2 focus:outline-none"
       >
         <option value="MergeTree">MergeTree</option>
         <option value="ReplacingMergeTree">ReplacingMergeTree</option>
@@ -236,7 +236,7 @@
         value={tab.edit.orderBy}
         oninput={(e) => updateModelTabEdit(tab.id, { orderBy: (e.target as HTMLInputElement).value })}
         placeholder="ORDER BY"
-        class="text-[10px] bg-transparent border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 w-24 text-gray-700 dark:text-gray-300 focus:border-orange-400 focus:outline-none"
+        class="text-[10px] bg-transparent border border-edge rounded px-1.5 py-0.5 w-24 text-fg-2 focus:border-accent focus:outline-none"
       />
     {/if}
 
@@ -244,7 +244,7 @@
 
     <button
       onclick={() => { showDescription = !showDescription }}
-      class="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-0.5 transition-colors"
+      class="text-[10px] text-fg-4 hover:text-fg flex items-center gap-0.5 transition-colors"
       title="Toggle description"
     >
       <FileText size={11} />
@@ -253,7 +253,7 @@
     <button
       onclick={handleRun}
       disabled={running}
-      class="flex items-center gap-1 text-[10px] px-2 py-1 rounded text-gray-500 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 disabled:opacity-40 transition-colors"
+      class="flex items-center gap-1 text-[10px] px-2 py-1 rounded text-fg-3 hover:text-success hover:bg-success-soft disabled:opacity-40 transition-colors"
       title="Run this model"
     >
       <Play size={12} /> {running ? 'Running...' : 'Run'}
@@ -261,7 +261,7 @@
     <button
       onclick={handleSave}
       disabled={saving}
-      class="flex items-center gap-1 text-[10px] px-2.5 py-1 rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 transition-colors font-medium"
+      class="flex items-center gap-1 text-[10px] px-2.5 py-1 rounded bg-accent text-accent-fg hover:brightness-110 disabled:opacity-50 transition-colors font-medium"
     >
       <Save size={12} /> {saving ? 'Saving...' : 'Save'}
     </button>
@@ -269,21 +269,21 @@
 
   <!-- Description (collapsible) -->
   {#if showDescription}
-    <div class="px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 shrink-0">
+    <div class="px-3 py-1.5 border-b border-edge-subtle bg-surface shrink-0">
       <textarea
         value={tab.edit.description}
         oninput={(e) => updateModelTabEdit(tab.id, { description: (e.target as HTMLTextAreaElement).value })}
         rows={2}
         placeholder="Model description (optional)"
-        class="w-full text-xs bg-transparent border-0 focus:outline-none text-gray-600 dark:text-gray-400 resize-none placeholder:text-gray-300 dark:placeholder:text-gray-600"
+        class="w-full text-xs bg-transparent border-0 focus:outline-none text-fg-2 resize-none placeholder:text-fg-4"
       ></textarea>
     </div>
   {/if}
 
   <!-- Info hint -->
-  <div class="px-3 py-1 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 shrink-0">
-    <div class="flex items-center gap-2 text-[10px] text-gray-400 dark:text-gray-500">
-      <span>Use <code class="px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-700 font-mono">$ref(model_name)</code> to reference other models</span>
+  <div class="px-3 py-1 border-b border-edge-subtle bg-surface shrink-0">
+    <div class="flex items-center gap-2 text-[10px] text-fg-4">
+      <span>Use <code class="px-1 py-0.5 rounded bg-surface-2 font-mono">$ref(model_name)</code> to reference other models</span>
       <span class="opacity-40">|</span>
       <span>View = computed on read, Table = snapshot on run</span>
     </div>
@@ -303,16 +303,16 @@
   <!-- Drag handle -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="h-1 shrink-0 cursor-row-resize group flex items-center justify-center hover:bg-ch-blue/20 transition-colors {dragging ? 'bg-ch-blue/30' : 'bg-gray-200 dark:bg-gray-800'}"
+    class="h-1 shrink-0 cursor-row-resize group flex items-center justify-center hover:bg-ch-orange/20 transition-colors {dragging ? 'bg-ch-orange/30' : 'bg-surface-2'}"
     onmousedown={onDragStart}
   >
-    <div class="w-8 h-0.5 rounded-full {dragging ? 'bg-ch-blue' : 'bg-gray-600 group-hover:bg-ch-blue/60'} transition-colors"></div>
+    <div class="w-8 h-0.5 rounded-full {dragging ? 'bg-accent' : 'bg-fg-4 group-hover:bg-accent/60'} transition-colors"></div>
   </div>
 
   <!-- Run Output Panel -->
-  <div class="flex-1 min-h-[60px] overflow-auto bg-gray-50 dark:bg-gray-900/50">
+  <div class="flex-1 min-h-[60px] overflow-auto bg-surface">
     {#if running || runLoading}
-      <div class="flex items-center justify-center h-full gap-2 text-gray-400 text-sm">
+      <div class="flex items-center justify-center h-full gap-2 text-fg-4 text-sm">
         <Loader2 size={16} class="animate-spin" />
         <span>Running model...</span>
       </div>
@@ -322,43 +322,43 @@
         <div class="flex items-center gap-3">
           <span class="shrink-0">
             {#if runResult.status === 'success'}
-              <CheckCircle size={16} class="text-green-500" />
+              <CheckCircle size={16} class="text-success" />
             {:else if runResult.status === 'error'}
-              <XCircle size={16} class="text-red-500" />
+              <XCircle size={16} class="text-danger" />
             {:else}
-              <Clock size={16} class="text-blue-400" />
+              <Clock size={16} class="text-info" />
             {/if}
           </span>
           <span class="text-[10px] px-2 py-0.5 rounded-full {statusBadgeClass(runResult.status)} font-medium uppercase tracking-wide">
             {runResult.status}
           </span>
-          <span class="text-xs text-gray-500 dark:text-gray-400">{runResult.elapsed_ms}ms</span>
+          <span class="text-xs text-fg-3">{runResult.elapsed_ms}ms</span>
           {#if runResult.finished_at}
-            <span class="text-[10px] text-gray-400 ml-auto">{new Date(runResult.finished_at).toLocaleString()}</span>
+            <span class="text-[10px] text-fg-4 ml-auto">{new Date(runResult.finished_at).toLocaleString()}</span>
           {/if}
         </div>
 
         <!-- Error message -->
         {#if runResult.error}
-          <div class="flex items-start gap-2 px-3 py-2 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-            <AlertCircle size={14} class="text-red-500 shrink-0 mt-0.5" />
-            <pre class="text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-all flex-1">{runResult.error}</pre>
+          <div class="flex items-start gap-2 px-3 py-2 rounded-md bg-danger-soft">
+            <AlertCircle size={14} class="text-danger shrink-0 mt-0.5" />
+            <pre class="text-xs text-danger whitespace-pre-wrap break-all flex-1">{runResult.error}</pre>
           </div>
         {/if}
 
         <!-- Resolved SQL -->
         {#if runResult.resolved_sql}
           <div class="space-y-1">
-            <div class="flex items-center gap-1.5 text-[10px] text-gray-400 uppercase tracking-wide font-medium">
+            <div class="flex items-center gap-1.5 text-[10px] text-fg-4 uppercase tracking-wide font-medium">
               <Code size={11} />
               <span>Resolved SQL</span>
             </div>
-            <pre class="text-xs font-mono text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 rounded p-3 overflow-auto max-h-48 whitespace-pre-wrap break-all">{runResult.resolved_sql}</pre>
+            <pre class="text-xs font-mono text-fg-2 bg-surface-2 rounded p-3 overflow-auto max-h-48 whitespace-pre-wrap break-all">{runResult.resolved_sql}</pre>
           </div>
         {/if}
       </div>
     {:else}
-      <div class="flex items-center justify-center h-full text-gray-400 dark:text-gray-500 text-sm">
+      <div class="flex items-center justify-center h-full text-fg-4 text-sm">
         Run this model to see results
       </div>
     {/if}
