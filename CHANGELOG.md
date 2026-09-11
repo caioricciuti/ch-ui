@@ -5,19 +5,34 @@ All notable changes to CH-UI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.11.1] - 2026-09-11
+
+Audit coverage for background work, and docs that point at the docs site.
+No dependency changes.
+
+### Security
+
+- **Every background credential borrow is audited.** Schedules, models, the
+  pipelines sink, the governance syncer, the Cluster Health harvester and
+  telemetry monitors run with the ClickHouse credentials of an active
+  session on the connection. Only the governance syncer used to write an
+  audit row for that; the other five borrowed silently. All six now share
+  one lookup that audits each borrow as `<worker>.credential_borrow`
+  (`schedule`, `model`, `pipeline`, `governance`, `cluster_health`,
+  `telemetry.monitor`), at most once per worker and connection per hour.
+  Which session gets borrowed is unchanged (#168).
 
 ### Fixed
 
 - In-app documentation links (the Telemetry setup guide, the can't-login help
   and the license policy) and the MCP OAuth metadata
   (`resource_documentation`, `service_documentation`) point at
-  ch-ui.com/docs instead of GitHub blob URLs.
+  ch-ui.com/docs instead of GitHub blob URLs (#167).
 - The alert rule validation error lists `telemetry.monitor` as an accepted
-  `event_type`. The check itself already accepted it.
+  `event_type`. The check itself already accepted it (#167).
 - `docs/telemetry.md` corrected against the code: how monitors borrow
   credentials, query history, the real query limits, when a monitor raises
-  an alert, and the aggregations each metric type offers.
+  an alert, and the aggregations each metric type offers (#167).
 
 ## [2.11.0] - 2026-09-11
 
