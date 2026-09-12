@@ -60,6 +60,8 @@
     style="background-color: {value}"
     onclick={toggle}
     type="button"
+    aria-label="Choose color"
+    title={value}
   ></button>
 
   {#if open}

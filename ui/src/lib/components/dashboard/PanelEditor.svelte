@@ -472,7 +472,7 @@
         {#if chartType === 'stat' || chartType === 'gauge'}
           <!-- Field selector -->
           <div>
-            <label class="block text-xs font-medium text-fg-2 mb-1">Field</label>
+            <span class="block text-xs font-medium text-fg-2 mb-1">Field</span>
             <Combobox
               options={[
                 { value: '', label: 'Auto (first numeric)' },
@@ -486,8 +486,8 @@
 
           <!-- Calculation -->
           <div>
-            <label class="block text-xs font-medium text-fg-2 mb-1">Calculation</label>
-            <div class="grid grid-cols-4 gap-1">
+            <span id="panel-stat-calc-label" class="block text-xs font-medium text-fg-2 mb-1">Calculation</span>
+            <div class="grid grid-cols-4 gap-1" role="group" aria-labelledby="panel-stat-calc-label">
               {#each ['last', 'first', 'mean', 'sum', 'min', 'max', 'count', 'range'] as calc}
                 <button
                   class="py-1.5 px-1 rounded text-[11px] font-medium border transition-colors
@@ -504,7 +504,7 @@
 
           <!-- Unit -->
           <div>
-            <label class="block text-xs font-medium text-fg-2 mb-1">Unit</label>
+            <span class="block text-xs font-medium text-fg-2 mb-1">Unit</span>
             <Combobox
               options={[
                 { value: 'none', label: 'None' },
@@ -524,8 +524,9 @@
           <!-- Prefix / Suffix / Decimals row -->
           <div class="grid grid-cols-3 gap-2">
             <div>
-              <label class="block text-xs font-medium text-fg-2 mb-1">Prefix</label>
+              <label for="panel-stat-prefix" class="block text-xs font-medium text-fg-2 mb-1">Prefix</label>
               <input
+                id="panel-stat-prefix"
                 type="text"
                 class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
                 placeholder="$"
@@ -533,8 +534,9 @@
               />
             </div>
             <div>
-              <label class="block text-xs font-medium text-fg-2 mb-1">Suffix</label>
+              <label for="panel-stat-suffix" class="block text-xs font-medium text-fg-2 mb-1">Suffix</label>
               <input
+                id="panel-stat-suffix"
                 type="text"
                 class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
                 placeholder="%"
@@ -542,8 +544,9 @@
               />
             </div>
             <div>
-              <label class="block text-xs font-medium text-fg-2 mb-1">Decimals</label>
+              <label for="panel-stat-decimals" class="block text-xs font-medium text-fg-2 mb-1">Decimals</label>
               <input
+                id="panel-stat-decimals"
                 type="number"
                 min="0"
                 max="10"
@@ -560,8 +563,8 @@
 
           <!-- Color mode -->
           <div>
-            <label class="block text-xs font-medium text-fg-2 mb-1">Color Mode</label>
-            <div class="grid grid-cols-3 gap-1">
+            <span id="panel-stat-colormode-label" class="block text-xs font-medium text-fg-2 mb-1">Color Mode</span>
+            <div class="grid grid-cols-3 gap-1" role="group" aria-labelledby="panel-stat-colormode-label">
               {#each [
                 { value: 'none', label: 'None' },
                 { value: 'value', label: 'Value' },
@@ -584,7 +587,7 @@
           {#if statColorMode !== 'none'}
             <div>
               <div class="flex items-center justify-between mb-1">
-                <label class="text-xs font-medium text-fg-2">Thresholds</label>
+                <span class="text-xs font-medium text-fg-2">Thresholds</span>
                 <button
                   class="flex items-center gap-0.5 text-[11px] text-accent hover:underline transition-colors"
                   onclick={() => {
@@ -638,16 +641,18 @@
           {#if chartType === 'gauge'}
             <div class="grid grid-cols-2 gap-2">
               <div>
-                <label class="block text-xs font-medium text-fg-2 mb-1">Min</label>
+                <label for="panel-gauge-min" class="block text-xs font-medium text-fg-2 mb-1">Min</label>
                 <input
+                  id="panel-gauge-min"
                   type="number"
                   class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
                   bind:value={gaugeMin}
                 />
               </div>
               <div>
-                <label class="block text-xs font-medium text-fg-2 mb-1">Max</label>
+                <label for="panel-gauge-max" class="block text-xs font-medium text-fg-2 mb-1">Max</label>
                 <input
+                  id="panel-gauge-max"
                   type="number"
                   class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
                   bind:value={gaugeMax}
@@ -660,7 +665,7 @@
         <!-- Pie config -->
         {#if chartType === 'pie'}
           <div>
-            <label class="block text-xs font-medium text-fg-2 mb-1">Label Column</label>
+            <span class="block text-xs font-medium text-fg-2 mb-1">Label Column</span>
             <Combobox
               options={[
                 { value: '', label: 'Auto (first string)' },
@@ -672,7 +677,7 @@
             />
           </div>
           <div>
-            <label class="block text-xs font-medium text-fg-2 mb-1">Value Column</label>
+            <span class="block text-xs font-medium text-fg-2 mb-1">Value Column</span>
             <Combobox
               options={[
                 { value: '', label: 'Auto (first numeric)' },
@@ -701,8 +706,8 @@
           <!-- Bar mode toggle -->
           {#if chartType === 'bar'}
             <div>
-              <label class="block text-xs font-medium text-fg-2 mb-1">Bar Mode</label>
-              <div class="grid grid-cols-2 gap-1">
+              <span id="panel-bar-mode-label" class="block text-xs font-medium text-fg-2 mb-1">Bar Mode</span>
+              <div class="grid grid-cols-2 gap-1" role="group" aria-labelledby="panel-bar-mode-label">
                 {#each [{ value: 'grouped', label: 'Grouped' }, { value: 'stacked', label: 'Stacked' }] as bm}
                   <button
                     class="py-1.5 rounded text-[11px] font-medium border transition-colors
