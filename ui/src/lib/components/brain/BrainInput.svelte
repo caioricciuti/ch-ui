@@ -312,6 +312,7 @@
       class="brain-editable flex-1 text-sm bg-transparent border border-edge rounded-lg px-3 py-2 text-fg min-h-[44px] max-h-[200px] overflow-auto focus:outline-none focus:border-accent/50 transition-colors"
       contenteditable={!streaming}
       role="textbox"
+      tabindex="0"
       data-placeholder="Ask Brain about your data... (type @ to mention tables, dashboards, pipelines, models)"
       oninput={handleInput}
       onkeydown={handleKeydown}
