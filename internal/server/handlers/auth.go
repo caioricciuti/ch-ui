@@ -133,17 +133,34 @@ func userRateLimitKey(username, connectionID string) string {
 	return fmt.Sprintf("user:%s:%s", normalizeRateLimitUsername(username), strings.TrimSpace(connectionID))
 }
 
-func sanitizeClickHouseAuthMessage(raw string) string {
+// chAuthErrorKind classifies the error behind a failed login attempt. The
+// agent reports a password ClickHouse rejected and a ClickHouse it never
+// reached through the same channel (handleTestResult sends both to
+// ErrorCh), so the login handler has to tell them apart before it counts an
+// attempt against the rate limiter.
+type chAuthErrorKind int
+
+const (
+	// chAuthRejected: ClickHouse answered and said no.
+	chAuthRejected chAuthErrorKind = iota
+	// chAuthUnreachable: no answer at all. Not evidence of a bad password.
+	chAuthUnreachable
+	// chAuthUnknown: could not tell. Treated as a rejection, so an
+	// unrecognised message can never be used to dodge the lockout.
+	chAuthUnknown
+)
+
+func classifyClickHouseAuthError(raw string) chAuthErrorKind {
 	msg := strings.ToLower(strings.TrimSpace(raw))
 	if msg == "" {
-		return "Invalid credentials"
+		return chAuthRejected
 	}
 	if strings.Contains(msg, "auth") ||
 		strings.Contains(msg, "credential") ||
 		strings.Contains(msg, "password") ||
 		strings.Contains(msg, "unauthorized") ||
 		strings.Contains(msg, "access denied") {
-		return "Invalid credentials"
+		return chAuthRejected
 	}
 	if strings.Contains(msg, "timeout") ||
 		strings.Contains(msg, "deadline") ||
@@ -151,10 +168,26 @@ func sanitizeClickHouseAuthMessage(raw string) string {
 		strings.Contains(msg, "no route") ||
 		strings.Contains(msg, "connection reset") ||
 		strings.Contains(msg, "network") ||
-		strings.Contains(msg, "tls") {
-		return "Connection to ClickHouse failed"
+		strings.Contains(msg, "tls") ||
+		strings.Contains(msg, "tunnel") ||
+		strings.Contains(msg, "not connected") ||
+		strings.Contains(msg, "disconnected") ||
+		strings.Contains(msg, "unreachable") ||
+		strings.Contains(msg, "connection test failed") {
+		return chAuthUnreachable
 	}
-	return "Authentication failed"
+	return chAuthUnknown
+}
+
+func sanitizeClickHouseAuthMessage(raw string) string {
+	switch classifyClickHouseAuthError(raw) {
+	case chAuthRejected:
+		return "Invalid credentials"
+	case chAuthUnreachable:
+		return "Connection to ClickHouse failed"
+	default:
+		return "Authentication failed"
+	}
 }
 
 func shouldUseSecureCookie(r *http.Request, cfg *config.Config) bool {
@@ -296,10 +329,24 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// --- Test ClickHouse credentials ---
 	testResult, err := h.Gateway.TestConnection(conn.ID, req.Username, req.Password, 15*time.Second)
 	if err != nil {
+		// A ClickHouse that never answered is not a failed password.
+		// Counting it locks a healthy account out for RateLimitWindow
+		// every time the database, the agent or the network hiccups.
+		// Rejections and anything unrecognised still count.
+		if classifyClickHouseAuthError(err.Error()) == chAuthUnreachable {
+			slog.Info("Login aborted: ClickHouse unreachable", "user", req.Username, "error", err)
+			h.auditLoginFailure(req.Username, conn, clientIP, "clickhouse unreachable")
+			writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+				"success": false,
+				"error":   "Connection error",
+				"message": sanitizeClickHouseAuthMessage(err.Error()),
+			})
+			return
+		}
 		h.RateLimiter.RecordAttempt(ipKey, "ip")
 		h.RateLimiter.RecordAttempt(userKey, "user")
-		slog.Info("Login failed: connection test error", "user", req.Username, "error", err)
-		h.auditLoginFailure(req.Username, conn, clientIP, "connection test error")
+		slog.Info("Login failed: credentials rejected", "user", req.Username, "error", err)
+		h.auditLoginFailure(req.Username, conn, clientIP, "invalid credentials")
 		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 			"success": false,
 			"error":   "Authentication failed",
