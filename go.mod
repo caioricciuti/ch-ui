@@ -1,13 +1,11 @@
 module github.com/caioricciuti/ch-ui
 
-go 1.25.14
-
-// Build with 1.26.6 or newer. go1.26 through go1.26.5 carry four standard
-// library vulnerabilities govulncheck reports against this code:
-// GO-2026-6218 (net/url), GO-2026-6090 (crypto/tls), GO-2026-6089 and
-// GO-2026-6088 (net/http). The `go` directive above stays at 1.25.14 so the
-// module still builds with a 1.25 toolchain if someone pins one deliberately.
-toolchain go1.26.6
+// 1.26.6, not 1.26.0: go1.26 through go1.26.5 carry four standard library
+// vulnerabilities govulncheck reports against this code, GO-2026-6218
+// (net/url), GO-2026-6090 (crypto/tls), GO-2026-6089 and GO-2026-6088
+// (net/http). CI runs the scan with GOTOOLCHAIN=local and installs exactly
+// what this line names, so the patch version has to be spelled out here.
+go 1.26.6
 
 require (
 	github.com/IBM/sarama v1.60.2
