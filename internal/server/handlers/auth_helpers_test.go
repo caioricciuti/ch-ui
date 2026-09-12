@@ -36,3 +36,34 @@ func TestSanitizeClickHouseAuthMessage(t *testing.T) {
 		})
 	}
 }
+
+// TestClassifyClickHouseAuthError pins down which failures count against the
+// login rate limiter. The agent reports a rejected password and an
+// unreachable ClickHouse the same way, so only the clearly unreachable ones
+// may skip the counter: everything else, including messages we do not
+// recognise, has to count or the lockout can be dodged.
+func TestClassifyClickHouseAuthError(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want chAuthErrorKind
+	}{
+		{name: "clickhouse rejected", raw: "Code: 516. DB::Exception: default: Authentication failed", want: chAuthRejected},
+		{name: "access denied", raw: "Access denied for user", want: chAuthRejected},
+		{name: "empty", raw: "", want: chAuthRejected},
+		{name: "refused", raw: "dial tcp 127.0.0.1:8123: connection refused", want: chAuthUnreachable},
+		{name: "tunnel offline", raw: "tunnel not connected", want: chAuthUnreachable},
+		{name: "tunnel dropped", raw: "tunnel disconnected", want: chAuthUnreachable},
+		{name: "timeout", raw: "connection test timeout", want: chAuthUnreachable},
+		{name: "generic agent failure", raw: "Connection test failed", want: chAuthUnreachable},
+		{name: "unrecognised counts", raw: "unexpected upstream response", want: chAuthUnknown},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := classifyClickHouseAuthError(tc.raw); got != tc.want {
+				t.Fatalf("classify(%q) = %v, want %v", tc.raw, got, tc.want)
+			}
+		})
+	}
+}

@@ -5,6 +5,18 @@ All notable changes to CH-UI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **An unreachable ClickHouse locked people out of their own account.** A
+  failed connection test counted against the login rate limiter exactly like
+  a wrong password, so a database, agent or network outage burned through the
+  three attempts per user and blocked login for 15 minutes after the outage
+  ended. Failures are now classified: a ClickHouse that never answered
+  returns `503` and counts nothing, while rejected credentials, and any
+  message that cannot be classified, still count and still return `401`.
+
 ## [2.11.1] - 2026-09-11
 
 Audit coverage for background work, and docs that point at the docs site.
