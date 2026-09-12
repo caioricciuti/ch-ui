@@ -1,10 +1,20 @@
 version: 2
+
+# Cooldown mirrors the 7-day minimum release age enforced on the maintainer
+# machine (~/.npmrc min-release-age, pnpm minimumReleaseAge). A package too
+# fresh to install locally should not arrive as a PR either. Majors wait
+# longer: they need a migration pass, not a merge.
 updates:
   - package-ecosystem: gomod
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 7
     groups:
       go-dependencies:
         patterns:
@@ -15,6 +25,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 7
     groups:
       ui-dependencies:
         patterns:
@@ -25,8 +40,11 @@ updates:
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
 
+  # The github-actions ecosystem supports default-days only, no semver keys.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
