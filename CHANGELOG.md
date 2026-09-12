@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`/health` no longer discloses the version.** The endpoint is
+  unauthenticated so that liveness probes work without credentials, which
+  also meant anyone scanning for CH-UI instances could read the exact build
+  and look up which advisories applied to it. The response is now status,
+  service and timestamp. Signed-in callers still get `appVersion` from the
+  session endpoints, and operators have `ch-ui version` on the host. Probes
+  that check the status code (the Docker `HEALTHCHECK` and the Helm
+  liveness and readiness probes) are unaffected.
+
 ### Fixed
 
 - **An unreachable ClickHouse locked people out of their own account.** A
