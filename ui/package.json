@@ -43,6 +43,9 @@
   "overrides": {
     "@codemirror/state": "$@codemirror/state",
     "@codemirror/view": "$@codemirror/view",
-    "picomatch": "^4.0.4"
+    "picomatch": "^4.0.4",
+    "nanoid": "3.3.18",
+    "postcss": "8.5.23",
+    "devalue": "5.8.1"
   }
 }
