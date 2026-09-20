@@ -7,7 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.12.0] - 2026-09-20
+
+Dedicated accounts for reliable background execution, with explicit workspace
+permission delegation and tested credential rotation.
+
+### Added
+
+- **Background accounts per connection and worker.** Administrators can choose
+  a verified dedicated ClickHouse account, an active user session, or Disabled
+  for schedules, models, pipeline sinks, governance, Cluster Health and telemetry
+  monitors. Passwords are encrypted and omitted from responses. Existing installs
+  retain session mode. Credential changes and account use are audited; failed
+  verification preserves the previous account and configured accounts never
+  silently fall back to a human session.
+- Regression coverage for account verification/cancellation, all six workers,
+  rotation and disabling, migration/restart/backup restore, real DOM sanitization
+  and Parquet upload. CI exercises background workers against ClickHouse and
+  audits frontend dependencies.
+
+### Changed
+
+- Updated Go dependencies, including MCP SDK 1.8.0, mysql 1.10.1,
+  x/crypto 0.57.0, x/oauth2 0.37.0 and Thrift 0.24.0; frontend dependencies
+  include Svelte 5.57.0, Vite 8.3.0, Vitest 5.0.0 and DOMPurify 3.4.15.
+- Documented background-account grants, instance-wide writer delegation,
+  manual-run behavior and rollback precautions. Old binaries ignore the new
+  account/Disabled settings; restore the pre-upgrade snapshot when rolling back.
+
 ### Security
+
+- **Schedule mutations and manual runs require admin or analyst access.**
+  Viewers retain read access but cannot create, change, delete or run shared
+  schedules, including schedules that use a dedicated account.
+- Updated vulnerable frontend packages and transitive pins; the release
+  candidate's dependency audit reports no vulnerabilities.
+- CI/release actions are pinned by commit SHA and Dependabot updates observe
+  a release-age cooldown. Cosign remains pinned to its v2 line to preserve
+  the existing checksum signature artifacts.
+
 
 - **`/health` no longer discloses the version.** The endpoint is
   unauthenticated so that liveness probes work without credentials, which
@@ -20,6 +58,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Parquet uploads now derive row types from the file schema, allowing valid
+  files to import instead of failing schema construction.
+- Background account forms submit with Enter, respect native validation, and
+  prevent duplicate saves. The UI explains which manual runs use the account.
+- Accessibility warnings in the panel editor, color picker and Brain input.
 - **An unreachable ClickHouse locked people out of their own account.** A
   failed connection test counted against the login rate limiter exactly like
   a wrong password, so a database, agent or network outage burned through the
