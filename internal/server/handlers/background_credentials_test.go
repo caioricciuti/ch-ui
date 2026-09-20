@@ -1,15 +1,20 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
+	"github.com/caioricciuti/ch-ui/internal/testutil"
+	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -71,5 +76,92 @@ func TestBackgroundAccountAdminRoutes(t *testing.T) {
 	}
 	if logs[0].Username == nil || *logs[0].Username != "operator@example.test" {
 		t.Fatal("audit must identify the human administrator")
+	}
+}
+
+func TestBackgroundAccountVerificationAndRotation(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "verify.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	conn, err := db.CreateConnection(database.CreateConnectionParams{Name: "verify", TunnelToken: "verify-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := testutil.NewAgent(t, db, "verify-token", func(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
+		if msg.Type != "query" || msg.Password == "wait" {
+			return nil
+		}
+		if msg.Password == "rejected-secret" {
+			return &tunnel.AgentMessage{Type: "query_error", Error: "Authentication failed: rejected-secret"}
+		}
+		return &tunnel.AgentMessage{Type: "query_result", Data: json.RawMessage(`[{"1":1}]`)}
+	})
+	h := &ConnectionsHandler{DB: db, Gateway: agent.Gateway, Config: &config.Config{AppSecretKey: "test-secret"}}
+	r := chi.NewRouter()
+	r.Route("/connections/{id}/background-credentials", h.BackgroundCredentialRoutes)
+	call := func(password string, ctx context.Context) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]string{"mode": "service_account", "username": "worker", "password": password})
+		req := httptest.NewRequest("PUT", "/connections/"+conn+"/background-credentials/schedule", strings.NewReader(string(body)))
+		req = req.WithContext(middleware.SetSession(ctx, &middleware.SessionInfo{UserRole: "admin", ClickhouseUser: "admin"}))
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		return rr
+	}
+	for _, password := range []string{"first-secret", "rotated-secret", ""} {
+		rr := call(password, context.Background())
+		if rr.Code != 200 {
+			t.Fatalf("save: %d %s", rr.Code, rr.Body.String())
+		}
+		if strings.Contains(rr.Body.String(), "password") || (password != "" && strings.Contains(rr.Body.String(), password)) {
+			t.Fatal("response leaked credentials")
+		}
+		user, got, err := db.BackgroundCredentials(conn, "schedule", "test-secret")
+		if err != nil || user != "worker" || got != password {
+			t.Fatalf("saved credentials: %v", err)
+		}
+		before, _ := db.GetBackgroundCredential(conn, "schedule")
+		if rr := call("rejected-secret", context.Background()); rr.Code != 400 || strings.Contains(rr.Body.String(), "rejected-secret") {
+			t.Fatalf("failed verification: %d %s", rr.Code, rr.Body.String())
+		}
+		after, _ := db.GetBackgroundCredential(conn, "schedule")
+		if before != after {
+			t.Fatal("failed verification replaced account")
+		}
+	}
+	before, _ := db.GetBackgroundCredential(conn, "schedule")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if rr := call("wait", ctx); rr.Code != 400 {
+		t.Fatalf("cancel: %d", rr.Code)
+	}
+	after, _ := db.GetBackgroundCredential(conn, "schedule")
+	if before != after {
+		t.Fatal("cancelled verification replaced account")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		msgs := agent.Messages()
+		if len(msgs) > 0 && msgs[len(msgs)-1].Type == "cancel_query" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("query cancellation not forwarded")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	logs, err := db.GetAuditLogs(100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(logs)
+	for _, secret := range []string{"first-secret", "rotated-secret", "rejected-secret", after.EncryptedPassword} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatal("audit leaked credentials")
+		}
+	}
+	if _, _, err := db.BackgroundCredentials(conn, "schedule", "wrong-secret"); err == nil {
+		t.Fatal("wrong key accepted")
 	}
 }

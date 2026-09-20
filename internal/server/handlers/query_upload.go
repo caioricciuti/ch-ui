@@ -448,7 +448,9 @@ func parseParquetDataset(payload []byte) (parsedUploadDataset, error) {
 	}
 	defer fr.Close()
 
-	pr, err := reader.NewParquetReader(fr, new(interface{}), 1)
+	// Let the reader derive the row type from the file's schema. An interface
+	// pointer is not a tagged Go struct and cannot describe a Parquet schema.
+	pr, err := reader.NewParquetReader(fr, nil, 1)
 	if err != nil {
 		return parsedUploadDataset{}, fmt.Errorf("failed to read parquet schema: %w", err)
 	}
@@ -466,9 +468,12 @@ func parseParquetDataset(payload []byte) (parsedUploadDataset, error) {
 		if totalRows-readCount < toRead {
 			toRead = totalRows - readCount
 		}
-		batch := make([]interface{}, toRead)
-		if err := pr.Read(&batch); err != nil {
+		batch, err := pr.ReadByNumber(toRead)
+		if err != nil {
 			return parsedUploadDataset{}, fmt.Errorf("failed to read parquet rows: %w", err)
+		}
+		if len(batch) == 0 {
+			return parsedUploadDataset{}, errors.New("parquet file ended before its declared row count")
 		}
 
 		for _, item := range batch {

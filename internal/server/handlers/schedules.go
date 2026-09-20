@@ -33,13 +33,16 @@ type SchedulesHandler struct {
 
 // Routes registers schedule routes on the given router.
 func (h *SchedulesHandler) Routes(r chi.Router) {
+	// Jobs are shared workspace objects. Only writers may change or execute
+	// them, including jobs that delegate a dedicated account's grants.
+	writer := middleware.RequireWriter()
 	r.Get("/", h.List)
 	r.Get("/{id}", h.Get)
-	r.Post("/", h.Create)
-	r.Put("/{id}", h.Update)
-	r.Delete("/{id}", h.Delete)
+	r.With(writer).Post("/", h.Create)
+	r.With(writer).Put("/{id}", h.Update)
+	r.With(writer).Delete("/{id}", h.Delete)
 	r.Get("/{id}/runs", h.ListRuns)
-	r.Post("/{id}/run", h.ManualRun)
+	r.With(writer).Post("/{id}/run", h.ManualRun)
 }
 
 // List returns all scheduled jobs.

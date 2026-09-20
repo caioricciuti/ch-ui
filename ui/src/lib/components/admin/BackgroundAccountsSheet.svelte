@@ -55,6 +55,7 @@
   })
 
   async function save() {
+    if (saving || loading || loadError) return
     saving = true
     try {
       const body = mode === 'service_account' ? { mode, username, password } : { mode }
@@ -76,7 +77,7 @@
   {:else if loadError}
     <p role="alert" class="text-sm text-error">{loadError}</p>
   {:else}
-    <form class="space-y-5" onsubmit={(e) => { e.preventDefault(); void save() }}>
+    <form id="background-accounts-form" class="space-y-5" onsubmit={(e) => { e.preventDefault(); void save() }}>
       <FormField label="Background worker" for="background-worker">
         <select id="background-worker" class="ds-input w-full" bind:value={worker} onchange={selectWorker} disabled={saving}>
           {#each accounts as account}<option value={account.worker}>{labels[account.worker]}</option>{/each}
@@ -90,9 +91,9 @@
         </select>
       </FormField>
       {#if mode === 'service_account'}
-        <p class="text-[13px] text-fg-3">Runs continue after everyone signs out. {permissions[worker]} People who can create or run these jobs can use the account's grants through them.</p>
+        <p class="text-[13px] text-fg-3">Runs continue after everyone signs out. {permissions[worker]} All administrators and analysts in this CH-UI instance can use this account's grants through shared jobs, including jobs on other connections.</p>
         <FormField label="ClickHouse username" for="background-user" required>
-          <Input id="background-user" bind:value={username} autocomplete="off" disabled={saving} required />
+          <Input id="background-user" bind:value={username} autocomplete="off" disabled={saving} maxlength={256} required />
         </FormField>
         <FormField label="ClickHouse password" for="background-password" hint="Enter the password each time you save. An empty value explicitly sets an empty password.">
           <Input id="background-password" type="password" bind:value={password} autocomplete="new-password" disabled={saving} />
@@ -103,11 +104,16 @@
       {:else}
         <p class="text-[13px] text-fg-3">Prevents this worker from obtaining credentials and removes its saved account. It will not borrow a user session. Runs already in progress may finish.</p>
       {/if}
+      {#if worker === 'schedule' || worker === 'telemetry.monitor'}
+        <p class="text-xs text-fg-3">Manual runs use the signed-in user's ClickHouse account and remain available when background execution is disabled.</p>
+      {:else if worker === 'model'}
+        <p class="text-xs text-fg-3">This setting also applies to manual model runs. Disabled prevents both scheduled and manual model execution.</p>
+      {/if}
     </form>
   {/if}
   {#snippet footer()}
     <Button variant="ghost" size="sm" disabled={saving} onclick={onclose}>Close</Button>
-    <Button size="sm" loading={saving} disabled={loading || !!loadError || (mode === 'service_account' && !username.trim())} onclick={() => void save()}>
+    <Button size="sm" type="submit" form="background-accounts-form" loading={saving} disabled={loading || !!loadError || (mode === 'service_account' && !username.trim())}>
       {mode === 'service_account' ? 'Verify and save' : 'Save'}
     </Button>
   {/snippet}

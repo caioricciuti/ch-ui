@@ -2,6 +2,7 @@ package database
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -95,6 +96,97 @@ func TestBackgroundCredentialLifecycle(t *testing.T) {
 	var count int
 	if err := db.Conn().QueryRow("SELECT count(*) FROM background_credentials WHERE connection_id = ?", conn).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("cascade: count=%d err=%v", count, err)
+	}
+}
+
+func TestBackgroundCredentialUpgradeRestartAndBackup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "upgrade.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.CreateConnection(CreateConnectionParams{Name: "existing", TunnelToken: "existing-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, err := crypto.Encrypt("human-password", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.CreateSession(CreateSessionParams{ConnectionID: conn, ClickhouseUser: "human", EncryptedPassword: enc, Token: "existing-session", ExpiresAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query, err := db.CreateSavedQuery(CreateSavedQueryParams{Name: "existing query", Query: "SELECT 1", ConnectionID: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := db.CreateSchedule("existing job", query, conn, "* * * * *", "UTC", "human", 60000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reconstruct the previous schema: this feature's only schema change is
+	// the new table and schema-version setting. Preserve populated old data.
+	if _, err = db.conn.Exec("DROP TABLE background_credentials"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.conn.Exec("UPDATE settings SET value = '2026.08.31' WHERE key = 'schema_version'"); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, worker := range BackgroundWorkers() {
+		user, password, err := db.BackgroundCredentials(conn, worker, "secret")
+		if err != nil || user != "human" || password != "human-password" {
+			t.Fatalf("legacy fallback %s: %v", worker, err)
+		}
+	}
+	if existing, err := db.GetScheduleByID(job); err != nil || existing == nil || existing.Name != "existing job" {
+		t.Fatalf("schedule lost: %v", err)
+	}
+	enc, err = crypto.Encrypt("service-password", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.SetBackgroundCredential(conn, BackgroundCredential{Worker: "schedule", Mode: "service_account", Username: "service", EncryptedPassword: enc}); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.SetBackgroundCredential(conn, BackgroundCredential{Worker: "model", Mode: "disabled"}); err != nil {
+		t.Fatal(err)
+	}
+	// VACUUM INTO is the same consistent snapshot operation as ch-ui backup.
+	backup := filepath.Join(t.TempDir(), "backup.db")
+	if _, err = db.conn.Exec("VACUUM INTO ?", backup); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []string{path, backup} {
+		for range 2 {
+			restored, err := Open(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			u, p, err := restored.BackgroundCredentials(conn, "schedule", "secret")
+			if err != nil || u != "service" || p != "service-password" {
+				t.Fatalf("restored credentials: %v", err)
+			}
+			if _, _, err := restored.BackgroundCredentials(conn, "model", "secret"); err == nil {
+				t.Fatal("disabled mode lost on restart")
+			}
+			if _, _, err := restored.BackgroundCredentials(conn, "schedule", "wrong-secret"); err == nil {
+				t.Fatal("wrong secret fell back to active session")
+			}
+			if err := restored.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 }
 
