@@ -16,11 +16,12 @@
     "@types/json-bigint": "^1.0.4",
     "@types/node": "^26.0.0",
     "json-bigint": "^1.0.0",
-    "svelte": "^5.55.5",
+    "svelte": "^5.55.7",
     "svelte-check": "^4.4.8",
     "typescript": "~6.0.3",
-    "vite": "^8.0.11",
-    "vitest": "^5.0.0"
+    "vite": "^8.0.16",
+    "vitest": "^5.0.0",
+    "jsdom": "27.4.0"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.2",
@@ -33,7 +34,7 @@
     "@codemirror/view": "^6.42.1",
     "@tailwindcss/vite": "^4.3.0",
     "@xyflow/svelte": "^1.5.2",
-    "dompurify": "^3.4.9",
+    "dompurify": "^3.4.15",
     "lucide-svelte": "^1.0.1",
     "marked": "^18.0.3",
     "svelte-sonner": "^1.1.1",
@@ -46,6 +47,6 @@
     "picomatch": "^4.0.4",
     "nanoid": "3.3.18",
     "postcss": "8.5.23",
-    "devalue": "5.8.1"
+    "devalue": "5.9.1"
   }
 }
