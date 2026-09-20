@@ -157,7 +157,7 @@ func monitorDue(m *database.TelemetryMonitor, now time.Time) bool {
 }
 
 func (r *MonitorRunner) findCredentials(connectionID string) (Credentials, error) {
-	user, password, err := r.db.BorrowSessionCredentials(connectionID, "telemetry.monitor", r.secret)
+	user, password, err := r.db.BackgroundCredentials(connectionID, "telemetry.monitor", r.secret)
 	if err != nil {
 		return Credentials{}, err
 	}

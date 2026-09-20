@@ -215,7 +215,7 @@ func (h *Harvester) pruneRetention(connections []database.Connection) {
 
 // findCredentials borrows credentials from an active session for the connection.
 func (h *Harvester) findCredentials(connectionID string) (CHCredentials, error) {
-	user, password, err := h.db.BorrowSessionCredentials(connectionID, "cluster_health", h.secret)
+	user, password, err := h.db.BackgroundCredentials(connectionID, "cluster_health", h.secret)
 	if err != nil {
 		return CHCredentials{}, err
 	}

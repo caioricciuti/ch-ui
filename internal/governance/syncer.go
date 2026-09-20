@@ -279,7 +279,7 @@ func (s *Syncer) isSyncStale(connectionID string) bool {
 // findCredentials borrows credentials from an active session for the given connection.
 // It tries up to 3 recent sessions and returns the first one with a valid password.
 func (s *Syncer) findCredentials(connectionID string) (CHCredentials, error) {
-	user, password, err := s.db.BorrowSessionCredentials(connectionID, "governance", s.secret)
+	user, password, err := s.db.BackgroundCredentials(connectionID, "governance", s.secret)
 	if err != nil {
 		return CHCredentials{}, err
 	}

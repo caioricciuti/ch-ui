@@ -356,5 +356,5 @@ func (r *Runner) releaseLock(connectionID string) {
 }
 
 func (r *Runner) findCredentials(connectionID string) (string, string, error) {
-	return r.db.BorrowSessionCredentials(connectionID, "model", r.secret)
+	return r.db.BackgroundCredentials(connectionID, "model", r.secret)
 }

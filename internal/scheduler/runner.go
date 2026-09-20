@@ -286,7 +286,7 @@ func maxInt(a, b int) int {
 
 // findCredentials looks for active session credentials for a connection.
 func (r *Runner) findCredentials(connectionID string) (string, string, error) {
-	return r.db.BorrowSessionCredentials(connectionID, "schedule", r.secret)
+	return r.db.BackgroundCredentials(connectionID, "schedule", r.secret)
 }
 
 // countRows counts rows in a query result.

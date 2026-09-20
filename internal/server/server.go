@@ -236,6 +236,7 @@ func (s *Server) setupRoutes() {
 				cr.Get("/", connectionsHandler.List)
 				cr.Get("/{id}", connectionsHandler.Get)
 				cr.Post("/{id}/test", connectionsHandler.TestConnection)
+				cr.Route("/{id}/background-credentials", connectionsHandler.BackgroundCredentialRoutes)
 
 				cr.Group(func(ar chi.Router) {
 					ar.Use(middleware.RequireAdmin(db))
