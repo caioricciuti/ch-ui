@@ -179,7 +179,7 @@ func inferClickHouseType(v interface{}) string {
 	}
 }
 
-// findCredentials retrieves ClickHouse credentials from active sessions.
+// findCredentials resolves the configured background account or session credentials.
 func (s *ClickHouseSink) findCredentials(connectionID string) (string, string, error) {
-	return s.db.BorrowSessionCredentials(connectionID, "pipeline", s.secretKey)
+	return s.db.BackgroundCredentials(connectionID, "pipeline", s.secretKey)
 }

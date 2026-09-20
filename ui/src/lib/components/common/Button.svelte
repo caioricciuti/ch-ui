@@ -11,6 +11,7 @@
     disabled?: boolean
     loading?: boolean
     type?: 'button' | 'submit'
+    form?: string
     title?: string
     'aria-label'?: string
     'aria-pressed'?: boolean
@@ -27,6 +28,7 @@
     disabled = false,
     loading = false,
     type = 'button',
+    form,
     title,
     'aria-label': ariaLabel,
     'aria-pressed': ariaPressed,
@@ -58,6 +60,7 @@
 
 <button
   {type}
+  {form}
   {title}
   aria-label={ariaLabel}
   aria-pressed={ariaPressed}

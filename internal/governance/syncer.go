@@ -169,7 +169,7 @@ func (s *Syncer) SyncSingle(ctx context.Context, creds CHCredentials, syncType S
 }
 
 // backgroundTick iterates over all connections, checks tunnel status and
-// sync staleness, borrows credentials from active sessions, and triggers
+// sync staleness, resolves background credentials, and triggers
 // SyncConnection in goroutines.
 func (s *Syncer) backgroundTick() {
 	connections, err := s.db.GetConnections()
@@ -199,7 +199,7 @@ func (s *Syncer) backgroundTick() {
 			continue
 		}
 
-		// Borrow credentials from an active session
+		// Resolve the account configured for this worker
 		creds, err := s.findCredentials(connID)
 		if err != nil {
 			slog.Debug("Governance sync: no credentials for connection",
@@ -276,10 +276,9 @@ func (s *Syncer) isSyncStale(connectionID string) bool {
 	return false
 }
 
-// findCredentials borrows credentials from an active session for the given connection.
-// It tries up to 3 recent sessions and returns the first one with a valid password.
+// findCredentials resolves the configured background account or session fallback.
 func (s *Syncer) findCredentials(connectionID string) (CHCredentials, error) {
-	user, password, err := s.db.BorrowSessionCredentials(connectionID, "governance", s.secret)
+	user, password, err := s.db.BackgroundCredentials(connectionID, "governance", s.secret)
 	if err != nil {
 		return CHCredentials{}, err
 	}

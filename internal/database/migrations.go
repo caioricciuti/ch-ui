@@ -12,7 +12,7 @@ import (
 // schemaVersion is the current database schema version. Bump it (date-based)
 // whenever schema-affecting migrations are added below. It is recorded in the
 // settings table after a successful migration run for upgrade observability.
-const schemaVersion = "2026.08.31"
+const schemaVersion = "2026.09.13"
 
 func (db *DB) runMigrations() error {
 	var prev string
@@ -24,6 +24,17 @@ func (db *DB) runMigrations() error {
 	}
 
 	stmts := []string{
+		// Explicit credentials for each unattended worker. Missing rows retain
+		// the session-based behavior of existing installations.
+		`CREATE TABLE IF NOT EXISTS background_credentials (
+			connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+			worker TEXT NOT NULL,
+			mode TEXT NOT NULL CHECK (mode IN ('service_account', 'disabled')),
+			username TEXT NOT NULL DEFAULT '',
+			encrypted_password TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (connection_id, worker)
+		)`,
 		// Installation settings (key-value store)
 		`CREATE TABLE IF NOT EXISTS settings (
 			key TEXT PRIMARY KEY,

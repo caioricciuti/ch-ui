@@ -11,6 +11,7 @@
   import FormField from '../common/FormField.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import Spinner from '../common/Spinner.svelte'
+  import BackgroundAccountsSheet from './BackgroundAccountsSheet.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import { Plus, RefreshCw, Copy, KeyRound, Trash2, Search, AlertTriangle } from 'lucide-svelte'
 
@@ -61,6 +62,7 @@
 
   let deleteTarget = $state<TunnelConnection | null>(null)
   let deleteLoading = $state(false)
+  let backgroundTarget = $state<TunnelConnection | null>(null)
 
   onMount(() => {
     void loadTunnels()
@@ -256,6 +258,7 @@
           {/snippet}
           {#snippet actions(row)}
             {@const conn = asConn(row)}
+            <Button variant="ghost" size="xs" onclick={() => (backgroundTarget = conn)}>Background accounts</Button>
             {#if conn.type !== 'direct' && !conn.is_embedded}
               <Button icon variant="ghost" size="xs" aria-label="Show agent token" title="Show token" onclick={() => void viewToken(conn)}>
                 <KeyRound size={13} />
@@ -277,6 +280,10 @@
     {/if}
   </div>
 </div>
+
+{#if backgroundTarget}
+  <BackgroundAccountsSheet connection={backgroundTarget} onclose={() => (backgroundTarget = null)} />
+{/if}
 
 <Sheet
   open={createOpen}

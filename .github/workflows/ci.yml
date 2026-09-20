@@ -17,6 +17,20 @@ jobs:
   backend:
     name: Backend (Go)
     runs-on: ubuntu-latest
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.8@sha256:0152dd511befe6a2c2ef53e930726179669b08116da78500b37c51c96ff5ee77
+        env:
+          CLICKHOUSE_USER: release_admin
+          CLICKHOUSE_PASSWORD: ci-test-only
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports:
+          - 18123:8123
+        options: >-
+          --health-cmd "wget -q -O - http://localhost:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,6 +65,19 @@ jobs:
       - name: Test
         run: go test ./... -race
 
+      - name: Background workers against ClickHouse
+        env:
+          CHUI_TEST_CLICKHOUSE_URL: http://127.0.0.1:18123
+          CHUI_TEST_CLICKHOUSE_USER: release_admin
+          CHUI_TEST_CLICKHOUSE_PASSWORD: ci-test-only
+        run: |
+          curl --fail --silent --show-error --user "$CHUI_TEST_CLICKHOUSE_USER:$CHUI_TEST_CLICKHOUSE_PASSWORD" \
+            "$CHUI_TEST_CLICKHOUSE_URL" --data-binary \
+            'CREATE TABLE default.otel_logs (Timestamp DateTime64(9), Body String) ENGINE=MergeTree ORDER BY Timestamp'
+          go test ./internal/scheduler ./internal/models ./internal/pipelines \
+            ./internal/clusterhealth ./internal/governance ./internal/telemetry/monitor \
+            -run TestBackgroundAccountExecution -count=1 -race
+
       - name: Vulnerability scan (govulncheck)
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
@@ -77,6 +104,9 @@ jobs:
 
       - name: Unit tests
         run: bun run test
+
+      - name: Dependency audit
+        run: bun audit
 
       - name: Build
         run: bun run build

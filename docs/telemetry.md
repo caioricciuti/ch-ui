@@ -204,11 +204,14 @@ are both written to the audit log (`telemetry.monitor.fired`,
 `telemetry.monitor.recovered`); recovery raises no alert event. The monitor row
 shows its last value, state and error.
 
-Monitors run in the background and are checked every 30 seconds. Like the
-governance syncer, background runs borrow the ClickHouse credentials of an
-active session on the connection, so they need someone signed in to that
-connection. **Run now** evaluates a monitor immediately with your own
-credentials.
+Monitors run in the background and are checked every 30 seconds. An administrator
+can configure **Admin → Connections → Background accounts → Telemetry monitors**
+to use a dedicated ClickHouse account, borrow an active session (the default for
+existing installations), or disable background execution. A dedicated account
+allows monitoring to continue after everyone signs out. It needs SELECT grants
+on the monitored logs and traces tables. A disabled or undecryptable account
+never falls back to a human session. **Run now** evaluates a monitor immediately
+with your own credentials, even when background execution is disabled.
 
 ## Brain integration
 
@@ -243,5 +246,10 @@ language and get the underlying query back.
   mapping re-checked with **Test**.
 - **Traces open with no logs**: set the correlated logs source on the traces
   source, and make sure the log rows carry the trace id.
-- **Monitors show state `error`**: nobody is signed in to the connection to
-  borrow credentials from, or the query failed. The row shows the message.
+- **Monitors show state `error`**: source discovery or the evaluation query
+  failed. The row shows the message; verify the configured account's grants.
+- **Monitors stop updating**: check the background-account mode and connection
+  status. Session mode requires an active signed-in session. Disabled mode,
+  an unreadable saved password, or no usable session skips evaluation and
+  leaves the previous result visible. Check the server's debug logs for
+  credential lookup failures.

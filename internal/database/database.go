@@ -34,6 +34,9 @@ type DB struct {
 	// (see retention.go). Guarded by retentionMu.
 	retentionMu    sync.Mutex
 	retentionStats RetentionStats
+
+	backgroundAuditMu sync.Mutex
+	backgroundAudits  map[backgroundAuditKey]backgroundAuditEntry
 }
 
 // Open opens the SQLite database at the given path, runs migrations, and returns a DB.

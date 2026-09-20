@@ -284,9 +284,9 @@ func maxInt(a, b int) int {
 	return b
 }
 
-// findCredentials looks for active session credentials for a connection.
+// findCredentials resolves the configured background account or session fallback.
 func (r *Runner) findCredentials(connectionID string) (string, string, error) {
-	return r.db.BorrowSessionCredentials(connectionID, "schedule", r.secret)
+	return r.db.BackgroundCredentials(connectionID, "schedule", r.secret)
 }
 
 // countRows counts rows in a query result.

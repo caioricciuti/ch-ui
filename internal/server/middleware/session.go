@@ -73,12 +73,12 @@ func Session(db *database.DB, _ *tunnel.Gateway) func(http.Handler) http.Handler
 	}
 }
 
-// RequireAdmin returns a middleware that requires admin role.
 // RequireWriter allows admin and analyst roles through and blocks viewers (and
 // unauthenticated requests). It gates mutations on shared CH-UI workspace
 // objects — dashboards, pipelines, models, saved queries — so a read-only
-// viewer cannot create, edit, or delete them. Data access remains governed by
-// each user's own ClickHouse grants regardless of this role.
+// viewer cannot create, edit, or delete them. Interactive queries use the
+// caller's ClickHouse grants. Shared jobs can instead delegate the grants of
+// an administrator-configured background account to workspace writers.
 func RequireWriter() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
