@@ -9,7 +9,9 @@ export interface TooltipOptions {
   /** Header text for the hovered x index. */
   formatX: (xVal: number, idx: number) => string
   /** Value text for series `seriesIdx` (1-based, as in uPlot). */
-  formatValue?: (value: number, seriesIdx: number) => string
+  formatValue?: (value: number, seriesIdx: number, dataIdx: number) => string
+  /** Histograms use interval containment instead of the nearest sample. */
+  dataIndex?: (chart: uPlot) => number | null
 }
 
 export function tooltipPlugin(options: TooltipOptions): uPlot.Plugin {
@@ -39,7 +41,8 @@ export function tooltipPlugin(options: TooltipOptions): uPlot.Plugin {
   }
 
   function setCursor(u: uPlot) {
-    const { idx, left, top } = u.cursor
+    const { left, top } = u.cursor
+    const idx = options.dataIndex ? options.dataIndex(u) : u.cursor.idx
     if (idx == null || left == null || top == null || left < 0 || top < 0) {
       tip.style.display = 'none'
       return
@@ -66,7 +69,7 @@ export function tooltipPlugin(options: TooltipOptions): uPlot.Plugin {
       label.textContent = String(s.label ?? '')
       const value = document.createElement('span')
       Object.assign(value.style, { fontWeight: '600', marginLeft: '12px', fontVariantNumeric: 'tabular-nums' })
-      value.textContent = raw == null ? '—' : formatValue(Number(raw), i)
+      value.textContent = raw == null ? '—' : formatValue(Number(raw), i, idx)
       row.append(dot, label, value)
       tip.appendChild(row)
     }

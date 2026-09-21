@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.13.0] - 2026-09-21
+
+Production operations workflows for finding regressions, measuring improvements
+and reviewing events across ClickHouse environments.
+
+### Added
+
+- **Performance regressions:** compare normalized query patterns across equal
+  windows, with minimum sample requirements and explicit coverage limits.
+  Administrators can enable hourly scans using a dedicated background account.
+- **Saved investigations:** retain baselines, owners, notes and immutable
+  before/after measurements, including comparisons with rewritten queries.
+- **Fleet overview:** administrator view of connection availability, retained
+  health, open incidents and recent regression scans, with stale/missing data
+  shown explicitly.
+- **Schema comparison:** compare metadata across environments using supplied
+  credentials and download commented SQL review plans. Plans never execute
+  automatically; credentials are not persisted.
+- **Incident timeline:** correlate query failures and latency, merges/mutations,
+  retained health, governance incidents/comments and deployment annotations.
+- **Weekly reports:** save operations summaries and optionally deliver them
+  through configured email channels, with persisted snapshots and bounded retries.
+- Live ClickHouse acceptance tests for regression aggregation, report generation,
+  schema comparison, incident queries and telemetry time boundaries.
+
+### Fixed
+
+- Log histogram tooltip labels now match their severity counts and colors.
+- Log/trace histograms preserve the fetched time window, align buckets in UTC,
+  select tooltip values by the hovered interval and zoom without an extra bucket.
+  Search and histogram upper time bounds are consistently exclusive.
+- SMTP connections now honor cancellation and deadlines, preventing an
+  unresponsive server from indefinitely blocking report delivery or shutdown.
+- The Operate navigation group opens a page accessible to the signed-in role.
+- Helm defaults now select the published, version-prefixed Docker image tag.
+
+### Upgrade
+
+- New operations features require Pro; the telemetry fixes apply to the existing
+  telemetry experience. Automatic scans and weekly reports start disabled and
+  require explicit dedicated-account configuration.
+- Back up the SQLite database and preserve the application secret before
+  upgrading. See [operations setup](docs/operations.md) and
+  [performance investigations](docs/performance-investigations.md).
+
 ## [2.12.0] - 2026-09-20
 
 Dedicated accounts for reliable background execution, with explicit workspace

@@ -18,6 +18,7 @@ func TestTraceSearchSQL(t *testing.T) {
 	}
 	for _, want := range []string{
 		"GROUP BY trace_id",
+		"`Timestamp` < parseDateTime64BestEffort('2026-09-11T01:00:00Z')",
 		"ORDER BY start_ns DESC, trace_id DESC LIMIT 101",
 		"`TraceId` IN (SELECT `TraceId` FROM `default`.`otel_traces` WHERE",
 		"`ServiceName` = 'checkout'",
@@ -84,7 +85,7 @@ func TestTraceHistogramSQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"INTERVAL 60 second", "`ParentSpanId` = ''", "quantile(0.5)(dur_ns / 1e6) AS p50", "quantile(0.95)(dur_ns / 1e6) AS p95", "GROUP BY t ORDER BY t"} {
+	for _, want := range []string{"INTERVAL 60 second, 'UTC'", "`ParentSpanId` = ''", "quantile(0.5)(dur_ns / 1e6) AS p50", "quantile(0.95)(dur_ns / 1e6) AS p95", "GROUP BY t ORDER BY t"} {
 		if !strings.Contains(sql, want) {
 			t.Errorf("missing %q in:\n%s", want, sql)
 		}

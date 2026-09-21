@@ -20,6 +20,7 @@ func TestSearchSQL(t *testing.T) {
 	for _, want := range []string{
 		"FROM `default`.`otel_logs`",
 		"`Timestamp` >= parseDateTime64BestEffort('2026-09-10T10:00:00Z')",
+		"`Timestamp` < parseDateTime64BestEffort('2026-09-10T11:00:00Z')",
 		"hasTokenCaseInsensitive(`Body`, 'timeout')",
 		"`ServiceName` = 'api'",
 		"`SeverityText` IN ('ERROR', 'WARN')",
@@ -87,7 +88,7 @@ func TestHistogramAndFacetsSQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(h, "toStartOfInterval(`Timestamp`, INTERVAL 60 second)") || !strings.Contains(h, "GROUP BY t, severity") {
+	if !strings.Contains(h, "toStartOfInterval(`Timestamp`, INTERVAL 60 second, 'UTC')") || !strings.Contains(h, "GROUP BY t, severity") {
 		t.Errorf("histogram: %s", h)
 	}
 	f, err := BuildFacetsSQL(src, nil, p, []string{"http.method", "bad'key"})

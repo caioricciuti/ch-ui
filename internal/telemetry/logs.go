@@ -97,7 +97,7 @@ func LogsWhere(src *Source, columns map[string]string, p LogsParams) (string, er
 		conds = append(conds, c)
 	}
 	if p.To != "" {
-		c, err := TimeBound(m.Timestamp, "<=", p.To)
+		c, err := TimeBound(m.Timestamp, "<", p.To)
 		if err != nil {
 			return "", err
 		}
@@ -230,7 +230,7 @@ func HistogramSQL(src *Source, columns map[string]string, p LogsParams, bucketSe
 	}
 	m := src.Logs
 	return fmt.Sprintf(
-		"SELECT formatDateTime(toStartOfInterval(%s, INTERVAL %d second), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS t, %s AS severity, count() AS c FROM %s.%s WHERE %s GROUP BY t, severity ORDER BY t %s",
+		"SELECT formatDateTime(toStartOfInterval(%s, INTERVAL %d second, 'UTC'), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS t, %s AS severity, count() AS c FROM %s.%s WHERE %s GROUP BY t, severity ORDER BY t %s",
 		Quote(m.Timestamp), bucketSeconds, Quote(m.Severity), Quote(src.Database), Quote(src.Table), where, QuerySettings), nil
 }
 

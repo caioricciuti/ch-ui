@@ -12,7 +12,7 @@ import (
 // schemaVersion is the current database schema version. Bump it (date-based)
 // whenever schema-affecting migrations are added below. It is recorded in the
 // settings table after a successful migration run for upgrade observability.
-const schemaVersion = "2026.09.13"
+const schemaVersion = "2026.09.21"
 
 func (db *DB) runMigrations() error {
 	var prev string
@@ -1054,6 +1054,9 @@ func (db *DB) runMigrations() error {
 		`CREATE INDEX IF NOT EXISTS idx_ch_health_samples_conn_time ON ch_health_samples(connection_id, captured_at)`,
 	}
 
+	stmts = append(stmts, OperationsReportSchema...)
+	stmts = append(stmts, PerformanceSchema...)
+	stmts = append(stmts, IncidentTimelineSchema...)
 	for _, stmt := range stmts {
 		if _, err := db.conn.Exec(stmt); err != nil {
 			return err

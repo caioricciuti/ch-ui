@@ -73,7 +73,7 @@ func tracesRangeWhere(src *Source, p TracesParams) (string, error) {
 		conds = append(conds, c)
 	}
 	if p.To != "" {
-		c, err := TimeBound(m.Timestamp, "<=", p.To)
+		c, err := TimeBound(m.Timestamp, "<", p.To)
 		if err != nil {
 			return "", err
 		}
@@ -153,7 +153,7 @@ func TraceHistogramSQL(src *Source, columns map[string]string, p TracesParams, b
 		rootCond = fmt.Sprintf("%s = ''", Quote(m.ParentSpanID))
 	}
 	return fmt.Sprintf(
-		"SELECT formatDateTime(toStartOfInterval(fromUnixTimestamp64Nano(ts_ns), INTERVAL %d second), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS t, "+
+		"SELECT formatDateTime(toStartOfInterval(fromUnixTimestamp64Nano(ts_ns), INTERVAL %d second, 'UTC'), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS t, "+
 			"count() AS c, countIf(span_status = 'Error') AS errors, quantile(0.5)(dur_ns / 1e6) AS p50, quantile(0.95)(dur_ns / 1e6) AS p95 "+
 			"FROM %s GROUP BY t ORDER BY t %s",
 		bucketSeconds, spanBase(src, where+" AND "+rootCond), QuerySettings), nil

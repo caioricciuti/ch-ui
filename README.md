@@ -165,7 +165,7 @@ Everything below is included in the free Community edition under Apache 2.0.
 
 ## Community vs Pro
 
-Almost everything is free. Pro adds enterprise governance and scheduling.
+Almost everything is free. Pro adds production operations, governance and scheduling.
 
 | Capability | Community (Free) | Pro |
 |---|:---:|:---:|
@@ -182,10 +182,18 @@ Almost everything is free. Pro adds enterprise governance and scheduling.
 | Governance (metadata, visual lineage graph, column-level lineage, access matrix) | - | **Yes** |
 | Policies + incidents + violations | - | **Yes** |
 | Cluster Health (replication, Keeper, merges/mutations, parts pressure, long queries) | - | **Yes** |
+| Performance regressions + saved before/after investigations | - | **Yes** |
+| Fleet overview across connections | - | **Yes** |
+| Incident timeline + deployment annotations | - | **Yes** |
+| Schema comparison + downloadable SQL review plans | - | **Yes** |
+| Weekly operations reports + configured email delivery | - | **Yes** |
 | Query parameters (`{name:Type}` bind params + saved-query run API) | - | **Yes** |
 | Alerting (SMTP, Resend, Brevo) | - | **Yes** |
 
 See: [`docs/license.md`](docs/license.md)
+
+For the performance, fleet, schema comparison and weekly report workflows, see
+[`docs/operations.md`](docs/operations.md).
 
 ---
 

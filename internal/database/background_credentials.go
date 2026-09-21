@@ -13,7 +13,7 @@ import (
 
 // BackgroundWorkers returns the independently configured unattended workers.
 func BackgroundWorkers() []string {
-	return []string{"schedule", "model", "pipeline", "governance", "cluster_health", "telemetry.monitor"}
+	return []string{"schedule", "model", "pipeline", "governance", "cluster_health", "telemetry.monitor", "performance", "operations.report"}
 }
 
 func ValidBackgroundWorker(worker string) bool {

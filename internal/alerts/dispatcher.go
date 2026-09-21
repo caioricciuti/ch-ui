@@ -14,6 +14,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"net/smtp"
 	"strconv"
@@ -380,6 +381,10 @@ func intCfg(cfg map[string]interface{}, key string, defaultVal int) int {
 }
 
 func (d *Dispatcher) sendSMTP(ctx context.Context, cfg map[string]interface{}, recipients []string, subject, body string) (string, error) {
+	// net/smtp does not honor contexts. Bound both dialing and every protocol
+	// operation, and close the socket promptly when the caller shuts down.
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	host := stringCfg(cfg, "host")
 	fromEmail := stringCfg(cfg, "from_email")
 	username := stringCfg(cfg, "username")
@@ -390,9 +395,8 @@ func (d *Dispatcher) sendSMTP(ctx context.Context, cfg map[string]interface{}, r
 	}
 
 	port := intCfg(cfg, "port", 587)
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	useTLS := boolCfg(cfg, "use_tls", false)
-	startTLS := boolCfg(cfg, "starttls", !useTLS)
 	insecureSkipVerify := boolCfg(cfg, "insecure_skip_verify", false)
 
 	fromHeader := fromEmail
@@ -412,99 +416,66 @@ func (d *Dispatcher) sendSMTP(ctx context.Context, cfg map[string]interface{}, r
 		auth = smtp.PlainAuth("", username, password, host)
 	}
 
-	if useTLS {
-		conn, err := tls.Dial("tcp", addr, &tls.Config{
-			ServerName:         host,
-			InsecureSkipVerify: insecureSkipVerify,
-		})
-		if err != nil {
-			return "", fmt.Errorf("smtp tls dial: %w", err)
-		}
-		defer conn.Close()
-
-		client, err := smtp.NewClient(conn, host)
-		if err != nil {
-			return "", fmt.Errorf("smtp new client: %w", err)
-		}
-		defer client.Close()
-
-		if auth != nil {
-			if err := client.Auth(auth); err != nil {
-				return "", fmt.Errorf("smtp auth: %w", err)
-			}
-		}
-		if err := client.Mail(fromEmail); err != nil {
-			return "", fmt.Errorf("smtp mail: %w", err)
-		}
-		for _, rcpt := range recipients {
-			if err := client.Rcpt(rcpt); err != nil {
-				return "", fmt.Errorf("smtp rcpt %s: %w", rcpt, err)
-			}
-		}
-		w, err := client.Data()
-		if err != nil {
-			return "", fmt.Errorf("smtp data: %w", err)
-		}
-		if _, err := w.Write(msg); err != nil {
-			_ = w.Close()
-			return "", fmt.Errorf("smtp write: %w", err)
-		}
-		if err := w.Close(); err != nil {
-			return "", fmt.Errorf("smtp close data: %w", err)
-		}
-		if err := client.Quit(); err != nil {
-			return "", fmt.Errorf("smtp quit: %w", err)
-		}
-		return "smtp", nil
+	conn, err := (&net.Dialer{Timeout: 15 * time.Second}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return "", fmt.Errorf("smtp dial: %w", err)
 	}
-
-	if startTLS {
-		client, err := smtp.Dial(addr)
-		if err != nil {
-			return "", fmt.Errorf("smtp dial: %w", err)
+	defer conn.Close()
+	deadline, _ := ctx.Deadline() // WithTimeout above guarantees a deadline.
+	if err := conn.SetDeadline(deadline); err != nil {
+		return "", fmt.Errorf("smtp deadline: %w", err)
+	}
+	stopCancellation := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancellation()
+	tlsConfig := &tls.Config{ServerName: host, InsecureSkipVerify: insecureSkipVerify}
+	var transport net.Conn = conn
+	if useTLS {
+		tlsConn := tls.Client(conn, tlsConfig)
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			return "", fmt.Errorf("smtp tls handshake: %w", err)
 		}
-		defer client.Close()
-
+		transport = tlsConn
+	}
+	client, err := smtp.NewClient(transport, host)
+	if err != nil {
+		return "", fmt.Errorf("smtp new client: %w", err)
+	}
+	defer client.Close()
+	// Both legacy TCP paths upgraded when offered (the plain path used
+	// smtp.SendMail, which performs opportunistic STARTTLS internally).
+	if !useTLS {
 		if ok, _ := client.Extension("STARTTLS"); ok {
-			if err := client.StartTLS(&tls.Config{
-				ServerName:         host,
-				InsecureSkipVerify: insecureSkipVerify,
-			}); err != nil {
+			if err := client.StartTLS(tlsConfig); err != nil {
 				return "", fmt.Errorf("smtp starttls: %w", err)
 			}
 		}
-		if auth != nil {
-			if err := client.Auth(auth); err != nil {
-				return "", fmt.Errorf("smtp auth: %w", err)
-			}
-		}
-		if err := client.Mail(fromEmail); err != nil {
-			return "", fmt.Errorf("smtp mail: %w", err)
-		}
-		for _, rcpt := range recipients {
-			if err := client.Rcpt(rcpt); err != nil {
-				return "", fmt.Errorf("smtp rcpt %s: %w", rcpt, err)
-			}
-		}
-		w, err := client.Data()
-		if err != nil {
-			return "", fmt.Errorf("smtp data: %w", err)
-		}
-		if _, err := w.Write(msg); err != nil {
-			_ = w.Close()
-			return "", fmt.Errorf("smtp write: %w", err)
-		}
-		if err := w.Close(); err != nil {
-			return "", fmt.Errorf("smtp close data: %w", err)
-		}
-		if err := client.Quit(); err != nil {
-			return "", fmt.Errorf("smtp quit: %w", err)
-		}
-		return "smtp", nil
 	}
-
-	if err := smtp.SendMail(addr, auth, fromEmail, recipients, msg); err != nil {
-		return "", fmt.Errorf("smtp sendmail: %w", err)
+	if auth != nil {
+		if err := client.Auth(auth); err != nil {
+			return "", fmt.Errorf("smtp auth: %w", err)
+		}
+	}
+	if err := client.Mail(fromEmail); err != nil {
+		return "", fmt.Errorf("smtp mail: %w", err)
+	}
+	for _, rcpt := range recipients {
+		if err := client.Rcpt(rcpt); err != nil {
+			return "", fmt.Errorf("smtp rcpt %s: %w", rcpt, err)
+		}
+	}
+	w, err := client.Data()
+	if err != nil {
+		return "", fmt.Errorf("smtp data: %w", err)
+	}
+	if _, err := w.Write(msg); err != nil {
+		_ = w.Close()
+		return "", fmt.Errorf("smtp write: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return "", fmt.Errorf("smtp close data: %w", err)
+	}
+	if err := client.Quit(); err != nil {
+		return "", fmt.Errorf("smtp quit: %w", err)
 	}
 	return "smtp", nil
 }

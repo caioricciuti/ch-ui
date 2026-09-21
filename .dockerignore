@@ -2,6 +2,7 @@
 .github
 .claude
 .DS_Store
+PRODUCT.md
 ch-ui
 ch-ui-server.pid
 data
