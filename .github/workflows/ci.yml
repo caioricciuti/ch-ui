@@ -78,6 +78,18 @@ jobs:
             ./internal/clusterhealth ./internal/governance ./internal/telemetry/monitor \
             -run TestBackgroundAccountExecution -count=1 -race
 
+      - name: Operations and telemetry against ClickHouse
+        env:
+          CHUI_TEST_CLICKHOUSE_URL: http://127.0.0.1:18123
+          CHUI_TEST_CLICKHOUSE_USER: release_admin
+          CHUI_TEST_CLICKHOUSE_PASSWORD: ci-test-only
+        run: |
+          go test ./internal/performance -run TestPerformanceQueryLive -count=1 -race -args -performance-fixtures
+          go test ./internal/operations -run TestScheduledReportUsesDedicatedAccountAndPersistsOnce -count=1 -race
+          go test ./internal/server/handlers -run TestSchemaCompareLive -count=1 -race
+          go test ./internal/incidenttimeline -run TestIncidentTimelineQueriesLive -count=1 -race
+          go test ./internal/telemetry -run TestHistogramWindowLive -count=1 -race
+
       - name: Vulnerability scan (govulncheck)
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.7.0

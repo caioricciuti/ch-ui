@@ -50,7 +50,8 @@
 
   function openGroup(g: NavGroup) {
     // Land on the group's first page; the panel lists the rest.
-    goTo(g.routes[0])
+    const first = g.routes.find((r) => !ADMIN_ONLY_ROUTES.has(r) || session?.role === 'admin')
+    if (first) goTo(first)
   }
 
   async function loadNodeAndClusterInfo() {

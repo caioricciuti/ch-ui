@@ -6,16 +6,18 @@
   import { tooltipPlugin, chartTheme } from '../../utils/uplot-tooltip'
   import type { TraceHistogramBucket } from '../../types/telemetry'
   import { formatDuration } from './services'
+  import { tracesHistogramData, histogramSelection, histogramIndexAt, formatHistogramInterval, type HistogramRange } from './histogram'
 
   /** Traces per bucket (errors stacked in danger) with p50/p95 lines on a second axis. */
   interface Props {
     buckets: TraceHistogramBucket[]
     bucketSeconds: number
+    range?: HistogramRange
     height?: number
     onrange?: (fromISO: string, toISO: string) => void
   }
 
-  let { buckets, bucketSeconds, height = 120, onrange }: Props = $props()
+  let { buckets, bucketSeconds, range, height = 120, onrange }: Props = $props()
 
   let container: HTMLDivElement
   let chart: uPlot | null = null
@@ -31,23 +33,26 @@
     }
     if (!container || buckets.length === 0) return
     const { axis, grid } = chartTheme(container)
-    const x = buckets.map((b) => Math.floor(new Date(b.t).getTime() / 1000))
-    const total = buckets.map((b) => b.count)
-    const errors = buckets.map((b) => b.errors)
-    const p50 = buckets.map((b) => (b.count > 0 ? b.p50_ms : null))
-    const p95 = buckets.map((b) => (b.count > 0 ? b.p95_ms : null))
-    const bars = uPlot.paths.bars!({ size: [0.8, 40], align: 1 })
+    const plot = tracesHistogramData(buckets, bucketSeconds, range)
+    const bars = uPlot.paths.bars!({
+      size: [1, Infinity, 0], align: 1, gap: 1,
+      disp: {
+        x0: { unit: 1, values: () => plot.starts },
+        size: { unit: 1, values: () => [plot.step] },
+      },
+    })
     const opts: uPlot.Options = {
       width: container.clientWidth || 600,
       height,
       legend: { show: false },
       cursor: { drag: { x: true, y: false }, points: { show: false } },
       plugins: [tooltipPlugin({
-        formatX: (v) => new Date(v * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        dataIndex: (u) => histogramIndexAt(plot.intervals, u.posToVal(u.cursor.left ?? -1, 'x')),
+        formatX: (_v, idx) => formatHistogramInterval(plot.intervals[idx]),
         formatValue: (v, i) => (i >= 3 ? formatDuration(v) : String(v)),
       })],
       scales: {
-        x: { time: true },
+        x: { time: true, range: () => plot.bounds },
         y: { range: (_u, _min, max) => [0, Math.max(1, max * 1.05)] },
         ms: { range: (_u, _min, max) => [0, Math.max(1, max * 1.1)] },
       },
@@ -70,11 +75,12 @@
           const from = u.posToVal(u.select.left, 'x')
           const to = u.posToVal(u.select.left + u.select.width, 'x')
           u.setSelect({ left: 0, width: 0, top: 0, height: 0 }, false)
-          onrange(new Date(from * 1000).toISOString(), new Date((to + bucketSeconds) * 1000).toISOString())
+          const selected = histogramSelection(from, to, plot.bounds)
+          if (selected) onrange(selected.from, selected.to)
         }],
       },
     }
-    chart = new uPlot(opts, [x, total, errors, p50, p95], container)
+    chart = new uPlot(opts, [plot.x, plot.total, plot.errors, plot.p50, plot.p95], container)
   }
 
   onMount(() => {

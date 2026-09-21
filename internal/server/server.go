@@ -20,6 +20,8 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/mcpserver"
 	"github.com/caioricciuti/ch-ui/internal/models"
 	"github.com/caioricciuti/ch-ui/internal/oidc"
+	"github.com/caioricciuti/ch-ui/internal/operations"
+	performancemonitor "github.com/caioricciuti/ch-ui/internal/performance/monitor"
 	"github.com/caioricciuti/ch-ui/internal/pipelines"
 	"github.com/caioricciuti/ch-ui/internal/scheduler"
 	"github.com/caioricciuti/ch-ui/internal/server/handlers"
@@ -31,25 +33,27 @@ import (
 
 // Server is the main HTTP server.
 type Server struct {
-	cfg            *config.Config
-	db             *database.DB
-	gateway        *tunnel.Gateway
-	scheduler      *scheduler.Runner
-	pipelineRunner *pipelines.Runner
-	modelRunner    *models.Runner
-	modelScheduler *models.Scheduler
-	govSyncer      *governance.Syncer
-	chHarvester    *clusterhealth.Harvester
-	monitorRunner  *monitor.MonitorRunner
-	githubSyncer   *ghclient.Syncer
-	guardrails     *governance.GuardrailService
-	alerts         *alerts.Dispatcher
-	auditFwd       *audit.Forwarder
-	oidcManager    *oidc.Manager
-	agents         *embedded.Manager
-	router         chi.Router
-	http           *http.Server
-	frontendFS     fs.FS
+	cfg                *config.Config
+	db                 *database.DB
+	gateway            *tunnel.Gateway
+	scheduler          *scheduler.Runner
+	pipelineRunner     *pipelines.Runner
+	modelRunner        *models.Runner
+	modelScheduler     *models.Scheduler
+	govSyncer          *governance.Syncer
+	chHarvester        *clusterhealth.Harvester
+	monitorRunner      *monitor.MonitorRunner
+	performanceMonitor *performancemonitor.Monitor
+	operationsReports  *operations.Runner
+	githubSyncer       *ghclient.Syncer
+	guardrails         *governance.GuardrailService
+	alerts             *alerts.Dispatcher
+	auditFwd           *audit.Forwarder
+	oidcManager        *oidc.Manager
+	agents             *embedded.Manager
+	router             chi.Router
+	http               *http.Server
+	frontendFS         fs.FS
 }
 
 // New creates a new Server with all routes configured.
@@ -107,24 +111,26 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 	}
 
 	s := &Server{
-		cfg:            cfg,
-		db:             db,
-		gateway:        gw,
-		scheduler:      sched,
-		pipelineRunner: pipeRunner,
-		modelRunner:    modelRunner,
-		modelScheduler: modelScheduler,
-		govSyncer:      govSyncer,
-		chHarvester:    chHarvester,
-		monitorRunner:  monitorRunner,
-		githubSyncer:   githubSyncer,
-		guardrails:     governance.NewGuardrailService(govStore, db),
-		alerts:         alertDispatcher,
-		auditFwd:       auditFwd,
-		oidcManager:    oidcManager,
-		agents:         agents,
-		router:         r,
-		frontendFS:     frontendFS,
+		cfg:                cfg,
+		db:                 db,
+		gateway:            gw,
+		scheduler:          sched,
+		pipelineRunner:     pipeRunner,
+		modelRunner:        modelRunner,
+		modelScheduler:     modelScheduler,
+		govSyncer:          govSyncer,
+		chHarvester:        chHarvester,
+		monitorRunner:      monitorRunner,
+		performanceMonitor: performancemonitor.New(db, gw, cfg.AppSecretKey, cfg.IsPro),
+		operationsReports:  operations.NewRunner(db, gw, cfg),
+		githubSyncer:       githubSyncer,
+		guardrails:         governance.NewGuardrailService(govStore, db),
+		alerts:             alertDispatcher,
+		auditFwd:           auditFwd,
+		oidcManager:        oidcManager,
+		agents:             agents,
+		router:             r,
+		frontendFS:         frontendFS,
 	}
 
 	s.setupRoutes()
@@ -328,6 +334,27 @@ func (s *Server) setupRoutes() {
 				// Cost Center (showback/chargeback over query_log + parts)
 				costsHandler := &handlers.CostsHandler{DB: db, Gateway: gw, Config: cfg}
 				pro.Mount("/costs", costsHandler.Routes())
+
+				performanceHandler := &handlers.PerformanceHandler{DB: db, Gateway: gw, Config: cfg}
+				pro.Mount("/performance", performanceHandler.Routes())
+				fleetHandler := &handlers.FleetHandler{DB: db, Gateway: gw, Config: cfg, RegressionCounts: func(connectionID string) (int, error) {
+					state, err := db.GetPerformanceMonitor(connectionID)
+					if err != nil {
+						return 0, err
+					}
+					at, err := time.Parse(time.RFC3339Nano, state.ReportAt)
+					if err != nil || !state.Enabled || state.Report == nil || state.LastError != "" || time.Since(at) > 2*time.Hour {
+						return 0, fmt.Errorf("no recent successful performance scan")
+					}
+					return len(state.Report.Regressions), nil
+				}}
+				pro.Mount("/fleet", fleetHandler.Routes())
+				schemaHandler := &handlers.SchemaCompareHandler{DB: db, Gateway: gw, Config: cfg}
+				pro.Mount("/schema-compare", schemaHandler.Routes())
+				reportsHandler := &handlers.OperationsReportsHandler{DB: db, Config: cfg, Runner: s.operationsReports}
+				pro.Mount("/operations-reports", reportsHandler.Routes())
+				timelineHandler := &handlers.IncidentTimelineHandler{DB: db, Gateway: gw, Config: cfg}
+				pro.Route("/incident-timeline", timelineHandler.Routes)
 			})
 		})
 	})
@@ -389,6 +416,8 @@ func (s *Server) Start() error {
 		slog.Info("Cluster health harvester disabled (requires Pro license)")
 	}
 	s.monitorRunner.Start()
+	s.performanceMonitor.StartBackground()
+	s.operationsReports.Start()
 	s.alerts.Start()
 
 	if s.cfg.IsPro() {
@@ -456,6 +485,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.govSyncer.Stop()
 	s.chHarvester.Stop()
 	s.monitorRunner.Stop()
+	s.performanceMonitor.Stop()
+	s.operationsReports.Stop()
 	s.alerts.Stop()
 	s.gateway.Stop()
 	s.auditFwd.Close()

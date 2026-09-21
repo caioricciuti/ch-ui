@@ -17,6 +17,7 @@
   const labels: Record<string, string> = {
     schedule: 'Scheduled queries', model: 'Models', pipeline: 'Pipeline sink',
     governance: 'Governance', cluster_health: 'Cluster Health', 'telemetry.monitor': 'Telemetry monitors',
+    performance: 'Performance regression monitor', 'operations.report': 'Weekly operations reports',
   }
   const permissions: Record<string, string> = {
     schedule: 'Grant only the operations required by the scheduled SQL.',
@@ -25,6 +26,8 @@
     governance: 'Grant access to the system tables used by governance and the metadata you want to collect.',
     cluster_health: 'Grant SELECT on the system tables used by Cluster Health.',
     'telemetry.monitor': 'Grant SELECT on the configured logs and traces tables.',
+    performance: 'Grant SELECT on system.query_log. Unattended regression checks require a dedicated account.',
+    'operations.report': 'Grant SELECT on system.query_log, system.parts and system.clusters. Weekly reports require a dedicated account.',
   }
   let accounts = $state<Account[]>([])
   let worker = $state('telemetry.monitor')
@@ -35,10 +38,12 @@
   let saving = $state(false)
   let loadError = $state('')
   const endpoint = $derived(`/api/connections/${encodeURIComponent(connection.id)}/background-credentials`)
+  const dedicatedOnly = $derived(worker === 'performance' || worker === 'operations.report')
 
   function selectWorker() {
     const account = accounts.find((a) => a.worker === worker)
     mode = account?.mode ?? 'session'
+    if ((worker === 'performance' || worker === 'operations.report') && mode === 'session') mode = 'disabled'
     username = account?.username ?? ''
     password = ''
   }
@@ -86,12 +91,12 @@
       <FormField label="Run using" for="background-mode">
         <select id="background-mode" class="ds-input w-full" bind:value={mode} disabled={saving}>
           <option value="service_account">Dedicated ClickHouse account</option>
-          <option value="session">An active user session</option>
+          {#if !dedicatedOnly}<option value="session">An active user session</option>{/if}
           <option value="disabled">Disabled</option>
         </select>
       </FormField>
       {#if mode === 'service_account'}
-        <p class="text-[13px] text-fg-3">Runs continue after everyone signs out. {permissions[worker]} All administrators and analysts in this CH-UI instance can use this account's grants through shared jobs, including jobs on other connections.</p>
+        <p class="text-[13px] text-fg-3">Runs continue after everyone signs out. {permissions[worker]} {#if dedicatedOnly}Administrators configure these read-only checks and can view their saved results.{:else}All administrators and analysts in this CH-UI instance can use this account's grants through shared jobs, including jobs on other connections.{/if}</p>
         <FormField label="ClickHouse username" for="background-user" required>
           <Input id="background-user" bind:value={username} autocomplete="off" disabled={saving} maxlength={256} required />
         </FormField>
@@ -104,7 +109,7 @@
       {:else}
         <p class="text-[13px] text-fg-3">Prevents this worker from obtaining credentials and removes its saved account. It will not borrow a user session. Runs already in progress may finish.</p>
       {/if}
-      {#if worker === 'schedule' || worker === 'telemetry.monitor'}
+      {#if worker === 'schedule' || worker === 'telemetry.monitor' || worker === 'operations.report' || worker === 'performance'}
         <p class="text-xs text-fg-3">Manual runs use the signed-in user's ClickHouse account and remain available when background execution is disabled.</p>
       {:else if worker === 'model'}
         <p class="text-xs text-fg-3">This setting also applies to manual model runs. Disabled prevents both scheduled and manual model execution.</p>

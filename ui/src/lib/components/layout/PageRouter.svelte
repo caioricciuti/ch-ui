@@ -16,6 +16,11 @@
   import ClusterHealth from '../../../pages/ClusterHealth.svelte'
   import QueryInsights from '../../../pages/QueryInsights.svelte'
   import CostCenter from '../../../pages/CostCenter.svelte'
+  import Performance from '../../../pages/Performance.svelte'
+  import Fleet from '../../../pages/Fleet.svelte'
+  import SchemaCompare from '../../../pages/SchemaCompare.svelte'
+  import OperationsReports from '../../../pages/OperationsReports.svelte'
+  import IncidentTimeline from '../../../pages/IncidentTimeline.svelte'
   import Settings from '../../../pages/Settings.svelte'
 
   // Route type -> page component.
@@ -31,6 +36,11 @@
     'cluster-health': ClusterHealth,
     'query-insights': QueryInsights,
     'cost-center': CostCenter,
+    performance: Performance,
+    fleet: Fleet,
+    'schema-compare': SchemaCompare,
+    'operations-reports': OperationsReports,
+    'incident-timeline': IncidentTimeline,
     admin: Admin,
     settings: Settings,
   }

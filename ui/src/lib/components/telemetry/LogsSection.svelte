@@ -80,6 +80,7 @@
   let tookMs = $state(0)
   let buckets = $state<HistogramBucket[]>([])
   let bucketSeconds = $state(60)
+  let histogramRange = $state<{ from: string; to: string } | undefined>()
   let facets = $state<LogFacets | null>(null)
   let facetsLoading = $state(false)
   let expandedKeys = $state<string[]>([])
@@ -108,12 +109,16 @@
       if (hist) {
         buckets = hist.buckets
         bucketSeconds = hist.bucket_seconds
+        histogramRange = { from: req.from, to: req.to }
+      } else {
+        buckets = []
       }
       writeUrl()
     } catch (e: unknown) {
       if (mySeq !== seq) return
       error = e instanceof Error ? e.message : String(e)
       rows = []
+      buckets = []
       nextCursor = null
     } finally {
       if (mySeq === seq) loading = false
@@ -405,7 +410,7 @@
         {/if}
       </div>
       <div class="shrink-0 px-3 pb-1">
-        <LogsHistogram {buckets} {bucketSeconds} height={110} onrange={onHistogramRange} />
+        <LogsHistogram {buckets} {bucketSeconds} range={histogramRange} height={110} onrange={onHistogramRange} />
       </div>
       {#if !loading && rows.length === 0 && !error}
         <EmptyState size="compact" title="Nothing in this range" description="Widen the time range or loosen the query." />

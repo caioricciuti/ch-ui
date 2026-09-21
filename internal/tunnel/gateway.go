@@ -94,9 +94,28 @@ type ConnectedTunnel struct {
 	ConnectionID   string
 	ConnectionName string
 	WS             *websocket.Conn
-	LastSeen       time.Time
-	Pending        sync.Map // map[requestID]*PendingRequest
-	mu             sync.Mutex
+	Pending        sync.Map   // map[requestID]*PendingRequest
+	mu             sync.Mutex // serializes every application-frame write
+	seenMu         sync.RWMutex
+	lastSeen       time.Time
+}
+
+func (t *ConnectedTunnel) seenAt() time.Time {
+	t.seenMu.RLock()
+	defer t.seenMu.RUnlock()
+	return t.lastSeen
+}
+
+func (t *ConnectedTunnel) touch() {
+	t.seenMu.Lock()
+	t.lastSeen = time.Now()
+	t.seenMu.Unlock()
+}
+
+func (t *ConnectedTunnel) sendJSON(msg GatewayMessage) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return sendJSON(t.WS, msg)
 }
 
 // Gateway manages WebSocket connections from tunnel agents.
@@ -172,8 +191,8 @@ func (g *Gateway) readLoop(conn *websocket.Conn) {
 		var msg AgentMessage
 		if err := json.Unmarshal(message, &msg); err != nil {
 			slog.Warn("Failed to parse tunnel message", "error", err)
-			conn.WriteMessage(websocket.CloseMessage,
-				websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Invalid message format"))
+			conn.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Invalid message format"), time.Now().Add(5*time.Second))
 			return
 		}
 
@@ -184,6 +203,13 @@ func (g *Gateway) readLoop(conn *websocket.Conn) {
 
 		switch msg.Type {
 		case "auth":
+			if connID != "" {
+				// Authentication writes below are exclusive to an unpublished
+				// socket. Never let an established agent re-enter that path.
+				conn.WriteControl(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Already authenticated"), time.Now().Add(5*time.Second))
+				return
+			}
 			authConnID := g.handleAuth(conn, msg.Token, msg.Takeover)
 			if authConnID == "" {
 				return // auth failed, connection closed
@@ -238,16 +264,16 @@ func (g *Gateway) handleAuth(conn *websocket.Conn, token string, takeover bool) 
 	tc, err := g.db.GetConnectionByTokenCtx(authCtx, token)
 	if err != nil {
 		slog.Warn("Tunnel auth failed: token lookup error", "remote_addr", remoteAddr, "error", err)
-		g.sendJSON(conn, GatewayMessage{Type: "auth_error", Message: "Tunnel auth temporarily unavailable. Please retry."})
-		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "Auth backend busy"))
+		sendJSON(conn, GatewayMessage{Type: "auth_error", Message: "Tunnel auth temporarily unavailable. Please retry."})
+		conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "Auth backend busy"), time.Now().Add(5*time.Second))
 		return ""
 	}
 	if tc == nil {
 		slog.Debug("Tunnel auth failed: invalid token", "remote_addr", remoteAddr)
-		g.sendJSON(conn, GatewayMessage{Type: "auth_error", Message: "Invalid tunnel token"})
-		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Invalid token"))
+		sendJSON(conn, GatewayMessage{Type: "auth_error", Message: "Invalid tunnel token"})
+		conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Invalid token"), time.Now().Add(5*time.Second))
 		return ""
 	}
 
@@ -255,12 +281,12 @@ func (g *Gateway) handleAuth(conn *websocket.Conn, token string, takeover bool) 
 	// This avoids two agent processes evicting each other in a reconnect loop.
 	if existing, ok := g.tunnels.Load(tc.ID); ok {
 		t := existing.(*ConnectedTunnel)
-		isHealthy := time.Since(t.LastSeen) < 45*time.Second
+		isHealthy := time.Since(t.seenAt()) < 45*time.Second
 		if isHealthy && !takeover {
 			slog.Warn("Tunnel auth rejected: connection already active", "name", tc.Name)
-			g.sendJSON(conn, GatewayMessage{Type: "auth_error", Message: "Tunnel token already connected (use --takeover to replace it)"})
-			conn.WriteMessage(websocket.CloseMessage,
-				websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Token already connected"))
+			sendJSON(conn, GatewayMessage{Type: "auth_error", Message: "Tunnel token already connected (use --takeover to replace it)"})
+			conn.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Token already connected"), time.Now().Add(5*time.Second))
 			return ""
 		}
 		if isHealthy && takeover {
@@ -279,17 +305,25 @@ func (g *Gateway) handleAuth(conn *websocket.Conn, token string, takeover bool) 
 		ConnectionID:   tc.ID,
 		ConnectionName: tc.Name,
 		WS:             conn,
-		LastSeen:       time.Now(),
+		lastSeen:       time.Now(),
 	}
+	// Publish under the write lock so an API request can find this tunnel as
+	// soon as the agent receives auth_ok, but cannot write ahead of or race
+	// with that acknowledgement.
+	tunnel.mu.Lock()
 	g.tunnels.Store(tc.ID, tunnel)
-
-	g.db.UpdateConnectionStatus(tc.ID, "connected")
-
-	g.sendJSON(conn, GatewayMessage{
+	err = sendJSON(conn, GatewayMessage{
 		Type:           "auth_ok",
 		ConnectionID:   tc.ID,
 		ConnectionName: tc.Name,
 	})
+	tunnel.mu.Unlock()
+	if err != nil {
+		g.handleDisconnect(tc.ID, conn)
+		return ""
+	}
+
+	g.db.UpdateConnectionStatus(tc.ID, "connected")
 
 	slog.Info("Tunnel agent authenticated", "name", tc.Name, "connection_id", tc.ID)
 
@@ -315,7 +349,7 @@ func (g *Gateway) touchTunnel(connID string) {
 	}
 	if val, ok := g.tunnels.Load(connID); ok {
 		t := val.(*ConnectedTunnel)
-		t.LastSeen = time.Now()
+		t.touch()
 	}
 }
 
@@ -626,9 +660,14 @@ func (g *Gateway) handleDisconnect(connID string, ws *websocket.Conn) {
 
 func strPtr(s string) *string { return &s }
 
-func (g *Gateway) sendJSON(conn *websocket.Conn, msg GatewayMessage) {
-	data, _ := json.Marshal(msg)
-	conn.WriteMessage(websocket.TextMessage, data)
+// sendJSON requires exclusive write ownership: either the connection is not
+// authenticated/published yet, or its ConnectedTunnel.mu is held.
+func sendJSON(conn *websocket.Conn, msg GatewayMessage) error {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return conn.WriteMessage(websocket.TextMessage, data)
 }
 
 // heartbeatLoop pings all connected agents every 30 seconds.
@@ -654,8 +693,9 @@ func (g *Gateway) pingAll() {
 		connID := key.(string)
 		t := value.(*ConnectedTunnel)
 
-		if now.Sub(t.LastSeen) > staleThreshold {
-			slog.Warn("Tunnel connection stale, removing", "name", t.ConnectionName, "lastSeen", t.LastSeen)
+		lastSeen := t.seenAt()
+		if now.Sub(lastSeen) > staleThreshold {
+			slog.Warn("Tunnel connection stale, removing", "name", t.ConnectionName, "lastSeen", lastSeen)
 			t.mu.Lock()
 			t.WS.Close()
 			t.mu.Unlock()
@@ -663,11 +703,7 @@ func (g *Gateway) pingAll() {
 			return true
 		}
 
-		ping := GatewayMessage{Type: "ping"}
-		data, _ := json.Marshal(ping)
-		t.mu.Lock()
-		err := t.WS.WriteMessage(websocket.TextMessage, data)
-		t.mu.Unlock()
+		err := t.sendJSON(GatewayMessage{Type: "ping"})
 		if err != nil {
 			slog.Warn("Ping failed", "name", t.ConnectionName, "error", err)
 			g.handleDisconnect(connID, t.WS)

@@ -35,6 +35,11 @@ const ROUTES = {
   'cluster-health': { label: 'Cluster Health', path: '/cluster-health', description: 'Nodes, replication, parts', icon: HeartPulse, pro: true },
   'query-insights': { label: 'Query Insights', path: '/query-insights', description: 'Latency and failures', icon: Gauge, pro: true },
   'cost-center': { label: 'Cost Center', path: '/cost-center', description: 'Who spends what', icon: Coins, pro: true },
+  performance: { label: 'Performance', path: '/performance', description: 'Regressions and measured improvements', icon: Gauge, pro: true },
+  fleet: { label: 'Fleet', path: '/fleet', description: 'Health across connections', icon: HeartPulse, pro: true },
+  'schema-compare': { label: 'Schema Compare', path: '/schema-compare', description: 'Review differences between environments', icon: Boxes, pro: true },
+  'operations-reports': { label: 'Reports', path: '/reports', description: 'Weekly operations summaries', icon: ScrollText, pro: true },
+  'incident-timeline': { label: 'Incident Timeline', path: '/incident-timeline', description: 'Correlate failures and operational events', icon: Clock, pro: true },
   admin: { label: 'Admin', path: '/admin', description: 'Users, connections, MCP', icon: Shield },
   settings: { label: 'License', path: '/license', description: 'Edition and entitlements', icon: KeyRound },
 } as const satisfies Record<string, PageRouteMeta>
@@ -67,13 +72,13 @@ export const NAV_GROUPS: NavGroup[] = [
   { id: 'query', label: 'Query', routes: [] },
   { id: 'explore', label: 'Explore', routes: ['saved-queries', 'brain'] },
   { id: 'visualize', label: 'Visualize', routes: ['dashboards', 'telemetry'] },
-  { id: 'build', label: 'Build', routes: ['models', 'pipelines', 'schedules'] },
-  { id: 'operate', label: 'Operate', routes: ['cluster-health', 'query-insights', 'cost-center', 'governance'] },
+  { id: 'build', label: 'Build', routes: ['models', 'pipelines', 'schedules', 'schema-compare'] },
+  { id: 'operate', label: 'Operate', routes: ['fleet', 'cluster-health', 'performance', 'query-insights', 'incident-timeline', 'cost-center', 'operations-reports', 'governance'] },
   { id: 'settings', label: 'Settings', routes: ['admin', 'settings'] },
 ]
 
 /** Routes only an admin can use; the panel hides them for everyone else. */
-export const ADMIN_ONLY_ROUTES: ReadonlySet<PageRoute> = new Set<PageRoute>(['admin'])
+export const ADMIN_ONLY_ROUTES: ReadonlySet<PageRoute> = new Set<PageRoute>(['admin', 'fleet', 'operations-reports', 'incident-timeline'])
 
 export function groupForRoute(type: string | undefined | null): NavGroup {
   if (!isPageRouteType(type)) return NAV_GROUPS[0]

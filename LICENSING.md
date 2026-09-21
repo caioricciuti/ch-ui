@@ -43,6 +43,10 @@ Change Date, each version converts automatically to Apache 2.0.
 - `internal/alerts/` — alert rules and dispatch (SMTP/Resend/Brevo)
 - `internal/github/` — GitHub model sync
 - `internal/costs/` — Cost Center showback/chargeback analytics
+- `internal/performance/` — regression analysis, investigations and background scans
+- `internal/schemacompare/` — schema comparison and SQL review plans
+- `internal/operations/` — weekly operations reports and delivery
+- `internal/incidenttimeline/` — correlated operational timelines
 - `internal/license/` — the commercial licensing/entitlement machinery itself
 
 ### Pro files in shared packages
@@ -57,11 +61,20 @@ Change Date, each version converts automatically to Apache 2.0.
 - `internal/server/handlers/clusterhealth.go`
 - `internal/server/handlers/queryinsights.go`
 - `internal/server/handlers/costs.go`
+- `internal/server/handlers/performance.go`
+- `internal/server/handlers/fleet.go`
+- `internal/server/handlers/schema_compare.go`
+- `internal/server/handlers/operations_reports.go`
+- `internal/server/handlers/incident_timeline.go`
+- `internal/database/performance.go`
+- `internal/database/operations_reports.go`
+- `internal/database/incident_timeline.go`
 - `internal/server/handlers/admin_github.go`
 - `internal/mcpserver/tools_pro.go` — Pro MCP tools (Query Insights, Cost Center)
 
-The corresponding Pro UI (the Svelte pages/components for Governance, Cluster
-Health, Query Insights, Schedules, and Alerts) is covered by the same BSL 1.1
+The corresponding Pro UI (the Svelte pages/components and API clients for Governance, Cluster
+Health, Query Insights, Performance, Fleet, Schema Compare, Reports, Incident Timeline, Schedules,
+and Alerts) is covered by the same BSL 1.1
 terms as the Pro backend it serves.
 
 ## Buying a Pro license
