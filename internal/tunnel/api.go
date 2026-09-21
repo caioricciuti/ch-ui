@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 )
 
 // IsTunnelOnline checks if a tunnel connection is currently active.
@@ -24,7 +23,7 @@ func (g *Gateway) GetTunnelStatus(connectionID string) (online bool, lastSeen ti
 		return false, time.Time{}
 	}
 	t := val.(*ConnectedTunnel)
-	return true, t.LastSeen
+	return true, t.seenAt()
 }
 
 // GetConnectedCount returns the number of currently connected tunnels.
@@ -78,10 +77,7 @@ func (g *Gateway) ExecuteQueryWithSettingsCtx(ctx context.Context, connectionID,
 		Settings: settings,
 	}
 
-	data, _ := json.Marshal(msg)
-	t.mu.Lock()
-	err := t.WS.WriteMessage(websocket.TextMessage, data)
-	t.mu.Unlock()
+	err := t.sendJSON(msg)
 	if err != nil {
 		return nil, err
 	}
@@ -111,10 +107,7 @@ func (t *ConnectedTunnel) sendCancel(requestID string) {
 		ID:      requestID,
 		QueryID: requestID,
 	}
-	cancelData, _ := json.Marshal(cancel)
-	t.mu.Lock()
-	t.WS.WriteMessage(websocket.TextMessage, cancelData)
-	t.mu.Unlock()
+	_ = t.sendJSON(cancel)
 }
 
 // ExecuteQueryWithFormat sends a SQL query with a specific output format and returns the raw result.
@@ -146,10 +139,7 @@ func (g *Gateway) ExecuteQueryWithFormat(connectionID, sql, user, password, form
 		Format:   format,
 	}
 
-	data, _ := json.Marshal(msg)
-	t.mu.Lock()
-	err := t.WS.WriteMessage(websocket.TextMessage, data)
-	t.mu.Unlock()
+	err := t.sendJSON(msg)
 	if err != nil {
 		return nil, err
 	}
@@ -169,15 +159,7 @@ func (g *Gateway) ExecuteQueryWithFormat(connectionID, sql, user, password, form
 	case err := <-pending.ErrorCh:
 		return nil, err
 	case <-time.After(timeout):
-		cancel := GatewayMessage{
-			Type:    "cancel_query",
-			ID:      requestID,
-			QueryID: requestID,
-		}
-		cancelData, _ := json.Marshal(cancel)
-		t.mu.Lock()
-		t.WS.WriteMessage(websocket.TextMessage, cancelData)
-		t.mu.Unlock()
+		t.sendCancel(requestID)
 		return nil, errors.New("query timeout")
 	}
 }
@@ -213,10 +195,7 @@ func (g *Gateway) ExecuteStreamQuery(connectionID, sql, user, password string, s
 		Settings: settings,
 	}
 
-	data, _ := json.Marshal(msg)
-	t.mu.Lock()
-	wsErr := t.WS.WriteMessage(websocket.TextMessage, data)
-	t.mu.Unlock()
+	wsErr := t.sendJSON(msg)
 	if wsErr != nil {
 		t.Pending.Delete(requestID)
 		return "", nil, wsErr
@@ -234,15 +213,12 @@ func (g *Gateway) CancelStreamQuery(connectionID, requestID string) {
 	}
 	t := val.(*ConnectedTunnel)
 
-	data, _ := json.Marshal(GatewayMessage{
+	err := t.sendJSON(GatewayMessage{
 		Type:    "cancel_query",
 		ID:      requestID,
 		QueryID: requestID,
 	})
 
-	t.mu.Lock()
-	err := t.WS.WriteMessage(websocket.TextMessage, data)
-	t.mu.Unlock()
 	if err != nil {
 		slog.Debug("Failed to send query cancellation", "request_id", requestID, "error", err)
 	}
@@ -283,10 +259,7 @@ func (g *Gateway) TestConnection(connectionID, user, password string, timeout ti
 		Password: password,
 	}
 
-	data, _ := json.Marshal(msg)
-	t.mu.Lock()
-	err := t.WS.WriteMessage(websocket.TextMessage, data)
-	t.mu.Unlock()
+	err := t.sendJSON(msg)
 	if err != nil {
 		return nil, err
 	}

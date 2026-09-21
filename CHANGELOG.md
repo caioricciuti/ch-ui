@@ -40,6 +40,9 @@ and reviewing events across ClickHouse environments.
   Search and histogram upper time bounds are consistently exclusive.
 - SMTP connections now honor cancellation and deadlines, preventing an
   unresponsive server from indefinitely blocking report delivery or shutdown.
+- Tunnel authentication replies and query writes share one write lock, avoiding
+  a race when work starts immediately after an agent connects. Heartbeat/status
+  timestamp access is also synchronized.
 - The Operate navigation group opens a page accessible to the signed-in role.
 - Helm defaults now select the published, version-prefixed Docker image tag.
 
