@@ -10,11 +10,16 @@ import (
 
 // AuditLogParams holds parameters for creating an audit log entry.
 type AuditLogParams struct {
-	Action       string
-	Username     *string
-	ConnectionID *string
-	Details      *string
-	IPAddress    *string
+	Action string
+	// Username is the actor: the person (SSO email) or the ClickHouse user
+	// for password logins. See middleware.Actor.
+	Username *string
+	// ClickhouseUser is the ClickHouse account the action ran as, when it
+	// differs from Username (the shared service account for SSO people).
+	ClickhouseUser *string
+	ConnectionID   *string
+	Details        *string
+	IPAddress      *string
 }
 
 // AuditLog represents an audit log entry.
@@ -22,6 +27,7 @@ type AuditLog struct {
 	ID           string  `json:"id"`
 	Action       string  `json:"action"`
 	Username     *string `json:"username"`
+	ChUser       *string `json:"ch_user,omitempty"`
 	ConnectionID *string `json:"connection_id"`
 	Details      *string `json:"details"`
 	IPAddress    *string `json:"ip_address"`
@@ -32,9 +38,9 @@ type AuditLog struct {
 func (db *DB) CreateAuditLog(params AuditLogParams) error {
 	id := uuid.NewString()
 	_, err := db.conn.Exec(
-		`INSERT INTO audit_logs (id, action, username, connection_id, details, ip_address)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		id, params.Action, params.Username, params.ConnectionID, params.Details, params.IPAddress,
+		`INSERT INTO audit_logs (id, action, username, ch_user, connection_id, details, ip_address)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, params.Action, params.Username, chUserColumn(params.Username, params.ClickhouseUser), params.ConnectionID, params.Details, params.IPAddress,
 	)
 	if err != nil {
 		return fmt.Errorf("create audit log: %w", err)
@@ -43,6 +49,14 @@ func (db *DB) CreateAuditLog(params AuditLogParams) error {
 		db.OnAudit(params)
 	}
 	return nil
+}
+
+// chUserColumn stores the ClickHouse account only when it adds information.
+func chUserColumn(username, chUser *string) any {
+	if chUser == nil || *chUser == "" || (username != nil && *username == *chUser) {
+		return nil
+	}
+	return *chUser
 }
 
 // GetAuditLogs retrieves audit logs, most recent first.
@@ -98,7 +112,7 @@ func (db *DB) GetAuditLogsFiltered(limit int, timeRange, action, username, searc
 	}
 
 	query := strings.Builder{}
-	query.WriteString(`SELECT id, action, username, connection_id, details, ip_address, created_at FROM audit_logs`)
+	query.WriteString(`SELECT id, action, username, ch_user, connection_id, details, ip_address, created_at FROM audit_logs`)
 	if len(whereClauses) > 0 {
 		query.WriteString(" WHERE ")
 		query.WriteString(strings.Join(whereClauses, " AND "))
@@ -115,11 +129,12 @@ func (db *DB) GetAuditLogsFiltered(limit int, timeRange, action, username, searc
 	var logs []AuditLog
 	for rows.Next() {
 		var l AuditLog
-		var username, connID, details, ip sql.NullString
-		if err := rows.Scan(&l.ID, &l.Action, &username, &connID, &details, &ip, &l.CreatedAt); err != nil {
+		var username, chUser, connID, details, ip sql.NullString
+		if err := rows.Scan(&l.ID, &l.Action, &username, &chUser, &connID, &details, &ip, &l.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan audit log: %w", err)
 		}
 		l.Username = nullStringToPtr(username)
+		l.ChUser = nullStringToPtr(chUser)
 		l.ConnectionID = nullStringToPtr(connID)
 		l.Details = nullStringToPtr(details)
 		l.IPAddress = nullStringToPtr(ip)

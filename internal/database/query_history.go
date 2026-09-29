@@ -28,7 +28,11 @@ type QueryHistoryEntry struct {
 // CreateQueryHistoryParams holds parameters for recording a query execution.
 type CreateQueryHistoryParams struct {
 	ConnectionID string
-	User         string
+	// User is the ClickHouse account the query ran as.
+	User string
+	// Actor is the person who ran it (SSO email, else the ClickHouse user).
+	// History is listed, deleted and pruned per actor. Empty means User.
+	Actor        string
 	QueryText    string
 	Status       string
 	ErrorMessage string
@@ -36,6 +40,19 @@ type CreateQueryHistoryParams struct {
 	RowsReturned int64
 	// Source is where the query came from: "editor" (default) or "mcp".
 	Source string
+}
+
+// SharedSSOHistoryActor marks history rows written before history was kept
+// per person, by any of the SSO people sharing a service account. Nothing
+// links such a row to one person, so no actor ever matches it: hidden from
+// everyone rather than shown to everyone.
+const SharedSSOHistoryActor = "(shared sso account)"
+
+func historyActor(p CreateQueryHistoryParams) string {
+	if p.Actor != "" {
+		return p.Actor
+	}
+	return p.User
 }
 
 // CreateQueryHistoryEntry records a query execution and prunes old entries
@@ -49,11 +66,12 @@ func (db *DB) CreateQueryHistoryEntry(params CreateQueryHistoryParams) error {
 		source = "editor"
 	}
 	_, err := db.conn.Exec(
-		`INSERT INTO query_history (id, connection_id, clickhouse_user, query_text, status, error_message, elapsed_ms, rows_returned, source, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
+		`INSERT INTO query_history (id, connection_id, clickhouse_user, actor, query_text, status, error_message, elapsed_ms, rows_returned, source, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
 		id,
 		nilIfEmpty(params.ConnectionID),
 		params.User,
+		historyActor(params),
 		params.QueryText,
 		params.Status,
 		nilIfEmpty(params.ErrorMessage),

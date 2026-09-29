@@ -1161,6 +1161,28 @@ func (db *DB) runMigrations() error {
 	if err := db.ensureColumn("sessions", "auth_subject", "TEXT"); err != nil {
 		return err
 	}
+	// Per-person attribution for SSO (v2.13.2). query_history.actor and
+	// audit_logs.username hold the person; clickhouse_user / ch_user the
+	// account the query or action ran as.
+	if err := db.ensureColumn("query_history", "actor", "TEXT"); err != nil {
+		return err
+	}
+	if err := db.ensureColumn("audit_logs", "ch_user", "TEXT"); err != nil {
+		return err
+	}
+	if _, err := db.conn.Exec(`CREATE INDEX IF NOT EXISTS idx_qh_actor_conn ON query_history(actor, connection_id, created_at DESC)`); err != nil {
+		return fmt.Errorf("create idx_qh_actor_conn: %w", err)
+	}
+	// History written before this change has no actor. Rows under an SSO
+	// service account came from any of the people sharing it, so hide them;
+	// every other row belongs to its ClickHouse user.
+	if _, err := db.conn.Exec(`UPDATE query_history SET actor = ?
+		WHERE actor IS NULL AND clickhouse_user IN (SELECT sso_ch_user FROM connections WHERE COALESCE(sso_ch_user, '') != '')`, SharedSSOHistoryActor); err != nil {
+		return fmt.Errorf("mark shared sso history: %w", err)
+	}
+	if _, err := db.conn.Exec(`UPDATE query_history SET actor = clickhouse_user WHERE actor IS NULL`); err != nil {
+		return fmt.Errorf("backfill history actor: %w", err)
+	}
 
 	// Multi-connection: connections gain a type ('direct' runs an in-process
 	// connector against clickhouse_url; 'tunnel' waits for a remote agent).
