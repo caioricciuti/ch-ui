@@ -528,10 +528,16 @@ func (h *AuthHandler) Session(w http.ResponseWriter, r *http.Request) {
 		connName = tc.Name
 	}
 
+	authSubject := ""
+	if session.AuthSubject != nil {
+		authSubject = *session.AuthSubject
+	}
+	roleKey := database.RoleKey(session.ClickhouseUser, authSubject)
+
 	role := "viewer"
-	overrideRole, roleErr := h.DB.GetUserRole(session.ClickhouseUser)
+	overrideRole, roleErr := h.DB.GetUserRole(roleKey)
 	if roleErr != nil {
-		slog.Warn("Failed to resolve explicit role for session", "user", session.ClickhouseUser, "error", roleErr)
+		slog.Warn("Failed to resolve explicit role for session", "user", roleKey, "error", roleErr)
 	} else if overrideRole != "" {
 		role = overrideRole
 	} else if session.UserRole != nil {

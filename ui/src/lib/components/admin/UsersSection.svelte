@@ -128,13 +128,19 @@
     void refreshUsersTab()
   })
 
+  // SSO people are keyed "sso:<email>" so they never collide with a
+  // ClickHouse user; show the email.
+  function displayUser(username: string): string {
+    return username.startsWith('sso:') ? username.slice(4) : username
+  }
+
   async function setRole(username: string, role: string) {
     if (!username || roleSavingUser === username) return
     roleSavingUser = username
     try {
       await apiPut(`/api/admin/user-roles/${encodeURIComponent(username)}`, { role })
       userRoles = { ...userRoles, [username]: role }
-      toastSuccess(`Role set to ${role} for ${username}`)
+      toastSuccess(`Role set to ${role} for ${displayUser(username)}`)
     } catch (e: any) {
       toastError(e.message)
     } finally {
@@ -147,7 +153,7 @@
       await apiDel(`/api/admin/user-roles/${encodeURIComponent(username)}`)
       const { [username]: _, ...rest } = userRoles
       userRoles = rest
-      toastSuccess(`Role override removed for ${username}`)
+      toastSuccess(`Role override removed for ${displayUser(username)}`)
     } catch (e: any) {
       toastError(e.message)
     }
@@ -328,7 +334,7 @@
         has_override: !!userRoles[u.username],
         last_login_label: u.last_login ? formatRelativeTime(u.last_login) : '—',
       }))
-      .filter((r) => !term || String(r.username).toLowerCase().includes(term) || String(r.role).includes(term)),
+      .filter((r) => !term || String(r.display_name ?? r.username).toLowerCase().includes(term) || String(r.role).includes(term)),
   )
 
   const chRows = $derived.by<Row[]>(() =>
@@ -424,6 +430,14 @@
                   value={currentRole}
                   onchange={(id) => { if (id !== currentRole) void setRole(username, id) }}
                 />
+              {:else if col.key === 'username'}
+                <span class="inline-flex min-w-0 items-center gap-2">
+                  <span class="truncate">{row.display_name ?? value}</span>
+                  {#if row.via_sso}
+                    <Badge tone="neutral">SSO</Badge>
+                    <span class="truncate text-xs text-fg-3" title="ClickHouse account this person queries as">as {row.clickhouse_user}</span>
+                  {/if}
+                </span>
               {:else if col.key === 'last_login_label'}
                 <span title={row.last_login ? formatDate(row.last_login) : undefined}>{value}</span>
               {:else}
