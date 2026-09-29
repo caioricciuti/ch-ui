@@ -88,7 +88,7 @@ func (h *TelemetryHandler) CreateSavedSearch(w http.ResponseWriter, r *http.Requ
 	}
 	s := &database.TelemetrySavedSearch{
 		ConnectionID: session.ConnectionID, Kind: in.Kind, Name: in.Name, Query: in.Query,
-		RangePreset: in.RangePreset, SourceID: in.SourceID, CreatedBy: strPtr(session.ClickhouseUser),
+		RangePreset: in.RangePreset, SourceID: in.SourceID, CreatedBy: strPtr(middleware.Actor(session)),
 	}
 	id, err := h.DB.CreateTelemetrySavedSearch(s)
 	if err != nil {
@@ -246,7 +246,7 @@ func (h *TelemetryHandler) CreateMonitor(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusUnauthorized, "Not authenticated")
 		return
 	}
-	m := database.TelemetryMonitor{ConnectionID: session.ConnectionID, CreatedBy: strPtr(session.ClickhouseUser)}
+	m := database.TelemetryMonitor{ConnectionID: session.ConnectionID, CreatedBy: strPtr(middleware.Actor(session))}
 	if !h.decodeMonitor(w, r, session.ConnectionID, &m) {
 		return
 	}

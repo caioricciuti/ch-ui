@@ -118,7 +118,7 @@ func (h *GovernanceHandler) CreateAlertChannel(w http.ResponseWriter, r *http.Re
 		isActive = *body.IsActive
 	}
 
-	id, err := h.DB.CreateAlertChannel(name, channelType, encrypted, isActive, session.ClickhouseUser)
+	id, err := h.DB.CreateAlertChannel(name, channelType, encrypted, isActive, middleware.Actor(session))
 	if err != nil {
 		slog.Error("Failed to create alert channel", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create alert channel")
@@ -126,10 +126,11 @@ func (h *GovernanceHandler) CreateAlertChannel(w http.ResponseWriter, r *http.Re
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "alerts.channel.created",
-		Username:  strPtr(session.ClickhouseUser),
-		Details:   strPtr(fmt.Sprintf("%s (%s)", name, channelType)),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "alerts.channel.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr(fmt.Sprintf("%s (%s)", name, channelType)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"id": id, "success": true})
@@ -210,10 +211,11 @@ func (h *GovernanceHandler) UpdateAlertChannel(w http.ResponseWriter, r *http.Re
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "alerts.channel.updated",
-		Username:  strPtr(session.ClickhouseUser),
-		Details:   strPtr(fmt.Sprintf("%s (%s)", name, channelType)),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "alerts.channel.updated",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr(fmt.Sprintf("%s (%s)", name, channelType)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -244,10 +246,11 @@ func (h *GovernanceHandler) DeleteAlertChannel(w http.ResponseWriter, r *http.Re
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "alerts.channel.deleted",
-		Username:  strPtr(session.ClickhouseUser),
-		Details:   strPtr(fmt.Sprintf("%s (%s)", channel.Name, channel.ChannelType)),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "alerts.channel.deleted",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr(fmt.Sprintf("%s (%s)", channel.Name, channel.ChannelType)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -391,7 +394,7 @@ func (h *GovernanceHandler) CreateAlertRule(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	id, err := h.DB.CreateAlertRule(name, eventType, severityMin, enabled, cooldownSeconds, maxAttempts, body.SubjectTemplate, body.BodyTemplate, session.ClickhouseUser)
+	id, err := h.DB.CreateAlertRule(name, eventType, severityMin, enabled, cooldownSeconds, maxAttempts, body.SubjectTemplate, body.BodyTemplate, middleware.Actor(session))
 	if err != nil {
 		slog.Error("Failed to create alert rule", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create alert rule")
@@ -406,10 +409,11 @@ func (h *GovernanceHandler) CreateAlertRule(w http.ResponseWriter, r *http.Reque
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "alerts.rule.created",
-		Username:  strPtr(session.ClickhouseUser),
-		Details:   strPtr(name),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "alerts.rule.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr(name),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"id": id, "success": true})
@@ -509,10 +513,11 @@ func (h *GovernanceHandler) UpdateAlertRule(w http.ResponseWriter, r *http.Reque
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "alerts.rule.updated",
-		Username:  strPtr(session.ClickhouseUser),
-		Details:   strPtr(name),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "alerts.rule.updated",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr(name),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -542,10 +547,11 @@ func (h *GovernanceHandler) DeleteAlertRule(w http.ResponseWriter, r *http.Reque
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "alerts.rule.deleted",
-		Username:  strPtr(session.ClickhouseUser),
-		Details:   strPtr(existing.Name),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "alerts.rule.deleted",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr(existing.Name),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})

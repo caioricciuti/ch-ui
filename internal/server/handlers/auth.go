@@ -477,10 +477,17 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	if session != nil {
 		clientIP := getClientIP(r)
+		// The stored session carries AuthSubject as a pointer; map it onto
+		// SessionInfo so attribution goes through the one Actor rule.
+		info := &middleware.SessionInfo{ClickhouseUser: session.ClickhouseUser}
+		if session.AuthSubject != nil {
+			info.AuthSubject = *session.AuthSubject
+		}
 		h.DB.CreateAuditLog(database.AuditLogParams{
-			Action:    "user.logout",
-			Username:  strPtr(session.ClickhouseUser),
-			IPAddress: strPtr(clientIP),
+			Action:         "user.logout",
+			Username:       strPtr(middleware.Actor(info)),
+			ClickhouseUser: &session.ClickhouseUser,
+			IPAddress:      strPtr(clientIP),
 		})
 		slog.Info("User logged out", "user", session.ClickhouseUser)
 	}

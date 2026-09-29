@@ -156,7 +156,7 @@ func (h *SchedulesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	id, err := h.DB.CreateSchedule(name, savedQueryID, connectionID, cronExpr, timezone, session.ClickhouseUser, timeoutMs)
+	id, err := h.DB.CreateSchedule(name, savedQueryID, connectionID, cronExpr, timezone, middleware.Actor(session), timeoutMs)
 	if err != nil {
 		slog.Error("Failed to create schedule", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create schedule")
@@ -170,9 +170,10 @@ func (h *SchedulesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "schedule.created",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(name),
+		Action:         "schedule.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr(name),
 	})
 
 	schedule, err := h.DB.GetScheduleByID(id)
@@ -287,9 +288,10 @@ func (h *SchedulesHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "schedule.updated",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(name),
+		Action:         "schedule.updated",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr(name),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -327,9 +329,10 @@ func (h *SchedulesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "schedule.deleted",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(existing.Name),
+		Action:         "schedule.deleted",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr(existing.Name),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -480,9 +483,10 @@ func (h *SchedulesHandler) ManualRun(w http.ResponseWriter, r *http.Request) {
 	h.DB.UpdateScheduleStatus(id, status, runErr, nextRun)
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "schedule.manual_run",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(fmt.Sprintf("status=%s elapsed=%dms", status, elapsed)),
+		Action:         "schedule.manual_run",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr(fmt.Sprintf("status=%s elapsed=%dms", status, elapsed)),
 	})
 
 	if execErr != nil {

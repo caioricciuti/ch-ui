@@ -107,13 +107,11 @@ func (h *ConnectionsHandler) SetBackgroundCredential(w http.ResponseWriter, r *h
 		writeError(w, http.StatusInternalServerError, "Failed to save background account")
 		return
 	}
-	actor := middleware.GetSession(r).ClickhouseUser
-	if subject := middleware.GetSession(r).AuthSubject; subject != "" {
-		actor = subject
-	}
+	session := middleware.GetSession(r)
+	actor := middleware.Actor(session)
 	details, _ := json.Marshal(map[string]string{"worker": worker, "mode": c.Mode, "account": c.Username})
 	if err := h.DB.CreateAuditLog(database.AuditLogParams{
-		Action: "connection.background_account.updated", Username: &actor, ConnectionID: &id,
+		Action: "connection.background_account.updated", Username: &actor, ClickhouseUser: &session.ClickhouseUser, ConnectionID: &id,
 		Details: strPtr(string(details)), IPAddress: strPtr(getClientIP(r)),
 	}); err != nil {
 		slog.Error("Failed to audit background account update", "connection", id, "worker", worker, "error", err)
