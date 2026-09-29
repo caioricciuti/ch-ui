@@ -62,6 +62,6 @@ connection_name: My Connection 1
 ## Notes
 
 - Local URL setup does **not** require Admin access.
-- Admin and multi-connection management are Pro-only features.
+- Admin and multi-connection management are free in every edition; they require the admin role, not Pro.
 - Setup commands intentionally exclude passwords; credentials stay in the Sign in form.
 - Connection name precedence: `--connection-name` > `CONNECTION_NAME` > `server.yaml` > `Local ClickHouse`.

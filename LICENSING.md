@@ -16,9 +16,15 @@ file's `SPDX-License-Identifier` header governs that file.
 
 Everything in the repository is licensed under **Apache 2.0** (`LICENSE.md`)
 **except** the Pro paths listed below. This includes the SQL editor, schema
-explorer, saved queries, dashboards, Brain AI assistant, data pipelines, models,
+explorer, saved queries, dashboards, Brain AI chat, data pipelines, models,
 admin panel, the tunnel connector, the embedded web frontend, and all CLI
 commands.
+
+Brain: the chat is part of the Apache 2.0 core. Ask AI (text-to-SQL in the
+editor) and Brain agentic tools (tool-calling) are gated as Pro features at
+runtime. Their code currently lives in files that carry no BUSL header and are
+not listed as Pro paths below (`internal/brain/`,
+`internal/server/handlers/brain.go`, `internal/server/handlers/brain_sql.go`).
 
 ## Pro features — Business Source License 1.1
 
@@ -48,6 +54,7 @@ Change Date, each version converts automatically to Apache 2.0.
 - `internal/operations/` — weekly operations reports and delivery
 - `internal/incidenttimeline/` — correlated operational timelines
 - `internal/license/` — the commercial licensing/entitlement machinery itself
+- `internal/oidc/` — SSO (OIDC) provider settings and login
 
 ### Pro files in shared packages
 
@@ -56,7 +63,6 @@ Change Date, each version converts automatically to Apache 2.0.
 - `internal/server/handlers/governance.go`
 - `internal/server/handlers/governance_alerts.go`
 - `internal/server/handlers/governance_auditlog.go`
-- `internal/server/handlers/governance_querylog.go`
 - `internal/server/handlers/admin_governance.go`
 - `internal/server/handlers/clusterhealth.go`
 - `internal/server/handlers/queryinsights.go`
@@ -70,12 +76,16 @@ Change Date, each version converts automatically to Apache 2.0.
 - `internal/database/operations_reports.go`
 - `internal/database/incident_timeline.go`
 - `internal/server/handlers/admin_github.go`
+- `internal/server/handlers/admin_sso.go` — SSO (OIDC) admin settings
+- `internal/server/handlers/auth_oidc.go` — SSO (OIDC) login flow
 - `internal/mcpserver/tools_pro.go` — Pro MCP tools (Query Insights, Cost Center)
 
 The corresponding Pro UI (the Svelte pages/components and API clients for Governance, Cluster
-Health, Query Insights, Performance, Fleet, Schema Compare, Reports, Incident Timeline, Schedules,
-and Alerts) is covered by the same BSL 1.1
-terms as the Pro backend it serves.
+Health, Query Insights, Cost Center, Performance, Fleet, Schema Compare, Reports, Incident Timeline,
+Schedules, Alerts, SSO settings and GitHub sync) is covered by the same BSL 1.1
+terms as the Pro backend it serves. The UI files that currently carry a BUSL
+header are `ui/src/pages/{Fleet,IncidentTimeline,OperationsReports,Performance,SchemaCompare}.svelte`
+and `ui/src/lib/api/{fleet,incidentTimeline,operationsReports,performance,schemaCompare}.ts`.
 
 ## Buying a Pro license
 

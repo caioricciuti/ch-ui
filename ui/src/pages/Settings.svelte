@@ -75,16 +75,16 @@
         'Community features and open-source code are licensed under Apache License 2.0.',
     },
     {
-      title: 'CH-UI Pro Modules',
-      badge: 'Proprietary',
+      title: 'CH-UI Pro features',
+      badge: 'BSL 1.1',
       description:
-        'Commercial Pro capabilities are not Apache-2.0 and require a signed commercial agreement + valid license.',
+        'Pro features are source-available under the Business Source License 1.1, not Apache-2.0. Production use requires a valid Pro license.',
     },
     {
       title: 'License Boundary',
       badge: 'Scope-separated',
       description:
-        'Apache terms apply to Core. Commercial terms apply to Pro-only modules and entitlements.',
+        'Apache-2.0 applies to Core. The Business Source License 1.1 applies to Pro features.',
     },
   ]
 
@@ -304,7 +304,7 @@
         </div>
 
         <div>
-          <SectionHeader title="License status" description="Core capabilities are enabled under Apache-2.0. A Pro license unlocks the proprietary modules." />
+          <SectionHeader title="License status" description="Core capabilities are enabled under Apache-2.0. A Pro license unlocks the Pro features (Business Source License 1.1, source-available)." />
           {#if loading}
             <div class="flex items-center justify-center py-6"><Spinner /></div>
           {:else if proActive}
@@ -357,7 +357,7 @@
                 <span class="text-xs text-fg-3">Customer: {license?.customer || '—'}</span>
               </div>
               <p class="mt-3 text-[13px] text-danger">Expired on {formatDate(license?.expires_at)}</p>
-              <p class="mt-1 text-[13px] text-fg-3">Activate a new Pro license to restore proprietary features.</p>
+              <p class="mt-1 text-[13px] text-fg-3">Activate a new Pro license to restore Pro features.</p>
             </Panel>
           {:else}
             <Panel padding="none">
@@ -504,7 +504,7 @@
     {:else if activeTab === 'legal'}
       <div class="space-y-8">
         <div>
-          <SectionHeader title="Legal scope" description="Apache terms apply to Core. Commercial terms apply to Pro-only modules and entitlements.">
+          <SectionHeader title="Legal scope" description="Apache-2.0 applies to Core. The Business Source License 1.1 (source-available) applies to Pro features.">
             {#snippet actions()}
               <a
                 href="https://www.apache.org/licenses/LICENSE-2.0"

@@ -127,7 +127,12 @@ curl -fsS http://127.0.0.1:3488/health
 
 2. Back up SQLite:
 
-- file: `/var/lib/ch-ui/ch-ui.db`
+```bash
+ch-ui backup /secure-backups/ch-ui-$(date +%F).db -c /etc/ch-ui/server.yaml
+```
+
+- use `ch-ui backup` (a consistent snapshot), not `cp` of the live WAL database `/var/lib/ch-ui/ch-ui.db`
+- preserve `APP_SECRET_KEY` / `app_secret_key` (or the `.app_secret_key` file next to the database) separately; the backup cannot be decrypted without it
 - schedule daily snapshot + retention policy
 - verify restore procedure quarterly
 

@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/caioricciuti/ch-ui/releases"><img src="https://img.shields.io/github/v/release/caioricciuti/ch-ui?label=version" alt="Version" /></a>
-  <a href="https://github.com/caioricciuti/ch-ui/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License" /></a>
+  <a href="https://github.com/caioricciuti/ch-ui/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License" /></a>
   <a href="https://github.com/caioricciuti/ch-ui/stargazers"><img src="https://img.shields.io/github/stars/caioricciuti/ch-ui" alt="Stars" /></a>
   <a href="https://github.com/caioricciuti/ch-ui/pkgs/container/ch-ui"><img src="https://img.shields.io/badge/docker-ghcr.io-blue" alt="Docker" /></a>
 </p>
@@ -72,7 +72,7 @@ Everything below is included in the free Community edition under Apache 2.0.
 - Query profiling (pulls from `system.query_log`) with estimate vs actual accuracy comparison
 - Query plan analysis (EXPLAIN with parsed tree view)
 - Configurable max result rows and query timeout
-- Guardrails enforcement (query validation before execution)
+- Query parameters (`{name:Type}` bind params) in the editor
 
 ### Schema Explorer
 
@@ -118,7 +118,7 @@ Everything below is included in the free Community edition under Apache 2.0.
 - Execution with dependency ordering
 - Run history and results tracking
 - Table engine configuration per model
-- Can be scheduled via the scheduler (Pro) or run manually
+- Run manually or on a cron schedule (model and pipeline schedules are free)
 
 ### Saved Queries
 
@@ -172,23 +172,35 @@ Almost everything is free. Pro adds production operations, governance and schedu
 | SQL editor + explorer + formatting + profiling | **Yes** | Yes |
 | Saved queries | **Yes** | Yes |
 | Dashboards + panel builder | **Yes** | Yes |
-| Brain (AI assistant, multi-provider) | **Yes** | Yes |
+| Brain (AI chat, multi-provider; Ask AI and agentic tools are Pro) | **Yes** | Yes |
 | Data pipelines (Webhook, S3, Kafka, DB) | **Yes** | Yes |
-| Models (SQL transformations, DAG) | **Yes** | Yes |
+| Models (SQL transformations, DAG, cron schedules) | **Yes** | Yes |
 | Admin panel + user management | **Yes** | Yes |
 | Multi-connection management | **Yes** | Yes |
 | Tunnel (remote ClickHouse) | **Yes** | Yes |
-| Scheduled query jobs + cron + history | - | **Yes** |
-| Governance (metadata, visual lineage graph, column-level lineage, access matrix) | - | **Yes** |
+| Query parameters in the editor (`{name:Type}` bind params) | **Yes** | Yes |
+| Telemetry Logs, Sources, saved searches | **Yes** | Yes |
+| MCP server (tools, write tools, OAuth, API keys) | **Yes** | Yes |
+| Scheduled query jobs + cron + history + parameterized saved-query runs | - | **Yes** |
+| Governance (metadata, visual lineage graph, column-level lineage, access matrix, query audit, audit log viewer) | - | **Yes** |
 | Policies + incidents + violations | - | **Yes** |
+| Guardrails (query blocking in the editor and MCP) | - | **Yes** |
 | Cluster Health (replication, Keeper, merges/mutations, parts pressure, long queries) | - | **Yes** |
+| Query Insights | - | **Yes** |
+| Cost Center | - | **Yes** |
 | Performance regressions + saved before/after investigations | - | **Yes** |
 | Fleet overview across connections | - | **Yes** |
 | Incident timeline + deployment annotations | - | **Yes** |
 | Schema comparison + downloadable SQL review plans | - | **Yes** |
 | Weekly operations reports + configured email delivery | - | **Yes** |
-| Query parameters (`{name:Type}` bind params + saved-query run API) | - | **Yes** |
 | Alerting (SMTP, Resend, Brevo) | - | **Yes** |
+| Telemetry Traces, Metrics, Service map, Monitors | - | **Yes** |
+| Ask AI (text-to-SQL in the editor) + Brain agentic tools | - | **Yes** |
+| GitHub sync for models | - | **Yes** |
+| SSO (OIDC) with per-person roles and attribution | - | **Yes** |
+| Audit forwarding to a SIEM (webhook, file, stdout) | - | **Yes** |
+| MCP Pro tools (`query_insights_top`, `costs_summary`) | - | **Yes** |
+| Command palette Pro search (entity search, scope prefixes) | - | **Yes** |
 
 See: [`docs/license.md`](docs/license.md)
 
@@ -333,6 +345,7 @@ ch-ui server stop            # Stop server
 | `ch-ui connect` | Start tunnel agent next to ClickHouse |
 | `ch-ui tunnel create/list/show/rotate/delete` | Manage tunnel keys (server host) |
 | `ch-ui service install/start/stop/status/logs/uninstall` | Manage connector as OS service |
+| `ch-ui backup [file]` | Consistent snapshot of the SQLite database |
 | `ch-ui update` | Update to latest release |
 | `ch-ui version` | Print version |
 | `ch-ui completion bash/zsh/fish` | Generate shell completions |
@@ -395,7 +408,7 @@ allowed_origins:
 | `database_path` | `DATABASE_PATH` | `./data/ch-ui.db` | SQLite database location |
 | `clickhouse_url` | `CLICKHOUSE_URL` | `http://localhost:8123` | Embedded local connection target |
 | `connection_name` | `CONNECTION_NAME` | `Local ClickHouse` | Display name for local connection |
-| `app_secret_key` | `APP_SECRET_KEY` | auto-generated | Session encryption key |
+| `app_secret_key` | `APP_SECRET_KEY` | auto-generated | Encrypts sessions and stored credentials. When not set, a random key is generated and persisted to `.app_secret_key` next to the database |
 | `allowed_origins` | `ALLOWED_ORIGINS` | empty | CORS allowlist (comma-separated in env) |
 | `tunnel_url` | `TUNNEL_URL` | derived from port | Tunnel endpoint advertised to agents |
 
@@ -442,17 +455,23 @@ that keeps ClickHouse fully private. See
 - [ ] Configure `ALLOWED_ORIGINS`
 - [ ] Put CH-UI behind a TLS reverse proxy (Nginx example: [`ch-ui.conf`](ch-ui.conf))
 - [ ] Ensure WebSocket upgrade support for `/connect`
-- [ ] Back up SQLite database regularly
+- [ ] Back up the SQLite database regularly with `ch-ui backup`, and keep `APP_SECRET_KEY` safe
 - [ ] Run connector as OS service on remote hosts
 
 ### Backup and restore
 
 ```bash
-# Backup
-cp /var/lib/ch-ui/ch-ui.db /var/backups/ch-ui-$(date +%F).db
+# Backup: consistent snapshot, safe while the server is running
+ch-ui backup /var/backups/ch-ui-$(date +%F).db -c /etc/ch-ui/server.yaml
 
-# Restore — stop server first, then replace the DB file
+# Restore: stop the server, replace the DB file with the backup, start it
+# again with the same APP_SECRET_KEY
 ```
+
+Do not `cp` the live database: it runs in WAL mode and a plain copy can be
+inconsistent. The backup holds credentials encrypted with `APP_SECRET_KEY`, so
+back up that key too (or the `.app_secret_key` file next to the database when
+the key was auto-generated). A backup is useless without it.
 
 ---
 
@@ -534,7 +553,7 @@ Downloads the latest release for your OS/arch, verifies checksum, and replaces t
 
 CH-UI is dual-licensed:
 
-- **Community core** — [Apache 2.0](LICENSE) (`LICENSE.md`). Free to use, modify, and distribute.
+- **Community core** — [Apache 2.0](LICENSE.md). Free to use, modify, and distribute.
 - **Pro features** — [Business Source License 1.1](LICENSE.BSL) (`LICENSE.BSL`). Source-available; production use requires a valid CH-UI Pro license; converts to Apache 2.0 on the Change Date. Every Pro source file carries an `SPDX-License-Identifier: BUSL-1.1` header; see [`LICENSING.md`](LICENSING.md) for the authoritative scope.
 - Licensing details: [`docs/license.md`](docs/license.md)
 - Terms: [`docs/legal/terms-of-service.md`](docs/legal/terms-of-service.md)
