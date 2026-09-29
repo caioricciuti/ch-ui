@@ -4,7 +4,7 @@
   import 'uplot/dist/uPlot.min.css'
   import { getTheme } from '../../stores/theme.svelte'
   import { tooltipPlugin, chartTheme } from '../../utils/uplot-tooltip'
-  import type { TraceHistogramBucket } from '../../types/telemetry'
+  import type { TraceHistogramBucket } from '../../types/telemetryPro'
   import { formatDuration } from './services'
   import { tracesHistogramData, histogramSelection, histogramIndexAt, formatHistogramInterval, type HistogramRange } from './histogram'
 

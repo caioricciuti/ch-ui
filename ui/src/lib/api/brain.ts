@@ -14,19 +14,6 @@ export async function listBrainModels(): Promise<BrainModelOption[]> {
   return res.models ?? []
 }
 
-export interface GenerateSQLResult {
-  success: boolean
-  sql: string
-  tables_used: string[]
-  model: string
-}
-
-// Text-to-SQL (Pro): turn a plain-English question into a ClickHouse query,
-// grounded in the active connection's schema + documented models.
-export async function generateSQL(question: string, modelId?: string): Promise<GenerateSQLResult> {
-  return apiPost<GenerateSQLResult>('/api/brain/generate-sql', { question, model_id: modelId })
-}
-
 export async function listBrainChats(includeArchived = false): Promise<BrainChat[]> {
   const res = await apiGet<{ success: boolean; chats: BrainChat[] }>(`/api/brain/chats?includeArchived=${includeArchived}`)
   return res.chats ?? []
@@ -71,14 +58,6 @@ export interface StreamEvent {
   args?: Record<string, unknown>
   status?: string
   result?: Record<string, unknown>
-}
-
-export async function approveBrainToolCall(approvalId: string): Promise<void> {
-  await apiPost(`/api/brain/approvals/${encodeURIComponent(approvalId)}/approve`)
-}
-
-export async function declineBrainToolCall(approvalId: string): Promise<void> {
-  await apiPost(`/api/brain/approvals/${encodeURIComponent(approvalId)}/decline`)
 }
 
 export async function streamBrainMessage(

@@ -2,9 +2,6 @@
   import { onMount } from 'svelte'
   import type { Model, ModelRun, ModelRunResult, ModelSchedule, DAGNode, DAGEdge, Pipeline } from '../lib/types/models'
   import * as api from '../lib/api/models'
-  import { triggerGitHubSync, getGitHubIntegration } from '../lib/api/github'
-  import { isProActive } from '../lib/stores/license.svelte'
-  import { getSession } from '../lib/stores/session.svelte'
   import { refreshModelCache } from '../lib/editor/completions'
   import { formatDate } from '../lib/utils/format'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
@@ -29,6 +26,7 @@
   } from '@xyflow/svelte'
   import '@xyflow/svelte/dist/style.css'
   import ModelNode from '../lib/components/models/ModelNode.svelte'
+  import GitHubSyncButton from '../lib/components/models/GitHubSyncButton.svelte'
   import { getTheme } from '../lib/stores/theme.svelte'
   import {
     Boxes,
@@ -51,15 +49,12 @@
     Timer,
     X,
     Info,
-    CloudDownload,
   } from 'lucide-svelte'
 
   // ── State ──────────────────────────────────────────────────────────
 
   let models = $state<Model[]>([])
   let loading = $state(true)
-  let syncing = $state(false)
-  let hasGitHubIntegration = $state(false)
 
   // DAG overlay
   let showDAG = $state(false)
@@ -177,40 +172,7 @@
     await loadModels()
     loadDAG()
     loadPipelines()
-    checkGitHubIntegration()
   })
-
-  async function checkGitHubIntegration() {
-    if (!isProActive()) return
-    try {
-      const session = getSession()
-      if (!session) return
-      const integration = await getGitHubIntegration(session.connectionId)
-      hasGitHubIntegration = !!(integration?.enabled && integration?.has_pat)
-    } catch { /* ignore */ }
-  }
-
-  async function handleGitHubSync() {
-    const session = getSession()
-    if (!session || syncing) return
-    syncing = true
-    try {
-      const result = await triggerGitHubSync(session.connectionId)
-      const parts: string[] = []
-      if (result.created > 0) parts.push(`${result.created} created`)
-      if (result.updated > 0) parts.push(`${result.updated} updated`)
-      if (result.deleted > 0) parts.push(`${result.deleted} deleted`)
-      if (result.unchanged > 0) parts.push(`${result.unchanged} unchanged`)
-      toastSuccess(parts.length > 0 ? `Sync complete: ${parts.join(', ')}` : 'Already up to date')
-      await loadModels()
-      loadDAG()
-      loadPipelines()
-    } catch (e: unknown) {
-      toastError((e as Error).message || 'Sync failed')
-    } finally {
-      syncing = false
-    }
-  }
 
   // ── Data loading ───────────────────────────────────────────────────
 
@@ -485,11 +447,7 @@
       <Button size="sm" variant="outline" onclick={openHistory} title="Run history">
         <History size={13} /> History
       </Button>
-      {#if hasGitHubIntegration}
-        <Button size="sm" variant="outline" onclick={handleGitHubSync} disabled={syncing} title="Sync models from GitHub">
-          <CloudDownload size={13} class={syncing ? 'animate-pulse' : ''} /> {syncing ? 'Syncing...' : 'Sync GitHub'}
-        </Button>
-      {/if}
+      <GitHubSyncButton onsynced={async () => { await loadModels(); loadDAG(); loadPipelines() }} />
       <Button size="sm" onclick={handleCreate}>
         <Plus size={14} /> New model
       </Button>
