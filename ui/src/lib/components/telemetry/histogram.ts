@@ -1,4 +1,5 @@
-import type { HistogramBucket, TraceHistogramBucket } from '../../types/telemetry'
+import type { HistogramBucket } from '../../types/telemetry'
+import type { TraceHistogramBucket } from '../../types/telemetryPro'
 import { SEVERITY_LEVELS } from '../../types/telemetry'
 import { normalizeSeverity, severityVar } from './severity'
 

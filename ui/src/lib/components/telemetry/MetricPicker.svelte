@@ -2,7 +2,7 @@
   import { tick } from 'svelte'
   import { Search, ChevronDown } from 'lucide-svelte'
   import Badge from '../common/Badge.svelte'
-  import type { MetricCatalogEntry, MetricType } from '../../types/telemetry'
+  import type { MetricCatalogEntry, MetricType } from '../../types/telemetryPro'
 
   /**
    * Metric chooser: a search box over the catalog, grouped by metric type,

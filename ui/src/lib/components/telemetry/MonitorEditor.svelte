@@ -7,7 +7,8 @@
   import Tabs from '../common/Tabs.svelte'
   import { goTo } from '../../stores/router.svelte'
   import { setSection } from '../../stores/nav.svelte'
-  import type { Monitor, MonitorInput, SearchKind, MonitorComparator, MonitorSeverity, TelemetrySource } from '../../types/telemetry'
+  import type { SearchKind, TelemetrySource } from '../../types/telemetry'
+  import type { Monitor, MonitorInput, MonitorComparator, MonitorSeverity } from '../../types/telemetryPro'
 
   /** Create / edit Sheet for a monitor: a saved query with a threshold. */
   interface Props {
