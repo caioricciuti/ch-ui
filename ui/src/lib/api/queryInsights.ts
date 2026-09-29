@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BUSL-1.1
 import { apiGet } from './client'
 
 export type InsightsRange = '1h' | '6h' | '24h' | '7d' | '30d'

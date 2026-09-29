@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
   import { onMount } from 'svelte'
   import type { AlertChannel, AlertChannelType, AlertEvent, AlertRule } from '../../types/alerts'

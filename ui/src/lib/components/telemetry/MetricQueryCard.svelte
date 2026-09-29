@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts" module>
   import type { MetricAggregation, MetricType } from '../../types/telemetryPro'
 

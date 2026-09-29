@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
   import Badge from '../common/Badge.svelte'
   import Spinner from '../common/Spinner.svelte'

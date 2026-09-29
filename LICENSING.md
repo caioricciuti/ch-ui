@@ -12,7 +12,7 @@ file's `SPDX-License-Identifier` header governs that file.
 > Have the `LICENSE.BSL` parameters (especially the Additional Use Grant) reviewed
 > by a lawyer before relying on them commercially.
 
-## Community core — Apache License 2.0
+## Community core: Apache License 2.0
 
 Everything in the repository is licensed under **Apache 2.0** (`LICENSE.md`)
 **except** the Pro paths listed below. This includes the SQL editor, schema
@@ -20,20 +20,29 @@ explorer, saved queries, dashboards, Brain AI chat, data pipelines, models,
 admin panel, the tunnel connector, the embedded web frontend, and all CLI
 commands.
 
-Brain: the chat is part of the Apache 2.0 core. Ask AI (text-to-SQL in the
-editor) and Brain agentic tools (tool-calling) are gated as Pro features at
-runtime. Their code currently lives in files that carry no BUSL header and are
-not listed as Pro paths below (`internal/brain/`,
-`internal/server/handlers/brain.go`, `internal/server/handlers/brain_sql.go`).
+Core also includes the shared building blocks Pro features use: tunnel and
+session tokens (`internal/tokens/`), cron parsing (`internal/cronexpr/`), mail
+delivery through SMTP, Resend and Brevo (`internal/mail/`), and the Pro gate
+that decides what is unlocked (`internal/config` ProAccess and ProGate,
+`internal/server/handlers/license.go`, and the UI license store and paywall).
+Wiring files that only register or switch Pro code (`internal/server/server.go`,
+route setup, migrations, config fields) are core too.
 
-## Pro features — Business Source License 1.1
+## Pro features: Business Source License 1.1
 
 The following are licensed under **BSL 1.1** (`LICENSE.BSL`). Each Pro source
-file carries a header:
+file carries this header (Svelte files use `<!-- SPDX-License-Identifier: BUSL-1.1 -->`,
+other frontend files the first line only):
 
 ```
 // SPDX-License-Identifier: BUSL-1.1
+// Copyright (C) 2024-2026 Caio Ricciuti.
+// Part of CH-UI Pro. Licensed under the Business Source License 1.1 (see
+// LICENSE.BSL), NOT the Apache-2.0 LICENSE that governs the rest of the repo.
 ```
+
+Code published before v2.14.0 without this header was released under Apache 2.0
+and remains available under Apache 2.0 in those versions.
 
 BSL 1.1 in plain terms: the source is public and you may read, modify, and use it
 for non-production purposes freely. **Production use of the Pro features requires
@@ -42,50 +51,59 @@ Change Date, each version converts automatically to Apache 2.0.
 
 ### Pro packages (entire directory)
 
-- `internal/governance/` — metadata catalog, policies, lineage, incidents, audit
-- `internal/clusterhealth/` — operations & database health monitoring
-- `internal/queryinsights/` — `system.query_log` analytics
-- `internal/scheduler/` — scheduled query jobs
-- `internal/alerts/` — alert rules and dispatch (SMTP/Resend/Brevo)
-- `internal/github/` — GitHub model sync
-- `internal/costs/` — Cost Center showback/chargeback analytics
-- `internal/performance/` — regression analysis, investigations and background scans
-- `internal/schemacompare/` — schema comparison and SQL review plans
-- `internal/operations/` — weekly operations reports and delivery
-- `internal/incidenttimeline/` — correlated operational timelines
-- `internal/license/` — the commercial licensing/entitlement machinery itself
-- `internal/oidc/` — SSO (OIDC) provider settings and login
+- `internal/governance/`: metadata catalog, policies, guardrails, lineage, incidents, audit
+- `internal/clusterhealth/`: operations and database health monitoring
+- `internal/queryinsights/`: `system.query_log` analytics
+- `internal/scheduler/`: scheduled query jobs
+- `internal/alerts/`: alert rules and dispatch
+- `internal/github/`: GitHub model sync
+- `internal/costs/`: Cost Center showback and chargeback
+- `internal/performance/`: regression analysis, investigations and background scans
+- `internal/schemacompare/`: schema comparison and SQL review plans
+- `internal/operations/`: weekly operations reports and delivery
+- `internal/incidenttimeline/`: correlated operational timelines
+- `internal/license/`: license signing verification and entitlement
+- `internal/oidc/`: SSO (OIDC) provider settings and login
+- `internal/audit/`: audit forwarding to a SIEM (webhook, file, stdout)
+- `internal/brain/tools/`: Brain agentic tools
+- `internal/telemetry/monitor/`: telemetry monitors
 
 ### Pro files in shared packages
 
-- `internal/server/middleware/license.go` — the Pro entitlement gate
-- `internal/server/handlers/schedules.go`
-- `internal/server/handlers/governance.go`
-- `internal/server/handlers/governance_alerts.go`
-- `internal/server/handlers/governance_auditlog.go`
-- `internal/server/handlers/admin_governance.go`
-- `internal/server/handlers/clusterhealth.go`
-- `internal/server/handlers/queryinsights.go`
-- `internal/server/handlers/costs.go`
-- `internal/server/handlers/performance.go`
-- `internal/server/handlers/fleet.go`
-- `internal/server/handlers/schema_compare.go`
-- `internal/server/handlers/operations_reports.go`
-- `internal/server/handlers/incident_timeline.go`
-- `internal/database/performance.go`
-- `internal/database/operations_reports.go`
-- `internal/database/incident_timeline.go`
-- `internal/server/handlers/admin_github.go`
-- `internal/server/handlers/admin_sso.go` — SSO (OIDC) admin settings
-- `internal/server/handlers/auth_oidc.go` — SSO (OIDC) login flow
-- `internal/mcpserver/tools_pro.go` — Pro MCP tools (Query Insights, Cost Center)
+Backend:
 
-The corresponding Pro UI (the Svelte pages/components and API clients for Governance, Cluster
-Health, Query Insights, Cost Center, Performance, Fleet, Schema Compare, Reports, Incident Timeline,
-Schedules, Alerts, SSO settings and GitHub sync) is covered by the same BSL 1.1
-terms as the Pro backend it serves. The UI files that currently carry a BUSL
-header are `ui/src/pages/{Fleet,IncidentTimeline,OperationsReports,Performance,SchemaCompare}.svelte`
-and `ui/src/lib/api/{fleet,incidentTimeline,operationsReports,performance,schemaCompare}.ts`.
+- `internal/server/middleware/license.go`: the Pro entitlement gate middleware
+- `internal/server/handlers/`: `schedules.go`, `saved_queries_run.go`, `governance.go`,
+  `governance_alerts.go`, `governance_auditlog.go`, `admin_governance.go`,
+  `query_guardrails.go`, `clusterhealth.go`, `queryinsights.go`, `costs.go`,
+  `performance.go`, `fleet.go`, `schema_compare.go`, `operations_reports.go`,
+  `incident_timeline.go`, `admin_github.go`, `admin_sso.go`, `auth_oidc.go`,
+  `brain_sql.go` (Ask AI), `brain_agent.go` (agentic chat and approvals),
+  `telemetry_traces.go`, `telemetry_metrics.go`, `telemetry_servicemap.go`,
+  `telemetry_monitors.go`
+- `internal/database/`: `schedules.go`, `alerts.go`, `costs.go`, `github_sync.go`,
+  `sso.go`, `governance_settings.go`, `brain_approvals.go`, `telemetry_monitors.go`,
+  `performance.go`, `operations_reports.go`, `incident_timeline.go`
+- `internal/telemetry/`: `traces.go`, `metrics.go`, `servicemap.go`
+- `internal/brain/tool_chat.go`: the tool-calling loop
+- `internal/mcpserver/`: `tools_pro.go` (Query Insights and Cost Center tools),
+  `tools_guardrails.go`
+
+Frontend (`ui/src/`):
+
+- Pages: `Schedules`, `Governance`, `ClusterHealth`, `QueryInsights`, `CostCenter`,
+  `Performance`, `Fleet`, `SchemaCompare`, `OperationsReports`, `IncidentTimeline`
+- Components: `lib/components/governance/`, the telemetry Traces, Metrics,
+  Service map and Monitors components (`TracesSection`, `TraceView`,
+  `TraceWaterfall`, `TraceFacets`, `TracesHistogram`, `SpanPanel`, `services.ts`,
+  `MetricsSection`, `MetricPicker`, `MetricQueryCard`, `ServiceMapSection`,
+  `MonitorsSection`, `MonitorEditor`, `LogTraceWaterfall`), `admin/GitHubSection`,
+  `admin/SSOSettingsSection`, `editor/AskAIBar`, `brain/BrainApprovalActions`,
+  `models/GitHubSyncButton`, `layout/commandPaletteSearch.pro.ts`
+- API clients and types: `lib/api/{governance,alerts,clusterHealth,queryInsights,costs,github,sso,fleet,incidentTimeline,operationsReports,performance,schemaCompare,brainPro,telemetryPro}.ts`,
+  `lib/types/{governance,alerts,telemetryPro}.ts`
+
+Tests that cover only Pro code carry the same header.
 
 ## Buying a Pro license
 

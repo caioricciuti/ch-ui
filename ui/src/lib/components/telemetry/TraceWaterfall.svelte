@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
   import { ChevronRight, ChevronDown, AlertTriangle } from 'lucide-svelte'
   import type { Span } from '../../types/telemetryPro'

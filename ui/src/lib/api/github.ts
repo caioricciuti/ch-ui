@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BUSL-1.1
 import { apiGet, apiPost, apiPut, apiDel } from './client'
 import type { GitHubIntegration, GitHubSyncLog, GitHubSyncResult } from '../types/models'
 
