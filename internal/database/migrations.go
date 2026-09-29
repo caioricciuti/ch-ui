@@ -12,7 +12,7 @@ import (
 // schemaVersion is the current database schema version. Bump it (date-based)
 // whenever schema-affecting migrations are added below. It is recorded in the
 // settings table after a successful migration run for upgrade observability.
-const schemaVersion = "2026.09.21"
+const schemaVersion = "2026.09.29"
 
 func (db *DB) runMigrations() error {
 	var prev string
