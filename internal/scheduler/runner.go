@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/alerts"
+	"github.com/caioricciuti/ch-ui/internal/cronexpr"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/safe"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
@@ -145,7 +146,7 @@ func (r *Runner) runSchedule(schedule database.Schedule) {
 		// Update schedule status
 		var nextRun *time.Time
 		if schedule.Enabled {
-			nextRun = ComputeNextRun(schedule.Cron, time.Now().UTC())
+			nextRun = cronexpr.ComputeNextRun(schedule.Cron, time.Now().UTC())
 		}
 		r.db.UpdateScheduleStatus(schedule.ID, status, runError, nextRun)
 

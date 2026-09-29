@@ -1,4 +1,4 @@
-package alerts
+package mail
 
 import (
 	"bufio"
@@ -39,7 +39,7 @@ func TestSMTPDeadlineBoundsUnresponsiveTransport(t *testing.T) {
 			defer cancel()
 			done := make(chan error, 1)
 			go func() {
-				_, err := (&Dispatcher{}).sendSMTP(ctx, cfg, []string{"ops@example.com"}, "report", "body")
+				_, err := (&Sender{}).sendSMTP(ctx, cfg, []string{"ops@example.com"}, "report", "body")
 				done <- err
 			}()
 			select {
@@ -91,7 +91,7 @@ func TestSMTPCancellationInterruptsPendingDataAcknowledgment(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := (&Dispatcher{}).sendSMTP(ctx, cfg, []string{"ops@example.com"}, "report", "weekly body")
+		_, err := (&Sender{}).sendSMTP(ctx, cfg, []string{"ops@example.com"}, "report", "weekly body")
 		done <- err
 	}()
 	select {
@@ -148,7 +148,7 @@ func TestSMTPBoundedTransportDeliversMessage(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	id, err := (&Dispatcher{}).sendSMTP(ctx, cfg, []string{"ops@example.com"}, "Weekly operations report", "Saved report body")
+	id, err := (&Sender{}).sendSMTP(ctx, cfg, []string{"ops@example.com"}, "Weekly operations report", "Saved report body")
 	if err != nil || id != "smtp" {
 		t.Fatalf("delivery: %s %v", id, err)
 	}

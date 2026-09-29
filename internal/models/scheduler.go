@@ -4,9 +4,9 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/caioricciuti/ch-ui/internal/cronexpr"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/safe"
-	"github.com/caioricciuti/ch-ui/internal/scheduler"
 )
 
 const modelTickInterval = 30 * time.Second
@@ -92,7 +92,7 @@ func (s *Scheduler) tick() {
 
 		// Compute next run and update status by schedule ID
 		var nextRunAt *string
-		if next := scheduler.ComputeNextRun(sched.Cron, time.Now().UTC()); next != nil {
+		if next := cronexpr.ComputeNextRun(sched.Cron, time.Now().UTC()); next != nil {
 			formatted := next.Format(time.RFC3339)
 			nextRunAt = &formatted
 		}

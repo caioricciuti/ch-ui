@@ -17,9 +17,9 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
+	"github.com/caioricciuti/ch-ui/internal/cronexpr"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
-	"github.com/caioricciuti/ch-ui/internal/scheduler"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
@@ -115,7 +115,7 @@ func (h *SchedulesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Cron expression is required")
 		return
 	}
-	if !scheduler.ValidateCron(cronExpr) {
+	if !cronexpr.ValidateCron(cronExpr) {
 		writeError(w, http.StatusBadRequest, "Invalid cron expression")
 		return
 	}
@@ -164,7 +164,7 @@ func (h *SchedulesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set next run time
-	next := scheduler.ComputeNextRun(cronExpr, time.Now().UTC())
+	next := cronexpr.ComputeNextRun(cronExpr, time.Now().UTC())
 	if next != nil {
 		h.DB.UpdateScheduleStatus(id, "", "", next)
 	}
@@ -240,7 +240,7 @@ func (h *SchedulesHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Cron != nil {
 		c := strings.TrimSpace(*body.Cron)
-		if c == "" || !scheduler.ValidateCron(c) {
+		if c == "" || !cronexpr.ValidateCron(c) {
 			writeError(w, http.StatusBadRequest, "Invalid cron expression")
 			return
 		}
@@ -281,7 +281,7 @@ func (h *SchedulesHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	// Recompute next run
 	if enabled {
-		next := scheduler.ComputeNextRun(cron, time.Now().UTC())
+		next := cronexpr.ComputeNextRun(cron, time.Now().UTC())
 		h.DB.UpdateScheduleStatus(id, "", "", next)
 	} else {
 		h.DB.UpdateScheduleStatus(id, "", "", nil)
@@ -478,7 +478,7 @@ func (h *SchedulesHandler) ManualRun(w http.ResponseWriter, r *http.Request) {
 	// Update schedule status
 	var nextRun *time.Time
 	if schedule.Enabled {
-		nextRun = scheduler.ComputeNextRun(schedule.Cron, time.Now().UTC())
+		nextRun = cronexpr.ComputeNextRun(schedule.Cron, time.Now().UTC())
 	}
 	h.DB.UpdateScheduleStatus(id, status, runErr, nextRun)
 
