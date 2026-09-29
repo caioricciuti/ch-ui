@@ -9,7 +9,7 @@ import (
 
 	serverconfig "github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
-	"github.com/caioricciuti/ch-ui/internal/license"
+	"github.com/caioricciuti/ch-ui/internal/tokens"
 	"github.com/spf13/cobra"
 )
 
@@ -47,7 +47,7 @@ var tunnelCreateCmd = &cobra.Command{
 		}
 		defer db.Close()
 
-		token := license.GenerateTunnelToken()
+		token := tokens.GenerateTunnelToken()
 		id, err := db.CreateConnection(database.CreateConnectionParams{
 			Name:        name,
 			TunnelToken: token,
@@ -157,7 +157,7 @@ var tunnelRotateCmd = &cobra.Command{
 			return fmt.Errorf("connection %q not found", connID)
 		}
 
-		newToken := license.GenerateTunnelToken()
+		newToken := tokens.GenerateTunnelToken()
 		if err := db.UpdateConnectionToken(connID, newToken); err != nil {
 			return fmt.Errorf("rotate token: %w", err)
 		}

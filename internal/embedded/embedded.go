@@ -11,7 +11,7 @@ import (
 	connconfig "github.com/caioricciuti/ch-ui/connector/config"
 	"github.com/caioricciuti/ch-ui/connector/ui"
 	"github.com/caioricciuti/ch-ui/internal/database"
-	"github.com/caioricciuti/ch-ui/internal/license"
+	"github.com/caioricciuti/ch-ui/internal/tokens"
 )
 
 // Manager runs one in-process connector per direct connection. Each connector
@@ -76,7 +76,7 @@ func (m *Manager) ensureEmbeddedConnection(clickhouseURL, connectionName string)
 	}
 
 	if dbConn == nil {
-		token := license.GenerateTunnelToken()
+		token := tokens.GenerateTunnelToken()
 		id, err := m.db.CreateConnection(database.CreateConnectionParams{
 			Name:          connectionName,
 			TunnelToken:   token,

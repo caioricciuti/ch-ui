@@ -1,9 +1,7 @@
-// SPDX-License-Identifier: BUSL-1.1
-// Copyright (C) 2024-2026 Caio Ricciuti.
-// Part of CH-UI Pro. Licensed under the Business Source License 1.1 (see
-// LICENSE.BSL), NOT the Apache-2.0 LICENSE that governs the rest of the repo.
-
-package scheduler
+// Package cronexpr parses standard 5-field cron expressions. It is core
+// (Apache-2.0): free model and pipeline schedules use it, and Pro scheduled
+// query jobs build on it.
+package cronexpr
 
 import (
 	"strconv"

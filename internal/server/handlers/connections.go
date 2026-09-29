@@ -15,8 +15,8 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/embedded"
-	"github.com/caioricciuti/ch-ui/internal/license"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
+	"github.com/caioricciuti/ch-ui/internal/tokens"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
 
@@ -186,7 +186,7 @@ func (h *ConnectionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		chURL = validated
 	}
 
-	token := license.GenerateTunnelToken()
+	token := tokens.GenerateTunnelToken()
 
 	id, err := h.DB.CreateConnection(database.CreateConnectionParams{
 		Name:          name,
@@ -478,7 +478,7 @@ func (h *ConnectionsHandler) RegenerateToken(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	newToken := license.GenerateTunnelToken()
+	newToken := tokens.GenerateTunnelToken()
 
 	if err := h.DB.UpdateConnectionToken(id, newToken); err != nil {
 		slog.Error("Failed to regenerate token", "error", err, "id", id)

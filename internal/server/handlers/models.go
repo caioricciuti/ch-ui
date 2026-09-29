@@ -10,9 +10,9 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
+	"github.com/caioricciuti/ch-ui/internal/cronexpr"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/models"
-	"github.com/caioricciuti/ch-ui/internal/scheduler"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
@@ -620,13 +620,13 @@ func (h *ModelsHandler) UpsertSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "cron expression is required")
 		return
 	}
-	if !scheduler.ValidateCron(body.Cron) {
+	if !cronexpr.ValidateCron(body.Cron) {
 		writeError(w, http.StatusBadRequest, "invalid cron expression")
 		return
 	}
 
 	var nextRunAt string
-	if next := scheduler.ComputeNextRun(body.Cron, time.Now().UTC()); next != nil {
+	if next := cronexpr.ComputeNextRun(body.Cron, time.Now().UTC()); next != nil {
 		nextRunAt = next.Format(time.RFC3339)
 	}
 
