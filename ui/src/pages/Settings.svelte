@@ -64,6 +64,8 @@
   let activeTab = $state<SettingsTab>('license')
 
   const session = $derived(getSession())
+  // The server only lets admins activate, replace or remove the license.
+  const canManageLicense = $derived(session?.role === 'admin')
 
   const legalScopes = [
     {
@@ -321,7 +323,9 @@
                 </FormField>
               </div>
               <div class="flex flex-wrap items-center justify-between gap-3 border-t border-edge-subtle px-4 py-3">
-                {#if showConfirmDeactivate}
+                {#if !canManageLicense}
+                  <span class="text-xs text-fg-3">Only admins can change or remove the license.</span>
+                {:else if showConfirmDeactivate}
                   <span class="text-[13px] text-danger">Deactivate this Pro license and downgrade to Community Edition?</span>
                   <div class="flex items-center gap-2">
                     <Button size="sm" variant="outline" onclick={() => showConfirmDeactivate = false}>Cancel</Button>
@@ -371,8 +375,8 @@
                 </FormField>
               </div>
               <div class="flex flex-wrap items-center justify-between gap-3 border-t border-edge-subtle px-4 py-3">
-                <span class="text-xs {trialHint ? 'text-warning' : 'text-fg-3'}">{trialHint || 'Free 30-day trial of Pro.'}</span>
-                <Button size="sm" loading={trialLoading} disabled={!trialEmailValid} onclick={startFreeTrial}>
+                <span class="text-xs {trialHint ? 'text-warning' : 'text-fg-3'}">{trialHint || (canManageLicense ? 'Free 30-day trial of Pro.' : 'Ask an admin to start the trial on this instance.')}</span>
+                <Button size="sm" loading={trialLoading} disabled={!trialEmailValid || !canManageLicense} onclick={startFreeTrial}>
                   {trialLoading ? 'Starting trial…' : 'Start free trial'}
                 </Button>
               </div>
@@ -380,7 +384,7 @@
           {/if}
         </div>
 
-        {#if !loading}
+        {#if !loading && canManageLicense}
           <div>
             <SectionHeader
               title={proActive ? 'Replace license' : 'Activate Pro'}
