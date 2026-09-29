@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
 	import { formatDate, formatBytes } from '../lib/utils/format';
 	import { onMount } from 'svelte';

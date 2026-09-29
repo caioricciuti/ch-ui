@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Stable colors per service for the waterfall and service strips. Ten
  * hues that read on both themes; orange is left out because it is the

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BUSL-1.1
 import { apiDel, apiGet, apiPost, apiPut } from './client'
 import type { AlertChannel, AlertEvent, AlertRule } from '../types/alerts'
 

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
   import { X, Copy, Filter } from 'lucide-svelte'
   import Button from '../common/Button.svelte'

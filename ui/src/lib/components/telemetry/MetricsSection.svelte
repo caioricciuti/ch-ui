@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
   import { RefreshCw, Plus, Gauge } from 'lucide-svelte'
