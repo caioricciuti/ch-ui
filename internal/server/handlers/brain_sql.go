@@ -123,11 +123,12 @@ func (h *BrainHandler) GenerateSQL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "brain.generate_sql",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(question),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "brain.generate_sql",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(question),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]any{

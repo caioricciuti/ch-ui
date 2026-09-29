@@ -312,6 +312,16 @@ func dbAllowed(k *database.MCPKey, db string) bool {
 	return set == nil || set[db]
 }
 
+// actor is the person behind a key, for history and audit: the OAuth
+// subject (the person who granted the token) when set, else the ClickHouse
+// user the key runs as. Same rule as middleware.Actor for sessions.
+func (ak *authedKey) actor() string {
+	if s := strings.TrimSpace(ak.key.Subject); s != "" {
+		return s
+	}
+	return ak.key.CHUser
+}
+
 // recordQuery writes the query into history (source=mcp) and the audit log,
 // asynchronously — observability must never slow the query path.
 func recordQuery(deps Deps, ak *authedKey, sql, status, errMsg string, elapsed time.Duration, rows int64) {
@@ -319,6 +329,7 @@ func recordQuery(deps Deps, ak *authedKey, sql, status, errMsg string, elapsed t
 		deps.DB.CreateQueryHistoryEntry(database.CreateQueryHistoryParams{
 			ConnectionID: ak.key.ConnectionID,
 			User:         ak.key.CHUser,
+			Actor:        ak.actor(),
 			QueryText:    sanitizeForHistory(sql),
 			Status:       status,
 			ErrorMessage: errMsg,
@@ -326,14 +337,16 @@ func recordQuery(deps Deps, ak *authedKey, sql, status, errMsg string, elapsed t
 			RowsReturned: rows,
 			Source:       "mcp",
 		})
-		user := ak.key.CHUser
+		user := ak.actor()
+		chUser := ak.key.CHUser
 		connID := ak.key.ConnectionID
 		details := "mcp key: " + ak.key.Name
 		deps.DB.CreateAuditLog(database.AuditLogParams{
-			Action:       "mcp.query.execute",
-			Username:     &user,
-			ConnectionID: &connID,
-			Details:      &details,
+			Action:         "mcp.query.execute",
+			Username:       &user,
+			ClickhouseUser: &chUser,
+			ConnectionID:   &connID,
+			Details:        &details,
 		})
 	}()
 }

@@ -7,10 +7,17 @@ import (
 
 func insertHistoryAt(t *testing.T, db *DB, id, user, conn, query, status, createdAtExpr string) {
 	t.Helper()
+	insertHistoryAs(t, db, id, user, user, conn, query, status, createdAtExpr)
+}
+
+// insertHistoryAs seeds a row that ran as ClickHouse user chUser on behalf of
+// actor (the person).
+func insertHistoryAs(t *testing.T, db *DB, id, chUser, actor, conn, query, status, createdAtExpr string) {
+	t.Helper()
 	_, err := db.conn.Exec(
-		`INSERT INTO query_history (id, connection_id, clickhouse_user, query_text, status, elapsed_ms, rows_returned, created_at)
-		 VALUES (?, ?, ?, ?, ?, 10, 5, `+createdAtExpr+`)`,
-		id, conn, user, query, status,
+		`INSERT INTO query_history (id, connection_id, clickhouse_user, actor, query_text, status, elapsed_ms, rows_returned, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 10, 5, `+createdAtExpr+`)`,
+		id, conn, chUser, actor, query, status,
 	)
 	if err != nil {
 		t.Fatalf("insert query history: %v", err)
@@ -225,5 +232,144 @@ func TestQueryHistory_DeleteAndClear(t *testing.T) {
 	}
 	if entries, _ := db.GetQueryHistory("bob", "conn-1", "", "", 50, 0); len(entries) != 1 {
 		t.Fatalf("clear must not touch other users")
+	}
+}
+
+// SSO people share one ClickHouse service account. History is per person
+// (actor), so alice, bob and a password user logged in as the service account
+// itself each see and manage only their own rows.
+const (
+	ssoAccount = "svc_sso"
+	ssoAlice   = "alice@example.com"
+	ssoBob     = "bob@example.com"
+)
+
+func historyIDs(t *testing.T, db *DB, actor, conn string) []string {
+	t.Helper()
+	entries, err := db.GetQueryHistory(actor, conn, "", "", 200, 0)
+	if err != nil {
+		t.Fatalf("GetQueryHistory(%s): %v", actor, err)
+	}
+	ids := make([]string, 0, len(entries))
+	for _, e := range entries {
+		ids = append(ids, e.ID)
+	}
+	return ids
+}
+
+func TestQueryHistory_SSOPeopleSharingAccountAreIsolated(t *testing.T) {
+	db := openTestDB(t)
+
+	insertHistoryAs(t, db, "a1", ssoAccount, ssoAlice, "conn-1", "SELECT 'alice 1'", "success", "datetime('now', '-1 minute')")
+	insertHistoryAs(t, db, "a2", ssoAccount, ssoAlice, "conn-1", "SELECT 'alice 2'", "success", "datetime('now', '-2 minutes')")
+	insertHistoryAs(t, db, "b1", ssoAccount, ssoBob, "conn-1", "SELECT 'bob'", "success", "datetime('now', '-3 minutes')")
+	insertHistoryAs(t, db, "p1", ssoAccount, ssoAccount, "conn-1", "SELECT 'password user'", "success", "datetime('now', '-4 minutes')")
+	insertHistoryAs(t, db, "shared", ssoAccount, SharedSSOHistoryActor, "conn-1", "SELECT 'from before'", "success", "datetime('now', '-5 minutes')")
+
+	if got := historyIDs(t, db, ssoAlice, "conn-1"); len(got) != 2 || got[0] != "a1" || got[1] != "a2" {
+		t.Fatalf("alice sees %v, want [a1 a2]", got)
+	}
+	if got := historyIDs(t, db, ssoBob, "conn-1"); len(got) != 1 || got[0] != "b1" {
+		t.Fatalf("bob sees %v, want [b1]", got)
+	}
+	if got := historyIDs(t, db, ssoAccount, "conn-1"); len(got) != 1 || got[0] != "p1" {
+		t.Fatalf("password user sees %v, want [p1]", got)
+	}
+
+	// Bob cannot delete alice's row by id, nor the shared pre-migration row.
+	for _, id := range []string{"a1", "shared", "p1"} {
+		if err := db.DeleteQueryHistoryEntry(id, ssoBob, "conn-1"); err != nil {
+			t.Fatalf("DeleteQueryHistoryEntry(%s): %v", id, err)
+		}
+	}
+	if got := historyIDs(t, db, ssoAlice, "conn-1"); len(got) != 2 {
+		t.Fatalf("bob's delete removed alice's history: %v", got)
+	}
+	if got := historyIDs(t, db, ssoAccount, "conn-1"); len(got) != 1 {
+		t.Fatalf("bob's delete removed the password user's history: %v", got)
+	}
+
+	// Bob clearing his history leaves everyone else's rows, shared one included.
+	if err := db.ClearQueryHistory(ssoBob, "conn-1"); err != nil {
+		t.Fatalf("ClearQueryHistory: %v", err)
+	}
+	if got := historyIDs(t, db, ssoBob, "conn-1"); len(got) != 0 {
+		t.Fatalf("bob still has %v after clear", got)
+	}
+	var left int
+	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM query_history WHERE id IN ('a1','a2','p1','shared')`).Scan(&left); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if left != 4 {
+		t.Fatalf("bob's clear touched other rows: %d of 4 left", left)
+	}
+
+	// The password user (actor = the account name) clearing does not touch
+	// SSO people either.
+	if err := db.ClearQueryHistory(ssoAccount, "conn-1"); err != nil {
+		t.Fatalf("ClearQueryHistory password user: %v", err)
+	}
+	if got := historyIDs(t, db, ssoAlice, "conn-1"); len(got) != 2 {
+		t.Fatalf("password user's clear removed alice's history: %v", got)
+	}
+}
+
+func TestQueryHistory_SharedSSORowsHiddenFromEveryone(t *testing.T) {
+	db := openTestDB(t)
+	insertHistoryAs(t, db, "shared", ssoAccount, SharedSSOHistoryActor, "conn-1", "SELECT 1", "success", "datetime('now')")
+
+	for _, actor := range []string{ssoAlice, ssoBob, ssoAccount} {
+		if got := historyIDs(t, db, actor, "conn-1"); len(got) != 0 {
+			t.Fatalf("%s sees shared rows: %v", actor, got)
+		}
+	}
+}
+
+func TestQueryHistory_CreateWritesActor(t *testing.T) {
+	db := openTestDB(t)
+	if err := db.CreateQueryHistoryEntry(CreateQueryHistoryParams{
+		ConnectionID: "conn-1", User: ssoAccount, Actor: ssoAlice, QueryText: "SELECT 1", Status: "success",
+	}); err != nil {
+		t.Fatalf("CreateQueryHistoryEntry: %v", err)
+	}
+	var chUser, actor string
+	if err := db.conn.QueryRow(`SELECT clickhouse_user, actor FROM query_history`).Scan(&chUser, &actor); err != nil {
+		t.Fatalf("read row: %v", err)
+	}
+	if chUser != ssoAccount || actor != ssoAlice {
+		t.Fatalf("got clickhouse_user=%q actor=%q, want %q / %q", chUser, actor, ssoAccount, ssoAlice)
+	}
+	if got := historyIDs(t, db, ssoBob, "conn-1"); len(got) != 0 {
+		t.Fatalf("bob sees alice's new row: %v", got)
+	}
+}
+
+func TestQueryHistory_PruneIsPerActor(t *testing.T) {
+	db := openTestDB(t)
+
+	// Bob's single row is older than all of alice's.
+	insertHistoryAs(t, db, "bob-old", ssoAccount, ssoBob, "conn-1", "SELECT 'bob'", "success",
+		fmt.Sprintf("datetime('now', '-%d seconds')", queryHistoryRetention+100))
+	for i := 0; i < queryHistoryRetention; i++ {
+		insertHistoryAs(t, db, fmt.Sprintf("a%04d", i), ssoAccount, ssoAlice, "conn-1",
+			fmt.Sprintf("SELECT %d", i), "success",
+			fmt.Sprintf("datetime('now', '-%d seconds')", queryHistoryRetention-i+10))
+	}
+
+	if err := db.CreateQueryHistoryEntry(CreateQueryHistoryParams{
+		ConnectionID: "conn-1", User: ssoAccount, Actor: ssoAlice, QueryText: "SELECT 'newest'", Status: "success",
+	}); err != nil {
+		t.Fatalf("CreateQueryHistoryEntry: %v", err)
+	}
+
+	var aliceCount int
+	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM query_history WHERE actor = ?`, ssoAlice).Scan(&aliceCount); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if aliceCount != queryHistoryRetention {
+		t.Fatalf("alice has %d rows, want %d", aliceCount, queryHistoryRetention)
+	}
+	if got := historyIDs(t, db, ssoBob, "conn-1"); len(got) != 1 || got[0] != "bob-old" {
+		t.Fatalf("alice's prune removed bob's row: %v", got)
 	}
 }

@@ -77,3 +77,70 @@ func TestBorrowSessionCredentials(t *testing.T) {
 		t.Errorf("telemetry.monitor.credential_borrow rows = %d, want 1", counts["telemetry.monitor.credential_borrow"])
 	}
 }
+
+// An SSO session names the person in the borrow audit row; the shared
+// ClickHouse account goes in ch_user.
+func TestBorrowSessionCredentials_AuditNamesSSOPerson(t *testing.T) {
+	db := openTestDB(t)
+	const secret = "test-secret"
+
+	connID, err := db.CreateConnection(CreateConnectionParams{
+		Name:        "borrow-sso",
+		TunnelToken: "cht_borrow_sso",
+		Type:        ConnectionTypeTunnel,
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection: %v", err)
+	}
+	enc, err := crypto.Encrypt("svc-pass", secret)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	if _, err := db.CreateSession(CreateSessionParams{
+		ConnectionID:      connID,
+		ClickhouseUser:    "svc_sso",
+		EncryptedPassword: enc,
+		Token:             "tok-borrow-sso",
+		ExpiresAt:         time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+		AuthSubject:       "alice@example.com",
+	}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	sessions, err := db.GetActiveSessionsByConnection(connID, 3)
+	if err != nil {
+		t.Fatalf("GetActiveSessionsByConnection: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].AuthSubject == nil || *sessions[0].AuthSubject != "alice@example.com" {
+		t.Fatalf("auth_subject not loaded: %+v", sessions)
+	}
+
+	user, _, err := db.BorrowSessionCredentials(connID, "pipeline", secret)
+	if err != nil {
+		t.Fatalf("BorrowSessionCredentials: %v", err)
+	}
+	if user != "svc_sso" {
+		t.Fatalf("borrowed user %q, want the ClickHouse account svc_sso", user)
+	}
+
+	logs, err := db.GetAuditLogs(100)
+	if err != nil {
+		t.Fatalf("GetAuditLogs: %v", err)
+	}
+	var found bool
+	for _, l := range logs {
+		if l.Action != "pipeline.credential_borrow" || l.ConnectionID == nil || *l.ConnectionID != connID {
+			continue
+		}
+		found = true
+		if l.Username == nil || *l.Username != "alice@example.com" {
+			t.Errorf("audit username = %v, want alice@example.com", l.Username)
+		}
+		if l.ChUser == nil || *l.ChUser != "svc_sso" {
+			t.Errorf("audit ch_user = %v, want svc_sso", l.ChUser)
+		}
+	}
+	if !found {
+		t.Fatal("no pipeline.credential_borrow audit row")
+	}
+}

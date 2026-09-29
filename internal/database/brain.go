@@ -957,6 +957,26 @@ func (db *DB) MarkBrainApprovalDecided(id, status, decidedBy string) (bool, erro
 	return n > 0, nil
 }
 
+// DecideBrainApprovalAs records a decision on a pending approval, but only
+// for the person who requested it (the chat owner, middleware.Actor). It
+// returns false when the approval does not exist, is not pending, or belongs
+// to someone else.
+func (db *DB) DecideBrainApprovalAs(id, status, actor string) (bool, error) {
+	if actor == "" {
+		return false, nil
+	}
+	res, err := db.conn.Exec(
+		`UPDATE brain_approvals SET status = ?, decided_by = ?, decided_at = ?
+		 WHERE id = ? AND status = 'pending' AND requested_by = ?`,
+		status, actor, time.Now().UTC().Format(time.RFC3339), id, actor,
+	)
+	if err != nil {
+		return false, fmt.Errorf("decide brain approval: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 func (db *DB) GetBrainApprovalByID(id string) (*BrainApproval, error) {
 	row := db.conn.QueryRow(
 		`SELECT id, chat_id, message_id, tool_call_id, tool_name, args_json, status,

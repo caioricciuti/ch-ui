@@ -12,7 +12,8 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
-// QueryHistoryHandler serves the per-user query execution history.
+// QueryHistoryHandler serves the per-person query execution history (keyed by
+// middleware.Actor, so SSO people sharing a ClickHouse account stay apart).
 type QueryHistoryHandler struct {
 	DB     *database.DB
 	Config *config.Config
@@ -25,7 +26,7 @@ func (h *QueryHistoryHandler) Routes(r chi.Router) {
 	r.Delete("/", h.Clear)
 }
 
-// List returns the current user's history on the current connection,
+// List returns the current person's history on the current connection,
 // most recent first. Supports ?search=, ?status=, ?limit=, ?offset=.
 func (h *QueryHistoryHandler) List(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
@@ -39,7 +40,7 @@ func (h *QueryHistoryHandler) List(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(q.Get("offset"))
 
 	entries, err := h.DB.GetQueryHistory(
-		session.ClickhouseUser,
+		middleware.Actor(session),
 		session.ConnectionID,
 		q.Get("search"),
 		q.Get("status"),
@@ -58,7 +59,7 @@ func (h *QueryHistoryHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"entries": entries})
 }
 
-// DeleteEntry deletes a single history entry owned by the current user.
+// DeleteEntry deletes a single history entry owned by the current person.
 func (h *QueryHistoryHandler) DeleteEntry(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
@@ -72,7 +73,7 @@ func (h *QueryHistoryHandler) DeleteEntry(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := h.DB.DeleteQueryHistoryEntry(id, session.ClickhouseUser, session.ConnectionID); err != nil {
+	if err := h.DB.DeleteQueryHistoryEntry(id, middleware.Actor(session), session.ConnectionID); err != nil {
 		slog.Error("Failed to delete query history entry", "error", err, "id", id)
 		writeError(w, http.StatusInternalServerError, "Failed to delete history entry")
 		return
@@ -81,7 +82,7 @@ func (h *QueryHistoryHandler) DeleteEntry(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
-// Clear deletes all of the current user's history on the current connection.
+// Clear deletes all of the current person's history on the current connection.
 func (h *QueryHistoryHandler) Clear(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
@@ -89,7 +90,7 @@ func (h *QueryHistoryHandler) Clear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.DB.ClearQueryHistory(session.ClickhouseUser, session.ConnectionID); err != nil {
+	if err := h.DB.ClearQueryHistory(middleware.Actor(session), session.ConnectionID); err != nil {
 		slog.Error("Failed to clear query history", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to clear query history")
 		return

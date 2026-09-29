@@ -200,7 +200,8 @@ func (h *BrainHandler) ApprovePendingAction(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	id := chi.URLParam(r, "approvalID")
-	ok, err := h.DB.MarkBrainApprovalDecided(id, "approved", session.ClickhouseUser)
+	actor := middleware.Actor(session)
+	ok, err := h.DB.DecideBrainApprovalAs(id, "approved", actor)
 	if err != nil {
 		slog.Error("failed to mark approval decided", "approvalID", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to record decision")
@@ -208,7 +209,7 @@ func (h *BrainHandler) ApprovePendingAction(w http.ResponseWriter, r *http.Reque
 	}
 	if !ok {
 		existing, _ := h.DB.GetBrainApprovalByID(id)
-		if existing == nil {
+		if existing == nil || existing.RequestedBy == nil || *existing.RequestedBy != actor {
 			slog.Warn("approval not found in DB", "approvalID", id)
 			writeError(w, http.StatusNotFound, "Approval not found")
 		} else {
@@ -217,7 +218,7 @@ func (h *BrainHandler) ApprovePendingAction(w http.ResponseWriter, r *http.Reque
 		}
 		return
 	}
-	if !h.signalApproval(id, approvalDecision{Approved: true, By: session.ClickhouseUser}) {
+	if !h.signalApproval(id, approvalDecision{Approved: true, By: actor}) {
 		slog.Warn("approval channel not found — stream may have ended", "approvalID", id)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -230,7 +231,8 @@ func (h *BrainHandler) DeclinePendingAction(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	id := chi.URLParam(r, "approvalID")
-	ok, err := h.DB.MarkBrainApprovalDecided(id, "declined", session.ClickhouseUser)
+	actor := middleware.Actor(session)
+	ok, err := h.DB.DecideBrainApprovalAs(id, "declined", actor)
 	if err != nil {
 		slog.Error("failed to mark approval declined", "approvalID", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to record decision")
@@ -238,7 +240,7 @@ func (h *BrainHandler) DeclinePendingAction(w http.ResponseWriter, r *http.Reque
 	}
 	if !ok {
 		existing, _ := h.DB.GetBrainApprovalByID(id)
-		if existing == nil {
+		if existing == nil || existing.RequestedBy == nil || *existing.RequestedBy != actor {
 			slog.Warn("approval not found in DB", "approvalID", id)
 			writeError(w, http.StatusNotFound, "Approval not found")
 		} else {
@@ -247,7 +249,7 @@ func (h *BrainHandler) DeclinePendingAction(w http.ResponseWriter, r *http.Reque
 		}
 		return
 	}
-	_ = h.signalApproval(id, approvalDecision{Approved: false, By: session.ClickhouseUser})
+	_ = h.signalApproval(id, approvalDecision{Approved: false, By: actor})
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
@@ -356,7 +358,7 @@ func (h *BrainHandler) ListChats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	includeArchived := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("includeArchived")), "true")
-	chats, err := h.DB.GetBrainChatsByUser(session.ClickhouseUser, session.ConnectionID, includeArchived)
+	chats, err := h.DB.GetBrainChatsByUser(middleware.Actor(session), session.ConnectionID, includeArchived)
 	if err != nil {
 		slog.Error("Failed to list Brain chats", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to load chats")
@@ -402,14 +404,14 @@ func (h *BrainHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 		providerID = rt.ProviderID
 	}
 
-	chatID, err := h.DB.CreateBrainChat(session.ClickhouseUser, session.ConnectionID, title, providerID, modelID, "", "", "")
+	chatID, err := h.DB.CreateBrainChat(middleware.Actor(session), session.ConnectionID, title, providerID, modelID, "", "", "")
 	if err != nil {
 		slog.Error("Failed to create Brain chat", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create chat")
 		return
 	}
 
-	chat, err := h.DB.GetBrainChatByIDForUser(chatID, session.ClickhouseUser)
+	chat, err := h.DB.GetBrainChatByIDForUser(chatID, middleware.Actor(session))
 	if err != nil || chat == nil {
 		writeJSON(w, http.StatusCreated, map[string]interface{}{"success": true, "id": chatID})
 		return
@@ -426,7 +428,7 @@ func (h *BrainHandler) GetChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chatID := chi.URLParam(r, "chatID")
-	chat, err := h.DB.GetBrainChatByIDForUser(chatID, session.ClickhouseUser)
+	chat, err := h.DB.GetBrainChatByIDForUser(chatID, middleware.Actor(session))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to load chat")
 		return
@@ -447,7 +449,7 @@ func (h *BrainHandler) UpdateChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chatID := chi.URLParam(r, "chatID")
-	chat, err := h.DB.GetBrainChatByIDForUser(chatID, session.ClickhouseUser)
+	chat, err := h.DB.GetBrainChatByIDForUser(chatID, middleware.Actor(session))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to load chat")
 		return
@@ -536,7 +538,7 @@ func (h *BrainHandler) UpdateChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := h.DB.GetBrainChatByIDForUser(chatID, session.ClickhouseUser)
+	updated, err := h.DB.GetBrainChatByIDForUser(chatID, middleware.Actor(session))
 	if err != nil || updated == nil {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 		return
@@ -552,7 +554,7 @@ func (h *BrainHandler) DeleteChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chatID := chi.URLParam(r, "chatID")
-	chat, err := h.DB.GetBrainChatByIDForUser(chatID, session.ClickhouseUser)
+	chat, err := h.DB.GetBrainChatByIDForUser(chatID, middleware.Actor(session))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to load chat")
 		return
@@ -578,7 +580,7 @@ func (h *BrainHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chatID := chi.URLParam(r, "chatID")
-	chat, err := h.DB.GetBrainChatByIDForUser(chatID, session.ClickhouseUser)
+	chat, err := h.DB.GetBrainChatByIDForUser(chatID, middleware.Actor(session))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to load chat")
 		return
@@ -652,7 +654,7 @@ func (h *BrainHandler) ListArtifacts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chatID := chi.URLParam(r, "chatID")
-	chat, err := h.DB.GetBrainChatByIDForUser(chatID, session.ClickhouseUser)
+	chat, err := h.DB.GetBrainChatByIDForUser(chatID, middleware.Actor(session))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to load chat")
 		return
@@ -679,7 +681,7 @@ func (h *BrainHandler) RunQueryArtifact(w http.ResponseWriter, r *http.Request) 
 	}
 
 	chatID := chi.URLParam(r, "chatID")
-	chat, err := h.DB.GetBrainChatByIDForUser(chatID, session.ClickhouseUser)
+	chat, err := h.DB.GetBrainChatByIDForUser(chatID, middleware.Actor(session))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to load chat")
 		return
@@ -737,7 +739,7 @@ func (h *BrainHandler) RunQueryArtifact(w http.ResponseWriter, r *http.Request) 
 		title = "Query Result"
 	}
 
-	artifactID, err := h.DB.CreateBrainArtifact(chatID, body.MessageID, "query_result", title, string(artifactPayload), session.ClickhouseUser)
+	artifactID, err := h.DB.CreateBrainArtifact(chatID, body.MessageID, "query_result", title, string(artifactPayload), middleware.Actor(session))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to store artifact")
 		return
@@ -750,11 +752,12 @@ func (h *BrainHandler) RunQueryArtifact(w http.ResponseWriter, r *http.Request) 
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "brain.query.run",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(title),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "brain.query.run",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(title),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -776,7 +779,7 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chatID := chi.URLParam(r, "chatID")
-	chat, err := h.DB.GetBrainChatByIDForUser(chatID, session.ClickhouseUser)
+	chat, err := h.DB.GetBrainChatByIDForUser(chatID, middleware.Actor(session))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to load chat")
 		return
@@ -936,7 +939,7 @@ func (h *BrainHandler) streamMessagePro(
 	tctx := tools.Context{
 		Ctx:          r.Context(),
 		ConnectionID: session.ConnectionID,
-		Username:     session.ClickhouseUser,
+		Username:     middleware.Actor(session),
 		CHUser:       session.ClickhouseUser,
 		CHPassword:   chPassword,
 		WorkspaceURL: h.workspaceOrigin(r),
@@ -948,7 +951,7 @@ func (h *BrainHandler) streamMessagePro(
 	if h.ModelRunner != nil {
 		runner := h.ModelRunner
 		connID := session.ConnectionID
-		user := session.ClickhouseUser
+		user := middleware.Actor(session)
 		tctx.RunModel = func(modelID string) (string, error) {
 			return runner.RunSingle(connID, modelID, user)
 		}
@@ -1007,7 +1010,7 @@ func (h *BrainHandler) streamMessagePro(
 					slog.Error("failed to persist tool call", "tool", tc.Function.Name, "error", err)
 				}
 				approvalCreated := true
-				if err := h.DB.CreateBrainApproval(approvalID, chatID, assistantMessageID, tc.ID, tc.Function.Name, tc.Function.Arguments, session.ClickhouseUser); err != nil {
+				if err := h.DB.CreateBrainApproval(approvalID, chatID, assistantMessageID, tc.ID, tc.Function.Name, tc.Function.Arguments, middleware.Actor(session)); err != nil {
 					slog.Error("failed to create brain approval — executing without approval gate", "approvalID", approvalID, "error", err)
 					h.deregisterApproval(approvalID)
 					approvalCreated = false
@@ -1196,11 +1199,12 @@ func (h *BrainHandler) streamMessagePro(
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "brain.chat",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("chat=%s user_msg=%s pro=true", chatID, userMessageID)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "brain.chat",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("chat=%s user_msg=%s pro=true", chatID, userMessageID)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	_ = writeSSE(w, flusher, map[string]interface{}{"type": "done", "messageId": assistantMessageID, "chatId": chatID})
@@ -1290,11 +1294,12 @@ func (h *BrainHandler) streamMessageCommunity(
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "brain.chat",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("chat=%s user_msg=%s", chatID, userMessageID)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "brain.chat",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("chat=%s user_msg=%s", chatID, userMessageID)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	_ = writeSSE(w, flusher, map[string]interface{}{"type": "done", "messageId": assistantMessageID, "chatId": chatID})
