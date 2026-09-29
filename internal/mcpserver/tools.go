@@ -351,20 +351,6 @@ func recordQuery(deps Deps, ak *authedKey, sql, status, errMsg string, elapsed t
 	}()
 }
 
-// checkGuardrails runs governance policies when available (Pro). A nil service
-// or non-Pro license means no policy evaluation.
-func checkGuardrails(deps Deps, ak *authedKey, sql, endpoint string) *mcp.CallToolResult {
-	if deps.Guardrails == nil || deps.Config == nil || !deps.Config.IsPro() {
-		return nil
-	}
-	decision, err := deps.Guardrails.EvaluateQuery(ak.key.ConnectionID, ak.key.CHUser, sql, endpoint)
-	if err != nil || decision.Allowed {
-		return nil // guardrails soft-fail open, same as the editor
-	}
-	b := decision.Block
-	return errResult("query blocked by governance policy %q (severity %s): %s", b.PolicyName, b.Severity, b.Detail)
-}
-
 // ---- tool registration ----
 
 type listTablesArgs struct {
