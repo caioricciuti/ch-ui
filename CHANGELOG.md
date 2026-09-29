@@ -7,16 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.13.1] - 2026-09-29
+
+License state that follows activation, a read-only grace period after a Pro
+license expires, and clearer login errors.
+
 ### Fixed
 
 - **License:** activating or deactivating a license in Settings now unlocks or
   locks Pro pages immediately. Before, Pro pages kept the old state until the
-  page was reloaded.
+  page was reloaded (#186).
 - **License:** during the grace period after a Pro license expires, Pro pages
   open read-only with a notice, matching the backend, which already served reads
-  and refused changes. Settings shows when the grace period ends.
+  and refused changes. Settings shows when the grace period ends (#186).
 - **Login:** a login that fails because ClickHouse is unreachable now shows
-  "Connection unavailable" with a hint, instead of a generic "Login failed".
+  "Connection unavailable" with a hint, instead of a generic "Login failed" (#185).
+
+### Dependencies
+
+- `modernc.org/sqlite` 1.58.0 to 1.59.0 (#183).
+- CI: `docker/setup-buildx-action` 4.3.0 to 4.4.1 (#182),
+  `docker/build-push-action` 7.3.0 to 7.4.0 (#184).
 
 ## [2.13.0] - 2026-09-21
 
