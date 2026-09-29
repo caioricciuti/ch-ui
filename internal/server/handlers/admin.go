@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -107,12 +108,18 @@ func (h *AdminHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		if _, exists := userMap[ov.Username]; exists {
 			continue
 		}
-		userMap[ov.Username] = database.SessionUser{
-			Username:     ov.Username,
-			UserRole:     ov.Role,
-			LastLogin:    "",
-			SessionCount: 0,
+		u := database.SessionUser{
+			Username:       ov.Username,
+			DisplayName:    ov.Username,
+			ClickhouseUser: ov.Username,
+			UserRole:       ov.Role,
+			LastLogin:      "",
+			SessionCount:   0,
 		}
+		if email, ok := strings.CutPrefix(ov.Username, database.SSORoleKeyPrefix); ok {
+			u.DisplayName, u.ClickhouseUser, u.ViaSSO = email, "", true
+		}
+		userMap[ov.Username] = u
 	}
 
 	appUsers := make([]database.SessionUser, 0, len(userMap))
@@ -147,7 +154,9 @@ func (h *AdminHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 
 	filtered := make([]responseUser, 0, len(appUsers))
 	for _, u := range appUsers {
-		exists := existsMap[u.Username]
+		// SSO people are not ClickHouse users (they query through the shared
+		// service account), so they are never stale by this check.
+		exists := u.ViaSSO || existsMap[u.ClickhouseUser]
 		if !includeStale && !exists {
 			continue
 		}
@@ -225,13 +234,24 @@ func (h *AdminHandler) GetUserRoles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, roles)
 }
 
+// roleUsernameParam returns the decoded {username} path parameter. Role keys
+// can hold ':' and '@' ("sso:<email>", or a ClickHouse user named like an
+// email), which the UI percent-encodes; chi returns the raw escaped segment.
+func roleUsernameParam(r *http.Request) (string, bool) {
+	username, err := url.PathUnescape(chi.URLParam(r, "username"))
+	if err != nil || strings.TrimSpace(username) == "" {
+		return "", false
+	}
+	return username, true
+}
+
 // ---------- PUT /user-roles/{username} ----------
 
 func (h *AdminHandler) SetUserRole(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 
-	username := chi.URLParam(r, "username")
-	if username == "" {
+	username, ok := roleUsernameParam(r)
+	if !ok {
 		writeError(w, http.StatusBadRequest, "Username is required")
 		return
 	}
@@ -302,8 +322,8 @@ func (h *AdminHandler) SetUserRole(w http.ResponseWriter, r *http.Request) {
 func (h *AdminHandler) DeleteUserRole(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 
-	username := chi.URLParam(r, "username")
-	if username == "" {
+	username, ok := roleUsernameParam(r)
+	if !ok {
 		writeError(w, http.StatusBadRequest, "Username is required")
 		return
 	}

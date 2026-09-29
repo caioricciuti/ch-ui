@@ -221,6 +221,18 @@ func runServer(cmd *cobra.Command) error {
 
 	slog.Info("Database initialized", "path", cfg.DatabasePath)
 
+	// Role overrides are keyed per SSO person since v2.13.2. An override on an
+	// SSO service account used to apply to every SSO person; now it only
+	// applies to password logins as that account, so tell the admin.
+	if stale, err := db.SSOServiceAccountRoleOverrides(); err != nil {
+		slog.Warn("Could not check role overrides on SSO service accounts", "error", err)
+	} else {
+		for _, r := range stale {
+			slog.Warn("Role override on an SSO service account no longer applies to SSO users; set roles per person in Admin, Users",
+				"service_account", r.Username, "role", r.Role)
+		}
+	}
+
 	// License precedence: CHUI_LICENSE_FILE > CHUI_LICENSE > database. The
 	// environment path serves config-as-code deploys (Kubernetes Secrets,
 	// Terraform); the database path serves licenses activated in the UI. An

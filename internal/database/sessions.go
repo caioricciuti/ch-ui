@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,10 +38,18 @@ type CreateSessionParams struct {
 
 // SessionUser represents an aggregated user from sessions.
 type SessionUser struct {
-	Username     string `json:"username"`
-	UserRole     string `json:"user_role"`
-	LastLogin    string `json:"last_login"`
-	SessionCount int    `json:"session_count"`
+	// Username is the RoleKey: "sso:<email>" for an SSO person, else the
+	// ClickHouse user. Role overrides are set and removed by this key.
+	Username string `json:"username"`
+	// DisplayName is the email for an SSO person, else the ClickHouse user.
+	DisplayName string `json:"display_name"`
+	// ClickhouseUser is the account the person queries as (the shared service
+	// account for SSO).
+	ClickhouseUser string `json:"clickhouse_user"`
+	ViaSSO         bool   `json:"via_sso"`
+	UserRole       string `json:"user_role"`
+	LastLogin      string `json:"last_login"`
+	SessionCount   int    `json:"session_count"`
 }
 
 // GetSession retrieves a session by token. Deletes and returns nil if expired.
@@ -122,12 +131,20 @@ func (db *DB) DeleteSession(token string) error {
 	return nil
 }
 
-// SetSessionsUserRole updates the cached app role for all active/inactive sessions of a user.
-func (db *DB) SetSessionsUserRole(username, role string) error {
+// SetSessionsUserRole updates the cached app role for all sessions of the user
+// identified by a RoleKey: the sessions of one SSO person for "sso:<email>",
+// otherwise the password sessions of that ClickHouse user. A password user
+// never touches SSO sessions that share its ClickHouse account.
+func (db *DB) SetSessionsUserRole(roleKey, role string) error {
 	if role == "" {
 		role = "viewer"
 	}
-	_, err := db.conn.Exec("UPDATE sessions SET user_role = ? WHERE clickhouse_user = ?", role, username)
+	var err error
+	if subject, ok := strings.CutPrefix(roleKey, SSORoleKeyPrefix); ok {
+		_, err = db.conn.Exec("UPDATE sessions SET user_role = ? WHERE auth_subject = ?", role, subject)
+	} else {
+		_, err = db.conn.Exec("UPDATE sessions SET user_role = ? WHERE clickhouse_user = ? AND (auth_subject IS NULL OR auth_subject = '')", role, roleKey)
+	}
 	if err != nil {
 		return fmt.Errorf("set sessions user role: %w", err)
 	}
@@ -136,16 +153,21 @@ func (db *DB) SetSessionsUserRole(username, role string) error {
 
 // GetUsers returns aggregated user data from sessions.
 func (db *DB) GetUsers() ([]SessionUser, error) {
+	// One row per person: SSO sessions group by email, password sessions by
+	// ClickHouse user, so SSO people sharing a service account stay separate.
 	rows, err := db.conn.Query(`
 		SELECT
-			clickhouse_user,
+			CASE WHEN COALESCE(auth_subject, '') != '' THEN ? || auth_subject ELSE clickhouse_user END AS user_key,
+			CASE WHEN COALESCE(auth_subject, '') != '' THEN auth_subject ELSE clickhouse_user END AS display_name,
+			MAX(clickhouse_user),
+			MAX(COALESCE(auth_subject, '') != ''),
 			user_role,
 			MAX(created_at) as last_login,
 			COUNT(*) as session_count
 		FROM sessions
-		GROUP BY clickhouse_user
+		GROUP BY user_key
 		ORDER BY last_login DESC
-	`)
+	`, SSORoleKeyPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("get users: %w", err)
 	}
@@ -155,7 +177,7 @@ func (db *DB) GetUsers() ([]SessionUser, error) {
 	for rows.Next() {
 		var u SessionUser
 		var userRole sql.NullString
-		if err := rows.Scan(&u.Username, &userRole, &u.LastLogin, &u.SessionCount); err != nil {
+		if err := rows.Scan(&u.Username, &u.DisplayName, &u.ClickhouseUser, &u.ViaSSO, &userRole, &u.LastLogin, &u.SessionCount); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
 		if userRole.Valid {
