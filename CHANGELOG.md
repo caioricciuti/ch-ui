@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.14.0] - 2026-09-29
+
+Licensing release: every Pro feature is now under the Business Source License
+1.1, and the free core no longer depends on any BSL code. No behaviour change.
+
+### Changed
+
+- **License of Pro code.** From this version, all code behind Pro features is
+  under the Business Source License 1.1 (`LICENSE.BSL`) and carries the
+  `BUSL-1.1` header. This now includes Ask AI and the Brain agentic tools,
+  audit forwarding to a SIEM, telemetry traces, metrics, service map and
+  monitors, editor guardrails, parameterized saved-query runs, and the Pro UI
+  pages. `LICENSING.md` lists every BSL path. Code published in earlier
+  versions without the header remains available under Apache 2.0 in those
+  versions (#198, #199).
+- **Core no longer depends on BSL code.** Tunnel and session tokens
+  (`internal/tokens`), cron parsing (`internal/cronexpr`) and mail delivery
+  through SMTP, Resend and Brevo (`internal/mail`) moved out of BSL packages
+  into Apache 2.0 core. Dashboard share invites use core mail delivery (#197).
+- Files that mixed free and Pro code are split so each file has one license
+  (#198). Small side effects: the Logs trace tab reloads the trace when you
+  return to it, and the Models GitHub sync button appears slightly earlier.
+
 ## [2.13.3] - 2026-09-29
 
 One consistent answer to "what is Pro", enforced the same way by the server,
