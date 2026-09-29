@@ -229,9 +229,10 @@ func (s *Server) setupRoutes() {
 		api.Group(func(protected chi.Router) {
 			protected.Use(middleware.Session(db, gw))
 
-			// License activation (requires session)
-			protected.Post("/license/activate", licenseHandler.ActivateLicense)
-			protected.Post("/license/deactivate", licenseHandler.DeactivateLicense)
+			// License activation and removal change what every user can do, so
+			// they are admin only. Reading the license stays public (above).
+			protected.With(middleware.RequireAdmin(db)).Post("/license/activate", licenseHandler.ActivateLicense)
+			protected.With(middleware.RequireAdmin(db)).Post("/license/deactivate", licenseHandler.DeactivateLicense)
 
 			// Query execution (community)
 			queryHandler := &handlers.QueryHandler{DB: db, Gateway: gw, Config: cfg, Guardrails: s.guardrails}
