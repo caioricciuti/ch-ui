@@ -11,10 +11,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/caioricciuti/ch-ui/internal/alerts"
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/mail"
 	"github.com/caioricciuti/ch-ui/internal/queryproc"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
@@ -1142,7 +1142,7 @@ func (h *DashboardsHandler) InviteToShare(w http.ResponseWriter, r *http.Request
 			dashboardName, magicLink,
 		)
 
-		if _, err := alerts.SendDirect(r.Context(), channel.ChannelType, channelConfig, []string{email}, subject, body); err != nil {
+		if _, err := mail.Send(r.Context(), channel.ChannelType, channelConfig, []string{email}, subject, body); err != nil {
 			slog.Error("Failed to send invite email", "error", err, "email", email)
 			failed = append(failed, email)
 		} else {

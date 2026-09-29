@@ -4,9 +4,9 @@
   import Badge from '../common/Badge.svelte'
   import Tabs from '../common/Tabs.svelte'
   import Spinner from '../common/Spinner.svelte'
-  import type { LogRow, TraceDetail } from '../../types/telemetry'
-  import { logsContext, logsByTrace, getTrace } from '../../api/telemetry'
-  import TraceWaterfall from './TraceWaterfall.svelte'
+  import type { LogRow } from '../../types/telemetry'
+  import { logsContext, logsByTrace } from '../../api/telemetry'
+  import LogTraceWaterfall from './LogTraceWaterfall.svelte'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import { severityTone } from './severity'
   import { formatClock, formatFull } from './time'
@@ -42,9 +42,6 @@
   let traceRows = $state<LogRow[]>([])
   let traceLoading = $state(false)
   let traceFor = $state('')
-  let traceDetail = $state<TraceDetail | null>(null)
-  let traceDetailFor = $state('')
-  const waterfallServices = $derived([...new Set((traceDetail?.spans ?? []).map((s) => s.service))])
 
   $effect(() => {
     const key = row.timestamp_ns + row.service
@@ -63,12 +60,6 @@
         .then((rows) => (traceRows = rows))
         .catch((e: unknown) => toastError(e instanceof Error ? e.message : String(e)))
         .finally(() => (traceLoading = false))
-    }
-    if (tab === 'trace' && row.trace_id && traceSourceId && traceDetailFor !== row.trace_id) {
-      traceDetailFor = row.trace_id
-      getTrace(traceSourceId, row.trace_id)
-        .then((d) => (traceDetail = d))
-        .catch(() => (traceDetail = null))
     }
   })
 
@@ -184,10 +175,8 @@
       {#if !row.trace_id}
         <p class="text-xs text-fg-3">This row carries no trace id.</p>
       {:else}
-        {#if traceDetail && traceDetail.spans.length}
-          <div class="mb-3 max-h-64 overflow-auto rounded-md border border-edge-subtle">
-            <TraceWaterfall spans={traceDetail.spans} services={waterfallServices} highlightSpanId={row.span_id} compact />
-          </div>
+        {#if traceSourceId}
+          <LogTraceWaterfall {traceSourceId} traceId={row.trace_id} highlightSpanId={row.span_id} />
         {/if}
         <p class="mb-2 text-xs text-fg-4">Logs sharing trace <span class="font-mono text-fg-2">{row.trace_id}</span>:</p>
         {#if traceLoading}

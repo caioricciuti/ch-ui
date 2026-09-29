@@ -2,7 +2,8 @@
 <script lang="ts">
   import Badge from '../common/Badge.svelte'
   import Spinner from '../common/Spinner.svelte'
-  import type { TraceFacets, FacetValue } from '../../types/telemetry'
+  import type { FacetValue } from '../../types/telemetry'
+  import type { TraceFacets } from '../../types/telemetryPro'
   import { formatNumber } from '../../utils/format'
 
   interface Props {

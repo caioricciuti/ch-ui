@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ToolCall } from '../../types/brain'
-  import { approveBrainToolCall, declineBrainToolCall } from '../../api/brain'
+  import BrainApprovalActions from './BrainApprovalActions.svelte'
   import Spinner from '../common/Spinner.svelte'
 
   interface Props {
@@ -9,7 +9,6 @@
 
   let { toolCall }: Props = $props()
   let expanded = $state(false)
-  let deciding = $state(false)
   let localDecision = $state<'approved' | 'declined' | null>(null)
 
   const summary = $derived(formatArgs(toolCall.args))
@@ -114,32 +113,6 @@
     return `${data.length} row${data.length === 1 ? '' : 's'} · ${meta.length} col${meta.length === 1 ? '' : 's'}`
   })
 
-  async function onApprove() {
-    if (!toolCall.approvalId || deciding) return
-    deciding = true
-    try {
-      await approveBrainToolCall(toolCall.approvalId)
-      localDecision = 'approved'
-    } catch (e) {
-      console.error('approve failed', e)
-    } finally {
-      deciding = false
-    }
-  }
-
-  async function onDecline() {
-    if (!toolCall.approvalId || deciding) return
-    deciding = true
-    try {
-      await declineBrainToolCall(toolCall.approvalId)
-      localDecision = 'declined'
-    } catch (e) {
-      console.error('decline failed', e)
-    } finally {
-      deciding = false
-    }
-  }
-
   const effectiveStatus = $derived(localDecision === 'approved' ? 'pending' : localDecision === 'declined' ? 'declined' : toolCall.status)
   const compact = $derived(
     !expanded &&
@@ -202,23 +175,7 @@
   </button>
 
   {#if isApproval}
-    <div class="border-t border-warning/30 px-3 py-2 flex flex-wrap items-center gap-2">
-      <p class="text-[11px] text-muted-foreground flex-1 min-w-0">
-        Brain wants to <strong class="text-foreground">{label.toLowerCase()}</strong>. Review the details and approve to run.
-      </p>
-      <button
-        type="button"
-        onclick={onDecline}
-        disabled={deciding}
-        class="px-3 py-1 rounded-md text-[11px] font-medium border border-border bg-background hover:bg-secondary disabled:opacity-50"
-      >Decline</button>
-      <button
-        type="button"
-        onclick={onApprove}
-        disabled={deciding}
-        class="px-3 py-1 rounded-md text-[11px] font-medium bg-warning hover:brightness-110 text-white disabled:opacity-50"
-      >Approve</button>
-    </div>
+    <BrainApprovalActions approvalId={toolCall.approvalId} {label} bind:decision={localDecision} />
   {/if}
 
   {#if openUrl && effectiveStatus === 'success' && isWrite}

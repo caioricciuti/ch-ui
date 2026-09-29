@@ -9,8 +9,9 @@
   import TimeRangeSelector from '../dashboard/TimeRangeSelector.svelte'
   import MetricQueryCard, { defaultAggregation, type MetricCardSpec } from './MetricQueryCard.svelte'
   import { setSection } from '../../stores/nav.svelte'
-  import { metricsCatalog } from '../../api/telemetry'
-  import type { TelemetrySource, MetricCatalogEntry, MetricType, MetricAggregation } from '../../types/telemetry'
+  import { metricsCatalog } from '../../api/telemetryPro'
+  import type { TelemetrySource } from '../../types/telemetry'
+  import type { MetricCatalogEntry, MetricType, MetricAggregation } from '../../types/telemetryPro'
   import { encodeAbsoluteDashboardRange } from '../../utils/dashboard-time'
   import { resolveRange } from './time'
 

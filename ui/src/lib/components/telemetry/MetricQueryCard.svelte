@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts" module>
-  import type { MetricAggregation, MetricType } from '../../types/telemetry'
+  import type { MetricAggregation, MetricType } from '../../types/telemetryPro'
 
   /** One query on the explorer: what to plot and how. Mirrored in the URL by the section. */
   export interface MetricCardSpec {
@@ -57,10 +57,10 @@
   import TrendChart from '../common/TrendChart.svelte'
   import MetricPicker from './MetricPicker.svelte'
   import { ChevronDown, ChevronRight, Copy, Trash2, X } from 'lucide-svelte'
-  import { metricsQuery, metricsAttributes } from '../../api/telemetry'
+  import { metricsQuery, metricsAttributes } from '../../api/telemetryPro'
   import type {
     MetricAttributeKey, MetricCatalogEntry, MetricQueryResponse,
-  } from '../../types/telemetry'
+  } from '../../types/telemetryPro'
   import { DEFAULT_COLORS } from '../../utils/chart-transform'
   import { formatNumber } from '../../utils/format'
 

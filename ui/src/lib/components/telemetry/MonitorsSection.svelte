@@ -12,9 +12,10 @@
   import MonitorEditor from './MonitorEditor.svelte'
   import { getSession } from '../../stores/session.svelte'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
-  import { listMonitors, createMonitor, updateMonitor, deleteMonitor, runMonitor } from '../../api/telemetry'
+  import { listMonitors, createMonitor, updateMonitor, deleteMonitor, runMonitor } from '../../api/telemetryPro'
   import { formatRelativeTime, formatDate } from '../../utils/format'
-  import type { Monitor, MonitorInput, TelemetrySource } from '../../types/telemetry'
+  import type { TelemetrySource } from '../../types/telemetry'
+  import type { Monitor, MonitorInput } from '../../types/telemetryPro'
 
   /** Monitors: saved searches with a threshold, evaluated on a schedule. */
   interface Props {
