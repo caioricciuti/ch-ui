@@ -4,7 +4,7 @@
   import { openTableTab } from '../../stores/tabs.svelte'
   import { goTo, getRouteType } from '../../stores/router.svelte'
   import { getSession } from '../../stores/session.svelte'
-  import { isProActive } from '../../stores/license.svelte'
+  import { hasProReadAccess } from '../../stores/license.svelte'
   import { getSection, setSection, isPanelCollapsed, setPanelCollapsed } from '../../stores/nav.svelte'
   import {
     groupForRoute, isPageRouteType, PAGE_ROUTES, PAGE_SECTIONS, ADMIN_ONLY_ROUTES, type PageRoute,
@@ -37,7 +37,7 @@
   // sidebars are always open: there is nothing else in that column.
   const collapsed = $derived(onWorkspace && (isPanelCollapsed(group.id) || narrow))
   const width = $derived(collapsed ? COLLAPSED_WIDTH : onWorkspace ? explorerWidth : NAV_WIDTH)
-  const licensedPro = $derived(isProActive())
+  const licensedPro = $derived(hasProReadAccess())
   const routes = $derived(
     group.routes.filter((r) => !ADMIN_ONLY_ROUTES.has(r) || session?.role === 'admin'),
   )

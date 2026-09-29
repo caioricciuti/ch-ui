@@ -13,7 +13,7 @@
   import { listSources } from '../lib/api/telemetry'
   import type { TelemetrySource } from '../lib/types/telemetry'
   import { getSection, setSection } from '../lib/stores/nav.svelte'
-  import { isProActive } from '../lib/stores/license.svelte'
+  import { hasProReadAccess } from '../lib/stores/license.svelte'
   import { PAGE_SECTIONS } from '../lib/routes'
   import { ServerCrash } from 'lucide-svelte'
 
@@ -23,7 +23,7 @@
     return sections.some((x) => x.id === s) ? (s as string) : 'logs'
   })
   const activeLabel = $derived(sections.find((s) => s.id === active)?.label ?? 'Logs')
-  const gated = $derived(!!sections.find((s) => s.id === active)?.pro && !isProActive())
+  const gated = $derived(!!sections.find((s) => s.id === active)?.pro && !hasProReadAccess())
 
   let sources = $state<TelemetrySource[]>([])
   let loading = $state(true)
