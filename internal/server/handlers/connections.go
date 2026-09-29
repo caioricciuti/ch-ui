@@ -105,11 +105,17 @@ func (h *ConnectionsHandler) SetSSOAccount(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	var username, chUser *string
+	if session := middleware.GetSession(r); session != nil {
+		username, chUser = strPtr(middleware.Actor(session)), strPtr(session.ClickhouseUser)
+	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "connection.sso_account.set",
-		ConnectionID: strPtr(id),
-		Details:      strPtr(fmt.Sprintf("SSO ClickHouse service account set to %s", req.Username)),
-		IPAddress:    strPtr(getClientIP(r)),
+		Action:         "connection.sso_account.set",
+		Username:       username,
+		ClickhouseUser: chUser,
+		ConnectionID:   strPtr(id),
+		Details:        strPtr(fmt.Sprintf("SSO ClickHouse service account set to %s", req.Username)),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -195,16 +201,17 @@ func (h *ConnectionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	session := middleware.GetSession(r)
-	var username *string
+	var username, chUser *string
 	if session != nil {
-		username = strPtr(session.ClickhouseUser)
+		username, chUser = strPtr(middleware.Actor(session)), strPtr(session.ClickhouseUser)
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "connection.created",
-		Username:     username,
-		ConnectionID: strPtr(id),
-		Details:      strPtr(fmt.Sprintf("Created %s connection %q", connType, name)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "connection.created",
+		Username:       username,
+		ClickhouseUser: chUser,
+		ConnectionID:   strPtr(id),
+		Details:        strPtr(fmt.Sprintf("Created %s connection %q", connType, name)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	conn, err := h.DB.GetConnectionByID(id)
@@ -310,16 +317,17 @@ func (h *ConnectionsHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	if len(changes) > 0 {
 		session := middleware.GetSession(r)
-		var username *string
+		var username, chUser *string
 		if session != nil {
-			username = strPtr(session.ClickhouseUser)
+			username, chUser = strPtr(middleware.Actor(session)), strPtr(session.ClickhouseUser)
 		}
 		h.DB.CreateAuditLog(database.AuditLogParams{
-			Action:       "connection.updated",
-			Username:     username,
-			ConnectionID: strPtr(id),
-			Details:      strPtr(fmt.Sprintf("Updated connection: %s", strings.Join(changes, "; "))),
-			IPAddress:    strPtr(r.RemoteAddr),
+			Action:         "connection.updated",
+			Username:       username,
+			ClickhouseUser: chUser,
+			ConnectionID:   strPtr(id),
+			Details:        strPtr(fmt.Sprintf("Updated connection: %s", strings.Join(changes, "; "))),
+			IPAddress:      strPtr(r.RemoteAddr),
 		})
 	}
 
@@ -358,16 +366,17 @@ func (h *ConnectionsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	session := middleware.GetSession(r)
-	var username *string
+	var username, chUser *string
 	if session != nil {
-		username = strPtr(session.ClickhouseUser)
+		username, chUser = strPtr(middleware.Actor(session)), strPtr(session.ClickhouseUser)
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "connection.deleted",
-		Username:     username,
-		ConnectionID: strPtr(id),
-		Details:      strPtr(fmt.Sprintf("Deleted connection %q", conn.Name)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "connection.deleted",
+		Username:       username,
+		ClickhouseUser: chUser,
+		ConnectionID:   strPtr(id),
+		Details:        strPtr(fmt.Sprintf("Deleted connection %q", conn.Name)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Connection deleted successfully"})
@@ -478,16 +487,17 @@ func (h *ConnectionsHandler) RegenerateToken(w http.ResponseWriter, r *http.Requ
 	}
 
 	session := middleware.GetSession(r)
-	var username *string
+	var username, chUser *string
 	if session != nil {
-		username = strPtr(session.ClickhouseUser)
+		username, chUser = strPtr(middleware.Actor(session)), strPtr(session.ClickhouseUser)
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "connection.token_regenerated",
-		Username:     username,
-		ConnectionID: strPtr(id),
-		Details:      strPtr(fmt.Sprintf("Regenerated token for connection %q", conn.Name)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "connection.token_regenerated",
+		Username:       username,
+		ClickhouseUser: chUser,
+		ConnectionID:   strPtr(id),
+		Details:        strPtr(fmt.Sprintf("Regenerated token for connection %q", conn.Name)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

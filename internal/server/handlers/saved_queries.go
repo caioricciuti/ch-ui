@@ -145,7 +145,7 @@ func (h *SavedQueriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Query:        sqlQuery,
 		Parameters:   marshalParams(body.Parameters),
 		ConnectionID: connectionID,
-		CreatedBy:    session.ClickhouseUser,
+		CreatedBy:    middleware.Actor(session),
 		Verified:     body.Verified,
 	})
 	if err != nil {
@@ -155,9 +155,10 @@ func (h *SavedQueriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "saved_query.created",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(name),
+		Action:         "saved_query.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr(name),
 	})
 
 	created, err := h.DB.GetSavedQueryByID(id)
@@ -268,9 +269,10 @@ func (h *SavedQueriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "saved_query.updated",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(params.Name),
+		Action:         "saved_query.updated",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr(params.Name),
 	})
 
 	updated, err := h.DB.GetSavedQueryByID(id)
@@ -314,9 +316,10 @@ func (h *SavedQueriesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "saved_query.deleted",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(existing.Name),
+		Action:         "saved_query.deleted",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr(existing.Name),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -373,7 +376,7 @@ func (h *SavedQueriesHandler) Duplicate(w http.ResponseWriter, r *http.Request) 
 		Query:        original.Query,
 		Parameters:   deref(original.Parameters),
 		ConnectionID: connectionID,
-		CreatedBy:    session.ClickhouseUser,
+		CreatedBy:    middleware.Actor(session),
 	})
 	if err != nil {
 		slog.Error("Failed to duplicate saved query", "error", err, "id", id)
@@ -382,9 +385,10 @@ func (h *SavedQueriesHandler) Duplicate(w http.ResponseWriter, r *http.Request) 
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "saved_query.duplicated",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr("Duplicated from " + id),
+		Action:         "saved_query.duplicated",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr("Duplicated from " + id),
 	})
 
 	duplicated, err := h.DB.GetSavedQueryByID(newID)
@@ -475,11 +479,12 @@ func (h *SavedQueriesHandler) Run(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "saved_query.run",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(sq.Name),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "saved_query.run",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(sq.Name),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, executeQueryResponse{

@@ -188,19 +188,20 @@ func (h *AdminHandler) UpdateSSOSettings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	actor := "unknown"
+	actor, chUser := "unknown", ""
 	if session := middleware.GetSession(r); session != nil {
-		actor = session.ClickhouseUser
+		actor, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 	// Audit without any secret material.
 	audited := next
 	audited.ClientSecretEnc = ""
 	if details, err := json.Marshal(audited); err == nil {
 		h.DB.CreateAuditLog(database.AuditLogParams{
-			Action:    "sso.config_update",
-			Username:  strPtr(actor),
-			Details:   strPtr(string(details)),
-			IPAddress: strPtr(r.RemoteAddr),
+			Action:         "sso.config_update",
+			Username:       strPtr(actor),
+			ClickhouseUser: strPtr(chUser),
+			Details:        strPtr(string(details)),
+			IPAddress:      strPtr(r.RemoteAddr),
 		})
 	}
 

@@ -37,13 +37,6 @@ func (h *IncidentTimelineHandler) Routes(r chi.Router) {
 	r.Delete("/annotations/{id}", h.DeleteAnnotation)
 }
 
-func timelineActor(session *middleware.SessionInfo) string {
-	if session.AuthSubject != "" {
-		return session.AuthSubject
-	}
-	return session.ClickhouseUser
-}
-
 func timelineSession(w http.ResponseWriter, r *http.Request, admin bool) *middleware.SessionInfo {
 	session := middleware.GetSession(r)
 	if session == nil {
@@ -198,13 +191,13 @@ func (h *IncidentTimelineHandler) CreateAnnotation(w http.ResponseWriter, r *htt
 		writeError(w, 400, "Provide a timestamp, title (1–200 characters) and details (up to 4000 characters)")
 		return
 	}
-	annotation, err := h.DB.CreateIncidentAnnotation(r.Context(), database.IncidentAnnotation{ConnectionID: session.ConnectionID, OccurredAt: at.UTC().Format(time.RFC3339Nano), Title: body.Title, Details: body.Details, CreatedBy: timelineActor(session)})
+	annotation, err := h.DB.CreateIncidentAnnotation(r.Context(), database.IncidentAnnotation{ConnectionID: session.ConnectionID, OccurredAt: at.UTC().Format(time.RFC3339Nano), Title: body.Title, Details: body.Details, CreatedBy: middleware.Actor(session)})
 	if err != nil {
 		writeError(w, 500, "Could not save deployment annotation")
 		return
 	}
-	actor := timelineActor(session)
-	h.DB.CreateAuditLog(database.AuditLogParams{Action: "incident.annotation.created", Username: &actor, ConnectionID: &session.ConnectionID, Details: &annotation.ID})
+	actor := middleware.Actor(session)
+	h.DB.CreateAuditLog(database.AuditLogParams{Action: "incident.annotation.created", Username: &actor, ClickhouseUser: &session.ClickhouseUser, ConnectionID: &session.ConnectionID, Details: &annotation.ID})
 	writeJSON(w, 201, annotation)
 }
 
@@ -213,7 +206,7 @@ func (h *IncidentTimelineHandler) DeleteAnnotation(w http.ResponseWriter, r *htt
 	if session == nil {
 		return
 	}
-	err := h.DB.DeleteIncidentAnnotation(r.Context(), session.ConnectionID, chi.URLParam(r, "id"), timelineActor(session), session.UserRole == "admin")
+	err := h.DB.DeleteIncidentAnnotation(r.Context(), session.ConnectionID, chi.URLParam(r, "id"), middleware.Actor(session), session.UserRole == "admin")
 	if err == sql.ErrNoRows {
 		writeError(w, 404, "Annotation not found")
 		return
@@ -222,7 +215,7 @@ func (h *IncidentTimelineHandler) DeleteAnnotation(w http.ResponseWriter, r *htt
 		writeError(w, 500, "Could not delete annotation")
 		return
 	}
-	actor, id := timelineActor(session), chi.URLParam(r, "id")
-	h.DB.CreateAuditLog(database.AuditLogParams{Action: "incident.annotation.deleted", Username: &actor, ConnectionID: &session.ConnectionID, Details: &id})
+	actor, id := middleware.Actor(session), chi.URLParam(r, "id")
+	h.DB.CreateAuditLog(database.AuditLogParams{Action: "incident.annotation.deleted", Username: &actor, ClickhouseUser: &session.ClickhouseUser, ConnectionID: &session.ConnectionID, Details: &id})
 	writeJSON(w, 200, map[string]bool{"success": true})
 }

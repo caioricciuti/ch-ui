@@ -428,16 +428,9 @@ func (h *OAuthHandler) consentInfo(w http.ResponseWriter, r *http.Request) {
 		"redirect_host": ru.Host,
 		"scopes":        strings.Fields(req.Scope),
 		"connection":    connName,
-		"user":          subjectOf(sess),
+		"user":          middleware.Actor(sess),
 		"expires_at":    req.ExpiresAt,
 	})
-}
-
-func subjectOf(s *middleware.SessionInfo) string {
-	if s.AuthSubject != "" {
-		return s.AuthSubject
-	}
-	return s.ClickhouseUser
 }
 
 func (h *OAuthHandler) consentApprove(w http.ResponseWriter, r *http.Request) {
@@ -461,7 +454,7 @@ func (h *OAuthHandler) consentApprove(w http.ResponseWriter, r *http.Request) {
 		ConnectionID:  sess.ConnectionID,
 		CHUser:        sess.ClickhouseUser,
 		CHPasswordEnc: sess.EncryptedPassword,
-		Subject:       subjectOf(sess),
+		Subject:       middleware.Actor(sess),
 		ExpiresAt:     time.Now().UTC().Add(oauthCodeTTL).Format(time.RFC3339),
 	}); err != nil {
 		slog.Error("oauth: create code failed", "error", err)
@@ -476,8 +469,8 @@ func (h *OAuthHandler) consentApprove(w http.ResponseWriter, r *http.Request) {
 		v.Set("state", req.State)
 	}
 	u.RawQuery = v.Encode()
-	subj := subjectOf(sess)
-	h.DB.CreateAuditLog(database.AuditLogParams{Action: "mcp.oauth.consent", Username: &subj, ConnectionID: &sess.ConnectionID, Details: strPtr("client: " + req.ClientName + ", scope: " + req.Scope)})
+	subj := middleware.Actor(sess)
+	h.DB.CreateAuditLog(database.AuditLogParams{Action: "mcp.oauth.consent", Username: &subj, ClickhouseUser: &sess.ClickhouseUser, ConnectionID: &sess.ConnectionID, Details: strPtr("client: " + req.ClientName + ", scope: " + req.Scope)})
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "redirect_url": u.String()})
 }
 

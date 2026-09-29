@@ -299,15 +299,16 @@ func (h *AdminHandler) SetUserRole(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("Failed to refresh active session roles after role update", "error", err, "user", username)
 	}
 
-	var actorName *string
+	var actorName, chUser *string
 	if session != nil {
-		actorName = strPtr(session.ClickhouseUser)
+		actorName, chUser = strPtr(middleware.Actor(session)), strPtr(session.ClickhouseUser)
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "user_role.set",
-		Username:  actorName,
-		Details:   strPtr(fmt.Sprintf("Set role for %q to %s", username, body.Role)),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "user_role.set",
+		Username:       actorName,
+		ClickhouseUser: chUser,
+		Details:        strPtr(fmt.Sprintf("Set role for %q to %s", username, body.Role)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -356,15 +357,16 @@ func (h *AdminHandler) DeleteUserRole(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("Failed to refresh active session roles after role override removal", "error", err, "user", username)
 	}
 
-	var actorName *string
+	var actorName, chUser *string
 	if session != nil {
-		actorName = strPtr(session.ClickhouseUser)
+		actorName, chUser = strPtr(middleware.Actor(session)), strPtr(session.ClickhouseUser)
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "user_role.deleted",
-		Username:  actorName,
-		Details:   strPtr(fmt.Sprintf("Removed role override for %q", username)),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "user_role.deleted",
+		Username:       actorName,
+		ClickhouseUser: chUser,
+		Details:        strPtr(fmt.Sprintf("Removed role override for %q", username)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -607,11 +609,12 @@ func (h *AdminHandler) CreateClickHouseUser(w http.ResponseWriter, r *http.Reque
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "admin.clickhouse_user.created",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("name=%s auth_type=%s", name, authType)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "admin.clickhouse_user.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("name=%s auth_type=%s", name, authType)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -689,11 +692,12 @@ func (h *AdminHandler) UpdateClickHouseUserPassword(w http.ResponseWriter, r *ht
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "admin.clickhouse_user.password_changed",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("name=%s auth_type=%s", username, authType)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "admin.clickhouse_user.password_changed",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("name=%s auth_type=%s", username, authType)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -796,11 +800,12 @@ func (h *AdminHandler) DeleteClickHouseUser(w http.ResponseWriter, r *http.Reque
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "admin.clickhouse_user.deleted",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("name=%s", username)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "admin.clickhouse_user.deleted",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("name=%s", username)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

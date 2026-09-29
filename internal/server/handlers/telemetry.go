@@ -237,10 +237,11 @@ func (h *TelemetryHandler) loadSource(w http.ResponseWriter, id, connID string) 
 
 func (h *TelemetryHandler) audit(action string, session *middleware.SessionInfo, details string) {
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       action,
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(details),
+		Action:         action,
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(details),
 	})
 }
 
@@ -303,7 +304,7 @@ func (h *TelemetryHandler) CreateSource(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	src.ConnectionID = session.ConnectionID
-	src.CreatedBy = session.ClickhouseUser
+	src.CreatedBy = middleware.Actor(session)
 	if err := src.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

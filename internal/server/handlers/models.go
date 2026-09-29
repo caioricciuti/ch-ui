@@ -127,7 +127,7 @@ func (h *ModelsHandler) CreateModel(w http.ResponseWriter, r *http.Request) {
 	id, err := h.DB.CreateModel(
 		session.ConnectionID, body.Name, body.Description,
 		body.TargetDatabase, body.Materialization, body.SQLBody,
-		body.TableEngine, body.OrderBy, session.ClickhouseUser,
+		body.TableEngine, body.OrderBy, middleware.Actor(session),
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create model: %v", err))
@@ -376,7 +376,7 @@ func (h *ModelsHandler) RunAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID, err := h.Runner.RunAll(session.ConnectionID, session.ClickhouseUser)
+	runID, err := h.Runner.RunAll(session.ConnectionID, middleware.Actor(session))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -394,7 +394,7 @@ func (h *ModelsHandler) RunSingle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := chi.URLParam(r, "id")
-	runID, err := h.Runner.RunSingle(session.ConnectionID, id, session.ClickhouseUser)
+	runID, err := h.Runner.RunSingle(session.ConnectionID, id, middleware.Actor(session))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -548,7 +548,7 @@ func (h *ModelsHandler) RunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	anchorID := chi.URLParam(r, "anchorId")
-	runID, err := h.Runner.RunPipeline(session.ConnectionID, anchorID, session.ClickhouseUser)
+	runID, err := h.Runner.RunPipeline(session.ConnectionID, anchorID, middleware.Actor(session))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -630,7 +630,7 @@ func (h *ModelsHandler) UpsertSchedule(w http.ResponseWriter, r *http.Request) {
 		nextRunAt = next.Format(time.RFC3339)
 	}
 
-	_, err := h.DB.UpsertModelSchedule(session.ConnectionID, anchorID, body.Cron, nextRunAt, session.ClickhouseUser)
+	_, err := h.DB.UpsertModelSchedule(session.ConnectionID, anchorID, body.Cron, nextRunAt, middleware.Actor(session))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to save schedule: %v", err))
 		return

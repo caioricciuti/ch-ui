@@ -45,9 +45,9 @@ func (h *AdminHandler) UpdateGovernanceSettings(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	actor := "unknown"
+	actor, chUser := "unknown", ""
 	if session != nil {
-		actor = session.ClickhouseUser
+		actor, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 
 	if body.SyncEnabled != nil {
@@ -67,10 +67,11 @@ func (h *AdminHandler) UpdateGovernanceSettings(w http.ResponseWriter, r *http.R
 
 		details := fmt.Sprintf(`{"sync_enabled":%t}`, *body.SyncEnabled)
 		h.DB.CreateAuditLog(database.AuditLogParams{
-			Action:    "governance.sync_toggle",
-			Username:  strPtr(actor),
-			Details:   strPtr(details),
-			IPAddress: strPtr(r.RemoteAddr),
+			Action:         "governance.sync_toggle",
+			Username:       strPtr(actor),
+			ClickhouseUser: strPtr(chUser),
+			Details:        strPtr(details),
+			IPAddress:      strPtr(r.RemoteAddr),
 		})
 	}
 

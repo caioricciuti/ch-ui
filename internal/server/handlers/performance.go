@@ -50,13 +50,6 @@ func performanceSession(w http.ResponseWriter, r *http.Request) *middleware.Sess
 	return session
 }
 
-func performanceActor(session *middleware.SessionInfo) string {
-	if session.AuthSubject != "" {
-		return session.AuthSubject
-	}
-	return session.ClickhouseUser
-}
-
 func (h *PerformanceHandler) executor(w http.ResponseWriter, r *http.Request) (performance.Executor, bool) {
 	insights := QueryInsightsHandler{DB: h.DB, Gateway: h.Gateway, Config: h.Config}
 	cs, ok := insights.session(w, r)
@@ -223,7 +216,7 @@ func (h *PerformanceHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	item := &database.PerformanceInvestigation{ConnectionID: sess.ConnectionID, Title: in.Title, Owner: in.Owner, QueryHash: in.Hash,
-		Database: in.Database, SampleQuery: sample, Baseline: snapshot, CreatedBy: performanceActor(sess)}
+		Database: in.Database, SampleQuery: sample, Baseline: snapshot, CreatedBy: middleware.Actor(sess)}
 	if err := h.DB.CreatePerformanceInvestigation(item, in.Note); err != nil {
 		h.dbError(w, err)
 		return
@@ -245,7 +238,7 @@ func (h *PerformanceHandler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	item.Title, item.Owner, item.Status, item.Revision = in.Title, in.Owner, in.Status, in.Revision
-	if err := h.DB.UpdatePerformanceInvestigation(item, performanceActor(middleware.GetSession(r)), in.Note); err != nil {
+	if err := h.DB.UpdatePerformanceInvestigation(item, middleware.Actor(middleware.GetSession(r)), in.Note); err != nil {
 		if errors.Is(err, database.ErrPerformanceConflict) {
 			writeError(w, 409, err.Error())
 			return
@@ -304,7 +297,7 @@ func (h *PerformanceHandler) compare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 409, err.Error())
 		return
 	}
-	if err := h.DB.AddPerformanceComparison(item.ConnectionID, item.ID, performanceActor(middleware.GetSession(r)), comparison); err != nil {
+	if err := h.DB.AddPerformanceComparison(item.ConnectionID, item.ID, middleware.Actor(middleware.GetSession(r)), comparison); err != nil {
 		h.dbError(w, err)
 		return
 	}

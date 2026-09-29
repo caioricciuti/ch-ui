@@ -199,9 +199,9 @@ func (h *AdminHandler) CreateBrainProvider(w http.ResponseWriter, r *http.Reques
 		isDefault = *body.IsDefault
 	}
 
-	actor := ""
+	actor, chUser := "", ""
 	if session != nil {
-		actor = session.ClickhouseUser
+		actor, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 	providerID, err := h.DB.CreateBrainProvider(name, kind, body.BaseURL, encryptedKey, isActive, isDefault, actor)
 	if err != nil {
@@ -210,10 +210,11 @@ func (h *AdminHandler) CreateBrainProvider(w http.ResponseWriter, r *http.Reques
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "brain.provider.created",
-		Username:  strPtr(actor),
-		Details:   strPtr(fmt.Sprintf("provider=%s kind=%s", name, kind)),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "brain.provider.created",
+		Username:       strPtr(actor),
+		ClickhouseUser: strPtr(chUser),
+		Details:        strPtr(fmt.Sprintf("provider=%s kind=%s", name, kind)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"success": true, "id": providerID})
@@ -298,15 +299,16 @@ func (h *AdminHandler) UpdateBrainProvider(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	actor := ""
+	actor, chUser := "", ""
 	if session != nil {
-		actor = session.ClickhouseUser
+		actor, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "brain.provider.updated",
-		Username:  strPtr(actor),
-		Details:   strPtr(fmt.Sprintf("provider_id=%s", providerID)),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "brain.provider.updated",
+		Username:       strPtr(actor),
+		ClickhouseUser: strPtr(chUser),
+		Details:        strPtr(fmt.Sprintf("provider_id=%s", providerID)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -325,15 +327,16 @@ func (h *AdminHandler) DeleteBrainProvider(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	actor := ""
+	actor, chUser := "", ""
 	if session != nil {
-		actor = session.ClickhouseUser
+		actor, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "brain.provider.deleted",
-		Username:  strPtr(actor),
-		Details:   strPtr(fmt.Sprintf("provider_id=%s", providerID)),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "brain.provider.deleted",
+		Username:       strPtr(actor),
+		ClickhouseUser: strPtr(chUser),
+		Details:        strPtr(fmt.Sprintf("provider_id=%s", providerID)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -426,15 +429,16 @@ func (h *AdminHandler) SyncBrainProviderModels(w http.ResponseWriter, r *http.Re
 		models, _ = h.DB.GetBrainModels(providerID)
 	}
 
-	actor := ""
+	actor, chUser := "", ""
 	if session != nil {
-		actor = session.ClickhouseUser
+		actor, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "brain.provider.models_synced",
-		Username:  strPtr(actor),
-		Details:   strPtr(fmt.Sprintf("provider_id=%s models=%d", providerID, len(modelNames))),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "brain.provider.models_synced",
+		Username:       strPtr(actor),
+		ClickhouseUser: strPtr(chUser),
+		Details:        strPtr(fmt.Sprintf("provider_id=%s models=%d", providerID, len(modelNames))),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "models": models})
@@ -504,15 +508,16 @@ func (h *AdminHandler) UpdateBrainModel(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	actor := ""
+	actor, chUser := "", ""
 	if session != nil {
-		actor = session.ClickhouseUser
+		actor, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "brain.model.updated",
-		Username:  strPtr(actor),
-		Details:   strPtr(fmt.Sprintf("model_id=%s", modelID)),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "brain.model.updated",
+		Username:       strPtr(actor),
+		ClickhouseUser: strPtr(chUser),
+		Details:        strPtr(fmt.Sprintf("model_id=%s", modelID)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -547,15 +552,16 @@ func (h *AdminHandler) BulkUpdateBrainModels(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	actor := ""
+	actor, chUser := "", ""
 	if session != nil {
-		actor = session.ClickhouseUser
+		actor, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "brain.model.bulk_updated",
-		Username:  strPtr(actor),
-		Details:   strPtr(fmt.Sprintf("provider_id=%s action=%s updated=%d", providerID, action, updated)),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "brain.model.bulk_updated",
+		Username:       strPtr(actor),
+		ClickhouseUser: strPtr(chUser),
+		Details:        strPtr(fmt.Sprintf("provider_id=%s action=%s updated=%d", providerID, action, updated)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -606,9 +612,9 @@ func (h *AdminHandler) CreateBrainSkill(w http.ResponseWriter, r *http.Request) 
 		isDefault = *body.IsDefault
 	}
 
-	actor := ""
+	actor, chUser := "", ""
 	if session != nil {
-		actor = session.ClickhouseUser
+		actor, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 	id, err := h.DB.CreateBrainSkill(name, content, actor, isActive, isDefault)
 	if err != nil {
@@ -617,10 +623,11 @@ func (h *AdminHandler) CreateBrainSkill(w http.ResponseWriter, r *http.Request) 
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "brain.skill.created",
-		Username:  strPtr(actor),
-		Details:   strPtr(fmt.Sprintf("skill=%s", name)),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "brain.skill.created",
+		Username:       strPtr(actor),
+		ClickhouseUser: strPtr(chUser),
+		Details:        strPtr(fmt.Sprintf("skill=%s", name)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"success": true, "id": id})
@@ -682,15 +689,16 @@ func (h *AdminHandler) UpdateBrainSkill(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	actor := ""
+	actor, chUser := "", ""
 	if session != nil {
-		actor = session.ClickhouseUser
+		actor, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "brain.skill.updated",
-		Username:  strPtr(actor),
-		Details:   strPtr(fmt.Sprintf("skill_id=%s", skillID)),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "brain.skill.updated",
+		Username:       strPtr(actor),
+		ClickhouseUser: strPtr(chUser),
+		Details:        strPtr(fmt.Sprintf("skill_id=%s", skillID)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
