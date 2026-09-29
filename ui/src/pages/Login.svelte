@@ -46,7 +46,7 @@
     if (normalized.includes("invalid credentials") || normalized.includes("authentication failed")) {
       return "auth";
     }
-    if (normalized.includes("connection offline") || normalized.includes("connection to clickhouse failed") || normalized.includes("unreachable") || normalized.includes("tunnel")) {
+    if (normalized.includes("connection offline") || normalized.includes("is offline") || normalized.includes("connection to clickhouse failed") || normalized.includes("unreachable") || normalized.includes("tunnel")) {
       return "connection";
     }
     if (normalized.includes("too many login attempts") || normalized.includes("retry in")) {
