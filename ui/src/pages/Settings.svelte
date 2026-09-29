@@ -1,8 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { getSection, setSection } from '../lib/stores/nav.svelte'
-  import { apiGet, apiPost } from '../lib/api/client'
-  import type { LicenseInfo } from '../lib/types/api'
+  import {
+    getLicense,
+    isLicenseLoaded,
+    isProActive,
+    isLicenseInGrace,
+    loadLicense,
+    activateLicense,
+    deactivateLicense,
+  } from '../lib/stores/license.svelte'
   import { success, error as toastError } from '../lib/stores/toast.svelte'
   import { getSession } from '../lib/stores/session.svelte'
   import { formatDate } from '../lib/utils/format'
@@ -26,8 +33,10 @@
   import Stat from '../lib/components/common/Stat.svelte'
   import Textarea from '../lib/components/common/Textarea.svelte'
 
-  let license = $state<LicenseInfo | null>(null)
-  let loading = $state(true)
+  // License state lives in the shared store so the router, sidebar and
+  // palette see activation and deactivation without a page refresh.
+  const license = $derived(getLicense())
+  const loading = $derived(!isLicenseLoaded())
   let activating = $state(false)
   let deactivating = $state(false)
   let showConfirmDeactivate = $state(false)
@@ -77,26 +86,17 @@
     },
   ]
 
-  const proActive = $derived(!!(license?.valid && license?.edition?.toLowerCase() === 'pro'))
+  const proActive = $derived(isProActive())
+  const inGrace = $derived(isLicenseInGrace())
   const expiredLicense = $derived(!!(license && !license.valid && !!license.license_id))
 
   const licenseState = $derived.by(() => {
     if (loading) return 'loading'
     if (proActive) return 'pro'
+    if (inGrace) return 'grace'
     if (expiredLicense) return 'expired'
     return 'community'
   })
-
-  async function loadLicense() {
-    try {
-      const res = await apiGet<LicenseInfo>('/api/license')
-      license = res
-    } catch {
-      license = null
-    } finally {
-      loading = false
-    }
-  }
 
   function normalizeSettingsTab(value: string | null | undefined): SettingsTab {
     const raw = (value ?? '').trim().toLowerCase()
@@ -124,13 +124,10 @@
       typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('section'),
     )
     switchTab(initialTab, true)
-    void loadLicense()
+    // Always re-read on open: the status can change server-side (expiry,
+    // CHUI_LICENSE env) while the shared store holds an older answer.
+    void loadLicense(true)
   })
-
-  async function activateLicenseText(text: string): Promise<void> {
-    const res = await apiPost<LicenseInfo>('/api/license/activate', { license: text })
-    license = res
-  }
 
   async function activate() {
     const text = licenseInput.trim()
@@ -138,7 +135,7 @@
 
     activating = true
     try {
-      await activateLicenseText(text)
+      await activateLicense(text)
       licenseInput = ''
       inputMode = 'idle'
       success('License activated successfully')
@@ -165,7 +162,7 @@
       if (res.license) {
         try {
           // Older servers return the license inline: activate immediately.
-          await activateLicenseText(JSON.stringify(res.license))
+          await activateLicense(JSON.stringify(res.license))
           trialEmail = ''
           trialName = ''
           success('Trial activated — 30 days of Pro')
@@ -240,12 +237,11 @@
   async function deactivate() {
     deactivating = true
     try {
-      const res = await apiPost<LicenseInfo>('/api/license/deactivate')
-      license = res
+      await deactivateLicense()
       showConfirmDeactivate = false
       success('License deactivated')
-    } catch (e: any) {
-      toastError(e.message || 'Failed to deactivate license')
+    } catch (e) {
+      toastError(e instanceof Error && e.message ? e.message : 'Failed to deactivate license')
     } finally {
       deactivating = false
     }
@@ -284,6 +280,8 @@
         <Badge tone="neutral">Checking license…</Badge>
       {:else if licenseState === 'pro'}
         <Badge tone="success">Pro Active</Badge>
+      {:else if licenseState === 'grace'}
+        <Badge tone="warning">Pro Grace Period</Badge>
       {:else if licenseState === 'expired'}
         <Badge tone="danger">Pro Expired</Badge>
       {:else}
@@ -336,6 +334,16 @@
                   <Button size="sm" variant="outline" class="text-danger hover:text-danger" onclick={() => showConfirmDeactivate = true}>Deactivate license</Button>
                 {/if}
               </div>
+            </Panel>
+          {:else if inGrace}
+            <Panel>
+              <div class="flex flex-wrap items-center gap-3">
+                <ShieldAlert size={16} class="text-warning" />
+                <Badge tone="warning">Grace Period</Badge>
+                <span class="text-xs text-fg-3">Customer: {license?.customer || '—'}</span>
+              </div>
+              <p class="mt-3 text-[13px] text-warning">Expired on {formatDate(license?.expires_at)}. Grace period ends on {formatDate(license?.grace_until)}.</p>
+              <p class="mt-1 text-[13px] text-fg-3">Activate a renewed Pro license before the grace period ends.</p>
             </Panel>
           {:else if expiredLicense}
             <Panel>

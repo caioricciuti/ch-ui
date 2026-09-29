@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { getRouteType, getCurrentDashboardId } from '../../stores/router.svelte'
-  import { loadLicense, isProActive } from '../../stores/license.svelte'
+  import { loadLicense, isProActive, isLicenseLoaded } from '../../stores/license.svelte'
   import { PAGE_ROUTES, isPageRouteType, type PageRoute } from '../../routes'
   import ProRequired from '../common/ProRequired.svelte'
   import Admin from '../../../pages/Admin.svelte'
@@ -45,10 +45,13 @@
     settings: Settings,
   }
 
-  let licenseChecked = $state(false)
+  // Gating reads the shared license store. Settings writes activation and
+  // deactivation results into the same store, so Pro pages lock and unlock
+  // without a refresh.
   onMount(() => {
-    void Promise.resolve(loadLicense()).finally(() => (licenseChecked = true))
+    void loadLicense()
   })
+  const licenseChecked = $derived(isLicenseLoaded())
 
   const type = $derived(getRouteType())
   const meta = $derived(isPageRouteType(type) ? PAGE_ROUTES[type] : undefined)
