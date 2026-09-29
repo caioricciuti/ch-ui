@@ -20,7 +20,7 @@ import (
 // person (middleware.Actor) and record the shared account as ch_user; a
 // password user's row keeps ch_user NULL because the two would be equal.
 
-const ssoServiceAccount = "svc_sso"
+// ssoServiceAccount is declared in sso_per_person_test.go.
 
 func attributionFixture(t *testing.T) (*database.DB, string) {
 	t.Helper()
