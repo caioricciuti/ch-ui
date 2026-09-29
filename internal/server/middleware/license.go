@@ -42,3 +42,24 @@ func RequirePro(cfg *config.Config) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// RequireProRead gates Pro routes that are reads even though they use POST
+// (search and compare endpoints that carry a query body). They behave like
+// GETs under RequirePro: any method is allowed with an active license or in
+// the read-only grace window, and 402 otherwise. Use it only on routes that
+// change nothing.
+func RequireProRead(cfg *config.Config) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch cfg.ProAccess() {
+			case config.ProActive:
+				next.ServeHTTP(w, r)
+			case config.ProGrace:
+				w.Header().Set("X-CH-UI-License-Status", "grace")
+				next.ServeHTTP(w, r)
+			default:
+				writeError(w, http.StatusPaymentRequired, "Pro license required")
+			}
+		})
+	}
+}

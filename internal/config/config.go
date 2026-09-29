@@ -48,6 +48,10 @@ type Config struct {
 	// License
 	LicenseJSON string // Stored signed license JSON (loaded from DB at startup)
 
+	// proAccessOverride replaces license validation in ProAccess. Set only by
+	// SetProAccessForTest.
+	proAccessOverride func() ProAccess
+
 	// OIDC SSO. When configured, users can log in via an external IdP
 	// (Okta/Entra/Google/Keycloak). OIDC authenticates the person; queries run
 	// against ClickHouse using the per-connection service account credentials
@@ -471,8 +475,16 @@ func LicenseFromEnv() (string, string) {
 // ProAccess validates the stored license once and returns the current Pro
 // entitlement state.
 func (c *Config) ProAccess() ProAccess {
-	info := license.ValidateLicense(c.LicenseJSON)
-	if !strings.EqualFold(strings.TrimSpace(info.Edition), "pro") {
+	if c.proAccessOverride != nil {
+		return c.proAccessOverride()
+	}
+	return proAccessFor(license.ValidateLicense(c.LicenseJSON))
+}
+
+// proAccessFor maps a validated license to a Pro entitlement state. Editions
+// "pro" and "enterprise" unlock Pro; anything else is ProNone.
+func proAccessFor(info *license.LicenseInfo) ProAccess {
+	if info == nil || !license.IsProEdition(info.Edition) {
 		return ProNone
 	}
 	switch {
@@ -483,6 +495,14 @@ func (c *Config) ProAccess() ProAccess {
 	default:
 		return ProNone
 	}
+}
+
+// SetProAccessForTest makes ProAccess return fn() instead of validating the
+// stored license, so tests in other packages can simulate an active, grace or
+// missing license without a license signed by the production key. Production
+// code never calls it.
+func (c *Config) SetProAccessForTest(fn func() ProAccess) {
+	c.proAccessOverride = fn
 }
 
 // IsPro reports whether the installation has a fully active Pro license.

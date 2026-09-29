@@ -51,6 +51,17 @@ type LicenseInfo struct {
 	GraceUntil string `json:"grace_until,omitempty"`
 }
 
+// IsProEdition reports whether a license edition unlocks Pro features. The
+// license is all-or-nothing: "enterprise" unlocks exactly what "pro" does.
+// The comparison ignores case and surrounding whitespace.
+func IsProEdition(edition string) bool {
+	switch strings.ToLower(strings.TrimSpace(edition)) {
+	case "pro", "enterprise":
+		return true
+	}
+	return false
+}
+
 // CommunityLicense returns the default community license info.
 func CommunityLicense() *LicenseInfo {
 	return &LicenseInfo{

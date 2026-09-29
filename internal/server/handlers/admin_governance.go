@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
@@ -48,6 +49,13 @@ func (h *AdminHandler) UpdateGovernanceSettings(w http.ResponseWriter, r *http.R
 	actor, chUser := "unknown", ""
 	if session != nil {
 		actor, chUser = middleware.Actor(session), session.ClickhouseUser
+	}
+
+	// Governance sync is Pro. Turning it on needs a license that is active or
+	// in grace; turning it off is always allowed.
+	if body.SyncEnabled != nil && *body.SyncEnabled && (h.Config == nil || h.Config.ProAccess() == config.ProNone) {
+		writeError(w, http.StatusPaymentRequired, "Pro license required to enable governance sync")
+		return
 	}
 
 	if body.SyncEnabled != nil {

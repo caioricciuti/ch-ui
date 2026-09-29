@@ -73,18 +73,26 @@ func (h *TelemetryHandler) Routes() chi.Router {
 	// Traces, metrics, the service map and monitors are Pro, matching the
 	// other Operate depth (Cluster Health, Query Insights, Cost Center,
 	// Governance). Logs and sources are the community on-ramp.
+	//
+	// The searches below are reads that carry a query body, so they use POST.
+	// RequireProRead keeps them working in the read-only grace window, the
+	// same as the GET routes under RequirePro.
+	r.Group(func(read chi.Router) {
+		read.Use(middleware.RequireProRead(h.Config))
+		read.Post("/traces/search", h.SearchTraces)
+		read.Post("/traces/histogram", h.TracesHistogram)
+		read.Post("/traces/facets", h.TracesFacets)
+		read.Post("/metrics/query", h.MetricsQuery)
+		read.Post("/service-map", h.ServiceMap)
+	})
 	r.Group(func(pro chi.Router) {
 		pro.Use(middleware.RequirePro(h.Config))
 
 		// Phase 2: traces (telemetry_traces.go)
-		pro.Post("/traces/search", h.SearchTraces)
-		pro.Post("/traces/histogram", h.TracesHistogram)
-		pro.Post("/traces/facets", h.TracesFacets)
 		pro.Get("/traces/{traceId}", h.GetTrace)
 
 		// Phase 3: metrics (telemetry_metrics.go)
 		pro.Get("/metrics/catalog", h.MetricsCatalog)
-		pro.Post("/metrics/query", h.MetricsQuery)
 		pro.Get("/metrics/attributes", h.MetricsAttributes)
 
 		// Phase 4: monitors (telemetry_saved.go)
@@ -93,9 +101,6 @@ func (h *TelemetryHandler) Routes() chi.Router {
 		pro.With(writer).Put("/monitors/{id}", h.UpdateMonitor)
 		pro.With(writer).Delete("/monitors/{id}", h.DeleteMonitor)
 		pro.With(writer).Post("/monitors/{id}/run", h.RunMonitor)
-
-		// Phase 4: service map (telemetry_servicemap.go)
-		pro.Post("/service-map", h.ServiceMap)
 	})
 
 	// The single-table config of the first Telemetry page is gone; the old

@@ -13,6 +13,6 @@ func TestBackgroundAccountExecution(t *testing.T) {
 	agent := testutil.NewWorkerAgent(t, db, func(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
 		return &tunnel.AgentMessage{Type: "query_result", Data: json.RawMessage(`[]`)}
 	})
-	h := NewHarvester(NewStore(db), db, agent.Gateway, "test-secret")
+	h := NewHarvester(NewStore(db), db, agent.Gateway, "test-secret", func() bool { return true })
 	agent.CheckWorker(t, db, conn, "cluster_health", func() { h.pollConnection(conn, DefaultSettings(conn), time.Now()) })
 }

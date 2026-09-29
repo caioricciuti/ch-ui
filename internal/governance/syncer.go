@@ -33,6 +33,7 @@ type Syncer struct {
 	db          *database.DB
 	gateway     *tunnel.Gateway
 	secret      string
+	pro         func() bool
 	activeSyncs sync.Map // connectionID → bool (prevents concurrent syncs per connection)
 	mu          sync.Mutex
 	running     bool
@@ -40,12 +41,18 @@ type Syncer struct {
 }
 
 // NewSyncer creates a new governance Syncer.
-func NewSyncer(store *Store, db *database.DB, gw *tunnel.Gateway, secret string) *Syncer {
+//
+// pro reports whether Pro work may run now (see config.ProGate). While it
+// returns false, or is nil, the background loop keeps running but syncs and
+// prunes nothing, and resumes by itself once a license is active. On-demand
+// SyncConnection is not gated here: its callers sit behind RequirePro.
+func NewSyncer(store *Store, db *database.DB, gw *tunnel.Gateway, secret string, pro func() bool) *Syncer {
 	return &Syncer{
 		store:   store,
 		db:      db,
 		gateway: gw,
 		secret:  secret,
+		pro:     pro,
 	}
 }
 
@@ -72,8 +79,10 @@ func (s *Syncer) StartBackground() {
 		defer safe.Recover("governance-syncer")
 		slog.Info("Governance syncer started", "interval", syncTickInterval)
 
-		if connections, err := s.db.GetConnections(); err == nil {
-			s.pruneRetention(connections)
+		if s.proAllowed() {
+			if connections, err := s.db.GetConnections(); err == nil {
+				s.pruneRetention(connections)
+			}
 		}
 
 		ticker := time.NewTicker(syncTickInterval)
@@ -171,7 +180,15 @@ func (s *Syncer) SyncSingle(ctx context.Context, creds CHCredentials, syncType S
 // backgroundTick iterates over all connections, checks tunnel status and
 // sync staleness, resolves background credentials, and triggers
 // SyncConnection in goroutines.
+// proAllowed reports whether background Pro work may run now.
+func (s *Syncer) proAllowed() bool {
+	return s.pro != nil && s.pro()
+}
+
 func (s *Syncer) backgroundTick() {
+	if !s.proAllowed() {
+		return
+	}
 	connections, err := s.db.GetConnections()
 	if err != nil {
 		slog.Error("Governance sync: failed to load connections", "error", err)

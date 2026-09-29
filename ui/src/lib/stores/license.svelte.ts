@@ -30,13 +30,19 @@ export function isLicenseLoaded(): boolean {
   return loaded
 }
 
+// An enterprise license unlocks the same as pro (backend license.IsProEdition).
+function isProEdition(edition: string | undefined): boolean {
+  const e = edition?.trim().toLowerCase()
+  return e === 'pro' || e === 'enterprise'
+}
+
 export function isProActive(): boolean {
-  return !!(license?.valid && license?.edition?.toLowerCase() === 'pro')
+  return !!(license?.valid && isProEdition(license.edition))
 }
 
 /** Expired Pro license still inside the backend's read-only grace window. */
 export function isLicenseInGrace(): boolean {
-  return !!(license && !license.valid && license.in_grace)
+  return !!(license && !license.valid && license.in_grace && isProEdition(license.edition))
 }
 
 /**
