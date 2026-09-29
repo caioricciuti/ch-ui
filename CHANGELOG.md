@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Login:** a login that fails because ClickHouse is unreachable now shows
+  "Connection unavailable" with a hint, instead of a generic "Login failed".
+
 ## [2.13.0] - 2026-09-21
 
 Production operations workflows for finding regressions, measuring improvements
