@@ -75,4 +75,4 @@ No. Dashboards, Brain AI, data pipelines, models, and admin are all free.
 Only scheduled query jobs, governance (lineage, policies, incidents, access matrix), and alerting.
 
 **What happens when a Pro license expires?**
-Pro features become locked. Core features continue working. Your data is never lost.
+For 14 days after the expiry date, Pro pages stay open read-only: reads keep working and changes are refused with HTTP 402 until a renewed license is activated. After that, Pro features are locked. Core features keep working throughout, and your data is never lost. Details: [ch-ui.com/docs/license](https://ch-ui.com/docs/license).
