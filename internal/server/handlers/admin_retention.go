@@ -51,16 +51,17 @@ func (h *AdminHandler) UpdateRetentionSettings(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	actor := "unknown"
+	actor, chUser := "unknown", ""
 	if session := middleware.GetSession(r); session != nil {
-		actor = session.ClickhouseUser
+		actor, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 	if details, err := json.Marshal(cfg); err == nil {
 		h.DB.CreateAuditLog(database.AuditLogParams{
-			Action:    "retention.config_update",
-			Username:  strPtr(actor),
-			Details:   strPtr(string(details)),
-			IPAddress: strPtr(r.RemoteAddr),
+			Action:         "retention.config_update",
+			Username:       strPtr(actor),
+			ClickhouseUser: strPtr(chUser),
+			Details:        strPtr(string(details)),
+			IPAddress:      strPtr(r.RemoteAddr),
 		})
 	}
 

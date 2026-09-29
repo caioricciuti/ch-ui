@@ -122,10 +122,7 @@ func (h *OperationsReportsHandler) generate(w http.ResponseWriter, r *http.Reque
 		writeError(w, 500, "Could not read connection credentials")
 		return
 	}
-	actor := sess.AuthSubject
-	if actor == "" {
-		actor = sess.ClickhouseUser
-	}
+	actor := middleware.Actor(sess)
 	report, err := h.Runner.Generate(r.Context(), sess.ConnectionID, sess.ClickhouseUser, password, actor, "", time.Now(), database.OperationsReportSettings{})
 	if err != nil {
 		writeError(w, 502, "Could not generate report. Check connection availability and SELECT access to system.query_log.")
@@ -173,9 +170,6 @@ func (h *OperationsReportsHandler) send(w http.ResponseWriter, r *http.Request) 
 
 func (h *OperationsReportsHandler) audit(r *http.Request, action string) {
 	s := middleware.GetSession(r)
-	actor := s.AuthSubject
-	if actor == "" {
-		actor = s.ClickhouseUser
-	}
-	_ = h.DB.CreateAuditLog(database.AuditLogParams{Action: action, Username: &actor, ConnectionID: &s.ConnectionID})
+	actor := middleware.Actor(s)
+	_ = h.DB.CreateAuditLog(database.AuditLogParams{Action: action, Username: &actor, ClickhouseUser: &s.ClickhouseUser, ConnectionID: &s.ConnectionID})
 }

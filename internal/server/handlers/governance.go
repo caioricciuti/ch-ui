@@ -236,10 +236,11 @@ func (h *GovernanceHandler) TriggerSync(w http.ResponseWriter, r *http.Request) 
 
 	session := middleware.GetSession(r)
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.sync",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr("full sync triggered"),
+		Action:         "governance.sync",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr("full sync triggered"),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "result": result})
@@ -457,10 +458,11 @@ func (h *GovernanceHandler) UpdateTableComment(w http.ResponseWriter, r *http.Re
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.table.comment.updated",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("%s.%s", dbName, tableName)),
+		Action:         "governance.table.comment.updated",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("%s.%s", dbName, tableName)),
 	})
 
 	h.triggerSyncAsync(*creds, governance.SyncMetadata)
@@ -510,10 +512,11 @@ func (h *GovernanceHandler) UpdateColumnComment(w http.ResponseWriter, r *http.R
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.column.comment.updated",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("%s.%s.%s", dbName, tableName, columnName)),
+		Action:         "governance.column.comment.updated",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("%s.%s.%s", dbName, tableName, columnName)),
 	})
 
 	h.triggerSyncAsync(*creds, governance.SyncMetadata)
@@ -591,17 +594,18 @@ func (h *GovernanceHandler) CreateTableNote(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "comment_text must be <= 4000 characters")
 		return
 	}
-	id, err := h.Store.CreateObjectComment(session.ConnectionID, "table", dbName, tableName, "", commentText, session.ClickhouseUser)
+	id, err := h.Store.CreateObjectComment(session.ConnectionID, "table", dbName, tableName, "", commentText, middleware.Actor(session))
 	if err != nil {
 		slog.Error("Failed to create table note", "connection", session.ConnectionID, "db", dbName, "table", tableName, "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create table note")
 		return
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.table.note.created",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("%s.%s", dbName, tableName)),
+		Action:         "governance.table.note.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("%s.%s", dbName, tableName)),
 	})
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"id": id, "success": true})
 }
@@ -635,17 +639,18 @@ func (h *GovernanceHandler) CreateColumnNote(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "comment_text must be <= 4000 characters")
 		return
 	}
-	id, err := h.Store.CreateObjectComment(session.ConnectionID, "column", dbName, tableName, columnName, commentText, session.ClickhouseUser)
+	id, err := h.Store.CreateObjectComment(session.ConnectionID, "column", dbName, tableName, columnName, commentText, middleware.Actor(session))
 	if err != nil {
 		slog.Error("Failed to create column note", "connection", session.ConnectionID, "db", dbName, "table", tableName, "column", columnName, "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create column note")
 		return
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.column.note.created",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("%s.%s.%s", dbName, tableName, columnName)),
+		Action:         "governance.column.note.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("%s.%s.%s", dbName, tableName, columnName)),
 	})
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"id": id, "success": true})
 }
@@ -671,10 +676,11 @@ func (h *GovernanceHandler) DeleteObjectNote(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.object.note.deleted",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(id),
+		Action:         "governance.object.note.deleted",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(id),
 	})
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
@@ -774,10 +780,11 @@ func (h *GovernanceHandler) UpdateQueryHarvestSettings(w http.ResponseWriter, r 
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:    "governance.query_harvest_mode",
-		Username:  strPtr(session.ClickhouseUser),
-		Details:   strPtr(fmt.Sprintf(`{"mode":%q}`, strings.ToLower(strings.TrimSpace(body.Mode)))),
-		IPAddress: strPtr(r.RemoteAddr),
+		Action:         "governance.query_harvest_mode",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        strPtr(fmt.Sprintf(`{"mode":%q}`, strings.ToLower(strings.TrimSpace(body.Mode)))),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	h.GetQueryHarvestSettings(w, r)
@@ -875,7 +882,7 @@ func (h *GovernanceHandler) CreateTag(w http.ResponseWriter, r *http.Request) {
 
 	id, err := h.Store.CreateTag(
 		session.ConnectionID, body.ObjectType, body.DatabaseName, body.TableName,
-		body.ColumnName, tag, session.ClickhouseUser,
+		body.ColumnName, tag, middleware.Actor(session),
 	)
 	if err != nil {
 		slog.Error("Failed to create tag", "error", err)
@@ -884,10 +891,11 @@ func (h *GovernanceHandler) CreateTag(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.tag.created",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("%s on %s.%s", tag, body.DatabaseName, body.TableName)),
+		Action:         "governance.tag.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("%s on %s.%s", tag, body.DatabaseName, body.TableName)),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"id": id})
@@ -913,10 +921,11 @@ func (h *GovernanceHandler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.tag.deleted",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("tag %s deleted", id)),
+		Action:         "governance.tag.deleted",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("tag %s deleted", id)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -1041,10 +1050,11 @@ func (h *GovernanceHandler) CreateChUser(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.access.user.created",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(name),
+		Action:         "governance.access.user.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(name),
 	})
 
 	h.triggerSyncAsync(*creds, governance.SyncAccess)
@@ -1088,10 +1098,11 @@ func (h *GovernanceHandler) DeleteChUser(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.access.user.deleted",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(name),
+		Action:         "governance.access.user.deleted",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(name),
 	})
 
 	h.triggerSyncAsync(*creds, governance.SyncAccess)
@@ -1232,7 +1243,7 @@ func (h *GovernanceHandler) CreatePolicy(w http.ResponseWriter, r *http.Request)
 	id, err := h.Store.CreatePolicy(
 		session.ConnectionID, body.Name, body.Description, body.ObjectType,
 		body.ObjectDatabase, body.ObjectTable, body.ObjectColumn,
-		body.RequiredRole, body.Severity, enforcementMode, session.ClickhouseUser,
+		body.RequiredRole, body.Severity, enforcementMode, middleware.Actor(session),
 	)
 	if err != nil {
 		slog.Error("Failed to create policy", "error", err)
@@ -1241,10 +1252,11 @@ func (h *GovernanceHandler) CreatePolicy(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.policy.created",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(body.Name),
+		Action:         "governance.policy.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(body.Name),
 	})
 
 	policy, _ := h.Store.GetPolicyByID(id)
@@ -1306,10 +1318,11 @@ func (h *GovernanceHandler) UpdatePolicy(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.policy.updated",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(id),
+		Action:         "governance.policy.updated",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(id),
 	})
 
 	policy, _ := h.Store.GetPolicyByID(id)
@@ -1331,10 +1344,11 @@ func (h *GovernanceHandler) DeletePolicy(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.policy.deleted",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(id),
+		Action:         "governance.policy.deleted",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(id),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -1404,10 +1418,11 @@ func (h *GovernanceHandler) CreateIncidentFromViolation(w http.ResponseWriter, r
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.incident.from_violation",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("violation=%s incident=%s created=%t", violation.ID, incidentID, created)),
+		Action:         "governance.incident.from_violation",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("violation=%s incident=%s created=%t", violation.ID, incidentID, created)),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"incident_id": incidentID, "created": created, "success": true})
@@ -1506,7 +1521,7 @@ func (h *GovernanceHandler) CreateIncident(w http.ResponseWriter, r *http.Reques
 		status,
 		body.Assignee,
 		body.Details,
-		session.ClickhouseUser,
+		middleware.Actor(session),
 	)
 	if err != nil {
 		slog.Error("Failed to create incident", "connection", session.ConnectionID, "error", err)
@@ -1514,10 +1529,11 @@ func (h *GovernanceHandler) CreateIncident(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.incident.created",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(id),
+		Action:         "governance.incident.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(id),
 	})
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"id": id, "success": true})
 }
@@ -1594,10 +1610,11 @@ func (h *GovernanceHandler) UpdateIncident(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.incident.updated",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(id),
+		Action:         "governance.incident.updated",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(id),
 	})
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
@@ -1670,17 +1687,18 @@ func (h *GovernanceHandler) CreateIncidentComment(w http.ResponseWriter, r *http
 		writeError(w, http.StatusBadRequest, "comment_text must be <= 4000 characters")
 		return
 	}
-	commentID, err := h.Store.CreateIncidentComment(id, comment, session.ClickhouseUser)
+	commentID, err := h.Store.CreateIncidentComment(id, comment, middleware.Actor(session))
 	if err != nil {
 		slog.Error("Failed to create incident comment", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create incident comment")
 		return
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "governance.incident.comment.created",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(id),
+		Action:         "governance.incident.comment.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(id),
 	})
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"id": commentID, "success": true})
 }

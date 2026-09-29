@@ -54,12 +54,19 @@ func (db *DB) auditCredentialBorrow(connectionID, worker string, sess Session) {
 
 	details := fmt.Sprintf(`{"session_id":%q,"purpose":"background_sync","worker":%q}`, sess.ID, worker)
 	connID := connectionID
-	user := sess.ClickhouseUser
+	chUser := sess.ClickhouseUser
+	// Name the person whose session was borrowed (the SSO email when there is
+	// one); the ClickHouse account goes in ch_user.
+	person := chUser
+	if sess.AuthSubject != nil && *sess.AuthSubject != "" {
+		person = *sess.AuthSubject
+	}
 	if err := db.CreateAuditLog(AuditLogParams{
-		Action:       worker + ".credential_borrow",
-		Username:     &user,
-		ConnectionID: &connID,
-		Details:      &details,
+		Action:         worker + ".credential_borrow",
+		Username:       &person,
+		ClickhouseUser: &chUser,
+		ConnectionID:   &connID,
+		Details:        &details,
 	}); err != nil {
 		slog.Warn("Failed to write credential borrow audit log",
 			"worker", worker, "connection", connectionID, "error", err)

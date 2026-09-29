@@ -214,11 +214,12 @@ func (h *QueryHandler) IngestUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "schema.upload.ingest",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("file=%s format=%s target=%s.%s rows=%d created_table=%t", filename, format, dbName, tableName, rowsInserted, createdTable)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "schema.upload.ingest",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("file=%s format=%s target=%s.%s rows=%d created_table=%t", filename, format, dbName, tableName, rowsInserted, createdTable)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// queryHistoryRetention is the number of entries kept per user+connection.
+// queryHistoryRetention is the number of entries kept per actor+connection.
 const queryHistoryRetention = 500
 
 // QueryHistoryEntry represents one recorded query execution.
@@ -28,7 +28,11 @@ type QueryHistoryEntry struct {
 // CreateQueryHistoryParams holds parameters for recording a query execution.
 type CreateQueryHistoryParams struct {
 	ConnectionID string
-	User         string
+	// User is the ClickHouse account the query ran as.
+	User string
+	// Actor is the person who ran it (SSO email, else the ClickHouse user).
+	// History is listed, deleted and pruned per actor. Empty means User.
+	Actor        string
 	QueryText    string
 	Status       string
 	ErrorMessage string
@@ -38,22 +42,37 @@ type CreateQueryHistoryParams struct {
 	Source string
 }
 
+// SharedSSOHistoryActor marks history rows written before history was kept
+// per person, by any of the SSO people sharing a service account. Nothing
+// links such a row to one person, so no actor ever matches it: hidden from
+// everyone rather than shown to everyone.
+const SharedSSOHistoryActor = "(shared sso account)"
+
+func historyActor(p CreateQueryHistoryParams) string {
+	if p.Actor != "" {
+		return p.Actor
+	}
+	return p.User
+}
+
 // CreateQueryHistoryEntry records a query execution and prunes old entries
-// beyond the per-user retention window.
+// beyond the per-actor retention window.
 func (db *DB) CreateQueryHistoryEntry(params CreateQueryHistoryParams) error {
 	id := uuid.NewString()
 	// Millisecond-precision timestamp: CURRENT_TIMESTAMP is second-resolution,
 	// which makes ordering (and prune victims) unstable for rapid runs.
 	source := params.Source
+	actor := historyActor(params)
 	if source == "" {
 		source = "editor"
 	}
 	_, err := db.conn.Exec(
-		`INSERT INTO query_history (id, connection_id, clickhouse_user, query_text, status, error_message, elapsed_ms, rows_returned, source, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
+		`INSERT INTO query_history (id, connection_id, clickhouse_user, actor, query_text, status, error_message, elapsed_ms, rows_returned, source, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
 		id,
 		nilIfEmpty(params.ConnectionID),
 		params.User,
+		actor,
 		params.QueryText,
 		params.Status,
 		nilIfEmpty(params.ErrorMessage),
@@ -67,14 +86,14 @@ func (db *DB) CreateQueryHistoryEntry(params CreateQueryHistoryParams) error {
 
 	_, err = db.conn.Exec(
 		`DELETE FROM query_history
-		 WHERE clickhouse_user = ? AND COALESCE(connection_id, '') = COALESCE(?, '')
+		 WHERE actor = ? AND COALESCE(connection_id, '') = COALESCE(?, '')
 		   AND id NOT IN (
 		     SELECT id FROM query_history
-		     WHERE clickhouse_user = ? AND COALESCE(connection_id, '') = COALESCE(?, '')
+		     WHERE actor = ? AND COALESCE(connection_id, '') = COALESCE(?, '')
 		     ORDER BY created_at DESC, id DESC LIMIT ?
 		   )`,
-		params.User, nilIfEmpty(params.ConnectionID),
-		params.User, nilIfEmpty(params.ConnectionID),
+		actor, nilIfEmpty(params.ConnectionID),
+		actor, nilIfEmpty(params.ConnectionID),
 		queryHistoryRetention,
 	)
 	if err != nil {
@@ -83,10 +102,10 @@ func (db *DB) CreateQueryHistoryEntry(params CreateQueryHistoryParams) error {
 	return nil
 }
 
-// GetQueryHistory lists a user's query history on a connection, most recent
-// first. status filters to "success"/"error" when non-empty; search matches a
+// GetQueryHistory lists an actor's query history on a connection, most recent
+// first. actor is the person (middleware.Actor), not the ClickHouse account. status filters to "success"/"error" when non-empty; search matches a
 // case-insensitive substring of the query text.
-func (db *DB) GetQueryHistory(user, connectionID, search, status string, limit, offset int) ([]QueryHistoryEntry, error) {
+func (db *DB) GetQueryHistory(actor, connectionID, search, status string, limit, offset int) ([]QueryHistoryEntry, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -95,10 +114,10 @@ func (db *DB) GetQueryHistory(user, connectionID, search, status string, limit, 
 	}
 
 	where := []string{
-		"clickhouse_user = ?",
+		"actor = ?",
 		"COALESCE(connection_id, '') = COALESCE(?, '')",
 	}
-	args := []any{user, nilIfEmpty(connectionID)}
+	args := []any{actor, nilIfEmpty(connectionID)}
 
 	if status == "success" || status == "error" || status == "cancelled" {
 		where = append(where, "status = ?")
@@ -152,12 +171,12 @@ func (db *DB) GetQueryHistory(user, connectionID, search, status string, limit, 
 	return entries, nil
 }
 
-// DeleteQueryHistoryEntry deletes one entry if it belongs to the user on the
+// DeleteQueryHistoryEntry deletes one entry if it belongs to the actor on the
 // given connection (same scoping as List and Clear).
-func (db *DB) DeleteQueryHistoryEntry(id, user, connectionID string) error {
+func (db *DB) DeleteQueryHistoryEntry(id, actor, connectionID string) error {
 	_, err := db.conn.Exec(
-		`DELETE FROM query_history WHERE id = ? AND clickhouse_user = ? AND COALESCE(connection_id, '') = COALESCE(?, '')`,
-		id, user, nilIfEmpty(connectionID),
+		`DELETE FROM query_history WHERE id = ? AND actor = ? AND COALESCE(connection_id, '') = COALESCE(?, '')`,
+		id, actor, nilIfEmpty(connectionID),
 	)
 	if err != nil {
 		return fmt.Errorf("delete query history entry: %w", err)
@@ -165,11 +184,11 @@ func (db *DB) DeleteQueryHistoryEntry(id, user, connectionID string) error {
 	return nil
 }
 
-// ClearQueryHistory deletes all of a user's history on a connection.
-func (db *DB) ClearQueryHistory(user, connectionID string) error {
+// ClearQueryHistory deletes all of an actor's history on a connection.
+func (db *DB) ClearQueryHistory(actor, connectionID string) error {
 	_, err := db.conn.Exec(
-		`DELETE FROM query_history WHERE clickhouse_user = ? AND COALESCE(connection_id, '') = COALESCE(?, '')`,
-		user, nilIfEmpty(connectionID),
+		`DELETE FROM query_history WHERE actor = ? AND COALESCE(connection_id, '') = COALESCE(?, '')`,
+		actor, nilIfEmpty(connectionID),
 	)
 	if err != nil {
 		return fmt.Errorf("clear query history: %w", err)

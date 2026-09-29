@@ -39,7 +39,7 @@ OIDC_CLIENT_SECRET=your-client-secret
 OIDC_REDIRECT_URL=https://ch-ui.yourcompany.com/api/auth/oidc/callback
 
 # Optional:
-OIDC_CONNECTION_ID=            # connection SSO uses (default: embedded connection)
+OIDC_CONNECTION_ID=            # connection SSO uses (default: embedded connection, else the first one)
 OIDC_ALLOWED_DOMAINS=yourcompany.com   # restrict by email domain (comma-separated)
 OIDC_GROUPS_CLAIM=groups       # ID-token claim holding group memberships
 OIDC_ADMIN_GROUPS=ch-ui-admins # IdP groups → admin role (comma-separated)
@@ -63,7 +63,8 @@ curl -X PUT https://ch-ui.yourcompany.com/api/connections/<CONNECTION_ID>/sso-ac
 ```
 
 The password is encrypted at rest with `APP_SECRET_KEY`. Until this is set, SSO
-logins fail with a clear "service account not configured" message.
+logins fail with "SSO is not finished being set up (no ClickHouse service
+account on the connection)".
 
 ## Role mapping
 
@@ -73,9 +74,47 @@ logins fail with a clear "service account not configured" message.
 | Member of an `OIDC_ANALYST_GROUPS` group | `analyst` |
 | Otherwise | `viewer` |
 
+An admin can override one person's role in **Admin, Users**. SSO people are
+listed by email with an **SSO** badge and the service account they query as.
+An override applies to that person only; it wins over the group mapping until
+it is removed.
+
+## What is per person
+
+SSO people share one ClickHouse account, but CH-UI keeps their data and their
+actions apart by email:
+
+- **Roles:** group mapping and overrides are per person.
+- **Query history:** each person sees, deletes and clears only their own
+  history, including queries their MCP agents ran. The 500-entry limit is per
+  person.
+- **Brain chats:** private to the person who started them.
+- **Dashboard stars** are per person. `created_by` on saved queries,
+  dashboards, schedules, pipelines, models and saved views is the person.
+- **Audit log:** the actor is the person's email; the ClickHouse account the
+  action ran as is kept alongside it.
+
+Shared by design: ClickHouse itself only sees the service account, so
+`system.query_log` and the query profile cannot tell SSO people apart.
+
+### Upgrading from v2.13.1 or earlier
+
+Before v2.13.2 these were keyed on the service account, so everyone on SSO
+shared them. On upgrade:
+
+- Query history written by SSO sessions before the upgrade is hidden from
+  everyone, because it cannot be traced back to one person. Password users'
+  history is unchanged.
+- Brain chats and dashboard stars created by SSO people before the upgrade
+  stay under the service account name and no longer appear for SSO people.
+- A role override set on the service account name no longer applies to SSO
+  people (only to password logins as that account). CH-UI logs a warning at
+  startup for each one; set roles per person instead.
+- Audit rows written before the upgrade keep the service account as the actor.
+
 ## Security notes
 
-- The flow uses `state` (CSRF) and `nonce` (replay) parameters, both verified on
+- The flow uses `state` (CSRF), `nonce` (replay) and PKCE, all verified on
   callback; the ID-token signature and audience are verified against the IdP's
   JWKS.
 - Because all SSO users share one ClickHouse service account at the database

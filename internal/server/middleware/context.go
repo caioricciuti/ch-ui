@@ -23,6 +23,20 @@ type SessionInfo struct {
 	AuthSubject string
 }
 
+// Actor is the person behind a session, for attribution and per-person data:
+// the SSO email when there is one, else the ClickHouse user. SSO people share
+// one ClickHouse service account, so ClickhouseUser alone cannot tell them
+// apart. Use ClickhouseUser only for running SQL against ClickHouse.
+func Actor(s *SessionInfo) string {
+	if s == nil {
+		return ""
+	}
+	if s.AuthSubject != "" {
+		return s.AuthSubject
+	}
+	return s.ClickhouseUser
+}
+
 // SetSession stores the session in the request context.
 func SetSession(ctx context.Context, session *SessionInfo) context.Context {
 	return context.WithValue(ctx, sessionKey, session)

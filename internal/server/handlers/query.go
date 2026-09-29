@@ -213,10 +213,11 @@ func truncateUTF8(s string, n int) string {
 	return s[:n]
 }
 
-// recordQueryHistory persists an executed query to the per-user history.
+// recordQueryHistory persists an executed query to the per-person history.
+// user is the ClickHouse account it ran as; actor is the person (middleware.Actor).
 // Only the editor's streaming path records; internal UI queries (schema
 // browsing, result-filter re-queries) must not reach this.
-func (h *QueryHandler) recordQueryHistory(connectionID, user, query, status, errMsg string, elapsedMS, rows int64) {
+func (h *QueryHandler) recordQueryHistory(connectionID, user, actor, query, status, errMsg string, elapsedMS, rows int64) {
 	if strings.Contains(query, resultFilterMarker) {
 		return
 	}
@@ -231,6 +232,7 @@ func (h *QueryHandler) recordQueryHistory(connectionID, user, query, status, err
 		if err := h.DB.CreateQueryHistoryEntry(database.CreateQueryHistoryParams{
 			ConnectionID: connectionID,
 			User:         user,
+			Actor:        actor,
 			QueryText:    query,
 			Status:       status,
 			ErrorMessage: errMsg,
@@ -311,11 +313,12 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		ip := r.RemoteAddr
 		h.DB.CreateAuditLog(database.AuditLogParams{
-			Action:       "query.execute",
-			Username:     strPtr(session.ClickhouseUser),
-			ConnectionID: strPtr(session.ConnectionID),
-			Details:      strPtr(preview),
-			IPAddress:    strPtr(ip),
+			Action:         "query.execute",
+			Username:       strPtr(middleware.Actor(session)),
+			ClickhouseUser: strPtr(session.ClickhouseUser),
+			ConnectionID:   strPtr(session.ConnectionID),
+			Details:        strPtr(preview),
+			IPAddress:      strPtr(ip),
 		})
 	}()
 
@@ -739,6 +742,9 @@ func (h *QueryHandler) QueryProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	escapedQuery := escapeLiteral(stripTrailingSemicolon(query))
+	// system.query_log only knows the ClickHouse account, so SSO people sharing
+	// a service account cannot be told apart here: this may match a teammate's
+	// identical query run under the same account.
 	escapedUser := escapeLiteral(session.ClickhouseUser)
 
 	profileSQL := fmt.Sprintf(`SELECT
@@ -854,7 +860,7 @@ func (h *QueryHandler) StreamQuery(w http.ResponseWriter, r *http.Request) {
 		settings,
 	)
 	if err != nil {
-		h.recordQueryHistory(session.ConnectionID, session.ClickhouseUser, query, "error", err.Error(), time.Since(streamStart).Milliseconds(), 0)
+		h.recordQueryHistory(session.ConnectionID, session.ClickhouseUser, middleware.Actor(session), query, "error", err.Error(), time.Since(streamStart).Milliseconds(), 0)
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -878,7 +884,7 @@ func (h *QueryHandler) StreamQuery(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		historyRecorded = true
-		h.recordQueryHistory(session.ConnectionID, session.ClickhouseUser, query, status, errMsg, time.Since(streamStart).Milliseconds(), rows)
+		h.recordQueryHistory(session.ConnectionID, session.ClickhouseUser, middleware.Actor(session), query, status, errMsg, time.Since(streamStart).Milliseconds(), rows)
 	}
 	defer recordHistory("cancelled", "", 0)
 
@@ -955,11 +961,12 @@ streamDone:
 	}
 	go func() {
 		h.DB.CreateAuditLog(database.AuditLogParams{
-			Action:       "query.stream",
-			Username:     strPtr(session.ClickhouseUser),
-			ConnectionID: strPtr(session.ConnectionID),
-			Details:      strPtr(preview),
-			IPAddress:    strPtr(r.RemoteAddr),
+			Action:         "query.stream",
+			Username:       strPtr(middleware.Actor(session)),
+			ClickhouseUser: strPtr(session.ClickhouseUser),
+			ConnectionID:   strPtr(session.ConnectionID),
+			Details:        strPtr(preview),
+			IPAddress:      strPtr(r.RemoteAddr),
 		})
 	}()
 }
@@ -1546,11 +1553,12 @@ func (h *QueryHandler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "schema.database.create",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("database=%s engine=%s cluster=%s", name, engine, cluster)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "schema.database.create",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("database=%s engine=%s cluster=%s", name, engine, cluster)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -1623,11 +1631,12 @@ func (h *QueryHandler) DropDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "schema.database.drop",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("database=%s cluster=%s sync=%t", name, cluster, req.Sync)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "schema.database.drop",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("database=%s cluster=%s sync=%t", name, cluster, req.Sync)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -1810,11 +1819,12 @@ func (h *QueryHandler) CreateTable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "schema.table.create",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("table=%s.%s engine=%s cluster=%s", dbName, tableName, engine, cluster)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "schema.table.create",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("table=%s.%s engine=%s cluster=%s", dbName, tableName, engine, cluster)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -1897,11 +1907,12 @@ func (h *QueryHandler) DropTable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "schema.table.drop",
-		Username:     strPtr(session.ClickhouseUser),
-		ConnectionID: strPtr(session.ConnectionID),
-		Details:      strPtr(fmt.Sprintf("table=%s.%s cluster=%s sync=%t", dbName, tableName, cluster, req.Sync)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "schema.table.drop",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(fmt.Sprintf("table=%s.%s cluster=%s sync=%t", dbName, tableName, cluster, req.Sync)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

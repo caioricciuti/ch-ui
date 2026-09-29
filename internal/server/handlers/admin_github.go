@@ -97,16 +97,17 @@ func (h *AdminHandler) SaveGitHubIntegration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	username := ""
+	username, chUser := "", ""
 	if session != nil {
-		username = session.ClickhouseUser
+		username, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "github.integration.save",
-		Username:     strPtr(username),
-		ConnectionID: strPtr(connID),
-		Details:      strPtr(fmt.Sprintf("repo=%s branch=%s path=%s", repo, branch, path)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "github.integration.save",
+		Username:       strPtr(username),
+		ClickhouseUser: strPtr(chUser),
+		ConnectionID:   strPtr(connID),
+		Details:        strPtr(fmt.Sprintf("repo=%s branch=%s path=%s", repo, branch, path)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -125,15 +126,16 @@ func (h *AdminHandler) DeleteGitHubIntegration(w http.ResponseWriter, r *http.Re
 	}
 
 	session := middleware.GetSession(r)
-	username := ""
+	username, chUser := "", ""
 	if session != nil {
-		username = session.ClickhouseUser
+		username, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "github.integration.delete",
-		Username:     strPtr(username),
-		ConnectionID: strPtr(connID),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "github.integration.delete",
+		Username:       strPtr(username),
+		ClickhouseUser: strPtr(chUser),
+		ConnectionID:   strPtr(connID),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -186,9 +188,9 @@ func (h *AdminHandler) TriggerGitHubSync(w http.ResponseWriter, r *http.Request)
 
 	connID := chi.URLParam(r, "connectionId")
 	session := middleware.GetSession(r)
-	triggeredBy := "admin"
+	triggeredBy, chUser := "admin", ""
 	if session != nil {
-		triggeredBy = session.ClickhouseUser
+		triggeredBy, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 
 	result, err := h.GitHubSyncer.SyncConnection(connID, triggeredBy)
@@ -198,11 +200,12 @@ func (h *AdminHandler) TriggerGitHubSync(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "github.sync",
-		Username:     strPtr(triggeredBy),
-		ConnectionID: strPtr(connID),
-		Details:      strPtr(fmt.Sprintf("created=%d updated=%d deleted=%d unchanged=%d", result.Created, result.Updated, result.Deleted, result.Unchanged)),
-		IPAddress:    strPtr(r.RemoteAddr),
+		Action:         "github.sync",
+		Username:       strPtr(triggeredBy),
+		ClickhouseUser: strPtr(chUser),
+		ConnectionID:   strPtr(connID),
+		Details:        strPtr(fmt.Sprintf("created=%d updated=%d deleted=%d unchanged=%d", result.Created, result.Updated, result.Deleted, result.Unchanged)),
+		IPAddress:      strPtr(r.RemoteAddr),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

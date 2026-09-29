@@ -142,7 +142,7 @@ func (h *PipelinesHandler) CreatePipeline(w http.ResponseWriter, r *http.Request
 		connectionID = session.ConnectionID
 	}
 
-	id, err := h.DB.CreatePipeline(name, strings.TrimSpace(body.Description), connectionID, session.ClickhouseUser)
+	id, err := h.DB.CreatePipeline(name, strings.TrimSpace(body.Description), connectionID, middleware.Actor(session))
 	if err != nil {
 		slog.Error("Failed to create pipeline", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create pipeline")
@@ -150,9 +150,10 @@ func (h *PipelinesHandler) CreatePipeline(w http.ResponseWriter, r *http.Request
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "pipeline.created",
-		Username: &session.ClickhouseUser,
-		Details:  &name,
+		Action:         "pipeline.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        &name,
 	})
 
 	pipeline, _ := h.DB.GetPipelineByID(id)
@@ -227,9 +228,10 @@ func (h *PipelinesHandler) DeletePipeline(w http.ResponseWriter, r *http.Request
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "pipeline.deleted",
-		Username: &session.ClickhouseUser,
-		Details:  &pipeline.Name,
+		Action:         "pipeline.deleted",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        &pipeline.Name,
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{"success": "true"})
@@ -325,9 +327,10 @@ func (h *PipelinesHandler) StartPipeline(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "pipeline.started",
-		Username: &session.ClickhouseUser,
-		Details:  &pipeline.Name,
+		Action:         "pipeline.started",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        &pipeline.Name,
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{"success": "true"})
@@ -361,9 +364,10 @@ func (h *PipelinesHandler) StopPipeline(w http.ResponseWriter, r *http.Request) 
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "pipeline.stopped",
-		Username: &session.ClickhouseUser,
-		Details:  &pipeline.Name,
+		Action:         "pipeline.stopped",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: &session.ClickhouseUser,
+		Details:        &pipeline.Name,
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{"success": "true"})

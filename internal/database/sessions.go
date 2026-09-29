@@ -202,7 +202,7 @@ func (db *DB) GetActiveSessionsByConnection(connectionID string, limit int) ([]S
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	rows, err := db.conn.Query(
-		`SELECT id, connection_id, clickhouse_user, encrypted_password, token, expires_at, user_role, created_at
+		`SELECT id, connection_id, clickhouse_user, encrypted_password, token, expires_at, user_role, auth_subject, created_at
 		 FROM sessions
 		 WHERE connection_id = ? AND expires_at > ?
 		 ORDER BY created_at DESC
@@ -217,15 +217,18 @@ func (db *DB) GetActiveSessionsByConnection(connectionID string, limit int) ([]S
 	sessions := make([]Session, 0, limit)
 	for rows.Next() {
 		var s Session
-		var role sql.NullString
+		var role, subject sql.NullString
 		if err := rows.Scan(
 			&s.ID, &s.ConnectionID,
 			&s.ClickhouseUser, &s.EncryptedPassword, &s.Token,
-			&s.ExpiresAt, &role, &s.CreatedAt,
+			&s.ExpiresAt, &role, &subject, &s.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan active session: %w", err)
 		}
 		s.UserRole = nullStringToPtr(role)
+		if subject.Valid && subject.String != "" {
+			s.AuthSubject = &subject.String
+		}
 		sessions = append(sessions, s)
 	}
 	if err := rows.Err(); err != nil {
