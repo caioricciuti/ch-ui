@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.13.2] - 2026-09-29
+
+SSO users who share one ClickHouse service account are now separate people in
+CH-UI: roles, query history, Brain chats, stars and the audit log are per person.
+
+### Security
+
+- **SSO roles are per person.** Role overrides were keyed on the shared
+  ClickHouse service account, so setting a role for one SSO user applied to
+  every SSO user on the connection and overrode their IdP group mapping. An
+  override now applies to one person (stored as `sso:<email>`). An override on
+  the service account name applies only to password logins as that account;
+  CH-UI logs a warning at startup for each such row (#190).
+- **SSO users no longer see each other's data.** Query history (including
+  queries run by MCP agents), Brain chats and dashboard stars were shared by
+  everyone on the service account, and anyone could delete or clear the others'
+  history. They are now kept per person. Only the person who requested a Brain
+  approval can approve or decline it (#191).
+- **Audit log names the person.** Audit rows record the SSO user's email, and
+  the ClickHouse account the action ran as is kept in a new `ch_user` field.
+  `created_by` on saved queries, dashboards, schedules, pipelines, models and
+  saved views is the person (#191).
+
+### Changed
+
+- **Upgrading:** query history written by SSO users before this release is
+  hidden from everyone, because it cannot be traced back to one person. Brain
+  chats and stars created by SSO users before this release no longer appear for
+  them. Password users see no change. Details in `docs/sso.md` (#191).
+- Admin, Users lists SSO people separately by email, with an SSO badge and the
+  account they query as (#190).
+- Settings, License shows **Replace license** while a license is active, so a
+  paid or renewed license can be activated without deactivating first (#189).
+
+### Fixed
+
+- Role changes for users whose name contains `@` or `:` were stored under the
+  URL-encoded name and never applied (#190).
+- Login shows "Connection unavailable" when the selected connection is already
+  known to be offline, instead of "Login failed" (#188).
+
 ## [2.13.1] - 2026-09-29
 
 License state that follows activation, a read-only grace period after a Pro
