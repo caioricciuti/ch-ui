@@ -27,9 +27,8 @@
   import { parseCHError, byteToCharOffset } from '../../../utils/ch-error'
   import { isProActive, loadLicense } from '../../../stores/license.svelte'
   import { openQueryTab } from '../../../stores/tabs.svelte'
-  import { generateSQL } from '../../../api/brain'
   import { onMount } from 'svelte'
-  import { Lock, X, Sparkles } from 'lucide-svelte'
+  import { Lock, X } from 'lucide-svelte'
   import Button from '../../common/Button.svelte'
   import SqlEditor from '../../editor/SqlEditor.svelte'
   import Toolbar from '../../editor/Toolbar.svelte'
@@ -37,6 +36,7 @@
   import ResultPanel from '../../editor/ResultPanel.svelte'
   import Sheet from '../../common/Sheet.svelte'
   import QueryHistoryPanel from '../../editor/QueryHistoryPanel.svelte'
+  import AskAIBar from '../../editor/AskAIBar.svelte'
 
   interface Props {
     tab: QueryTab
@@ -139,38 +139,14 @@
     debouncedEstimate(sql)
   }
 
-  // ── Ask AI (text-to-SQL) — Pro feature ────────────────────────────────────
+  // ── Ask AI (text-to-SQL) bar, Pro ─────────────────────────────────────────
   let showAsk = $state(false)
   let askQuestion = $state('')
-  let asking = $state(false)
 
-  async function handleAsk() {
-    const q = askQuestion.trim()
-    if (!q || asking) return
-    asking = true
-    try {
-      const res = await generateSQL(q)
-      const sql = (res.sql ?? '').trim()
-      if (!sql) {
-        toastError('The AI did not return a query. Try rephrasing.')
-        return
-      }
-      editorComponent?.setValue(sql)
-      currentSql = sql
-      updateTabSQL(tab.id, sql)
-      const used = res.tables_used?.length ? ` · ${res.tables_used.length} table(s)` : ''
-      toastSuccess(`Generated SQL${used}. Review before running.`)
-      showAsk = false
-      askQuestion = ''
-    } catch (e: unknown) {
-      let message = e instanceof Error ? e.message : 'Failed to generate SQL'
-      if (/no active ai model/i.test(message)) {
-        message = 'No AI provider configured — add one in Admin → Brain.'
-      }
-      toastError(message)
-    } finally {
-      asking = false
-    }
+  function insertGeneratedSQL(sql: string) {
+    editorComponent?.setValue(sql)
+    currentSql = sql
+    updateTabSQL(tab.id, sql)
   }
 
   function debouncedEstimate(sql: string) {
@@ -671,26 +647,7 @@
     {#if showAsk}
       <div class="shrink-0 border-b border-edge-subtle bg-ch-orange/5">
         {#if proActive}
-          <div class="flex items-center gap-2 px-3 py-2">
-            <Sparkles size={15} class="text-ch-orange shrink-0" />
-            <input
-              class="ds-input-sm flex-1"
-              placeholder="Describe the query in plain English — e.g. “top 10 users by orders last month”"
-              bind:value={askQuestion}
-              spellcheck="false"
-              disabled={asking}
-              onkeydown={(e) => { if (e.key === 'Enter') handleAsk(); if (e.key === 'Escape') showAsk = false }}
-            />
-            <Button size="sm" onclick={handleAsk} loading={asking} disabled={!askQuestion.trim()}>
-              Generate
-            </Button>
-            <Button icon variant="ghost" size="sm" onclick={() => (showAsk = false)} title="Close" aria-label="Close Ask AI">
-              <X size={14} />
-            </Button>
-          </div>
-          <p class="px-3 pb-2 -mt-1 text-[11px] text-fg-3">
-            Grounded in this connection's schema and your documented models. Always review generated SQL before running.
-          </p>
+          <AskAIBar bind:question={askQuestion} oninsert={insertGeneratedSQL} onclose={() => (showAsk = false)} />
         {:else}
           <!-- Pro upsell -->
           <div class="flex items-center justify-between gap-3 px-3 py-2">
