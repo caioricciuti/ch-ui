@@ -13,7 +13,13 @@
     goTo('settings', 'License')
   }
 
-  const proFeatures = ['Scheduled query jobs', 'Governance, Access and Policy controls']
+  // A few representative Pro areas; the full list lives on the pricing page.
+  const proAreas = [
+    'Governance, lineage and guardrails',
+    'Cluster Health, Query Insights and Cost Center',
+    'Scheduled queries and alerts',
+    'SSO (OIDC) and SIEM audit forwarding',
+  ]
 </script>
 
 <div class="flex h-full items-center justify-center overflow-auto p-6">
@@ -26,15 +32,26 @@
       <span class="font-medium text-fg">{feature}</span> is part of CH-UI Pro. Activate a license under
       Settings, or get one if you don't have it yet.
     </p>
+    <p class="mt-4 text-[12px] text-fg-3">Pro also includes</p>
 
-    <ul class="mx-auto mt-5 inline-flex flex-col items-start gap-1.5 text-left">
-      {#each proFeatures as feat}
+    <ul class="mx-auto mt-2 inline-flex flex-col items-start gap-1.5 text-left">
+      {#each proAreas as feat}
         <li class="flex items-center gap-2 text-[13px] text-fg-2">
           <Check size={14} class="shrink-0 text-accent" />
           {feat}
         </li>
       {/each}
     </ul>
+    <div class="mt-2">
+      <a
+        class="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+        href="https://ch-ui.com/pricing"
+        target="_blank"
+        rel="noreferrer"
+      >
+        See what's in Pro <ExternalLink size={12} />
+      </a>
+    </div>
 
     <div class="mt-6 flex items-center justify-center gap-2">
       <Button size="sm" onclick={openSettings}>Manage license</Button>
