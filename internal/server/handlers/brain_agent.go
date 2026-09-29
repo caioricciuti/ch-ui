@@ -141,7 +141,8 @@ func (h *BrainHandler) workspaceOrigin(r *http.Request) string {
 func (h *BrainHandler) registerAgentRoutes(r chi.Router) {
 	r.Post("/approvals/{approvalID}/approve", h.ApprovePendingAction)
 	r.Post("/approvals/{approvalID}/decline", h.DeclinePendingAction)
-	r.Get("/audit", h.ListAudit)
+	// The audit log lists every person's approvals, so it is admin only.
+	r.With(middleware.RequireAdmin(h.DB)).Get("/audit", h.ListAudit)
 }
 
 func (h *BrainHandler) ApprovePendingAction(w http.ResponseWriter, r *http.Request) {

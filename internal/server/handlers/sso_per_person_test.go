@@ -296,3 +296,28 @@ func TestDashboardStarsAndAuthorSSOPeople(t *testing.T) {
 		t.Fatal("bob's unstar removed alice's star")
 	}
 }
+
+// The Brain audit log lists every person's approvals, so only admins may read it.
+func TestBrainAuditIsAdminOnly(t *testing.T) {
+	db, p := ssoFixture(t)
+	h := &BrainHandler{DB: db}
+	r := chi.NewRouter()
+	r.Route("/brain", h.Routes)
+
+	if err := db.CreateBrainApproval("appr-audit", "chat-1", "msg-1", "tc-1", "create_dashboard", "{}", middleware.Actor(p.alice)); err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []string{"viewer", "analyst"} {
+		s := *p.bob
+		s.UserRole = role
+		if res := ssoRequest(r, &s, "GET", "/brain/audit", ""); res.Code != 403 {
+			t.Fatalf("%s: got %d, want 403", role, res.Code)
+		}
+	}
+	admin := *p.bob
+	admin.UserRole = "admin"
+	res := ssoRequest(r, &admin, "GET", "/brain/audit", "")
+	if res.Code != 200 || !strings.Contains(res.Body.String(), "appr-audit") {
+		t.Fatalf("admin: got %d %s", res.Code, res.Body.String())
+	}
+}
