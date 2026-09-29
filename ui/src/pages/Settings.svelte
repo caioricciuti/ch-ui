@@ -380,9 +380,14 @@
           {/if}
         </div>
 
-        {#if !loading && !proActive}
+        {#if !loading}
           <div>
-            <SectionHeader title="Activate Pro" description="Paste the signed license JSON or upload the license file you received by email.">
+            <SectionHeader
+              title={proActive ? 'Replace license' : 'Activate Pro'}
+              description={proActive
+                ? 'Activate a paid, renewed or upgraded license. It replaces the current one, no need to deactivate first.'
+                : 'Paste the signed license JSON or upload the license file you received by email.'}
+            >
               {#snippet actions()}
                 <a
                   href="https://ch-ui.com/pricing?utm_source=app&utm_medium=license_page"
