@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.13.3] - 2026-09-29
+
+One consistent answer to "what is Pro", enforced the same way by the server,
+the UI and the docs.
+
+### Security
+
+- **Only admins can activate, replace or remove the license.** Any signed-in
+  user, viewers included, could remove it and lock Pro for everyone (#193).
+
+### Changed
+
+- **Query parameters in the editor are free.** Parameterized saved-query runs
+  stay Pro (#194).
+- **An Enterprise license unlocks the same as Pro.** Before, it activated but
+  unlocked nothing (#194).
+- **After a Pro license expires and the 14-day grace ends, enabled scheduled
+  queries and telemetry monitors pause** and resume when a license is
+  activated. Nothing is disabled or deleted. Before, they kept running without
+  a license. Schedules that fell due while paused run once on resume (#194).
+- Activating or removing a license now takes effect without a restart for
+  Cluster Health collection, governance sync and audit forwarding to a SIEM.
+  Audit events are not forwarded while no license is active (#194).
+- The Pro paywall, Settings, README, license docs and LICENSING.md describe the
+  same Free and Pro split. Pro modules are the Business Source License 1.1
+  (source-available), not "proprietary" (#195).
+
+### Fixed
+
+- During the grace period, read-only searches that use POST (telemetry traces,
+  metrics, service map, schema comparison) returned 402; they work now (#194).
+- Enabling governance sync in Admin settings no longer starts it without Pro
+  (#194).
+- Command palette: telemetry entries open the right sections, and "New
+  dashboard / model / pipeline / Brain chat" show for everyone (#194).
+- `SECURITY.md` lists 2.13.x as supported. Backup docs use `ch-ui backup` and
+  include the secret key file (#195).
+
 ## [2.13.2] - 2026-09-29
 
 SSO users who share one ClickHouse service account are now separate people in
