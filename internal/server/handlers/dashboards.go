@@ -87,7 +87,7 @@ func (h *DashboardsHandler) ListDashboards(w http.ResponseWriter, r *http.Reques
 
 	forUser := ""
 	if session := middleware.GetSession(r); session != nil {
-		forUser = session.ClickhouseUser
+		forUser = middleware.Actor(session)
 	}
 	dashboards, err := h.DB.GetDashboards(forUser)
 	if err != nil {
@@ -113,7 +113,7 @@ func (h *DashboardsHandler) GetDashboard(w http.ResponseWriter, r *http.Request)
 
 	forUser := ""
 	if session := middleware.GetSession(r); session != nil {
-		forUser = session.ClickhouseUser
+		forUser = middleware.Actor(session)
 	}
 	dashboard, err := h.DB.GetDashboardByIDFor(id, forUser)
 	if err != nil {
@@ -174,7 +174,7 @@ func (h *DashboardsHandler) CreateDashboard(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	id, err := h.DB.CreateDashboard(name, strings.TrimSpace(body.Description), session.ClickhouseUser)
+	id, err := h.DB.CreateDashboard(name, strings.TrimSpace(body.Description), middleware.Actor(session))
 	if err != nil {
 		slog.Error("Failed to create dashboard", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create dashboard")
@@ -192,9 +192,10 @@ func (h *DashboardsHandler) CreateDashboard(w http.ResponseWriter, r *http.Reque
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "dashboard.created",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(name),
+		Action:         "dashboard.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		Details:        strPtr(name),
 	})
 
 	dashboard, err := h.DB.GetDashboardByID(id)
@@ -273,9 +274,10 @@ func (h *DashboardsHandler) UpdateDashboard(w http.ResponseWriter, r *http.Reque
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "dashboard.updated",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(name),
+		Action:         "dashboard.updated",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		Details:        strPtr(name),
 	})
 
 	dashboard, err := h.DB.GetDashboardByID(id)
@@ -319,9 +321,10 @@ func (h *DashboardsHandler) DeleteDashboard(w http.ResponseWriter, r *http.Reque
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "dashboard.deleted",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(existing.Name),
+		Action:         "dashboard.deleted",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		Details:        strPtr(existing.Name),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -368,7 +371,7 @@ func (h *DashboardsHandler) CreateFolder(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
-	id, err := h.DB.CreateDashboardFolder(name, parentID, session.ClickhouseUser)
+	id, err := h.DB.CreateDashboardFolder(name, parentID, middleware.Actor(session))
 	if err == database.ErrFolderNameTaken {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -379,9 +382,10 @@ func (h *DashboardsHandler) CreateFolder(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "dashboard.folder.created",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(name),
+		Action:         "dashboard.folder.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		Details:        strPtr(name),
 	})
 	folder, err := h.DB.GetDashboardFolder(id)
 	if err != nil || folder == nil {
@@ -441,9 +445,10 @@ func (h *DashboardsHandler) UpdateFolder(w http.ResponseWriter, r *http.Request)
 		details = folder.Name
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "dashboard.folder.updated",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(details),
+		Action:         "dashboard.folder.updated",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		Details:        strPtr(details),
 	})
 	writeJSON(w, http.StatusOK, map[string]interface{}{"folder": folder})
 }
@@ -471,9 +476,10 @@ func (h *DashboardsHandler) DeleteFolder(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "dashboard.folder.deleted",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(folder.Name),
+		Action:         "dashboard.folder.deleted",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		Details:        strPtr(folder.Name),
 	})
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
@@ -512,9 +518,10 @@ func (h *DashboardsHandler) MoveDashboard(w http.ResponseWriter, r *http.Request
 		return
 	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "dashboard.moved",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(existing.Name),
+		Action:         "dashboard.moved",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		Details:        strPtr(existing.Name),
 	})
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
@@ -554,7 +561,7 @@ func (h *DashboardsHandler) SetDashboardTags(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, "Failed to set tags")
 		return
 	}
-	updated, _ := h.DB.GetDashboardByIDFor(id, session.ClickhouseUser)
+	updated, _ := h.DB.GetDashboardByIDFor(id, middleware.Actor(session))
 	writeJSON(w, http.StatusOK, map[string]interface{}{"dashboard": updated})
 }
 
@@ -581,9 +588,9 @@ func (h *DashboardsHandler) setStar(w http.ResponseWriter, r *http.Request, on b
 		return
 	}
 	if on {
-		err = h.DB.StarDashboard(id, session.ClickhouseUser)
+		err = h.DB.StarDashboard(id, middleware.Actor(session))
 	} else {
-		err = h.DB.UnstarDashboard(id, session.ClickhouseUser)
+		err = h.DB.UnstarDashboard(id, middleware.Actor(session))
 	}
 	if err != nil {
 		slog.Error("Failed to update dashboard star", "error", err, "id", id)
@@ -676,9 +683,10 @@ func (h *DashboardsHandler) CreatePanel(w http.ResponseWriter, r *http.Request) 
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "panel.created",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(name),
+		Action:         "panel.created",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		Details:        strPtr(name),
 	})
 
 	panel, err := h.DB.GetPanelByID(id)
@@ -798,9 +806,10 @@ func (h *DashboardsHandler) UpdatePanel(w http.ResponseWriter, r *http.Request) 
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "panel.updated",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(name),
+		Action:         "panel.updated",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		Details:        strPtr(name),
 	})
 
 	panel, err := h.DB.GetPanelByID(panelID)
@@ -845,9 +854,10 @@ func (h *DashboardsHandler) DeletePanel(w http.ResponseWriter, r *http.Request) 
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "panel.deleted",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(existing.Name),
+		Action:         "panel.deleted",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		Details:        strPtr(existing.Name),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -1011,7 +1021,7 @@ func (h *DashboardsHandler) CreateShare(w http.ResponseWriter, r *http.Request) 
 	}
 
 	share, err := h.DB.CreateDashboardShare(
-		dashboardID, "viewer", visibility, session.ClickhouseUser,
+		dashboardID, "viewer", visibility, middleware.Actor(session),
 		session.ConnectionID, session.ClickhouseUser, session.EncryptedPassword,
 		cleanEmails, body.ExpiresAt,
 	)
@@ -1022,9 +1032,10 @@ func (h *DashboardsHandler) CreateShare(w http.ResponseWriter, r *http.Request) 
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "dashboard.shared",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(dashboard.Name),
+		Action:         "dashboard.shared",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		Details:        strPtr(dashboard.Name),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"share": share})
@@ -1046,9 +1057,10 @@ func (h *DashboardsHandler) DeleteShare(w http.ResponseWriter, r *http.Request) 
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "dashboard.share_revoked",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(shareID),
+		Action:         "dashboard.share_revoked",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		Details:        strPtr(shareID),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -1139,9 +1151,10 @@ func (h *DashboardsHandler) InviteToShare(w http.ResponseWriter, r *http.Request
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:   "dashboard.invites_sent",
-		Username: strPtr(session.ClickhouseUser),
-		Details:  strPtr(fmt.Sprintf("%d sent, %d failed", len(sent), len(failed))),
+		Action:         "dashboard.invites_sent",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		Details:        strPtr(fmt.Sprintf("%d sent, %d failed", len(sent), len(failed))),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
