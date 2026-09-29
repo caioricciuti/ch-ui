@@ -15,7 +15,7 @@
 
   // A few representative Pro areas; the full list lives on the pricing page.
   const proAreas = [
-    'Governance, lineage and guardrails',
+    'Governance, policies and guardrails',
     'Cluster Health, Query Insights and Cost Center',
     'Scheduled queries and alerts',
     'SSO (OIDC) and SIEM audit forwarding',
