@@ -334,7 +334,9 @@ func (h *TelemetryHandler) RunMonitor(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Monitor not found")
 		return
 	}
-	runner := monitor.NewMonitorRunner(h.DB, h.Gateway, h.Config.AppSecretKey)
+	// No background gate: this runner only calls Evaluate, and the route is
+	// behind RequirePro.
+	runner := monitor.NewMonitorRunner(h.DB, h.Gateway, h.Config.AppSecretKey, nil)
 	value, firing, err := runner.Evaluate(existing, monitor.Credentials{User: c.user, Password: c.password})
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())

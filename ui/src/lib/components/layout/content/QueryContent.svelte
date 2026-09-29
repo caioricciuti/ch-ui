@@ -107,7 +107,7 @@
 
   const result = $derived(getTabResult(tab.id))
 
-  // ── Query parameters ({name:Type}) — Pro feature ──
+  // ── Query parameters ({name:Type}) ──
   // The component is keyed per tab id, so seeding currentSql once in onMount is
   // safe; it's kept in sync afterwards by the editor's onchange handler.
   let currentSql = $state('')
@@ -308,13 +308,8 @@
     }
     if (!query) return
 
-    // Query parameters ({name:Type}) are a Pro feature. Block non-Pro users with
-    // an upsell rather than letting ClickHouse fail with an unbound-parameter error.
+    // Query parameters ({name:Type}) are bound by ClickHouse.
     const runParams = detectQueryParams(query)
-    if (runParams.length > 0 && !proActive) {
-      toastError('Query parameters are a Pro feature — upgrade to run parameterized queries.')
-      return
-    }
     // A parameter without a value would fail in ClickHouse; ask for it here,
     // with the cursor already in the first empty field.
     const missing = runParams.find((p) => !(paramValues[p.name] ?? '').trim())
@@ -727,18 +722,16 @@
     </div>
   </div>
 
-  <!-- Query parameters (Pro): popover anchored to the toolbar button, never reflows the page -->
+  <!-- Query parameters: popover anchored to the toolbar button, never reflows the page -->
   {#if showParamsPanel && detectedParams.length > 0}
     <ParamsPopover
       params={detectedParams}
       bind:values={paramValues}
-      {proActive}
       {focusParam}
       x={paramsAnchor.x}
       y={paramsAnchor.y}
       onclose={() => (showParamsPanel = false)}
       onrun={() => { showParamsPanel = false; void handleRun() }}
-      onupgrade={() => goTo('settings', 'License')}
     />
   {/if}
 

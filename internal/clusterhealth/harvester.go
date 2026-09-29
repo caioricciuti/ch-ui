@@ -35,6 +35,7 @@ type Harvester struct {
 	db      *database.DB
 	gateway *tunnel.Gateway
 	secret  string
+	pro     func() bool
 
 	mu        sync.Mutex
 	running   bool
@@ -43,13 +44,16 @@ type Harvester struct {
 	lastPrune time.Time
 }
 
-// NewHarvester creates a cluster-health Harvester.
-func NewHarvester(store *Store, db *database.DB, gw *tunnel.Gateway, secret string) *Harvester {
+// NewHarvester creates a cluster-health Harvester. pro reports whether Pro
+// work may run now (see config.ProGate); while it returns false, or is nil,
+// ticks poll and prune nothing, and polling resumes once a license is active.
+func NewHarvester(store *Store, db *database.DB, gw *tunnel.Gateway, secret string, pro func() bool) *Harvester {
 	return &Harvester{
 		store:    store,
 		db:       db,
 		gateway:  gw,
 		secret:   secret,
+		pro:      pro,
 		lastPoll: make(map[string]time.Time),
 	}
 }
@@ -107,6 +111,9 @@ func (h *Harvester) IsRunning() bool {
 }
 
 func (h *Harvester) tick() {
+	if h.pro == nil || !h.pro() {
+		return
+	}
 	connections, err := h.db.GetConnections()
 	if err != nil {
 		slog.Error("Cluster health: failed to load connections", "error", err)

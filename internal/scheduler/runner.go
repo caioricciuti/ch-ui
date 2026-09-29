@@ -28,15 +28,20 @@ type Runner struct {
 	db      *database.DB
 	gateway *tunnel.Gateway
 	secret  string
+	pro     func() bool
 	stopCh  chan struct{}
 }
 
-// NewRunner creates a new schedule runner.
-func NewRunner(db *database.DB, gw *tunnel.Gateway, secret string) *Runner {
+// NewRunner creates a new schedule runner. pro reports whether Pro work may
+// run now (see config.ProGate); while it returns false, or is nil, ticks do
+// nothing, so enabled schedules pause without being disabled or deleted and
+// resume on the next tick after a license is activated.
+func NewRunner(db *database.DB, gw *tunnel.Gateway, secret string, pro func() bool) *Runner {
 	return &Runner{
 		db:      db,
 		gateway: gw,
 		secret:  secret,
+		pro:     pro,
 		stopCh:  make(chan struct{}),
 	}
 }
@@ -68,6 +73,9 @@ func (r *Runner) Stop() {
 
 // tick fetches due jobs from SQLite and executes them concurrently.
 func (r *Runner) tick() {
+	if r.pro == nil || !r.pro() {
+		return
+	}
 	schedules, err := r.db.GetEnabledSchedules()
 	if err != nil {
 		slog.Error("Failed to load enabled schedules", "error", err)

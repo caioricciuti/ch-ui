@@ -52,15 +52,20 @@ type MonitorRunner struct {
 	db      *database.DB
 	gateway QueryExecutor
 	secret  string
+	pro     func() bool
 
 	mu      sync.Mutex
 	running bool
 	stopCh  chan struct{}
 }
 
-// NewMonitorRunner wires a runner; call Start to begin ticking.
-func NewMonitorRunner(db *database.DB, gw *tunnel.Gateway, secret string) *MonitorRunner {
-	return &MonitorRunner{db: db, gateway: gw, secret: secret}
+// NewMonitorRunner wires a runner; call Start to begin ticking. pro reports
+// whether Pro work may run now (see config.ProGate); while it returns false,
+// or is nil, the background tick evaluates nothing, so enabled monitors pause
+// and resume on their own. Evaluate itself is not gated: its only other
+// caller is an HTTP route that is already behind RequirePro.
+func NewMonitorRunner(db *database.DB, gw *tunnel.Gateway, secret string, pro func() bool) *MonitorRunner {
+	return &MonitorRunner{db: db, gateway: gw, secret: secret, pro: pro}
 }
 
 // Start begins the background loop; idempotent.
@@ -104,6 +109,9 @@ func (r *MonitorRunner) Stop() {
 }
 
 func (r *MonitorRunner) tick() {
+	if r.pro == nil || !r.pro() {
+		return
+	}
 	monitors, err := r.db.ListTelemetryMonitors("")
 	if err != nil {
 		slog.Error("Telemetry monitors: failed to list", "error", err)

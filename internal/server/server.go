@@ -61,15 +61,18 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 	r := chi.NewRouter()
 	gw := tunnel.NewGateway(db)
 
-	sched := scheduler.NewRunner(db, gw, cfg.AppSecretKey)
+	// Pro background workers follow the license at runtime: each tick asks
+	// its gate, so they pause when no license is active (after the grace
+	// window) and resume on activation, without a restart.
+	sched := scheduler.NewRunner(db, gw, cfg.AppSecretKey, config.NewProGate("Scheduled query jobs", cfg.ProAccess).Allow)
 	pipeRunner := pipelines.NewRunner(db, gw, cfg)
 	modelRunner := models.NewRunner(db, gw, cfg.AppSecretKey)
 	modelScheduler := models.NewScheduler(db, modelRunner)
 
 	govStore := governance.NewStore(db)
-	govSyncer := governance.NewSyncer(govStore, db, gw, cfg.AppSecretKey)
-	chHarvester := clusterhealth.NewHarvester(clusterhealth.NewStore(db), db, gw, cfg.AppSecretKey)
-	monitorRunner := monitor.NewMonitorRunner(db, gw, cfg.AppSecretKey)
+	govSyncer := governance.NewSyncer(govStore, db, gw, cfg.AppSecretKey, config.NewProGate("Governance background sync", cfg.ProAccess).Allow)
+	chHarvester := clusterhealth.NewHarvester(clusterhealth.NewStore(db), db, gw, cfg.AppSecretKey, config.NewProGate("Cluster health harvester", cfg.ProAccess).Allow)
+	monitorRunner := monitor.NewMonitorRunner(db, gw, cfg.AppSecretKey, config.NewProGate("Telemetry monitors", cfg.ProAccess).Allow)
 	githubSyncer := ghclient.NewSyncer(db, cfg.AppSecretKey)
 	alertDispatcher := alerts.NewDispatcher(db, cfg)
 
@@ -91,15 +94,16 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 	}
 
 	// Wire audit forwarding (SIEM) if any sink is configured. This is a Pro
-	// feature; on a community (or fully expired) license it stays off.
-	var auditFwd *audit.Forwarder
-	if cfg.ProAccess() != config.ProNone {
-		auditFwd = buildAuditForwarder(cfg)
-	} else if cfg.AuditWebhookURL != "" || cfg.AuditLogFile != "" || cfg.AuditForwardStdout {
-		slog.Warn("Audit forwarding (SIEM) is configured but requires a Pro license — not enabled")
-	}
+	// feature checked per event, so it follows license activation and expiry
+	// at runtime. Events raised while no license is active are dropped, not
+	// queued.
+	auditFwd := buildAuditForwarder(cfg)
 	if auditFwd != nil {
+		auditGate := config.NewProGate("Audit forwarding (SIEM)", cfg.ProAccess)
 		db.OnAudit = func(p database.AuditLogParams) {
+			if !auditGate.Allow() {
+				return
+			}
 			auditFwd.Emit(audit.Event{
 				Action:       p.Action,
 				Username:     deref(p.Username),
@@ -304,6 +308,11 @@ func (s *Server) setupRoutes() {
 			mcpKeysHandler := &handlers.MCPKeysHandler{DB: db, Config: cfg}
 			protected.With(middleware.RequireAdmin(db)).Route("/mcp-keys", mcpKeysHandler.Routes)
 
+			// Schema comparison (Pro). Both routes are reads, POST /compare
+			// included, so they stay open in the read-only grace window.
+			schemaHandler := &handlers.SchemaCompareHandler{DB: db, Gateway: gw, Config: cfg}
+			protected.With(middleware.RequireProRead(cfg)).Mount("/schema-compare", schemaHandler.Routes())
+
 			// ── Pro-only features ──────────────────────────────────────
 			protected.Group(func(pro chi.Router) {
 				pro.Use(middleware.RequirePro(cfg))
@@ -349,8 +358,6 @@ func (s *Server) setupRoutes() {
 					return len(state.Report.Regressions), nil
 				}}
 				pro.Mount("/fleet", fleetHandler.Routes())
-				schemaHandler := &handlers.SchemaCompareHandler{DB: db, Gateway: gw, Config: cfg}
-				pro.Mount("/schema-compare", schemaHandler.Routes())
 				reportsHandler := &handlers.OperationsReportsHandler{DB: db, Config: cfg, Runner: s.operationsReports}
 				pro.Mount("/operations-reports", reportsHandler.Routes())
 				timelineHandler := &handlers.IncidentTimelineHandler{DB: db, Gateway: gw, Config: cfg}
@@ -402,19 +409,14 @@ func (s *Server) Start() error {
 	s.scheduler.Start()
 	s.pipelineRunner.Start()
 	s.modelScheduler.Start()
-	switch {
-	case !s.cfg.IsPro():
-		slog.Info("Governance background sync disabled (requires Pro license)")
-	case !s.db.GovernanceSyncEnabled():
-		slog.Info("Governance background sync disabled (opt-in required; enable in Governance → Settings)")
-	default:
+	// The governance syncer and the cluster health harvester start whatever
+	// the license says; their ticks skip while no Pro license is active.
+	if s.db.GovernanceSyncEnabled() {
 		s.govSyncer.StartBackground()
-	}
-	if s.cfg.IsPro() {
-		s.chHarvester.StartBackground()
 	} else {
-		slog.Info("Cluster health harvester disabled (requires Pro license)")
+		slog.Info("Governance background sync disabled (opt-in required; enable in Governance → Settings)")
 	}
+	s.chHarvester.StartBackground()
 	s.monitorRunner.Start()
 	s.performanceMonitor.StartBackground()
 	s.operationsReports.Start()

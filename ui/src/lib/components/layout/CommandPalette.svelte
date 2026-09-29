@@ -15,6 +15,7 @@
   import { getSession, logout } from '../../stores/session.svelte'
   import { getTheme, toggleTheme } from '../../stores/theme.svelte'
   import { isProActive } from '../../stores/license.svelte'
+  import { setSection } from '../../stores/nav.svelte'
   import { listWorkspaceDashboards, listWorkspaceSavedQueries } from '../../api/workspace'
   import { listDashboardFolders, folderPath } from '../../api/dashboards'
   import type { DashboardFolder } from '../../types/api'
@@ -129,12 +130,14 @@
     )
 
     if (pro) {
+      // Slugs are the Telemetry sections in routes.ts PAGE_SECTIONS.telemetry.
       const telTabs: Array<[string, string, typeof Search, string]> = [
         ['logs', 'Telemetry · Logs', FileText, 'log records ingest'],
-        ['services', 'Telemetry · Services', Network, 'services rps p95 errors'],
         ['traces', 'Telemetry · Traces', GitBranch, 'spans waterfall trace'],
         ['metrics', 'Telemetry · Metrics', ChartBar, 'metrics gauges counters histogram'],
-        ['endpoints', 'Telemetry · Endpoints', KeyRound, 'otlp ingest tokens endpoints'],
+        ['service-map', 'Telemetry · Service map', Network, 'services dependencies rps p95 errors'],
+        ['monitors', 'Telemetry · Monitors', Activity, 'monitors alerts thresholds'],
+        ['sources', 'Telemetry · Sources', KeyRound, 'otlp ingest tokens endpoints sources'],
       ]
       for (const [slug, label, icon, kw] of telTabs) {
         items.push({
@@ -145,8 +148,8 @@
           icon,
           keywords: kw,
           run: () => {
-            setTelemetryTab(slug)
             goTo('telemetry', 'Telemetry')
+            setSection(slug)
           },
         })
       }
@@ -156,7 +159,8 @@
       mkAction('new-query', 'New Query', Plus, `${cmd}⇧N`, () => openQueryTab(), 'create sql blank editor'),
     )
 
-    if (pro) {
+    // Dashboards, models, pipelines and Brain chat are free.
+    {
       items.push(
         mkAction('new-dashboard', 'New Dashboard', Plus, undefined, () => goTo('dashboards', 'Dashboards'), 'create dashboard'),
         mkAction('new-model', 'New Model', Plus, undefined, () => goTo('models', 'Models'), 'create model dbt'),
@@ -198,13 +202,6 @@
   }
   function mkHelp(id: string, label: string, sub: string): CommandItem {
     return { id, group: 'help', label, sub, icon: Info, run: () => {} }
-  }
-
-  function setTelemetryTab(slug: string) {
-    if (typeof window === 'undefined') return
-    const url = new URL(window.location.href)
-    url.searchParams.set('tab', slug)
-    window.history.replaceState(null, '', url.toString())
   }
 
   const dynamic = $derived.by<CommandItem[]>(() => {

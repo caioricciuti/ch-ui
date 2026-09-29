@@ -29,7 +29,7 @@ func TestBackgroundAccountExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := NewMonitorRunner(db, agent.Gateway, "test-secret")
+	r := NewMonitorRunner(db, agent.Gateway, "test-secret", func() bool { return true })
 	agent.CheckWorker(t, db, conn, "telemetry.monitor", func() {
 		if _, err := db.Conn().Exec("UPDATE telemetry_monitors SET last_run_at=NULL WHERE id=?", id); err != nil {
 			t.Fatal(err)

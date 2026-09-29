@@ -12,7 +12,7 @@ func TestBackgroundAccountExecution(t *testing.T) {
 	agent := testutil.NewWorkerAgent(t, db, func(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
 		return &tunnel.AgentMessage{Type: "query_result", Data: json.RawMessage(`[]`)}
 	})
-	s := NewSyncer(NewStore(db), db, agent.Gateway, "test-secret")
+	s := NewSyncer(NewStore(db), db, agent.Gateway, "test-secret", func() bool { return true })
 	agent.CheckWorker(t, db, conn, "governance", func() {
 		if _, err := db.Conn().Exec("DELETE FROM gov_sync_state"); err != nil {
 			t.Fatal(err)

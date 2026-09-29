@@ -19,7 +19,7 @@ export interface PageRouteMeta {
   /** One line for sidebars, the palette and Home. */
   description: string
   icon: IconComponent
-  /** Needs an active Pro license; PageRouter shows ProRequired otherwise. */
+  /** Needs Pro (active, or read-only during grace); PageRouter shows ProRequired otherwise. */
   pro?: boolean
 }
 

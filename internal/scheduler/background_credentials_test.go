@@ -25,7 +25,7 @@ func TestBackgroundAccountExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := NewRunner(db, agent.Gateway, "test-secret")
+	r := NewRunner(db, agent.Gateway, "test-secret", func() bool { return true })
 	agent.CheckWorker(t, db, conn, "schedule", func() { r.runSchedule(*job) })
 	runs, err := db.GetScheduleRuns(id, 10, 0)
 	if err != nil || len(runs) != 3 {
