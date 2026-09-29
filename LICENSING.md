@@ -51,7 +51,7 @@ Change Date, each version converts automatically to Apache 2.0.
 
 ### Pro packages (entire directory)
 
-- `internal/governance/`: metadata catalog, policies, guardrails, lineage, incidents, audit
+- `internal/governance/`: metadata catalog, policies, guardrails, incidents, audit
 - `internal/clusterhealth/`: operations and database health monitoring
 - `internal/queryinsights/`: `system.query_log` analytics
 - `internal/scheduler/`: scheduled query jobs

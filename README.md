@@ -16,6 +16,13 @@
   <a href="https://github.com/caioricciuti/ch-ui/pkgs/container/ch-ui"><img src="https://img.shields.io/badge/docker-ghcr.io-blue" alt="Docker" /></a>
 </p>
 
+<p align="center">
+  <a href="https://ch-ui.com/docs"><strong>Documentation</strong></a> ·
+  <a href="https://ch-ui.com/docs/installation">Install</a> ·
+  <a href="https://ch-ui.com/pricing">Pricing</a> ·
+  <a href="https://ch-ui.com/docs/changelog">Changelog</a>
+</p>
+
 ---
 
 ## Why CH-UI?
@@ -150,7 +157,7 @@ Everything below is included in the free Community edition under Apache 2.0.
 - Connect Claude Code, claude.ai, or Cursor with a revocable `chm_` key; read-only tools for schema browsing, SELECT queries, and query plans
 - Server-side enforcement (`readonly`, row/time caps) + every AI query recorded in query history and the audit log
 - Pro: Query Insights and Cost Center exposed as structured tools
-- Docs: [docs/mcp.md](docs/mcp.md)
+- Docs: [ch-ui.com/docs/mcp](https://ch-ui.com/docs/mcp)
 
 ### Other
 
@@ -182,7 +189,7 @@ Almost everything is free. Pro adds production operations, governance and schedu
 | Telemetry Logs, Sources, saved searches | **Yes** | Yes |
 | MCP server (tools, write tools, OAuth, API keys) | **Yes** | Yes |
 | Scheduled query jobs + cron + history + parameterized saved-query runs | - | **Yes** |
-| Governance (metadata, visual lineage graph, column-level lineage, access matrix, query audit, audit log viewer) | - | **Yes** |
+| Governance (metadata catalog, access matrix, policies, incidents, query audit, audit log viewer) | - | **Yes** |
 | Policies + incidents + violations | - | **Yes** |
 | Guardrails (query blocking in the editor and MCP) | - | **Yes** |
 | Cluster Health (replication, Keeper, merges/mutations, parts pressure, long queries) | - | **Yes** |
@@ -202,10 +209,10 @@ Almost everything is free. Pro adds production operations, governance and schedu
 | MCP Pro tools (`query_insights_top`, `costs_summary`) | - | **Yes** |
 | Command palette Pro search (entity search, scope prefixes) | - | **Yes** |
 
-See: [`docs/license.md`](docs/license.md)
+See: [ch-ui.com/docs/license](https://ch-ui.com/docs/license)
 
 For the performance, fleet, schema comparison and weekly report workflows, see
-[`docs/operations.md`](docs/operations.md).
+[ch-ui.com/docs/performance](https://ch-ui.com/docs/performance).
 
 ---
 
@@ -322,7 +329,7 @@ ch-ui tunnel delete <connection-id>            # Delete connection
 - Add `--takeover` to replace a stale agent session.
 - Install as OS service: `ch-ui service install --key cht_xxx --url wss://host/connect`
 
-For full hardening guide: [`docs/production-runbook.md`](docs/production-runbook.md)
+For full hardening guide: [ch-ui.com/docs/deployment](https://ch-ui.com/docs/deployment)
 
 ---
 
@@ -444,7 +451,7 @@ The login page also has a **Can't login?** button that shows setup guidance.
 CH-UI can connect to ClickHouse either directly (point `CLICKHOUSE_URL` at the
 endpoint, including a reverse-proxied `https://` one) or via an outbound tunnel
 that keeps ClickHouse fully private. See
-[`docs/connecting-to-clickhouse.md`](docs/connecting-to-clickhouse.md).
+[ch-ui.com/docs/connections](https://ch-ui.com/docs/connections).
 
 ---
 
@@ -495,7 +502,7 @@ Click **Can't login?** on the login page for guided recovery, or restart with:
 ch-ui server --clickhouse-url 'http://127.0.0.1:8123'
 ```
 
-Full guide: [`docs/cant-login.md`](docs/cant-login.md)
+Full guide: [ch-ui.com/docs/cant-login](https://ch-ui.com/docs/cant-login)
 
 ### Connector auth fails (`invalid token`)
 
@@ -555,9 +562,9 @@ CH-UI is dual-licensed:
 
 - **Community core** — [Apache 2.0](LICENSE.md). Free to use, modify, and distribute.
 - **Pro features** — [Business Source License 1.1](LICENSE.BSL) (`LICENSE.BSL`). Source-available; production use requires a valid CH-UI Pro license; converts to Apache 2.0 on the Change Date. Every Pro source file carries an `SPDX-License-Identifier: BUSL-1.1` header; see [`LICENSING.md`](LICENSING.md) for the authoritative scope.
-- Licensing details: [`docs/license.md`](docs/license.md)
-- Terms: [`docs/legal/terms-of-service.md`](docs/legal/terms-of-service.md)
-- Privacy: [`docs/legal/privacy-policy.md`](docs/legal/privacy-policy.md)
+- Licensing details: [ch-ui.com/docs/license](https://ch-ui.com/docs/license)
+- Terms: [ch-ui.com/terms](https://ch-ui.com/terms)
+- Privacy: [ch-ui.com/privacy](https://ch-ui.com/privacy)
 
 ---
 

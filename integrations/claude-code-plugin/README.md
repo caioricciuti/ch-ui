@@ -16,7 +16,7 @@ claude plugin install ch-ui@ch-ui
 
 The MCP server entry reads both variables at load time, so the key never
 lands in a config file. Any MCP client can use the server without the plugin;
-see [docs/mcp.md](../../docs/mcp.md).
+see [ch-ui.com/docs/mcp](https://ch-ui.com/docs/mcp).
 
 ## What is inside
 

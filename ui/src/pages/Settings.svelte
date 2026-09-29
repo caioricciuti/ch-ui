@@ -519,13 +519,13 @@
                 class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
               ><KeyRound size={12} /> License policy <ExternalLink size={12} /></a>
               <a
-                href="https://github.com/caioricciuti/ch-ui/blob/main/docs/legal/terms-of-service.md"
+                href="https://ch-ui.com/terms"
                 target="_blank"
                 rel="noreferrer"
                 class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
               >Terms <ExternalLink size={12} /></a>
               <a
-                href="https://github.com/caioricciuti/ch-ui/blob/main/docs/legal/privacy-policy.md"
+                href="https://ch-ui.com/privacy"
                 target="_blank"
                 rel="noreferrer"
                 class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
