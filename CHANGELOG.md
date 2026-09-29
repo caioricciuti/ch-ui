@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.14.1] - 2026-09-29
+
+### Security
+
+- **The Brain approval audit log is admin only.** `GET /api/brain/audit`
+  returned every person's agent approvals (tool, arguments, who asked, who
+  decided) to any signed-in user, viewers included (#202).
+
+### Changed
+
+- **Documentation lives only on [ch-ui.com/docs](https://ch-ui.com/docs).** The
+  in-repo `docs/` folder is removed; the README, the Settings legal links and
+  the Claude Code plugin point at ch-ui.com, and the Terms and Privacy links go
+  to the current ch-ui.com/terms and ch-ui.com/privacy (#201).
+- "Lineage" is no longer listed as a Governance feature in the README,
+  LICENSING.md and the Pro paywall; the feature was removed earlier (#201).
+
 ## [2.14.0] - 2026-09-29
 
 Licensing release: every Pro feature is now under the Business Source License
