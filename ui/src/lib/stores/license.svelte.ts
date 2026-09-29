@@ -39,6 +39,15 @@ export function isLicenseInGrace(): boolean {
   return !!(license && !license.valid && license.in_grace)
 }
 
+/**
+ * Pro pages may be viewed: an active license, or one in grace. During grace
+ * the backend still serves reads and refuses writes with 402, so anything
+ * that changes data keeps checking isProActive().
+ */
+export function hasProReadAccess(): boolean {
+  return isProActive() || isLicenseInGrace()
+}
+
 /** Replace the shared license state with a server response. */
 export function setLicense(next: LicenseStatus | null): void {
   generation++

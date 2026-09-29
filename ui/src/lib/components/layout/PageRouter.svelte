@@ -1,9 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getRouteType, getCurrentDashboardId } from '../../stores/router.svelte'
-  import { loadLicense, isProActive, isLicenseLoaded } from '../../stores/license.svelte'
+  import { getRouteType, getCurrentDashboardId, goTo } from '../../stores/router.svelte'
+  import { loadLicense, hasProReadAccess, isLicenseInGrace, isLicenseLoaded, getLicense } from '../../stores/license.svelte'
+  import { formatDate } from '../../utils/format'
+  import { AlertTriangle } from 'lucide-svelte'
   import { PAGE_ROUTES, isPageRouteType, type PageRoute } from '../../routes'
   import ProRequired from '../common/ProRequired.svelte'
+  import Button from '../common/Button.svelte'
   import Admin from '../../../pages/Admin.svelte'
   import SavedQueries from '../../../pages/SavedQueries.svelte'
   import Dashboards from '../../../pages/Dashboards.svelte'
@@ -56,7 +59,9 @@
   const type = $derived(getRouteType())
   const meta = $derived(isPageRouteType(type) ? PAGE_ROUTES[type] : undefined)
   const Page = $derived(isPageRouteType(type) ? COMPONENTS[type] : undefined)
-  const gated = $derived(!!meta?.pro && !isProActive())
+  const gated = $derived(!!meta?.pro && !hasProReadAccess())
+  // Expired Pro license in grace: Pro pages open, the backend refuses writes.
+  const readOnlyGrace = $derived(!!meta?.pro && isLicenseInGrace())
 </script>
 
 {#if Page && meta}
@@ -66,13 +71,31 @@
     {:else}
       <ProRequired feature={meta.label} />
     {/if}
+  {:else if readOnlyGrace}
+    <div class="flex h-full flex-col">
+      <div class="flex shrink-0 items-center gap-2 border-b border-warning/40 bg-warning-soft px-4 py-2 text-[13px] text-fg">
+        <AlertTriangle size={14} class="shrink-0 text-warning" />
+        <span class="min-w-0 flex-1">
+          Pro license expired. Read-only until {formatDate(getLicense()?.grace_until)}. Changes are blocked until a
+          renewed license is activated.
+        </span>
+        <Button variant="outline" size="xs" onclick={() => goTo('settings', 'License')}>Manage license</Button>
+      </div>
+      <div class="min-h-0 flex-1">
+        {@render page()}
+      </div>
+    </div>
   {:else}
-    {#key type}
-      {#if type === 'dashboards'}
-        <Dashboards dashboardId={getCurrentDashboardId()} />
-      {:else}
-        <Page />
-      {/if}
-    {/key}
+    {@render page()}
   {/if}
 {/if}
+
+{#snippet page()}
+  {#key type}
+    {#if type === 'dashboards'}
+      <Dashboards dashboardId={getCurrentDashboardId()} />
+    {:else if Page}
+      <Page />
+    {/if}
+  {/key}
+{/snippet}

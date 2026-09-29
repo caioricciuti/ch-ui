@@ -12,8 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **License:** activating or deactivating a license in Settings now unlocks or
   locks Pro pages immediately. Before, Pro pages kept the old state until the
   page was reloaded.
-- **License:** Settings shows when an expired Pro license is in its grace period
-  and when the grace period ends.
+- **License:** during the grace period after a Pro license expires, Pro pages
+  open read-only with a notice, matching the backend, which already served reads
+  and refused changes. Settings shows when the grace period ends.
 
 ## [2.13.0] - 2026-09-21
 

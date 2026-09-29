@@ -97,5 +97,18 @@ describe('license store', () => {
     await store.loadLicense()
     expect(store.isProActive()).toBe(false)
     expect(store.isLicenseInGrace()).toBe(true)
+    expect(store.hasProReadAccess()).toBe(true)
+  })
+
+  it('gives read access to Pro pages only while active or in grace', async () => {
+    const store = await freshStore()
+    store.setLicense(pro)
+    expect(store.hasProReadAccess()).toBe(true)
+
+    store.setLicense({ edition: 'pro', valid: false, license_id: 'lic_1', expires_at: '2026-01-01T00:00:00Z', in_grace: false })
+    expect(store.hasProReadAccess()).toBe(false)
+
+    store.setLicense(community)
+    expect(store.hasProReadAccess()).toBe(false)
   })
 })
