@@ -4,8 +4,9 @@
   "description": "ch-ui.com: the landing pages and docs for CH-UI, built with Starlight.",
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
+    "sync": "bun run scripts/sync-changelog.ts",
+    "dev": "bun run sync && astro dev",
+    "build": "bun run sync && astro build",
     "preview": "astro preview"
   },
   "dependencies": {

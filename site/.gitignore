@@ -2,3 +2,7 @@
 node_modules/
 dist/
 .astro/
+
+# Generated from ../CHANGELOG.md by scripts/sync-changelog.ts on every build.
+# Edit the original.
+src/content/docs/docs/changelog.md

@@ -2,6 +2,18 @@
 // each project's own site/repo (pricing pages, GitHub activity, plugin docs).
 // Keep claims honest and dated; these pages only work if they stay accurate.
 
+import { readReleases } from "../lib/changelog";
+
+// The newest release, from CHANGELOG.md, for the sentences that say the
+// project is maintained. They used to name a fixed version and went stale.
+const newest = readReleases()[0];
+const LATEST = `v${newest.version}`;
+const LATEST_MONTH = new Date(`${newest.date}T12:00:00Z`).toLocaleString("en-US", {
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
 export interface ComparisonRow {
   aspect: string;
   competitor: string;
@@ -50,7 +62,7 @@ const tabixComparison: ComparisonData = {
     'You want dashboards, pipelines, models, and alerts around the same ClickHouse, not just a SQL console',
     'You need cluster-level visibility: replication, merges, mutations, Keeper, query-log analytics, cost',
     'Multiple people use the workspace and you care about auth, audit, and governance',
-    'You want a maintained project with active releases (v2.11.0 shipped September 2026)',
+    `You want a maintained project with active releases (${LATEST} shipped ${LATEST_MONTH})`,
   ],
   rows: [
     {
@@ -63,7 +75,7 @@ const tabixComparison: ComparisonData = {
       aspect: 'Maintenance status',
       competitor:
         'Effectively unmaintained: the last commit to tabixio/tabix was May 2022. It still works, but do not expect fixes or new ClickHouse feature support.',
-      chui: 'Actively developed; regular releases (v2.11.0 in September 2026), public changelog, signed release artifacts.',
+      chui: `Actively developed; regular releases (${LATEST} in ${LATEST_MONTH}), public changelog, signed release artifacts.`,
     },
     {
       aspect: 'SQL editing',
@@ -112,7 +124,7 @@ const tabixComparison: ComparisonData = {
     {
       question: 'Is Tabix still maintained?',
       answer:
-        'The tabixio/tabix repository has had no commits since May 2022. It still works for basic querying against current ClickHouse versions, but new ClickHouse features, bug fixes, and security updates are not arriving. CH-UI ships regular releases; v2.11.0 landed in September 2026.',
+        `The tabixio/tabix repository has had no commits since May 2022. It still works for basic querying against current ClickHouse versions, but new ClickHouse features, bug fixes, and security updates are not arriving. CH-UI ships regular releases; ${LATEST} landed in ${LATEST_MONTH}.`,
     },
     {
       question: 'Tabix needs no server. Does CH-UI?',
