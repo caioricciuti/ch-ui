@@ -1,0 +1,60 @@
+---
+// Starlight's header ends with the social icons. This puts the site's own
+// links in front of them.
+import Default from "@astrojs/starlight/components/SocialIcons.astro";
+
+const path = Astro.url.pathname;
+const inChangelog = path.startsWith("/docs/changelog/");
+const links = [
+  { href: "/docs/", label: "Docs", active: path.startsWith("/docs/") && !inChangelog },
+  { href: "/pricing/", label: "Pricing", active: false },
+  { href: "/docs/changelog/", label: "Changelog", active: inChangelog },
+];
+---
+
+<nav class="chui-links" aria-label="Site">
+  {links.map((l) => (
+    <a href={l.href} aria-current={l.active ? "page" : undefined}>{l.label}</a>
+  ))}
+  <a class="chui-cta" href="/docs/installation/">Install</a>
+</nav>
+<Default />
+
+<style>
+  .chui-links {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-inline-end: 0.5rem;
+  }
+  .chui-links a {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.8125rem;
+    color: var(--sl-color-gray-3);
+    text-decoration: none;
+    transition: color 0.15s ease;
+  }
+  .chui-links a:hover,
+  .chui-links a[aria-current="page"] {
+    color: var(--sl-color-white);
+  }
+  .chui-links a.chui-cta {
+    display: inline-flex;
+    align-items: center;
+    height: 1.9rem;
+    margin-inline-start: 0.5rem;
+    padding: 0 0.8rem;
+    border: 1px solid var(--sl-color-hairline-shade);
+    border-radius: 6px;
+    color: var(--sl-color-white);
+    font-weight: 500;
+  }
+  .chui-links a.chui-cta:hover {
+    background: var(--sl-color-gray-6);
+  }
+  @media (max-width: 50rem) {
+    .chui-links {
+      display: none;
+    }
+  }
+</style>

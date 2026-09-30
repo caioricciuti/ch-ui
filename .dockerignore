@@ -13,3 +13,6 @@ ui/node_modules
 ui/.svelte-kit
 ui/dist
 ui/.DS_Store
+
+# The docs and marketing site: deployed from Cloudflare, never in the image.
+site

@@ -1,0 +1,76 @@
+---
+title: Introduction
+description: "CH-UI: the ClickHouse control plane for teams. SQL, dashboards, governance, and an AI copilot in one workspace."
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+**CH-UI is the control plane for ClickHouse.** SQL editing, dashboards, pipelines, governance, scheduling, and an AI copilot, for your whole team, in one workspace.
+
+Stop stitching together a SQL client, a BI tool, an audit tool, and a pile of cron jobs. CH-UI is all of it, connected to your cluster in minutes.
+
+## Get started in minutes
+
+- **Self-hosted, open source**: the core (Apache-2.0) on your own box, free forever. **[Self-hosting guide →](/docs/installation)**
+- **Pro license**: a flat $1,199/year license unlocks Governance, Cluster Health, Query Insights, Cost Center, performance investigations, scheduled query jobs, Alerts, telemetry traces and metrics, Ask AI and Brain agentic tools, GitHub sync, audit forwarding, and SSO on your own hardware. **[See pricing →](/docs/pricing)**
+
+## Why teams choose CH-UI
+
+- **One workspace, not five tools**: query, visualize, transform, schedule, and govern in the same place.
+- **AI that actually helps**: Brain understands your schema and writes ClickHouse-idiomatic SQL. Bring your own model: OpenAI, OpenAI-compatible, or Ollama. Brain chat is free; Ask AI in the editor and the agentic tools are Pro.
+- **Governance built in**: a metadata catalog, an access matrix, policies, incidents, and a query audit trail.
+- **Secure by design**: connect to ClickHouse directly by URL, or through a lightweight connector over an outbound-only WebSocket tunnel so your cluster never needs a public port. See [Direct vs tunnel connections](/docs/connections).
+- **Real team collaboration**: member roles and shared workspaces for your whole team, never billed per seat.
+- **Fast to value**: a single self-host binary; you're querying in minutes.
+
+## What you get
+
+- **SQL editor & explorer**: autocomplete, result views, schema browser, saved queries.
+- **Dashboards**: drag-and-drop panels (charts, stats, tables) with shareable public links, organized in nested folders with tags and stars.
+- **Telemetry**: search OpenTelemetry logs in ClickHouse; with Pro, traces with waterfalls, metrics, a service map and monitors.
+- **MCP server**: connect Claude, ChatGPT, Cursor or VS Code to your ClickHouse through CH-UI's auth, guardrails and audit trail.
+- **Pipelines**: visual ingestion from Kafka, webhooks, databases, and S3.
+- **Models**: versioned SQL transformations with DAG execution and cron scheduling. GitHub sync for models is Pro.
+- **Schedules** (Pro): recurring queries with run history and alerting.
+- **Governance** (Pro): metadata sync, access matrix, policies, incidents, query audit.
+- **Brain (AI copilot)**: schema-aware chat with custom skills and living artifacts (re-runnable charts, reports, queries), BYO provider.
+- **Operate** (Pro): fleet overview, Cluster Health, performance regressions and investigations, Query Insights, incident timeline, Cost Center and weekly reports. Schema comparison sits under Build.
+- **Alerts** (Pro): email notifications for governance, schedule and telemetry monitor events.
+
+See **[Pricing](/docs/pricing)** for what's included in the free core and the Pro license.
+
+## Quick start
+
+```bash
+# Download the binary (macOS Apple Silicon example)
+curl -L -o ch-ui https://github.com/caioricciuti/ch-ui/releases/latest/download/ch-ui-darwin-arm64
+chmod +x ch-ui && sudo install -m 755 ch-ui /usr/local/bin/ch-ui
+
+# Run (no external database needed)
+ch-ui
+# UI on http://localhost:3488
+```
+
+Self-hosted CH-UI stores its state in a local **SQLite** database (`ch-ui.db`), so there is no external database to run. The [installation guide](/docs/installation) covers configuration. If first-run login fails, see [Can't login?](/docs/cant-login).
+
+## Architecture
+
+CH-UI runs in two pieces:
+
+1. **`ch-ui server`**: UI, API, scheduler, governance syncers, and the tunnel gateway.
+2. **`ch-ui connect`**: a lightweight connector that exposes a ClickHouse instance over a secure, outbound-only WebSocket.
+
+This lets CH-UI live on one host and ClickHouse on another, with only outbound traffic from the ClickHouse side and no inbound ports to open.
+
+You only need the connector when the server cannot reach ClickHouse. If it can, a direct connection is enough: the server talks to ClickHouse over HTTP(S) itself. By default the server creates a direct connection named "Local ClickHouse" to `http://localhost:8123` (set `CLICKHOUSE_URL` to change it). See [Direct vs tunnel connections](/docs/connections).
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Pricing" href="/docs/pricing" description="Free core and the Pro license" />
+  <LinkCard title="Installation" href="/docs/installation" description="Self-host the open-source core" />
+  <LinkCard title="Licensing" href="/docs/license" description="How the Pro license and activation work" />
+  <LinkCard title="Governance" href="/docs/governance" description="Catalog, access, policies, incidents, audit" />
+  <LinkCard title="MCP Server" href="/docs/mcp" description="Connect AI clients to your ClickHouse" />
+  <LinkCard title="Telemetry" href="/docs/telemetry" description="OpenTelemetry logs, traces and metrics" />
+</CardGrid>

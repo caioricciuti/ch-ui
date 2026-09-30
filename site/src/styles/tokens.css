@@ -1,0 +1,164 @@
+/* The app's palette as site tokens. Values follow ui/src/app.css (.dark and
+   :root there); change them there first. Dark is the default, as in
+   Starlight; light applies under data-theme="light". Components under
+   src/components use these and nothing from Starlight, so they work on the
+   docs and on the landing pages alike. */
+
+:root {
+  --chui-canvas: #000000;
+  --chui-surface: #0a0a0a;
+  --chui-surface-2: #141414;
+  --chui-hover: rgba(255, 255, 255, 0.06);
+  --chui-fg: #ededed;
+  --chui-fg-2: #c8c8c8;
+  --chui-fg-3: #8f8f8f;
+  --chui-fg-4: #5c5c5c;
+  --chui-edge-subtle: rgba(255, 255, 255, 0.08);
+  --chui-edge: rgba(255, 255, 255, 0.13);
+  --chui-edge-strong: rgba(255, 255, 255, 0.22);
+  --chui-accent: #f97316;
+  --chui-accent-hover: #fb8a3c;
+  --chui-accent-fg: #ffffff;
+  --chui-accent-soft: rgba(249, 115, 22, 0.16);
+  --chui-accent-text: #fdba74;
+  --chui-success: #4ade80;
+  --chui-danger: #f87171;
+  --chui-radius: 6px;
+  --chui-font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --chui-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+:root[data-theme="light"] {
+  --chui-canvas: #f6f6f7;
+  --chui-surface: #ffffff;
+  --chui-surface-2: #f3f3f5;
+  --chui-hover: rgba(0, 0, 0, 0.045);
+  --chui-fg: #18181b;
+  --chui-fg-2: #3f3f46;
+  --chui-fg-3: #6b6c76;
+  --chui-fg-4: #a0a1a9;
+  --chui-edge-subtle: rgba(0, 0, 0, 0.06);
+  --chui-edge: rgba(0, 0, 0, 0.11);
+  --chui-edge-strong: rgba(0, 0, 0, 0.2);
+  --chui-accent: #ea580c;
+  --chui-accent-hover: #c2410c;
+  --chui-accent-soft: rgba(249, 115, 22, 0.12);
+  --chui-accent-text: #9a3412;
+  --chui-success: #15803d;
+  --chui-danger: #dc2626;
+}
+
+/* Self-hosted, the same files the app ships (licenses beside them). */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+}
+
+/* Controls shared by the forms (trial, checkout, newsletter) and the
+   landing pages. The solid button is the foreground colour on the canvas,
+   not the accent: orange stays a small mark, as in the app. */
+.chui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  height: 2.125rem;
+  padding: 0 0.85rem;
+  border: 1px solid var(--chui-edge);
+  border-radius: var(--chui-radius);
+  background: transparent;
+  color: var(--chui-fg);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.005em;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+.chui-btn:hover {
+  background: var(--chui-hover);
+  border-color: var(--chui-edge-strong);
+}
+.chui-btn[data-variant="solid"] {
+  border-color: transparent;
+  background: var(--chui-fg);
+  color: var(--chui-canvas);
+}
+.chui-btn[data-variant="solid"]:hover {
+  opacity: 0.88;
+}
+.chui-btn[data-size="lg"] {
+  height: 2.5rem;
+  padding: 0 1.1rem;
+  font-size: 0.875rem;
+}
+.chui-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.chui-btn:focus-visible {
+  outline: 2px solid var(--chui-accent);
+  outline-offset: 2px;
+}
+.chui-input {
+  width: 100%;
+  min-width: 0;
+  height: 2.125rem;
+  padding: 0 0.7rem;
+  border: 1px solid var(--chui-edge);
+  border-radius: var(--chui-radius);
+  background: var(--chui-hover);
+  color: var(--chui-fg);
+  font: inherit;
+  font-size: 0.8125rem;
+  transition: border-color 0.15s ease;
+}
+.chui-input::placeholder {
+  color: var(--chui-fg-4);
+}
+.chui-input:hover {
+  border-color: var(--chui-edge-strong);
+}
+/* Focus is the accent border only, as in the app. */
+.chui-input:focus {
+  outline: none;
+  border-color: var(--chui-accent);
+}
+.chui-status {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.chui-status[data-tone="error"] {
+  color: var(--chui-danger);
+}
+.chui-status[data-tone="ok"] {
+  color: var(--chui-success);
+}
+/* The Pro mark: a small outlined tag in the accent. */
+.chui-pro {
+  display: inline-block;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--chui-accent) 55%, transparent);
+  border-radius: 4px;
+  color: var(--chui-accent-text);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  vertical-align: 0.1em;
+}

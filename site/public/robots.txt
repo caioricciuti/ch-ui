@@ -1,0 +1,16 @@
+# CH-UI: https://ch-ui.com
+# All crawlers welcome, AI crawlers included.
+
+User-agent: *
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+Sitemap: https://ch-ui.com/sitemap-index.xml

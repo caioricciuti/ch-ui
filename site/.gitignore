@@ -1,0 +1,4 @@
+# Installed packages and build output.
+node_modules/
+dist/
+.astro/

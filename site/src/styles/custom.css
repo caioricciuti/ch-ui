@@ -1,0 +1,310 @@
+/* The docs, on Starlight's tokens, in the app's palette: black canvas,
+   true-neutral grays and the CH-UI orange as the accent. The values come
+   from tokens.css, which is loaded first. */
+
+:root {
+  --sl-color-accent-low: #2b1304;
+  --sl-color-accent: #f97316;
+  --sl-color-accent-high: #fdba74;
+  --sl-color-white: #ededed;
+  --sl-color-gray-1: #d4d4d4;
+  --sl-color-gray-2: #c8c8c8;
+  --sl-color-gray-3: #8f8f8f;
+  --sl-color-gray-4: #5c5c5c;
+  --sl-color-gray-5: #262626;
+  --sl-color-gray-6: #141414;
+  --sl-color-black: #000000;
+  --sl-color-bg-nav: rgba(0, 0, 0, 0.8);
+  --sl-color-bg-sidebar: #000000;
+  --sl-color-hairline-light: rgba(255, 255, 255, 0.06);
+  --sl-color-hairline: rgba(255, 255, 255, 0.08);
+  --sl-color-hairline-shade: rgba(255, 255, 255, 0.13);
+  --sl-color-bg-inline-code: rgba(255, 255, 255, 0.06);
+  --sl-font: var(--chui-font);
+  --sl-font-mono: var(--chui-font-mono);
+  /* Starlight's defaults are a size up from the app. These bring the docs
+     down to the app's density: 15 px prose, 13 px navigation and code. */
+  --sl-text-code: 0.8125rem;
+  --sl-text-h1: 1.75rem;
+  --sl-text-h2: 1.3rem;
+  --sl-text-h3: 1.075rem;
+  --sl-text-h4: 0.9375rem;
+  --sl-text-h5: 0.875rem;
+  --sl-line-height: 1.65;
+  --sl-nav-height: 3.25rem;
+  --sl-sidebar-width: 16.5rem;
+  --sl-content-width: 50rem;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #ffedd5;
+  --sl-color-accent: #ea580c;
+  --sl-color-accent-high: #9a3412;
+  --sl-color-white: #18181b;
+  --sl-color-gray-1: #27272a;
+  --sl-color-gray-2: #3f3f46;
+  --sl-color-gray-3: #6b6c76;
+  --sl-color-gray-4: #a0a1a9;
+  --sl-color-gray-5: #e2e2e6;
+  --sl-color-gray-6: #f0f0f2;
+  --sl-color-gray-7: #f6f6f7;
+  --sl-color-black: #ffffff;
+  --sl-color-bg-nav: rgba(255, 255, 255, 0.85);
+  --sl-color-bg-sidebar: #f6f6f7;
+  --sl-color-hairline-light: rgba(0, 0, 0, 0.06);
+  --sl-color-hairline: rgba(0, 0, 0, 0.08);
+  --sl-color-hairline-shade: rgba(0, 0, 0, 0.11);
+  --sl-color-bg-inline-code: rgba(0, 0, 0, 0.05);
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--chui-accent) 35%, transparent);
+}
+
+/* ---- Header ------------------------------------------------------------ */
+
+.header {
+  backdrop-filter: saturate(160%) blur(16px);
+  -webkit-backdrop-filter: saturate(160%) blur(16px);
+  border-bottom-color: var(--sl-color-hairline) !important;
+}
+.site-title {
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--sl-color-white);
+}
+.site-title img {
+  height: 1.3rem;
+  width: auto;
+  border-radius: 5px;
+}
+/* Social icons in the header: quiet gray, not the accent. */
+.social-icons a {
+  color: var(--sl-color-gray-3);
+}
+.social-icons a:hover {
+  color: var(--sl-color-white);
+}
+
+/* ---- Sidebar ----------------------------------------------------------- */
+
+.sidebar-pane {
+  border-inline-end-color: var(--sl-color-hairline) !important;
+}
+.sidebar-content .group-label .large {
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+}
+.sidebar-content a {
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  padding: 0.22rem 0.55rem;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.sidebar-content a:hover {
+  background: var(--sl-color-gray-6);
+  color: var(--sl-color-white);
+}
+.sidebar-content a[aria-current="page"],
+.sidebar-content a[aria-current="page"]:hover {
+  /* Neutral, with the orange as a thin mark: the page you are on without
+     a block of colour in the sidebar. */
+  background: var(--sl-color-gray-6);
+  color: var(--sl-color-white);
+  font-weight: 560;
+  box-shadow: inset 2px 0 0 var(--sl-color-accent);
+}
+/* The Pro badge: an outline in the accent, quiet next to the label. */
+.sidebar-content .sl-badge {
+  border-color: color-mix(in srgb, var(--sl-color-accent) 55%, transparent);
+  background: transparent;
+  color: var(--sl-color-accent-high);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.05rem 0.35rem;
+}
+
+/* ---- Layout ------------------------------------------------------------ */
+
+/* Starlight hands half of any spare width to the table of contents, so on
+   a wide screen the right rail outgrows the left sidebar. Both rails get
+   the same width; the middle takes the rest and centres the text. */
+@media (min-width: 72rem) {
+  .right-sidebar-container {
+    width: var(--sl-sidebar-width);
+  }
+  [data-has-sidebar][data-has-toc] .main-pane {
+    --sl-content-margin-inline: auto;
+    width: calc(100% - var(--sl-sidebar-width));
+  }
+}
+
+/* ---- Content ----------------------------------------------------------- */
+
+.content-panel {
+  border-top-color: var(--sl-color-hairline) !important;
+}
+.sl-markdown-content {
+  font-size: 0.9375rem;
+}
+h1#_top {
+  font-size: var(--sl-text-h1);
+  font-weight: 580;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+.sl-markdown-content :is(h2, h3, h4) {
+  letter-spacing: -0.025em;
+  font-weight: 580;
+}
+.sl-markdown-content .sl-heading-wrapper.level-h2 {
+  margin-top: 2.25rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--sl-color-hairline);
+}
+/* A page that opens with a section heading gets no rule above it. */
+.sl-markdown-content > .sl-heading-wrapper.level-h2:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.sl-markdown-content p,
+.sl-markdown-content li {
+  color: var(--sl-color-gray-2);
+}
+.sl-markdown-content strong {
+  color: var(--sl-color-white);
+  font-weight: 620;
+}
+.sl-markdown-content a:not(:where(.not-content *, .card, .sl-link-card, .sl-link-button)) {
+  color: var(--sl-color-accent-high);
+  text-decoration-color: color-mix(in srgb, var(--sl-color-accent) 50%, transparent);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+.sl-markdown-content a:not(:where(.not-content *)):hover {
+  text-decoration-color: currentColor;
+}
+/* Long values (URLs, defaults) break instead of widening the table past
+   the column and under the table of contents. Headers and the first two
+   columns, usually a name or a method and its path, stay whole. */
+.sl-markdown-content th,
+.sl-markdown-content td:nth-child(-n + 2) code {
+  white-space: nowrap;
+}
+.sl-markdown-content td:nth-child(n + 3) code {
+  overflow-wrap: anywhere;
+}
+/* In a table that has to scroll, the browser squeezes text columns first.
+   The second column is the description in these docs: keep it readable. */
+.sl-markdown-content td:nth-child(2) {
+  min-width: 15rem;
+}
+.sl-markdown-content :not(pre) > code {
+  border-radius: 4px;
+  padding: 0.12em 0.38em;
+  font-size: 0.86em;
+  border: 1px solid var(--sl-color-hairline);
+}
+
+/* Tables: framed, scrollable when wide. */
+.sl-markdown-content table {
+  /* A block that scrolls sideways when the table is wider than the text
+     column, instead of running under the table of contents. It hugs its
+     content when narrower. */
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--chui-edge);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+}
+.sl-markdown-content :is(th, td) {
+  border: 0;
+  border-bottom: 1px solid var(--sl-color-hairline);
+  padding: 0.45rem 0.75rem;
+}
+.sl-markdown-content tr:last-child td {
+  border-bottom: 0;
+}
+.sl-markdown-content th {
+  background: var(--sl-color-gray-6);
+  color: var(--sl-color-gray-3);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Asides: rounded, the note neutral and the tip in orange. Starlight's blue
+   and purple are not in the app's palette. */
+.starlight-aside {
+  border-radius: 6px;
+  border-inline-start-width: 3px;
+  font-size: 0.875rem;
+}
+.starlight-aside--note {
+  --sl-color-asides-text-accent: var(--sl-color-white);
+  --sl-color-asides-border: var(--sl-color-gray-4);
+  background-color: var(--sl-color-gray-6);
+}
+.starlight-aside--tip {
+  --sl-color-asides-text-accent: var(--sl-color-accent-high);
+  --sl-color-asides-border: var(--sl-color-accent);
+  background-color: color-mix(in srgb, var(--sl-color-accent) 10%, transparent);
+}
+
+/* Link cards: the app's panel, not Starlight's shadowed box. */
+.sl-link-card {
+  border-radius: 6px;
+  border-color: var(--chui-edge);
+  background: var(--chui-surface);
+  box-shadow: none;
+}
+.sl-link-card:hover {
+  border-color: color-mix(in srgb, var(--sl-color-accent) 55%, transparent);
+  background: var(--chui-surface);
+}
+
+/* The table of contents: a small caps label and 13 px links, like the
+   sidebar, instead of a second page title. */
+.right-sidebar-panel h2 {
+  margin-bottom: 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+}
+starlight-toc a {
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+starlight-toc a[aria-current="true"],
+starlight-toc a[aria-current="true"]:hover {
+  color: var(--sl-color-accent-high);
+}
+
+.pagination-links a {
+  border-radius: 6px;
+  border-color: var(--chui-edge);
+  box-shadow: none;
+}
+.pagination-links a:hover {
+  border-color: color-mix(in srgb, var(--sl-color-accent) 50%, transparent);
+}
