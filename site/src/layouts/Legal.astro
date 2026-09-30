@@ -1,0 +1,96 @@
+---
+// The legal pages (/terms, /privacy, /legal): Markdown files under
+// src/pages that name this layout in their frontmatter. It is the landing
+// layout with a reading column and the dates on top.
+import Landing from "./Landing.astro";
+
+interface Props {
+  frontmatter: {
+    title: string;
+    description: string;
+    /** "September 29, 2026". Change it whenever the text changes. */
+    updated: string;
+    /** Set when the text has an effective date, shown before the update date. */
+    effective?: string;
+  };
+}
+
+const { title, description, updated, effective } = Astro.props.frontmatter;
+---
+
+<Landing title={`${title} | CH-UI`} description={description}>
+  <section class="page-head">
+    <div class="container narrow">
+      <p class="label">Legal</p>
+      <h1>{title}</h1>
+      <p class="dates">
+        {effective && <span>Effective date: {effective}</span>}
+        <span>Last updated: {updated}</span>
+      </p>
+    </div>
+  </section>
+  <section class="page-body">
+    <div class="container narrow prose">
+      <slot />
+    </div>
+  </section>
+</Landing>
+
+<style>
+  .page-head {
+    padding-bottom: 2rem;
+  }
+  .dates {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.5rem;
+    margin: 1.2rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--chui-fg-3);
+  }
+  /* The Markdown body is rendered outside this component's scope. */
+  .prose :global(:is(p, li)) {
+    font-size: 0.9375rem;
+    line-height: 1.7;
+    color: var(--chui-fg-2);
+  }
+  .prose :global(p) {
+    margin: 0 0 1rem;
+  }
+  .prose :global(h2) {
+    margin: 2.5rem 0 0.9rem;
+    padding-top: 1.75rem;
+    border-top: 1px solid var(--chui-edge-subtle);
+    font-size: 1.15rem;
+    font-weight: 560;
+    letter-spacing: -0.02em;
+    color: var(--chui-fg);
+  }
+  .prose :global(ul) {
+    margin: 0 0 1rem;
+    padding-inline-start: 1.2rem;
+  }
+  .prose :global(li) {
+    margin-bottom: 0.5rem;
+  }
+  .prose :global(li::marker) {
+    color: var(--chui-fg-4);
+  }
+  .prose :global(strong) {
+    font-weight: 560;
+    color: var(--chui-fg);
+  }
+  .prose :global(a) {
+    color: var(--chui-fg);
+    text-underline-offset: 3px;
+    text-decoration-color: var(--chui-fg-4);
+  }
+  .prose :global(a:hover) {
+    text-decoration-color: currentColor;
+  }
+  .prose :global(code) {
+    padding: 0.1em 0.35em;
+    border: 1px solid var(--chui-edge-subtle);
+    border-radius: 4px;
+  }
+</style>
