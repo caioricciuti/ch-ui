@@ -80,11 +80,8 @@ summary:focus-visible {
   top: 0;
   z-index: 10;
   padding-top: env(safe-area-inset-top, 0px);
-  /* Opaque enough on its own: the page scrolls under it, and the header must
-     not depend on a script having run. Blur is a bonus where supported. */
-  background: rgba(0, 0, 0, 0.92);
-  backdrop-filter: saturate(160%) blur(16px);
-  -webkit-backdrop-filter: saturate(160%) blur(16px);
+  /* Opaque: text scrolling under a translucent header showed through it. */
+  background: var(--chui-canvas);
   border-bottom: 1px solid transparent;
   transition: border-color 0.2s ease;
 }
