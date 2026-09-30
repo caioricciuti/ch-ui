@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The website and documentation now live in this repository, under `site/`.**
+  ch-ui.com is built from it, so a change and its documentation land in the
+  same pull request. The changelog page and the RSS feed on ch-ui.com are
+  generated from this file. `site/` is not open source; see `LICENSING.md`.
+
 ## [2.14.1] - 2026-09-29
 
 ### Security
