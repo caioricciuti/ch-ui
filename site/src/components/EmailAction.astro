@@ -1,0 +1,83 @@
+---
+// One email field that asks the license server to send something to that
+// address: the license again, or a billing-portal link. The server answers
+// the same way whether or not the address has a license.
+interface Props {
+  endpoint: "/license/resend" | "/portal";
+  label: string;
+}
+const { endpoint, label } = Astro.props;
+const action = endpoint === "/portal" ? "billing_portal" : "resend_license";
+---
+
+<form class="chui-email" data-email-action data-endpoint={endpoint} data-action={action} data-label={label} novalidate>
+  <div class="fields">
+    <input class="chui-input" type="email" name="email" required maxlength="320" placeholder="you@company.com" aria-label="Purchase email" autocomplete="email" />
+    <button class="chui-btn" type="submit">{label}</button>
+  </div>
+  <p class="chui-status" role="status" hidden></p>
+</form>
+
+<style>
+  .chui-email {
+    display: grid;
+    gap: 0.5rem;
+  }
+  .fields {
+    display: flex;
+    gap: 0.5rem;
+  }
+</style>
+
+<script>
+  import { LICENSE_SERVER_URL, SUPPORT_EMAIL } from "../lib/license-server";
+  import { track } from "../lib/analytics";
+
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  for (const form of document.querySelectorAll<HTMLFormElement>("[data-email-action]")) {
+    const button = form.querySelector("button");
+    const status = form.querySelector<HTMLElement>(".chui-status");
+    const { endpoint = "", action = "", label = "" } = form.dataset;
+    if (!button || !status) continue;
+
+    const say = (tone: "ok" | "error", text: string) => {
+      status.dataset.tone = tone;
+      status.textContent = text;
+      status.hidden = false;
+    };
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const email = String(new FormData(form).get("email") ?? "").trim();
+      if (!EMAIL_RE.test(email)) {
+        say("error", "Please enter a valid email address.");
+        return;
+      }
+      button.disabled = true;
+      button.textContent = "Sending…";
+      status.hidden = true;
+      track("license_action_submitted", { action });
+      try {
+        const res = await fetch(`${LICENSE_SERVER_URL}${endpoint}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        if (!res.ok) throw new Error(`request failed (${res.status})`);
+        const data = (await res.json()) as { message?: string };
+        say(
+          "ok",
+          data.message ??
+            "If that email matches an active license, we've sent you an email. Check your inbox (and spam).",
+        );
+        track("license_action_sent", { action });
+      } catch {
+        say("error", `Something went wrong. Please try again, or email ${SUPPORT_EMAIL}.`);
+        track("license_action_failed", { action });
+      }
+      button.disabled = false;
+      button.textContent = label;
+    });
+  }
+</script>

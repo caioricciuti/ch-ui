@@ -1,0 +1,291 @@
+---
+import Landing from "../layouts/Landing.astro";
+import ArchitectureDiagram from "../components/ArchitectureDiagram.astro";
+import Faq from "../components/Faq.astro";
+import Quickstart from "../components/Quickstart.astro";
+import Showcase from "../components/Showcase.astro";
+import { faqJsonLd, type FaqItem } from "../lib/faq";
+import { VERSION } from "../lib/version";
+
+const site = "https://ch-ui.com";
+const repo = "https://github.com/caioricciuti/ch-ui";
+
+const features = [
+  {
+    title: "SQL workspace",
+    href: "/docs/querying/",
+    body: "Multi-tab editor with streaming results, sort and filter on results, automatic query history, and errors that jump your cursor to the failing token.",
+  },
+  {
+    title: "Query Insights",
+    href: "/docs/query-insights/",
+    pro: true,
+    body: "Live query_log analytics: latency percentiles, slow and memory-heavy query patterns, failures and hot tables, cross-filtered by user, table or query text.",
+  },
+  {
+    title: "Cluster Health",
+    href: "/docs/cluster-health/",
+    pro: true,
+    body: "Per-node replication delay, merges, mutations, parts pressure, Keeper and backups, with live drill-downs and history charts across every replica.",
+  },
+  {
+    title: "Brain",
+    href: "/docs/brain/",
+    body: "AI chat that knows your schema, with skills and artifacts. Bring your own key. With Pro: Ask AI in the editor and agentic tools that build dashboards and pipelines.",
+  },
+  {
+    title: "Governance and alerts",
+    href: "/docs/governance/",
+    pro: true,
+    body: "Catalog, query guardrails, incidents, access matrix and audit logs, plus alert channels and rules with email delivery.",
+  },
+  {
+    title: "Telemetry",
+    href: "/docs/telemetry/",
+    body: "Search the OpenTelemetry logs already in your ClickHouse. With Pro: trace waterfalls, a metrics explorer, a service map, and monitors that raise alerts.",
+  },
+  {
+    title: "MCP server",
+    href: "/docs/mcp/",
+    body: "Connect Claude, ChatGPT, Cursor or VS Code to ClickHouse through CH-UI. OAuth sign-in, read-only by default, every call audited.",
+  },
+  {
+    title: "Cost Center",
+    href: "/docs/cost-center/",
+    pro: true,
+    body: "Showback and chargeback from real CPU time and storage, attributed to teams, exportable as CSV.",
+  },
+  {
+    title: "Pipelines",
+    href: "/docs/pipelines/",
+    body: "A visual builder to ingest data from Kafka, webhooks, databases and S3 into ClickHouse.",
+  },
+  {
+    title: "Models",
+    href: "/docs/models/",
+    body: "dbt-style SQL models with ref() DAGs and cron-scheduled runs. With Pro: GitHub sync to keep transformations in version control.",
+  },
+  {
+    title: "Tunnel connector",
+    href: "/docs/ingestion/",
+    body: "Reach a remote ClickHouse through outbound WebSocket connectors: no inbound ports, works behind NAT and load balancers.",
+  },
+  {
+    title: "Open source core",
+    href: "/docs/license/",
+    body: "The core is Apache-2.0 and free forever. Pro features unlock with a license key on your own hardware; your data never touches our servers.",
+  },
+];
+
+// Rendered on the page and serialized as FAQPage structured data. Answers
+// are grounded in the docs index, pricing and license pages.
+const faq: FaqItem[] = [
+  {
+    question: "What is CH-UI?",
+    answer:
+      "CH-UI is the open-source control plane for ClickHouse: SQL editor, dashboards, pipelines, dbt-style models, governance, cluster monitoring, and the Brain AI copilot in one workspace. It ships as a single self-hosted binary that stores its state in a local SQLite database, with no external services to operate.",
+  },
+  {
+    question: "Is CH-UI really free?",
+    answer:
+      "Yes. The core is open source under Apache-2.0 and free forever, with unlimited users: SQL editor with query history and query parameters, saved queries, dashboards with shareable links, pipelines, models with cron schedules, telemetry logs, Brain AI chat (bring your own AI key), the MCP server for AI clients, the admin panel with multiple connections, and the tunnel connector. Only the Pro modules require a paid license.",
+  },
+  {
+    question: "What does Pro add?",
+    answer:
+      "A Pro license ($1,199/year per instance, flat, never per seat) unlocks Query Insights, Cluster Health, Cost Center, Performance, Governance, Alerts, scheduled query jobs, fleet overview, schema comparison, weekly reports, telemetry traces, metrics, service map and monitors, Ask AI and Brain agentic tools, GitHub sync for models, SSO/OIDC, audit forwarding to your SIEM, and priority support. You can try everything free for 30 days, no card required.",
+  },
+  {
+    question: "Where does my data live?",
+    answer:
+      "On your infrastructure. CH-UI is self-hosted, keeps its state in a local SQLite file, and the connector reaches ClickHouse over an outbound-only WebSocket tunnel, so your cluster never needs a public port. The Pro license is verified locally with no call-home, so air-gapped deployments work.",
+  },
+  {
+    question: "What do I need to run it?",
+    answer:
+      "One binary (or Docker) and a ClickHouse instance to connect to. No external database. Download the release, run ch-ui, and the UI is on localhost:3488. If ClickHouse lives on another host, run the lightweight ch-ui connect connector next to it with outbound-only traffic.",
+  },
+  {
+    question: "How is CH-UI licensed?",
+    answer:
+      "The core is Apache-2.0, free for commercial use. Pro modules are source-available under the Business Source License 1.1 and unlock with a signed license file: a flat annual subscription via Stripe, one license per running instance, activated offline in Settings → License.",
+  },
+];
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      name: "CH-UI",
+      url: site,
+      logo: `${site}/images/logo.png`,
+      sameAs: [repo],
+    },
+    {
+      "@type": "SoftwareApplication",
+      name: "CH-UI",
+      url: site,
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "Linux, macOS, Docker",
+      offers: [
+        { "@type": "Offer", name: "Open Source", price: "0", priceCurrency: "USD" },
+        {
+          "@type": "Offer",
+          name: "Pro",
+          price: "1199",
+          priceCurrency: "USD",
+          description: "Pro license, flat per instance, per year.",
+        },
+      ],
+    },
+    faqJsonLd(faq),
+  ],
+};
+---
+
+<Landing
+  title="CH-UI: The ClickHouse Workspace"
+  description="CH-UI is the open-source control plane for ClickHouse: SQL editor, dashboards, pipelines, query analytics, cluster monitoring, governance, and an AI copilot. Self-host the single binary for free; unlock Pro with a license key."
+  jsonLd={jsonLd}
+>
+  <section class="hero">
+    <div class="container hero-grid">
+      <div>
+        <a class="kicker" href="/docs/changelog/">
+          <span class="dot" aria-hidden="true"></span>
+          {VERSION ? `CH-UI ${VERSION}, open source at the core` : "Open source at the core"}
+        </a>
+        <h1>
+          Your ClickHouse.
+          <span>One workspace.</span>
+        </h1>
+        <p class="lead">
+          SQL editor, dashboards, pipelines, cluster monitoring, governance and an AI copilot. One binary on your
+          infrastructure, and your data never leaves it.
+        </p>
+        <div class="actions">
+          <a class="chui-btn" data-variant="solid" data-size="lg" href="/docs/installation/" data-cta="hero_self_host">Self-host it</a>
+          <a class="chui-btn" data-size="lg" href="/license/" data-cta="hero_try_pro">Try Pro free for 30 days</a>
+        </div>
+        <ul class="facts">
+          <li>Apache-2.0 core</li>
+          <li>Single binary, SQLite state</li>
+          <li>No call-home</li>
+        </ul>
+      </div>
+      <Quickstart />
+    </div>
+  </section>
+
+  <section class="showcase">
+    <div class="container">
+      <Showcase />
+      <p class="fineprint">
+        Ranked among the top ClickHouse GUIs in 2026 by{" "}
+        <a href="https://1bench.dev/best/clickhouse-gui-clients" rel="nofollow noopener">1bench</a>.
+      </p>
+    </div>
+  </section>
+
+  <section class="section" id="features">
+    <div class="container two-col">
+      <header class="section-head">
+        <p class="label">What's inside</p>
+        <h2>One workspace, not five tools.</h2>
+        <p>
+          A data workbench, ClickHouse-native observability and platform controls, so a team can ship and govern from
+          one place.
+        </p>
+      </header>
+      <dl class="features">
+        {features.map((f) => (
+          <div class="feature">
+            <dt>
+              <a href={f.href}>{f.title}</a>
+              {f.pro && <span class="chui-pro">Pro</span>}
+            </dt>
+            <dd>{f.body}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  </section>
+
+  <section class="section" id="architecture">
+    <div class="container two-col">
+      <header class="section-head">
+        <p class="label">Architecture</p>
+        <h2>Your infrastructure, outbound only.</h2>
+        <p>
+          The server runs where you put it. A lightweight connector sits next to ClickHouse and dials out, so the
+          cluster never needs a public port.
+        </p>
+        <p><a class="link" href="/docs/deployment/">Deployment guide →</a></p>
+      </header>
+      <ArchitectureDiagram />
+    </div>
+  </section>
+
+  <section class="section" id="pricing">
+    <div class="container two-col">
+      <header class="section-head">
+        <p class="label">Pricing</p>
+        <h2>Free core. One license when you need more.</h2>
+        <p><a class="link" href="/pricing/" data-cta="pro_section_pricing">Compare plans →</a></p>
+      </header>
+      <div class="rows">
+        <div class="row">
+          <div>
+            <h3>Open Source <small>Free, Apache-2.0</small></h3>
+            <p>
+              Editor, dashboards, pipelines, models, Brain chat, query history, telemetry logs and the MCP server.
+              Unlimited users, forever.
+            </p>
+          </div>
+          <a class="chui-btn" href="/docs/installation/" data-cta="pro_section_self_host">Self-host</a>
+        </div>
+        <div class="row">
+          <div>
+            <h3>Pro <small>$1,199 per instance, per year</small></h3>
+            <p>
+              Query Insights, Cluster Health, Cost Center, Governance, Alerts, SSO, scheduled query jobs, traces and
+              metrics, Ask AI, audit forwarding and GitHub sync. Flat, never per seat, activated with a key, no
+              call-home.
+            </p>
+          </div>
+          <a class="chui-btn" data-variant="solid" href="/license/" data-cta="pro_section_trial">Start free trial</a>
+        </div>
+        <div class="row">
+          <div>
+            <h3>Enterprise <small>Custom</small></h3>
+            <p>Multiple instances, volume pricing, invoice billing, security review and custom terms.</p>
+          </div>
+          <a class="chui-btn" href="mailto:me@caioricciuti.com?subject=CH-UI%20Enterprise" data-cta="enterprise_contact">Talk to us</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="faq">
+    <div class="container two-col">
+      <header class="section-head">
+        <p class="label">Questions</p>
+        <h2>Asked often.</h2>
+      </header>
+      <Faq items={faq} />
+    </div>
+  </section>
+
+  <section class="section closing">
+    <div class="container">
+      <h2>Point it at your cluster.</h2>
+      <p>One command to self-host. The docs cover installation, deployment, the API and operations.</p>
+      <div class="actions">
+        <a class="chui-btn" data-variant="solid" data-size="lg" href="/docs/installation/" data-cta="footer_self_host">Self-host it</a>
+        <a class="chui-btn" data-size="lg" href="/docs/" data-cta="footer_read_docs">Read the docs</a>
+        <a class="chui-btn" data-size="lg" href={repo}>Star on GitHub</a>
+      </div>
+    </div>
+  </section>
+</Landing>

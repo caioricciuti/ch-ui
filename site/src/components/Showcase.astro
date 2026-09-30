@@ -1,0 +1,116 @@
+---
+// The product, one screenshot per area, behind tabs. The first image loads
+// with the page; the rest load when their tab is first shown. The tab
+// behaviour lives in the Landing layout (data-tabs).
+import { Image } from "astro:assets";
+import admin from "../assets/screenshots/admin_panel.png";
+import brain from "../assets/screenshots/brain_pro.png";
+import clusterHealth from "../assets/screenshots/cluster_health_pro.png";
+import dashboard from "../assets/screenshots/dashboard_pro.png";
+import governance from "../assets/screenshots/governance_pro.png";
+import queryInsights from "../assets/screenshots/query_insights.png";
+import query from "../assets/screenshots/query_table.png";
+import schedule from "../assets/screenshots/schedule_pro.png";
+
+const shots = [
+  {
+    id: "query",
+    title: "SQL workspace",
+    image: query,
+    href: "/docs/querying/",
+    summary:
+      "Multi-tab editing with streaming results, sort and filter on results, automatic query history, and errors that jump to the failing line.",
+    pro: false,
+  },
+  {
+    id: "dashboard",
+    title: "Dashboards",
+    image: dashboard,
+    href: "/docs/dashboards/",
+    summary: "Build panels from saved queries, arrange layouts, and share system overviews across your team.",
+    pro: false,
+  },
+  {
+    id: "brain",
+    title: "Brain",
+    image: brain,
+    href: "/docs/brain/",
+    summary: "Multi-chat AI with persisted context, SQL artifacts, provider and model controls, and run-in-chat actions.",
+    pro: false,
+  },
+  {
+    id: "query-insights",
+    title: "Query Insights",
+    image: queryInsights,
+    href: "/docs/query-insights/",
+    summary:
+      "Latency percentiles, slow and memory-heavy query patterns, failures, users and hot tables, straight from system.query_log.",
+    pro: true,
+  },
+  {
+    id: "cluster-health",
+    title: "Cluster Health",
+    image: clusterHealth,
+    href: "/docs/cluster-health/",
+    summary:
+      "Per-node replication delay, merges, mutations, parts pressure, Keeper and backups: live drill-downs with history charts.",
+    pro: true,
+  },
+  {
+    id: "governance",
+    title: "Governance",
+    image: governance,
+    href: "/docs/governance/",
+    summary: "Dashboard metrics, access matrix, incidents, policies and sync controls.",
+    pro: true,
+  },
+  {
+    id: "schedule",
+    title: "Schedules",
+    image: schedule,
+    href: "/docs/schedules/",
+    summary: "Schedule SQL queries with cron expressions, track execution history, and monitor results.",
+    pro: true,
+  },
+  {
+    id: "admin",
+    title: "Admin",
+    image: admin,
+    href: "/docs/admin/",
+    summary: "ClickHouse user lifecycle, provider management, and tunnel controls.",
+    pro: false,
+  },
+];
+---
+
+<div data-tabs>
+  <figure class="panel">
+    <div class="panel-bar" role="tablist" aria-label="Product areas">
+      {shots.map((s, i) => (
+        <button class="tab" type="button" role="tab" data-tab={s.id} aria-selected={i === 0 ? "true" : "false"}>
+          {s.title}
+          {s.pro && <span class="chui-pro">Pro</span>}
+        </button>
+      ))}
+    </div>
+    <div class="shots">
+      {shots.map((s, i) => (
+        <div data-panel={s.id} hidden={i !== 0}>
+          <Image
+            src={s.image}
+            alt={`CH-UI: ${s.title}`}
+            widths={[720, 1440, 2160]}
+            sizes="(max-width: 68rem) 100vw, 65rem"
+            loading={i === 0 ? "eager" : "lazy"}
+          />
+        </div>
+      ))}
+    </div>
+  </figure>
+  {shots.map((s, i) => (
+    <p class="shot-caption" data-panel={s.id} hidden={i !== 0}>
+      <span>{s.summary}</span>
+      <a href={s.href}>Read the docs</a>
+    </p>
+  ))}
+</div>

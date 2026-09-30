@@ -1,0 +1,50 @@
+---
+// Where Stripe sends the buyer after checkout (the session's success_url).
+// Not a destination for crawlers.
+import Landing from "../../layouts/Landing.astro";
+---
+
+<Landing
+  title="Payment successful | CH-UI"
+  description="Your CH-UI Pro license is on its way. Check your inbox for license.json and activation steps."
+  noindex
+>
+  <section class="page-head">
+    <div class="container narrow">
+      <p class="label"><span class="ok" aria-hidden="true"></span>Payment successful</p>
+      <h1>Your license is on its way.</h1>
+      <p class="lead">
+        Check your inbox (and spam folder) for an email with your <code>license.json</code> and activation steps: open{" "}
+        <strong>Settings → License</strong> in your CH-UI instance and upload the file. Activation is fully offline,
+        with no call-home.
+      </p>
+      <div class="actions">
+        <a class="chui-btn" data-variant="solid" href="/docs/license/">Activation steps</a>
+        <a class="chui-btn" href="/license/">Re-send my license</a>
+      </div>
+      <p class="fineprint">
+        Nothing arrived? Re-send it from the license page, or email{" "}
+        <a href="mailto:me@caioricciuti.com">me@caioricciuti.com</a>.
+      </p>
+    </div>
+  </section>
+</Landing>
+
+<style>
+  .page-head {
+    padding-bottom: 7rem;
+  }
+  .ok {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-inline-end: 0.55rem;
+    border-radius: 50%;
+    background: var(--chui-success);
+    vertical-align: 0.1em;
+  }
+  strong {
+    font-weight: 560;
+    color: var(--chui-fg);
+  }
+</style>

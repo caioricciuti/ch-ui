@@ -1,0 +1,97 @@
+---
+// Newsletter sign-up. Posts to /api/newsletter on this site, which adds the
+// address to the Resend list server-side; the key never reaches the browser.
+interface Props {
+  /** Where the form sits; sent with the analytics events. */
+  placement: string;
+}
+const { placement } = Astro.props;
+---
+
+<form class="chui-news" data-newsletter data-placement={placement} novalidate>
+  <div class="fields">
+    <input class="chui-input" type="email" name="email" required maxlength="320" placeholder="you@company.com" aria-label="Email for the newsletter" autocomplete="email" />
+    <button class="chui-btn" type="submit">Subscribe</button>
+  </div>
+  <p class="chui-status" role="status">Release notes and tips. No spam, unsubscribe anytime.</p>
+</form>
+
+<style>
+  .chui-news {
+    display: grid;
+    gap: 0.5rem;
+  }
+  .fields {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .chui-status:not([data-tone]) {
+    color: var(--chui-fg-4);
+  }
+</style>
+
+<script>
+  import { track } from "../lib/analytics";
+
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const GENERIC = "Something went wrong. Please try again later.";
+
+  interface NewsletterResponse {
+    success?: boolean;
+    error?: string;
+  }
+
+  for (const form of document.querySelectorAll<HTMLFormElement>("[data-newsletter]")) {
+    const button = form.querySelector("button");
+    const status = form.querySelector<HTMLElement>(".chui-status");
+    const placement = form.dataset.placement ?? "";
+    if (!button || !status) continue;
+
+    const say = (tone: "ok" | "error", text: string) => {
+      status.dataset.tone = tone;
+      status.textContent = text;
+    };
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const email = String(new FormData(form).get("email") ?? "").trim();
+      if (!EMAIL_RE.test(email)) {
+        say("error", "Please enter a valid email address.");
+        track("newsletter_failed", { reason: "invalid_email", placement });
+        return;
+      }
+      button.disabled = true;
+      button.textContent = "Subscribing…";
+      track("newsletter_submitted", { placement });
+      try {
+        const res = await fetch("/api/newsletter", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        let data: NewsletterResponse = {};
+        try {
+          data = (await res.json()) as NewsletterResponse;
+        } catch {
+          // Non-JSON body: the status decides below.
+        }
+        if (res.ok && data.success) {
+          say("ok", "You're in. Release notes and tips, straight to your inbox.");
+          track("newsletter_success", { placement });
+          // Stays disabled: the address is on the list.
+          button.textContent = "Subscribed";
+          return;
+        }
+        say("error", data.error ?? GENERIC);
+        const reason =
+          res.status === 429 ? "rate_limited" : res.status === 503 ? "unconfigured" : "server_error";
+        track("newsletter_failed", { reason, status: res.status, placement });
+      } catch {
+        say("error", GENERIC);
+        track("newsletter_failed", { reason: "network_error", placement });
+      }
+      button.disabled = false;
+      button.textContent = "Subscribe";
+    });
+  }
+</script>

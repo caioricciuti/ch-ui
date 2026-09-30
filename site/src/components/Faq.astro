@@ -1,0 +1,19 @@
+---
+// Questions and answers as native disclosure elements. The same items feed
+// the page's FAQPage structured data, built by faqJsonLd in lib/faq.ts.
+import type { FaqItem } from "../lib/faq";
+
+interface Props {
+  items: FaqItem[];
+}
+const { items } = Astro.props;
+---
+
+<div class="faq">
+  {items.map((item) => (
+    <details>
+      <summary>{item.question}</summary>
+      <p>{item.answer}</p>
+    </details>
+  ))}
+</div>

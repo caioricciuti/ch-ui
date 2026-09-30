@@ -1,0 +1,191 @@
+---
+// The landing pages: /, /pricing, /license and /vs/*. Starlight owns /docs;
+// this layout is everything else: one dark look, nav and footer.
+import "../styles/landing.css";
+import GitHubStars from "../components/GitHubStars.astro";
+import NewsletterForm from "../components/NewsletterForm.astro";
+import { comparisons } from "../data/comparisons";
+
+interface Props {
+  title: string;
+  description: string;
+  /** schema.org data for the page, serialized into the head. */
+  jsonLd?: Record<string, unknown>;
+  /** Keep the page out of search results (the post-checkout page). */
+  noindex?: boolean;
+}
+
+const { title, description, jsonLd, noindex = false } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const ogImage = new URL("/images/og.png", Astro.site);
+const repo = "https://github.com/caioricciuti/ch-ui";
+const path = Astro.url.pathname;
+const nav = [
+  { href: "/docs/", label: "Docs" },
+  { href: "/pricing/", label: "Pricing" },
+  { href: "/docs/changelog/", label: "Changelog" },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex" />}
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="alternate" type="application/rss+xml" title="CH-UI changelog" href="/changelog.xml" />
+    <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+    <meta name="theme-color" content="#000000" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CH-UI" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+    {jsonLd && <script is:inline type="application/ld+json" set:html={JSON.stringify(jsonLd)} />}
+    <script
+      is:inline
+      defer
+      src="https://a.caioricciuti.com/b.js"
+      data-website-id="c56fe216-10f5-433a-9e33-8efd0bbfe2ec"
+    ></script>
+  </head>
+  <body>
+    <header class="nav" data-nav>
+      <div class="nav-inner">
+        <a class="brand" href="/" aria-label="CH-UI home">
+          <img src="/images/logo.png" alt="" width="22" height="22" />
+          <span>CH-UI</span>
+        </a>
+        <nav class="nav-links" aria-label="Main">
+          {nav.map((l) => (
+            <a href={l.href} aria-current={path === l.href ? "page" : undefined}>{l.label}</a>
+          ))}
+        </nav>
+        <div class="nav-actions">
+          <a class="repo-link" href={repo} aria-label="CH-UI on GitHub">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            <GitHubStars />
+          </a>
+          <a class="chui-btn" href="/license/" data-cta="nav_get_pro">Get Pro</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <slot />
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-grid">
+        <div class="footer-brand">
+          <a class="brand" href="/">
+            <img src="/images/logo.png" alt="" width="22" height="22" />
+            <span>CH-UI</span>
+          </a>
+          <p>The open-source control plane for ClickHouse. One binary, self-hosted, your data stays on your infrastructure.</p>
+        </div>
+        <div class="footer-links">
+          <h3>Product</h3>
+          <a href="/docs/">Documentation</a>
+          <a href="/docs/installation/">Installation</a>
+          <a href="/pricing/">Pricing</a>
+          <a href="/license/">License</a>
+          <a href="/docs/changelog/">Changelog</a>
+          <a href={repo}>GitHub</a>
+        </div>
+        <div class="footer-links">
+          <h3>Compare</h3>
+          {comparisons.map((c) => <a href={`/vs/${c.slug}/`}>CH-UI vs {c.name}</a>)}
+        </div>
+        <div class="footer-news">
+          <h3>Stay in the loop</h3>
+          <NewsletterForm placement="footer" />
+        </div>
+      </div>
+      <div class="container footer-base">
+        <span>The core is Apache-2.0. Pro modules are source-available under the Business Source License 1.1.</span>
+        <nav aria-label="Legal">
+          <a href="/terms/">Terms</a>
+          <a href="/privacy/">Privacy</a>
+          <a href="/legal/">Legal notice</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script>
+      import { track } from "../lib/analytics";
+
+      const nav = document.querySelector<HTMLElement>("[data-nav]");
+      const onScroll = () => nav?.classList.toggle("scrolled", window.scrollY > 8);
+      onScroll();
+      window.addEventListener("scroll", onScroll, { passive: true });
+
+      // Tabs: a button with data-tab shows the panel with the same value in
+      // data-panel, inside the nearest [data-tabs].
+      for (const group of document.querySelectorAll<HTMLElement>("[data-tabs]")) {
+        const tabs = group.querySelectorAll<HTMLButtonElement>("[data-tab]");
+        const panels = group.querySelectorAll<HTMLElement>("[data-panel]");
+        for (const tab of tabs) {
+          tab.addEventListener("click", () => {
+            for (const t of tabs) t.setAttribute("aria-selected", String(t === tab));
+            for (const p of panels) p.hidden = p.dataset.panel !== tab.dataset.tab;
+          });
+        }
+      }
+
+      // Copy buttons. With data-copy-from the text comes from the visible
+      // panel of the group, so one button serves every tab.
+      for (const button of document.querySelectorAll<HTMLButtonElement>("[data-copy], [data-copy-from]")) {
+        button.addEventListener("click", async () => {
+          const group = button.closest("[data-tabs]");
+          const text =
+            button.dataset.copy ??
+            group?.querySelector<HTMLElement>("[data-panel]:not([hidden])")?.dataset.clipboard ??
+            "";
+          try {
+            await navigator.clipboard.writeText(text);
+            button.textContent = "Copied";
+            track("code_copied", { page: window.location.pathname });
+          } catch {
+            button.textContent = "Select and copy";
+          }
+          setTimeout(() => (button.textContent = "Copy"), 1600);
+        });
+      }
+
+      // Tagged calls to action and outbound links, by delegation.
+      document.addEventListener(
+        "click",
+        (event) => {
+          if (!(event.target instanceof Element)) return;
+          const cta = event.target.closest("[data-cta]");
+          if (cta) {
+            track("cta_click", { cta: cta.getAttribute("data-cta") ?? "", page: window.location.pathname });
+          }
+          const link = event.target.closest("a");
+          if (!link) return;
+          try {
+            const url = new URL(link.getAttribute("href") ?? "", window.location.href);
+            if (/^https?:$/.test(url.protocol) && url.host !== window.location.host) {
+              track("external_link_click", { href: url.href });
+            }
+          } catch {
+            /* invalid href: ignore */
+          }
+        },
+        true,
+      );
+    </script>
+  </body>
+</html>

@@ -1,0 +1,106 @@
+---
+import Landing from "../layouts/Landing.astro";
+import Faq from "../components/Faq.astro";
+import PricingPlans from "../components/PricingPlans.astro";
+import { faqJsonLd, type FaqItem } from "../lib/faq";
+
+const site = "https://ch-ui.com";
+
+// Rendered on the page and serialized as FAQPage structured data.
+const faq: FaqItem[] = [
+  {
+    question: "How much is self-hosting?",
+    answer:
+      "The open-source core is free under Apache-2.0, with no license keys: SQL editor (query history, query parameters, result filtering, error navigation), saved queries, dashboards, pipelines, models with cron schedules, telemetry logs, Brain AI chat (BYO key), the MCP server, the admin panel with multiple connections, and the tunnel connector. Pro at $1,199/year per instance adds Governance, Cluster Health, Query Insights, Cost Center, Performance, fleet overview, schema comparison, weekly reports, telemetry traces, metrics, service map and monitors, scheduled query jobs, Alerts, Ask AI and Brain agentic tools, GitHub sync for models, SSO/OIDC, audit forwarding to your SIEM, and priority support, all on your own hardware.",
+  },
+  {
+    question: "How do I buy a license?",
+    answer:
+      "Click Buy Pro license and you'll be redirected to Stripe Checkout. Stripe collects your email and payment there. Right after payment, your license.json arrives by email along with activation steps. Lost it? Re-send it anytime from ch-ui.com/license.",
+  },
+  {
+    question: "Can I try Pro before buying?",
+    answer:
+      "Yes, start a free 30-day trial right here (or at ch-ui.com/license), fully self-serve: enter your email and a trial license lands in your inbox instantly, no card and no sales contact needed. It unlocks every Pro module on your own instance. When the 30 days are up, buy a license to keep going; your data and configuration are untouched either way.",
+  },
+  {
+    question: "How does license activation work? Does it phone home?",
+    answer:
+      "No call-home. You receive a signed license file (license.json) by email and upload it under Settings → License in your instance. Activation is fully offline. The key is verified locally with a public key embedded in the binary, so CH-UI Pro works in air-gapped environments. One license covers one running instance, with no limit on the ClickHouse users or team members who use it.",
+  },
+  {
+    question: "Do you charge per user?",
+    answer:
+      "No. The Pro license is flat per instance. Workspace access uses your ClickHouse's own users, so neither your team nor your end-users are billed as seats.",
+  },
+  {
+    question: "How do I manage or cancel my subscription?",
+    answer:
+      "The license is an annual subscription billed through Stripe. Go to ch-ui.com/license, enter your purchase email under Manage subscription, and we'll email you a secure Stripe billing-portal link to update payment details or cancel there. Cancel anytime and Pro keeps working until the end of the paid year; your data always stays yours.",
+  },
+  {
+    question: "Does CH-UI stay open source?",
+    answer:
+      "Yes. The core remains Apache-2.0 and always will. Pro modules are source-available under the Business Source License 1.1 and unlock with a license key.",
+  },
+];
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Product",
+      name: "CH-UI",
+      description:
+        "The open-source control plane for ClickHouse: self-host the core for free, or unlock Pro with a flat per-instance license.",
+      brand: { "@type": "Brand", name: "CH-UI" },
+      url: `${site}/pricing`,
+      offers: [
+        { "@type": "Offer", name: "Open Source", price: "0", priceCurrency: "USD", url: `${site}/pricing` },
+        {
+          "@type": "Offer",
+          name: "Pro",
+          price: "1199",
+          priceCurrency: "USD",
+          url: `${site}/license`,
+          description: "Pro license, flat per instance, per year.",
+        },
+      ],
+    },
+    faqJsonLd(faq),
+  ],
+};
+---
+
+<Landing
+  title="Pricing | CH-UI"
+  description="Self-host CH-UI free (Apache-2.0), or unlock Pro with a license: Query Insights, Cluster Health, Governance, scheduled queries, Alerts, SSO. $1,199/year per instance, flat."
+  jsonLd={jsonLd}
+>
+  <section class="page-head">
+    <div class="container">
+      <p class="label">Pricing</p>
+      <h1>Free core. Flat Pro.</h1>
+      <p class="lead">
+        Self-host the open-source core for free, and unlock Pro with one yearly license on your own hardware. Priced
+        per instance, never per seat.
+      </p>
+    </div>
+  </section>
+
+  <section class="page-body">
+    <div class="container">
+      <PricingPlans />
+    </div>
+  </section>
+
+  <section class="section" id="faq">
+    <div class="container two-col">
+      <header class="section-head">
+        <p class="label">Questions</p>
+        <h2>Before you buy.</h2>
+      </header>
+      <Faq items={faq} />
+    </div>
+  </section>
+</Landing>
