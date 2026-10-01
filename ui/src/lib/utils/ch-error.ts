@@ -134,3 +134,15 @@ export function parseCHError(raw: string): ParsedCHError {
     raw,
   }
 }
+
+/**
+ * True when ClickHouse says the table or database does not exist
+ * (UNKNOWN_TABLE 60, UNKNOWN_DATABASE 81), or the telemetry API reports an
+ * empty DESCRIBE. Telemetry uses it to show setup help instead of the raw error.
+ */
+export function isMissingTableError(raw: string): boolean {
+  const { code, name } = parseCHError(raw)
+  if (code === 60 || code === 81) return true
+  if (name === 'UNKNOWN_TABLE' || name === 'UNKNOWN_DATABASE') return true
+  return /has no columns or does not exist/.test(raw)
+}

@@ -229,10 +229,11 @@
               {@const selected = connections.find((c) => c.id === selectedId)}
               {#if selected}
                 <p class="mt-1.5 inline-flex items-center gap-1.5 text-[12px] {selected.online ? 'text-success' : 'text-warning'}">
+                  <!-- This is the connector tunnel; ClickHouse itself is only checked when you sign in. -->
                   {#if selected.online}
-                    <Wifi size={12} /> Connected
+                    <Wifi size={12} /> Connector online
                   {:else}
-                    <WifiOff size={12} /> Unreachable
+                    <WifiOff size={12} /> Connector offline
                   {/if}
                 </p>
               {/if}

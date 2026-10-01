@@ -87,6 +87,10 @@ Each forwarded event is JSON:
 }
 ```
 
+Events that ran as a different ClickHouse account than `username` (people
+signed in with SSO share a service account) also carry `ch_user`, the
+ClickHouse account used.
+
 - **stdout**: pick this up with any log pipeline (Fluent Bit, Vector, Loki,
   CloudWatch, Datadog agent).
 - **file**: tail the JSONL file with a log shipper.

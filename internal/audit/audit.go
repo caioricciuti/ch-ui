@@ -22,12 +22,14 @@ import (
 
 // Event is a single audit record forwarded to sinks.
 type Event struct {
-	Action       string `json:"action"`
-	Username     string `json:"username,omitempty"`
-	ConnectionID string `json:"connection_id,omitempty"`
-	Details      string `json:"details,omitempty"`
-	IPAddress    string `json:"ip_address,omitempty"`
-	Timestamp    string `json:"timestamp"`
+	Action   string `json:"action"`
+	Username string `json:"username,omitempty"`
+	// ClickhouseUser is the ClickHouse account the action ran as, when known.
+	ClickhouseUser string `json:"ch_user,omitempty"`
+	ConnectionID   string `json:"connection_id,omitempty"`
+	Details        string `json:"details,omitempty"`
+	IPAddress      string `json:"ip_address,omitempty"`
+	Timestamp      string `json:"timestamp"`
 }
 
 // Sink delivers an event to one destination. Implementations must be safe for
@@ -133,6 +135,7 @@ func (StdoutSink) Emit(e Event) error {
 	slog.Info("audit",
 		"action", e.Action,
 		"username", e.Username,
+		"ch_user", e.ClickhouseUser,
 		"connection_id", e.ConnectionID,
 		"ip_address", e.IPAddress,
 		"details", e.Details,

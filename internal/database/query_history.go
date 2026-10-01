@@ -172,14 +172,22 @@ func (db *DB) GetQueryHistory(actor, connectionID, search, status string, limit,
 }
 
 // DeleteQueryHistoryEntry deletes one entry if it belongs to the actor on the
-// given connection (same scoping as List and Clear).
+// given connection (same scoping as List and Clear). It returns sql.ErrNoRows
+// when no such entry exists for that actor, so callers can answer 404.
 func (db *DB) DeleteQueryHistoryEntry(id, actor, connectionID string) error {
-	_, err := db.conn.Exec(
+	res, err := db.conn.Exec(
 		`DELETE FROM query_history WHERE id = ? AND actor = ? AND COALESCE(connection_id, '') = COALESCE(?, '')`,
 		id, actor, nilIfEmpty(connectionID),
 	)
 	if err != nil {
 		return fmt.Errorf("delete query history entry: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete query history entry: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }

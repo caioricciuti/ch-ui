@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"database/sql"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -74,6 +76,10 @@ func (h *QueryHistoryHandler) DeleteEntry(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := h.DB.DeleteQueryHistoryEntry(id, middleware.Actor(session), session.ConnectionID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "History entry not found")
+			return
+		}
 		slog.Error("Failed to delete query history entry", "error", err, "id", id)
 		writeError(w, http.StatusInternalServerError, "Failed to delete history entry")
 		return

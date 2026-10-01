@@ -1,6 +1,6 @@
 import { withBase, stripBase } from '../basePath'
 import { getActiveTab, getTabs, openHomeTab, setActiveTab } from './tabs.svelte'
-import { isPageRouteType, PAGE_ROUTES, PATH_TO_PAGE, type PageRoute } from '../routes'
+import { isPageRouteType, PAGE_ROUTES, PATH_ALIASES, PATH_TO_PAGE, type PageRoute } from '../routes'
 import { syncSectionFromUrl } from './nav.svelte'
 
 // ── Current route type (reactive) ────────────────────────────────
@@ -133,7 +133,15 @@ export function pushPipelineList(): void {
 // ── Parse current URL ───────────────────────────────────────────
 
 export function parseRoute(): { type: string; dashboardId?: string; pipelineId?: string } {
-  const path = stripBase(window.location.pathname)
+  let path = stripBase(window.location.pathname)
+
+  // Old path (/settings?section=license): move the URL to the current one
+  // so ?section= and later navigation see the canonical path.
+  const alias = PATH_ALIASES[path]
+  if (alias) {
+    history.replaceState(null, '', withBase(alias) + window.location.search + window.location.hash)
+    path = alias
+  }
 
   // /dashboards/:id
   const dashMatch = path.match(/^\/dashboards\/(.+)$/)
