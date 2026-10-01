@@ -1,16 +1,25 @@
 ---
 // Self-serve 30-day trial. Posts to the license server's /trial from the
 // browser; the license arrives by email. A page may carry several of these.
-// The fields sit in one row and wrap when the container is narrow.
+// The fields sit in one row and wrap when the container is narrow, or one
+// under the other with layout="stack".
+interface Props {
+  layout?: "row" | "stack";
+}
+const { layout = "row" } = Astro.props;
 ---
 
-<form class="chui-trial not-content" data-trial-form novalidate>
+<form class="chui-trial not-content" data-trial-form data-layout={layout} novalidate>
   <div class="fields">
     <input class="chui-input" type="text" name="name" maxlength="80" placeholder="Name (optional)" aria-label="Name (optional)" autocomplete="name" />
     <input class="chui-input" type="email" name="email" required maxlength="320" placeholder="you@company.com" aria-label="Email" autocomplete="email" />
     <button class="chui-btn" data-variant="solid" type="submit">Start free trial</button>
   </div>
   <p class="chui-status" role="status" hidden></p>
+  <p class="consent">
+    By requesting a trial you agree to the <a href="/terms/">Terms</a> and the
+    <a href="/privacy/">Privacy Policy</a>.
+  </p>
 </form>
 
 <style>
@@ -28,6 +37,23 @@
   }
   .fields button {
     flex: 0 0 auto;
+  }
+  [data-layout="stack"] .fields {
+    flex-direction: column;
+  }
+  [data-layout="stack"] .fields > * {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+  .consent {
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--chui-fg-4);
+  }
+  .consent a {
+    color: var(--chui-fg-3);
+    text-underline-offset: 2px;
   }
 </style>
 
@@ -87,15 +113,7 @@
         }
         if (res.ok && body.success) {
           track("trial_started");
-          say(
-            "ok",
-            [
-              body.message,
-              "Trial license sent to your email. Activate it in Settings → License of your CH-UI instance.",
-            ]
-              .filter(Boolean)
-              .join(" "),
-          );
+          say("ok", "Sent. Your trial license arrives within a minute; check the spam folder too. Upload it in Settings → License.");
           // Stays disabled: one trial per submit, the email is on its way.
           button.textContent = "Trial sent";
           return;

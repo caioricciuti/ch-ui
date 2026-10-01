@@ -65,12 +65,11 @@ const action = endpoint === "/portal" ? "billing_portal" : "resend_license";
           body: JSON.stringify({ email }),
         });
         if (!res.ok) throw new Error(`request failed (${res.status})`);
-        const data = (await res.json()) as { message?: string };
-        say(
-          "ok",
-          data.message ??
-            "If that email matches an active license, we've sent you an email. Check your inbox (and spam).",
-        );
+        // The server answers the same whether or not the address has a
+        // license, so the page says what happens next, not whether it did.
+        say("ok", endpoint === "/portal"
+          ? "Sent. The billing portal link arrives within a minute; check the spam folder too."
+          : "Sent. Your license arrives within a minute; check the spam folder too.");
         track("license_action_sent", { action });
       } catch {
         say("error", `Something went wrong. Please try again, or email ${SUPPORT_EMAIL}.`);
