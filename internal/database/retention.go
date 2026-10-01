@@ -31,21 +31,30 @@ type RetentionConfig struct {
 	ModelRunResults   int `json:"model_run_results"`
 	GitHubSyncLogs    int `json:"github_sync_logs"`
 	GovSchemaChanges  int `json:"gov_schema_changes"`
+	OperationsReports int `json:"operations_reports"`
+	// IncidentAnnotations prunes deployment annotations by when they occurred.
+	IncidentAnnotations int `json:"incident_annotations"`
+	// ResolvedInvestigations prunes resolved performance investigations by
+	// resolved_at; open and monitoring ones are never pruned.
+	ResolvedInvestigations int `json:"resolved_investigations"`
 }
 
 // DefaultRetentionConfig returns the built-in retention windows.
 func DefaultRetentionConfig() RetentionConfig {
 	return RetentionConfig{
-		AuditLogs:         90,
-		AlertEvents:       60,
-		AlertDispatchJobs: 30,
-		ScheduleRuns:      60,
-		PipelineRuns:      90,
-		PipelineRunLogs:   30,
-		ModelRuns:         90,
-		ModelRunResults:   30,
-		GitHubSyncLogs:    30,
-		GovSchemaChanges:  180,
+		AuditLogs:              90,
+		AlertEvents:            60,
+		AlertDispatchJobs:      30,
+		ScheduleRuns:           60,
+		PipelineRuns:           90,
+		PipelineRunLogs:        30,
+		ModelRuns:              90,
+		ModelRunResults:        30,
+		GitHubSyncLogs:         30,
+		GovSchemaChanges:       180,
+		OperationsReports:      180,
+		IncidentAnnotations:    180,
+		ResolvedInvestigations: 180,
 	}
 }
 
@@ -81,22 +90,28 @@ type retentionTarget struct {
 	table  string
 	column string
 	days   func(RetentionConfig) int
+	// filter is an extra constant SQL condition limiting which rows may go.
+	filter string
 }
 
 // retentionTargets is the static list of covered tables. Table and column
 // names are compile-time constants (never user input), so building SQL with
 // fmt.Sprintf below is safe.
 var retentionTargets = []retentionTarget{
-	{"audit_logs", "created_at", func(c RetentionConfig) int { return c.AuditLogs }},
-	{"alert_dispatch_jobs", "created_at", func(c RetentionConfig) int { return c.AlertDispatchJobs }},
-	{"alert_events", "created_at", func(c RetentionConfig) int { return c.AlertEvents }},
-	{"schedule_runs", "created_at", func(c RetentionConfig) int { return c.ScheduleRuns }},
-	{"pipeline_run_logs", "created_at", func(c RetentionConfig) int { return c.PipelineRunLogs }},
-	{"pipeline_runs", "created_at", func(c RetentionConfig) int { return c.PipelineRuns }},
-	{"model_run_results", "created_at", func(c RetentionConfig) int { return c.ModelRunResults }},
-	{"model_runs", "created_at", func(c RetentionConfig) int { return c.ModelRuns }},
-	{"github_sync_logs", "created_at", func(c RetentionConfig) int { return c.GitHubSyncLogs }},
-	{"gov_schema_changes", "created_at", func(c RetentionConfig) int { return c.GovSchemaChanges }},
+	{"audit_logs", "created_at", func(c RetentionConfig) int { return c.AuditLogs }, ""},
+	{"alert_dispatch_jobs", "created_at", func(c RetentionConfig) int { return c.AlertDispatchJobs }, ""},
+	{"alert_events", "created_at", func(c RetentionConfig) int { return c.AlertEvents }, ""},
+	{"schedule_runs", "created_at", func(c RetentionConfig) int { return c.ScheduleRuns }, ""},
+	{"pipeline_run_logs", "created_at", func(c RetentionConfig) int { return c.PipelineRunLogs }, ""},
+	{"pipeline_runs", "created_at", func(c RetentionConfig) int { return c.PipelineRuns }, ""},
+	{"model_run_results", "created_at", func(c RetentionConfig) int { return c.ModelRunResults }, ""},
+	{"model_runs", "created_at", func(c RetentionConfig) int { return c.ModelRuns }, ""},
+	{"github_sync_logs", "created_at", func(c RetentionConfig) int { return c.GitHubSyncLogs }, ""},
+	{"gov_schema_changes", "created_at", func(c RetentionConfig) int { return c.GovSchemaChanges }, ""},
+	{"operations_reports", "created_at", func(c RetentionConfig) int { return c.OperationsReports }, ""},
+	{"incident_deployment_annotations", "occurred_at", func(c RetentionConfig) int { return c.IncidentAnnotations }, ""},
+	// Events cascade with their investigation.
+	{"performance_investigations", "resolved_at", func(c RetentionConfig) int { return c.ResolvedInvestigations }, "status = 'resolved'"},
 }
 
 // GetRetentionConfig loads the stored retention config, falling back to the
@@ -186,7 +201,7 @@ func (db *DB) RunRetention() RetentionStats {
 		// governance pruning does): it sorts before the RFC3339 'T' form for
 		// the same instant, so mixed-format rows are never deleted early.
 		cutoff := started.UTC().AddDate(0, 0, -days).Format("2006-01-02 15:04:05")
-		deleted, err := db.pruneTableBefore(t.table, t.column, cutoff)
+		deleted, err := db.pruneTableBefore(t.table, t.column, t.filter, cutoff)
 		stats.RowsDeleted[t.table] = deleted
 		stats.TotalDeleted += deleted
 		if err != nil {
@@ -214,13 +229,18 @@ func (db *DB) RunRetention() RetentionStats {
 	return stats
 }
 
-// pruneTableBefore deletes rows with column < cutoff in batches of
-// retentionBatchSize, looping until no rows remain, so the write lock is
-// released between batches. Table/column come from retentionTargets only.
-func (db *DB) pruneTableBefore(table, column, cutoff string) (int64, error) {
+// pruneTableBefore deletes rows with column < cutoff (and matching filter,
+// when set) in batches of retentionBatchSize, looping until no rows remain,
+// so the write lock is released between batches. Rows with an empty column
+// are never pruned. Table, column and filter come from retentionTargets only.
+func (db *DB) pruneTableBefore(table, column, filter, cutoff string) (int64, error) {
+	where := fmt.Sprintf("%s <> '' AND %s < ?", column, column)
+	if filter != "" {
+		where += " AND " + filter
+	}
 	query := fmt.Sprintf(
-		`DELETE FROM %s WHERE rowid IN (SELECT rowid FROM %s WHERE %s < ? LIMIT %d)`,
-		table, table, column, retentionBatchSize,
+		`DELETE FROM %s WHERE rowid IN (SELECT rowid FROM %s WHERE %s LIMIT %d)`,
+		table, table, where, retentionBatchSize,
 	)
 	var total int64
 	for {

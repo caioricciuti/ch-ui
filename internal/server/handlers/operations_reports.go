@@ -73,12 +73,19 @@ func (h *OperationsReportsHandler) channels(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *OperationsReportsHandler) saveSettings(w http.ResponseWriter, r *http.Request) {
-	var s database.OperationsReportSettings
+	// Decode over the current settings, so a body without weekday or hour
+	// keeps them instead of saving Sunday 00:00.
+	conn := middleware.GetSession(r).ConnectionID
+	s, err := h.DB.GetOperationsReportSettings(conn)
+	if err != nil {
+		writeError(w, 500, "Could not load report settings")
+		return
+	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&s); err != nil {
 		writeError(w, 400, "Invalid report settings")
 		return
 	}
-	s.ConnectionID = middleware.GetSession(r).ConnectionID
+	s.ConnectionID = conn
 	for i := range s.Recipients {
 		s.Recipients[i] = strings.TrimSpace(s.Recipients[i])
 	}

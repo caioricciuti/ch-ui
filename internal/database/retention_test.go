@@ -193,3 +193,83 @@ func TestOpen_EnablesIncrementalAutoVacuumOnNewDatabases(t *testing.T) {
 		t.Fatalf("expected auto_vacuum=2 (INCREMENTAL) on a new database, got %d", mode)
 	}
 }
+
+func TestRunRetention_OperationsTables(t *testing.T) {
+	db := openTestDB(t)
+	mustExec(t, db, `INSERT INTO connections (id, name, tunnel_token) VALUES ('conn-1', 'test', 'tok-1')`)
+
+	// operations_reports (180 days)
+	for _, r := range []struct {
+		id   string
+		days int
+	}{{"rep-old", 200}, {"rep-new", 10}} {
+		mustExec(t, db,
+			`INSERT INTO operations_reports (id, connection_id, schedule_key, created_at, created_by, payload_json, body_text) VALUES (?, 'conn-1', ?, ?, 'admin', '{}', '')`,
+			r.id, r.id, retentionTimestamp(r.days))
+	}
+
+	// incident_deployment_annotations (180 days, by occurred_at)
+	for _, a := range []struct {
+		id   string
+		days int
+	}{{"ann-old", 200}, {"ann-new", 10}} {
+		mustExec(t, db,
+			`INSERT INTO incident_deployment_annotations (id, connection_id, occurred_at, title, created_by, created_at) VALUES (?, 'conn-1', ?, 'deploy', 'admin', ?)`,
+			a.id, retentionTimestamp(a.days), retentionTimestamp(1))
+	}
+
+	// performance_investigations: only resolved ones, by resolved_at (180 days).
+	// An old open investigation has resolved_at = '' and must survive.
+	for _, inv := range []struct {
+		id, status, resolvedAt string
+	}{
+		{"inv-resolved-old", "resolved", retentionTimestamp(200)},
+		{"inv-resolved-new", "resolved", retentionTimestamp(10)},
+		{"inv-open-old", "open", ""},
+		{"inv-monitoring-old", "monitoring", ""},
+	} {
+		mustExec(t, db,
+			`INSERT INTO performance_investigations (id, connection_id, title, query_hash, database_name, sample_query, status, baseline, created_by, created_at, updated_at, resolved_at)
+			 VALUES (?, 'conn-1', 't', 'h', 'db', 'SELECT 1', ?, '{}', 'admin', ?, ?, ?)`,
+			inv.id, inv.status, retentionTimestamp(400), retentionTimestamp(400), inv.resolvedAt)
+	}
+	mustExec(t, db,
+		`INSERT INTO performance_investigation_events (id, investigation_id, kind, actor, created_at) VALUES ('ev-1', 'inv-resolved-old', 'note', 'admin', ?)`,
+		retentionTimestamp(200))
+
+	stats := db.RunRetention()
+	if stats.LastError != "" {
+		t.Fatalf("retention error: %s", stats.LastError)
+	}
+
+	ids := func(table string) map[string]bool {
+		t.Helper()
+		rows, err := db.conn.Query("SELECT id FROM " + table)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		got := map[string]bool{}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			got[id] = true
+		}
+		return got
+	}
+	if got := ids("operations_reports"); got["rep-old"] || !got["rep-new"] {
+		t.Fatalf("operations_reports after retention: %v", got)
+	}
+	if got := ids("incident_deployment_annotations"); got["ann-old"] || !got["ann-new"] {
+		t.Fatalf("incident_deployment_annotations after retention: %v", got)
+	}
+	got := ids("performance_investigations")
+	if got["inv-resolved-old"] || !got["inv-resolved-new"] || !got["inv-open-old"] || !got["inv-monitoring-old"] {
+		t.Fatalf("performance_investigations after retention: %v", got)
+	}
+	if n := countRows(t, db, "performance_investigation_events"); n != 0 {
+		t.Fatalf("events of a pruned investigation must cascade, %d left", n)
+	}
+}

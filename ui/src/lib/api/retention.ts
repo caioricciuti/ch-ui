@@ -14,6 +14,9 @@ export interface RetentionConfig {
   model_run_results: number
   github_sync_logs: number
   gov_schema_changes: number
+  operations_reports: number
+  incident_annotations: number
+  resolved_investigations: number
 }
 
 export interface RetentionLastRun {

@@ -71,3 +71,46 @@ func TestOperationsReportScheduleNeedsExplicitBackgroundAccount(t *testing.T) {
 		t.Fatalf("unsafe schedule accepted: %d %s", res.Code, res.Body.String())
 	}
 }
+
+func TestOperationsReportSettingsPartialPutKeepsSchedule(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "reports.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err = db.Conn().Exec(`INSERT INTO connections(id,name,tunnel_token) VALUES('a','a','a')`); err != nil {
+		t.Fatal(err)
+	}
+	h := (&OperationsReportsHandler{DB: db, Config: &config.Config{}}).Routes()
+	put := func(body string) {
+		t.Helper()
+		req := httptest.NewRequest("PUT", "/settings", strings.NewReader(body))
+		req = req.WithContext(middleware.SetSession(req.Context(), &middleware.SessionInfo{ConnectionID: "a", UserRole: "admin"}))
+		res := httptest.NewRecorder()
+		h.ServeHTTP(res, req)
+		if res.Code != 200 {
+			t.Fatalf("PUT %s: %d %s", body, res.Code, res.Body.String())
+		}
+	}
+
+	// No row yet: omitted fields keep the Monday 09:00 default.
+	put(`{"enabled":false}`)
+	s, err := db.GetOperationsReportSettings("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Weekday != 1 || s.Hour != 9 {
+		t.Fatalf("partial PUT on defaults saved weekday=%d hour=%d, want 1 and 9", s.Weekday, s.Hour)
+	}
+
+	// Saved schedule: changing only the hour keeps the weekday.
+	put(`{"weekday":3,"hour":7}`)
+	put(`{"hour":15}`)
+	s, err = db.GetOperationsReportSettings("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Weekday != 3 || s.Hour != 15 {
+		t.Fatalf("partial PUT lost fields: %+v", s)
+	}
+}

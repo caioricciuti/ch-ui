@@ -37,7 +37,7 @@ Exposed series include:
 
 | Metric | Type | Description |
 |---|---|---|
-| `ch_ui_build_info{version,commit,go_version}` | gauge | Always `1`; the labels carry the CH-UI version, commit and Go version |
+| `ch_ui_build_info{go_version}` | gauge | Always `1`; the label carries the Go version. The CH-UI version and commit are not exposed here (v2.14.3+), see [Health](#health) for how to read the version |
 | `ch_ui_uptime_seconds` | gauge | Seconds since start |
 | `ch_ui_http_requests_total{class}` | counter | Requests by status class (`2xx`…`5xx`) |
 | `ch_ui_http_requests_in_flight` | gauge | In-flight requests |

@@ -67,7 +67,7 @@ Viewers have no access. The combined view is admin-only because retained samples
 
 Creating and deleting annotations is recorded in the [audit log](/docs/audit-log) as `incident.annotation.created` and `incident.annotation.deleted`, with the annotation id in the details.
 
-Annotations are kept in the CH-UI SQLite database until the connection is deleted. They are not covered by the data retention settings.
+Annotations are pruned 180 days after the deployment they mark (v2.14.3+; change it under [Data Retention](/docs/admin#data-retention), `incident_annotations`).
 
 ## API
 
