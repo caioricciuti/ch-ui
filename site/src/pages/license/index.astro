@@ -61,7 +61,7 @@ const trialPoints = [
       </div>
 
       <h2 class="sub-head">Already a customer?</h2>
-      <div class="frame">
+      <div class="frame stacked">
         <div class="cell">
           <h3>Re-send my license</h3>
           <p>Enter the email you purchased with and we'll re-send your license.json.</p>
@@ -93,6 +93,20 @@ const trialPoints = [
 </Landing>
 
 <style>
+  /* One row per action, the whole width, instead of two side by side. */
+  .stacked {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .stacked .cell {
+    border-inline-start: 0;
+    border-top: 1px solid var(--chui-edge-subtle);
+  }
+  .stacked .cell:first-child {
+    border-top: 0;
+  }
+  .stacked :global(.chui-email .fields) {
+    max-width: 28rem;
+  }
   .featured {
     box-shadow: inset 0 2px 0 var(--chui-accent);
   }
