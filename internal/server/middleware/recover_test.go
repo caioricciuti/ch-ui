@@ -100,4 +100,10 @@ func TestMetrics_RecordsAndExports(t *testing.T) {
 			t.Errorf("metrics output missing %q", want)
 		}
 	}
+	// Unauthenticated: the build must not be identifiable.
+	for _, banned := range []string{"version=", "commit="} {
+		if strings.Contains(body, "ch_ui_build_info{"+banned) || strings.Contains(body, ","+banned) {
+			t.Errorf("metrics output exposes %q", banned)
+		}
+	}
 }

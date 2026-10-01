@@ -33,6 +33,9 @@
     { key: 'model_run_results', label: 'Model run results', holds: 'Per-model result of a run' },
     { key: 'github_sync_logs', label: 'GitHub sync logs', holds: 'What each repository sync changed' },
     { key: 'gov_schema_changes', label: 'Schema changes', holds: 'Governance record of table and column changes' },
+    { key: 'operations_reports', label: 'Operations reports', holds: 'Weekly reports and their delivery state' },
+    { key: 'incident_annotations', label: 'Deployment annotations', holds: 'Deployments marked on the incident timeline' },
+    { key: 'resolved_investigations', label: 'Resolved investigations', holds: 'Performance investigations after they are resolved; open ones are kept' },
   ]
 
   type RetentionRow = {

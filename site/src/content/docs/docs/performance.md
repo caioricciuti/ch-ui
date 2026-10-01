@@ -101,7 +101,7 @@ There is no email, webhook or alert when a background scan finds a regression. U
 
 Interactive scans are also limited by what your ClickHouse account can read. Investigation changes are not written to the [audit log](/docs/audit-log).
 
-Investigations and background scan results are kept in the CH-UI SQLite database until the connection is deleted. They are not covered by the data retention settings.
+Resolved investigations are pruned 180 days after they were resolved (v2.14.3+; change it under [Data Retention](/docs/admin#data-retention), `resolved_investigations`). Open and monitoring investigations, and the background scan result, are kept until the connection is deleted.
 
 ## Fleet overview
 

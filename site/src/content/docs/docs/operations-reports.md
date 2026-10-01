@@ -90,7 +90,7 @@ These actions are recorded in the [audit log](/docs/audit-log):
 
 Scheduled generation and delivery attempts are not written to the audit log.
 
-Reports are kept in the CH-UI SQLite database until the connection is deleted. They are not covered by the data retention settings.
+Reports are pruned 180 days after they were generated (v2.14.3+; change it under [Data Retention](/docs/admin#data-retention), `operations_reports`).
 
 ## API
 
@@ -110,4 +110,4 @@ PUT /api/operations-reports/settings
 { "enabled": true, "weekday": 1, "hour": 9, "channel_id": "ch_123", "recipients": ["data-team@example.com"] }
 ```
 
-Send every field: a missing `weekday` or `hour` is saved as `0`. `send` returns `409` if the report is already queued and `400` if no channel and recipients are saved.
+Omitted fields keep their saved value (v2.14.3+; before that a missing `weekday` or `hour` was saved as `0`). `send` returns `409` if the report is already queued and `400` if no channel and recipients are saved.

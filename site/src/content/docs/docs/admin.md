@@ -157,6 +157,9 @@ PUT /api/admin/retention
 | `model_run_results` | 30 days |
 | `github_sync_logs` | 30 days |
 | `gov_schema_changes` | 180 days |
+| `operations_reports` | 180 days |
+| `incident_annotations` (`incident_deployment_annotations`, by when the deployment happened) | 180 days |
+| `resolved_investigations` (`performance_investigations` that are resolved, by resolution time; open and monitoring ones are never pruned) | 180 days |
 
 Set a window to `0` to keep that table forever (pruning disabled); the maximum is 3650 days. The background job runs hourly and deletes in small batches so it never holds the SQLite write lock for long. Config changes are recorded in the audit log (`retention.config_update`).
 

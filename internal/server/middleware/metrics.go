@@ -11,8 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/caioricciuti/ch-ui/internal/version"
 )
 
 // metricsState holds lightweight, dependency-free server metrics exported in
@@ -121,10 +119,12 @@ func MetricsHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 
+		// No version or commit: /metrics is unauthenticated, and naming the
+		// exact build tells a scanner which advisories apply (same reason
+		// /health dropped it in #177).
 		fmt.Fprintf(w, "# HELP ch_ui_build_info Build information.\n")
 		fmt.Fprintf(w, "# TYPE ch_ui_build_info gauge\n")
-		fmt.Fprintf(w, "ch_ui_build_info{version=%q,commit=%q,go_version=%q} 1\n",
-			version.Version, version.Commit, runtime.Version())
+		fmt.Fprintf(w, "ch_ui_build_info{go_version=%q} 1\n", runtime.Version())
 
 		fmt.Fprintf(w, "# HELP ch_ui_uptime_seconds Seconds since the server started.\n")
 		fmt.Fprintf(w, "# TYPE ch_ui_uptime_seconds gauge\n")
