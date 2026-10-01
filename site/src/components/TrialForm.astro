@@ -60,6 +60,7 @@ const { layout = "row" } = Astro.props;
 <script>
   import { LICENSE_SERVER_URL, SUPPORT_EMAIL } from "../lib/license-server";
   import { track } from "../lib/analytics";
+  import { showDone } from "../lib/forms";
 
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const GENERIC = `Something went wrong. Please try again, or email ${SUPPORT_EMAIL}.`;
@@ -113,9 +114,11 @@ const { layout = "row" } = Astro.props;
         }
         if (res.ok && body.success) {
           track("trial_started");
-          say("ok", "Sent. Your trial license arrives within a minute; check the spam folder too. Upload it in Settings → License.");
-          // Stays disabled: one trial per submit, the email is on its way.
-          button.textContent = "Trial sent";
+          showDone(
+            form,
+            "Check your inbox.",
+            "The email arrives within a minute; look in the spam folder too. If this address already had a license, that is what you get, not a second trial. Upload the file in Settings → License.",
+          );
           return;
         }
         const limited = res.status === 429;

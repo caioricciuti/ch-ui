@@ -32,6 +32,7 @@ const action = endpoint === "/portal" ? "billing_portal" : "resend_license";
 <script>
   import { LICENSE_SERVER_URL, SUPPORT_EMAIL } from "../lib/license-server";
   import { track } from "../lib/analytics";
+  import { showDone } from "../lib/forms";
 
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -67,10 +68,15 @@ const action = endpoint === "/portal" ? "billing_portal" : "resend_license";
         if (!res.ok) throw new Error(`request failed (${res.status})`);
         // The server answers the same whether or not the address has a
         // license, so the page says what happens next, not whether it did.
-        say("ok", endpoint === "/portal"
-          ? "Sent. The billing portal link arrives within a minute; check the spam folder too."
-          : "Sent. Your license arrives within a minute; check the spam folder too.");
+        showDone(
+          form,
+          "Check your inbox.",
+          endpoint === "/portal"
+            ? "If this address has a subscription, the billing portal link arrives within a minute; look in the spam folder too."
+            : "If this address has a license, it arrives within a minute; look in the spam folder too.",
+        );
         track("license_action_sent", { action });
+        return;
       } catch {
         say("error", `Something went wrong. Please try again, or email ${SUPPORT_EMAIL}.`);
         track("license_action_failed", { action });

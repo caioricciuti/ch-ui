@@ -32,6 +32,7 @@ const { placement } = Astro.props;
 
 <script>
   import { track } from "../lib/analytics";
+  import { showDone } from "../lib/forms";
 
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const GENERIC = "Something went wrong. Please try again later.";
@@ -76,10 +77,8 @@ const { placement } = Astro.props;
           // Non-JSON body: the status decides below.
         }
         if (res.ok && data.success) {
-          say("ok", "You're in. Release notes and tips, straight to your inbox.");
+          showDone(form, "You're in.", "Release notes and tips, straight to your inbox. Unsubscribe with one click, any time.");
           track("newsletter_success", { placement });
-          // Stays disabled: the address is on the list.
-          button.textContent = "Subscribed";
           return;
         }
         say("error", data.error ?? GENERIC);
