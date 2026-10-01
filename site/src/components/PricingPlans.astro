@@ -1,0 +1,225 @@
+---
+// The plans, as one frame: Open Source and Pro side by side, then the trial
+// and the enterprise line underneath. One copy for /pricing and the docs
+// pricing page; the price itself lives in Stripe. Each plan puts its action
+// above its list, so the two buttons line up whatever the list lengths.
+import BuyProButton from "./BuyProButton.astro";
+import TrialForm from "./TrialForm.astro";
+
+const OSS_FEATURES = [
+  "SQL editor with query history, query parameters, result sort & filter, jump-to-error",
+  "Saved queries, dashboards with shareable public links",
+  "Pipelines & dbt-style models, with cron schedules for models",
+  "Brain AI chat (bring your own key); Ask AI and agentic tools are Pro",
+  "MCP server for Claude, ChatGPT, Cursor and VS Code",
+  "OpenTelemetry logs: search, facets, live tail",
+  "Admin panel: users, roles, multiple connections",
+  "Tunnel connector, no inbound ports",
+];
+
+const PRO_FEATURES = [
+  "Everything in Open Source",
+  "Governance: catalog, guardrails, incidents, audit",
+  "Cluster Health: per-node replication, merges, parts, Keeper, backups",
+  "Query Insights: query_log analytics (latency, slow queries, failures, hot tables)",
+  "Cost Center: showback and chargeback by team",
+  "Performance: regression scans and before/after investigations",
+  "Fleet overview, incident timeline and weekly reports",
+  "Schema comparison across environments",
+  "Telemetry: traces, metrics, service map, monitors",
+  "Scheduled query jobs and parameterized saved-query runs",
+  "Alerts: channels, rules & delivery",
+  "Ask AI (text-to-SQL) and Brain agentic tools",
+  "GitHub sync for models",
+  "SSO / OIDC with per-person roles",
+  "Audit forwarding to your SIEM (webhook, file, stdout)",
+  "MCP Pro tools and command palette Pro search",
+  "Priority support",
+];
+---
+
+<div class="plans not-content">
+  <section class="plan">
+    <h3>Open Source</h3>
+    <p class="price"><strong>Free</strong> Apache-2.0, forever</p>
+    <p class="blurb">
+      The core, on your own box. One binary, state in a local SQLite file, no external services.
+      Unlimited users.
+    </p>
+    <div class="cta">
+      <a class="chui-btn" href="/docs/installation/" data-cta="pricing_community_selfhost">Self-hosting guide</a>
+    </div>
+    <ul>
+      {OSS_FEATURES.map((f) => <li>{f}</li>)}
+    </ul>
+  </section>
+
+  <section class="plan" data-featured>
+    <h3>Pro</h3>
+    <p class="price"><strong>$1,199</strong> per instance, per year</p>
+    <p class="blurb">
+      Every Pro feature on your own hardware. Flat, never per seat. The license arrives by email
+      and activates offline, with no call-home.
+    </p>
+    <div class="cta">
+      <BuyProButton />
+      <a class="chui-btn" href="#trial" data-cta="pricing_trial_jump">Try free for 30 days</a>
+    </div>
+    <ul>
+      {PRO_FEATURES.map((f) => <li>{f}</li>)}
+    </ul>
+  </section>
+
+  <section class="band" id="trial">
+    <div>
+      <h3>Try Pro free for 30 days</h3>
+      <p class="blurb">No card, no sales call. A trial license lands in your inbox and unlocks everything.</p>
+    </div>
+    <TrialForm />
+  </section>
+
+  <section class="band">
+    <div>
+      <h3>Enterprise</h3>
+      <p class="blurb">Multiple instances, volume pricing, invoice billing, security review, custom terms.</p>
+    </div>
+    <a class="chui-btn" href="mailto:me@caioricciuti.com?subject=CH-UI%20Enterprise" data-cta="enterprise_contact">Talk to us</a>
+  </section>
+</div>
+<p class="foot not-content">
+  Lost your license, or need to change billing?{" "}
+  <a href="/license">Self-serve at /license</a>.
+</p>
+
+<style>
+  .plans {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-block: 1.5rem 0;
+    border: 1px solid var(--chui-edge);
+    border-radius: 10px;
+    background: var(--chui-surface);
+    overflow: hidden;
+    /* The trial link jumps here; keep the band clear of a sticky header. */
+    scroll-margin-top: 5rem;
+  }
+  .plan {
+    padding: 1.75rem;
+  }
+  .plan + .plan {
+    border-inline-start: 1px solid var(--chui-edge-subtle);
+  }
+  /* The paid plan carries the accent as a line along its top edge. */
+  .plan[data-featured] {
+    box-shadow: inset 0 2px 0 var(--chui-accent);
+  }
+  h3 {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 560;
+    letter-spacing: -0.01em;
+    color: var(--chui-fg);
+  }
+  .price {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin: 0.9rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--chui-fg-3);
+  }
+  .price strong {
+    font-size: 2.1rem;
+    font-weight: 560;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: var(--chui-fg);
+  }
+  .blurb {
+    margin: 0.75rem 0 0;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: var(--chui-fg-3);
+  }
+  .plan .blurb {
+    min-height: 4.2rem;
+  }
+  .cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1.1rem;
+    padding-bottom: 1.4rem;
+    border-bottom: 1px solid var(--chui-edge-subtle);
+  }
+  ul {
+    display: grid;
+    gap: 0.5rem;
+    margin: 1.4rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  li {
+    position: relative;
+    padding-inline-start: 1.4rem;
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    color: var(--chui-fg-2);
+  }
+  /* A check mark drawn from two borders, in the accent. */
+  li::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 0.2rem;
+    top: 0.28rem;
+    width: 0.28rem;
+    height: 0.55rem;
+    border: solid var(--chui-accent);
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg);
+  }
+  .band {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+    gap: 1rem 2rem;
+    align-items: center;
+    padding: 1.4rem 1.75rem;
+    border-top: 1px solid var(--chui-edge-subtle);
+    scroll-margin-top: 5rem;
+  }
+  .band .blurb {
+    margin-top: 0.3rem;
+  }
+  .band > a {
+    justify-self: end;
+  }
+  .foot {
+    margin: 0.9rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--chui-fg-3);
+  }
+  .foot a {
+    color: var(--chui-fg-2);
+    text-underline-offset: 3px;
+    text-decoration-color: var(--chui-fg-4);
+  }
+  @media (max-width: 44rem) {
+    .plans {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .plan + .plan {
+      border-inline-start: 0;
+      border-top: 1px solid var(--chui-edge-subtle);
+    }
+    .plan .blurb {
+      min-height: 0;
+    }
+    .band {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .band > a {
+      justify-self: start;
+    }
+  }
+</style>

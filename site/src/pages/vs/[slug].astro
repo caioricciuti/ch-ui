@@ -1,0 +1,93 @@
+---
+// The /vs/* comparison pages, one per entry in data/comparisons.ts. The
+// layout, table, FAQ and structured data are the same for all of them.
+import Landing from "../../layouts/Landing.astro";
+import Faq from "../../components/Faq.astro";
+import { comparisons, type ComparisonData } from "../../data/comparisons";
+import { faqJsonLd } from "../../lib/faq";
+
+export function getStaticPaths() {
+  return comparisons.map((data) => ({ params: { slug: data.slug }, props: { data } }));
+}
+
+interface Props {
+  data: ComparisonData;
+}
+const { data } = Astro.props;
+const jsonLd = { "@context": "https://schema.org", ...faqJsonLd(data.faq) };
+---
+
+<Landing title={data.metaTitle} description={data.metaDescription} jsonLd={jsonLd}>
+  <section class="page-head">
+    <div class="container">
+      <p class="label">Compare</p>
+      <h1>CH-UI vs {data.name} for ClickHouse</h1>
+      <p class="lead">{data.verdict}</p>
+    </div>
+  </section>
+
+  <section class="page-body">
+    <div class="container">
+      <div class="frame">
+        <div class="cell">
+          <h2>Choose {data.name} if…</h2>
+          <ul class="checks">
+            {data.chooseCompetitor.map((item) => <li>{item}</li>)}
+          </ul>
+        </div>
+        <div class="cell">
+          <h2>Choose CH-UI if…</h2>
+          <ul class="checks">
+            {data.chooseChui.map((item) => <li>{item}</li>)}
+          </ul>
+        </div>
+      </div>
+
+      <h2 class="sub-head">{data.name} vs CH-UI, feature by feature</h2>
+      <div class="compare-wrap">
+        <table class="compare">
+          <thead>
+            <tr>
+              <th></th>
+              <th>{data.name}</th>
+              <th>CH-UI</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((row) => (
+              <tr>
+                <th scope="row">{row.aspect}</th>
+                <td>{row.competitor}</td>
+                <td>{row.chui}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="faq">
+    <div class="container two-col">
+      <header class="section-head">
+        <p class="label">Questions</p>
+        <h2>{data.name} and CH-UI.</h2>
+      </header>
+      <Faq items={data.faq} />
+    </div>
+  </section>
+
+  <section class="section closing">
+    <div class="container">
+      <h2>Try CH-UI on your own ClickHouse.</h2>
+      <p>
+        Self-host the Apache-2.0 core for free, or start a 30-day Pro trial: no card, no sales call, license delivered
+        by email.
+      </p>
+      <div class="actions">
+        <a class="chui-btn" data-variant="solid" data-size="lg" href="/license/" data-cta={`vs_${data.slug}_trial`}>Start free trial</a>
+        <a class="chui-btn" data-size="lg" href="/docs/" data-cta={`vs_${data.slug}_docs`}>Read the docs</a>
+      </div>
+    </div>
+  </section>
+</Landing>

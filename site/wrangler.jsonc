@@ -1,0 +1,37 @@
+// ch-ui.com on Cloudflare Workers. The dashboard project is a Worker
+// connected to this repository with root directory /site; its build runs
+// `bun run build`, then a wrangler deploy that reads this file, uploads
+// dist/ as static assets and bundles worker/index.ts. Nothing here runs on
+// a developer's machine.
+//
+// The deploy command in the dashboard pins wrangler to an exact version
+// (4.136.3 as of 2026-10-01), because that step holds the account's deploy
+// credentials and an unpinned wrangler would run whatever was published
+// minutes ago. Bump the pin by hand, to a version at least seven days old,
+// as with every other dependency.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Must match the Worker's name in the Cloudflare dashboard.
+  "name": "ch-ui",
+  "compatibility_date": "2026-09-01",
+  // The newsletter endpoint. Its secrets (RESEND_API_KEY, RESEND_SEGMENT_ID)
+  // are set in the dashboard under the Worker's Variables and Secrets.
+  "main": "./worker/index.ts",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "html_handling": "auto-trailing-slash",
+    // Every page is a static asset; only /api/* runs the Worker.
+    "run_worker_first": ["/api/*"]
+  },
+  // Five sign-ups a minute per client address. namespace_id is any integer
+  // unique within the account.
+  "ratelimits": [
+    {
+      "name": "NEWSLETTER_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 5, "period": 60 }
+    }
+  ]
+}

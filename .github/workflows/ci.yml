@@ -122,3 +122,30 @@ jobs:
 
       - name: Build
         run: bun run build
+
+  site:
+    name: Site (Astro)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: site/.bun-version
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Dependency audit
+        run: bun audit
+
+      # The build is the check: it regenerates the changelog page from
+      # CHANGELOG.md, renders every page and fails on a sidebar entry that
+      # names a page which does not exist.
+      - name: Build
+        run: bun run build

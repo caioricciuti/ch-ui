@@ -1,0 +1,77 @@
+---
+// The repository's star count, fetched by the browser from GitHub's public
+// API and cached in local storage for six hours. Empty until a count is
+// known, and stays empty when GitHub rate-limits or the network is down.
+---
+
+<span data-gh-stars hidden></span>
+
+<script>
+  const REPO_API = "https://api.github.com/repos/caioricciuti/ch-ui";
+  const CACHE_KEY = "chui:gh-stars";
+  const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
+  interface StarsCache {
+    count: number;
+    fetchedAt: number;
+  }
+
+  function readCache(): number | null {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<StarsCache>;
+      if (
+        typeof parsed.count !== "number" ||
+        typeof parsed.fetchedAt !== "number" ||
+        Date.now() - parsed.fetchedAt > CACHE_TTL_MS
+      ) {
+        return null;
+      }
+      return parsed.count;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeCache(count: number): void {
+    try {
+      const cache: StarsCache = { count, fetchedAt: Date.now() };
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+    } catch {
+      /* storage unavailable: skip caching */
+    }
+  }
+
+  function format(count: number): string {
+    if (count < 1000) return String(count);
+    const k = count / 1000;
+    return `${k >= 10 ? Math.round(k) : Math.round(k * 10) / 10}k`;
+  }
+
+  const targets = document.querySelectorAll<HTMLElement>("[data-gh-stars]");
+  const show = (count: number) => {
+    for (const el of targets) {
+      el.textContent = format(count);
+      el.hidden = false;
+    }
+  };
+
+  if (targets.length > 0) {
+    const cached = readCache();
+    if (cached !== null) {
+      show(cached);
+    } else {
+      fetch(REPO_API, { headers: { Accept: "application/vnd.github+json" } })
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+        .then((data: { stargazers_count?: unknown }) => {
+          if (typeof data.stargazers_count !== "number") return;
+          writeCache(data.stargazers_count);
+          show(data.stargazers_count);
+        })
+        .catch(() => {
+          /* rate-limited or offline: stay hidden */
+        });
+    }
+  }
+</script>

@@ -1,0 +1,58 @@
+---
+// Starts Stripe Checkout: asks the license server for a session URL and
+// sends the browser there. Stripe collects the email.
+interface Props {
+  size?: "lg";
+}
+const { size } = Astro.props;
+---
+
+<span class="chui-buy not-content" data-buy-pro>
+  <button class="chui-btn" data-variant="solid" data-size={size} type="button">Buy Pro license</button>
+  <span class="chui-status" data-tone="error" role="status" hidden></span>
+</span>
+
+<style>
+  .chui-buy {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+  }
+</style>
+
+<script>
+  import { LICENSE_SERVER_URL, SUPPORT_EMAIL } from "../lib/license-server";
+  import { track } from "../lib/analytics";
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-buy-pro]")) {
+    const button = root.querySelector("button");
+    const status = root.querySelector<HTMLElement>(".chui-status");
+    if (!button || !status) continue;
+
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      button.textContent = "Redirecting to checkout…";
+      status.hidden = true;
+      track("pro_checkout_started");
+      try {
+        const res = await fetch(`${LICENSE_SERVER_URL}/checkout`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        if (!res.ok) throw new Error(`checkout failed (${res.status})`);
+        const data = (await res.json()) as { url?: string };
+        if (!data.url) throw new Error("no checkout url");
+        track("pro_checkout_redirected");
+        window.location.assign(data.url);
+      } catch {
+        track("pro_checkout_failed");
+        status.textContent = `Could not start checkout. Please try again, or email ${SUPPORT_EMAIL}.`;
+        status.hidden = false;
+        button.disabled = false;
+        button.textContent = "Buy Pro license";
+      }
+    });
+  }
+</script>

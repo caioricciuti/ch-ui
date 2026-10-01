@@ -1,0 +1,304 @@
+---
+title: Models (SQL Transformations)
+description: dbt-compatible SQL models with ref/source/config templating, dependency resolution, DAG execution, tests, and scheduling
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+Models let you define SQL transformations that materialize as ClickHouse views or tables. Dependencies are declared with dbt-style `{{ ref('model') }}` templating, resolved into a DAG, and executed in topological order.
+
+The model system is **file-compatible with dbt-core** for ClickHouse: you can sync models to a GitHub repo as a dbt project and bring existing dbt models in. See [GitHub Sync](/docs/github).
+
+Available on all plans (limits scale by plan).
+
+## Overview
+
+Each model has:
+
+- **A name** (valid ClickHouse identifier, unique per connection)
+- **A SQL body** (with optional `{{ ref() }}` / `{{ source() }}` references)
+- **A materialization** (`view`, `table`, `incremental`, or `materialized_view`)
+- **A target database** (where the view/table is created)
+
+Models are scoped to a ClickHouse connection. Execution runs through the tunnel gateway with the connection's `model` [background account](/docs/background-accounts). This applies to scheduled and manual runs alike.
+
+## Creating a Model
+
+Navigate to **Models** in the sidebar and click **New Model**.
+
+| Field | Description | Default |
+|---|---|---|
+| Name | Valid ClickHouse identifier (`^[a-zA-Z_][a-zA-Z0-9_]*$`) | Required |
+| Description | Free-text description | Empty |
+| Target Database | ClickHouse database for the output | `default` |
+| Materialization | `view`, `table`, `incremental`, or `materialized_view` | `view` |
+| SQL Body | The SELECT query (may contain `{{ ref() }}` / `{{ source() }}`) | Required |
+| Table Engine | ClickHouse engine (table-like materializations) | `MergeTree` |
+| ORDER BY | ClickHouse ORDER BY clause (table-like materializations) | `tuple()` |
+| Incremental Column | Watermark column (incremental only) | None |
+
+### Materialization Types
+
+| Type | Behavior |
+|---|---|
+| `view` | `CREATE OR REPLACE VIEW`, replaced in place |
+| `table` | `DROP TABLE` + `CREATE TABLE ... ENGINE = engine ORDER BY order_by AS {SQL}`, full rebuild each run |
+| `incremental` | First run builds the table; subsequent runs `INSERT` only new rows where `incremental_column > max(incremental_column)` |
+| `materialized_view` | Creates a target table + a ClickHouse `MATERIALIZED VIEW` trigger; accumulated data is preserved across runs |
+
+These map directly to the **dbt-clickhouse** adapter's `materialized` config values.
+
+## Templating (dbt-compatible)
+
+CH-UI resolves dbt-style templating at execution time. The supported tags are `ref`, `source`, `this`, and `config`. Legacy `$ref(model)` syntax still works as an alias for `{{ ref('model') }}`.
+
+### `ref`: reference another model
+
+```sql
+select
+  a.user_id,
+  a.total_orders,
+  b.lifetime_value
+from {{ ref('user_orders') }} a
+join {{ ref('user_revenue') }} b on a.user_id = b.user_id
+```
+
+resolves to:
+
+```sql
+from `analytics`.`user_orders` a
+join `analytics`.`user_revenue` b on a.user_id = b.user_id
+```
+
+Both `{{ ref('name') }}` and `{{ ref('package', 'name') }}` (last argument is the model) are accepted.
+
+### `source`: reference an external table
+
+```sql
+select * from {{ source('raw', 'events') }}
+```
+
+Sources are defined in a `sources.yml` (dbt `version: 2` shape) and resolve to `` `database`.`identifier` ``. Sources are external inputs: they are **not** model dependencies and don't appear in the DAG.
+
+### `this`: the model's own table
+
+Useful for incremental logic: `{{ this }}` resolves to the model's own `` `target_database`.`name` ``.
+
+### `config`: inline configuration
+
+A `{{ config(...) }}` header carries the model's settings, mapped to the **dbt-clickhouse** adapter:
+
+```sql
+{{ config(materialized='table', engine='MergeTree()', order_by='(event_date, user_id)', unique_key='id', connection='production') }}
+select ...
+```
+
+| config key | Maps to |
+|---|---|
+| `materialized` | Materialization (`view` / `table` / `incremental` / `materialized_view`) |
+| `engine` | Table engine |
+| `order_by` | ORDER BY clause |
+| `unique_key` | Incremental unique key |
+| `database` | Target database |
+| `incremental_column` | Watermark column (CH-UI extension) |
+| `connection` | CH-UI connection by **name** (CH-UI extension; see [GitHub Sync](/docs/github)) |
+
+In the UI these are edited as form fields. When synced to GitHub the config block is generated from the fields, and on import it is parsed back into them, so the structured fields always stay canonical and the config block never lives in the stored SQL body.
+
+### Resolution rules
+
+- `{{ ref('name') }}` / `$ref(name)` becomes `` `target_database`.`name` `` (backtick-escaped)
+- References inside SQL comments (`--` and `/* */`) are ignored; comments are stripped before extraction
+- Each unique `ref` creates a dependency edge in the DAG
+- Unresolved `ref`/`source` (pointing at something that doesn't exist) causes a validation error
+- Unsupported Jinja (macros, `{{ var() }}`, `{% if %}`, `is_incremental()`, …) is **not** evaluated. Unparseable files are skipped and reported in the sync log; see [GitHub Sync → Sync semantics](/docs/github#sync-semantics)
+
+## Data Tests
+
+Attach data tests to a model to validate its output after it materializes. These map 1:1 to dbt generic tests in `schema.yml`.
+
+| Test | Checks |
+|---|---|
+| `not_null` | No NULLs in the column |
+| `unique` | No duplicate values in the column |
+| `accepted_values` | Column only contains values from a given set |
+| `relationships` | Every value exists in a referenced model's column (foreign key) |
+| `custom_sql` | A user-provided query returning a `failures` count (0 = pass) |
+
+Each test has a severity of `error` (fails the model, skips downstream) or `warn` (logged, non-blocking). Run tests alongside models with **Build** (`dbt build` equivalent).
+
+## DAG & Dependencies
+
+Models form a **Directed Acyclic Graph (DAG)**. CH-UI uses **Kahn's algorithm** for topological sorting and cycle detection.
+
+### How It Works
+
+1. Extract `{{ ref() }}` / `$ref()` calls from each model's SQL body
+2. Build a dependency graph (model A depends on model B if A references B)
+3. Topologically sort using Kahn's algorithm (process models with zero in-degree first)
+4. If fewer models are processed than exist in the graph, a cycle is detected
+
+### Validation Checks
+
+| Check | Error |
+|---|---|
+| Unknown reference | `references unknown model 'foo' via $ref()` |
+| Self-reference | `cannot reference itself via $ref(model_name)` |
+| Circular dependency | `cycle detected in model dependencies` |
+
+Run validation anytime from the UI or via `GET /api/models/validate`.
+
+## Execution
+
+Three execution modes are available. All acquire a per-connection lock to prevent concurrent runs.
+
+### Run All
+
+Executes every model in the connection in topological order.
+
+```
+POST /api/models/run
+```
+
+### Run Single
+
+Executes one model plus all its **transitive upstream dependencies** (recursive walk).
+
+```
+POST /api/models/{id}/run
+```
+
+Use this when working on a specific model: its dependencies are automatically rebuilt first.
+
+### Run Pipeline
+
+Executes all models in the same **connected component** (see Pipelines below).
+
+```
+POST /api/models/pipelines/{anchorId}/run
+```
+
+### Execution Steps (Per Model)
+
+1. **Check upstream failures**: if any dependency failed, skip this model
+2. **Resolve templating**: replace `{{ ref() }}` / `{{ source() }}` / `{{ this }}` with fully-qualified table names
+3. **Generate DDL**: `CREATE OR REPLACE VIEW` or `DROP TABLE + CREATE TABLE ... AS`
+4. **Execute via tunnel**: 5-minute timeout per statement
+5. **Record result**: status, elapsed time, error (if any)
+
+### Cascade Failures
+
+If an upstream model fails, all downstream models are marked as `skipped`. The run status becomes `partial` (mix of success and failure) or `error` (all failed/skipped).
+
+## Pipelines
+
+A **pipeline** is a group of models that are transitively connected: they directly or indirectly depend on each other. Models with no connections to each other form separate pipelines.
+
+### How Pipelines Are Detected
+
+CH-UI treats the dependency graph as undirected and finds **connected components** via BFS. Each component is an independent pipeline.
+
+### Anchor Model
+
+Each pipeline is identified by its **anchor model**: the first model in topological order within the component. The anchor ID is used for scheduling and pipeline execution.
+
+### Example
+
+```
+Pipeline 1: raw_events → cleaned_events → daily_aggregates
+Pipeline 2: user_signups → user_cohorts (independent, separate schedule)
+```
+
+## Scheduling
+
+Each pipeline can have its own cron schedule. The scheduler checks for due schedules every **30 seconds**.
+
+### Creating a Schedule
+
+Navigate to the pipeline view and click **Schedule** on a pipeline card.
+
+| Field | Description |
+|---|---|
+| Cron | 5-field cron expression (minute hour dom month dow) |
+| Enabled | Toggle to pause/resume |
+
+### Cron Syntax
+
+Standard 5-field format:
+
+| Field | Range | Special |
+|---|---|---|
+| Minute | 0-59 | `*`, `,`, `-`, `/` |
+| Hour | 0-23 | `*`, `,`, `-`, `/` |
+| Day of month | 1-31 | `*`, `,`, `-`, `/` |
+| Month | 1-12 | `*`, `,`, `-`, `/` |
+| Day of week | 0-6 (Sun=0) | `*`, `,`, `-`, `/` |
+
+Examples:
+
+```
+0 9 * * *     # Daily at 9:00 AM
+0 */6 * * *   # Every 6 hours
+30 2 * * 0    # Sundays at 2:30 AM
+0 0 1 * *     # First of month at midnight
+```
+
+### Execution
+
+When a schedule fires, the scheduler calls `RunPipeline` for the anchor model's connected component. The `triggered_by` field is set to `"scheduler"`.
+
+Credentials come from the `model` [background account](/docs/background-accounts): a dedicated ClickHouse account, or in the default session mode a borrowed active session (up to 3 recent sessions are tried). If no credentials are available, or the worker is disabled, the run fails. Disabled blocks manual runs too.
+
+## DAG Visualization
+
+The **DAG View** renders models as an interactive graph using XyFlow.
+
+- Upstream models appear on the left, downstream on the right
+- Nodes show model name, materialization type, status, and target database
+- Edges show dependency direction
+- Layout: `x = depth * 300px`, `y = index_at_depth * 120px`
+
+## Run History
+
+Every execution creates a **run record** with per-model results.
+
+### Run Status
+
+| Status | Meaning |
+|---|---|
+| `running` | Execution in progress |
+| `success` | All models succeeded |
+| `partial` | Some models succeeded, some failed |
+| `error` | All models failed or were skipped |
+
+### Per-Model Result Status
+
+| Status | Meaning |
+|---|---|
+| `pending` | Not yet started |
+| `running` | Currently executing |
+| `success` | Completed without errors |
+| `error` | Execution failed (error in `error` field) |
+| `skipped` | Skipped due to upstream dependency failure |
+
+Results include the **resolved SQL** (with templating replaced), elapsed time in milliseconds, and any error message.
+
+### Viewing History
+
+Navigate to **Models > Runs** to see recent runs with their status, model counts, trigger source, and timestamps. Click a run to see per-model results.
+
+## Concurrency
+
+- Only one run per connection at a time (mutex lock)
+- Attempting a second run returns: `a model run is already in progress for this connection`
+- Each DDL statement has a 5-minute execution timeout
+
+## Version control
+
+Sync your models (and saved queries) to a GitHub repo as a dbt project, with two-way PR-based GitOps: edits open pull requests, merges pull back into the workspace.
+
+<CardGrid>
+  <LinkCard title="GitHub Sync (GitOps)" href="/docs/github" description="Connect a repo, export, and sync models as a dbt project" />
+  <LinkCard title="Pipelines" href="/docs/pipelines" description="Group connected models and run them together" />
+  <LinkCard title="Schedules" href="/docs/schedules" description="Run saved queries on a cron schedule (Pro)" />
+</CardGrid>

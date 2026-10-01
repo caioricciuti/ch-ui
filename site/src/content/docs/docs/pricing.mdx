@@ -1,0 +1,40 @@
+---
+title: Pricing
+description: Self-host CH-UI free (Apache-2.0) or unlock Pro with a flat $1,199/year license. Governance, Cluster Health, Query Insights, Cost Center, performance investigations, scheduled queries, Alerts, telemetry traces and metrics, Ask AI, GitHub sync, SSO.
+---
+
+import PricingPlans from "../../../components/PricingPlans.astro";
+
+CH-UI's core is **open source (Apache-2.0)** and free to self-host: one binary, SQLite state, your infrastructure. A flat **Pro license ($1,199/year per instance)** unlocks all BSL Pro features: Governance, Cluster Health, Query Insights, Cost Center, the operations workflows (performance regressions and investigations, fleet overview, schema comparison, incident timeline, weekly reports), scheduled query jobs, Alerts, telemetry traces, metrics, service map and monitors, Ask AI and Brain agentic tools, GitHub sync, audit forwarding, and SSO/OIDC. It is activated offline with a key, no call-home, with priority support included.
+
+<PricingPlans />
+
+## The Pro license
+
+The license is **flat per instance**: your whole team and all your ClickHouse users are covered, no seats. Activation is a signed file you upload in Settings; verification is local, so air-gapped deployments work. See [Plans & Licensing](/docs/license) for details.
+
+**To buy:** go to [/pricing](/pricing) and click **Buy Pro license**. Checkout is handled by Stripe (annual subscription), and your `license.json` arrives by email right after payment. Not sure yet? [Start a **free 30-day trial**](/license). It's fully self-serve: enter your email and a trial license lands in your inbox instantly. Full Pro, no card and no sales contact needed.
+
+**Existing customers:** [re-send your license or manage your subscription](/license) self-serve: enter your purchase email and we'll email you your license or a Stripe billing-portal link.
+
+## AI (Brain)
+
+CH-UI Brain is an AI copilot that understands your schema and writes ClickHouse-idiomatic SQL. **Bring your own key**: plug in your own OpenAI / OpenAI-compatible / Ollama provider on any tier. Your key, your cost, unmetered. Brain chat, skills and artifacts are in the free core; Ask AI (text-to-SQL in the editor) and the agentic tools (tool-calling) are Pro.
+
+## AI clients (MCP)
+
+The [MCP server](/docs/mcp) that lets Claude, ChatGPT, Cursor and other AI clients query your ClickHouse through CH-UI is part of the free core, with OAuth sign-in, scoped keys and the full audit trail. Pro adds two tools on top: `query_insights_top` and `costs_summary`.
+
+## FAQ
+
+**Do you charge per user?** No. The Pro license is flat per instance. Workspace access uses your ClickHouse's own users, so neither your team nor your end-users are billed as seats.
+
+**What does the Pro license include?** [Governance](/docs/governance) with alerts, [Cluster Health](/docs/cluster-health), [Query Insights](/docs/query-insights), [Cost Center](/docs/cost-center), [performance regressions and investigations](/docs/performance) with the fleet overview, [schema comparison](/docs/schema-compare), the [incident timeline](/docs/incident-timeline), [weekly operations reports](/docs/operations-reports), [scheduled query jobs](/docs/schedules) with the parameterized saved-query Run API, [telemetry](/docs/telemetry) traces, metrics, service map and monitors, [Ask AI and Brain agentic tools](/docs/brain), [GitHub sync](/docs/github), [SSO/OIDC](/docs/sso), audit forwarding to your SIEM, the MCP Pro tools, and command palette Pro search, plus priority support. Everything else is free in the open-source core, including query parameters in the editor, model schedules, and multiple connections. See the full table in [Plans & Licensing](/docs/license#open-source-vs-pro-license).
+
+**Does the license phone home?** No, it's a signed file verified locally against a key embedded in the binary. Air-gapped environments work.
+
+**Is there a free trial of Pro?** Yes, [start a free 30-day trial](/license) self-serve: your trial license is emailed to you instantly, no card and no sales contact needed. Activate it in Settings → License of your instance. And the open-source core is free forever, so you can evaluate everything outside the Pro modules indefinitely.
+
+**How do I cancel or update billing?** The license is an annual subscription via Stripe. Use [Manage subscription](/license) to get a billing-portal link by email. Cancel anytime and Pro keeps working until the end of the paid year.
+
+Questions or Enterprise needs: **me@caioricciuti.com**.

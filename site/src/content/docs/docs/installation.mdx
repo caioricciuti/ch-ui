@@ -1,0 +1,133 @@
+---
+title: Installation
+description: Install and run CH-UI on your own infrastructure
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+CH-UI ships as a **single binary** for server and connector operations. State lives in a local SQLite file, so there are no external services to operate.
+
+## Quick Install (Recommended)
+
+Download the binary for your platform from [GitHub Releases](https://github.com/caioricciuti/ch-ui/releases):
+
+```bash
+# macOS (Apple Silicon)
+curl -L -o ch-ui https://github.com/caioricciuti/ch-ui/releases/latest/download/ch-ui-darwin-arm64
+
+# macOS (Intel)
+curl -L -o ch-ui https://github.com/caioricciuti/ch-ui/releases/latest/download/ch-ui-darwin-amd64
+
+# Linux (amd64)
+curl -L -o ch-ui https://github.com/caioricciuti/ch-ui/releases/latest/download/ch-ui-linux-amd64
+
+# Linux (arm64)
+curl -L -o ch-ui https://github.com/caioricciuti/ch-ui/releases/latest/download/ch-ui-linux-arm64
+```
+
+Then make it executable and install:
+
+```bash
+chmod +x ch-ui
+sudo install -m 755 ch-ui /usr/local/bin/ch-ui
+```
+
+Supported platforms:
+
+- Linux: `amd64`, `arm64`
+- macOS: `amd64`, `arm64`
+
+## Verify Install
+
+```bash
+ch-ui version
+```
+
+## First Run
+
+```bash
+# Shortcut (default command starts server)
+ch-ui
+
+# Or explicit:
+ch-ui server --port 3488
+```
+
+Open `http://localhost:3488`.
+
+## Quick Start (Docker)
+
+Use the official GHCR image:
+
+```bash
+docker run --rm \
+  -p 3488:3488 \
+  -v ch-ui-data:/app/data \
+  -e CLICKHOUSE_URL=http://host.docker.internal:8123 \
+  ghcr.io/caioricciuti/ch-ui:latest
+```
+
+Notes:
+
+- On Linux, replace `host.docker.internal` with a host/IP reachable from the container.
+- App state is persisted at `/app/data/ch-ui.db` (volume: `ch-ui-data`).
+
+## Local ClickHouse URL and Name (if needed)
+
+If local login points to the wrong endpoint, restart CH-UI with explicit values:
+
+```bash
+ch-ui server --clickhouse-url http://127.0.0.1:8123 --connection-name "My Connection 1"
+```
+
+Environment-variable equivalent:
+
+```bash
+CLICKHOUSE_URL=http://127.0.0.1:8123 CONNECTION_NAME="My Connection 1" ch-ui server
+```
+
+Recovery guide: [Can't login?](/docs/cant-login)
+
+## Manual Download (Fallback)
+
+If you prefer to download manually, grab the binary from [GitHub Releases](https://github.com/caioricciuti/ch-ui/releases).
+
+Available binaries:
+
+- `ch-ui-linux-amd64`
+- `ch-ui-linux-arm64`
+- `ch-ui-darwin-amd64`
+- `ch-ui-darwin-arm64`
+
+```bash
+curl -L -o ch-ui https://github.com/caioricciuti/ch-ui/releases/latest/download/ch-ui-linux-amd64
+chmod +x ch-ui
+sudo install -m 755 ch-ui /usr/local/bin/ch-ui
+ch-ui version
+```
+
+If you do not install globally, run the binary directly:
+
+```bash
+./ch-ui version
+./ch-ui server --port 3488
+```
+
+## Local Connector Behavior
+
+When the server starts, CH-UI can run an embedded connector against local ClickHouse (`http://localhost:8123`) so you can get started quickly.
+
+## Recommended First Steps
+
+1. Login with a ClickHouse username/password.
+2. If login fails, open [Can't login?](/docs/cant-login).
+3. Configure **Brain providers** in Admin.
+4. With a [Pro license](/pricing) activated, open **Governance** and run initial sync, then check **Query Insights** and **Cluster Health**.
+
+## Next Steps
+
+<CardGrid>
+  <LinkCard title="Can't Login?" href="/docs/cant-login" description="Local URL, retry windows, and login recovery" />
+  <LinkCard title="Deployment" href="/docs/deployment" description="Run CH-UI and ClickHouse on separate hosts" />
+  <LinkCard title="Connections" href="/docs/ingestion" description="Set up tunnel agents and connection tokens" />
+</CardGrid>

@@ -1,0 +1,54 @@
+---
+// Starlight's page footer, with one line about the Pro trial above it. The
+// pages that already sell Pro do not get the line.
+import Default from "@astrojs/starlight/components/Footer.astro";
+
+const path = Astro.url.pathname;
+const selling = path.startsWith("/docs/pricing/") || path.startsWith("/docs/license/");
+---
+
+{!selling && (
+  <aside class="chui-upsell not-content">
+    <div>
+      <strong>Run CH-UI Pro free for 30 days</strong>
+      <span>Query Insights, Cluster Health, Governance and Schedules on your own hardware. No card.</span>
+    </div>
+    <nav aria-label="Pro">
+      <a class="chui-btn" data-variant="solid" href="/license/" data-cta="docs_footer_trial">Start free trial</a>
+      <a class="chui-btn" href="/pricing/" data-cta="docs_footer_pricing">See pricing</a>
+    </nav>
+  </aside>
+)}
+<Default><slot /></Default>
+
+<style>
+  .chui-upsell {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem 2rem;
+    margin-top: 3rem;
+    padding: 1.1rem 1.25rem;
+    border: 1px solid var(--chui-edge);
+    border-radius: 8px;
+    background: var(--chui-surface);
+  }
+  .chui-upsell div {
+    display: grid;
+    gap: 0.2rem;
+  }
+  .chui-upsell strong {
+    font-size: 0.875rem;
+    font-weight: 560;
+    color: var(--chui-fg);
+  }
+  .chui-upsell span {
+    font-size: 0.8125rem;
+    color: var(--chui-fg-3);
+  }
+  .chui-upsell nav {
+    display: flex;
+    gap: 0.5rem;
+  }
+</style>

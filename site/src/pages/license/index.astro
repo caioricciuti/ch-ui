@@ -1,0 +1,130 @@
+---
+// Buy, try, and the two self-serve actions for existing customers. Every
+// form here talks to the license server from the browser.
+import Landing from "../../layouts/Landing.astro";
+import BuyProButton from "../../components/BuyProButton.astro";
+import EmailAction from "../../components/EmailAction.astro";
+import TrialForm from "../../components/TrialForm.astro";
+
+const buyPoints = [
+  "License lands in your inbox right after checkout",
+  "Full Pro: Query Insights, Cluster Health, Governance, Alerts, scheduled queries, Ask AI, SSO, GitHub sync, and more",
+  "One instance, unlimited users, flat $1,199/year",
+  "Cancel anytime; the license stays valid until it expires",
+];
+
+const trialPoints = [
+  "Full Pro for 30 days, nothing is locked",
+  "No card, no account, just your email",
+  "License arrives by email instantly",
+];
+---
+
+<Landing
+  title="Get a Pro License | CH-UI"
+  description="Buy a CH-UI Pro license ($1,199/year per instance, flat) or start a free 30-day trial. Instant delivery by email, activated offline, no call-home."
+>
+  <section class="page-head">
+    <div class="container narrow">
+      <p class="label">License</p>
+      <h1>Get a Pro license.</h1>
+      <p class="lead">
+        Everything is self-serve: buy or start a trial, and a signed license file lands in your inbox within a minute.
+        Activated offline, no call-home, air-gapped friendly.
+      </p>
+    </div>
+  </section>
+
+  <section class="page-body">
+    <div class="container narrow">
+      <div class="frame">
+        <div class="cell featured">
+          <h2>Buy a license</h2>
+          <p class="price"><strong>$1,199</strong> per instance, per year</p>
+          <BuyProButton />
+          <ul class="checks">
+            {buyPoints.map((p) => <li>{p}</li>)}
+          </ul>
+          <p class="fineprint">Secure checkout via Stripe. Email receipt included.</p>
+        </div>
+        <div class="cell">
+          <h2>Start a free 30-day trial</h2>
+          <p class="price"><strong>Free</strong> no card required</p>
+          <TrialForm />
+          <ul class="checks">
+            {trialPoints.map((p) => <li>{p}</li>)}
+          </ul>
+        </div>
+      </div>
+
+      <h2 class="sub-head">Already a customer?</h2>
+      <div class="frame">
+        <div class="cell">
+          <h3>Re-send my license</h3>
+          <p>Enter the email you purchased with and we'll re-send your license.json.</p>
+          <EmailAction endpoint="/license/resend" label="Re-send" />
+        </div>
+        <div class="cell">
+          <h3>Manage subscription</h3>
+          <p>Get a secure Stripe billing-portal link by email to update payment details or cancel.</p>
+          <EmailAction endpoint="/portal" label="Send link" />
+        </div>
+        <div class="cell wide enterprise">
+          <div>
+            <h3>Enterprise</h3>
+            <p>
+              Multiple instances, invoice billing, security review, or custom terms: a reply usually lands the same
+              day.
+            </p>
+          </div>
+          <a class="chui-btn" href="mailto:me@caioricciuti.com?subject=CH-UI%20Enterprise" data-cta="enterprise_contact">Email me@caioricciuti.com</a>
+        </div>
+      </div>
+
+      <p class="fineprint">
+        Licenses are Ed25519-signed files verified offline by your instance, with no call-home, ever. See the{" "}
+        <a href="/docs/license/">license docs</a>.
+      </p>
+    </div>
+  </section>
+</Landing>
+
+<style>
+  .featured {
+    box-shadow: inset 0 2px 0 var(--chui-accent);
+  }
+  .price {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin: 0.9rem 0 1.2rem;
+    font-size: 0.8125rem;
+    color: var(--chui-fg-3);
+  }
+  .price strong {
+    font-size: 2.1rem;
+    font-weight: 560;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: var(--chui-fg);
+  }
+  .checks {
+    margin-top: 1.4rem;
+  }
+  .cell .fineprint {
+    margin-top: 1.1rem;
+  }
+  .enterprise {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem 2rem;
+  }
+  .enterprise p {
+    margin: 0.4rem 0 0;
+    max-width: 30rem;
+    font-size: 0.875rem;
+    color: var(--chui-fg-3);
+  }
+</style>

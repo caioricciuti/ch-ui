@@ -1,0 +1,80 @@
+---
+title: GitHub Sync
+description: Keep CH-UI models in sync with a GitHub repository, with Git as the source of truth for your SQL models
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+Connect a GitHub repository to a connection and CH-UI imports your **models** from it: `.sql` files in the repo become models in CH-UI, and every sync keeps them up to date. Git is the source of truth: edit in your repo, merge to your branch, and CH-UI follows.
+
+GitHub Sync is a **Pro** feature. Without an active license the endpoints return `402`.
+
+## How it works
+
+- **Your branch is the truth.** The `.sql` files under the configured path define your models.
+- **Sync is one-way (pull).** CH-UI fetches the branch, parses each model file, and creates, updates, or deletes models to match the repo.
+- **Only git-managed models are touched.** Models imported from GitHub are tracked with a `github` source; models you created by hand in the UI are never modified or deleted by a sync.
+- **Unchanged commits are skipped.** CH-UI remembers the last synced commit SHA and does nothing if the branch hasn't moved.
+
+```
+ edit .sql ──▶ merge to branch ──▶ push webhook (or Sync now) ──▶ CH-UI pulls and updates models
+```
+
+## Setup
+
+GitHub Sync is configured per connection in **Admin → GitHub** (admin only).
+
+1. **Create a token.** A GitHub fine-grained personal access token with read access to the repository's contents is enough. The token is encrypted at rest with your server's `app_secret_key`.
+2. **Configure the integration.** Repository as `owner/repo`, branch (defaults to `main`), and the path inside the repo where model files live (defaults to `models/`).
+3. **Run the first sync.** Click **Sync now** and check the sync log. It reports created, updated, deleted, and unchanged counts plus the commit SHA.
+
+## Auto-sync on push
+
+To sync automatically when the branch changes, add a **push webhook** in your repository settings pointing at:
+
+```
+https://your-ch-ui-server/api/github/webhook/{connectionId}
+```
+
+The webhook URL for the current connection is shown on the Admin → GitHub page. If a webhook secret is configured, CH-UI verifies GitHub's `X-Hub-Signature-256` header and rejects requests that don't match.
+
+## Model file format
+
+A model is a `.sql` file, optionally starting with a YAML frontmatter block:
+
+```sql
+---
+materialization: table        # view (default) or table
+target_database: analytics    # default: default
+table_engine: MergeTree       # tables only, default: MergeTree
+order_by: (event_date, id)    # tables only, default: tuple()
+description: Daily rollup of events
+---
+SELECT
+  toDate(timestamp) AS event_date,
+  count() AS events
+FROM events
+GROUP BY event_date
+```
+
+The filename (minus `.sql`) becomes the model name. Files without frontmatter are imported as views against the `default` database.
+
+## Sync semantics
+
+| Repo state | CH-UI result |
+| --- | --- |
+| New `.sql` file | Model created (source: `github`) |
+| File content or frontmatter changed | Model updated |
+| File removed | Model deleted (git-managed models only) |
+| File unparseable | Skipped, reported in the sync log |
+
+Every sync (manual or webhook) is recorded in the sync log with its trigger, counts, commit SHA, and any per-file errors.
+
+## Disconnecting
+
+**Disconnect** on the Admin → GitHub page removes the integration and its token. Synced models stay in CH-UI; they just stop following the repo.
+
+<CardGrid>
+  <LinkCard title="Models" href="/docs/models" description="SQL models, materializations, and scheduled runs" />
+  <LinkCard title="Pricing" href="/docs/pricing" description="What's included in the Pro license" />
+</CardGrid>

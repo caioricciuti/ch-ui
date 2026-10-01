@@ -1,0 +1,347 @@
+---
+title: Deployment
+description: "Production deployment for CH-UI: server, connectors, TLS, and hardening"
+---
+
+import ArchitectureDiagram from "../../../components/ArchitectureDiagram.astro";
+
+This guide covers the recommended production topology:
+
+- VM2: `ch-ui server` (web app/API/gateway)
+- VM1..N: `ch-ui connect` next to each ClickHouse instance
+
+## Topology
+
+<ArchitectureDiagram />
+
+## 1) Start CH-UI Server (VM2)
+
+Binary install:
+
+```bash
+ch-ui server --port 3488 --detach
+ch-ui server status
+```
+
+Docker install (official image):
+
+```bash
+docker run -d \
+  --name ch-ui-server \
+  --restart unless-stopped \
+  -p 3488:3488 \
+  -v ch-ui-data:/app/data \
+  -e APP_URL=https://ch-ui.yourcompany.com \
+  -e APP_SECRET_KEY='replace-with-a-strong-secret' \
+  ghcr.io/caioricciuti/ch-ui:latest
+
+curl http://localhost:3488/health
+```
+
+Server lifecycle:
+
+```bash
+ch-ui server start --detach
+ch-ui server status
+ch-ui server restart
+ch-ui server stop
+```
+
+### Running under systemd (binary install)
+
+Keep the config at `/etc/ch-ui/server.yaml`:
+
+```yaml
+port: 3488
+app_url: https://ch-ui.yourcompany.com
+app_secret_key: "replace-with-long-random-secret"
+allowed_origins:
+  - https://ch-ui.yourcompany.com
+database_path: /var/lib/ch-ui/ch-ui.db
+```
+
+Keep runtime state in directories the service user can write:
+
+```bash
+sudo mkdir -p /var/lib/ch-ui/run
+sudo chown -R chui:chui /var/lib/ch-ui
+```
+
+When you run the lifecycle commands by hand, pass the config and the PID file
+explicitly so every command talks about the same process:
+
+```bash
+ch-ui server start -c /etc/ch-ui/server.yaml --detach --pid-file /var/lib/ch-ui/run/ch-ui-server.pid
+ch-ui server status -c /etc/ch-ui/server.yaml --pid-file /var/lib/ch-ui/run/ch-ui-server.pid
+ch-ui server stop -c /etc/ch-ui/server.yaml --pid-file /var/lib/ch-ui/run/ch-ui-server.pid
+```
+
+Without `--pid-file`, the PID file is `ch-ui-server.pid` resolved relative to
+the working directory.
+
+For supervision, create `/etc/systemd/system/ch-ui-server.service`:
+
+```ini
+[Unit]
+Description=CH-UI Server
+After=network.target
+
+[Service]
+Type=simple
+User=chui
+Group=chui
+WorkingDirectory=/var/lib/ch-ui
+ExecStart=/usr/local/bin/ch-ui server start -c /etc/ch-ui/server.yaml --pid-file /var/lib/ch-ui/run/ch-ui-server.pid
+ExecStop=/usr/local/bin/ch-ui server stop -c /etc/ch-ui/server.yaml --pid-file /var/lib/ch-ui/run/ch-ui-server.pid
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Do not pass `--detach` in `ExecStart`; systemd supervises the foreground
+process. Then:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable ch-ui-server
+sudo systemctl start ch-ui-server
+sudo systemctl status ch-ui-server
+```
+
+> **Single instance:** CH-UI stores state in a local SQLite database and keeps
+> tunnel state in memory. Run **one** instance; do not scale it horizontally.
+> Use a persistent volume for `database_path` and front it with a load balancer
+> only for TLS/routing, not for multiple replicas.
+
+### Docker Compose (with ClickHouse)
+
+The repository ships a `docker-compose.yml` that runs CH-UI plus a local
+ClickHouse:
+
+```bash
+docker compose up -d
+# open http://localhost:3488
+```
+
+Set `APP_SECRET_KEY` to a strong random value in production.
+
+### Kubernetes (Helm)
+
+A Helm chart is provided under `deploy/helm/ch-ui`:
+
+```bash
+helm install ch-ui ./deploy/helm/ch-ui \
+  --set ingress.enabled=true \
+  --set ingress.hosts[0].host=ch-ui.yourcompany.com
+```
+
+The chart runs a single replica with the `Recreate` strategy (never two pods on
+one database), a `PersistentVolumeClaim` for state, liveness/readiness probes
+against `/health`, and a generated `APP_SECRET_KEY` that stays stable across
+upgrades. See `deploy/helm/ch-ui/values.yaml` for all options.
+
+To supply a Pro license as a Secret (instead of activating it in the UI):
+
+```bash
+kubectl create secret generic ch-ui-license --from-file=license.json
+helm upgrade ch-ui ./deploy/helm/ch-ui --set license.existingSecret=ch-ui-license
+```
+
+The Secret is mounted read-only and loaded at startup via `CHUI_LICENSE_FILE`.
+Outside Kubernetes the same works with plain env vars: `CHUI_LICENSE_FILE`
+(path to the JSON) or `CHUI_LICENSE` (the JSON inline).
+
+### Native TLS (no proxy)
+
+To serve HTTPS without a reverse proxy, point CH-UI at a cert and key:
+
+```bash
+TLS_CERT_FILE=/etc/ch-ui/tls/server.crt \
+TLS_KEY_FILE=/etc/ch-ui/tls/server.key \
+ch-ui server --port 3488
+```
+
+Or set them in `server.yaml`:
+
+```yaml
+tls_cert_file: /etc/ch-ui/tls/server.crt
+tls_key_file: /etc/ch-ui/tls/server.key
+```
+
+Both must be set (PEM files). If either is missing, CH-UI serves plain HTTP and
+expects a reverse proxy to terminate TLS.
+
+## 2) Create Tunnel Connection + Token (VM2)
+
+Use CLI on the server host (the machine where `ch-ui.db` lives):
+
+```bash
+ch-ui tunnel create --name "vm1-clickhouse" --url wss://your-ch-ui-domain/connect
+ch-ui tunnel list
+ch-ui tunnel show <connection-id>
+```
+
+If the server runs in Docker, run tunnel commands through the container:
+
+```bash
+docker exec -it ch-ui-server ch-ui tunnel create --name "vm1-clickhouse" --url wss://your-ch-ui-domain/connect
+docker exec -it ch-ui-server ch-ui tunnel show <connection-id>
+```
+
+Copy the generated token (`cht_...`).
+
+Optional UI path (admin role): create and manage additional connections in Admin. No Pro license is needed.
+
+## 3) Start Connector (VM1)
+
+```bash
+ch-ui connect \
+  --url wss://your-ch-ui-domain/connect \
+  --key cht_your_token \
+  --clickhouse-url http://127.0.0.1:8123
+```
+
+If a stale session exists:
+
+```bash
+ch-ui connect --url wss://your-ch-ui-domain/connect --key cht_your_token --takeover
+```
+
+## 4) Run Connector As Service
+
+```bash
+ch-ui service install \
+  --url wss://your-ch-ui-domain/connect \
+  --key cht_your_token \
+  --clickhouse-url http://127.0.0.1:8123
+
+ch-ui service status
+ch-ui service start
+```
+
+## 5) Reverse Proxy (Nginx)
+
+Basic TLS proxy for UI/API and WebSocket tunnel:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name ch-ui.yourcompany.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3488;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /connect {
+        proxy_pass http://127.0.0.1:3488/connect;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 3600;
+    }
+}
+```
+
+The `location /` block also serves the [MCP server](/docs/mcp) (`/mcp`,
+`/oauth/*`, `/.well-known/*`); nothing extra is needed for it. Set `APP_URL`
+to the public HTTPS URL, or forward `X-Forwarded-Proto` and
+`X-Forwarded-Host`, so the OAuth metadata advertises the public origin. Use
+v2.10.1 or later: on v2.10.0 MCP clients behind this layout got
+`403 Forbidden: invalid Host header`.
+
+## 6) Hardening Checklist
+
+- Set a strong `APP_SECRET_KEY` in the env or `server.yaml`. If you leave it unset,
+  CH-UI generates one and stores it in `.app_secret_key` next to the database,
+  so that file must be backed up with the DB.
+- Set `APP_URL` to public HTTPS URL; terminate TLS (native or proxy).
+- Restrict `ALLOWED_ORIGINS`.
+- Keep `database_path` on persistent disk; run one instance only.
+- Run daily backups with `ch-ui backup` **and** back up the secret key
+  (`APP_SECRET_KEY`, or the `.app_secret_key` file). Without it, the encrypted
+  credentials in the DB cannot be decrypted.
+- Enable service supervision for `server` and `connect`.
+- Scrape `/metrics` and forward audit events. See [Monitoring & SIEM](/docs/monitoring).
+
+## Network Policy
+
+- Server host inbound: `443` (or your TLS port).
+- Server host inbound: `3488` only from localhost or the reverse proxy.
+- Connector hosts outbound: allow `wss://your-ch-ui-domain/connect`.
+- ClickHouse next to a connector can stay local-only (`127.0.0.1:8123`).
+
+## Backup and Restore
+
+CH-UI state is stored in SQLite (`database_path`). Use `ch-ui backup` to take a
+consistent snapshot. It uses SQLite's `VACUUM INTO`, so it is safe while the
+server is running, unlike a plain `cp` of the live file:
+
+```bash
+ch-ui backup -c /etc/ch-ui/server.yaml /var/backups/ch-ui-$(date +%F).db
+```
+
+Without an output path it writes `ch-ui-backup-<timestamp>.db` in the current
+directory. `--database-path` overrides the database location from the config.
+The command refuses to overwrite an existing file.
+
+The backup holds credentials encrypted with the secret key, which is **not** in
+the database. Back it up separately:
+
+- If you set `APP_SECRET_KEY` (env or `app_secret_key` in `server.yaml`), keep
+  that value.
+- If you did not, CH-UI generated one on first start and stored it in
+  `.app_secret_key` in the same directory as the database (for example
+  `/var/lib/ch-ui/.app_secret_key`). Copy that file.
+
+Restore by stopping the server, replacing the DB file with the backup, and
+starting it with the **same** secret key the backup was created with.
+
+Schedule a daily snapshot with a retention policy, and verify the restore
+procedure on a separate host at least once a quarter.
+
+## Logs
+
+- Server under systemd: `journalctl -u ch-ui-server`
+- Connector installed with `ch-ui service install`: `ch-ui service logs` (add
+  `-f` to follow), or your platform's service logs.
+
+## Troubleshooting
+
+### Address already in use
+
+`status` says port in use but no PID: stop the legacy process once, then restart using the current binary.
+
+```bash
+ch-ui server status
+ch-ui server stop
+```
+
+### Connector `invalid token`
+
+- Regenerate token with `ch-ui tunnel rotate <id>` (or in Admin, with the admin role).
+- Restart connector with the new token.
+
+### Connector timeouts behind proxy
+
+- Validate `/connect` proxy upgrade headers (`Upgrade`, `Connection: upgrade`).
+- Set long read/send timeouts (e.g. `proxy_read_timeout 3600`).
+- Check firewall egress from the connector host.
+
+### Health check
+
+```bash
+curl http://localhost:3488/health
+```
+
+## ClickHouse behind a load balancer
+
+If your ClickHouse runs as multiple pods behind chproxy, HAProxy, or a Kubernetes ingress, CH-UI sends `X-CH-UI-Session` on every request. Configure your LB to hash on that header for sticky routing. See [ClickHouse Clusters & Load Balancers](/docs/clusters) for chproxy/HAProxy/nginx examples.

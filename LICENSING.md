@@ -15,7 +15,8 @@ file's `SPDX-License-Identifier` header governs that file.
 ## Community core: Apache License 2.0
 
 Everything in the repository is licensed under **Apache 2.0** (`LICENSE.md`)
-**except** the Pro paths listed below. This includes the SQL editor, schema
+**except** the Pro paths listed below and the website in `site/` (see "The
+website" further down). This includes the SQL editor, schema
 explorer, saved queries, dashboards, Brain AI chat, data pipelines, models,
 admin panel, the tunnel connector, the embedded web frontend, and all CLI
 commands.
@@ -104,6 +105,18 @@ Frontend (`ui/src/`):
   `lib/types/{governance,alerts,telemetryPro}.ts`
 
 Tests that cover only Pro code carry the same header.
+
+## The website: not open source
+
+`site/` holds ch-ui.com: the landing pages, the documentation and the legal
+texts. It is in this repository so the docs change with the code, but it is
+**not** covered by Apache 2.0 or BSL 1.1. Its text, screenshots and images, and
+the CH-UI name and logo, are copyright (C) 2024-2026 Caio Ricciuti, all rights
+reserved. You may read it, build it locally and send corrections; you may not
+republish it or reuse it for another product.
+
+The fonts under `site/public/fonts/` keep their own licenses, which sit beside
+them.
 
 ## Buying a Pro license
 

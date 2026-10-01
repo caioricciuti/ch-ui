@@ -1,0 +1,174 @@
+---
+// The self-hosted topology: browser, server, connector on the top row, and
+// what the server and the connector each talk to underneath. On a narrow
+// screen the top row stacks and the two stores sit side by side below it.
+const top = [
+  { id: "browser", title: "Browser", lines: ["SQL workspace", "Governance", "Brain UI"] },
+  { id: "server", title: "CH-UI Server", lines: [":3488 API + UI", "Tunnel gateway", "Scheduler + syncers"] },
+  { id: "connector", title: "Connector Host", lines: ["ch-ui connect", "Outbound only"] },
+];
+const stores = [
+  { id: "sqlite", title: "SQLite", lines: ["Sessions, queries", "Governance, chats, audit"] },
+  { id: "clickhouse", title: "ClickHouse", lines: ["Your data", "HTTP :8123"] },
+];
+---
+
+<figure class="arch not-content" aria-label="CH-UI self-hosted architecture">
+  {[...top, ...stores].map((n) => (
+    <div class="node" data-node={n.id}>
+      <strong>{n.title}</strong>
+      {n.lines.map((l) => <span>{l}</span>)}
+    </div>
+  ))}
+  <div class="link" data-link="https"><span>HTTPS</span></div>
+  <div class="link" data-link="wss"><span>WSS</span></div>
+  <div class="link" data-link="sqlite"></div>
+  <div class="link" data-link="clickhouse"></div>
+</figure>
+
+<style>
+  .arch {
+    display: grid;
+    grid-template-columns: 1fr 5rem 1.2fr 5rem 1fr;
+    grid-template-areas:
+      "browser https server wss connector"
+      ".       .     ls     .   lc"
+      ".       .     sqlite .   clickhouse";
+    align-items: center;
+    margin: 1.5rem 0;
+  }
+  .node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.1rem;
+    padding: 1rem 0.75rem;
+    border: 1px solid var(--chui-edge);
+    border-radius: calc(var(--chui-radius) + 2px);
+    background: var(--chui-surface);
+    text-align: center;
+  }
+  .node strong {
+    margin-bottom: 0.25rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--chui-fg);
+  }
+  .node span {
+    font-size: 0.75rem;
+    line-height: 1.45;
+    color: var(--chui-fg-3);
+  }
+  [data-node="browser"] { grid-area: browser; }
+  [data-node="server"] {
+    grid-area: server;
+    border-color: color-mix(in srgb, var(--chui-accent) 60%, transparent);
+    background: var(--chui-accent-soft);
+  }
+  [data-node="connector"] { grid-area: connector; }
+  [data-node="sqlite"] { grid-area: sqlite; }
+  [data-node="clickhouse"] { grid-area: clickhouse; }
+
+  /* A link is a dashed line with an arrow head at the end it points to. */
+  .link {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    color: var(--chui-fg-4);
+  }
+  .link span {
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: var(--chui-fg-3);
+  }
+  .link::before {
+    content: "";
+    width: 100%;
+    border-top: 1.5px dashed currentColor;
+  }
+  .link::after {
+    content: "";
+    position: absolute;
+    bottom: -3px;
+    width: 7px;
+    height: 7px;
+    border: solid currentColor;
+    border-width: 1.5px 1.5px 0 0;
+  }
+  [data-link="https"] { grid-area: https; flex-direction: column-reverse; }
+  [data-link="https"]::after { right: 1px; transform: rotate(45deg); }
+  /* The connector dials out to the server, so this one points left. */
+  [data-link="wss"] { grid-area: wss; flex-direction: column-reverse; }
+  [data-link="wss"]::after { left: 1px; transform: rotate(-135deg); }
+  [data-link="sqlite"] { grid-area: ls; }
+  [data-link="clickhouse"] { grid-area: lc; }
+  :is([data-link="sqlite"], [data-link="clickhouse"]) {
+    height: 2.25rem;
+  }
+  :is([data-link="sqlite"], [data-link="clickhouse"])::before {
+    width: 0;
+    height: 100%;
+    border-top: 0;
+    border-left: 1.5px dashed currentColor;
+  }
+  :is([data-link="sqlite"], [data-link="clickhouse"])::after {
+    left: calc(50% - 4px);
+    bottom: 1px;
+    transform: rotate(135deg);
+  }
+
+  @media (max-width: 50rem) {
+    .arch {
+      grid-template-columns: 1fr 1fr;
+      grid-template-areas:
+        "browser    browser"
+        "https      https"
+        "server     server"
+        "wss        wss"
+        "connector  connector"
+        "sqlite     clickhouse";
+      column-gap: 0.75rem;
+    }
+    /* Both stores sit under the connector here, so an arrow down to SQLite
+       would say the connector owns it. The stores stand without arrows. */
+    :is([data-link="sqlite"], [data-link="clickhouse"]) {
+      display: none;
+    }
+    :is([data-node="sqlite"], [data-node="clickhouse"]) {
+      margin-top: 0.75rem;
+    }
+    /* Stacked, every link is a vertical line with its label beside it. */
+    :is([data-link="https"], [data-link="wss"]) {
+      height: 2.75rem;
+      flex-direction: column;
+    }
+    :is([data-link="https"], [data-link="wss"])::before {
+      width: 0;
+      height: 100%;
+      border-top: 0;
+      border-left: 1.5px dashed currentColor;
+    }
+    :is([data-link="https"], [data-link="wss"]) span {
+      position: absolute;
+      left: calc(50% + 0.75rem);
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    [data-link="https"]::after {
+      right: auto;
+      left: calc(50% - 4px);
+      bottom: 1px;
+      transform: rotate(135deg);
+    }
+    /* The connector sits below the server and still dials up to it. */
+    [data-link="wss"]::after {
+      left: calc(50% - 4px);
+      bottom: auto;
+      top: 1px;
+      transform: rotate(-45deg);
+    }
+  }
+</style>

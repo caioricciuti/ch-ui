@@ -1,0 +1,70 @@
+---
+// The install, as a terminal with one tab per platform. The tab and copy
+// behaviour lives in the Landing layout (data-tabs, data-copy-from).
+const RELEASE = "https://github.com/caioricciuti/ch-ui/releases/latest/download";
+
+interface Snippet {
+  id: string;
+  label: string;
+  /** "$ " lines are commands, "> " lines are output, the rest continue a command. */
+  lines: string[];
+  /** Exactly what lands in the clipboard: runnable commands only. */
+  clipboard: string;
+}
+
+const binary = (id: string, label: string, asset: string): Snippet => ({
+  id,
+  label,
+  lines: [
+    "$ curl -L -o ch-ui \\",
+    `    ${RELEASE}/${asset}`,
+    "$ chmod +x ch-ui && ./ch-ui",
+    "> Server listening on http://localhost:3488",
+  ],
+  clipboard: `curl -L -o ch-ui ${RELEASE}/${asset}\nchmod +x ch-ui && ./ch-ui`,
+});
+
+const snippets: Snippet[] = [
+  binary("linux", "Linux", "ch-ui-linux-amd64"),
+  binary("linux-arm", "Linux ARM", "ch-ui-linux-arm64"),
+  binary("macos", "macOS", "ch-ui-darwin-arm64"),
+  {
+    id: "docker",
+    label: "Docker",
+    lines: [
+      "$ docker run -d --name ch-ui -p 3488:3488 \\",
+      "    -v ch-ui-data:/app/data \\",
+      "    ghcr.io/caioricciuti/ch-ui:latest",
+      "> Open http://localhost:3488",
+    ],
+    clipboard:
+      "docker run -d --name ch-ui -p 3488:3488 \\\n  -v ch-ui-data:/app/data \\\n  ghcr.io/caioricciuti/ch-ui:latest",
+  },
+];
+---
+
+<figure class="panel" data-tabs aria-label="Install CH-UI">
+  <div class="panel-bar">
+    <div role="tablist" aria-label="Platform" style="display: contents">
+      {snippets.map((s, i) => (
+        <button class="tab" type="button" role="tab" data-tab={s.id} aria-selected={i === 0 ? "true" : "false"}>
+          {s.label}
+        </button>
+      ))}
+    </div>
+    <span class="spacer"></span>
+    <button class="copy" type="button" data-copy-from aria-label="Copy the commands">Copy</button>
+  </div>
+  {snippets.map((s, i) => (
+    <pre class="term" data-panel={s.id} data-clipboard={s.clipboard} hidden={i !== 0}><code>{s.lines.map((line) =>
+      line.startsWith("$ ") ? (
+        <span class="line"><span class="prompt">$ </span>{line.slice(2)}</span>
+      ) : line.startsWith("> ") ? (
+        <span class="line out">{line.slice(2)}</span>
+      ) : (
+        <span class="line">{line}</span>
+      ),
+    )}</code></pre>
+  ))}
+  <p class="panel-note">That is the entire install: one binary, state in a local SQLite file, no other services.</p>
+</figure>
