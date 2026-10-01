@@ -69,9 +69,9 @@ an optional **target** (e.g. the affected user or connection), structured
 For people who sign in with [SSO](/docs/sso) (v2.13.2+), the actor is the
 person's email, and the ClickHouse account the action ran as (the shared
 service account) is kept in a separate `ch_user` field. `ch_user` is only set
-when it differs from the actor. It is returned by `GET
-/api/governance/audit-logs` and the JSON export; the CSV export and SIEM
-forwarding carry the actor only. Rows written before v2.13.2 keep the service
+when it differs from the actor. It shows as the **ClickHouse user** column on
+the page and is carried by `GET /api/governance/audit-logs`, the JSON and CSV
+exports, and SIEM forwarding. Rows written before v2.13.2 keep the service
 account as the actor.
 
 ## Using it

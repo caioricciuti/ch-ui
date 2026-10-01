@@ -9,6 +9,7 @@
   import TimeRangeSelector from '../dashboard/TimeRangeSelector.svelte'
   import MetricQueryCard, { defaultAggregation, type MetricCardSpec } from './MetricQueryCard.svelte'
   import { setSection } from '../../stores/nav.svelte'
+  import { isMissingTableError } from '../../utils/ch-error'
   import { metricsCatalog } from '../../api/telemetryPro'
   import type { TelemetrySource } from '../../types/telemetry'
   import type { MetricCatalogEntry, MetricType, MetricAggregation } from '../../types/telemetryPro'
@@ -183,6 +184,14 @@
     </div>
   </div>
 
+  {#if error && isMissingTableError(error)}
+    <EmptyState
+      icon={Gauge}
+      title="Telemetry tables not found"
+      description="The metrics table this source points at does not exist in ClickHouse. Check the source, or start the OpenTelemetry collector so it creates its tables."
+      primary={{ label: 'Configure sources', onclick: () => setSection('sources') }}
+    />
+  {:else}
   {#if error}
     <div class="shrink-0 border-b border-edge-subtle bg-danger-soft px-5 py-1.5 text-xs text-danger">{error}</div>
   {/if}
@@ -215,4 +224,5 @@
       </div>
     {/if}
   </PageBody>
+  {/if}
 {/if}

@@ -104,12 +104,18 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 			if !auditGate.Allow() {
 				return
 			}
+			// ch_user only when it differs from the actor, as stored.
+			chUser := deref(p.ClickhouseUser)
+			if chUser == deref(p.Username) {
+				chUser = ""
+			}
 			auditFwd.Emit(audit.Event{
-				Action:       p.Action,
-				Username:     deref(p.Username),
-				ConnectionID: deref(p.ConnectionID),
-				Details:      deref(p.Details),
-				IPAddress:    deref(p.IPAddress),
+				Action:         p.Action,
+				Username:       deref(p.Username),
+				ClickhouseUser: chUser,
+				ConnectionID:   deref(p.ConnectionID),
+				Details:        deref(p.Details),
+				IPAddress:      deref(p.IPAddress),
 			})
 		}
 	}

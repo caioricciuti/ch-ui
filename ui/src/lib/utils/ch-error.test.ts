@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCHError, byteToCharOffset } from './ch-error'
+import { parseCHError, byteToCharOffset, isMissingTableError } from './ch-error'
 
 describe('byteToCharOffset', () => {
   it('is identity for ASCII', () => {
@@ -162,5 +162,22 @@ describe('parseCHError', () => {
     const p = parseCHError('Code: 999. DB::Exception: Something odd. (WHATEVER_ODD)')
     expect(p.code).toBe(999)
     expect(p.hint).toBeNull()
+  })
+})
+
+describe('isMissingTableError', () => {
+  it('matches unknown table and database by code or name', () => {
+    expect(isMissingTableError("Code: 60. DB::Exception: Table otel.otel_logs does not exist. (UNKNOWN_TABLE) (version 24.8.4.13)")).toBe(true)
+    expect(isMissingTableError("ClickHouse error: Code: 81. DB::Exception: Database otel does not exist. (UNKNOWN_DATABASE)")).toBe(true)
+  })
+
+  it('matches the empty DESCRIBE message from the telemetry API', () => {
+    expect(isMissingTableError('table otel.otel_traces has no columns or does not exist')).toBe(true)
+  })
+
+  it('leaves other errors alone', () => {
+    expect(isMissingTableError('Code: 62. DB::Exception: Syntax error (SYNTAX_ERROR)')).toBe(false)
+    expect(isMissingTableError('Code: 516. DB::Exception: default: Authentication failed (AUTHENTICATION_FAILED)')).toBe(false)
+    expect(isMissingTableError('connection refused')).toBe(false)
   })
 })

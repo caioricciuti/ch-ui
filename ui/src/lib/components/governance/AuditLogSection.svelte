@@ -62,6 +62,7 @@
     { key: 'created_at', label: 'Time', mono: true, width: '160px', format: (v) => formatDate(v) },
     { key: 'action', label: 'Action', width: '220px' },
     { key: 'username', label: 'User', format: (v) => (v ? String(v) : '—') },
+    { key: 'ch_user', label: 'ClickHouse user', mono: true, format: (v) => (v ? String(v) : '—') },
     { key: 'details', label: 'Details', mono: true, truncate: true, width: '45%', sortable: false, format: (v) => (v ? String(v) : '—') },
     { key: 'ip_address', label: 'IP', mono: true, format: (v) => (v ? String(v) : '—') },
   ]
@@ -177,6 +178,10 @@
         <div class="flex items-center justify-between gap-4 px-3 py-2 text-[13px]">
           <dt class="text-fg-3">User</dt>
           <dd class="text-fg">{selected.username || '—'}</dd>
+        </div>
+        <div class="flex items-center justify-between gap-4 px-3 py-2 text-[13px]">
+          <dt class="text-fg-3">ClickHouse user</dt>
+          <dd class="font-mono text-xs text-fg">{selected.ch_user || '—'}</dd>
         </div>
         <div class="flex items-center justify-between gap-4 px-3 py-2 text-[13px]">
           <dt class="text-fg-3">IP</dt>

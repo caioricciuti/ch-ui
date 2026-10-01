@@ -234,9 +234,10 @@ func (h *AdminHandler) GetUserRoles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, roles)
 }
 
-// roleUsernameParam returns the decoded {username} path parameter. Role keys
-// can hold ':' and '@' ("sso:<email>", or a ClickHouse user named like an
-// email), which the UI percent-encodes; chi returns the raw escaped segment.
+// roleUsernameParam returns the decoded {username} path parameter, for role
+// and ClickHouse user routes alike. Names can hold ':' and '@' ("sso:<email>",
+// or a ClickHouse user named like an email), which the UI percent-encodes;
+// chi returns the raw escaped segment.
 func roleUsernameParam(r *http.Request) (string, bool) {
 	username, err := url.PathUnescape(chi.URLParam(r, "username"))
 	if err != nil || strings.TrimSpace(username) == "" {
@@ -645,8 +646,8 @@ func (h *AdminHandler) UpdateClickHouseUserPassword(w http.ResponseWriter, r *ht
 		return
 	}
 
-	username := strings.TrimSpace(chi.URLParam(r, "username"))
-	if username == "" {
+	username, ok := roleUsernameParam(r)
+	if !ok {
 		writeError(w, http.StatusBadRequest, "username is required")
 		return
 	}
@@ -772,8 +773,8 @@ func (h *AdminHandler) DeleteClickHouseUser(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	username := strings.TrimSpace(chi.URLParam(r, "username"))
-	if username == "" {
+	username, ok := roleUsernameParam(r)
+	if !ok {
 		writeError(w, http.StatusBadRequest, "username is required")
 		return
 	}

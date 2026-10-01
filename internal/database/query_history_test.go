@@ -1,6 +1,8 @@
 package database
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 )
@@ -201,17 +203,17 @@ func TestQueryHistory_DeleteAndClear(t *testing.T) {
 	insertHistoryAt(t, db, "h2", "alice", "conn-1", "SELECT 2", "success", "datetime('now', '-2 minutes')")
 	insertHistoryAt(t, db, "h3", "bob", "conn-1", "SELECT 3", "success", "datetime('now', '-3 minutes')")
 
-	// Deleting someone else's entry is a silent no-op.
-	if err := db.DeleteQueryHistoryEntry("h3", "alice", "conn-1"); err != nil {
-		t.Fatalf("DeleteQueryHistoryEntry foreign: %v", err)
+	// Deleting someone else's entry deletes nothing and reports not found.
+	if err := db.DeleteQueryHistoryEntry("h3", "alice", "conn-1"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("DeleteQueryHistoryEntry foreign: want sql.ErrNoRows, got %v", err)
 	}
 	if entries, _ := db.GetQueryHistory("bob", "conn-1", "", "", 50, 0); len(entries) != 1 {
 		t.Fatalf("bob's entry should survive alice's delete")
 	}
 
-	// Deleting own entry from a different connection is also a no-op.
-	if err := db.DeleteQueryHistoryEntry("h1", "alice", "conn-2"); err != nil {
-		t.Fatalf("DeleteQueryHistoryEntry wrong conn: %v", err)
+	// Deleting own entry from a different connection is also not found.
+	if err := db.DeleteQueryHistoryEntry("h1", "alice", "conn-2"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("DeleteQueryHistoryEntry wrong conn: want sql.ErrNoRows, got %v", err)
 	}
 	if entries, _ := db.GetQueryHistory("alice", "conn-1", "", "", 50, 0); len(entries) != 2 {
 		t.Fatalf("delete must be connection-scoped")
@@ -278,8 +280,8 @@ func TestQueryHistory_SSOPeopleSharingAccountAreIsolated(t *testing.T) {
 
 	// Bob cannot delete alice's row by id, nor the shared pre-migration row.
 	for _, id := range []string{"a1", "shared", "p1"} {
-		if err := db.DeleteQueryHistoryEntry(id, ssoBob, "conn-1"); err != nil {
-			t.Fatalf("DeleteQueryHistoryEntry(%s): %v", id, err)
+		if err := db.DeleteQueryHistoryEntry(id, ssoBob, "conn-1"); !errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("DeleteQueryHistoryEntry(%s): want sql.ErrNoRows, got %v", id, err)
 		}
 	}
 	if got := historyIDs(t, db, ssoAlice, "conn-1"); len(got) != 2 {

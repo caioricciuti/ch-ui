@@ -15,6 +15,7 @@
   import TraceFacets from './TraceFacets.svelte'
   import TraceView from './TraceView.svelte'
   import { setSection } from '../../stores/nav.svelte'
+  import { isMissingTableError } from '../../utils/ch-error'
   import { searchTraces, tracesHistogram, tracesFacets } from '../../api/telemetryPro'
   import type { TelemetrySource } from '../../types/telemetry'
   import type { TraceSummary, TraceFacets as TraceFacetsT, TraceHistogramBucket } from '../../types/telemetryPro'
@@ -237,6 +238,14 @@
     </Button>
   </div>
 
+  {#if error && isMissingTableError(error)}
+    <EmptyState
+      icon={Waypoints}
+      title="Telemetry tables not found"
+      description="The traces table this source points at does not exist in ClickHouse. Check the source, or start the OpenTelemetry collector so it creates its tables."
+      primary={{ label: 'Configure sources', onclick: () => setSection('sources') }}
+    />
+  {:else}
   {#if error}
     <div class="shrink-0 border-b border-edge-subtle bg-danger-soft px-5 py-1.5 text-xs text-danger">{error}</div>
   {/if}
@@ -301,4 +310,5 @@
       {/if}
     </div>
   </div>
+  {/if}
 {/if}

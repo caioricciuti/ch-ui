@@ -174,6 +174,8 @@ export interface AuditLog {
   id: string
   action: string
   username: string | null
+  /** ClickHouse account the action ran as; omitted when it equals username */
+  ch_user?: string | null
   details: string | null
   ip_address: string | null
   created_at: string

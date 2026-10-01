@@ -104,12 +104,13 @@ func (h *GovernanceHandler) GetAuditLogsExport(w http.ResponseWriter, r *http.Re
 	w.Header().Set("Content-Disposition", `attachment; filename="ch-ui-audit-logs.csv"`)
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
-	_ = cw.Write([]string{"created_at", "action", "username", "connection_id", "ip_address", "details"})
+	_ = cw.Write([]string{"created_at", "action", "username", "ch_user", "connection_id", "ip_address", "details"})
 	for _, l := range logs {
 		_ = cw.Write([]string{
 			l.CreatedAt,
 			l.Action,
 			derefStr(l.Username),
+			derefStr(l.ChUser),
 			derefStr(l.ConnectionID),
 			derefStr(l.IPAddress),
 			derefStr(l.Details),

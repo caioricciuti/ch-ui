@@ -52,6 +52,14 @@ export function isPageRouteType(type: string | undefined | null): type is PageRo
   return !!type && type in PAGE_ROUTES
 }
 
+/**
+ * Old paths that still arrive from docs, emails and bookmarks. The router
+ * rewrites them to the current path, keeping the query string.
+ */
+export const PATH_ALIASES: Record<string, string> = {
+  '/settings': PAGE_ROUTES.settings.path,
+}
+
 /** Path -> route type, for parsing the URL. */
 export const PATH_TO_PAGE: Record<string, PageRoute> = Object.fromEntries(
   (Object.keys(PAGE_ROUTES) as PageRoute[]).map((k) => [PAGE_ROUTES[k].path, k]),

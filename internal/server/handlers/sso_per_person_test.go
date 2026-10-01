@@ -105,9 +105,9 @@ func TestQueryHistorySSOPeopleIsolated(t *testing.T) {
 	if err := db.Conn().QueryRow(`SELECT id FROM query_history WHERE actor = 'alice@example.com'`).Scan(&aliceID); err != nil {
 		t.Fatal(err)
 	}
-	// Bob deletes alice's row by id and clears his own: alice, the password
-	// user and the shared row all survive.
-	if res := ssoRequest(r, p.bob, "DELETE", "/history/"+aliceID, ""); res.Code != 200 {
+	// Bob deleting alice's row by id gets 404 and deletes nothing; clearing
+	// his own leaves alice, the password user and the shared row in place.
+	if res := ssoRequest(r, p.bob, "DELETE", "/history/"+aliceID, ""); res.Code != 404 {
 		t.Fatalf("delete: %d %s", res.Code, res.Body)
 	}
 	if res := ssoRequest(r, p.bob, "DELETE", "/history/", ""); res.Code != 200 {
