@@ -137,7 +137,8 @@ the expiry date, giving you time to renew:
 
 After the grace window, Pro features lock until a valid license is activated.
 Enabled scheduled queries and telemetry monitors pause; nothing is deleted, and
-they resume when a license is activated. Activating a renewed license, during
+they resume when a license is activated. A scheduled query that fell due while
+paused is skipped and waits for its next slot. Activating a renewed license, during
 grace or after, unlocks Pro right away, no reload needed.
 
 ## Open Source vs Pro License

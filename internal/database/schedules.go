@@ -177,6 +177,22 @@ func (db *DB) UpdateSchedule(id, name, cron, timezone string, enabled bool, time
 }
 
 // UpdateScheduleStatus updates the last run info for a schedule.
+// SetScheduleNextRun moves next_run_at only, leaving the last run untouched.
+func (db *DB) SetScheduleNextRun(id string, nextRunAt *time.Time) error {
+	var nextVal interface{}
+	if nextRunAt != nil {
+		nextVal = nextRunAt.UTC().Format(time.RFC3339)
+	}
+	_, err := db.conn.Exec(
+		`UPDATE schedules SET next_run_at = ?, updated_at = ? WHERE id = ?`,
+		nextVal, time.Now().UTC().Format(time.RFC3339), id,
+	)
+	if err != nil {
+		return fmt.Errorf("set schedule next run: %w", err)
+	}
+	return nil
+}
+
 func (db *DB) UpdateScheduleStatus(id, status, lastError string, nextRunAt *time.Time) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 

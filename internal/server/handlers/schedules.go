@@ -166,7 +166,9 @@ func (h *SchedulesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Set next run time
 	next := cronexpr.ComputeNextRun(cronExpr, time.Now().UTC())
 	if next != nil {
-		h.DB.UpdateScheduleStatus(id, "", "", next)
+		if err := h.DB.SetScheduleNextRun(id, next); err != nil {
+			slog.Error("Failed to set schedule next run", "error", err, "id", id)
+		}
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
@@ -279,12 +281,14 @@ func (h *SchedulesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Recompute next run
+	// Recompute next run. Only next_run_at moves: an edit is not a run, so
+	// the last run time and status stay as they were.
+	var next *time.Time
 	if enabled {
-		next := cronexpr.ComputeNextRun(cron, time.Now().UTC())
-		h.DB.UpdateScheduleStatus(id, "", "", next)
-	} else {
-		h.DB.UpdateScheduleStatus(id, "", "", nil)
+		next = cronexpr.ComputeNextRun(cron, time.Now().UTC())
+	}
+	if err := h.DB.SetScheduleNextRun(id, next); err != nil {
+		slog.Error("Failed to set schedule next run", "error", err, "id", id)
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
