@@ -17,6 +17,7 @@ import (
 
 // TestTickFollowsLicense checks that due schedules are skipped while there is
 // no Pro license, run during grace and while active, and are never disabled.
+// A slot that fell due while paused is skipped on resume, not run late.
 func TestTickFollowsLicense(t *testing.T) {
 	db, conn := testutil.WorkerDB(t)
 	query, err := db.CreateSavedQuery(database.CreateSavedQueryParams{Name: "q", Query: "SELECT 1", ConnectionID: conn})
@@ -58,6 +59,23 @@ func TestTickFollowsLicense(t *testing.T) {
 	job, err := db.GetScheduleByID(id)
 	if err != nil || job == nil || !job.Enabled {
 		t.Fatalf("ProNone must leave the schedule enabled: %#v %v", job, err)
+	}
+
+	// Resume: the slot missed while paused moves to the future, no run.
+	access = config.ProGrace
+	r.tick()
+	if n := runCount(); n != 0 {
+		t.Fatalf("resume: got %d runs, want 0 (missed slot is skipped)", n)
+	}
+	job, err = db.GetScheduleByID(id)
+	if err != nil || job == nil || job.NextRunAt == nil {
+		t.Fatalf("resume must keep a next run: %#v %v", job, err)
+	}
+	if next, err := time.Parse(time.RFC3339, *job.NextRunAt); err != nil || !next.After(time.Now().UTC()) {
+		t.Fatalf("resume must move next_run_at to the future, got %s", *job.NextRunAt)
+	}
+	if job.LastRunAt != nil {
+		t.Fatalf("a skipped slot is not a run, last_run_at = %s", *job.LastRunAt)
 	}
 
 	want := 0

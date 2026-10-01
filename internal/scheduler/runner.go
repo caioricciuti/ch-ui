@@ -31,12 +31,17 @@ type Runner struct {
 	secret  string
 	pro     func() bool
 	stopCh  chan struct{}
+	// paused is true while the last tick found Pro work not allowed. The
+	// first tick after that skips slots that fell due during the pause.
+	paused bool
 }
 
 // NewRunner creates a new schedule runner. pro reports whether Pro work may
 // run now (see config.ProGate); while it returns false, or is nil, ticks do
 // nothing, so enabled schedules pause without being disabled or deleted and
-// resume on the next tick after a license is activated.
+// resume on the next tick after a license is activated. Slots that fell due
+// while paused are skipped, not run late: each such schedule waits for its
+// next slot.
 func NewRunner(db *database.DB, gw *tunnel.Gateway, secret string, pro func() bool) *Runner {
 	return &Runner{
 		db:      db,
@@ -75,8 +80,11 @@ func (r *Runner) Stop() {
 // tick fetches due jobs from SQLite and executes them concurrently.
 func (r *Runner) tick() {
 	if r.pro == nil || !r.pro() {
+		r.paused = true
 		return
 	}
+	resuming := r.paused
+	r.paused = false
 	schedules, err := r.db.GetEnabledSchedules()
 	if err != nil {
 		slog.Error("Failed to load enabled schedules", "error", err)
@@ -94,6 +102,10 @@ func (r *Runner) tick() {
 			continue
 		}
 		if nextRun.After(now) {
+			continue
+		}
+		if resuming {
+			r.skipMissedRun(s, now)
 			continue
 		}
 		due = append(due, s)
@@ -120,6 +132,17 @@ func (r *Runner) tick() {
 	}
 
 	wg.Wait()
+}
+
+// skipMissedRun moves a schedule that fell due while Pro work was paused to
+// its next slot without running it.
+func (r *Runner) skipMissedRun(s database.Schedule, now time.Time) {
+	next := cronexpr.ComputeNextRun(s.Cron, now)
+	if err := r.db.SetScheduleNextRun(s.ID, next); err != nil {
+		slog.Error("Failed to skip missed schedule run", "error", err, "schedule", s.ID)
+		return
+	}
+	slog.Info("Skipped schedule run missed while paused", "schedule", s.ID, "name", s.Name)
 }
 
 func (r *Runner) runSchedule(schedule database.Schedule) {

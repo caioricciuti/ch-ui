@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -85,6 +86,24 @@ func ValidateLicense(licenseJSON string) *LicenseInfo {
 	return validateLicenseWithKey(licenseJSON, pub)
 }
 
+// lastExpiryLog remembers which expiry state was last logged. Background
+// workers validate the license on every tick, so the warning is written once
+// per license and state (grace, then expired), not on every call.
+var lastExpiryLog struct {
+	sync.Mutex
+	key string
+}
+
+func logExpiryOnce(key string) bool {
+	lastExpiryLog.Lock()
+	defer lastExpiryLog.Unlock()
+	if lastExpiryLog.key == key {
+		return false
+	}
+	lastExpiryLog.key = key
+	return true
+}
+
 // validateLicenseWithKey is the core validation routine, parameterized on the
 // verifying key so it can be exercised in tests with a generated keypair.
 func validateLicenseWithKey(licenseJSON string, pub ed25519.PublicKey) *LicenseInfo {
@@ -123,10 +142,16 @@ func validateLicenseWithKey(licenseJSON string, pub ed25519.PublicKey) *LicenseI
 	if expires.Before(time.Now()) {
 		graceUntil := expires.AddDate(0, 0, GraceDays)
 		inGrace := time.Now().Before(graceUntil)
+		state := "expired"
 		if inGrace {
-			slog.Warn("License expired — in read-only grace period", "expires_at", lf.ExpiresAt, "grace_until", graceUntil.Format(time.RFC3339))
-		} else {
-			slog.Warn("License expired", "expires_at", lf.ExpiresAt)
+			state = "grace"
+		}
+		if logExpiryOnce(lf.LicenseID + "|" + lf.ExpiresAt + "|" + state) {
+			if inGrace {
+				slog.Warn("License expired — in read-only grace period", "expires_at", lf.ExpiresAt, "grace_until", graceUntil.Format(time.RFC3339))
+			} else {
+				slog.Warn("License expired", "expires_at", lf.ExpiresAt)
+			}
 		}
 		return &LicenseInfo{
 			Edition:    strings.ToLower(strings.TrimSpace(lf.Edition)),

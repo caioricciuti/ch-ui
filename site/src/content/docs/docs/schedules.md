@@ -7,7 +7,7 @@ Schedules let you run saved queries on a cron schedule with timeout control, tim
 
 Scheduled query jobs are a **Pro** feature (a license with the `enterprise` edition unlocks them too). Model and pipeline schedules are separate and part of the free core; see [Models](/docs/models#scheduling).
 
-Enabled schedules keep running during the 14-day grace period after a license expires. After grace they pause, nothing is deleted, and they resume when a license is activated. See [What happens at expiry](/docs/license#what-happens-at-expiry).
+Enabled schedules keep running during the 14-day grace period after a license expires. After grace they pause, nothing is deleted, and they resume when a license is activated. Runs missed while paused are skipped, not run late: each schedule waits for its next slot. See [What happens at expiry](/docs/license#what-happens-at-expiry).
 
 Anyone signed in can list schedules and read their run history. Creating, editing, deleting and manually running a schedule needs the **admin** or **analyst** role; viewers get `403`.
 

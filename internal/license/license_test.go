@@ -147,3 +147,18 @@ func mustKeypair(t *testing.T) (ed25519.PrivateKey, ed25519.PublicKey) {
 	}
 	return priv, pub
 }
+
+func TestLogExpiryOnce(t *testing.T) {
+	if !logExpiryOnce("lic-1|2026-01-01T00:00:00Z|grace") {
+		t.Fatal("first grace call must log")
+	}
+	if logExpiryOnce("lic-1|2026-01-01T00:00:00Z|grace") {
+		t.Fatal("repeat grace call must not log")
+	}
+	if !logExpiryOnce("lic-1|2026-01-01T00:00:00Z|expired") {
+		t.Fatal("moving from grace to expired must log")
+	}
+	if !logExpiryOnce("lic-2|2027-01-01T00:00:00Z|grace") {
+		t.Fatal("a different license must log")
+	}
+}
