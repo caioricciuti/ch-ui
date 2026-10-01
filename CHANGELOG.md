@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.14.3] - 2026-10-01
+
+### Security
+
+- **`/metrics` no longer names the build.** `ch_ui_build_info` keeps only the
+  `go_version` label; `version` and `commit` are removed from the
+  unauthenticated endpoint, as they were from `/health` earlier. Dashboards that
+  grouped by `version` lose that label (#210).
+- **Deleting another person's query history entry answers 404.** It never
+  deleted anything, but it answered 200 (#208).
+
+### Fixed
+
+- **Audit Log shows the ClickHouse user.** A "ClickHouse user" column and detail
+  row on the page, a `ch_user` column in the CSV export, and `ch_user` on
+  forwarded SIEM events, set when it differs from the actor (#208).
+- **ClickHouse users with `@` or `:` in their name** can have their password
+  changed and be deleted from Admin; the endpoints now decode the name (#208).
+- **Login says "Connector online / offline"** instead of "Connected /
+  Unreachable": the status is the connector, ClickHouse is checked at sign-in
+  (#208).
+- **`/settings` opens the License page** (keeping `?section=`) instead of the
+  workspace home (#208).
+- **Telemetry explains missing tables.** When the OpenTelemetry tables do not
+  exist, Logs, Traces and Metrics show setup help instead of the raw ClickHouse
+  error (#208).
+- **Scheduled queries skip runs missed while unlicensed.** After a license is
+  activated again, an overdue schedule waits for its next slot instead of
+  running late (#209).
+- **Creating or editing a schedule keeps its last run** time, status and error
+  (#209).
+- **A weekly report settings update keeps omitted fields.** A body without
+  `weekday` or `hour` no longer saves Sunday 00:00 (#210).
+
+### Changed
+
+- **Data retention covers operations history.** Operations reports, deployment
+  annotations and resolved performance investigations are pruned after 180 days
+  by default, editable in Admin → Settings. Open and monitoring investigations
+  are never pruned (#210).
+- An expired license is logged once per state (grace, then expired), not on
+  every check (#209).
+
 ## [2.14.2] - 2026-10-01
 
 ### Security
