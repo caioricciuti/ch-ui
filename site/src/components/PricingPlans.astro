@@ -64,6 +64,10 @@ const PRO_FEATURES = [
     <div class="cta">
       <BuyProButton />
       <a class="chui-btn" href="#trial" data-cta="pricing_trial_jump">Try free for 30 days</a>
+      <p class="consent">
+        Secure checkout via Stripe. By buying you agree to the <a href="/terms/">Terms</a> and the
+        <a href="/privacy/">Privacy Policy</a>.
+      </p>
     </div>
     <ul>
       {PRO_FEATURES.map((f) => <li>{f}</li>)}
@@ -147,10 +151,22 @@ const PRO_FEATURES = [
   .cta {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 0.5rem;
     margin-top: 1.1rem;
     padding-bottom: 1.4rem;
     border-bottom: 1px solid var(--chui-edge-subtle);
+  }
+  .consent {
+    flex-basis: 100%;
+    margin: 0.25rem 0 0;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--chui-fg-4);
+  }
+  .consent a {
+    color: var(--chui-fg-3);
+    text-underline-offset: 2px;
   }
   ul {
     display: grid;

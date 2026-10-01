@@ -146,7 +146,39 @@
   color: var(--chui-danger);
 }
 .chui-status[data-tone="ok"] {
-  color: var(--chui-success);
+  color: var(--chui-fg-2);
+}
+/* What a form turns into once its request went through: a title and one
+   line that is true whatever the server decided to send. */
+.chui-done {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--chui-edge);
+  border-radius: var(--chui-radius);
+  background: var(--chui-hover);
+}
+.chui-done strong {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 560;
+  color: var(--chui-fg);
+}
+.chui-done strong::before {
+  content: "";
+  width: 0.3rem;
+  height: 0.6rem;
+  margin: 0 0.3rem 0.15rem 0.15rem;
+  border: solid var(--chui-accent);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+.chui-done span {
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--chui-fg-3);
 }
 /* The Pro mark: a small outlined tag in the accent. */
 .chui-pro {

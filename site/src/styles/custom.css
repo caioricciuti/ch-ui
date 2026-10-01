@@ -300,10 +300,20 @@ starlight-toc a[aria-current="true"]:hover {
   color: var(--sl-color-accent-high);
 }
 
+/* Previous and next: a compact pair of links, not two billboards. */
 .pagination-links a {
+  padding: 0.7rem 0.9rem;
   border-radius: 6px;
   border-color: var(--chui-edge);
   box-shadow: none;
+  font-size: 0.8125rem;
+}
+.pagination-links a .link-title {
+  font-size: 0.9375rem;
+  font-weight: 560;
+}
+.pagination-links a svg {
+  font-size: 1.1rem;
 }
 .pagination-links a:hover {
   border-color: color-mix(in srgb, var(--sl-color-accent) 50%, transparent);

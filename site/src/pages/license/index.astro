@@ -42,15 +42,18 @@ const trialPoints = [
           <h2>Buy a license</h2>
           <p class="price"><strong>$1,199</strong> per instance, per year</p>
           <BuyProButton />
+          <p class="consent">
+            Secure checkout via Stripe. By buying you agree to the <a href="/terms/">Terms</a> and the
+            <a href="/privacy/">Privacy Policy</a>.
+          </p>
           <ul class="checks">
             {buyPoints.map((p) => <li>{p}</li>)}
           </ul>
-          <p class="fineprint">Secure checkout via Stripe. Email receipt included.</p>
         </div>
         <div class="cell">
           <h2>Start a free 30-day trial</h2>
           <p class="price"><strong>Free</strong> no card required</p>
-          <TrialForm />
+          <TrialForm layout="stack" />
           <ul class="checks">
             {trialPoints.map((p) => <li>{p}</li>)}
           </ul>
@@ -58,7 +61,7 @@ const trialPoints = [
       </div>
 
       <h2 class="sub-head">Already a customer?</h2>
-      <div class="frame">
+      <div class="frame stacked">
         <div class="cell">
           <h3>Re-send my license</h3>
           <p>Enter the email you purchased with and we'll re-send your license.json.</p>
@@ -90,6 +93,20 @@ const trialPoints = [
 </Landing>
 
 <style>
+  /* One row per action, the whole width, instead of two side by side. */
+  .stacked {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .stacked .cell {
+    border-inline-start: 0;
+    border-top: 1px solid var(--chui-edge-subtle);
+  }
+  .stacked .cell:first-child {
+    border-top: 0;
+  }
+  .stacked :global(.chui-email .fields) {
+    max-width: 28rem;
+  }
   .featured {
     box-shadow: inset 0 2px 0 var(--chui-accent);
   }
@@ -110,6 +127,16 @@ const trialPoints = [
   }
   .checks {
     margin-top: 1.4rem;
+  }
+  .consent {
+    margin: 0.5rem 0 0;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--chui-fg-4);
+  }
+  .consent a {
+    color: var(--chui-fg-3);
+    text-underline-offset: 2px;
   }
   .cell .fineprint {
     margin-top: 1.1rem;
