@@ -1,8 +1,14 @@
 // ch-ui.com on Cloudflare Workers. The dashboard project is a Worker
 // connected to this repository with root directory /site; its build runs
-// `bun run build` and then `npx wrangler deploy`, which reads this file,
-// uploads dist/ as static assets and bundles worker/index.ts. Nothing here
-// runs on a developer's machine.
+// `bun run build`, then a wrangler deploy that reads this file, uploads
+// dist/ as static assets and bundles worker/index.ts. Nothing here runs on
+// a developer's machine.
+//
+// The deploy command in the dashboard pins wrangler to an exact version
+// (4.136.3 as of 2026-10-01), because that step holds the account's deploy
+// credentials and an unpinned wrangler would run whatever was published
+// minutes ago. Bump the pin by hand, to a version at least seven days old,
+// as with every other dependency.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   // Must match the Worker's name in the Cloudflare dashboard.

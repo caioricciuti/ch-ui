@@ -78,24 +78,22 @@ log "Downloading checksums..."
 curl --fail --silent --show-error --location --retry 3 --connect-timeout 15 -o "$SUM_FILE" "$SUM_URL" \
   || fail "Failed to download checksums from ${SUM_URL}"
 
-VERIFY_AVAILABLE=1
+# The binary is never installed unverified. Without a sha256 tool the
+# install stops; the release page carries checksums.txt with its Cosign
+# signature and certificate for checking by hand.
 if ! has_cmd sha256sum && ! has_cmd shasum; then
-  VERIFY_AVAILABLE=0
-  log "Warning: sha256 tool not found; skipping checksum verification."
-  log "Warning: install will continue without integrity verification."
+  fail "sha256sum or shasum is required to verify the download. Install one and run this again."
 fi
 
-if [ "$VERIFY_AVAILABLE" -eq 1 ]; then
-  EXPECTED="$(awk -v f="$ASSET_NAME" '$2==f {print $1}' "$SUM_FILE")"
-  if [ -z "$EXPECTED" ]; then
-    fail "Could not find checksum for ${ASSET_NAME} in checksums.txt"
-  fi
-  ACTUAL="$(compute_sha256 "$BIN_FILE")"
-  if [ "$EXPECTED" != "$ACTUAL" ]; then
-    fail "Checksum mismatch for ${ASSET_NAME}. Expected ${EXPECTED}, got ${ACTUAL}."
-  fi
-  log "Checksum verified."
+EXPECTED="$(awk -v f="$ASSET_NAME" '$2==f {print $1}' "$SUM_FILE")"
+if [ -z "$EXPECTED" ]; then
+  fail "Could not find checksum for ${ASSET_NAME} in checksums.txt"
 fi
+ACTUAL="$(compute_sha256 "$BIN_FILE")"
+if [ "$EXPECTED" != "$ACTUAL" ]; then
+  fail "Checksum mismatch for ${ASSET_NAME}. Expected ${EXPECTED}, got ${ACTUAL}."
+fi
+log "Checksum verified."
 
 INSTALL_DIR="/usr/local/bin"
 if [ ! -w "$INSTALL_DIR" ] && [ "$(id -u)" -ne 0 ]; then
