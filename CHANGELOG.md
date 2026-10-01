@@ -7,12 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.14.2] - 2026-10-01
+
+### Security
+
+- **DOMPurify 3.4.16.** The UI moves from 3.4.15, which is covered by
+  GHSA-p98j-92pf-mc4p (low). The UI's only DOMPurify hook does not use
+  `IN_PLACE`, so it was not exposed as written; the version is now pinned
+  exactly (#205).
+
 ### Changed
 
 - **The website and documentation now live in this repository, under `site/`.**
   ch-ui.com is built from it, so a change and its documentation land in the
   same pull request. The changelog page and the RSS feed on ch-ui.com are
-  generated from this file. `site/` is not open source; see `LICENSING.md`.
+  generated from this file. `site/` is not open source; see `LICENSING.md`
+  (#204, #206).
 
 ## [2.14.1] - 2026-09-29
 
