@@ -19,7 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       clickhouse:
-        image: clickhouse/clickhouse-server:25.8@sha256:0152dd511befe6a2c2ef53e930726179669b08116da78500b37c51c96ff5ee77
+        # Mirror of clickhouse/clickhouse-server:25.8, same digest (mirror-images.yml).
+        image: ghcr.io/caioricciuti/ci-clickhouse-server@sha256:0152dd511befe6a2c2ef53e930726179669b08116da78500b37c51c96ff5ee77
         env:
           CLICKHOUSE_USER: release_admin
           CLICKHOUSE_PASSWORD: ci-test-only
