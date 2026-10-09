@@ -10,6 +10,7 @@
   import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
   import { tags as t } from '@lezer/highlight'
   import { clickhouseCompletionSource } from '../../editor/completions'
+  import { schemaLinks, schemaLinkHint, schemaLinkTheme } from '../../editor/schemaLinks'
   import { getTheme } from '../../stores/theme.svelte'
 
   interface Props {
@@ -167,6 +168,9 @@
           defaultKeymap: true,
           selectOnOpen: true,
         }),
+        schemaLinks,
+        schemaLinkHint,
+        schemaLinkTheme,
         themeCompartment.of(getThemeExtension()),
         EditorView.theme({
           '&': { height: '100%', fontSize: '13px' },

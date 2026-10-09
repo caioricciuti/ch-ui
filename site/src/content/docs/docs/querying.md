@@ -166,6 +166,10 @@ Click a table in the explorer to open a table tab showing:
 
 The editor provides schema-aware completions using database, table, and column names from the explorer endpoints.
 
+### Open a table from the editor
+
+Hold **⌘** (macOS) or **Ctrl** and click a database or table name in the editor to open its tab. Names you can open have a dotted underline, and hovering one shows what it opens. Holding the key turns the underline solid. In `otel.otel_logs`, clicking `otel` opens the database and clicking `otel_logs` opens the table; backtick and double-quote quoting both work. A table name without a database (`FROM otel_logs`) is a link only when exactly one database has a table with that name.
+
 ## Schema Operations
 
 Admin-only operations for managing databases and tables.
