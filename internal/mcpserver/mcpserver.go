@@ -272,6 +272,8 @@ func auditToolCalls(deps Deps, ak *authedKey) mcp.Middleware {
 				status = "error"
 			} else if r, ok := res.(*mcp.CallToolResult); ok && r.IsError {
 				status = "error"
+			} else if r, ok := res.(*mcp.CallToolResult); ok && len(r.InputRequests) > 0 {
+				status = "awaiting_confirmation"
 			}
 			audit(deps, ak, "mcp.tool.call", "mcp key: "+ak.key.Name+", tool: "+name+", status: "+status)
 			return res, err
