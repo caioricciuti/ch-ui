@@ -273,6 +273,16 @@ Layered, server-side, not prompt-side:
    and in the [audit log](/docs/audit-log) as `mcp.query.execute`; every other
    tool call is audited as `mcp.tool.call` with the tool name and outcome.
 
+Write tools (`save_query`, `create_dashboard`, `create_model`,
+`create_pipeline`) ask before they write when the client supports it. A
+client on MCP protocol 2026-07-28 or later that declares form elicitation
+shows the user a yes/no prompt naming the action and its target, for
+example `Save query "weekly revenue" to CH-UI?`. Nothing is written until
+the user confirms; a decline returns a plain "nothing was written" result
+and is audited as `mcp.write.declined`. Clients on older protocol versions,
+or without elicitation support, get no prompt and the write runs as before,
+so the `read_write` scope on the key remains the control there.
+
 ## Behind a reverse proxy
 
 `/mcp`, `/oauth/*` and `/.well-known/*` are ordinary HTTP routes, so the

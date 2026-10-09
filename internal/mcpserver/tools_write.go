@@ -100,6 +100,9 @@ func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		if name == "" || sqlText == "" {
 			return errResult("name and sql are required"), nil, nil
 		}
+		if res := confirmWrite(deps, ak, req, fmt.Sprintf("Save query %q to CH-UI?", name)); res != nil {
+			return res, nil, nil
+		}
 		id, err := deps.DB.CreateSavedQuery(database.CreateSavedQueryParams{
 			Name:         name,
 			Description:  strings.TrimSpace(args.Description),
@@ -132,6 +135,9 @@ func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 			if strings.TrimSpace(p.Name) == "" || strings.TrimSpace(p.SQL) == "" {
 				return errResult("panel %d needs both name and sql", i+1), nil, nil
 			}
+		}
+		if res := confirmWrite(deps, ak, req, fmt.Sprintf("Create dashboard %q with %d panel(s) in CH-UI?", name, len(args.Panels))); res != nil {
+			return res, nil, nil
 		}
 
 		dashID, err := deps.DB.CreateDashboard(name, strings.TrimSpace(args.Description), mcpAuthor(ak))
@@ -215,6 +221,9 @@ func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 				orderBy = "tuple()"
 			}
 		}
+		if res := confirmWrite(deps, ak, req, fmt.Sprintf("Create draft model %q (%s in %s) in CH-UI?", name, mat, targetDB)); res != nil {
+			return res, nil, nil
+		}
 		id, err := deps.DB.CreateModel(ak.key.ConnectionID, name, strings.TrimSpace(args.Description), targetDB, mat, sqlBody, engine, orderBy, mcpAuthor(ak))
 		if err != nil {
 			return errResult("failed to create model (name taken on this connection?): %v", err), nil, nil
@@ -247,6 +256,9 @@ func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		}
 		if !dbAllowed(ak.key, targetDB) {
 			return errResult("target database %q is not in this key's allowlist", targetDB), nil, nil
+		}
+		if res := confirmWrite(deps, ak, req, fmt.Sprintf("Create draft pipeline %q (%s source into %s.%s) in CH-UI?", name, strings.TrimPrefix(args.SourceType, "source_"), targetDB, targetTable)); res != nil {
+			return res, nil, nil
 		}
 
 		pipelineID, err := deps.DB.CreatePipeline(name, strings.TrimSpace(args.Description), ak.key.ConnectionID, mcpAuthor(ak))
