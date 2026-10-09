@@ -5,7 +5,7 @@ module github.com/caioricciuti/ch-ui
 // (net/url), GO-2026-6090 (crypto/tls), GO-2026-6089 and GO-2026-6088
 // (net/http). CI runs the scan with GOTOOLCHAIN=local and installs exactly
 // what this line names, so the patch version has to be spelled out here.
-go 1.26.6
+go 1.26.9
 
 require (
 	github.com/IBM/sarama v1.61.0
@@ -68,7 +68,7 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
