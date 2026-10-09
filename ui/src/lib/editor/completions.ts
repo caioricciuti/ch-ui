@@ -117,7 +117,7 @@ async function ensureFunctionKeywordCache(): Promise<void> {
   await fetchPromise
 }
 
-async function ensureDatabasesLoaded(): Promise<void> {
+export async function ensureDatabasesLoaded(): Promise<void> {
   if (getDatabases().length > 0) return
   if (dbFetchPromise) {
     await dbFetchPromise
@@ -127,7 +127,12 @@ async function ensureDatabasesLoaded(): Promise<void> {
   await dbFetchPromise
 }
 
-async function ensureTablesCached(dbName: string): Promise<void> {
+/** True once the table list for dbName is known (store or cache). */
+export function hasTablesCached(dbName: string): boolean {
+  return tableCache.has(dbName) || !!getDatabases().find((d) => d.name === dbName)?.tables
+}
+
+export async function ensureTablesCached(dbName: string): Promise<void> {
   if (tableCache.has(dbName)) return
 
   const dbInStore = getDatabases().find((d) => d.name === dbName)
@@ -235,7 +240,7 @@ function knownDatabases(): string[] {
   return [...new Set([...fromStore, ...tableCache.keys()])]
 }
 
-function findTablesForDatabase(dbName: string): string[] {
+export function findTablesForDatabase(dbName: string): string[] {
   const fromStore = getDatabases().find((d) => d.name === dbName)?.tables?.map((t) => t.name) ?? []
   const fromCache = tableCache.get(dbName) ?? []
   return [...new Set([...fromStore, ...fromCache])]
