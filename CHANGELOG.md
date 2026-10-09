@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.15.0] - 2026-10-09
+
+### Added
+
+- **Open a table from the SQL editor.** Hold Cmd (macOS) or Ctrl and click a
+  database or table name to open its tab. Names that resolve get a faint dotted
+  underline and a hover hint; in `db.table` each part is its own link. A bare
+  table name links only when exactly one database has it (#214).
+- **MCP write tools ask before writing.** `save_query`, `create_dashboard`,
+  `create_model` and `create_pipeline` show the user a yes/no prompt on clients
+  that speak MCP protocol 2026-07-28 or later with form elicitation. A decline
+  writes nothing and is audited as `mcp.write.declined`. Older clients behave as
+  before (#216).
+- **Docs links on the Pro pages.** Performance, Fleet, Schema comparison,
+  Incident timeline, Reports and the background accounts sheet link to their
+  ch-ui.com docs (#215).
+
+### Security
+
+- **Go 1.26.9 and golang.org/x/net v0.60.0.** Fixes five net/http and x/net
+  advisories reported by govulncheck (GO-2026-6610, 6611, 6612, 6613, 6617).
+  Binaries built with v2.14.3 and earlier carry the vulnerable versions (#217).
+- **UI dependencies.** devalue 5.9.4 and source-map-js 1.2.2, plus a vetted
+  update of the UI toolchain (vite 8.3.2, svelte 5.57.1, CodeMirror); versions
+  are now pinned exactly (#217).
+
+### Changed
+
+- github.com/IBM/sarama 1.61.0 (#212).
+
 ## [2.14.3] - 2026-10-01
 
 ### Security
