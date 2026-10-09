@@ -1,0 +1,46 @@
+name: Mirror CI images
+
+# Copies the ClickHouse image the Go tests run against from Docker Hub to
+# ghcr.io, byte for byte (same digest). CI pulls it from ghcr.io because
+# GitHub runners share IPs and hit Docker Hub's anonymous pull limit.
+#
+# Run by hand from the Actions tab after changing SOURCE. Then point the
+# clickhouse service in ci.yml at the same digest on ghcr.io. The package
+# must be public so fork and Dependabot PRs can pull it.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  SOURCE: docker.io/clickhouse/clickhouse-server:25.8@sha256:0152dd511befe6a2c2ef53e930726179669b08116da78500b37c51c96ff5ee77
+  TARGET: ghcr.io/${{ github.repository_owner }}/ci-clickhouse-server:25.8
+
+jobs:
+  mirror:
+    name: Mirror ClickHouse
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Copy image
+        run: docker buildx imagetools create --tag "$TARGET" "$SOURCE"
+
+      - name: Verify digest
+        run: |
+          want="${SOURCE##*@}"
+          got="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$TARGET")"
+          echo "source: $want"
+          echo "mirror: $got"
+          test "$want" = "$got"
