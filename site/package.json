@@ -13,6 +13,10 @@
     "@astrojs/starlight": "0.42.1",
     "astro": "7.3.3"
   },
+  "overrides": {
+    "sharp": "0.35.5",
+    "source-map-js": "1.2.2"
+  },
   "trustedDependencies": [],
   "packageManager": "bun@1.4.2"
 }
