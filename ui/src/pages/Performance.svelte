@@ -165,7 +165,7 @@
 {/snippet}
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Performance" subtitle="Detect regressions and verify improvements">
+  <PageHeader title="Performance" subtitle="Detect regressions and verify improvements" docs="https://ch-ui.com/docs/performance/">
     {#snippet actions()}
       <Tabs variant="segmented" size="sm" items={[{id:'regressions',label:'Regressions'},{id:'investigations',label:'Investigations'}]} value={section}
         onchange={(value) => { if (busy) return; section = value; detail = null; selected = null; search = ''; detailSequence++ }} />

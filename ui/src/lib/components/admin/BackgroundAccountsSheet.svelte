@@ -7,6 +7,7 @@
   import Input from '../common/Input.svelte'
   import FormField from '../common/FormField.svelte'
   import Spinner from '../common/Spinner.svelte'
+  import { ExternalLink } from 'lucide-svelte'
 
   let { connection, onclose }: {
     connection: { id: string; name: string }
@@ -77,6 +78,10 @@
 </script>
 
 <Sheet open title={`Background accounts · ${connection.name}`} description="Choose which ClickHouse account each unattended job uses." size="lg" onclose={() => { if (!saving) onclose() }}>
+  <p class="mb-4 text-[13px] text-fg-3">
+    How unattended jobs pick an account and which grants each one needs:
+    <a class="inline-flex items-center gap-1 text-accent hover:underline" href="https://ch-ui.com/docs/background-accounts/" target="_blank" rel="noreferrer">Background accounts docs <ExternalLink size={12} /></a>
+  </p>
   {#if loading}
     <Spinner />
   {:else if loadError}
