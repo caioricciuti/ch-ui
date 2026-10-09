@@ -141,8 +141,16 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # Two advisories ignored, both build-time only (the site is static):
+      # - GHSA-ch52-4w7c-c8xp http-cache-semantics <=4.2.0 (via astro). The
+      #   fix, 4.3.0, was published 2026-10-04 and is under the 7-day
+      #   release-age floor. Remove this ignore and override to 4.3.0 on or
+      #   after 2026-10-11.
+      # - GHSA-rj75-hqrm-r3gf postcss-selector-parser 6.x (via postcss-nested
+      #   in expressive-code). Fixed only in 7.1.6, a major the dependents do
+      #   not accept; it parses our own CSS, never untrusted input.
       - name: Dependency audit
-        run: bun audit
+        run: bun audit --ignore=GHSA-ch52-4w7c-c8xp --ignore=GHSA-rj75-hqrm-r3gf
 
       # The build is the check: it regenerates the changelog page from
       # CHANGELOG.md, renders every page and fails on a sidebar entry that
