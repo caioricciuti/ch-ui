@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import { ExternalLink } from 'lucide-svelte'
 
   /**
    * The one header every page route renders: a 48 px bar with the page
@@ -14,10 +15,12 @@
     meta?: Snippet
     /** Filters, range switches and the primary action, right-aligned. */
     actions?: Snippet
+    /** ch-ui.com docs page for this screen, shown as a Docs link after the actions. */
+    docs?: string
     class?: string
   }
 
-  let { title, subtitle, meta, actions, class: cls = '' }: Props = $props()
+  let { title, subtitle, meta, actions, docs, class: cls = '' }: Props = $props()
 </script>
 
 <header class="flex h-12 shrink-0 items-center gap-4 border-b border-edge-subtle px-5 {cls}">
@@ -28,7 +31,19 @@
   {#if meta}
     <div class="flex shrink-0 items-center gap-1.5">{@render meta()}</div>
   {/if}
-  {#if actions}
-    <div class="ml-auto flex shrink-0 items-center gap-2">{@render actions()}</div>
+  {#if actions || docs}
+    <div class="ml-auto flex shrink-0 items-center gap-2">
+      {#if actions}{@render actions()}{/if}
+      {#if docs}
+        <a
+          class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
+          href={docs}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Docs <ExternalLink size={12} />
+        </a>
+      {/if}
+    </div>
   {/if}
 </header>

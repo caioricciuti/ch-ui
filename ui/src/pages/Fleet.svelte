@@ -58,7 +58,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Fleet" subtitle="All ClickHouse environments">
+  <PageHeader title="Fleet" subtitle="All ClickHouse environments" docs="https://ch-ui.com/docs/performance/#fleet-overview">
     {#snippet actions()}<Button size="sm" variant="outline" onclick={load}><RefreshCw size={13} /> Refresh</Button>{/snippet}
   </PageHeader>
   {#if loading}<div class="flex flex-1 items-center justify-center"><Spinner /></div>

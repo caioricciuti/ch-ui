@@ -124,7 +124,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Incident timeline" subtitle="Events around an incident">
+  <PageHeader title="Incident timeline" subtitle="Events around an incident" docs="https://ch-ui.com/docs/incident-timeline/">
     {#snippet actions()}
       <TimeRangeSelector value={range} onchange={(value) => { range = value; void load() }} />
       <Button variant="ghost" icon title="Refresh" aria-label="Refresh timeline" disabled={!isAdmin || loading} onclick={() => load()}><RefreshCw size={14} class={loading ? 'animate-spin' : ''} /></Button>

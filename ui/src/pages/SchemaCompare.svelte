@@ -57,7 +57,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Schema comparison" subtitle="Compare environments and review changes">
+  <PageHeader title="Schema comparison" subtitle="Compare environments and review changes" docs="https://ch-ui.com/docs/schema-compare/">
     {#snippet actions()}{#if comparison}<Button size="sm" variant="outline" onclick={download}><Download size={13} /> Download review SQL</Button>{/if}{/snippet}
   </PageHeader>
   {#if loading}<div class="flex flex-1 items-center justify-center"><Spinner /></div>

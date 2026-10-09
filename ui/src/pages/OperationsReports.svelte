@@ -60,7 +60,7 @@
   }
 </script>
 
-<PageHeader title="Reports" subtitle="Weekly operations">
+<PageHeader title="Reports" subtitle="Weekly operations" docs="https://ch-ui.com/docs/operations-reports/">
   {#snippet actions()}
     {#if admin}<Button variant="ghost" size="sm" disabled={loading || busy} onclick={load}><RefreshCw size={14} /> Refresh</Button><Button size="sm" loading={busy} disabled={loading || !!loadError} onclick={generate}><FileText size={14} /> Generate report</Button>{/if}
   {/snippet}
