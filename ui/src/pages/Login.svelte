@@ -514,7 +514,43 @@
         onclose={() => (showSetupSheet = false)}
       >
         <div class="space-y-5 text-[13px]">
+          {#if loginUrlAllowed || setupOpen}
+            <div class="space-y-3 rounded-md border border-edge bg-surface-2 p-4">
+              <p class="font-medium text-fg">Fix it from here, no restart</p>
+              {#if loginUrlAllowed}
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <p class="text-fg-2">This server lets you sign in with a ClickHouse URL.</p>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onclick={() => {
+                      selectedId = URL_OPTION;
+                      showSetupSheet = false;
+                    }}
+                  >
+                    Sign in with a URL
+                  </Button>
+                </div>
+              {/if}
+              {#if setupOpen}
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <p class="text-fg-2">Use the setup code from the server log to add a connection.</p>
+                  <Button
+                    variant={loginUrlAllowed ? "outline" : "primary"}
+                    size="sm"
+                    onclick={() => {
+                      showSetupSheet = false;
+                      openSetupForm();
+                    }}
+                  >
+                    Set up ClickHouse connection
+                  </Button>
+                </div>
+              {/if}
+            </div>
+          {/if}
           <p class="text-fg-2">
+            {loginUrlAllowed || setupOpen ? "Or change the server config:" : ""}
             Set the URL and name, run one command, restart CH-UI, then return to sign in.
           </p>
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
