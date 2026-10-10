@@ -219,7 +219,7 @@ func (h *QueryHandler) IngestUpload(w http.ResponseWriter, r *http.Request) {
 		ClickhouseUser: strPtr(session.ClickhouseUser),
 		ConnectionID:   strPtr(session.ConnectionID),
 		Details:        strPtr(fmt.Sprintf("file=%s format=%s target=%s.%s rows=%d created_table=%t", filename, format, dbName, tableName, rowsInserted, createdTable)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

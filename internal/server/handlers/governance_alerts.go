@@ -130,7 +130,7 @@ func (h *GovernanceHandler) CreateAlertChannel(w http.ResponseWriter, r *http.Re
 		Username:       strPtr(middleware.Actor(session)),
 		ClickhouseUser: &session.ClickhouseUser,
 		Details:        strPtr(fmt.Sprintf("%s (%s)", name, channelType)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"id": id, "success": true})
@@ -215,7 +215,7 @@ func (h *GovernanceHandler) UpdateAlertChannel(w http.ResponseWriter, r *http.Re
 		Username:       strPtr(middleware.Actor(session)),
 		ClickhouseUser: &session.ClickhouseUser,
 		Details:        strPtr(fmt.Sprintf("%s (%s)", name, channelType)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -250,7 +250,7 @@ func (h *GovernanceHandler) DeleteAlertChannel(w http.ResponseWriter, r *http.Re
 		Username:       strPtr(middleware.Actor(session)),
 		ClickhouseUser: &session.ClickhouseUser,
 		Details:        strPtr(fmt.Sprintf("%s (%s)", channel.Name, channel.ChannelType)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -413,7 +413,7 @@ func (h *GovernanceHandler) CreateAlertRule(w http.ResponseWriter, r *http.Reque
 		Username:       strPtr(middleware.Actor(session)),
 		ClickhouseUser: &session.ClickhouseUser,
 		Details:        strPtr(name),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"id": id, "success": true})
@@ -517,7 +517,7 @@ func (h *GovernanceHandler) UpdateAlertRule(w http.ResponseWriter, r *http.Reque
 		Username:       strPtr(middleware.Actor(session)),
 		ClickhouseUser: &session.ClickhouseUser,
 		Details:        strPtr(name),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -551,7 +551,7 @@ func (h *GovernanceHandler) DeleteAlertRule(w http.ResponseWriter, r *http.Reque
 		Username:       strPtr(middleware.Actor(session)),
 		ClickhouseUser: &session.ClickhouseUser,
 		Details:        strPtr(existing.Name),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})

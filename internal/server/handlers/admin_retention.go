@@ -61,7 +61,7 @@ func (h *AdminHandler) UpdateRetentionSettings(w http.ResponseWriter, r *http.Re
 			Username:       strPtr(actor),
 			ClickhouseUser: strPtr(chUser),
 			Details:        strPtr(string(details)),
-			IPAddress:      strPtr(r.RemoteAddr),
+			IPAddress:      strPtr(getClientIP(r)),
 		})
 	}
 

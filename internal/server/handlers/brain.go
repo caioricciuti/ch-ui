@@ -555,7 +555,7 @@ func (h *BrainHandler) RunQueryArtifact(w http.ResponseWriter, r *http.Request) 
 		ClickhouseUser: strPtr(session.ClickhouseUser),
 		ConnectionID:   strPtr(session.ConnectionID),
 		Details:        strPtr(title),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -773,7 +773,7 @@ func (h *BrainHandler) streamMessageCommunity(
 		ClickhouseUser: strPtr(session.ClickhouseUser),
 		ConnectionID:   strPtr(session.ConnectionID),
 		Details:        strPtr(fmt.Sprintf("chat=%s user_msg=%s", chatID, userMessageID)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	_ = writeSSE(w, flusher, map[string]interface{}{"type": "done", "messageId": assistantMessageID, "chatId": chatID})

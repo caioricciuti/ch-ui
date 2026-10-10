@@ -311,7 +311,7 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		preview = preview[:100] + "..."
 	}
 	go func() {
-		ip := r.RemoteAddr
+		ip := getClientIP(r)
 		h.DB.CreateAuditLog(database.AuditLogParams{
 			Action:         "query.execute",
 			Username:       strPtr(middleware.Actor(session)),
@@ -966,7 +966,7 @@ streamDone:
 			ClickhouseUser: strPtr(session.ClickhouseUser),
 			ConnectionID:   strPtr(session.ConnectionID),
 			Details:        strPtr(preview),
-			IPAddress:      strPtr(r.RemoteAddr),
+			IPAddress:      strPtr(getClientIP(r)),
 		})
 	}()
 }
@@ -1558,7 +1558,7 @@ func (h *QueryHandler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 		ClickhouseUser: strPtr(session.ClickhouseUser),
 		ConnectionID:   strPtr(session.ConnectionID),
 		Details:        strPtr(fmt.Sprintf("database=%s engine=%s cluster=%s", name, engine, cluster)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -1636,7 +1636,7 @@ func (h *QueryHandler) DropDatabase(w http.ResponseWriter, r *http.Request) {
 		ClickhouseUser: strPtr(session.ClickhouseUser),
 		ConnectionID:   strPtr(session.ConnectionID),
 		Details:        strPtr(fmt.Sprintf("database=%s cluster=%s sync=%t", name, cluster, req.Sync)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -1824,7 +1824,7 @@ func (h *QueryHandler) CreateTable(w http.ResponseWriter, r *http.Request) {
 		ClickhouseUser: strPtr(session.ClickhouseUser),
 		ConnectionID:   strPtr(session.ConnectionID),
 		Details:        strPtr(fmt.Sprintf("table=%s.%s engine=%s cluster=%s", dbName, tableName, engine, cluster)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -1912,7 +1912,7 @@ func (h *QueryHandler) DropTable(w http.ResponseWriter, r *http.Request) {
 		ClickhouseUser: strPtr(session.ClickhouseUser),
 		ConnectionID:   strPtr(session.ConnectionID),
 		Details:        strPtr(fmt.Sprintf("table=%s.%s cluster=%s sync=%t", dbName, tableName, cluster, req.Sync)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

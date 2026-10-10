@@ -309,7 +309,7 @@ func (h *AdminHandler) SetUserRole(w http.ResponseWriter, r *http.Request) {
 		Username:       actorName,
 		ClickhouseUser: chUser,
 		Details:        strPtr(fmt.Sprintf("Set role for %q to %s", username, body.Role)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -367,7 +367,7 @@ func (h *AdminHandler) DeleteUserRole(w http.ResponseWriter, r *http.Request) {
 		Username:       actorName,
 		ClickhouseUser: chUser,
 		Details:        strPtr(fmt.Sprintf("Removed role override for %q", username)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -615,7 +615,7 @@ func (h *AdminHandler) CreateClickHouseUser(w http.ResponseWriter, r *http.Reque
 		ClickhouseUser: &session.ClickhouseUser,
 		ConnectionID:   strPtr(session.ConnectionID),
 		Details:        strPtr(fmt.Sprintf("name=%s auth_type=%s", name, authType)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -698,7 +698,7 @@ func (h *AdminHandler) UpdateClickHouseUserPassword(w http.ResponseWriter, r *ht
 		ClickhouseUser: &session.ClickhouseUser,
 		ConnectionID:   strPtr(session.ConnectionID),
 		Details:        strPtr(fmt.Sprintf("name=%s auth_type=%s", username, authType)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -806,7 +806,7 @@ func (h *AdminHandler) DeleteClickHouseUser(w http.ResponseWriter, r *http.Reque
 		ClickhouseUser: &session.ClickhouseUser,
 		ConnectionID:   strPtr(session.ConnectionID),
 		Details:        strPtr(fmt.Sprintf("name=%s", username)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

@@ -107,7 +107,7 @@ func (h *AdminHandler) SaveGitHubIntegration(w http.ResponseWriter, r *http.Requ
 		ClickhouseUser: strPtr(chUser),
 		ConnectionID:   strPtr(connID),
 		Details:        strPtr(fmt.Sprintf("repo=%s branch=%s path=%s", repo, branch, path)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -135,7 +135,7 @@ func (h *AdminHandler) DeleteGitHubIntegration(w http.ResponseWriter, r *http.Re
 		Username:       strPtr(username),
 		ClickhouseUser: strPtr(chUser),
 		ConnectionID:   strPtr(connID),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -205,7 +205,7 @@ func (h *AdminHandler) TriggerGitHubSync(w http.ResponseWriter, r *http.Request)
 		ClickhouseUser: strPtr(chUser),
 		ConnectionID:   strPtr(connID),
 		Details:        strPtr(fmt.Sprintf("created=%d updated=%d deleted=%d unchanged=%d", result.Created, result.Updated, result.Deleted, result.Unchanged)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

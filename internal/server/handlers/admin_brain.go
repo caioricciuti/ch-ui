@@ -214,7 +214,7 @@ func (h *AdminHandler) CreateBrainProvider(w http.ResponseWriter, r *http.Reques
 		Username:       strPtr(actor),
 		ClickhouseUser: strPtr(chUser),
 		Details:        strPtr(fmt.Sprintf("provider=%s kind=%s", name, kind)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"success": true, "id": providerID})
@@ -308,7 +308,7 @@ func (h *AdminHandler) UpdateBrainProvider(w http.ResponseWriter, r *http.Reques
 		Username:       strPtr(actor),
 		ClickhouseUser: strPtr(chUser),
 		Details:        strPtr(fmt.Sprintf("provider_id=%s", providerID)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -336,7 +336,7 @@ func (h *AdminHandler) DeleteBrainProvider(w http.ResponseWriter, r *http.Reques
 		Username:       strPtr(actor),
 		ClickhouseUser: strPtr(chUser),
 		Details:        strPtr(fmt.Sprintf("provider_id=%s", providerID)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -438,7 +438,7 @@ func (h *AdminHandler) SyncBrainProviderModels(w http.ResponseWriter, r *http.Re
 		Username:       strPtr(actor),
 		ClickhouseUser: strPtr(chUser),
 		Details:        strPtr(fmt.Sprintf("provider_id=%s models=%d", providerID, len(modelNames))),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "models": models})
@@ -517,7 +517,7 @@ func (h *AdminHandler) UpdateBrainModel(w http.ResponseWriter, r *http.Request) 
 		Username:       strPtr(actor),
 		ClickhouseUser: strPtr(chUser),
 		Details:        strPtr(fmt.Sprintf("model_id=%s", modelID)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -561,7 +561,7 @@ func (h *AdminHandler) BulkUpdateBrainModels(w http.ResponseWriter, r *http.Requ
 		Username:       strPtr(actor),
 		ClickhouseUser: strPtr(chUser),
 		Details:        strPtr(fmt.Sprintf("provider_id=%s action=%s updated=%d", providerID, action, updated)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -627,7 +627,7 @@ func (h *AdminHandler) CreateBrainSkill(w http.ResponseWriter, r *http.Request) 
 		Username:       strPtr(actor),
 		ClickhouseUser: strPtr(chUser),
 		Details:        strPtr(fmt.Sprintf("skill=%s", name)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"success": true, "id": id})
@@ -698,7 +698,7 @@ func (h *AdminHandler) UpdateBrainSkill(w http.ResponseWriter, r *http.Request) 
 		Username:       strPtr(actor),
 		ClickhouseUser: strPtr(chUser),
 		Details:        strPtr(fmt.Sprintf("skill_id=%s", skillID)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
