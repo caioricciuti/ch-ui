@@ -48,5 +48,6 @@
     "nanoid": "3.3.18",
     "postcss": "8.5.23",
     "devalue": "5.9.4"
-  }
+  },
+  "trustedDependencies": []
 }
