@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Edit connections in Admin.** Admin > Connections has an Edit button per
+  row. Direct connections can be renamed or pointed at another ClickHouse URL;
+  saving a new URL restarts that connection's connector. Agent connections can
+  be renamed. The embedded connection stays read-only and shows "Server
+  config", since `clickhouse_url` and `connection_name` set it. Backed by
+  `PUT /api/connections/{id}` (admin).
 - **First-run setup from the login page.** When no admin has ever signed in,
   the server prints a one-time setup code to its log at startup (a `WARN` line
   with `setup_code`). **Set up ClickHouse connection** on the login page takes
