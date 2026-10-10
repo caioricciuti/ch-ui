@@ -545,7 +545,7 @@ func (h *BrainHandler) streamMessagePro(
 		ClickhouseUser: strPtr(session.ClickhouseUser),
 		ConnectionID:   strPtr(session.ConnectionID),
 		Details:        strPtr(fmt.Sprintf("chat=%s user_msg=%s pro=true", chatID, userMessageID)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	_ = writeSSE(w, flusher, map[string]interface{}{"type": "done", "messageId": assistantMessageID, "chatId": chatID})

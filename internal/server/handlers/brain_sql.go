@@ -133,7 +133,7 @@ func (h *BrainHandler) GenerateSQL(w http.ResponseWriter, r *http.Request) {
 		ClickhouseUser: strPtr(session.ClickhouseUser),
 		ConnectionID:   strPtr(session.ConnectionID),
 		Details:        strPtr(question),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]any{

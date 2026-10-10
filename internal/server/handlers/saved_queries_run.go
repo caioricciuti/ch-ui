@@ -113,7 +113,7 @@ func (h *SavedQueriesHandler) Run(w http.ResponseWriter, r *http.Request) {
 		ClickhouseUser: &session.ClickhouseUser,
 		ConnectionID:   strPtr(session.ConnectionID),
 		Details:        strPtr(sq.Name),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, executeQueryResponse{

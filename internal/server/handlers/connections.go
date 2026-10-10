@@ -204,7 +204,7 @@ func (h *ConnectionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		ClickhouseUser: chUser,
 		ConnectionID:   strPtr(id),
 		Details:        strPtr(fmt.Sprintf("Created %s connection %q", connType, name)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	conn, err := h.DB.GetConnectionByID(id)
@@ -316,7 +316,7 @@ func (h *ConnectionsHandler) Update(w http.ResponseWriter, r *http.Request) {
 			ClickhouseUser: chUser,
 			ConnectionID:   strPtr(id),
 			Details:        strPtr(fmt.Sprintf("Updated connection: %s", strings.Join(changes, "; "))),
-			IPAddress:      strPtr(r.RemoteAddr),
+			IPAddress:      strPtr(getClientIP(r)),
 		})
 	}
 
@@ -365,7 +365,7 @@ func (h *ConnectionsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		ClickhouseUser: chUser,
 		ConnectionID:   strPtr(id),
 		Details:        strPtr(fmt.Sprintf("Deleted connection %q", conn.Name)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Connection deleted successfully"})
@@ -486,7 +486,7 @@ func (h *ConnectionsHandler) RegenerateToken(w http.ResponseWriter, r *http.Requ
 		ClickhouseUser: chUser,
 		ConnectionID:   strPtr(id),
 		Details:        strPtr(fmt.Sprintf("Regenerated token for connection %q", conn.Name)),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

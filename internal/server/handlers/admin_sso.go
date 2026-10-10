@@ -201,7 +201,7 @@ func (h *AdminHandler) UpdateSSOSettings(w http.ResponseWriter, r *http.Request)
 			Username:       strPtr(actor),
 			ClickhouseUser: strPtr(chUser),
 			Details:        strPtr(string(details)),
-			IPAddress:      strPtr(r.RemoteAddr),
+			IPAddress:      strPtr(getClientIP(r)),
 		})
 	}
 

@@ -79,7 +79,7 @@ func (h *AdminHandler) UpdateGovernanceSettings(w http.ResponseWriter, r *http.R
 			Username:       strPtr(actor),
 			ClickhouseUser: strPtr(chUser),
 			Details:        strPtr(details),
-			IPAddress:      strPtr(r.RemoteAddr),
+			IPAddress:      strPtr(getClientIP(r)),
 		})
 	}
 

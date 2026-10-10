@@ -784,7 +784,7 @@ func (h *GovernanceHandler) UpdateQueryHarvestSettings(w http.ResponseWriter, r 
 		Username:       strPtr(middleware.Actor(session)),
 		ClickhouseUser: &session.ClickhouseUser,
 		Details:        strPtr(fmt.Sprintf(`{"mode":%q}`, strings.ToLower(strings.TrimSpace(body.Mode)))),
-		IPAddress:      strPtr(r.RemoteAddr),
+		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	h.GetQueryHarvestSettings(w, r)
