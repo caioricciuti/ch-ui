@@ -37,6 +37,8 @@ type AuthHandler struct {
 	RateLimiter *middleware.RateLimiter
 	Config      *config.Config
 	OIDC        *oidc.Manager // holds the active OIDC provider; may be inactive
+	// Setup serves first-run setup (POST /setup). nil disables it.
+	Setup *SetupHandler
 }
 
 // sessionDuration returns the configured session lifetime (session_max_age /
@@ -56,6 +58,9 @@ func (h *AuthHandler) Routes(r chi.Router) {
 	r.Get("/session", h.Session)
 	r.Get("/connections", h.Connections)
 	r.Post("/switch-connection", h.SwitchConnection)
+	if h.Setup != nil {
+		r.Post("/setup", h.Setup.Setup)
+	}
 
 	if h.OIDC != nil {
 		// SSO is a Pro feature: RequirePro returns 402 without an active license
@@ -79,6 +84,7 @@ func (h *AuthHandler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{
 		"password_login": true,
 		"oidc_enabled":   oidcEnabled,
+		"setup_open":     h.Setup.Open(),
 	}
 	if oidcEnabled {
 		resp["oidc_login_url"] = "/api/auth/oidc/login"
@@ -291,6 +297,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		conn = &connections[0]
+		if hidden := hiddenLoginConnectionID(h.DB); hidden != "" && len(connections) > 1 && conn.ID == hidden {
+			conn = &connections[1]
+		}
 	}
 
 	userKey := userRateLimitKey(req.Username, conn.ID)
@@ -398,6 +407,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to create session")
 		return
 	}
+
+	// --- First admin login closes first-run setup for good ---
+	closeSetupOnAdminLogin(h.DB, h.Setup, role, req.Username, clientIP)
 
 	// --- Set cookie ---
 	http.SetCookie(w, &http.Cookie{
@@ -594,8 +606,12 @@ func (h *AuthHandler) Connections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hidden := hiddenLoginConnectionID(h.DB)
 	result := make([]connectionInfo, 0, len(connections))
 	for _, c := range connections {
+		if c.ID == hidden {
+			continue
+		}
 		result = append(result, connectionInfo{
 			ID:         c.ID,
 			Name:       c.Name,

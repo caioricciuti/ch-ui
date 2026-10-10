@@ -54,7 +54,11 @@ Rate-limit lockouts are progressive and capped:
 
 ## Can't login? (local recovery)
 
-If local URL/connection setup is wrong, restart CH-UI with explicit values:
+If no admin has signed in yet, you can add a working connection from the login
+page with the setup code printed in the server log, without a restart. See
+[First-run setup from the login page](/docs/cant-login/#first-run-setup-from-the-login-page).
+
+Otherwise, if local URL/connection setup is wrong, restart CH-UI with explicit values:
 
 ```bash
 ch-ui server --clickhouse-url http://127.0.0.1:8123 --connection-name "My Connection 1"

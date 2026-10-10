@@ -61,6 +61,13 @@ ClickHouse query activity and metadata changes inside a connection.
   (`operations.report.generated`), and a report emailed from the page
   (`operations.report.email_queued`). See
   [Operations Reports](/docs/operations-reports)
+- **First-run setup**: a wrong setup code on the login page
+  (`setup.code_rejected`), the code discarded after 10 wrong attempts
+  (`setup.code_burned`), a connection saved through setup
+  (`setup.connection_saved`), and setup closing for good (`setup.closed`,
+  with the reason). The first three use the actor `setup`; `setup.closed` uses
+  the admin who signed in, or `setup` when it closed at startup. See
+  [Can't login?](/docs/cant-login/#first-run-setup-from-the-login-page)
 
 Each entry captures the **actor** (email or ClickHouse user), the **action**,
 an optional **target** (e.g. the affected user or connection), structured
