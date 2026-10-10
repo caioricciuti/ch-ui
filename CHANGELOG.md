@@ -29,6 +29,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is audited (`setup.code_rejected`, `setup.code_burned`,
   `setup.connection_saved`, `setup.closed`). New endpoint
   `POST /api/auth/setup`; `GET /api/auth/config` gains `setup_open`.
+- **Sign in with a ClickHouse URL, opt-in.** With `allow_login_url: true`,
+  `ALLOW_LOGIN_URL=true` or `--allow-login-url` (flag over env over YAML), the
+  connection picker on the login page offers **Other ClickHouse URL**: type a
+  URL, username and password and sign in, as in v1. Off by default, because the
+  CH-UI server, not the browser, makes the connection, so anyone who can reach
+  the login page could make the server connect to any address it can reach.
+  Enable it only on trusted networks (a laptop, a desktop, a private LAN); the
+  server logs a `WARN` at startup while it is on. URLs get the same checks as
+  first-run setup. One direct connection is kept per URL and reused, including
+  direct connections an admin created; new ones are named `host:port` and stay
+  in the picker. The login page creates at most 20 connections (`429` when
+  full, delete unused ones in Admin > Connections), and each new one is audited
+  as `connection.created_from_login`. `POST /api/auth/login` takes an optional
+  `clickhouse_url` (not together with `connectionId`); `GET /api/auth/config`
+  gains `login_url_allowed`.
 
 ## [2.15.0] - 2026-10-09
 

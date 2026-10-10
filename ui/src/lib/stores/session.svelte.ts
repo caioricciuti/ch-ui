@@ -36,11 +36,11 @@ export async function initSession(): Promise<void> {
 }
 
 /** Log in and set session */
-export async function login(connectionId: string, username: string, password: string): Promise<void> {
+export async function login(connectionId: string, username: string, password: string, clickhouseUrl?: string): Promise<void> {
   error = null
   loading = true
   try {
-    const res = await apiLogin({ connectionId, username, password })
+    const res = await apiLogin({ connectionId, username, password, clickhouseUrl })
     session = res.session
     if (session?.roleNote) {
       toast.warning(`Signed in as ${session.role}`, { description: session.roleNote, duration: 12000 })

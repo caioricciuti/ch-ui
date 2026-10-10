@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -15,6 +17,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/embedded"
 	"github.com/caioricciuti/ch-ui/internal/oidc"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
@@ -39,6 +42,12 @@ type AuthHandler struct {
 	OIDC        *oidc.Manager // holds the active OIDC provider; may be inactive
 	// Setup serves first-run setup (POST /setup). nil disables it.
 	Setup *SetupHandler
+	// Agents starts connectors for connections created by sign-in with a
+	// ClickHouse URL. nil in tests.
+	Agents *embedded.Manager
+
+	// loginURLMu serialises find-or-create for sign-in with a ClickHouse URL.
+	loginURLMu sync.Mutex
 }
 
 // sessionDuration returns the configured session lifetime (session_max_age /
@@ -82,9 +91,10 @@ func (h *AuthHandler) Routes(r chi.Router) {
 func (h *AuthHandler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	oidcEnabled := h.OIDC != nil && h.OIDC.Active() && h.Config != nil && h.Config.ProAccess() != config.ProNone
 	resp := map[string]interface{}{
-		"password_login": true,
-		"oidc_enabled":   oidcEnabled,
-		"setup_open":     h.Setup.Open(),
+		"password_login":    true,
+		"oidc_enabled":      oidcEnabled,
+		"setup_open":        h.Setup.Open(),
+		"login_url_allowed": h.loginURLAllowed(),
 	}
 	if oidcEnabled {
 		resp["oidc_login_url"] = "/api/auth/oidc/login"
@@ -99,6 +109,9 @@ type loginRequest struct {
 	Password          string `json:"password"`
 	ConnectionID      string `json:"connectionId"`
 	ConnectionIDSnake string `json:"connection_id"`
+	// ClickHouseURL signs in against a URL instead of a saved connection.
+	// Only accepted when allow_login_url is on.
+	ClickHouseURL string `json:"clickhouse_url"`
 }
 
 type switchConnectionRequest struct {
@@ -249,6 +262,17 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.ConnectionID = req.resolvedConnectionID()
+	req.ClickHouseURL = strings.TrimSpace(req.ClickHouseURL)
+	if req.ClickHouseURL != "" {
+		if req.ConnectionID != "" {
+			writeError(w, http.StatusBadRequest, errLoginURLAndConn)
+			return
+		}
+		if !h.loginURLAllowed() {
+			writeError(w, http.StatusForbidden, errLoginURLDisabled)
+			return
+		}
+	}
 
 	// --- Rate limiting ---
 	clientIP := getClientIP(r)
@@ -267,38 +291,59 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- Resolve connection ---
-	connections, err := h.DB.GetConnections()
-	if err != nil {
-		slog.Error("Failed to get connections", "error", err)
-		writeError(w, http.StatusInternalServerError, "Failed to retrieve connections")
-		return
-	}
-
-	if len(connections) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
-			"success": false,
-			"error":   "No connections available",
-			"message": "No connections are configured. Please set up an agent first.",
-		})
-		return
-	}
-
 	var conn *database.Connection
-	if req.ConnectionID != "" {
-		for i := range connections {
-			if connections[i].ID == req.ConnectionID {
-				conn = &connections[i]
-				break
-			}
-		}
-		if conn == nil {
-			writeError(w, http.StatusBadRequest, "Connection not found")
+	if req.ClickHouseURL != "" {
+		chURL, err := validateSetupClickHouseURL(req.ClickHouseURL)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-	} else {
-		conn = &connections[0]
-		if hidden := hiddenLoginConnectionID(h.DB); hidden != "" && len(connections) > 1 && conn.ID == hidden {
-			conn = &connections[1]
+		conn, _, err = h.loginURLConnection(chURL, req.Username, clientIP)
+		if errors.Is(err, errLoginURLCapReached) {
+			slog.Warn("Login URL connection cap reached", "ip", clientIP, "cap", loginURLMaxConnections)
+			writeError(w, http.StatusTooManyRequests, errLoginURLCapped)
+			return
+		}
+		if err != nil {
+			slog.Error("Failed to resolve login URL connection", "error", err)
+			writeError(w, http.StatusInternalServerError, "Failed to prepare connection")
+			return
+		}
+	}
+
+	if conn == nil {
+		connections, err := h.DB.GetConnections()
+		if err != nil {
+			slog.Error("Failed to get connections", "error", err)
+			writeError(w, http.StatusInternalServerError, "Failed to retrieve connections")
+			return
+		}
+
+		if len(connections) == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "No connections available",
+				"message": "No connections are configured. Please set up an agent first.",
+			})
+			return
+		}
+
+		if req.ConnectionID != "" {
+			for i := range connections {
+				if connections[i].ID == req.ConnectionID {
+					conn = &connections[i]
+					break
+				}
+			}
+			if conn == nil {
+				writeError(w, http.StatusBadRequest, "Connection not found")
+				return
+			}
+		} else {
+			conn = &connections[0]
+			if hidden := hiddenLoginConnectionID(h.DB); hidden != "" && len(connections) > 1 && conn.ID == hidden {
+				conn = &connections[1]
+			}
 		}
 	}
 

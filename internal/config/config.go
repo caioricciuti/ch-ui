@@ -28,6 +28,12 @@ type Config struct {
 	SessionMaxAge  int // seconds, default 7 days
 	AllowedOrigins []string
 
+	// AllowLoginURL lets the login page take a ClickHouse URL instead of a
+	// saved connection. Off by default: the server makes the connection, so
+	// an open URL field lets anyone who reaches the login page point this
+	// server at any host it can reach.
+	AllowLoginURL bool
+
 	// TLS — when both are set the server terminates TLS itself; otherwise it
 	// serves plaintext HTTP and expects a reverse proxy to terminate TLS.
 	TLSCertFile string
@@ -77,6 +83,7 @@ type serverConfigFile struct {
 	AppSecretKey       string   `yaml:"app_secret_key"`
 	SessionMaxAge      int      `yaml:"session_max_age"`
 	AllowedOrigins     []string `yaml:"allowed_origins"`
+	AllowLoginURL      bool     `yaml:"allow_login_url"`
 	TunnelURL          string   `yaml:"tunnel_url"`
 	TLSCertFile        string   `yaml:"tls_cert_file"`
 	TLSKeyFile         string   `yaml:"tls_key_file"`
@@ -173,6 +180,9 @@ func Load(configPath string) *Config {
 				cfg.AllowedOrigins = append(cfg.AllowedOrigins, trimmed)
 			}
 		}
+	}
+	if v := os.Getenv("ALLOW_LOGIN_URL"); v != "" {
+		cfg.AllowLoginURL = parseEnvBool(v)
 	}
 	if v := os.Getenv("TUNNEL_URL"); v != "" {
 		cfg.TunnelURL = v
@@ -303,6 +313,9 @@ func loadServerConfigFile(path string, cfg *Config) error {
 	if len(fc.AllowedOrigins) > 0 {
 		cfg.AllowedOrigins = fc.AllowedOrigins
 	}
+	if fc.AllowLoginURL {
+		cfg.AllowLoginURL = true
+	}
 	if fc.TunnelURL != "" {
 		cfg.TunnelURL = fc.TunnelURL
 	}
@@ -403,6 +416,13 @@ port: 3488
 # Allowed CORS origins
 # allowed_origins:
 #   - https://ch-ui.yourcompany.com
+
+# Let users sign in with a ClickHouse URL typed on the login page instead of
+# picking a saved connection (default: false). The server, not the browser,
+# makes that connection, so anyone who can reach the login page can make this
+# server connect to any ClickHouse URL it can reach. Enable only on trusted
+# networks. Env: ALLOW_LOGIN_URL, flag: --allow-login-url.
+# allow_login_url: false
 
 # Native TLS termination. Set both to serve HTTPS directly (PEM files).
 # If unset, CH-UI serves plaintext HTTP and expects a reverse proxy to
@@ -508,6 +528,16 @@ func (c *Config) SetProAccessForTest(fn func() ProAccess) {
 // IsPro reports whether the installation has a fully active Pro license.
 func (c *Config) IsPro() bool {
 	return c.ProAccess() == ProActive
+}
+
+// parseEnvBool reads a boolean env value: true, 1 or yes (any case) are true,
+// anything else is false.
+func parseEnvBool(v string) bool {
+	switch strings.ToLower(trimQuotes(v)) {
+	case "true", "1", "yes":
+		return true
+	}
+	return false
 }
 
 // splitList parses a comma-separated env value into a trimmed, non-empty slice.

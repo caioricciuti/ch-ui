@@ -75,6 +75,7 @@ ch-ui server restart
 | `--pid-file` | Path to server PID file | `ch-ui-server.pid` |
 | `--stop-timeout` | Graceful stop timeout | `10s` |
 | `--dev` | Development mode (frontend proxy) | `false` |
+| `--allow-login-url` | Allow sign-in with a ClickHouse URL typed on the login page. The server connects to it, so trusted networks only. See [Configuration](/docs/configuration/#sign-in-with-a-clickhouse-url) | `false` |
 
 ## `connect`
 

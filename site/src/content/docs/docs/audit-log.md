@@ -20,6 +20,12 @@ ClickHouse query activity and metadata changes inside a connection.
   [SSO](/docs/sso)
 - **Connection changes**: a connection (tunnel or direct) is added, edited,
   or removed
+- **Connections created from the login page**: with
+  [sign-in with a ClickHouse URL](/docs/configuration/#sign-in-with-a-clickhouse-url)
+  on, each new connection the login page creates
+  (`connection.created_from_login`, with the ClickHouse user who typed it, the
+  connection name and URL, and the IP). Reusing an existing connection writes
+  no row
 - **Role changes**: a user's CH-UI role is changed by an admin
 - **License events**: a Pro license is applied, renewed, or removed
 - **MCP activity**: every query an AI client runs (`mcp.query.execute`),

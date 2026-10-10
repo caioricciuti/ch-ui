@@ -43,6 +43,18 @@ credentials must not cross a network in cleartext.
   cloud metadata hosts. Every step is audited (`setup.code_rejected`,
   `setup.code_burned`, `setup.connection_saved`, `setup.closed`). See
   [Can't login?](/docs/cant-login/#first-run-setup-from-the-login-page).
+- **Sign in with a ClickHouse URL**: off by default (`allow_login_url`,
+  `ALLOW_LOGIN_URL`, `--allow-login-url`). When on, the unauthenticated
+  `POST /api/auth/login` accepts a `clickhouse_url`, and the CH-UI server
+  connects to it. Unlike v1, where the browser made that connection, this lets
+  anyone who can reach the login page make the server connect to any address
+  it can reach, so enable it only on a laptop, desktop or private LAN where
+  everyone with access is trusted. The server logs a `WARN` line at startup
+  while it is on. URLs get the same checks as first-run setup, one connection
+  is kept per URL, the login page can create at most 20 connections (`429`
+  after that), login rate limits apply, and each new connection is audited as
+  `connection.created_from_login`. See
+  [Configuration](/docs/configuration/#sign-in-with-a-clickhouse-url).
 
 ## Authorization (RBAC)
 
