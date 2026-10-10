@@ -66,6 +66,11 @@ key name shows up in the log.
 | `tls_key_file` | `/etc/ch-ui/tls/server.key` | empty | PEM key for native TLS |
 | `session_max_age` | `86400` | `604800` (7 days) | Session lifetime in seconds |
 
+`clickhouse_url` and `connection_name` are applied to the embedded connection
+on every start. A connection added with the first-run setup code on the login
+page is a separate direct connection and is not overwritten by them. See
+[Can't login?](/docs/cant-login/#first-run-setup-from-the-login-page).
+
 ### Native TLS
 
 Set both `tls_cert_file` and `tls_key_file` to have CH-UI serve HTTPS directly.

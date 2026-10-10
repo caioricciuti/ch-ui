@@ -177,6 +177,7 @@ func (h *AuthHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		IPAddress:    strPtr(getClientIP(r)),
 	})
 	slog.Info("SSO login", "user", email, "role", role, "connection", connID)
+	closeSetupOnAdminLogin(h.DB, h.Setup, role, email, getClientIP(r))
 
 	http.Redirect(w, r, "/", http.StatusFound)
 }

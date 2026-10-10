@@ -186,14 +186,7 @@ func (h *ConnectionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		chURL = validated
 	}
 
-	token := tokens.GenerateTunnelToken()
-
-	id, err := h.DB.CreateConnection(database.CreateConnectionParams{
-		Name:          name,
-		TunnelToken:   token,
-		Type:          connType,
-		ClickHouseURL: chURL,
-	})
+	id, token, err := createConnectionRecord(h.DB, name, connType, chURL)
 	if err != nil {
 		slog.Error("Failed to create connection", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create connection")
@@ -222,9 +215,7 @@ func (h *ConnectionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if connType == database.ConnectionTypeDirect {
-		if h.Agents != nil {
-			h.Agents.StartConnection(*conn)
-		}
+		startDirectConnector(h.Agents, *conn)
 		writeJSON(w, http.StatusCreated, map[string]interface{}{
 			"connection": conn,
 		})
@@ -280,14 +271,14 @@ func (h *ConnectionsHandler) Update(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Connection name cannot be empty")
 			return
 		}
-		if name != conn.Name {
-			if err := h.DB.UpdateConnectionName(id, name); err != nil {
-				slog.Error("Failed to rename connection", "error", err, "id", id)
-				writeError(w, http.StatusInternalServerError, "Failed to rename connection")
-				return
-			}
-			changes = append(changes, fmt.Sprintf("renamed %q to %q", conn.Name, name))
-			conn.Name = name
+		change, err := renameConnection(h.DB, conn, name)
+		if err != nil {
+			slog.Error("Failed to rename connection", "error", err, "id", id)
+			writeError(w, http.StatusInternalServerError, "Failed to rename connection")
+			return
+		}
+		if change != "" {
+			changes = append(changes, change)
 		}
 	}
 
@@ -301,17 +292,15 @@ func (h *ConnectionsHandler) Update(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if validated != conn.ClickHouseURL {
-			if err := h.DB.UpdateConnectionClickHouseURL(id, validated); err != nil {
-				slog.Error("Failed to update connection URL", "error", err, "id", id)
-				writeError(w, http.StatusInternalServerError, "Failed to update connection URL")
-				return
-			}
-			changes = append(changes, fmt.Sprintf("clickhouse_url set to %s", validated))
-			conn.ClickHouseURL = validated
-			if h.Agents != nil {
-				h.Agents.StartConnection(*conn) // restart with the new target
-			}
+		change, err := setConnectionURL(h.DB, conn, validated)
+		if err != nil {
+			slog.Error("Failed to update connection URL", "error", err, "id", id)
+			writeError(w, http.StatusInternalServerError, "Failed to update connection URL")
+			return
+		}
+		if change != "" {
+			changes = append(changes, change)
+			startDirectConnector(h.Agents, *conn) // restart with the new target
 		}
 	}
 
@@ -505,6 +494,60 @@ func (h *ConnectionsHandler) RegenerateToken(w http.ResponseWriter, r *http.Requ
 		"setup_instructions": getSetupInstructions(newToken),
 		"message":            "Token regenerated successfully. The previous token is now invalid.",
 	})
+}
+
+// createConnectionRecord stores a new connection with a fresh tunnel token.
+// chURL must already be validated for direct connections. Shared by Create and
+// first-run setup.
+func createConnectionRecord(db *database.DB, name, connType, chURL string) (id, token string, err error) {
+	token = tokens.GenerateTunnelToken()
+	id, err = db.CreateConnection(database.CreateConnectionParams{
+		Name:          name,
+		TunnelToken:   token,
+		Type:          connType,
+		ClickHouseURL: chURL,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return id, token, nil
+}
+
+// renameConnection sets conn's name when it differs and returns the audit
+// change line, or "" when nothing changed. name must already be trimmed and
+// non-empty.
+func renameConnection(db *database.DB, conn *database.Connection, name string) (string, error) {
+	if name == conn.Name {
+		return "", nil
+	}
+	if err := db.UpdateConnectionName(conn.ID, name); err != nil {
+		return "", err
+	}
+	change := fmt.Sprintf("renamed %q to %q", conn.Name, name)
+	conn.Name = name
+	return change, nil
+}
+
+// setConnectionURL points a direct connection at an already validated
+// ClickHouse URL and returns the audit change line, or "" when the URL is
+// unchanged. It does not restart the connector; callers do that.
+func setConnectionURL(db *database.DB, conn *database.Connection, validated string) (string, error) {
+	if validated == conn.ClickHouseURL {
+		return "", nil
+	}
+	if err := db.UpdateConnectionClickHouseURL(conn.ID, validated); err != nil {
+		return "", err
+	}
+	conn.ClickHouseURL = validated
+	return fmt.Sprintf("clickhouse_url set to %s", validated), nil
+}
+
+// startDirectConnector starts, or restarts, the in-process connector for a
+// direct connection. agents is nil when no manager is wired (tests).
+func startDirectConnector(agents *embedded.Manager, conn database.Connection) {
+	if agents != nil {
+		agents.StartConnection(conn)
+	}
 }
 
 // buildConnectionResponse enriches a Connection with live status from the gateway.

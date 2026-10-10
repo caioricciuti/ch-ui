@@ -45,6 +45,12 @@ ch-ui server --clickhouse-url http://clickhouse:8123 --connection-name "Producti
 
 The server config is the source of truth for this connection: it is updated on every start, and Admin and the API cannot edit it. In **Admin > Connections** its row shows **Server config** instead of Edit and Delete buttons, and `PUT /api/connections/{id}` returns `400` for it. See [Configuration](/docs/configuration).
 
+### The connection from first-run setup
+
+If the embedded connection cannot reach ClickHouse on a fresh install, nobody can sign in to fix it. Until the first admin signs in, the login page offers **Set up ClickHouse connection**: with the one-time setup code from the server log, it adds a separate direct connection with the name and URL you enter. The embedded connection is left as it is and still follows the server config. After setup closes, the setup connection is an ordinary direct connection that admins can rename, repoint or delete.
+
+While the embedded connection still has the URL it had when setup ran, the login page hides it, so the picker does not offer a connection that cannot work. Change `clickhouse_url` in the server config and restart, and it appears again. **Admin > Connections** always lists it. See [First-run setup from the login page](/docs/cant-login/#first-run-setup-from-the-login-page).
+
 ### More direct connections
 
 Add as many as you like in **Admin > Connections > Add connection**. The form defaults to **Direct URL**: enter a name and the ClickHouse URL, and the connection starts right away.

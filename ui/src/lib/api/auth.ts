@@ -17,11 +17,17 @@ interface ConnectionsResponse {
   connections: Connection[]
 }
 
-
 export interface AuthConfig {
   password_login: boolean
   oidc_enabled: boolean
   oidc_login_url?: string
+  /** First-run setup is accepting a setup code (no admin has signed in yet). */
+  setup_open?: boolean
+}
+
+interface SetupResponse {
+  success: boolean
+  connection: { id: string; name: string }
 }
 
 /** Report which login methods the server offers (password, SSO). */
@@ -29,8 +35,17 @@ export async function getAuthConfig(): Promise<AuthConfig> {
   try {
     return await apiGet<AuthConfig>('/api/auth/config')
   } catch {
-    return { password_login: true, oidc_enabled: false }
+    return { password_login: true, oidc_enabled: false, setup_open: false }
   }
+}
+
+/**
+ * First-run setup: trade the one-time code from the server log for a new
+ * direct connection. Errors are ApiError with the server message and status
+ * (401 bad code, 404 closed, 410 expired, 429 rate limited).
+ */
+export function submitSetup(code: string, name: string, clickhouseUrl: string): Promise<SetupResponse> {
+  return apiPost<SetupResponse>('/api/auth/setup', { code, name, clickhouse_url: clickhouseUrl })
 }
 
 /** Log in to a ClickHouse connection */
