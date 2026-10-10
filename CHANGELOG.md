@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **First-run setup from the login page.** When no admin has ever signed in,
+  the server prints a one-time setup code to its log at startup (a `WARN` line
+  with `setup_code`). **Set up ClickHouse connection** on the login page takes
+  the code, a name and a ClickHouse URL and adds a direct connection, so a fresh
+  install whose embedded connection cannot reach ClickHouse no longer needs a
+  restart to fix. The embedded connection is not changed. The code expires
+  after 1 hour, after 10 wrong attempts, or when the first admin signs in
+  (password or SSO); restart for a new one. Setup closes for good after the
+  first admin sign-in, and at startup when an admin already exists. Wrong codes
+  are limited to 5 per IP per 15 minutes, URLs with credentials, query strings,
+  fragments or link-local and cloud metadata hosts are refused, and every step
+  is audited (`setup.code_rejected`, `setup.code_burned`,
+  `setup.connection_saved`, `setup.closed`). New endpoint
+  `POST /api/auth/setup`; `GET /api/auth/config` gains `setup_open`.
+
 ## [2.15.0] - 2026-10-09
 
 ### Added

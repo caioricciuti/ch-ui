@@ -40,8 +40,12 @@ are available so the login page can render the right options:
 
 ```bash
 curl http://localhost:3488/api/auth/config
-# { "password_login": true, "oidc_enabled": true, "oidc_login_url": "/api/auth/oidc/login" }
+# { "password_login": true, "oidc_enabled": true, "setup_open": false, "oidc_login_url": "/api/auth/oidc/login" }
 ```
+
+`setup_open` is `true` while [first-run setup](/docs/cant-login/#first-run-setup-from-the-login-page)
+accepts a setup code, which is what shows **Set up ClickHouse connection** on
+the login page.
 
 ## Role Resolution
 

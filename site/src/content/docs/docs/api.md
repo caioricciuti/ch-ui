@@ -16,7 +16,8 @@ http://localhost:3488
 | `GET` | `/health` | Health status |
 | `GET` | `/metrics` | Prometheus metrics |
 | `GET` | `/connect` | WebSocket tunnel upgrade for the connector (authenticates with the tunnel token) |
-| `GET` | `/api/auth/config` | Available login methods (password, SSO) |
+| `GET` | `/api/auth/config` | Available login methods (password, SSO) and whether first-run setup is open (`setup_open`) |
+| `POST` | `/api/auth/setup` | First-run setup: add a direct connection with the one-time setup code (see below) |
 | `POST` | `/api/auth/login` | Session login |
 | `POST` | `/api/auth/logout` | Session logout |
 | `GET` | `/api/auth/session` | Session details |
@@ -27,6 +28,36 @@ http://localhost:3488
 | `GET` | `/api/license` | Current license status |
 | `GET` | `/api/public/dashboards/{token}` | Shared dashboard by share token (120 requests/min per IP) |
 | `POST` | `/api/public/dashboards/{token}/query` | Run a panel query on a shared dashboard (120 requests/min per IP) |
+
+### First-run setup
+
+Open only until the first admin signs in. The setup code is printed once to the
+server log at startup (`setup_code`); see
+[Can't login?](/docs/cant-login/#first-run-setup-from-the-login-page).
+`GET /api/auth/config` returns `"setup_open": true` while a valid code exists
+and setup has not closed.
+
+```bash
+curl -X POST http://localhost:3488/api/auth/setup \
+  -H "Content-Type: application/json" \
+  -d '{"code":"XXXX-XXXX-XXXX","name":"ClickHouse","clickhouse_url":"http://clickhouse:8123"}'
+# { "success": true, "connection": { "id": "...", "name": "ClickHouse" } }
+```
+
+The code is case-insensitive and dashes and spaces are ignored. `name` is
+required, up to 100 characters. `clickhouse_url` must be `http://` or
+`https://` with a host and no credentials, query string or fragment; link-local
+and cloud metadata addresses are refused. The first success creates a direct
+connection; later successes update that same connection.
+
+| Status | Meaning |
+|---|---|
+| `200` | Connection saved and its connector started |
+| `400` | Bad body, missing code or name, name too long, or a rejected URL |
+| `401` | Wrong setup code. After 10 wrong codes in total the code is discarded |
+| `404` | Setup is closed (an admin exists or has signed in) |
+| `410` | The code expired or was discarded. Restart CH-UI to get a new one |
+| `429` | Too many wrong codes from this IP (5 per 15 minutes); the body has `retryAfter` in seconds |
 
 ### Webhooks
 

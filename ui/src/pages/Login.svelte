@@ -214,7 +214,7 @@
   const loginHelp = $derived(buildLoginHelp(errorKind));
   const showSetupRecoveryCTA = $derived(errorKind === "connection" || errorKind === "rateLimit");
   const canSubmitSetup = $derived(Boolean(setupCode.trim() && setupFormName.trim() && setupFormURL.trim()));
-  const quickHelpURL = "https://github.com/caioricciuti/ch-ui#cant-login";
+  const quickHelpURL = "https://github.com/caioricciuti/ch-ui#cant-log-in";
   const cantLoginDocsURL = "https://ch-ui.com/docs/cant-login/";
   const dockerDocsURL = "https://github.com/caioricciuti/ch-ui#quick-start-docker";
   const normalizedSetupURL = $derived(setupClickHouseURL.trim() || "http://localhost:8123");

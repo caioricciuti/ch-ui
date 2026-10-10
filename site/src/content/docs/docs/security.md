@@ -30,6 +30,19 @@ credentials must not cross a network in cleartext.
 - **SSO**: optional OIDC against your IdP. See [Single Sign-On](/docs/sso).
 - **Brute-force protection**: progressive lockout, rate-limited per IP and per
   user; both successful and **failed** logins are written to the audit trail.
+- **First-run setup**: until the first admin signs in, the unauthenticated
+  `POST /api/auth/setup` can add one direct connection, so a fresh install
+  whose embedded connection points at the wrong ClickHouse can be fixed from the
+  login page. It is gated by a random 12-character code printed once to the
+  server log at startup. Only its SHA-256 is kept, in memory. The code expires
+  after 1 hour, is discarded after 10 wrong attempts in total, and each IP gets
+  5 wrong attempts per 15 minutes. Setup closes for good on the first admin
+  sign-in (password or SSO), or at startup when an admin already exists. It
+  never edits the embedded connection, stores no ClickHouse credentials, and
+  refuses URLs with credentials, query strings, fragments, or link-local and
+  cloud metadata hosts. Every step is audited (`setup.code_rejected`,
+  `setup.code_burned`, `setup.connection_saved`, `setup.closed`). See
+  [Can't login?](/docs/cant-login/#first-run-setup-from-the-login-page).
 
 ## Authorization (RBAC)
 
