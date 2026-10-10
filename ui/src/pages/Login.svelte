@@ -1,11 +1,16 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { listConnections, getAuthConfig } from "../lib/api/auth";
+  import { onDestroy, onMount } from "svelte";
+  import { listConnections, getAuthConfig, submitSetup, type AuthConfig } from "../lib/api/auth";
+  import { ApiError } from "../lib/api/client";
   import { login, getError } from "../lib/stores/session.svelte";
+  import { success as toastSuccess, error as toastError } from "../lib/stores/toast.svelte";
   import type { Connection } from "../lib/types/api";
   import Combobox from "../lib/components/common/Combobox.svelte";
   import Spinner from "../lib/components/common/Spinner.svelte";
   import Sheet from "../lib/components/common/Sheet.svelte";
+  import FormField from "../lib/components/common/FormField.svelte";
+  import Input from "../lib/components/common/Input.svelte";
+  import Button from "../lib/components/common/Button.svelte";
   import {
     Wifi,
     WifiOff,
@@ -15,6 +20,7 @@
     AlertTriangle,
     BookOpen,
     ExternalLink,
+    Plug,
   } from "lucide-svelte";
   import logo from "../assets/logo.png";
 
@@ -28,6 +34,15 @@
   let showSetupSheet = $state(false);
   let setupClickHouseURL = $state("http://localhost:8123");
   let setupConnectionName = $state("Local ClickHouse");
+
+  // First-run setup: a one-time code from the server log creates a direct connection.
+  let setupOpen = $state(false);
+  let showSetupForm = $state(false);
+  let setupCode = $state("");
+  let setupFormName = $state("ClickHouse");
+  let setupFormURL = $state("");
+  let setupSaving = $state(false);
+  let destroyed = false;
 
   let ssoEnabled = $state(false);
   let ssoLoginUrl = $state("/api/auth/oidc/login");
@@ -78,6 +93,20 @@
     return { title: "Login failed" };
   }
 
+  function errorMessage(e: unknown, fallback: string): string {
+    return e instanceof Error && e.message ? e.message : fallback;
+  }
+
+  function applyAuthConfig(cfg: AuthConfig) {
+    ssoEnabled = cfg.oidc_enabled;
+    if (cfg.oidc_login_url) ssoLoginUrl = cfg.oidc_login_url;
+    setupOpen = cfg.setup_open === true;
+  }
+
+  onDestroy(() => {
+    destroyed = true;
+  });
+
   onMount(async () => {
     try {
       const params = new URLSearchParams(window.location.search);
@@ -85,18 +114,15 @@
       if (err) ssoError = err;
     } catch {}
 
-    getAuthConfig().then((cfg) => {
-      ssoEnabled = cfg.oidc_enabled;
-      if (cfg.oidc_login_url) ssoLoginUrl = cfg.oidc_login_url;
-    });
+    getAuthConfig().then(applyAuthConfig);
 
     try {
       connections = await listConnections();
       if (connections.length === 1) {
         selectedId = connections[0].id;
       }
-    } catch (e: any) {
-      localError = e.message || "Failed to load connections";
+    } catch (e) {
+      localError = errorMessage(e, "Failed to load connections");
     } finally {
       loadingConnections = false;
     }
@@ -118,10 +144,62 @@
     submitting = true;
     try {
       await login(selectedId, username, password);
-    } catch (e: any) {
-      localError = e.message || "Login failed";
+    } catch (e) {
+      localError = errorMessage(e, "Login failed");
     } finally {
       submitting = false;
+    }
+  }
+
+  function openSetupForm() {
+    setupCode = "";
+    showSetupForm = true;
+  }
+
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  // The connector for a new connection starts in the background, so it can
+  // report offline for a moment. Re-list a few times until it comes online.
+  async function reloadConnectionsUntilOnline(id: string) {
+    for (let attempt = 0; attempt < 10 && !destroyed; attempt++) {
+      try {
+        connections = await listConnections();
+      } catch (e) {
+        localError = errorMessage(e, "Failed to load connections");
+        return;
+      }
+      if (connections.find((c) => c.id === id)?.online) return;
+      await sleep(1000);
+    }
+  }
+
+  async function handleSetupSubmit(e: SubmitEvent) {
+    e.preventDefault();
+    const code = setupCode.trim();
+    const name = setupFormName.trim();
+    const url = setupFormURL.trim();
+    if (!code || !name || !url || setupSaving) return;
+
+    setupSaving = true;
+    try {
+      const res = await submitSetup(code, name, url);
+      showSetupForm = false;
+      setupCode = "";
+      localError = null;
+      // Select before reloading so the login request sends this connection,
+      // not the server default (connections[0]).
+      selectedId = res.connection.id;
+      toastSuccess(`Connection "${res.connection.name}" saved`);
+      await reloadConnectionsUntilOnline(res.connection.id);
+    } catch (err) {
+      toastError(errorMessage(err, "Setup failed"));
+      // 401 can burn the code, 404 means closed, 410 expired: re-read whether setup is still open.
+      if (err instanceof ApiError && (err.status === 401 || err.status === 404 || err.status === 410)) {
+        applyAuthConfig(await getAuthConfig());
+        if (!setupOpen) showSetupForm = false;
+      }
+    } finally {
+      setupSaving = false;
     }
   }
 
@@ -135,6 +213,7 @@
   const errorKind = $derived(classifyLoginError(error));
   const loginHelp = $derived(buildLoginHelp(errorKind));
   const showSetupRecoveryCTA = $derived(errorKind === "connection" || errorKind === "rateLimit");
+  const canSubmitSetup = $derived(Boolean(setupCode.trim() && setupFormName.trim() && setupFormURL.trim()));
   const quickHelpURL = "https://github.com/caioricciuti/ch-ui#cant-login";
   const cantLoginDocsURL = "https://ch-ui.com/docs/cant-login/";
   const dockerDocsURL = "https://github.com/caioricciuti/ch-ui#quick-start-docker";
@@ -198,21 +277,38 @@
           </div>
           <h3 class="mt-4 text-[15px] font-semibold">No connections configured</h3>
           <p class="mt-1 text-[13px] leading-relaxed text-fg-3">
-            No local connection is ready yet. Open setup and restart CH-UI with the correct URL.
+            {#if setupOpen}
+              Add the ClickHouse URL with the setup code from the server log, or restart CH-UI with the correct URL.
+            {:else}
+              No local connection is ready yet. Open setup and restart CH-UI with the correct URL.
+            {/if}
           </p>
-          <button
-            type="button"
-            class="mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-[13px] font-medium text-accent-fg hover:brightness-110"
-            onclick={() => (showSetupSheet = true)}
-          >
-            <BookOpen size={14} />
-            Open setup guide
-          </button>
+          <div class="mt-5 flex flex-wrap items-center gap-2">
+            {#if setupOpen}
+              <button
+                type="button"
+                class="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-[13px] font-medium text-accent-fg hover:brightness-110"
+                onclick={openSetupForm}
+              >
+                <Plug size={14} />
+                Set up ClickHouse connection
+              </button>
+            {/if}
+            <button
+              type="button"
+              class={setupOpen
+                ? "inline-flex h-9 items-center gap-2 rounded-md px-3 text-[13px] font-medium text-fg-3 hover:bg-hover hover:text-fg"
+                : "inline-flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-[13px] font-medium text-accent-fg hover:brightness-110"}
+              onclick={() => (showSetupSheet = true)}
+            >
+              <BookOpen size={14} />
+              Open setup guide
+            </button>
+          </div>
         </div>
       {:else}
         <form onsubmit={handleSubmit} class="mt-8 space-y-5">
-          <div>
-            <label class="mb-1.5 block text-[13px] font-medium text-fg-2" for="connection">Connection</label>
+          <FormField label="Connection" for="connection" controlWidth="full">
             <Combobox
               size="lg"
               options={connections.map((conn) => ({
@@ -236,33 +332,40 @@
                     <WifiOff size={12} /> Connector offline
                   {/if}
                 </p>
+                {#if !selected.online && setupOpen}
+                  <button
+                    type="button"
+                    class="mt-1.5 flex items-center gap-1.5 text-[12px] font-medium text-accent hover:underline"
+                    onclick={openSetupForm}
+                  >
+                    <Plug size={12} />
+                    Set up ClickHouse connection
+                  </button>
+                {/if}
               {/if}
             {/if}
-          </div>
+          </FormField>
 
-          <div>
-            <label class="mb-1.5 block text-[13px] font-medium text-fg-2" for="username">Username</label>
-            <input
+          <FormField label="Username" for="username" controlWidth="full">
+            <Input
               id="username"
-              type="text"
               bind:value={username}
               placeholder="default"
               autocomplete="username"
-              class="h-10 w-full rounded-md border border-edge bg-surface px-3 text-[14px] text-fg placeholder:text-fg-4 transition-colors hover:border-edge-strong focus:border-accent focus:outline-none"
+              class="h-10 px-3 text-[14px]"
             />
-          </div>
+          </FormField>
 
-          <div>
-            <label class="mb-1.5 block text-[13px] font-medium text-fg-2" for="password">Password</label>
-            <input
+          <FormField label="Password" for="password" controlWidth="full">
+            <Input
               id="password"
               type="password"
               bind:value={password}
               placeholder="Optional"
               autocomplete="current-password"
-              class="h-10 w-full rounded-md border border-edge bg-surface px-3 text-[14px] text-fg placeholder:text-fg-4 transition-colors hover:border-edge-strong focus:border-accent focus:outline-none"
+              class="h-10 px-3 text-[14px]"
             />
-          </div>
+          </FormField>
 
           {#if error}
             <div class="rounded-md border border-danger/30 bg-danger-soft px-3.5 py-3 text-[13px]" role="alert">
@@ -273,6 +376,16 @@
               <p class="mt-1 text-fg-2">{error}</p>
               {#if loginHelp?.detail}
                 <p class="mt-1 text-fg-3">{loginHelp.detail}</p>
+              {/if}
+              {#if setupOpen}
+                <button
+                  type="button"
+                  class="mt-3 mr-2 inline-flex h-8 items-center gap-1.5 rounded-md border border-edge bg-surface px-3 text-[12px] font-medium text-fg-2 hover:bg-hover hover:text-fg"
+                  onclick={openSetupForm}
+                >
+                  <Plug size={13} />
+                  Set up ClickHouse connection
+                </button>
               {/if}
               {#if showSetupRecoveryCTA}
                 <button
@@ -336,26 +449,22 @@
             Set the URL and name, run one command, restart CH-UI, then return to sign in.
           </p>
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label class="mb-1.5 block text-[13px] font-medium text-fg-2" for="sheet-clickhouse-url">ClickHouse URL</label>
-              <input
+            <FormField label="ClickHouse URL" for="sheet-clickhouse-url" controlWidth="full">
+              <Input
                 id="sheet-clickhouse-url"
                 type="url"
+                mono
                 bind:value={setupClickHouseURL}
                 placeholder="http://localhost:8123"
-                class="ds-input"
               />
-            </div>
-            <div>
-              <label class="mb-1.5 block text-[13px] font-medium text-fg-2" for="sheet-connection-name">Connection name</label>
-              <input
+            </FormField>
+            <FormField label="Connection name" for="sheet-connection-name" controlWidth="full">
+              <Input
                 id="sheet-connection-name"
-                type="text"
                 bind:value={setupConnectionName}
                 placeholder="Local ClickHouse"
-                class="ds-input"
               />
-            </div>
+            </FormField>
           </div>
           <ol class="list-decimal space-y-1.5 pl-5 text-fg-2">
             <li>Stop any running <code class="rounded bg-surface-2 px-1 py-0.5 font-mono text-[12px]">ch-ui server</code> process.</li>
@@ -390,6 +499,65 @@
             Setup never stores ClickHouse credentials and commands never include passwords.
           </p>
         </div>
+      </Sheet>
+
+      <Sheet
+        open={showSetupForm}
+        title="Set up ClickHouse connection"
+        description="Creates a new connection that CH-UI will use for sign-in. The setup code is printed in the server log at startup and expires after 1 hour or when the first admin signs in."
+        onclose={() => (showSetupForm = false)}
+      >
+        <form id="setup-connection-form" class="space-y-4" onsubmit={handleSetupSubmit}>
+          <FormField
+            label="Setup code"
+            for="setup-code"
+            required
+            controlWidth="lg"
+            hint="Printed in the CH-UI server log at startup"
+          >
+            <Input
+              id="setup-code"
+              mono
+              bind:value={setupCode}
+              placeholder="XXXX-XXXX-XXXX"
+              autocomplete="off"
+              spellcheck={false}
+              required
+            />
+          </FormField>
+          <FormField label="Connection name" for="setup-name" required controlWidth="lg">
+            <Input id="setup-name" bind:value={setupFormName} placeholder="ClickHouse" required />
+          </FormField>
+          <FormField
+            label="ClickHouse URL"
+            for="setup-url"
+            required
+            controlWidth="lg"
+            hint="HTTP interface as seen from the CH-UI server, usually port 8123."
+          >
+            <Input
+              id="setup-url"
+              mono
+              bind:value={setupFormURL}
+              placeholder="http://clickhouse:8123"
+              autocomplete="off"
+              spellcheck={false}
+              required
+            />
+          </FormField>
+        </form>
+        {#snippet footer()}
+          <Button variant="ghost" size="sm" onclick={() => (showSetupForm = false)}>Cancel</Button>
+          <Button
+            type="submit"
+            form="setup-connection-form"
+            size="sm"
+            loading={setupSaving}
+            disabled={!canSubmitSetup}
+          >
+            Save connection
+          </Button>
+        {/snippet}
       </Sheet>
 
     </div>
