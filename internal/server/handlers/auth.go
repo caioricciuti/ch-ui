@@ -990,28 +990,9 @@ func escapeSingleQuotes(s string) string {
 
 // ---------- helpers ----------
 
+// getClientIP is the address rate limits and audit entries attribute the
+// request to. Forwarding headers count only through a trusted proxy
+// (config trusted_proxies); see middleware.RealIP.
 func getClientIP(r *http.Request) string {
-	// Only trust proxy headers if the request appears to come through a reverse proxy.
-	// Check X-Forwarded-For only when a proxy indicator is present (TLS termination or
-	// the presence of X-Forwarded-Proto, which is typically set by trusted proxies).
-	if r.Header.Get("X-Forwarded-Proto") != "" || r.TLS != nil {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			// Take the leftmost (client) IP — the rightmost entries are added by proxies
-			parts := strings.SplitN(xff, ",", 2)
-			ip := strings.TrimSpace(parts[0])
-			if ip != "" {
-				return ip
-			}
-		}
-
-		if xri := r.Header.Get("X-Real-IP"); xri != "" {
-			return strings.TrimSpace(xri)
-		}
-	}
-
-	addr := r.RemoteAddr
-	if idx := strings.LastIndex(addr, ":"); idx != -1 {
-		return addr[:idx]
-	}
-	return addr
+	return middleware.ClientIP(r)
 }

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Client addresses behind a reverse proxy.** `X-Forwarded-For`, `X-Real-IP`,
+  `X-Forwarded-Proto` and `X-Forwarded-Host` are now believed only when the
+  request arrives from a proxy in the new `trusted_proxies` setting
+  (`TRUSTED_PROXIES`, `--trusted-proxies`; default: loopback, private and
+  link-local ranges; `none` or `[]` trusts no proxy). `X-Forwarded-For` is
+  read from the proxy's end, skipping trusted hops, so a client cannot prepend
+  an address. Before, any client could send `X-Forwarded-Proto` together with
+  a made-up `X-Forwarded-For` and dodge the per-IP limits on login, first-run
+  setup, the OAuth token and registration endpoints and public dashboards, put
+  a false address in the audit log, and steer the origin in the MCP OAuth
+  metadata. Native TLS no longer counts as a proxy indicator. A request from
+  outside the trusted ranges that carries forwarding headers is logged once
+  per address (`Ignoring X-Forwarded-For from an address that is not a trusted
+  proxy`). If your proxy has a public address, add it to `trusted_proxies`,
+  or every user behind it shares one per-IP login limit. See
+  [Behind a reverse proxy](https://ch-ui.com/docs/configuration/#behind-a-reverse-proxy).
+
 ### Added
 
 - **Edit connections in Admin.** Admin > Connections has an Edit button per
@@ -592,7 +611,6 @@ The MCP server catches up with the field. No dependency changes.
   two rings, drawn thicker than in the logo so they survive 16 px, while the
   full mark — whose lettering blurs into the rings below ~48 px — is used from
   192 px up.
-||||||| parent of 2148ac7 (feat(mcp): embed a Model Context Protocol server at /mcp)
 
 ## [2.8.0] - 2026-08-23
 

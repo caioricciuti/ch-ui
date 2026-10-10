@@ -1,7 +1,9 @@
 package config
 
 import (
+	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -33,6 +35,12 @@ type Config struct {
 	// an open URL field lets anyone who reaches the login page point this
 	// server at any host it can reach.
 	AllowLoginURL bool
+
+	// TrustedProxies lists the reverse proxies (IPs or CIDRs) whose
+	// X-Forwarded-For, X-Real-IP, X-Forwarded-Proto and X-Forwarded-Host
+	// headers are believed. nil means unset: loopback, private and link-local
+	// ranges are trusted (DefaultTrustedProxies). An empty list trusts none.
+	TrustedProxies []string
 
 	// TLS — when both are set the server terminates TLS itself; otherwise it
 	// serves plaintext HTTP and expects a reverse proxy to terminate TLS.
@@ -84,6 +92,7 @@ type serverConfigFile struct {
 	SessionMaxAge      int      `yaml:"session_max_age"`
 	AllowedOrigins     []string `yaml:"allowed_origins"`
 	AllowLoginURL      bool     `yaml:"allow_login_url"`
+	TrustedProxies     []string `yaml:"trusted_proxies"`
 	TunnelURL          string   `yaml:"tunnel_url"`
 	TLSCertFile        string   `yaml:"tls_cert_file"`
 	TLSKeyFile         string   `yaml:"tls_key_file"`
@@ -183,6 +192,9 @@ func Load(configPath string) *Config {
 	}
 	if v := os.Getenv("ALLOW_LOGIN_URL"); v != "" {
 		cfg.AllowLoginURL = parseEnvBool(v)
+	}
+	if v := os.Getenv("TRUSTED_PROXIES"); v != "" {
+		cfg.TrustedProxies = ParseTrustedProxies(v)
 	}
 	if v := os.Getenv("TUNNEL_URL"); v != "" {
 		cfg.TunnelURL = v
@@ -316,6 +328,9 @@ func loadServerConfigFile(path string, cfg *Config) error {
 	if fc.AllowLoginURL {
 		cfg.AllowLoginURL = true
 	}
+	if fc.TrustedProxies != nil {
+		cfg.TrustedProxies = fc.TrustedProxies
+	}
 	if fc.TunnelURL != "" {
 		cfg.TunnelURL = fc.TunnelURL
 	}
@@ -373,6 +388,60 @@ func (c *Config) OIDCEnabled() bool {
 		strings.TrimSpace(c.OIDCRedirectURL) != ""
 }
 
+// DefaultTrustedProxies is used when trusted_proxies is unset: the loopback,
+// RFC 1918, IPv6 unique-local and link-local ranges, i.e. a reverse proxy on
+// the same host or network. Anything reaching CH-UI from a public address is
+// treated as the client itself.
+var DefaultTrustedProxies = []string{
+	"127.0.0.0/8", "::1/128",
+	"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7",
+	"169.254.0.0/16", "fe80::/10",
+}
+
+// ParseTrustedProxies parses the comma-separated TRUSTED_PROXIES /
+// --trusted-proxies value. "none" (any case) yields an empty, non-nil list,
+// which trusts no proxy.
+func ParseTrustedProxies(v string) []string {
+	if strings.EqualFold(strings.TrimSpace(trimQuotes(v)), "none") {
+		return []string{}
+	}
+	return splitList(trimQuotes(v))
+}
+
+// TrustedProxyPrefixes resolves TrustedProxies (or DefaultTrustedProxies when
+// unset) into prefixes. Entries are CIDRs or single addresses; a list that is
+// just "none" trusts nobody.
+func (c *Config) TrustedProxyPrefixes() ([]netip.Prefix, error) {
+	list := c.TrustedProxies
+	if list == nil {
+		list = DefaultTrustedProxies
+	}
+	out := make([]netip.Prefix, 0, len(list))
+	for _, raw := range list {
+		s := strings.TrimSpace(raw)
+		if s == "" {
+			continue
+		}
+		if strings.EqualFold(s, "none") {
+			if len(list) != 1 {
+				return nil, fmt.Errorf("trusted_proxies: %q cannot be combined with other entries", s)
+			}
+			return out, nil
+		}
+		if p, err := netip.ParsePrefix(s); err == nil {
+			out = append(out, p.Masked())
+			continue
+		}
+		if a, err := netip.ParseAddr(s); err == nil {
+			a = a.WithZone("")
+			out = append(out, netip.PrefixFrom(a, a.BitLen()))
+			continue
+		}
+		return nil, fmt.Errorf("trusted_proxies: %q is not an IP address or CIDR", s)
+	}
+	return out, nil
+}
+
 // TLSEnabled reports whether native TLS termination is configured.
 func (c *Config) TLSEnabled() bool {
 	return strings.TrimSpace(c.TLSCertFile) != "" && strings.TrimSpace(c.TLSKeyFile) != ""
@@ -423,6 +492,16 @@ port: 3488
 # server connect to any ClickHouse URL it can reach. Enable only on trusted
 # networks. Env: ALLOW_LOGIN_URL, flag: --allow-login-url.
 # allow_login_url: false
+
+# Reverse proxies whose X-Forwarded-For / X-Real-IP / X-Forwarded-Proto /
+# X-Forwarded-Host headers are believed, as IPs or CIDRs. Per-IP login limits
+# and audit entries use the address these headers carry, so only list proxies
+# you run. Default: loopback, private and link-local ranges. An empty list
+# trusts no proxy. Env: TRUSTED_PROXIES (comma-separated, or "none"),
+# flag: --trusted-proxies.
+# trusted_proxies:
+#   - 10.0.0.0/8
+#   - 192.168.1.20
 
 # Native TLS termination. Set both to serve HTTPS directly (PEM files).
 # If unset, CH-UI serves plaintext HTTP and expects a reverse proxy to

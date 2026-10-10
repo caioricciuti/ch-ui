@@ -311,3 +311,34 @@ func TestLoginURLFullLoginAtCap(t *testing.T) {
 		t.Fatalf("user.login rows = %d, want 1", n)
 	}
 }
+
+// A client outside the trusted proxy ranges cannot move its failed logins to
+// another address by sending X-Forwarded-For (with X-Forwarded-Proto, which
+// used to make the server believe it): the per-IP limit stays on the TCP peer.
+func TestLoginIgnoresForwardedForFromUntrustedPeer(t *testing.T) {
+	h, _ := loginURLFixture(t, true)
+	trusted, err := h.Config.TrustedProxyPrefixes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapped := middleware.RealIP(trusted)(http.HandlerFunc(h.Login))
+	for i := 0; i < MaxAttemptsPerIP; i++ {
+		h.RateLimiter.RecordAttempt("ip:203.0.113.9", "ip")
+	}
+
+	raw, _ := json.Marshal(map[string]string{"username": "alice", "password": "x", "clickhouse_url": "http://ch.example:8123"})
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(string(raw)))
+	req.RemoteAddr = "203.0.113.9:40000"
+	req.Header.Set("X-Forwarded-For", "198.51.100.77")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rec := httptest.NewRecorder()
+	wrapped.ServeHTTP(rec, req)
+
+	var out map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response %q: %v", rec.Body.String(), err)
+	}
+	if rec.Code != http.StatusTooManyRequests || out["error"] != "Too many login attempts from this IP" {
+		t.Fatalf("got %d %v, want the peer's IP rate limit", rec.Code, out)
+	}
+}

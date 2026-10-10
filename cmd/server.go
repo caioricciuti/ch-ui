@@ -34,6 +34,7 @@ var (
 	serverClickHouse     string
 	serverConnectionName string
 	serverAllowLoginURL  bool
+	serverTrustedProxies string
 	serverDetach         bool
 	serverConfig         string
 	serverPIDFile        string
@@ -136,6 +137,7 @@ func init() {
 	pf.StringVar(&serverClickHouse, "clickhouse-url", "", "Local ClickHouse HTTP URL for the embedded connection")
 	pf.StringVar(&serverConnectionName, "connection-name", "", "Display name for the embedded local connection")
 	pf.BoolVar(&serverAllowLoginURL, "allow-login-url", false, "Allow signing in with a ClickHouse URL typed on the login page (the server connects to it; trusted networks only)")
+	pf.StringVar(&serverTrustedProxies, "trusted-proxies", "", "Comma-separated IPs or CIDRs of reverse proxies whose X-Forwarded-For is trusted (default: loopback, private and link-local ranges; \"none\" trusts no proxy)")
 	pf.StringVarP(&serverConfig, "config", "c", "", "Path to config file")
 	pf.StringVar(&serverPIDFile, "pid-file", "ch-ui-server.pid", "Path to server PID file")
 	pf.DurationVar(&serverStopTimeout, "stop-timeout", 10*time.Second, "Graceful stop timeout")
@@ -187,6 +189,9 @@ func runServer(cmd *cobra.Command) error {
 	if cmd.Flags().Changed("allow-login-url") {
 		cfg.AllowLoginURL = serverAllowLoginURL
 	}
+	if cmd.Flags().Changed("trusted-proxies") {
+		cfg.TrustedProxies = config.ParseTrustedProxies(serverTrustedProxies)
+	}
 	// --dev flag is the authority for dev mode in the server command.
 	// Without it, always serve the embedded frontend (production mode).
 	cfg.DevMode = devMode
@@ -206,6 +211,18 @@ func runServer(cmd *cobra.Command) error {
 	)
 	if cfg.AllowLoginURL {
 		slog.Warn("Sign-in with a ClickHouse URL is enabled: anyone who can reach the login page can make this server connect to any ClickHouse URL it can reach. Enable only on trusted networks.")
+	}
+	trustedProxies, err := cfg.TrustedProxyPrefixes()
+	if err != nil {
+		return fmt.Errorf("invalid trusted_proxies: %w", err)
+	}
+	switch {
+	case len(trustedProxies) == 0:
+		slog.Info("Trusting no reverse proxy: X-Forwarded-For is ignored, every request is attributed to its TCP peer")
+	case cfg.TrustedProxies == nil:
+		slog.Info("Trusting X-Forwarded-For from loopback, private and link-local addresses (default); set trusted_proxies to narrow it", "ranges", fmt.Sprint(trustedProxies))
+	default:
+		slog.Info("Trusting X-Forwarded-For from configured reverse proxies", "ranges", fmt.Sprint(trustedProxies))
 	}
 
 	secretSource, err := config.EnsureAppSecretKey(cfg)
@@ -314,6 +331,9 @@ func buildServerStartArgs(cmd *cobra.Command) []string {
 	}
 	if cmd.Flags().Changed("allow-login-url") {
 		args = append(args, fmt.Sprintf("--allow-login-url=%t", serverAllowLoginURL))
+	}
+	if cmd.Flags().Changed("trusted-proxies") {
+		args = append(args, "--trusted-proxies", serverTrustedProxies)
 	}
 	// Always include absolute PID file path so the child process and
 	// future update/restart commands can reliably locate the PID file
