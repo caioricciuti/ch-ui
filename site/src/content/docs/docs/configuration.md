@@ -126,6 +126,11 @@ How it behaves:
 
 See [Direct vs Tunnel Connections](/docs/connections/#connections-from-the-login-page).
 
+`clickhouse_url` and `connection_name` are applied to the embedded connection
+on every start. A connection added with the first-run setup code on the login
+page is a separate direct connection and is not overwritten by them. See
+[Can't login?](/docs/cant-login/#first-run-setup-from-the-login-page).
+
 ### Native TLS
 
 Set both `tls_cert_file` and `tls_key_file` to have CH-UI serve HTTPS directly.
