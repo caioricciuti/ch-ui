@@ -46,6 +46,8 @@ allowed_origins:
   - https://ch-ui.yourcompany.com
 # optional override:
 # tunnel_url: wss://ch-ui.yourcompany.com/connect
+# trusted networks only, see below:
+# allow_login_url: false
 ```
 
 Unknown top-level keys are ignored, but the server logs a warning at startup
@@ -65,11 +67,64 @@ key name shows up in the log.
 | `tls_cert_file` | `/etc/ch-ui/tls/server.crt` | empty | PEM cert for native TLS (with `tls_key_file`) |
 | `tls_key_file` | `/etc/ch-ui/tls/server.key` | empty | PEM key for native TLS |
 | `session_max_age` | `86400` | `604800` (7 days) | Session lifetime in seconds |
+| `allow_login_url` | `true` | `false` | Lets the login page take a ClickHouse URL instead of a saved connection. Trusted networks only, see [Sign in with a ClickHouse URL](#sign-in-with-a-clickhouse-url) |
 
 `clickhouse_url` and `connection_name` are applied to the embedded connection
 on every start. A connection added with the first-run setup code on the login
 page is a separate direct connection and is not overwritten by them. See
 [Can't login?](/docs/cant-login/#first-run-setup-from-the-login-page).
+
+### Sign in with a ClickHouse URL
+
+Off by default. When on, the connection picker on the login page gets an
+**Other ClickHouse URL** option: type a ClickHouse URL, a username and a
+password, and sign in without an admin adding the connection first, much like
+CH-UI v1.
+
+Set it in any of these ways (the flag wins over the environment variable,
+which wins over `server.yaml`):
+
+```bash
+ch-ui server --allow-login-url
+ALLOW_LOGIN_URL=true ch-ui server
+```
+
+```yaml
+allow_login_url: true
+```
+
+`ALLOW_LOGIN_URL` reads `true`, `1` or `yes` (any case) as on and any other
+value as off, so `ALLOW_LOGIN_URL=false` turns it off even when `server.yaml`
+has it on. The flag is passed on when the server starts with `--detach`, and
+`ch-ui update` keeps it when it restarts the server.
+
+:::caution
+In v1 the browser connected to ClickHouse. Here the CH-UI server makes the
+connection, so anyone who can open the login page can make the server connect
+to any address the server can reach. Enable it only where everyone who can
+reach the login page is trusted: CH-UI on your laptop or desktop, or on a
+private LAN. The server logs a `WARN` line at startup while it is on.
+:::
+
+How it behaves:
+
+- The URL follows the same rules as
+  [first-run setup](/docs/cant-login/#first-run-setup-from-the-login-page):
+  `http://` or `https://` with a host, no username or password, no query
+  string or fragment, no link-local or cloud metadata address.
+- The server keeps one direct connection per URL (scheme and host compared
+  without case, trailing slashes ignored). Signing in again with the same URL
+  reuses it, and so does a URL that matches a direct connection an admin
+  created. The embedded connection is never reused this way.
+- A new connection is named `host:port` from the URL and stays in the picker
+  for next time. It is created before the credentials are checked, so a
+  failed sign-in can still leave it behind.
+- The login page creates at most 20 connections. When that many still exist,
+  a new URL is refused until an admin deletes unused ones in
+  **Admin > Connections**. Reusing an existing one still works.
+- Each new connection is audited as `connection.created_from_login`.
+
+See [Direct vs Tunnel Connections](/docs/connections/#connections-from-the-login-page).
 
 ### Native TLS
 
@@ -123,6 +178,7 @@ Full setup in [Single Sign-On](/docs/sso).
 | `CONNECITION_NAME` | Backward-compatible typo alias for `CONNECTION_NAME` |
 | `APP_SECRET_KEY` | Session/password encryption secret |
 | `ALLOWED_ORIGINS` | Comma-separated CORS origins |
+| `ALLOW_LOGIN_URL` | Sign in with a ClickHouse URL on the login page (`true`, `1` or `yes`; default off). Trusted networks only |
 | `TUNNEL_URL` | Override gateway URL |
 | `TLS_CERT_FILE` / `TLS_KEY_FILE` | PEM cert/key for native TLS |
 | `AUDIT_FORWARD_STDOUT` / `AUDIT_LOG_FILE` / `AUDIT_WEBHOOK_URL` | Audit forwarding sinks |

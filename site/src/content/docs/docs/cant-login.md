@@ -64,6 +64,21 @@ more than one CH-UI instance behind a load balancer, each prints its own code
 and only accepts its own, so run setup against a single instance.
 :::
 
+## Sign in with a ClickHouse URL (trusted setups)
+
+If CH-UI runs on your own laptop or desktop, or on a private LAN where
+everyone who can reach it is trusted, you can start the server with
+`--allow-login-url` (or `ALLOW_LOGIN_URL=true`). The connection picker then
+has **Other ClickHouse URL**, where you type the URL along with your username
+and password. It is off by default because the CH-UI server, not your
+browser, connects to whatever URL is typed. For any shared or exposed server,
+use [first-run setup](#first-run-setup-from-the-login-page) or a restart with
+the right URL instead. Details in
+[Configuration](/docs/configuration/#sign-in-with-a-clickhouse-url).
+
+If a new URL is refused with `Too many connections were created from the login
+page`, an admin needs to delete unused ones in **Admin > Connections**.
+
 ## Recovery From Login Screen
 
 1. On login, click **Can't login?** to open the setup sheet directly.

@@ -16,7 +16,7 @@ http://localhost:3488
 | `GET` | `/health` | Health status |
 | `GET` | `/metrics` | Prometheus metrics |
 | `GET` | `/connect` | WebSocket tunnel upgrade for the connector (authenticates with the tunnel token) |
-| `GET` | `/api/auth/config` | Available login methods (password, SSO) and whether first-run setup is open (`setup_open`) |
+| `GET` | `/api/auth/config` | Available login methods (password, SSO), whether first-run setup is open (`setup_open`) and whether sign-in with a ClickHouse URL is on (`login_url_allowed`) |
 | `POST` | `/api/auth/setup` | First-run setup: add a direct connection with the one-time setup code (see below) |
 | `POST` | `/api/auth/login` | Session login |
 | `POST` | `/api/auth/logout` | Session logout |
@@ -552,6 +552,15 @@ See [Operations Reports](/docs/operations-reports).
 
 ## Example: Login + Run Query
 
+`clickhouse_url` in the login body is optional and only accepted when the
+server runs with `allow_login_url` on (off by default, see
+[Configuration](/docs/configuration/#sign-in-with-a-clickhouse-url)). The server
+reuses or creates a direct connection for that URL and signs in against it.
+Sending it with `connectionId` returns `400`, as does a URL that fails the
+first-run setup URL checks. Sending it while the setting is off returns `403`.
+When the login page has already created 20 connections and the URL matches
+none of the saved ones, the response is `429`.
+
 ```bash
 # 1) Login
 curl -i -X POST http://localhost:3488/api/auth/login \
@@ -561,6 +570,9 @@ curl -i -X POST http://localhost:3488/api/auth/login \
     "password":"secret",
     "connectionId":"<connection-id>"
   }'
+
+# Or, when allow_login_url is on, sign in with a URL instead of a connection:
+#   -d '{"username":"default","password":"secret","clickhouse_url":"http://clickhouse:8123"}'
 
 # 2) Reuse set-cookie value as chui_session
 curl -X POST http://localhost:3488/api/query/run \

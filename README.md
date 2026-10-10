@@ -368,6 +368,7 @@ ch-ui server stop            # Stop server
 | `--config, -c` | - | Path to `server.yaml` |
 | `--detach` | - | Run in background |
 | `--dev` | - | Development mode (proxy to Vite) |
+| `--allow-login-url` | off | Let the login page sign in with a typed ClickHouse URL. The server makes the connection, so enable only on trusted networks |
 
 ### Connect flags
 

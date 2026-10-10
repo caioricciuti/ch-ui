@@ -23,7 +23,7 @@ Use a **tunnel** when it cannot: ClickHouse sits behind a firewall or NAT, in an
 | Extra process | None | `ch-ui connect`, usually installed as a service |
 | Token | None to manage | A `cht_...` token per connection, can be rotated |
 | TLS to ClickHouse | Verified against the CH-UI host's system CAs | Verified against the connector host's CAs, can be skipped on the connector |
-| Created with | `CLICKHOUSE_URL`, Admin, or the API | `ch-ui tunnel create`, Admin, or the API |
+| Created with | `CLICKHOUSE_URL`, first-run setup, Admin, the API, or the login page when `allow_login_url` is on | `ch-ui tunnel create`, Admin, or the API |
 
 Internally each direct connection runs the same connector code inside the server process, dialing the server's own gateway. So everything above the connection (queries, sessions, governance, schedules, background accounts) works the same for both kinds.
 
@@ -50,6 +50,21 @@ The server config is the source of truth for this connection: it is updated on e
 If the embedded connection cannot reach ClickHouse on a fresh install, nobody can sign in to fix it. Until the first admin signs in, the login page offers **Set up ClickHouse connection**: with the one-time setup code from the server log, it adds a separate direct connection with the name and URL you enter. The embedded connection is left as it is and still follows the server config. After setup closes, the setup connection is an ordinary direct connection that admins can rename, repoint or delete.
 
 While the embedded connection still has the URL it had when setup ran, the login page hides it, so the picker does not offer a connection that cannot work. Change `clickhouse_url` in the server config and restart, and it appears again. **Admin > Connections** always lists it. See [First-run setup from the login page](/docs/cant-login/#first-run-setup-from-the-login-page).
+
+### Connections from the login page
+
+When the server runs with `allow_login_url` on (off by default), the login
+page has **Other ClickHouse URL**: anyone who can reach it can type a
+ClickHouse URL and sign in. The server reuses a saved direct connection with
+the same URL (scheme and host compared without case, trailing slashes
+ignored), including one an admin created, but never the embedded connection.
+Otherwise it creates a direct connection named `host:port`, which stays in the
+picker for next time and works like any other direct connection in Admin.
+
+The login page creates at most 20 connections. Deleting one in
+**Admin > Connections** frees its slot. Turn this on only on trusted networks,
+because the CH-UI server connects to whatever URL is typed. See
+[Configuration](/docs/configuration/#sign-in-with-a-clickhouse-url).
 
 ### More direct connections
 
