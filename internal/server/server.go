@@ -212,6 +212,11 @@ func (s *Server) setupRoutes() {
 
 	// ── API routes ─────────────────────────────────────────────────────
 	r.Route("/api", func(api chi.Router) {
+		// First-run setup: closes for good when an admin exists, otherwise
+		// issues and logs the one-time setup code. The only place it runs.
+		setupHandler := &handlers.SetupHandler{DB: db, RateLimiter: rateLimiter, Agents: s.agents}
+		setupHandler.Start()
+
 		// Auth routes (no session required, login creates the session)
 		authHandler := &handlers.AuthHandler{
 			DB:          db,
@@ -219,6 +224,7 @@ func (s *Server) setupRoutes() {
 			RateLimiter: rateLimiter,
 			Config:      cfg,
 			OIDC:        s.oidcManager,
+			Setup:       setupHandler,
 		}
 		api.Route("/auth", authHandler.Routes)
 
