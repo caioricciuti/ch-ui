@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.16.0] - 2026-10-10
+
 ### Security
 
 - **Client addresses behind a reverse proxy.** `X-Forwarded-For`, `X-Real-IP`,
@@ -24,7 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per address (`Ignoring X-Forwarded-For from an address that is not a trusted
   proxy`). If your proxy has a public address, add it to `trusted_proxies`,
   or every user behind it shares one per-IP login limit. See
-  [Behind a reverse proxy](https://ch-ui.com/docs/configuration/#behind-a-reverse-proxy).
+  [Behind a reverse proxy](https://ch-ui.com/docs/configuration/#behind-a-reverse-proxy)
+  (#233).
+- **Audit entries record the client, not the proxy.** Every audit event
+  written by the API handlers used the TCP peer address, which behind a
+  reverse proxy is the proxy itself plus an ephemeral port. They now record
+  the same trusted-proxy-aware client address as login and setup (#234).
 
 ### Added
 
@@ -33,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   saving a new URL restarts that connection's connector. Agent connections can
   be renamed. The embedded connection stays read-only and shows "Server
   config", since `clickhouse_url` and `connection_name` set it. Backed by
-  `PUT /api/connections/{id}` (admin).
+  `PUT /api/connections/{id}` (admin) (#231).
 - **First-run setup from the login page.** When no admin has ever signed in,
   the server prints a one-time setup code to its log at startup (a `WARN` line
   with `setup_code`). **Set up ClickHouse connection** on the login page takes
@@ -47,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fragments or link-local and cloud metadata hosts are refused, and every step
   is audited (`setup.code_rejected`, `setup.code_burned`,
   `setup.connection_saved`, `setup.closed`). New endpoint
-  `POST /api/auth/setup`; `GET /api/auth/config` gains `setup_open`.
+  `POST /api/auth/setup`; `GET /api/auth/config` gains `setup_open` (#230).
 - **Sign in with a ClickHouse URL, opt-in.** With `allow_login_url: true`,
   `ALLOW_LOGIN_URL=true` or `--allow-login-url` (flag over env over YAML), the
   connection picker on the login page offers **Other ClickHouse URL**: type a
@@ -62,7 +69,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   full, delete unused ones in Admin > Connections), and each new one is audited
   as `connection.created_from_login`. `POST /api/auth/login` takes an optional
   `clickhouse_url` (not together with `connectionId`); `GET /api/auth/config`
-  gains `login_url_allowed`.
+  gains `login_url_allowed` (#232).
+
+### Changed
+
+- github.com/IBM/sarama 1.61.1 and modernc.org/sqlite 1.60.1 (#223).
+- Site: Astro 7.3.5 and Starlight 0.42.5 (#226).
+- Build: CI pulls its test ClickHouse from a mirror on ghcr.io instead of
+  Docker Hub (#221), anchore/sbom-action 0.24.3 (#222), Dependabot watches
+  `ui/` and `site/` through the bun ecosystem (#224), and `ui/` gets the same
+  7-day release-age floor and empty `trustedDependencies` as `site/` (#227,
+  #229). No change to the shipped binaries or image.
 
 ## [2.15.0] - 2026-10-09
 
