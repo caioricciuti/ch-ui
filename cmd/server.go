@@ -33,6 +33,7 @@ var (
 	devMode              bool
 	serverClickHouse     string
 	serverConnectionName string
+	serverAllowLoginURL  bool
 	serverDetach         bool
 	serverConfig         string
 	serverPIDFile        string
@@ -134,6 +135,7 @@ func init() {
 	pf.BoolVar(&devMode, "dev", false, "Enable development mode (proxy to Vite)")
 	pf.StringVar(&serverClickHouse, "clickhouse-url", "", "Local ClickHouse HTTP URL for the embedded connection")
 	pf.StringVar(&serverConnectionName, "connection-name", "", "Display name for the embedded local connection")
+	pf.BoolVar(&serverAllowLoginURL, "allow-login-url", false, "Allow signing in with a ClickHouse URL typed on the login page (the server connects to it; trusted networks only)")
 	pf.StringVarP(&serverConfig, "config", "c", "", "Path to config file")
 	pf.StringVar(&serverPIDFile, "pid-file", "ch-ui-server.pid", "Path to server PID file")
 	pf.DurationVar(&serverStopTimeout, "stop-timeout", 10*time.Second, "Graceful stop timeout")
@@ -182,6 +184,9 @@ func runServer(cmd *cobra.Command) error {
 	if cmd.Flags().Changed("connection-name") {
 		cfg.ConnectionName = strings.TrimSpace(serverConnectionName)
 	}
+	if cmd.Flags().Changed("allow-login-url") {
+		cfg.AllowLoginURL = serverAllowLoginURL
+	}
 	// --dev flag is the authority for dev mode in the server command.
 	// Without it, always serve the embedded frontend (production mode).
 	cfg.DevMode = devMode
@@ -199,6 +204,9 @@ func runServer(cmd *cobra.Command) error {
 		"port", cfg.Port,
 		"dev", cfg.DevMode,
 	)
+	if cfg.AllowLoginURL {
+		slog.Warn("Sign-in with a ClickHouse URL is enabled: anyone who can reach the login page can make this server connect to any ClickHouse URL it can reach. Enable only on trusted networks.")
+	}
 
 	secretSource, err := config.EnsureAppSecretKey(cfg)
 	if err != nil {
@@ -303,6 +311,9 @@ func buildServerStartArgs(cmd *cobra.Command) []string {
 	}
 	if cmd.Flags().Changed("connection-name") && strings.TrimSpace(serverConnectionName) != "" {
 		args = append(args, "--connection-name", serverConnectionName)
+	}
+	if cmd.Flags().Changed("allow-login-url") {
+		args = append(args, fmt.Sprintf("--allow-login-url=%t", serverAllowLoginURL))
 	}
 	// Always include absolute PID file path so the child process and
 	// future update/restart commands can reliably locate the PID file

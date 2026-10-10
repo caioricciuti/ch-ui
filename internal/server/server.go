@@ -225,6 +225,7 @@ func (s *Server) setupRoutes() {
 			Config:      cfg,
 			OIDC:        s.oidcManager,
 			Setup:       setupHandler,
+			Agents:      s.agents,
 		}
 		api.Route("/auth", authHandler.Routes)
 

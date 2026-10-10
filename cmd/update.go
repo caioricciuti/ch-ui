@@ -256,7 +256,7 @@ func sanitizeServerStartArgs(args []string, pidFile string) []string {
 			i++
 		case a == "--detach" || a == "-h" || a == "--help":
 			i++
-		case a == "--dev":
+		case a == "--dev" || a == "--allow-login-url":
 			out = append(out, a)
 			i++
 		case a == "--port" || a == "-p" ||
@@ -281,7 +281,8 @@ func sanitizeServerStartArgs(args []string, pidFile string) []string {
 			strings.HasPrefix(a, "--config=") ||
 			strings.HasPrefix(a, "--clickhouse-url=") ||
 			strings.HasPrefix(a, "--connection-name=") ||
-			strings.HasPrefix(a, "--stop-timeout="):
+			strings.HasPrefix(a, "--stop-timeout=") ||
+			strings.HasPrefix(a, "--allow-login-url="):
 			out = append(out, a)
 			i++
 		case strings.HasPrefix(a, "--pid-file="):

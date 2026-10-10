@@ -44,6 +44,12 @@
   let setupSaving = $state(false);
   let destroyed = false;
 
+  // Sign-in with a typed ClickHouse URL, only when the server allows it.
+  // Chosen as the last Connection option; the server saves it as a connection.
+  const URL_OPTION = "__clickhouse_url__";
+  let loginUrlAllowed = $state(false);
+  let loginURL = $state("");
+
   let ssoEnabled = $state(false);
   let ssoLoginUrl = $state("/api/auth/oidc/login");
   let ssoError = $state<string | null>(null);
@@ -101,6 +107,7 @@
     ssoEnabled = cfg.oidc_enabled;
     if (cfg.oidc_login_url) ssoLoginUrl = cfg.oidc_login_url;
     setupOpen = cfg.setup_open === true;
+    loginUrlAllowed = cfg.login_url_allowed === true;
   }
 
   onDestroy(() => {
@@ -114,7 +121,7 @@
       if (err) ssoError = err;
     } catch {}
 
-    getAuthConfig().then(applyAuthConfig);
+    const config = getAuthConfig().then(applyAuthConfig);
 
     try {
       connections = await listConnections();
@@ -123,13 +130,22 @@
       }
     } catch (e) {
       localError = errorMessage(e, "Failed to load connections");
-    } finally {
-      loadingConnections = false;
     }
+    // Wait for the config so zero connections can open in URL mode
+    // instead of flashing the "No connections configured" state.
+    await config;
+    if (loginUrlAllowed && connections.length === 0) {
+      selectedId = URL_OPTION;
+    }
+    loadingConnections = false;
   });
 
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
+    if (urlMode) {
+      await submitWithURL();
+      return;
+    }
     if (!selectedId || !username) {
       localError = "Connection and username are required";
       return;
@@ -146,6 +162,29 @@
       await login(selectedId, username, password);
     } catch (e) {
       localError = errorMessage(e, "Login failed");
+    } finally {
+      submitting = false;
+    }
+  }
+
+  async function submitWithURL() {
+    const url = loginURL.trim();
+    if (!url || !username) {
+      localError = "ClickHouse URL and username are required";
+      return;
+    }
+    localError = null;
+    submitting = true;
+    try {
+      await login("", username, password, url);
+    } catch (e) {
+      localError = errorMessage(e, "Login failed");
+      // The server may have saved the connection before the login failed.
+      // Reload the list but stay in URL mode with the typed URL.
+      try {
+        connections = await listConnections();
+      } catch {}
+      selectedId = URL_OPTION;
     } finally {
       submitting = false;
     }
@@ -208,8 +247,24 @@
   }
 
   const error = $derived(localError || getError());
+  const urlMode = $derived(loginUrlAllowed && selectedId === URL_OPTION);
   const selectedConnection = $derived(connections.find((c) => c.id === selectedId) || null);
-  const canSubmit = $derived(Boolean(selectedId && username && (selectedConnection ? selectedConnection.online : false)));
+  const canSubmit = $derived(
+    urlMode
+      ? Boolean(loginURL.trim() && username)
+      : Boolean(selectedId && username && (selectedConnection ? selectedConnection.online : false))
+  );
+  const connectionOptions = $derived([
+    ...connections.map((conn) => ({
+      value: conn.id,
+      label: conn.name,
+      hint: conn.online ? "Online" : "Offline",
+      keywords: `${conn.name} ${conn.id}`,
+    })),
+    ...(loginUrlAllowed
+      ? [{ value: URL_OPTION, label: "Other ClickHouse URL", hint: "Type a URL to connect to", keywords: "url other new" }]
+      : []),
+  ]);
   const errorKind = $derived(classifyLoginError(error));
   const loginHelp = $derived(buildLoginHelp(errorKind));
   const showSetupRecoveryCTA = $derived(errorKind === "connection" || errorKind === "rateLimit");
@@ -270,7 +325,7 @@
           <Spinner size="sm" />
           Discovering connections…
         </div>
-      {:else if connections.length === 0}
+      {:else if connections.length === 0 && !loginUrlAllowed}
         <div class="mt-10">
           <div class="flex h-11 w-11 items-center justify-center rounded-md bg-surface-2 text-fg-3">
             <Database size={20} />
@@ -311,12 +366,7 @@
           <FormField label="Connection" for="connection" controlWidth="full">
             <Combobox
               size="lg"
-              options={connections.map((conn) => ({
-                value: conn.id,
-                label: conn.name,
-                hint: conn.online ? "Online" : "Offline",
-                keywords: `${conn.name} ${conn.id}`,
-              }))}
+              options={connectionOptions}
               value={selectedId}
               placeholder="Select a connection..."
               onChange={(id) => (selectedId = id)}
@@ -345,6 +395,25 @@
               {/if}
             {/if}
           </FormField>
+
+          {#if urlMode}
+            <FormField
+              label="ClickHouse URL"
+              for="login-clickhouse-url"
+              controlWidth="full"
+              hint="The server connects to this URL. It is saved as a connection for next time."
+            >
+              <Input
+                id="login-clickhouse-url"
+                mono
+                bind:value={loginURL}
+                placeholder="http://localhost:8123"
+                autocomplete="off"
+                spellcheck={false}
+                class="h-10 px-3 text-[14px]"
+              />
+            </FormField>
+          {/if}
 
           <FormField label="Username" for="username" controlWidth="full">
             <Input

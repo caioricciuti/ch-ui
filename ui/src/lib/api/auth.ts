@@ -5,11 +5,17 @@ interface LoginParams {
   connectionId: string
   username: string
   password: string
+  /**
+   * Sign in with a ClickHouse URL instead of a saved connection. When set,
+   * connectionId is not sent; the server creates (or reuses) the connection.
+   */
+  clickhouseUrl?: string
 }
 
 interface LoginResponse {
   success: boolean
   session: Session
+  connection?: { id: string; name: string }
 }
 
 interface ConnectionsResponse {
@@ -23,6 +29,8 @@ export interface AuthConfig {
   oidc_login_url?: string
   /** First-run setup is accepting a setup code (no admin has signed in yet). */
   setup_open?: boolean
+  /** The login page may take a ClickHouse URL instead of a saved connection. */
+  login_url_allowed?: boolean
 }
 
 interface SetupResponse {
@@ -35,7 +43,7 @@ export async function getAuthConfig(): Promise<AuthConfig> {
   try {
     return await apiGet<AuthConfig>('/api/auth/config')
   } catch {
-    return { password_login: true, oidc_enabled: false, setup_open: false }
+    return { password_login: true, oidc_enabled: false, setup_open: false, login_url_allowed: false }
   }
 }
 
@@ -48,9 +56,17 @@ export function submitSetup(code: string, name: string, clickhouseUrl: string): 
   return apiPost<SetupResponse>('/api/auth/setup', { code, name, clickhouse_url: clickhouseUrl })
 }
 
-/** Log in to a ClickHouse connection */
+/**
+ * Log in to a ClickHouse connection, or to a ClickHouse URL when the server
+ * allows it (login_url_allowed). The body carries connectionId or
+ * clickhouse_url, never both.
+ */
 export function login(params: LoginParams): Promise<LoginResponse> {
-  return apiPost<LoginResponse>('/api/auth/login', params)
+  const { connectionId, username, password, clickhouseUrl } = params
+  const body = clickhouseUrl
+    ? { clickhouse_url: clickhouseUrl, username, password }
+    : { connectionId, username, password }
+  return apiPost<LoginResponse>('/api/auth/login', body)
 }
 
 /** Log out and destroy the session */
