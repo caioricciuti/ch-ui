@@ -48,6 +48,9 @@ allowed_origins:
 # tunnel_url: wss://ch-ui.yourcompany.com/connect
 # trusted networks only, see below:
 # allow_login_url: false
+# reverse proxies whose X-Forwarded-For counts, see below:
+# trusted_proxies:
+#   - 10.0.0.0/8
 ```
 
 Unknown top-level keys are ignored, but the server logs a warning at startup
@@ -68,6 +71,7 @@ key name shows up in the log.
 | `tls_key_file` | `/etc/ch-ui/tls/server.key` | empty | PEM key for native TLS |
 | `session_max_age` | `86400` | `604800` (7 days) | Session lifetime in seconds |
 | `allow_login_url` | `true` | `false` | Lets the login page take a ClickHouse URL instead of a saved connection. Trusted networks only, see [Sign in with a ClickHouse URL](#sign-in-with-a-clickhouse-url) |
+| `trusted_proxies` | `["10.0.0.0/8", "192.168.1.20"]` | loopback, private and link-local ranges | Reverse proxies whose `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto` and `X-Forwarded-Host` headers are believed. `[]` trusts none. See [Behind a reverse proxy](#behind-a-reverse-proxy) |
 
 `clickhouse_url` and `connection_name` are applied to the embedded connection
 on every start. A connection added with the first-run setup code on the login
@@ -97,6 +101,47 @@ allow_login_url: true
 value as off, so `ALLOW_LOGIN_URL=false` turns it off even when `server.yaml`
 has it on. The flag is passed on when the server starts with `--detach`, and
 `ch-ui update` keeps it when it restarts the server.
+
+### Behind a reverse proxy
+
+Per-IP login and first-run setup limits, the per-IP limits on the OAuth and
+public dashboard endpoints, the `ip_address` column of the audit log and the
+origin advertised in the MCP OAuth metadata all need the real client address.
+Behind a reverse proxy that address arrives in `X-Forwarded-For` (or
+`X-Real-IP`), and the public scheme and host in `X-Forwarded-Proto` and
+`X-Forwarded-Host`. Any client can send those headers too, so CH-UI believes
+them only when the TCP connection comes from a trusted proxy.
+
+`trusted_proxies` lists those proxies as IP addresses or CIDRs. When it is
+unset, CH-UI trusts the loopback, private (RFC 1918 and IPv6 unique-local)
+and link-local ranges, which covers a proxy on the same host, in the same
+Docker network or in the same cluster. Set it when your proxy has a public
+address, or to narrow the default to exactly your proxies. An empty list
+trusts no proxy at all; then every request is attributed to its TCP peer and
+forwarding headers are ignored.
+
+```yaml
+trusted_proxies:
+  - 10.0.0.0/8
+  - 192.168.1.20
+```
+
+```bash
+TRUSTED_PROXIES=10.0.0.0/8,192.168.1.20 ch-ui server
+ch-ui server --trusted-proxies 10.0.0.0/8,192.168.1.20
+TRUSTED_PROXIES=none ch-ui server   # trust no proxy
+```
+
+The flag wins over the environment variable, which wins over `server.yaml`.
+An entry that is not an IP or CIDR stops the server at startup with
+`invalid trusted_proxies`. `X-Forwarded-For` is read from the proxy's end:
+the hops added by trusted proxies are skipped and the first address that is
+not one of them is the client, so a client cannot prepend a made-up address.
+When a request from an address outside the trusted ranges carries forwarding
+headers, the server logs `Ignoring X-Forwarded-For from an address that is
+not a trusted proxy` once for that address. If you see it for your own proxy,
+add the proxy to `trusted_proxies`; until you do, every user behind it shares
+one per-IP login limit.
 
 :::caution
 In v1 the browser connected to ClickHouse. Here the CH-UI server makes the
@@ -184,6 +229,7 @@ Full setup in [Single Sign-On](/docs/sso).
 | `APP_SECRET_KEY` | Session/password encryption secret |
 | `ALLOWED_ORIGINS` | Comma-separated CORS origins |
 | `ALLOW_LOGIN_URL` | Sign in with a ClickHouse URL on the login page (`true`, `1` or `yes`; default off). Trusted networks only |
+| `TRUSTED_PROXIES` | Comma-separated IPs or CIDRs of reverse proxies whose forwarding headers are believed; `none` trusts no proxy. Default: loopback, private and link-local ranges |
 | `TUNNEL_URL` | Override gateway URL |
 | `TLS_CERT_FILE` / `TLS_KEY_FILE` | PEM cert/key for native TLS |
 | `AUDIT_FORWARD_STDOUT` / `AUDIT_LOG_FILE` / `AUDIT_WEBHOOK_URL` | Audit forwarding sinks |

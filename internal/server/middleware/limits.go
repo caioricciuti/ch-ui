@@ -1,9 +1,7 @@
 package middleware
 
 import (
-	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 )
@@ -49,7 +47,7 @@ func IPRateLimit(limit int, window time.Duration) func(http.Handler) http.Handle
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !rl.allow(clientIP(r)) {
+			if !rl.allow(ClientIP(r)) {
 				w.Header().Set("Retry-After", "60")
 				writeError(w, http.StatusTooManyRequests, "Rate limit exceeded. Please slow down.")
 				return
@@ -84,22 +82,4 @@ func (rl *ipRateLimiter) allow(ip string) bool {
 	}
 	wc.count++
 	return true
-}
-
-// clientIP extracts a best-effort client IP, trusting X-Forwarded-For /
-// X-Real-IP only when present (CH-UI is expected to run behind a proxy).
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if first := strings.TrimSpace(strings.Split(xff, ",")[0]); first != "" {
-			return first
-		}
-	}
-	if xr := strings.TrimSpace(r.Header.Get("X-Real-IP")); xr != "" {
-		return xr
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }

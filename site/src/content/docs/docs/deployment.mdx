@@ -258,6 +258,15 @@ to the public HTTPS URL, or forward `X-Forwarded-Proto` and
 v2.10.1 or later: on v2.10.0 MCP clients behind this layout got
 `403 Forbidden: invalid Host header`.
 
+CH-UI believes `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto` and
+`X-Forwarded-Host` only from a trusted proxy. By default that is any loopback,
+private or link-local address, which covers nginx on the same host as above
+and a proxy in the same Docker network or cluster. If your proxy reaches CH-UI
+from a public address, or you want to pin exactly which proxies count, set
+`trusted_proxies` (env `TRUSTED_PROXIES`, flag `--trusted-proxies`) to its
+addresses; otherwise every user behind it shares one per-IP login limit. See
+[Behind a reverse proxy](/docs/configuration/#behind-a-reverse-proxy).
+
 ## 6) Hardening Checklist
 
 - Set a strong `APP_SECRET_KEY` in the env or `server.yaml`. If you leave it unset,

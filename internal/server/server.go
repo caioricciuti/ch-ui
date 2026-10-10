@@ -164,6 +164,14 @@ func (s *Server) setupRoutes() {
 
 	// ── Global middleware ────────────────────────────────────────────────
 	r.Use(middleware.Recoverer)
+	// Resolve the client address first so every limit, audit entry and log
+	// line below sees the same one. Validated at startup in cmd/server.go.
+	trustedProxies, err := cfg.TrustedProxyPrefixes()
+	if err != nil {
+		slog.Error("Invalid trusted_proxies, trusting no proxy", "error", err)
+		trustedProxies = nil
+	}
+	r.Use(middleware.RealIP(trustedProxies))
 	r.Use(middleware.Metrics)
 	r.Use(middleware.Logger)
 	r.Use(middleware.SecurityHeaders(!cfg.DevMode))

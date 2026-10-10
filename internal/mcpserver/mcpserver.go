@@ -33,6 +33,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/governance"
+	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"github.com/caioricciuti/ch-ui/internal/version"
 )
@@ -220,17 +221,23 @@ func unauthorized(w http.ResponseWriter, resourceMetadata, msg string) {
 }
 
 // BaseURL returns the public origin CH-UI is reached at, for OAuth metadata
-// and redirects. Reverse-proxy headers win, then the request itself, then
-// the configured app_url.
+// and redirects. Forwarding headers win when the request came through a
+// trusted reverse proxy (config trusted_proxies), then the request itself,
+// then the configured app_url.
 func BaseURL(r *http.Request, cfg *config.Config) string {
 	if r != nil && r.Host != "" {
 		scheme := "http"
-		if r.TLS != nil || strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https") {
+		if r.TLS != nil {
 			scheme = "https"
 		}
 		host := r.Host
-		if fh := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); fh != "" {
-			host = fh
+		if middleware.FromTrustedProxy(r) {
+			if strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https") {
+				scheme = "https"
+			}
+			if fh := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); fh != "" {
+				host = fh
+			}
 		}
 		return scheme + "://" + host
 	}

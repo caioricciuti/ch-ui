@@ -30,6 +30,12 @@ credentials must not cross a network in cleartext.
 - **SSO**: optional OIDC against your IdP. See [Single Sign-On](/docs/sso).
 - **Brute-force protection**: progressive lockout, rate-limited per IP and per
   user; both successful and **failed** logins are written to the audit trail.
+  The client address comes from `X-Forwarded-For` only when the request
+  arrives through a proxy listed in `trusted_proxies` (default: loopback,
+  private and link-local ranges), read from the proxy's end of the chain, so
+  a client cannot dodge the per-IP limit or forge the audited address by
+  sending the header itself. See
+  [Behind a reverse proxy](/docs/configuration/#behind-a-reverse-proxy).
 - **First-run setup**: until the first admin signs in, the unauthenticated
   `POST /api/auth/setup` can add one direct connection, so a fresh install
   whose embedded connection points at the wrong ClickHouse can be fixed from the
@@ -116,8 +122,9 @@ See [Monitoring & SIEM](/docs/monitoring) for setup.
   `Referrer-Policy`, `Content-Security-Policy`, and HSTS in production.
 - **CSRF**: session cookies are `SameSite=Lax` and every state-changing
   endpoint is a non-`GET` method.
-- **Rate & size limits**: unauthenticated public-dashboard endpoints are
-  per-IP rate-limited; request bodies are capped.
+- **Rate & size limits**: unauthenticated public-dashboard and OAuth endpoints
+  are per-IP rate-limited, keyed by the same trusted-proxy-aware client
+  address as login; request bodies are capped.
 
 ## Supply chain
 

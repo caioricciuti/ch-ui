@@ -40,6 +40,11 @@ func oauthRig(t *testing.T) (*chi.Mux, *database.DB, string) {
 
 	h := &OAuthHandler{DB: db, Config: cfg}
 	r := chi.NewRouter()
+	trusted, err := cfg.TrustedProxyPrefixes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Use(middleware.RealIP(trusted))
 	r.Get("/.well-known/oauth-protected-resource", h.ProtectedResourceMetadata)
 	r.Get("/.well-known/oauth-authorization-server", h.AuthorizationServerMetadata)
 	r.Get("/oauth/authorize", h.Authorize)
@@ -64,6 +69,7 @@ func do(t *testing.T, r http.Handler, method, target string, body string, form b
 	t.Helper()
 	req := httptest.NewRequest(method, target, strings.NewReader(body))
 	req.Host = "chui.example"
+	req.RemoteAddr = "127.0.0.1:40000"
 	req.Header.Set("X-Forwarded-Proto", "https")
 	if form {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
