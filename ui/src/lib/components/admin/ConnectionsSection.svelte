@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { apiGet, apiPost, apiDel } from '../../api/client'
+  import { apiGet, apiPost, apiPut, apiDel } from '../../api/client'
   import { formatDate, formatRelativeTime } from '../../utils/format'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import Button from '../common/Button.svelte'
@@ -13,11 +13,11 @@
   import Spinner from '../common/Spinner.svelte'
   import BackgroundAccountsSheet from './BackgroundAccountsSheet.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
-  import { Plus, RefreshCw, Copy, KeyRound, Trash2, Search, AlertTriangle } from 'lucide-svelte'
+  import { Plus, RefreshCw, Copy, KeyRound, Pencil, Trash2, Search, AlertTriangle } from 'lucide-svelte'
 
   // Every ClickHouse this instance can reach: direct URLs the server dials,
   // and remote agents that dial in with a token. Self-contained: loads on
-  // mount, owns its create sheet, token reveal and delete confirm.
+  // mount, owns its create and edit sheets, token reveal and delete confirm.
   type TunnelConnection = {
     id: string
     name: string
@@ -59,6 +59,15 @@
   // connection, and again from the row actions (view / regenerate).
   let tokenPreview = $state<TokenPreview | null>(null)
   let tokenOpen = $state(false)
+
+  // Edit: rename any non-embedded connection; direct ones can also change URL.
+  let editTarget = $state<TunnelConnection | null>(null)
+  let editName = $state('')
+  let editUrl = $state('')
+  let editLoading = $state(false)
+  const editIsDirect = $derived(editTarget?.type === 'direct')
+  const editNameChanged = $derived(editTarget !== null && editName.trim() !== editTarget.name)
+  const editUrlChanged = $derived(editIsDirect && editUrl.trim() !== (editTarget?.clickhouse_url ?? ''))
 
   let deleteTarget = $state<TunnelConnection | null>(null)
   let deleteLoading = $state(false)
@@ -123,6 +132,50 @@
       toastError(e.message)
     } finally {
       createLoading = false
+    }
+  }
+
+  function openEdit(conn: TunnelConnection) {
+    editTarget = conn
+    editName = conn.name
+    editUrl = conn.clickhouse_url ?? ''
+  }
+
+  function closeEdit() {
+    if (editLoading) return
+    editTarget = null
+  }
+
+  async function saveEdit() {
+    if (!editTarget) return
+    const target = editTarget
+    const name = editName.trim()
+    const url = editUrl.trim()
+    if (!name) {
+      toastError('Connection name cannot be empty')
+      return
+    }
+    if (editIsDirect && !url) {
+      toastError('ClickHouse URL is required for a direct connection')
+      return
+    }
+    const body: { name?: string; clickhouse_url?: string } = {}
+    if (editNameChanged) body.name = name
+    if (editUrlChanged) body.clickhouse_url = url
+    if (body.name === undefined && body.clickhouse_url === undefined) {
+      editTarget = null
+      return
+    }
+    editLoading = true
+    try {
+      await apiPut<TunnelConnection>(`/api/connections/${encodeURIComponent(target.id)}`, body)
+      toastSuccess(body.clickhouse_url !== undefined ? `Connection "${name}" updated and reconnecting` : `Connection "${name}" updated`)
+      editTarget = null
+      await loadTunnels()
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
+    } finally {
+      editLoading = false
     }
   }
 
@@ -268,8 +321,11 @@
               </Button>
             {/if}
             {#if conn.is_embedded}
-              <span class="px-1 text-[11px] text-fg-4">Server config</span>
+              <span class="px-1 text-[11px] text-fg-4" title="Set by server config (clickhouse_url / connection_name)">Server config</span>
             {:else}
+              <Button icon variant="ghost" size="xs" aria-label="Edit connection" title="Edit" onclick={() => openEdit(conn)}>
+                <Pencil size={13} />
+              </Button>
               <Button icon variant="ghost" size="xs" aria-label="Delete connection" title="Delete" onclick={() => (deleteTarget = conn)}>
                 <Trash2 size={13} />
               </Button>
@@ -328,6 +384,45 @@
       onclick={() => void createTunnel()}
     >
       {createMode === 'direct' ? 'Add connection' : 'Create agent token'}
+    </Button>
+  {/snippet}
+</Sheet>
+
+<Sheet
+  open={editTarget !== null}
+  title="Edit connection"
+  description={editIsDirect
+    ? 'Rename the connection or point it at another ClickHouse URL. Saving a new URL restarts this connection\'s connector.'
+    : 'Rename the connection. The agent and its token are not affected.'}
+  size="lg"
+  onclose={closeEdit}
+>
+  <form
+    class="space-y-4"
+    onsubmit={(e) => {
+      e.preventDefault()
+      void saveEdit()
+    }}
+  >
+    <FormField label="Connection name" for="conn-edit-name" required controlWidth="lg">
+      <Input id="conn-edit-name" bind:value={editName} required />
+    </FormField>
+    {#if editIsDirect}
+      <FormField label="ClickHouse URL" for="conn-edit-url" required controlWidth="lg" hint="HTTP interface, usually port 8123.">
+        <Input id="conn-edit-url" mono placeholder="http://clickhouse-host:8123" bind:value={editUrl} required spellcheck={false} />
+      </FormField>
+    {/if}
+    <button type="submit" class="sr-only" aria-hidden="true" tabindex="-1"></button>
+  </form>
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" onclick={closeEdit}>Cancel</Button>
+    <Button
+      size="sm"
+      loading={editLoading}
+      disabled={!editName.trim() || (editIsDirect && !editUrl.trim()) || (!editNameChanged && !editUrlChanged)}
+      onclick={() => void saveEdit()}
+    >
+      Save changes
     </Button>
   {/snippet}
 </Sheet>
