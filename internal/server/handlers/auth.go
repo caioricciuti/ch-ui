@@ -297,6 +297,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		conn = &connections[0]
+		if hidden := hiddenLoginConnectionID(h.DB); hidden != "" && len(connections) > 1 && conn.ID == hidden {
+			conn = &connections[1]
+		}
 	}
 
 	userKey := userRateLimitKey(req.Username, conn.ID)
@@ -603,8 +606,12 @@ func (h *AuthHandler) Connections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hidden := hiddenLoginConnectionID(h.DB)
 	result := make([]connectionInfo, 0, len(connections))
 	for _, c := range connections {
+		if c.ID == hidden {
+			continue
+		}
 		result = append(result, connectionInfo{
 			ID:         c.ID,
 			Name:       c.Name,

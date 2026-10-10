@@ -214,6 +214,34 @@ func TestSetupNeverTouchesEmbeddedConnection(t *testing.T) {
 	}
 }
 
+func TestHiddenLoginConnectionID(t *testing.T) {
+	h, db, _, code := setupFixture(t)
+	embeddedID, err := db.CreateConnection(database.CreateConnectionParams{
+		Name: "Embedded", TunnelToken: "emb", IsEmbedded: true,
+		Type: database.ConnectionTypeDirect, ClickHouseURL: "http://unreachable:8123",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hiddenLoginConnectionID(db); got != "" {
+		t.Fatalf("hidden before setup: %q", got)
+	}
+	rec, out := postSetup(t, h, "198.51.100.11", map[string]string{"code": code, "name": "Mine", "clickhouse_url": "http://localhost:8123"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d %v", rec.Code, out)
+	}
+	if got := hiddenLoginConnectionID(db); got != embeddedID {
+		t.Fatalf("embedded should be hidden after setup, got %q", got)
+	}
+	// Fixing clickhouse_url in config brings the embedded connection back.
+	if err := db.UpdateConnectionClickHouseURL(embeddedID, "http://clickhouse:8123"); err != nil {
+		t.Fatal(err)
+	}
+	if got := hiddenLoginConnectionID(db); got != "" {
+		t.Fatalf("embedded should show once its URL changes, got %q", got)
+	}
+}
+
 func TestSetupClosed(t *testing.T) {
 	t.Run("flag set", func(t *testing.T) {
 		h, db, _, code := setupFixture(t)

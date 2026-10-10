@@ -30,6 +30,10 @@ import (
 const (
 	settingSetupClosedAt     = "setup_closed_at"
 	settingSetupConnectionID = "setup_connection_id"
+	// The embedded connection's URL when setup first saved a connection, i.e.
+	// the URL that could not be reached. While the embedded connection still
+	// has it, the login picker hides the embedded connection.
+	settingSetupEmbeddedURL = "setup_embedded_url"
 
 	setupCodeTTL          = time.Hour
 	setupMaxBadCodes      = 10
@@ -404,6 +408,11 @@ func (s *SetupHandler) saveConnection(name, chURL string) (*database.Connection,
 		if err := s.DB.SetSetting(settingSetupConnectionID, newID); err != nil {
 			return nil, fmt.Errorf("store setup connection id: %w", err)
 		}
+		if embedded, err := s.DB.GetEmbeddedConnection(); err == nil && embedded != nil {
+			if err := s.DB.SetSetting(settingSetupEmbeddedURL, embedded.ClickHouseURL); err != nil {
+				return nil, fmt.Errorf("store embedded url: %w", err)
+			}
+		}
 		conn, err = s.DB.GetConnectionByID(newID)
 		if err != nil {
 			return nil, err
@@ -416,6 +425,29 @@ func (s *SetupHandler) saveConnection(name, chURL string) (*database.Connection,
 	// Always (re)start: a retry with the same URL should reconnect.
 	startDirectConnector(s.Agents, *conn)
 	return conn, nil
+}
+
+// hiddenLoginConnectionID returns the id of the embedded connection when the
+// login picker should hide it: a setup connection exists and the embedded
+// connection still points at the URL it had when setup replaced it. Changing
+// clickhouse_url in config brings it back. Admin always lists it.
+func hiddenLoginConnectionID(db *database.DB) string {
+	setupID, err := db.GetSetting(settingSetupConnectionID)
+	if err != nil || setupID == "" {
+		return ""
+	}
+	brokenURL, err := db.GetSetting(settingSetupEmbeddedURL)
+	if err != nil || brokenURL == "" {
+		return ""
+	}
+	if setupConn, err := db.GetConnectionByID(setupID); err != nil || setupConn == nil {
+		return ""
+	}
+	embedded, err := db.GetEmbeddedConnection()
+	if err != nil || embedded == nil || embedded.ClickHouseURL != brokenURL {
+		return ""
+	}
+	return embedded.ID
 }
 
 // validateSetupClickHouseURL is the stricter URL check for the
