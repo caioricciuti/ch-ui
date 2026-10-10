@@ -43,7 +43,7 @@ CLICKHOUSE_URL=http://clickhouse:8123 CONNECTION_NAME="Production" ch-ui server
 ch-ui server --clickhouse-url http://clickhouse:8123 --connection-name "Production"
 ```
 
-The server config is the source of truth for this connection: it is updated on every start, and Admin and the API cannot edit it. See [Configuration](/docs/configuration).
+The server config is the source of truth for this connection: it is updated on every start, and Admin and the API cannot edit it. In **Admin > Connections** its row shows **Server config** instead of Edit and Delete buttons, and `PUT /api/connections/{id}` returns `400` for it. See [Configuration](/docs/configuration).
 
 ### More direct connections
 
@@ -60,16 +60,16 @@ curl -X POST http://localhost:3488/api/connections \
 
 `clickhouse_url` is required for direct connections and must be an `http://` or `https://` URL with a host. The `201` response is `{ "connection": {...} }`.
 
-To rename a direct connection or point it at another URL (the server reconnects to the new target):
+To rename a direct connection or point it at another URL, use the **Edit** button on its row in **Admin > Connections**. Saving a new URL restarts that connection's connector against the new target. The same through the API:
 
 ```bash
 curl -X PUT http://localhost:3488/api/connections/{id} \
   -H "Content-Type: application/json" \
   -H "Cookie: chui_session=..." \
-  -d '{"clickhouse_url":"https://clickhouse-staging.internal:8443"}'
+  -d '{"name":"Staging EU","clickhouse_url":"https://clickhouse-staging.internal:8443"}'
 ```
 
-`clickhouse_url` can only be set on direct connections. Deleting a direct connection stops its connector.
+Both fields are optional; send only what changes. `clickhouse_url` is validated like on create and can only be set on direct connections. The response is the updated connection object, and a request that changes something is written to the audit log as `connection.updated`. Deleting a direct connection stops its connector.
 
 There is no option to skip TLS verification for direct connections. If ClickHouse uses a self-signed certificate, add its CA to the trust store of the CH-UI host, or use a tunnel connection and set `insecure_skip_verify` on the connector.
 
@@ -89,7 +89,7 @@ ch-ui connect \
   --clickhouse-url http://127.0.0.1:8123
 ```
 
-In Admin, choose **Remote agent** in **Add connection** to get a token instead. Through the API, omit `type` (or send `"type":"tunnel"`); the response includes `tunnel_token` and `setup_instructions`. Token rotation, service install and the rest are covered in [Connections & Tunnel](/docs/ingestion) and the [CLI reference](/docs/cli).
+In Admin, choose **Remote agent** in **Add connection** to get a token instead. Through the API, omit `type` (or send `"type":"tunnel"`); the response includes `tunnel_token` and `setup_instructions`. A tunnel connection can be renamed with **Edit** in Admin or `PUT /api/connections/{id}` with `{"name":"..."}`; the agent and its token are not affected. Its ClickHouse URL is set on the connector, not on the server. Token rotation, service install and the rest are covered in [Connections & Tunnel](/docs/ingestion) and the [CLI reference](/docs/cli).
 
 The connector reads its settings from flags, from its config file (`~/.config/ch-ui/config.yaml` on macOS, `/etc/ch-ui/config.yaml` on Linux), or from the environment: `TUNNEL_TOKEN`, `TUNNEL_URL`, `CLICKHOUSE_URL`. To skip TLS verification, for example with a self-signed certificate, set `insecure_skip_verify: true` in the config file or `TUNNEL_INSECURE_SKIP_VERIFY=true`. It applies to both the connector's HTTPS calls to ClickHouse and its `wss://` connection to CH-UI, so use it only on networks you trust.
 

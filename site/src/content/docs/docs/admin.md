@@ -43,6 +43,8 @@ View all ClickHouse connections with their type (Embedded for the one from serve
 
 **Add connection** defaults to **Direct URL**: give it a name and a ClickHouse HTTP(S) URL the server can reach, and it connects right away. Choose **Remote agent** instead for a ClickHouse behind a firewall; CH-UI then shows a token to run `ch-ui connect` with next to that server. Agent rows have buttons to show or regenerate the token. See [Direct vs tunnel connections](/docs/connections).
 
+**Edit** on a row opens a sheet. Direct connections can be renamed and pointed at another ClickHouse URL; saving a new URL restarts that connection's connector. Agent connections can only be renamed, and the agent and its token keep working. The embedded connection has no Edit or Delete: it shows **Server config**, because its name and URL come from `clickhouse_url` and `connection_name` in the server config (hover the label to see that).
+
 Each connection row has a **Background accounts** button. It sets which ClickHouse account unattended jobs (schedules, models, pipeline sinks, governance, Cluster Health, telemetry monitors, performance monitoring and weekly reports) use on that connection. See [Background Accounts](/docs/background-accounts).
 
 ```bash
