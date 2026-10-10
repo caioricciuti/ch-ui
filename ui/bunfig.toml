@@ -1,0 +1,13 @@
+# Repository floor for the UI's dependencies, same as site/bunfig.toml. The
+# machine-level ~/.bunfig.toml says the same; this one travels with the clone,
+# so a fresh checkout on another machine (and Dependabot's bun updater) gets the
+# same rules. It also gates transitive dependencies, which Dependabot's
+# cooldown does not (see the jsdom 30 revert).
+#
+# Lifecycle scripts run only for packages listed in package.json
+# "trustedDependencies", which is empty. A package that needs one is vetted
+# first and added there with a comment saying why.
+[install]
+# Seven days, in seconds. Nothing published more recently can install.
+minimumReleaseAge = 604800
+exact = true
