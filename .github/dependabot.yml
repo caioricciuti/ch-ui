@@ -20,7 +20,9 @@ updates:
         patterns:
           - "*"
 
-  - package-ecosystem: npm
+  # ui/ and site/ are managed by bun (bun.lock only). The npm ecosystem
+  # cannot update bun.lock and fails silently, opening no PRs.
+  - package-ecosystem: bun
     directory: "/ui"
     schedule:
       interval: weekly
@@ -39,6 +41,21 @@ updates:
       # toolchain supports it.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: bun
+    directory: "/site"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 7
+    groups:
+      site-dependencies:
+        patterns:
+          - "*"
 
   # The github-actions ecosystem supports default-days only, no semver keys.
   - package-ecosystem: github-actions
