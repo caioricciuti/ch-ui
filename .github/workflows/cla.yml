@@ -47,8 +47,7 @@ jobs:
 
           pr_json=$(gh api "repos/$REPO/pulls/$PR")
           author=$(jq -r .user.login <<<"$pr_json")
-          author_type=$(jq -r .user.type <<<"$pr_json")
-          assoc=$(jq -r .author_association <<<"$pr_json")
+                    assoc=$(jq -r .author_association <<<"$pr_json")
           sha=$(jq -r .head.sha <<<"$pr_json")
 
           set_status() {
@@ -56,8 +55,8 @@ jobs:
               -f description="$2" -f target_url="$CLA_URL" >/dev/null
           }
 
-          if [ "$author_type" = Bot ] || [[ "$assoc" =~ ^(OWNER|MEMBER|COLLABORATOR)$ ]]; then
-            set_status success "Not required for $assoc"
+          if [ "$author" = "dependabot[bot]" ] || [[ "$assoc" =~ ^(OWNER|MEMBER|COLLABORATOR)$ ]]; then
+            set_status success "Not required for $author"
             exit 0
           fi
           if ! [[ "$author" =~ ^[A-Za-z0-9-]+$ ]]; then
@@ -84,7 +83,8 @@ jobs:
             exit 0
           fi
 
-          if ! gh api --paginate "repos/$REPO/issues/$PR/comments" --jq '.[].body' | grep -qF "$marker"; then
+          if ! gh api --paginate "repos/$REPO/issues/$PR/comments" \
+              --jq '.[] | select(.user.login == "github-actions[bot]") | .body' | grep -qF "$marker"; then
             body="$marker
           Thanks for the pull request, @$author. Before it can be merged, please read the [Contributor License Agreement]($CLA_URL) and sign it by commenting exactly:
 
