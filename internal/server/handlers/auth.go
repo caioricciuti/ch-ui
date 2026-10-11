@@ -924,7 +924,7 @@ func (h *AuthHandler) resolveUserRole(connectionID, username, password, clientIP
 	}
 
 	slog.Info("Ignoring implicit ClickHouse admin privileges without explicit CH-UI admin override", "user", username)
-	return "viewer", "Your ClickHouse user has admin privileges, but CH-UI admin is already assigned to another user. Ask an existing admin to grant you the admin role in Admin → Users."
+	return "viewer", "Your ClickHouse user has admin privileges, but CH-UI admin is already assigned to another user. Ask an existing admin to grant you the admin role in Admin → Users, or run \"ch-ui reset-admin\" on the server."
 }
 
 func classifyGrants(result *tunnel.QueryResult) string {

@@ -136,3 +136,44 @@ func (db *DB) IsUserRole(username, role string) (bool, error) {
 	}
 	return exists == 1, nil
 }
+
+// RevokeAllAdmins removes every explicit admin assignment and drops the cached
+// admin role from those people's sessions, so they fall back to viewer until
+// they sign in again. The next ClickHouse admin who signs in then becomes the
+// CH-UI admin, as on a fresh install. Returns the role keys that were revoked.
+func (db *DB) RevokeAllAdmins() ([]string, error) {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("revoke admins: %w", err)
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query("SELECT username FROM user_roles WHERE role = 'admin' ORDER BY username ASC")
+	if err != nil {
+		return nil, fmt.Errorf("revoke admins: %w", err)
+	}
+	var keys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("revoke admins: %w", err)
+		}
+		keys = append(keys, k)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("revoke admins: %w", err)
+	}
+
+	if _, err := tx.Exec("DELETE FROM user_roles WHERE role = 'admin'"); err != nil {
+		return nil, fmt.Errorf("revoke admins: %w", err)
+	}
+	if _, err := tx.Exec("UPDATE sessions SET user_role = 'viewer' WHERE user_role = 'admin'"); err != nil {
+		return nil, fmt.Errorf("revoke admins: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("revoke admins: %w", err)
+	}
+	return keys, nil
+}

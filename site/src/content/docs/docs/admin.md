@@ -88,6 +88,8 @@ For an SSO person, `{username}` is `sso:<email>`, URL-encoded (for example
 
 Safety: cannot remove the last admin role. Role changes refresh active sessions immediately.
 
+Lost the admin role, or nobody who has it can sign in? Run `ch-ui reset-admin` on the server. See [Recover the admin role](/docs/cant-login/#recover-the-admin-role).
+
 ## ClickHouse User Management
 
 Manage ClickHouse users directly from the admin UI.
@@ -188,6 +190,8 @@ ch-ui server stop
 
 ch-ui service status
 ch-ui service restart
+
+ch-ui reset-admin            # recover the admin role, see Can't login?
 ```
 
 ## Cluster Topology
