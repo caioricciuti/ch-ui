@@ -1,0 +1,98 @@
+name: CLA
+
+# Sets a "CLA" commit status on every pull request. Outside contributors pass
+# once they have commented the sign phrase on any PR or issue in this repo.
+# The comment itself is the signature record.
+#
+# Security: pull_request_target runs with a write token, so this workflow never
+# checks out or runs PR code, and PR-controlled text (titles, bodies, comments)
+# only reaches the script through env vars, never through ${{ }} in `run`.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  group: cla-${{ github.event.pull_request.number || github.event.issue.number }}
+
+jobs:
+  cla:
+    # The "CLA" commit status is the check to require, not this job. The job
+    # always succeeds so a run from before signing never stays red on the PR.
+    name: CLA check
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request &&
+       contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA'))
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Check signature
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+          CLA_URL: https://github.com/${{ github.repository }}/blob/main/CLA.md
+        run: |
+          set -euo pipefail
+          phrase='I have read the CLA Document and I hereby sign the CLA'
+          marker='<!-- cla-check -->'
+
+          pr_json=$(gh api "repos/$REPO/pulls/$PR")
+          author=$(jq -r .user.login <<<"$pr_json")
+                    assoc=$(jq -r .author_association <<<"$pr_json")
+          sha=$(jq -r .head.sha <<<"$pr_json")
+
+          set_status() {
+            gh api -X POST "repos/$REPO/statuses/$sha" -f state="$1" -f context=CLA \
+              -f description="$2" -f target_url="$CLA_URL" >/dev/null
+          }
+
+          if [ "$author" = "dependabot[bot]" ] || [[ "$assoc" =~ ^(OWNER|MEMBER|COLLABORATOR)$ ]]; then
+            set_status success "Not required for $author"
+            exit 0
+          fi
+          if ! [[ "$author" =~ ^[A-Za-z0-9-]+$ ]]; then
+            set_status failure "Unexpected author login"
+            exit 0
+          fi
+
+          # Search finds threads the author commented on; the exact phrase is
+          # then checked in their own comments. This PR is always checked
+          # directly because search indexing lags behind a fresh comment.
+          threads=$(gh api -X GET search/issues -f q="repo:$REPO commenter:$author" --jq '.items[].number' || true)
+          signed=false
+          for n in $PR $threads; do
+            if gh api --paginate "repos/$REPO/issues/$n/comments" \
+                --jq ".[] | select(.user.login == \"$author\") | .body" \
+              | tr -d '\r' | sed 's/[[:space:]]*$//' | grep -qxF "$phrase"; then
+              signed=true
+              break
+            fi
+          done
+
+          if $signed; then
+            set_status success "Signed by $author"
+            exit 0
+          fi
+
+          if ! gh api --paginate "repos/$REPO/issues/$PR/comments" \
+              --jq '.[] | select(.user.login == "github-actions[bot]") | .body' | grep -qF "$marker"; then
+            body="$marker
+          Thanks for the pull request, @$author. Before it can be merged, please read the [Contributor License Agreement]($CLA_URL) and sign it by commenting exactly:
+
+          \`\`\`
+          $phrase
+          \`\`\`
+
+          You only need to do this once; it covers all your future pull requests here. You keep the copyright in your work. See [CONTRIBUTING.md](https://github.com/$REPO/blob/main/CONTRIBUTING.md) for why."
+            gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$body" >/dev/null
+          fi
+          set_status failure "Sign the CLA, see the comment on this PR"
