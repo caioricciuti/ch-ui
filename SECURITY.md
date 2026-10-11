@@ -11,8 +11,8 @@ running the most recent release.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 2.13.x  | :white_check_mark: |
-| < 2.13  | :x:                |
+| 2.17.x  | :white_check_mark: |
+| < 2.17  | :x:                |
 
 ## Reporting a vulnerability
 

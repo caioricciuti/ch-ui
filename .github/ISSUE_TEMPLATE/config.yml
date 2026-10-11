@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea
+    url: https://github.com/caioricciuti/ch-ui/discussions
+    about: Ask how something works or talk through an idea. Bugs go in an issue.
+  - name: Security problem
+    url: https://github.com/caioricciuti/ch-ui/security/policy
+    about: Report vulnerabilities privately, not in a public issue.
+  - name: Documentation
+    url: https://ch-ui.com/docs
+    about: Installation, configuration and "Can't login?" guides.

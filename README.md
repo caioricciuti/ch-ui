@@ -571,10 +571,4 @@ CH-UI is dual-licensed:
 
 ## Contributing
 
-Issues and PRs are welcome.
-
-When contributing, please include:
-- Reproduction steps (for bugs)
-- Expected behavior
-- Migration notes (if schema/API changed)
-- Screenshots (for UI changes)
+Bug reports and pull requests are welcome. Bugs go in [issues](https://github.com/caioricciuti/ch-ui/issues/new/choose), questions in [Discussions](https://github.com/caioricciuti/ch-ui/discussions). Pull requests need a signed [Contributor License Agreement](CLA.md); a bot asks on your first one. See [CONTRIBUTING.md](CONTRIBUTING.md) for the details.
