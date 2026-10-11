@@ -102,3 +102,29 @@ func TestBuildMetaQuery(t *testing.T) {
 		})
 	}
 }
+
+func TestIsWriteQuery(t *testing.T) {
+	tests := []struct {
+		query string
+		want  bool
+	}{
+		{"DELETE FROM test.test_table WHERE id = 1", true},
+		{"delete from t where id = 1;", true},
+		{"-- clean up\nDELETE FROM t WHERE id = 1", true},
+		{"UPDATE t SET name = 'x' WHERE id = 1", true},
+		{"INSERT INTO t VALUES (1)", true},
+		{"EXCHANGE TABLES a AND b", true},
+		{"UNDROP TABLE t", true},
+		{"USE db", true},
+		{"SELECT * FROM t", false},
+		{"WITH x AS (SELECT 1) SELECT * FROM x", false},
+		{"SHOW TABLES", false},
+		{"DESCRIBE TABLE t", false},
+		{"USERS_SELECT", false},
+	}
+	for _, tt := range tests {
+		if got := isWriteQuery(tt.query); got != tt.want {
+			t.Errorf("isWriteQuery(%q) = %v, want %v", tt.query, got, tt.want)
+		}
+	}
+}
