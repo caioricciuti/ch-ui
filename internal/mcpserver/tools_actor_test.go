@@ -1,7 +1,6 @@
 package mcpserver
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,11 +11,7 @@ import (
 // but records history and audit under the person (the key Subject). An admin
 // API key has no subject and records under its ClickHouse user.
 func TestRecordQueryUsesKeySubjectAsActor(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "actor.db"))
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := openTestDB(t)
 	connID, err := db.CreateConnection(database.CreateConnectionParams{Name: "c", TunnelToken: "cht_actor", Type: database.ConnectionTypeTunnel})
 	if err != nil {
 		t.Fatalf("create connection: %v", err)
@@ -83,11 +78,7 @@ func TestRecordQueryUsesKeySubjectAsActor(t *testing.T) {
 }
 
 func TestWriteAuditUsesKeySubjectAsActor(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "actor.db"))
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := openTestDB(t)
 	connID, err := db.CreateConnection(database.CreateConnectionParams{Name: "c", TunnelToken: "cht_actor_w", Type: database.ConnectionTypeTunnel})
 	if err != nil {
 		t.Fatalf("create connection: %v", err)

@@ -200,6 +200,10 @@ func (l *keyLimiter) allow(keyID string) bool {
 	return e.count <= rateLimit
 }
 
+// background tracks the fire-and-forget writes (key touch, audit, history)
+// so tests can wait for them before closing the database.
+var background sync.WaitGroup
+
 var lastTouch sync.Map // key ID -> time.Time
 
 func touchKey(deps Deps, keyID string) {
@@ -208,7 +212,7 @@ func touchKey(deps Deps, keyID string) {
 		return
 	}
 	lastTouch.Store(keyID, now)
-	go deps.DB.TouchMCPKey(keyID)
+	background.Go(func() { deps.DB.TouchMCPKey(keyID) })
 }
 
 // unauthorized answers 401 with the RFC 9728 pointer OAuth-capable clients

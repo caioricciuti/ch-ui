@@ -28,12 +28,14 @@ func audit(deps Deps, ak *authedKey, action, details string) {
 	chUser := ak.key.CHUser
 	connID := ak.key.ConnectionID
 	d := details
-	go deps.DB.CreateAuditLog(database.AuditLogParams{
-		Action:         action,
-		Username:       &user,
-		ClickhouseUser: &chUser,
-		ConnectionID:   &connID,
-		Details:        &d,
+	background.Go(func() {
+		deps.DB.CreateAuditLog(database.AuditLogParams{
+			Action:         action,
+			Username:       &user,
+			ClickhouseUser: &chUser,
+			ConnectionID:   &connID,
+			Details:        &d,
+		})
 	})
 }
 

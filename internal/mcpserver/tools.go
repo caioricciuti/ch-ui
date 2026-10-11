@@ -325,7 +325,7 @@ func (ak *authedKey) actor() string {
 // recordQuery writes the query into history (source=mcp) and the audit log,
 // asynchronously — observability must never slow the query path.
 func recordQuery(deps Deps, ak *authedKey, sql, status, errMsg string, elapsed time.Duration, rows int64) {
-	go func() {
+	background.Go(func() {
 		deps.DB.CreateQueryHistoryEntry(database.CreateQueryHistoryParams{
 			ConnectionID: ak.key.ConnectionID,
 			User:         ak.key.CHUser,
@@ -348,7 +348,7 @@ func recordQuery(deps Deps, ak *authedKey, sql, status, errMsg string, elapsed t
 			ConnectionID:   &connID,
 			Details:        &details,
 		})
-	}()
+	})
 }
 
 // ---- tool registration ----
