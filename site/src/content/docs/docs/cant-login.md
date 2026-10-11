@@ -14,6 +14,7 @@ Use this guide if the login screen appears but sign-in fails, local URL is wrong
 | `Connection unavailable` with `Connection to ClickHouse failed`, while the picker says `Connector online` | ClickHouse did not answer the credential check (timeout, connection refused, network or TLS error, tunnel dropped). `Connector online` only means the connector is connected; ClickHouse is checked when you sign in | Check that ClickHouse is up and reachable from the connector, start the connector if it is stopped, then retry. These attempts do not count toward the lockout |
 | `Login temporarily blocked` / `Too many login attempts` | Temporary lockout after repeated failed logins (3 per user or 5 per IP within 15 minutes) | Wait for the retry window shown (`3m`, then `5m`, then capped at `10m`); if URL was wrong, fix setup and restart before retry |
 | `No connections configured` | Embedded local connection not reachable/initialized | Use **Set up ClickHouse connection** with the setup code from the server log, or start CH-UI with explicit local URL and connection name |
+| `Your ClickHouse user has admin privileges, but CH-UI admin is already assigned to another user` | You signed in fine, as a viewer. The CH-UI admin role went to the first ClickHouse admin who signed in, and only a CH-UI admin can grant it | Ask that admin to grant you the role in **Admin > Users**. If nobody can, [recover the admin role](#recover-the-admin-role) from the server |
 
 ## First-run setup from the login page
 
@@ -63,6 +64,35 @@ The code lives in the memory of the server process that printed it. If you run
 more than one CH-UI instance behind a load balancer, each prints its own code
 and only accepts its own, so run setup against a single instance.
 :::
+
+## Recover the admin role
+
+The first ClickHouse admin who signs in becomes the CH-UI admin. After that,
+ClickHouse admin privileges alone are not enough: an existing CH-UI admin has
+to grant the role in **Admin > Users**. If that person is gone, or you don't
+know which ClickHouse user it was, run `ch-ui reset-admin` on the server:
+
+```bash
+# remove every CH-UI admin; the next ClickHouse admin who signs in gets it
+ch-ui reset-admin
+
+# or make one user an admin directly, leaving existing admins alone
+ch-ui reset-admin --user alice
+```
+
+With Docker, run it inside the container:
+
+```bash
+docker exec <container> ch-ui reset-admin
+```
+
+- It is safe to run while the server is up. Sign out and back in afterwards.
+- It reads the database from the same config as the server (`database_path`,
+  `DATABASE_PATH`, `-c server.yaml`), or from `--database-path`.
+- Other roles (analyst, viewer) are kept. Sessions of removed admins drop to
+  viewer right away.
+- For someone who signs in with SSO, `--user` takes `sso:<email>`.
+- It is recorded in the audit log as `user_role.reset_admin`.
 
 ## Sign in with a ClickHouse URL (trusted setups)
 
@@ -133,7 +163,7 @@ ch-ui server -c /etc/ch-ui/server.yaml
 
 ## Notes
 
-- Fixing the embedded connection's URL with a restart needs access to the server, not the CH-UI admin role. First-run setup needs the setup code from the server log, also not the admin role.
+- Fixing the embedded connection's URL with a restart needs access to the server, not the CH-UI admin role. First-run setup needs the setup code from the server log, also not the admin role. So does `ch-ui reset-admin`.
 - Multiple connections are part of the free core; adding them in Admin needs the admin role, not Pro.
 - Setup commands intentionally never include passwords.
 - Credentials are entered only in the Sign in form after restart.

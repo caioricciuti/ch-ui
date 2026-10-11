@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`ch-ui reset-admin`.** Recovers the CH-UI admin role when nobody who holds
+  it can sign in. With no flags it removes every admin assignment, so the next
+  ClickHouse admin who signs in becomes the CH-UI admin, as on a fresh install.
+  `--user <name>` makes one user an admin instead. Safe to run while the server
+  is up (`docker exec <container> ch-ui reset-admin` in Docker), and recorded in
+  the audit log. The sign-in notice for a ClickHouse admin who is not a CH-UI
+  admin now mentions it.
+
 ### Fixed
 
 - **`DELETE` and `UPDATE` in the SQL editor.** They were treated as reads, so
