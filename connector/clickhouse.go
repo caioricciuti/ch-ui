@@ -662,7 +662,7 @@ func (c *CHClient) TestConnection(ctx context.Context, user, password string) (s
 
 // Query patterns
 var (
-	writeQueryPattern = regexp.MustCompile(`(?i)^\s*(INSERT|CREATE|DROP|ALTER|TRUNCATE|RENAME|ATTACH|DETACH|OPTIMIZE|GRANT|REVOKE|KILL|SYSTEM|SET|USE)`)
+	writeQueryPattern = regexp.MustCompile(`(?i)^\s*(INSERT|DELETE|UPDATE|CREATE|DROP|UNDROP|ALTER|TRUNCATE|RENAME|EXCHANGE|ATTACH|DETACH|OPTIMIZE|GRANT|REVOKE|KILL|SYSTEM|SET|USE)\b`)
 	formatPattern     = regexp.MustCompile(`(?i)\bFORMAT\s+\w+\s*$`)
 	commentPattern    = regexp.MustCompile(`(?m)^\s*--.*$`)
 )

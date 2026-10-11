@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the audit log. The sign-in notice for a ClickHouse admin who is not a CH-UI
   admin now mentions it.
 
+### Fixed
+
+- **`DELETE` and `UPDATE` in the SQL editor.** They were treated as reads, so
+  CH-UI first sent them with `LIMIT 0` appended to fetch column metadata, and
+  ClickHouse rejected that with a syntax error. They now run as writes, like
+  `INSERT` and `ALTER`. `UNDROP` and `EXCHANGE` are classified as writes too.
+
 ## [2.16.0] - 2026-10-10
 
 ### Security
