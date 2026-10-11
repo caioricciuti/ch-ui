@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.17.0] - 2026-10-11
+
 ### Added
 
 - **`ch-ui reset-admin`.** Recovers the CH-UI admin role when nobody who holds
@@ -15,14 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--user <name>` makes one user an admin instead. Safe to run while the server
   is up (`docker exec <container> ch-ui reset-admin` in Docker), and recorded in
   the audit log. The sign-in notice for a ClickHouse admin who is not a CH-UI
-  admin now mentions it.
+  admin now mentions it (#238).
 
 ### Fixed
 
 - **`DELETE` and `UPDATE` in the SQL editor.** They were treated as reads, so
   CH-UI first sent them with `LIMIT 0` appended to fetch column metadata, and
   ClickHouse rejected that with a syntax error. They now run as writes, like
-  `INSERT` and `ALTER`. `UNDROP` and `EXCHANGE` are classified as writes too.
+  `INSERT` and `ALTER`. `UNDROP` and `EXCHANGE` are classified as writes too
+  (#237).
+
+### Changed
+
+- Site: http-cache-semantics 4.3.0 (GHSA-ch52-4w7c-c8xp, build-time only),
+  and the site audit no longer ignores that advisory (#240). An MCP server
+  test no longer flakes on background writes (#239). No change to the shipped
+  binaries or image.
 
 ## [2.16.0] - 2026-10-10
 
