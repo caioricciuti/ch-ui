@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,11 +14,7 @@ import (
 // writeDeps builds deps plus one read key and one read_write key.
 func writeDeps(t *testing.T) (Deps, string, string) {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := openTestDB(t)
 
 	connID, err := db.CreateConnection(database.CreateConnectionParams{
 		Name:        "test-conn",

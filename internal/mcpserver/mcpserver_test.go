@@ -106,14 +106,26 @@ func TestAllowedDBs(t *testing.T) {
 	}
 }
 
-// testDeps spins up a real SQLite store with one connection and one MCP key.
-func testDeps(t *testing.T) (Deps, string) {
+// openTestDB opens a throwaway SQLite store. Cleanup waits for background
+// writes (audit, history, key touch) first, so none of them land in a closed
+// database or in a temp dir that is being removed.
+func openTestDB(t *testing.T) *database.DB {
 	t.Helper()
 	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() {
+		background.Wait()
+		db.Close()
+	})
+	return db
+}
+
+// testDeps spins up a real SQLite store with one connection and one MCP key.
+func testDeps(t *testing.T) (Deps, string) {
+	t.Helper()
+	db := openTestDB(t)
 
 	connID, err := db.CreateConnection(database.CreateConnectionParams{
 		Name:        "test-conn",
