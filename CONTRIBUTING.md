@@ -20,9 +20,10 @@ problems are covered in [Can't login?](https://ch-ui.com/docs/cant-login/).
 ## Pull requests
 
 1. **Sign the CLA.** On your first pull request a bot asks you to sign the
-   [Contributor License Agreement](CLA.md). It is one click with your GitHub
-   account and covers all your future pull requests. Pull requests cannot be
-   merged until it is signed. CH-UI is dual-licensed (see
+   [Contributor License Agreement](CLA.md) by commenting
+   `I have read the CLA Document and I hereby sign the CLA`. You do it once and
+   it covers all your future pull requests. Pull requests cannot be merged
+   until the `CLA` check passes. CH-UI is dual-licensed (see
    [LICENSING.md](LICENSING.md)), and the CLA lets the project ship your work
    under either license. You keep the copyright.
 2. **Open an issue first for anything bigger than a small fix**, so we can
