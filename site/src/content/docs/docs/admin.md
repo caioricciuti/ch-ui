@@ -194,6 +194,8 @@ ch-ui service restart
 ch-ui reset-admin            # recover the admin role, see Can't login?
 ```
 
+If no CH-UI admin can sign in, `ch-ui reset-admin` hands the role back. See [Can't login?](/docs/cant-login/#recover-the-admin-role) and the [CLI reference](/docs/cli/#reset-admin).
+
 ## Cluster Topology
 
 The Overview section includes a **Cluster Topology** panel that surfaces what `system.clusters` reports for the connection: every shard, every replica, with host / address / port / shard_num / replica_num / is_local. A green dot marks the node that's currently serving your session. Single-node deployments show "Single-node setup detected" with just the hostname.

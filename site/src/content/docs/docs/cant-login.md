@@ -94,6 +94,8 @@ docker exec <container> ch-ui reset-admin
 - For someone who signs in with SSO, `--user` takes `sso:<email>`.
 - It is recorded in the audit log as `user_role.reset_admin`.
 
+All flags are in the [CLI reference](/docs/cli/#reset-admin).
+
 ## Sign in with a ClickHouse URL (trusted setups)
 
 If CH-UI runs on your own laptop or desktop, or on a private LAN where

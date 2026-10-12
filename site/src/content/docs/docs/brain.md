@@ -64,16 +64,21 @@ Open **Brain** in the sidebar and click **New Chat**. If no provider is configur
 
 ### Schema context
 
-Use the header dropdowns to attach table context (up to **10 tables** per chat): pick a database, pick a table, click **Add**. Column names and types are fetched and sent with every message:
+Type `@` in the message box to add context. A menu opens with **Tables**, **Dashboards**, **Pipelines**, **Models** and **Saved Queries**. For a table, pick the database and then the table; it shows up in the message as a chip like `table:default.events`. You can mention as many items as you like in one message.
+
+Context belongs to the message you mention it in, not to the whole chat. When you send, CH-UI fetches the column names and types of each mentioned table and adds them to the system prompt for that request:
 
 ```
-Schema context (database: default, table: events):
+Schema context:
+Table 1: default.events
 Columns:
-- id: UInt64
-- timestamp: DateTime
-- user_id: String
-- event_type: String
+- id (UInt64)
+- timestamp (DateTime)
+- user_id (String)
+- event_type (String)
 ```
+
+A mentioned dashboard, pipeline, model or saved query adds a short description instead: a dashboard's panels and their SQL, a saved query's or model's SQL (shortened), a pipeline's status. Later messages still see the earlier `@default.events` text in the chat history, but not the columns, so mention the table again when you need its schema.
 
 ### Sending messages
 
@@ -182,6 +187,6 @@ Chats, messages, artifacts, and skills are stored in CH-UI's **local SQLite data
 | `run_query` tool | ClickHouse `readonly = 1`, its `limit` (max 1,000) as a row cap, 30s, 16 MB; a `SETTINGS` clause is rejected |
 | Artifact timeout | 30s default, 5 min max |
 | Artifact re-run / promote | Read-only re-run; promote to query/panel is an audited action |
-| Max schema contexts | 10 tables per chat |
+| Schema context | Per message, from `@` mentions; no fixed table limit |
 | API key storage | Encrypted at rest with app secret key |
 | Chat / artifact isolation | Scoped to username + connection; artifact actions verify chat ownership |

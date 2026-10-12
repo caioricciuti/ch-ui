@@ -5,7 +5,7 @@ description: Build CH-UI from source
 
 ## Requirements
 
-- Go 1.26.6 or later (the version in `go.mod`)
+- Go 1.26.9 or later (the version in `go.mod`)
 - [Bun](https://bun.sh)
 
 ## Clone and Build
