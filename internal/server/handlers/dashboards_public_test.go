@@ -1,0 +1,146 @@
+package handlers
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/caioricciuti/ch-ui/internal/config"
+	"github.com/caioricciuti/ch-ui/internal/database"
+)
+
+type publicFixture struct {
+	db       *database.DB
+	handler  http.Handler
+	token    string
+	panelID  string
+	otherID  string
+	textID   string
+	expiredT string
+}
+
+func newPublicFixture(t *testing.T) publicFixture {
+	t.Helper()
+	db, err := database.Open(filepath.Join(t.TempDir(), "public.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	connID, err := db.CreateConnection(database.CreateConnectionParams{Name: "Production", TunnelToken: "tok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared, err := db.CreateDashboard("Shared", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := db.CreateDashboard("Other", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	panelID, err := db.CreatePanel(shared, "Rows", "", "table", "SELECT 1", "", "{}", 0, 0, 4, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	textID, err := db.CreatePanel(shared, "Notes", "", "text", "", "", `{"content":"hi"}`, 0, 4, 4, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherID, err := db.CreatePanel(other, "Secret", "", "table", "SELECT * FROM secrets", "", "{}", 0, 0, 4, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	share, err := db.CreateDashboardShare(shared, "viewer", "public", "", connID, "default", "x", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badExpiry := "not-a-date"
+	expired, err := db.CreateDashboardShare(shared, "viewer", "public", "", connID, "default", "x", nil, &badExpiry)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := &DashboardsHandler{DB: db, Config: &config.Config{AppSecretKey: "test-secret"}}
+	return publicFixture{db: db, handler: h.PublicRoutes(), token: share.Token, panelID: panelID, otherID: otherID, textID: textID, expiredT: expired.Token}
+}
+
+func (f publicFixture) post(t *testing.T, token, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	f.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/"+token+"/query", strings.NewReader(body)))
+	return rec
+}
+
+func TestPublicQueryNeverRunsCallerSQL(t *testing.T) {
+	f := newPublicFixture(t)
+	tests := []struct {
+		name  string
+		token string
+		body  string
+		want  int
+	}{
+		{"raw sql only", f.token, `{"query":"DROP TABLE users"}`, http.StatusBadRequest},
+		{"panel from another dashboard", f.token, `{"panel_id":"` + f.otherID + `"}`, http.StatusNotFound},
+		{"unknown panel", f.token, `{"panel_id":"nope"}`, http.StatusNotFound},
+		{"text panel", f.token, `{"panel_id":"` + f.textID + `"}`, http.StatusBadRequest},
+		{"unparseable expiry", f.expiredT, `{"panel_id":"` + f.panelID + `"}`, http.StatusGone},
+		{"unknown token", "missing", `{"panel_id":"` + f.panelID + `"}`, http.StatusNotFound},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if rec := f.post(t, test.token, test.body); rec.Code != test.want {
+				t.Fatalf("status %d, want %d: %s", rec.Code, test.want, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestPublicDashboardHidesPanelSQL(t *testing.T) {
+	f := newPublicFixture(t)
+	rec := httptest.NewRecorder()
+	f.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/"+f.token, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Panels []database.Panel `json:"panels"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Panels) != 2 {
+		t.Fatalf("got %d panels, want 2", len(resp.Panels))
+	}
+	for _, p := range resp.Panels {
+		if p.Query != "" {
+			t.Fatalf("panel %s leaked its SQL: %q", p.Name, p.Query)
+		}
+	}
+}
+
+func TestPublicReadonlyProfileErrorDetection(t *testing.T) {
+	profile := errors.New(`Code: 164. DB::Exception: Cannot modify 'max_execution_time' setting in readonly mode. (READONLY)`)
+	write := errors.New(`Code: 164. DB::Exception: default: Cannot execute query in readonly mode. (READONLY)`)
+	if !isReadonlyProfileError(profile) {
+		t.Fatal("a refused setting must trigger the readonly=1 fallback")
+	}
+	if isReadonlyProfileError(write) || isReadonlyProfileError(nil) {
+		t.Fatal("a refused write must not trigger the fallback")
+	}
+}
+
+func TestPublicQuerySettingsAreReadOnly(t *testing.T) {
+	if publicQuerySettings["readonly"] != "1" {
+		t.Fatalf("public queries must run with readonly=1, got %q", publicQuerySettings["readonly"])
+	}
+	for _, key := range []string{"max_execution_time", "max_result_rows", "max_result_bytes"} {
+		if publicQuerySettings[key] == "" {
+			t.Fatalf("public queries must set %s", key)
+		}
+	}
+}

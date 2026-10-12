@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Shared dashboard links run only their own panels.** The public query
+  endpoint ran whatever SQL the request carried, with the ClickHouse
+  credentials saved on the share, so anyone holding a link could run any
+  statement those credentials allowed. A viewer now asks for a panel by ID and
+  the server runs that panel's stored SQL, read only (`readonly=1`) and capped
+  at 30 seconds and 32 MB of results. When the sharer's ClickHouse profile is
+  already read only, which refuses those caps, the panel runs with
+  `readonly=1` alone. The public dashboard response no longer includes panel
+  SQL, and a share whose expiry date cannot be read is treated as expired.
+
 ### Fixed
 
 - **Read-only ClickHouse users on Pro pages.** Performance, Schema Compare,
