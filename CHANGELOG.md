@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Read-only ClickHouse users on Pro pages.** Performance, Schema Compare,
+  Operations Reports and Incident Timeline send limits such as
+  `max_execution_time` and `log_comment` with their queries. ClickHouse
+  refuses any such setting for a user whose profile is already `readonly=1`,
+  so those pages failed for read-only accounts (Schema Compare said to check
+  credentials). CH-UI now drops the setting ClickHouse names and retries;
+  `readonly=1` and query parameters are always kept, and the profile still
+  blocks writes.
+
 ## [2.17.0] - 2026-10-11
 
 ### Added
