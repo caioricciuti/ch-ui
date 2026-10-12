@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -51,7 +53,54 @@ func (g *Gateway) ExecuteQueryWithSettings(connectionID, sql, user, password str
 // ExecuteQueryWithSettingsCtx is ExecuteQueryWithSettings bound to a context:
 // when ctx is cancelled before the agent answers, the query is cancelled on
 // the agent side too and ctx.Err() is returned.
+//
+// A user whose ClickHouse profile is already readonly=1 may not change any
+// setting, so ClickHouse refuses the query naming that setting. In that case
+// the setting is dropped and the query retried: readonly=1 itself and bind
+// parameters are always accepted, and the profile already blocks writes.
 func (g *Gateway) ExecuteQueryWithSettingsCtx(ctx context.Context, connectionID, sql, user, password string, settings map[string]string, timeout time.Duration) (*QueryResult, error) {
+	result, err := g.executeQuery(ctx, connectionID, sql, user, password, settings, timeout)
+	for attempt := 0; attempt < maxRefusedSettings && err != nil; attempt++ {
+		name := refusedSetting(err)
+		if _, ok := settings[name]; !ok || name == "readonly" || strings.HasPrefix(name, "param_") {
+			break
+		}
+		settings = withoutSetting(settings, name)
+		slog.Debug("ClickHouse profile is read only, retrying without setting", "setting", name, "user", user)
+		result, err = g.executeQuery(ctx, connectionID, sql, user, password, settings, timeout)
+	}
+	return result, err
+}
+
+// maxRefusedSettings bounds the retries for a read-only profile.
+const maxRefusedSettings = 8
+
+var refusedSettingPattern = regexp.MustCompile(`Cannot modify '([A-Za-z0-9_]+)' setting in readonly mode`)
+
+// refusedSetting returns the setting ClickHouse refused because the user's
+// profile is read only, or "" for any other error.
+func refusedSetting(err error) string {
+	if err == nil {
+		return ""
+	}
+	m := refusedSettingPattern.FindStringSubmatch(err.Error())
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
+func withoutSetting(settings map[string]string, name string) map[string]string {
+	out := make(map[string]string, len(settings))
+	for k, v := range settings {
+		if k != name {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func (g *Gateway) executeQuery(ctx context.Context, connectionID, sql, user, password string, settings map[string]string, timeout time.Duration) (*QueryResult, error) {
 	val, ok := g.tunnels.Load(connectionID)
 	if !ok {
 		return nil, errors.New("tunnel not connected")

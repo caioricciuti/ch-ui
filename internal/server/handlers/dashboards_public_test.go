@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -120,17 +119,6 @@ func TestPublicDashboardHidesPanelSQL(t *testing.T) {
 		if p.Query != "" {
 			t.Fatalf("panel %s leaked its SQL: %q", p.Name, p.Query)
 		}
-	}
-}
-
-func TestPublicReadonlyProfileErrorDetection(t *testing.T) {
-	profile := errors.New(`Code: 164. DB::Exception: Cannot modify 'max_execution_time' setting in readonly mode. (READONLY)`)
-	write := errors.New(`Code: 164. DB::Exception: default: Cannot execute query in readonly mode. (READONLY)`)
-	if !isReadonlyProfileError(profile) {
-		t.Fatal("a refused setting must trigger the readonly=1 fallback")
-	}
-	if isReadonlyProfileError(write) || isReadonlyProfileError(nil) {
-		t.Fatal("a refused write must not trigger the fallback")
 	}
 }
 

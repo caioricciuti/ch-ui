@@ -1205,16 +1205,6 @@ var publicQuerySettings = map[string]string{
 	"log_comment":          "ch-ui:public-dashboard",
 }
 
-// isReadonlyProfileError reports ClickHouse refusing a setting because the
-// user's profile is already readonly=1 ("Cannot modify 'x' setting in readonly mode").
-func isReadonlyProfileError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "Cannot modify") && strings.Contains(msg, "readonly mode")
-}
-
 // resolvePublicShare loads the share behind the URL token and checks expiry
 // and access. It writes the error response itself and returns nil when the
 // request must stop. An expiry that does not parse counts as expired.
@@ -1342,11 +1332,6 @@ func (h *DashboardsHandler) ExecutePublicQuery(w http.ResponseWriter, r *http.Re
 	}
 
 	result, qErr := h.Gateway.ExecuteQueryWithSettings(share.ConnectionID, query, share.ClickhouseUser, password, publicQuerySettings, 35*time.Second)
-	if isReadonlyProfileError(qErr) {
-		// The sharer's profile is already readonly=1, which refuses any other
-		// setting. Writes are blocked by that profile, so run with readonly=1 alone.
-		result, qErr = h.Gateway.ExecuteQueryWithSettings(share.ConnectionID, query, share.ClickhouseUser, password, map[string]string{"readonly": "1"}, 35*time.Second)
-	}
 	if qErr != nil {
 		writeError(w, http.StatusBadGateway, qErr.Error())
 		return
