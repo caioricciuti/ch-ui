@@ -28,6 +28,12 @@ func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return hj.Hijack()
 }
 
+// Unwrap exposes the underlying writer so http.ResponseController can reach
+// it (per-request write deadlines for long streams such as Brain turns).
+func (rw *responseWriter) Unwrap() http.ResponseWriter {
+	return rw.ResponseWriter
+}
+
 // Flush proxies streaming flushes to the underlying writer when available.
 func (rw *responseWriter) Flush() {
 	if f, ok := rw.ResponseWriter.(http.Flusher); ok {

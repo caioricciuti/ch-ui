@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -37,27 +38,65 @@ func modelDisplayName(m database.BrainModel) string {
 	return m.Name
 }
 
+// scoreRecommendedModel ranks a model as the default for Brain's agent.
+// Current Claude models lead: Sonnet 5.5 is the everyday agent model, Opus
+// 5.5 next (stronger, costlier), Haiku 5.5 suits quick tasks (Ask AI,
+// titles) but is not picked as the agent default. Fable and Mythos are
+// never picked on their own; an admin chooses them explicitly.
 func scoreRecommendedModel(name string) int {
 	n := strings.ToLower(strings.TrimSpace(name))
+	if slash := strings.LastIndex(n, "/"); slash >= 0 {
+		n = n[slash+1:]
+	}
 	switch {
+	case strings.Contains(n, "fable"), strings.Contains(n, "mythos"):
+		return 5
+	case strings.Contains(n, "claude-sonnet-5-5"):
+		return 130
+	case strings.Contains(n, "claude-opus-5-5"):
+		return 125
+	case strings.Contains(n, "claude-sonnet"):
+		return 115
+	case strings.Contains(n, "claude-opus"):
+		return 112
+	case strings.Contains(n, "claude-haiku-5-5"):
+		return 105
 	case strings.Contains(n, "gpt-5"):
 		return 100
 	case strings.Contains(n, "gpt-4.1"):
 		return 95
 	case strings.Contains(n, "gpt-4o"):
 		return 90
+	case strings.Contains(n, "claude"):
+		return 85
 	case strings.Contains(n, "gpt-4"):
 		return 80
 	case strings.Contains(n, "o3"), strings.Contains(n, "o1"):
 		return 70
-	case strings.Contains(n, "claude"):
-		return 60
 	case strings.Contains(n, "llama"), strings.Contains(n, "qwen"), strings.Contains(n, "mistral"), strings.Contains(n, "gemma"):
 		return 50
 	default:
 		return 10
 	}
 }
+
+// modelVariantPenalty breaks ties between models of the same score: a plain
+// alias beats a dated snapshot or a cut-down variant (mini, nano, preview).
+func modelVariantPenalty(name string) int {
+	n := strings.ToLower(name)
+	p := 0
+	for _, v := range []string{"mini", "nano", "preview", "realtime", "audio", "search", "instruct", "latest"} {
+		if strings.Contains(n, v) {
+			p += 2
+		}
+	}
+	if dateSuffixRE.MatchString(n) {
+		p++
+	}
+	return p
+}
+
+var dateSuffixRE = regexp.MustCompile(`-(20\d{2}-?\d{2}-?\d{2}|\d{4})$`)
 
 func pickRecommendedModel(models []database.BrainModel) *database.BrainModel {
 	if len(models) == 0 {
@@ -73,7 +112,17 @@ func pickRecommendedModel(models []database.BrainModel) *database.BrainModel {
 		if sa != sb {
 			return sa > sb
 		}
-		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+		pa, pb := modelVariantPenalty(a.Name), modelVariantPenalty(b.Name)
+		if pa != pb {
+			return pa < pb
+		}
+		// Same family: the higher version sorts later alphabetically
+		// (gpt-5.1 after gpt-5), so prefer it.
+		la, lb := strings.ToLower(a.Name), strings.ToLower(b.Name)
+		if la != lb {
+			return la > lb
+		}
+		return a.ID < b.ID
 	})
 	return &ordered[0]
 }

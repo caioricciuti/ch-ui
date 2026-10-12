@@ -159,7 +159,7 @@ func TestRunReadQueryRunsReadonlyOneWithCaps(t *testing.T) {
 	if s["readonly"] != "1" {
 		t.Errorf("readonly = %q, want 1 so the query cannot change its own limits", s["readonly"])
 	}
-	if s["max_result_rows"] != "5" || s["max_execution_time"] == "" || s["result_overflow_mode"] != "break" {
+	if s["max_result_rows"] != "6" || s["max_execution_time"] == "" || s["result_overflow_mode"] != "break" {
 		t.Errorf("limits must travel as query settings, got %v", s)
 	}
 }

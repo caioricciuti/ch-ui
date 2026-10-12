@@ -99,8 +99,8 @@ func (p *openAIProvider) StreamChatTools(
 	toolDefs []tools.Definition,
 	onDelta func(string) error,
 ) (*StreamChatToolsResult, error) {
-	if strings.TrimSpace(cfg.APIKey) == "" {
-		return nil, errors.New("provider API key is not configured")
+	if err := checkAPIKey(cfg); err != nil {
+		return nil, err
 	}
 
 	temperatures := []*float64{openAIRequestTemperature(model)}
@@ -205,7 +205,7 @@ func (p *openAIProvider) streamChatToolsAttempt(
 			return nil, 0, nil, fmt.Errorf("create provider request: %w", reqErr)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		setAuthHeader(req, cfg)
 
 		resp, doErr := p.client.Do(req)
 		if doErr != nil {

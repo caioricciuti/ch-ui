@@ -315,6 +315,9 @@ func peekSQLMeta(tctx Context, sql string) ([]colMeta, error) {
 	if trimmed == "" {
 		return nil, errors.New("empty SQL")
 	}
+	if err := tctx.checkGuardrail(trimmed); err != nil {
+		return nil, err
+	}
 	wrapped := "SELECT * FROM (" + trimmed + ") AS _src LIMIT 0"
 	res, err := tctx.Gateway.ExecuteQueryWithSettingsCtx(tctx.context(), tctx.ConnectionID, wrapped, tctx.CHUser, tctx.CHPassword, readOnlySettings(1, 15*time.Second), 15*time.Second)
 	if err != nil {

@@ -171,7 +171,29 @@ func openAIModelRequiresDefaultTemperature(model string) bool {
 	if slash := strings.LastIndex(name, "/"); slash >= 0 {
 		name = name[slash+1:]
 	}
-	return strings.HasPrefix(name, "o1") || strings.HasPrefix(name, "o3") || strings.HasPrefix(name, "o4")
+	// Current Claude models reject a non-default temperature, also through
+	// OpenAI-compatible gateways, so none is sent.
+	return strings.HasPrefix(name, "o1") || strings.HasPrefix(name, "o3") || strings.HasPrefix(name, "o4") ||
+		strings.HasPrefix(name, "claude") || strings.Contains(name, ".claude") || strings.HasPrefix(name, "anthropic")
+}
+
+// checkAPIKey requires a key for OpenAI itself. OpenAI-compatible servers
+// (local vLLM, LM Studio, llama.cpp, an internal gateway) often run keyless.
+func checkAPIKey(cfg ProviderConfig) error {
+	if strings.TrimSpace(cfg.APIKey) != "" {
+		return nil
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.Kind), "openai_compatible") {
+		return nil
+	}
+	return errors.New("provider API key is not configured")
+}
+
+// setAuthHeader sends the bearer key, or nothing for a keyless provider.
+func setAuthHeader(req *http.Request, cfg ProviderConfig) {
+	if key := strings.TrimSpace(cfg.APIKey); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
 }
 
 func openAIModelParameters(temperature *float64) map[string]interface{} {
@@ -194,8 +216,8 @@ func isUnsupportedOpenAITemperature(status int, body []byte) bool {
 }
 
 func (p *openAIProvider) StreamChat(ctx context.Context, cfg ProviderConfig, model string, messages []Message, onDelta func(string) error) (*ChatResult, error) {
-	if strings.TrimSpace(cfg.APIKey) == "" {
-		return nil, errors.New("provider API key is not configured")
+	if err := checkAPIKey(cfg); err != nil {
+		return nil, err
 	}
 
 	temperatures := []*float64{openAIRequestTemperature(model)}
@@ -257,7 +279,7 @@ func (p *openAIProvider) streamChatAttempt(ctx context.Context, cfg ProviderConf
 			return nil, 0, nil, fmt.Errorf("create provider request: %w", reqErr)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		setAuthHeader(req, cfg)
 
 		resp, doErr := p.client.Do(req)
 		if doErr != nil {
@@ -321,8 +343,8 @@ func (p *openAIProvider) streamChatAttempt(ctx context.Context, cfg ProviderConf
 }
 
 func (p *openAIProvider) ListModels(ctx context.Context, cfg ProviderConfig) ([]string, error) {
-	if strings.TrimSpace(cfg.APIKey) == "" {
-		return nil, errors.New("provider API key is not configured")
+	if err := checkAPIKey(cfg); err != nil {
+		return nil, err
 	}
 	primaryBase := p.baseURL(cfg)
 	bases := []string{primaryBase}
@@ -340,7 +362,7 @@ func (p *openAIProvider) ListModels(ctx context.Context, cfg ProviderConfig) ([]
 		if err != nil {
 			return nil, fmt.Errorf("create provider request: %w", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		setAuthHeader(req, cfg)
 
 		resp, err := p.client.Do(req)
 		if err != nil {
