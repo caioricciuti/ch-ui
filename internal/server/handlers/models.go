@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -110,19 +111,14 @@ func (h *ModelsHandler) CreateModel(w http.ResponseWriter, r *http.Request) {
 		body.TargetDatabase = "default"
 	}
 	if body.Materialization == "" {
-		body.Materialization = "view"
+		body.Materialization = models.MaterializationView
 	}
-	if body.Materialization != "view" && body.Materialization != "table" {
-		writeError(w, http.StatusBadRequest, "materialization must be 'view' or 'table'")
+	if err := models.ValidateMaterialization(body.Materialization); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if body.Materialization == "table" {
-		if body.TableEngine == "" {
-			body.TableEngine = "MergeTree"
-		}
-		if body.OrderBy == "" {
-			body.OrderBy = "tuple()"
-		}
+	if body.Materialization == models.MaterializationTable {
+		body.TableEngine, body.OrderBy = models.TableDefaults(body.TableEngine, body.OrderBy)
 	}
 
 	id, err := h.DB.CreateModel(
@@ -139,33 +135,46 @@ func (h *ModelsHandler) CreateModel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"model": model})
 }
 
-// GetModel returns a single model.
-func (h *ModelsHandler) GetModel(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	model, err := h.DB.GetModelByID(id)
+// modelForSession loads the model named in the URL when it belongs to the
+// caller's connection. Models run with their connection's credentials, so one
+// on another connection is reported as not found. On failure it writes the
+// response and returns nil.
+func (h *ModelsHandler) modelForSession(w http.ResponseWriter, r *http.Request, param string) *database.Model {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return nil
+	}
+	model, err := h.DB.GetModelByID(chi.URLParam(r, param))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to get model")
-		return
+		return nil
 	}
-	if model == nil {
+	if model == nil || model.ConnectionID != session.ConnectionID {
 		writeError(w, http.StatusNotFound, "Model not found")
+		return nil
+	}
+	return model
+}
+
+// GetModel returns a single model.
+func (h *ModelsHandler) GetModel(w http.ResponseWriter, r *http.Request) {
+	model := h.modelForSession(w, r, "id")
+	if model == nil {
 		return
 	}
-
 	writeJSON(w, http.StatusOK, map[string]interface{}{"model": model})
 }
 
 // UpdateModel updates an existing model.
 func (h *ModelsHandler) UpdateModel(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-
-	existing, err := h.DB.GetModelByID(id)
-	if err != nil || existing == nil {
-		writeError(w, http.StatusNotFound, "Model not found")
+	existing := h.modelForSession(w, r, "id")
+	if existing == nil {
 		return
 	}
+	id := existing.ID
 	if existing.Source == "github" {
-		writeError(w, http.StatusForbidden, "This model is managed by GitHub — edit it in your repository and re-sync")
+		writeError(w, http.StatusForbidden, "This model is managed by GitHub. Edit it in your repository and sync again.")
 		return
 	}
 
@@ -199,8 +208,8 @@ func (h *ModelsHandler) UpdateModel(w http.ResponseWriter, r *http.Request) {
 	if body.Materialization == "" {
 		body.Materialization = existing.Materialization
 	}
-	if body.Materialization != "view" && body.Materialization != "table" {
-		writeError(w, http.StatusBadRequest, "materialization must be 'view' or 'table'")
+	if err := models.ValidateMaterialization(body.Materialization); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if body.TableEngine == "" {
@@ -208,6 +217,9 @@ func (h *ModelsHandler) UpdateModel(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.OrderBy == "" {
 		body.OrderBy = existing.OrderBy
+	}
+	if body.Materialization == models.MaterializationTable {
+		body.TableEngine, body.OrderBy = models.TableDefaults(body.TableEngine, body.OrderBy)
 	}
 	if body.SQLBody == "" {
 		body.SQLBody = existing.SQLBody
@@ -225,13 +237,15 @@ func (h *ModelsHandler) UpdateModel(w http.ResponseWriter, r *http.Request) {
 
 // DeleteModel removes a model.
 func (h *ModelsHandler) DeleteModel(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	existing, _ := h.DB.GetModelByID(id)
-	if existing != nil && existing.Source == "github" {
-		writeError(w, http.StatusForbidden, "This model is managed by GitHub — remove it from your repository and re-sync")
+	existing := h.modelForSession(w, r, "id")
+	if existing == nil {
 		return
 	}
-	if err := h.DB.DeleteModel(id); err != nil {
+	if existing.Source == "github" {
+		writeError(w, http.StatusForbidden, "This model is managed by GitHub. Remove it from your repository and sync again.")
+		return
+	}
+	if err := h.DB.DeleteModel(existing.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to delete model")
 		return
 	}
@@ -378,12 +392,24 @@ func (h *ModelsHandler) RunAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runID, err := h.Runner.RunAll(session.ConnectionID, middleware.Actor(session))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	writeRunOutcome(w, runID, err)
+}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{"run_id": runID})
+// writeRunOutcome answers a synchronous run. A run that finished with failed
+// models is still a recorded run: it returns 200 with its status so the UI can
+// show the results.
+func writeRunOutcome(w http.ResponseWriter, runID string, err error) {
+	var failed *models.RunFailedError
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusOK, map[string]interface{}{"run_id": runID, "status": "success"})
+	case errors.As(err, &failed):
+		writeJSON(w, http.StatusOK, map[string]interface{}{"run_id": failed.RunID, "status": failed.Status, "error": failed.Error()})
+	case errors.Is(err, models.ErrModelNotFound):
+		writeError(w, http.StatusNotFound, "Model not found")
+	default:
+		writeError(w, http.StatusBadRequest, err.Error())
+	}
 }
 
 // RunSingle triggers execution of a single model and its deps.
@@ -394,14 +420,12 @@ func (h *ModelsHandler) RunSingle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := chi.URLParam(r, "id")
-	runID, err := h.Runner.RunSingle(session.ConnectionID, id, middleware.Actor(session))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	model := h.modelForSession(w, r, "id")
+	if model == nil {
 		return
 	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{"run_id": runID})
+	runID, err := h.Runner.RunSingle(session.ConnectionID, model.ID, middleware.Actor(session))
+	writeRunOutcome(w, runID, err)
 }
 
 // maxModelRunsLimit caps one page of model runs; the UI asks for 20.
@@ -447,10 +471,15 @@ func (h *ModelsHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
 
 // GetRun returns a single run with per-model results.
 func (h *ModelsHandler) GetRun(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
 	runID := chi.URLParam(r, "runId")
 
 	run, err := h.DB.GetModelRunByID(runID)
-	if err != nil || run == nil {
+	if err != nil || run == nil || run.ConnID != session.ConnectionID {
 		writeError(w, http.StatusNotFound, "Run not found")
 		return
 	}
@@ -533,20 +562,16 @@ func (h *ModelsHandler) ListPipelines(w http.ResponseWriter, r *http.Request) {
 		if len(comp) == 0 {
 			continue
 		}
-		anchor := comp[0] // first in topo order
-		p := pipelineResp{
-			AnchorModelID: anchor,
-			ModelIDs:      comp,
-		}
-		if s, ok := schedByAnchor[anchor]; ok {
-			p.Schedule = &s
-		} else {
-			// Check if any model in this component has a schedule
-			for _, id := range comp {
-				if s, ok := schedByAnchor[id]; ok {
-					p.Schedule = &s
-					break
-				}
+		// The anchor is the model the stored schedule hangs off when the
+		// component has one, so saving or removing the schedule from the UI
+		// hits that row instead of creating a second one. Without a
+		// schedule it is the first model in topological order.
+		p := pipelineResp{AnchorModelID: comp[0], ModelIDs: comp}
+		for _, id := range comp {
+			if s, ok := schedByAnchor[id]; ok {
+				p.AnchorModelID = id
+				p.Schedule = &s
+				break
 			}
 		}
 		pipelines = append(pipelines, p)
@@ -563,14 +588,12 @@ func (h *ModelsHandler) RunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	anchorID := chi.URLParam(r, "anchorId")
-	runID, err := h.Runner.RunPipeline(session.ConnectionID, anchorID, middleware.Actor(session))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	anchor := h.modelForSession(w, r, "anchorId")
+	if anchor == nil {
 		return
 	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{"run_id": runID})
+	runID, err := h.Runner.RunPipeline(session.ConnectionID, anchor.ID, middleware.Actor(session))
+	writeRunOutcome(w, runID, err)
 }
 
 // ── Schedule endpoints ──────────────────────────────────────────────
@@ -621,11 +644,17 @@ func (h *ModelsHandler) UpsertSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	anchorID := chi.URLParam(r, "anchorId")
+	anchor := h.modelForSession(w, r, "anchorId")
+	if anchor == nil {
+		return
+	}
+	anchorID := anchor.ID
 
 	var body struct {
-		Cron    string `json:"cron"`
-		Enabled bool   `json:"enabled"`
+		Cron string `json:"cron"`
+		// Enabled pauses (false) or resumes (true) the schedule. Omitted, a
+		// new schedule starts enabled and an existing one keeps its state.
+		Enabled *bool `json:"enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -646,8 +675,14 @@ func (h *ModelsHandler) UpsertSchedule(w http.ResponseWriter, r *http.Request) {
 		nextRunAt = next.Format(time.RFC3339)
 	}
 
-	_, err := h.DB.UpsertModelSchedule(session.ConnectionID, anchorID, body.Cron, nextRunAt, middleware.Actor(session))
-	if err != nil {
+	enabled := true
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	} else if existing, err := h.DB.GetModelScheduleByAnchor(session.ConnectionID, anchorID); err == nil && existing != nil {
+		enabled = existing.Enabled
+	}
+
+	if _, err := h.DB.UpsertModelScheduleEnabled(session.ConnectionID, anchorID, body.Cron, nextRunAt, middleware.Actor(session), enabled); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to save schedule: %v", err))
 		return
 	}
@@ -665,8 +700,13 @@ func (h *ModelsHandler) DeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	anchorID := chi.URLParam(r, "anchorId")
-	if err := h.DB.DeleteModelScheduleByAnchor(session.ConnectionID, anchorID); err != nil {
+	deleted, err := h.DB.DeleteModelScheduleByAnchor(session.ConnectionID, anchorID)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to delete schedule")
+		return
+	}
+	if !deleted {
+		writeError(w, http.StatusNotFound, "No schedule found for this pipeline")
 		return
 	}
 

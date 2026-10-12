@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/caioricciuti/ch-ui/internal/models"
 )
 
 // ModelFrontmatter holds the YAML metadata from a model file header.
@@ -31,9 +33,12 @@ type ParsedModel struct {
 
 // ParseModelFile parses a .sql file with optional YAML frontmatter.
 func ParseModelFile(filename, content string) (*ParsedModel, error) {
-	name := strings.TrimSuffix(filepath.Base(filename), ".sql")
-	if name == "" {
-		return nil, fmt.Errorf("empty model name from filename %q", filename)
+	// The file name (without .sql) becomes the model and table name, so it
+	// must be a valid identifier.
+	base := filepath.Base(filename)
+	name := strings.TrimSuffix(base, filepath.Ext(base))
+	if err := models.ValidateModelName(name); err != nil {
+		return nil, fmt.Errorf("file %s: %w", filename, err)
 	}
 
 	fm := ModelFrontmatter{
@@ -58,20 +63,19 @@ func ParseModelFile(filename, content string) (*ParsedModel, error) {
 			}
 
 			if fm.Materialization == "" {
-				fm.Materialization = "view"
+				fm.Materialization = models.MaterializationView
 			}
 			if fm.TargetDatabase == "" {
 				fm.TargetDatabase = "default"
 			}
-			if fm.Materialization == "table" {
-				if fm.TableEngine == "" {
-					fm.TableEngine = "MergeTree"
-				}
-				if fm.OrderBy == "" {
-					fm.OrderBy = "tuple()"
-				}
-			}
 		}
+	}
+
+	if err := models.ValidateMaterialization(fm.Materialization); err != nil {
+		return nil, fmt.Errorf("file %s: %w", filename, err)
+	}
+	if fm.Materialization == models.MaterializationTable {
+		fm.TableEngine, fm.OrderBy = models.TableDefaults(fm.TableEngine, fm.OrderBy)
 	}
 
 	if sqlBody == "" {

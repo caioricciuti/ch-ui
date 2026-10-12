@@ -1,10 +1,16 @@
 package models
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/caioricciuti/ch-ui/connector"
 	"github.com/caioricciuti/ch-ui/internal/testutil"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
-	"testing"
 )
 
 func TestBackgroundAccountExecution(t *testing.T) {
@@ -12,9 +18,21 @@ func TestBackgroundAccountExecution(t *testing.T) {
 	agent := testutil.NewWorkerAgent(t, db, func(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
 		return &tunnel.AgentMessage{Type: "query_result", Data: json.RawMessage(`[]`)}
 	})
-	_, err := db.CreateModel(conn, "test_model", "", "default", "view", "SELECT 1 AS value", "", "", "admin")
+	// A unique name per run: a model never replaces a view it did not build,
+	// so a leftover from an earlier live run would fail this one.
+	name := fmt.Sprintf("chui_bg_model_%d", time.Now().UnixNano())
+	_, err := db.CreateModel(conn, name, "", "default", "view", "SELECT 1 AS value", "", "", "admin")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if endpoint := os.Getenv("CHUI_TEST_CLICKHOUSE_URL"); endpoint != "" {
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if _, err := connector.NewCHClient(endpoint, false).Execute(ctx, "DROP VIEW IF EXISTS default."+name, os.Getenv("CHUI_TEST_CLICKHOUSE_USER"), os.Getenv("CHUI_TEST_CLICKHOUSE_PASSWORD"), nil); err != nil {
+				t.Error(err)
+			}
+		})
 	}
 	r := NewRunner(db, agent.Gateway, "test-secret")
 	runs := 0

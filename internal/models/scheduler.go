@@ -11,6 +11,10 @@ import (
 
 const modelTickInterval = 30 * time.Second
 
+// InterruptedRunMessage is the error recorded on runs that were still running
+// when the process stopped.
+const InterruptedRunMessage = "interrupted by restart"
+
 // Scheduler checks for due model schedules and triggers RunAll.
 type Scheduler struct {
 	db     *database.DB
@@ -27,8 +31,14 @@ func NewScheduler(db *database.DB, runner *Runner) *Scheduler {
 	}
 }
 
-// Start begins the scheduler goroutine.
+// Start marks runs a previous process left in "running" as failed, then
+// begins the scheduler goroutine.
 func (s *Scheduler) Start() {
+	if n, err := s.db.MarkInterruptedModelRuns(InterruptedRunMessage); err != nil {
+		slog.Error("Failed to close interrupted model runs", "error", err)
+	} else if n > 0 {
+		slog.Warn("Marked interrupted model runs as failed", "runs", n)
+	}
 	go func() {
 		defer safe.Recover("model-scheduler")
 		slog.Info("Model scheduler started", "interval", modelTickInterval)
@@ -80,6 +90,9 @@ func (s *Scheduler) tick() {
 		status := "success"
 		var runError string
 
+		// RunPipeline returns an error (a *RunFailedError, with the run
+		// recorded) when any model failed or was skipped, so a run with
+		// failures is never recorded as a success here.
 		_, runErr := s.runner.RunPipeline(sched.ConnectionID, *sched.AnchorModelID, "scheduler")
 		if runErr != nil {
 			status = "error"

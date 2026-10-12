@@ -99,9 +99,12 @@ func (c *Client) GetBranchSHA(owner, repo, branch string) (string, error) {
 	return result.Commit.SHA, nil
 }
 
-// GetTree returns all file entries in the repo tree for a given branch.
-func (c *Client) GetTree(owner, repo, branch string) ([]TreeEntry, error) {
-	body, status, err := c.do("GET", fmt.Sprintf("/repos/%s/%s/git/trees/%s?recursive=1", owner, repo, branch))
+// GetTree returns all file entries in the repo tree at a commit SHA (or
+// branch). GitHub cuts very large recursive trees short and sets truncated;
+// that is an error, because a partial listing would delete the models it left
+// out.
+func (c *Client) GetTree(owner, repo, ref string) ([]TreeEntry, error) {
+	body, status, err := c.do("GET", fmt.Sprintf("/repos/%s/%s/git/trees/%s?recursive=1", owner, repo, ref))
 	if err != nil {
 		return nil, err
 	}
@@ -109,10 +112,14 @@ func (c *Client) GetTree(owner, repo, branch string) ([]TreeEntry, error) {
 		return nil, fmt.Errorf("failed to get tree: HTTP %d", status)
 	}
 	var result struct {
-		Tree []TreeEntry `json:"tree"`
+		Tree      []TreeEntry `json:"tree"`
+		Truncated bool        `json:"truncated"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("parse tree response: %w", err)
+	}
+	if result.Truncated {
+		return nil, fmt.Errorf("the repository tree is too large for GitHub to list in one response; point the sync path at a smaller folder")
 	}
 	return result.Tree, nil
 }

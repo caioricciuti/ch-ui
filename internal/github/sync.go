@@ -8,6 +8,7 @@ package github
 import (
 	"fmt"
 	"log/slog"
+	"path"
 	"strings"
 
 	"github.com/caioricciuti/ch-ui/internal/crypto"
@@ -18,6 +19,8 @@ import (
 type Syncer struct {
 	db     *database.DB
 	secret string
+	// apiBase overrides the GitHub API URL (tests only).
+	apiBase string
 }
 
 // SyncResult holds the outcome of a sync operation.
@@ -49,7 +52,7 @@ func (s *Syncer) SyncConnection(connectionID, triggeredBy string) (*SyncResult, 
 
 	parts := strings.SplitN(repo, "/", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return nil, fmt.Errorf("invalid repo format %q — expected owner/repo", repo)
+		return nil, fmt.Errorf("invalid repo format %q, expected owner/repo", repo)
 	}
 	owner, repoName := parts[0], parts[1]
 
@@ -80,6 +83,9 @@ func (s *Syncer) SyncConnection(connectionID, triggeredBy string) (*SyncResult, 
 
 func (s *Syncer) doSync(connectionID, owner, repoName, branch, path, pat, lastSHA string) (*SyncResult, error) {
 	client := NewClient(pat)
+	if s.apiBase != "" {
+		client.baseURL = s.apiBase
+	}
 
 	commitSHA, err := client.GetBranchSHA(owner, repoName, branch)
 	if err != nil {
@@ -90,7 +96,9 @@ func (s *Syncer) doSync(connectionID, owner, repoName, branch, path, pat, lastSH
 		return &SyncResult{CommitSHA: commitSHA}, nil
 	}
 
-	tree, err := client.GetTree(owner, repoName, branch)
+	// Read the tree and every file at the commit SHA, not the branch name, so
+	// a push during the sync cannot mix two commits.
+	tree, err := client.GetTree(owner, repoName, commitSHA)
 	if err != nil {
 		return nil, fmt.Errorf("get repo tree: %w", err)
 	}
@@ -100,15 +108,20 @@ func (s *Syncer) doSync(connectionID, owner, repoName, branch, path, pat, lastSH
 
 	parsed := make([]*ParsedModel, 0, len(sqlFiles))
 	var parseErrors []string
+	// Files that could not be fetched or parsed still exist in the repo:
+	// their models must not be deleted below.
+	failedNames := make(map[string]bool)
 	for _, f := range sqlFiles {
-		content, err := client.GetFileContent(owner, repoName, f.Path, branch)
+		content, err := client.GetFileContent(owner, repoName, f.Path, commitSHA)
 		if err != nil {
 			parseErrors = append(parseErrors, fmt.Sprintf("fetch %s: %v", f.Path, err))
+			failedNames[modelNameFromPath(f.Path)] = true
 			continue
 		}
 		model, err := ParseModelFile(f.Path, content)
 		if err != nil {
 			parseErrors = append(parseErrors, fmt.Sprintf("parse %s: %v", f.Path, err))
+			failedNames[modelNameFromPath(f.Path)] = true
 			continue
 		}
 		parsed = append(parsed, model)
@@ -163,7 +176,7 @@ func (s *Syncer) doSync(connectionID, owner, repoName, branch, path, pat, lastSH
 	}
 
 	for _, ex := range existing {
-		if !seen[ex.Name] {
+		if !seen[ex.Name] && !failedNames[ex.Name] {
 			if err := s.db.DeleteModel(ex.ID); err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("delete %s: %v", ex.Name, err))
 				continue
@@ -172,8 +185,20 @@ func (s *Syncer) doSync(connectionID, owner, repoName, branch, path, pat, lastSH
 		}
 	}
 
-	_ = s.db.SetGitHubLastSyncSHA(connectionID, commitSHA)
+	// Record the commit only when everything in it applied. A sync with
+	// errors keeps the previous SHA, so the next sync retries this commit
+	// instead of skipping it as already synced.
+	if len(result.Errors) == 0 {
+		if err := s.db.SetGitHubLastSyncSHA(connectionID, commitSHA); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("record synced commit: %v", err))
+		}
+	}
 	return result, nil
+}
+
+func modelNameFromPath(p string) string {
+	base := path.Base(p)
+	return strings.TrimSuffix(base, path.Ext(base))
 }
 
 func modelChanged(existing database.Model, parsed *ParsedModel) bool {
