@@ -49,7 +49,9 @@ func (h *ClusterHealthHandler) Routes() chi.Router {
 	r.Get("/backups", h.liveHandler(clusterhealth.BackupsQuery, true))
 	r.Get("/long-queries", h.getLongQueries)
 
-	// History & settings (require the Store; wired in Phase 2).
+	// History & settings read the samples the background harvester stores.
+	// Without a Store, history is empty, settings read as defaults and
+	// updates return 503.
 	r.Get("/history", h.GetHistory)
 	r.Get("/settings", h.GetSettings)
 	r.With(middleware.RequireAdmin(h.DB)).Put("/settings", h.UpdateSettings)

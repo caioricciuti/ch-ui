@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -39,51 +40,58 @@ file, so it is run on the server host, or with "docker exec" in a container.`,
 		if resetAdminDatabasePath != "" {
 			path = resetAdminDatabasePath
 		}
-		// database.Open creates a missing file, which would hide a wrong path.
-		if _, err := os.Stat(path); err != nil {
-			return fmt.Errorf("database not found at %q: %w", path, err)
-		}
+		return runResetAdmin(cmd.OutOrStdout(), path, resetAdminUser)
+	},
+}
 
-		db, err := database.Open(path)
-		if err != nil {
+// runResetAdmin does the work of reset-admin against the database at path,
+// writing the user-facing result to out. Split from RunE so it can be tested
+// without flags or a config file.
+func runResetAdmin(out io.Writer, path, user string) error {
+	// database.Open creates a missing file, which would hide a wrong path.
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("database not found at %q: %w", path, err)
+	}
+
+	db, err := database.Open(path)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	actor := "cli:reset-admin"
+	if user := strings.TrimSpace(user); user != "" {
+		if err := db.SetUserRole(user, "admin"); err != nil {
 			return err
 		}
-		defer db.Close()
-
-		actor := "cli:reset-admin"
-		if user := strings.TrimSpace(resetAdminUser); user != "" {
-			if err := db.SetUserRole(user, "admin"); err != nil {
-				return err
-			}
-			if err := db.SetSessionsUserRole(user, "admin"); err != nil {
-				return err
-			}
-			_ = db.CreateAuditLog(database.AuditLogParams{
-				Action:   "user_role.reset_admin",
-				Username: &actor,
-				Details:  strPtr("Granted admin to " + user + " from the command line"),
-			})
-			fmt.Printf("%s is now a CH-UI admin.\n", user)
-			return nil
-		}
-
-		revoked, err := db.RevokeAllAdmins()
-		if err != nil {
+		if err := db.SetSessionsUserRole(user, "admin"); err != nil {
 			return err
-		}
-		if len(revoked) == 0 {
-			fmt.Println("No CH-UI admin was assigned. The next ClickHouse admin who signs in becomes the CH-UI admin.")
-			return nil
 		}
 		_ = db.CreateAuditLog(database.AuditLogParams{
 			Action:   "user_role.reset_admin",
 			Username: &actor,
-			Details:  strPtr("Removed admin from " + strings.Join(revoked, ", ") + " from the command line"),
+			Details:  strPtr("Granted admin to " + user + " from the command line"),
 		})
-		fmt.Printf("Removed CH-UI admin from: %s\n", strings.Join(revoked, ", "))
-		fmt.Println("The next ClickHouse admin who signs in becomes the CH-UI admin.")
+		fmt.Fprintf(out, "%s is now a CH-UI admin.\n", user)
 		return nil
-	},
+	}
+
+	revoked, err := db.RevokeAllAdmins()
+	if err != nil {
+		return err
+	}
+	if len(revoked) == 0 {
+		fmt.Fprintln(out, "No CH-UI admin was assigned. The next ClickHouse admin who signs in becomes the CH-UI admin.")
+		return nil
+	}
+	_ = db.CreateAuditLog(database.AuditLogParams{
+		Action:   "user_role.reset_admin",
+		Username: &actor,
+		Details:  strPtr("Removed admin from " + strings.Join(revoked, ", ") + " from the command line"),
+	})
+	fmt.Fprintf(out, "Removed CH-UI admin from: %s\n", strings.Join(revoked, ", "))
+	fmt.Fprintln(out, "The next ClickHouse admin who signs in becomes the CH-UI admin.")
+	return nil
 }
 
 func strPtr(s string) *string { return &s }

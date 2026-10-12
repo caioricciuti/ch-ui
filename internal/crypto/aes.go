@@ -11,6 +11,11 @@ import (
 	"golang.org/x/crypto/scrypt"
 )
 
+const (
+	ivSize  = 16 // nonce size used by Encrypt
+	tagSize = 16 // GCM authentication tag size
+)
+
 // deriveKey derives a 32-byte AES key from the secret using scrypt.
 // Parameters match Node.js crypto.scryptSync(secret, 'salt', 32) defaults: N=16384, r=8, p=1.
 //
@@ -49,9 +54,9 @@ func Encrypt(plaintext, secret string) (string, error) {
 	sealed := gcm.Seal(nil, iv, []byte(plaintext), nil)
 
 	// Split sealed into encrypted data and auth tag (last 16 bytes)
-	tagSize := gcm.Overhead()
-	encrypted := sealed[:len(sealed)-tagSize]
-	authTag := sealed[len(sealed)-tagSize:]
+	overhead := gcm.Overhead()
+	encrypted := sealed[:len(sealed)-overhead]
+	authTag := sealed[len(sealed)-overhead:]
 
 	return fmt.Sprintf("%s:%s:%s",
 		hex.EncodeToString(iv),
@@ -80,6 +85,15 @@ func Decrypt(encryptedStr, secret string) (string, error) {
 	encrypted, err := hex.DecodeString(parts[2])
 	if err != nil {
 		return "", fmt.Errorf("invalid encrypted data hex: %w", err)
+	}
+
+	// gcm.Open panics on a nonce of the wrong size, so check both fixed-size
+	// parts before touching the cipher.
+	if len(iv) != ivSize {
+		return "", fmt.Errorf("invalid IV length: expected %d bytes, got %d", ivSize, len(iv))
+	}
+	if len(authTag) != tagSize {
+		return "", fmt.Errorf("invalid auth tag length: expected %d bytes, got %d", tagSize, len(authTag))
 	}
 
 	key, err := deriveKey(secret)

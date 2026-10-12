@@ -7,6 +7,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"github.com/caioricciuti/ch-ui/internal/config"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -196,7 +197,9 @@ func TestBrainChatSSOPeopleIsolated(t *testing.T) {
 
 func TestBrainApprovalOnlyRequesterDecides(t *testing.T) {
 	db, p := ssoFixture(t)
-	h := &BrainHandler{DB: db}
+	cfg := &config.Config{}
+	cfg.SetProAccessForTest(func() config.ProAccess { return config.ProActive })
+	h := &BrainHandler{DB: db, Config: cfg}
 	r := chi.NewRouter()
 	r.Route("/brain", h.Routes)
 

@@ -128,7 +128,11 @@ the expiry date, giving you time to renew:
   the service map). Every other write is refused with `402 Payment Required`
   (`"status": "grace"` in the JSON body). Pro responses carry the header
   `X-CH-UI-License-Status: grace`.
-- Enabled scheduled queries and telemetry monitors keep running during grace.
+- These background features keep running during grace, exactly as with an
+  active license: scheduled query jobs, telemetry monitors, alert delivery
+  (email for alert rules), the performance monitor's hourly scans, weekly
+  operations reports (generation and email), the governance background sync,
+  the Cluster Health harvester, and audit forwarding (SIEM).
 - Pro features outside the Pro pages stay locked until a license is active
   again: SSO settings, GitHub sync, Ask AI in the editor, and Pro search in
   the command palette.
@@ -136,7 +140,7 @@ the expiry date, giving you time to renew:
   the date the grace period ends.
 
 After the grace window, Pro features lock until a valid license is activated.
-Enabled scheduled queries and telemetry monitors pause; nothing is deleted, and
+All of the background features listed above pause; nothing is deleted, and
 they resume when a license is activated. A scheduled query that fell due while
 paused is skipped and waits for its next slot. Activating a renewed license, during
 grace or after, unlocks Pro right away, no reload needed.

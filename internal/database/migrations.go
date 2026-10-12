@@ -1,6 +1,9 @@
 package database
 
 import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -1293,97 +1296,146 @@ Formatting:
 }
 
 // migrateModelSchedulesAnchor detects old model_schedules without anchor_model_id
-// and migrates data to the new schema.
+// and migrates data to the new schema. The whole rebuild runs in one
+// transaction, so a failure or crash midway leaves the original table and its
+// rows untouched and the next start simply retries.
 func (db *DB) migrateModelSchedulesAnchor() error {
-	// Check if anchor_model_id column already exists
-	rows, err := db.conn.Query("PRAGMA table_info(model_schedules)")
-	if err != nil {
-		return nil // table may not exist yet
-	}
-	defer rows.Close()
-
-	hasAnchor := false
-	for rows.Next() {
-		var cid int
-		var name, colType string
-		var notNull, pk int
-		var dfltValue interface{}
-		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+	return db.inImmediateTx(func(ctx context.Context, q sqlRunner) error {
+		exists, err := tableExistsOn(ctx, q, "model_schedules")
+		if err != nil || !exists {
 			return err
 		}
-		if strings.EqualFold(strings.TrimSpace(name), "anchor_model_id") {
-			hasAnchor = true
+		hasAnchor, err := columnExistsOn(ctx, q, "model_schedules", "anchor_model_id")
+		if err != nil || hasAnchor {
+			return err // already migrated
 		}
+
+		slog.Info("Migrating model_schedules to add anchor_model_id")
+
+		if _, err := q.ExecContext(ctx, "ALTER TABLE model_schedules RENAME TO model_schedules_old"); err != nil {
+			return fmt.Errorf("rename old table: %w", err)
+		}
+
+		if _, err := q.ExecContext(ctx, `CREATE TABLE model_schedules (
+			id TEXT PRIMARY KEY,
+			connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+			anchor_model_id TEXT REFERENCES models(id) ON DELETE CASCADE,
+			cron TEXT NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			last_run_at TEXT,
+			next_run_at TEXT,
+			last_status TEXT,
+			last_error TEXT,
+			created_by TEXT,
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(connection_id, anchor_model_id)
+		)`); err != nil {
+			return fmt.Errorf("create new table: %w", err)
+		}
+
+		// Copy data with backfill: pick the first model by name as anchor
+		if _, err := q.ExecContext(ctx, `INSERT INTO model_schedules
+			(id, connection_id, anchor_model_id, cron, enabled, last_run_at, next_run_at,
+			 last_status, last_error, created_by, created_at, updated_at)
+			SELECT s.id, s.connection_id,
+				(SELECT m.id FROM models m WHERE m.connection_id = s.connection_id ORDER BY m.name ASC LIMIT 1),
+				s.cron, s.enabled, s.last_run_at, s.next_run_at,
+				s.last_status, s.last_error, s.created_by, s.created_at, s.updated_at
+			FROM model_schedules_old s`); err != nil {
+			return fmt.Errorf("copy data: %w", err)
+		}
+		if err := failpoint("model_schedules: copied"); err != nil {
+			return err
+		}
+
+		if _, err := q.ExecContext(ctx, "DROP TABLE model_schedules_old"); err != nil {
+			return fmt.Errorf("drop old table: %w", err)
+		}
+
+		// Delete orphaned schedules with no anchor
+		if _, err := q.ExecContext(ctx, "DELETE FROM model_schedules WHERE anchor_model_id IS NULL"); err != nil {
+			return fmt.Errorf("delete orphans: %w", err)
+		}
+
+		if _, err := q.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_model_sched_conn ON model_schedules(connection_id)"); err != nil {
+			return fmt.Errorf("recreate index: %w", err)
+		}
+
+		slog.Info("model_schedules migration complete")
+		return nil
+	})
+}
+
+// sqlRunner is the part of *sql.DB and *sql.Conn the migrations use, so the
+// same helpers work on the pool and inside a pinned transaction.
+type sqlRunner interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// rebuildFailpoint, when set by a test, is called at named points inside a
+// table rebuild. A non-nil error aborts the rebuild there, as a crash would.
+var rebuildFailpoint func(point string) error
+
+func failpoint(point string) error {
+	if rebuildFailpoint == nil {
+		return nil
 	}
-	if err := rows.Err(); err != nil {
+	return rebuildFailpoint(point)
+}
+
+// inImmediateTx runs fn inside BEGIN IMMEDIATE ... COMMIT on one connection
+// taken from the pool. SQLite DDL is transactional, so a table rebuild
+// (rename, create, copy, drop) either lands completely or not at all.
+// IMMEDIATE takes the write lock up front, so a second instance starting on
+// the same file waits (busy_timeout) instead of failing halfway through, and
+// its own check inside the transaction then sees the finished rebuild.
+// Statements in fn must go through q, never db.conn: another pooled
+// connection would block on the write lock this one holds.
+func (db *DB) inImmediateTx(fn func(ctx context.Context, q sqlRunner) error) error {
+	ctx := context.Background()
+	conn, err := db.conn.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire connection: %w", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
+			// Some SQLite errors roll back on their own; anything else may
+			// leave a transaction open, so keep this connection out of the pool.
+			slog.Warn("Migration rollback failed; discarding connection", "error", err)
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+	}()
+
+	if err := fn(ctx, conn); err != nil {
 		return err
 	}
-
-	if hasAnchor {
-		return nil // already migrated
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
 	}
-
-	slog.Info("Migrating model_schedules to add anchor_model_id")
-
-	// Rename old table
-	if _, err := db.conn.Exec("ALTER TABLE model_schedules RENAME TO model_schedules_old"); err != nil {
-		return fmt.Errorf("rename old table: %w", err)
-	}
-
-	// Create new table
-	if _, err := db.conn.Exec(`CREATE TABLE model_schedules (
-		id TEXT PRIMARY KEY,
-		connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
-		anchor_model_id TEXT REFERENCES models(id) ON DELETE CASCADE,
-		cron TEXT NOT NULL,
-		enabled INTEGER NOT NULL DEFAULT 1,
-		last_run_at TEXT,
-		next_run_at TEXT,
-		last_status TEXT,
-		last_error TEXT,
-		created_by TEXT,
-		created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-		updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-		UNIQUE(connection_id, anchor_model_id)
-	)`); err != nil {
-		return fmt.Errorf("create new table: %w", err)
-	}
-
-	// Copy data with backfill: pick the first model by name as anchor
-	if _, err := db.conn.Exec(`INSERT INTO model_schedules
-		(id, connection_id, anchor_model_id, cron, enabled, last_run_at, next_run_at,
-		 last_status, last_error, created_by, created_at, updated_at)
-		SELECT s.id, s.connection_id,
-			(SELECT m.id FROM models m WHERE m.connection_id = s.connection_id ORDER BY m.name ASC LIMIT 1),
-			s.cron, s.enabled, s.last_run_at, s.next_run_at,
-			s.last_status, s.last_error, s.created_by, s.created_at, s.updated_at
-		FROM model_schedules_old s`); err != nil {
-		return fmt.Errorf("copy data: %w", err)
-	}
-
-	// Drop old table
-	if _, err := db.conn.Exec("DROP TABLE model_schedules_old"); err != nil {
-		return fmt.Errorf("drop old table: %w", err)
-	}
-
-	// Delete orphaned schedules with no anchor
-	if _, err := db.conn.Exec("DELETE FROM model_schedules WHERE anchor_model_id IS NULL"); err != nil {
-		return fmt.Errorf("delete orphans: %w", err)
-	}
-
-	// Recreate index
-	if _, err := db.conn.Exec("CREATE INDEX IF NOT EXISTS idx_model_sched_conn ON model_schedules(connection_id)"); err != nil {
-		return fmt.Errorf("recreate index: %w", err)
-	}
-
-	slog.Info("model_schedules migration complete")
+	committed = true
 	return nil
 }
 
 // tableExists reports whether a table with the given name exists.
 func (db *DB) tableExists(name string) (bool, error) {
+	return tableExistsOn(context.Background(), db.conn, name)
+}
+
+func tableExistsOn(ctx context.Context, q sqlRunner, name string) (bool, error) {
 	var count int
-	if err := db.conn.QueryRow(
+	if err := q.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", name,
 	).Scan(&count); err != nil {
 		return false, fmt.Errorf("check table %s: %w", name, err)
@@ -1393,7 +1445,14 @@ func (db *DB) tableExists(name string) (bool, error) {
 
 // columnExists reports whether the given table has the given column.
 func (db *DB) columnExists(tableName, columnName string) (bool, error) {
-	rows, err := db.conn.Query(fmt.Sprintf("PRAGMA table_info(%s)", tableName))
+	return columnExistsOn(context.Background(), db.conn, tableName, columnName)
+}
+
+// columnExistsOn closes its rows before returning, so it is safe on a pinned
+// connection that runs more statements afterwards. tableName is always a
+// constant from this file, never user input.
+func columnExistsOn(ctx context.Context, q sqlRunner, tableName, columnName string) (bool, error) {
+	rows, err := q.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", tableName))
 	if err != nil {
 		return false, fmt.Errorf("inspect table %s columns: %w", tableName, err)
 	}
@@ -1421,159 +1480,166 @@ func (db *DB) columnExists(tableName, columnName string) (bool, error) {
 // queued dispatch jobs keep their recipients (snapshotted from their route).
 // The legacy tables are dropped afterwards, mirroring the dropLegacy /
 // dropLineage patterns. Idempotent: a no-op when the legacy tables are gone.
+// Everything runs in one transaction: a failure midway leaves the legacy
+// tables and alert_dispatch_jobs exactly as they were.
 func (db *DB) migrateAlertRoutesToRuleChannels() error {
-	routesExist, err := db.tableExists("alert_rule_routes")
-	if err != nil {
-		return err
-	}
-
-	// 1) Copy rule→channel bindings out of alert_rule_routes.
-	if routesExist {
-		slog.Info("Migrating alert_rule_routes to alert_rule_channels")
-
-		type binding struct {
-			recipients []string
-			seen       map[string]bool
-			isActive   bool
-			createdAt  string
-		}
-		order := make([]string, 0)
-		merged := make(map[string]*binding)
-
-		rows, err := db.conn.Query(
-			`SELECT rule_id, channel_id, recipients_json, is_active, created_at
-			 FROM alert_rule_routes ORDER BY created_at ASC`,
-		)
+	return db.inImmediateTx(func(ctx context.Context, q sqlRunner) error {
+		routesExist, err := tableExistsOn(ctx, q, "alert_rule_routes")
 		if err != nil {
-			return fmt.Errorf("read legacy alert routes: %w", err)
+			return err
 		}
-		for rows.Next() {
-			var ruleID, channelID, recipientsJSON, createdAt string
-			var isActive int
-			if err := rows.Scan(&ruleID, &channelID, &recipientsJSON, &isActive, &createdAt); err != nil {
-				rows.Close()
-				return fmt.Errorf("scan legacy alert route: %w", err)
+
+		// 1) Copy rule→channel bindings out of alert_rule_routes.
+		if routesExist {
+			slog.Info("Migrating alert_rule_routes to alert_rule_channels")
+
+			type binding struct {
+				recipients []string
+				seen       map[string]bool
+				isActive   bool
+				createdAt  string
 			}
-			key := ruleID + "\x00" + channelID
-			b, ok := merged[key]
-			if !ok {
-				b = &binding{seen: map[string]bool{}, createdAt: createdAt}
-				merged[key] = b
-				order = append(order, key)
+			order := make([]string, 0)
+			merged := make(map[string]*binding)
+
+			rows, err := q.QueryContext(ctx,
+				`SELECT rule_id, channel_id, recipients_json, is_active, created_at
+				 FROM alert_rule_routes ORDER BY created_at ASC`,
+			)
+			if err != nil {
+				return fmt.Errorf("read legacy alert routes: %w", err)
 			}
-			for _, r := range parseRecipientsJSON(recipientsJSON) {
-				if !b.seen[r] {
-					b.seen[r] = true
-					b.recipients = append(b.recipients, r)
+			for rows.Next() {
+				var ruleID, channelID, recipientsJSON, createdAt string
+				var isActive int
+				if err := rows.Scan(&ruleID, &channelID, &recipientsJSON, &isActive, &createdAt); err != nil {
+					rows.Close()
+					return fmt.Errorf("scan legacy alert route: %w", err)
+				}
+				key := ruleID + "\x00" + channelID
+				b, ok := merged[key]
+				if !ok {
+					b = &binding{seen: map[string]bool{}, createdAt: createdAt}
+					merged[key] = b
+					order = append(order, key)
+				}
+				for _, r := range parseRecipientsJSON(recipientsJSON) {
+					if !b.seen[r] {
+						b.seen[r] = true
+						b.recipients = append(b.recipients, r)
+					}
+				}
+				if isActive != 0 {
+					b.isActive = true
 				}
 			}
-			if isActive != 0 {
-				b.isActive = true
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return fmt.Errorf("iterate legacy alert routes: %w", err)
 			}
-		}
-		if err := rows.Err(); err != nil {
 			rows.Close()
-			return fmt.Errorf("iterate legacy alert routes: %w", err)
-		}
-		rows.Close()
 
-		now := "CURRENT_TIMESTAMP"
-		for _, key := range order {
-			b := merged[key]
-			sep := strings.IndexByte(key, 0)
-			ruleID, channelID := key[:sep], key[sep+1:]
-			recipientsJSON, _ := json.Marshal(b.recipients)
-			if _, err := db.conn.Exec(
-				`INSERT INTO alert_rule_channels (id, rule_id, channel_id, recipients_json, is_active, created_at, updated_at)
-				 VALUES (?, ?, ?, ?, ?, ?, `+now+`)
-				 ON CONFLICT(rule_id, channel_id) DO NOTHING`,
-				uuid.NewString(), ruleID, channelID, string(recipientsJSON), boolToInt(b.isActive), b.createdAt,
-			); err != nil {
-				return fmt.Errorf("insert alert rule channel binding: %w", err)
+			now := "CURRENT_TIMESTAMP"
+			for _, key := range order {
+				b := merged[key]
+				sep := strings.IndexByte(key, 0)
+				ruleID, channelID := key[:sep], key[sep+1:]
+				recipientsJSON, _ := json.Marshal(b.recipients)
+				if _, err := q.ExecContext(ctx,
+					`INSERT INTO alert_rule_channels (id, rule_id, channel_id, recipients_json, is_active, created_at, updated_at)
+					 VALUES (?, ?, ?, ?, ?, ?, `+now+`)
+					 ON CONFLICT(rule_id, channel_id) DO NOTHING`,
+					uuid.NewString(), ruleID, channelID, string(recipientsJSON), boolToInt(b.isActive), b.createdAt,
+				); err != nil {
+					return fmt.Errorf("insert alert rule channel binding: %w", err)
+				}
 			}
 		}
-	}
 
-	// 2) Rebuild alert_dispatch_jobs without route_id, snapshotting each job's
-	// recipients from its legacy route.
-	hasRouteID, err := db.columnExists("alert_dispatch_jobs", "route_id")
-	if err != nil {
-		return err
-	}
-	if hasRouteID {
-		slog.Info("Rebuilding alert_dispatch_jobs without route_id")
+		// 2) Rebuild alert_dispatch_jobs without route_id, snapshotting each job's
+		// recipients from its legacy route.
+		hasRouteID, err := columnExistsOn(ctx, q, "alert_dispatch_jobs", "route_id")
+		if err != nil {
+			return err
+		}
+		if hasRouteID {
+			slog.Info("Rebuilding alert_dispatch_jobs without route_id")
 
-		if _, err := db.conn.Exec(`CREATE TABLE alert_dispatch_jobs_new (
-			id TEXT PRIMARY KEY,
-			event_id TEXT NOT NULL REFERENCES alert_events(id) ON DELETE CASCADE,
-			rule_id TEXT NOT NULL REFERENCES alert_rules(id) ON DELETE CASCADE,
-			channel_id TEXT NOT NULL REFERENCES alert_channels(id) ON DELETE CASCADE,
-			recipients_json TEXT NOT NULL DEFAULT '[]',
-			status TEXT NOT NULL DEFAULT 'queued',
-			attempt_count INTEGER DEFAULT 0,
-			max_attempts INTEGER DEFAULT 5,
-			next_attempt_at TEXT NOT NULL,
-			last_error TEXT,
-			provider_message_id TEXT,
-			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-			updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-			sent_at TEXT
-		)`); err != nil {
-			return fmt.Errorf("create new alert_dispatch_jobs: %w", err)
-		}
+			if _, err := q.ExecContext(ctx, `CREATE TABLE alert_dispatch_jobs_new (
+				id TEXT PRIMARY KEY,
+				event_id TEXT NOT NULL REFERENCES alert_events(id) ON DELETE CASCADE,
+				rule_id TEXT NOT NULL REFERENCES alert_rules(id) ON DELETE CASCADE,
+				channel_id TEXT NOT NULL REFERENCES alert_channels(id) ON DELETE CASCADE,
+				recipients_json TEXT NOT NULL DEFAULT '[]',
+				status TEXT NOT NULL DEFAULT 'queued',
+				attempt_count INTEGER DEFAULT 0,
+				max_attempts INTEGER DEFAULT 5,
+				next_attempt_at TEXT NOT NULL,
+				last_error TEXT,
+				provider_message_id TEXT,
+				created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+				updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+				sent_at TEXT
+			)`); err != nil {
+				return fmt.Errorf("create new alert_dispatch_jobs: %w", err)
+			}
 
-		copySQL := `INSERT INTO alert_dispatch_jobs_new
-			(id, event_id, rule_id, channel_id, recipients_json, status, attempt_count, max_attempts,
-			 next_attempt_at, last_error, provider_message_id, created_at, updated_at, sent_at)
-			SELECT j.id, j.event_id, j.rule_id, j.channel_id, '[]', j.status, j.attempt_count, j.max_attempts,
-			       j.next_attempt_at, j.last_error, j.provider_message_id, j.created_at, j.updated_at, j.sent_at
-			FROM alert_dispatch_jobs j`
-		if routesExist {
-			copySQL = `INSERT INTO alert_dispatch_jobs_new
-			(id, event_id, rule_id, channel_id, recipients_json, status, attempt_count, max_attempts,
-			 next_attempt_at, last_error, provider_message_id, created_at, updated_at, sent_at)
-			SELECT j.id, j.event_id, j.rule_id, j.channel_id, COALESCE(rr.recipients_json, '[]'),
-			       j.status, j.attempt_count, j.max_attempts,
-			       j.next_attempt_at, j.last_error, j.provider_message_id, j.created_at, j.updated_at, j.sent_at
-			FROM alert_dispatch_jobs j
-			LEFT JOIN alert_rule_routes rr ON rr.id = j.route_id`
-		}
-		if _, err := db.conn.Exec(copySQL); err != nil {
-			return fmt.Errorf("copy alert dispatch jobs: %w", err)
-		}
+			copySQL := `INSERT INTO alert_dispatch_jobs_new
+				(id, event_id, rule_id, channel_id, recipients_json, status, attempt_count, max_attempts,
+				 next_attempt_at, last_error, provider_message_id, created_at, updated_at, sent_at)
+				SELECT j.id, j.event_id, j.rule_id, j.channel_id, '[]', j.status, j.attempt_count, j.max_attempts,
+				       j.next_attempt_at, j.last_error, j.provider_message_id, j.created_at, j.updated_at, j.sent_at
+				FROM alert_dispatch_jobs j`
+			if routesExist {
+				copySQL = `INSERT INTO alert_dispatch_jobs_new
+				(id, event_id, rule_id, channel_id, recipients_json, status, attempt_count, max_attempts,
+				 next_attempt_at, last_error, provider_message_id, created_at, updated_at, sent_at)
+				SELECT j.id, j.event_id, j.rule_id, j.channel_id, COALESCE(rr.recipients_json, '[]'),
+				       j.status, j.attempt_count, j.max_attempts,
+				       j.next_attempt_at, j.last_error, j.provider_message_id, j.created_at, j.updated_at, j.sent_at
+				FROM alert_dispatch_jobs j
+				LEFT JOIN alert_rule_routes rr ON rr.id = j.route_id`
+			}
+			if _, err := q.ExecContext(ctx, copySQL); err != nil {
+				return fmt.Errorf("copy alert dispatch jobs: %w", err)
+			}
+			if err := failpoint("alert_dispatch_jobs: copied"); err != nil {
+				return err
+			}
 
-		if _, err := db.conn.Exec("DROP TABLE alert_dispatch_jobs"); err != nil {
-			return fmt.Errorf("drop old alert_dispatch_jobs: %w", err)
-		}
-		if _, err := db.conn.Exec("ALTER TABLE alert_dispatch_jobs_new RENAME TO alert_dispatch_jobs"); err != nil {
-			return fmt.Errorf("rename alert_dispatch_jobs: %w", err)
-		}
-		for _, stmt := range []string{
-			"CREATE INDEX IF NOT EXISTS idx_alert_job_due ON alert_dispatch_jobs(status, next_attempt_at)",
-			"CREATE INDEX IF NOT EXISTS idx_alert_job_event ON alert_dispatch_jobs(event_id)",
-		} {
-			if _, err := db.conn.Exec(stmt); err != nil {
-				return fmt.Errorf("recreate alert_dispatch_jobs index: %w", err)
+			if _, err := q.ExecContext(ctx, "DROP TABLE alert_dispatch_jobs"); err != nil {
+				return fmt.Errorf("drop old alert_dispatch_jobs: %w", err)
+			}
+			if _, err := q.ExecContext(ctx, "ALTER TABLE alert_dispatch_jobs_new RENAME TO alert_dispatch_jobs"); err != nil {
+				return fmt.Errorf("rename alert_dispatch_jobs: %w", err)
+			}
+			for _, stmt := range []string{
+				"CREATE INDEX IF NOT EXISTS idx_alert_job_due ON alert_dispatch_jobs(status, next_attempt_at)",
+				"CREATE INDEX IF NOT EXISTS idx_alert_job_event ON alert_dispatch_jobs(event_id)",
+			} {
+				if _, err := q.ExecContext(ctx, stmt); err != nil {
+					return fmt.Errorf("recreate alert_dispatch_jobs index: %w", err)
+				}
 			}
 		}
-	}
 
-	// 3) Drop the legacy routing tables (children first).
-	dropRoutes := []string{
-		"DROP TABLE IF EXISTS alert_route_digests",
-		"DROP TABLE IF EXISTS alert_route_policies",
-		"DROP TABLE IF EXISTS alert_rule_routes",
-	}
-	for _, stmt := range dropRoutes {
-		if _, err := db.conn.Exec(stmt); err != nil {
-			slog.Warn("Failed to drop legacy alert routing table", "error", err)
+		// 3) Drop the legacy routing tables (children first).
+		dropRoutes := []string{
+			"DROP TABLE IF EXISTS alert_route_digests",
+			"DROP TABLE IF EXISTS alert_route_policies",
+			"DROP TABLE IF EXISTS alert_rule_routes",
 		}
-	}
+		for _, stmt := range dropRoutes {
+			if _, err := q.ExecContext(ctx, stmt); err != nil {
+				slog.Warn("Failed to drop legacy alert routing table", "error", err)
+			}
+		}
 
-	if routesExist || hasRouteID {
-		slog.Info("Alert routing migration complete")
-	}
-	return nil
+		if routesExist || hasRouteID {
+			slog.Info("Alert routing migration complete")
+		}
+		return nil
+	})
 }
 
 func (db *DB) ensureColumn(tableName, columnName, definition string) error {

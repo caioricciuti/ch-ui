@@ -131,7 +131,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 		govSyncer:          govSyncer,
 		chHarvester:        chHarvester,
 		monitorRunner:      monitorRunner,
-		performanceMonitor: performancemonitor.New(db, gw, cfg.AppSecretKey, cfg.IsPro),
+		performanceMonitor: performancemonitor.New(db, gw, cfg.AppSecretKey, config.NewProGate("Performance monitor", cfg.ProAccess).Allow),
 		operationsReports:  operations.NewRunner(db, gw, cfg),
 		githubSyncer:       githubSyncer,
 		guardrails:         governance.NewGuardrailService(govStore, db),

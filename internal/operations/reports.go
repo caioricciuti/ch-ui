@@ -96,7 +96,10 @@ type Runner struct {
 }
 
 func NewRunner(db *database.DB, gw *tunnel.Gateway, cfg *config.Config) *Runner {
-	return &Runner{DB: db, Gateway: gw, Config: cfg, Send: alerts.SendDirect, isPro: cfg.IsPro}
+	// Scheduled reports keep running through the license grace window like
+	// the other background Pro workers. Manual generation is a POST and is
+	// still refused in grace by middleware.RequirePro.
+	return &Runner{DB: db, Gateway: gw, Config: cfg, Send: alerts.SendDirect, isPro: config.NewProGate("Weekly operations reports", cfg.ProAccess).Allow}
 }
 
 func (r *Runner) Start() {
