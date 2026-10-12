@@ -7,7 +7,7 @@
 //     sessionless/unauthenticated mode.
 //   - Queries execute through the existing tunnel Gateway with the key's own
 //     ClickHouse credentials. The ClickHouse user's grants are the real
-//     permission boundary; server-forced settings (readonly=2, row/time caps)
+//     permission boundary; server-forced settings (readonly=1, row/time caps)
 //     and a read-only statement gate sit on top.
 //   - Every executed query is recorded in query history (source=mcp) and the
 //     audit log, so DBAs can see exactly what an AI did.

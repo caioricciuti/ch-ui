@@ -183,9 +183,10 @@ An MCP key binds three things:
   `max_memory_usage`, `max_rows_to_read` and `max_bytes_to_read` set.
 - **An optional database allowlist**: filters the schema-browsing tools
   (`list_databases`, `list_tables`, `describe_table`) and the target database
-  of `create_model` / `create_pipeline`. It does **not** parse the SQL passed
-  to `run_select` or `explain_query`. It is a visibility filter, not a
-  security boundary; use ClickHouse grants for enforcement.
+  of `create_model` / `create_pipeline`, and is enforced on the SQL passed to
+  `run_select`, `run_saved_query`, `explain_query` and `estimate_query`. See
+  [Allowlist on SQL](#allowlist-on-sql) for what is rejected. It is a second
+  layer on top of ClickHouse grants, not a replacement for them.
 
 Keys are bearer tokens with a `chm_` prefix. Only a SHA-256 hash is stored.
 There is no unauthenticated mode. Each key is limited to 120 requests per
@@ -253,15 +254,49 @@ Write tools create **drafts** tagged `mcp:<key name>`. Models and pipelines
 never run from MCP; you review them and press play in the UI. Every create is
 audit-logged.
 
+## Allowlist on SQL
+
+When a key has a database allowlist, CH-UI reads every statement before it
+reaches ClickHouse and rejects it unless every table it reads is in an
+allowed database. The check fails closed: if it cannot tell which database
+something reads, the query is rejected with a message naming the reason.
+Rejected:
+
+- A table in a database outside the allowlist, anywhere in the statement:
+  `FROM`, `JOIN`, comma joins, `IN` subqueries or `IN table`, CTEs, scalar
+  subqueries, `UNION` branches.
+- An unqualified table when the ClickHouse user's current database is not
+  in the allowlist. Unqualified names resolve against that database, so
+  write `database.table`.
+- `system` and `information_schema` tables, unless listed. `system.one`,
+  `system.numbers` and `system.zeros` are always allowed.
+- Table functions other than `numbers`, `zeros`, `generate_series`,
+  `values`, `generateRandom` and `null`: `url()`, `remote()`, `file()`,
+  `s3()`, `cluster()`, `merge()`, `view()` and the rest are refused.
+- `dictGet*`, `joinGet*` and `hasColumnInTable`, which read by a name given
+  as a string.
+- `SHOW`, `DESCRIBE`, `EXISTS` and `EXPLAIN` statements in `run_select`; use
+  `list_tables`, `describe_table` and `explain_query` instead.
+- SQL the check cannot read safely: nested `/* */` comments, `#` comments,
+  `$$` strings, and non-ASCII characters outside string literals.
+
+Keys without an allowlist are not affected. What the check does not see is a
+ClickHouse object that reads another database by itself: a view, a
+`Distributed`, `Merge` or dictionary table living in an allowed database.
+ClickHouse grants on the key's user stay the boundary for those.
+
 ## Safety model
 
 Layered, server-side, not prompt-side:
 
 1. **ClickHouse grants** of the key's user: the hard boundary.
-2. **`readonly = 2`** forced on every query: no writes, no DDL, no
-   `INTO OUTFILE`, settings changes limited to the query.
+2. **`readonly = 1`** forced on every query: no writes, no DDL, no
+   `INTO OUTFILE`, and no setting changes from inside the SQL, so the caps
+   below cannot be lifted by the query. A `SETTINGS` clause is rejected
+   before it reaches ClickHouse.
 3. **Statement gate**: anything that is not SELECT / WITH / SHOW / DESCRIBE /
-   EXPLAIN is rejected before it reaches ClickHouse.
+   EXPLAIN is rejected before it reaches ClickHouse. Keys with a database
+   allowlist get the [allowlist check](#allowlist-on-sql) on top.
 4. **Caps**: `max_result_rows` (default 100, max 2000), a 60 s execution
    limit, and a 200 KB response cap on every tool, because results land in an
    LLM context, not a data pipeline. A client that disconnects or cancels

@@ -6,10 +6,12 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -161,6 +163,9 @@ var runQuery = Tool{
 		if !isReadOnly(sql) {
 			return nil, errors.New("only read-only queries are allowed (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN)")
 		}
+		if hasSettingsClause(sql) {
+			return nil, errors.New("remove the SETTINGS clause: Brain queries run with readonly=1 and fixed limits")
+		}
 		limit := input.Limit
 		if limit <= 0 {
 			limit = 100
@@ -170,7 +175,7 @@ var runQuery = Tool{
 		}
 		sql = injectLimit(sql, limit)
 
-		result, err := tctx.Gateway.ExecuteQuery(tctx.ConnectionID, sql, tctx.CHUser, tctx.CHPassword, 30*time.Second)
+		result, err := tctx.Gateway.ExecuteQueryWithSettingsCtx(tctx.context(), tctx.ConnectionID, sql, tctx.CHUser, tctx.CHPassword, readOnlySettings(limit, 30*time.Second), 30*time.Second)
 		if err != nil {
 			return nil, err
 		}
@@ -210,18 +215,66 @@ func mustJSON(v any) json.RawMessage {
 	return b
 }
 
+// sqlEscape escapes s for a single-quoted ClickHouse string literal.
+// Backslash first: ClickHouse reads \ escapes inside quotes.
 func sqlEscape(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
+	return strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), "'", "''")
 }
 
+// sqlEscapeBacktick escapes s for a backtick-quoted identifier.
 func sqlEscapeBacktick(s string) string {
-	return strings.ReplaceAll(s, "`", "``")
+	return strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), "`", "``")
 }
 
+// readOnlyRE is a first-line check on the statement kind; readonly=1 on
+// every query (readOnlySettings) is the real guard.
 var readOnlyRE = regexp.MustCompile(`(?is)^\s*(SELECT|WITH|SHOW|DESC|DESCRIBE|EXPLAIN)\b`)
 
 func isReadOnly(sql string) bool {
 	return readOnlyRE.MatchString(sql)
+}
+
+const (
+	// metaMaxRows caps Brain's own catalog lookups (system.tables etc.).
+	metaMaxRows = 10000
+	// maxResultBytes caps what one Brain query may return.
+	maxResultBytes = 16 << 20
+)
+
+// readOnlySettings are the ClickHouse settings every Brain read runs with.
+// readonly=1 forbids writes and any setting change inside the SQL, so the
+// caps here cannot be lifted by the query. The gateway retries without a
+// cap when the user's own profile is read only and refuses it.
+func readOnlySettings(maxRows int, timeout time.Duration) map[string]string {
+	return map[string]string{
+		"readonly":             "1",
+		"max_execution_time":   strconv.Itoa(int(timeout.Seconds())),
+		"max_result_rows":      strconv.Itoa(maxRows),
+		"max_result_bytes":     strconv.Itoa(maxResultBytes),
+		"result_overflow_mode": "break",
+	}
+}
+
+// settingsClauseRE finds a SETTINGS name = clause once string literals and
+// comments are blanked out.
+var (
+	settingsClauseRE = regexp.MustCompile(`(?i)\bSETTINGS\s+[A-Za-z_][A-Za-z0-9_]*\s*=`)
+	literalOrComment = regexp.MustCompile(`(?s)'(?:[^'\\]|\\.|'')*'|--[^\n]*|/\*.*?\*/`)
+)
+
+// hasSettingsClause reports whether sql sets its own ClickHouse settings.
+// readonly=1 refuses them, and the gateway's read-only-profile retry would
+// then drop Brain's caps, so they are rejected up front.
+func hasSettingsClause(sql string) bool {
+	return settingsClauseRE.MatchString(literalOrComment.ReplaceAllString(sql, " "))
+}
+
+// context returns the tool call's context, or Background when unset.
+func (c Context) context() context.Context {
+	if c.Ctx != nil {
+		return c.Ctx
+	}
+	return context.Background()
 }
 
 var hasLimitRE = regexp.MustCompile(`(?is)\blimit\s+\d+`)
@@ -235,7 +288,7 @@ func injectLimit(sql string, limit int) string {
 }
 
 func runSelect(tctx Context, sql string, timeout time.Duration) ([]map[string]any, error) {
-	result, err := tctx.Gateway.ExecuteQuery(tctx.ConnectionID, sql, tctx.CHUser, tctx.CHPassword, timeout)
+	result, err := tctx.Gateway.ExecuteQueryWithSettingsCtx(tctx.context(), tctx.ConnectionID, sql, tctx.CHUser, tctx.CHPassword, readOnlySettings(metaMaxRows, timeout), timeout)
 	if err != nil {
 		return nil, err
 	}

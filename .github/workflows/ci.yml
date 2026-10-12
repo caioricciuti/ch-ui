@@ -90,6 +90,7 @@ jobs:
           go test ./internal/server/handlers -run 'TestSchemaCompareLive|TestReadonlyProfileUserLive' -count=1 -race
           go test ./internal/incidenttimeline -run TestIncidentTimelineQueriesLive -count=1 -race
           go test ./internal/telemetry -run TestHistogramWindowLive -count=1 -race
+          go test ./internal/mcpserver -run TestMCPReadonlyAndAllowListLive -count=1 -race
 
       - name: Vulnerability scan (govulncheck)
         run: |

@@ -164,10 +164,9 @@ func ValidIdent(s string) bool {
 	return true
 }
 
-// Quote backtick-quotes an identifier that passed ValidIdent.
-func Quote(s string) string {
-	return "`" + strings.ReplaceAll(s, "`", "") + "`"
-}
+// Quote backtick-quotes an identifier that passed ValidIdent, escaping it
+// like any other ClickHouse identifier (see query.QuoteIdent).
+func Quote(s string) string { return query.QuoteIdent(s) }
 
 // IsJSONColumn reports whether a DESCRIBE type is the exporter's JSON
 // attribute column (the `json: true` mode) rather than a Map.

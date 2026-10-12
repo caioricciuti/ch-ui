@@ -374,15 +374,15 @@ func (p *parser) fieldTerm(field, raw string, quoted bool) (string, error) {
 	if typ, ok := p.schema.Columns[field]; ok {
 		if isNumericType(typ) {
 			if val == "*" {
-				return fmt.Sprintf("%s IS NOT NULL", quoteIdent(field)), nil
+				return fmt.Sprintf("%s IS NOT NULL", QuoteIdent(field)), nil
 			}
 			n, err := strconv.ParseFloat(val, 64)
 			if err != nil {
 				return "", fmt.Errorf("%s expects a number, got %q", field, val)
 			}
-			return fmt.Sprintf("%s %s %s", quoteIdent(field), op, formatNumber(n)), nil
+			return fmt.Sprintf("%s %s %s", QuoteIdent(field), op, formatNumber(n)), nil
 		}
-		return p.stringCompare(quoteIdent(field), op, val, false), nil
+		return p.stringCompare(QuoteIdent(field), op, val, false), nil
 	}
 
 	// Attribute key in one of the map columns.
@@ -503,9 +503,11 @@ func formatNumber(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
-// quoteIdent backtick-quotes a verified column name.
-func quoteIdent(name string) string {
-	return "`" + strings.ReplaceAll(name, "`", "") + "`"
+// QuoteIdent backtick-quotes a ClickHouse identifier. ClickHouse reads
+// backslash escapes inside backticks, so the backslash is escaped first and
+// then the backtick; a trailing backslash can no longer eat the closing quote.
+func QuoteIdent(name string) string {
+	return "`" + strings.ReplaceAll(strings.ReplaceAll(name, `\`, `\\`), "`", "\\`") + "`"
 }
 
 // JSONPathAccess renders a string read of a dotted key inside a JSON
@@ -518,7 +520,7 @@ func JSONPathAccess(col, key string) string {
 		if seg == "" {
 			continue
 		}
-		parts = append(parts, quoteIdent(seg))
+		parts = append(parts, QuoteIdent(seg))
 	}
 	if len(parts) == 0 {
 		return "toString(" + col + ")"

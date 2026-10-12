@@ -41,7 +41,7 @@ const (
 var leadingCommentsRe = regexp.MustCompile(`(?s)^(?:\s|--[^\n]*\n|/\*.*?\*/)*`)
 
 // readOnlyRe matches the statement kinds the MCP server will run. Everything
-// else is rejected before reaching ClickHouse; readonly=2 is enforced there as
+// else is rejected before reaching ClickHouse; readonly=1 is enforced there as
 // the real guard.
 var readOnlyRe = regexp.MustCompile(`(?is)^(?:SELECT|WITH|SHOW|DESC|DESCRIBE|EXISTS|EXPLAIN)\b|^\(`)
 
@@ -261,8 +261,12 @@ func runCHFull(ctx context.Context, deps Deps, ak *authedKey, sql string, extra 
 	if !deps.Gateway.IsTunnelOnline(ak.key.ConnectionID) {
 		return nil, fmt.Errorf("connection %q is offline: its agent/tunnel is not connected to CH-UI", ak.key.ConnectionID)
 	}
+	// readonly=1, not 2: the statement may not change any setting, so the
+	// row, time and byte caps below cannot be lifted from inside the SQL.
+	// The caps travel as request settings, which ClickHouse applies before
+	// readonly takes effect.
 	settings := map[string]string{
-		"readonly":             "2",
+		"readonly":             "1",
 		"result_overflow_mode": "break",
 		"log_comment":          logComment,
 	}
@@ -294,17 +298,7 @@ func runCHFull(ctx context.Context, deps Deps, ak *authedKey, sql string, extra 
 // allowedDBs returns the key's database allowlist as a set; nil means
 // unrestricted.
 func allowedDBs(k *database.MCPKey) map[string]bool {
-	raw := strings.TrimSpace(k.AllowedDatabases)
-	if raw == "" {
-		return nil
-	}
-	set := make(map[string]bool)
-	for _, d := range strings.Split(raw, ",") {
-		if d = strings.TrimSpace(d); d != "" {
-			set[d] = true
-		}
-	}
-	return set
+	return allowList(k.AllowedDatabases).set()
 }
 
 func dbAllowed(k *database.MCPKey, db string) bool {
@@ -546,6 +540,9 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		if trailingFormatRe.MatchString(sql) {
 			return errResult("omit the FORMAT clause"), nil, nil
 		}
+		if blocked := guardSQL(ctx, deps, ak, sql, nil); blocked != nil {
+			return blocked, nil, nil
+		}
 		rows, err := runCH(ctx, deps, ak, "EXPLAIN indexes = 1\n"+sql+"\nFORMAT JSON", nil, metaTimeout)
 		if err != nil {
 			return errResult("explain failed: %v", err), nil, nil
@@ -579,6 +576,9 @@ func runReadQuery(ctx context.Context, deps Deps, ak *authedKey, q readQuery) *m
 	}
 	if trailingFormatRe.MatchString(sql) {
 		return errResult("omit the FORMAT clause; results are always returned as JSON")
+	}
+	if blocked := guardSQL(ctx, deps, ak, sql, q.Extra); blocked != nil {
+		return blocked
 	}
 	if blocked := checkGuardrails(deps, ak, sql, q.Endpoint); blocked != nil {
 		return blocked
@@ -661,9 +661,35 @@ func runReadQuery(ctx context.Context, deps Deps, ak *authedKey, q readQuery) *m
 	return jsonResult(meta)
 }
 
-// quoteIdent backtick-quotes a ClickHouse identifier.
+// quoteIdent backtick-quotes a ClickHouse identifier. Backslashes are
+// escaped first: ClickHouse reads \ escapes inside backticks, so a trailing
+// backslash would otherwise escape the closing quote.
 func quoteIdent(s string) string {
-	return "`" + strings.ReplaceAll(s, "`", "\\`") + "`"
+	return "`" + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), "`", "\\`") + "`"
+}
+
+// guardSQL holds the checks shared by every tool that sends agent-written
+// SQL to ClickHouse: no SETTINGS clause of its own, and the key's database
+// allow-list (see tablerefs.go). params are the query's param_* bindings.
+func guardSQL(ctx context.Context, deps Deps, ak *authedKey, sql string, params map[string]string) *mcp.CallToolResult {
+	if settingsClause(sql) {
+		return errResult("remove the SETTINGS clause: CH-UI sets the limits for MCP queries and ClickHouse runs them with readonly=1, which refuses setting changes")
+	}
+	currentDB := func() (string, error) {
+		rows, err := runCH(ctx, deps, ak, "SELECT currentDatabase() AS db FORMAT JSON", nil, metaTimeout)
+		if err != nil {
+			return "", err
+		}
+		if len(rows) != 1 {
+			return "", fmt.Errorf("unexpected currentDatabase() result")
+		}
+		db, _ := rows[0]["db"].(string)
+		return db, nil
+	}
+	if err := checkAllowedDatabases(currentDB, allowList(ak.key.AllowedDatabases), sql, params); err != nil {
+		return errResult("%v", err)
+	}
+	return nil
 }
 
 // argProvided reports whether the raw call carried the named argument, so a

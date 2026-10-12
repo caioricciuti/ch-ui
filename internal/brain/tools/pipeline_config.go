@@ -265,7 +265,7 @@ func clickHouseTableExists(tctx Context, db, table string) bool {
 		return true
 	}
 	sql := fmt.Sprintf("SELECT count() AS n FROM system.tables WHERE database = '%s' AND name = '%s'",
-		strings.ReplaceAll(db, "'", "''"), strings.ReplaceAll(table, "'", "''"))
+		sqlEscape(db), sqlEscape(table))
 	rows, err := runSelect(tctx, sql, 5*time.Second)
 	if err != nil || len(rows) == 0 {
 		return true
