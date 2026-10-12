@@ -6,16 +6,97 @@ import (
 	"strings"
 )
 
-// stripSQLComments removes single-line (-- ...) and block (/* ... */) comments
-// so that $ref() inside comments is not treated as a real reference.
+// sqlSegmentKind classifies a run of SQL text.
+type sqlSegmentKind int
+
+const (
+	segCode sqlSegmentKind = iota
+	segComment
+	segQuoted // string literal or quoted identifier
+)
+
+type sqlSegment struct {
+	kind sqlSegmentKind
+	text string
+}
+
+// splitSQL cuts SQL into code, comment and quoted runs. It understands
+// single quotes, double quotes and backticks (each with doubled-quote and
+// backslash escapes), line comments (--) and block comments (/* */). An
+// unterminated quote or block comment runs to the end of the input.
+func splitSQL(sql string) []sqlSegment {
+	var segs []sqlSegment
+	start := 0
+	flush := func(end int) {
+		if end > start {
+			segs = append(segs, sqlSegment{kind: segCode, text: sql[start:end]})
+		}
+	}
+	i := 0
+	for i < len(sql) {
+		c := sql[i]
+		switch {
+		case c == '-' && i+1 < len(sql) && sql[i+1] == '-':
+			flush(i)
+			end := strings.IndexByte(sql[i:], '\n')
+			if end < 0 {
+				end = len(sql)
+			} else {
+				end += i
+			}
+			segs = append(segs, sqlSegment{kind: segComment, text: sql[i:end]})
+			i, start = end, end
+		case c == '/' && i+1 < len(sql) && sql[i+1] == '*':
+			flush(i)
+			end := strings.Index(sql[i+2:], "*/")
+			if end < 0 {
+				end = len(sql)
+			} else {
+				end += i + 4
+			}
+			segs = append(segs, sqlSegment{kind: segComment, text: sql[i:end]})
+			i, start = end, end
+		case c == '\'' || c == '"' || c == '`':
+			flush(i)
+			end := len(sql)
+			for j := i + 1; j < len(sql); j++ {
+				if sql[j] == '\\' {
+					j++
+					continue
+				}
+				if sql[j] == c {
+					if j+1 < len(sql) && sql[j+1] == c {
+						j++
+						continue
+					}
+					end = j + 1
+					break
+				}
+			}
+			segs = append(segs, sqlSegment{kind: segQuoted, text: sql[i:end]})
+			i, start = end, end
+		default:
+			i++
+		}
+	}
+	flush(len(sql))
+	return segs
+}
+
+// stripSQLComments removes line (--) and block (/* */) comments outside
+// string literals and quoted identifiers. A block comment becomes one space so
+// the tokens around it stay apart.
 func stripSQLComments(sql string) string {
-	// Remove block comments first (non-greedy, handles multiline)
-	blockRe := regexp.MustCompile(`(?s)/\*.*?\*/`)
-	sql = blockRe.ReplaceAllString(sql, "")
-	// Remove single-line comments
-	lineRe := regexp.MustCompile(`--[^\n]*`)
-	sql = lineRe.ReplaceAllString(sql, "")
-	return sql
+	var b strings.Builder
+	for _, s := range splitSQL(sql) {
+		switch {
+		case s.kind != segComment:
+			b.WriteString(s.text)
+		case strings.HasPrefix(s.text, "/*"):
+			b.WriteByte(' ')
+		}
+	}
+	return b.String()
 }
 
 // refPattern matches $ref(model_name) in SQL.
@@ -37,39 +118,49 @@ func ValidateModelName(name string) error {
 }
 
 // ExtractRefs returns all model names referenced via $ref() in the SQL body.
-// $ref() occurrences inside SQL comments are ignored.
+// $ref() inside comments, string literals and quoted identifiers is ignored.
 func ExtractRefs(sqlBody string) []string {
-	matches := refPattern.FindAllStringSubmatch(stripSQLComments(sqlBody), -1)
 	seen := make(map[string]bool)
 	var refs []string
-	for _, m := range matches {
-		name := strings.TrimSpace(m[1])
-		if !seen[name] {
-			seen[name] = true
-			refs = append(refs, name)
+	for _, s := range splitSQL(sqlBody) {
+		if s.kind != segCode {
+			continue
+		}
+		for _, m := range refPattern.FindAllStringSubmatch(s.text, -1) {
+			name := strings.TrimSpace(m[1])
+			if !seen[name] {
+				seen[name] = true
+				refs = append(refs, name)
+			}
 		}
 	}
 	return refs
 }
 
-// ResolveRefs replaces all $ref(model_name) with `target_database`.`model_name`.
-// modelTargets maps model_name -> target_database.
-// $ref() occurrences inside SQL comments are ignored (comments are stripped first).
+// ResolveRefs replaces $ref(model_name) with `target_database`.`model_name`.
+// modelTargets maps model_name -> target_database. Only code is rewritten:
+// comments, string literals and quoted identifiers are kept byte for byte, so
+// the SQL that runs is the SQL the user wrote.
 func ResolveRefs(sqlBody string, modelTargets map[string]string) (string, error) {
-	sqlBody = stripSQLComments(sqlBody)
 	var resolveErr error
-	resolved := refPattern.ReplaceAllStringFunc(sqlBody, func(match string) string {
-		sub := refPattern.FindStringSubmatch(match)
-		if len(sub) < 2 {
-			return match
+	var b strings.Builder
+	for _, s := range splitSQL(sqlBody) {
+		if s.kind != segCode {
+			b.WriteString(s.text)
+			continue
 		}
-		name := strings.TrimSpace(sub[1])
-		db, ok := modelTargets[name]
-		if !ok {
-			resolveErr = fmt.Errorf("unresolved reference: $ref(%s)", name)
-			return match
-		}
-		return fmt.Sprintf("`%s`.`%s`", db, name)
-	})
-	return resolved, resolveErr
+		b.WriteString(refPattern.ReplaceAllStringFunc(s.text, func(match string) string {
+			sub := refPattern.FindStringSubmatch(match)
+			name := strings.TrimSpace(sub[1])
+			db, ok := modelTargets[name]
+			if !ok {
+				if resolveErr == nil {
+					resolveErr = fmt.Errorf("unresolved reference: $ref(%s)", name)
+				}
+				return match
+			}
+			return quoteIdent(db) + "." + quoteIdent(name)
+		}))
+	}
+	return b.String(), resolveErr
 }

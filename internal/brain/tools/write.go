@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/models"
 )
 
 func RegisterWrite(r *Registry) {
@@ -69,34 +70,30 @@ var createSavedQuery = Tool{
 
 var createModel = Tool{
 	Name:             "create_model",
-	Description:      "Create a dbt-style data model (a SQL transformation that ClickHouse runs to produce a target table or view). Choose materialization based on the use case: 'view' (logical, recomputes on read), 'table' (full rebuild), 'incremental' (append new rows by watermark), or 'materialized_view' (CH materialized view triggered by inserts).",
+	Description:      "Create a SQL model (a SELECT that ClickHouse materializes into the target database). Materialization: 'view' (logical, recomputed on read) or 'table' (rebuilt in full on every run). Reference other models with $ref(model_name).",
 	RequiresApproval: true,
 	Parameters: mustJSON(map[string]any{
 		"type":     "object",
 		"required": []string{"name", "target_database", "materialization", "sql_body"},
 		"properties": map[string]any{
-			"name":               map[string]any{"type": "string"},
-			"description":        map[string]any{"type": "string"},
-			"target_database":    map[string]any{"type": "string", "description": "ClickHouse database the model writes to."},
-			"materialization":    map[string]any{"type": "string", "enum": []string{"view", "table", "incremental", "materialized_view"}},
-			"sql_body":           map[string]any{"type": "string", "description": "The SELECT body. Use ref('other_model') if you depend on another model."},
-			"table_engine":       map[string]any{"type": "string", "description": "ClickHouse engine for table/incremental/MV (e.g., MergeTree)."},
-			"order_by":           map[string]any{"type": "string", "description": "ORDER BY clause for table/incremental/MV."},
-			"incremental_column": map[string]any{"type": "string", "description": "Watermark column for incremental (required if materialization=incremental)."},
-			"unique_key":         map[string]any{"type": "string", "description": "Optional unique key for incremental dedupe."},
+			"name":            map[string]any{"type": "string", "description": "Identifier: letters, digits and underscores, not starting with a digit. Also the name of the table or view it builds."},
+			"description":     map[string]any{"type": "string"},
+			"target_database": map[string]any{"type": "string", "description": "ClickHouse database the model writes to."},
+			"materialization": map[string]any{"type": "string", "enum": []string{models.MaterializationView, models.MaterializationTable}},
+			"sql_body":        map[string]any{"type": "string", "description": "The SELECT body. Write $ref(other_model) (no quotes) to depend on another model."},
+			"table_engine":    map[string]any{"type": "string", "description": "ClickHouse engine for table models (default MergeTree)."},
+			"order_by":        map[string]any{"type": "string", "description": "ORDER BY for MergeTree-family table models (default tuple())."},
 		},
 	}),
 	Handler: func(tctx Context, args json.RawMessage) (any, error) {
 		var in struct {
-			Name              string `json:"name"`
-			Description       string `json:"description"`
-			TargetDatabase    string `json:"target_database"`
-			Materialization   string `json:"materialization"`
-			SQLBody           string `json:"sql_body"`
-			TableEngine       string `json:"table_engine"`
-			OrderBy           string `json:"order_by"`
-			IncrementalColumn string `json:"incremental_column"`
-			UniqueKey         string `json:"unique_key"`
+			Name            string `json:"name"`
+			Description     string `json:"description"`
+			TargetDatabase  string `json:"target_database"`
+			Materialization string `json:"materialization"`
+			SQLBody         string `json:"sql_body"`
+			TableEngine     string `json:"table_engine"`
+			OrderBy         string `json:"order_by"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, fmt.Errorf("invalid args: %w", err)
@@ -108,13 +105,16 @@ var createModel = Tool{
 		if in.Name == "" || in.TargetDatabase == "" || in.Materialization == "" || in.SQLBody == "" {
 			return nil, errors.New("name, target_database, materialization, sql_body are required")
 		}
-		switch in.Materialization {
-		case "view", "table", "incremental", "materialized_view":
-		default:
-			return nil, fmt.Errorf("invalid materialization: %s", in.Materialization)
+		if err := models.ValidateModelName(in.Name); err != nil {
+			return nil, err
 		}
-		if (in.Materialization == "table" || in.Materialization == "incremental" || in.Materialization == "materialized_view") && in.TableEngine == "" {
-			in.TableEngine = "MergeTree"
+		if err := models.ValidateMaterialization(in.Materialization); err != nil {
+			return nil, err
+		}
+		if in.Materialization == models.MaterializationTable {
+			in.TableEngine, in.OrderBy = models.TableDefaults(in.TableEngine, in.OrderBy)
+		} else {
+			in.TableEngine, in.OrderBy = "", ""
 		}
 		id, err := tctx.DB.CreateModel(
 			tctx.ConnectionID, in.Name, in.Description, in.TargetDatabase, in.Materialization,

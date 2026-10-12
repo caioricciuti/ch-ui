@@ -362,6 +362,60 @@ func (db *DB) HasRunningModelRun(connectionID string) (bool, error) {
 	return count > 0, nil
 }
 
+// HasSuccessfulModelRun reports whether the model has at least one successful
+// run result on record.
+func (db *DB) HasSuccessfulModelRun(modelID string) (bool, error) {
+	var n int
+	err := db.conn.QueryRow(
+		"SELECT COUNT(*) FROM model_run_results WHERE model_id = ? AND status = 'success'", modelID,
+	).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("check model run history: %w", err)
+	}
+	return n > 0, nil
+}
+
+// MarkInterruptedModelRuns closes runs a previous process left running: their
+// pending and running results become errors with the given message, and each
+// run is finalized as an error with recounted totals. Call it once at startup,
+// before any run can start. Returns the number of runs closed.
+func (db *DB) MarkInterruptedModelRuns(message string) (int, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("mark interrupted model runs: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
+		`UPDATE model_run_results SET status = 'error', error = ?, finished_at = ?
+		 WHERE status IN ('pending', 'running')
+		   AND run_id IN (SELECT id FROM model_runs WHERE status = 'running')`,
+		message, now,
+	); err != nil {
+		return 0, fmt.Errorf("mark interrupted model results: %w", err)
+	}
+	res, err := tx.Exec(
+		`UPDATE model_runs SET status = 'error', finished_at = ?,
+		        succeeded = (SELECT COUNT(*) FROM model_run_results r WHERE r.run_id = model_runs.id AND r.status = 'success'),
+		        failed    = (SELECT COUNT(*) FROM model_run_results r WHERE r.run_id = model_runs.id AND r.status = 'error'),
+		        skipped   = (SELECT COUNT(*) FROM model_run_results r WHERE r.run_id = model_runs.id AND r.status = 'skipped')
+		 WHERE status = 'running'`,
+		now,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("mark interrupted model runs: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("mark interrupted model runs: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("mark interrupted model runs: %w", err)
+	}
+	return int(n), nil
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 func scanModel(rows *sql.Rows) (Model, error) {
@@ -501,8 +555,15 @@ func (db *DB) GetModelScheduleByAnchor(connectionID, anchorModelID string) (*Mod
 	return &s, nil
 }
 
-// UpsertModelSchedule creates or replaces a model schedule for a pipeline anchor.
+// UpsertModelSchedule creates or replaces an enabled model schedule for a
+// pipeline anchor.
 func (db *DB) UpsertModelSchedule(connectionID, anchorModelID, cron, nextRunAt, createdBy string) (string, error) {
+	return db.UpsertModelScheduleEnabled(connectionID, anchorModelID, cron, nextRunAt, createdBy, true)
+}
+
+// UpsertModelScheduleEnabled creates or replaces a model schedule for a
+// pipeline anchor; enabled=false saves it paused.
+func (db *DB) UpsertModelScheduleEnabled(connectionID, anchorModelID, cron, nextRunAt, createdBy string, enabled bool) (string, error) {
 	id := uuid.NewString()
 	now := time.Now().UTC().Format(time.RFC3339)
 
@@ -510,15 +571,19 @@ func (db *DB) UpsertModelSchedule(connectionID, anchorModelID, cron, nextRunAt, 
 	if createdBy != "" {
 		creator = createdBy
 	}
+	enabledVal := 0
+	if enabled {
+		enabledVal = 1
+	}
 
 	_, err := db.conn.Exec(
 		`INSERT INTO model_schedules
 		 (id, connection_id, anchor_model_id, cron, enabled, next_run_at, created_by, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(connection_id, anchor_model_id)
-		 DO UPDATE SET cron = excluded.cron, enabled = 1, next_run_at = excluded.next_run_at,
+		 DO UPDATE SET cron = excluded.cron, enabled = excluded.enabled, next_run_at = excluded.next_run_at,
 		               created_by = excluded.created_by, updated_at = excluded.updated_at`,
-		id, connectionID, anchorModelID, cron, nextRunAt, creator, now, now,
+		id, connectionID, anchorModelID, cron, enabledVal, nextRunAt, creator, now, now,
 	)
 	if err != nil {
 		return "", fmt.Errorf("upsert model schedule: %w", err)
@@ -547,16 +612,21 @@ func (db *DB) UpdateModelScheduleStatusByID(scheduleID, status, lastError string
 	return nil
 }
 
-// DeleteModelScheduleByAnchor removes the schedule for a specific pipeline anchor.
-func (db *DB) DeleteModelScheduleByAnchor(connectionID, anchorModelID string) error {
-	_, err := db.conn.Exec(
+// DeleteModelScheduleByAnchor removes the schedule for a specific pipeline
+// anchor and reports whether one existed.
+func (db *DB) DeleteModelScheduleByAnchor(connectionID, anchorModelID string) (bool, error) {
+	res, err := db.conn.Exec(
 		"DELETE FROM model_schedules WHERE connection_id = ? AND anchor_model_id = ?",
 		connectionID, anchorModelID,
 	)
 	if err != nil {
-		return fmt.Errorf("delete model schedule: %w", err)
+		return false, fmt.Errorf("delete model schedule: %w", err)
 	}
-	return nil
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("delete model schedule: %w", err)
+	}
+	return n > 0, nil
 }
 
 // GetEnabledModelSchedules returns all enabled model schedules.

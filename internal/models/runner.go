@@ -1,6 +1,7 @@
 package models
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -92,7 +93,7 @@ func (r *Runner) RunPipeline(connectionID, anchorModelID, triggeredBy string) (s
 
 	component := dag.ComponentContaining(anchorModelID)
 	if len(component) == 0 {
-		return "", fmt.Errorf("anchor model not found in DAG")
+		return "", ErrModelNotFound
 	}
 
 	dag.Order = component
@@ -123,6 +124,9 @@ func (r *Runner) RunSingle(connectionID, modelID, triggeredBy string) (string, e
 	dag, idToModel, modelTargets, err := r.buildDAG(allModels)
 	if err != nil {
 		return "", err
+	}
+	if _, ok := idToModel[modelID]; !ok {
+		return "", ErrModelNotFound
 	}
 
 	// Filter to only the target model and its upstream deps
@@ -246,6 +250,9 @@ func (r *Runner) execute(connectionID, triggeredBy string, dag *DepGraph, idToMo
 	}
 
 	// Execute in topological order
+	exec := func(sql string) (*tunnel.QueryResult, error) {
+		return r.gateway.ExecuteQuery(connectionID, sql, user, password, 5*time.Minute)
+	}
 	failed := make(map[string]bool)
 	var succeeded, failedCount, skipped int
 
@@ -282,30 +289,27 @@ func (r *Runner) execute(connectionID, triggeredBy string, dag *DepGraph, idToMo
 		// Mark as running
 		r.db.UpdateModelRunResult(runID, id, "running", "", 0, "")
 
-		// Build and execute DDL
-		stmts := buildDDL(m, resolvedSQL)
-		start := time.Now()
-		var execErr error
-
-		for _, stmt := range stmts {
-			_, execErr = r.gateway.ExecuteQuery(connectionID, stmt, user, password, 5*time.Minute)
-			if execErr != nil {
-				break
-			}
+		mz := &materializer{
+			exec:         exec,
+			model:        m,
+			priorSuccess: func() (bool, error) { return r.db.HasSuccessfulModelRun(m.ID) },
 		}
-
+		start := time.Now()
+		ddl, execErr := mz.run(resolvedSQL)
 		elapsed := time.Since(start).Milliseconds()
-		ddlForLog := stmts[len(stmts)-1] // log the main statement
+		if ddl == "" {
+			ddl = resolvedSQL
+		}
 
 		if execErr != nil {
 			failedCount++
 			failed[id] = true
-			r.db.UpdateModelRunResult(runID, id, "error", ddlForLog, elapsed, execErr.Error())
+			r.db.UpdateModelRunResult(runID, id, "error", ddl, elapsed, execErr.Error())
 			r.db.UpdateModelStatus(id, "error", execErr.Error())
 			slog.Error("Model execution failed", "model", m.Name, "error", execErr)
 		} else {
 			succeeded++
-			r.db.UpdateModelRunResult(runID, id, "success", ddlForLog, elapsed, "")
+			r.db.UpdateModelRunResult(runID, id, "success", ddl, elapsed, "")
 			r.db.UpdateModelStatus(id, "success", "")
 		}
 	}
@@ -319,24 +323,27 @@ func (r *Runner) execute(connectionID, triggeredBy string, dag *DepGraph, idToMo
 	}
 	r.db.FinalizeModelRun(runID, runStatus, succeeded, failedCount, skipped)
 
+	if runStatus != "success" {
+		return runID, &RunFailedError{RunID: runID, Status: runStatus, Failed: failedCount, Skipped: skipped}
+	}
 	return runID, nil
 }
 
-// buildDDL generates the DDL statement(s) for a model.
-// Returns a slice because TABLE needs DROP + CREATE as separate statements.
-func buildDDL(m database.Model, resolvedSQL string) []string {
-	switch m.Materialization {
-	case "table":
-		drop := fmt.Sprintf("DROP TABLE IF EXISTS `%s`.`%s`", m.TargetDatabase, m.Name)
-		create := fmt.Sprintf("CREATE TABLE `%s`.`%s` ENGINE = %s ORDER BY %s AS %s",
-			m.TargetDatabase, m.Name, m.TableEngine, m.OrderBy, resolvedSQL)
-		return []string{drop, create}
-	default: // view
-		return []string{
-			fmt.Sprintf("CREATE OR REPLACE VIEW `%s`.`%s` AS %s",
-				m.TargetDatabase, m.Name, resolvedSQL),
-		}
-	}
+// ErrModelNotFound means the model (or pipeline anchor) is not one of the
+// connection's models. Nothing is recorded.
+var ErrModelNotFound = errors.New("model not found")
+
+// RunFailedError is returned, together with the run ID, when a run finished
+// but at least one model failed or was skipped. The run is recorded.
+type RunFailedError struct {
+	RunID   string
+	Status  string // "partial" or "error"
+	Failed  int
+	Skipped int
+}
+
+func (e *RunFailedError) Error() string {
+	return fmt.Sprintf("model run finished with status %s: %d failed, %d skipped", e.Status, e.Failed, e.Skipped)
 }
 
 func (r *Runner) acquireLock(connectionID string) error {

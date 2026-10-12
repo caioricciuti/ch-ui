@@ -70,6 +70,14 @@ export interface ModelRun {
   created_at: string
 }
 
+/** Response of a synchronous run: the run is finished when this arrives. */
+export interface RunOutcome {
+  run_id: string
+  status: Exclude<RunStatus, 'running'>
+  /** Set when a model failed or was skipped. */
+  error?: string
+}
+
 export interface ModelRunResult {
   id: string
   run_id: string

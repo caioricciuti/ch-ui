@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import type { Model, ModelRun, ModelRunResult, ModelSchedule, DAGNode, DAGEdge, Pipeline } from '../lib/types/models'
+  import type { Materialization, Model, ModelRun, ModelRunResult, ModelSchedule, DAGNode, DAGEdge, Pipeline, RunOutcome } from '../lib/types/models'
   import * as api from '../lib/api/models'
   import { refreshModelCache } from '../lib/editor/completions'
   import { formatDate } from '../lib/utils/format'
@@ -17,6 +17,7 @@
   import { trapFocus } from '../lib/utils/focus-trap'
   import FormField from '../lib/components/common/FormField.svelte'
   import Input from '../lib/components/common/Input.svelte'
+  import Select from '../lib/components/common/Select.svelte'
   import type { ContextMenuItem } from '../lib/components/common/ContextMenu.svelte'
   import {
     SvelteFlow,
@@ -51,6 +52,8 @@
     Timer,
     X,
     Info,
+    Pause,
+    Code,
   } from 'lucide-svelte'
 
   // ── State ──────────────────────────────────────────────────────────
@@ -85,6 +88,21 @@
   let runs = $state<ModelRun[]>([])
   let expandedRunId = $state<string | null>(null)
   let runResults = $state<Record<string, ModelRunResult[]>>({})
+  // Result ids whose stored SQL is shown in the history.
+  let expandedSQL = $state<Record<string, boolean>>({})
+
+  // New model sheet
+  let showCreate = $state(false)
+  let createName = $state('')
+  let createDatabase = $state('default')
+  let createMaterialization = $state<Materialization>('view')
+  let createError = $state('')
+  let creating = $state(false)
+  const MODEL_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+  const MATERIALIZATION_OPTIONS = [
+    { value: 'view', label: 'View: computed when queried' },
+    { value: 'table', label: 'Table: rebuilt on every run' },
+  ]
 
   // Run state
   let running = $state(false)
@@ -234,7 +252,7 @@
       const res = await api.listPipelines()
       pipelines = res.pipelines ?? []
     } catch {
-      // Pipelines not available — ignore
+      // Pipelines not available: ignore
     }
   }
 
@@ -244,12 +262,29 @@
     if (!scheduleAnchorId) return
     schedSaving = true
     try {
-      const res = await api.upsertPipelineSchedule(scheduleAnchorId, { cron: schedCron, enabled: true })
+      // Saving keeps a paused schedule paused; a new schedule starts active.
+      const res = await api.upsertPipelineSchedule(scheduleAnchorId, { cron: schedCron, enabled: schedule?.enabled ?? true })
       schedule = res.schedule
       toastSuccess('Schedule saved')
       await loadPipelines()
     } catch (e: unknown) {
       toastError((e instanceof Error ? e.message : '') || 'Failed to save schedule')
+    } finally {
+      schedSaving = false
+    }
+  }
+
+  async function handleToggleSchedule() {
+    if (!scheduleAnchorId || !schedule) return
+    schedSaving = true
+    const enabled = !schedule.enabled
+    try {
+      const res = await api.upsertPipelineSchedule(scheduleAnchorId, { cron: schedule.cron, enabled })
+      schedule = res.schedule
+      toastSuccess(enabled ? 'Schedule resumed' : 'Schedule paused')
+      await loadPipelines()
+    } catch (e: unknown) {
+      toastError((e instanceof Error ? e.message : '') || 'Failed to update schedule')
     } finally {
       schedSaving = false
     }
@@ -276,14 +311,7 @@
     runningPipeline = anchorId
     try {
       const res = await api.runPipeline(anchorId)
-      toastSuccess('Pipeline run started')
-      await loadModels()
-      await loadRuns()
-      if (res.run_id) {
-        expandedRunId = res.run_id
-        await loadRunResults(res.run_id)
-      }
-      showHistory = true
+      await showRunOutcome(res, 'Pipeline run finished')
     } catch (e: unknown) {
       toastError((e instanceof Error ? e.message : '') || 'Failed to run pipeline')
     } finally {
@@ -292,34 +320,56 @@
   }
 
   function openPipelineSchedule(anchorId: string, existing: ModelSchedule | null) {
-    scheduleAnchorId = anchorId
+    // Save and remove act on the row that exists, wherever it is anchored.
+    scheduleAnchorId = existing?.anchor_model_id ?? anchorId
     schedule = existing
     schedCron = existing?.cron ?? '0 */6 * * *'
     showSchedule = true
   }
 
-  async function handleCreate() {
+  function handleCreate() {
     const existing = new Set(models.map(m => m.name))
     let name = 'new_model'
     let i = 1
     while (existing.has(name)) {
       name = `new_model_${i++}`
     }
+    createName = name
+    createDatabase = 'default'
+    createMaterialization = 'view'
+    createError = ''
+    showCreate = true
+  }
+
+  async function submitCreate() {
+    const name = createName.trim()
+    if (!MODEL_NAME_RE.test(name)) {
+      createError = 'Use letters, digits and underscores, starting with a letter or underscore.'
+      return
+    }
+    if (models.some(m => m.name === name)) {
+      createError = 'A model with this name already exists.'
+      return
+    }
+    creating = true
+    createError = ''
     try {
-      const boilerplate = `SELECT *\nFROM default.my_table\nLIMIT 100`
       const res = await api.createModel({
         name,
-        target_database: 'default',
-        materialization: 'view',
-        sql_body: boilerplate,
+        target_database: createDatabase.trim() || 'default',
+        materialization: createMaterialization,
+        sql_body: 'SELECT 1 AS id',
       })
       refreshModelCache()
       toastSuccess('Model created')
+      showCreate = false
       await loadModels()
       await loadPipelines()
       openModelTab(res.model)
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to create model')
+      createError = (e instanceof Error ? e.message : '') || 'Failed to create model'
+    } finally {
+      creating = false
     }
   }
 
@@ -352,19 +402,26 @@
     running = true
     try {
       const res = await api.runAllModels()
-      toastSuccess('Model run started')
-      await loadModels()
-      await loadRuns()
-      if (res.run_id) {
-        expandedRunId = res.run_id
-        await loadRunResults(res.run_id)
-      }
-      showHistory = true
+      await showRunOutcome(res, 'Model run finished')
     } catch (e: unknown) {
       toastError((e instanceof Error ? e.message : '') || 'Failed to run models')
     } finally {
       running = false
     }
+  }
+
+  // Runs are synchronous: the response arrives when the run has finished.
+  async function showRunOutcome(res: RunOutcome, successMessage: string) {
+    if (res.status === 'success') {
+      toastSuccess(successMessage)
+    } else {
+      toastError(res.error || `Run finished with status ${res.status}`)
+    }
+    await loadModels()
+    await loadRuns()
+    expandedRunId = res.run_id
+    await loadRunResults(res.run_id)
+    showHistory = true
   }
 
   // ── Navigation ─────────────────────────────────────────────────────
@@ -446,7 +503,7 @@
         disabled={running || models.length === 0}
         title="Run all models in dependency order"
       >
-        <Play size={13} /> {running ? 'Running...' : 'Run pipeline'}
+        <Play size={13} /> {running ? 'Running...' : 'Run all'}
       </Button>
       <Button size="sm" variant="outline" onclick={openDAG} disabled={models.length === 0} title="Dependency graph">
         <GitBranch size={13} /> DAG
@@ -480,7 +537,7 @@
           <Info size={14} class="mt-0.5 shrink-0 text-info" />
           <p class="flex-1">
             Models are SQL transformations that form a pipeline. Use <code class="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-[11px] text-fg">$ref(model_name)</code> to reference other models.
-            <span class="font-semibold">Run pipeline</span> executes all models in dependency order; if a model fails, its dependents are skipped.
+            <span class="font-semibold">Run all</span> executes every model in dependency order; if a model fails, its dependents are skipped.
           </p>
           <button onclick={dismissInfo} class="mt-0.5 shrink-0 text-fg-4 hover:text-fg" title="Dismiss" aria-label="Dismiss">
             <X size={14} />
@@ -514,11 +571,14 @@
                   variant={pipeline.schedule ? 'secondary' : 'ghost'}
                   class={pipeline.schedule ? 'font-mono' : ''}
                   onclick={() => openPipelineSchedule(pipeline.anchor_model_id, pipeline.schedule)}
-                  title={pipeline.schedule ? `Schedule: ${pipeline.schedule.cron}` : 'No schedule'}
+                  title={pipeline.schedule ? `Schedule: ${pipeline.schedule.cron}${pipeline.schedule.enabled ? '' : ' (paused)'}` : 'No schedule'}
                 >
-                  <Timer size={11} />
+                  {#if pipeline.schedule && !pipeline.schedule.enabled}<Pause size={11} />{:else}<Timer size={11} />{/if}
                   {pipeline.schedule ? pipeline.schedule.cron : 'No schedule'}
                 </Button>
+                {#if pipeline.schedule && !pipeline.schedule.enabled}
+                  <Badge tone="warning">Paused</Badge>
+                {/if}
               </div>
               <DataTable
                 columns={modelColumns}
@@ -594,6 +654,9 @@
           <span class="font-mono text-fg-2" title={anchorModel?.name ?? sp.anchor_model_id}>
             {sp.schedule?.cron}
           </span>
+          {#if sp.schedule && !sp.schedule.enabled}
+            <span class="font-medium text-warning">paused</span>
+          {/if}
           {#if sp.schedule?.last_status}
             <span class="font-medium {sp.schedule.last_status === 'success' ? 'text-success' : sp.schedule.last_status === 'error' ? 'text-danger' : ''}">
               {sp.schedule.last_status}
@@ -718,8 +781,23 @@
                       <span class="tabular-nums text-fg-4">{result.elapsed_ms}ms</span>
                       {#if result.error}
                         <span class="flex-1 truncate text-danger" title={result.error}>{result.error}</span>
+                      {:else}
+                        <span class="flex-1"></span>
+                      {/if}
+                      {#if result.resolved_sql}
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          aria-expanded={!!expandedSQL[result.id]}
+                          onclick={() => { expandedSQL[result.id] = !expandedSQL[result.id] }}
+                        >
+                          <Code size={12} /> SQL
+                        </Button>
                       {/if}
                     </div>
+                    {#if result.resolved_sql && expandedSQL[result.id]}
+                      <pre class="max-h-64 overflow-auto border-b border-edge-subtle bg-surface-2 px-4 py-3 font-mono text-xs text-fg-2 whitespace-pre-wrap break-all last:border-0">{result.resolved_sql}</pre>
+                    {/if}
                   {/each}
                 </div>
               {/if}
@@ -760,15 +838,24 @@
 
     {#if schedule}
       <div class="space-y-1 rounded-md bg-surface-2 p-3 text-xs text-fg-3">
+        <div class="flex items-center justify-between">
+          <span>State</span>
+          <span class="flex items-center gap-2">
+            <Badge tone={schedule.enabled ? 'success' : 'warning'}>{schedule.enabled ? 'Active' : 'Paused'}</Badge>
+            <Button size="xs" variant="outline" onclick={handleToggleSchedule} disabled={schedSaving}>
+              {#if schedule.enabled}<Pause size={11} /> Pause{:else}<Play size={11} /> Resume{/if}
+            </Button>
+          </span>
+        </div>
         <div class="flex justify-between">
-          <span>Status</span>
+          <span>Last result</span>
           <span class="font-medium {schedule.last_status === 'success' ? 'text-success' : schedule.last_status === 'error' ? 'text-danger' : 'text-fg-2'}">
             {schedule.last_status ?? 'pending'}
           </span>
         </div>
         <div class="flex justify-between">
           <span>Next run</span>
-          <span class="tabular-nums text-fg-2">{formatDate(schedule.next_run_at)}</span>
+          <span class="tabular-nums text-fg-2">{schedule.enabled ? formatDate(schedule.next_run_at) : 'Paused'}</span>
         </div>
         <div class="flex justify-between">
           <span>Last run</span>
@@ -790,6 +877,39 @@
     <Button size="sm" variant="outline" onclick={() => { showSchedule = false }}>Close</Button>
     <Button size="sm" onclick={handleSaveSchedule} disabled={!schedCron.trim()} loading={schedSaving}>
       <Save size={12} /> Save
+    </Button>
+  {/snippet}
+</Sheet>
+
+<!-- ─── New model sheet ──────────────────────────────────────────── -->
+<Sheet
+  open={showCreate}
+  title="New model"
+  description="Starts with SELECT 1 AS id. Write the real SELECT in the editor, then save and run."
+  size="sm"
+  onclose={() => { showCreate = false }}
+>
+  <form id="new-model-form" class="space-y-4" onsubmit={(e) => { e.preventDefault(); submitCreate() }}>
+    <FormField label="Name" for="new-model-name" hint="Also the name of the table or view it builds." error={createError} required>
+      <Input id="new-model-name" bind:value={createName} mono spellcheck={false} invalid={!!createError} required />
+    </FormField>
+    <FormField label="Target database" for="new-model-db">
+      <Input id="new-model-db" bind:value={createDatabase} mono spellcheck={false} placeholder="default" />
+    </FormField>
+    <FormField label="Materialization" for="new-model-mat">
+      <Select
+        id="new-model-mat"
+        value={createMaterialization}
+        options={MATERIALIZATION_OPTIONS}
+        onchange={(v) => { createMaterialization = v === 'table' ? 'table' : 'view' }}
+      />
+    </FormField>
+  </form>
+
+  {#snippet footer()}
+    <Button size="sm" variant="outline" onclick={() => { showCreate = false }}>Cancel</Button>
+    <Button size="sm" type="submit" form="new-model-form" loading={creating}>
+      <Plus size={12} /> Create model
     </Button>
   {/snippet}
 </Sheet>

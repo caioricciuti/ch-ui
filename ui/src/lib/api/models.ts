@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDel } from './client'
-import type { Model, ModelRun, ModelRunResult, ModelDAG, ModelSchedule, Pipeline } from '../types/models'
+import type { Materialization, Model, ModelRun, ModelRunResult, ModelDAG, ModelSchedule, Pipeline, RunOutcome } from '../types/models'
 
 const BASE = '/api/models'
 
@@ -11,7 +11,7 @@ export function createModel(data: {
   name: string
   description?: string
   target_database: string
-  materialization: string
+  materialization: Materialization
   sql_body: string
   table_engine?: string
   order_by?: string
@@ -36,11 +36,11 @@ export function getDAG() {
 }
 
 export function runAllModels() {
-  return apiPost<{ run_id: string }>(`${BASE}/run`)
+  return apiPost<RunOutcome>(`${BASE}/run`)
 }
 
 export function runSingleModel(id: string) {
-  return apiPost<{ run_id: string }>(`${BASE}/${id}/run`)
+  return apiPost<RunOutcome>(`${BASE}/${id}/run`)
 }
 
 export function listModelRuns(limit = 20, offset = 0) {
@@ -56,10 +56,11 @@ export function listPipelines() {
 }
 
 export function runPipeline(anchorId: string) {
-  return apiPost<{ run_id: string }>(`${BASE}/pipelines/${anchorId}/run`)
+  return apiPost<RunOutcome>(`${BASE}/pipelines/${anchorId}/run`)
 }
 
-export function upsertPipelineSchedule(anchorId: string, data: { cron: string; enabled: boolean }) {
+/** enabled=false saves the schedule paused; omit it to keep the current state. */
+export function upsertPipelineSchedule(anchorId: string, data: { cron: string; enabled?: boolean }) {
   return apiPut<{ schedule: ModelSchedule }>(`${BASE}/schedule/${anchorId}`, data)
 }
 

@@ -13,8 +13,9 @@ GitHub Sync is a **Pro** feature. Without an active license the endpoints return
 
 - **Your branch is the truth.** The `.sql` files under the configured path define your models.
 - **Sync is one-way (pull).** CH-UI fetches the branch, parses each model file, and creates, updates, or deletes models to match the repo.
-- **Only git-managed models are touched.** Models imported from GitHub are tracked with a `github` source; models you created by hand in the UI are never modified or deleted by a sync.
-- **Unchanged commits are skipped.** CH-UI remembers the last synced commit SHA and does nothing if the branch hasn't moved.
+- **Only git-managed models are touched.** Models imported from GitHub are tracked with a `github` source; models you created by hand in the UI are never modified or deleted by a sync. GitHub-managed models are read-only in the model editor.
+- **One commit per sync.** CH-UI resolves the branch to a commit SHA once and reads the tree and every file at that SHA, so a push during a sync never mixes two commits.
+- **Unchanged commits are skipped.** CH-UI remembers the last commit that synced without errors and does nothing if the branch hasn't moved. A sync with errors does not record its commit, so the next sync retries it.
 
 ```
  edit .sql ──▶ merge to branch ──▶ push webhook (or Sync now) ──▶ CH-UI pulls and updates models
@@ -55,7 +56,7 @@ A model is a `.sql` file, optionally starting with a YAML frontmatter block:
 materialization: table        # view (default) or table
 target_database: analytics    # default: default
 table_engine: MergeTree       # tables only, default: MergeTree
-order_by: (event_date, id)    # tables only, default: tuple()
+order_by: (event_date, id)    # MergeTree-family tables only, default: tuple()
 description: Daily rollup of events
 ---
 SELECT
@@ -65,7 +66,9 @@ FROM events
 GROUP BY event_date
 ```
 
-The filename (minus `.sql`) becomes the model name. Files without frontmatter are imported as views against the `default` database.
+These five keys are the only ones read. The filename (minus `.sql`) becomes the model name, so it must be a valid identifier (`^[a-zA-Z_][a-zA-Z0-9_]*$`); a file like `daily-events.sql` is reported as an error. Any `materialization` other than `view` or `table` is an error too. Files without frontmatter are imported as views against the `default` database.
+
+Reference other models with `$ref(model_name)`, as in the editor. See [Models](/docs/models).
 
 ## Sync semantics
 
@@ -74,7 +77,8 @@ The filename (minus `.sql`) becomes the model name. Files without frontmatter ar
 | New `.sql` file | Model created (source: `github`) |
 | File content or frontmatter changed | Model updated |
 | File removed | Model deleted (git-managed models only) |
-| File unparseable | Skipped, reported in the sync log |
+| File unparseable or invalid | Reported in the sync log; an existing model for that file is kept unchanged |
+| Repository tree too large for one GitHub response | Sync fails; point the path at a smaller folder |
 
 Every sync (manual or webhook) is recorded in the sync log with its trigger, counts, commit SHA, and any per-file errors.
 

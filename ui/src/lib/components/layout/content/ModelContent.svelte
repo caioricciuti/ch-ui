@@ -2,11 +2,16 @@
   import { onMount } from 'svelte'
   import type { ModelTab } from '../../../stores/tabs.svelte'
   import { updateModelTabEdit, markModelTabSaved, updateModelTabStatus } from '../../../stores/tabs.svelte'
-  import type { ModelRunResult } from '../../../types/models'
+  import type { Materialization, ModelRunResult } from '../../../types/models'
   import * as api from '../../../api/models'
   import { refreshModelCache } from '../../../editor/completions'
   import { success as toastSuccess, error as toastError } from '../../../stores/toast.svelte'
   import SqlEditor from '../../editor/SqlEditor.svelte'
+  import Input from '../../common/Input.svelte'
+  import Select, { type SelectOption } from '../../common/Select.svelte'
+  import Button from '../../common/Button.svelte'
+  import Badge from '../../common/Badge.svelte'
+  import Textarea from '../../common/Textarea.svelte'
   import {
     Play,
     Save,
@@ -19,6 +24,7 @@
     Clock,
     Loader2,
     Code,
+    GitBranch,
   } from 'lucide-svelte'
 
   interface Props {
@@ -31,6 +37,8 @@
   let saving = $state(false)
   let running = $state(false)
   let showDescription = $state(false)
+  // GitHub-managed models are edited in the repository, never here.
+  let managedByGitHub = $state(false)
 
   // Split panel
   const savedSplit = parseFloat(localStorage.getItem('ch-ui-model-split-percent') ?? '60')
@@ -40,12 +48,32 @@
 
   // Run output
   let runResult = $state<ModelRunResult | null>(null)
-  let runLoading = $state(false)
+
+  const ENGINE_OPTIONS: SelectOption[] = [
+    { value: 'MergeTree', label: 'MergeTree' },
+    { value: 'ReplacingMergeTree', label: 'ReplacingMergeTree' },
+    { value: 'SummingMergeTree', label: 'SummingMergeTree' },
+    { value: 'AggregatingMergeTree', label: 'AggregatingMergeTree' },
+    { value: 'Memory', label: 'Memory' },
+  ]
+
+  // ClickHouse accepts ORDER BY only for the MergeTree family.
+  const takesOrderBy = $derived(tab.edit.tableEngine.includes('MergeTree'))
 
   onMount(() => {
     showDescription = !!tab.edit.description
+    loadSource()
     loadLatestRun()
   })
+
+  async function loadSource() {
+    try {
+      const res = await api.getModel(tab.modelId)
+      managedByGitHub = res.model.source === 'github'
+    } catch {
+      // The run and save calls report their own errors.
+    }
+  }
 
   async function loadLatestRun() {
     try {
@@ -65,10 +93,17 @@
   }
 
   function handleSQLChange(sql: string) {
+    if (managedByGitHub) return
     updateModelTabEdit(tab.id, { sqlBody: sql })
   }
 
-  async function handleSave() {
+  function setMaterialization(m: Materialization) {
+    updateModelTabEdit(tab.id, { materialization: m })
+  }
+
+  /** Saves the editor state. Returns false (after a toast) when it failed. */
+  async function handleSave(): Promise<boolean> {
+    if (managedByGitHub) return false
     saving = true
     try {
       const sqlValue = sqlEditor?.getValue() ?? tab.edit.sqlBody
@@ -76,7 +111,7 @@
         name: tab.edit.modelName,
         description: tab.edit.description,
         target_database: tab.edit.targetDatabase,
-        materialization: tab.edit.materialization as 'view' | 'table',
+        materialization: tab.edit.materialization as Materialization,
         sql_body: sqlValue,
         table_engine: tab.edit.tableEngine,
         order_by: tab.edit.orderBy,
@@ -88,67 +123,48 @@
         last_error: res.model.last_error,
       })
       toastSuccess('Model saved')
+      return true
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to save model')
+      toastError((e instanceof Error ? e.message : '') || 'Failed to save model')
+      return false
     } finally {
       saving = false
     }
   }
 
+  // Runs build what is saved on the server, so unsaved edits are saved first.
   async function handleRun() {
+    if (tab.dirty && !managedByGitHub) {
+      if (!(await handleSave())) return
+    }
     running = true
-    runResult = null
     try {
+      // The run is synchronous: when this returns, the run has finished.
       const res = await api.runSingleModel(tab.modelId)
-      toastSuccess('Model run started')
-
-      // Fetch the run result
-      if (res.run_id) {
-        runLoading = true
-        // Poll briefly for result completion
-        let attempts = 0
-        while (attempts < 10) {
-          await new Promise(r => setTimeout(r, 1000))
-          try {
-            const detail = await api.getModelRun(res.run_id)
-            const result = (detail.results ?? []).find(r => r.model_id === tab.modelId)
-            if (result && result.status !== 'pending' && result.status !== 'running') {
-              runResult = result
-              // Update tab status
-              const modelRes = await api.getModel(tab.modelId)
-              if (modelRes.model) {
-                updateModelTabStatus(tab.id, modelRes.model.status, modelRes.model.last_error)
-              }
-              break
-            }
-          } catch {
-            break
-          }
-          attempts++
-        }
-        runLoading = false
+      const detail = await api.getModelRun(res.run_id)
+      runResult = (detail.results ?? []).find(r => r.model_id === tab.modelId) ?? null
+      const modelRes = await api.getModel(tab.modelId)
+      updateModelTabStatus(tab.id, modelRes.model.status, modelRes.model.last_error)
+      if (res.status === 'success') {
+        toastSuccess('Model run finished')
+      } else {
+        toastError(runResult?.error || res.error || 'Model run failed')
       }
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to run model')
+      toastError((e instanceof Error ? e.message : '') || 'Failed to run model')
     } finally {
       running = false
     }
   }
 
-  function statusBadgeClass(status: string): string {
-    switch (status) {
-      case 'success': return 'bg-success-soft text-success'
-      case 'error': return 'bg-danger-soft text-danger'
-      case 'running': return 'bg-info-soft text-info'
-      default: return 'bg-surface-2 text-fg-2 '
-    }
-  }
+  type StatusTone = 'neutral' | 'success' | 'danger' | 'info'
 
-  function statusDot(status: string): string {
+  function statusTone(status: string): StatusTone {
     switch (status) {
-      case 'success': return 'bg-success'
-      case 'error': return 'bg-danger'
-      default: return 'bg-fg-4'
+      case 'success': return 'success'
+      case 'error': return 'danger'
+      case 'running': return 'info'
+      default: return 'neutral'
     }
   }
 
@@ -178,132 +194,152 @@
 
 <div class="flex flex-col h-full overflow-hidden" bind:this={containerEl}>
   <!-- Config toolbar -->
-  <div class="flex items-center gap-2 px-3 py-2 border-b border-edge-subtle bg-surface shrink-0 flex-wrap">
-    <input
-      type="text"
+  <div class="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-edge-subtle bg-surface px-3 py-1.5">
+    <Input
+      size="sm"
+      mono
       value={tab.edit.modelName}
-      oninput={(e) => updateModelTabEdit(tab.id, { modelName: (e.target as HTMLInputElement).value })}
-      class="text-sm font-semibold bg-transparent border-0 border-b border-transparent hover:border-edge focus:border-accent focus:outline-none text-fg px-1 py-0.5 min-w-[120px] max-w-[200px]"
+      oninput={(e) => updateModelTabEdit(tab.id, { modelName: e.currentTarget.value })}
       placeholder="model_name"
+      disabled={managedByGitHub}
+      class="w-44 font-semibold"
     />
-    <span class="text-fg-4">|</span>
-    <label for="model-target-db-{tab.id}" class="text-[10px] text-fg-4 uppercase tracking-wide">db</label>
-    <input
+    <label for="model-target-db-{tab.id}" class="text-xs text-fg-3">Database</label>
+    <Input
       id="model-target-db-{tab.id}"
-      type="text"
+      size="sm"
+      mono
       value={tab.edit.targetDatabase}
-      oninput={(e) => updateModelTabEdit(tab.id, { targetDatabase: (e.target as HTMLInputElement).value })}
-      class="text-xs bg-transparent border border-edge rounded px-1.5 py-0.5 w-24 text-fg-2 focus:border-accent focus:outline-none"
+      oninput={(e) => updateModelTabEdit(tab.id, { targetDatabase: e.currentTarget.value })}
+      disabled={managedByGitHub}
+      class="w-32"
     />
-    <span class="text-fg-4">|</span>
-    <!-- Materialization toggle -->
-    <div class="flex rounded border border-edge overflow-hidden">
-      <button
-        onclick={() => updateModelTabEdit(tab.id, { materialization: 'view' })}
-        class="flex items-center gap-1 text-[10px] px-2 py-0.5 transition-colors
- {tab.edit.materialization === 'view'
-            ? 'bg-accent-soft text-accent'
-            : 'text-fg-3 hover:bg-hover'}"
+    <div class="flex items-center gap-0.5 rounded-md border border-edge p-0.5" role="group" aria-label="Materialization">
+      <Button
+        size="xs"
+        variant={tab.edit.materialization === 'view' ? 'secondary' : 'ghost'}
+        aria-pressed={tab.edit.materialization === 'view'}
+        disabled={managedByGitHub}
+        onclick={() => setMaterialization('view')}
       >
-        <Eye size={11} /> View
-      </button>
-      <button
-        onclick={() => updateModelTabEdit(tab.id, { materialization: 'table' })}
-        class="flex items-center gap-1 text-[10px] px-2 py-0.5 border-l border-edge transition-colors
- {tab.edit.materialization === 'table'
-            ? 'bg-accent-soft text-accent'
-            : 'text-fg-3 hover:bg-hover'}"
+        <Eye size={12} /> View
+      </Button>
+      <Button
+        size="xs"
+        variant={tab.edit.materialization === 'table' ? 'secondary' : 'ghost'}
+        aria-pressed={tab.edit.materialization === 'table'}
+        disabled={managedByGitHub}
+        onclick={() => setMaterialization('table')}
       >
-        <Table2 size={11} /> Table
-      </button>
+        <Table2 size={12} /> Table
+      </Button>
     </div>
 
     {#if tab.edit.materialization === 'table'}
-      <span class="text-fg-4">|</span>
-      <select
+      <Select
+        size="sm"
+        class="w-48"
         value={tab.edit.tableEngine}
-        onchange={(e) => updateModelTabEdit(tab.id, { tableEngine: (e.target as HTMLSelectElement).value })}
-        class="text-[10px] bg-transparent border border-edge rounded px-1 py-0.5 text-fg-2 focus:outline-none"
-      >
-        <option value="MergeTree">MergeTree</option>
-        <option value="ReplacingMergeTree">ReplacingMergeTree</option>
-        <option value="SummingMergeTree">SummingMergeTree</option>
-        <option value="AggregatingMergeTree">AggregatingMergeTree</option>
-        <option value="Memory">Memory</option>
-      </select>
-      <input
-        type="text"
-        value={tab.edit.orderBy}
-        oninput={(e) => updateModelTabEdit(tab.id, { orderBy: (e.target as HTMLInputElement).value })}
-        placeholder="ORDER BY"
-        class="text-[10px] bg-transparent border border-edge rounded px-1.5 py-0.5 w-24 text-fg-2 focus:border-accent focus:outline-none"
+        options={ENGINE_OPTIONS}
+        disabled={managedByGitHub}
+        onchange={(v) => updateModelTabEdit(tab.id, { tableEngine: v })}
       />
+      {#if takesOrderBy}
+        <Input
+          size="sm"
+          mono
+          value={tab.edit.orderBy}
+          oninput={(e) => updateModelTabEdit(tab.id, { orderBy: e.currentTarget.value })}
+          placeholder="ORDER BY (default tuple())"
+          disabled={managedByGitHub}
+          class="w-40"
+        />
+      {/if}
     {/if}
 
     <div class="flex-1"></div>
 
-    <button
+    <Button
+      icon
+      size="sm"
+      variant="ghost"
       onclick={() => { showDescription = !showDescription }}
-      class="text-[10px] text-fg-4 hover:text-fg flex items-center gap-0.5 transition-colors"
       title="Toggle description"
+      aria-label="Toggle description"
+      aria-pressed={showDescription}
     >
-      <FileText size={11} />
-    </button>
-    <span class="w-1.5 h-1.5 rounded-full {statusDot(tab.status)}" title={tab.status}></span>
-    <button
+      <FileText size={14} />
+    </Button>
+    <Badge dot tone={statusTone(tab.status)}>{tab.status}</Badge>
+    <Button
+      size="sm"
+      variant="outline"
       onclick={handleRun}
-      disabled={running}
-      class="flex items-center gap-1 text-[10px] px-2 py-1 rounded text-fg-3 hover:text-success hover:bg-success-soft disabled:opacity-40 transition-colors"
-      title="Run this model"
-    >
-      <Play size={12} /> {running ? 'Running...' : 'Run'}
-    </button>
-    <button
-      onclick={handleSave}
+      loading={running}
       disabled={saving}
-      class="flex items-center gap-1 text-[10px] px-2.5 py-1 rounded bg-accent text-accent-fg hover:brightness-110 disabled:opacity-50 transition-colors font-medium"
+      title={tab.dirty && !managedByGitHub ? 'Save and run this model' : 'Run this model'}
     >
-      <Save size={12} /> {saving ? 'Saving...' : 'Save'}
-    </button>
+      {#if !running}<Play size={13} />{/if}
+      {running ? 'Running...' : tab.dirty && !managedByGitHub ? 'Save and run' : 'Run'}
+    </Button>
+    {#if !managedByGitHub}
+      <Button size="sm" onclick={handleSave} loading={saving} disabled={running || !tab.dirty}>
+        {#if !saving}<Save size={13} />{/if}
+        {saving ? 'Saving...' : 'Save'}
+      </Button>
+    {/if}
   </div>
+
+  {#if managedByGitHub}
+    <div class="flex shrink-0 items-center gap-2 border-b border-edge-subtle bg-info-soft px-3 py-2 text-xs text-fg-2">
+      <GitBranch size={14} class="shrink-0 text-info" />
+      <Badge tone="info">Managed by GitHub</Badge>
+      <span>This model is read-only here. Edit the .sql file in your repository and sync again.</span>
+    </div>
+  {/if}
 
   <!-- Description (collapsible) -->
   {#if showDescription}
-    <div class="px-3 py-1.5 border-b border-edge-subtle bg-surface shrink-0">
-      <textarea
+    <div class="shrink-0 border-b border-edge-subtle bg-surface px-3 py-2">
+      <Textarea
         value={tab.edit.description}
-        oninput={(e) => updateModelTabEdit(tab.id, { description: (e.target as HTMLTextAreaElement).value })}
+        oninput={(e) => updateModelTabEdit(tab.id, { description: e.currentTarget.value })}
         rows={2}
         placeholder="Model description (optional)"
-        class="w-full text-xs bg-transparent border-0 focus:outline-none text-fg-2 resize-none placeholder:text-fg-4"
-      ></textarea>
+        disabled={managedByGitHub}
+      />
     </div>
   {/if}
 
   <!-- Info hint -->
-  <div class="px-3 py-1 border-b border-edge-subtle bg-surface shrink-0">
-    <div class="flex items-center gap-2 text-[10px] text-fg-4">
-      <span>Use <code class="px-1 py-0.5 rounded bg-surface-2 font-mono">$ref(model_name)</code> to reference other models</span>
-      <span class="opacity-40">|</span>
-      <span>View = computed on read, Table = snapshot on run</span>
+  <div class="shrink-0 border-b border-edge-subtle bg-surface px-3 py-1.5">
+    <div class="flex flex-wrap items-center gap-2 text-xs text-fg-3">
+      <span>Use <code class="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-fg-2">$ref(model_name)</code> to reference other models</span>
+      <span class="text-fg-4">|</span>
+      <span>View: computed on read. Table: rebuilt on every run.</span>
     </div>
   </div>
 
   <!-- Editor pane -->
   <div class="flex flex-col min-h-[80px] overflow-hidden" style="height: {splitPercent}%">
     <div class="flex-1 min-h-0">
-      <SqlEditor
-        bind:this={sqlEditor}
-        value={tab.edit.sqlBody}
-        onchange={handleSQLChange}
-      />
+      {#if managedByGitHub}
+        <pre class="h-full overflow-auto bg-canvas p-3 font-mono text-xs leading-relaxed text-fg whitespace-pre" aria-label="Model SQL (read-only)">{tab.edit.sqlBody}</pre>
+      {:else}
+        <SqlEditor
+          bind:this={sqlEditor}
+          value={tab.edit.sqlBody}
+          onchange={handleSQLChange}
+          onsave={handleSave}
+        />
+      {/if}
     </div>
   </div>
 
   <!-- Drag handle -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="h-1 shrink-0 cursor-row-resize group flex items-center justify-center hover:bg-ch-orange/20 transition-colors {dragging ? 'bg-ch-orange/30' : 'bg-surface-2'}"
+    class="h-1 shrink-0 cursor-row-resize group flex items-center justify-center hover:bg-accent-soft transition-colors {dragging ? 'bg-accent-soft' : 'bg-surface-2'}"
     onmousedown={onDragStart}
   >
     <div class="w-8 h-0.5 rounded-full {dragging ? 'bg-accent' : 'bg-fg-4 group-hover:bg-accent/60'} transition-colors"></div>
@@ -311,8 +347,8 @@
 
   <!-- Run Output Panel -->
   <div class="flex-1 min-h-[60px] overflow-auto bg-surface">
-    {#if running || runLoading}
-      <div class="flex items-center justify-center h-full gap-2 text-fg-4 text-sm">
+    {#if running}
+      <div class="flex items-center justify-center h-full gap-2 text-[13px] text-fg-3">
         <Loader2 size={16} class="animate-spin" />
         <span>Running model...</span>
       </div>
@@ -329,12 +365,10 @@
               <Clock size={16} class="text-info" />
             {/if}
           </span>
-          <span class="text-[10px] px-2 py-0.5 rounded-full {statusBadgeClass(runResult.status)} font-medium uppercase tracking-wide">
-            {runResult.status}
-          </span>
+          <Badge tone={statusTone(runResult.status)}>{runResult.status}</Badge>
           <span class="text-xs text-fg-3">{runResult.elapsed_ms}ms</span>
           {#if runResult.finished_at}
-            <span class="text-[10px] text-fg-4 ml-auto">{new Date(runResult.finished_at).toLocaleString()}</span>
+            <span class="ml-auto text-xs text-fg-4">{new Date(runResult.finished_at).toLocaleString()}</span>
           {/if}
         </div>
 
@@ -349,7 +383,7 @@
         <!-- Resolved SQL -->
         {#if runResult.resolved_sql}
           <div class="space-y-1">
-            <div class="flex items-center gap-1.5 text-[10px] text-fg-4 uppercase tracking-wide font-medium">
+            <div class="flex items-center gap-1.5 text-xs font-medium text-fg-3">
               <Code size={11} />
               <span>Resolved SQL</span>
             </div>
@@ -358,7 +392,7 @@
         {/if}
       </div>
     {:else}
-      <div class="flex items-center justify-center h-full text-fg-4 text-sm">
+      <div class="flex items-center justify-center h-full text-[13px] text-fg-3">
         Run this model to see results
       </div>
     {/if}
