@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.17.1] - 2026-10-12
+
 ### Security
 
 - **Shared dashboard links run only their own panels.** The public query
@@ -17,7 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at 30 seconds and 32 MB of results. When the sharer's ClickHouse profile is
   already read only, which refuses those caps, the panel runs with
   `readonly=1` alone. The public dashboard response no longer includes panel
-  SQL, and a share whose expiry date cannot be read is treated as expired.
+  SQL, and a share whose expiry date cannot be read is treated as expired
+  (#243).
 
 ### Fixed
 
@@ -28,7 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so those pages failed for read-only accounts (Schema Compare said to check
   credentials). CH-UI now drops the setting ClickHouse names and retries;
   `readonly=1` and query parameters are always kept, and the profile still
-  blocks writes.
+  blocks writes (#244).
+- **Helm chart image.** The chart's `appVersion` was still `v2.13.0`, so a
+  default install ran an old release. It now points at v2.17.1 (chart
+  0.7.1).
+
+### Changed
+
+- Contributor license agreement, CONTRIBUTING guide and a CLA check on pull
+  requests (#242). No change to the shipped binaries or image.
 
 ## [2.17.0] - 2026-10-11
 
