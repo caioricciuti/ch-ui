@@ -11,7 +11,8 @@ services:
     # Or build locally: build: .
     restart: unless-stopped
     ports:
-      - "3488:3488"
+      # Bound to localhost. Publish on all interfaces only behind TLS.
+      - "127.0.0.1:3488:3488"
     environment:
       # CHANGE THIS in production — encrypts API keys and session credentials.
       APP_SECRET_KEY: ${APP_SECRET_KEY:-please-change-me-to-a-random-secret}
@@ -27,11 +28,12 @@ services:
         condition: service_healthy
 
   clickhouse:
-    image: clickhouse/clickhouse-server:24.8
+    # Same image and digest CI tests against (ci.yml, mirror-images.yml).
+    image: clickhouse/clickhouse-server:25.8@sha256:0152dd511befe6a2c2ef53e930726179669b08116da78500b37c51c96ff5ee77
     restart: unless-stopped
     ports:
-      - "8123:8123"
-      - "9000:9000"
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
     ulimits:
       nofile:
         soft: 262144

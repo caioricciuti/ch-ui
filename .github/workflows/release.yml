@@ -9,19 +9,33 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
+# Read-only by default. Only the release job, which runs after the tests
+# pass, gets write access.
 permissions:
-  contents: write
-  packages: write
-  id-token: write # keyless Cosign signing via OIDC
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  # The same jobs as a pull request or a push to main: Go vet and race tests
+  # (with the live ClickHouse suites), UI check, tests and build, the site
+  # build and the Helm checks. Nothing is built or published unless they pass.
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   release:
+    needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: write # create the GitHub Release and upload assets
+      packages: write # push the image to GHCR
+      id-token: write # keyless Cosign signing via OIDC
 
     steps:
       - name: Checkout
@@ -37,6 +51,8 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: ui/.bun-version
 
       - name: Extract release metadata
         id: release
@@ -94,7 +110,7 @@ jobs:
 
           docker run --rm \
             -v "$PWD/dist:/dist:ro" \
-            alpine:3.20 \
+            alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 \
             /dist/ch-ui-linux-amd64 version
 
       - name: Generate checksums

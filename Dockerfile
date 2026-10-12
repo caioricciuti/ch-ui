@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-FROM oven/bun:1.2.23 AS ui-builder
+# Base images are pinned by digest. Bun matches ui/.bun-version, Go matches
+# the go directive in go.mod.
+FROM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS ui-builder
 WORKDIR /src/ui
 
 COPY ui/package.json ui/bun.lock ./
@@ -11,7 +13,7 @@ ENV CHUI_VITE_MINIFY=true \
     CHUI_VITE_REPORT_COMPRESSED=false
 RUN bun run build
 
-FROM golang:1.26-alpine AS go-builder
+FROM golang:1.26.9-alpine3.24@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade AS go-builder
 WORKDIR /src
 
 ARG VERSION=dev
@@ -29,7 +31,7 @@ COPY --from=ui-builder /src/ui/dist ./ui/dist
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags "-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT} -X main.BuildDate=${BUILD_DATE}" -o /out/ch-ui .
 
-FROM alpine:3.20 AS runtime
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS runtime
 RUN addgroup -S chui && adduser -S -G chui chui \
     && apk add --no-cache ca-certificates tzdata wget \
     && mkdir -p /app/data \
