@@ -120,5 +120,10 @@ them.
 
 ## Buying a Pro license
 
-For commercial licensing, evaluation licenses, or alternative arrangements,
-contact **me@caioricciuti.com**.
+Buy a Pro license, or start a 30-day free trial (no card), at
+[ch-ui.com/pricing](https://ch-ui.com/pricing). Checkout is self-serve through
+Stripe, and the license arrives by email. To recover a lost license or change
+billing, use [ch-ui.com/license](https://ch-ui.com/license).
+
+For Enterprise terms (multiple instances, invoicing, custom terms) or other
+arrangements, contact **me@caioricciuti.com**.

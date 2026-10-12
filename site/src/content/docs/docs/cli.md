@@ -38,6 +38,7 @@ ch-ui connect      # run connector agent next to ClickHouse
 ch-ui tunnel       # create/manage tunnel keys on server host
 ch-ui service      # install connector as OS service
 ch-ui backup       # consistent snapshot of the CH-UI database
+ch-ui reset-admin  # recover the CH-UI admin role
 ch-ui uninstall    # best-effort local uninstall + cleanup hints
 ch-ui update       # update binary to latest release
 ch-ui version      # print version
@@ -76,6 +77,7 @@ ch-ui server restart
 | `--stop-timeout` | Graceful stop timeout | `10s` |
 | `--dev` | Development mode (frontend proxy) | `false` |
 | `--allow-login-url` | Allow sign-in with a ClickHouse URL typed on the login page. The server connects to it, so trusted networks only. See [Configuration](/docs/configuration/#sign-in-with-a-clickhouse-url) | `false` |
+| `--trusted-proxies` | Comma-separated IPs or CIDRs of reverse proxies whose `X-Forwarded-For` is trusted; `none` trusts no proxy. See [Configuration](/docs/configuration/#behind-a-reverse-proxy) | loopback, private and link-local ranges |
 
 ## `connect`
 
@@ -178,6 +180,40 @@ The command refuses to overwrite an existing file.
 | `--database-path` | Path to the database (overrides config) | none |
 
 > The backup contains credentials encrypted with `APP_SECRET_KEY`. Back that key up separately. It is not stored in the database, and a restore on another host needs the same key. To restore: stop the server, replace the database file with the backup, start with the same `APP_SECRET_KEY`.
+
+## `reset-admin`
+
+Recover the CH-UI admin role when nobody who holds it can sign in. The first
+ClickHouse admin who signs in becomes the CH-UI admin; after that only an
+existing CH-UI admin can grant the role, so this is the way back in when that
+person is gone.
+
+```bash
+ch-ui reset-admin                 # remove every CH-UI admin
+ch-ui reset-admin --user alice    # make alice an admin, keep existing admins
+docker exec <container> ch-ui reset-admin
+```
+
+With no flags it removes every CH-UI admin assignment, and the next ClickHouse
+admin who signs in becomes the CH-UI admin, as on a fresh install. Other roles
+(analyst, viewer) are kept, and sessions of removed admins drop to viewer right
+away. With `--user`, use the ClickHouse username for a password login or
+`sso:<email>` for someone who signs in with SSO.
+
+It is safe to run while the server is up. It opens the server's database
+directly, so run it on the server host (or with `docker exec`), and it refuses
+to run when the database file does not exist. Each run is recorded in the audit
+log as `user_role.reset_admin`. See
+[Can't login?](/docs/cant-login/#recover-the-admin-role) for the full recovery
+steps.
+
+### Flags
+
+| Flag | Description | Default |
+|---|---|---|
+| `--config, -c` | Path to config file (used to locate the database) | auto-detected |
+| `--database-path` | Path to the database (overrides config) | none |
+| `--user` | Make this user an admin instead of clearing admins | none |
 
 ## `update`
 

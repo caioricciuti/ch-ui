@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/caioricciuti/ch-ui/releases"><img src="https://img.shields.io/github/v/release/caioricciuti/ch-ui?label=version" alt="Version" /></a>
-  <a href="https://github.com/caioricciuti/ch-ui/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License" /></a>
+  <a href="https://github.com/caioricciuti/ch-ui/blob/main/LICENSING.md"><img src="https://img.shields.io/badge/license-Apache%202.0%20%2B%20BSL%201.1%20(Pro)-blue" alt="License: Apache 2.0, Pro features BSL 1.1" /></a>
   <a href="https://github.com/caioricciuti/ch-ui/stargazers"><img src="https://img.shields.io/github/stars/caioricciuti/ch-ui" alt="Stars" /></a>
   <a href="https://github.com/caioricciuti/ch-ui/pkgs/container/ch-ui"><img src="https://img.shields.io/badge/docker-ghcr.io-blue" alt="Docker" /></a>
 </p>
@@ -104,10 +104,9 @@ Everything below is included in the free Community edition under Apache 2.0.
 - Multi-chat support with full history persistence
 - **Provider support:** OpenAI, OpenAI-compatible APIs (Groq, Together, etc.), Ollama (local LLMs)
 - Admin-controlled model and provider activation
-- Schema-aware context (attach up to 10 tables as context per chat)
+- Schema-aware context: type `@` to mention tables, dashboards, pipelines, models or saved queries in a message
 - SQL artifact generation — run generated queries directly from chat
 - Brain skills (configurable system prompts/instructions)
-- Token usage tracking
 
 ### Data Pipelines
 
@@ -351,8 +350,10 @@ ch-ui server stop            # Stop server
 | `ch-ui` / `ch-ui server` | Start web app + API + gateway |
 | `ch-ui connect` | Start tunnel agent next to ClickHouse |
 | `ch-ui tunnel create/list/show/rotate/delete` | Manage tunnel keys (server host) |
-| `ch-ui service install/start/stop/status/logs/uninstall` | Manage connector as OS service |
+| `ch-ui server start/stop/status/restart` | Run the server in the background and manage it through its PID file |
+| `ch-ui service install/start/stop/restart/status/logs/uninstall` | Manage connector as OS service |
 | `ch-ui backup [file]` | Consistent snapshot of the SQLite database |
+| `ch-ui reset-admin [--user <name>]` | Recover the CH-UI admin role when no admin can sign in |
 | `ch-ui update` | Update to latest release |
 | `ch-ui version` | Print version |
 | `ch-ui completion bash/zsh/fish` | Generate shell completions |
@@ -369,12 +370,15 @@ ch-ui server stop            # Stop server
 | `--detach` | - | Run in background |
 | `--dev` | - | Development mode (proxy to Vite) |
 | `--allow-login-url` | off | Let the login page sign in with a typed ClickHouse URL. The server makes the connection, so enable only on trusted networks |
+| `--trusted-proxies` | loopback, private and link-local ranges | Comma-separated IPs or CIDRs of reverse proxies whose X-Forwarded-For is trusted; `none` trusts no proxy |
+| `--pid-file` | `ch-ui-server.pid` | Path to server PID file |
+| `--stop-timeout` | `10s` | Graceful stop timeout |
 
 ### Connect flags
 
 | Flag | Default | Description |
 |---|---|---|
-| `--url` | - | WebSocket tunnel URL (`wss://`) |
+| `--url` | `ws://127.0.0.1:3488/connect` | WebSocket tunnel URL (`ws://` or `wss://`); falls back to `TUNNEL_URL`, then the config file |
 | `--key` | - | Tunnel token (`cht_...`) |
 | `--clickhouse-url` | `http://localhost:8123` | Local ClickHouse |
 | `--config, -c` | - | Path to `config.yaml` |
@@ -419,6 +423,12 @@ allowed_origins:
 | `app_secret_key` | `APP_SECRET_KEY` | auto-generated | Encrypts sessions and stored credentials. When not set, a random key is generated and persisted to `.app_secret_key` next to the database |
 | `allowed_origins` | `ALLOWED_ORIGINS` | empty | CORS allowlist (comma-separated in env) |
 | `tunnel_url` | `TUNNEL_URL` | derived from port | Tunnel endpoint advertised to agents |
+| `session_max_age` | `SESSION_MAX_AGE` | `604800` (7 days) | Session lifetime in seconds |
+| `allow_login_url` | `ALLOW_LOGIN_URL` | `false` | Same as `--allow-login-url` |
+| `trusted_proxies` | `TRUSTED_PROXIES` | loopback, private and link-local ranges | Same as `--trusted-proxies` (list in YAML, comma-separated in env) |
+| `tls_cert_file` / `tls_key_file` | `TLS_CERT_FILE` / `TLS_KEY_FILE` | empty | Set both to serve HTTPS directly; otherwise put a TLS-terminating proxy in front |
+
+Audit forwarding (`audit_*`), SSO (`oidc_*`) and the Pro license (`CHUI_LICENSE`, `CHUI_LICENSE_FILE`) have their own keys. The full list is in [ch-ui.com/docs/configuration](https://ch-ui.com/docs/configuration).
 
 ### Connector config
 
@@ -528,7 +538,7 @@ curl http://localhost:3488/health
 
 ## Development
 
-Requirements: Go 1.25+, Bun
+Requirements: Go 1.26.9+ (the version in `go.mod`), Bun
 
 ```bash
 git clone https://github.com/caioricciuti/ch-ui.git

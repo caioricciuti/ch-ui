@@ -99,8 +99,39 @@ allow_login_url: true
 
 `ALLOW_LOGIN_URL` reads `true`, `1` or `yes` (any case) as on and any other
 value as off, so `ALLOW_LOGIN_URL=false` turns it off even when `server.yaml`
-has it on. The flag is passed on when the server starts with `--detach`, and
-`ch-ui update` keeps it when it restarts the server.
+has it on. The flag is passed on when the server starts with `--detach`.
+`ch-ui update` keeps it when it restarts the server on Linux,
+where it reads the running server's arguments; on other systems the restarted
+server gets only `--pid-file`, so set it in `server.yaml` or the environment
+there.
+
+:::caution
+In v1 the browser connected to ClickHouse. Here the CH-UI server makes the
+connection, so anyone who can open the login page can make the server connect
+to any address the server can reach. Enable it only where everyone who can
+reach the login page is trusted: CH-UI on your laptop or desktop, or on a
+private LAN. The server logs a `WARN` line at startup while it is on.
+:::
+
+How it behaves:
+
+- The URL follows the same rules as
+  [first-run setup](/docs/cant-login/#first-run-setup-from-the-login-page):
+  `http://` or `https://` with a host, no username or password, no query
+  string or fragment, no link-local or cloud metadata address.
+- The server keeps one direct connection per URL (scheme and host compared
+  without case, trailing slashes ignored). Signing in again with the same URL
+  reuses it, and so does a URL that matches a direct connection an admin
+  created. The embedded connection is never reused this way.
+- A new connection is named `host:port` from the URL and stays in the picker
+  for next time. It is created before the credentials are checked, so a
+  failed sign-in can still leave it behind.
+- The login page creates at most 20 connections. When that many still exist,
+  a new URL is refused until an admin deletes unused ones in
+  **Admin > Connections**. Reusing an existing one still works.
+- Each new connection is audited as `connection.created_from_login`.
+
+See [Direct vs Tunnel Connections](/docs/connections/#connections-from-the-login-page).
 
 ### Behind a reverse proxy
 
@@ -142,39 +173,6 @@ headers, the server logs `Ignoring X-Forwarded-For from an address that is
 not a trusted proxy` once for that address. If you see it for your own proxy,
 add the proxy to `trusted_proxies`; until you do, every user behind it shares
 one per-IP login limit.
-
-:::caution
-In v1 the browser connected to ClickHouse. Here the CH-UI server makes the
-connection, so anyone who can open the login page can make the server connect
-to any address the server can reach. Enable it only where everyone who can
-reach the login page is trusted: CH-UI on your laptop or desktop, or on a
-private LAN. The server logs a `WARN` line at startup while it is on.
-:::
-
-How it behaves:
-
-- The URL follows the same rules as
-  [first-run setup](/docs/cant-login/#first-run-setup-from-the-login-page):
-  `http://` or `https://` with a host, no username or password, no query
-  string or fragment, no link-local or cloud metadata address.
-- The server keeps one direct connection per URL (scheme and host compared
-  without case, trailing slashes ignored). Signing in again with the same URL
-  reuses it, and so does a URL that matches a direct connection an admin
-  created. The embedded connection is never reused this way.
-- A new connection is named `host:port` from the URL and stays in the picker
-  for next time. It is created before the credentials are checked, so a
-  failed sign-in can still leave it behind.
-- The login page creates at most 20 connections. When that many still exist,
-  a new URL is refused until an admin deletes unused ones in
-  **Admin > Connections**. Reusing an existing one still works.
-- Each new connection is audited as `connection.created_from_login`.
-
-See [Direct vs Tunnel Connections](/docs/connections/#connections-from-the-login-page).
-
-`clickhouse_url` and `connection_name` are applied to the embedded connection
-on every start. A connection added with the first-run setup code on the login
-page is a separate direct connection and is not overwritten by them. See
-[Can't login?](/docs/cant-login/#first-run-setup-from-the-login-page).
 
 ### Native TLS
 
