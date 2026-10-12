@@ -100,8 +100,8 @@
         const active = s.find((x) => x.is_active) ?? s[0]
         skillForm = { name: active.name, content: active.content, isActive: active.is_active, isDefault: active.is_default }
       }
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       loading = false
     }
@@ -127,8 +127,8 @@
       toastSuccess('Provider created')
       closeProviderSheet()
       await loadAll()
-    } catch (e: any) {
-      providerError = e.message || 'Failed to create provider'
+    } catch (e) {
+      providerError = e instanceof Error && e.message ? e.message : 'Failed to create provider'
     } finally {
       providerCreating = false
     }
@@ -142,8 +142,8 @@
       })
       toastSuccess('Provider updated')
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -152,8 +152,8 @@
       await adminSyncBrainProviderModels(provider.id)
       toastSuccess(`Synced models for ${provider.name}. Recommended model auto-selected.`)
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -165,8 +165,8 @@
       await adminDeleteBrainProvider(provider.id)
       toastSuccess('Provider deleted')
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -191,8 +191,8 @@
       })
       toastSuccess('Model updated')
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -223,8 +223,8 @@
       if (action === 'activate_all') toastSuccess('All models activated for the selected provider')
       if (action === 'activate_recommended') toastSuccess('Recommended model activated and set as default')
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -249,8 +249,8 @@
       toastSuccess('System prompt saved')
       skillSheetOpen = false
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 

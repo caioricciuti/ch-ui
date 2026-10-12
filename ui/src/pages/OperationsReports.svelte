@@ -67,16 +67,16 @@
 </PageHeader>
 <PageBody width="full">
   {#if !admin}
-    <p class="text-sm text-fg-3">An administrator can configure and view operational reports for this connection.</p>
+    <p class="text-[13px] text-fg-3">An administrator can configure and view operational reports for this connection.</p>
   {:else if loading}<Spinner />
-  {:else if loadError}<p role="alert" class="text-sm text-danger">{loadError}</p>
+  {:else if loadError}<p role="alert" class="text-[13px] text-danger">{loadError}</p>
   {:else}
     <div class="space-y-6">
       <p class="max-w-3xl text-[13px] text-fg-3">Save a weekly summary of regressions, CPU-heavy workloads, failures, storage growth and resolved investigations. Reports use observed system-table data and remain available after query logs expire.</p>
       {#if settings}
         <Panel>
           <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); void save() }}>
-            <div class="flex items-center justify-between"><h2 class="text-sm font-medium">Weekly schedule</h2><label class="flex items-center gap-2 text-[13px]"><input type="checkbox" bind:checked={settings.enabled} disabled={busy} /> Enabled</label></div>
+            <div class="flex items-center justify-between"><h2 class="text-[13px] font-medium">Weekly schedule</h2><label class="flex items-center gap-2 text-[13px]"><input type="checkbox" bind:checked={settings.enabled} disabled={busy} /> Enabled</label></div>
             <div class="grid gap-4 md:grid-cols-3">
               <FormField label="Day" for="report-day"><select id="report-day" class="ds-select w-full" bind:value={settings.weekday} disabled={busy}>{#each weekdays as day, i}<option value={i}>{day}</option>{/each}</select></FormField>
               <FormField label="Hour (UTC)" for="report-hour"><Input id="report-hour" type="number" min="0" max="23" bind:value={settings.hour} disabled={busy} required /></FormField>
@@ -90,7 +90,7 @@
         </Panel>
       {/if}
       {#if !reports.length}
-        <Panel><p class="text-sm font-medium">Your first report starts here</p><p class="mt-1 text-[13px] text-fg-3">Generate a report to compare the last seven days with the previous seven. Missing history is labeled as insufficient data.</p></Panel>
+        <Panel><p class="text-[13px] font-medium">Your first report starts here</p><p class="mt-1 text-[13px] text-fg-3">Generate a report to compare the last seven days with the previous seven. Missing history is labeled as insufficient data.</p></Panel>
       {:else}
         <div class="grid gap-4 lg:grid-cols-[240px_1fr]">
           <nav aria-label="Saved reports" class="max-h-[600px] space-y-1 overflow-auto">{#each reports as report (report.id)}<button class="w-full rounded-md p-3 text-left hover:bg-hover {selected?.id === report.id ? 'bg-active' : ''}" onclick={() => selectedID = report.id}><span class="block text-[13px]">{new Date(report.created_at).toLocaleString()}</span><span class="text-xs text-fg-3">{report.delivery_status.replaceAll('_', ' ')}</span></button>{/each}</nav>

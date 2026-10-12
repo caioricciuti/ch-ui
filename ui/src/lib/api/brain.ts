@@ -7,6 +7,7 @@ import type {
   BrainModelOption,
   BrainProviderAdmin,
   BrainSkill,
+  SchemaContextEntry,
 } from '../types/brain'
 
 export async function listBrainModels(): Promise<BrainModelOption[]> {
@@ -42,7 +43,7 @@ export async function listBrainArtifacts(chatId: string): Promise<BrainArtifact[
   return res.artifacts ?? []
 }
 
-export async function runBrainQueryArtifact(chatId: string, payload: { query: string; title?: string; messageId?: string; timeout?: number }): Promise<any> {
+export async function runBrainQueryArtifact(chatId: string, payload: { query: string; title?: string; messageId?: string; timeout?: number }): Promise<{ artifact_id: string; result: { data: unknown; meta: unknown; stats: unknown } }> {
   return apiPost(`/api/brain/chats/${encodeURIComponent(chatId)}/artifacts/query`, payload)
 }
 
@@ -62,7 +63,7 @@ export interface StreamEvent {
 
 export async function streamBrainMessage(
   chatId: string,
-  payload: { content: string; modelId?: string; schemaContext?: any; schemaContexts?: any[]; entityContexts?: { type: string; id: string; name: string }[] },
+  payload: { content: string; modelId?: string; schemaContext?: SchemaContextEntry; schemaContexts?: SchemaContextEntry[]; entityContexts?: { type: string; id: string; name: string }[] },
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {

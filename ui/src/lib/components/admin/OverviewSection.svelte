@@ -43,8 +43,8 @@
     statsLoading = true
     try {
       stats = await apiGet<AdminStats>('/api/admin/stats')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       statsLoading = false
     }
@@ -53,8 +53,8 @@
   async function loadConnections() {
     try {
       connections = await apiGet<ConnectionRow[]>('/api/admin/connections')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 

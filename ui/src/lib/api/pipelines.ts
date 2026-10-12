@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDel } from './client'
-import type { Pipeline, PipelineGraph, PipelineRun, PipelineRunLog } from '../types/pipelines'
+import type { Pipeline, PipelineGraph } from '../types/pipelines'
 
 const BASE = '/api/pipelines'
 
@@ -13,10 +13,6 @@ export function createPipeline(data: { name: string; description?: string }) {
 
 export function getPipeline(id: string) {
   return apiGet<{ pipeline: Pipeline; graph: PipelineGraph }>(`${BASE}/${id}`)
-}
-
-export function updatePipeline(id: string, data: { name: string; description?: string }) {
-  return apiPut<{ pipeline: Pipeline }>(`${BASE}/${id}`, data)
 }
 
 export function deletePipeline(id: string) {
@@ -49,12 +45,4 @@ export function getPipelineStatus(id: string) {
     batches_sent?: number
     errors_count?: number
   }>(`${BASE}/${id}/status`)
-}
-
-export function listRuns(id: string, limit = 20, offset = 0) {
-  return apiGet<{ runs: PipelineRun[] }>(`${BASE}/${id}/runs?limit=${limit}&offset=${offset}`)
-}
-
-export function getRunLogs(id: string, runId: string, limit = 200) {
-  return apiGet<{ logs: PipelineRunLog[] }>(`${BASE}/${id}/runs/${runId}/logs?limit=${limit}`)
 }

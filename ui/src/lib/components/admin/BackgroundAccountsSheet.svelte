@@ -85,7 +85,7 @@
   {#if loading}
     <Spinner />
   {:else if loadError}
-    <p role="alert" class="text-sm text-error">{loadError}</p>
+    <p role="alert" class="text-[13px] text-danger">{loadError}</p>
   {:else}
     <form id="background-accounts-form" class="space-y-5" onsubmit={(e) => { e.preventDefault(); void save() }}>
       <FormField label="Background worker" for="background-worker">

@@ -88,8 +88,8 @@
     retentionLoading = true
     try {
       retention = await fetchRetentionSettings()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       retentionLoading = false
     }
@@ -121,8 +121,8 @@
       retention = await updateRetentionSettings(retentionDraft)
       retentionSheetOpen = false
       toastSuccess('Retention settings saved')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       retentionSaving = false
     }

@@ -106,17 +106,6 @@ export interface ModelDAG {
   edges: DAGEdge[]
 }
 
-export interface ValidationError {
-  model_id?: string
-  model_name?: string
-  error: string
-}
-
-export interface ValidationResult {
-  valid: boolean
-  errors: ValidationError[]
-}
-
 export interface ModelSchedule {
   id: string
   connection_id: string

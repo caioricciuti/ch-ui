@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-import { apiGet, apiPost, apiDel } from './client'
+import { apiGet, apiPost } from './client'
 
 export type TimelineSource = 'queries' | 'parts' | 'health' | 'incidents' | 'comments' | 'deployments'
 export interface TimelineEvent {
@@ -38,8 +38,4 @@ export function fetchIncidentTimeline(from: string, to: string, incidentId = '')
 
 export function createDeploymentAnnotation(input: { occurred_at: string; title: string; details: string }) {
   return apiPost<{ id: string }>('/api/incident-timeline/annotations', input)
-}
-
-export function deleteDeploymentAnnotation(id: string) {
-  return apiDel(`/api/incident-timeline/annotations/${encodeURIComponent(id)}`)
 }
