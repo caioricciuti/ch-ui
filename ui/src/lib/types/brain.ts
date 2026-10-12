@@ -29,6 +29,18 @@ export interface ToolCall {
   approvalId?: string
 }
 
+/** Tokens one assistant message (all its provider calls) or request used. */
+export interface BrainUsage {
+  provider: string
+  model: string
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  /** Estimated from the admin's price table; absent when the model has no price. */
+  cost_usd?: number
+}
+
 export interface BrainMessage {
   id: string
   chat_id: string
@@ -37,6 +49,7 @@ export interface BrainMessage {
   status: string
   error?: string | null
   toolCalls?: ToolCall[]
+  usage?: BrainUsage
   created_at: string
   updated_at: string
 }
@@ -100,4 +113,57 @@ export interface EntityContext {
   type: 'dashboard' | 'pipeline' | 'model' | 'saved_query'
   id: string
   name: string
+}
+
+/** US dollars per million tokens; null means not set. */
+export interface BrainModelPrice {
+  input: number | null
+  output: number | null
+  cacheRead: number | null
+  cacheWrite: number | null
+}
+
+export interface BrainSettings {
+  agentModelId: string
+  quickModelId: string
+  /** Tokens per person per UTC day; 0 means no limit. */
+  dailyTokenBudget: number
+  /** Output cap per request; 0 means the model default. */
+  maxOutputTokens: number
+  prices: Record<string, BrainModelPrice> | null
+}
+
+export interface BrainUsageRow {
+  username: string
+  provider: string
+  model: string
+  requests: number
+  chat_turns: number
+  ask_ai: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  last_used_at: string
+  cost_usd: number | null
+}
+
+export interface BrainUsageTotals {
+  requests: number
+  users: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  cost_usd: number
+  priced_rows: number
+  unpriced_rows: number
+}
+
+export interface BrainUsageReport {
+  since: string
+  until: string
+  days: number
+  rows: BrainUsageRow[]
+  totals: BrainUsageTotals
 }
