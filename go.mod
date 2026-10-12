@@ -1,10 +1,11 @@
 module github.com/caioricciuti/ch-ui
 
-// 1.26.6, not 1.26.0: go1.26 through go1.26.5 carry four standard library
-// vulnerabilities govulncheck reports against this code, GO-2026-6218
-// (net/url), GO-2026-6090 (crypto/tls), GO-2026-6089 and GO-2026-6088
-// (net/http). CI runs the scan with GOTOOLCHAIN=local and installs exactly
-// what this line names, so the patch version has to be spelled out here.
+// The patch version is spelled out on purpose. go1.26 through go1.26.5 carry
+// four standard library vulnerabilities govulncheck reports against this code,
+// GO-2026-6218 (net/url), GO-2026-6090 (crypto/tls), GO-2026-6089 and
+// GO-2026-6088 (net/http). CI's setup-go reads this line (go-version-file) and
+// installs exactly this toolchain, the Dockerfile's golang image matches it,
+// and govulncheck scans with that toolchain. Raise it to pick up stdlib fixes.
 go 1.26.9
 
 require (

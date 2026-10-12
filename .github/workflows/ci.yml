@@ -5,18 +5,24 @@ on:
   push:
     branches:
       - main
+  # release.yml calls this workflow so a tag is built only after the full
+  # suite passes on the tagged commit.
+  workflow_call:
 
 permissions:
   contents: read
 
+# Superseded pull request runs are cancelled. Pushes to main are never
+# cancelled, so every merged commit gets a complete run.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:
     name: Backend (Go)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     services:
       clickhouse:
         # Mirror of clickhouse/clickhouse-server:25.8, same digest (mirror-images.yml).
@@ -100,6 +106,7 @@ jobs:
   frontend:
     name: Frontend (Svelte)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: ui
@@ -109,6 +116,8 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: ui/.bun-version
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -128,6 +137,7 @@ jobs:
   site:
     name: Site (Astro)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: site
@@ -155,3 +165,61 @@ jobs:
       # names a page which does not exist.
       - name: Build
         run: bun run build
+
+  helm:
+    name: Helm chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The chart's appVersion is the image tag it deploys by default, so it
+      # has to move with every release.
+      - name: Chart appVersion matches VERSION
+        run: |
+          want="$(tr -d '[:space:]' < VERSION)"
+          got="$(sed -n 's/^appVersion:[[:space:]]*"\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' deploy/helm/ch-ui/Chart.yaml)"
+          echo "VERSION:    ${want}"
+          echo "appVersion: ${got}"
+          if [ "${want}" != "${got}" ]; then
+            echo "deploy/helm/ch-ui/Chart.yaml appVersion must equal VERSION"
+            exit 1
+          fi
+
+      - name: Setup Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.22.0
+
+      - name: Lint chart
+        run: helm lint deploy/helm/ch-ui
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Same Dockerfile and actions as the release, for one platform and
+      # without pushing, so a broken base image or build step fails the pull
+      # request instead of the release.
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          platforms: linux/amd64
+          tags: ch-ui:ci
+
+      - name: Smoke test
+        run: |
+          docker run --rm --entrypoint ch-ui ch-ui:ci version
+          docker image inspect ch-ui:ci --format '{{.Config.User}}' | grep -qx chui
