@@ -7,6 +7,8 @@ Alerts turn governance, scheduler and telemetry events into email notifications:
 
 Alerts are a Pro feature. Manage them under **Governance → Alerts**; the API lives at `/api/governance/alerts/*` (returns `402` on the free edition, and the background dispatcher only runs with a Pro license).
 
+Everyone signed in can see channels, rules and events (channel secrets are never returned). Creating, editing or deleting a channel or rule, and sending a test alert, is admin only; other roles get `403` and do not see those buttons.
+
 The pipeline is: **events** (emitted by CH-UI) → **rules** (which events matter, at what severity) → **channels** (how email leaves the building).
 
 ## What can trigger an alert

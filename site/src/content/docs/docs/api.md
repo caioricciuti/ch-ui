@@ -437,8 +437,8 @@ See [Cost Center](/docs/cost-center).
 | `GET` | `/api/governance/query-harvest` | Query harvest mode and the connection's policy count |
 | `PUT` | `/api/governance/query-harvest` | Set the query harvest mode (admin) |
 | `GET` | `/api/governance/tags` | List tags |
-| `POST` | `/api/governance/tags` | Create tag |
-| `DELETE` | `/api/governance/tags/{id}` | Delete tag |
+| `POST` | `/api/governance/tags` | Create tag (admin) |
+| `DELETE` | `/api/governance/tags/{id}` | Delete tag on the current connection (admin) |
 | `GET` | `/api/governance/access/users` | List ClickHouse users |
 | `POST` | `/api/governance/access/users` | Create ClickHouse user (admin) |
 | `DELETE` | `/api/governance/access/users/{name}` | Drop ClickHouse user (admin) |
@@ -466,14 +466,14 @@ See [Cost Center](/docs/cost-center).
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/api/governance/alerts/channels` | List alert channels |
-| `POST` | `/api/governance/alerts/channels` | Create channel |
-| `PUT` | `/api/governance/alerts/channels/{id}` | Update channel |
-| `DELETE` | `/api/governance/alerts/channels/{id}` | Delete channel |
-| `POST` | `/api/governance/alerts/channels/{id}/test` | Test channel delivery |
+| `POST` | `/api/governance/alerts/channels` | Create channel (admin) |
+| `PUT` | `/api/governance/alerts/channels/{id}` | Update channel (admin) |
+| `DELETE` | `/api/governance/alerts/channels/{id}` | Delete channel (admin) |
+| `POST` | `/api/governance/alerts/channels/{id}/test` | Test channel delivery (admin) |
 | `GET` | `/api/governance/alerts/rules` | List rules (with routes) |
-| `POST` | `/api/governance/alerts/rules` | Create rule |
-| `PUT` | `/api/governance/alerts/rules/{id}` | Update rule |
-| `DELETE` | `/api/governance/alerts/rules/{id}` | Delete rule |
+| `POST` | `/api/governance/alerts/rules` | Create rule (admin) |
+| `PUT` | `/api/governance/alerts/rules/{id}` | Update rule (admin) |
+| `DELETE` | `/api/governance/alerts/rules/{id}` | Delete rule (admin) |
 | `GET` | `/api/governance/alerts/events` | List alert events |
 
 ### Telemetry (Pro)
