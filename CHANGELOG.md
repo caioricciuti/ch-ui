@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Pipelines stay on their connection.** A pipeline runs with its
+  connection's credentials, but the API accepted any `connection_id` when
+  creating one and never checked the connection when reading, editing,
+  starting or stopping one. A user signed in to one connection could create
+  and run a pipeline on another and read its runs and logs. Pipelines are now
+  created on the connection you are signed in to, the list shows only that
+  connection's pipelines, and a pipeline on another connection is not found.
+  Run logs are only returned for a run of the named pipeline, and the runs and
+  logs lists are capped at 500 and 1,000 entries.
+
 ## [2.17.1] - 2026-10-12
 
 ### Security

@@ -7,7 +7,7 @@ export function listPipelines() {
   return apiGet<{ pipelines: Pipeline[] }>(BASE)
 }
 
-export function createPipeline(data: { name: string; description?: string; connection_id?: string }) {
+export function createPipeline(data: { name: string; description?: string }) {
   return apiPost<{ pipeline: Pipeline }>(BASE, data)
 }
 

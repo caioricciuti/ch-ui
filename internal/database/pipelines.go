@@ -463,6 +463,16 @@ func (db *DB) CreatePipelineRunLog(runID, level, message string) error {
 	return nil
 }
 
+// PipelineRunBelongsTo reports whether runID is a run of pipelineID.
+func (db *DB) PipelineRunBelongsTo(runID, pipelineID string) (bool, error) {
+	var n int
+	err := db.conn.QueryRow(`SELECT COUNT(*) FROM pipeline_runs WHERE id = ? AND pipeline_id = ?`, runID, pipelineID).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("check pipeline run: %w", err)
+	}
+	return n > 0, nil
+}
+
 // GetPipelineRunLogs retrieves logs for a pipeline run.
 func (db *DB) GetPipelineRunLogs(runID string, limit int) ([]PipelineRunLog, error) {
 	if limit <= 0 {
