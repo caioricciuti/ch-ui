@@ -1194,25 +1194,47 @@ func (h *DashboardsHandler) validateShareAccess(share *database.DashboardShare, 
 	return true
 }
 
-// GetPublicDashboard returns a dashboard and its panels via a share token.
-func (h *DashboardsHandler) GetPublicDashboard(w http.ResponseWriter, r *http.Request) {
-	token := chi.URLParam(r, "token")
-	share, err := h.DB.GetDashboardShareByToken(token)
+// publicQuerySettings bound what a share link can do with the sharer's
+// credentials: read only, and capped in time and size.
+var publicQuerySettings = map[string]string{
+	"readonly":             "1",
+	"max_execution_time":   "30",
+	"max_result_rows":      "10000",
+	"max_result_bytes":     "33554432",
+	"result_overflow_mode": "break",
+	"log_comment":          "ch-ui:public-dashboard",
+}
+
+// isReadonlyProfileError reports ClickHouse refusing a setting because the
+// user's profile is already readonly=1 ("Cannot modify 'x' setting in readonly mode").
+func isReadonlyProfileError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "Cannot modify") && strings.Contains(msg, "readonly mode")
+}
+
+// resolvePublicShare loads the share behind the URL token and checks expiry
+// and access. It writes the error response itself and returns nil when the
+// request must stop. An expiry that does not parse counts as expired.
+func (h *DashboardsHandler) resolvePublicShare(w http.ResponseWriter, r *http.Request) *database.DashboardShare {
+	share, err := h.DB.GetDashboardShareByToken(chi.URLParam(r, "token"))
 	if err != nil {
 		slog.Error("Failed to look up share token", "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal error")
-		return
+		return nil
 	}
 	if share == nil {
 		writeError(w, http.StatusNotFound, "Dashboard not found or share link expired")
-		return
+		return nil
 	}
 
 	if share.ExpiresAt != nil {
 		exp, parseErr := time.Parse(time.RFC3339, *share.ExpiresAt)
-		if parseErr == nil && time.Now().UTC().After(exp) {
+		if parseErr != nil || time.Now().UTC().After(exp) {
 			writeError(w, http.StatusGone, "Share link has expired")
-			return
+			return nil
 		}
 	}
 
@@ -1222,6 +1244,16 @@ func (h *DashboardsHandler) GetPublicDashboard(w http.ResponseWriter, r *http.Re
 			"error":      "This dashboard requires an invite. Check your email for a magic link.",
 			"visibility": "private",
 		})
+		return nil
+	}
+	return share
+}
+
+// GetPublicDashboard returns a dashboard and its panels via a share token.
+// Panel SQL is left out: viewers run panels by ID, never by query text.
+func (h *DashboardsHandler) GetPublicDashboard(w http.ResponseWriter, r *http.Request) {
+	share := h.resolvePublicShare(w, r)
+	if share == nil {
 		return
 	}
 
@@ -1232,11 +1264,11 @@ func (h *DashboardsHandler) GetPublicDashboard(w http.ResponseWriter, r *http.Re
 	}
 
 	panels, err := h.DB.GetPanelsByDashboard(share.DashboardID)
-	if err != nil {
+	if err != nil || panels == nil {
 		panels = []database.Panel{}
 	}
-	if panels == nil {
-		panels = []database.Panel{}
+	for i := range panels {
+		panels[i].Query = ""
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -1245,30 +1277,17 @@ func (h *DashboardsHandler) GetPublicDashboard(w http.ResponseWriter, r *http.Re
 	})
 }
 
-// ExecutePublicQuery executes a panel query via a share token.
+// ExecutePublicQuery runs one panel of the shared dashboard. The caller names
+// the panel; the SQL always comes from the stored panel, so a share link can
+// never run arbitrary SQL with the sharer's credentials.
 func (h *DashboardsHandler) ExecutePublicQuery(w http.ResponseWriter, r *http.Request) {
-	token := chi.URLParam(r, "token")
-	share, err := h.DB.GetDashboardShareByToken(token)
-	if err != nil || share == nil {
-		writeError(w, http.StatusNotFound, "Share not found")
-		return
-	}
-
-	if share.ExpiresAt != nil {
-		exp, parseErr := time.Parse(time.RFC3339, *share.ExpiresAt)
-		if parseErr == nil && time.Now().UTC().After(exp) {
-			writeError(w, http.StatusGone, "Share link has expired")
-			return
-		}
-	}
-
-	if !h.validateShareAccess(share, r) {
-		writeError(w, http.StatusForbidden, "Access denied")
+	share := h.resolvePublicShare(w, r)
+	if share == nil {
 		return
 	}
 
 	var body struct {
-		Query     string               `json:"query"`
+		PanelID   string               `json:"panel_id"`
 		TimeRange *queryproc.TimeRange `json:"time_range"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -1276,9 +1295,26 @@ func (h *DashboardsHandler) ExecutePublicQuery(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	query := strings.TrimSpace(body.Query)
-	if query == "" {
-		writeError(w, http.StatusBadRequest, "Query is required")
+	panelID := strings.TrimSpace(body.PanelID)
+	if panelID == "" {
+		writeError(w, http.StatusBadRequest, "panel_id is required")
+		return
+	}
+
+	panel, err := h.DB.GetPanelByID(panelID)
+	if err != nil {
+		slog.Error("Failed to load panel for public query", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal error")
+		return
+	}
+	if panel == nil || panel.DashboardID != share.DashboardID {
+		writeError(w, http.StatusNotFound, "Panel not found")
+		return
+	}
+
+	query := strings.TrimSpace(panel.Query)
+	if panel.PanelType == "text" || query == "" {
+		writeError(w, http.StatusBadRequest, "Panel has no query")
 		return
 	}
 
@@ -1305,7 +1341,12 @@ func (h *DashboardsHandler) ExecutePublicQuery(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	result, qErr := h.Gateway.ExecuteQuery(share.ConnectionID, query, share.ClickhouseUser, password, 30*time.Second)
+	result, qErr := h.Gateway.ExecuteQueryWithSettings(share.ConnectionID, query, share.ClickhouseUser, password, publicQuerySettings, 35*time.Second)
+	if isReadonlyProfileError(qErr) {
+		// The sharer's profile is already readonly=1, which refuses any other
+		// setting. Writes are blocked by that profile, so run with readonly=1 alone.
+		result, qErr = h.Gateway.ExecuteQueryWithSettings(share.ConnectionID, query, share.ClickhouseUser, password, map[string]string{"readonly": "1"}, 35*time.Second)
+	}
 	if qErr != nil {
 		writeError(w, http.StatusBadGateway, qErr.Error())
 		return

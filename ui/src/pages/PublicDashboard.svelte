@@ -122,7 +122,7 @@
         {
           method: 'POST',
           body: JSON.stringify({
-            query: p.query,
+            panel_id: p.id,
             time_range: toDashboardTimeRangePayload(dashboardTimeRange || '1h'),
           }),
         },
