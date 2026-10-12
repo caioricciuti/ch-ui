@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.18.0] - 2026-10-12
+
+### Changed
+
+- **The GitHub push webhook needs a webhook secret.** Save one under
+  Admin → GitHub (new **Webhook secret** field) and put the same value in the
+  GitHub webhook settings. Until then pushes no longer trigger a sync; **Sync
+  now** is unaffected (#248).
+- **MCP keys with a database allow-list check the SQL they run.** Queries that
+  read outside the allow-list, or that CH-UI cannot verify (most table
+  functions, `dictGet`, system tables), are rejected with the reason. MCP and
+  Brain queries can no longer carry a `SETTINGS` clause (#250).
+
 ### Security
 
 - **Alert channels, alert rules and governance tags are admin only to
@@ -14,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   alert channels and rules, send a test alert through a channel, and create or
   delete sensitivity tags. These now need the admin role, and the Alerts page
   hides those buttons for everyone else; reading stays open. Deleting a tag is
-  also limited to tags on the current connection.
+  also limited to tags on the current connection (#246).
 - **Pipelines stay on their connection.** A pipeline runs with its
   connection's credentials, but the API accepted any `connection_id` when
   creating one and never checked the connection when reading, editing,
@@ -23,7 +36,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   created on the connection you are signed in to, the list shows only that
   connection's pipelines, and a pipeline on another connection is not found.
   Run logs are only returned for a run of the named pipeline, and the runs and
-  logs lists are capped at 500 and 1,000 entries.
+  logs lists are capped at 500 and 1,000 entries (#247).
+- **The GitHub webhook requires a secret.** CH-UI never stored a webhook
+  secret, so the push webhook accepted unsigned requests and anyone could
+  trigger syncs. Every delivery must now carry a valid `X-Hub-Signature-256`,
+  payloads are capped at 5 MiB, and one sync runs per connection at a time
+  (#248).
+- **MCP keys with a database allow-list can no longer read other databases
+  through SQL.** `run_select`, `run_saved_query`, `explain_query` and
+  `estimate_query` check every table a statement reads and reject anything
+  outside the allow-list, including unqualified tables in a non-allowed current
+  database, table functions such as `url()` or `remote()`, and `dictGet`. Keys
+  without an allow-list are unchanged (#250).
+- **MCP and Brain queries run with ClickHouse `readonly = 1`, so a query
+  cannot lift its own row, time or size limits.** Brain chat artifacts return
+  at most 1,000 rows (#250).
+- **A query can no longer lift a row or time cap through the read-only
+  retry.** When ClickHouse refused a setting, CH-UI dropped its own cap and
+  retried, even when the statement itself set that setting. It now keeps the
+  cap and returns the error (#249).
+- **Parallel login attempts can no longer get past the rate limit.** The limit
+  check and the attempt record happen together now, and a login that ends
+  early gives its slot back (#248).
+- **The agent WebSocket limits unauthenticated clients.** A client must
+  authenticate within 10 seconds and cannot send frames over 64 KiB before it
+  does (#249).
+- **OAuth client metadata fetches check the address actually connected to**,
+  so a DNS answer that switches to a private address is refused (#248).
+- **Pipeline webhook tokens are compared in constant time.** Prefer the
+  header; `?token=` still works but ends up in proxy logs (#248).
+- **Identifier and string quoting escapes backslashes** in MCP, Brain,
+  telemetry and admin user statements, so a name ending in `\` cannot break out
+  of its quotes (#249, #250).
+
+### Fixed
+
+- **A cancelled streaming query no longer freezes its tunnel.** When the
+  browser aborted a streamed query, the agent connection could stop processing
+  messages, so every later query on that connection hung (#249).
+- **A tunnel disconnecting during a stream no longer crashes the server.** A
+  race could panic with "send on closed channel" and stop the whole process.
+  Streams now end through a single path, and a crash in a tunnel connection is
+  logged instead (#249).
+- **`ch-ui update` no longer hangs on a stalled network**, and large list
+  requests are capped: model runs at 500, audit log export at 100,000 rows
+  (#248).
 
 ## [2.17.1] - 2026-10-12
 
