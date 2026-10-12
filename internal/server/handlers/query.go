@@ -910,29 +910,40 @@ func (h *QueryHandler) StreamQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read chunks until channel is closed or client disconnects. Progress
+	// Read chunks until the stream finishes or the client disconnects. Progress
 	// snapshots are interleaved so a query that emits no rows until it finishes
 	// still reports rows read and throughput while it runs.
 	seq := 0
+	writeChunk := func(chunk json.RawMessage) {
+		enc.Encode(map[string]interface{}{"type": "chunk", "data": chunk, "seq": seq})
+		flusher.Flush()
+		seq++
+	}
+readChunks:
 	for {
 		select {
-		case chunk, ok := <-stream.ChunkCh:
-			if !ok {
-				goto streamDone
-			}
-			enc.Encode(map[string]interface{}{"type": "chunk", "data": chunk, "seq": seq})
-			flusher.Flush()
-			seq++
+		case chunk := <-stream.ChunkCh:
+			writeChunk(chunk)
 		case progress := <-stream.ProgressCh:
 			enc.Encode(map[string]interface{}{"type": "progress", "progress": progress})
 			flusher.Flush()
+		case <-stream.Done():
+			break readChunks
 		case <-ctx.Done():
 			return
 		}
 	}
+	// The stream finished. Chunks sent before the end are still buffered.
+	for drained := false; !drained; {
+		select {
+		case chunk := <-stream.ChunkCh:
+			writeChunk(chunk)
+		default:
+			drained = true
+		}
+	}
 
-streamDone:
-	// ChunkCh closed — read final done or error
+	// Read final done or error
 	select {
 	case donePayload := <-stream.DoneCh:
 		streamFinished = true
@@ -2004,7 +2015,10 @@ func (h *QueryHandler) ListCompletions(w http.ResponseWriter, r *http.Request) {
 
 // escapeIdentifier wraps a SQL identifier in backticks and escapes any inner backticks.
 func escapeIdentifier(name string) string {
-	escaped := strings.ReplaceAll(name, "`", "``")
+	// Backslash first: inside backticks it escapes the next character, so a
+	// name ending in \ would otherwise swallow the closing backtick.
+	escaped := strings.ReplaceAll(name, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, "`", "``")
 	return "`" + escaped + "`"
 }
 
