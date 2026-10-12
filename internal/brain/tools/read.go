@@ -131,7 +131,7 @@ var describeTable = Tool{
 
 var runQuery = Tool{
 	Name:        "run_query",
-	Description: "Execute a read-only ClickHouse SQL query (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN). The result is shown to the user as an artifact and returned to you so you can reason about it. A LIMIT clause is auto-injected (default 100, max 1000). Mutating statements are rejected.",
+	Description: "Execute a read-only ClickHouse SQL query (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN). The full result is shown to the user as an artifact; you receive at most the first 100 rows as CSV, marked truncated when there are more, so aggregate in SQL instead of paging through rows. A LIMIT is added to SELECT / WITH queries that have none (default 100, max 1000). Do not add a FORMAT or SETTINGS clause. Mutating statements are rejected.",
 	Parameters: mustJSON(map[string]any{
 		"type":     "object",
 		"required": []string{"sql"},
@@ -166,6 +166,9 @@ var runQuery = Tool{
 		if hasSettingsClause(sql) {
 			return nil, errors.New("remove the SETTINGS clause: Brain queries run with readonly=1 and fixed limits")
 		}
+		if hasTrailingFormat(sql) {
+			return nil, errors.New("remove the FORMAT clause: Brain always reads results as JSON")
+		}
 		limit := input.Limit
 		if limit <= 0 {
 			limit = 100
@@ -174,10 +177,21 @@ var runQuery = Tool{
 			limit = 1000
 		}
 		sql = injectLimit(sql, limit)
+		if err := tctx.checkGuardrail(sql); err != nil {
+			return nil, err
+		}
 
+		start := time.Now()
 		result, err := tctx.Gateway.ExecuteQueryWithSettingsCtx(tctx.context(), tctx.ConnectionID, sql, tctx.CHUser, tctx.CHPassword, readOnlySettings(limit, 30*time.Second), 30*time.Second)
 		if err != nil {
+			if tctx.RecordQuery != nil {
+				tctx.RecordQuery(sql, "error", err.Error(), time.Since(start), 0)
+			}
 			return nil, err
+		}
+		rowCount := countRows(result.Data)
+		if tctx.RecordQuery != nil {
+			tctx.RecordQuery(sql, "success", "", time.Since(start), int64(rowCount))
 		}
 
 		var artifactID string
@@ -195,10 +209,11 @@ var runQuery = Tool{
 		}
 
 		out := map[string]any{
-			"sql":   sql,
-			"data":  json.RawMessage(result.Data),
-			"meta":  json.RawMessage(result.Meta),
-			"stats": json.RawMessage(result.Stats),
+			"sql":       sql,
+			"row_count": rowCount,
+			"data":      json.RawMessage(result.Data),
+			"meta":      json.RawMessage(result.Meta),
+			"stats":     json.RawMessage(result.Stats),
 		}
 		if artifactID != "" {
 			out["artifact_id"] = artifactID
@@ -234,6 +249,9 @@ func isReadOnly(sql string) bool {
 	return readOnlyRE.MatchString(sql)
 }
 
+// LogComment tags every Brain query in system.query_log.
+const LogComment = "ch-ui:brain"
+
 const (
 	// metaMaxRows caps Brain's own catalog lookups (system.tables etc.).
 	metaMaxRows = 10000
@@ -252,6 +270,7 @@ func readOnlySettings(maxRows int, timeout time.Duration) map[string]string {
 		"max_result_rows":      strconv.Itoa(maxRows),
 		"max_result_bytes":     strconv.Itoa(maxResultBytes),
 		"result_overflow_mode": "break",
+		"log_comment":          LogComment,
 	}
 }
 
@@ -277,17 +296,43 @@ func (c Context) context() context.Context {
 	return context.Background()
 }
 
-var hasLimitRE = regexp.MustCompile(`(?is)\blimit\s+\d+`)
+var (
+	hasLimitRE = regexp.MustCompile(`(?is)\blimit\s+\d+`)
+	// limitableRE matches the statements a LIMIT may be appended to.
+	// DESCRIBE, SHOW and EXPLAIN take no LIMIT; max_result_rows caps them.
+	limitableRE = regexp.MustCompile(`(?is)^\s*(SELECT|WITH)\b`)
+	// trailingFormatRE finds a FORMAT clause at the end of the statement,
+	// once literals and comments are blanked.
+	trailingFormatRE = regexp.MustCompile(`(?is)\bFORMAT\s+\w+\s*;?\s*$`)
+)
 
 func injectLimit(sql string, limit int) string {
 	trimmed := strings.TrimRight(sql, "; \t\n")
-	if hasLimitRE.MatchString(trimmed) {
+	if !limitableRE.MatchString(trimmed) || hasLimitRE.MatchString(trimmed) {
 		return trimmed
 	}
 	return fmt.Sprintf("%s LIMIT %d", trimmed, limit)
 }
 
+// hasTrailingFormat reports whether sql ends in its own FORMAT clause, which
+// would break the JSON result Brain reads (and a LIMIT added after it).
+func hasTrailingFormat(sql string) bool {
+	return trailingFormatRE.MatchString(literalOrComment.ReplaceAllString(sql, " "))
+}
+
+// countRows counts the rows in a JSON result array, or 0 when it is not one.
+func countRows(data json.RawMessage) int {
+	var rows []json.RawMessage
+	if json.Unmarshal(data, &rows) != nil {
+		return 0
+	}
+	return len(rows)
+}
+
 func runSelect(tctx Context, sql string, timeout time.Duration) ([]map[string]any, error) {
+	if err := tctx.checkGuardrail(sql); err != nil {
+		return nil, err
+	}
 	result, err := tctx.Gateway.ExecuteQueryWithSettingsCtx(tctx.context(), tctx.ConnectionID, sql, tctx.CHUser, tctx.CHPassword, readOnlySettings(metaMaxRows, timeout), timeout)
 	if err != nil {
 		return nil, err

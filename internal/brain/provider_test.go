@@ -142,3 +142,49 @@ func writeOpenAIStreamResponse(w http.ResponseWriter, content string, inputToken
 	_, _ = fmt.Fprintf(w, "data: {\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d}}\n\n", inputTokens, outputTokens)
 	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 }
+
+// An OpenAI-compatible server without a key (local vLLM, LM Studio) works:
+// no Authorization header is sent. OpenAI itself still needs a key.
+func TestOpenAICompatibleProviderWorksWithoutKey(t *testing.T) {
+	t.Parallel()
+	var auth []string
+	var mu sync.Mutex
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		auth = append(auth, r.Header.Get("Authorization"))
+		mu.Unlock()
+		writeOpenAIStreamResponse(w, "hi", 1, 1)
+	}))
+	defer server.Close()
+	p := &openAIProvider{client: server.Client()}
+	cfg := ProviderConfig{Kind: "openai_compatible", BaseURL: server.URL}
+	if _, err := p.StreamChat(context.Background(), cfg, "local", []Message{{Role: "user", Content: "x"}}, func(string) error { return nil }); err != nil {
+		t.Fatalf("StreamChat: %v", err)
+	}
+	if _, err := p.StreamChatTools(context.Background(), cfg, "local", []ChatMessage{{Role: "user", Content: "x"}}, nil, func(string) error { return nil }); err != nil {
+		t.Fatalf("StreamChatTools: %v", err)
+	}
+	mu.Lock()
+	for _, a := range auth {
+		if a != "" {
+			t.Errorf("keyless provider sent Authorization %q", a)
+		}
+	}
+	mu.Unlock()
+	if _, err := p.StreamChat(context.Background(), ProviderConfig{Kind: "openai", BaseURL: server.URL}, "gpt-4o", nil, func(string) error { return nil }); err == nil {
+		t.Error("OpenAI without a key should fail before calling out")
+	}
+}
+
+// Claude models reject a non-default temperature, also behind an
+// OpenAI-compatible gateway.
+func TestClaudeModelsGetNoTemperature(t *testing.T) {
+	for _, m := range []string{"claude-sonnet-5-5", "anthropic/claude-opus-5-5", "anthropic.claude-haiku-5-5", "CLAUDE-FABLE-5-1"} {
+		if openAIRequestTemperature(m) != nil {
+			t.Errorf("%s: temperature should be omitted", m)
+		}
+	}
+	if openAIRequestTemperature("gpt-4o") == nil {
+		t.Error("gpt-4o keeps the low default temperature")
+	}
+}

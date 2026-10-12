@@ -43,6 +43,9 @@ func registerProTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Annotations: ann,
 		Description: "Top query patterns from system.query_log, grouped by normalized query: slowest (p95), most memory-hungry, or most frequent. Requires the ClickHouse user to have access to system.query_log.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args insightsArgs) (*mcp.CallToolResult, any, error) {
+		if refused := refuseForAllowList(ak, "query_insights_top"); refused != nil {
+			return refused, nil, nil
+		}
 		builder, ok := insightSections[args.Section]
 		if !ok {
 			return errResult("section must be one of: slow, memory, frequent"), nil, nil
@@ -66,6 +69,9 @@ func registerProTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Annotations: ann,
 		Description: "Cost Center summary for this connection: compute spend from real CPU consumption, spend on failed queries, core-hours, and scan volume, priced with the connection's configured rates.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args costsArgs) (*mcp.CallToolResult, any, error) {
+		if refused := refuseForAllowList(ak, "costs_summary"); refused != nil {
+			return refused, nil, nil
+		}
 		rng, ok := costs.RangeSpec(args.Range)
 		if !ok {
 			rng = costs.DefaultRange
@@ -86,6 +92,16 @@ func registerProTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		}
 		return jsonResult(out), nil, nil
 	})
+}
+
+// refuseForAllowList refuses the query_log tools for a key limited to some
+// databases: they aggregate system.query_log across every database and
+// return other people's query text, which the allow-list cannot filter.
+func refuseForAllowList(ak *authedKey, tool string) *mcp.CallToolResult {
+	if allowedDBs(ak.key) == nil {
+		return nil
+	}
+	return errResult("%s is not available to this key: it reads system.query_log across all databases (including query text), and this key is limited to: %s. Use a key without a database allow-list.", tool, allowList(ak.key.AllowedDatabases).describe())
 }
 
 // loadCostsConfig mirrors the Cost Center handler: stored config or defaults.
