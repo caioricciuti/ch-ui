@@ -113,9 +113,18 @@ async function ensureFunctionKeywordCache(): Promise<void> {
       cachedFunctions = []
       cachedKeywords = []
     })
+    .finally(() => {
+      fetchPromise = null
+    })
 
   await fetchPromise
 }
+
+// After an attempt that left the list empty (failed load, or a server with no
+// databases yet), wait this long before asking again so typing does not fire
+// a request per keystroke.
+const DB_RETRY_MS = 5000
+let dbLastAttemptAt = 0
 
 export async function ensureDatabasesLoaded(): Promise<void> {
   if (getDatabases().length > 0) return
@@ -123,7 +132,13 @@ export async function ensureDatabasesLoaded(): Promise<void> {
     await dbFetchPromise
     return
   }
-  dbFetchPromise = loadDatabases().catch(() => {})
+  if (Date.now() - dbLastAttemptAt < DB_RETRY_MS) return
+  dbLastAttemptAt = Date.now()
+  dbFetchPromise = loadDatabases()
+    .catch(() => {})
+    .finally(() => {
+      dbFetchPromise = null
+    })
   await dbFetchPromise
 }
 

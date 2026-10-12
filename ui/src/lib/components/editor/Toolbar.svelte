@@ -2,8 +2,6 @@
   import { Play, Square, AlignLeft, BookOpen, Save, Zap, Braces, History, Sparkles } from 'lucide-svelte'
   import Button from '../common/Button.svelte'
 
-  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
-  const runShortcut = isMac ? '⌘↵' : 'Ctrl+↵'
   import type { QueryEstimateResult } from '../../types/query'
   import { formatNumber } from '../../utils/format'
 
@@ -27,6 +25,13 @@
     estimateLoading?: boolean
   }
 
+  // Shortcuts are bound in SqlEditor and work while the editor has focus.
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+  const runShortcut = isMac ? '⌘↵' : 'Ctrl+↵'
+  const saveShortcut = isMac ? '⌘S' : 'Ctrl+S'
+  const formatShortcut = isMac ? '⇧⌥F' : 'Shift+Alt+F'
+  const cancelShortcut = isMac ? 'Esc or ⌘.' : 'Esc or Ctrl+.'
+
   let { running = false, onrun, oncancel, onformat, onexplain, onask, askActive = false, askPro = true, onsave, onparams, onhistory, paramCount = 0, paramsActive = false, paramsEl = $bindable(null), estimate = null, estimateLoading = false }: Props = $props()
 
   const estimateLabel = $derived.by(() => {
@@ -42,7 +47,7 @@
 <div class="flex h-10 items-center gap-1 border-b border-edge-subtle bg-surface px-2">
   <!-- Primary: the one thing you press all the time -->
   {#if running && oncancel}
-    <button class="inline-flex h-7 items-center gap-1.5 rounded-md bg-danger-soft px-3 text-[13px] font-medium text-danger transition-colors hover:brightness-110" onclick={oncancel}>
+    <button class="inline-flex h-7 items-center gap-1.5 rounded-md bg-danger-soft px-3 text-[13px] font-medium text-danger transition-colors hover:brightness-110" onclick={oncancel} title="Cancel query ({cancelShortcut})">
       <Square size={13} />
       Cancel
     </button>
@@ -50,7 +55,7 @@
     <Button size="sm" onclick={onrun} title="Run query ({runShortcut})">
       <Play size={13} />
       Run
-      <kbd class="ml-1 rounded-sm bg-black/15 px-1 font-sans text-[10px] font-medium leading-4 text-accent-fg/85">{runShortcut}</kbd>
+      <kbd class="ml-1 rounded-sm bg-accent-fg/20 px-1 font-sans text-[10px] font-medium leading-4 text-accent-fg/85">{runShortcut}</kbd>
     </Button>
   {/if}
 
@@ -58,7 +63,7 @@
 
   <!-- One-shot actions -->
   {#if onformat}
-    <Button variant="ghost" size="sm" onclick={onformat} title="Format SQL">
+    <Button variant="ghost" size="sm" onclick={onformat} title="Format SQL ({formatShortcut})">
       <AlignLeft size={13} />
       Format
     </Button>
@@ -121,7 +126,7 @@
     </Button>
   {/if}
   {#if onsave}
-    <Button icon variant="ghost" size="sm" onclick={onsave} title="Save query" aria-label="Save query">
+    <Button icon variant="ghost" size="sm" onclick={onsave} title="Save query ({saveShortcut})" aria-label="Save query">
       <Save size={14} />
     </Button>
   {/if}

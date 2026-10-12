@@ -5,6 +5,7 @@
   import { formatNumber, formatElapsed } from '../../utils/format'
   import { error as toastError, success as toastSuccess } from '../../stores/toast.svelte'
   import Spinner from '../common/Spinner.svelte'
+  import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import { Search, X, ExternalLink, Replace, Copy, Trash2, History, CircleCheck, CircleX, CircleMinus } from 'lucide-svelte'
 
   interface Props {
@@ -23,6 +24,9 @@
   let statusFilter = $state<'' | 'success' | 'error'>('')
   let hasMore = $state(false)
   let confirmClear = $state(false)
+  let clearing = $state(false)
+  let pendingDelete = $state<QueryHistoryEntry | null>(null)
+  let deleting = $state(false)
   let searchTimer: ReturnType<typeof setTimeout> | null = null
   let loadSeq = 0
 
@@ -49,11 +53,11 @@
         entries = [...entries, ...batch.filter((b) => !seen.has(b.id))]
       }
       hasMore = batch.length === PAGE_SIZE
-    } catch (e: any) {
+    } catch (e) {
       if (seq !== loadSeq) return
       // Keep the loaded list visible when only a load-more fails.
-      if (reset) loadError = e.message
-      else toastError(e.message)
+      if (reset) loadError = errorMessage(e)
+      else toastError(errorMessage(e))
     } finally {
       if (seq === loadSeq) loading = false
     }
@@ -76,29 +80,38 @@
     void load()
   }
 
-  async function handleDelete(id: string) {
+  function errorMessage(e: unknown): string {
+    return e instanceof Error ? e.message : String(e)
+  }
+
+  async function confirmDelete() {
+    const entry = pendingDelete
+    if (!entry || deleting) return
+    deleting = true
     try {
-      await deleteQueryHistoryEntry(id)
-      entries = entries.filter((e) => e.id !== id)
-    } catch (e: any) {
-      toastError(e.message)
+      await deleteQueryHistoryEntry(entry.id)
+      entries = entries.filter((e) => e.id !== entry.id)
+      pendingDelete = null
+    } catch (e) {
+      toastError(errorMessage(e))
+    } finally {
+      deleting = false
     }
   }
 
-  async function handleClear() {
-    if (!confirmClear) {
-      confirmClear = true
-      setTimeout(() => (confirmClear = false), 3000)
-      return
-    }
-    confirmClear = false
+  async function confirmClearAll() {
+    if (clearing) return
+    clearing = true
     try {
       await clearQueryHistory()
       entries = []
       hasMore = false
+      confirmClear = false
       toastSuccess('Query history cleared')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(errorMessage(e))
+    } finally {
+      clearing = false
     }
   }
 
@@ -170,25 +183,23 @@
     </div>
 
     <div class="flex items-center rounded-md border border-edge overflow-hidden">
-      {#each statusOptions as opt}
+      {#each statusOptions as opt (opt.value)}
         <button
           class="px-2 py-1.5 text-xs transition-colors
             {statusFilter === opt.value
-              ? 'bg-ch-orange text-white'
+              ? 'bg-accent-soft text-accent'
               : 'text-fg-3 hover:bg-hover'}"
           onclick={() => setStatusFilter(opt.value)}
+          aria-pressed={statusFilter === opt.value}
         >{opt.label}</button>
       {/each}
     </div>
 
     <button
-      class="px-2 py-1.5 text-xs rounded-md border transition-colors
-        {confirmClear
-          ? 'border-danger/40 text-danger bg-danger-soft'
-          : 'border-edge text-fg-3 hover:text-danger hover:border-danger/40'}"
-      onclick={handleClear}
+      class="px-2 py-1.5 text-xs rounded-md border border-edge text-fg-3 transition-colors hover:text-danger hover:border-danger/40"
+      onclick={() => (confirmClear = true)}
       title="Delete all history entries for this connection"
-    >{confirmClear ? 'Confirm?' : 'Clear all'}</button>
+    >Clear all</button>
   </div>
 
   <!-- Entries -->
@@ -251,7 +262,7 @@
                 <button class="p-1 rounded hover:bg-hover hover:text-fg" onclick={() => handleCopy(entry.query_text)} title="Copy SQL" aria-label="Copy SQL">
                   <Copy size={12} />
                 </button>
-                <button class="p-1 rounded hover:bg-danger-soft hover:text-danger" onclick={() => handleDelete(entry.id)} title="Delete entry" aria-label="Delete entry">
+                <button class="p-1 rounded hover:bg-danger-soft hover:text-danger" onclick={() => (pendingDelete = entry)} title="Delete entry" aria-label="Delete entry">
                   <Trash2 size={12} />
                 </button>
               </div>
@@ -272,3 +283,25 @@
     </div>
   {/if}
 </div>
+
+<ConfirmDialog
+  open={confirmClear}
+  title="Clear query history"
+  description="Delete every history entry for this connection. This cannot be undone."
+  confirmLabel="Clear all"
+  destructive
+  loading={clearing}
+  onconfirm={confirmClearAll}
+  oncancel={() => (confirmClear = false)}
+/>
+
+<ConfirmDialog
+  open={pendingDelete !== null}
+  title="Delete history entry"
+  description="Remove this query from the history. This cannot be undone."
+  confirmLabel="Delete"
+  destructive
+  loading={deleting}
+  onconfirm={confirmDelete}
+  oncancel={() => (pendingDelete = null)}
+/>

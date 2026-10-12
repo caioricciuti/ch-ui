@@ -17,7 +17,7 @@
   type SubTab = 'overview' | 'tables'
   let activeSubTab = $state<SubTab>('overview')
 
-  let dbInfo = $state<Record<string, any>>({})
+  let dbInfo = $state<Record<string, unknown>>({})
   let infoLoading = $state(true)
   let infoError = $state<string | null>(null)
 
@@ -38,7 +38,7 @@
       { label: 'Tables', value: formatNumber(Number(dbInfo.table_count ?? 0)), icon: Table2, color: 'text-accent' },
       { label: 'Rows', value: formatNumber(Number(dbInfo.total_rows ?? 0)), icon: Rows3, color: 'text-accent' },
       { label: 'Total Size', value: formatBytes(Number(dbInfo.total_bytes ?? 0)), icon: HardDrive, color: 'text-ch-green' },
-      { label: 'Engine', value: dbInfo.engine ?? '—', icon: Database, color: 'text-fg-3' },
+      { label: 'Engine', value: String(dbInfo.engine ?? '—'), icon: Database, color: 'text-fg-3' },
     ]
   })
 
@@ -47,8 +47,8 @@
     infoError = null
     try {
       dbInfo = await fetchDatabaseInfo(tab.database)
-    } catch (e: any) {
-      infoError = e.message
+    } catch (e) {
+      infoError = e instanceof Error ? e.message : String(e)
     } finally {
       infoLoading = false
     }
@@ -61,13 +61,14 @@
     try {
       const res = await fetchDatabaseTables(tab.database)
       tablesMeta = res.meta ?? []
-      tablesData = (res.data ?? []).map((row: any) => {
-        if (Array.isArray(row)) return row
-        return (res.meta ?? []).map((col: any) => row[col.name])
+      tablesData = (res.data ?? []).map((row: unknown) => {
+        if (Array.isArray(row)) return row as unknown[]
+        const record = (row ?? {}) as Record<string, unknown>
+        return (res.meta ?? []).map((col) => record[col.name])
       })
       tablesLoaded = true
-    } catch (e: any) {
-      tablesError = e.message
+    } catch (e) {
+      tablesError = e instanceof Error ? e.message : String(e)
     } finally {
       tablesLoading = false
     }
@@ -105,7 +106,7 @@
   </div>
 
   <div class="flex items-center gap-1 px-3 py-1.5 border-b border-edge-subtle bg-canvas shrink-0">
-    {#each subTabs as st}
+    {#each subTabs as st (st.id)}
       <button
         class="px-3 py-1.5 text-xs rounded-md transition-colors whitespace-nowrap {activeSubTab === st.id
  ? 'bg-surface-2 text-fg font-medium'
@@ -129,7 +130,7 @@
       {:else}
         <div class="p-4 space-y-4">
           <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
-            {#each metrics as m}
+            {#each metrics as m (m.label)}
               {@const Icon = m.icon}
               <div class="bg-surface border border-edge-subtle rounded-md p-4">
                 <div class="flex items-center gap-2 mb-2">

@@ -337,7 +337,7 @@
                   <div class="mt-0.5 w-6 h-6 rounded-full border border-edge bg-surface-2 text-[10px] font-semibold text-fg-2 flex items-center justify-center">
                     {node.index}
                   </div>
-                  <div class="flex-1 min-w-0 rounded-md border border-edge-subtle bg-white/60 px-2.5 py-1.5">
+                  <div class="flex-1 min-w-0 rounded-md border border-edge-subtle bg-elevated px-2.5 py-1.5">
                     <div class="text-xs font-semibold text-fg-2">{node.title}</div>
                     {#if node.detail}
                       <div class="text-[11px] text-fg-3 mt-0.5 break-words">{node.detail}</div>

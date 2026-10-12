@@ -2,6 +2,8 @@ import { withBase } from '../basePath'
 import type { ColumnMeta, QueryProgress, QueryStats, StreamMessage } from '../types/query'
 import { safeParse } from '../utils/safe-json'
 
+export const STREAM_CLOSED_EARLY = 'The connection closed before the query finished'
+
 /** Execute a streaming query via NDJSON. Calls the provided callbacks as data arrives. */
 export async function executeStreamQuery(
   sql: string,
@@ -28,9 +30,17 @@ export async function executeStreamQuery(
     return
   }
 
-  const reader = res.body!.getReader()
+  if (!res.body) {
+    onError('The server returned an empty response')
+    return
+  }
+
+  const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
+  // done and error are terminal. A stream that closes without either (proxy
+  // timeout, server crash) would otherwise leave the caller running forever.
+  let finished = false
 
   while (true) {
     const { done, value } = await reader.read()
@@ -55,9 +65,11 @@ export async function executeStreamQuery(
             onProgress?.(msg.progress)
             break
           case 'done':
+            finished = true
             onDone(msg.statistics, msg.total_rows)
             break
           case 'error':
+            finished = true
             onError(msg.error)
             break
         }
@@ -71,10 +83,19 @@ export async function executeStreamQuery(
   if (buf.trim()) {
     try {
       const msg: StreamMessage = safeParse(buf)
-      if (msg.type === 'done') onDone(msg.statistics, msg.total_rows)
-      else if (msg.type === 'error') onError(msg.error)
+      if (msg.type === 'done') {
+        finished = true
+        onDone(msg.statistics, msg.total_rows)
+      } else if (msg.type === 'error') {
+        finished = true
+        onError(msg.error)
+      }
     } catch {
       // ignore
     }
+  }
+
+  if (!finished && !signal?.aborted) {
+    onError(STREAM_CLOSED_EARLY)
   }
 }

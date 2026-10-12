@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
-  import { EditorView, keymap } from '@codemirror/view'
+  import { EditorView, keymap, type KeyBinding } from '@codemirror/view'
   import { EditorState, Compartment } from '@codemirror/state'
   import { sql, StandardSQL } from '@codemirror/lang-sql'
   import { autocompletion } from '@codemirror/autocomplete'
-  import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
+  import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
   import { bracketMatching, HighlightStyle, syntaxHighlighting } from '@codemirror/language'
   import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
   import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
@@ -18,9 +18,16 @@
     /** sql is trimmed; from is its offset in the document (for error mapping). */
     onrun?: (sql: string, from?: number) => void
     onchange?: (sql: string) => void
+    /** Mod-S. The browser Save Page dialog is suppressed while the editor has focus. */
+    onsave?: () => void
+    /** Shift-Alt-F. */
+    onformat?: () => void
+    /** Escape or Mod-. while running is true. */
+    oncancel?: () => void
+    running?: boolean
   }
 
-  let { value = '', onrun, onchange }: Props = $props()
+  let { value = '', onrun, onchange, onsave, onformat, oncancel, running = false }: Props = $props()
 
   let container: HTMLDivElement
   let view: EditorView | undefined
@@ -135,7 +142,15 @@
     return { text: doc.trim(), from: lead }
   }
 
-  const runKeyBinding = keymap.of([
+  // Escape and Mod-. cancel only while a query runs; otherwise they fall
+  // through (Escape still closes the completion list, which binds it first).
+  function cancelIfRunning(): boolean {
+    if (!running || !oncancel) return false
+    oncancel()
+    return true
+  }
+
+  const editorBindings: readonly KeyBinding[] = [
     {
       key: 'Mod-Enter',
       run: (v) => {
@@ -144,17 +159,39 @@
         return true
       },
     },
-  ])
+    {
+      key: 'Mod-s',
+      // Always handled, so the browser never opens Save Page from the editor.
+      run: () => {
+        onsave?.()
+        return true
+      },
+    },
+    {
+      key: 'Shift-Alt-f',
+      run: () => {
+        if (!onformat) return false
+        onformat()
+        return true
+      },
+    },
+    { key: 'Escape', run: cancelIfRunning },
+    { key: 'Mod-.', run: cancelIfRunning },
+  ]
 
-  // Bun can install a second @codemirror/view copy under transitive deps;
-  // normalize keymaps to one array type for TS while runtime dedupe is handled by Vite.
-  const editorKeymaps = [...defaultKeymap, ...historyKeymap, ...searchKeymap, ...closeBracketsKeymap] as any
+  const editorKeymaps: readonly KeyBinding[] = [
+    ...defaultKeymap,
+    ...historyKeymap,
+    ...searchKeymap,
+    ...closeBracketsKeymap,
+    indentWithTab,
+  ]
 
   onMount(() => {
     const state = EditorState.create({
       doc: value,
       extensions: [
-        runKeyBinding,
+        keymap.of(editorBindings),
         keymap.of(editorKeymaps),
         history(),
         bracketMatching(),
