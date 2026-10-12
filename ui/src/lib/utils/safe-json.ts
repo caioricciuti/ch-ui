@@ -47,8 +47,11 @@ function getFallbackParser() {
  * Safe integers (|n| <= 2^53 - 1) are returned as `number`, exactly as
  * standard JSON.parse does. Large integers are returned as `string` to
  * preserve all digits. Everything else is unchanged.
+ *
+ * The result is not validated: `T` only names the shape the caller expects.
+ * The `any` default keeps untyped callers compiling; pass a type argument.
  */
-export function safeParse(text: string): any {
+export function safeParse<T = any>(text: string): T {
   if (hasReviverSource) {
     const reviver = (_key: string, value: unknown, ctx: { source: string }): unknown => {
       // ctx.source is the raw token string from the original JSON text.
@@ -64,9 +67,9 @@ export function safeParse(text: string): any {
       }
       return value
     }
-    return JSON.parse(text, reviver as (key: string, value: unknown) => unknown)
+    return JSON.parse(text, reviver as (key: string, value: unknown) => unknown) as T
   }
 
   // Fallback for browsers without reviver context.source support
-  return getFallbackParser().parse(text)
+  return getFallbackParser().parse(text) as T
 }

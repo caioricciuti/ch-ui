@@ -1,10 +1,3 @@
-/** Standard API response envelope */
-export interface ApiResponse<T = unknown> {
-  success: boolean
-  error?: string
-  data?: T
-}
-
 /** Session info returned by /api/auth/session */
 export interface Session {
   user: string

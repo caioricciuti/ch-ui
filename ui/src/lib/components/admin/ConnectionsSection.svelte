@@ -81,8 +81,8 @@
     tunnelsLoading = true
     try {
       tunnels = await apiGet<TunnelConnection[]>('/api/connections')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       tunnelsLoading = false
     }
@@ -128,8 +128,8 @@
       if (created?.id && created?.name && res.tunnel_token) {
         setTokenPreview({ id: created.id, name: created.name }, res)
       }
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       createLoading = false
     }
@@ -192,8 +192,8 @@
       }
       deleteTarget = null
       await loadTunnels()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       deleteLoading = false
     }
@@ -203,8 +203,8 @@
     try {
       const res = await apiGet<TunnelTokenResponse>(`/api/connections/${encodeURIComponent(conn.id)}/token`)
       setTokenPreview(conn, res)
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -213,8 +213,8 @@
       const res = await apiPost<TunnelTokenResponse>(`/api/connections/${encodeURIComponent(conn.id)}/regenerate-token`)
       setTokenPreview(conn, res)
       toastSuccess(res.message || `Token regenerated for "${conn.name}"`)
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 

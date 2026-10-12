@@ -68,11 +68,11 @@
     try {
       applySSOSettings(await fetchSSOSettings())
       ssoProRequired = false
-    } catch (e: any) {
-      if (String(e?.message ?? '').toLowerCase().includes('pro license')) {
+    } catch (e) {
+      if ((e instanceof Error ? e.message : String(e)).toLowerCase().includes('pro license')) {
         ssoProRequired = true
       } else {
-        toastError(e.message)
+        toastError(e instanceof Error ? e.message : String(e))
       }
     } finally {
       ssoLoading = false
@@ -109,8 +109,8 @@
       } else {
         toastSuccess('SSO settings saved and applied, no restart needed')
       }
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       ssoSaving = false
     }

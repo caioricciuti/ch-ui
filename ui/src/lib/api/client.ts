@@ -11,13 +11,17 @@ export class ApiError extends Error {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
 /** Base fetch wrapper with credentials and error handling */
-async function parseResponseBody(res: Response): Promise<any> {
+async function parseResponseBody(res: Response): Promise<unknown> {
   const contentType = (res.headers.get('content-type') || '').toLowerCase()
   if (contentType.includes('application/json')) {
     try {
       const text = await res.text()
-      return safeParse(text)
+      return safeParse<unknown>(text)
     } catch {
       return null
     }
@@ -28,12 +32,12 @@ async function parseResponseBody(res: Response): Promise<any> {
   return { message: text }
 }
 
-function buildErrorMessage(status: number, body: any): string {
-  const raw = body && typeof body === 'object'
+function buildErrorMessage(status: number, body: unknown): string {
+  const raw = isRecord(body)
     ? String(body.message || body.error || '').trim()
     : ''
   if (status === 429) {
-    const retryAfter = body && typeof body === 'object' ? Number(body.retryAfter || body.retry_after || 0) : 0
+    const retryAfter = isRecord(body) ? Number(body.retryAfter || body.retry_after || 0) : 0
     if (raw && retryAfter > 0) return `${raw} (retry in ${retryAfter}s)`
     if (raw) return raw
     return 'Too many requests'
@@ -71,7 +75,7 @@ async function request<T = unknown>(
     throw new ApiError(buildErrorMessage(res.status, body) || 'Pro license required', res.status)
   }
 
-  if (!res.ok || (body && body.success === false)) {
+  if (!res.ok || (isRecord(body) && body.success === false)) {
     throw new ApiError(buildErrorMessage(res.status, body), res.status)
   }
 

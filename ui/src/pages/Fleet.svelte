@@ -66,7 +66,7 @@
   {:else}
     <PageBody width="lg">
       <div class="space-y-5">
-        {#if error}<p class="text-sm text-danger" role="alert">Refresh failed: {error}. The cards below show the last successful load.</p>{/if}
+        {#if error}<p class="text-[13px] text-danger" role="alert">Refresh failed: {error}. The cards below show the last successful load.</p>{/if}
         <div class="grid grid-cols-2 gap-3 md:grid-cols-3">
           <Stat label="Environments" value={fleet?.connections.length ?? 0} />
           <Stat label="Online" value={fleet?.connections.filter(c => c.online).length ?? 0} />
@@ -87,14 +87,14 @@
                 {:else if connection.status === 'missing'}<p class="text-xs text-fg-3">No health samples yet. Check background monitoring credentials and system-table permissions.</p>
                 {:else if connection.status === 'stale'}<p class="text-xs text-warning">No recent samples. Check collector credentials and connectivity; these values are historical.</p>{/if}
                 <div class="grid grid-cols-3 gap-x-3 gap-y-4 text-xs">
-                  <div><p class="text-fg-3">Replication delay</p><p class="mt-1 font-mono text-sm">{connection.nodes.length ? `${connection.max_replication_delay.toLocaleString()} s` : '—'}</p></div>
-                  <div><p class="text-fg-3">Parts pressure</p><p class="mt-1 font-mono text-sm">{connection.nodes.length ? `${connection.parts_pressure_pct.toFixed(1)}%` : '—'}</p></div>
-                  <div><p class="text-fg-3">Readonly replicas</p><p class="mt-1 font-mono text-sm">{connection.nodes.length ? connection.readonly_replicas : '—'}</p></div>
-                  <div><p class="text-fg-3">Replication queue</p><p class="mt-1 font-mono text-sm">{connection.nodes.length ? connection.replication_queue : '—'}</p></div>
-                  <div><p class="text-fg-3">Pending mutations</p><p class="mt-1 font-mono text-sm">{connection.nodes.length ? connection.pending_mutations : '—'}</p></div>
-                  <div><p class="text-fg-3">Long queries</p><p class="mt-1 font-mono text-sm">{connection.nodes.length ? connection.long_queries : '—'}</p></div>
-                  <div><p class="text-fg-3">Open incidents</p><p class="mt-1 font-mono text-sm">{connection.open_incidents}</p></div>
-                  {#if connection.regressions !== undefined}<div><p class="text-fg-3">Query regressions</p><p class="mt-1 font-mono text-sm">{connection.regressions}</p></div>{/if}
+                  <div><p class="text-fg-3">Replication delay</p><p class="mt-1 font-mono text-[13px]">{connection.nodes.length ? `${connection.max_replication_delay.toLocaleString()} s` : '—'}</p></div>
+                  <div><p class="text-fg-3">Parts pressure</p><p class="mt-1 font-mono text-[13px]">{connection.nodes.length ? `${connection.parts_pressure_pct.toFixed(1)}%` : '—'}</p></div>
+                  <div><p class="text-fg-3">Readonly replicas</p><p class="mt-1 font-mono text-[13px]">{connection.nodes.length ? connection.readonly_replicas : '—'}</p></div>
+                  <div><p class="text-fg-3">Replication queue</p><p class="mt-1 font-mono text-[13px]">{connection.nodes.length ? connection.replication_queue : '—'}</p></div>
+                  <div><p class="text-fg-3">Pending mutations</p><p class="mt-1 font-mono text-[13px]">{connection.nodes.length ? connection.pending_mutations : '—'}</p></div>
+                  <div><p class="text-fg-3">Long queries</p><p class="mt-1 font-mono text-[13px]">{connection.nodes.length ? connection.long_queries : '—'}</p></div>
+                  <div><p class="text-fg-3">Open incidents</p><p class="mt-1 font-mono text-[13px]">{connection.open_incidents}</p></div>
+                  {#if connection.regressions !== undefined}<div><p class="text-fg-3">Query regressions</p><p class="mt-1 font-mono text-[13px]">{connection.regressions}</p></div>{/if}
                 </div>
                 <div class="border-t border-edge-subtle pt-3 text-[11px] text-fg-3">
                   {connection.captured_at ? `Sampled ${new Date(connection.captured_at).toLocaleString()} · ${connection.nodes.length} nodes` : 'Awaiting first sample'}
@@ -118,8 +118,8 @@
     <form id="fleet-signin" class="space-y-4" onsubmit={(e) => { e.preventDefault(); void signIn() }}>
       <FormField label="ClickHouse username" for="fleet-user"><Input id="fleet-user" bind:value={username} required autocomplete="username" /></FormField>
       <FormField label="Password" for="fleet-password"><Input id="fleet-password" type="password" bind:value={password} autocomplete="current-password" /></FormField>
-      {#if signInError}<p class="text-sm text-danger" role="alert">{signInError}</p>{/if}
+      {#if signInError}<p class="text-[13px] text-danger" role="alert">{signInError}</p>{/if}
     </form>
-  {:else}<p class="text-sm text-fg-3">Use your organization's sign-in page to select this environment.</p><a class="mt-3 inline-block text-sm text-accent" href={withBase('/login')}>Open sign in</a>{/if}
+  {:else}<p class="text-[13px] text-fg-3">Use your organization's sign-in page to select this environment.</p><a class="mt-3 inline-block text-[13px] text-accent" href={withBase('/login')}>Open sign in</a>{/if}
   {#snippet footer()}<Button size="sm" variant="ghost" onclick={() => { selected = null; password = '' }}>Cancel</Button>{#if authConfig?.password_login !== false}<Button size="sm" loading={signingIn} disabled={!username || !selected?.online} onclick={signIn}>Sign in and inspect</Button>{/if}{/snippet}
 </Sheet>

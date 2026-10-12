@@ -27,36 +27,6 @@ function resolveToastOptions(
   }
 }
 
-export function addToast(message: string, type: ToastType = 'info', duration?: number): void {
-  switch (type) {
-    case 'success':
-      success(message, duration)
-      return
-    case 'error':
-      error(message, duration)
-      return
-    case 'warning':
-      warning(message, duration)
-      return
-    case 'info':
-    default:
-      info(message, duration)
-      return
-  }
-}
-
-export function removeToast(id: number | string): void {
-  toast.dismiss(id)
-}
-
-export function dismiss(id?: number | string): void {
-  toast.dismiss(id)
-}
-
-export function getToasts() {
-  return toast.getActiveToasts()
-}
-
 export function success(message: string, optionsOrDuration?: number | ExternalToast): void {
   const cleanMessage = normalizeMessage(message)
   if (!cleanMessage) return

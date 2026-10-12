@@ -65,7 +65,7 @@
   {:else}
     <PageBody width="lg">
       <div class="space-y-5">
-        <p class="text-sm text-fg-3">Choose a source definition and a target to compare. Review suggestions bring the target toward the source. Comparison only reads metadata.</p>
+        <p class="text-[13px] text-fg-3">Choose a source definition and a target to compare. Review suggestions bring the target toward the source. Comparison only reads metadata.</p>
         <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); void compare() }}>
           <fieldset disabled={comparing} class="grid min-w-0 gap-4 md:grid-cols-2">
             {#each [{ key: 'source', label: 'Source · desired schema', endpoint: source }, { key: 'target', label: 'Target · compare against', endpoint: target }] as side (side.key)}
@@ -84,11 +84,11 @@
           </fieldset>
           <div class="flex items-center gap-3"><Button type="submit" size="sm" loading={comparing} disabled={!complete}><GitCompare size={14} /> Compare schemas</Button><span class="text-xs text-fg-3">Tables, columns, keys, TTLs and views</span></div>
         </form>
-        {#if error}<p class="rounded-md border border-danger/30 p-3 text-sm text-danger" role="alert">{error}</p>{/if}
+        {#if error}<p class="rounded-md border border-danger/30 p-3 text-[13px] text-danger" role="alert">{error}</p>{/if}
         {#if comparison}
           <Panel title={`${comparison.source.database} → ${comparison.target.database}`} description={`Captured ${new Date(comparison.captured_at).toLocaleString()}`}>
             <div class="space-y-3">
-              <div class="flex flex-wrap gap-3 text-sm"><Badge tone={comparison.result.differences.length ? 'warning' : 'success'}>{comparison.result.differences.length} differences</Badge><span>{comparison.result.source_tables} source tables</span><ArrowRight size={14} /><span>{comparison.result.target_tables} target tables</span><span class="text-fg-3">{comparison.result.matching_tables} match</span></div>
+              <div class="flex flex-wrap gap-3 text-[13px]"><Badge tone={comparison.result.differences.length ? 'warning' : 'success'}>{comparison.result.differences.length} differences</Badge><span>{comparison.result.source_tables} source tables</span><ArrowRight size={14} /><span>{comparison.result.target_tables} target tables</span><span class="text-fg-3">{comparison.result.matching_tables} match</span></div>
               <p class="text-xs text-fg-3">{comparison.scope}</p>
               <p class="text-xs text-fg-3">SQL suggestions are commented for review. This page does not execute migrations.</p>
             </div>
@@ -108,7 +108,7 @@
                   </div>
                 </Panel>
               {/each}
-              {#if !differences.length}<p class="text-sm text-fg-3">No differences match this filter.</p>{/if}
+              {#if !differences.length}<p class="text-[13px] text-fg-3">No differences match this filter.</p>{/if}
             </div>
           {:else}<EmptyState icon={GitCompare} title="Visible schemas match" description="No differences found in the compared fields and objects visible to these accounts." />{/if}
         {:else if !comparing && !error}<EmptyState icon={GitCompare} title="Compare two environments" description="Find schema drift before a deployment and export a reviewable SQL plan." />{/if}

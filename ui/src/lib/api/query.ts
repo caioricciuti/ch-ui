@@ -151,7 +151,7 @@ export async function fetchNodeInfo(): Promise<{
 }
 
 /** Fetch table metadata from system.tables */
-export async function fetchTableInfo(database: string, table: string): Promise<Record<string, any>> {
+export async function fetchTableInfo(database: string, table: string): Promise<Record<string, unknown>> {
   const db = escapeLiteral(database)
   const tbl = escapeLiteral(table)
   const query = `SELECT database, name, engine, total_rows, total_bytes, lifetime_rows, lifetime_bytes, metadata_modification_time, create_table_query, partition_key, sorting_key, primary_key, sampling_key FROM system.tables WHERE database = '${db}' AND name = '${tbl}'`
@@ -159,11 +159,11 @@ export async function fetchTableInfo(database: string, table: string): Promise<R
   if (res.data?.length > 0) {
     const row = res.data[0]
     if (Array.isArray(row)) {
-      const obj: Record<string, any> = {}
-      res.meta.forEach((col: any, i: number) => { obj[col.name] = row[i] })
+      const obj: Record<string, unknown> = {}
+      res.meta.forEach((col, i) => { obj[col.name] = row[i] })
       return obj
     }
-    return row as Record<string, any>
+    return row as Record<string, unknown>
   }
   return {}
 }
@@ -174,18 +174,18 @@ export async function fetchTableSchema(database: string, table: string): Promise
 }
 
 /** Fetch database metadata and aggregate stats */
-export async function fetchDatabaseInfo(database: string): Promise<Record<string, any>> {
+export async function fetchDatabaseInfo(database: string): Promise<Record<string, unknown>> {
   const db = escapeLiteral(database)
   const query = `SELECT d.name, d.engine, d.data_path, d.metadata_path, count(t.name) AS table_count, sumOrNull(t.total_rows) AS total_rows, sumOrNull(t.total_bytes) AS total_bytes, maxOrNull(t.metadata_modification_time) AS last_modified FROM system.databases d LEFT JOIN system.tables t ON t.database = d.name WHERE d.name = '${db}' GROUP BY d.name, d.engine, d.data_path, d.metadata_path`
   const res = await runQuery({ query })
   if (res.data?.length > 0) {
     const row = res.data[0]
     if (Array.isArray(row)) {
-      const obj: Record<string, any> = {}
-      res.meta.forEach((col: any, i: number) => { obj[col.name] = row[i] })
+      const obj: Record<string, unknown> = {}
+      res.meta.forEach((col, i) => { obj[col.name] = row[i] })
       return obj
     }
-    return row as Record<string, any>
+    return row as Record<string, unknown>
   }
   return {}
 }

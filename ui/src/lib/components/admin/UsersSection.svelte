@@ -23,11 +23,25 @@
   type View = 'app' | 'clickhouse'
   type Row = Record<string, unknown>
 
+  /** One entry of GET /api/admin/users (database.SessionUser). */
+  type AppUser = {
+    username: string
+    display_name: string
+    clickhouse_user: string
+    via_sso: boolean
+    user_role: string
+    last_login: string
+    session_count: number
+    exists_in_clickhouse?: boolean
+  }
+  type UsersResponse = { users?: AppUser[]; sync?: { clickhouse_user_check?: boolean } }
+  type UserRoleOverride = { username: string; role: string; created_at: string }
+
   let view = $state<View>('app')
   let search = $state('')
 
   // ── Application users ─────────────────────────────────────
-  let users = $state<any[]>([])
+  let users = $state<AppUser[]>([])
   let usersSyncCheck = $state(false)
   let usersError = $state<string | null>(null)
   let userRoles = $state<Record<string, string>>({})
@@ -41,7 +55,7 @@
   ]
 
   // ── ClickHouse users ──────────────────────────────────────
-  let chUsers = $state<any[]>([])
+  let chUsers = $state<Row[]>([])
   let chUsersError = $state<string | null>(null)
   let createCHUserSheetOpen = $state(false)
   let editCHUserPasswordSheetOpen = $state(false)
@@ -88,8 +102,8 @@
     usersError = null
     try {
       const [usersResponse, roles] = await Promise.all([
-        apiGet<any>('/api/admin/users'),
-        apiGet<any[]>('/api/admin/user-roles'),
+        apiGet<UsersResponse | AppUser[]>('/api/admin/users'),
+        apiGet<UserRoleOverride[]>('/api/admin/user-roles'),
       ])
       if (Array.isArray(usersResponse)) {
         users = usersResponse
@@ -113,7 +127,7 @@
   async function loadClickHouseUsers() {
     chUsersError = null
     try {
-      const res = await apiGet<{ data: any[]; meta: any[] }>('/api/admin/clickhouse-users')
+      const res = await apiGet<{ data: Row[]; meta: { name: string; type: string }[] }>('/api/admin/clickhouse-users')
       chUsers = res.data ?? []
     } catch (e: unknown) {
       chUsersError = describeUsersError(e)
@@ -141,8 +155,8 @@
       await apiPut(`/api/admin/user-roles/${encodeURIComponent(username)}`, { role })
       userRoles = { ...userRoles, [username]: role }
       toastSuccess(`Role set to ${role} for ${displayUser(username)}`)
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       if (roleSavingUser === username) roleSavingUser = null
     }
@@ -154,8 +168,8 @@
       const { [username]: _, ...rest } = userRoles
       userRoles = rest
       toastSuccess(`Role override removed for ${displayUser(username)}`)
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -178,7 +192,7 @@
     return CH_PASSWORD_AUTH_TYPES.includes(lowered) ? lowered : 'sha256_password'
   }
 
-  function formatCHDefaultRoles(row: any): string {
+  function formatCHDefaultRoles(row: Row): string {
     if (row?.default_roles_all === 1 || row?.default_roles_all === true) return 'ALL'
     const list = row?.default_roles_list
     if (Array.isArray(list) && list.length > 0) return list.join(', ')
@@ -238,8 +252,8 @@
       createCHUserSheetOpen = false
       resetCreateCHUserForm()
       await refreshUsersTab()
-    } catch (e: any) {
-      createCHUserErrorMessage = e.message ?? 'Create user failed'
+    } catch (e) {
+      createCHUserErrorMessage = e instanceof Error ? e.message : 'Create user failed'
       toastError('Create user failed. See details in the sheet.')
     }
   }
@@ -293,8 +307,8 @@
       selectedCHUserName = ''
       updateCHUserPasswordForm = { authType: 'sha256_password', password: '', ifExists: true }
       await loadClickHouseUsers()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -317,9 +331,9 @@
       toastSuccess(`ClickHouse user "${selectedCHUserName}" deleted`)
       cancelDeleteCHUser()
       await refreshUsersTab()
-    } catch (e: any) {
+    } catch (e) {
       deleteCHUserLoading = false
-      toastError(e.message)
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -339,7 +353,7 @@
 
   const chRows = $derived.by<Row[]>(() =>
     chUsers
-      .map((u) => ({
+      .map((u): Row => ({
         ...u,
         auth_type_label: formatCHAuthType(u.auth_type),
         storage_label: u.storage ?? '—',

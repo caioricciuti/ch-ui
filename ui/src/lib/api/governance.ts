@@ -4,11 +4,9 @@ import type {
   GovernanceOverview,
   GovernanceSettings,
   SyncResult,
-  SyncState,
   GovDatabase,
   GovTable,
   GovColumn,
-  SchemaChange,
   QueryLogEntry,
   QueryHarvestMode,
   QueryHarvestSettings,
@@ -30,19 +28,11 @@ const BASE = '/api/governance'
 
 export function fetchOverview() {
   return apiGet<{ overview?: GovernanceOverview } | GovernanceOverview>(`${BASE}/overview`)
-    .then((res: any) => res?.overview ?? res)
+    .then((res) => ('overview' in res && res.overview ? res.overview : res as GovernanceOverview))
 }
 
 export function triggerSync() {
   return apiPost<SyncResult>(`${BASE}/sync`)
-}
-
-export function triggerSingleSync(type: 'metadata' | 'query_log' | 'access') {
-  return apiPost<SyncResult>(`${BASE}/sync/${type}`)
-}
-
-export function fetchSyncStatus() {
-  return apiGet<{ sync_states: SyncState[] }>(`${BASE}/sync/status`)
 }
 
 // ── Settings (admin) ────────────────────────────────────────────
@@ -73,15 +63,17 @@ export function fetchTables(params?: { database?: string; tag?: string; search?:
   return apiGet<{ tables: GovTable[] }>(`${BASE}/tables${q ? '?' + q : ''}`)
 }
 
+interface TableDetailResponse {
+  table: GovTable
+  columns: GovColumn[]
+  tags: TagEntry[]
+  recent_queries?: QueryLogEntry[]
+  queries?: QueryLogEntry[]
+}
+
 export function fetchTableDetail(database: string, table: string) {
-  return apiGet<{
-    table: GovTable
-    columns: GovColumn[]
-    tags: TagEntry[]
-    recent_queries?: QueryLogEntry[]
-    queries?: QueryLogEntry[]
-  }>(`${BASE}/tables/${encodeURIComponent(database)}/${encodeURIComponent(table)}`)
-    .then((res: any) => ({
+  return apiGet<TableDetailResponse>(`${BASE}/tables/${encodeURIComponent(database)}/${encodeURIComponent(table)}`)
+    .then((res) => ({
       ...res,
       recent_queries: res?.recent_queries ?? res?.queries ?? [],
     }))
@@ -91,24 +83,12 @@ export function fetchTableNotes(database: string, table: string) {
   return apiGet<{ notes: GovernanceObjectComment[] }>(`${BASE}/tables/${encodeURIComponent(database)}/${encodeURIComponent(table)}/notes`)
 }
 
-export function fetchColumnNotes(database: string, table: string, column: string) {
-  return apiGet<{ notes: GovernanceObjectComment[] }>(`${BASE}/tables/${encodeURIComponent(database)}/${encodeURIComponent(table)}/columns/${encodeURIComponent(column)}/notes`)
-}
-
 export function createTableNote(database: string, table: string, commentText: string) {
   return apiPost<{ id: string }>(`${BASE}/tables/${encodeURIComponent(database)}/${encodeURIComponent(table)}/notes`, { comment_text: commentText })
 }
 
-export function createColumnNote(database: string, table: string, column: string, commentText: string) {
-  return apiPost<{ id: string }>(`${BASE}/tables/${encodeURIComponent(database)}/${encodeURIComponent(table)}/columns/${encodeURIComponent(column)}/notes`, { comment_text: commentText })
-}
-
 export function deleteObjectNote(id: string) {
   return apiDel(`${BASE}/notes/${encodeURIComponent(id)}`)
-}
-
-export function fetchSchemaChanges(limit = 50) {
-  return apiGet<{ changes: SchemaChange[] }>(`${BASE}/schema-changes?limit=${limit}`)
 }
 
 // ── Query Log ───────────────────────────────────────────────────
@@ -131,27 +111,7 @@ export function updateQueryHarvestMode(mode: QueryHarvestMode) {
   return apiPut<QueryHarvestSettings>(`${BASE}/query-harvest`, { mode })
 }
 
-export function fetchQueryByQueryID(queryId: string) {
-  return apiGet<{ entry: QueryLogEntry }>(`${BASE}/query-log/${encodeURIComponent(queryId)}`)
-}
-
 // ── Tags ────────────────────────────────────────────────────────
-
-export function fetchTags(params?: { database?: string; table?: string }) {
-  const qs = new URLSearchParams()
-  if (params?.database) qs.set('database', params.database)
-  if (params?.table) qs.set('table', params.table)
-  const q = qs.toString()
-  return apiGet<{ tags: TagEntry[] }>(`${BASE}/tags${q ? '?' + q : ''}`)
-}
-
-export function createTag(data: { object_type: string; database_name: string; table_name: string; column_name?: string; tag: string }) {
-  return apiPost<{ id: string }>(`${BASE}/tags`, data)
-}
-
-export function deleteTag(id: string) {
-  return apiDel(`${BASE}/tags/${id}`)
-}
 
 // ── Access ──────────────────────────────────────────────────────
 
@@ -180,10 +140,6 @@ export function fetchPolicies() {
 
 export function createPolicy(data: Partial<Policy>) {
   return apiPost<{ id: string }>(`${BASE}/policies`, data)
-}
-
-export function getPolicy(id: string) {
-  return apiGet<Policy>(`${BASE}/policies/${id}`)
 }
 
 export function updatePolicy(id: string, data: Partial<Policy>) {

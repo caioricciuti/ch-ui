@@ -49,28 +49,6 @@ export interface PipelineGraph {
   edges: PipelineEdge[]
 }
 
-export interface PipelineRun {
-  id: string
-  pipeline_id: string
-  status: 'running' | 'success' | 'error' | 'stopped'
-  started_at: string
-  finished_at: string | null
-  rows_ingested: number
-  bytes_ingested: number
-  errors_count: number
-  last_error: string | null
-  metrics_json: string
-  created_at: string
-}
-
-export interface PipelineRunLog {
-  id: string
-  run_id: string
-  level: 'debug' | 'info' | 'warn' | 'error'
-  message: string
-  created_at: string
-}
-
 export interface ConnectorFieldDef {
   key: string
   label: string

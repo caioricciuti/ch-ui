@@ -29,6 +29,3 @@ export function detectQueryParams(sql: string): QueryParam[] {
 }
 
 /** True when the query references at least one bind parameter. */
-export function hasQueryParams(sql: string): boolean {
-  return detectQueryParams(sql).length > 0
-}

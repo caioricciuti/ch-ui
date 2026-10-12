@@ -4,14 +4,6 @@ export interface ColumnMeta {
   type: string
 }
 
-/** Query result in JSONCompact format (positional arrays) */
-export interface CompactResult {
-  meta: ColumnMeta[]
-  data: unknown[][]
-  rows: number
-  statistics?: QueryStats
-}
-
 /** Query execution statistics */
 export interface QueryStats {
   elapsed: number

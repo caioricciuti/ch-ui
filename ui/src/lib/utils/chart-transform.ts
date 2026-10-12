@@ -17,16 +17,6 @@ export const DEFAULT_COLORS = [
   '#EC4899', // pink
 ]
 
-export const TIME_RANGES = [
-  { label: 'Last 5m', value: '5m', seconds: 300 },
-  { label: 'Last 15m', value: '15m', seconds: 900 },
-  { label: 'Last 1h', value: '1h', seconds: 3600 },
-  { label: 'Last 6h', value: '6h', seconds: 21600 },
-  { label: 'Last 24h', value: '24h', seconds: 86400 },
-  { label: 'Last 7d', value: '7d', seconds: 604800 },
-  { label: 'Last 30d', value: '30d', seconds: 2592000 },
-]
-
 export interface ExtendedPreset {
   label: string
   value: string
@@ -76,13 +66,6 @@ export function isNumericType(chType: string): boolean {
   return /^(U?Int|Float|Decimal)/.test(base)
 }
 
-/** True when x column is categorical (not date, not numeric — i.e. String). */
-export function isCategoricalX(meta: ColumnMeta[], xColumn: string): boolean {
-  const xMeta = meta.find(m => m.name === xColumn)
-  if (!xMeta) return false
-  return !isDateType(xMeta.type) && !isNumericType(xMeta.type)
-}
-
 /**
  * Transform dashboard API row-objects into uPlot's AlignedData format.
  * Returns [xValues[], y1Values[], y2Values[], ...]
@@ -128,21 +111,6 @@ export function toUPlotData(
   }
 
   return series
-}
-
-/** Extract single stat value from first row, first column (legacy, kept for backward compat) */
-export function getStatValue(data: Record<string, unknown>[], meta: ColumnMeta[]): string {
-  if (data.length > 0 && meta.length > 0) {
-    const key = meta[0].name
-    const val = data[0][key] ?? data[0][Object.keys(data[0])[0]]
-    if (val === null || val === undefined) return '--'
-    const num = Number(val)
-    if (!isNaN(num)) {
-      return num.toLocaleString()
-    }
-    return String(val)
-  }
-  return '--'
 }
 
 // ---------------------------------------------------------------------------

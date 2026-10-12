@@ -93,13 +93,6 @@ function pushUrl(path: string, tabId?: string): void {
 
 // ── Push helpers ─────────────────────────────────────────────────
 
-export function pushTabRoute(tabType: string): void {
-  if (suppressPush) return
-  const path = TAB_PATHS[tabType] ?? '/'
-  const activeTab = getActiveTab()
-  pushUrl(path, activeTab?.id)
-}
-
 export function pushTabRouteForTab(tab: { id: string; type: string }): void {
   if (suppressPush) return
   const path = TAB_PATHS[tab.type] ?? '/'
@@ -110,12 +103,6 @@ export function pushDashboardDetail(id: string): void {
   if (suppressPush) return
   navigate('/dashboards/' + id)
   dashboardId = id
-}
-
-export function pushDashboardList(): void {
-  if (suppressPush) return
-  navigate('/dashboards')
-  dashboardId = undefined
 }
 
 export function pushPipelineDetail(id: string): void {

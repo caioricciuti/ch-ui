@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDel } from './client'
-import type { Model, ModelRun, ModelRunResult, ModelDAG, ValidationResult, ModelSchedule, Pipeline } from '../types/models'
+import type { Model, ModelRun, ModelRunResult, ModelDAG, ModelSchedule, Pipeline } from '../types/models'
 
 const BASE = '/api/models'
 
@@ -35,10 +35,6 @@ export function getDAG() {
   return apiGet<ModelDAG>(`${BASE}/dag`)
 }
 
-export function validateModels() {
-  return apiGet<ValidationResult>(`${BASE}/validate`)
-}
-
 export function runAllModels() {
   return apiPost<{ run_id: string }>(`${BASE}/run`)
 }
@@ -61,10 +57,6 @@ export function listPipelines() {
 
 export function runPipeline(anchorId: string) {
   return apiPost<{ run_id: string }>(`${BASE}/pipelines/${anchorId}/run`)
-}
-
-export function getPipelineSchedule(anchorId: string) {
-  return apiGet<{ schedule: ModelSchedule | null }>(`${BASE}/schedule/${anchorId}`)
 }
 
 export function upsertPipelineSchedule(anchorId: string, data: { cron: string; enabled: boolean }) {
