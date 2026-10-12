@@ -137,6 +137,8 @@ type QueryLogEntry struct {
 	IsError        bool    `json:"is_error"`
 	ErrorMessage   *string `json:"error_message"`
 	CreatedAt      string  `json:"created_at"`
+	// Inserted is set by InsertQueryLogBatch when the row was new.
+	Inserted bool `json:"-"`
 }
 
 type TagEntry struct {

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 )
 
 const queryLogBatchLimit = 5000
-const defaultQueryLogWatermark = "2000-01-01 00:00:00"
+const defaultQueryLogWatermark = "2000-01-01 00:00:00.000000"
 
 // syncQueryLog harvests recent queries from system.query_log, classifies them,
 // and evaluates access policies.
@@ -72,81 +73,31 @@ func (s *Syncer) syncQueryLog(ctx context.Context, creds CHCredentials) (*QueryL
 			e := syncErr.Error()
 			errMsg = &e
 		}
-		watermark := result.NewWatermark
-		if watermark == "" {
-			watermark = now
+		// Only advance the watermark when this run read rows and stored
+		// them. On any error the stored watermark stays where it was, so
+		// the next run reads the same window again instead of skipping it.
+		var watermark *string
+		if syncErr == nil && result.NewWatermark != "" {
+			wm := result.NewWatermark
+			watermark = &wm
 		}
-		if err := s.store.UpsertSyncState(connID, string(SyncQueryLog), status, &watermark, errMsg, result.QueriesIngested); err != nil {
+		if err := s.store.UpsertSyncState(connID, string(SyncQueryLog), status, watermark, errMsg, result.QueriesIngested); err != nil {
 			slog.Error("Failed to update sync state after query log sync", "error", err)
 		}
 	}()
 
 	// Get current watermark from sync state
-	watermark := defaultQueryLogWatermark
+	wm := parseQueryLogWatermark("")
 	state, err := s.store.GetSyncState(connID, string(SyncQueryLog))
 	if err == nil && state != nil && state.Watermark != nil && *state.Watermark != "" {
-		watermark = sanitizeQueryLogWatermark(*state.Watermark)
+		wm = parseQueryLogWatermark(*state.Watermark)
 	}
+	minDuration := QueryHarvestMinDurationMs(s.db)
 
-	// Query system.query_log for finished queries since watermark
-	sql := fmt.Sprintf(`SELECT
-		query_id,
-		user AS ch_user,
-		query,
-		event_time,
-		query_duration_ms,
-		read_rows,
-		read_bytes,
-		result_rows,
-		written_rows,
-		written_bytes,
-		memory_usage,
-		tables,
-		exception_code,
-		exception
-	FROM system.query_log
-	WHERE type = 'QueryFinish'
-	  AND is_initial_query = 1
-	  AND event_time > parseDateTimeBestEffort('%s')
-	  AND query_duration_ms >= 10
-	  AND query NOT LIKE '%%system.query_log%%'
-	  AND query NOT LIKE '%%system.tables%%'
-	  AND query NOT LIKE '%%system.columns%%'
-	  AND query NOT LIKE '%%system.grants%%'
-	ORDER BY event_time ASC
-	LIMIT %d`, watermark, queryLogBatchLimit)
-
-	rows, err := s.executeQuery(creds, sql)
+	rows, err := s.executeQuery(creds, buildQueryLogHarvestSQL(wm, creds.User, minDuration, true))
 	if err != nil {
 		// Fallback for older CH setups where the "tables" column may be unavailable.
-		fallbackSQL := fmt.Sprintf(`SELECT
-		query_id,
-		user AS ch_user,
-		query,
-		event_time,
-		query_duration_ms,
-		read_rows,
-		read_bytes,
-		result_rows,
-		written_rows,
-		written_bytes,
-		memory_usage,
-		CAST([], 'Array(String)') AS tables,
-		exception_code,
-		exception
-	FROM system.query_log
-	WHERE type = 'QueryFinish'
-	  AND is_initial_query = 1
-	  AND event_time > parseDateTimeBestEffort('%s')
-	  AND query_duration_ms >= 10
-	  AND query NOT LIKE '%%system.query_log%%'
-	  AND query NOT LIKE '%%system.tables%%'
-	  AND query NOT LIKE '%%system.columns%%'
-	  AND query NOT LIKE '%%system.grants%%'
-	ORDER BY event_time ASC
-	LIMIT %d`, watermark, queryLogBatchLimit)
-
-		rows, err = s.executeQuery(creds, fallbackSQL)
+		rows, err = s.executeQuery(creds, buildQueryLogHarvestSQL(wm, creds.User, minDuration, false))
 		if err != nil {
 			syncErr = fmt.Errorf("query_log query failed: %w", err)
 			return result, syncErr
@@ -154,13 +105,12 @@ func (s *Syncer) syncQueryLog(ctx context.Context, creds CHCredentials) (*QueryL
 	}
 
 	if len(rows) == 0 {
-		result.NewWatermark = watermark
 		return result, nil
 	}
 
 	// Build QueryLogEntry batch
 	var entries []QueryLogEntry
-	var latestEventTime string
+	var latest queryLogWatermark
 
 	for _, row := range rows {
 		queryText := fmt.Sprintf("%v", row["query"])
@@ -200,7 +150,7 @@ func (s *Syncer) syncQueryLog(ctx context.Context, creds CHCredentials) (*QueryL
 		}
 
 		entries = append(entries, entry)
-		latestEventTime = eventTime
+		latest = parseQueryLogWatermark(fmt.Sprintf("%v|%s", row["event_time_us"], entry.QueryID))
 	}
 
 	// Batch insert into SQLite
@@ -210,13 +160,7 @@ func (s *Syncer) syncQueryLog(ctx context.Context, creds CHCredentials) (*QueryL
 		return result, syncErr
 	}
 	result.QueriesIngested = inserted
-
-	// Update watermark to the latest event time
-	if latestEventTime != "" {
-		result.NewWatermark = latestEventTime
-	} else {
-		result.NewWatermark = watermark
-	}
+	result.NewWatermark = latest.String()
 
 	// Evaluate policies against each entry
 	violationCount := 0
@@ -225,6 +169,11 @@ func (s *Syncer) syncQueryLog(ctx context.Context, creds CHCredentials) (*QueryL
 		slog.Warn("Failed to load policies for violation check", "error", err)
 	} else if len(policies) > 0 {
 		for _, entry := range entries {
+			// A row already stored by an earlier run was evaluated then;
+			// evaluating it again would duplicate its violations.
+			if !entry.Inserted {
+				continue
+			}
 			violations := EvaluatePolicies(connID, entry, policies, s.store)
 			for _, v := range violations {
 				violationID, err := s.store.CreateViolation(connID, v.PolicyID, v.QueryLogID, v.User, v.ViolationDetail, v.Severity, "post_exec", "")
@@ -375,30 +324,134 @@ func extractTablesJSON(v interface{}) string {
 	}
 }
 
-func sanitizeQueryLogWatermark(v string) string {
-	s := strings.TrimSpace(v)
-	if s == "" {
-		return defaultQueryLogWatermark
-	}
+// queryLogWatermark is the harvest position: the event_time_microseconds of
+// the last stored row plus its query_id as a tiebreak, so rows sharing a
+// timestamp are never skipped when a batch ends between them.
+type queryLogWatermark struct {
+	TS      string // "2006-01-02 15:04:05.000000", ClickHouse server time zone
+	QueryID string
+}
 
+// String encodes the watermark as "<ts>|<query_id>" for gov_sync_state.
+func (w queryLogWatermark) String() string {
+	return w.TS + "|" + w.QueryID
+}
+
+// parseQueryLogWatermark reads a stored watermark. Older versions stored a
+// plain timestamp (seconds or RFC3339); those parse with an empty query_id.
+func parseQueryLogWatermark(v string) queryLogWatermark {
+	raw := strings.TrimSpace(v)
+	qid := ""
+	if idx := strings.Index(raw, "|"); idx >= 0 {
+		qid = raw[idx+1:]
+		raw = raw[:idx]
+	}
+	return queryLogWatermark{TS: sanitizeQueryLogTimestamp(raw), QueryID: qid}
+}
+
+func sanitizeQueryLogTimestamp(v string) string {
+	s := strings.TrimSpace(v)
 	layouts := []string{
 		time.RFC3339Nano,
 		time.RFC3339,
 		"2006-01-02 15:04:05.999999999",
-		"2006-01-02 15:04:05.999999",
 		"2006-01-02 15:04:05",
 	}
-
 	for _, layout := range layouts {
 		if t, err := time.Parse(layout, s); err == nil {
-			return t.UTC().Format("2006-01-02 15:04:05")
+			return t.UTC().Format(queryLogTimestampLayout)
 		}
 	}
+	return defaultQueryLogWatermark
+}
 
-	// Last-resort hardening against accidental malformed/corrupt values.
-	s = strings.ReplaceAll(s, "'", "")
-	if s == "" {
-		return defaultQueryLogWatermark
+const queryLogTimestampLayout = "2006-01-02 15:04:05.000000"
+
+// GovernanceLogComment tags every query the governance syncer sends, so the
+// query-log harvest can leave out its own reads.
+const GovernanceLogComment = "ch-ui:governance"
+
+// chQuote returns s as a ClickHouse single-quoted string literal.
+func chQuote(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `'`, `\'`)
+	return "'" + s + "'"
+}
+
+// buildQueryLogHarvestSQL reads system.query_log after the watermark. It keeps
+// finished queries and both exception types (so denied attempts are audited),
+// and leaves out only the governance syncer's own queries: log_comment alone
+// is not enough, since any user can set it, so the harvest user must match too.
+func buildQueryLogHarvestSQL(wm queryLogWatermark, harvestUser string, minDurationMs int64, withTables bool) string {
+	tables := "tables"
+	if !withTables {
+		tables = "CAST([], 'Array(String)') AS tables"
 	}
-	return s
+	ts := fmt.Sprintf("parseDateTime64BestEffort(%s, 6)", chQuote(wm.TS))
+	duration := ""
+	if minDurationMs > 0 {
+		// The floor only applies to successful queries; failures are always kept.
+		duration = fmt.Sprintf("\n\t  AND (type != 'QueryFinish' OR query_duration_ms >= %d)", minDurationMs)
+	}
+	return fmt.Sprintf(`SELECT
+		query_id,
+		user AS ch_user,
+		query,
+		event_time,
+		toString(event_time_microseconds) AS event_time_us,
+		query_duration_ms,
+		read_rows,
+		read_bytes,
+		result_rows,
+		written_rows,
+		written_bytes,
+		memory_usage,
+		%s,
+		exception_code,
+		exception
+	FROM system.query_log
+	WHERE type IN ('QueryFinish', 'ExceptionBeforeStart', 'ExceptionWhileProcessing')
+	  AND is_initial_query = 1
+	  AND event_date >= toDate(%s)
+	  AND event_time >= toDateTime(%s)
+	  AND (event_time_microseconds, query_id) > (%s, %s)
+	  AND NOT (log_comment = %s AND user = %s)%s
+	ORDER BY event_time_microseconds ASC, query_id ASC
+	LIMIT %d`, tables, ts, ts, ts, chQuote(wm.QueryID), chQuote(GovernanceLogComment), chQuote(harvestUser), duration, queryLogBatchLimit)
+}
+
+// SettingQueryHarvestMinDurationKey stores the optional duration floor (ms)
+// for harvested successful queries. Unset or 0 keeps every query.
+const SettingQueryHarvestMinDurationKey = "governance.query_harvest_min_duration_ms"
+
+// MaxQueryHarvestMinDurationMs bounds the configurable floor (one hour).
+const MaxQueryHarvestMinDurationMs = 3_600_000
+
+type settingsStore interface {
+	GetSetting(key string) (string, error)
+	SetSetting(key, value string) error
+}
+
+// QueryHarvestMinDurationMs returns the configured duration floor, 0 by default.
+func QueryHarvestMinDurationMs(db settingsStore) int64 {
+	if db == nil {
+		return 0
+	}
+	v, err := db.GetSetting(SettingQueryHarvestMinDurationKey)
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	if err != nil || n < 0 || n > MaxQueryHarvestMinDurationMs {
+		return 0
+	}
+	return n
+}
+
+// SetQueryHarvestMinDurationMs validates and stores the duration floor.
+func SetQueryHarvestMinDurationMs(db settingsStore, ms int64) error {
+	if ms < 0 || ms > MaxQueryHarvestMinDurationMs {
+		return fmt.Errorf("min_duration_ms must be between 0 and %d", MaxQueryHarvestMinDurationMs)
+	}
+	return db.SetSetting(SettingQueryHarvestMinDurationKey, strconv.FormatInt(ms, 10))
 }

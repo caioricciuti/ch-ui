@@ -53,6 +53,7 @@ func TestTickFollowsLicense(t *testing.T) {
 
 	makeDue()
 	r.tick()
+	r.wait()
 	if n := runCount(); n != 0 {
 		t.Fatalf("ProNone: got %d runs, want 0", n)
 	}
@@ -64,6 +65,7 @@ func TestTickFollowsLicense(t *testing.T) {
 	// Resume: the slot missed while paused moves to the future, no run.
 	access = config.ProGrace
 	r.tick()
+	r.wait()
 	if n := runCount(); n != 0 {
 		t.Fatalf("resume: got %d runs, want 0 (missed slot is skipped)", n)
 	}
@@ -83,6 +85,7 @@ func TestTickFollowsLicense(t *testing.T) {
 		access = state
 		makeDue()
 		r.tick()
+		r.wait()
 		want++
 		if n := runCount(); n != want {
 			t.Fatalf("access %v: got %d runs, want %d", state, n, want)
@@ -92,6 +95,7 @@ func TestTickFollowsLicense(t *testing.T) {
 	access = config.ProNone
 	makeDue()
 	r.tick()
+	r.wait()
 	if n := runCount(); n != want {
 		t.Fatalf("back to ProNone: got %d runs, want %d", n, want)
 	}
@@ -114,6 +118,7 @@ func TestTickWithoutGateDoesNothing(t *testing.T) {
 	r := NewRunner(db, tunnel.NewGateway(db), "test-secret", nil)
 	defer r.gateway.Stop()
 	r.tick()
+	r.wait()
 	runs, err := db.GetScheduleRuns(id, 100, 0)
 	if err != nil || len(runs) != 0 {
 		t.Fatalf("nil gate must fail closed: %d runs, %v", len(runs), err)

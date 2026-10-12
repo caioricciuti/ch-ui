@@ -31,7 +31,7 @@ Host infrastructure needs node-level agents (Prometheus, node_exporter, etc.). E
 
 ### Database
 
-- **Long queries**: currently-running queries over a configurable threshold (`system.processes`).
+- **Long queries**: currently-running queries over a configurable threshold (`system.processes`). Click a row to see the full query text, open it in a new editor tab, or kill it.
 - **Parts pressure**: active parts per partition compared against `parts_to_throw_insert`, the classic "too many parts" early warning before inserts start failing (`system.parts`, `system.merge_tree_settings`).
 - **Data location**: disk and S3 distribution with free/total usage (`system.disks`).
 
@@ -42,7 +42,9 @@ Host infrastructure needs node-level agents (Prometheus, node_exporter, etc.). E
 Queries run via `clusterAllReplicas('<cluster>', system.X)` with per-node attribution, so a problem on **any** replica is visible, not just the node CH-UI happens to be connected to. The cluster is auto-detected (the one containing the connected node); you can override it.
 
 - **Single-node deployments** transparently fall back to the local node.
-- If remote nodes can't be reached (for example, the connection's credentials aren't valid cluster-wide), the view **degrades to the local node** and is flagged as such rather than failing.
+- Fan-out queries run with `skip_unavailable_shards = 1`, so one node being down does not blank the whole page. CH-UI compares the nodes that answered with the cluster definition in `system.clusters`: a node that is defined but did not answer is shown as **Down** (a badge in the header and a row in the node table) and is stored in history as a down sample.
+- If remote nodes can't be reached at all (for example, the connection's credentials aren't valid cluster-wide), the view **degrades to the local node** and is flagged as such rather than failing. The other nodes are listed with every metric **unknown**, not as down.
+- When one metric fails to collect (for example a missing grant on `system.merges`), that metric shows as **Unknown** instead of 0, in the tiles, the node table and the charts (a gap, not a healthy-looking zero). Hover the "metrics unknown" badge to see the error.
 - Tables that don't exist on a given ClickHouse version (Keeper, backups) are skipped gracefully instead of erroring.
 
 ### History & retention
@@ -56,6 +58,26 @@ Samples older than the **retention window are pruned automatically**. The defaul
 The trend charts (replication delay, parts pressure) plot **one series per node** with time axes and a hover legend, over a selectable window (1h / 6h / 24h / 7d), so "which node is lagging" is visible at a glance instead of hidden in a cluster-wide aggregate.
 
 The page also filters end-to-end: a free-text search narrows section rows (table names, postpone reasons, exceptions…), and a **node filter** (pick from the dropdown or click the funnel on any row of the per-node table) focuses the headline tiles, the charts, and every drill-down section on a single node. One click answers "is this one node's problem, or everyone's?"
+
+### Status thresholds
+
+The headline tiles turn amber or red at these levels:
+
+| Tile | Warning | Critical |
+| --- | --- | --- |
+| Max replication delay | 10 s | 60 s |
+| Replication queue | 10 | 100 |
+| Readonly replicas | n/a | any |
+| Parts pressure | 50% | 80% |
+| Mutations pending | 5 pending, or the oldest older than 15 min | 20 pending, or the oldest older than 1 h |
+| Long queries | 1 | 5 |
+| Max disk used | 80% | 90% |
+
+A single pending mutation is normal and stays neutral. Max disk used is the fullest disk on any node (`system.disks`), shown live and not stored in history.
+
+## Killing queries and mutations
+
+From **Long Queries** or **Mutations**, open a row and choose **Kill**. A confirmation shows the query or mutation command, the user and how long it has been running. CH-UI then runs `KILL QUERY` or `KILL MUTATION` with your own ClickHouse credentials, so ClickHouse decides whether you may (any user can kill their own queries; killing others needs the `KILL QUERY` grant, and killing a mutation needs `ALTER` on the table). In CH-UI it needs the admin or analyst role. On a cluster the statement is sent `ON CLUSTER`; when distributed DDL is not available it runs on the connected node only and the toast says so. Every kill is written to the audit log (`cluster_health.query.killed`, `cluster_health.mutation.killed`).
 
 ## Settings
 

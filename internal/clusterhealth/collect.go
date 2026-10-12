@@ -6,7 +6,9 @@
 package clusterhealth
 
 import (
+	"net"
 	"strconv"
+	"strings"
 )
 
 // ExecFunc runs a ClickHouse SQL statement and returns the result rows as a
@@ -22,26 +24,54 @@ type PartsLimits struct {
 	DelayInsert int64 `json:"parts_to_delay_insert"`
 }
 
+// Collection is one poll: a Sample per node, the parts limits, and the error
+// of every metric group that failed (keyed by Metric*). A failed group is
+// also listed in each sample's Unknown so it is never mistaken for zero.
+type Collection struct {
+	Samples []Sample
+	Limits  PartsLimits
+	Errors  map[string]string
+}
+
 // CollectSamples runs the per-node aggregate queries and merges them into one
-// Sample per node. It is resilient: a failing category (e.g. a node without
-// replicated tables) contributes zero rather than aborting the whole snapshot.
+// Sample per node. A failing metric group does not abort the snapshot: it is
+// recorded in Errors and marked unknown on every node. The returned error is
+// the fan-out failure (node presence or replication) that should make the
+// caller retry on the local node only. On a cluster, nodes listed in
+// system.clusters that returned nothing are added as Down.
 // capturedAt is stamped by the caller so every node in a poll shares a timestamp.
-func CollectSamples(exec ExecFunc, cluster string, longQueryThreshold int, capturedAt string) ([]Sample, PartsLimits, error) {
+func CollectSamples(exec ExecFunc, cluster string, longQueryThreshold int, capturedAt string) (Collection, error) {
 	byNode := map[string]*Sample{}
+	order := []string{}
 	node := func(name string) *Sample {
 		if s, ok := byNode[name]; ok {
 			return s
 		}
 		s := &Sample{Node: name, CapturedAt: capturedAt}
 		byNode[name] = s
+		order = append(order, name)
 		return s
 	}
+	errs := map[string]string{}
 
-	// Replication is the primary signal; if it fails outright we still return
-	// whatever else we can gather, but surface the error so the caller can log it.
-	var firstErr error
+	// Presence seeds one sample per reachable node, so a node with no
+	// replicated tables, merges or parts still shows up (and is not later
+	// mistaken for a missing node).
+	var fanOutErr error
+	if rows, err := exec(NodesQuery(cluster)); err != nil {
+		fanOutErr = err
+		errs["nodes"] = err.Error()
+	} else {
+		for _, r := range rows {
+			node(asString(r["node"]))
+		}
+	}
+
 	if rows, err := exec(ReplicationAggQuery(cluster)); err != nil {
-		firstErr = err
+		if fanOutErr == nil {
+			fanOutErr = err
+		}
+		errs[MetricReplication] = err.Error()
 	} else {
 		for _, r := range rows {
 			s := node(asString(r["node"]))
@@ -51,24 +81,42 @@ func CollectSamples(exec ExecFunc, cluster string, longQueryThreshold int, captu
 		}
 	}
 
-	if rows, err := exec(MergesAggQuery(cluster)); err == nil {
+	if rows, err := exec(MergesAggQuery(cluster)); err != nil {
+		errs[MetricMerges] = err.Error()
+	} else {
 		for _, r := range rows {
 			node(asString(r["node"])).MergesRunning = asInt64(r["merges_running"])
 		}
 	}
-	if rows, err := exec(MutationsAggQuery(cluster)); err == nil {
+	if rows, err := exec(MutationsAggQuery(cluster)); err != nil {
+		errs[MetricMutations] = err.Error()
+	} else {
 		for _, r := range rows {
-			node(asString(r["node"])).MutationsPending = asInt64(r["mutations_pending"])
+			s := node(asString(r["node"]))
+			s.MutationsPending = asInt64(r["mutations_pending"])
+			s.MutationsOldestAgeSec = asInt64(r["mutations_oldest_age_seconds"])
 		}
 	}
-	if rows, err := exec(PartsAggQuery(cluster)); err == nil {
+	if rows, err := exec(PartsAggQuery(cluster)); err != nil {
+		errs[MetricParts] = err.Error()
+	} else {
 		for _, r := range rows {
 			node(asString(r["node"])).PartsMaxActive = asInt64(r["parts_max_active"])
 		}
 	}
-	if rows, err := exec(LongQueriesAggQuery(cluster, longQueryThreshold)); err == nil {
+	if rows, err := exec(LongQueriesAggQuery(cluster, longQueryThreshold)); err != nil {
+		errs[MetricLongQueries] = err.Error()
+	} else {
 		for _, r := range rows {
 			node(asString(r["node"])).LongQueries = asInt64(r["long_queries"])
+		}
+	}
+	if rows, err := exec(DiskAggQuery(cluster)); err != nil {
+		errs[MetricDisk] = err.Error()
+	} else {
+		for _, r := range rows {
+			v := asFloat(r["disk_used_pct"])
+			node(asString(r["node"])).DiskUsedPct = &v
 		}
 	}
 
@@ -89,13 +137,82 @@ func CollectSamples(exec ExecFunc, cluster string, longQueryThreshold int, captu
 	}
 
 	samples := make([]Sample, 0, len(byNode))
-	for _, s := range byNode {
-		if limits.ThrowInsert > 0 {
+	for _, name := range order {
+		s := byNode[name]
+		for _, m := range append(append([]string{}, storedMetrics...), MetricDisk) {
+			if _, failed := errs[m]; failed {
+				s.markUnknown(m)
+			}
+		}
+		if s.DiskUsedPct == nil {
+			s.markUnknown(MetricDisk)
+		}
+		if limits.ThrowInsert > 0 && !s.IsUnknown(MetricParts) {
 			s.PartsPressurePct = float64(s.PartsMaxActive) / float64(limits.ThrowInsert) * 100
 		}
 		samples = append(samples, *s)
 	}
-	return samples, limits, firstErr
+
+	out := Collection{Samples: samples, Limits: limits, Errors: errs}
+	if cluster != "" && fanOutErr == nil {
+		out.Samples = FlagMissingNodes(exec, cluster, out.Samples, capturedAt, true)
+	}
+	return out, fanOutErr
+}
+
+// FlagMissingNodes compares the nodes that answered against the cluster's
+// definition in system.clusters and appends a sample for every node that did
+// not answer, with all metrics unknown. down=true marks them Down (the
+// fan-out ran and they were skipped); down=false is used after a fallback to
+// the local node, where their state is simply unknown. On error the samples
+// are returned unchanged.
+func FlagMissingNodes(exec ExecFunc, cluster string, samples []Sample, capturedAt string, down bool) []Sample {
+	if !IsValidClusterName(cluster) {
+		return samples
+	}
+	rows, err := exec(ClusterNodesQuery(cluster))
+	if err != nil {
+		return samples
+	}
+	seen := map[string]bool{}
+	for _, s := range samples {
+		seen[strings.ToLower(s.Node)] = true
+		seen[shortHost(s.Node)] = true
+	}
+	added := map[string]bool{}
+	for _, r := range rows {
+		name := asString(r["host_name"])
+		if asInt64(r["is_local"]) == 1 {
+			if self := asString(r["self"]); self != "" {
+				name = self
+			}
+		}
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if seen[key] || seen[shortHost(name)] || added[key] {
+			continue
+		}
+		added[key] = true
+		missing := Sample{Node: name, CapturedAt: capturedAt, Down: down}
+		for _, m := range storedMetrics {
+			missing.markUnknown(m)
+		}
+		missing.markUnknown(MetricDisk)
+		samples = append(samples, missing)
+	}
+	return samples
+}
+
+// shortHost lowercases a host name and drops its domain, so "ch-1" matches
+// "ch-1.prod.internal" whichever side is qualified.
+func shortHost(name string) string {
+	name = strings.ToLower(name)
+	if i := strings.IndexByte(name, '.'); i > 0 && net.ParseIP(name) == nil {
+		return name[:i]
+	}
+	return name
 }
 
 // ── JSON value coercion ──────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
-export type AlertChannelType = 'smtp' | 'resend' | 'brevo'
+export type AlertChannelType = 'smtp' | 'resend' | 'brevo' | 'webhook'
+export type WebhookFormat = 'generic' | 'slack' | 'teams'
 export type AlertSeverity = 'info' | 'warn' | 'error' | 'critical'
 export type AlertEventType = 'policy.violation' | 'schedule.failed' | 'schedule.slow' | 'telemetry.monitor' | '*'
 

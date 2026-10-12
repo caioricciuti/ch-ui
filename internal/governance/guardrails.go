@@ -63,9 +63,38 @@ func NewGuardrailService(store *Store, db *database.DB) *GuardrailService {
 	}
 }
 
+// EvaluateQuery checks a query before it runs. Unqualified table names are
+// resolved against ClickHouse's "default" database; use
+// EvaluateQueryInDatabase when the session's current database is known.
+//
+// Guardrails are advisory: they match the query text, and they allow the
+// query when the access data is stale or missing (fail open).
 func (s *GuardrailService) EvaluateQuery(connectionID, user, queryText, requestEndpoint string) (GuardrailDecision, error) {
-	tablesUsed := extractPolicyTablesFromQuery(queryText)
+	return s.EvaluateQueryInDatabase(connectionID, user, "", queryText, requestEndpoint)
+}
+
+// EvaluateQueryInDatabase is EvaluateQuery with the session's current
+// database, used to resolve unqualified table names ("" means "default").
+func (s *GuardrailService) EvaluateQueryInDatabase(connectionID, user, currentDatabase, queryText, requestEndpoint string) (GuardrailDecision, error) {
+	tablesUsed := qualifyTables(extractPolicyTablesFromQuery(queryText), currentDatabase)
 	return s.evaluate(connectionID, user, queryText, tablesUsed, requestEndpoint)
+}
+
+// qualifyTables prefixes unqualified table names with the current database,
+// so a policy on db.table also matches "SELECT ... FROM table" run in db.
+func qualifyTables(tables []string, currentDatabase string) []string {
+	db := strings.TrimSpace(currentDatabase)
+	if db == "" {
+		db = "default"
+	}
+	out := make([]string, 0, len(tables))
+	for _, t := range tables {
+		if !strings.Contains(t, ".") {
+			t = db + "." + t
+		}
+		out = append(out, t)
+	}
+	return out
 }
 
 func (s *GuardrailService) EvaluateTable(connectionID, user, databaseName, tableName, requestEndpoint string) (GuardrailDecision, error) {
@@ -107,7 +136,7 @@ func (s *GuardrailService) evaluate(connectionID, user, queryText string, tables
 		if !policy.Enabled {
 			continue
 		}
-		if !queryTouchesObject(tablesUsed, queryText, policy) {
+		if !queryTouchesObject(tablesUsed, queryText, policy, columnLookup(s.store, connectionID)) {
 			continue
 		}
 		if hasRole(userRoles, policy.RequiredRole) {

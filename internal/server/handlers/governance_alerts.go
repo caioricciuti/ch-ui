@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/alerts"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
@@ -97,7 +98,7 @@ func (h *GovernanceHandler) CreateAlertChannel(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if !isSupportedChannelType(channelType) {
-		writeError(w, http.StatusBadRequest, "channel_type must be smtp, resend, or brevo")
+		writeError(w, http.StatusBadRequest, "channel_type must be smtp, resend, brevo, or webhook")
 		return
 	}
 	if err := validateChannelConfig(channelType, body.Config, false); err != nil {
@@ -179,7 +180,7 @@ func (h *GovernanceHandler) UpdateAlertChannel(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if !isSupportedChannelType(channelType) {
-		writeError(w, http.StatusBadRequest, "channel_type must be smtp, resend, or brevo")
+		writeError(w, http.StatusBadRequest, "channel_type must be smtp, resend, brevo, or webhook")
 		return
 	}
 
@@ -190,6 +191,11 @@ func (h *GovernanceHandler) UpdateAlertChannel(w http.ResponseWriter, r *http.Re
 
 	var encryptedConfig *string
 	if body.Config != nil {
+		if channelType == channel.ChannelType {
+			if stored, err := decryptChannelConfig(channel.ConfigEncrypted, h.Config.AppSecretKey); err == nil {
+				keepStoredSecrets(channelType, body.Config, stored)
+			}
+		}
 		if err := validateChannelConfig(channelType, body.Config, true); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -277,20 +283,19 @@ func (h *GovernanceHandler) TestAlertChannel(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	recipients, err := validateRecipients(body.Recipients)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+	isWebhook := channel.ChannelType == alerts.ChannelTypeWebhook
+	var recipients []string
+	if !isWebhook {
+		recipients, err = validateRecipients(body.Recipients)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
-	decrypted, err := crypto.Decrypt(channel.ConfigEncrypted, h.Config.AppSecretKey)
+	cfg, err := decryptChannelConfig(channel.ConfigEncrypted, h.Config.AppSecretKey)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to decrypt alert channel config")
-		return
-	}
-	cfg := map[string]interface{}{}
-	if err := json.Unmarshal([]byte(decrypted), &cfg); err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to parse alert channel config")
+		writeError(w, http.StatusInternalServerError, "Failed to read alert channel config")
 		return
 	}
 
@@ -303,7 +308,20 @@ func (h *GovernanceHandler) TestAlertChannel(w http.ResponseWriter, r *http.Requ
 		message = "This is a test notification from CH-UI."
 	}
 
-	msgID, err := alerts.SendDirect(context.Background(), channel.ChannelType, cfg, recipients, subject, message)
+	var msgID string
+	if isWebhook {
+		msgID, err = alerts.SendWebhook(r.Context(), nil, cfg, alerts.WebhookEvent{
+			EventType:   "test",
+			Severity:    alerts.SeverityInfo,
+			Title:       subject,
+			Message:     message,
+			Fingerprint: "test:" + channel.ID,
+			Timestamp:   time.Now().UTC().Format(time.RFC3339),
+			Link:        alerts.AlertsLink(h.Config.AppURL),
+		})
+	} else {
+		msgID, err = alerts.SendDirect(context.Background(), channel.ChannelType, cfg, recipients, subject, message)
+	}
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -594,9 +612,12 @@ func (h *GovernanceHandler) validateRuleChannels(payload []alertRuleChannelPaylo
 		if channel == nil {
 			return nil, fmt.Errorf("channel %s not found", channelID)
 		}
-		recipients, err := validateRecipients(item.Recipients)
-		if err != nil {
-			return nil, fmt.Errorf("channel %s: %w", channelID, err)
+		recipients := []string{}
+		if channel.ChannelType != alerts.ChannelTypeWebhook {
+			recipients, err = validateRecipients(item.Recipients)
+			if err != nil {
+				return nil, fmt.Errorf("channel %s: %w", channelID, err)
+			}
 		}
 		active := true
 		if item.IsActive != nil {
@@ -628,8 +649,61 @@ func sanitizeChannelConfig(channelType string, cfg map[string]interface{}) (map[
 			hasSecret = strings.TrimSpace(fmt.Sprintf("%v", out["api_key"])) != ""
 			out["api_key"] = ""
 		}
+	case alerts.ChannelTypeWebhook:
+		for _, key := range alerts.WebhookSecretKeys {
+			if v, ok := out[key]; ok {
+				if v != nil && strings.TrimSpace(fmt.Sprintf("%v", v)) != "" {
+					hasSecret = true
+				}
+				out[key] = ""
+			}
+		}
 	}
 	return out, hasSecret
+}
+
+// channelSecretKeys lists the config keys that are redacted on read.
+func channelSecretKeys(channelType string) []string {
+	switch strings.ToLower(strings.TrimSpace(channelType)) {
+	case alerts.ChannelTypeSMTP:
+		return []string{"password"}
+	case alerts.ChannelTypeResend, alerts.ChannelTypeBrevo:
+		return []string{"api_key"}
+	case alerts.ChannelTypeWebhook:
+		return alerts.WebhookSecretKeys
+	}
+	return nil
+}
+
+// keepStoredSecrets copies stored secrets into an edited config when the
+// edit leaves them out or empty (the UI never receives them, so it cannot
+// send them back). An explicit JSON null clears the secret.
+func keepStoredSecrets(channelType string, next, stored map[string]interface{}) {
+	for _, key := range channelSecretKeys(channelType) {
+		v, present := next[key]
+		if present && v == nil {
+			delete(next, key)
+			continue
+		}
+		if present && strings.TrimSpace(fmt.Sprintf("%v", v)) != "" {
+			continue
+		}
+		if old, ok := stored[key]; ok && old != nil {
+			next[key] = old
+		}
+	}
+}
+
+func decryptChannelConfig(encrypted, secret string) (map[string]interface{}, error) {
+	decrypted, err := crypto.Decrypt(encrypted, secret)
+	if err != nil {
+		return nil, err
+	}
+	cfg := map[string]interface{}{}
+	if err := json.Unmarshal([]byte(decrypted), &cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 func validateChannelConfig(channelType string, cfg map[string]interface{}, allowEmptySecret bool) error {
@@ -662,6 +736,8 @@ func validateChannelConfig(channelType string, cfg map[string]interface{}, allow
 		if !allowEmptySecret && get("api_key") == "" {
 			return fmt.Errorf("%s config requires api_key", channelType)
 		}
+	case alerts.ChannelTypeWebhook:
+		return alerts.ValidateWebhookConfig(cfg)
 	default:
 		return fmt.Errorf("unsupported channel type: %s", channelType)
 	}
@@ -691,7 +767,7 @@ func validateRecipients(values []string) ([]string, error) {
 
 func isSupportedChannelType(v string) bool {
 	switch strings.ToLower(strings.TrimSpace(v)) {
-	case alerts.ChannelTypeSMTP, alerts.ChannelTypeResend, alerts.ChannelTypeBrevo:
+	case alerts.ChannelTypeSMTP, alerts.ChannelTypeResend, alerts.ChannelTypeBrevo, alerts.ChannelTypeWebhook:
 		return true
 	default:
 		return false
