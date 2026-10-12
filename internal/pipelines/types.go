@@ -9,24 +9,32 @@ import (
 // Record represents a single data record flowing through the pipeline.
 type Record struct {
 	Data    map[string]interface{} // Column name -> value
-	RawJSON []byte                 // Original bytes for pass-through
+	RawJSON []byte                 // Original bytes for pass-through; must be one valid JSON object
 }
 
 // Batch is a slice of records ready for INSERT.
 type Batch struct {
 	Records  []Record
 	SourceTS time.Time
-	// Ack, if non-nil, is called by the runner AFTER the batch has been durably
-	// written to the sink. Sources with committable positions (e.g. Kafka
-	// consumer offsets) use this to advance their offset only once the data is
-	// safely written, giving at-least-once delivery instead of at-most-once.
+	// Ack, if non-nil, is called by the runner only AFTER the batch has been
+	// durably written to the sink. Sources advance their position (Kafka
+	// offsets, database watermark, processed S3 files) from Ack, so a failed
+	// or interrupted write re-delivers the records: at-least-once delivery.
 	Ack func()
+	// DedupToken, when set, is sent as insert_deduplication_token. It is
+	// derived from a stable source position so that a retried or re-read
+	// batch produces the same token and ClickHouse can drop the duplicate
+	// (Replicated tables, or tables with non_replicated_deduplication_window).
+	DedupToken string
 }
 
 // ConnectorConfig is the parsed config for a connector node.
 type ConnectorConfig struct {
 	NodeType string                 `json:"node_type"`
 	Fields   map[string]interface{} `json:"fields"`
+	// Health, set by the runner, lets a source report connection or poll
+	// errors while it keeps retrying. It may be nil (tests, validation).
+	Health *Health `json:"-"`
 }
 
 // SourceConnector is the interface all source connectors implement.

@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDel } from './client'
-import type { Pipeline, PipelineGraph } from '../types/pipelines'
+import type { Pipeline, PipelineGraph, PipelineRun, PipelineRunLog, PipelineStatusInfo } from '../types/pipelines'
 
 const BASE = '/api/pipelines'
 
@@ -36,13 +36,13 @@ export function stopPipeline(id: string) {
 }
 
 export function getPipelineStatus(id: string) {
-  return apiGet<{
-    pipeline_id: string
-    status: string
-    last_error: string | null
-    rows_ingested?: number
-    bytes_ingested?: number
-    batches_sent?: number
-    errors_count?: number
-  }>(`${BASE}/${id}/status`)
+  return apiGet<PipelineStatusInfo>(`${BASE}/${id}/status`)
+}
+
+export function listRuns(id: string, limit = 50) {
+  return apiGet<{ runs: PipelineRun[] }>(`${BASE}/${id}/runs?limit=${limit}`)
+}
+
+export function getRunLogs(id: string, runId: string, limit = 500) {
+  return apiGet<{ logs: PipelineRunLog[] }>(`${BASE}/${id}/runs/${encodeURIComponent(runId)}/logs?limit=${limit}`)
 }

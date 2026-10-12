@@ -12,11 +12,12 @@
   import '@xyflow/svelte/dist/style.css'
   import SourceNode from './nodes/SourceNode.svelte'
   import SinkNode from './nodes/SinkNode.svelte'
-  import { SOURCE_NODE_TYPES, SINK_NODE_TYPES, type NodeType } from '../../types/pipelines'
+  import { SOURCE_NODE_TYPES, SINK_NODE_TYPES, newNodeConfig, type NodeType } from '../../types/pipelines'
   import { Radio, Webhook, Database, HardDrive } from 'lucide-svelte'
   import { getTheme } from '../../stores/theme.svelte'
 
   interface Props {
+    pipelineId: string
     nodes: Node[]
     edges: Edge[]
     onNodesChange: (nodes: Node[]) => void
@@ -26,7 +27,7 @@
     onPaneClick: () => void
   }
 
-  let { nodes, edges, onNodesChange, onEdgesChange, onConnect, onNodeClick, onPaneClick }: Props = $props()
+  let { pipelineId, nodes, edges, onNodesChange, onEdgesChange, onConnect, onNodeClick, onPaneClick }: Props = $props()
 
   const nodeTypes: NodeTypes = {
     source_kafka: SourceNode as unknown as NodeTypes[string],
@@ -88,7 +89,7 @@
       data: {
         label,
         node_type: type,
-        config: {},
+        config: newNodeConfig(type, pipelineId),
       },
     }
 
