@@ -53,6 +53,11 @@ type Dispatcher struct {
 	cfg    *config.Config
 	stopCh chan struct{}
 	http   *http.Client
+	// allow reports whether alerts may be delivered now. It follows the
+	// license at runtime and stays open through the grace window, like the
+	// other background Pro workers, so monitors that keep firing in grace
+	// still reach their channels.
+	allow func() bool
 }
 
 func NewDispatcher(db *database.DB, cfg *config.Config) *Dispatcher {
@@ -63,6 +68,7 @@ func NewDispatcher(db *database.DB, cfg *config.Config) *Dispatcher {
 		http: &http.Client{
 			Timeout: 15 * time.Second,
 		},
+		allow: config.NewProGate("Alert dispatcher", cfg.ProAccess).Allow,
 	}
 }
 
@@ -90,7 +96,7 @@ func (d *Dispatcher) Stop() {
 }
 
 func (d *Dispatcher) tick() {
-	if !d.cfg.IsPro() {
+	if d.allow == nil || !d.allow() {
 		return
 	}
 	d.materializeEventJobs()

@@ -139,8 +139,14 @@ func (h *BrainHandler) workspaceOrigin(r *http.Request) string {
 
 // registerAgentRoutes mounts the Pro approval queue and audit log routes.
 func (h *BrainHandler) registerAgentRoutes(r chi.Router) {
-	r.Post("/approvals/{approvalID}/approve", h.ApprovePendingAction)
-	r.Post("/approvals/{approvalID}/decline", h.DeclinePendingAction)
+	// Approvals only exist on the Pro tool path, which runs with an active
+	// license (Config.IsPro). Deciding one is a write, so RequirePro answers
+	// 402 both without a license and in the read-only grace window.
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.RequirePro(h.Config))
+		r.Post("/approvals/{approvalID}/approve", h.ApprovePendingAction)
+		r.Post("/approvals/{approvalID}/decline", h.DeclinePendingAction)
+	})
 	// The audit log lists every person's approvals, so it is admin only.
 	r.With(middleware.RequireAdmin(h.DB)).Get("/audit", h.ListAudit)
 }

@@ -37,6 +37,11 @@ type LicenseFile struct {
 // working so an expiry never causes a hard lockout in the middle of an incident.
 const GraceDays = 14
 
+// MaxIssuedAtSkew is how far in the future a license's issued_at may lie
+// before the license is rejected. It absorbs clock drift between the license
+// server and this host; anything later means a wrong clock or a forged date.
+const MaxIssuedAtSkew = 24 * time.Hour
+
 // LicenseInfo is the public-facing license status returned by the API.
 type LicenseInfo struct {
 	Edition   string `json:"edition"`
@@ -129,6 +134,15 @@ func validateLicenseWithKey(licenseJSON string, pub ed25519.PublicKey) *LicenseI
 
 	if !ed25519.Verify(pub, payload, sig) {
 		slog.Warn("License signature verification failed")
+		return CommunityLicense()
+	}
+
+	// Reject a license issued in the future. issued_at is signed, so this
+	// only trips on a wrong host clock or a key-holder error. An empty or
+	// unparseable issued_at is left alone: the field is informational and
+	// older licenses must keep validating.
+	if issued, err := time.Parse(time.RFC3339, lf.IssuedAt); err == nil && issued.After(time.Now().Add(MaxIssuedAtSkew)) {
+		slog.Warn("License rejected: issued_at is in the future", "issued_at", lf.IssuedAt)
 		return CommunityLicense()
 	}
 

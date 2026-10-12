@@ -29,7 +29,9 @@ type Monitor struct {
 	doneCh  chan struct{}
 }
 
-// New requires a live license check; scheduled work never borrows human sessions.
+// New requires a live license check; scheduled work never borrows human
+// sessions. isPro should be a config.ProGate's Allow so scans keep running
+// through the license grace window, like the other background Pro workers.
 func New(db *database.DB, gateway *tunnel.Gateway, secret string, isPro func() bool) *Monitor {
 	return &Monitor{db: db, gateway: gateway, secret: secret, isPro: isPro}
 }
