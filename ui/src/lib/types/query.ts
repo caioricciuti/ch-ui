@@ -9,6 +9,8 @@ export interface QueryStats {
   elapsed: number
   rows_read: number
   bytes_read: number
+  /** Rows written by an INSERT or other write, when ClickHouse reports it. */
+  rows_written?: number
 }
 
 /**
@@ -94,5 +96,5 @@ export type StreamMessage =
   | { type: 'meta'; meta: ColumnMeta[] }
   | { type: 'chunk'; data: unknown[][]; seq: number }
   | { type: 'progress'; progress: QueryProgress }
-  | { type: 'done'; statistics?: QueryStats; total_rows: number }
+  | { type: 'done'; statistics?: QueryStats; total_rows: number; query_id?: string }
   | { type: 'error'; error: string }

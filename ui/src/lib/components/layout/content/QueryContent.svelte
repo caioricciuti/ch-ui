@@ -15,22 +15,23 @@
 <script lang="ts">
   import { goTo } from '../../../stores/router.svelte'
   import type { QueryTab } from '../../../stores/tabs.svelte'
-  import { updateTabSQL, getTabResult, setTabResult, getTabResultView, setTabResultView, resetTabResultView, markQueryTabSaved } from '../../../stores/tabs.svelte'
+  import { updateTabSQL, getTabResult, setTabResult, getTabResultView, setTabResultView, resetTabResultView, markQueryTabSaved, setTabParamValues } from '../../../stores/tabs.svelte'
   import type { ColumnFilter, ResultSort } from '../../../utils/result-filters'
   import { filterRows, sortRows, cycleSort, isWrappableQuery, buildWrappedQuery } from '../../../utils/result-filters'
   import { getResultFiltersEnabled } from '../../../stores/result-filters.svelte'
-  import { formatSQL, explainQuery, fetchQueryPlan, runSampleQuery, fetchQueryProfile, estimateQuery } from '../../../api/query'
+  import { formatSQLDetailed, explainQuery, fetchQueryPlan, runSampleQuery, fetchQueryProfile, estimateQuery } from '../../../api/query'
   import type { QueryPlanNode, QueryEstimateResult, QueryProgress } from '../../../types/query'
   import type { SavedQuery } from '../../../types/api'
   import { executeStreamQuery } from '../../../api/stream'
   import { apiPost, apiPut } from '../../../api/client'
   import { getMaxResultRows } from '../../../stores/query-limit.svelte'
   import { error as toastError, success as toastSuccess, info as toastInfo } from '../../../stores/toast.svelte'
-  import { detectQueryParams } from '../../../utils/query-params'
+  import { detectQueryParams, paramDefaultsToSave } from '../../../utils/query-params'
+  import { firstKeyword, splitStatements } from '../../../editor/statements'
   import { parseCHError, byteToCharOffset } from '../../../utils/ch-error'
   import { isProActive, loadLicense } from '../../../stores/license.svelte'
   import { openQueryTab } from '../../../stores/tabs.svelte'
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { Lock, X } from 'lucide-svelte'
   import Button from '../../common/Button.svelte'
   import SqlEditor from '../../editor/SqlEditor.svelte'
@@ -118,7 +119,22 @@
   let currentSql = $state('')
   const detectedParams = $derived(detectQueryParams(currentSql))
   const proActive = $derived(isProActive())
-  let paramValues = $state<Record<string, string>>({})
+  // Values live in the tab (so they survive tab switches and reloads) and
+  // start from the saved query's stored defaults.
+  let paramValues = $state<Record<string, string>>(untrack(() => ({ ...(tab.paramValues ?? {}) })))
+  $effect(() => {
+    const values = $state.snapshot(paramValues)
+    untrack(() => {
+      if (JSON.stringify(values) !== JSON.stringify(tab.paramValues ?? {})) setTabParamValues(tab.id, values)
+    })
+  })
+  // Re-opening the saved query over this tab can bring new stored defaults.
+  $effect(() => {
+    const incoming = tab.paramValues ?? {}
+    untrack(() => {
+      if (JSON.stringify(incoming) !== JSON.stringify($state.snapshot(paramValues))) paramValues = { ...incoming }
+    })
+  })
   // The parameters popover is anchored to the toolbar button. It never opens
   // on its own: Run opens it when a value is missing, the button toggles it.
   let showParamsPanel = $state(false)
@@ -154,29 +170,60 @@
     updateTabSQL(tab.id, sql)
   }
 
+  // EXPLAIN ESTIMATE runs after a long typing pause, for a single SELECT
+  // whose parameters all have values; anything else clears the estimate.
+  const ESTIMATE_DEBOUNCE_MS = 3000
+
   function debouncedEstimate(sql: string) {
     if (estimateTimer) clearTimeout(estimateTimer)
-    const trimmed = sql.trim()
-    if (!trimmed || trimmed === lastEstimatedSQL) return
-    // Only estimate SELECT/WITH queries
-    const upper = trimmed.toUpperCase()
-    if (!upper.startsWith('SELECT') && !upper.startsWith('WITH')) {
+    estimateTimer = null
+    const statements = splitStatements(sql)
+    const single = statements.length === 1 ? statements[0].text : ''
+    const kw = single ? firstKeyword(single) : ''
+    if (!single || (kw !== 'SELECT' && kw !== 'WITH')) {
+      estimate = null
+      lastEstimatedSQL = ''
+      return
+    }
+    const params = paramsFor([single], false)
+    if (params === null) {
       estimate = null
       return
     }
-    estimateTimer = setTimeout(() => void runEstimate(trimmed), 1500)
+    const key = single + '\u0000' + JSON.stringify(params ?? {})
+    if (key === lastEstimatedSQL) return
+    estimateTimer = setTimeout(() => void runEstimate(single, params, key), ESTIMATE_DEBOUNCE_MS)
   }
 
-  async function runEstimate(sql: string) {
-    lastEstimatedSQL = sql
+  async function runEstimate(sql: string, params: Record<string, string> | undefined, key: string) {
+    lastEstimatedSQL = key
     estimateLoading = true
     try {
-      estimate = await estimateQuery(sql)
+      const res = await estimateQuery(sql, params)
+      // A newer edit may have cleared or replaced the estimate meanwhile.
+      if (lastEstimatedSQL === key) estimate = res
     } catch {
-      estimate = null
+      if (lastEstimatedSQL === key) estimate = null
     } finally {
       estimateLoading = false
     }
+  }
+
+  /**
+   * Bind parameters for the given statements. Returns undefined when they use
+   * none, null when one has no value (and, if ask is set, opens the
+   * parameters popover on it).
+   */
+  function paramsFor(sqls: string[], ask = true): Record<string, string> | undefined | null {
+    const seen = new Set<string>()
+    const list = sqls.flatMap((q) => detectQueryParams(q)).filter((p) => !seen.has(p.name) && seen.add(p.name))
+    if (list.length === 0) return undefined
+    const missing = list.find((p) => !(paramValues[p.name] ?? '').trim())
+    if (missing) {
+      if (ask) openParams(missing.name)
+      return null
+    }
+    return Object.fromEntries(list.map((p) => [p.name, paramValues[p.name] ?? '']))
   }
 
   function toPositionalRows(meta: Array<{ name: string }>, rows: unknown): unknown[][] {
@@ -192,7 +239,10 @@
     return e instanceof Error ? e.message : String(e)
   }
 
-  async function runStreamingQuery(query: string, params: Record<string, string> | undefined, opts: { baseRun?: boolean } = {}) {
+  type RunOutcome = 'ok' | 'error' | 'stopped'
+
+  async function runStreamingQuery(query: string, params: Record<string, string> | undefined, opts: { baseRun?: boolean } = {}): Promise<RunOutcome> {
+    let outcome: RunOutcome = 'stopped'
     const maxResultRows = getMaxResultRows()
     const startTime = performance.now()
     const abortController = new AbortController()
@@ -238,8 +288,9 @@
           streamChunks = seq + 1
           streamLastChunkAt = Date.now()
         },
-        (stats, totalRows) => {
+        (stats, totalRows, queryId) => {
           if (!live()) return
+          outcome = 'ok'
           // Final flush
           rows.close()
           streamRows = totalRows || rows.items.length
@@ -257,10 +308,12 @@
             const effectiveLimit = Math.min(maxResultRows, BACKEND_MAX_ROWS)
             setTabResultView(tab.id, { truncated: rows.items.length >= effectiveLimit })
           }
-          void loadInlineProfile(query)
+          // The profile is looked up by query_id; without one there is nothing to find.
+          if (queryId) void loadInlineProfile(queryId, query)
         },
         (error) => {
           if (!live()) return
+          outcome = 'error'
           rows.close()
           streamLastChunkAt = Date.now()
           setTabResult(tab.id, { error, running: false, elapsedMs: Math.round(performance.now() - startTime) })
@@ -274,11 +327,13 @@
       )
     } catch (e) {
       // AbortError is expected on cancel; a superseded run owns nothing.
-      if (!live() || (e instanceof Error && e.name === 'AbortError')) return
+      if (!live() || (e instanceof Error && e.name === 'AbortError')) return 'stopped'
       rows.close()
       streamLastChunkAt = Date.now()
       setTabResult(tab.id, { error: errorMessage(e), running: false })
+      return 'error'
     }
+    return live() ? outcome : 'stopped'
   }
 
   async function handleRun(sql?: string, sqlFrom?: number) {
@@ -289,32 +344,62 @@
       query = sql.trim()
       queryFrom = sqlFrom !== undefined ? sqlFrom + lead : -1
     } else {
-      const picked = editorComponent?.getSelectedOrAllWithRange()
+      const picked = editorComponent?.getRunnable()
       query = picked?.text ?? ''
       queryFrom = picked?.from ?? -1
     }
     if (!query) return
 
-    // Query parameters ({name:Type}) are bound by ClickHouse.
-    const runParams = detectQueryParams(query)
-    // A parameter without a value would fail in ClickHouse; ask for it here,
-    // with the cursor already in the first empty field.
-    const missing = runParams.find((p) => !(paramValues[p.name] ?? '').trim())
-    if (missing) {
-      openParams(missing.name)
-      return
-    }
-    const params = runParams.length > 0
-      ? Object.fromEntries(runParams.map(p => [p.name, paramValues[p.name] ?? '']))
-      : undefined
+    // Query parameters ({name:Type}) are bound by ClickHouse. A parameter
+    // without a value would fail there; ask for it here, with the cursor
+    // already in the first empty field.
+    const params = paramsFor([query])
+    if (params === null) return
+    await runOne(query, queryFrom, params)
+  }
 
+  function runOne(query: string, queryFrom: number, params: Record<string, string> | undefined): Promise<RunOutcome> {
     resetTabResultView(tab.id, {
       baseSql: query,
       executedFrom: queryFrom,
       baseParams: params,
       wrappable: isWrappableQuery(query),
     })
-    await runStreamingQuery(query, params, { baseRun: true })
+    return runStreamingQuery(query, params, { baseRun: true })
+  }
+
+  // Shift-Mod-Enter: run every statement in order, stop at the first error,
+  // and leave the last result (or that error) in the result pane.
+  let runAllActive = false
+
+  async function handleRunAll(statements: { text: string; from: number }[]) {
+    if (runAllActive || statements.length === 0) return
+    const params = paramsFor(statements.map((st) => st.text))
+    if (params === null) return
+    runAllActive = true
+    try {
+      for (let i = 0; i < statements.length; i++) {
+        const st = statements[i]
+        const own = paramsFor([st.text], false) ?? undefined
+        const outcome = await runOne(st.text, st.from, own)
+        if (outcome !== 'ok') {
+          if (outcome === 'error' && statements.length > 1) toastError(`Statement ${i + 1} of ${statements.length} failed; the rest did not run`)
+          return
+        }
+      }
+      if (statements.length > 1) toastSuccess(`Ran ${statements.length} statements`)
+    } finally {
+      runAllActive = false
+    }
+  }
+
+  /** The text Run would execute (selection or statement under the cursor) and its bind parameters. */
+  function runnableWithParams(): { sql: string; params: Record<string, string> | undefined } | null {
+    const sql = editorComponent?.getRunnable().text ?? ''
+    if (!sql.trim()) return null
+    const params = paramsFor([sql])
+    if (params === null) return null
+    return { sql, params }
   }
 
   // ── Result filtering & ordering (issue #117) ──
@@ -427,14 +512,17 @@
     if (!sql.trim()) return
     formatting = true
     try {
-      const formatted = await formatSQL(sql)
+      const res = await formatSQLDetailed(sql)
       // Replacing the whole document would drop anything typed while the
       // request was out; leave the newer text alone.
       if ((editorComponent?.getValue() ?? '') !== sql) {
         toastInfo('Query changed while formatting. Format again to apply.')
         return
       }
-      if (formatted !== sql) editorComponent?.setValue(formatted)
+      if (res.formatted !== sql) {
+        editorComponent?.setValue(res.formatted)
+        if (res.comments_dropped) toastInfo('ClickHouse formatting removes comments. Undo (Cmd/Ctrl+Z) brings them back.')
+      }
     } catch (e) {
       toastError(errorMessage(e))
     } finally {
@@ -443,8 +531,8 @@
   }
 
   async function handleExplain() {
-    const sql = editorComponent?.getValue() ?? ''
-    if (!sql.trim()) return
+    const picked = runnableWithParams()
+    if (!picked) return
 
     profile = null
     profileAvailable = false
@@ -459,7 +547,7 @@
     setTabResult(tab.id, { running: true, error: null, meta: [], data: [], stats: null })
 
     try {
-      const res = await explainQuery(sql)
+      const res = await explainQuery(picked.sql, picked.params)
       if (!tabRuns.isCurrent(tab.id, runId)) return
 
       setTabResult(tab.id, {
@@ -477,13 +565,13 @@
   }
 
   async function handleLoadPlan() {
-    const sql = editorComponent?.getValue() ?? ''
-    if (!sql.trim()) return
+    const picked = runnableWithParams()
+    if (!picked) return
 
     planLoading = true
     planError = null
     try {
-      const res = await fetchQueryPlan(sql)
+      const res = await fetchQueryPlan(picked.sql, picked.params)
       planNodes = res.nodes ?? []
       planLines = res.lines ?? []
       planSource = res.source ?? ''
@@ -498,8 +586,8 @@
   }
 
   async function handleSample(perShard: number) {
-    const sql = editorComponent?.getValue() ?? ''
-    if (!sql.trim()) return
+    const picked = runnableWithParams()
+    if (!picked) return
 
     const runId = tabRuns.start(tab.id, () => {})
     resetTabResultView(tab.id)
@@ -507,7 +595,7 @@
     samplingMode = null
 
     try {
-      const res = await runSampleQuery({ query: sql, per_shard: perShard, shard_by: '_shard_num' })
+      const res = await runSampleQuery({ query: picked.sql, per_shard: perShard, shard_by: '_shard_num', params: picked.params })
       if (!tabRuns.isCurrent(tab.id, runId)) return
       const rows = toPositionalRows(res.meta ?? [], res.data)
       setTabResult(tab.id, {
@@ -531,12 +619,12 @@
     }
   }
 
-  async function loadInlineProfile(executedQuery: string) {
+  async function loadInlineProfile(queryId: string, executedQuery: string) {
     profileLoading = true
     profileError = null
     profileReason = null
     try {
-      const res = await fetchQueryProfile(executedQuery)
+      const res = await fetchQueryProfile(queryId, executedQuery)
       profileAvailable = !!res.available
       profile = res.profile ?? null
       profileReason = res.reason ?? null
@@ -549,11 +637,10 @@
     }
   }
 
-  // Default param values to persist with a saved query, or undefined when none.
-  function paramDefaultsFor(sql: string): Record<string, string> | undefined {
-    const list = detectQueryParams(sql)
-    if (list.length === 0) return undefined
-    return Object.fromEntries(list.map(p => [p.name, paramValues[p.name] ?? '']))
+  // Default param values to persist with a saved query. An empty field keeps
+  // the stored default instead of erasing it.
+  function paramDefaultsFor(sql: string): Record<string, string> {
+    return paramDefaultsToSave(detectQueryParams(sql).map((p) => p.name), paramValues, tab.savedParams)
   }
 
   function handleSaveClick() {
@@ -573,11 +660,9 @@
 
     saving = true
     try {
-      await apiPut(`/api/saved-queries/${tab.savedQueryId}`, {
-        query: sql,
-        parameters: paramDefaultsFor(sql) ?? {},
-      })
-      markQueryTabSaved(tab.id, { baseSql: sql })
+      const parameters = paramDefaultsFor(sql)
+      await apiPut(`/api/saved-queries/${tab.savedQueryId}`, { query: sql, parameters })
+      markQueryTabSaved(tab.id, { baseSql: sql, savedParams: parameters })
       toastSuccess('Saved query updated')
     } catch (e) {
       toastError(errorMessage(e))
@@ -595,20 +680,22 @@
 
     saving = true
     try {
+      const parameters = paramDefaultsFor(sql)
       const created = await apiPost<SavedQuery>('/api/saved-queries', {
         name: saveName.trim(),
         description: saveDescription.trim(),
         query: sql,
-        parameters: paramDefaultsFor(sql) ?? {},
+        parameters,
       })
       if (created?.id) {
         markQueryTabSaved(tab.id, {
           savedQueryId: created.id,
           name: created.name,
           baseSql: sql,
+          savedParams: parameters,
         })
       } else {
-        markQueryTabSaved(tab.id, { baseSql: sql })
+        markQueryTabSaved(tab.id, { baseSql: sql, savedParams: parameters })
       }
       toastSuccess('Query saved')
       showSaveModal = false
@@ -705,6 +792,7 @@
         bind:this={editorComponent}
         value={tab.sql}
         onrun={handleRun}
+        onrunall={(statements) => void handleRunAll(statements)}
         onchange={handleSQLChange}
         onsave={handleSaveClick}
         onformat={handleFormat}
@@ -742,6 +830,7 @@
       meta={result?.meta ?? []}
       data={displayData}
       loading={result?.running ?? false}
+      executed={result !== undefined}
       error={result?.error ?? null}
       stats={result?.stats ?? null}
       elapsedMs={result?.elapsedMs ?? 0}
