@@ -82,8 +82,8 @@
       const [p, v] = await Promise.all([fetchPolicies(), fetchViolations()])
       policies = p?.policies ?? []
       violations = v?.violations ?? []
-    } catch (err: any) {
-      toastError('Failed to load policies: ' + err.message)
+    } catch (err: unknown) {
+      toastError('Failed to load policies: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       loading = false
     }
@@ -274,8 +274,8 @@
       }
       closePolicyForm()
       await load()
-    } catch (err: any) {
-      toastError('Failed to save policy: ' + err.message)
+    } catch (err: unknown) {
+      toastError('Failed to save policy: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       saving = false
     }
@@ -299,8 +299,8 @@
       toastSuccess('Policy deleted')
       cancelDelete()
       await load()
-    } catch (err: any) {
-      toastError('Failed to delete policy: ' + err.message)
+    } catch (err: unknown) {
+      toastError('Failed to delete policy: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       deleting = false
     }
@@ -310,8 +310,8 @@
     try {
       const res = await promoteViolationToIncident(violation.id)
       toastSuccess(res?.created ? 'Incident created from violation' : 'Existing incident updated')
-    } catch (err: any) {
-      toastError('Failed to promote violation: ' + err.message)
+    } catch (err: unknown) {
+      toastError('Failed to promote violation: ' + (err instanceof Error ? err.message : String(err)))
     }
   }
 

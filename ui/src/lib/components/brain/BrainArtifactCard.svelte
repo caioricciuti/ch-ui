@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { BrainArtifact } from '../../types/brain'
   import type { PanelConfig } from '../../types/api'
+  import type { ColumnMeta } from '../../types/query'
   import { isDateType, isNumericType } from '../../utils/chart-transform'
   import ChartPanel from '../dashboard/ChartPanel.svelte'
   import Badge from '../common/Badge.svelte'
@@ -15,40 +16,55 @@
   let expanded = $state(false)
   let viewMode = $state<'table' | 'chart'>('chart')
 
-  function parsePayload(): any | null {
+  /** Shape of a query_result artifact; every field is checked before use. */
+  interface QueryPayload {
+    data?: unknown
+    meta?: unknown
+    query?: string
+    statistics?: { elapsed?: number }
+  }
+
+  function parsePayload(): QueryPayload | null {
     if (artifact.type !== 'query_result') return null
     try {
-      return JSON.parse(artifact.content)
+      const parsed: unknown = JSON.parse(artifact.content)
+      return parsed && typeof parsed === 'object' ? (parsed as QueryPayload) : null
     } catch {
       return null
     }
   }
 
-  function getRows(): Record<string, any>[] {
+  function getRows(): Record<string, unknown>[] {
     const payload = parsePayload()
     if (!payload || !Array.isArray(payload.data)) return []
-    return payload.data
+    return payload.data as Record<string, unknown>[]
+  }
+
+  function getMeta(): ColumnMeta[] {
+    const payload = parsePayload()
+    if (!payload || !Array.isArray(payload.meta)) return []
+    return (payload.meta as Partial<ColumnMeta>[])
+      .map((m) => ({ name: String(m?.name ?? ''), type: String(m?.type ?? '') }))
+      .filter((m) => m.name)
   }
 
   function getColumns(): string[] {
-    const payload = parsePayload()
-    if (payload?.meta && Array.isArray(payload.meta) && payload.meta.length > 0) {
-      return payload.meta.map((m: any) => String(m?.name ?? '')).filter(Boolean)
-    }
+    const meta = getMeta()
+    if (meta.length > 0) return meta.map((m) => m.name)
     const rows = getRows()
     if (rows.length === 0) return []
     return Object.keys(rows[0])
   }
 
   const payload = $derived(parsePayload())
+  const meta = $derived(getMeta())
   const rows = $derived(getRows())
   const cols = $derived(getColumns())
   const elapsed = $derived(payload?.statistics?.elapsed)
 
   /** Auto-detect chart configuration from column types */
   const chartConfig = $derived.by<PanelConfig | null>(() => {
-    if (!payload?.meta || rows.length < 2) return null
-    const meta = payload.meta as { name: string; type: string }[]
+    if (meta.length === 0 || rows.length < 2) return null
     const dateCol = meta.find(m => isDateType(m.type))
     const numericCols = meta.filter(m => isNumericType(m.type))
     const xColumn = dateCol?.name ?? meta[0]?.name
@@ -102,14 +118,14 @@
     {#if artifact.type === 'query_result' && payload}
       {#if viewMode === 'chart' && chartConfig}
         <div class="border-t border-edge-subtle h-[220px]">
-          <ChartPanel data={rows} meta={payload.meta} config={chartConfig} />
+          <ChartPanel data={rows} {meta} config={chartConfig} />
         </div>
       {:else if cols.length > 0}
         <div class="border-t border-edge-subtle max-h-[240px] overflow-auto">
           <table class="min-w-full text-[11px] font-mono">
             <thead class="bg-surface-2 sticky top-0">
               <tr>
-                {#each cols as col}
+                {#each cols as col (col)}
                   <th class="px-2 py-1 text-left text-fg-2 border-b border-edge-subtle whitespace-nowrap">{col}</th>
                 {/each}
               </tr>
@@ -117,7 +133,7 @@
             <tbody>
               {#each rows as row}
                 <tr class="odd:bg-surface even:bg-surface-2">
-                  {#each cols as col}
+                  {#each cols as col (col)}
                     <td class="px-2 py-1 border-b border-edge-subtle align-top whitespace-nowrap">{String(row[col] ?? '')}</td>
                   {/each}
                 </tr>

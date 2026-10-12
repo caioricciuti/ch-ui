@@ -101,14 +101,14 @@
 
 {#if message.role === 'user'}
   <div class="flex justify-end">
-    <div class="max-w-[80%] bg-ch-orange text-white rounded-lg rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap">{message.content}</div>
+    <div class="max-w-[80%] bg-accent-soft text-fg rounded-lg rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap">{message.content}</div>
   </div>
 {:else}
   <div class="flex justify-start">
     <div class="max-w-[85%] min-w-0">
       {#if phaseLabel}
         <div class="inline-flex items-center gap-2 mb-2 px-2 py-1 rounded-full bg-accent-soft text-accent text-[11px]">
-          <span class="inline-block w-1.5 h-1.5 rounded-full bg-ch-orange animate-pulse"></span>
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-pulse"></span>
           {phaseLabel}
         </div>
       {/if}

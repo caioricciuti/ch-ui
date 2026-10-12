@@ -45,7 +45,12 @@ export function trapFocus(node: HTMLElement, options: { initial?: 'first' | 'non
   return {
     destroy() {
       node.removeEventListener('keydown', onKeydown)
-      if (previouslyFocused && document.contains(previouslyFocused)) {
+      // Restore focus only if it is still ours to give back. A dialog that
+      // closes with an outro transition is destroyed after another one may
+      // already have opened and taken focus; do not pull focus out of it.
+      const active = document.activeElement
+      const stillOurs = !active || active === document.body || node.contains(active)
+      if (stillOurs && previouslyFocused && document.contains(previouslyFocused)) {
         previouslyFocused.focus({ preventScroll: true })
       }
     },

@@ -76,7 +76,7 @@
 
   <div class="flex flex-col gap-2">
     <select
-      class="w-full px-2 py-1 text-xs rounded border border-edge bg-canvas text-fg-2 focus:outline-none focus:border-ch-orange"
+      class="w-full px-2 py-1 text-xs rounded border border-edge bg-canvas text-fg-2 focus:outline-none focus:border-accent"
       bind:value={operator}
     >
       {#each operators as op}
@@ -90,29 +90,22 @@
         class="w-full px-2 py-1 text-xs rounded border bg-canvas text-fg-2 focus:outline-none
           {valueInvalid
             ? 'border-danger focus:border-danger'
-            : 'border-edge focus:border-ch-orange'}"
+            : 'border-edge focus:border-accent'}"
         placeholder="Value"
         bind:value
         spellcheck="false"
         onkeydown={(e) => { if (e.key === 'Enter') apply() }}
       />
       {#if valueInvalid}
-        <p class="text-[11px] text-danger">This column is numeric — enter a number.</p>
+        <p class="text-[11px] text-danger">This column is numeric. Enter a number.</p>
       {/if}
     {/if}
 
     <div class="flex justify-end gap-1.5">
       {#if current}
-        <button
-          class="px-2 py-1 text-xs text-fg-3 hover:text-fg rounded hover:bg-hover"
-          onclick={onclear}
-        >Clear</button>
+        <Button size="xs" variant="ghost" onclick={onclear}>Clear</Button>
       {/if}
-      <button
-        class="px-2.5 py-1 text-xs bg-ch-orange text-white rounded hover:bg-ch-orange/80 disabled:opacity-50"
-        onclick={apply}
-        disabled={!canApply}
-      >Apply</button>
+      <Button size="xs" onclick={apply} disabled={!canApply}>Apply</Button>
     </div>
   </div>
 </div>

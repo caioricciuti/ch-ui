@@ -18,6 +18,7 @@
   import FormField from '../lib/components/common/FormField.svelte'
   import Input from '../lib/components/common/Input.svelte'
   import Panel from '../lib/components/common/Panel.svelte'
+  import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
   import { Clock, Plus, Play, Trash2, ChevronDown, ChevronRight, FileText, ExternalLink, Pencil } from 'lucide-svelte'
 
   let schedules = $state<Schedule[]>([])
@@ -72,8 +73,8 @@
     try {
       const res = await apiGet<{ schedules: Schedule[] }>('/api/schedules')
       schedules = res.schedules ?? []
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       loading = false
     }
@@ -84,8 +85,8 @@
     try {
       const res = await apiGet<{ saved_queries: SavedQuery[] }>('/api/saved-queries')
       savedQueries = res.saved_queries ?? []
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       savedQueriesLoading = false
     }
@@ -144,8 +145,8 @@
       }
       showModal = false
       await loadSchedules()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       saving = false
     }
@@ -167,8 +168,8 @@
         runsHasMore = false
       }
       toastSuccess('Schedule deleted')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -189,8 +190,8 @@
       await apiPut(`/api/schedules/${s.id}`, { enabled: !s.enabled })
       schedules = schedules.map(sc => sc.id === s.id ? { ...sc, enabled: !sc.enabled } : sc)
       toastSuccess(s.enabled ? 'Schedule disabled' : 'Schedule enabled')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -205,8 +206,8 @@
       }
       await loadSchedules()
       if (expandedSchedule === id) await loadRuns(id)
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       runningId = null
     }
@@ -231,8 +232,8 @@
       runs = append ? [...runs, ...incoming] : incoming
       runsHasMore = !!res.has_more
       runsOffset = typeof res.next_offset === 'number' ? res.next_offset : offset + incoming.length
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       if (append) {
         runsLoadingMore = false
@@ -269,6 +270,15 @@
     openSavedQueryTab(q)
     showRunSheet = false
   }
+
+  // Newest first, as the API returns them; no initial sort keeps that order.
+  const runColumns: DataColumn<Record<string, unknown>>[] = [
+    { key: 'started_at', label: 'Started', mono: true, format: (v) => formatDate(v) },
+    { key: 'status', label: 'Status' },
+    { key: 'elapsed_ms', label: 'Elapsed', align: 'right', format: (v) => `${v ?? 0} ms` },
+    { key: 'rows_affected', label: 'Rows', align: 'right', format: (v) => Number(v ?? 0).toLocaleString() },
+    { key: 'error', label: 'Error', truncate: true, sortable: false, format: (v) => (v ? String(v) : '-') },
+  ]
 
   type BadgeTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'brand'
   function statusBadge(status: string | null): { tone: BadgeTone; label: string } {
@@ -344,7 +354,7 @@
                 onclick={() => toggleEnabled(schedule)}
                 title={schedule.enabled ? 'Disable' : 'Enable'}
               >
-                <span class="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform {schedule.enabled ? 'translate-x-4' : ''}"></span>
+                <span class="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-fill-fg shadow-sm transition-transform {schedule.enabled ? 'translate-x-4' : ''}"></span>
               </button>
 
               <div class="flex items-center gap-0.5">
@@ -375,37 +385,28 @@
                 {:else if runs.length === 0}
                   <p class="py-2 text-xs text-fg-3">No runs yet</p>
                 {:else}
-                  <div class="ds-table-wrap">
-                    <table class="ds-table text-xs">
-                      <thead>
-                        <tr class="ds-table-head-row">
-                          <th class="ds-table-th-compact">Started</th>
-                          <th class="ds-table-th-compact">Status</th>
-                          <th class="ds-table-th-right-compact">Elapsed</th>
-                          <th class="ds-table-th-right-compact">Rows</th>
-                          <th class="ds-table-th-compact">Error</th>
-                          <th class="ds-table-th-right-compact">Details</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {#each runs as run}
-                          {@const rb = statusBadge(run.status)}
-                          <tr class="ds-table-row">
-                            <td class="ds-td-compact">{formatDate(run.started_at)}</td>
-                            <td class="ds-td-compact"><Badge tone={rb.tone}>{rb.label}</Badge></td>
-                            <td class="ds-td-compact text-right tabular-nums">{run.elapsed_ms}ms</td>
-                            <td class="ds-td-compact text-right tabular-nums">{run.rows_affected}</td>
-                            <td class="ds-td-compact max-w-xs truncate text-danger">{run.error ?? '—'}</td>
-                            <td class="ds-td-compact text-right">
-                              <Button size="xs" variant="outline" onclick={() => openRunDetails(schedule, run)}>
-                                <FileText size={12} /> View
-                              </Button>
-                            </td>
-                          </tr>
-                        {/each}
-                      </tbody>
-                    </table>
-                  </div>
+                  <DataTable
+                    columns={runColumns}
+                    rows={runs as unknown as Record<string, unknown>[]}
+                    rowKey={(r) => String(r.id)}
+                    onrowclick={(r) => openRunDetails(schedule, r as unknown as ScheduleRun)}
+                  >
+                    {#snippet cell(row, col, value)}
+                      {#if col.key === 'status'}
+                        {@const rb = statusBadge((row as unknown as ScheduleRun).status)}
+                        <Badge tone={rb.tone}>{rb.label}</Badge>
+                      {:else if col.key === 'error' && (row as unknown as ScheduleRun).error}
+                        <span class="text-danger">{value}</span>
+                      {:else}
+                        {value}
+                      {/if}
+                    {/snippet}
+                    {#snippet actions(row)}
+                      <Button size="xs" variant="outline" onclick={(e) => { e.stopPropagation(); openRunDetails(schedule, row as unknown as ScheduleRun) }}>
+                        <FileText size={12} /> View
+                      </Button>
+                    {/snippet}
+                  </DataTable>
                   {#if runsHasMore}
                     <div class="mt-2 flex justify-center">
                       <Button size="sm" variant="outline" loading={runsLoadingMore} onclick={() => loadRuns(schedule.id, true)}>

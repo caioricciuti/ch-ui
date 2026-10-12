@@ -95,6 +95,8 @@
 	let tableDetailLoading = $state<boolean>(false);
 	let tableNotes = $state<GovernanceObjectComment[]>([]);
 	let tableNoteDraft = $state<string>('');
+	// Bumped on every open/close so a late response for another table is dropped.
+	let tableDetailSeq = 0;
 
 	// Query Audit data
 	let queryLog = $state<QueryLogEntry[]>([]);
@@ -148,6 +150,13 @@
 		{ key: 'query_text', label: 'Query', mono: true, truncate: true, sortable: false },
 		{ key: 'duration_ms', label: 'Duration', align: 'right', format: (v) => `${v ?? 0} ms` },
 		{ key: 'read_rows', label: 'Rows', align: 'right', format: (v) => Number(v ?? 0).toLocaleString() },
+	];
+	// No initial sort: rows stay in the order the table declares its columns.
+	const columnColumns: DataColumn<Row>[] = [
+		{ key: 'column_name', label: 'Column' },
+		{ key: 'column_type', label: 'Type', mono: true },
+		{ key: 'default_expression', label: 'Default', format: (v) => (v ? String(v) : '-') },
+		{ key: 'tags', label: 'Tags', sortable: false },
 	];
 	function truncate(s: string, max = 80): string {
 		if (!s) return '';
@@ -247,8 +256,8 @@
 	async function loadGovernanceSettings() {
 		try {
 			govSettings = await fetchGovernanceSettings();
-		} catch (err: any) {
-			toastError('Failed to load governance settings: ' + err.message);
+		} catch (err: unknown) {
+			toastError('Failed to load governance settings: ' + (err instanceof Error ? err.message : String(err)));
 		}
 	}
 
@@ -258,8 +267,8 @@
 			govSettings = await updateGovernanceSettings(payload);
 			if (payload.sync_enabled === true) toastSuccess('Governance sync enabled');
 			if (payload.sync_enabled === false) toastSuccess('Governance sync disabled');
-		} catch (err: any) {
-			toastError('Failed to update governance settings: ' + err.message);
+		} catch (err: unknown) {
+			toastError('Failed to update governance settings: ' + (err instanceof Error ? err.message : String(err)));
 		} finally {
 			govToggleSaving = false;
 		}
@@ -273,8 +282,8 @@
 		loading = true;
 		try {
 			overview = await fetchOverview();
-		} catch (err: any) {
-			toastError('Failed to load dashboard: ' + err.message);
+		} catch (err: unknown) {
+			toastError('Failed to load dashboard: ' + (err instanceof Error ? err.message : String(err)));
 		} finally {
 			loading = false;
 		}
@@ -289,8 +298,8 @@
 			]);
 			databases = dbsRes?.databases ?? [];
 			tables = tablesRes?.tables ?? [];
-		} catch (err: any) {
-			toastError('Failed to load tables: ' + err.message);
+		} catch (err: unknown) {
+			toastError('Failed to load tables: ' + (err instanceof Error ? err.message : String(err)));
 		} finally {
 			loading = false;
 		}
@@ -301,8 +310,8 @@
 		try {
 			const logRes = await fetchQueryLog({ user: queryUserFilter || undefined, limit: queryLimit });
 			queryLog = logRes?.entries ?? [];
-		} catch (err: any) {
-			toastError('Failed to load query audit: ' + err.message);
+		} catch (err: unknown) {
+			toastError('Failed to load query audit: ' + (err instanceof Error ? err.message : String(err)));
 		} finally {
 			loading = false;
 		}
@@ -322,8 +331,8 @@
 			setTimeout(() => {
 				loadDashboard();
 			}, 2000);
-		} catch (err: any) {
-			toastError('Failed to start sync: ' + err.message);
+		} catch (err: unknown) {
+			toastError('Failed to start sync: ' + (err instanceof Error ? err.message : String(err)));
 		} finally {
 			syncing = false;
 		}
@@ -336,19 +345,27 @@
 		tableNoteDraft = '';
 		tableDetailSheetOpen = true;
 		tableDetailLoading = true;
+		const seq = ++tableDetailSeq;
 		try {
-			const detail = await fetchTableDetail(table.database_name, table.table_name);
+			const [detail, notesRes] = await Promise.all([
+				fetchTableDetail(table.database_name, table.table_name),
+				fetchTableNotes(table.database_name, table.table_name)
+			]);
+			// Another table was opened (or the sheet closed) while this loaded.
+			if (seq !== tableDetailSeq) return;
 			selectedTableColumns = detail.columns ?? [];
-			const notesRes = await fetchTableNotes(table.database_name, table.table_name);
 			tableNotes = notesRes?.notes ?? [];
-		} catch (err: any) {
-			toastError('Failed to load table details: ' + err.message);
+		} catch (err: unknown) {
+			if (seq !== tableDetailSeq) return;
+			toastError('Failed to load table details: ' + (err instanceof Error ? err.message : String(err)));
 		} finally {
-			tableDetailLoading = false;
+			if (seq === tableDetailSeq) tableDetailLoading = false;
 		}
 	}
 
 	function closeTableDetails() {
+		tableDetailSeq++;
+		tableDetailLoading = false;
 		tableDetailSheetOpen = false;
 		selectedTable = null;
 		selectedTableColumns = [];
@@ -366,8 +383,8 @@
 			const notesRes = await fetchTableNotes(selectedTable.database_name, selectedTable.table_name);
 			tableNotes = notesRes?.notes ?? [];
 			toastSuccess('Table note added');
-		} catch (err: any) {
-			toastError('Failed to add table note: ' + err.message);
+		} catch (err: unknown) {
+			toastError('Failed to add table note: ' + (err instanceof Error ? err.message : String(err)));
 		}
 	}
 
@@ -384,8 +401,8 @@
 			const notesRes = await fetchTableNotes(selectedTable.database_name, selectedTable.table_name);
 			tableNotes = notesRes?.notes ?? [];
 			toastSuccess('Note deleted');
-		} catch (err: any) {
-			toastError('Failed to delete note: ' + err.message);
+		} catch (err: unknown) {
+			toastError('Failed to delete note: ' + (err instanceof Error ? err.message : String(err)));
 		}
 	}
 
@@ -537,7 +554,7 @@
 
 						<Panel title="Sync status" description="Last run of each governance sync worker.">
 							<div class="divide-y divide-edge-subtle">
-								{#each overview.sync_states ?? [] as syncState}
+								{#each overview.sync_states ?? [] as syncState (syncState.id)}
 									<div class="flex items-center justify-between gap-3 py-2 text-[13px]">
 										<span class="font-medium text-fg">{syncState.sync_type}</span>
 										<div class="flex items-center gap-3">
@@ -555,7 +572,7 @@
 							<Panel title="Recent schema changes">
 								{#if overview.recent_changes && overview.recent_changes.length > 0}
 									<div class="divide-y divide-edge-subtle">
-										{#each overview.recent_changes as change}
+										{#each overview.recent_changes as change (change.id)}
 											<div class="py-2 text-[13px]">
 												<div class="flex items-center justify-between gap-3">
 													<span class="truncate font-medium text-fg">{change.database_name}.{change.table_name}</span>
@@ -573,7 +590,7 @@
 							<Panel title="Recent violations">
 								{#if overview.recent_violations && overview.recent_violations.length > 0}
 									<div class="divide-y divide-edge-subtle">
-										{#each overview.recent_violations as violation}
+										{#each overview.recent_violations as violation (violation.id)}
 											<div class="py-2 text-[13px]">
 												<div class="flex items-center justify-between gap-3">
 													<span class="truncate font-medium text-fg">{violation.policy_name}</span>
@@ -617,7 +634,7 @@
 									{@const tags = (row as unknown as GovTable).tags}
 									{#if tags && tags.length > 0}
 										<div class="flex flex-wrap gap-1">
-											{#each tags as tag}<Badge tone="brand">{tag}</Badge>{/each}
+											{#each tags as tag (tag)}<Badge tone="brand">{tag}</Badge>{/each}
 										</div>
 									{:else}
 										<span class="text-fg-4">-</span>
@@ -724,38 +741,26 @@
 							<Spinner size="md" />
 						</div>
 					{:else if selectedTableColumns.length > 0}
-						<div class="ds-table-wrap">
-							<table class="ds-table">
-								<thead>
-									<tr class="ds-table-head-row">
-										<th class="ds-table-th">Column</th>
-										<th class="ds-table-th">Type</th>
-										<th class="ds-table-th">Default</th>
-										<th class="ds-table-th">Tags</th>
-									</tr>
-								</thead>
-								<tbody>
-									{#each selectedTableColumns as col}
-										<tr class="ds-table-row-static">
-											<td class="ds-td-strong">{col.column_name}</td>
-											<td class="ds-td-mono">{col.column_type}</td>
-											<td class="ds-td text-fg-3">{col.default_expression || '-'}</td>
-											<td class="ds-td">
-												{#if col.tags?.length}
-													<div class="flex flex-wrap gap-1">
-														{#each col.tags as tag}
-															<Badge tone="brand">{tag}</Badge>
-														{/each}
-													</div>
-												{:else}
-													<span class="text-fg-4">-</span>
-												{/if}
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
+						<DataTable columns={columnColumns} rows={asRows(selectedTableColumns)} rowKey={(r) => String(r.column_name)} framed={false}>
+							{#snippet cell(row, col, value)}
+								{#if col.key === 'tags'}
+									{@const tags = (row as unknown as GovColumn).tags}
+									{#if tags && tags.length > 0}
+										<div class="flex flex-wrap gap-1">
+											{#each tags as tag (tag)}<Badge tone="brand">{tag}</Badge>{/each}
+										</div>
+									{:else}
+										<span class="text-fg-4">-</span>
+									{/if}
+								{:else if col.key === 'column_name'}
+									<span class="font-medium text-fg">{value}</span>
+								{:else if col.key === 'default_expression'}
+									<span class="text-fg-3">{value}</span>
+								{:else}
+									{value}
+								{/if}
+							{/snippet}
+						</DataTable>
 					{:else}
 						<EmptyState size="compact" title="No column metadata available" />
 					{/if}
@@ -773,7 +778,7 @@
 
 						{#if tableNotes.length > 0}
 							<div class="max-h-64 space-y-2 overflow-auto">
-								{#each tableNotes as note}
+								{#each tableNotes as note (note.id)}
 									<div class="rounded-md bg-surface-2 p-3">
 										<div class="flex items-start justify-between gap-3">
 											<div class="min-w-0">

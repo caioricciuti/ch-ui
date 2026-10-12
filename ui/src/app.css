@@ -101,6 +101,13 @@
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
 
+  /* Dimming layer behind modals and sheets */
+  --color-scrim: var(--scrim);
+  /* Text and knobs drawn on a saturated fill (danger, chart colours, switches) */
+  --color-fill-fg: var(--fill-fg);
+  /* Text on a warning fill; amber is light in dark mode, so it flips */
+  --color-warning-fg: var(--warning-fg);
+
   /* Compatibility aliases for the shadcn-style names still in use */
   --color-background: var(--canvas);
   --color-foreground: var(--fg);
@@ -155,6 +162,10 @@
   --info: #2563eb;
   --info-soft: rgba(37, 99, 235, 0.10);
 
+  --scrim: rgba(0, 0, 0, 0.40);
+  --fill-fg: #ffffff;
+  --warning-fg: #ffffff;
+
   /* legacy names still referenced by a few components */
   --radius: 6px;
   --background: var(--canvas);
@@ -208,6 +219,10 @@
   --danger-soft: rgba(239, 68, 68, 0.14);
   --info: #60a5fa;
   --info-soft: rgba(59, 130, 246, 0.14);
+
+  --scrim: rgba(0, 0, 0, 0.65);
+  --fill-fg: #ffffff;
+  --warning-fg: #1c1917;
 
   --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
   --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);

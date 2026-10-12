@@ -29,11 +29,11 @@
   let { nodes, edges, onNodesChange, onEdgesChange, onConnect, onNodeClick, onPaneClick }: Props = $props()
 
   const nodeTypes: NodeTypes = {
-    source_kafka: SourceNode as any,
-    source_webhook: SourceNode as any,
-    source_database: SourceNode as any,
-    source_s3: SourceNode as any,
-    sink_clickhouse: SinkNode as any,
+    source_kafka: SourceNode as unknown as NodeTypes[string],
+    source_webhook: SourceNode as unknown as NodeTypes[string],
+    source_database: SourceNode as unknown as NodeTypes[string],
+    source_s3: SourceNode as unknown as NodeTypes[string],
+    sink_clickhouse: SinkNode as unknown as NodeTypes[string],
   }
 
   function onDragStart(e: DragEvent, type: NodeType) {

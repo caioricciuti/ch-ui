@@ -63,8 +63,8 @@
       roles = rolesRes?.roles ?? []
       accessMatrix = matrixRes?.matrix ?? []
       overPermissions = overPermsRes?.over_permissions ?? []
-    } catch (err: any) {
-      toastError('Failed to load access data: ' + err.message)
+    } catch (err: unknown) {
+      toastError('Failed to load access data: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       loading = false
     }

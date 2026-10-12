@@ -102,8 +102,8 @@
         limit: 200,
       })
       incidents = res?.incidents ?? []
-    } catch (err: any) {
-      toastError('Failed to load incidents: ' + err.message)
+    } catch (err: unknown) {
+      toastError('Failed to load incidents: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       loading = false
     }
@@ -142,8 +142,8 @@
       createOpen = false
       toastSuccess('Incident created')
       await load()
-    } catch (err: any) {
-      toastError('Failed to create incident: ' + err.message)
+    } catch (err: unknown) {
+      toastError('Failed to create incident: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       creating = false
     }
@@ -166,8 +166,8 @@
       const [incidentRes, commentsRes] = await Promise.all([apiGetIncident(id), fetchIncidentComments(id)])
       selected = incidentRes?.incident ?? selected
       comments = commentsRes?.comments ?? []
-    } catch (err: any) {
-      toastError('Failed to load incident: ' + err.message)
+    } catch (err: unknown) {
+      toastError('Failed to load incident: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       detailLoading = false
     }
@@ -188,8 +188,8 @@
       await apiUpdateIncident(selected.id, data)
       await loadDetail(selected.id)
       await load()
-    } catch (err: any) {
-      toastError('Failed to update incident: ' + err.message)
+    } catch (err: unknown) {
+      toastError('Failed to update incident: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       saving = false
     }
@@ -224,8 +224,8 @@
       commentDraft = ''
       commentTab = 'write'
       await loadDetail(selected.id)
-    } catch (err: any) {
-      toastError('Failed to add comment: ' + err.message)
+    } catch (err: unknown) {
+      toastError('Failed to add comment: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       postingComment = false
     }

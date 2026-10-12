@@ -52,6 +52,6 @@
     type="button"
     onclick={onApprove}
     disabled={deciding}
-    class="px-3 py-1 rounded-md text-[11px] font-medium bg-warning hover:brightness-110 text-white disabled:opacity-50"
+    class="px-3 py-1 rounded-md text-[11px] font-medium bg-warning hover:brightness-110 text-warning-fg disabled:opacity-50"
   >Approve</button>
 </div>

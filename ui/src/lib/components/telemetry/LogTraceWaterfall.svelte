@@ -19,10 +19,17 @@
 
   $effect(() => {
     if (traceId && traceSourceId && traceDetailFor !== traceId) {
-      traceDetailFor = traceId
-      getTrace(traceSourceId, traceId)
-        .then((d) => (traceDetail = d))
-        .catch(() => (traceDetail = null))
+      const id = traceId
+      traceDetailFor = id
+      traceDetail = null
+      getTrace(traceSourceId, id)
+        .then((d) => {
+          // Ignore a late answer for a trace that is no longer shown.
+          if (traceDetailFor === id) traceDetail = d
+        })
+        .catch(() => {
+          if (traceDetailFor === id) traceDetail = null
+        })
     }
   })
 </script>

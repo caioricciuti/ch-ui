@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Check, X, Ban, HelpCircle } from 'lucide-svelte'
   import type { ToolCall } from '../../types/brain'
   import BrainApprovalActions from './BrainApprovalActions.svelte'
   import Spinner from '../common/Spinner.svelte'
@@ -121,13 +122,14 @@
     effectiveStatus !== 'running'
   )
 
-  function statusIcon(s?: string): string {
+  /** Any lucide-svelte icon; they all share this component type. */
+  type IconComponent = typeof Check
+  function statusIcon(s?: string): IconComponent {
     switch (s) {
-      case 'pending_approval': return '?'
-      case 'pending': case 'running': return ''
-      case 'error': return '✗'
-      case 'declined': return '⊘'
-      case 'success': default: return '✓'
+      case 'pending_approval': return HelpCircle
+      case 'error': return X
+      case 'declined': return Ban
+      case 'success': default: return Check
     }
   }
   function statusClass(s?: string): string {
@@ -152,7 +154,8 @@
       {#if effectiveStatus === 'pending' || effectiveStatus === 'running'}
         <Spinner size="sm" />
       {:else}
-        <span class={statusClass(effectiveStatus)}>{statusIcon(effectiveStatus)}</span>
+        {@const StatusIcon = statusIcon(effectiveStatus)}
+        <span class="inline-flex {statusClass(effectiveStatus)}" title={effectiveStatus ?? 'success'}><StatusIcon size={13} /></span>
       {/if}
     </span>
     <span class="font-mono font-medium text-foreground">{label}</span>
