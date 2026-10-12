@@ -229,6 +229,20 @@ func (db *DB) UpdatePipelineStatus(id, status, lastError string) error {
 	return nil
 }
 
+// SetPipelineLastError sets (or with "" clears) a pipeline's last_error
+// without touching its status or timestamps. A running pipeline uses it to
+// show that it is retrying.
+func (db *DB) SetPipelineLastError(id, lastError string) error {
+	var errVal interface{}
+	if lastError != "" {
+		errVal = lastError
+	}
+	if _, err := db.conn.Exec("UPDATE pipelines SET last_error = ? WHERE id = ?", errVal, id); err != nil {
+		return fmt.Errorf("set pipeline last error: %w", err)
+	}
+	return nil
+}
+
 // DeletePipeline deletes a pipeline and all related data (cascade).
 func (db *DB) DeletePipeline(id string) error {
 	_, err := db.conn.Exec("DELETE FROM pipelines WHERE id = ?", id)

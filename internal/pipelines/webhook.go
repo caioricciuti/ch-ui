@@ -1,6 +1,7 @@
 package pipelines
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -20,18 +21,21 @@ type WebhookSource struct{}
 
 func (w *WebhookSource) Type() string { return "source_webhook" }
 
-// Validate checks webhook configuration.
+// Validate checks webhook configuration. auth_token is optional: without it
+// the webhook accepts every request. New webhook nodes get one by default.
 func (w *WebhookSource) Validate(cfg ConnectorConfig) error {
-	// auth_token is optional — when empty, the webhook accepts all requests
-	return nil
+	if boolField(cfg.Fields, "auth_enabled", false) && stringField(cfg.Fields, "auth_token", "") == "" {
+		return fmt.Errorf("authentication is enabled but no token is set; regenerate the token")
+	}
+	return validateCommon(cfg.Fields)
 }
 
 // Start blocks until the context is cancelled, forwarding received batches to out.
 func (w *WebhookSource) Start(ctx context.Context, cfg ConnectorConfig, out chan<- Batch) error {
 	pipelineID, _ := cfg.Fields["pipeline_id"].(string)
 	authToken, _ := cfg.Fields["auth_token"].(string)
-	batchSize := intField(cfg.Fields, "batch_size", 100)
-	batchTimeoutMs := intField(cfg.Fields, "batch_timeout_ms", 5000)
+	batchSize := max(intField(cfg.Fields, "batch_size", 100), 1)
+	batchTimeoutMs := max(intField(cfg.Fields, "batch_timeout_ms", 2000), 100)
 
 	// Create a receiver for this pipeline
 	recv := &webhookReceiver{
@@ -91,6 +95,26 @@ var webhookRegistry sync.Map
 type webhookReceiver struct {
 	authToken string
 	incoming  chan Record
+	// enqueueMu makes the capacity check and the enqueue of one request
+	// atomic with respect to other requests, so a request is accepted whole
+	// or not at all.
+	enqueueMu sync.Mutex
+}
+
+// enqueue adds all records or none. It reports false when the buffer lacks
+// room for the whole request.
+func (r *webhookReceiver) enqueue(records []Record) bool {
+	r.enqueueMu.Lock()
+	defer r.enqueueMu.Unlock()
+	if cap(r.incoming)-len(r.incoming) < len(records) {
+		return false
+	}
+	// Only the batching loop removes from the channel, so the room checked
+	// above cannot shrink: these sends never block.
+	for _, rec := range records {
+		r.incoming <- rec
+	}
+	return true
 }
 
 // HandleWebhook is an HTTP handler that routes incoming webhook POSTs to the
@@ -131,22 +155,21 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send records to pipeline (non-blocking with backpressure)
-	accepted := 0
-	for _, rec := range records {
-		select {
-		case recv.incoming <- rec:
-			accepted++
-		default:
-			// Channel full, apply backpressure
-			http.Error(w, "pipeline buffer full, try again later", http.StatusTooManyRequests)
-			return
-		}
+	if len(records) > cap(recv.incoming) {
+		http.Error(w, fmt.Sprintf("too many records in one request (max %d)", cap(recv.incoming)), http.StatusRequestEntityTooLarge)
+		return
+	}
+	// All or nothing: a partial accept followed by 429 would make the sender
+	// retry records that were already queued.
+	if !recv.enqueue(records) {
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "pipeline buffer full, try again later", http.StatusTooManyRequests)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `{"accepted":%d}`, accepted)
+	fmt.Fprintf(w, `{"accepted":%d}`, len(records))
 }
 
 // webhookTokenMatches reports whether the request carries the pipeline's
@@ -164,51 +187,75 @@ func webhookTokenMatches(r *http.Request, want string) bool {
 	return subtle.ConstantTimeCompare([]byte(token), []byte(want)) == 1
 }
 
-// parseWebhookBody parses JSON or NDJSON into records.
+// parseWebhookBody parses a JSON object, a JSON array of objects, or
+// newline-delimited JSON into records. The whole body is tried as JSON first,
+// so a pretty-printed object or array works; NDJSON is the fallback.
 func parseWebhookBody(body []byte, contentType string) ([]Record, error) {
-	trimmed := strings.TrimSpace(string(body))
-	if trimmed == "" {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
 		return nil, fmt.Errorf("empty body")
 	}
 
-	// Try to detect if it's an array or single object
-	if strings.HasPrefix(trimmed, "[") {
-		// JSON array
-		var arr []json.RawMessage
-		if err := json.Unmarshal(body, &arr); err != nil {
-			return nil, fmt.Errorf("invalid JSON array: %w", err)
-		}
-		var records []Record
-		for _, raw := range arr {
-			var data map[string]interface{}
-			if err := json.Unmarshal(raw, &data); err != nil {
-				return nil, fmt.Errorf("invalid JSON object in array: %w", err)
+	var whole interface{}
+	if err := json.Unmarshal(trimmed, &whole); err == nil {
+		switch whole.(type) {
+		case map[string]interface{}:
+			rec, err := webhookRecord(trimmed)
+			if err != nil {
+				return nil, err
 			}
-			records = append(records, Record{
-				Data:    data,
-				RawJSON: raw,
-			})
+			return []Record{rec}, nil
+		case []interface{}:
+			var arr []json.RawMessage
+			if err := json.Unmarshal(trimmed, &arr); err != nil {
+				return nil, fmt.Errorf("invalid JSON array: %w", err)
+			}
+			records := make([]Record, 0, len(arr))
+			for _, raw := range arr {
+				rec, err := webhookRecord(raw)
+				if err != nil {
+					return nil, fmt.Errorf("invalid JSON object in array: %w", err)
+				}
+				records = append(records, rec)
+			}
+			return records, nil
+		default:
+			return nil, fmt.Errorf("body must be a JSON object, an array of objects, or NDJSON")
 		}
-		return records, nil
+	}
+	if trimmed[0] == '[' {
+		return nil, fmt.Errorf("invalid JSON array")
 	}
 
-	// NDJSON or single object
-	lines := strings.Split(trimmed, "\n")
+	// NDJSON
 	var records []Record
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
+	for _, line := range bytes.Split(trimmed, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
 			continue
 		}
-		var data map[string]interface{}
-		if err := json.Unmarshal([]byte(line), &data); err != nil {
+		rec, err := webhookRecord(line)
+		if err != nil {
 			return nil, fmt.Errorf("invalid JSON line: %w", err)
 		}
-		records = append(records, Record{
-			Data:    data,
-			RawJSON: []byte(line),
-		})
+		records = append(records, rec)
 	}
-
 	return records, nil
+}
+
+// webhookRecord parses one JSON object and keeps it compacted on one line,
+// as JSONEachRow needs.
+func webhookRecord(raw []byte) (Record, error) {
+	var data map[string]interface{}
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return Record{}, err
+	}
+	if data == nil {
+		return Record{}, fmt.Errorf("expected a JSON object")
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, raw); err != nil {
+		return Record{}, err
+	}
+	return Record{Data: data, RawJSON: compact.Bytes()}, nil
 }

@@ -14,6 +14,8 @@
   interface Props {
     pipelines: Pipeline[]
     loading: boolean
+    /** Pipelines with a start or stop request in flight. */
+    pendingIds: string[]
     onCreate: () => void
     onSelect: (id: string) => void
     onDelete: (id: string) => void
@@ -21,7 +23,7 @@
     onStop: (id: string) => void
   }
 
-  let { pipelines, loading, onCreate, onSelect, onDelete, onStart, onStop }: Props = $props()
+  let { pipelines, loading, pendingIds, onCreate, onSelect, onDelete, onStart, onStop }: Props = $props()
 
   let confirmDelete = $state<Pipeline | null>(null)
   let search = $state('')
@@ -105,11 +107,11 @@
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <div role="presentation" class="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" onclick={(e: MouseEvent) => e.stopPropagation()}>
                 {#if pipeline.status === 'running' || pipeline.status === 'starting'}
-                  <Button icon size="xs" variant="ghost" title="Stop pipeline" aria-label="Stop pipeline" onclick={() => onStop(pipeline.id)}>
+                  <Button icon size="xs" variant="ghost" title="Stop pipeline" aria-label="Stop pipeline" disabled={pendingIds.includes(pipeline.id)} onclick={() => onStop(pipeline.id)}>
                     <Square size={13} />
                   </Button>
                 {:else}
-                  <Button icon size="xs" variant="ghost" title="Start pipeline" aria-label="Start pipeline" onclick={() => onStart(pipeline.id)}>
+                  <Button icon size="xs" variant="ghost" title="Start pipeline" aria-label="Start pipeline" disabled={pendingIds.includes(pipeline.id)} onclick={() => onStart(pipeline.id)}>
                     <Play size={13} />
                   </Button>
                 {/if}
@@ -119,9 +121,9 @@
               </div>
             </div>
 
-            {#if pipeline.last_error && pipeline.status === 'error'}
-              <div class="mt-2 truncate rounded-sm bg-danger-soft px-2 py-1 text-[11px] text-danger" title={pipeline.last_error}>
-                {pipeline.last_error}
+            {#if pipeline.last_error && (pipeline.status === 'error' || pipeline.status === 'running')}
+              <div class="mt-2 truncate rounded-sm px-2 py-1 text-[12px] {pipeline.status === 'error' ? 'bg-danger-soft text-danger' : 'bg-warning-soft text-warning'}" title={pipeline.last_error}>
+                {pipeline.status === 'running' ? 'Retrying: ' : ''}{pipeline.last_error}
               </div>
             {/if}
           </div>

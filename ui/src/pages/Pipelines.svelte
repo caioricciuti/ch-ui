@@ -14,6 +14,22 @@
   let showCreate = $state(false)
   let createName = $state('')
   let createLoading = $state(false)
+  /** Pipelines with a start or stop request in flight. */
+  let pendingIds = $state<string[]>([])
+
+  function errorText(e: unknown, fallback: string): string {
+    return (e instanceof Error ? e.message : String(e)) || fallback
+  }
+
+  async function withPending(id: string, fn: () => Promise<void>) {
+    if (pendingIds.includes(id)) return
+    pendingIds = [...pendingIds, id]
+    try {
+      await fn()
+    } finally {
+      pendingIds = pendingIds.filter((p) => p !== id)
+    }
+  }
 
   onMount(async () => {
     await loadPipelines()
@@ -24,8 +40,8 @@
     try {
       const res = await api.listPipelines()
       pipelines = res.pipelines ?? []
-    } catch (e: any) {
-      toastError(e.message || 'Failed to load pipelines')
+    } catch (e: unknown) {
+      toastError(errorText(e, 'Failed to load pipelines'))
     } finally {
       loading = false
     }
@@ -41,8 +57,8 @@
       await loadPipelines()
       // Open the editor for the newly created pipeline
       pushPipelineDetail(res.pipeline.id)
-    } catch (e: any) {
-      toastError(e.message || 'Failed to create pipeline')
+    } catch (e: unknown) {
+      toastError(errorText(e, 'Failed to create pipeline'))
     } finally {
       createLoading = false
     }
@@ -53,29 +69,33 @@
       await api.deletePipeline(id)
       toastSuccess('Pipeline deleted')
       await loadPipelines()
-    } catch (e: any) {
-      toastError(e.message || 'Failed to delete pipeline')
+    } catch (e: unknown) {
+      toastError(errorText(e, 'Failed to delete pipeline'))
     }
   }
 
-  async function handleStart(id: string) {
-    try {
-      await api.startPipeline(id)
-      toastSuccess('Pipeline started')
+  function handleStart(id: string) {
+    return withPending(id, async () => {
+      try {
+        await api.startPipeline(id)
+        toastSuccess('Pipeline started')
+      } catch (e: unknown) {
+        toastError(errorText(e, 'Failed to start pipeline'))
+      }
       await loadPipelines()
-    } catch (e: any) {
-      toastError(e.message || 'Failed to start pipeline')
-    }
+    })
   }
 
-  async function handleStop(id: string) {
-    try {
-      await api.stopPipeline(id)
-      toastSuccess('Pipeline stopped')
+  function handleStop(id: string) {
+    return withPending(id, async () => {
+      try {
+        await api.stopPipeline(id)
+        toastSuccess('Pipeline stopped')
+      } catch (e: unknown) {
+        toastError(errorText(e, 'Failed to stop pipeline'))
+      }
       await loadPipelines()
-    } catch (e: any) {
-      toastError(e.message || 'Failed to stop pipeline')
-    }
+    })
   }
 </script>
 
@@ -91,6 +111,7 @@
   <PipelineList
     {pipelines}
     {loading}
+    {pendingIds}
     onCreate={() => { showCreate = true }}
     onSelect={(id) => { pushPipelineDetail(id) }}
     onDelete={handleDelete}

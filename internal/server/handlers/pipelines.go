@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -123,6 +125,11 @@ func (h *PipelinesHandler) GetPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	if edges == nil {
 		edges = []database.PipelineEdge{}
+	}
+	// Secrets never leave the server; the editor sends the mask back and
+	// SaveGraph keeps the stored value.
+	for i := range nodes {
+		nodes[i].ConfigEncrypted = maskNodeConfig(nodes[i].ConfigEncrypted)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -247,7 +254,7 @@ func (h *PipelinesHandler) DeletePipeline(w http.ResponseWriter, r *http.Request
 
 // SaveGraph saves the entire pipeline graph (nodes + edges).
 func (h *PipelinesHandler) SaveGraph(w http.ResponseWriter, r *http.Request) {
-	pipeline, _ := h.pipelineForSession(w, r)
+	pipeline, session := h.pipelineForSession(w, r)
 	if pipeline == nil {
 		return
 	}
@@ -263,10 +270,33 @@ func (h *PipelinesHandler) SaveGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Stored configs, so secrets sent back masked keep their value.
+	prev := map[string]map[string]interface{}{}
+	if oldNodes, _, err := h.DB.GetPipelineGraph(id); err == nil {
+		for _, n := range oldNodes {
+			var cfg map[string]interface{}
+			if json.Unmarshal([]byte(n.ConfigEncrypted), &cfg) == nil {
+				prev[n.ID] = cfg
+			}
+		}
+	}
+
 	// Convert to database types
 	var nodes []database.PipelineNode
 	for _, n := range body.Nodes {
-		configJSON, _ := json.Marshal(n.Config)
+		if pipelines.IsSQLiteSource(n.NodeType, n.Config) {
+			if status, msg := h.checkSQLiteSource(session, n.Config, prev[n.ID]); status != 0 {
+				writeError(w, status, msg)
+				return
+			}
+		}
+		cfg, err := pipelines.EncryptConfigSecrets(n.Config, prev[n.ID], h.secretKey())
+		if err != nil {
+			slog.Error("Failed to encrypt pipeline secrets", "error", err, "pipeline", id)
+			writeError(w, http.StatusInternalServerError, "Failed to save pipeline graph")
+			return
+		}
+		configJSON, _ := json.Marshal(cfg)
 		nodes = append(nodes, database.PipelineNode{
 			ID:              n.ID,
 			PipelineID:      id,
@@ -316,6 +346,17 @@ func (h *PipelinesHandler) StartPipeline(w http.ResponseWriter, r *http.Request)
 	if pipeline.Status == "running" || pipeline.Status == "starting" {
 		writeError(w, http.StatusConflict, "Pipeline is already running")
 		return
+	}
+
+	// SQLite sources read files on this server: admins only.
+	if nodes, _, err := h.DB.GetPipelineGraph(id); err == nil {
+		for _, n := range nodes {
+			var cfg map[string]interface{}
+			if json.Unmarshal([]byte(n.ConfigEncrypted), &cfg) == nil && pipelines.IsSQLiteSource(n.NodeType, cfg) && session.UserRole != "admin" {
+				writeError(w, http.StatusForbidden, "Only admins can start a pipeline with a SQLite source")
+				return
+			}
+		}
 	}
 
 	if err := h.Runner.StartPipeline(id); err != nil {
@@ -383,6 +424,9 @@ func (h *PipelinesHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		resp["bytes_ingested"] = metrics.BytesIngested.Load()
 		resp["batches_sent"] = metrics.BatchesSent.Load()
 		resp["errors_count"] = metrics.ErrorsCount.Load()
+		if t, ok := metrics.LastBatchAt.Load().(time.Time); ok && !t.IsZero() {
+			resp["last_batch_at"] = t.UTC().Format(time.RFC3339)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -464,6 +508,56 @@ func (h *PipelinesHandler) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"logs": logs})
+}
+
+func (h *PipelinesHandler) secretKey() string {
+	if h.Config == nil {
+		return ""
+	}
+	return h.Config.AppSecretKey
+}
+
+// dataDir is CH-UI's data directory, which SQLite sources may not read.
+func (h *PipelinesHandler) dataDir() string {
+	if h.Config == nil || h.Config.DatabasePath == "" {
+		return ""
+	}
+	return filepath.Dir(h.Config.DatabasePath)
+}
+
+// maskNodeConfig replaces secret values in a stored node config with the
+// mask. A config that does not parse is returned empty rather than raw.
+func maskNodeConfig(stored string) string {
+	var cfg map[string]interface{}
+	if err := json.Unmarshal([]byte(stored), &cfg); err != nil {
+		return "{}"
+	}
+	out, err := json.Marshal(pipelines.MaskConfigSecrets(cfg))
+	if err != nil {
+		return "{}"
+	}
+	return string(out)
+}
+
+// checkSQLiteSource allows a SQLite source only for admins and never inside
+// CH-UI's data directory. It returns 0 when allowed, else an HTTP status and
+// message.
+func (h *PipelinesHandler) checkSQLiteSource(session *middleware.SessionInfo, cfg, prev map[string]interface{}) (int, string) {
+	if session == nil || session.UserRole != "admin" {
+		return http.StatusForbidden, "Only admins can configure a SQLite source"
+	}
+	connStr, _ := cfg["connection_string"].(string)
+	if connStr == pipelines.SecretMask {
+		stored, err := pipelines.DecryptConfigSecrets(prev, h.secretKey())
+		if err != nil {
+			return http.StatusBadRequest, "Stored connection string could not be read; enter it again"
+		}
+		connStr, _ = stored["connection_string"].(string)
+	}
+	if err := pipelines.CheckSQLitePath(connStr, h.dataDir()); err != nil {
+		return http.StatusBadRequest, err.Error()
+	}
+	return 0, ""
 }
 
 // ── Graph request types ────────────────────────────────────────────
