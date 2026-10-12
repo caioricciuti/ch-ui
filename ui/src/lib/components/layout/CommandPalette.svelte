@@ -277,6 +277,43 @@
     }
   }
 
+  /**
+   * Keeps Tab inside the palette. On close, focus goes back to where it was
+   * only if nothing else took it: a command that focuses an editor wins.
+   * The input is focused by the open effect, so no initial focus here.
+   */
+  function paletteFocus(node: HTMLElement) {
+    const previous = document.activeElement as HTMLElement | null
+    function onKeydown(e: KeyboardEvent) {
+      if (e.key !== 'Tab') return
+      const items = Array.from(
+        node.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+      )
+      if (items.length === 0) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      if (e.shiftKey && (active === first || !node.contains(active))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && (active === last || !node.contains(active))) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    node.addEventListener('keydown', onKeydown)
+    return {
+      destroy() {
+        node.removeEventListener('keydown', onKeydown)
+        const active = document.activeElement
+        const unclaimed = !active || active === document.body || node.contains(active)
+        if (unclaimed && previous && previous !== document.body && document.contains(previous)) {
+          previous.focus({ preventScroll: true })
+        }
+      },
+    }
+  }
+
   function handleInput() {
     if (!pro || scopeGroup) return
     const m = matchPrefix(query)
@@ -329,7 +366,14 @@
     onclick={() => closeCommandPalette()}
   ></button>
   <div class="fixed inset-0 z-[81] flex items-start justify-center pt-[10vh] px-4 pointer-events-none">
-    <div class="surface-card w-full max-w-2xl rounded-lg overflow-hidden pointer-events-auto">
+    <div
+      class="surface-card w-full max-w-2xl rounded-lg overflow-hidden pointer-events-auto"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Command palette"
+      tabindex="-1"
+      use:paletteFocus
+    >
       <!-- Input row -->
       <div class="flex items-center gap-2 px-3 py-2.5 border-b border-edge-subtle">
         <Search size={14} class="text-fg-3 shrink-0" />
@@ -341,6 +385,7 @@
         {/if}
         <input
           bind:this={inputEl}
+          aria-label="Search commands"
           bind:value={query}
           oninput={handleInput}
           type="text"
@@ -382,11 +427,11 @@
                 onclick={() => runCommand(item)}
                 onmouseenter={() => (selectedIdx = flatIdx)}
               >
-                <item.icon size={15} class={active ? 'text-ch-orange' : 'text-fg-3'} />
+                <item.icon size={15} class={active ? 'text-accent' : 'text-fg-3'} />
                 <span class="flex-1 min-w-0">
                   <span class="block text-sm font-medium truncate">
-                    {#each highlight(item.label, parsed.term) as h}
-                      <span class={h.on ? 'text-ch-orange font-semibold' : ''}>{h.ch}</span>
+                    {#each highlight(item.label, parsed.term) as h, i (i)}
+                      <span class={h.on ? 'text-accent font-semibold' : ''}>{h.ch}</span>
                     {/each}
                   </span>
                   {#if item.sub}
@@ -411,7 +456,7 @@
               onclick={() => runCommand(item)}
               onmouseenter={() => selectedIdx = idx}
             >
-              <item.icon size={15} class={idx === selectedIdx ? 'text-ch-orange' : 'text-fg-3'} />
+              <item.icon size={15} class={idx === selectedIdx ? 'text-accent' : 'text-fg-3'} />
               <span class="flex-1 min-w-0">
                 <span class="block text-sm font-medium truncate">{item.label}</span>
                 {#if item.sub}

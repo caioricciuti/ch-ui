@@ -138,7 +138,7 @@
         {#if width(span) < 12}
           <span class="absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-[10px] text-fg-3" style="left:calc({left(span) + width(span)}% + 6px)">{formatDuration(span.duration_ms)}</span>
         {:else}
-          <span class="absolute top-1/2 -translate-y-1/2 truncate text-[10px] text-white/90" style="left:calc({left(span)}% + 4px); max-width:{width(span)}%">{formatDuration(span.duration_ms)}</span>
+          <span class="absolute top-1/2 -translate-y-1/2 truncate text-[10px] text-fill-fg/90" style="left:calc({left(span)}% + 4px); max-width:{width(span)}%">{formatDuration(span.duration_ms)}</span>
         {/if}
       </div>
     </div>

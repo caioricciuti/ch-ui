@@ -66,7 +66,10 @@
 
   $effect(() => {
     if (!open || !database) return
-    listTables(database).then((t) => (tableNames = t)).catch(() => (tableNames = []))
+    const db = database
+    listTables(db)
+      .then((t) => { if (database === db) tableNames = t })
+      .catch(() => { if (database === db) tableNames = [] })
   })
 
   $effect(() => {
@@ -75,8 +78,13 @@
     if (columnsFor === key) return
     columnsFor = key
     listColumns(database, table)
-      .then((cols) => (columns = Object.fromEntries(cols.map((c) => [c.name, c.type]))))
-      .catch(() => (columns = {}))
+      .then((cols) => {
+        // The user may have picked another table while this one was loading.
+        if (columnsFor === key) columns = Object.fromEntries(cols.map((c) => [c.name, c.type]))
+      })
+      .catch(() => {
+        if (columnsFor === key) columns = {}
+      })
   })
 
   function setKind(k: SourceKind) {

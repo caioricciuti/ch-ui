@@ -49,6 +49,7 @@
 
 <script lang="ts">
   import Badge from '../common/Badge.svelte'
+  import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import Button from '../common/Button.svelte'
   import Combobox from '../common/Combobox.svelte'
   import Input from '../common/Input.svelte'
@@ -183,6 +184,18 @@
 
   const unit = $derived(result?.unit ?? catalog.find((m) => m.name === spec.metric && m.type === spec.type)?.unit ?? '')
 
+  // Series rows keep their plot index so the swatch matches the chart after sorting.
+  const seriesRows = $derived(
+    (result?.series ?? []).map((s, idx) => ({ idx, name: s.name || spec.metric, last: s.last, min: s.min, max: s.max, avg: s.avg })),
+  )
+  const seriesColumns: DataColumn<Record<string, unknown>>[] = [
+    { key: 'name', label: 'Series' },
+    { key: 'last', label: 'Last', align: 'right', format: (v) => formatValue(v as number | null) },
+    { key: 'min', label: 'Min', align: 'right', format: (v) => formatValue(v as number | null) },
+    { key: 'max', label: 'Max', align: 'right', format: (v) => formatValue(v as number | null) },
+    { key: 'avg', label: 'Avg', align: 'right', format: (v) => formatValue(v as number | null) },
+  ]
+
   function formatValue(v: number | null): string {
     if (v === null || v === undefined || Number.isNaN(v)) return '—'
     const abs = Math.abs(v)
@@ -316,38 +329,24 @@
         Series
       </button>
       {#if tableOpen}
-        <div class="mt-2 overflow-hidden rounded-md border border-edge-subtle">
-          <table class="w-full text-xs">
-            <thead>
-              <tr class="border-b border-edge-subtle text-fg-3">
-                <th class="h-7 px-2 text-left font-medium">Series</th>
-                <th class="h-7 px-2 text-right font-medium">Last</th>
-                <th class="h-7 px-2 text-right font-medium">Min</th>
-                <th class="h-7 px-2 text-right font-medium">Max</th>
-                <th class="h-7 px-2 text-right font-medium">Avg</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each result.series as s, i (s.name + i)}
-                <tr class="border-b border-edge-subtle last:border-b-0">
-                  <td class="px-2 py-1">
-                    <span class="inline-flex items-center gap-1.5">
-                      <span class="h-1.5 w-1.5 shrink-0 rounded-[2px]" style="background: {DEFAULT_COLORS[i % DEFAULT_COLORS.length]}"></span>
-                      <span class="font-mono text-fg-2">{s.name || spec.metric}</span>
-                      {#each Object.entries(s.labels) as [k, v] (k)}
-                        <span class="text-fg-4">{k}=<span class="text-fg-3">{v}</span></span>
-                      {/each}
-                    </span>
-                  </td>
-                  <td class="px-2 py-1 text-right tabular-nums text-fg">{formatValue(s.last)}</td>
-                  <td class="px-2 py-1 text-right tabular-nums text-fg-2">{formatValue(s.min)}</td>
-                  <td class="px-2 py-1 text-right tabular-nums text-fg-2">{formatValue(s.max)}</td>
-                  <td class="px-2 py-1 text-right tabular-nums text-fg-2">{formatValue(s.avg)}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
+        <DataTable class="mt-2" columns={seriesColumns} rows={seriesRows} rowKey={(r) => Number(r.idx)}>
+          {#snippet cell(row, col, value)}
+            {#if col.key === 'name'}
+              {@const s = result?.series[Number(row.idx)]}
+              <span class="inline-flex items-center gap-1.5">
+                <span class="h-1.5 w-1.5 shrink-0 rounded-[2px]" style="background: {DEFAULT_COLORS[Number(row.idx) % DEFAULT_COLORS.length]}"></span>
+                <span class="font-mono text-fg-2">{value}</span>
+                {#each Object.entries(s?.labels ?? {}) as [k, v] (k)}
+                  <span class="text-fg-4">{k}=<span class="text-fg-3">{v}</span></span>
+                {/each}
+              </span>
+            {:else if col.key === 'last'}
+              <span class="text-fg">{value}</span>
+            {:else}
+              {value}
+            {/if}
+          {/snippet}
+        </DataTable>
       {/if}
     {/if}
   </div>

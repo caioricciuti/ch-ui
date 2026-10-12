@@ -100,8 +100,8 @@
     try {
       const res = await apiGet<{ saved_queries: SavedQuery[] }>('/api/saved-queries')
       queries = res.saved_queries ?? []
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       loading = false
     }
@@ -143,8 +143,8 @@
         await loadQueries()
       }
       toastSuccess('Query duplicated')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       closeContextMenu()
     }
@@ -156,8 +156,8 @@
       queries = queries.filter((q) => q.id !== id)
       if (selectedQuery?.id === id) closeDetails()
       toastSuccess('Query deleted')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -183,8 +183,8 @@
       queries = queries.map((row) => (row.id === q.id ? { ...row, verified: next } : row))
       if (selectedQuery?.id === q.id) selectedQuery = { ...selectedQuery, verified: next }
       toastSuccess(next ? 'Marked as verified' : 'Verified mark removed')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -201,8 +201,8 @@
       renameSavedQueryTabs(renameId, finalName)
       toastSuccess('Query renamed')
       cancelRename()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       renameLoading = false
     }

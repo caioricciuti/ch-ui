@@ -178,8 +178,8 @@
       channels = c
       rules = r
       events = e
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       loading = false
     }
@@ -188,8 +188,8 @@
   async function loadEvents() {
     try {
       events = await adminListAlertEvents({ limit: Number(eventLimit) })
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -267,8 +267,8 @@
       }
       channelSheetOpen = false
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       channelSaving = false
     }
@@ -282,8 +282,8 @@
       await adminDeleteAlertChannel(ch.id)
       toastSuccess('Channel deleted')
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -304,8 +304,8 @@
       await adminTestAlertChannel(testChannel.id, { recipients })
       toastSuccess(`Test alert sent through "${testChannel.name}"`)
       testChannel = null
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       testSending = false
     }
@@ -382,8 +382,8 @@
       }
       ruleSheetOpen = false
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       ruleSaving = false
     }
@@ -397,8 +397,8 @@
       await adminDeleteAlertRule(rule.id)
       toastSuccess('Rule deleted')
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 

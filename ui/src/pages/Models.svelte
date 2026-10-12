@@ -12,7 +12,9 @@
   import Button from '../lib/components/common/Button.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
-  import Modal from '../lib/components/common/Modal.svelte'
+  import Sheet from '../lib/components/common/Sheet.svelte'
+  import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
+  import { trapFocus } from '../lib/utils/focus-trap'
   import FormField from '../lib/components/common/FormField.svelte'
   import Input from '../lib/components/common/Input.svelte'
   import type { ContextMenuItem } from '../lib/components/common/ContextMenu.svelte'
@@ -125,9 +127,7 @@
     }
   }
 
-  function openContextMenu(event: MouseEvent, model: Model) {
-    event.preventDefault()
-    event.stopPropagation()
+  function openContextMenuAtPointer(event: MouseEvent, model: Model) {
     contextMenu = {
       model,
       x: Math.min(window.innerWidth - 240, event.clientX),
@@ -163,7 +163,7 @@
   const theme = $derived(getTheme())
 
   const nodeTypes: NodeTypes = {
-    model: ModelNode as any,
+    model: ModelNode as unknown as NodeTypes[string],
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────
@@ -182,7 +182,7 @@
       const res = await api.listModels()
       models = res.models ?? []
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to load models')
+      toastError((e instanceof Error ? e.message : '') || 'Failed to load models')
     } finally {
       loading = false
     }
@@ -203,10 +203,10 @@
         source: e.source,
         target: e.target,
         animated: true,
-        style: 'stroke: #f97316; stroke-width: 2px;',
+        style: 'stroke: var(--accent); stroke-width: 2px;',
       }))
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to load DAG')
+      toastError((e instanceof Error ? e.message : '') || 'Failed to load DAG')
     }
   }
 
@@ -215,7 +215,7 @@
       const res = await api.listModelRuns()
       runs = res.runs ?? []
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to load runs')
+      toastError((e instanceof Error ? e.message : '') || 'Failed to load runs')
     }
   }
 
@@ -225,7 +225,7 @@
       const res = await api.getModelRun(runId)
       runResults[runId] = res.results ?? []
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to load run results')
+      toastError((e instanceof Error ? e.message : '') || 'Failed to load run results')
     }
   }
 
@@ -249,7 +249,7 @@
       toastSuccess('Schedule saved')
       await loadPipelines()
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to save schedule')
+      toastError((e instanceof Error ? e.message : '') || 'Failed to save schedule')
     } finally {
       schedSaving = false
     }
@@ -266,7 +266,7 @@
       showSchedule = false
       await loadPipelines()
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to delete schedule')
+      toastError((e instanceof Error ? e.message : '') || 'Failed to delete schedule')
     } finally {
       schedSaving = false
     }
@@ -285,7 +285,7 @@
       }
       showHistory = true
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to run pipeline')
+      toastError((e instanceof Error ? e.message : '') || 'Failed to run pipeline')
     } finally {
       runningPipeline = null
     }
@@ -319,7 +319,7 @@
       await loadPipelines()
       openModelTab(res.model)
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to create model')
+      toastError((e instanceof Error ? e.message : '') || 'Failed to create model')
     }
   }
 
@@ -339,7 +339,7 @@
       await loadModels()
       await loadPipelines()
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to delete model')
+      toastError((e instanceof Error ? e.message : '') || 'Failed to delete model')
     } finally {
       confirmDeleteLoading = false
       confirmDeleteOpen = false
@@ -361,7 +361,7 @@
       }
       showHistory = true
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to run models')
+      toastError((e instanceof Error ? e.message : '') || 'Failed to run models')
     } finally {
       running = false
     }
@@ -408,13 +408,20 @@
     }
   }
 
-  function statusDot(status: string): string {
-    switch (status) {
-      case 'success': return 'bg-success'
-      case 'error': return 'bg-danger'
-      default: return 'bg-fg-4'
-    }
-  }
+  // DataTable is typed over Record rows; Model is an interface, so cast in and out.
+  type Row = Record<string, unknown>
+  const asRows = (rows: Model[]): Row[] => rows as unknown as Row[]
+  const asModel = (row: Row): Model => row as unknown as Model
+
+  const modelColumns: DataColumn<Row>[] = [
+    { key: 'name', label: 'Model' },
+    { key: 'materialization', label: 'Type' },
+    { key: 'target_database', label: 'Database', mono: true },
+    { key: 'depends_on', label: 'Depends on', sortable: false },
+    { key: 'status', label: 'Status' },
+    { key: 'last_run_at', label: 'Last run', mono: true, format: (v) => (v ? formatDate(String(v)) : '-') },
+    { key: 'description', label: 'Description', truncate: true, sortable: false, format: (v, r) => String(r.last_error ?? v ?? '') },
+  ]
 
   const SCHEDULE_PRESETS = [
     { label: 'Every hour', cron: '0 * * * *' },
@@ -513,61 +520,60 @@
                   {pipeline.schedule ? pipeline.schedule.cron : 'No schedule'}
                 </Button>
               </div>
-              <!-- Model cards grid -->
-              <div class="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 p-3">
-                {#each pipelineModels as model (model.id)}
-                  <!-- svelte-ignore a11y_no_static_element_interactions -->
-                  <div
-                    class="group relative flex cursor-pointer flex-col gap-2 rounded-md border border-edge-subtle bg-surface p-3.5 transition-colors hover:border-edge-strong hover:bg-hover"
-                    onclick={() => selectModel(model.id)}
-                    oncontextmenu={(e) => openContextMenu(e, model)}
-                    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') selectModel(model.id) }}
-                    role="button"
-                    tabindex="0"
-                  >
-                    <div class="flex items-center gap-2">
+              <DataTable
+                columns={modelColumns}
+                rows={asRows(pipelineModels)}
+                rowKey={(r) => String(r.id)}
+                framed={false}
+                onrowclick={(r) => selectModel(String(r.id))}
+                onrowcontextmenu={(r, e) => { const m = models.find((x) => x.id === String(r.id)); if (m) openContextMenuAtPointer(e, m) }}
+              >
+                {#snippet cell(row, col, value)}
+                  {@const model = asModel(row)}
+                  {#if col.key === 'name'}
+                    <span class="inline-flex items-center gap-2">
                       {#if model.materialization === 'table'}
-                        <Table2 size={14} class="shrink-0 text-accent" />
+                        <Table2 size={13} class="shrink-0 text-fg-3" />
                       {:else}
-                        <Eye size={14} class="shrink-0 text-info" />
+                        <Eye size={13} class="shrink-0 text-fg-3" />
                       {/if}
-                      <span class="flex-1 truncate text-[13px] font-semibold text-fg">{model.name}</span>
+                      <span class="font-medium text-fg">{model.name}</span>
                       {#if model.source === 'github'}
                         <span title="Managed by GitHub: edit in your repository"><GitBranch size={12} class="shrink-0 text-fg-3" /></span>
                       {/if}
-                      <span class="h-2 w-2 shrink-0 rounded-full {statusDot(model.status)}" title={model.status}></span>
-                      <button
-                        onclick={(e) => openContextMenuFromButton(e, model)}
-                        class="rounded-sm p-1 text-fg-4 opacity-0 transition-colors hover:bg-active hover:text-fg group-hover:opacity-100 focus-visible:opacity-100"
-                        title="More actions"
-                        aria-label="More actions"
-                      >
-                        <MoreHorizontal size={15} />
-                      </button>
-                    </div>
-                    <div class="flex items-center gap-2 text-[11px] text-fg-4">
-                      <Badge tone="neutral">{model.materialization}</Badge>
-                      <span class="truncate">{model.target_database}</span>
-                      {#if model.last_run_at}
-                        <span class="ml-auto shrink-0" title="Last run">{formatDate(model.last_run_at)}</span>
-                      {/if}
-                    </div>
-                    {#if upstreamMap.get(model.id)?.length}
-                      <div class="flex flex-wrap items-center gap-1.5">
-                        <GitBranch size={11} class="shrink-0 text-fg-4" />
-                        {#each upstreamMap.get(model.id)! as dep}
-                          <Badge tone="brand">{dep}</Badge>
-                        {/each}
-                      </div>
+                    </span>
+                  {:else if col.key === 'materialization'}
+                    <Badge tone="neutral">{model.materialization}</Badge>
+                  {:else if col.key === 'depends_on'}
+                    {@const deps = upstreamMap.get(model.id) ?? []}
+                    {#if deps.length}
+                      <span class="inline-flex flex-wrap gap-1">
+                        {#each deps as dep (dep)}<Badge tone="brand">{dep}</Badge>{/each}
+                      </span>
+                    {:else}
+                      <span class="text-fg-4">-</span>
                     {/if}
-                    {#if model.last_error}
-                      <p class="truncate text-[11px] text-danger" title={model.last_error}>{model.last_error}</p>
-                    {:else if model.description}
-                      <p class="truncate text-[11px] text-fg-4">{model.description}</p>
-                    {/if}
-                  </div>
-                {/each}
-              </div>
+                  {:else if col.key === 'status'}
+                    <Badge tone={statusTone(model.status)}>{model.status}</Badge>
+                  {:else if col.key === 'description' && model.last_error}
+                    <span class="text-danger">{value}</span>
+                  {:else}
+                    {value}
+                  {/if}
+                {/snippet}
+                {#snippet actions(row)}
+                  <Button
+                    icon
+                    size="xs"
+                    variant="ghost"
+                    aria-label="More actions"
+                    title="More actions"
+                    onclick={(e) => openContextMenuFromButton(e, asModel(row))}
+                  >
+                    <MoreHorizontal size={14} />
+                  </Button>
+                {/snippet}
+              </DataTable>
             </div>
           {/if}
         {/each}
@@ -582,7 +588,7 @@
       <Timer size={13} class="shrink-0 text-fg-4" />
       {#if scheduledPipelines.length > 0}
         <span>{scheduledPipelines.length} pipeline{scheduledPipelines.length !== 1 ? 's' : ''} scheduled</span>
-        {#each scheduledPipelines as sp}
+        {#each scheduledPipelines as sp (sp.anchor_model_id)}
           {@const anchorModel = modelById.get(sp.anchor_model_id)}
           <span class="text-fg-4">·</span>
           <span class="font-mono text-fg-2" title={anchorModel?.name ?? sp.anchor_model_id}>
@@ -603,10 +609,17 @@
 
 <!-- ─── DAG Overlay ──────────────────────────────────────────────── -->
 {#if showDAG}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex flex-col bg-canvas" role="dialog" tabindex="-1">
+  <div
+    class="fixed inset-0 z-50 flex flex-col bg-canvas"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="models-dag-title"
+    tabindex="-1"
+    use:trapFocus
+    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); showDAG = false } }}
+  >
     <div class="flex h-12 shrink-0 items-center gap-3 border-b border-edge-subtle px-5">
-      <h2 class="flex-1 text-[15px] font-semibold tracking-[-0.01em] text-fg">Dependency graph</h2>
+      <h2 id="models-dag-title" class="flex-1 text-[15px] font-semibold tracking-[-0.01em] text-fg">Dependency graph</h2>
       <Button size="sm" variant="ghost" onclick={loadDAG}>
         <RefreshCw size={12} /> Refresh
       </Button>
@@ -636,10 +649,17 @@
 
 <!-- ─── History Overlay ──────────────────────────────────────────── -->
 {#if showHistory}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex flex-col bg-canvas" role="dialog" tabindex="-1">
+  <div
+    class="fixed inset-0 z-50 flex flex-col bg-canvas"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="models-history-title"
+    tabindex="-1"
+    use:trapFocus
+    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); showHistory = false } }}
+  >
     <div class="flex h-12 shrink-0 items-center gap-3 border-b border-edge-subtle px-5">
-      <h2 class="flex-1 text-[15px] font-semibold tracking-[-0.01em] text-fg">Run history</h2>
+      <h2 id="models-history-title" class="flex-1 text-[15px] font-semibold tracking-[-0.01em] text-fg">Run history</h2>
       <Button size="sm" variant="ghost" onclick={loadRuns}>
         <RefreshCw size={12} /> Refresh
       </Button>
@@ -711,8 +731,8 @@
   </div>
 {/if}
 
-<!-- ─── Schedule dialog ──────────────────────────────────────────── -->
-<Modal
+<!-- ─── Schedule sheet ───────────────────────────────────────────── -->
+<Sheet
   open={showSchedule}
   title="Pipeline schedule"
   description={scheduleAnchorId && modelById.get(scheduleAnchorId)
@@ -727,7 +747,7 @@
     </FormField>
 
     <div class="flex flex-wrap gap-1.5">
-      {#each SCHEDULE_PRESETS as preset}
+      {#each SCHEDULE_PRESETS as preset (preset.cron)}
         <Button
           size="xs"
           variant={schedCron === preset.cron ? 'secondary' : 'outline'}
@@ -772,7 +792,7 @@
       <Save size={12} /> Save
     </Button>
   {/snippet}
-</Modal>
+</Sheet>
 
 <ConfirmDialog
   open={confirmDeleteOpen}

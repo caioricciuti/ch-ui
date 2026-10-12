@@ -58,8 +58,8 @@
     govSettingsLoading = true
     try {
       govSettings = await fetchGovernanceSettings()
-    } catch (err: any) {
-      toastError('Failed to load governance settings: ' + err.message)
+    } catch (err: unknown) {
+      toastError('Failed to load governance settings: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       govSettingsLoading = false
     }
@@ -80,8 +80,8 @@
       govSettings = await updateGovernanceSettings(payload)
       if (payload.sync_enabled === true) toastSuccess('Governance sync enabled')
       if (payload.sync_enabled === false) toastSuccess('Governance sync disabled')
-    } catch (err: any) {
-      toastError('Failed to update governance settings: ' + err.message)
+    } catch (err: unknown) {
+      toastError('Failed to update governance settings: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       govToggleSaving = false
     }
@@ -102,8 +102,8 @@
     try {
       queryHarvest = await updateQueryHarvestMode(mode)
       toastSuccess(`Query harvest mode set to "${mode}"`)
-    } catch (err: any) {
-      toastError('Failed to update harvest mode: ' + err.message)
+    } catch (err: unknown) {
+      toastError('Failed to update harvest mode: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       harvestModeSaving = false
     }

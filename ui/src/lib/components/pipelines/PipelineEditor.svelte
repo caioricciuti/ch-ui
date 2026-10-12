@@ -59,8 +59,8 @@
         targetHandle: e.target_handle ?? undefined,
         animated: true,
       }))
-    } catch (e: any) {
-      toastError(e.message || 'Failed to load pipeline')
+    } catch (e: unknown) {
+      toastError((e instanceof Error ? e.message : String(e)) || 'Failed to load pipeline')
     } finally {
       loading = false
     }
@@ -96,8 +96,8 @@
 
       await api.saveGraph(pipelineId, { nodes: graphNodes, edges: graphEdges })
       toastSuccess('Pipeline saved')
-    } catch (e: any) {
-      toastError(e.message || 'Failed to save pipeline')
+    } catch (e: unknown) {
+      toastError((e instanceof Error ? e.message : String(e)) || 'Failed to save pipeline')
     } finally {
       saving = false
     }
@@ -110,8 +110,8 @@
       await api.startPipeline(pipelineId)
       toastSuccess('Pipeline started')
       await loadPipeline()
-    } catch (e: any) {
-      toastError(e.message || 'Failed to start pipeline')
+    } catch (e: unknown) {
+      toastError((e instanceof Error ? e.message : String(e)) || 'Failed to start pipeline')
     }
   }
 
@@ -120,8 +120,8 @@
       await api.stopPipeline(pipelineId)
       toastSuccess('Pipeline stopped')
       await loadPipeline()
-    } catch (e: any) {
-      toastError(e.message || 'Failed to stop pipeline')
+    } catch (e: unknown) {
+      toastError((e instanceof Error ? e.message : String(e)) || 'Failed to stop pipeline')
     }
   }
 

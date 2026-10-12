@@ -16,6 +16,8 @@
     'aria-label'?: string
     'aria-pressed'?: boolean
     'aria-expanded'?: boolean
+    /** Skip this button when a dialog picks its first focus (close buttons). */
+    autofocusSkip?: boolean
     class?: string
     onclick?: (e: MouseEvent) => void
     children: Snippet
@@ -33,6 +35,7 @@
     'aria-label': ariaLabel,
     'aria-pressed': ariaPressed,
     'aria-expanded': ariaExpanded,
+    autofocusSkip = false,
     class: cls = '',
     onclick,
     children,
@@ -46,7 +49,7 @@
     secondary: 'bg-surface-2 text-fg hover:bg-active',
     outline: 'border border-edge bg-transparent text-fg-2 hover:border-edge-strong hover:bg-hover hover:text-fg',
     ghost: 'text-fg-3 hover:bg-hover hover:text-fg',
-    danger: 'bg-danger text-white hover:brightness-110 active:brightness-95',
+    danger: 'bg-danger text-fill-fg hover:brightness-110 active:brightness-95',
   }
 
   const sizes: Record<string, [string, string]> = {
@@ -66,6 +69,7 @@
   aria-pressed={ariaPressed}
   aria-expanded={ariaExpanded}
   aria-busy={loading || undefined}
+  data-autofocus-skip={autofocusSkip || undefined}
   class="{base} {variants[variant]} {sizeClass} {cls}"
   disabled={disabled || loading}
   {onclick}

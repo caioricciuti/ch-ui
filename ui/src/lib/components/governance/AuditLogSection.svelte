@@ -98,8 +98,8 @@
       if (search.trim()) params.set('search', search.trim())
       const res = await apiGet<AuditLog[]>(`/api/governance/audit-logs?${params}`)
       logs = res ?? []
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       loading = false
     }

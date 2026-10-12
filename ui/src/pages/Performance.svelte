@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { RefreshCw, TrendingUp, Search, ArrowLeft, ClipboardList, AlertTriangle } from 'lucide-svelte'
   import {
     fetchRegressions, fetchInvestigations, fetchInvestigation, createInvestigation, updateInvestigation,
@@ -9,13 +9,15 @@
     type Metrics, type Change, type Comparison, type PerformanceMonitor, type Window,
   } from '../lib/api/performance'
   import { getSession } from '../lib/stores/session.svelte'
+  import { getSection, setSection } from '../lib/stores/nav.svelte'
+  import { PAGE_SECTIONS } from '../lib/routes'
   import { formatBytes, formatNumber, formatElapsed } from '../lib/utils/format'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
   import PageBody from '../lib/components/common/PageBody.svelte'
   import Button from '../lib/components/common/Button.svelte'
   import Panel from '../lib/components/common/Panel.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
-  import Tabs from '../lib/components/common/Tabs.svelte'
+  import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
   import Stat from '../lib/components/common/Stat.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
@@ -23,7 +25,12 @@
   import Textarea from '../lib/components/common/Textarea.svelte'
   import Select from '../lib/components/common/Select.svelte'
 
-  let section = $state('regressions')
+  // The sidebar drives the section through ?section=.
+  type Section = 'regressions' | 'investigations'
+  const section = $derived<Section>(getSection() === 'investigations' ? 'investigations' : 'regressions')
+  const sectionLabel = $derived((PAGE_SECTIONS.performance ?? []).find((s) => s.id === section)?.label ?? 'Regressions')
+  // The section whose view is on screen; a change from the sidebar resets it.
+  let shownSection: Section = untrack(() => section)
   let range = $state<PerformanceRange>('24h')
   let report = $state<PerformanceReport | null>(null)
   let investigations = $state<Investigation[]>([])
@@ -62,6 +69,14 @@
   const metricValue = (metric: keyof Metrics, value: number) => metric.includes('bytes') ? formatBytes(value) : ms(value)
   const delta = (c: Change) => c.percent === null ? 'No percentage baseline' : `${c.percent > 0 ? '+' : ''}${c.percent.toFixed(1)}%`
 
+  // A handful of fixed metrics in a set order: no sorting.
+  const changeColumns: DataColumn<Record<string, unknown>>[] = [
+    { key: 'metric', label: 'Metric', sortable: false, format: (v) => metricNames[v as keyof Metrics] ?? String(v) },
+    { key: 'before', label: 'Baseline', align: 'right', mono: true, sortable: false, format: (v, r) => metricValue(r.metric as keyof Metrics, Number(v)) },
+    { key: 'after', label: 'Current', align: 'right', mono: true, sortable: false, format: (v, r) => metricValue(r.metric as keyof Metrics, Number(v)) },
+    { key: 'percent', label: 'Change', align: 'right', mono: true, sortable: false },
+  ]
+
   async function load() {
     const seq = ++sequence
     loading = true
@@ -99,7 +114,9 @@
     note = ''
     replacement = ''
     now = Date.now()
-    section = 'investigations'
+    // Set before navigating so the section effect does not clear this detail.
+    shownSection = 'investigations'
+    setSection('investigations')
   }
 
   async function openInvestigation(id: string) {
@@ -107,7 +124,7 @@
     error = ''
     busy = true
     try { const value = await fetchInvestigation(id); if (seq === detailSequence) showDetail(value) }
-    catch (e) { if (seq === detailSequence) error = (e as Error).message }
+    catch (e) { if (seq === detailSequence) error = (e instanceof Error ? e.message : String(e)) }
     finally { if (seq === detailSequence) busy = false }
   }
 
@@ -121,7 +138,7 @@
         : detail ? await updateInvestigation(detail.investigation.id, { title, owner, note, status, revision: detail.investigation.revision }) : null
       if (value) showDetail(value)
       investigations = (await fetchInvestigations()).investigations
-    } catch (e) { error = (e as Error).message }
+    } catch (e) { error = (e instanceof Error ? e.message : String(e)) }
     finally { busy = false }
   }
 
@@ -133,7 +150,7 @@
       const [hash,database] = replacement ? JSON.parse(replacement) as [string,string] : [detail.investigation.query_hash,detail.investigation.database]
       showDetail(await compareInvestigation(detail.investigation.id, {hash,database}))
       investigations = (await fetchInvestigations()).investigations
-    } catch (e) { error = (e as Error).message }
+    } catch (e) { error = (e instanceof Error ? e.message : String(e)) }
     finally { busy = false }
   }
 
@@ -142,9 +159,21 @@
     busy = true
     error = ''
     try { monitor = await setPerformanceMonitor(!monitor.enabled) }
-    catch (e) { error = (e as Error).message }
+    catch (e) { error = (e instanceof Error ? e.message : String(e)) }
     finally { busy = false }
   }
+
+  $effect(() => {
+    const next = section
+    untrack(() => {
+      if (next === shownSection) return
+      shownSection = next
+      detail = null
+      selected = null
+      search = ''
+      detailSequence++
+    })
+  })
 
   onMount(() => {
     void load()
@@ -154,21 +183,25 @@
 </script>
 
 {#snippet changesTable(changes: Change[], sufficient = true)}
-  <div class="overflow-x-auto">
-    <table class="w-full text-left text-xs">
-      <thead class="border-b border-edge-subtle text-fg-3"><tr><th class="py-2 font-medium">Metric</th><th class="py-2 text-right font-medium">Baseline</th><th class="py-2 text-right font-medium">Current</th><th class="py-2 text-right font-medium">Change</th></tr></thead>
-      <tbody>{#each changes as change}
-        <tr class="border-b border-edge-subtle last:border-0"><td class="py-2 text-fg-2">{metricNames[change.metric]}</td><td class="py-2 text-right font-mono text-fg-3">{metricValue(change.metric, change.before)}</td><td class="py-2 text-right font-mono">{metricValue(change.metric, change.after)}</td><td class="py-2 text-right font-mono {sufficient && change.regressed ? 'text-danger' : 'text-fg-3'}">{sufficient ? delta(change) : 'Insufficient data'}</td></tr>
-      {/each}</tbody>
-    </table>
-  </div>
+  <DataTable columns={changeColumns} rows={changes as unknown as Record<string, unknown>[]} rowKey={(r) => String(r.metric)} framed={false} emptyTitle="No metrics">
+    {#snippet cell(row, col, value)}
+      {@const change = row as unknown as Change}
+      {#if col.key === 'before'}
+        <span class="text-fg-3">{value}</span>
+      {:else if col.key === 'after'}
+        <span class="text-fg">{value}</span>
+      {:else if col.key === 'percent'}
+        <span class={sufficient && change.regressed ? 'text-danger' : 'text-fg-3'}>{sufficient ? delta(change) : 'Insufficient data'}</span>
+      {:else}
+        {value}
+      {/if}
+    {/snippet}
+  </DataTable>
 {/snippet}
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Performance" subtitle="Detect regressions and verify improvements" docs="https://ch-ui.com/docs/performance/">
+  <PageHeader title="Performance" subtitle={sectionLabel} docs="https://ch-ui.com/docs/performance/">
     {#snippet actions()}
-      <Tabs variant="segmented" size="sm" items={[{id:'regressions',label:'Regressions'},{id:'investigations',label:'Investigations'}]} value={section}
-        onchange={(value) => { if (busy) return; section = value; detail = null; selected = null; search = ''; detailSequence++ }} />
       <Button variant="ghost" size="sm" disabled={loading || busy} onclick={() => load()}><RefreshCw size={14} class={loading ? 'animate-spin' : ''} /> Refresh</Button>
     {/snippet}
   </PageHeader>

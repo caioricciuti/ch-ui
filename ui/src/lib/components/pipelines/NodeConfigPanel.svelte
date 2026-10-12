@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { CONNECTOR_FIELDS, type NodeType, type ConnectorFieldDef } from '../../types/pipelines'
   import { X, HelpCircle, Copy, Check, Shield } from 'lucide-svelte'
 
@@ -17,8 +18,9 @@
   let copied = $state(false)
   let copiedToken = $state(false)
 
-  let localLabel = $state(label)  // eslint-disable-line -- initial value from prop is intentional
-  let localConfig = $state<Record<string, unknown>>({ ...config })  // eslint-disable-line -- initial value from prop is intentional
+  // Copied once on mount; the editor remounts this panel per node ({#key}).
+  let localLabel = $state(untrack(() => label))
+  let localConfig = $state<Record<string, unknown>>(untrack(() => ({ ...config })))
 
   const fields = $derived(CONNECTOR_FIELDS[nodeType] || [])
 
@@ -76,6 +78,8 @@
     <button
       class="p-1 rounded hover:bg-hover text-fg-4"
       onclick={onClose}
+      aria-label="Close node config"
+      title="Close"
     >
       <X size={14} />
     </button>
@@ -113,7 +117,7 @@
           {#if field.help}
             <span class="relative group">
               <HelpCircle size={10} class="text-fg-4 cursor-help" />
-              <span class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 w-48 p-1.5 rounded bg-surface text-[9px] text-white hidden group-hover:block z-50 shadow-lg">
+              <span class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 w-48 p-1.5 rounded border border-edge bg-elevated text-[9px] text-fg hidden group-hover:block z-50 shadow-popover">
                 {field.help}
               </span>
             </span>

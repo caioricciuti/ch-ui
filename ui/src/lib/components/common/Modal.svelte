@@ -31,7 +31,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-  <div class="fixed inset-0 z-[70] bg-black/50" onclick={onclose} role="presentation"></div>
+  <div class="fixed inset-0 z-[70] bg-scrim" onclick={onclose} role="presentation"></div>
 
   <div class="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center p-4">
     <div
@@ -52,7 +52,7 @@
               <p class="mt-0.5 text-[13px] text-fg-3">{description}</p>
             {/if}
           </div>
-          <Button icon variant="ghost" size="sm" class="-mr-1.5 -mt-1" onclick={onclose} aria-label="Close">
+          <Button icon variant="ghost" size="sm" class="-mr-1.5 -mt-1" onclick={onclose} aria-label="Close" autofocusSkip>
             <X size={15} />
           </Button>
         </div>

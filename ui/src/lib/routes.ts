@@ -142,6 +142,10 @@ export const PAGE_SECTIONS: Partial<Record<PageRoute, PageSection[]>> = {
     { id: 'mcp', label: 'MCP Server' },
     { id: 'settings', label: 'Settings' },
   ],
+  performance: [
+    { id: 'regressions', label: 'Regressions' },
+    { id: 'investigations', label: 'Investigations' },
+  ],
   governance: [
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'tables', label: 'Tables' },

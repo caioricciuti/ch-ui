@@ -49,17 +49,33 @@
       contextFor = key
       contextLoading = true
       logsContext({ source_id: sourceId, timestamp_ns: row.timestamp_ns, service: row.service, before: 50, after: 50 })
-        .then((res) => { contextRows = res.rows; contextAnchor = res.anchor_index })
-        .catch((e: unknown) => toastError(e instanceof Error ? e.message : String(e)))
-        .finally(() => (contextLoading = false))
+        .then((res) => {
+          // A newer row may have been opened while this one was loading.
+          if (contextFor !== key) return
+          contextRows = res.rows
+          contextAnchor = res.anchor_index
+        })
+        .catch((e: unknown) => {
+          if (contextFor === key) toastError(e instanceof Error ? e.message : String(e))
+        })
+        .finally(() => {
+          if (contextFor === key) contextLoading = false
+        })
     }
     if (tab === 'trace' && row.trace_id && traceFor !== row.trace_id) {
-      traceFor = row.trace_id
+      const traceId = row.trace_id
+      traceFor = traceId
       traceLoading = true
-      logsByTrace(sourceId, row.trace_id)
-        .then((rows) => (traceRows = rows))
-        .catch((e: unknown) => toastError(e instanceof Error ? e.message : String(e)))
-        .finally(() => (traceLoading = false))
+      logsByTrace(sourceId, traceId)
+        .then((rows) => {
+          if (traceFor === traceId) traceRows = rows
+        })
+        .catch((e: unknown) => {
+          if (traceFor === traceId) toastError(e instanceof Error ? e.message : String(e))
+        })
+        .finally(() => {
+          if (traceFor === traceId) traceLoading = false
+        })
     }
   })
 

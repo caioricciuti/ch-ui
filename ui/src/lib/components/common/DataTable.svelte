@@ -36,6 +36,8 @@
     emptyTitle?: string
     emptyDescription?: string
     onrowclick?: (row: R) => void
+    /** Right-click on a row (e.g. open the row's menu at the pointer). */
+    onrowcontextmenu?: (row: R, e: MouseEvent) => void
     class?: string
     /** Custom cell content; return nothing to fall back to the formatted text. */
     cell?: Snippet<[R, DataColumn<R>, string]>
@@ -50,7 +52,7 @@
 
   let {
     columns, rows, rowKey, sort = null, fill = false, framed = true,
-    emptyTitle = 'Nothing here', emptyDescription, onrowclick, class: cls = '', cell, actions,
+    emptyTitle = 'Nothing here', emptyDescription, onrowclick, onrowcontextmenu, class: cls = '', cell, actions,
   }: DataTableProps<Row> = $props()
 
   let sortKey = $state<string | null>(null)
@@ -136,8 +138,14 @@
       <tbody>
         {#each sorted as row, i (rowKey ? rowKey(row, i) : i)}
           <tr
-            class="group transition-colors hover:bg-hover {onrowclick ? 'cursor-pointer' : ''}"
+            class="group transition-colors hover:bg-hover {onrowclick ? 'cursor-pointer focus-visible:bg-hover focus-visible:outline-none' : ''}"
+            tabindex={onrowclick ? 0 : undefined}
             onclick={onrowclick ? () => onrowclick(row) : undefined}
+            onkeydown={onrowclick ? (e: KeyboardEvent) => {
+              // Only the row itself: Enter on a button inside the row is that button's.
+              if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onrowclick(row) }
+            } : undefined}
+            oncontextmenu={onrowcontextmenu ? (e: MouseEvent) => { e.preventDefault(); onrowcontextmenu(row, e) } : undefined}
           >
             {#each columns as col (col.key)}
               {@const value = text(row, col)}
