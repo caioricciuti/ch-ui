@@ -691,12 +691,18 @@ func (s *Store) CreateTag(connectionID, objectType, dbName, tableName, colName s
 }
 
 // DeleteTag deletes a tag by ID.
-func (s *Store) DeleteTag(id string) error {
-	_, err := s.conn().Exec("DELETE FROM gov_tags WHERE id = ?", id)
+// DeleteTag removes a tag that belongs to connectionID. It reports false when
+// no such tag exists on that connection.
+func (s *Store) DeleteTag(connectionID, id string) (bool, error) {
+	res, err := s.conn().Exec("DELETE FROM gov_tags WHERE id = ? AND connection_id = ?", id, connectionID)
 	if err != nil {
-		return fmt.Errorf("delete tag: %w", err)
+		return false, fmt.Errorf("delete tag: %w", err)
 	}
-	return nil
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("delete tag: %w", err)
+	}
+	return n > 0, nil
 }
 
 // GetTaggedTableCount returns the count of distinct tables that have at least one tag.
