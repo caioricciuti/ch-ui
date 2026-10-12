@@ -2,17 +2,19 @@
   import { goTo } from '../../stores/router.svelte'
   import { tick, onMount, untrack } from 'svelte'
   import {
-    Search, Plus, Table2, Sparkles, LayoutDashboard, Bookmark, Clock,
-    Brain, Shield, Settings, Moon, Sun, LogOut, SquareTerminal, Home,
-    Workflow, Boxes, Activity, Scale, HeartPulse, Gauge, Coins, Hash,
+    Search, Plus, Table2, Sparkles, Moon, Sun, Monitor, LogOut, SquareTerminal, Home,
+    Hash, Boxes, Database, Keyboard,
   } from 'lucide-svelte'
   import { closeCommandPalette, isCommandPaletteOpen } from '../../stores/command-palette.svelte'
-  import { openQueryTab, openTableTab, getTabs, openHomeTab } from '../../stores/tabs.svelte'
-  import type { PageRoute } from '../../routes'
+  import { openQueryTab, openTableTab, getTabs, openHomeTab, setActiveTab, type Tab } from '../../stores/tabs.svelte'
+  import { PAGE_ROUTES, ADMIN_ONLY_ROUTES, isPageRouteType, type PageRoute } from '../../routes'
   import { getDatabases, loadDatabases, loadTables } from '../../stores/schema.svelte'
   import { getSession, logout } from '../../stores/session.svelte'
-  import { getTheme, toggleTheme } from '../../stores/theme.svelte'
-  import { isProActive } from '../../stores/license.svelte'
+  import { getTheme, getThemePreference, setThemePreference } from '../../stores/theme.svelte'
+  import { isProActive, hasProReadAccess } from '../../stores/license.svelte'
+  import { openShortcutHelp } from '../../stores/shortcut-help.svelte'
+  import { ALT, MOD, combo } from '../../utils/shortcuts'
+  import { prefetchPage } from './pageLoaders'
   import type { DashboardFolder } from '../../types/api'
   import {
     GROUP_LABEL, matchPrefix, telemetryItems, helpItems, entityItems, loadProEntities,
@@ -40,8 +42,40 @@
   const databases = $derived(getDatabases())
   const session = $derived(getSession())
   const pro = $derived(isProActive())
-  const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform)
-  const cmd = isMac ? '⌘' : 'Ctrl'
+  const proRead = $derived(hasProReadAccess())
+  const isAdmin = $derived(session?.role === 'admin')
+  const cmd = MOD
+
+  // Extra search words per page; labels and descriptions come from PAGE_ROUTES.
+  const PAGE_KEYWORDS: Partial<Record<PageRoute, string>> = {
+    'saved-queries': 'bookmarks queries history',
+    dashboards: 'charts panels metrics dash',
+    schedules: 'cron runs scheduled jobs',
+    brain: 'ai assistant chat agent llm',
+    pipelines: 'ingest etl streams',
+    models: 'dbt models materialize',
+    governance: 'access policies rules audit',
+    'cluster-health': 'replication merges mutations parts keeper backups monitoring',
+    'query-insights': 'query log latency slow p95 errors memory insights analytics',
+    'cost-center': 'costs chargeback showback spend budget billing finops teams',
+    telemetry: 'otel observability logs traces metrics',
+    admin: 'users connections audit mcp',
+    settings: 'license edition instance legal settings',
+    fleet: 'connections health servers',
+    performance: 'regressions slow investigations',
+    'schema-compare': 'diff environments schema',
+    'operations-reports': 'weekly reports summary',
+    'incident-timeline': 'incidents outages events',
+  }
+
+  /** Page ids shown with a Pro badge: Pro pages without a license. They open ProRequired. */
+  const lockedPageIds = $derived(
+    new Set(
+      (Object.keys(PAGE_ROUTES) as PageRoute[])
+        .filter((r) => PAGE_ROUTES[r].pro && !proRead)
+        .map((r) => `page-${r}`),
+    ),
+  )
 
   function scoreMatch(text: string, term: string): number {
     if (!term) return 1
@@ -62,52 +96,50 @@
   function buildStatic(): CommandItem[] {
     const items: CommandItem[] = []
 
-    items.push(
-      mkPage('home', 'Home', Home, () => openHomeTab(), { weight: 10, keywords: 'home start workspace' }),
-      mkPage('saved-queries', 'Saved Queries', Bookmark, () => goTo('saved-queries', 'Saved Queries'), { keywords: 'bookmarks queries history' }),
-      mkPage('dashboards', 'Dashboards', LayoutDashboard, () => goTo('dashboards', 'Dashboards'), { keywords: 'charts panels metrics dash' }),
-      mkPage('schedules', 'Schedules', Clock, () => goTo('schedules', 'Schedules'), { keywords: 'cron runs scheduled jobs' }),
-      mkPage('brain', 'Brain AI', Brain, () => goTo('brain', 'Brain'), { keywords: 'ai assistant chat agent llm' }),
-      mkPage('pipelines', 'Pipelines', Workflow, () => goTo('pipelines', 'Pipelines'), { keywords: 'ingest etl streams' }),
-      mkPage('models', 'Models', Boxes, () => goTo('models', 'Models'), { keywords: 'dbt models materialize' }),
-      mkPage('governance', 'Governance', Scale, () => goTo('governance', 'Governance'), { keywords: 'access policies rules audit' }),
-      mkPage('cluster-health', 'Cluster Health', HeartPulse, () => goTo('cluster-health', 'Cluster Health'), { keywords: 'replication merges mutations parts keeper backups monitoring' }),
-      mkPage('query-insights', 'Query Insights', Gauge, () => goTo('query-insights', 'Query Insights'), { keywords: 'query log latency slow p95 errors memory insights analytics' }),
-      mkPage('cost-center', 'Cost Center', Coins, () => goTo('cost-center', 'Cost Center'), { keywords: 'costs chargeback showback spend budget billing finops teams' }),
-      mkPage('telemetry', 'Telemetry', Activity, () => goTo('telemetry', 'Telemetry'), { keywords: 'otel observability logs traces metrics' }),
-      mkPage('admin', 'Admin', Shield, () => goTo('admin', 'Admin'), { keywords: 'users audit query log' }),
-      mkPage('settings', 'Settings', Settings, () => goTo('settings', 'Settings'), { keywords: 'config preferences license' }),
-    )
+    items.push(mkPage('home', 'Home', Home, () => openHomeTab(), { weight: 10, keywords: 'home start workspace' }))
+    // Every page the user can open: admin-only pages for admins, Pro pages
+    // for everyone (with a Pro badge when unlicensed; they open ProRequired).
+    for (const route of Object.keys(PAGE_ROUTES) as PageRoute[]) {
+      if (ADMIN_ONLY_ROUTES.has(route) && !isAdmin) continue
+      const meta = PAGE_ROUTES[route]
+      items.push(mkPage(route, meta.label, meta.icon, () => goTo(route), {
+        sub: meta.description,
+        keywords: `${meta.description} ${PAGE_KEYWORDS[route] ?? ''}`,
+      }))
+    }
 
     if (pro) {
       items.push(...telemetryItems())
     }
 
     items.push(
-      mkAction('new-query', 'New Query', Plus, `${cmd}⇧N`, () => openQueryTab(), 'create sql blank editor'),
+      mkAction('new-query', 'New Query', Plus, combo(ALT, 'N'), () => openQueryTab(), 'create sql blank editor'),
+      mkAction('new-dashboard', 'New Dashboard', Plus, undefined, () => goTo('dashboards'), 'create dashboard'),
+      mkAction('new-model', 'New Model', Plus, undefined, () => goTo('models'), 'create model dbt'),
+      mkAction('new-pipeline', 'New Pipeline', Plus, undefined, () => goTo('pipelines'), 'create pipeline'),
+      mkAction('new-brain-chat', 'New Brain Chat', Plus, undefined, () => goTo('brain'), 'new chat brain ai'),
+      mkAction('shortcuts', 'Keyboard shortcuts', Keyboard, '?', () => openShortcutHelp(), 'help keys hotkeys keyboard shortcuts'),
     )
 
-    // Dashboards, models, pipelines and Brain chat are free.
-    {
-      items.push(
-        mkAction('new-dashboard', 'New Dashboard', Plus, undefined, () => goTo('dashboards', 'Dashboards'), 'create dashboard'),
-        mkAction('new-model', 'New Model', Plus, undefined, () => goTo('models', 'Models'), 'create model dbt'),
-        mkAction('new-pipeline', 'New Pipeline', Plus, undefined, () => goTo('pipelines', 'Pipelines'), 'create pipeline'),
-        mkAction('new-brain-chat', 'New Brain Chat', Plus, undefined, () => goTo('brain', 'Brain'), 'new chat brain ai'),
-      )
+    const pref = getThemePreference()
+    if (pref !== 'light') {
+      items.push(mkAction('theme-light', 'Use light theme', Sun, undefined, () => setThemePreference('light'), 'theme appearance light'))
     }
-
-    items.push(
-      mkAction('theme', getTheme() === 'dark' ? 'Switch to Light theme' : 'Switch to Dark theme',
-        getTheme() === 'dark' ? Sun : Moon, undefined, () => toggleTheme(), 'theme appearance dark light'),
-    )
+    if (pref !== 'dark') {
+      items.push(mkAction('theme-dark', 'Use dark theme', Moon, undefined, () => setThemePreference('dark'), 'theme appearance dark'))
+    }
+    if (pref !== 'system') {
+      items.push(mkAction('theme-system', `Use system theme (now ${getTheme()})`, Monitor, undefined, () => setThemePreference('system'), 'theme appearance system auto os'))
+    }
 
     if (session) {
       items.push(mkAction('sign-out', 'Sign out', LogOut, undefined, () => logout(), 'logout sign out session'))
     }
 
     if (pro) {
-      items.push(...helpItems(cmd))
+      // The "Keyboard shortcuts" action above replaces the Pro help line,
+      // which still advertised a combo Chrome reserves.
+      items.push(...helpItems(cmd).filter((i) => i.id !== 'help-shortcuts'))
     }
 
     return items
@@ -146,34 +178,29 @@
     return items
   })
 
-  const recentTabs = $derived.by<CommandItem[]>(() => {
-    const items: CommandItem[] = []
-    const seen = new Set<string>()
-    const tabsArr = tabs.filter(t => t.type !== 'home').slice(-8).reverse()
-    for (const tab of tabsArr) {
-      const id = `tab-${tab.id}`
-      if (seen.has(id)) continue
-      seen.add(id)
-      const icon = tab.type === 'query'
-        ? SquareTerminal
-        : tab.type === 'table'
-          ? Table2
-          : Sparkles
-      items.push({
-        id,
-        group: 'recent',
+  function tabIcon(tab: Tab): typeof Search {
+    if (tab.type === 'query') return SquareTerminal
+    if (tab.type === 'table') return Table2
+    if (tab.type === 'database') return Database
+    if (tab.type === 'model') return Boxes
+    return Sparkles
+  }
+
+  const recentTabs = $derived.by<CommandItem[]>(() =>
+    tabs
+      .filter((t) => t.type !== 'home')
+      .slice(-8)
+      .reverse()
+      .map((tab) => ({
+        id: `tab-${tab.id}`,
+        group: 'recent' as const,
         label: tab.name,
-        sub: 'Recent tab',
-        icon,
-        run: () => {
-          if (tab.type === 'table') openTableTab(tab.database, tab.table)
-          else if (tab.type === 'query') openQueryTab(tab.sql)
-          else goTo(tab.type as unknown as PageRoute)
-        },
-      })
-    }
-    return items
-  })
+        sub: 'Open tab',
+        icon: tabIcon(tab),
+        // The tab is still open: switch to it, never open a copy.
+        run: () => setActiveTab(tab.id),
+      })),
+  )
 
   const allItems = $derived.by<CommandItem[]>(() => {
     return [...recentTabs, ...buildStatic(), ...dynamic, ...tableCatalog]
@@ -314,6 +341,13 @@
     }
   }
 
+  /** Hovering a page row starts downloading that page. */
+  function prefetchFor(item: CommandItem) {
+    if (!item.id.startsWith('page-')) return
+    const route = item.id.slice('page-'.length)
+    if (isPageRouteType(route)) prefetchPage(route)
+  }
+
   function handleInput() {
     if (!pro || scopeGroup) return
     const m = matchPrefix(query)
@@ -425,7 +459,7 @@
                 class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors
                   {active ? 'bg-accent-soft text-accent' : 'hover:bg-hover text-fg-2'}"
                 onclick={() => runCommand(item)}
-                onmouseenter={() => (selectedIdx = flatIdx)}
+                onmouseenter={() => { selectedIdx = flatIdx; prefetchFor(item) }}
               >
                 <item.icon size={15} class={active ? 'text-accent' : 'text-fg-3'} />
                 <span class="flex-1 min-w-0">
@@ -438,6 +472,9 @@
                     <span class="block text-[11px] text-fg-3 truncate">{item.sub}</span>
                   {/if}
                 </span>
+                {#if lockedPageIds.has(item.id)}
+                  <span class="shrink-0 rounded-sm bg-surface-2 px-1 text-[9px] font-semibold uppercase tracking-wider text-fg-4">Pro</span>
+                {/if}
                 {#if item.shortcut}
                   <span class="text-[10px] text-fg-3 px-1.5 py-0.5 rounded border border-edge font-mono shrink-0">
                     {item.shortcut}
@@ -454,7 +491,7 @@
             <button
               class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors {idx === selectedIdx ? 'bg-accent-soft text-accent' : 'hover:bg-hover text-fg-2'}"
               onclick={() => runCommand(item)}
-              onmouseenter={() => selectedIdx = idx}
+              onmouseenter={() => { selectedIdx = idx; prefetchFor(item) }}
             >
               <item.icon size={15} class={idx === selectedIdx ? 'text-accent' : 'text-fg-3'} />
               <span class="flex-1 min-w-0">
@@ -463,6 +500,12 @@
                   <span class="block text-[11px] text-fg-3 truncate">{item.sub}</span>
                 {/if}
               </span>
+              {#if lockedPageIds.has(item.id)}
+                <span class="shrink-0 rounded-sm bg-surface-2 px-1 text-[9px] font-semibold uppercase tracking-wider text-fg-4">Pro</span>
+              {/if}
+              {#if item.shortcut}
+                <span class="text-[10px] text-fg-3 px-1.5 py-0.5 rounded border border-edge font-mono shrink-0">{item.shortcut}</span>
+              {/if}
               {#if idx === selectedIdx}
                 <span class="text-[10px] text-fg-3 px-2 py-1 rounded border border-edge">ENTER</span>
               {/if}

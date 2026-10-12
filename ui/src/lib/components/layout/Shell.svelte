@@ -4,12 +4,14 @@
   import TabGroup from './TabGroup.svelte'
   import CommandPalette from './CommandPalette.svelte'
   import PageRouter from './PageRouter.svelte'
-  import ContextPanel from './ContextPanel.svelte'
+  import ContextPanel, { toggleExplorer } from './ContextPanel.svelte'
   import { getRouteType } from '../../stores/router.svelte'
-  import { togglePanel } from '../../stores/nav.svelte'
   import { groupForRoute, isPageRouteType } from '../../routes'
   import { getGroups, isSplit, setFocusedGroup, splitTabToSide, openQueryTab } from '../../stores/tabs.svelte'
   import { openCommandPalette, toggleCommandPalette } from '../../stores/command-palette.svelte'
+  import { openShortcutHelp } from '../../stores/shortcut-help.svelte'
+  import { isEditableTarget, isKey } from '../../utils/shortcuts'
+  import KeyboardShortcuts from './KeyboardShortcuts.svelte'
 
   const groups = $derived(getGroups())
   const split = $derived(isSplit())
@@ -46,35 +48,39 @@
 
   function handleGlobalShortcuts(e: KeyboardEvent) {
     const mod = e.metaKey || e.ctrlKey
-    const target = e.target as HTMLElement | null
-    const isTypingTarget = !!target && (
-      target.tagName === 'INPUT' ||
-      target.tagName === 'TEXTAREA' ||
-      target.tagName === 'SELECT' ||
-      target.isContentEditable
-    )
+    const isTypingTarget = isEditableTarget(e.target)
 
-    if (mod && e.key.toLowerCase() === 'k') {
+    if (mod && !e.altKey && isKey(e, 'k')) {
       e.preventDefault()
       toggleCommandPalette()
       return
     }
 
-    if (!isTypingTarget && (e.altKey && e.key.toLowerCase() === 'k' || e.key === '/')) {
+    if (isTypingTarget) return
+
+    // Letters go through isKey: on macOS Option+K reports e.key "˚", so only
+    // e.code matches.
+    if ((e.altKey && !mod && isKey(e, 'k')) || (e.key === '/' && !mod && !e.altKey)) {
       e.preventDefault()
       openCommandPalette()
       return
     }
 
-    if (isTypingTarget) return
-
-    if (mod && e.key.toLowerCase() === 'b' && !isPageRouteType(getRouteType())) {
+    if (e.key === '?' && !mod && !e.altKey) {
       e.preventDefault()
-      togglePanel(groupForRoute(getRouteType()).id)
+      openShortcutHelp()
       return
     }
 
-    if ((mod && e.shiftKey && e.key.toLowerCase() === 'n') || (e.altKey && e.key.toLowerCase() === 'n')) {
+    if (mod && !e.altKey && !e.shiftKey && isKey(e, 'b') && !isPageRouteType(getRouteType())) {
+      e.preventDefault()
+      toggleExplorer(groupForRoute(getRouteType()).id)
+      return
+    }
+
+    // ⌥N / Alt+N is the advertised one. ⌘⇧N is kept for browsers that let a
+    // page have it; Chrome reserves it for an incognito window.
+    if ((e.altKey && !mod && isKey(e, 'n')) || (mod && e.shiftKey && isKey(e, 'n'))) {
       e.preventDefault()
       openQueryTab()
     }
@@ -179,21 +185,15 @@
     ondragleave={handleContentDragLeave}
   >
     {#each groups as group, i (group.id)}
+      <!-- A pane becomes the focused group when you click in it or tab into
+           it. No role: the pane is a region, its tabs and editor are the
+           controls. -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="flex flex-col min-w-0 overflow-hidden"
         style={split ? `width: ${i === 0 ? splitPercent : 100 - splitPercent}%` : 'flex: 1'}
-        onclick={() => setFocusedGroup(group.id)}
-        onkeydown={(e) => {
-          // Only treat Space/Enter as pane activation when the pane itself is focused.
-          if (e.target !== e.currentTarget) return
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            setFocusedGroup(group.id)
-          }
-        }}
-        role="button"
-        tabindex="0"
+        onpointerdown={() => setFocusedGroup(group.id)}
+        onfocusin={() => setFocusedGroup(group.id)}
       >
         <TabGroup groupId={group.id} />
       </div>
@@ -238,6 +238,7 @@
 </div>
 
 <CommandPalette />
+<KeyboardShortcuts />
 
 {#if resizing}
   <div class="fixed inset-0 z-50 cursor-col-resize"></div>

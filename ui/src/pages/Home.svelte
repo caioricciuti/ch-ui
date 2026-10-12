@@ -1,28 +1,36 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import {
     ArrowUpRight,
     BookOpen,
-    Bookmark,
-    Brain,
-    Clock3,
     Boxes,
     Home,
-    LayoutDashboard,
-    Shield,
+    Plug,
+    Bot,
+    Rocket,
     SquareTerminal,
     Table2,
-    Workflow,
   } from 'lucide-svelte'
   import { getSession } from '../lib/stores/session.svelte'
-  import { getTabs, openQueryTab } from '../lib/stores/tabs.svelte'
+  import { getTabs, openQueryTab, setActiveTab } from '../lib/stores/tabs.svelte'
   import { goTo } from '../lib/stores/router.svelte'
+  import { setSection } from '../lib/stores/nav.svelte'
+  import { hasProReadAccess } from '../lib/stores/license.svelte'
+  import { listWorkspaceSavedQueries } from '../lib/api/workspace'
+  import { PAGE_ROUTES, ADMIN_ONLY_ROUTES, type PageRoute, type IconComponent } from '../lib/routes'
+  import { prefetchPage } from '../lib/components/layout/pageLoaders'
+  import EmptyState from '../lib/components/common/EmptyState.svelte'
+  import Button from '../lib/components/common/Button.svelte'
   import type { Tab } from '../lib/stores/tabs.svelte'
 
   interface QuickLink {
     id: string
     title: string
     description: string
-    icon: typeof SquareTerminal
+    icon: IconComponent
+    /** Pro page without a license: shown with a badge, opens ProRequired. */
+    locked?: boolean
+    route?: PageRoute
     run: () => void
   }
 
@@ -33,14 +41,37 @@
     href: string
   }
 
+  interface StarterQuery {
+    id: string
+    title: string
+    description: string
+    sql: string
+  }
+
   const session = $derived(getSession())
   const tabs = $derived(getTabs())
+  const isAdmin = $derived(session?.role === 'admin')
+  const proRead = $derived(hasProReadAccess())
 
   const recentTabs = $derived.by(() =>
     tabs.filter((tab) => tab.type !== 'home').slice(-8).reverse(),
   )
 
-  const quickLinks: QuickLink[] = [
+  // null until known; a failed load counts as unknown, not as "none".
+  let savedQueryCount = $state<number | null>(null)
+  onMount(() => {
+    listWorkspaceSavedQueries().then(
+      (list) => (savedQueryCount = list.length),
+      () => (savedQueryCount = null),
+    )
+  })
+  const firstRun = $derived(recentTabs.length === 0 && savedQueryCount === 0)
+
+  // The pages Home links to, in order. Admin-only ones only for admins;
+  // Pro ones always, with a badge when unlicensed (they open ProRequired).
+  const HOME_ROUTES: PageRoute[] = ['saved-queries', 'dashboards', 'brain', 'models', 'pipelines', 'schedules', 'admin']
+
+  const quickLinks = $derived<QuickLink[]>([
     {
       id: 'new-query',
       title: 'New Query',
@@ -48,49 +79,65 @@
       icon: SquareTerminal,
       run: () => openQueryTab(),
     },
+    ...HOME_ROUTES
+      .filter((r) => !ADMIN_ONLY_ROUTES.has(r) || isAdmin)
+      .map((r) => ({
+        id: r,
+        title: PAGE_ROUTES[r].label,
+        description: PAGE_ROUTES[r].description,
+        icon: PAGE_ROUTES[r].icon,
+        locked: !!PAGE_ROUTES[r].pro && !proRead,
+        route: r,
+        run: () => goTo(r),
+      })),
+  ])
+
+  const starters: StarterQuery[] = [
     {
-      id: 'saved-queries',
-      title: 'Saved Queries',
-      description: 'Browse and manage saved SQL',
-      icon: Bookmark,
-      run: () => goTo('saved-queries', 'Saved Queries'),
+      id: 'largest-tables',
+      title: 'Largest tables',
+      description: 'Size and rows per table, from system.tables',
+      sql: `SELECT
+    database,
+    name,
+    formatReadableSize(total_bytes) AS size,
+    total_rows
+FROM system.tables
+WHERE total_bytes > 0
+  AND database NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema')
+ORDER BY total_bytes DESC
+LIMIT 20`,
     },
     {
-      id: 'schedules',
-      title: 'Schedules',
-      description: 'Manage cron jobs and run history',
-      icon: Clock3,
-      run: () => goTo('schedules', 'Schedules'),
+      id: 'slowest-queries',
+      title: 'Slowest queries today',
+      description: 'The last 24 hours of system.query_log',
+      sql: `SELECT
+    event_time,
+    query_duration_ms,
+    user,
+    formatReadableSize(memory_usage) AS memory,
+    substring(query, 1, 200) AS query
+FROM system.query_log
+WHERE type = 'QueryFinish'
+  AND event_time > now() - INTERVAL 1 DAY
+ORDER BY query_duration_ms DESC
+LIMIT 20`,
     },
     {
-      id: 'dashboards',
-      title: 'Dashboards',
-      description: 'Open visual dashboards',
-      icon: LayoutDashboard,
-      run: () => goTo('dashboards', 'Dashboards'),
-    },
-    {
-      id: 'brain',
-      title: 'Brain',
-      description: 'AI assistant for ClickHouse workflows',
-      icon: Brain,
-      run: () => goTo('brain', 'Brain'),
-    },
-    {
-      id: 'pipelines',
-      title: 'Pipelines',
-      description: 'Visual data pipeline builder',
-      icon: Workflow,
-      run: () => goTo('pipelines', 'Pipelines'),
-    },
-    {
-      id: 'admin',
-      title: 'Admin',
-      description: 'Users, alerts, and audit controls',
-      icon: Shield,
-      run: () => goTo('admin', 'Admin'),
+      id: 'server-version',
+      title: 'Server version and uptime',
+      description: 'A first query that always works',
+      sql: `SELECT
+    version() AS version,
+    uptime() AS uptime_seconds`,
     },
   ]
+
+  function openAdminSection(section: string): void {
+    goTo('admin')
+    setSection(section)
+  }
 
   const resources: ResourceLink[] = [
     {
@@ -113,19 +160,9 @@
     },
   ]
 
+  /** The tab is still open: switch to it rather than opening a copy. */
   function openTab(tab: Tab): void {
-    if (tab.type === 'query') {
-      openQueryTab(tab.sql)
-      return
-    }
-    if (tab.type === 'table') {
-      openQueryTab(`SELECT *\nFROM \`${tab.database}\`.\`${tab.table}\`\nLIMIT 1000`)
-      return
-    }
-    if (tab.type === 'database') {
-      openQueryTab(`SHOW TABLES FROM \`${tab.database}\``)
-      return
-    }
+    setActiveTab(tab.id)
   }
 
   function recentSubtitle(tab: Tab): string {
@@ -173,7 +210,11 @@
           <h1 class="text-[20px] font-semibold text-fg">
             Welcome back{session?.user ? `, ${session.user}` : ''}
           </h1>
-          <p class="text-[13px] text-fg-3">Start a new query, jump into saved work, or open tools quickly.</p>
+          <p class="text-[13px] text-fg-3">
+            Start a new query, jump into saved work, or open tools quickly. Press
+            <kbd class="rounded border border-edge bg-surface-2 px-1 font-mono text-[11px] text-fg-2">?</kbd>
+            for keyboard shortcuts.
+          </p>
         </div>
         <button
           class="inline-flex h-8 items-center justify-center gap-2 rounded-md bg-accent px-3.5 text-[13px] font-medium text-accent-fg transition-[filter] hover:brightness-110"
@@ -190,15 +231,20 @@
         <button
           class="rounded-md border border-edge-subtle bg-surface px-4 py-3.5 text-left transition-colors hover:border-edge-strong hover:bg-hover"
           onclick={item.run}
+          onpointerenter={() => item.route && prefetchPage(item.route)}
+          onfocus={() => item.route && prefetchPage(item.route)}
         >
           <div class="flex items-center gap-3">
             <div class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-2 text-accent">
               <item.icon size={15} />
             </div>
-            <div class="min-w-0">
+            <div class="min-w-0 flex-1">
               <p class="text-[13px] font-semibold text-fg">{item.title}</p>
               <p class="text-xs text-fg-3">{item.description}</p>
             </div>
+            {#if item.locked}
+              <span class="shrink-0 self-start rounded-sm bg-surface-2 px-1 text-[9px] font-semibold uppercase tracking-wider text-fg-4">Pro</span>
+            {/if}
           </div>
         </button>
       {/each}
@@ -227,6 +273,44 @@
       </div>
     </section>
 
+    {#if firstRun}
+      <section class="rounded-lg border border-edge-subtle bg-surface">
+        <EmptyState
+          icon={Rocket}
+          title="Run your first query"
+          description="Nothing saved and no tabs open yet. Each of these opens in a new query tab, ready to run."
+        >
+          <div class="flex w-full max-w-3xl flex-col gap-4">
+            <div class="grid grid-cols-1 gap-3 text-left md:grid-cols-3">
+              {#each starters as q (q.id)}
+                <button
+                  class="rounded-md border border-edge-subtle bg-canvas px-3.5 py-3 text-left transition-colors hover:border-edge-strong hover:bg-hover"
+                  onclick={() => openQueryTab(q.sql)}
+                >
+                  <p class="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
+                    <SquareTerminal size={13} class="text-accent" />
+                    {q.title}
+                  </p>
+                  <p class="mt-1 text-xs text-fg-3">{q.description}</p>
+                </button>
+              {/each}
+            </div>
+            {#if isAdmin}
+              <div class="flex flex-wrap items-center justify-center gap-2">
+                <Button variant="outline" size="sm" onclick={() => openAdminSection('tunnels')}>
+                  <Plug size={13} />
+                  Add a connection
+                </Button>
+                <Button variant="outline" size="sm" onclick={() => openAdminSection('mcp')}>
+                  <Bot size={13} />
+                  Connect an AI client (MCP)
+                </Button>
+              </div>
+            {/if}
+          </div>
+        </EmptyState>
+      </section>
+    {:else}
     <section class="space-y-3">
       <h2 class="text-[13px] font-semibold text-fg">Recently opened</h2>
       {#if recentTabs.length === 0}
@@ -259,5 +343,6 @@
         </div>
       {/if}
     </section>
+    {/if}
   </div>
 </div>
