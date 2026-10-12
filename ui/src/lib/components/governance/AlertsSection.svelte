@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { getSession } from '../../stores/session.svelte'
   import type { AlertChannel, AlertChannelType, AlertEvent, AlertRule } from '../../types/alerts'
   import {
     adminListAlertChannels, adminCreateAlertChannel, adminUpdateAlertChannel, adminDeleteAlertChannel,
@@ -26,6 +27,8 @@
   // Alerting admin: channels hold delivery credentials, rules route events
   // to channels, events are what was fired. One table per sub-view, all
   // editing in sheets.
+  // Reading is open to everyone; changing alerting is admin only (server enforced).
+  const isAdmin = $derived(getSession()?.role === 'admin')
   type Row = Record<string, unknown>
   type SubView = 'channels' | 'rules' | 'events'
   type BadgeTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'brand'
@@ -415,10 +418,14 @@
     <div class="flex-1"></div>
     {#if view === 'channels'}
       <span class="text-xs text-fg-4">{channels.length} {channels.length === 1 ? 'channel' : 'channels'}</span>
-      <Button size="sm" onclick={openNewChannel}><Plus size={13} /> New channel</Button>
+      {#if isAdmin}
+        <Button size="sm" onclick={openNewChannel}><Plus size={13} /> New channel</Button>
+      {/if}
     {:else if view === 'rules'}
       <span class="text-xs text-fg-4">{rules.length} {rules.length === 1 ? 'rule' : 'rules'}</span>
-      <Button size="sm" onclick={openNewRule}><Plus size={13} /> New rule</Button>
+      {#if isAdmin}
+        <Button size="sm" onclick={openNewRule}><Plus size={13} /> New rule</Button>
+      {/if}
     {:else}
       <Select size="sm" class="w-32" options={limitOptions} bind:value={eventLimit} onchange={() => void loadEvents()} />
       <Button icon variant="ghost" size="sm" aria-label="Refresh events" title="Refresh" onclick={() => void loadEvents()}>
@@ -455,9 +462,11 @@
             {/snippet}
             {#snippet actions(row)}
               {@const ch = row as unknown as AlertChannel}
-              <Button icon variant="ghost" size="xs" aria-label="Send a test alert" title="Send test" onclick={() => openTest(ch)}><Send size={13} /></Button>
-              <Button icon variant="ghost" size="xs" aria-label="Edit channel" title="Edit" onclick={() => openEditChannel(ch)}><Pencil size={13} /></Button>
-              <Button icon variant="ghost" size="xs" aria-label="Delete channel" title="Delete" onclick={() => (deletingChannel = ch)}><Trash2 size={13} /></Button>
+              {#if isAdmin}
+                <Button icon variant="ghost" size="xs" aria-label="Send a test alert" title="Send test" onclick={() => openTest(ch)}><Send size={13} /></Button>
+                <Button icon variant="ghost" size="xs" aria-label="Edit channel" title="Edit" onclick={() => openEditChannel(ch)}><Pencil size={13} /></Button>
+                <Button icon variant="ghost" size="xs" aria-label="Delete channel" title="Delete" onclick={() => (deletingChannel = ch)}><Trash2 size={13} /></Button>
+              {/if}
             {/snippet}
           </DataTable>
         {:else if view === 'rules'}
@@ -483,8 +492,10 @@
             {/snippet}
             {#snippet actions(row)}
               {@const rule = row as unknown as AlertRule}
-              <Button icon variant="ghost" size="xs" aria-label="Edit rule" title="Edit" onclick={() => openEditRule(rule)}><Pencil size={13} /></Button>
-              <Button icon variant="ghost" size="xs" aria-label="Delete rule" title="Delete" onclick={() => (deletingRule = rule)}><Trash2 size={13} /></Button>
+              {#if isAdmin}
+                <Button icon variant="ghost" size="xs" aria-label="Edit rule" title="Edit" onclick={() => openEditRule(rule)}><Pencil size={13} /></Button>
+                <Button icon variant="ghost" size="xs" aria-label="Delete rule" title="Delete" onclick={() => (deletingRule = rule)}><Trash2 size={13} /></Button>
+              {/if}
             {/snippet}
           </DataTable>
         {:else}

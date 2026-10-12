@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Alert channels, alert rules and governance tags are admin only to
+  change.** Any signed-in user, viewers included, could create, edit or delete
+  alert channels and rules, send a test alert through a channel, and create or
+  delete sensitivity tags. These now need the admin role, and the Alerts page
+  hides those buttons for everyone else; reading stays open. Deleting a tag is
+  also limited to tags on the current connection.
+
 ## [2.17.1] - 2026-10-12
 
 ### Security

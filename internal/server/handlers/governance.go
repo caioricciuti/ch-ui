@@ -67,8 +67,8 @@ func (h *GovernanceHandler) Routes() chi.Router {
 
 	// Tags
 	r.Get("/tags", h.ListTags)
-	r.Post("/tags", h.CreateTag)
-	r.Delete("/tags/{id}", h.DeleteTag)
+	r.With(middleware.RequireAdmin(h.DB)).Post("/tags", h.CreateTag)
+	r.With(middleware.RequireAdmin(h.DB)).Delete("/tags/{id}", h.DeleteTag)
 
 	// Access
 	r.Route("/access", func(ar chi.Router) {
@@ -106,17 +106,19 @@ func (h *GovernanceHandler) Routes() chi.Router {
 	r.With(middleware.RequireAdmin(h.DB)).Get("/audit-logs", h.GetAuditLogs)
 	r.With(middleware.RequireAdmin(h.DB)).Get("/audit-logs/export", h.GetAuditLogsExport)
 
-	// Alerts management
+	// Alerts management. Anyone can read (channel secrets are redacted);
+	// changing channels or rules, and sending a test, is admin only.
 	r.Route("/alerts", func(ar chi.Router) {
+		admin := middleware.RequireAdmin(h.DB)
 		ar.Get("/channels", h.ListAlertChannels)
-		ar.Post("/channels", h.CreateAlertChannel)
-		ar.Put("/channels/{id}", h.UpdateAlertChannel)
-		ar.Delete("/channels/{id}", h.DeleteAlertChannel)
-		ar.Post("/channels/{id}/test", h.TestAlertChannel)
+		ar.With(admin).Post("/channels", h.CreateAlertChannel)
+		ar.With(admin).Put("/channels/{id}", h.UpdateAlertChannel)
+		ar.With(admin).Delete("/channels/{id}", h.DeleteAlertChannel)
+		ar.With(admin).Post("/channels/{id}/test", h.TestAlertChannel)
 		ar.Get("/rules", h.ListAlertRules)
-		ar.Post("/rules", h.CreateAlertRule)
-		ar.Put("/rules/{id}", h.UpdateAlertRule)
-		ar.Delete("/rules/{id}", h.DeleteAlertRule)
+		ar.With(admin).Post("/rules", h.CreateAlertRule)
+		ar.With(admin).Put("/rules/{id}", h.UpdateAlertRule)
+		ar.With(admin).Delete("/rules/{id}", h.DeleteAlertRule)
 		ar.Get("/events", h.ListAlertEvents)
 	})
 
@@ -914,9 +916,14 @@ func (h *GovernanceHandler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Store.DeleteTag(id); err != nil {
+	deleted, err := h.Store.DeleteTag(session.ConnectionID, id)
+	if err != nil {
 		slog.Error("Failed to delete tag", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to delete tag")
+		return
+	}
+	if !deleted {
+		writeError(w, http.StatusNotFound, "Tag not found")
 		return
 	}
 
