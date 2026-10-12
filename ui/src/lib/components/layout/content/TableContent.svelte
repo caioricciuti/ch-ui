@@ -29,7 +29,8 @@
   let activeSubTab = $state<SubTab>('overview')
 
   // Overview data
-  let tableInfo = $state<Record<string, any>>({})
+  let tableInfo = $state<Record<string, unknown>>({})
+  const createTableQuery = $derived(typeof tableInfo.create_table_query === 'string' ? tableInfo.create_table_query : '')
   let infoLoading = $state(true)
   let infoError = $state<string | null>(null)
 
@@ -178,8 +179,8 @@
     infoError = null
     try {
       tableInfo = await fetchTableInfo(tab.database, tab.table)
-    } catch (e: any) {
-      infoError = e.message
+    } catch (e) {
+      infoError = e instanceof Error ? e.message : String(e)
     } finally {
       infoLoading = false
     }
@@ -191,8 +192,8 @@
   }
 
   async function handleCopy() {
-    if (!tableInfo.create_table_query) return
-    await copyToClipboard(tableInfo.create_table_query)
+    if (!createTableQuery) return
+    await copyToClipboard(createTableQuery)
     success('Copied to clipboard')
     copied = true
     if (copyTimeout) clearTimeout(copyTimeout)
@@ -260,13 +261,14 @@
     try {
       const res = await fetchTableSchema(tab.database, tab.table)
       schemaMeta = res.meta ?? []
-      schemaData = (res.data ?? []).map((row: any) => {
-        if (Array.isArray(row)) return row
-        return res.meta.map((col: any) => row[col.name])
+      schemaData = (res.data ?? []).map((row: unknown) => {
+        if (Array.isArray(row)) return row as unknown[]
+        const record = (row ?? {}) as Record<string, unknown>
+        return (res.meta ?? []).map((col) => record[col.name])
       })
       schemaLoaded = true
-    } catch (e: any) {
-      schemaError = e.message
+    } catch (e) {
+      schemaError = e instanceof Error ? e.message : String(e)
     } finally {
       schemaLoading = false
     }
@@ -289,7 +291,7 @@
     return [
       { label: 'Rows', value: formatNumber(Number(tableInfo.total_rows ?? 0)), icon: Rows3, color: 'text-accent' },
       { label: 'Size', value: formatBytes(Number(tableInfo.total_bytes ?? 0)), icon: HardDrive, color: 'text-ch-green' },
-      { label: 'Engine', value: tableInfo.engine ?? '—', icon: Database, color: 'text-accent' },
+      { label: 'Engine', value: String(tableInfo.engine ?? '—'), icon: Database, color: 'text-accent' },
       { label: 'Last Modified', value: formatDate(tableInfo.metadata_modification_time), icon: Clock, color: 'text-fg-3' },
     ]
   })
@@ -301,8 +303,8 @@
 
   // Mount CodeMirror when create_table_query becomes available and tab is overview
   $effect(() => {
-    if (activeSubTab === 'overview' && tableInfo.create_table_query && cmContainer) {
-      mountCodeMirror(tableInfo.create_table_query)
+    if (activeSubTab === 'overview' && createTableQuery && cmContainer) {
+      mountCodeMirror(createTableQuery)
     }
   })
 </script>
@@ -326,7 +328,7 @@
 
   <!-- Sub-tab bar -->
   <div class="flex items-center gap-1 px-3 py-1.5 border-b border-edge-subtle bg-canvas shrink-0">
-    {#each subTabs as st}
+    {#each subTabs as st (st.id)}
       <button
         class="px-3 py-1.5 text-xs rounded-md transition-colors whitespace-nowrap {activeSubTab === st.id
  ? 'bg-surface-2 text-fg font-medium'
@@ -351,7 +353,7 @@
       {:else}
         <!-- Metric cards -->
         <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 p-4">
-          {#each metrics as m}
+          {#each metrics as m (m.label)}
             {@const Icon = m.icon}
             <div class="bg-surface border border-edge-subtle rounded-md p-4">
               <div class="flex items-center gap-2 mb-2">
@@ -391,7 +393,7 @@
         {/if}
 
         <!-- CREATE TABLE statement -->
-        {#if tableInfo.create_table_query}
+        {#if createTableQuery}
           <div class="px-4 pb-5">
             <div class="mb-2.5 flex items-center justify-between">
               <h4 class="text-xs text-fg-3 uppercase tracking-wider">Create Table SQL</h4>

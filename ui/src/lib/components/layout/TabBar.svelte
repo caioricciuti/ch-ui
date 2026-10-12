@@ -14,8 +14,9 @@
     setFocusedGroup,
     getTabs,
     getFocusedGroupId,
+    isTabDirty,
   } from '../../stores/tabs.svelte'
-  import type { QueryTab, ModelTab, Tab } from '../../stores/tabs.svelte'
+  import type { QueryTab, Tab } from '../../stores/tabs.svelte'
   import {
     Plus,
     X,
@@ -173,13 +174,9 @@
     if (uniqueIds.length === 0) return
 
     const dirtyTabs = uniqueIds
+      .filter((id) => isTabDirty(id))
       .map((id) => getTabs().find((tab) => tab.id === id))
-      .filter((tab): tab is QueryTab | ModelTab => {
-        if (!tab) return false
-        if (tab.type === 'query') return !!(tab as QueryTab).dirty
-        if (tab.type === 'model') return !!(tab as ModelTab).dirty
-        return false
-      })
+      .filter((tab): tab is Tab => !!tab)
 
     if (dirtyTabs.length === 0) {
       uniqueIds.forEach((id) => closeTab(id))
@@ -487,7 +484,7 @@
       {/if}
 
       {#if !isHomeTab(tab)}
-        {@const dirty = (tab.type === 'query' && tab.dirty) || (tab.type === 'model' && (tab as ModelTab).dirty)}
+        {@const dirty = isTabDirty(tab.id)}
         <span class="relative ml-auto flex h-4 w-4 shrink-0 items-center justify-center">
           {#if dirty}
             <span class="h-1.5 w-1.5 rounded-full bg-accent group-hover/tab:hidden" title="Unsaved changes"></span>

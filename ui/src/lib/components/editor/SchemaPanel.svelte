@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { ColumnMeta } from '../../types/query'
-  import { getDisplayType } from '../../utils/ch-types'
+  import { getDisplayType, type DisplayType } from '../../utils/ch-types'
+  import DataTable, { type DataColumn } from '../common/DataTable.svelte'
+  import Badge from '../common/Badge.svelte'
 
   interface Props {
     meta: ColumnMeta[]
@@ -8,39 +10,38 @@
 
   let { meta }: Props = $props()
 
-  const badgeColors: Record<string, string> = {
-    number: 'bg-accent-soft text-accent',
-    string: 'bg-success-soft text-success',
-    date: 'bg-info-soft text-info',
-    bool: 'bg-warning-soft text-warning',
-    json: 'bg-accent-soft text-accent',
-    null: 'bg-surface-2 text-fg-3 ',
-    unknown: 'bg-surface-2 text-fg-3 ',
+  type SchemaRow = { position: number; name: string; type: string; category: DisplayType }
+
+  const tones: Record<DisplayType, 'neutral' | 'success' | 'warning' | 'info' | 'brand'> = {
+    number: 'brand',
+    string: 'success',
+    date: 'info',
+    bool: 'warning',
+    json: 'brand',
+    null: 'neutral',
+    unknown: 'neutral',
   }
+
+  const columns: DataColumn<SchemaRow>[] = [
+    { key: 'position', label: '#', align: 'right', width: '56px' },
+    { key: 'name', label: 'Column name', mono: true },
+    { key: 'type', label: 'ClickHouse type', mono: true },
+    { key: 'category', label: 'Category' },
+  ]
+
+  const rows = $derived<SchemaRow[]>(
+    meta.map((col, i) => ({ position: i + 1, name: col.name, type: col.type, category: getDisplayType(col.type) })),
+  )
 </script>
 
-<div class="flex-1 overflow-auto min-h-0">
-  <table class="w-full text-sm border-collapse">
-    <thead class="sticky top-0 z-10 bg-surface">
-      <tr class="border-b border-edge">
-        <th class="px-3 py-1.5 text-left text-xs font-medium uppercase tracking-wider text-fg-3 w-10">#</th>
-        <th class="px-3 py-1.5 text-left text-xs font-medium uppercase tracking-wider text-fg-3">Column Name</th>
-        <th class="px-3 py-1.5 text-left text-xs font-medium uppercase tracking-wider text-fg-3">ClickHouse Type</th>
-        <th class="px-3 py-1.5 text-left text-xs font-medium uppercase tracking-wider text-fg-3">Category</th>
-      </tr>
-    </thead>
-    <tbody>
-      {#each meta as col, i}
-        {@const dt = getDisplayType(col.type)}
-        <tr class="border-b border-edge-subtle {i % 2 === 1 ? 'bg-surface ' : ''}">
-          <td class="px-3 py-1.5 text-fg-4 tabular-nums">{i + 1}</td>
-          <td class="px-3 py-1.5 font-mono text-xs">{col.name}</td>
-          <td class="px-3 py-1.5 text-fg-2 font-mono text-xs">{col.type}</td>
-          <td class="px-3 py-1.5">
-            <span class="inline-block px-2 py-0.5 text-xs font-medium rounded {badgeColors[dt]}">{dt}</span>
-          </td>
-        </tr>
-      {/each}
-    </tbody>
-  </table>
+<div class="flex-1 min-h-0">
+  <DataTable {columns} {rows} rowKey={(r) => r.position} fill emptyTitle="No columns">
+    {#snippet cell(row, col, value)}
+      {#if col.key === 'category'}
+        <Badge tone={tones[row.category]}>{value}</Badge>
+      {:else}
+        {value}
+      {/if}
+    {/snippet}
+  </DataTable>
 </div>

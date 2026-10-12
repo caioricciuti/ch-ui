@@ -1,9 +1,12 @@
 <script lang="ts" module>
-  // One in-flight stream per tab, shared across remounts: the component is
+  import { createRunRegistry, createFrameBatcher } from '../../../editor/runGuard'
+
+  // One in-flight run per tab, shared across remounts: the component is
   // keyed by tab id, so switching tabs (or split-moving) destroys the instance
-  // while the stream keeps running. Keeping the controller here lets the
-  // remounted instance cancel or supersede it.
-  const tabAborts = new Map<string, AbortController>()
+  // while the stream keeps running. Keeping the run here lets the remounted
+  // instance cancel or supersede it, and lets late callbacks of a superseded
+  // run (rows, done, error) see that they no longer own the tab's result.
+  const tabRuns = createRunRegistry()
 
   // Backend stream handler hard-caps maxRows (internal/server/handlers/query.go).
   const BACKEND_MAX_ROWS = 1_000_000
@@ -22,7 +25,7 @@
   import { executeStreamQuery } from '../../../api/stream'
   import { apiPost, apiPut } from '../../../api/client'
   import { getMaxResultRows } from '../../../stores/query-limit.svelte'
-  import { error as toastError, success as toastSuccess } from '../../../stores/toast.svelte'
+  import { error as toastError, success as toastSuccess, info as toastInfo } from '../../../stores/toast.svelte'
   import { detectQueryParams } from '../../../utils/query-params'
   import { parseCHError, byteToCharOffset } from '../../../utils/ch-error'
   import { isProActive, loadLicense } from '../../../stores/license.svelte'
@@ -35,6 +38,8 @@
   import ParamsPopover from '../../editor/ParamsPopover.svelte'
   import ResultPanel from '../../editor/ResultPanel.svelte'
   import Sheet from '../../common/Sheet.svelte'
+  import FormField from '../../common/FormField.svelte'
+  import Input from '../../common/Input.svelte'
   import QueryHistoryPanel from '../../editor/QueryHistoryPanel.svelte'
   import AskAIBar from '../../editor/AskAIBar.svelte'
 
@@ -174,22 +179,34 @@
     }
   }
 
-  function toPositionalRows(meta: Array<{ name: string }>, rows: any[]): unknown[][] {
+  function toPositionalRows(meta: Array<{ name: string }>, rows: unknown): unknown[][] {
     if (!Array.isArray(rows)) return []
-    return rows.map((row: any) => {
-      if (Array.isArray(row)) return row
-      return meta.map((col) => row[col.name])
+    return rows.map((row: unknown) => {
+      if (Array.isArray(row)) return row as unknown[]
+      const record = (row ?? {}) as Record<string, unknown>
+      return meta.map((col) => record[col.name])
     })
   }
 
-  async function runStreamingQuery(query: string, params: Record<string, string> | undefined, opts: { baseRun?: boolean } = {}) {
-    // Cancel any in-flight query for this tab (even one started before a remount)
-    tabAborts.get(tab.id)?.abort()
-    const abortController = new AbortController()
-    tabAborts.set(tab.id, abortController)
+  function errorMessage(e: unknown): string {
+    return e instanceof Error ? e.message : String(e)
+  }
 
+  async function runStreamingQuery(query: string, params: Record<string, string> | undefined, opts: { baseRun?: boolean } = {}) {
     const maxResultRows = getMaxResultRows()
     const startTime = performance.now()
+    const abortController = new AbortController()
+    // Rows accumulate here and reach the tab at most once per frame.
+    const rows = createFrameBatcher<unknown[]>((data) => {
+      setTabResult(tab.id, { data, elapsedMs: Math.round(performance.now() - startTime) })
+    })
+    // Supersedes any in-flight run for this tab (even one started before a
+    // remount): aborts its fetch and drops its pending frame of rows.
+    const runId = tabRuns.start(tab.id, () => {
+      abortController.abort()
+      rows.close()
+    })
+    const live = () => tabRuns.isCurrent(tab.id, runId)
 
     // Reset telemetry and inline profile for this run
     streamRows = 0
@@ -203,10 +220,6 @@
     profileError = null
     samplingMode = null
 
-    // Row buffer for progressive accumulation
-    let rowBuffer: unknown[][] = []
-    let rafId: number | null = null
-
     setTabResultView(tab.id, { executedSql: query })
     setTabResult(tab.id, { running: true, error: null, meta: [], data: [], stats: null, elapsedMs: 0 })
 
@@ -215,28 +228,24 @@
         query,
         maxResultRows,
         (meta) => {
+          if (!live()) return
           setTabResult(tab.id, { meta, running: true })
         },
-        (rows, seq) => {
-          rowBuffer.push(...rows)
-          streamRows = rowBuffer.length
+        (chunk, seq) => {
+          if (!live()) return
+          rows.push(chunk)
+          streamRows = rows.items.length
           streamChunks = seq + 1
           streamLastChunkAt = Date.now()
-          // Batch UI updates to animation frame
-          if (!rafId) {
-            rafId = requestAnimationFrame(() => {
-              setTabResult(tab.id, { data: rowBuffer, elapsedMs: Math.round(performance.now() - startTime) })
-              rafId = null
-            })
-          }
         },
         (stats, totalRows) => {
+          if (!live()) return
           // Final flush
-          if (rafId) { cancelAnimationFrame(rafId); rafId = null }
-          streamRows = totalRows || rowBuffer.length
+          rows.close()
+          streamRows = totalRows || rows.items.length
           streamLastChunkAt = Date.now()
           setTabResult(tab.id, {
-            data: rowBuffer,
+            data: rows.items,
             stats: stats ?? null,
             elapsedMs: Math.round(performance.now() - startTime),
             running: false,
@@ -246,27 +255,29 @@
             // sort/filter must go through a server-side re-query (issue #117).
             // The backend hard-caps at 1M rows regardless of the requested limit.
             const effectiveLimit = Math.min(maxResultRows, BACKEND_MAX_ROWS)
-            setTabResultView(tab.id, { truncated: rowBuffer.length >= effectiveLimit })
+            setTabResultView(tab.id, { truncated: rows.items.length >= effectiveLimit })
           }
           void loadInlineProfile(query)
         },
         (error) => {
-          if (rafId) { cancelAnimationFrame(rafId); rafId = null }
+          if (!live()) return
+          rows.close()
           streamLastChunkAt = Date.now()
           setTabResult(tab.id, { error, running: false, elapsedMs: Math.round(performance.now() - startTime) })
         },
         abortController.signal,
         params,
         (progress) => {
+          if (!live()) return
           streamProgress = progress
         },
       )
-    } catch (e: any) {
-      // AbortError is expected on cancel
-      if (e.name !== 'AbortError') {
-        streamLastChunkAt = Date.now()
-        setTabResult(tab.id, { error: e.message, running: false })
-      }
+    } catch (e) {
+      // AbortError is expected on cancel; a superseded run owns nothing.
+      if (!live() || (e instanceof Error && e.name === 'AbortError')) return
+      rows.close()
+      streamLastChunkAt = Date.now()
+      setTabResult(tab.id, { error: errorMessage(e), running: false })
     }
   }
 
@@ -402,22 +413,32 @@
   }
 
   function handleCancel() {
-    const controller = tabAborts.get(tab.id)
-    if (controller) {
-      controller.abort()
-      tabAborts.delete(tab.id)
-    }
-    setTabResult(tab.id, { running: false })
+    const wasRunning = result?.running === true
+    tabRuns.stop(tab.id)
+    // Without an error the empty result reads as "executed successfully".
+    setTabResult(tab.id, wasRunning ? { running: false, error: 'Query cancelled' } : { running: false })
   }
 
+  let formatting = false
+
   async function handleFormat() {
+    if (formatting) return
     const sql = editorComponent?.getValue() ?? ''
     if (!sql.trim()) return
+    formatting = true
     try {
       const formatted = await formatSQL(sql)
-      editorComponent?.setValue(formatted)
-    } catch (e: any) {
-      toastError(e.message)
+      // Replacing the whole document would drop anything typed while the
+      // request was out; leave the newer text alone.
+      if ((editorComponent?.getValue() ?? '') !== sql) {
+        toastInfo('Query changed while formatting. Format again to apply.')
+        return
+      }
+      if (formatted !== sql) editorComponent?.setValue(formatted)
+    } catch (e) {
+      toastError(errorMessage(e))
+    } finally {
+      formatting = false
     }
   }
 
@@ -431,12 +452,15 @@
     profileError = null
     samplingMode = null
 
-    tabAborts.get(tab.id)?.abort()
+    // Explain takes over the tab's result like a run does, so a stream still
+    // in flight is stopped and a newer run makes this response stale.
+    const runId = tabRuns.start(tab.id, () => {})
     resetTabResultView(tab.id)
     setTabResult(tab.id, { running: true, error: null, meta: [], data: [], stats: null })
 
     try {
       const res = await explainQuery(sql)
+      if (!tabRuns.isCurrent(tab.id, runId)) return
 
       setTabResult(tab.id, {
         meta: res.meta ?? [],
@@ -446,8 +470,9 @@
         error: null,
         running: false,
       })
-    } catch (e: any) {
-      setTabResult(tab.id, { error: e.message, running: false })
+    } catch (e) {
+      if (!tabRuns.isCurrent(tab.id, runId)) return
+      setTabResult(tab.id, { error: errorMessage(e), running: false })
     }
   }
 
@@ -465,8 +490,8 @@
       if (!planNodes.length && !planLines.length) {
         planError = 'No plan rows returned by ClickHouse'
       }
-    } catch (e: any) {
-      planError = e.message
+    } catch (e) {
+      planError = errorMessage(e)
     } finally {
       planLoading = false
     }
@@ -476,14 +501,15 @@
     const sql = editorComponent?.getValue() ?? ''
     if (!sql.trim()) return
 
-    tabAborts.get(tab.id)?.abort()
+    const runId = tabRuns.start(tab.id, () => {})
     resetTabResultView(tab.id)
     setTabResult(tab.id, { running: true, error: null, meta: [], data: [], stats: null })
     samplingMode = null
 
     try {
       const res = await runSampleQuery({ query: sql, per_shard: perShard, shard_by: '_shard_num' })
-      const rows = toPositionalRows(res.meta ?? [], (res.data as any[]) ?? [])
+      if (!tabRuns.isCurrent(tab.id, runId)) return
+      const rows = toPositionalRows(res.meta ?? [], res.data)
       setTabResult(tab.id, {
         meta: res.meta ?? [],
         data: rows,
@@ -499,8 +525,9 @@
       streamLastChunkAt = Date.now()
 
       if (res.warning) toastSuccess(res.warning)
-    } catch (e: any) {
-      setTabResult(tab.id, { error: e.message, running: false })
+    } catch (e) {
+      if (!tabRuns.isCurrent(tab.id, runId)) return
+      setTabResult(tab.id, { error: errorMessage(e), running: false })
     }
   }
 
@@ -513,10 +540,10 @@
       profileAvailable = !!res.available
       profile = res.profile ?? null
       profileReason = res.reason ?? null
-    } catch (e: any) {
+    } catch (e) {
       profileAvailable = false
       profile = null
-      profileError = e.message
+      profileError = errorMessage(e)
     } finally {
       profileLoading = false
     }
@@ -530,6 +557,7 @@
   }
 
   function handleSaveClick() {
+    if (saving || showSaveModal) return
     if (tab.savedQueryId) {
       void saveLinkedSavedQuery()
       return
@@ -551,14 +579,17 @@
       })
       markQueryTabSaved(tab.id, { baseSql: sql })
       toastSuccess('Saved query updated')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(errorMessage(e))
     } finally {
       saving = false
     }
   }
 
   async function handleSaveConfirm() {
+    // Enter in the form and the Save button can both fire before the first
+    // request returns; one saved query per confirm.
+    if (saving) return
     const sql = editorComponent?.getValue() ?? tab.sql
     if (!sql.trim() || !saveName.trim()) return
 
@@ -581,8 +612,8 @@
       }
       toastSuccess('Query saved')
       showSaveModal = false
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e) {
+      toastError(errorMessage(e))
     } finally {
       saving = false
     }
@@ -675,6 +706,10 @@
         value={tab.sql}
         onrun={handleRun}
         onchange={handleSQLChange}
+        onsave={handleSaveClick}
+        onformat={handleFormat}
+        oncancel={handleCancel}
+        running={result?.running ?? false}
       />
     </div>
   </div>
@@ -755,53 +790,27 @@
   <QueryHistoryPanel onopen={handleHistoryOpen} oninsert={handleHistoryInsert} />
 </Sheet>
 
-<!-- Save query modal -->
-{#if showSaveModal}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-    onclick={() => showSaveModal = false}
-    onkeydown={(e) => e.key === 'Escape' && (showSaveModal = false)}
+<!-- Save query -->
+<Sheet
+  open={showSaveModal}
+  title="Save query"
+  size="sm"
+  onclose={() => (showSaveModal = false)}
+>
+  <form
+    class="space-y-4"
+    onsubmit={(e) => { e.preventDefault(); void handleSaveConfirm() }}
   >
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="bg-surface border border-edge rounded-md p-5 w-96 shadow-xl"
-      onclick={(e) => e.stopPropagation()}
-      onkeydown={(e) => e.stopPropagation()}
-      tabindex="-1"
-    >
-      <h3 class="text-sm font-semibold text-fg mb-3">Save Query</h3>
-
-      <label class="block mb-2">
-        <span class="text-xs text-fg-3">Name</span>
-        <input
-          type="text"
-          class="mt-1 w-full px-2.5 py-1.5 bg-surface-2 border border-edge rounded text-sm text-fg focus:outline-none focus:border-ch-orange"
-          bind:value={saveName}
-          onkeydown={(e) => e.key === 'Enter' && handleSaveConfirm()}
-        />
-      </label>
-
-      <label class="block mb-4">
-        <span class="text-xs text-fg-3">Description (optional)</span>
-        <input
-          type="text"
-          class="mt-1 w-full px-2.5 py-1.5 bg-surface-2 border border-edge rounded text-sm text-fg focus:outline-none focus:border-ch-orange"
-          bind:value={saveDescription}
-        />
-      </label>
-
-      <div class="flex justify-end gap-2">
-        <button
-          class="px-3 py-1.5 text-xs text-fg-3 hover:text-fg rounded hover:bg-hover"
-          onclick={() => showSaveModal = false}
-        >Cancel</button>
-        <button
-          class="px-3 py-1.5 text-xs bg-ch-orange text-white rounded hover:bg-ch-orange/80 disabled:opacity-50"
-          onclick={handleSaveConfirm}
-          disabled={saving || !saveName.trim()}
-        >{saving ? 'Saving...' : 'Save'}</button>
-      </div>
-    </div>
-  </div>
-{/if}
+    <FormField label="Name" for="save-query-name" required controlWidth="full">
+      <Input id="save-query-name" bind:value={saveName} autocomplete="off" />
+    </FormField>
+    <FormField label="Description" for="save-query-description" controlWidth="full" hint="Optional.">
+      <Input id="save-query-description" bind:value={saveDescription} autocomplete="off" />
+    </FormField>
+    <button type="submit" class="hidden" aria-hidden="true"></button>
+  </form>
+  {#snippet footer()}
+    <Button size="sm" variant="ghost" onclick={() => (showSaveModal = false)}>Cancel</Button>
+    <Button size="sm" loading={saving} disabled={!saveName.trim()} onclick={() => void handleSaveConfirm()}>Save</Button>
+  {/snippet}
+</Sheet>

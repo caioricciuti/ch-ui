@@ -117,6 +117,11 @@ interface StorageFormat {
   focusedGroupId: string
 }
 
+// False when the last write to localStorage failed (quota, private mode).
+// Tabs normally persist on every edit, so a reload loses nothing; only then
+// does closing the page need to warn about unsaved changes.
+let persisted = true
+
 function saveTabs(): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
@@ -124,9 +129,24 @@ function saveTabs(): void {
       groups,
       focusedGroupId,
     }))
+    persisted = true
   } catch {
     // localStorage full or unavailable
+    persisted = false
   }
+}
+
+function hasUnpersistedChanges(): boolean {
+  return !persisted && tabs.some((tab) => isTabDirty(tab.id))
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', (e) => {
+    if (!hasUnpersistedChanges()) return
+    e.preventDefault()
+    // Older browsers only show the prompt when returnValue is set.
+    e.returnValue = ''
+  })
 }
 
 function loadTabs(): StorageFormat {
@@ -901,6 +921,3 @@ export function updateModelTabStatus(tabId: string, status: string, lastError: s
   })
   queueSave()
 }
-
-// Legacy alias
-export const addTab = openQueryTab
