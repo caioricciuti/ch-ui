@@ -402,7 +402,8 @@ func (s *Server) setupRoutes() {
 				fmt.Fprintln(w, "Frontend assets not available. Build the frontend first or use a release binary.")
 			})
 		} else {
-			fileServer := http.FileServer(http.FS(s.frontendFS))
+			// Text assets are gzipped once and served compressed (compress.go).
+			fileServer := CompressStatic(http.FileServer(http.FS(s.frontendFS)))
 			r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 				// Try to serve the file directly
 				path := r.URL.Path[1:] // strip leading /

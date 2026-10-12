@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -122,12 +123,24 @@ type switchConnectionRequest struct {
 }
 
 type connectionInfo struct {
-	ID         string  `json:"id"`
-	Name       string  `json:"name"`
-	Status     string  `json:"status"`
-	Online     bool    `json:"online"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Online bool   `json:"online"`
+	// Kind is "direct" when CH-UI itself connects to ClickHouse (embedded or
+	// direct connections) and "agent" when a ch-ui connect agent does. The
+	// login page words its help by it.
+	Kind       string  `json:"kind"`
 	LastSeenAt *string `json:"last_seen_at"`
 	CreatedAt  string  `json:"created_at"`
+}
+
+// connectionKind reports "direct" or "agent" for c; see connectionInfo.Kind.
+func connectionKind(c database.Connection) string {
+	if c.IsEmbedded || c.Type == database.ConnectionTypeDirect {
+		return "direct"
+	}
+	return "agent"
 }
 
 func (r loginRequest) resolvedConnectionID() string {
@@ -169,33 +182,117 @@ const (
 	chAuthUnknown
 )
 
+// The connector reports ClickHouse's own answers as "ClickHouse error: <body>"
+// (non-200 status). Anything carrying one of these markers came back from
+// ClickHouse, so it can never be a connection problem.
+var chAnsweredMarkers = []string{"clickhouse error", "db::exception"}
+
+// Markers of a ClickHouse that rejected the credentials.
+var chRejectedMarkers = []string{
+	"authenticat", "credential", "password", "unauthorized", "access denied",
+	"unknown user", "no user with such name",
+}
+
+// Markers of a request that never got an answer from ClickHouse.
+var chUnreachableMarkers = []string{
+	"no such host", "connection refused", "refused", "no route", "connection reset",
+	"broken pipe", "network is unreachable", "network", "malformed http",
+	"server gave http response to https client", "tls", "x509", "certificate",
+	"timeout", "timed out", "deadline", "tunnel", "not connected", "disconnected",
+	"unreachable", "connection test failed",
+}
+
+// eofPattern matches a bare EOF (the server closed the connection), not
+// words that merely contain the letters.
+var eofPattern = regexp.MustCompile(`(^|[^a-z])eof($|[^a-z])`)
+
+// quotedURLPattern finds the request URL Go's HTTP client quotes in its
+// errors: Post "http://host:8123/?default_format=JSON": dial tcp ...
+var quotedURLPattern = regexp.MustCompile(`"(https?://[^"\s]+)"`)
+
+func containsAny(s string, needles []string) bool {
+	for _, n := range needles {
+		if strings.Contains(s, n) {
+			return true
+		}
+	}
+	return false
+}
+
 func classifyClickHouseAuthError(raw string) chAuthErrorKind {
 	msg := strings.ToLower(strings.TrimSpace(raw))
 	if msg == "" {
 		return chAuthRejected
 	}
-	if strings.Contains(msg, "auth") ||
-		strings.Contains(msg, "credential") ||
-		strings.Contains(msg, "password") ||
-		strings.Contains(msg, "unauthorized") ||
-		strings.Contains(msg, "access denied") {
-		return chAuthRejected
+	// The quoted URL is the target, not the failure: a host named
+	// "auth.internal" must not turn a refused connection into a rejection.
+	scrubbed := quotedURLPattern.ReplaceAllString(msg, "")
+	if containsAny(scrubbed, chAnsweredMarkers) {
+		if containsAny(scrubbed, chRejectedMarkers) {
+			return chAuthRejected
+		}
+		return chAuthUnknown
 	}
-	if strings.Contains(msg, "timeout") ||
-		strings.Contains(msg, "deadline") ||
-		strings.Contains(msg, "refused") ||
-		strings.Contains(msg, "no route") ||
-		strings.Contains(msg, "connection reset") ||
-		strings.Contains(msg, "network") ||
-		strings.Contains(msg, "tls") ||
-		strings.Contains(msg, "tunnel") ||
-		strings.Contains(msg, "not connected") ||
-		strings.Contains(msg, "disconnected") ||
-		strings.Contains(msg, "unreachable") ||
-		strings.Contains(msg, "connection test failed") {
+	if containsAny(scrubbed, chUnreachableMarkers) || eofPattern.MatchString(scrubbed) {
 		return chAuthUnreachable
 	}
+	if containsAny(scrubbed, chRejectedMarkers) {
+		return chAuthRejected
+	}
 	return chAuthUnknown
+}
+
+// clickHouseTarget returns scheme://host[:port] of the URL quoted in a
+// connection error, or "" when there is none. The query string is dropped.
+func clickHouseTarget(raw string) string {
+	m := quotedURLPattern.FindStringSubmatch(raw)
+	if m == nil {
+		return ""
+	}
+	u, err := url.Parse(m[1])
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+// describeClickHouseConnectionError turns a connection failure into one
+// sentence naming the target and the likely cause.
+func describeClickHouseConnectionError(raw string) string {
+	msg := strings.ToLower(raw)
+	target := clickHouseTarget(raw)
+	where := "ClickHouse"
+	if target != "" {
+		where = target
+	}
+	nativePort := false
+	if u, err := url.Parse(target); err == nil && u.Port() == "9000" {
+		nativePort = true
+	}
+
+	var cause string
+	switch {
+	case strings.Contains(msg, "tunnel not connected") || strings.Contains(msg, "tunnel disconnected"):
+		return "Connection to ClickHouse failed: the agent for this connection is not connected. Start it and retry."
+	case strings.Contains(msg, "malformed http") ||
+		(nativePort && (eofPattern.MatchString(msg) || strings.Contains(msg, "connection reset"))):
+		cause = "the server did not answer HTTP. Port 9000 is the native protocol; use the HTTP port 8123 (8443 for HTTPS)."
+	case strings.Contains(msg, "server gave http response to https client"):
+		cause = "the server speaks plain HTTP. Use http:// instead of https://."
+	case strings.Contains(msg, "no such host"):
+		cause = "the host name does not resolve. Check the host; inside Docker use host.docker.internal or the service name, not localhost."
+	case strings.Contains(msg, "refused"):
+		cause = "nothing is listening there. Check that ClickHouse is running and the port is its HTTP port (8123). Inside Docker, localhost is the container itself; use host.docker.internal."
+	case strings.Contains(msg, "x509") || strings.Contains(msg, "certificate") || strings.Contains(msg, "tls"):
+		cause = "the TLS handshake failed. Use https:// with the TLS port (8443) and a certificate the server trusts, or http:// with 8123."
+	case strings.Contains(msg, "timeout") || strings.Contains(msg, "timed out") || strings.Contains(msg, "deadline"):
+		cause = "the connection timed out. Check that the host is reachable from the CH-UI server and no firewall blocks the port."
+	case eofPattern.MatchString(msg) || strings.Contains(msg, "connection reset") || strings.Contains(msg, "broken pipe"):
+		cause = "the server closed the connection. Check that the port is the ClickHouse HTTP port (8123), not the native port (9000)."
+	default:
+		cause = "no answer from ClickHouse. Check the URL and that ClickHouse is running."
+	}
+	return fmt.Sprintf("Connection to ClickHouse failed: could not reach %s: %s", where, cause)
 }
 
 func sanitizeClickHouseAuthMessage(raw string) string {
@@ -203,10 +300,77 @@ func sanitizeClickHouseAuthMessage(raw string) string {
 	case chAuthRejected:
 		return "Invalid credentials"
 	case chAuthUnreachable:
-		return "Connection to ClickHouse failed"
+		return describeClickHouseConnectionError(raw)
 	default:
 		return "Authentication failed"
 	}
+}
+
+// credentialAttempt holds the rate-limit slots one credential check reserved.
+// Every endpoint that tests a username and password against ClickHouse
+// (login, switch connection, connection test) goes through it, so they share
+// one budget per IP and per user.
+type credentialAttempt struct {
+	rl    *middleware.RateLimiter
+	held  []credentialSlot
+	ended bool
+}
+
+type credentialSlot struct{ key, limitType string }
+
+// reserve checks key's limit and holds a slot. When the limit is reached it
+// writes the 429 response and returns false.
+func (a *credentialAttempt) reserve(w http.ResponseWriter, key, limitType string, maxAttempts int, refusal string) bool {
+	res := a.rl.CheckAuthRateLimit(key, limitType, maxAttempts, RateLimitWindow)
+	if !res.Allowed {
+		retrySeconds := int(res.RetryAfter.Seconds())
+		slog.Warn("Credential check rate limited", "key", key, "retryAfter", retrySeconds)
+		writeJSON(w, http.StatusTooManyRequests, map[string]interface{}{
+			"success":    false,
+			"error":      refusal,
+			"retryAfter": retrySeconds,
+		})
+		return false
+	}
+	a.held = append(a.held, credentialSlot{key, limitType})
+	return true
+}
+
+// reserveIPAndUser reserves the IP slot, then the user slot for
+// username on connID.
+func (a *credentialAttempt) reserveIPAndUser(w http.ResponseWriter, clientIP, username, connID string) bool {
+	if !a.reserve(w, "ip:"+clientIP, "ip", MaxAttemptsPerIP, "Too many login attempts from this IP") {
+		return false
+	}
+	return a.reserve(w, userRateLimitKey(username, connID), "user", MaxAttemptsPerUser, "Too many login attempts for this user")
+}
+
+// failed counts a rejected credential against every held slot.
+func (a *credentialAttempt) failed() {
+	for _, s := range a.held {
+		a.rl.RecordAttempt(s.key, s.limitType)
+	}
+	a.held, a.ended = nil, true
+}
+
+// succeeded clears the limits of every held slot.
+func (a *credentialAttempt) succeeded() {
+	for _, s := range a.held {
+		a.rl.ResetLimit(s.key)
+	}
+	a.held, a.ended = nil, true
+}
+
+// release gives back slots not consumed by failed or succeeded. Defer it
+// right after creating the attempt so early returns never leak a slot.
+func (a *credentialAttempt) release() {
+	if a.ended {
+		return
+	}
+	for _, s := range a.held {
+		a.rl.Release(s.key)
+	}
+	a.held = nil
 }
 
 func shouldUseSecureCookie(r *http.Request, cfg *config.Config) bool {
@@ -276,31 +440,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// --- Rate limiting ---
 	clientIP := getClientIP(r)
-	ipKey := fmt.Sprintf("ip:%s", clientIP)
-
-	ipResult := h.RateLimiter.CheckAuthRateLimit(ipKey, "ip", MaxAttemptsPerIP, RateLimitWindow)
-	if !ipResult.Allowed {
-		retrySeconds := int(ipResult.RetryAfter.Seconds())
-		slog.Warn("IP rate limited", "ip", clientIP, "retryAfter", retrySeconds)
-		writeJSON(w, http.StatusTooManyRequests, map[string]interface{}{
-			"success":    false,
-			"error":      "Too many login attempts from this IP",
-			"retryAfter": retrySeconds,
-		})
+	attempt := &credentialAttempt{rl: h.RateLimiter}
+	defer attempt.release()
+	if !attempt.reserve(w, "ip:"+clientIP, "ip", MaxAttemptsPerIP, "Too many login attempts from this IP") {
 		return
 	}
-	// The allowed check reserved a slot. Give it back if this request ends
-	// before RecordAttempt or ResetLimit consumes it.
-	var userKey string
-	ipReserved, userReserved := true, false
-	defer func() {
-		if ipReserved {
-			h.RateLimiter.Release(ipKey)
-		}
-		if userReserved {
-			h.RateLimiter.Release(userKey)
-		}
-	}()
 
 	// --- Resolve connection ---
 	var conn *database.Connection
@@ -359,32 +503,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	userKey = userRateLimitKey(req.Username, conn.ID)
-	userResult := h.RateLimiter.CheckAuthRateLimit(userKey, "user", MaxAttemptsPerUser, RateLimitWindow)
-	if !userResult.Allowed {
-		retrySeconds := int(userResult.RetryAfter.Seconds())
-		slog.Warn("User rate limited", "user", req.Username, "connection", conn.ID, "retryAfter", retrySeconds)
-		writeJSON(w, http.StatusTooManyRequests, map[string]interface{}{
-			"success":    false,
-			"error":      "Too many login attempts for this user",
-			"retryAfter": retrySeconds,
-		})
+	if !attempt.reserve(w, userRateLimitKey(req.Username, conn.ID), "user", MaxAttemptsPerUser, "Too many login attempts for this user") {
 		return
 	}
-	userReserved = true
 
 	// --- Check tunnel is online (retry up to 3 times) ---
-	online := false
-	for attempt := 0; attempt < 3; attempt++ {
-		if h.Gateway.IsTunnelOnline(conn.ID) {
-			online = true
-			break
-		}
-		if attempt < 2 {
-			time.Sleep(500 * time.Millisecond)
-		}
-	}
-	if !online {
+	if !waitTunnelOnline(h.Gateway, conn.ID) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
 			"success": false,
 			"error":   "Connection offline",
@@ -395,6 +519,13 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// --- Test ClickHouse credentials ---
 	testResult, err := h.Gateway.TestConnection(conn.ID, req.Username, req.Password, 15*time.Second)
+	if err == nil && !testResult.Success {
+		errMsg := testResult.Error
+		if errMsg == "" {
+			errMsg = "Invalid credentials"
+		}
+		err = errors.New(errMsg)
+	}
 	if err != nil {
 		// A ClickHouse that never answered is not a failed password.
 		// Counting it locks a healthy account out for RateLimitWindow
@@ -410,32 +541,13 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		h.RateLimiter.RecordAttempt(ipKey, "ip")
-		h.RateLimiter.RecordAttempt(userKey, "user")
-		ipReserved, userReserved = false, false
+		attempt.failed()
 		slog.Info("Login failed: credentials rejected", "user", req.Username, "error", err)
 		h.auditLoginFailure(req.Username, conn, clientIP, "invalid credentials")
 		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 			"success": false,
 			"error":   "Authentication failed",
 			"message": sanitizeClickHouseAuthMessage(err.Error()),
-		})
-		return
-	}
-	if !testResult.Success {
-		h.RateLimiter.RecordAttempt(ipKey, "ip")
-		h.RateLimiter.RecordAttempt(userKey, "user")
-		ipReserved, userReserved = false, false
-		errMsg := testResult.Error
-		if errMsg == "" {
-			errMsg = "Invalid credentials"
-		}
-		slog.Info("Login failed: bad credentials", "user", req.Username)
-		h.auditLoginFailure(req.Username, conn, clientIP, "invalid credentials")
-		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
-			"success": false,
-			"error":   "Authentication failed",
-			"message": sanitizeClickHouseAuthMessage(errMsg),
 		})
 		return
 	}
@@ -483,9 +595,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// --- Reset rate limits on success ---
-	h.RateLimiter.ResetLimit(ipKey)
-	h.RateLimiter.ResetLimit(userKey)
-	ipReserved, userReserved = false, false
+	attempt.succeeded()
 
 	// --- Audit log ---
 	h.DB.CreateAuditLog(database.AuditLogParams{
@@ -678,6 +788,7 @@ func (h *AuthHandler) Connections(w http.ResponseWriter, r *http.Request) {
 			Name:       c.Name,
 			Status:     c.Status,
 			Online:     h.Gateway.IsTunnelOnline(c.ID),
+			Kind:       connectionKind(c),
 			LastSeenAt: c.LastSeenAt,
 			CreatedAt:  c.CreatedAt,
 		})
@@ -686,6 +797,20 @@ func (h *AuthHandler) Connections(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"connections": result,
 	})
+}
+
+// waitTunnelOnline reports whether connID's tunnel is online, retrying up to
+// three times half a second apart (a connector may be reconnecting).
+func waitTunnelOnline(gw *tunnel.Gateway, connID string) bool {
+	for i := 0; i < 3; i++ {
+		if gw.IsTunnelOnline(connID) {
+			return true
+		}
+		if i < 2 {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+	return false
 }
 
 // ---------- POST /switch-connection ----------
@@ -730,18 +855,17 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check tunnel is online (retry up to 3 times).
-	online := false
-	for attempt := 0; attempt < 3; attempt++ {
-		if h.Gateway.IsTunnelOnline(newConn.ID) {
-			online = true
-			break
-		}
-		if attempt < 2 {
-			time.Sleep(500 * time.Millisecond)
-		}
+	// Same budget as login: switching tests a username and password, so
+	// without it this endpoint is an unthrottled password oracle.
+	clientIP := getClientIP(r)
+	attempt := &credentialAttempt{rl: h.RateLimiter}
+	defer attempt.release()
+	if !attempt.reserveIPAndUser(w, clientIP, req.Username, newConn.ID) {
+		return
 	}
-	if !online {
+
+	// Check tunnel is online (retry up to 3 times).
+	if !waitTunnelOnline(h.Gateway, newConn.ID) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
 			"success": false,
 			"error":   "Connection offline",
@@ -751,8 +875,26 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	testResult, err := h.Gateway.TestConnection(newConn.ID, req.Username, req.Password, 15*time.Second)
+	if err == nil && !testResult.Success {
+		errMsg := testResult.Error
+		if errMsg == "" {
+			errMsg = "Invalid credentials"
+		}
+		err = errors.New(errMsg)
+	}
 	if err != nil {
-		slog.Info("Switch connection failed: test error", "user", req.Username, "error", err)
+		if classifyClickHouseAuthError(err.Error()) == chAuthUnreachable {
+			slog.Info("Switch connection aborted: ClickHouse unreachable", "user", req.Username, "error", err)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+				"success": false,
+				"error":   "Connection error",
+				"message": sanitizeClickHouseAuthMessage(err.Error()),
+			})
+			return
+		}
+		attempt.failed()
+		slog.Info("Switch connection failed: credentials rejected", "user", req.Username, "error", err)
+		h.auditLoginFailure(req.Username, newConn, clientIP, "invalid credentials (switch connection)")
 		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 			"success": false,
 			"error":   "Authentication failed",
@@ -760,20 +902,8 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if !testResult.Success {
-		errMsg := testResult.Error
-		if errMsg == "" {
-			errMsg = "Invalid credentials"
-		}
-		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
-			"success": false,
-			"error":   "Authentication failed",
-			"message": sanitizeClickHouseAuthMessage(errMsg),
-		})
-		return
-	}
+	attempt.succeeded()
 
-	clientIP := getClientIP(r)
 	role, roleNote := h.resolveUserRole(newConn.ID, req.Username, req.Password, clientIP)
 
 	encryptedPwd, err := crypto.Encrypt(req.Password, h.Config.AppSecretKey)

@@ -81,7 +81,7 @@
 {#if open}
   <div
     bind:this={tipEl}
-    class="pointer-events-none fixed z-[260] max-w-[22rem] rounded-md bg-elevated px-2.5 py-1.5 text-[12px] leading-snug text-fg-2"
+    class="pointer-events-none fixed z-[260] max-w-[22rem] whitespace-pre-line rounded-md bg-elevated px-2.5 py-1.5 text-[12px] leading-snug text-fg-2"
     style="left:{x}px;top:{y}px;box-shadow: var(--shadow-popover)"
     role="tooltip"
   >

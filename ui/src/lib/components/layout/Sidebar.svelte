@@ -1,17 +1,19 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import Button from '../common/Button.svelte'
+  import Tooltip from '../common/Tooltip.svelte'
   import { goTo, goWorkspace, getRouteType } from '../../stores/router.svelte'
   import { groupForRoute, NAV_GROUPS, ADMIN_ONLY_ROUTES, type NavGroup } from '../../routes'
   import { getSession, logout } from '../../stores/session.svelte'
-  import { toggleTheme, getTheme } from '../../stores/theme.svelte'
+  import { cycleThemePreference, getThemePreference } from '../../stores/theme.svelte'
+  import { ALT, MOD, combo } from '../../utils/shortcuts'
   import { openCommandPalette } from '../../stores/command-palette.svelte'
   import { loadLicense } from '../../stores/license.svelte'
   import { checkForUpdate, hasUpdate, getLatestVersion } from '../../stores/update-check.svelte'
   import { fetchNodeInfo, fetchClusterInfo } from '../../api/query'
   import {
     Compass, LayoutDashboard, Hammer, Activity, Settings, SquareTerminal,
-    Sun, Moon, LogOut, Search, ArrowUpCircle,
+    Sun, Moon, Monitor, LogOut, Search, ArrowUpCircle, CircleCheck, Info,
   } from 'lucide-svelte'
 
   const session = $derived(getSession())
@@ -19,7 +21,31 @@
   let nodeHostname = $state<string | null>(null)
   let clusterName = $state<string | null>(null)
   let clusterNodeCount = $state(0)
-  const updateAvailable = $derived(session?.appVersion ? hasUpdate(session.appVersion) : false)
+  // Version indicator, always shown: behind, on the latest, or unknown
+  // (dev build, or the update check failed or has not answered).
+  const RELEASES_URL = 'https://github.com/caioricciuti/ch-ui/releases'
+  const versionInfo = $derived.by(() => {
+    const running = session?.appVersion
+    if (!running) return null
+    const label = /^v/.test(running) ? running : `v${running}`
+    const latest = getLatestVersion()
+    const dev = !/^v?\d+\.\d+/.test(running)
+    if (!dev && latest && hasUpdate(running)) {
+      return {
+        state: 'behind' as const,
+        text: `Running ${label}\nLatest ${latest}\nClick for release notes`,
+        href: `${RELEASES_URL}/latest`,
+      }
+    }
+    if (!dev && latest) {
+      return { state: 'latest' as const, text: `Running ${label}\nYou are on the latest version`, href: /^v\d+\.\d+\.\d+$/.test(label) ? `${RELEASES_URL}/tag/${label}` : RELEASES_URL }
+    }
+    return {
+      state: 'unknown' as const,
+      text: `Running ${dev ? running : label}\n${dev ? 'Development build' : 'Could not check for updates'}`,
+      href: RELEASES_URL,
+    }
+  })
 
   // One icon per group. Six is learnable; fourteen is not.
   const GROUP_ICONS: Record<NavGroup['id'], typeof Compass> = {
@@ -47,6 +73,10 @@
         ].filter(Boolean).join('\n')
       : '',
   )
+
+  const themePref = $derived(getThemePreference())
+  const THEME_LABEL = { system: 'System theme', light: 'Light theme', dark: 'Dark theme' } as const
+  const NEXT_THEME = { system: 'light', light: 'dark', dark: 'system' } as const
 
   function openGroup(g: NavGroup) {
     // Land on the group's first page; the panel lists the rest.
@@ -81,7 +111,7 @@
 </script>
 
 <nav class="flex h-full w-12 shrink-0 flex-col items-center border-r border-edge-subtle bg-sidebar py-2" aria-label="Primary">
-  <Button icon variant="ghost" size="sm" onclick={openCommandPalette} title="Search or run a command (⌘K)" aria-label="Command menu">
+  <Button icon variant="ghost" size="sm" onclick={openCommandPalette} title="Search or run a command ({combo(MOD, 'K')})" aria-label="Command menu">
     <Search size={15} />
   </Button>
 
@@ -90,7 +120,7 @@
   <button
     class="relative inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors {activeGroup.id === 'query' ? 'bg-active text-accent' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
     onclick={goWorkspace}
-    title="Query workspace (⌥N for a new query)"
+    title="Query workspace ({combo(ALT, 'N')} for a new query)"
     aria-label="Query"
     aria-current={activeGroup.id === 'query' ? 'page' : undefined}
   >
@@ -115,15 +145,24 @@
 
   <div class="flex-1"></div>
 
-  {#if updateAvailable}
-    <a
-      href="https://github.com/caioricciuti/ch-ui/releases/latest" target="_blank" rel="noopener noreferrer"
-      class="mb-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-accent hover:bg-hover"
-      title="Update available: {getLatestVersion()} (running {session?.appVersion})"
-      aria-label="Update available"
-    >
-      <ArrowUpCircle size={15} />
-    </a>
+  {#if versionInfo}
+    <Tooltip text={versionInfo.text} class="mb-1">
+      <a
+        href={versionInfo.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-hover {versionInfo.state === 'behind' ? 'text-accent' : 'text-fg-4 hover:text-fg-2'}"
+        aria-label={versionInfo.text.replaceAll('\n', '. ')}
+      >
+        {#if versionInfo.state === 'behind'}
+          <ArrowUpCircle size={15} />
+        {:else if versionInfo.state === 'latest'}
+          <CircleCheck size={15} />
+        {:else}
+          <Info size={15} />
+        {/if}
+      </a>
+    </Tooltip>
   {/if}
 
   <button
@@ -143,12 +182,21 @@
     <span
       class="my-1 h-1.5 w-1.5 rounded-full {session.connectionOnline ? 'bg-success' : 'bg-danger'}"
       title={connectionTitle}
-      role="img"
-      aria-label={session.connectionOnline ? 'Connected' : 'Disconnected'}
+      aria-hidden="true"
     ></span>
+    <span class="sr-only" role="status">
+      {session.connectionName ?? 'Connection'}: {session.connectionOnline ? 'connected' : 'disconnected'}
+    </span>
   {/if}
-  <Button icon variant="ghost" size="sm" onclick={toggleTheme} title="Toggle theme" aria-label="Toggle theme">
-    {#if getTheme() === 'dark'}<Sun size={15} />{:else}<Moon size={15} />{/if}
+  <Button
+    icon
+    variant="ghost"
+    size="sm"
+    onclick={cycleThemePreference}
+    title="{THEME_LABEL[themePref]}. Click for {THEME_LABEL[NEXT_THEME[themePref]].toLowerCase()}"
+    aria-label="Theme: {THEME_LABEL[themePref]}. Switch to {THEME_LABEL[NEXT_THEME[themePref]].toLowerCase()}"
+  >
+    {#if themePref === 'system'}<Monitor size={15} />{:else if themePref === 'dark'}<Moon size={15} />{:else}<Sun size={15} />{/if}
   </Button>
   {#if session}
     <Button icon variant="ghost" size="sm" class="hover:text-danger" onclick={logout} title="Log out ({session.user})" aria-label="Log out">
