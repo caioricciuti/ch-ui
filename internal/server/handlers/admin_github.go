@@ -10,12 +10,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
@@ -49,6 +51,10 @@ func (h *AdminHandler) SaveGitHubIntegration(w http.ResponseWriter, r *http.Requ
 		Branch string `json:"branch"`
 		Path   string `json:"path"`
 		PAT    string `json:"pat"`
+		// WebhookSecret is optional on save. When set, it is stored encrypted
+		// and the push webhook accepts only requests signed with it. The
+		// webhook refuses every request until one is set.
+		WebhookSecret string `json:"webhook_secret"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -90,6 +96,20 @@ func (h *AdminHandler) SaveGitHubIntegration(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		fields["encrypted_pat"] = encrypted
+	}
+
+	webhookSecret := strings.TrimSpace(body.WebhookSecret)
+	if webhookSecret != "" {
+		if len(webhookSecret) < minWebhookSecretLength {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("Webhook secret must be at least %d characters", minWebhookSecretLength))
+			return
+		}
+		encrypted, err := crypto.Encrypt(webhookSecret, h.Config.AppSecretKey)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to encrypt webhook secret")
+			return
+		}
+		fields["webhook_secret"] = encrypted
 	}
 
 	if err := h.DB.SaveGitHubIntegration(connID, fields); err != nil {
@@ -193,7 +213,15 @@ func (h *AdminHandler) TriggerGitHubSync(w http.ResponseWriter, r *http.Request)
 		triggeredBy, chUser = middleware.Actor(session), session.ClickhouseUser
 	}
 
+	if !githubSyncs.tryStart(connID) {
+		writeError(w, http.StatusConflict, "A GitHub sync is already running for this connection")
+		return
+	}
 	result, err := h.GitHubSyncer.SyncConnection(connID, triggeredBy)
+	if githubSyncs.done(connID) {
+		// A push arrived while this sync ran; pull once more in the background.
+		go runQueuedGitHubSync(h.GitHubSyncer, connID)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -237,7 +265,94 @@ func (h *AdminHandler) GetGitHubSyncLogs(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "logs": logs})
 }
 
+const (
+	// maxGitHubWebhookBody caps a push payload. GitHub caps deliveries at
+	// 25 MB, but a push event for a model repo is a few KB; 5 MiB is generous.
+	maxGitHubWebhookBody = 5 << 20
+	// minWebhookSecretLength rejects trivially guessable webhook secrets.
+	minWebhookSecretLength = 16
+)
+
+// githubSettingKey mirrors the database package's github.<conn>.<key> layout,
+// so the webhook can read the secret with its error instead of the
+// error-swallowing GetGitHubRawSettings.
+func githubSettingKey(connID, key string) string {
+	return "github." + connID + "." + key
+}
+
+// githubSyncGuard makes sure at most one sync runs per connection. A push
+// that arrives while a sync is running is coalesced into one follow-up sync,
+// so a burst of pushes costs at most two syncs instead of one goroutine each.
+type githubSyncGuard struct {
+	mu      sync.Mutex
+	running map[string]bool
+	rerun   map[string]bool
+}
+
+var githubSyncs = &githubSyncGuard{running: map[string]bool{}, rerun: map[string]bool{}}
+
+// tryStart claims the connection. It returns false if a sync is running.
+func (g *githubSyncGuard) tryStart(connID string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.running[connID] {
+		return false
+	}
+	g.running[connID] = true
+	return true
+}
+
+// startOrQueue claims the connection, or, if a sync is running, asks it to
+// run once more when it finishes. It returns true if the caller must start
+// the sync.
+func (g *githubSyncGuard) startOrQueue(connID string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.running[connID] {
+		g.rerun[connID] = true
+		return false
+	}
+	g.running[connID] = true
+	return true
+}
+
+// done is called when a sync finishes. If a rerun was queued it keeps the
+// claim and returns true: the caller must run the sync again.
+func (g *githubSyncGuard) done(connID string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.rerun[connID] {
+		delete(g.rerun, connID)
+		return true
+	}
+	delete(g.running, connID)
+	return false
+}
+
+// runQueuedGitHubSync runs webhook syncs for a connection whose claim the
+// caller already holds, until no further push is queued.
+func runQueuedGitHubSync(syncer *ghclient.Syncer, connID string) {
+	for {
+		result, err := syncer.SyncConnection(connID, "github-webhook")
+		if err != nil {
+			slog.Error("GitHub webhook sync failed", "connectionId", connID, "error", err)
+		} else {
+			slog.Info("GitHub webhook sync completed",
+				"connectionId", connID,
+				"created", result.Created,
+				"updated", result.Updated,
+				"deleted", result.Deleted,
+			)
+		}
+		if !githubSyncs.done(connID) {
+			return
+		}
+	}
+}
+
 // GitHubWebhookHandler returns an http.HandlerFunc for receiving GitHub push webhooks.
+// Every request must carry a valid X-Hub-Signature-256 for the connection's
+// stored webhook secret; with no secret stored the webhook is refused.
 func GitHubWebhookHandler(db *database.DB, cfg *config.Config, syncer *ghclient.Syncer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !cfg.IsPro() {
@@ -246,25 +361,36 @@ func GitHubWebhookHandler(db *database.DB, cfg *config.Config, syncer *ghclient.
 		}
 
 		connID := chi.URLParam(r, "connectionId")
-		_, branch, _, _, encryptedSecret, _ := db.GetGitHubRawSettings(connID)
-
-		body, err := io.ReadAll(r.Body)
+		encryptedSecret, err := db.GetSetting(githubSettingKey(connID, "webhook_secret"))
 		if err != nil {
+			slog.Error("GitHub webhook: failed to load webhook secret", "connectionId", connID, "error", err)
+			writeError(w, http.StatusInternalServerError, "Failed to load webhook settings")
+			return
+		}
+		if encryptedSecret == "" {
+			writeError(w, http.StatusForbidden, "Webhook secret is not configured for this connection. Set one in Admin > GitHub and use the same secret in the GitHub webhook.")
+			return
+		}
+
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxGitHubWebhookBody))
+		if err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				writeError(w, http.StatusRequestEntityTooLarge, "Webhook payload too large")
+				return
+			}
 			writeError(w, http.StatusBadRequest, "Failed to read body")
 			return
 		}
 
-		if encryptedSecret != "" {
-			secret, err := crypto.Decrypt(encryptedSecret, cfg.AppSecretKey)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "Failed to decrypt webhook secret")
-				return
-			}
-			sig := r.Header.Get("X-Hub-Signature-256")
-			if !verifyWebhookSignature(body, sig, secret) {
-				writeError(w, http.StatusForbidden, "Invalid signature")
-				return
-			}
+		secret, err := crypto.Decrypt(encryptedSecret, cfg.AppSecretKey)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to decrypt webhook secret")
+			return
+		}
+		if !verifyWebhookSignature(body, r.Header.Get("X-Hub-Signature-256"), secret) {
+			writeError(w, http.StatusForbidden, "Invalid signature")
+			return
 		}
 
 		var payload struct {
@@ -275,37 +401,37 @@ func GitHubWebhookHandler(db *database.DB, cfg *config.Config, syncer *ghclient.
 			return
 		}
 
+		_, branch, _, _, _, _ := db.GetGitHubRawSettings(connID)
 		expectedRef := "refs/heads/" + branch
 		if payload.Ref != expectedRef {
 			writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "skipped": true, "reason": "push not to configured branch"})
 			return
 		}
 
-		go func() {
-			result, err := syncer.SyncConnection(connID, "github-webhook")
-			if err != nil {
-				slog.Error("GitHub webhook sync failed", "connectionId", connID, "error", err)
-				return
-			}
-			slog.Info("GitHub webhook sync completed",
-				"connectionId", connID,
-				"created", result.Created,
-				"updated", result.Updated,
-				"deleted", result.Deleted,
-			)
-		}()
+		if syncer == nil {
+			writeError(w, http.StatusInternalServerError, "GitHub syncer not initialized")
+			return
+		}
+		started := githubSyncs.startOrQueue(connID)
+		if started {
+			go runQueuedGitHubSync(syncer, connID)
+		}
 
-		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "queued": true})
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "queued": true, "coalesced": !started})
 	}
 }
 
+// verifyWebhookSignature checks a GitHub "sha256=<hex>" signature in
+// constant time.
 func verifyWebhookSignature(body []byte, signature, secret string) bool {
-	if !strings.HasPrefix(signature, "sha256=") {
+	if secret == "" || !strings.HasPrefix(signature, "sha256=") {
 		return false
 	}
-	expected := signature[7:]
+	got, err := hex.DecodeString(signature[len("sha256="):])
+	if err != nil {
+		return false
+	}
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
-	actual := hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(expected), []byte(actual))
+	return hmac.Equal(got, mac.Sum(nil))
 }

@@ -28,7 +28,7 @@
   let ghTestResult = $state<{ success: boolean; error?: string } | null>(null)
   let ghSyncing = $state(false)
   let ghSyncLogs = $state<GitHubSyncLog[]>([])
-  let ghForm = $state({ repo: '', branch: 'main', path: 'models/', pat: '' })
+  let ghForm = $state({ repo: '', branch: 'main', path: 'models/', pat: '', webhookSecret: '' })
   let confirmRemoveOpen = $state(false)
 
   const licensedPro = $derived(isProActive())
@@ -54,6 +54,7 @@
         ghForm.branch = integration.branch
         ghForm.path = integration.path
         ghForm.pat = ''
+        ghForm.webhookSecret = ''
       }
     } catch (e: unknown) {
       toastError((e as Error).message || 'Failed to load GitHub integration')
@@ -72,9 +73,11 @@
         branch: ghForm.branch,
         path: ghForm.path,
         pat: ghForm.pat || undefined,
+        webhook_secret: ghForm.webhookSecret || undefined,
       })
       toastSuccess('GitHub integration saved')
       ghForm.pat = ''
+      ghForm.webhookSecret = ''
       await loadGitHubTab()
     } catch (e: unknown) {
       toastError((e as Error).message || 'Failed to save')
@@ -123,7 +126,7 @@
       await deleteGitHubIntegration(session.connectionId)
       ghIntegration = null
       ghSyncLogs = []
-      ghForm = { repo: '', branch: 'main', path: 'models/', pat: '' }
+      ghForm = { repo: '', branch: 'main', path: 'models/', pat: '', webhookSecret: '' }
       toastSuccess('GitHub integration removed')
     } catch (e: unknown) {
       toastError((e as Error).message || 'Failed to remove')
@@ -213,6 +216,22 @@
                 autocomplete="new-password"
               />
             </FormField>
+            <FormField
+              layout="row"
+              label="Webhook secret"
+              for="gh-webhook-secret"
+              hint={ghIntegration?.has_webhook_secret
+                ? 'A secret is stored. Leave empty to keep it. Use the same value in the GitHub webhook.'
+                : 'At least 16 characters. The push webhook is refused until one is saved; use the same value in the GitHub webhook.'}
+            >
+              <Input
+                id="gh-webhook-secret"
+                type="password"
+                bind:value={ghForm.webhookSecret}
+                placeholder={ghIntegration?.has_webhook_secret ? 'Leave empty to keep the current secret' : 'A long random string'}
+                autocomplete="new-password"
+              />
+            </FormField>
           </div>
           <div class="flex flex-wrap items-center gap-2 border-t border-edge-subtle px-4 py-3">
             {#if ghTestResult}
@@ -250,7 +269,14 @@
             <FormField layout="row" label="Source" hint="Where models are read from." controlWidth="full">
               <p class="font-mono text-xs text-fg-2">{ghIntegration.repo}/{ghIntegration.path} on {ghIntegration.branch}</p>
             </FormField>
-            <FormField layout="row" label="Webhook URL" hint="Optional. Add it as a GitHub webhook (push events) to sync automatically." controlWidth="full">
+            <FormField
+              layout="row"
+              label="Webhook URL"
+              hint={ghIntegration.has_webhook_secret
+                ? 'Optional. Add it as a GitHub webhook (push events) with the webhook secret saved above to sync on every push.'
+                : 'Save a webhook secret above first. Until then the webhook refuses every request.'}
+              controlWidth="full"
+            >
               <code class="block select-all break-all rounded-md bg-surface-2 px-3 py-2 font-mono text-xs text-fg-2">{webhookUrl}</code>
             </FormField>
           </div>

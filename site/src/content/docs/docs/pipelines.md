@@ -44,6 +44,8 @@ curl -X POST http://your-ch-ui:3488/api/pipelines/webhook/{pipeline-id} \
   -d '[{"event":"click","user_id":42,"ts":"2025-01-15T10:30:00Z"}]'
 ```
 
+Send the token in the `Authorization` header. A `?token={token}` query parameter is still accepted so existing senders keep working, but avoid it: query strings end up in reverse proxy and access logs, which leaks the token to anyone who can read them.
+
 Accepted formats: JSON object, JSON array, or newline-delimited JSON (NDJSON). Auto-detected from the payload.
 
 ### Kafka

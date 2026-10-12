@@ -10,7 +10,7 @@ export async function getGitHubIntegration(connectionId: string): Promise<GitHub
 }
 
 export async function saveGitHubIntegration(connectionId: string, data: {
-  repo: string; branch: string; path: string; pat?: string
+  repo: string; branch: string; path: string; pat?: string; webhook_secret?: string
 }): Promise<void> {
   await apiPut(`${BASE}/${encodeURIComponent(connectionId)}`, data)
 }

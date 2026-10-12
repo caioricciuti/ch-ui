@@ -2,6 +2,7 @@ package pipelines
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -111,16 +112,9 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	recv := val.(*webhookReceiver)
 
 	// Authenticate (skip if no auth token configured)
-	if recv.authToken != "" {
-		token := r.Header.Get("Authorization")
-		token = strings.TrimPrefix(token, "Bearer ")
-		if token == "" {
-			token = r.URL.Query().Get("token")
-		}
-		if token != recv.authToken {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
+	if recv.authToken != "" && !webhookTokenMatches(r, recv.authToken) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
 	}
 
 	// Read body
@@ -153,6 +147,21 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, `{"accepted":%d}`, accepted)
+}
+
+// webhookTokenMatches reports whether the request carries the pipeline's
+// token. The Authorization header ("Bearer <token>") is preferred; ?token= is
+// still accepted for existing senders, though query strings end up in proxy
+// and access logs. The comparison is constant time.
+func webhookTokenMatches(r *http.Request, want string) bool {
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if token == "" {
+		token = r.URL.Query().Get("token")
+	}
+	if token == "" || want == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(token), []byte(want)) == 1
 }
 
 // parseWebhookBody parses JSON or NDJSON into records.

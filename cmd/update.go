@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -309,8 +310,31 @@ func hasFlag(args []string, longName string) bool {
 	return false
 }
 
+// updateTransport bounds the slow parts of a request that a stalled network
+// would otherwise hang on forever: connecting, TLS, and waiting for headers.
+func updateTransport() *http.Transport {
+	return &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
+	}
+}
+
+var (
+	// updateAPIClient fetches the small release JSON and checksums file.
+	updateAPIClient = &http.Client{Timeout: 60 * time.Second, Transport: updateTransport()}
+	// updateDownloadClient fetches the release binary. The overall limit is
+	// generous so a slow link can still finish a large download.
+	updateDownloadClient = &http.Client{Timeout: 30 * time.Minute, Transport: updateTransport()}
+)
+
+// maxChecksumsBody caps the checksums file, which is a few hundred bytes.
+const maxChecksumsBody = 1 << 20
+
 func fetchLatestRelease() (*ghRelease, error) {
-	resp, err := http.Get(releasesURL)
+	resp, err := updateAPIClient.Get(releasesURL)
 	if err != nil {
 		return nil, err
 	}
@@ -328,13 +352,17 @@ func fetchLatestRelease() (*ghRelease, error) {
 }
 
 func fetchExpectedChecksum(url, assetName string) (string, error) {
-	resp, err := http.Get(url)
+	resp, err := updateAPIClient.Get(url)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("checksums download returned %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxChecksumsBody))
 	if err != nil {
 		return "", err
 	}
@@ -349,7 +377,7 @@ func fetchExpectedChecksum(url, assetName string) (string, error) {
 }
 
 func downloadFile(url, dest string) error {
-	resp, err := http.Get(url)
+	resp, err := updateDownloadClient.Get(url)
 	if err != nil {
 		return err
 	}

@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -227,31 +228,69 @@ func (h *OAuthHandler) fetchCIMD(id string) (*database.OAuthClient, error) {
 	return client, err
 }
 
+// errCIMDPrivateAddress is returned when the metadata host is, or resolves
+// to, a loopback, private, link-local or otherwise non-public address.
+var errCIMDPrivateAddress = errors.New("client_id metadata URL resolves to a private address")
+
+// isNonPublicIP reports whether ip must never be fetched from on behalf of an
+// unauthenticated client_id.
+func isNonPublicIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() ||
+		ip.IsMulticast() || ip.IsUnspecified()
+}
+
+// cimdDialControl runs after DNS resolution, on the exact address the socket
+// is about to connect to. Checking here instead of resolving up front closes
+// the DNS rebinding gap (public answer for the check, private for the dial).
+func cimdDialControl(network, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("client metadata dial: %w", err)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || isNonPublicIP(ip) {
+		return errCIMDPrivateAddress
+	}
+	return nil
+}
+
+// cimdHTTPClient fetches metadata documents: no proxy (a proxy would make
+// the dialed address the proxy's), every dial checked by cimdDialControl,
+// no redirects, 5 s overall.
+var cimdHTTPClient = &http.Client{
+	Timeout: 5 * time.Second,
+	Transport: &http.Transport{
+		Proxy: nil,
+		DialContext: (&net.Dialer{
+			Timeout: 5 * time.Second,
+			Control: cimdDialControl,
+		}).DialContext,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 5 * time.Second,
+		MaxIdleConns:          4,
+		IdleConnTimeout:       30 * time.Second,
+	},
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return errors.New("redirects are not followed for client metadata")
+	},
+}
+
 // fetchClientMetadata GETs a Client ID Metadata Document. SSRF guards: https
-// only, no redirects, public host, 5 s, 64 KB, and the document's client_id
-// must equal its own URL.
+// only, no redirects, public address checked at dial time, 5 s, 64 KB, and
+// the document's client_id must equal its own URL.
 func fetchClientMetadata(id string) (*database.OAuthClient, error) {
 	u, err := url.Parse(id)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.Fragment != "" {
 		return nil, errors.New("client_id metadata URL must be https without a fragment")
 	}
-	if ips, err := net.LookupIP(u.Hostname()); err == nil {
-		for _, ip := range ips {
-			if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-				return nil, errors.New("client_id metadata URL resolves to a private address")
-			}
-		}
-	}
-	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return errors.New("redirects are not followed for client metadata")
-		},
-	}
 	req, _ := http.NewRequest(http.MethodGet, id, nil)
 	req.Header.Set("Accept", "application/json")
-	resp, err := httpClient.Do(req)
+	resp, err := cimdHTTPClient.Do(req)
 	if err != nil {
+		if errors.Is(err, errCIMDPrivateAddress) {
+			return nil, errCIMDPrivateAddress
+		}
 		return nil, fmt.Errorf("fetch client metadata: %w", err)
 	}
 	defer resp.Body.Close()

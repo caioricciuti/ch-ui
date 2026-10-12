@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -403,6 +404,25 @@ func (h *ModelsHandler) RunSingle(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"run_id": runID})
 }
 
+// maxModelRunsLimit caps one page of model runs; the UI asks for 20.
+const maxModelRunsLimit = 500
+
+// modelRunsPage reads limit (default 20, max maxModelRunsLimit) and offset.
+func modelRunsPage(q url.Values) (limit, offset int) {
+	limit, _ = strconv.Atoi(q.Get("limit"))
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > maxModelRunsLimit {
+		limit = maxModelRunsLimit
+	}
+	offset, _ = strconv.Atoi(q.Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
+}
+
 // ListRuns returns recent model runs.
 func (h *ModelsHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
@@ -411,11 +431,7 @@ func (h *ModelsHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 {
-		limit = 20
-	}
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	limit, offset := modelRunsPage(r.URL.Query())
 
 	runs, err := h.DB.GetModelRuns(session.ConnectionID, limit, offset)
 	if err != nil {

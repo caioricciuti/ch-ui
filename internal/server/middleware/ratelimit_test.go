@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -136,5 +138,85 @@ func TestLegacyLongLockIsCappedToCurrentSchedule(t *testing.T) {
 	}
 	if normalizedUntil.After(time.Now().Add(10*time.Minute + 5*time.Second)) {
 		t.Fatalf("persisted lock should be capped near now+10m, got %s", normalizedUntil)
+	}
+}
+
+func TestParallelAttemptsCannotExceedLimit(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "rate-limit-parallel.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	rl := NewRateLimiter(db)
+	const maxAttempts = 3
+	const workers = 40
+	identifier := "ip:203.0.113.7"
+
+	// Every worker checks, waits as a slow credential test would, then
+	// records a failure. Only maxAttempts may pass the check.
+	var allowed atomic.Int32
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			res := rl.CheckAuthRateLimit(identifier, "ip", maxAttempts, 15*time.Minute)
+			if !res.Allowed {
+				return
+			}
+			allowed.Add(1)
+			time.Sleep(20 * time.Millisecond)
+			rl.RecordAttempt(identifier, "ip")
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if got := allowed.Load(); got > maxAttempts {
+		t.Fatalf("%d parallel attempts passed the check, want at most %d", got, maxAttempts)
+	}
+	entry, err := db.GetRateLimit(identifier)
+	if err != nil || entry == nil {
+		t.Fatalf("get rate limit: %v %v", entry, err)
+	}
+	if entry.Attempts != int(allowed.Load()) {
+		t.Fatalf("stored attempts = %d, want %d", entry.Attempts, allowed.Load())
+	}
+	if res := rl.CheckAuthRateLimit(identifier, "ip", maxAttempts, 15*time.Minute); res.Allowed {
+		t.Fatal("limit reached: the next attempt must be refused")
+	}
+}
+
+func TestInFlightRefusalIsTransient(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "rate-limit-inflight.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	rl := NewRateLimiter(db)
+	id := "user:inflight"
+	for i := 0; i < 2; i++ {
+		if !rl.CheckAuthRateLimit(id, "user", 2, 15*time.Minute).Allowed {
+			t.Fatalf("attempt %d should pass", i)
+		}
+	}
+	res := rl.CheckAuthRateLimit(id, "user", 2, 15*time.Minute)
+	if res.Allowed || res.RetryAfter > reservationTTL {
+		t.Fatalf("third in-flight attempt: allowed=%v retryAfter=%s", res.Allowed, res.RetryAfter)
+	}
+	if entry, _ := db.GetRateLimit(id); entry != nil {
+		t.Fatalf("in-flight refusal must not persist a lockout: %+v", entry)
+	}
+	rl.Release(id)
+	if !rl.CheckAuthRateLimit(id, "user", 2, 15*time.Minute).Allowed {
+		t.Fatal("a released slot must be usable again")
+	}
+	rl.ResetLimit(id)
+	if !rl.CheckAuthRateLimit(id, "user", 2, 15*time.Minute).Allowed {
+		t.Fatal("reset must clear in-flight slots")
 	}
 }

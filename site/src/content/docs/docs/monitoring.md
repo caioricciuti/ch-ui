@@ -107,6 +107,11 @@ curl "http://localhost:3488/api/governance/audit-logs/export?format=csv" \
 # format=json is also supported
 ```
 
+One export returns at most the newest 100,000 rows (`limit` can lower it, not
+raise it). Narrow it with the same filters as the audit log view (`timeRange`,
+`action`, `username`, `search`), and use audit forwarding above for a complete
+long-term record.
+
 ## Logging
 
 CH-UI logs are structured (Go `slog`). Run behind a reverse proxy if you also

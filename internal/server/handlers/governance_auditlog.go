@@ -18,16 +18,28 @@ import (
 
 // ---------- GET /audit-logs ----------
 
+const (
+	// maxAuditLogPage caps one page of the audit log view.
+	maxAuditLogPage = 1000
+	// maxAuditLogExport caps one export; rows are buffered in memory.
+	maxAuditLogExport = 100000
+)
+
+// auditLogLimit parses a limit query value: def when missing or not a
+// positive integer, never above max.
+func auditLogLimit(raw string, def, max int) int {
+	limit := def
+	if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+		limit = parsed
+	}
+	if limit > max {
+		limit = max
+	}
+	return limit
+}
+
 func (h *GovernanceHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
-	limit := 100
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
-			limit = parsed
-		}
-	}
-	if limit > 1000 {
-		limit = 1000
-	}
+	limit := auditLogLimit(r.URL.Query().Get("limit"), 100, maxAuditLogPage)
 
 	timeRange := strings.TrimSpace(r.URL.Query().Get("timeRange"))
 	action := strings.TrimSpace(r.URL.Query().Get("action"))
@@ -69,14 +81,11 @@ func (h *GovernanceHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request)
 //
 // Admin-only bulk export of the audit trail for offline retention or one-off
 // SIEM ingestion. Supports format=csv (default) and format=json. Honors the
-// same filters as GetAuditLogs but allows a much larger row cap.
+// same filters as GetAuditLogs but allows a larger row cap. The whole result
+// is held in memory before it is written, so the cap stays at 100,000 rows;
+// narrow with timeRange, action or username to export older history.
 func (h *GovernanceHandler) GetAuditLogsExport(w http.ResponseWriter, r *http.Request) {
-	limit := 100000
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 1000000 {
-			limit = parsed
-		}
-	}
+	limit := auditLogLimit(r.URL.Query().Get("limit"), maxAuditLogExport, maxAuditLogExport)
 
 	timeRange := strings.TrimSpace(r.URL.Query().Get("timeRange"))
 	action := strings.TrimSpace(r.URL.Query().Get("action"))
