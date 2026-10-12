@@ -152,7 +152,7 @@
 <div class="relative" bind:this={rootEl}>
   <!-- Trigger button -->
   <button
-    class="inline-flex items-center gap-1.5 text-xs bg-transparent border border-edge rounded px-2 py-1 text-fg-2 hover:border-ch-orange transition-colors"
+    class="inline-flex items-center gap-1.5 text-xs bg-transparent border border-edge rounded px-2 py-1 text-fg-2 hover:border-edge-strong transition-colors"
     onclick={() => open = !open}
     title="Select dashboard time range"
   >

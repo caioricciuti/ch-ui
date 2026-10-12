@@ -71,6 +71,12 @@
     { value: 80, color: '#f59e0b' },
     { value: 90, color: '#ef4444' },
   ])
+  // Client-side keys for the threshold rows, parallel to statThresholds.
+  // Kept out of the threshold objects so they never reach the saved config.
+  // Starts with one id per default threshold above.
+  let nextThresholdId = 3
+  let thresholdIds = $state<number[]>([0, 1, 2])
+  const thresholdRows = $derived(statThresholds.map((threshold, i) => ({ threshold, i, id: thresholdIds[i] ?? -1 - i })))
 
   // Query result state
   let queryData = $state<Record<string, unknown>[]>([])
@@ -143,7 +149,7 @@
     content = existingConfig.content ?? ''
     chartType = existingConfig.chartType ?? (currentPanel?.panel_type as PanelConfig['chartType']) ?? 'table'
     xColumn = existingConfig.xColumn ?? ''
-    yColumns = existingConfig.yColumns ?? []
+    yColumns = [...new Set(existingConfig.yColumns ?? [])]
     colors = existingConfig.colors ?? [...DEFAULT_COLORS]
     legendPosition = existingConfig.legendPosition ?? 'bottom'
     // Gauge options
@@ -168,6 +174,7 @@
       { value: 80, color: '#f59e0b' },
       { value: 90, color: '#ef4444' },
     ]
+    thresholdIds = statThresholds.map(() => nextThresholdId++)
     queryData = []
     queryMeta = []
     queryError = null
@@ -222,7 +229,7 @@
     queryData = []
     queryMeta = []
     try {
-      const res = await apiPost<{ data: any[]; meta: any[]; error?: string; success?: boolean }>('/api/dashboards/query', {
+      const res = await apiPost<{ data: Record<string, unknown>[]; meta: ColumnMeta[]; error?: string; success?: boolean }>('/api/dashboards/query', {
         query: sql.trim(),
         time_range: toDashboardTimeRangePayload(dashboardTimeRange || '1h'),
       })
@@ -232,8 +239,8 @@
         queryData = res.data ?? []
         queryMeta = res.meta ?? []
       }
-    } catch (e: any) {
-      queryError = e.message
+    } catch (e: unknown) {
+      queryError = e instanceof Error ? e.message : String(e)
     } finally {
       running = false
     }
@@ -247,8 +254,8 @@
       editorComponent?.setValue(formatted)
       query = formatted
       toastSuccess('Query formatted')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -303,8 +310,8 @@
         })
         if (res.panel) onsave(res.panel)
       }
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       saving = false
     }
@@ -593,13 +600,14 @@
                   onclick={() => {
                     const lastVal = statThresholds.length > 0 ? statThresholds[statThresholds.length - 1].value + 10 : 0
                     statThresholds = [...statThresholds, { value: lastVal, color: '#ef4444' }]
+                    thresholdIds = [...thresholdIds, nextThresholdId++]
                   }}
                 >
                   <Plus size={12} /> Add
                 </button>
               </div>
               <div class="flex flex-col gap-1.5">
-                {#each statThresholds as threshold, i}
+                {#each thresholdRows as { threshold, i, id } (id)}
                   <div class="flex items-center gap-2">
                     <ColorPicker
                       value={threshold.color}
@@ -626,7 +634,11 @@
                     {#if statThresholds.length > 1}
                       <button
                         class="p-0.5 rounded text-fg-4 hover:text-danger transition-colors"
-                        onclick={() => statThresholds = statThresholds.filter((_, j) => j !== i)}
+                        onclick={() => {
+                          statThresholds = statThresholds.filter((_, j) => j !== i)
+                          thresholdIds = thresholdIds.filter((_, j) => j !== i)
+                        }}
+                        aria-label="Remove threshold"
                       >
                         <X size={14} />
                       </button>
@@ -741,7 +753,7 @@
               <p class="text-xs text-fg-4">Run a query first</p>
             {:else}
               <div class="flex flex-col gap-1 max-h-40 overflow-y-auto">
-                {#each queryMeta.filter(m => m.name !== xColumn) as col}
+                {#each queryMeta.filter(m => m.name !== xColumn) as col (col.name)}
                   <label class="flex items-center gap-2 text-xs text-fg-2 cursor-pointer hover:bg-hover rounded px-2 py-1">
                     <input
                       type="checkbox"
@@ -762,7 +774,7 @@
             <div>
               <p class="block text-xs font-medium text-fg-2 mb-1">Series Colors</p>
               <div class="flex flex-col gap-1.5">
-                {#each yColumns as yCol, i}
+                {#each yColumns as yCol, i (yCol)}
                   <div class="flex items-center gap-2">
                     <ColorPicker
                       value={colors[i] ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length]}

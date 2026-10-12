@@ -77,6 +77,7 @@
   let sectionResult = $state<LiveResult | null>(null)
   let loadedSection = $state<LiveSection | null>(null)
   let sectionLoading = $state(false)
+  let sectionError = $state<string | null>(null)
 
   // ── Filters (client-side: section rows are already loaded and capped) ──────
   let nodeFilter = $state<string | null>(null)
@@ -386,8 +387,8 @@
       summary = await fetchSummary()
       lastUpdated = new Date()
       error = null
-    } catch (e: any) {
-      error = e?.message ?? 'Failed to load cluster health'
+    } catch (e: unknown) {
+      error = e instanceof Error ? e.message : 'Failed to load cluster health'
     } finally {
       loading = false
       refreshing = false
@@ -409,19 +410,33 @@
     void loadHistory()
   }
 
-  async function loadSection(section: LiveSection) {
+  /**
+   * `background` is the 20 s poll: it never toasts, so a broken section does
+   * not raise the same error every cycle. The error still shows in the pane.
+   */
+  async function loadSection(section: LiveSection, background = false) {
     // Switching sections shows a spinner; the periodic refresh of the same
     // section swaps rows in place so the table does not flicker.
     if (loadedSection !== section) {
       sectionResult = null
+      sectionError = null
+      sectionLoading = true
+    } else if (!background && sectionError) {
+      // A manual retry of a failed section shows the spinner again.
+      sectionError = null
       sectionLoading = true
     }
     loadedSection = section
     try {
       const res = await fetchLive(section)
-      if (loadedSection === section) sectionResult = res
-    } catch (e: any) {
-      toastError(e?.message ?? 'Failed to load section')
+      if (loadedSection === section) {
+        sectionResult = res
+        sectionError = null
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to load section'
+      if (loadedSection === section) sectionError = msg
+      if (!background) toastError(msg)
     } finally {
       if (loadedSection === section) sectionLoading = false
     }
@@ -460,8 +475,8 @@
       toastSuccess('Cluster health settings saved')
       showSettings = false
       await loadSummary()
-    } catch (e: any) {
-      toastError(e?.message ?? 'Failed to save settings')
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : 'Failed to save settings')
     } finally {
       savingSettings = false
     }
@@ -472,7 +487,7 @@
     timer = setInterval(() => {
       if (document.visibilityState === 'visible') {
         loadSummary()
-        if (activeSection !== 'overview') loadSection(activeSection)
+        if (activeSection !== 'overview') loadSection(activeSection, true)
       }
     }, UI_REFRESH_MS)
   }
@@ -483,11 +498,17 @@
     }
   }
 
+  let destroyed = false
   onMount(async () => {
     await Promise.all([loadSummary(true), loadSettings(), loadHistory()])
-    startPolling()
+    // The page may have been left while the first load was in flight;
+    // onDestroy already ran, so starting the timer now would leak it.
+    if (!destroyed) startPolling()
   })
-  onDestroy(stopPolling)
+  onDestroy(() => {
+    destroyed = true
+    stopPolling()
+  })
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -645,6 +666,8 @@
         <div class="min-h-0 flex-1 px-5 pb-4">
           {#if sectionLoading && !sectionResult}
             <div class="flex h-full items-center justify-center"><Spinner /></div>
+          {:else if sectionError && !sectionResult}
+            <EmptyState icon={AlertTriangle} title={`Couldn't load ${activeSpec.label}`} description={sectionError} primary={{ label: 'Retry', onclick: () => loadSection(activeSpec.key) }} />
           {:else if sectionResult && !sectionResult.supported}
             <EmptyState icon={AlertTriangle} title={`${activeSpec.label} is not available on this ClickHouse deployment`} />
           {:else if sectionResult}

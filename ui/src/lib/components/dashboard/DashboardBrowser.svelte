@@ -76,8 +76,8 @@
       dashboards = d
       folders = f
       if (selectedFolder && !f.some((x) => x.id === selectedFolder)) selectedFolder = null
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       loading = false
     }
@@ -177,9 +177,9 @@
     dashboards = dashboards.map((x) => (x.id === d.id ? { ...x, starred: next } : x))
     try {
       await setDashboardStar(d.id, next)
-    } catch (e: any) {
+    } catch (e: unknown) {
       dashboards = dashboards.map((x) => (x.id === d.id ? { ...x, starred: !next } : x))
-      toastError(e.message)
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -266,8 +266,8 @@
       await moveDashboard(id, folderId)
       toastSuccess(folderId ? `Moved to ${pathLabel(folderId)}` : 'Moved to the root')
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -300,8 +300,8 @@
       })
       createOpen = false
       pushDashboardDetail(d.id)
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       creating = false
     }
@@ -327,8 +327,8 @@
       if (newFolderParent && !expanded.has(newFolderParent)) toggleExpanded(newFolderParent)
       await loadAll()
       selectedFolder = f.id
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       folderSaving = false
     }
@@ -347,8 +347,8 @@
       await updateDashboardFolder(renamingFolder.id, { name: name.trim() })
       renamingFolder = null
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       folderSaving = false
     }
@@ -366,8 +366,8 @@
       deletingFolder = null
       toastSuccess('Folder deleted, its contents moved up one level')
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       folderSaving = false
     }
@@ -409,8 +409,8 @@
       await setDashboardTags(tagging.id, parseTags(tagsValue))
       tagging = null
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       tagsSaving = false
     }
@@ -433,8 +433,8 @@
       renaming = null
       toastSuccess('Dashboard renamed')
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       renameSaving = false
     }
@@ -451,8 +451,8 @@
       deleting = null
       toastSuccess('Dashboard deleted')
       await loadAll()
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
       deleteSaving = false
     }
