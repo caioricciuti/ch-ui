@@ -71,8 +71,8 @@
       }
       jsonError = null
       return true
-    } catch (e: any) {
-      jsonError = 'Invalid JSON: ' + e.message
+    } catch (e: unknown) {
+      jsonError = 'Invalid JSON: ' + (e instanceof Error ? e.message : String(e))
       return false
     }
   }
@@ -116,8 +116,8 @@
 
       toastSuccess('Dashboard config applied')
       onimported(updatedDashboard, newPanels)
-    } catch (e: any) {
-      toastError('Failed to apply: ' + e.message)
+    } catch (e: unknown) {
+      toastError('Failed to apply: ' + (e instanceof Error ? e.message : String(e)))
     } finally {
       saving = false
     }
@@ -158,8 +158,8 @@
       jsonError = null
       tab = 'json'
       toastSuccess('File loaded — review and click Apply to import')
-    } catch (e: any) {
-      toastError('Failed to read file: ' + e.message)
+    } catch (e: unknown) {
+      toastError('Failed to read file: ' + (e instanceof Error ? e.message : String(e)))
     } finally {
       importing = false
       if (fileInput) fileInput.value = ''
@@ -184,8 +184,8 @@
       }
       toastSuccess('Dashboard updated')
       onimported(updated, panels)
-    } catch (e: any) {
-      toastError('Failed to save: ' + e.message)
+    } catch (e: unknown) {
+      toastError('Failed to save: ' + (e instanceof Error ? e.message : String(e)))
     } finally {
       savingGeneral = false
     }
@@ -199,21 +199,21 @@
       <button
         class="px-4 py-2 text-xs font-medium transition-colors
  {tab === 'general'
-            ? 'text-accent border-b-2 border-ch-orange'
+            ? 'text-accent border-b-2 border-accent'
             : 'text-fg-4 hover:text-fg'}"
         onclick={() => tab = 'general'}
       >General</button>
       <button
         class="px-4 py-2 text-xs font-medium transition-colors
  {tab === 'json'
-            ? 'text-accent border-b-2 border-ch-orange'
+            ? 'text-accent border-b-2 border-accent'
             : 'text-fg-4 hover:text-fg'}"
         onclick={() => tab = 'json'}
       >JSON Editor</button>
       <button
         class="px-4 py-2 text-xs font-medium transition-colors
  {tab === 'export'
-            ? 'text-accent border-b-2 border-ch-orange'
+            ? 'text-accent border-b-2 border-accent'
             : 'text-fg-4 hover:text-fg'}"
         onclick={() => tab = 'export'}
       >Export / Import</button>

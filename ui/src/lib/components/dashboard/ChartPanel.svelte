@@ -168,7 +168,7 @@
       series.push(s)
     }
 
-    let xAxisConfig: Record<string, any> = {}
+    let xAxisConfig: Partial<uPlot.Axis> = {}
     if (isTime) {
       // default time formatting
     } else if (isCat) {

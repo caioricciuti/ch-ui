@@ -1,3 +1,15 @@
+<script lang="ts" module>
+  import type { ColumnMeta } from '../../utils/chart-transform'
+
+  /** The result of one panel query, as the grid and the fullscreen view render it. */
+  export interface PanelResult {
+    data: Record<string, unknown>[]
+    meta: ColumnMeta[]
+    error?: string
+    loading: boolean
+  }
+</script>
+
 <script lang="ts">
   import type { Panel, PanelConfig } from '../../types/api'
   import { apiPut } from '../../api/client'
@@ -19,7 +31,7 @@
   interface Props {
     dashboardId: string
     panels: Panel[]
-    panelResults: Map<string, { data: any[]; meta: any[]; error?: string; loading: boolean }>
+    panelResults: Map<string, PanelResult>
     onpanelschange: (panels: Panel[]) => void
     oneditpanel: (panel: Panel) => void
     onduplicatepanel: (panel: Panel) => void
@@ -212,8 +224,8 @@
           layout_h: p.layout_h,
         })
       ))
-    } catch (e: any) {
-      toastError('Failed to save layout: ' + e.message)
+    } catch (e: unknown) {
+      toastError('Failed to save layout: ' + (e instanceof Error ? e.message : String(e)))
     }
   }
 </script>
@@ -241,7 +253,7 @@
       {#if pos}
         <div
           class="absolute flex flex-col bg-surface border rounded-lg overflow-hidden group
- {isActive ? 'border-ch-orange ring-2 ring-ch-orange/30 z-20' : 'border-edge-subtle'}"
+ {isActive ? 'border-accent ring-2 ring-accent-ring z-20' : 'border-edge-subtle'}"
           style="left:{pos.left}px; top:{pos.top}px; width:{pos.width}px; height:{pos.height}px;
             {isActive ? '' : 'transition: left 0.15s ease, top 0.15s ease, width 0.15s ease, height 0.15s ease;'}"
         >
@@ -272,6 +284,9 @@
                 onpointerdown={(e) => e.stopPropagation()}
                 onclick={(e) => toggleMenu(panel.id, e)}
                 title="Panel options"
+                aria-label="Panel options"
+                aria-haspopup="menu"
+                aria-expanded={menuOpenId === panel.id}
               >
                 <EllipsisVertical size={14} />
               </button>
@@ -335,7 +350,7 @@
                   <table class="w-full text-xs">
                     <thead>
                       <tr class="border-b border-edge-subtle">
-                        {#each result.meta as col}
+                        {#each result.meta as col (col.name)}
                           <th class="text-left py-1 px-2 text-fg-3 font-medium whitespace-nowrap">{col.name}</th>
                         {/each}
                       </tr>
@@ -343,7 +358,7 @@
                     <tbody>
                       {#each result.data.slice(0, 100) as row}
                         <tr class="border-b border-edge-subtle">
-                          {#each result.meta as col}
+                          {#each result.meta as col (col.name)}
                             <td class="py-1 px-2 text-fg-2 whitespace-nowrap">{row[col.name] ?? '--'}</td>
                           {/each}
                         </tr>
@@ -377,7 +392,7 @@
     {#if ghostLayout && mode !== 'idle' && colW > 0}
       {@const ghostPos = gridToPixel(ghostLayout, colW)}
       <div
-        class="absolute rounded-lg border-2 border-dashed border-ch-orange/60 bg-accent-soft pointer-events-none z-10"
+        class="absolute rounded-lg border-2 border-dashed border-accent/60 bg-accent-soft pointer-events-none z-10"
         style="left:{ghostPos.left}px; top:{ghostPos.top}px; width:{ghostPos.width}px; height:{ghostPos.height}px;
           transition: left 0.1s ease, top 0.1s ease, width 0.1s ease, height 0.1s ease;"
       ></div>

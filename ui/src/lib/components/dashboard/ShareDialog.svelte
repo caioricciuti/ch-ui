@@ -6,6 +6,7 @@
   import Button from '../common/Button.svelte'
   import Sheet from '../common/Sheet.svelte'
   import Spinner from '../common/Spinner.svelte'
+  import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import { Copy, Trash2, ExternalLink, Code, Link, Mail, Globe, Lock, Send, X } from 'lucide-svelte'
 
   interface DashboardShare {
@@ -38,6 +39,10 @@
   let emailInput = $state('')
   let emailTags = $state<string[]>([])
 
+  // Revoke confirmation
+  let revokeTarget = $state<DashboardShare | null>(null)
+  let revoking = $state(false)
+
   // Invite sending state
   let sendingInvites = $state<Record<string, boolean>>({})
 
@@ -63,7 +68,7 @@
     const raw = emailInput.trim().toLowerCase()
     if (!raw) return
     const emails = raw.split(/[,;\s]+/).filter(e => e.includes('@'))
-    const unique = emails.filter(e => !emailTags.includes(e))
+    const unique = [...new Set(emails)].filter(e => !emailTags.includes(e))
     if (unique.length > 0) {
       emailTags = [...emailTags, ...unique]
     }
@@ -98,7 +103,7 @@
       if (res.share) {
         shares = [res.share, ...shares]
         if (newVisibility === 'private') {
-          toastSuccess('Share link created — sending invites...')
+          toastSuccess('Share link created, sending invites')
           await sendInvites(res.share)
         } else {
           toastSuccess('Share link created')
@@ -115,13 +120,19 @@
     }
   }
 
-  async function deleteShare(shareId: string) {
+  async function confirmRevoke() {
+    if (!revokeTarget || revoking) return
+    const shareId = revokeTarget.id
+    revoking = true
     try {
       await apiDel(`/api/dashboards/${dashboardId}/shares/${shareId}`)
       shares = shares.filter(s => s.id !== shareId)
+      revokeTarget = null
       toastSuccess('Share link revoked')
     } catch (e: unknown) {
       toastError(e instanceof Error ? e.message : 'Failed to revoke share')
+    } finally {
+      revoking = false
     }
   }
 
@@ -198,11 +209,11 @@
       {#if newVisibility === 'private'}
         <div>
           <label for="share-email-input" class="block text-xs font-medium text-fg-2 mb-1">Invite emails</label>
-          <div class="flex flex-wrap gap-1.5 p-2 border border-edge rounded bg-transparent min-h-[36px] focus-within:border-ch-orange">
-            {#each emailTags as email}
+          <div class="flex flex-wrap gap-1.5 p-2 border border-edge rounded bg-transparent min-h-[36px] focus-within:border-accent">
+            {#each emailTags as email (email)}
               <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-2 text-xs text-fg-2">
                 {email}
-                <button class="hover:text-danger" onclick={() => removeEmail(email)}>
+                <button class="hover:text-danger" onclick={() => removeEmail(email)} aria-label={`Remove ${email}`}>
                   <X size={10} />
                 </button>
               </span>
@@ -259,8 +270,9 @@
               </div>
               <button
                 class="p-1 rounded text-fg-4 hover:text-danger hover:bg-hover"
-                onclick={() => deleteShare(share.id)}
-                title="Revoke"
+                onclick={() => (revokeTarget = share)}
+                title="Revoke link"
+                aria-label="Revoke share link"
               >
                 <Trash2 size={14} />
               </button>
@@ -278,6 +290,7 @@
                 class="p-1.5 rounded border border-edge-subtle text-fg-3 hover:text-fg hover:bg-hover"
                 onclick={() => copyToClipboard(getPublicUrl(share.token), 'Link')}
                 title="Copy link"
+                aria-label="Copy link"
               >
                 <Copy size={14} />
               </button>
@@ -287,6 +300,7 @@
                 rel="noopener noreferrer"
                 class="p-1.5 rounded border border-edge-subtle text-fg-3 hover:text-fg hover:bg-hover"
                 title="Open in new tab"
+                aria-label="Open in new tab"
               >
                 <ExternalLink size={14} />
               </a>
@@ -295,7 +309,7 @@
             <!-- Allowed emails for private shares -->
             {#if share.visibility === 'private' && share.allowed_emails?.length > 0}
               <div class="flex flex-wrap gap-1 mb-2">
-                {#each share.allowed_emails as email}
+                {#each [...new Set(share.allowed_emails)] as email (email)}
                   <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-2 text-[10px] text-fg-2">
                     <Mail size={10} /> {email}
                   </span>
@@ -331,3 +345,16 @@
     {/if}
   </div>
 </Sheet>
+
+<ConfirmDialog
+  open={revokeTarget !== null}
+  title="Revoke share link?"
+  description={revokeTarget?.visibility === 'private'
+    ? 'Invited people lose access through this link. This cannot be undone.'
+    : 'Anyone using this link or an embed of it loses access. This cannot be undone.'}
+  confirmLabel="Revoke"
+  destructive
+  loading={revoking}
+  onconfirm={confirmRevoke}
+  oncancel={() => (revokeTarget = null)}
+/>

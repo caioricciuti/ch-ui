@@ -56,7 +56,7 @@
   const thresholdSegments = $derived.by(() => {
     const thresholds = stat.colorMode !== 'none'
       ? ([] as { value: number; color: string }[]).concat(
-          ...(stat as any).__thresholds ?? [{ value: minVal, color: '#22c55e' }]
+          ...(stat as ComputedStat & { __thresholds?: { value: number; color: string }[] }).__thresholds ?? [{ value: minVal, color: '#22c55e' }]
         )
       : []
 

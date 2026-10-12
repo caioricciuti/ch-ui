@@ -59,6 +59,68 @@
     return () => ro.disconnect()
   })
 
+  // Pie geometry, shared by the drawing and the hover hit-test.
+  const geom = $derived.by(() => {
+    const legendW = Math.min(160, width * 0.35)
+    const chartArea = width - legendW - 16
+    const radius = Math.min(chartArea, height) * 0.4
+    return {
+      legendW,
+      chartArea,
+      cx: chartArea / 2,
+      cy: height / 2,
+      radius,
+      innerR: (config.pieDonut ?? false) ? radius * 0.55 : 0,
+    }
+  })
+
+  // Hover tooltip, styled like the shared uPlot chart tooltip.
+  let hover = $state<{ index: number; x: number; y: number } | null>(null)
+  let tipEl = $state<HTMLDivElement>()
+  const hovered = $derived(hover ? slices[hover.index] : undefined)
+
+  function sliceAt(x: number, y: number): number {
+    const { cx, cy, radius, innerR } = geom
+    const dx = x - cx
+    const dy = y - cy
+    const dist = Math.hypot(dx, dy)
+    if (dist > radius || dist < innerR) return -1
+    // Angle measured clockwise from 12 o'clock, matching the draw order.
+    let a = Math.atan2(dy, dx) + Math.PI / 2
+    if (a < 0) a += Math.PI * 2
+    let acc = 0
+    for (let i = 0; i < slices.length; i++) {
+      acc += slices[i].pct * Math.PI * 2
+      if (a <= acc) return i
+    }
+    return -1
+  }
+
+  function handleMove(e: MouseEvent) {
+    const rect = containerEl.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    const index = sliceAt(x, y)
+    hover = index >= 0 ? { index, x, y } : null
+  }
+
+  // Keep the tooltip inside the panel, like the uPlot tooltip does.
+  const tipPos = $derived.by(() => {
+    if (!hover) return { left: 0, top: 0 }
+    const pad = 12
+    const tw = tipEl?.offsetWidth ?? 0
+    const th = tipEl?.offsetHeight ?? 0
+    let left = hover.x + pad
+    let top = hover.y - th - pad
+    if (left + tw > width) left = hover.x - tw - pad
+    if (top < 0) top = hover.y + pad
+    return { left, top }
+  })
+
+  function fmtValue(v: number): string {
+    return v.toLocaleString(undefined, { maximumFractionDigits: 2 })
+  }
+
   $effect(() => {
     if (!canvasEl || width <= 0 || height <= 0 || slices.length === 0) return
 
@@ -72,13 +134,12 @@
     ctx.scale(dpr, dpr)
     ctx.clearRect(0, 0, width, height)
 
-    const legendW = Math.min(160, width * 0.35)
-    const chartArea = width - legendW - 16
-    const cx = chartArea / 2
-    const cy = height / 2
-    const radius = Math.min(chartArea, height) * 0.4
-    const isDonut = config.pieDonut ?? false
-    const innerR = isDonut ? radius * 0.55 : 0
+    const { legendW, chartArea, cx, cy, radius, innerR } = geom
+    // Legend text follows the theme tokens; `dark` re-runs this on a switch.
+    void dark
+    const css = getComputedStyle(containerEl)
+    const labelColor = css.getPropertyValue('--fg-2').trim() || '#374151'
+    const pctColor = css.getPropertyValue('--fg-3').trim() || '#6b7280'
 
     let startAngle = -Math.PI / 2
     for (const s of slices) {
@@ -109,7 +170,7 @@
       ctx.arc(legendX + 5, y, 4, 0, Math.PI * 2)
       ctx.fill()
 
-      ctx.fillStyle = dark ? '#d1d5db' : '#374151'
+      ctx.fillStyle = labelColor
       ctx.font = '11px ui-sans-serif, system-ui, sans-serif'
 
       const pctStr = (s.pct * 100).toFixed(1) + '%'
@@ -122,17 +183,38 @@
 
       ctx.fillText(label, legendX + 16, y)
 
-      ctx.fillStyle = dark ? '#9ca3af' : '#6b7280'
+      ctx.fillStyle = pctColor
       ctx.font = '10px ui-monospace, monospace'
       ctx.fillText(pctStr, legendX + legendW - ctx.measureText(pctStr).width - 4, y)
     }
   })
 </script>
 
-<div bind:this={containerEl} class="w-full h-full overflow-hidden relative">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  bind:this={containerEl}
+  class="w-full h-full overflow-hidden relative"
+  onmousemove={slices.length > 0 ? handleMove : undefined}
+  onmouseleave={() => (hover = null)}
+>
   {#if slices.length === 0}
     <div class="flex items-center justify-center h-full text-xs text-fg-4">No data</div>
   {:else}
     <canvas bind:this={canvasEl} class="absolute inset-0"></canvas>
+    {#if hover && hovered}
+      <div
+        bind:this={tipEl}
+        class="pointer-events-none absolute z-[100] whitespace-nowrap rounded-md border border-edge bg-elevated px-[9px] py-1.5 text-[11px] leading-normal text-fg"
+        style="left:{tipPos.left}px; top:{tipPos.top}px; box-shadow: var(--shadow-popover)"
+      >
+        <div class="mb-0.5 font-semibold text-fg-2">{hovered.label}</div>
+        <div class="flex items-center gap-1.5">
+          <span class="h-[7px] w-[7px] shrink-0 rounded-[2px]" style="background:{hovered.color}"></span>
+          <span class="flex-1 text-fg-3">{valueCol}</span>
+          <span class="ml-3 font-semibold tabular-nums">{fmtValue(hovered.value)}</span>
+          <span class="tabular-nums text-fg-3">{(hovered.pct * 100).toFixed(1)}%</span>
+        </div>
+      </div>
+    {/if}
   {/if}
 </div>

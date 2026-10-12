@@ -26,7 +26,7 @@
     const isEnd = rangeEnd && isSameDay(date, rangeEnd)
 
     if (isStart || isEnd) {
-      parts.push('bg-ch-orange text-white font-semibold')
+      parts.push('bg-accent text-accent-fg font-semibold')
     } else if (rangeStart && rangeEnd && isInRange(date, rangeStart, rangeEnd)) {
       parts.push('bg-accent-soft text-accent')
     } else if (rangeStart && !rangeEnd && hoverDate) {
@@ -43,7 +43,7 @@
     }
 
     if (isToday(date) && !isStart && !isEnd) {
-      parts.push('font-bold ring-1 ring-ch-orange')
+      parts.push('font-bold ring-1 ring-accent')
     }
 
     return parts.join(' ')

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import { goTo, navigate } from '../lib/stores/router.svelte'
   import type { Dashboard, DashboardFolder, Panel } from '../lib/types/api'
   import { apiGet, apiPost, apiPut, apiDel } from '../lib/api/client'
@@ -9,10 +10,13 @@
   import Button from '../lib/components/common/Button.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
+  import InputDialog from '../lib/components/common/InputDialog.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
   import Tooltip from '../lib/components/common/Tooltip.svelte'
   import PanelEditor from '../lib/components/dashboard/PanelEditor.svelte'
-  import DashboardGrid from '../lib/components/dashboard/DashboardGrid.svelte'
+  import DashboardGrid, { type PanelResult } from '../lib/components/dashboard/DashboardGrid.svelte'
+  import VirtualTable from '../lib/components/table/VirtualTable.svelte'
+  import type { ColumnMeta } from '../lib/types/query'
   import StatPanel from '../lib/components/dashboard/StatPanel.svelte'
   import ChartPanel from '../lib/components/dashboard/ChartPanel.svelte'
   import MarkdownPanel from '../lib/components/dashboard/MarkdownPanel.svelte'
@@ -22,7 +26,7 @@
   import TimeRangeSelector from '../lib/components/dashboard/TimeRangeSelector.svelte'
   import ShareDialog from '../lib/components/dashboard/ShareDialog.svelte'
   import DashboardSettings from '../lib/components/dashboard/DashboardSettings.svelte'
-  import { Plus, RefreshCw, Share2, ChevronDown, ChevronRight, Star, Timer, Settings, Info, X } from 'lucide-svelte'
+  import { Plus, RefreshCw, Share2, ChevronDown, ChevronRight, Star, Timer, Settings, Info, X, Pencil } from 'lucide-svelte'
 
   interface Props {
     dashboardId?: string
@@ -47,7 +51,7 @@
   // Detail view
   let currentDashboard = $state<Dashboard | null>(null)
   let panels = $state<Panel[]>([])
-  let panelResults = $state<Map<string, { data: any[]; meta: any[]; error?: string; loading: boolean }>>(new Map())
+  let panelResults = $state<Map<string, PanelResult>>(new Map())
   let detailLoading = $state(false)
   let detailError = $state<string | null>(null)
   let loadedDashboardId = $state<string | null>(null)
@@ -96,8 +100,7 @@
     refreshInterval = seconds
     refreshDropdownOpen = false
 
-    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
-    if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+    clearRefreshTimers()
     refreshCountdown = seconds
 
     if (seconds > 0) {
@@ -125,20 +128,35 @@
     }
   })
 
+  function clearRefreshTimers() {
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+    if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+  }
+
   // Clean up timers when leaving dashboard detail
   $effect(() => {
     const id = dashboardId
     if (!id) {
-      if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
-      if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+      clearRefreshTimers()
       refreshInterval = 0
       refreshCountdown = 0
     }
   })
 
-  // Inline edit
-  let editingTitle = $state(false)
+  // Leaving the page entirely must stop auto-refresh too, or every panel
+  // query keeps running in the background.
+  onDestroy(clearRefreshTimers)
+
+  // Rename
+  let renameOpen = $state(false)
+  let renaming = $state(false)
   let titleInput = $state('')
+
+  function openRename() {
+    if (!currentDashboard) return
+    titleInput = currentDashboard.name
+    renameOpen = true
+  }
 
   $effect(() => {
     const id = dashboardId
@@ -162,25 +180,35 @@
       await apiDeleteDashboard(id)
       toastSuccess('Dashboard deleted')
       goTo('dashboards', 'Dashboards')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(errorMessage(e))
     }
   }
 
+  function errorMessage(e: unknown): string {
+    return e instanceof Error ? e.message : String(e)
+  }
+
+  // Switching dashboards quickly must not let an earlier response win.
+  let detailSeq = 0
+
   async function loadDashboardDetail(id: string) {
+    const seq = ++detailSeq
     detailLoading = true
     detailError = null
     panelResults = new Map()
     try {
       const res = await apiGet<{ dashboard: Dashboard; panels: Panel[] }>(`/api/dashboards/${id}`)
+      if (seq !== detailSeq) return
       currentDashboard = res.dashboard
       panels = res.panels ?? []
       runAllPanelQueries(res.panels ?? [])
-    } catch (e: any) {
-      detailError = e.message
-      toastError(e.message)
+    } catch (e: unknown) {
+      if (seq !== detailSeq) return
+      detailError = errorMessage(e)
+      toastError(errorMessage(e))
     } finally {
-      detailLoading = false
+      if (seq === detailSeq) detailLoading = false
     }
   }
 
@@ -198,9 +226,9 @@
     currentDashboard = { ...currentDashboard, starred: next }
     try {
       await setDashboardStar(currentDashboard.id, next)
-    } catch (e: any) {
+    } catch (e: unknown) {
       currentDashboard = { ...currentDashboard, starred: !next }
-      toastError(e.message)
+      toastError(errorMessage(e))
     }
   }
 
@@ -223,17 +251,17 @@
     const rangeValue = dashboardTimeRange || '1h'
 
     try {
-      const res = await apiPost<{ data: any[]; meta: any[]; error?: string }>('/api/dashboards/query', {
+      const res = await apiPost<{ data: Record<string, unknown>[]; meta: ColumnMeta[]; error?: string }>('/api/dashboards/query', {
         query: p.query,
         time_range: toDashboardTimeRangePayload(rangeValue),
       })
       const next = new Map(panelResults)
       next.set(p.id, { data: res.data ?? [], meta: res.meta ?? [], loading: false })
       panelResults = next
-    } catch (e: any) {
+    } catch (e: unknown) {
       const next = new Map(panelResults)
       const prev = panelResults.get(p.id)
-      next.set(p.id, { data: prev?.data ?? [], meta: prev?.meta ?? [], error: e.message, loading: false })
+      next.set(p.id, { data: prev?.data ?? [], meta: prev?.meta ?? [], error: errorMessage(e), loading: false })
       panelResults = next
     }
   }
@@ -244,15 +272,22 @@
     runAllPanelQueries()
   }
 
-  async function saveDashboardTitle() {
-    if (!currentDashboard || !titleInput.trim()) return
+  async function saveDashboardTitle(name: string) {
+    if (!currentDashboard || !name || renaming) return
+    if (name === currentDashboard.name) {
+      renameOpen = false
+      return
+    }
+    renaming = true
     try {
-      await apiPut(`/api/dashboards/${currentDashboard.id}`, { name: titleInput.trim() })
-      currentDashboard = { ...currentDashboard, name: titleInput.trim() }
-      editingTitle = false
+      await apiPut(`/api/dashboards/${currentDashboard.id}`, { name })
+      currentDashboard = { ...currentDashboard, name }
+      renameOpen = false
       toastSuccess('Dashboard renamed')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(errorMessage(e))
+    } finally {
+      renaming = false
     }
   }
 
@@ -298,8 +333,8 @@
         runPanelQuery(res.panel)
       }
       toastSuccess('Panel duplicated')
-    } catch (e: any) {
-      toastError('Failed to duplicate: ' + e.message)
+    } catch (e: unknown) {
+      toastError('Failed to duplicate: ' + errorMessage(e))
     }
   }
 
@@ -309,8 +344,8 @@
       await apiDel(`/api/dashboards/${currentDashboard.id}/panels/${panelId}`)
       panels = panels.filter(p => p.id !== panelId)
       toastSuccess('Panel deleted')
-    } catch (e: any) {
-      toastError(e.message)
+    } catch (e: unknown) {
+      toastError(errorMessage(e))
     }
   }
 
@@ -354,6 +389,11 @@
     return () => document.removeEventListener('keydown', handler)
   })
 
+  /** VirtualTable takes positional rows; panel results are keyed by column name. */
+  function toRows(res: PanelResult): unknown[][] {
+    return res.data.map((row) => res.meta.map((col) => row[col.name]))
+  }
+
   function parsePanelConfig(configStr: string): import('../lib/types/api').PanelConfig {
     try {
       return JSON.parse(configStr || '{}')
@@ -376,26 +416,24 @@
           <button class="shrink-0 truncate text-fg-3 transition-colors hover:text-fg" onclick={() => openFolderInList(crumb.id)}>{crumb.name}</button>
         {/each}
         <ChevronRight size={13} class="shrink-0 text-fg-4" />
-        {#if editingTitle}
-          <input
-            type="text"
-            class="h-7 border-b border-accent bg-transparent text-[15px] font-semibold tracking-[-0.01em] text-fg outline-none"
-            bind:value={titleInput}
-            onkeydown={(e) => { if (e.key === 'Enter') saveDashboardTitle(); if (e.key === 'Escape') editingTitle = false }}
-            onblur={saveDashboardTitle}
-          />
-        {:else}
-          <h1
-            class="cursor-text truncate text-[15px] font-semibold tracking-[-0.01em] text-fg"
-            ondblclick={() => { editingTitle = true; titleInput = currentDashboard?.name ?? '' }}
-            title="Double-click to rename"
-          >
-            {currentDashboard?.name ?? 'Dashboard'}
-          </h1>
-        {/if}
+        <h1
+          class="cursor-text truncate text-[15px] font-semibold tracking-[-0.01em] text-fg"
+          ondblclick={openRename}
+          title="Double-click to rename"
+        >
+          {currentDashboard?.name ?? 'Dashboard'}
+        </h1>
       </nav>
 
       {#if currentDashboard}
+        <button
+          class="shrink-0 rounded p-0.5 text-fg-4 transition-colors hover:text-fg"
+          onclick={openRename}
+          aria-label="Rename dashboard"
+          title="Rename dashboard"
+        >
+          <Pencil size={13} />
+        </button>
         <button
           class="shrink-0 rounded p-0.5 transition-colors {currentDashboard.starred ? 'text-warning' : 'text-fg-4 hover:text-fg'}"
           onclick={toggleCurrentStar}
@@ -459,7 +497,7 @@
                 <div class="px-3 py-1.5">
                   <span class="text-[10px] font-medium uppercase tracking-wider text-fg-4">Auto refresh</span>
                 </div>
-                {#each REFRESH_OPTIONS as opt}
+                {#each REFRESH_OPTIONS as opt (opt.seconds)}
                   <button
                     class="flex w-full items-center justify-between px-3 py-1.5 text-xs transition-colors {refreshInterval === opt.seconds ? 'bg-accent-soft font-medium text-accent' : 'text-fg-2 hover:bg-hover'}"
                     onclick={() => setRefreshInterval(opt.seconds)}
@@ -508,6 +546,17 @@
     </div>
   {/if}
 </div>
+
+<InputDialog
+  open={renameOpen}
+  title="Rename dashboard"
+  placeholder="Dashboard name"
+  bind:value={titleInput}
+  confirmLabel="Rename"
+  loading={renaming}
+  onconfirm={saveDashboardTitle}
+  oncancel={() => (renameOpen = false)}
+/>
 
 <ConfirmDialog
   open={confirmOpen}
@@ -569,25 +618,9 @@
         <ChartPanel data={fsResult.data} meta={fsResult.meta} config={fsCfg} />
       {:else}
         {#if fsResult.meta.length > 0}
-          <div class="overflow-auto h-full">
-            <table class="ds-table">
-              <thead>
-                <tr class="ds-table-head-row">
-                  {#each fsResult.meta as col}
-                    <th class="ds-table-th">{col.name}</th>
-                  {/each}
-                </tr>
-              </thead>
-              <tbody>
-                {#each fsResult.data as row}
-                  <tr class="ds-table-row-static">
-                    {#each fsResult.meta as col}
-                      <td class="ds-td whitespace-nowrap">{row[col.name] ?? '--'}</td>
-                    {/each}
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
+          <!-- Virtualized: a fullscreen table can hold every row of a large result. -->
+          <div class="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-edge-subtle">
+            <VirtualTable meta={fsResult.meta} data={toRows(fsResult)} />
           </div>
         {:else}
           <p class="p-4 text-[13px] text-fg-3">No data</p>
