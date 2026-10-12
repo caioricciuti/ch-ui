@@ -293,6 +293,14 @@ func (s *SetupHandler) Setup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// The allowed check reserved a slot. Give it back if this request ends
+	// before RecordAttempt or ResetLimit consumes it.
+	ipReserved := s.RateLimiter != nil
+	defer func() {
+		if ipReserved {
+			s.RateLimiter.Release(ipKey)
+		}
+	}()
 
 	var req setupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -308,6 +316,7 @@ func (s *SetupHandler) Setup(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		if s.RateLimiter != nil {
 			s.RateLimiter.RecordAttempt(ipKey, "ip")
+			ipReserved = false
 		}
 		_ = s.DB.CreateAuditLog(database.AuditLogParams{
 			Action:    "setup.code_rejected",
@@ -352,6 +361,7 @@ func (s *SetupHandler) Setup(w http.ResponseWriter, r *http.Request) {
 
 	if s.RateLimiter != nil {
 		s.RateLimiter.ResetLimit(ipKey)
+		ipReserved = false
 	}
 	_ = s.DB.CreateAuditLog(database.AuditLogParams{
 		Action:       "setup.connection_saved",

@@ -331,10 +331,10 @@ Every `/api/admin/*` route requires the admin role.
 | `GET` | `/api/admin/sso` | SSO config, secret never returned (**Pro**) |
 | `PUT` | `/api/admin/sso` | Save SSO config (**Pro**) |
 | `GET` | `/api/admin/github/{connectionId}` | GitHub model sync settings |
-| `PUT` | `/api/admin/github/{connectionId}` | Save GitHub sync settings (**Pro**) |
+| `PUT` | `/api/admin/github/{connectionId}` | Save GitHub sync settings, including the optional `webhook_secret` (16+ characters; the push webhook is refused until one is set) (**Pro**) |
 | `DELETE` | `/api/admin/github/{connectionId}` | Remove GitHub sync (**Pro**) |
 | `POST` | `/api/admin/github/{connectionId}/test` | Test the GitHub connection (**Pro**) |
-| `POST` | `/api/admin/github/{connectionId}/sync` | Sync models now (**Pro**) |
+| `POST` | `/api/admin/github/{connectionId}/sync` | Sync models now; `409` while a sync is running (**Pro**) |
 | `GET` | `/api/admin/github/{connectionId}/logs` | GitHub sync log |
 
 ### MCP Keys

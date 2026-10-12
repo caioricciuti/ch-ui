@@ -289,6 +289,18 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// The allowed check reserved a slot. Give it back if this request ends
+	// before RecordAttempt or ResetLimit consumes it.
+	var userKey string
+	ipReserved, userReserved := true, false
+	defer func() {
+		if ipReserved {
+			h.RateLimiter.Release(ipKey)
+		}
+		if userReserved {
+			h.RateLimiter.Release(userKey)
+		}
+	}()
 
 	// --- Resolve connection ---
 	var conn *database.Connection
@@ -347,7 +359,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	userKey := userRateLimitKey(req.Username, conn.ID)
+	userKey = userRateLimitKey(req.Username, conn.ID)
 	userResult := h.RateLimiter.CheckAuthRateLimit(userKey, "user", MaxAttemptsPerUser, RateLimitWindow)
 	if !userResult.Allowed {
 		retrySeconds := int(userResult.RetryAfter.Seconds())
@@ -359,6 +371,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	userReserved = true
 
 	// --- Check tunnel is online (retry up to 3 times) ---
 	online := false
@@ -399,6 +412,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 		h.RateLimiter.RecordAttempt(ipKey, "ip")
 		h.RateLimiter.RecordAttempt(userKey, "user")
+		ipReserved, userReserved = false, false
 		slog.Info("Login failed: credentials rejected", "user", req.Username, "error", err)
 		h.auditLoginFailure(req.Username, conn, clientIP, "invalid credentials")
 		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
@@ -411,6 +425,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if !testResult.Success {
 		h.RateLimiter.RecordAttempt(ipKey, "ip")
 		h.RateLimiter.RecordAttempt(userKey, "user")
+		ipReserved, userReserved = false, false
 		errMsg := testResult.Error
 		if errMsg == "" {
 			errMsg = "Invalid credentials"
@@ -470,6 +485,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// --- Reset rate limits on success ---
 	h.RateLimiter.ResetLimit(ipKey)
 	h.RateLimiter.ResetLimit(userKey)
+	ipReserved, userReserved = false, false
 
 	// --- Audit log ---
 	h.DB.CreateAuditLog(database.AuditLogParams{

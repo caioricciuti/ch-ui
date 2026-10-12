@@ -36,7 +36,15 @@ To sync automatically when the branch changes, add a **push webhook** in your re
 https://your-ch-ui-server/api/github/webhook/{connectionId}
 ```
 
-The webhook URL for the current connection is shown on the Admin → GitHub page. If a webhook secret is configured, CH-UI verifies GitHub's `X-Hub-Signature-256` header and rejects requests that don't match.
+The webhook URL for the current connection is shown on the Admin → GitHub page.
+
+A **webhook secret is required**. CH-UI verifies GitHub's `X-Hub-Signature-256` header on every delivery and rejects requests that don't match. Until a secret is saved for the connection, every webhook request is refused with `403`, so a push never triggers a sync from an unauthenticated caller.
+
+1. Generate a random secret of at least 16 characters, for example `openssl rand -hex 32`.
+2. Paste it into **Webhook secret** on the Admin → GitHub page and save (or send it as `webhook_secret` with `PUT /api/admin/github/{connectionId}`). It is encrypted at rest with your server's `app_secret_key`. Leave the field empty on later saves to keep the stored one.
+3. In the GitHub webhook settings, set **Content type** to `application/json`, paste the same value into **Secret**, and pick **Just the push event**.
+
+Payloads are capped at 5 MiB. Only one sync runs per connection at a time: a push that arrives while a sync is running is folded into a single follow-up sync, and **Sync now** returns `409` until the running sync finishes.
 
 ## Model file format
 
