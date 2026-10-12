@@ -282,8 +282,8 @@ and the provider supports tools.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/pipelines` | List pipelines |
-| `POST` | `/api/pipelines` | Create pipeline |
+| `GET` | `/api/pipelines` | List pipelines on the current connection |
+| `POST` | `/api/pipelines` | Create pipeline on the current connection |
 | `GET` | `/api/pipelines/{id}` | Get pipeline |
 | `PUT` | `/api/pipelines/{id}` | Update pipeline |
 | `DELETE` | `/api/pipelines/{id}` | Delete pipeline |

@@ -128,8 +128,10 @@ The table is created once, before the first INSERT. Subsequent batches use the e
 
 ## Using the Pipeline Editor
 
+Pipelines belong to a connection and run with that connection's credentials, so the list shows only the pipelines on the connection you are signed in to. Switch connections to see and manage the others.
+
 1. Navigate to **Pipelines** in the sidebar
-2. Click **New Pipeline**, give it a name and select a connection
+2. Click **New Pipeline** and give it a name. It is created on the connection you are signed in to
 3. Drag a **source** node onto the canvas from the left panel
 4. Drag the **ClickHouse** sink node onto the canvas
 5. Connect them by dragging from the source's output handle to the sink's input handle

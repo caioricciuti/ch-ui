@@ -55,40 +55,62 @@ func (h *PipelinesHandler) Routes() chi.Router {
 	return r
 }
 
-// ListPipelines returns all pipelines.
+// ListPipelines returns the pipelines on the caller's connection.
 func (h *PipelinesHandler) ListPipelines(w http.ResponseWriter, r *http.Request) {
-	pipelines, err := h.DB.GetPipelines()
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+
+	all, err := h.DB.GetPipelines()
 	if err != nil {
 		slog.Error("Failed to list pipelines", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to list pipelines")
 		return
 	}
 
-	if pipelines == nil {
-		pipelines = []database.Pipeline{}
+	pipelines := []database.Pipeline{}
+	for _, p := range all {
+		if p.ConnectionID == session.ConnectionID {
+			pipelines = append(pipelines, p)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"pipelines": pipelines})
 }
 
-// GetPipeline returns a single pipeline with its graph.
-func (h *PipelinesHandler) GetPipeline(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Pipeline ID is required")
-		return
+// pipelineForSession loads the pipeline named in the URL when it belongs to
+// the caller's connection. Pipelines run with their connection's credentials,
+// so one on another connection is reported as not found. On failure it writes
+// the response and returns nil.
+func (h *PipelinesHandler) pipelineForSession(w http.ResponseWriter, r *http.Request) (*database.Pipeline, *middleware.SessionInfo) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return nil, nil
 	}
-
+	id := chi.URLParam(r, "id")
 	pipeline, err := h.DB.GetPipelineByID(id)
 	if err != nil {
 		slog.Error("Failed to get pipeline", "error", err, "id", id)
 		writeError(w, http.StatusInternalServerError, "Failed to get pipeline")
-		return
+		return nil, nil
 	}
-	if pipeline == nil {
+	if pipeline == nil || pipeline.ConnectionID != session.ConnectionID {
 		writeError(w, http.StatusNotFound, "Pipeline not found")
+		return nil, nil
+	}
+	return pipeline, session
+}
+
+// GetPipeline returns a single pipeline with its graph.
+func (h *PipelinesHandler) GetPipeline(w http.ResponseWriter, r *http.Request) {
+	pipeline, _ := h.pipelineForSession(w, r)
+	if pipeline == nil {
 		return
 	}
+	id := pipeline.ID
 
 	nodes, edges, err := h.DB.GetPipelineGraph(id)
 	if err != nil {
@@ -136,10 +158,12 @@ func (h *PipelinesHandler) CreatePipeline(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	connectionID := strings.TrimSpace(body.ConnectionID)
-	if connectionID == "" {
-		// Use the session's connection ID as default
-		connectionID = session.ConnectionID
+	// A pipeline runs with its connection's credentials, so it can only be
+	// created on the connection the caller is signed in to.
+	connectionID := session.ConnectionID
+	if requested := strings.TrimSpace(body.ConnectionID); requested != "" && requested != connectionID {
+		writeError(w, http.StatusForbidden, "Pipelines can only be created on the connection you are signed in to")
+		return
 	}
 
 	id, err := h.DB.CreatePipeline(name, strings.TrimSpace(body.Description), connectionID, middleware.Actor(session))
@@ -162,13 +186,11 @@ func (h *PipelinesHandler) CreatePipeline(w http.ResponseWriter, r *http.Request
 
 // UpdatePipeline updates a pipeline's name and description.
 func (h *PipelinesHandler) UpdatePipeline(w http.ResponseWriter, r *http.Request) {
-	session := middleware.GetSession(r)
-	if session == nil {
-		writeError(w, http.StatusUnauthorized, "Not authenticated")
+	existing, _ := h.pipelineForSession(w, r)
+	if existing == nil {
 		return
 	}
-
-	id := chi.URLParam(r, "id")
+	id := existing.ID
 
 	var body struct {
 		Name        string `json:"name"`
@@ -197,25 +219,11 @@ func (h *PipelinesHandler) UpdatePipeline(w http.ResponseWriter, r *http.Request
 
 // DeletePipeline deletes a pipeline.
 func (h *PipelinesHandler) DeletePipeline(w http.ResponseWriter, r *http.Request) {
-	session := middleware.GetSession(r)
-	if session == nil {
-		writeError(w, http.StatusUnauthorized, "Not authenticated")
-		return
-	}
-
-	id := chi.URLParam(r, "id")
-
-	// Check if pipeline exists and is not running
-	pipeline, err := h.DB.GetPipelineByID(id)
-	if err != nil {
-		slog.Error("Failed to get pipeline", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Failed to get pipeline")
-		return
-	}
+	pipeline, session := h.pipelineForSession(w, r)
 	if pipeline == nil {
-		writeError(w, http.StatusNotFound, "Pipeline not found")
 		return
 	}
+	id := pipeline.ID
 	if pipeline.Status == "running" || pipeline.Status == "starting" {
 		writeError(w, http.StatusConflict, "Cannot delete a running pipeline. Stop it first.")
 		return
@@ -239,13 +247,11 @@ func (h *PipelinesHandler) DeletePipeline(w http.ResponseWriter, r *http.Request
 
 // SaveGraph saves the entire pipeline graph (nodes + edges).
 func (h *PipelinesHandler) SaveGraph(w http.ResponseWriter, r *http.Request) {
-	session := middleware.GetSession(r)
-	if session == nil {
-		writeError(w, http.StatusUnauthorized, "Not authenticated")
+	pipeline, _ := h.pipelineForSession(w, r)
+	if pipeline == nil {
 		return
 	}
-
-	id := chi.URLParam(r, "id")
+	id := pipeline.ID
 
 	var body struct {
 		Nodes    []graphNode    `json:"nodes"`
@@ -299,21 +305,13 @@ func (h *PipelinesHandler) SaveGraph(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"success": "true"})
 }
 
-// StartPipeline starts a pipeline (placeholder for Phase 3).
+// StartPipeline starts a pipeline.
 func (h *PipelinesHandler) StartPipeline(w http.ResponseWriter, r *http.Request) {
-	session := middleware.GetSession(r)
-	if session == nil {
-		writeError(w, http.StatusUnauthorized, "Not authenticated")
+	pipeline, session := h.pipelineForSession(w, r)
+	if pipeline == nil {
 		return
 	}
-
-	id := chi.URLParam(r, "id")
-
-	pipeline, err := h.DB.GetPipelineByID(id)
-	if err != nil || pipeline == nil {
-		writeError(w, http.StatusNotFound, "Pipeline not found")
-		return
-	}
+	id := pipeline.ID
 
 	if pipeline.Status == "running" || pipeline.Status == "starting" {
 		writeError(w, http.StatusConflict, "Pipeline is already running")
@@ -336,21 +334,13 @@ func (h *PipelinesHandler) StartPipeline(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]string{"success": "true"})
 }
 
-// StopPipeline stops a running pipeline (placeholder for Phase 3).
+// StopPipeline stops a running pipeline.
 func (h *PipelinesHandler) StopPipeline(w http.ResponseWriter, r *http.Request) {
-	session := middleware.GetSession(r)
-	if session == nil {
-		writeError(w, http.StatusUnauthorized, "Not authenticated")
+	pipeline, session := h.pipelineForSession(w, r)
+	if pipeline == nil {
 		return
 	}
-
-	id := chi.URLParam(r, "id")
-
-	pipeline, err := h.DB.GetPipelineByID(id)
-	if err != nil || pipeline == nil {
-		writeError(w, http.StatusNotFound, "Pipeline not found")
-		return
-	}
+	id := pipeline.ID
 
 	if pipeline.Status != "running" && pipeline.Status != "starting" {
 		writeError(w, http.StatusConflict, "Pipeline is not running")
@@ -375,13 +365,11 @@ func (h *PipelinesHandler) StopPipeline(w http.ResponseWriter, r *http.Request) 
 
 // GetStatus returns the current status of a pipeline.
 func (h *PipelinesHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-
-	pipeline, err := h.DB.GetPipelineByID(id)
-	if err != nil || pipeline == nil {
-		writeError(w, http.StatusNotFound, "Pipeline not found")
+	pipeline, _ := h.pipelineForSession(w, r)
+	if pipeline == nil {
 		return
 	}
+	id := pipeline.ID
 
 	resp := map[string]interface{}{
 		"pipeline_id": pipeline.ID,
@@ -402,13 +390,17 @@ func (h *PipelinesHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 
 // ListRuns returns execution runs for a pipeline.
 func (h *PipelinesHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	pipeline, _ := h.pipelineForSession(w, r)
+	if pipeline == nil {
+		return
+	}
+	id := pipeline.ID
 
 	limit := 20
 	offset := 0
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
-			limit = parsed
+			limit = min(parsed, maxPipelineRuns)
 		}
 	}
 	if v := r.URL.Query().Get("offset"); v != "" {
@@ -430,14 +422,34 @@ func (h *PipelinesHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"runs": runs})
 }
 
+// Upper bounds for the runs and run-logs list endpoints.
+const (
+	maxPipelineRuns    = 500
+	maxPipelineRunLogs = 1000
+)
+
 // GetRunLogs returns logs for a specific pipeline run.
 func (h *PipelinesHandler) GetRunLogs(w http.ResponseWriter, r *http.Request) {
+	pipeline, _ := h.pipelineForSession(w, r)
+	if pipeline == nil {
+		return
+	}
 	runID := chi.URLParam(r, "runId")
+	belongs, err := h.DB.PipelineRunBelongsTo(runID, pipeline.ID)
+	if err != nil {
+		slog.Error("Failed to look up pipeline run", "error", err, "run", runID)
+		writeError(w, http.StatusInternalServerError, "Failed to get run logs")
+		return
+	}
+	if !belongs {
+		writeError(w, http.StatusNotFound, "Run not found")
+		return
+	}
 
 	limit := 200
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
-			limit = parsed
+			limit = min(parsed, maxPipelineRunLogs)
 		}
 	}
 
