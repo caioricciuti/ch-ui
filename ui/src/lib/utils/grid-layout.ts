@@ -105,3 +105,25 @@ export function containerHeight(items: LayoutItem[]): number {
   const maxBottom = Math.max(...items.map(i => i.y + i.h))
   return maxBottom * (ROW_H + GAP)
 }
+
+/** Below this container width (px) panels stack in one full-width column. */
+export const STACK_BELOW = 640
+
+/**
+ * One column layout for narrow screens: panels keep their height and their
+ * reading order (top to bottom, then left to right) and take the full width.
+ */
+export function stackLayout(items: LayoutItem[]): LayoutItem[] {
+  const ordered = [...items].sort((a, b) => a.y - b.y || a.x - b.x)
+  let y = 0
+  return ordered.map(i => {
+    const out = { id: i.id, x: 0, y, w: COLS, h: i.h }
+    y += i.h
+    return out
+  })
+}
+
+/** The first free row below every panel, where a new panel goes. */
+export function nextFreeRow(items: { y: number; h: number }[]): number {
+  return items.reduce((max, i) => Math.max(max, i.y + i.h), 0)
+}

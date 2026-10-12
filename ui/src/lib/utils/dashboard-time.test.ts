@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  dashboardRangeFromUrlParams,
+  dashboardRangeToUrlParams,
   decodeAbsoluteDashboardRange,
   encodeAbsoluteDashboardRange,
   formatDashboardTimeRangeLabel,
@@ -139,5 +141,44 @@ describe('dashboard-time', () => {
       const result = toDashboardTimeRangePayload('preset:yesterday')
       expect(result.type).toBe('absolute')
     })
+  })
+})
+
+describe('relative units', () => {
+  it('keeps M (months) apart from m (minutes)', () => {
+    expect(toDashboardTimeRangePayload('1M').from).toBe('1M')
+    expect(toDashboardTimeRangePayload('now-3M').from).toBe('now-3M')
+    expect(toDashboardTimeRangePayload('1m').from).toBe('1m')
+    expect(toDashboardTimeRangePayload('2 Months').from).toBe('2M')
+    expect(toDashboardTimeRangePayload('5MIN').from).toBe('5m')
+  })
+})
+
+describe('URL parameters', () => {
+  it('writes relative, preset and absolute ranges', () => {
+    expect(dashboardRangeToUrlParams('1h')).toEqual({ from: 'now-1h', to: 'now' })
+    expect(dashboardRangeToUrlParams('now-2h to now-1h')).toEqual({ from: 'now-2h', to: 'now-1h' })
+    expect(dashboardRangeToUrlParams('preset:today')).toEqual({ from: 'preset:today', to: 'now' })
+    const abs = encodeAbsoluteDashboardRange('2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z')
+    expect(dashboardRangeToUrlParams(abs)).toEqual({ from: '2026-01-01T00:00:00.000Z', to: '2026-01-02T00:00:00.000Z' })
+  })
+
+  it('reads back what it writes', () => {
+    for (const v of ['1h', '7d', '1M', 'preset:last-week', 'now-2h to now-1h']) {
+      const { from, to } = dashboardRangeToUrlParams(v)
+      expect(dashboardRangeFromUrlParams(from, to)).toBe(v)
+    }
+    const abs = encodeAbsoluteDashboardRange('2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z')
+    const p = dashboardRangeToUrlParams(abs)
+    expect(dashboardRangeFromUrlParams(p.from, p.to)).toBe(abs)
+  })
+
+  it('accepts Grafana epoch milliseconds and rejects junk', () => {
+    expect(dashboardRangeFromUrlParams('1767225600000', '1767312000000')).toBe(
+      encodeAbsoluteDashboardRange('2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z'),
+    )
+    expect(dashboardRangeFromUrlParams(null, null)).toBeNull()
+    expect(dashboardRangeFromUrlParams('yesterday-ish', 'now')).toBeNull()
+    expect(dashboardRangeFromUrlParams('preset:nope', null)).toBeNull()
   })
 })

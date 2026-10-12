@@ -26,11 +26,15 @@
     dashboardId: string
     dashboardTimeRange?: string
     panel?: Panel | null
+    /** Grid row below every existing panel: where a new panel is placed. */
+    nextRow?: number
+    /** Connection the panel is built on, recorded on new panels. */
+    connectionId?: string
     onclose: () => void
     onsave: (panel: Panel) => void
   }
 
-  let { dashboardId, dashboardTimeRange = '1h', panel = null, onclose, onsave }: Props = $props()
+  let { dashboardId, dashboardTimeRange = '1h', panel = null, nextRow = 0, connectionId = '', onclose, onsave }: Props = $props()
 
   // Form state
   let name = $state('')
@@ -303,8 +307,9 @@
           panel_type: chartType,
           query: sql.trim(),
           config: configJson,
+          ...(connectionId ? { connection_id: connectionId } : {}),
           layout_x: 0,
-          layout_y: 0,
+          layout_y: nextRow,
           layout_w: 6,
           layout_h: 4,
         })
@@ -447,10 +452,11 @@
             Available Variables
           </summary>
           <div class="mt-2 space-y-1.5 text-[11px] text-fg-3">
-            <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timestamp(col)</code> — DateTime range filter</div>
-            <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timeFilter(col)</code> — Epoch range filter</div>
-            <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__interval</code> — Aggregation interval (seconds)</div>
-            <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timeFrom</code> / <code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timeTo</code> — Range boundaries</div>
+            <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timeFilter(col)</code>: range filter for DateTime, DateTime64 or epoch seconds/ms columns</div>
+            <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timeFilter(col, ms)</code>: names the unit: s, ms, us, ns, or datetime (also for Date columns)</div>
+            <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timestamp(col)</code>: DateTime range filter, second precision</div>
+            <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__interval</code> / <code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__interval_ms</code>: bucket size in seconds / milliseconds</div>
+            <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timeFrom</code> / <code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timeTo</code>: range bounds in epoch milliseconds</div>
           </div>
         </details>
         {/if}

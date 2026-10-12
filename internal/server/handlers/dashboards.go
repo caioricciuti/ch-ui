@@ -1,19 +1,23 @@
 package handlers
 
 import (
+	"container/list"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/governance"
 	"github.com/caioricciuti/ch-ui/internal/mail"
 	"github.com/caioricciuti/ch-ui/internal/queryproc"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
@@ -25,6 +29,13 @@ type DashboardsHandler struct {
 	DB      *database.DB
 	Gateway *tunnel.Gateway
 	Config  *config.Config
+	// Guardrails, when set, applies the governance query policies to panel
+	// queries exactly as the SQL editor does.
+	Guardrails *governance.GuardrailService
+
+	publicOnce  sync.Once
+	publicCache *publicQueryCache
+	publicLimit *keyedRateLimiter
 }
 
 // Routes returns a chi.Router with all dashboard and panel routes mounted.
@@ -58,6 +69,7 @@ func (h *DashboardsHandler) Routes() chi.Router {
 		r.With(writer).Post("/panels", h.CreatePanel)
 		r.With(writer).Put("/panels/{panelId}", h.UpdatePanel)
 		r.With(writer).Delete("/panels/{panelId}", h.DeletePanel)
+		r.With(writer).Post("/import", h.ImportDashboard)
 
 		// Sharing
 		r.Get("/shares", h.ListShares)
@@ -657,9 +669,17 @@ func (h *DashboardsHandler) CreatePanel(w http.ResponseWriter, r *http.Request) 
 	if panelType == "" {
 		panelType = "table"
 	}
+	if !validPanelType(panelType) {
+		writeError(w, http.StatusBadRequest, invalidPanelTypeMessage)
+		return
+	}
 
 	connectionID := strings.TrimSpace(body.ConnectionID)
 	panelConfig := strings.TrimSpace(body.Config)
+	if panelConfig != "" && !json.Valid([]byte(panelConfig)) {
+		writeError(w, http.StatusBadRequest, "config must be valid JSON")
+		return
+	}
 
 	x, y, w2, h2 := 0, 0, 6, 4
 	if body.LayoutX != nil {
@@ -673,6 +693,10 @@ func (h *DashboardsHandler) CreatePanel(w http.ResponseWriter, r *http.Request) 
 	}
 	if body.LayoutH != nil {
 		h2 = *body.LayoutH
+	}
+	if msg := validateLayout(x, y, w2, h2); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
 	}
 
 	id, err := h.DB.CreatePanel(dashboardID, name, description, panelType, query, connectionID, panelConfig, x, y, w2, h2)
@@ -798,6 +822,30 @@ func (h *DashboardsHandler) UpdatePanel(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "No fields to update")
 		return
 	}
+	if body.Name != nil && name == "" {
+		writeError(w, http.StatusBadRequest, "Name cannot be empty")
+		return
+	}
+	if body.PanelType != nil && !validPanelType(panelType) {
+		writeError(w, http.StatusBadRequest, invalidPanelTypeMessage)
+		return
+	}
+	if body.Query != nil && query == "" && panelType != "text" {
+		writeError(w, http.StatusBadRequest, "Query cannot be empty")
+		return
+	}
+	if body.Config != nil && strings.TrimSpace(panelConfig) != "" && !json.Valid([]byte(panelConfig)) {
+		writeError(w, http.StatusBadRequest, "config must be valid JSON")
+		return
+	}
+	// Only a request that moves or resizes the panel is held to the layout
+	// bounds, so a panel saved before validation existed can still be renamed.
+	if body.LayoutX != nil || body.LayoutY != nil || body.LayoutW != nil || body.LayoutH != nil {
+		if msg := validateLayout(x, y, pw, ph); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
+	}
 
 	if err := h.DB.UpdatePanel(panelID, name, description, panelType, query, connectionID, panelConfig, x, y, pw, ph); err != nil {
 		slog.Error("Failed to update panel", "error", err, "panel", panelID)
@@ -863,6 +911,272 @@ func (h *DashboardsHandler) DeletePanel(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
+// Grid bounds, matching ui/src/lib/utils/grid-layout.ts: 12 columns, and a
+// generous cap on rows so a typo cannot push a panel out of reach.
+const (
+	gridCols    = 12
+	gridMaxRow  = 10000
+	gridMaxRows = 100 // tallest panel, in rows
+)
+
+var panelTypes = map[string]bool{
+	"table": true, "stat": true, "gauge": true, "timeseries": true,
+	"bar": true, "pie": true, "text": true,
+}
+
+const invalidPanelTypeMessage = "panel_type must be one of table, stat, gauge, timeseries, bar, pie, text"
+
+func validPanelType(t string) bool { return panelTypes[t] }
+
+// validateLayout returns an error message when a panel does not fit the grid,
+// or "" when it does.
+func validateLayout(x, y, w, h int) string {
+	switch {
+	case w < 1 || w > gridCols:
+		return fmt.Sprintf("layout_w must be between 1 and %d", gridCols)
+	case x < 0 || x+w > gridCols:
+		return fmt.Sprintf("layout_x must be at least 0 and layout_x + layout_w at most %d", gridCols)
+	case h < 1 || h > gridMaxRows:
+		return fmt.Sprintf("layout_h must be between 1 and %d", gridMaxRows)
+	case y < 0 || y > gridMaxRow:
+		return fmt.Sprintf("layout_y must be between 0 and %d", gridMaxRow)
+	}
+	return ""
+}
+
+// maxImportPanels bounds one import, so a pasted file cannot create an
+// unbounded number of rows.
+const maxImportPanels = 200
+
+// importPanel is one panel in an exported dashboard file. Config may be a JSON
+// object (what the exporter writes) or a JSON string.
+type importPanel struct {
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	PanelType    string          `json:"panel_type"`
+	Query        string          `json:"query"`
+	ConnectionID string          `json:"connection_id"`
+	Config       json.RawMessage `json:"config"`
+	LayoutX      *int            `json:"layout_x"`
+	LayoutY      *int            `json:"layout_y"`
+	LayoutW      *int            `json:"layout_w"`
+	LayoutH      *int            `json:"layout_h"`
+}
+
+type validImportPanel struct {
+	name, description, panelType, query, connectionID, config string
+	x, y, w, h                                                int
+}
+
+// validate checks one imported panel and fills in defaults. The error text
+// names the panel by position so the user can find it in the file.
+func (p importPanel) validate(index int) (validImportPanel, error) {
+	where := fmt.Sprintf("panel %d", index+1)
+	out := validImportPanel{
+		name:         strings.TrimSpace(p.Name),
+		description:  strings.TrimSpace(p.Description),
+		panelType:    strings.TrimSpace(p.PanelType),
+		query:        strings.TrimSpace(p.Query),
+		connectionID: strings.TrimSpace(p.ConnectionID),
+		x:            0, y: 0, w: 6, h: 4,
+	}
+	if out.name == "" {
+		return out, fmt.Errorf("%s: name is required", where)
+	}
+	where = fmt.Sprintf("panel %d (%s)", index+1, out.name)
+	if out.panelType == "" {
+		out.panelType = "table"
+	}
+	if !validPanelType(out.panelType) {
+		return out, fmt.Errorf("%s: %s", where, invalidPanelTypeMessage)
+	}
+	if out.query == "" {
+		if out.panelType != "text" {
+			return out, fmt.Errorf("%s: query is required", where)
+		}
+		out.query = "SELECT 1"
+	}
+
+	raw := strings.TrimSpace(string(p.Config))
+	switch {
+	case raw == "" || raw == "null":
+		out.config = "{}"
+	case strings.HasPrefix(raw, "{"):
+		if !json.Valid([]byte(raw)) {
+			return out, fmt.Errorf("%s: config is not valid JSON", where)
+		}
+		out.config = raw
+	case strings.HasPrefix(raw, `"`):
+		var inner string
+		if err := json.Unmarshal([]byte(raw), &inner); err != nil || !json.Valid([]byte(inner)) {
+			return out, fmt.Errorf("%s: config is not valid JSON", where)
+		}
+		out.config = inner
+	default:
+		return out, fmt.Errorf("%s: config must be an object", where)
+	}
+
+	if p.LayoutX != nil {
+		out.x = *p.LayoutX
+	}
+	if p.LayoutY != nil {
+		out.y = *p.LayoutY
+	}
+	if p.LayoutW != nil {
+		out.w = *p.LayoutW
+	}
+	if p.LayoutH != nil {
+		out.h = *p.LayoutH
+	}
+	if msg := validateLayout(out.x, out.y, out.w, out.h); msg != "" {
+		return out, fmt.Errorf("%s: %s", where, msg)
+	}
+	return out, nil
+}
+
+// ImportDashboard replaces a dashboard's name, description and panels with
+// the content of an exported dashboard file. Every panel is validated before
+// anything changes, and the replacement runs in one transaction: a failure
+// leaves the dashboard exactly as it was.
+func (h *DashboardsHandler) ImportDashboard(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	existing, err := h.DB.GetDashboardByID(id)
+	if err != nil {
+		slog.Error("Failed to get dashboard for import", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to get dashboard")
+		return
+	}
+	if existing == nil {
+		writeError(w, http.StatusNotFound, "Dashboard not found")
+		return
+	}
+
+	var body struct {
+		Dashboard *struct {
+			Name        *string `json:"name"`
+			Description *string `json:"description"`
+		} `json:"dashboard"`
+		Panels []importPanel `json:"panels"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	if body.Dashboard == nil || body.Panels == nil {
+		writeError(w, http.StatusBadRequest, `JSON must have "dashboard" and "panels" fields`)
+		return
+	}
+	if len(body.Panels) > maxImportPanels {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("At most %d panels per dashboard", maxImportPanels))
+		return
+	}
+
+	name := existing.Name
+	if body.Dashboard.Name != nil {
+		name = strings.TrimSpace(*body.Dashboard.Name)
+		if name == "" {
+			writeError(w, http.StatusBadRequest, "Dashboard name cannot be empty")
+			return
+		}
+	}
+	var description interface{}
+	if existing.Description != nil && *existing.Description != "" {
+		description = *existing.Description
+	}
+	if body.Dashboard.Description != nil {
+		description = nil
+		if d := strings.TrimSpace(*body.Dashboard.Description); d != "" {
+			description = d
+		}
+	}
+
+	panels := make([]validImportPanel, 0, len(body.Panels))
+	knownConn := map[string]bool{}
+	for i, p := range body.Panels {
+		v, err := p.validate(i)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		// A file exported from another CH-UI can name a connection that does
+		// not exist here; the panel is kept, without the connection.
+		if v.connectionID != "" {
+			ok, seen := knownConn[v.connectionID]
+			if !seen {
+				c, err := h.DB.GetConnectionByID(v.connectionID)
+				ok = err == nil && c != nil
+				knownConn[v.connectionID] = ok
+			}
+			if !ok {
+				v.connectionID = ""
+			}
+		}
+		panels = append(panels, v)
+	}
+
+	if err := h.replaceDashboardPanels(id, name, description, panels); err != nil {
+		slog.Error("Failed to import dashboard", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to import dashboard")
+		return
+	}
+
+	h.DB.CreateAuditLog(database.AuditLogParams{
+		Action:         "dashboard.imported",
+		Username:       strPtr(middleware.Actor(session)),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		Details:        strPtr(fmt.Sprintf("%s (%d panels)", name, len(panels))),
+	})
+
+	dashboard, err := h.DB.GetDashboardByIDFor(id, middleware.Actor(session))
+	if err != nil || dashboard == nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+		return
+	}
+	saved, err := h.DB.GetPanelsByDashboard(id)
+	if err != nil || saved == nil {
+		saved = []database.Panel{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"dashboard": dashboard, "panels": saved})
+}
+
+// replaceDashboardPanels updates the dashboard row and swaps every panel in
+// one SQLite transaction.
+func (h *DashboardsHandler) replaceDashboardPanels(id, name string, description interface{}, panels []validImportPanel) error {
+	tx, err := h.DB.Conn().Begin()
+	if err != nil {
+		return fmt.Errorf("begin import: %w", err)
+	}
+	defer tx.Rollback()
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := tx.Exec("UPDATE dashboards SET name = ?, description = ?, updated_at = ? WHERE id = ?", name, description, now, id); err != nil {
+		return fmt.Errorf("update dashboard: %w", err)
+	}
+	if _, err := tx.Exec("DELETE FROM panels WHERE dashboard_id = ?", id); err != nil {
+		return fmt.Errorf("delete panels: %w", err)
+	}
+	for _, p := range panels {
+		var connID interface{}
+		if p.connectionID != "" {
+			connID = p.connectionID
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO panels (id, dashboard_id, name, description, panel_type, query, connection_id, config, layout_x, layout_y, layout_w, layout_h, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			uuid.NewString(), id, p.name, p.description, p.panelType, p.query, connID, p.config, p.x, p.y, p.w, p.h, now, now,
+		); err != nil {
+			return fmt.Errorf("insert panel %q: %w", p.name, err)
+		}
+	}
+	return tx.Commit()
+}
+
 // ---------- Panel Query Execution ----------
 
 // ExecutePanelQuery executes a SQL query through the tunnel for a panel.
@@ -918,6 +1232,12 @@ func (h *DashboardsHandler) ExecutePanelQuery(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// The SQL that runs is checked, after macros are expanded, with the same
+	// governance policies the SQL editor applies.
+	if !h.enforceGuardrails(w, r, query) {
+		return
+	}
+
 	password, err := crypto.Decrypt(session.EncryptedPassword, h.Config.AppSecretKey)
 	if err != nil {
 		slog.Error("Failed to decrypt password", "error", err)
@@ -934,7 +1254,7 @@ func (h *DashboardsHandler) ExecutePanelQuery(w http.ResponseWriter, r *http.Req
 	}
 
 	start := time.Now()
-	result, err := h.Gateway.ExecuteQuery(session.ConnectionID, query, session.ClickhouseUser, password, timeout)
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(r.Context(), session.ConnectionID, query, session.ClickhouseUser, password, panelQuerySettings(), timeout)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -959,6 +1279,31 @@ func (h *DashboardsHandler) ExecutePanelQuery(w http.ResponseWriter, r *http.Req
 		"query":      query,
 		"variables":  processed.InterpolatedVars,
 	})
+}
+
+// panelResultRowCap bounds how many rows one panel query returns. Panels
+// render at most a few thousand points or 100 table rows, so a larger result
+// only costs memory in the browser.
+const panelResultRowCap = "100000"
+
+// panelQuerySettings are the ClickHouse settings every authenticated panel
+// query runs with. date_time_output_format=iso makes DateTime values come back
+// as UTC instants ("2026-01-01T10:00:00Z") so the browser never has to guess
+// the server time zone.
+func panelQuerySettings() map[string]string {
+	return map[string]string{
+		"max_result_rows":         panelResultRowCap,
+		"result_overflow_mode":    "break",
+		"date_time_output_format": "iso",
+	}
+}
+
+// enforceGuardrails runs the governance pre-execution check for a panel
+// query. It writes the error response itself and returns false when the query
+// must not run.
+func (h *DashboardsHandler) enforceGuardrails(w http.ResponseWriter, r *http.Request, query string) bool {
+	q := &QueryHandler{DB: h.DB, Config: h.Config, Guardrails: h.Guardrails}
+	return q.enforceGuardrailsForQuery(w, r, query, r.URL.Path)
 }
 
 // ---------- Sharing ----------
@@ -1195,14 +1540,16 @@ func (h *DashboardsHandler) validateShareAccess(share *database.DashboardShare, 
 }
 
 // publicQuerySettings bound what a share link can do with the sharer's
-// credentials: read only, and capped in time and size.
+// credentials: read only, and capped in time and size. DateTime values come
+// back as UTC instants, as for authenticated panel queries.
 var publicQuerySettings = map[string]string{
-	"readonly":             "1",
-	"max_execution_time":   "30",
-	"max_result_rows":      "10000",
-	"max_result_bytes":     "33554432",
-	"result_overflow_mode": "break",
-	"log_comment":          "ch-ui:public-dashboard",
+	"readonly":                "1",
+	"max_execution_time":      "30",
+	"max_result_rows":         "10000",
+	"max_result_bytes":        "33554432",
+	"result_overflow_mode":    "break",
+	"date_time_output_format": "iso",
+	"log_comment":             "ch-ui:public-dashboard",
 }
 
 // resolvePublicShare loads the share behind the URL token and checks expiry
@@ -1308,38 +1655,305 @@ func (h *DashboardsHandler) ExecutePublicQuery(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Snap the range to publicCacheStep so every viewer of a TV dashboard asks
+	// for the same range and shares one cached result.
+	timeRange, rangeKey := snapPublicTimeRange(body.TimeRange, time.Now())
+	key := strings.Join([]string{share.Token, panel.ID, panel.UpdatedAt, rangeKey}, "|")
+
+	cache, limiter := h.publicState()
+	if status, payload, ok := cache.get(key); ok {
+		writePublicPayload(w, status, payload, "HIT")
+		return
+	}
+	// Only requests that reach ClickHouse count against the budget.
+	if !limiter.allow(share.Token + "|" + middleware.ClientIP(r)) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "Rate limit exceeded. Please slow down.")
+		return
+	}
+
+	status, payload := cache.do(key, func() (int, []byte) {
+		return h.runPublicPanel(r, share, query, timeRange)
+	})
+	writePublicPayload(w, status, payload, "MISS")
+}
+
+// runPublicPanel expands the panel macros and runs the query with the
+// sharer's credentials. It returns the HTTP status and the JSON body, so the
+// result can be cached and shared between concurrent viewers.
+func (h *DashboardsHandler) runPublicPanel(r *http.Request, share *database.DashboardShare, query string, timeRange *queryproc.TimeRange) (int, []byte) {
 	processed := queryproc.ProcessQueryVariables(queryproc.ProcessorOptions{
 		Query:         query,
-		TimeRange:     body.TimeRange,
+		TimeRange:     timeRange,
 		MaxDataPoints: 1000,
 	})
 	if len(processed.Errors) > 0 {
-		writeError(w, http.StatusBadRequest, strings.Join(processed.Errors, "; "))
-		return
+		return errorPayload(http.StatusBadRequest, strings.Join(processed.Errors, "; "))
 	}
 
 	query = strings.TrimSpace(processed.Query)
 	if query == "" {
-		writeError(w, http.StatusBadRequest, "Processed query is empty")
-		return
+		return errorPayload(http.StatusBadRequest, "Processed query is empty")
+	}
+
+	// The sharer's governance policies still apply to what the link runs.
+	if h.guardrailsEnabled() {
+		decision, err := h.Guardrails.EvaluateQuery(share.ConnectionID, share.ClickhouseUser, query, r.URL.Path)
+		if err != nil {
+			slog.Error("Guardrail evaluation failed for public panel", "error", err)
+			return errorPayload(http.StatusInternalServerError, "Failed to evaluate governance guardrails")
+		}
+		if !decision.Allowed {
+			return errorPayload(http.StatusForbidden, "Query blocked by governance policy")
+		}
 	}
 
 	password, err := crypto.Decrypt(share.EncryptedPassword, h.Config.AppSecretKey)
 	if err != nil {
 		slog.Error("Failed to decrypt share credentials", "error", err)
-		writeError(w, http.StatusInternalServerError, "Failed to process query")
-		return
+		return errorPayload(http.StatusInternalServerError, "Failed to process query")
 	}
 
+	// Not bound to this request's context: concurrent viewers may be waiting
+	// on the same result.
 	result, qErr := h.Gateway.ExecuteQueryWithSettings(share.ConnectionID, query, share.ClickhouseUser, password, publicQuerySettings, 35*time.Second)
 	if qErr != nil {
-		writeError(w, http.StatusBadGateway, qErr.Error())
-		return
+		return errorPayload(http.StatusBadGateway, qErr.Error())
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	payload, err := json.Marshal(map[string]interface{}{
 		"success": true,
 		"data":    result.Data,
 		"meta":    result.Meta,
+		"rows":    countRows(result.Data),
 	})
+	if err != nil {
+		return errorPayload(http.StatusInternalServerError, "Failed to encode result")
+	}
+	return http.StatusOK, payload
+}
+
+func (h *DashboardsHandler) guardrailsEnabled() bool {
+	if h.Guardrails == nil {
+		return false
+	}
+	return h.Config == nil || h.Config.IsPro()
+}
+
+func errorPayload(status int, message string) (int, []byte) {
+	payload, _ := json.Marshal(map[string]interface{}{"success": false, "error": message})
+	return status, payload
+}
+
+func writePublicPayload(w http.ResponseWriter, status int, payload []byte, cacheState string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", cacheState)
+	w.WriteHeader(status)
+	_, _ = w.Write(payload)
+}
+
+// ---------- Public query cache and rate limit ----------
+
+const (
+	// publicCacheStep is the granularity public time ranges are snapped to,
+	// and publicCacheTTL how long a result is served from memory.
+	publicCacheStep = 15 * time.Second
+	publicCacheTTL  = 20 * time.Second
+
+	publicCacheMaxEntries    = 256
+	publicCacheMaxBytes      = 64 << 20
+	publicCacheMaxEntryBytes = 4 << 20
+
+	// publicQueryBudget is how many uncached panel queries one viewer (share
+	// token and IP) may run per minute: a 25 panel dashboard refreshing every
+	// 30 s needs 50, so this leaves room for range changes and several
+	// screens behind one address.
+	publicQueryBudget = 300
+)
+
+func (h *DashboardsHandler) publicState() (*publicQueryCache, *keyedRateLimiter) {
+	h.publicOnce.Do(func() {
+		h.publicCache = newPublicQueryCache(publicCacheTTL, publicCacheMaxEntries, publicCacheMaxBytes, publicCacheMaxEntryBytes)
+		h.publicLimit = newKeyedRateLimiter(publicQueryBudget, time.Minute)
+	})
+	return h.publicCache, h.publicLimit
+}
+
+// snapPublicTimeRange resolves a requested range against now and widens it to
+// publicCacheStep boundaries: the start is rounded down and the end up, so no
+// data in the requested range is left out. It returns the absolute range to
+// run and the cache key part for it. A missing or invalid range is passed
+// through unchanged, so the macro processor reports it as before.
+func snapPublicTimeRange(tr *queryproc.TimeRange, now time.Time) (*queryproc.TimeRange, string) {
+	if tr == nil {
+		return nil, "none"
+	}
+	from, to, ok := queryproc.BoundsAt(tr, now)
+	if !ok {
+		return tr, "invalid|" + tr.Type + "|" + tr.From + "|" + tr.To
+	}
+	from = from.Truncate(publicCacheStep)
+	if snapped := to.Truncate(publicCacheStep); snapped.Before(to) {
+		to = snapped.Add(publicCacheStep)
+	}
+	return &queryproc.TimeRange{
+		Type: "absolute",
+		From: from.UTC().Format(time.RFC3339),
+		To:   to.UTC().Format(time.RFC3339),
+	}, fmt.Sprintf("%d|%d", from.Unix(), to.Unix())
+}
+
+// publicQueryCache is a small in-memory LRU of public panel results with a
+// TTL. Concurrent misses for the same key share one ClickHouse query.
+type publicQueryCache struct {
+	mu            sync.Mutex
+	ttl           time.Duration
+	maxEntries    int
+	maxBytes      int
+	maxEntryBytes int
+	bytes         int
+	order         *list.List // front is most recently used
+	items         map[string]*list.Element
+	inflight      map[string]*publicCall
+	now           func() time.Time
+}
+
+type publicCacheEntry struct {
+	key     string
+	status  int
+	payload []byte
+	expires time.Time
+}
+
+type publicCall struct {
+	done    chan struct{}
+	status  int
+	payload []byte
+}
+
+func newPublicQueryCache(ttl time.Duration, maxEntries, maxBytes, maxEntryBytes int) *publicQueryCache {
+	return &publicQueryCache{
+		ttl:           ttl,
+		maxEntries:    maxEntries,
+		maxBytes:      maxBytes,
+		maxEntryBytes: maxEntryBytes,
+		order:         list.New(),
+		items:         map[string]*list.Element{},
+		inflight:      map[string]*publicCall{},
+		now:           time.Now,
+	}
+}
+
+func (c *publicQueryCache) get(key string) (int, []byte, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.getLocked(key)
+}
+
+func (c *publicQueryCache) getLocked(key string) (int, []byte, bool) {
+	el, ok := c.items[key]
+	if !ok {
+		return 0, nil, false
+	}
+	e := el.Value.(*publicCacheEntry)
+	if !c.now().Before(e.expires) {
+		c.removeLocked(el)
+		return 0, nil, false
+	}
+	c.order.MoveToFront(el)
+	return e.status, e.payload, true
+}
+
+// do returns the cached result for key, waits for a query already running
+// for it, or runs fn. Only 200 responses are stored.
+func (c *publicQueryCache) do(key string, fn func() (int, []byte)) (int, []byte) {
+	c.mu.Lock()
+	if status, payload, ok := c.getLocked(key); ok {
+		c.mu.Unlock()
+		return status, payload
+	}
+	if call, ok := c.inflight[key]; ok {
+		c.mu.Unlock()
+		<-call.done
+		return call.status, call.payload
+	}
+	call := &publicCall{done: make(chan struct{})}
+	c.inflight[key] = call
+	c.mu.Unlock()
+
+	defer func() {
+		c.mu.Lock()
+		delete(c.inflight, key)
+		if call.status == http.StatusOK && len(call.payload) <= c.maxEntryBytes {
+			c.storeLocked(key, call.status, call.payload)
+		}
+		c.mu.Unlock()
+		close(call.done)
+	}()
+	// A panic in fn still releases the waiters, with a 500.
+	call.status, call.payload = errorPayload(http.StatusInternalServerError, "Internal error")
+	call.status, call.payload = fn()
+	return call.status, call.payload
+}
+
+func (c *publicQueryCache) storeLocked(key string, status int, payload []byte) {
+	if el, ok := c.items[key]; ok {
+		c.removeLocked(el)
+	}
+	el := c.order.PushFront(&publicCacheEntry{key: key, status: status, payload: payload, expires: c.now().Add(c.ttl)})
+	c.items[key] = el
+	c.bytes += len(payload)
+	for c.order.Len() > c.maxEntries || c.bytes > c.maxBytes {
+		c.removeLocked(c.order.Back())
+	}
+}
+
+func (c *publicQueryCache) removeLocked(el *list.Element) {
+	e := el.Value.(*publicCacheEntry)
+	c.order.Remove(el)
+	delete(c.items, e.key)
+	c.bytes -= len(e.payload)
+}
+
+// keyedRateLimiter is a fixed-window limiter keyed by an arbitrary string.
+type keyedRateLimiter struct {
+	mu     sync.Mutex
+	limit  int
+	window time.Duration
+	counts map[string]*keyedWindow
+	lastGC time.Time
+	now    func() time.Time
+}
+
+type keyedWindow struct {
+	count int
+	reset time.Time
+}
+
+func newKeyedRateLimiter(limit int, window time.Duration) *keyedRateLimiter {
+	return &keyedRateLimiter{limit: limit, window: window, counts: map[string]*keyedWindow{}, lastGC: time.Now(), now: time.Now}
+}
+
+func (l *keyedRateLimiter) allow(key string) bool {
+	now := l.now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if now.Sub(l.lastGC) > l.window {
+		for k, w := range l.counts {
+			if now.After(w.reset) {
+				delete(l.counts, k)
+			}
+		}
+		l.lastGC = now
+	}
+	w, ok := l.counts[key]
+	if !ok || now.After(w.reset) {
+		l.counts[key] = &keyedWindow{count: 1, reset: now.Add(l.window)}
+		return true
+	}
+	if w.count >= l.limit {
+		return false
+	}
+	w.count++
+	return true
 }
