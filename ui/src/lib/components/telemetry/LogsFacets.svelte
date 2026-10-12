@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { ChevronRight, ChevronDown } from 'lucide-svelte'
+  import { ChevronRight, ChevronDown, AlertTriangle } from 'lucide-svelte'
   import Badge from '../common/Badge.svelte'
   import Spinner from '../common/Spinner.svelte'
+  import EmptyState from '../common/EmptyState.svelte'
   import type { LogFacets } from '../../types/telemetry'
   import { severityTone } from './severity'
   import { formatNumber } from '../../utils/format'
@@ -9,6 +10,8 @@
   interface Props {
     facets: LogFacets | null
     loading: boolean
+    /** The facets request itself failed. */
+    error?: string | null
     selectedSeverity: string[]
     selectedServices: string[]
     expandedKeys: string[]
@@ -19,17 +22,37 @@
   }
 
   let {
-    facets, loading, selectedSeverity, selectedServices, expandedKeys,
+    facets, loading, error = null, selectedSeverity, selectedServices, expandedKeys,
     ontoggleseverity, ontoggleservice, onexpandkey, onaddfilter,
   }: Props = $props()
+
+  const approxTitle = $derived(
+    facets?.sampled
+      ? `Counted over the first ${formatNumber(facets.rows_scanned)} matching rows, not all of them`
+      : '',
+  )
 </script>
+
+{#snippet heading(label: string)}
+  <h3 class="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-fg-4">
+    {label}
+    {#if facets?.sampled}<Badge title={approxTitle}>approx.</Badge>{/if}
+  </h3>
+{/snippet}
 
 <aside class="flex h-full min-h-0 w-60 shrink-0 flex-col overflow-y-auto border-r border-edge-subtle bg-surface">
   {#if loading && !facets}
     <div class="flex items-center justify-center py-10"><Spinner size="sm" /></div>
+  {:else if error && !facets}
+    <EmptyState size="compact" icon={AlertTriangle} title="Facets failed" description={error} />
   {:else if facets}
+    {#if error || facets.error}
+      <p class="mx-3 mt-3 rounded-md bg-danger-soft px-2 py-1.5 text-xs text-danger" title={error ?? facets.error}>
+        Some facets failed: {error ?? facets.error}
+      </p>
+    {/if}
     <section class="px-3 pt-3">
-      <h3 class="mb-1 text-[11px] font-medium uppercase tracking-wider text-fg-4">Severity</h3>
+      {@render heading('Severity')}
       {#each facets.severity as f (f.value)}
         {@const active = selectedSeverity.includes(f.value)}
         <button
@@ -45,7 +68,7 @@
     </section>
 
     <section class="px-3 pt-4">
-      <h3 class="mb-1 text-[11px] font-medium uppercase tracking-wider text-fg-4">Services</h3>
+      {@render heading('Services')}
       {#each facets.services as f (f.value)}
         {@const active = selectedServices.includes(f.value)}
         <button
@@ -62,7 +85,7 @@
     </section>
 
     <section class="px-3 pb-4 pt-4">
-      <h3 class="mb-1 text-[11px] font-medium uppercase tracking-wider text-fg-4">Attributes</h3>
+      {@render heading('Attributes')}
       {#each facets.attribute_keys as k (k.key)}
         {@const open = expandedKeys.includes(k.key)}
         <button

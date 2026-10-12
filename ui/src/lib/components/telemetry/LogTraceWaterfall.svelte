@@ -9,9 +9,11 @@
     traceSourceId: string
     traceId: string
     highlightSpanId: string
+    /** RFC3339 time of the log line; bounds the span lookup. */
+    timeHint?: string
   }
 
-  let { traceSourceId, traceId, highlightSpanId }: Props = $props()
+  let { traceSourceId, traceId, highlightSpanId, timeHint = '' }: Props = $props()
 
   let traceDetail = $state<TraceDetail | null>(null)
   let traceDetailFor = $state('')
@@ -22,7 +24,7 @@
       const id = traceId
       traceDetailFor = id
       traceDetail = null
-      getTrace(traceSourceId, id)
+      getTrace(traceSourceId, id, timeHint || undefined)
         .then((d) => {
           // Ignore a late answer for a trace that is no longer shown.
           if (traceDetailFor === id) traceDetail = d

@@ -6,6 +6,7 @@
   import Select from '../common/Select.svelte'
   import Tabs from '../common/Tabs.svelte'
   import Spinner from '../common/Spinner.svelte'
+  import Badge from '../common/Badge.svelte'
   import EmptyState from '../common/EmptyState.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import TimeRangeSelector from '../dashboard/TimeRangeSelector.svelte'
@@ -248,6 +249,9 @@
     <div class="flex-1"></div>
     {#if map}
       <span class="text-xs text-fg-4 tabular-nums">{map.nodes.length} services · {map.edges.length} routes</span>
+      {#if map.sampled}
+        <Badge title={`Built from 1 in ${map.sample_rate} traces of ${formatNumber(map.total_spans)} spans; counts are scaled estimates`}>approx.</Badge>
+      {/if}
     {/if}
     <TimeRangeSelector value={range} onchange={setRange} />
     <Button icon variant="ghost" size="sm" aria-label="Refresh" title="Refresh" onclick={() => void run()}>

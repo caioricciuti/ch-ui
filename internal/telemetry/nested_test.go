@@ -54,7 +54,7 @@ func TestTraceSpansSQLNestedColumns(t *testing.T) {
 	m := DefaultTracesMapping()
 	src := &Source{Kind: KindTraces, Database: "default", Table: "otel_traces", Traces: &m}
 
-	sql := TraceSpansSQL(src, "abc")
+	sql := TraceSpansSQL(src, "abc", nil)
 	for _, want := range []string{
 		Quote("Events.Name") + " AS ev_name",
 		Quote("Events.Attributes") + " AS ev_attrs",
@@ -70,7 +70,7 @@ func TestTraceSpansSQLNestedColumns(t *testing.T) {
 	}
 
 	m.Events, m.Links = "", ""
-	off := TraceSpansSQL(src, "abc")
+	off := TraceSpansSQL(src, "abc", nil)
 	for _, want := range []string{"[] AS ev_name", "[] AS ev_time", "[] AS lk_trace"} {
 		if !strings.Contains(off, want) {
 			t.Errorf("unmapped nested columns should yield %s", want)

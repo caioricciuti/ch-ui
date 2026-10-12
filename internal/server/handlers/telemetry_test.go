@@ -78,3 +78,21 @@ func TestStringMapFlattensJSONColumns(t *testing.T) {
 		t.Errorf("extra keys: %v", got)
 	}
 }
+
+func TestAnchorOffsetMatchesRowIdentity(t *testing.T) {
+	after := []map[string]interface{}{
+		{"timestamp_ns": "100", "row_id": "a"},
+		{"timestamp_ns": "100", "row_id": "b"},
+		{"timestamp_ns": "100", "row_id": "c"},
+		{"timestamp_ns": "200", "row_id": "d"},
+	}
+	if got := anchorOffset(after, "100", "c"); got != 2 {
+		t.Errorf("tied rows: anchor must be the matching row, got %d", got)
+	}
+	if got := anchorOffset(after, "100", ""); got != 0 {
+		t.Errorf("no row id: first row at the timestamp, got %d", got)
+	}
+	if got := anchorOffset(after, "100", "zzz"); got != 0 {
+		t.Errorf("row not on the page: fall back to the first row, got %d", got)
+	}
+}

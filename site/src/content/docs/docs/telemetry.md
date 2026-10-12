@@ -108,6 +108,7 @@ combined with `AND`.
 | `service:api*` | Wildcard on a value |
 | `http.status_code:500` | An attribute. Logs look in log, resource and scope attributes; traces in span and resource attributes |
 | `http.status_code:>=500` | Comparison: `>`, `>=`, `<`, `<=`, `!=` (`!=` also works on strings) |
+| `url:http://x/a`, `ts:12:00` | A value runs to the next space, colons included. Quote it when it has spaces |
 | `user.id:*` | The attribute exists |
 | `duration:>200` | Traces: span duration in milliseconds, whatever unit the source stores |
 | `status:error`, `kind:server` | Trace roles, case-insensitive |
@@ -116,6 +117,12 @@ combined with `AND`.
 | `NOT level:debug`, `-level:debug` | Negation |
 | `(a OR b) c` | Grouping |
 | `ScopeName:otel.sdk` | Any real column, written exactly as named |
+
+`-field:value` and `field:!=value` match the same rows: every row where no
+attribute map holds that value, including rows that do not have the key at
+all. An attribute is looked up in each map (log, resource and scope
+attributes), and `!=` must hold in all of them. To keep only rows that have
+the key with another value, add an existence check: `user.id:* -user.id:42`.
 
 The time range defaults to the last hour; pick a preset or an absolute range.
 The whole search, range included, lives in the URL, so a link reproduces the
@@ -128,6 +135,16 @@ the left, a histogram stacked by severity on top (drag across it to zoom into
 a range), and the matching rows below, newest first, loaded as you scroll
 (200 rows per page). Facets show the top 20 severities, 50 services, 50
 attribute keys and 10 values per key.
+
+Each facet ignores its own filter and keeps the others, so picking `ERROR`
+still lists the other severities with their counts, and clicking a value of
+`http.method` still shows the other methods. Only top-level terms of that
+field are ignored; a query with a top-level `OR` is applied as written.
+
+Facet counts are read from a sample of at most 200,000 matching rows. When the
+range holds more, the facet headers carry an **approx.** badge (hover it for
+the sample size) and the counts describe the sample, not the whole range. If a
+facet query fails, the panel says so instead of going blank.
 
 ### Reading the histograms
 
@@ -146,8 +163,13 @@ These notes apply to the Logs histogram and the Traces histogram:
 - If the histogram request fails, the old histogram is cleared and the chart
   shows **No data in this range** rather than keeping stale bars.
 
-**Live tail** polls every five seconds. It pauses while a row is open, when you
-scroll away from the top, and when an absolute range is set.
+**Live tail** asks every five seconds for the rows newer than the newest one on
+screen and adds them on top; the histogram and facets refresh at most every 30
+seconds. The button reads **Paused** while a row is open or the list is
+scrolled away from the top, and is disabled on an absolute range, which has
+no new rows. Paging uses the row's timestamp, trace id, span id and a hash of
+its content, so rows that share a timestamp are neither skipped nor repeated
+between pages.
 
 Click a row to open the side panel:
 
@@ -157,14 +179,21 @@ Click a row to open the side panel:
   for it, filter it out, or copy it.
 - **Trace**: the other logs of the same trace, and the waterfall when a traces
   source is correlated.
-- **Context**: the rows before and after this one from the same service.
+- **Context**: the rows before and after this one from the same service,
+  within an hour on either side. Rows sharing the anchor's timestamp are told
+  apart by their content, so the highlighted row is the one you opened.
 - **Raw**: the record as JSON.
 
-The panel can also copy a link to the row. On the keyboard, `j`/`k` or the
+The panel can also copy a link to the row. The link pins the current range to
+absolute bounds and names the row, so opening it later reopens the same row
+even after a relative range like the last hour has moved on. On the keyboard, `j`/`k` or the
 arrow keys move between rows, `Enter` opens one and `Esc` closes it.
 
-**Saved searches** keep a query for reuse from the search box. They are shared
-on the connection and are part of the community edition.
+**Saved searches** keep a query, its time range and its source for reuse from
+the search box; loading one switches back to that source. Severity and service
+facet selections are not saved: write them into the query
+(`level:error service:api`) to keep them. Saved searches are shared on the
+connection and are part of the community edition.
 
 ## Traces (Pro)
 
@@ -184,6 +213,18 @@ can be collapsed. Click a span for its panel:
 Trace and span ids can be copied from the panel. `j`/`k` move between spans
 and `Esc` closes the panel.
 
+A span counts as an error when its status is `Error` or `STATUS_CODE_ERROR`,
+in any case.
+
+Opening a trace looks its spans up by trace id within a time window, not over
+the whole table. When the exporter's `<traces table>_trace_id_ts` index table
+exists, CH-UI reads the trace's start and end from it and searches that window
+plus one minute either side. Without it, the window is one hour either side of
+the trace's start as listed (or of the log line, when opened from Logs), so spans
+further than an hour away are not shown; a link that carries no time searches
+without a bound. The trace's log lines are read from the span window plus one
+minute either side.
+
 ## Metrics (Pro)
 
 The explorer plots up to four queries at once. Each one picks a metric from the
@@ -193,7 +234,7 @@ group-by on up to two attributes, and a filter in the search language.
 | Metric type | Aggregations |
 |---|---|
 | Gauge | `avg`, `sum`, `min`, `max`, `last`, `count` |
-| Sum | `rate` (default, per second, meant for monotonic counters), `sum`, `avg`, `max`, `last`, `count` |
+| Sum | `rate` (default, per second, cumulative monotonic counters only), `sum`, `avg`, `max`, `last`, `count` |
 | Histogram | `p50`, `p95` (default), `p99` interpolated from the buckets, `avg`, `count` |
 | Exponential histogram | `count`, `avg` |
 | Summary | `count`, `sum`, `avg` |
@@ -201,11 +242,24 @@ group-by on up to two attributes, and a filter in the search language.
 Each query shows up to 20 series. The table under the chart gives last, min,
 max and average per series.
 
+- `rate` is computed per raw series (service, point attributes and resource
+  attributes), so two hosts reporting the same counter are not mixed, and a
+  drop counts as a counter reset. It refuses delta or non-monotonic sums with
+  an error: use `sum` for deltas and `avg` or `last` for up-down counters.
+- Histogram percentiles use, per series, the increase of the bucket counts
+  within each bucket of the chart for cumulative histograms, and the summed
+  counts for delta histograms. `avg` and `count` on a cumulative histogram
+  still read the running totals the exporter stores.
+- A query that reaches the 100,000 row cap shows a **partial data** badge;
+  narrow the range or group by fewer keys.
+
 ## Service map (Pro)
 
-Built from spans whose parent belongs to another service, over at most 500,000
-spans in the selected range. Nodes are services with span counts and error
-rate; edges are calls between them, labelled with calls, errors or p95 latency
+Built from spans whose parent belongs to another service. When the range holds
+more than 500,000 spans, the map samples whole traces (the same traces on the
+caller and callee side, so no call loses its parent), scales the counts back
+up, and shows an **approx.** badge with the sample rate. Nodes are services
+with span counts and error rate; edges are calls between them, labelled with calls, errors or p95 latency
 (switch with the toggle). A routes table below lists each caller and callee
 pair with p50 and p95. Click a service to search its traces.
 
@@ -213,7 +267,9 @@ pair with p50 and p95. Click a service to search its traces.
 
 A monitor is a saved search with a threshold. Every interval it counts the
 matching logs or spans over a window and compares the count with the threshold
-(greater than, at least, less than, at most).
+(greater than, at least, less than, at most). The window ends 60 seconds
+before the evaluation, so rows still on their way from the collector are not
+missed: a 5 minute window evaluated at 10:00:00 counts 09:54:00 to 09:59:00.
 
 | Setting | Range |
 |---|---|
@@ -229,7 +285,15 @@ the [audit log](/docs/audit-log) (`telemetry.monitor.fired`,
 `telemetry.monitor.recovered`); recovery raises no alert event. The monitor row
 shows its last value, state and error.
 
-Monitors run in the background and are checked every 30 seconds. An administrator
+When an evaluation fails (a broken query, a missing table, lost access), the
+monitor goes to the error state and records one `telemetry.monitor` alert
+event titled *evaluation failed*, at `warn` severity, so a silent monitor does
+not pass for a quiet one. It does not emit again while it keeps failing. A
+monitor that was firing, failed, and fires again is still the same incident
+and raises no second firing event.
+
+Monitors run in the background and are checked every 30 seconds, up to four
+at a time, so one slow query does not hold up the rest. An administrator
 can configure **Admin → Connections → Background accounts → Telemetry monitors**
 to use a dedicated ClickHouse account, borrow an active session (the default for
 existing installations), or disable background execution. A dedicated account
@@ -251,7 +315,9 @@ hour"* in plain language and get the underlying query back.
 
 - Every query is a read; there is no write path to your tables.
 - Queries run with `max_execution_time = 25` seconds and
-  `max_result_rows = 100000` (`result_overflow_mode = 'break'`).
+  `max_result_rows = 100000` (`result_overflow_mode = 'break'`). Where that
+  cap can cut an answer silently, the page says so (metrics show
+  **partial data**).
 - Interactive queries run as the signed-in user, through the connection's
   tunnel. They are not written to query history.
 - Identifiers come from verified source mappings; search input is escaped and

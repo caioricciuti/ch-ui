@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -595,6 +596,7 @@ type logsRequest struct {
 	Cursor    string   `json:"cursor"`
 	Keys      []string `json:"keys"`
 	Timestamp string   `json:"timestamp_ns"`
+	RowID     string   `json:"row_id"`
 	Service   string   `json:"service"`
 	Before    int      `json:"before"`
 	After     int      `json:"after"`
@@ -658,6 +660,7 @@ func shapeLogRows(rows []map[string]interface{}) []map[string]interface{} {
 			"attributes":      stringMap(row["attributes"]),
 			"scope_name":      str(row["scope_name"]),
 			"event_name":      str(row["event_name"]),
+			"row_id":          str(row["row_id"]),
 		})
 	}
 	return out
@@ -743,18 +746,80 @@ func (h *TelemetryHandler) SearchLogs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	var next interface{}
+	var next, head, tail interface{}
 	if len(rows) > limit {
 		rows = rows[:limit]
-		last := rows[len(rows)-1]
-		next = telemetry.EncodeCursor(telemetry.Cursor{TimestampNs: str(last["timestamp_ns"]), TraceID: str(last["trace_id"]), SpanID: str(last["span_id"])})
+		next = logCursor(rows[len(rows)-1])
+	}
+	// head and tail let live tail ask for only the rows past the newest
+	// one it has (order asc from the head of a desc page).
+	if len(rows) > 0 {
+		head = logCursor(rows[0])
+		tail = logCursor(rows[len(rows)-1])
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":     true,
 		"rows":        shapeLogRows(rows),
 		"next_cursor": next,
+		"head_cursor": head,
+		"tail_cursor": tail,
 		"took_ms":     time.Since(started).Milliseconds(),
 	})
+}
+
+// logCursor is the keyset position of one search row.
+func logCursor(row map[string]interface{}) string {
+	return telemetry.EncodeCursor(telemetry.Cursor{TimestampNs: str(row["timestamp_ns"]), TraceID: str(row["trace_id"]),
+		SpanID: str(row["span_id"]), RowHash: str(row["row_id"])})
+}
+
+// facetResult collects facet answers: the sample flag, the largest sample
+// any facet aggregated, and the first failure so the UI can show it.
+type facetResult struct {
+	sampled bool
+	scanned int64
+	err     string
+}
+
+type facetValue struct {
+	Value string `json:"value"`
+	Count int64  `json:"count"`
+}
+
+// run executes one facet query built by facetValueSQL.
+func (f *facetResult) run(h *TelemetryHandler, c chCreds, sqlText string) []facetValue {
+	out := []facetValue{}
+	if sqlText == "" {
+		return out
+	}
+	rows, err := h.exec(c, sqlText, telemetrySummaryTimeout)
+	if err != nil {
+		slog.Warn("Telemetry facet query failed", "error", err)
+		if f.err == "" {
+			f.err = err.Error()
+		}
+		return out
+	}
+	for _, row := range rows {
+		out = append(out, facetValue{Value: str(row["value"]), Count: toInt64(row["c"])})
+		total := toInt64(row["total"])
+		if telemetry.FacetSampled(total) {
+			f.sampled = true
+		}
+		if n := telemetry.FacetRowsScanned(total); n > f.scanned {
+			f.scanned = n
+		}
+	}
+	return out
+}
+
+func (f *facetResult) fields(out map[string]interface{}) map[string]interface{} {
+	out["sampled"] = f.sampled
+	out["rows_scanned"] = f.scanned
+	if f.err != "" {
+		out["error"] = f.err
+	}
+	return out
 }
 
 // LogsHistogram returns severity-stacked counts per time bucket.
@@ -813,25 +878,7 @@ func (h *TelemetryHandler) LogsFacets(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	type facet struct {
-		Value string `json:"value"`
-		Count int64  `json:"count"`
-	}
-	valueFacets := func(sqlText string) []facet {
-		out := []facet{}
-		if sqlText == "" {
-			return out
-		}
-		rows, err := h.exec(c, sqlText, telemetrySummaryTimeout)
-		if err != nil {
-			slog.Warn("Telemetry facet query failed", "error", err)
-			return out
-		}
-		for _, row := range rows {
-			out = append(out, facet{Value: str(row["value"]), Count: toInt64(row["c"])})
-		}
-		return out
-	}
+	var fr facetResult
 	type keyFacet struct {
 		Key    string `json:"key"`
 		Count  int64  `json:"count"`
@@ -842,27 +889,28 @@ func (h *TelemetryHandler) LogsFacets(w http.ResponseWriter, r *http.Request) {
 		rows, err := h.exec(c, queries.Keys, telemetrySummaryTimeout)
 		if err != nil {
 			slog.Warn("Telemetry facet keys failed", "error", err)
+			fr.err = err.Error()
 		}
 		for _, row := range rows {
 			keys = append(keys, keyFacet{Key: str(row["k"]), Count: toInt64(row["c"]), Source: str(row["src"])})
 		}
 	}
-	values := map[string][]facet{}
+	values := map[string][]facetValue{}
 	names := make([]string, 0, len(queries.Values))
 	for k := range queries.Values {
 		names = append(names, k)
 	}
 	sort.Strings(names)
 	for _, k := range names {
-		values[k] = valueFacets(queries.Values[k])
+		values[k] = fr.run(h, c, queries.Values[k])
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, fr.fields(map[string]interface{}{
 		"success":        true,
-		"severity":       valueFacets(queries.Severity),
-		"services":       valueFacets(queries.Services),
+		"severity":       fr.run(h, c, queries.Severity),
+		"services":       fr.run(h, c, queries.Services),
 		"attribute_keys": keys,
 		"attributes":     values,
-	})
+	}))
 }
 
 // LogsContext returns rows around an anchor row, same service.
@@ -876,11 +924,10 @@ func (h *TelemetryHandler) LogsContext(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "timestamp_ns is required")
 		return
 	}
-	for _, ch := range ts {
-		if ch < '0' || ch > '9' {
-			writeError(w, http.StatusBadRequest, "timestamp_ns must be digits")
-			return
-		}
+	anchorNs, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil || anchorNs < 0 {
+		writeError(w, http.StatusBadRequest, "timestamp_ns must be digits")
+		return
 	}
 	before, after := body.Before, body.After
 	if before <= 0 || before > 500 {
@@ -889,7 +936,7 @@ func (h *TelemetryHandler) LogsContext(w http.ResponseWriter, r *http.Request) {
 	if after <= 0 || after > 500 {
 		after = 50
 	}
-	beforeSQL, afterSQL := telemetry.ContextSQL(src, ts, body.Service, before, after)
+	beforeSQL, afterSQL := telemetry.ContextSQL(src, anchorNs, body.Service, before, after)
 	beforeRows, err := h.exec(c, beforeSQL, telemetrySearchTimeout)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
@@ -908,9 +955,42 @@ func (h *TelemetryHandler) LogsContext(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":      true,
 		"rows":         shapeLogRows(rows),
-		"anchor_index": len(beforeRows),
+		"anchor_index": len(beforeRows) + anchorOffset(afterRows, ts, body.RowID),
 	})
 }
+
+// anchorOffset finds the anchor among the rows at or after its timestamp:
+// the row with the same timestamp and row id. Rows tied on the timestamp
+// are otherwise indistinguishable, so without a row id (or when the row is
+// not in the page) it falls back to the first row at that timestamp.
+func anchorOffset(after []map[string]interface{}, ts, rowID string) int {
+	if rowID != "" {
+		for i, r := range after {
+			if str(r["timestamp_ns"]) == ts && str(r["row_id"]) == rowID {
+				return i
+			}
+		}
+	}
+	return 0
+}
+
+// traceHintWindow reads an optional ts query parameter (RFC3339) and
+// returns the window around it, or nil.
+func traceHintWindow(r *http.Request, around time.Duration) *telemetry.TimeWindow {
+	raw := strings.TrimSpace(r.URL.Query().Get("ts"))
+	if raw == "" {
+		return nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return nil
+	}
+	return telemetry.Around(t, around, around)
+}
+
+// traceHintAround is how far either side of a UI time hint a trace or its
+// logs are looked up when the exporter's trace-id index is not available.
+const traceHintAround = time.Hour
 
 // LogsByTrace lists every log line of a trace.
 func (h *TelemetryHandler) LogsByTrace(w http.ResponseWriter, r *http.Request) {
@@ -932,7 +1012,7 @@ func (h *TelemetryHandler) LogsByTrace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Source is not a logs source")
 		return
 	}
-	sqlText, err := telemetry.ByTraceSQL(src, traceID)
+	sqlText, err := telemetry.ByTraceSQL(src, traceID, traceHintWindow(r, traceHintAround))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
