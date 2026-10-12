@@ -303,6 +303,9 @@
         {#if result.truncated}
           <Badge tone="warning">truncated to {result.series.length}</Badge>
         {/if}
+        {#if result.rows_truncated}
+          <Badge tone="warning" title="The query hit the row cap: some points are missing. Narrow the range, filter, or group by fewer keys.">partial data</Badge>
+        {/if}
       {/if}
     </div>
 

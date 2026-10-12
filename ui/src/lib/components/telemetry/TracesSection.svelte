@@ -22,7 +22,7 @@
   import { encodeAbsoluteDashboardRange } from '../../utils/dashboard-time'
   import { resolveRange } from './time'
   import { formatNumber, formatRelativeTime } from '../../utils/format'
-  import { formatDuration } from './services'
+  import { formatDuration, isErrorStatus } from './services'
   import { formatFull } from './time'
 
   interface Props {
@@ -38,6 +38,8 @@
   let draft = $state('')
   let range = $state('1h')
   let traceId = $state('')
+  /** Start of the opened trace (RFC3339): bounds the span lookup when the exporter's trace-id index is absent. */
+  let traceTs = $state('')
 
   function readUrl() {
     const p = new URLSearchParams(window.location.search)
@@ -49,6 +51,7 @@
     if (from && to) range = encodeAbsoluteDashboardRange(from, to)
     else if (from) range = from
     traceId = p.get('trace') ?? ''
+    traceTs = p.get('trace_ts') ?? ''
   }
 
   function writeUrl() {
@@ -61,6 +64,7 @@
     set('from', abs ? abs.from : range)
     set('to', abs ? abs.to : '')
     set('trace', traceId)
+    set('trace_ts', traceId ? traceTs : '')
     url.searchParams.delete('sev')
     url.searchParams.delete('svc')
     history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`)
@@ -78,8 +82,10 @@
   let histogramRange = $state<{ from: string; to: string } | undefined>()
   let facets = $state<TraceFacetsT | null>(null)
   let facetsLoading = $state(false)
+  let facetsError = $state<string | null>(null)
   let facetsOpen = $state(true)
   let seq = 0
+  let facetsSeq = 0
 
   function baseRequest() {
     const r = resolveRange(range)
@@ -123,13 +129,19 @@
 
   async function loadFacets() {
     if (!sourceId) return
+    const mySeq = ++facetsSeq
     facetsLoading = true
     try {
-      facets = await tracesFacets(baseRequest())
-    } catch {
-      /* best effort */
+      const res = await tracesFacets(baseRequest())
+      if (mySeq !== facetsSeq) return
+      facets = res
+      facetsError = null
+    } catch (e: unknown) {
+      if (mySeq !== facetsSeq) return
+      facets = null
+      facetsError = e instanceof Error ? e.message : String(e)
     } finally {
-      facetsLoading = false
+      if (mySeq === facetsSeq) facetsLoading = false
     }
   }
 
@@ -168,13 +180,15 @@
     submit()
   }
 
-  function openTrace(id: string) {
+  function openTrace(id: string, start = '') {
     traceId = id
+    traceTs = start
     writeUrl()
   }
 
   function closeTrace() {
     traceId = ''
+    traceTs = ''
     writeUrl()
   }
 
@@ -222,7 +236,7 @@
     primary={{ label: 'Configure sources', onclick: () => setSection('sources') }}
   />
 {:else if traceId}
-  <TraceView {sourceId} {traceId} onback={closeTrace} onfilter={addFilter} />
+  <TraceView {sourceId} {traceId} startHint={traceTs} onback={closeTrace} onfilter={addFilter} />
 {:else}
   <div class="flex h-10 shrink-0 items-center gap-2 border-b border-edge-subtle px-5">
     {#if traceSources.length > 1}
@@ -252,7 +266,7 @@
 
   <div class="flex min-h-0 flex-1">
     {#if facetsOpen}
-      <TraceFacets {facets} loading={facetsLoading} onaddfilter={addFilter} />
+      <TraceFacets {facets} loading={facetsLoading} error={facetsError} onaddfilter={addFilter} />
     {/if}
 
     <div class="flex min-w-0 flex-1 flex-col">
@@ -275,7 +289,7 @@
       {:else}
         <div bind:this={scroller} class="min-h-0 flex-1 overflow-auto px-3 pb-3" onscroll={onScroll}>
           <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
-            <DataTable {columns} rows={rows as unknown as TraceRow[]} rowKey={(r) => String(r.trace_id)} framed={false} emptyTitle="No traces" onrowclick={(r) => openTrace(String(r.trace_id))}>
+            <DataTable {columns} rows={rows as unknown as TraceRow[]} rowKey={(r) => String(r.trace_id)} framed={false} emptyTitle="No traces" onrowclick={(r) => openTrace(String(r.trace_id), String(r.start))}>
               {#snippet cell(raw, col, value)}
                 {@const row = raw as unknown as TraceSummary}
                 {#if col.key === 'root_span'}
@@ -286,7 +300,7 @@
                     {/if}
                   </div>
                 {:else if col.key === 'duration_ms'}
-                  {#if row.status.toLowerCase() === 'error'}
+                  {#if isErrorStatus(row.status)}
                     <Badge tone="danger">{value}</Badge>
                   {:else}
                     <span class="font-mono">{value}</span>

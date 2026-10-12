@@ -48,8 +48,9 @@ func TestMetricQuerySQL(t *testing.T) {
 		"`ServiceName` = 'api'",
 		"`Attributes`['http.status_code'] = '200'",
 		"if(`Attributes`['http.method'] = '', 'other', `Attributes`['http.method']) AS g0",
-		"cityHash64(`ServiceName`, `Attributes`) AS sid",
+		"cityHash64(`ServiceName`, `Attributes`, `ResourceAttributes`) AS sid",
 		"max(`Value`) AS v",
+		"min(toUInt8(`AggregationTemporality` = 2 AND `IsMonotonic`)) AS cum",
 		"toStartOfInterval(`TimeUnix`, INTERVAL 60 second)",
 		"GROUP BY t, g0, sid",
 	} {
@@ -64,7 +65,9 @@ func TestMetricQuerySQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"sumForEach(`BucketCounts`) AS counts", "any(`ExplicitBounds`) AS bounds", "sum(`Count`) AS cnt"} {
+	for _, want := range []string{"sumForEach(`BucketCounts`) AS counts_sum", "argMax(`BucketCounts`, `TimeUnix`) AS counts_last",
+		"argMin(`BucketCounts`, `TimeUnix`) AS counts_first", "any(`ExplicitBounds`) AS bounds", "max(`AggregationTemporality` = 2) AS cum",
+		"cityHash64(`ServiceName`, `Attributes`, `ResourceAttributes`) AS sid", "GROUP BY t, sid"} {
 		if !strings.Contains(sql, want) {
 			t.Errorf("missing %q in\n%s", want, sql)
 		}
@@ -127,6 +130,32 @@ func TestComputeRate(t *testing.T) {
 	if math.Abs(got[180]-2.0) > 1e-9 { // (60 + 60) / 60
 		t.Errorf("t=180: want 2, got %v", got[180])
 	}
+}
+
+func TestHistogramIncrease(t *testing.T) {
+	b := []float64{10}
+	pts := []HistPoint{
+		// Cumulative series a: 5,1 -> 9,3 -> reset to 2,0.
+		{T: 0, SID: "a", Cumulative: true, First: []float64{4, 1}, Last: []float64{5, 1}, Bounds: b},
+		{T: 60, SID: "a", Cumulative: true, First: []float64{6, 2}, Last: []float64{9, 3}, Bounds: b},
+		{T: 120, SID: "a", Cumulative: true, First: []float64{1, 0}, Last: []float64{2, 0}, Bounds: b},
+		// Delta series b: summed as is.
+		{T: 60, SID: "b", Sum: []float64{1, 1}, Bounds: b},
+	}
+	counts, bounds := HistogramIncrease(pts)
+	want := map[int64][]float64{0: {1, 0}, 60: {5, 3}, 120: {2, 0}}
+	for tt, w := range want {
+		got := counts[tt]
+		if len(got) != len(w) || got[0] != w[0] || got[1] != w[1] {
+			t.Errorf("t=%d: want %v, got %v", tt, w, got)
+		}
+		if len(bounds[tt]) != 1 {
+			t.Errorf("t=%d: bounds missing", tt)
+		}
+	}
+	// Summing cumulative counts (the old behaviour) would have reported
+	// 9+6+... for t=60; the increase is 4 in the first bucket, 2 in the
+	// second (+1 from the delta series).
 }
 
 func TestHistogramQuantile(t *testing.T) {

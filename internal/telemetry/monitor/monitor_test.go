@@ -100,7 +100,7 @@ func TestCountSQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountSQL: %v", err)
 	}
-	for _, want := range []string{"SELECT count() AS c FROM `default`.`otel_logs` WHERE", "2026-09-11T09:55:00", "2026-09-11T10:00:00", "lower(`SeverityText`) = 'error'", telemetry.QuerySettings} {
+	for _, want := range []string{"SELECT count() AS c FROM `default`.`otel_logs` WHERE", "2026-09-11T09:54:00", "2026-09-11T09:59:00", "lower(`SeverityText`) = 'error'", telemetry.QuerySettings} {
 		if !strings.Contains(sql, want) {
 			t.Errorf("missing %q in %s", want, sql)
 		}
@@ -134,20 +134,34 @@ func TestShouldEmit(t *testing.T) {
 		name      string
 		firing    bool
 		lastState string
+		lastGood  string
 		want      bool
 	}{
-		{"first firing from ok", true, "ok", true},
-		{"first firing from empty state", true, "", true},
-		{"firing again after an error", true, "error", true},
-		{"still firing, stay quiet", true, "firing", false},
-		{"not firing", false, "ok", false},
-		{"recovered", false, "firing", false},
+		{"first firing from ok", true, "ok", "ok", true},
+		{"first firing from empty state", true, "", "", true},
+		{"firing after ok, error", true, "error", "ok", true},
+		{"firing, error, firing is one incident", true, "error", "firing", false},
+		{"firing after an error, history unknown", true, "error", "", true},
+		{"still firing, stay quiet", true, "firing", "firing", false},
+		{"not firing", false, "ok", "ok", false},
+		{"recovered", false, "firing", "firing", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := ShouldEmit(c.firing, c.lastState); got != c.want {
-				t.Errorf("ShouldEmit(%v, %q) = %v, want %v", c.firing, c.lastState, got, c.want)
+			if got := ShouldEmit(c.firing, c.lastState, c.lastGood); got != c.want {
+				t.Errorf("ShouldEmit(%v, %q, %q) = %v, want %v", c.firing, c.lastState, c.lastGood, got, c.want)
 			}
 		})
+	}
+	if !ShouldEmitError("ok") || !ShouldEmitError("firing") || ShouldEmitError("error") {
+		t.Errorf("only the transition into error emits")
+	}
+}
+
+func TestEvaluationWindowEndsBeforeNow(t *testing.T) {
+	now := time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
+	from, to := EvaluationWindow(&database.TelemetryMonitor{WindowSeconds: 300}, now)
+	if !to.Equal(now.Add(-EvaluationDelay)) || to.Sub(from) != 5*time.Minute {
+		t.Fatalf("window %v .. %v", from, to)
 	}
 }

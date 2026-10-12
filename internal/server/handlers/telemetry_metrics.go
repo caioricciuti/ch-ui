@@ -99,16 +99,10 @@ type metricSeries struct {
 	name   string
 	values map[int64]float64 // bucket -> value (nil = gap)
 	count  int64             // rows contributing (for ranking)
-	// histogram quantile accumulators per bucket
-	hist map[int64]*histAcc
+	// histogram quantile points per raw series
+	hist []telemetry.HistPoint
 	// rate accumulators
 	rate []telemetry.RatePoint
-}
-
-type histAcc struct {
-	counts []float64
-	bounds []float64
-	cnt    float64
 }
 
 // MetricsQuery returns bucketed series for one metric.
@@ -155,6 +149,17 @@ func (h *TelemetryHandler) MetricsQuery(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	if agg == "rate" {
+		for _, row := range rows {
+			if toInt64(row["cum"]) == 0 {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("rate needs a cumulative monotonic counter; %s has delta or non-monotonic points. Use sum (delta) or avg / last (non-monotonic) instead.", body.Metric))
+				return
+			}
+		}
+	}
+	// max_result_rows cuts the answer silently; rate and quantiles read one
+	// row per raw series and bucket, so a busy metric can hit it.
+	rowsTruncated := telemetry.ResultCapped(len(rows))
 
 	// Group rows into series keyed by their labels.
 	seriesByKey := map[string]*metricSeries{}
@@ -184,7 +189,7 @@ func (h *TelemetryHandler) MetricsQuery(w http.ResponseWriter, r *http.Request) 
 			if name == "" {
 				name = body.Metric
 			}
-			s = &metricSeries{labels: labels, name: name, values: map[int64]float64{}, hist: map[int64]*histAcc{}}
+			s = &metricSeries{labels: labels, name: name, values: map[int64]float64{}}
 			seriesByKey[key] = s
 			order = append(order, key)
 		}
@@ -197,16 +202,11 @@ func (h *TelemetryHandler) MetricsQuery(w http.ResponseWriter, r *http.Request) 
 		case agg == "rate":
 			s.rate = append(s.rate, telemetry.RatePoint{T: t, SID: str(row["sid"]), Max: toFloat(row["v"])})
 		case quantile > 0:
-			acc := s.hist[t]
-			if acc == nil {
-				acc = &histAcc{}
-				s.hist[t] = acc
-			}
-			acc.counts = addVectors(acc.counts, floatSlice(row["counts"]))
-			if len(acc.bounds) == 0 {
-				acc.bounds = floatSlice(row["bounds"])
-			}
-			acc.cnt += toFloat(row["cnt"])
+			s.hist = append(s.hist, telemetry.HistPoint{
+				T: t, SID: str(row["sid"]), Cumulative: toInt64(row["cum"]) == 1,
+				Sum: floatSlice(row["counts_sum"]), First: floatSlice(row["counts_first"]), Last: floatSlice(row["counts_last"]),
+				Bounds: floatSlice(row["bounds"]),
+			})
 		default:
 			if v, ok := numeric(row["v"]); ok {
 				s.values[t] = v
@@ -222,8 +222,9 @@ func (h *TelemetryHandler) MetricsQuery(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 		if quantile > 0 {
-			for t, acc := range s.hist {
-				if v := telemetry.HistogramQuantile(acc.bounds, acc.counts, quantile); !math.IsNaN(v) {
+			counts, bounds := telemetry.HistogramIncrease(s.hist)
+			for t, c := range counts {
+				if v := telemetry.HistogramQuantile(bounds[t], c, quantile); !math.IsNaN(v) {
 					s.values[t] = v
 				}
 			}
@@ -284,6 +285,9 @@ func (h *TelemetryHandler) MetricsQuery(w http.ResponseWriter, r *http.Request) 
 	}
 	if truncated {
 		resp["truncated"] = true
+	}
+	if rowsTruncated {
+		resp["rows_truncated"] = true
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -388,16 +392,4 @@ func floatSlice(v interface{}) []float64 {
 		out[i] = toFloat(x)
 	}
 	return out
-}
-
-func addVectors(a, b []float64) []float64 {
-	if len(b) > len(a) {
-		grown := make([]float64, len(b))
-		copy(grown, a)
-		a = grown
-	}
-	for i := range b {
-		a[i] += b[i]
-	}
-	return a
 }

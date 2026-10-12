@@ -17,9 +17,27 @@ import (
 type TracesParams struct {
 	From, To string
 	Q        string
+	// ExcludeField drops that field's top-level terms from Q (facets).
+	ExcludeField string
 }
 
-const tracesFacetSampleLimit = 200000
+// ErrorStatusCond matches an error span status. The exporter writes
+// "Error", other pipelines write the proto enum name STATUS_CODE_ERROR.
+func ErrorStatusCond(expr string) string {
+	return fmt.Sprintf("lower(%s) IN ('error', 'status_code_error')", expr)
+}
+
+// IsErrorStatus is ErrorStatusCond for a value already read.
+func IsErrorStatus(s string) bool {
+	l := strings.ToLower(s)
+	return l == "error" || l == "status_code_error"
+}
+
+// normalizedStatus maps both spellings of the status enum onto Error / Ok
+// / Unset so the aggregates compare one spelling.
+func normalizedStatus(expr string) string {
+	return fmt.Sprintf("multiIf(%s, 'Error', lower(%s) IN ('ok', 'status_code_ok'), 'Ok', 'Unset')", ErrorStatusCond(expr), expr)
+}
 
 // DurationToNs returns the multiplier that converts the mapping's duration
 // unit into nanoseconds.
@@ -53,7 +71,7 @@ func spanBase(src *Source, where string) string {
 	}
 	status := "''"
 	if m.StatusCode != "" {
-		status = Quote(m.StatusCode)
+		status = normalizedStatus(Quote(m.StatusCode))
 	}
 	kind := "''"
 	if m.SpanKind != "" {
@@ -98,7 +116,7 @@ func TracesWhere(src *Source, columns map[string]string, p TracesParams) (string
 		return "", err
 	}
 	if strings.TrimSpace(p.Q) != "" {
-		w, err := query.Compile(p.Q, src.Traces.QuerySchema(columns))
+		w, err := query.CompileExcluding(p.Q, src.Traces.QuerySchema(columns), p.ExcludeField)
 		if err != nil {
 			return "", err
 		}
@@ -169,30 +187,61 @@ type TraceFacetsSQL struct {
 	Services, SpanNames, Status, Kinds string
 }
 
-// BuildTraceFacetsSQL builds the four facet queries over a LIMITed sample.
+// BuildTraceFacetsSQL builds the four facet queries over a LIMITed sample,
+// each with its own field's search terms dropped (see BuildFacetsSQL).
 func BuildTraceFacetsSQL(src *Source, columns map[string]string, p TracesParams) (TraceFacetsSQL, error) {
-	where, err := TracesWhere(src, columns, p)
-	if err != nil {
+	m := src.Traces
+	table := fmt.Sprintf("%s.%s", Quote(src.Database), Quote(src.Table))
+	facet := func(col, field string) (string, error) {
+		if col == "" {
+			return "", nil
+		}
+		own := p
+		own.ExcludeField = field
+		where, err := TracesWhere(src, columns, own)
+		if err != nil {
+			return "", err
+		}
+		return facetValueSQL(table, Quote(col), where, Quote(col), 20, false), nil
+	}
+	var out TraceFacetsSQL
+	var err error
+	if out.Services, err = facet(m.Service, "service"); err != nil {
 		return TraceFacetsSQL{}, err
 	}
-	m := src.Traces
-	facet := func(col string) string {
-		if col == "" {
-			return ""
-		}
-		return fmt.Sprintf("SELECT %s AS value, count() AS c FROM (SELECT %s FROM %s.%s WHERE %s LIMIT %d) GROUP BY value ORDER BY c DESC LIMIT 20 %s",
-			Quote(col), Quote(col), Quote(src.Database), Quote(src.Table), where, tracesFacetSampleLimit, QuerySettings)
+	if out.SpanNames, err = facet(m.SpanName, "span_name"); err != nil {
+		return TraceFacetsSQL{}, err
 	}
-	return TraceFacetsSQL{
-		Services:  facet(m.Service),
-		SpanNames: facet(m.SpanName),
-		Status:    facet(m.StatusCode),
-		Kinds:     facet(m.SpanKind),
-	}, nil
+	if out.Status, err = facet(m.StatusCode, "status"); err != nil {
+		return TraceFacetsSQL{}, err
+	}
+	if out.Kinds, err = facet(m.SpanKind, "kind"); err != nil {
+		return TraceFacetsSQL{}, err
+	}
+	return out, nil
 }
 
-// TraceSpansSQL builds the query that returns every span of one trace.
-func TraceSpansSQL(src *Source, traceID string) string {
+// TraceIDTsTable is the exporter's per-trace time index table name.
+func TraceIDTsTable(src *Source) string {
+	return src.Table + "_trace_id_ts"
+}
+
+// TraceIDTsLookupSQL checks for the exporter's <table>_trace_id_ts table.
+func TraceIDTsLookupSQL(src *Source) string {
+	return fmt.Sprintf("SELECT name FROM system.tables WHERE database = %s AND name = %s",
+		Literal(src.Database), Literal(TraceIDTsTable(src)))
+}
+
+// TraceBoundsSQL reads a trace's first start and last end (unix seconds)
+// from the exporter's <table>_trace_id_ts table.
+func TraceBoundsSQL(src *Source, traceID string) string {
+	return fmt.Sprintf("SELECT count() AS n, toUnixTimestamp(min(Start)) AS s, toUnixTimestamp(max(End)) AS e FROM %s.%s WHERE TraceId = %s %s",
+		Quote(src.Database), Quote(TraceIDTsTable(src)), Literal(traceID), QuerySettings)
+}
+
+// TraceSpansSQL builds the query that returns every span of one trace. A
+// window keeps the lookup off the rest of the table; nil scans it all.
+func TraceSpansSQL(src *Source, traceID string, win *TimeWindow) string {
 	m := src.Traces
 	col := func(role, alias string) string {
 		if role == "" {
@@ -236,8 +285,12 @@ func TraceSpansSQL(src *Source, traceID string) string {
 	} else {
 		parts = append(parts, fmt.Sprintf("arrayMap(x -> formatDateTime(x, '%%Y-%%m-%%dT%%H:%%i:%%S.%%fZ', 'UTC'), %s) AS ev_time", Quote(m.Events+".Timestamp")))
 	}
-	return fmt.Sprintf("SELECT %s FROM %s.%s WHERE %s = %s ORDER BY %s ASC LIMIT 5000 %s",
-		strings.Join(parts, ", "), Quote(src.Database), Quote(src.Table), Quote(m.TraceID), Literal(traceID), Quote(m.Timestamp), QuerySettings)
+	bound := ""
+	if win != nil {
+		bound = " AND " + win.cond(m.Timestamp)
+	}
+	return fmt.Sprintf("SELECT %s FROM %s.%s WHERE %s = %s%s ORDER BY %s ASC LIMIT 5000 %s",
+		strings.Join(parts, ", "), Quote(src.Database), Quote(src.Table), Quote(m.TraceID), Literal(traceID), bound, Quote(m.Timestamp), QuerySettings)
 }
 
 // SpanEvent is one span event in the contract shape.
