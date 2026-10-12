@@ -311,7 +311,8 @@ func (s *Syncer) findCredentials(connectionID string) (CHCredentials, error) {
 // We first try to unmarshal as []map[string]interface{} (JSON format).
 // If that fails we fall back to [][]interface{} (JSONCompact) and combine with meta.
 func (s *Syncer) executeQuery(creds CHCredentials, sql string) ([]map[string]interface{}, error) {
-	result, err := s.gateway.ExecuteQuery(creds.ConnectionID, sql, creds.User, creds.Password, queryTimeout)
+	result, err := s.gateway.ExecuteQueryWithSettings(creds.ConnectionID, sql, creds.User, creds.Password,
+		map[string]string{"log_comment": GovernanceLogComment}, queryTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("query execution failed: %w", err)
 	}

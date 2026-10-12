@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-import { apiGet, apiPut } from './client'
+import { apiGet, apiPost, apiPut } from './client'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -14,7 +14,17 @@ export interface NodeSample {
   parts_max_active: number
   parts_pressure_pct: number
   long_queries: number
+  /** Live only: age of the oldest unfinished mutation. */
+  mutations_oldest_age_seconds?: number
+  /** Live only: fullest disk on the node, absent when unknown. */
+  disk_used_pct?: number
+  /** Metric groups whose collection failed; their numbers read 0 but are unknown. */
+  unknown?: MetricGroup[]
+  /** Listed in system.clusters but returned no data. */
+  down?: boolean
 }
+
+export type MetricGroup = 'replication' | 'merges' | 'mutations' | 'parts' | 'long_queries' | 'disk'
 
 export interface PartsLimits {
   parts_to_throw_insert: number
@@ -29,6 +39,8 @@ export interface HealthSummary {
   threshold_seconds: number
   parts_limits: PartsLimits
   nodes: NodeSample[]
+  /** Error per failed metric group (plus "nodes" when the fan-out failed). */
+  errors?: Record<string, string>
 }
 
 export interface LiveResult {
@@ -92,4 +104,18 @@ export function fetchSettings(): Promise<ClusterHealthSettings> {
 
 export function saveSettings(settings: Partial<ClusterHealthSettings>): Promise<ClusterHealthSettings> {
   return apiPut<ClusterHealthSettings>(`${base}/settings`, settings)
+}
+
+export interface KillResult {
+  success: boolean
+  /** cluster: sent ON CLUSTER; local: the connected node only. */
+  scope: 'cluster' | 'local'
+}
+
+export function killQuery(queryId: string): Promise<KillResult> {
+  return apiPost<KillResult>(`${base}/kill-query`, { query_id: queryId })
+}
+
+export function killMutation(database: string, table: string, mutationId: string): Promise<KillResult> {
+  return apiPost<KillResult>(`${base}/kill-mutation`, { database, table, mutation_id: mutationId })
 }

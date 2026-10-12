@@ -7,6 +7,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -49,6 +50,12 @@ func (h *ClusterHealthHandler) Routes() chi.Router {
 	r.Get("/backups", h.liveHandler(clusterhealth.BackupsQuery, true))
 	r.Get("/long-queries", h.getLongQueries)
 
+	// Kill actions run with the caller's own ClickHouse credentials, so
+	// ClickHouse grants (KILL QUERY, or ALTER on the table for mutations)
+	// decide; CH-UI additionally requires a writer role.
+	r.With(middleware.RequireWriter()).Post("/kill-query", h.KillQuery)
+	r.With(middleware.RequireWriter()).Post("/kill-mutation", h.KillMutation)
+
 	// History & settings read the samples the background harvester stores.
 	// Without a Store, history is empty, settings read as defaults and
 	// updates return 503.
@@ -90,7 +97,16 @@ func (h *ClusterHealthHandler) session(w http.ResponseWriter, r *http.Request) (
 
 // exec runs a single SQL statement and decodes the result rows.
 func (h *ClusterHealthHandler) exec(cs chSession, sql string) ([]map[string]interface{}, error) {
-	result, err := h.Gateway.ExecuteQuery(cs.connID, sql, cs.user, cs.password, clusterHealthQueryTimeout)
+	return h.execWith(cs, sql, nil)
+}
+
+// execWith runs sql with the monitoring settings plus extra (bind parameters).
+func (h *ClusterHealthHandler) execWith(cs chSession, sql string, extra map[string]string) ([]map[string]interface{}, error) {
+	settings := clusterhealth.QuerySettings()
+	for k, v := range extra {
+		settings[k] = v
+	}
+	result, err := h.Gateway.ExecuteQueryWithSettings(cs.connID, sql, cs.user, cs.password, settings, clusterHealthQueryTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -209,13 +225,19 @@ func (h *ClusterHealthHandler) GetSummary(w http.ResponseWriter, r *http.Request
 	exec := clusterhealth.ExecFunc(func(sql string) ([]map[string]interface{}, error) { return h.exec(cs, sql) })
 	capturedAt := time.Now().UTC().Format(time.RFC3339)
 
-	samples, limits, err := clusterhealth.CollectSamples(exec, cluster, threshold, capturedAt)
+	col, err := clusterhealth.CollectSamples(exec, cluster, threshold, capturedAt)
 	degraded := false
 	if err != nil && cluster != "" {
-		// Replication agg failed cluster-wide; retry scoped to the local node.
-		if s2, l2, err2 := clusterhealth.CollectSamples(exec, "", threshold, capturedAt); err2 == nil {
-			samples, limits, degraded = s2, l2, true
+		// The fan-out failed outright; retry scoped to the local node and list
+		// the other nodes as unknown (not down: we could not ask them).
+		if c2, err2 := clusterhealth.CollectSamples(exec, "", threshold, capturedAt); err2 == nil {
+			c2.Samples = clusterhealth.FlagMissingNodes(exec, cluster, c2.Samples, capturedAt, false)
+			col, degraded = c2, true
 		}
+	}
+	errs := col.Errors
+	if errs == nil {
+		errs = map[string]string{}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -224,8 +246,9 @@ func (h *ClusterHealthHandler) GetSummary(w http.ResponseWriter, r *http.Request
 		"degraded":          degraded,
 		"captured_at":       capturedAt,
 		"threshold_seconds": threshold,
-		"parts_limits":      limits,
-		"nodes":             samples,
+		"parts_limits":      col.Limits,
+		"nodes":             col.Samples,
+		"errors":            errs,
 	})
 }
 
@@ -313,6 +336,110 @@ func (h *ClusterHealthHandler) UpdateSettings(w http.ResponseWriter, r *http.Req
 		return
 	}
 	writeJSON(w, http.StatusOK, saved)
+}
+
+// KillQuery cancels a running query by id: KILL QUERY ... ASYNC, ON CLUSTER
+// when the connection is a cluster (falling back to the connected node when
+// distributed DDL is unavailable).
+func (h *ClusterHealthHandler) KillQuery(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		QueryID string `json:"query_id"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	queryID := strings.TrimSpace(body.QueryID)
+	if queryID == "" || len(queryID) > 512 {
+		writeError(w, http.StatusBadRequest, "query_id is required")
+		return
+	}
+	cs, ok := h.session(w, r)
+	if !ok {
+		return
+	}
+	cluster := h.resolveCluster(r, cs)
+	build := func(c string) string {
+		return "KILL QUERY" + clusterhealth.OnCluster(c) + " WHERE query_id = {kill_query_id:String} ASYNC FORMAT JSON"
+	}
+	h.runKill(w, r, cs, cluster, build, map[string]string{"param_kill_query_id": queryID},
+		"cluster_health.query.killed", "query_id="+queryID)
+}
+
+// KillMutation cancels an unfinished mutation, identified by database, table
+// and mutation_id.
+func (h *ClusterHealthHandler) KillMutation(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Database   string `json:"database"`
+		Table      string `json:"table"`
+		MutationID string `json:"mutation_id"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	db, table, id := strings.TrimSpace(body.Database), strings.TrimSpace(body.Table), strings.TrimSpace(body.MutationID)
+	if db == "" || table == "" || id == "" {
+		writeError(w, http.StatusBadRequest, "database, table and mutation_id are required")
+		return
+	}
+	cs, ok := h.session(w, r)
+	if !ok {
+		return
+	}
+	cluster := h.resolveCluster(r, cs)
+	build := func(c string) string {
+		return "KILL MUTATION" + clusterhealth.OnCluster(c) +
+			" WHERE database = {kill_db:String} AND table = {kill_table:String} AND mutation_id = {kill_mutation_id:String} FORMAT JSON"
+	}
+	h.runKill(w, r, cs, cluster, build, map[string]string{
+		"param_kill_db": db, "param_kill_table": table, "param_kill_mutation_id": id,
+	}, "cluster_health.mutation.killed", fmt.Sprintf("%s.%s mutation_id=%s", db, table, id))
+}
+
+// runKill executes a KILL statement (ON CLUSTER first when a cluster is known)
+// with the caller's credentials and records an audit entry on success.
+func (h *ClusterHealthHandler) runKill(w http.ResponseWriter, r *http.Request, cs chSession, cluster string,
+	build func(cluster string) string, params map[string]string, action, details string) {
+	scope := "local"
+	rows, err := h.execWith(cs, build(cluster), params)
+	if err == nil && cluster != "" {
+		scope = "cluster"
+	}
+	if err != nil && cluster != "" {
+		// ON CLUSTER needs distributed DDL (Keeper); without it, kill on the
+		// connected node only.
+		if rows2, err2 := h.execWith(cs, build(""), params); err2 == nil {
+			rows, err = rows2, nil
+		}
+	}
+	if err != nil {
+		slog.Warn("Cluster health kill failed", "action", action, "error", err, "connection", cs.connID)
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if rows == nil {
+		rows = []map[string]interface{}{}
+	}
+	if scope == "local" && len(rows) == 0 {
+		writeError(w, http.StatusNotFound, "Nothing to kill: it may have finished already, or it runs on another node")
+		return
+	}
+	sess := middleware.GetSession(r)
+	actor := middleware.Actor(sess)
+	auditDetails := details + " scope=" + scope
+	if cluster != "" {
+		auditDetails += " cluster=" + cluster
+	}
+	h.DB.CreateAuditLog(database.AuditLogParams{
+		Action:         action,
+		Username:       &actor,
+		ClickhouseUser: &sess.ClickhouseUser,
+		ConnectionID:   &sess.ConnectionID,
+		Details:        &auditDetails,
+		IPAddress:      strPtr(getClientIP(r)),
+	})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "scope": scope, "data": rows})
 }
 
 // parseRange converts a range string into a duration, accepting both Go durations

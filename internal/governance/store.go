@@ -499,7 +499,9 @@ func (s *Store) BatchInsertQueryLog(connectionID string, entries []QueryLogEntry
 	return nil
 }
 
-// InsertQueryLogBatch is an alias for BatchInsertQueryLog that also returns inserted count.
+// InsertQueryLogBatch is an alias for BatchInsertQueryLog that also returns
+// inserted count. It sets Inserted on each entry that was new (a query_id
+// already stored for the connection is ignored).
 func (s *Store) InsertQueryLogBatch(entries []QueryLogEntry) (int, error) {
 	if len(entries) == 0 {
 		return 0, nil
@@ -523,7 +525,8 @@ func (s *Store) InsertQueryLogBatch(entries []QueryLogEntry) (int, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	inserted := 0
 
-	for _, e := range entries {
+	for i := range entries {
+		e := &entries[i]
 		id := e.ID
 		if id == "" {
 			id = uuid.NewString()
@@ -545,10 +548,14 @@ func (s *Store) InsertQueryLogBatch(entries []QueryLogEntry) (int, error) {
 			return 0, fmt.Errorf("insert query log entry: %w", err)
 		}
 		affected, _ := result.RowsAffected()
+		e.Inserted = affected > 0
 		inserted += int(affected)
 	}
 
 	if err := tx.Commit(); err != nil {
+		for i := range entries {
+			entries[i].Inserted = false
+		}
 		return 0, fmt.Errorf("commit query log batch: %w", err)
 	}
 	return inserted, nil

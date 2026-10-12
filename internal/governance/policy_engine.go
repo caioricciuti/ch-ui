@@ -8,6 +8,7 @@ package governance
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -55,7 +56,7 @@ func EvaluatePolicies(connectionID string, entry QueryLogEntry, policies []Polic
 		}
 
 		// Check whether the query touches the object protected by this policy.
-		if !queryTouchesObject(tablesUsed, entry.QueryText, policy) {
+		if !queryTouchesObject(tablesUsed, entry.QueryText, policy, columnLookup(store, connectionID)) {
 			continue
 		}
 
@@ -123,9 +124,40 @@ func hasRole(userRoles map[string]bool, requiredRole string) bool {
 	return userRoles[strings.ToLower(requiredRole)]
 }
 
+// tableColumnLister is implemented by Store. Stores without it (test fakes)
+// make SELECT * count as touching every column policy on the table.
+type tableColumnLister interface {
+	GetColumns(connectionID, dbName, tableName string) ([]GovColumn, error)
+}
+
+// columnLookup returns the known column names of a table from governance
+// metadata, or nil when they are not known.
+func columnLookup(store interface{}, connectionID string) func(db, table string) []string {
+	lister, ok := store.(tableColumnLister)
+	if !ok || lister == nil {
+		return nil
+	}
+	return func(db, table string) []string {
+		if db == "" || table == "" {
+			return nil
+		}
+		cols, err := lister.GetColumns(connectionID, db, table)
+		if err != nil || len(cols) == 0 {
+			return nil
+		}
+		names := make([]string, 0, len(cols))
+		for _, c := range cols {
+			names = append(names, c.ColumnName)
+		}
+		return names
+	}
+}
+
 // queryTouchesObject determines whether a query (identified by its list of
 // tables used and the raw SQL text) accesses the object described by a policy.
-func queryTouchesObject(tablesUsed []string, queryText string, policy Policy) bool {
+// knownColumns, when not nil, returns the table's columns from governance
+// metadata so SELECT * can be resolved.
+func queryTouchesObject(tablesUsed []string, queryText string, policy Policy, knownColumns func(db, table string) []string) bool {
 	switch strings.ToLower(policy.ObjectType) {
 	case "database":
 		return touchesDatabase(tablesUsed, deref(policy.ObjectDatabase))
@@ -144,7 +176,28 @@ func queryTouchesObject(tablesUsed []string, queryText string, policy Policy) bo
 		if col == "" {
 			return false
 		}
-		return columnMentioned(queryText, col)
+		// A column named only in a "* EXCEPT (...)" list is not read.
+		if columnMentioned(exceptListRe.ReplaceAllString(queryText, " "), col) {
+			return true
+		}
+		// SELECT * (or t.*) reads every column of the table, unless the
+		// column is listed in its EXCEPT clause. When governance metadata
+		// knows the table's columns and this one is not among them, the
+		// star cannot reach it.
+		if !selectsAllColumnsIncluding(queryText, col) {
+			return false
+		}
+		if knownColumns != nil {
+			if cols := knownColumns(deref(policy.ObjectDatabase), deref(policy.ObjectTable)); len(cols) > 0 {
+				for _, c := range cols {
+					if strings.EqualFold(c, col) {
+						return true
+					}
+				}
+				return false
+			}
+		}
+		return true
 
 	default:
 		return false
@@ -180,7 +233,9 @@ func touchesTable(tablesUsed []string, database, table string) bool {
 		parts := strings.SplitN(t, ".", 2)
 		switch {
 		case len(parts) == 2:
-			if strings.ToLower(parts[0]) == lowerDB && strings.ToLower(parts[1]) == lowerTbl {
+			// A policy without a database protects the table name in any
+			// database.
+			if (lowerDB == "" || strings.ToLower(parts[0]) == lowerDB) && strings.ToLower(parts[1]) == lowerTbl {
 				return true
 			}
 		case len(parts) == 1:
@@ -216,6 +271,28 @@ func columnMentioned(queryText, column string) bool {
 		}
 		idx = pos + 1
 	}
+}
+
+// starSelectRe matches a star select item: "SELECT *", "SELECT DISTINCT *",
+// ", *" and "t.*", with an optional EXCEPT list. count(*) is not matched.
+var starSelectRe = regexp.MustCompile("(?i)(?:\\bSELECT\\s+(?:DISTINCT\\s+)?|,\\s*|[\\w`]\\.)\\*(\\s+EXCEPT\\s*(?:\\(([^)]*)\\)|([\\w`]+)))?")
+
+// exceptListRe matches the column list of "* EXCEPT (a, b)" / "* EXCEPT a".
+var exceptListRe = regexp.MustCompile("(?i)\\*\\s+EXCEPT\\s*(?:\\([^)]*\\)|[\\w`]+)")
+
+// selectsAllColumnsIncluding reports whether the query has a star select
+// item whose EXCEPT list (if any) does not exclude column.
+func selectsAllColumnsIncluding(queryText, column string) bool {
+	for _, m := range starSelectRe.FindAllStringSubmatch(queryText, -1) {
+		if m[1] == "" {
+			return true
+		}
+		excluded := m[2] + "," + m[3]
+		if !columnMentioned(strings.ReplaceAll(excluded, "`", " "), column) {
+			return true
+		}
+	}
+	return false
 }
 
 // isIdentChar returns true for characters that can appear in a SQL identifier.

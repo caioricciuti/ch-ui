@@ -30,7 +30,7 @@ Governance caches ClickHouse metadata and access state in CH-UI's **local SQLite
 | Worker | Source | Strategy | Tick |
 |---|---|---|---|
 | `metadata` | `system.databases`, `system.tables`, `system.columns`, `system.parts` | Full resync with soft deletes | 5 min |
-| `query_log` | `system.query_log` | Watermark-based incremental (timestamp) | 5 min |
+| `query_log` | `system.query_log` | Watermark-based incremental (`event_time_microseconds` plus `query_id`) | 5 min |
 | `access` | `system.users`, `system.roles`, `system.role_grants`, `system.grants` | Full resync | 5 min |
 
 Workers wake every 5 minutes and trigger a sync if data is older than 10 minutes (staleness threshold). You can also trigger syncs manually, full or single type.
@@ -105,6 +105,8 @@ Free-form notes on tables or columns. Multiple notes per object, each with autho
 
 Harvested from `system.users` and `system.roles`. Tracks auth type (`no_password`, `plaintext_password`, `sha256_password`, `double_sha1_password`), host restrictions, and default roles.
 
+Creating a user (`POST /api/governance/access/users`, admin only) runs a plain `CREATE USER`, never `IF NOT EXISTS`. If the name is taken the request fails with `409` and no roles are granted, so an existing account cannot pick up roles by accident.
+
 ### Grants
 
 Harvested from `system.grants`. Tracks `access_type` (SELECT, INSERT, ALTER, CREATE, DROP, etc.), target database/table/column, partial revokes, and grant options.
@@ -159,11 +161,11 @@ Define guardrails that check queries against access rules before or after execut
 
 - **Database-level**: protects all tables in the database
 - **Table-level**: protects a specific table
-- **Column-level**: protects a specific column (word-boundary regex match against query text)
+- **Column-level**: protects a specific column (word-boundary match against query text; `SELECT *` and `t.*` count as touching every column of the table unless the column is in an `EXCEPT` list or governance metadata shows the table has no such column)
 
 ### Evaluation
 
-1. Check if the query touches a protected object (tables extracted from SQL + text heuristic)
+1. Check if the query touches a protected object (tables extracted from SQL + text heuristic). Unqualified table names resolve against the session's current database, or `default` when it is not known
 2. Verify the user's roles from the access matrix
 3. If the user lacks the required role, create a **violation**
 4. If enforcement mode is `block`, reject the query with a 403
@@ -172,7 +174,11 @@ Define guardrails that check queries against access rules before or after execut
 
 The guardrail service runs pre-execution checks on all query endpoints. If access state is stale (>10 minutes), an alert event is emitted but the query is allowed.
 
+Guardrails are advisory. They match the query text, not a parsed plan, and they fail open when access data is stale or missing. The Policies tab says so. Use ClickHouse grants and row policies when a rule must hold.
+
 ## Incidents
+
+Incidents, violations, policies and the Query Audit are admin only: they name other users and hold SQL harvested with privileged credentials. Non-admins see an "Admins only" notice; the Dashboard still shows them the violation and query counts.
 
 Incidents track policy violations through a resolution workflow.
 
@@ -213,7 +219,7 @@ The **Query Audit** section lists the queries the `query_log` worker has harvest
 
 ### What gets harvested
 
-Harvesting is incremental, using the last `event_time` as a watermark. It keeps finished, initial queries (`type = 'QueryFinish'`, `is_initial_query = 1`) that took 10 ms or more, and skips CH-UI's own polls of `system.query_log`, `system.tables`, `system.columns` and `system.grants`. Each entry holds:
+Harvesting is incremental. The watermark is the `event_time_microseconds` and `query_id` of the last stored row, so rows that share a second are never skipped when a batch ends between them, and a failed harvest keeps the old watermark and retries the same window. It keeps initial queries (`is_initial_query = 1`) that finished or failed (`QueryFinish`, `ExceptionBeforeStart`, `ExceptionWhileProcessing`), so denied attempts are audited too. The only queries it leaves out are the governance syncer's own, which it tags with `log_comment = 'ch-ui:governance'` and recognises by that comment together with the harvest user, so setting the comment by hand does not hide a query. An optional minimum duration (see [Settings](#settings)) skips fast successful queries; it is 0 by default. Each entry holds:
 
 - Query ID, query text, user, event time
 - Normalized hash (SHA-256 of the query with literals replaced, for fingerprinting similar queries)
@@ -234,7 +240,7 @@ GET /api/governance/query-log?user=alice&limit=100
 GET /api/governance/query-log/{query_id}
 ```
 
-`GET /api/governance/query-log` returns `{ "entries": [...], "total": N }`.
+`GET /api/governance/query-log` returns `{ "entries": [...], "total": N }`. Both endpoints are admin only, as are `GET /api/governance/violations` and the incident reads. The table detail returns its recent queries to admins only.
 
 ## Settings
 
@@ -265,10 +271,10 @@ Controls which queries the `query_log` worker keeps. It is one setting for the w
 ```bash
 GET /api/governance/query-harvest
 PUT /api/governance/query-harvest
-{ "mode": "always" }
+{ "mode": "always", "min_duration_ms": 0 }
 ```
 
-Both return `{ "mode": "auto", "policy_count": 0, "harvesting": false }`, where `policy_count` is for your current connection and `harvesting` says whether the worker is harvesting it right now. Anyone with Governance access can read the mode; changing it is admin only and is audited as `governance.query_harvest_mode`.
+Both return `{ "mode": "auto", "min_duration_ms": 0, "policy_count": 0, "harvesting": false }`, where `policy_count` is for your current connection and `harvesting` says whether the worker is harvesting it right now. `min_duration_ms` (0 to 3600000, optional on PUT) skips successful queries faster than that; failed and denied queries are always kept. Anyone with Governance access can read the settings; changing them is admin only and is audited as `governance.query_harvest_mode`.
 
 ## Alerts
 

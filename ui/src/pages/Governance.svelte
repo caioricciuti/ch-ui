@@ -9,7 +9,8 @@
 		Trash2,
 		PanelRightOpen,
 		Info,
-		X
+		X,
+		Lock
 	} from 'lucide-svelte';
 	import Spinner from '../lib/components/common/Spinner.svelte';
 	import Combobox from '../lib/components/common/Combobox.svelte';
@@ -49,6 +50,7 @@
 		updateGovernanceSettings
 	} from '../lib/api/governance';
 	import { getSection, setSection } from '../lib/stores/nav.svelte';
+	import { getSession } from '../lib/stores/session.svelte';
 	import type {
 		GovernanceOverview,
 		GovDatabase,
@@ -75,6 +77,8 @@
 	];
 
 	let activeTab = $state<GovernanceTab>('dashboard');
+	// Harvested SQL, violations and incidents are admin-only on the server.
+	const isAdmin = $derived(getSession()?.role === 'admin');
 	let loading = $state<boolean>(false);
 	let syncing = $state<boolean>(false);
 
@@ -306,6 +310,10 @@
 	}
 
 	async function loadQueries() {
+		if (!isAdmin) {
+			queryLog = [];
+			return;
+		}
 		loading = true;
 		try {
 			const logRes = await fetchQueryLog({ user: queryUserFilter || undefined, limit: queryLimit });
@@ -542,7 +550,11 @@
 								{#snippet actions()}
 									<HelpTip text="Policy violations detected per day over the last 7 days." />
 								{/snippet}
-								<MiniTrendChart x={dashboardViolationTrend.x} y={dashboardViolationTrend.y} label="Violations" formatX={dayLabel} color="var(--danger)" fill="var(--danger-soft)" height={110} />
+								{#if isAdmin}
+									<MiniTrendChart x={dashboardViolationTrend.x} y={dashboardViolationTrend.y} label="Violations" formatX={dayLabel} color="var(--danger)" fill="var(--danger-soft)" height={110} />
+								{:else}
+									<EmptyState size="compact" icon={Lock} title="Admins only" description="Violation details are visible to admins. The total is shown above." />
+								{/if}
 							</Panel>
 							<Panel title="Schema changes, last 7 days">
 								{#snippet actions()}
@@ -601,6 +613,8 @@
 											</div>
 										{/each}
 									</div>
+								{:else if !isAdmin}
+									<EmptyState size="compact" icon={Lock} title="Admins only" description="Violations name other users, so only admins can see them." />
 								{:else}
 									<EmptyState size="compact" title="No recent violations" />
 								{/if}
@@ -659,7 +673,9 @@
 			{/if}
 
 			<!-- Query Audit -->
-			{#if activeTab === 'queries'}
+			{#if activeTab === 'queries' && !isAdmin}
+				<EmptyState icon={Lock} title="Admins only" description="The query audit holds every user's SQL text, harvested with privileged credentials, so only admins can open it." />
+			{:else if activeTab === 'queries'}
 				<div class="space-y-5">
 					{#if queryLog.length === 0 && !loading}
 						<p class="flex items-center gap-2 text-[13px] text-fg-3">

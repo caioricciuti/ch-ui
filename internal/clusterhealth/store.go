@@ -98,6 +98,7 @@ func (s *Store) InsertSamples(connectionID, cluster string, samples []Sample) er
 	defer stmt.Close()
 
 	for _, sm := range samples {
+		sm = encodeUnknown(sm)
 		if _, err := stmt.Exec(connectionID, cluster, sm.Node, sm.CapturedAt,
 			sm.ReplicationMaxDelay, sm.ReplicationQueueTotal, sm.ReplicasReadonly,
 			sm.MergesRunning, sm.MutationsPending, sm.PartsMaxActive, sm.PartsPressurePct, sm.LongQueries,
@@ -138,9 +139,62 @@ func (s *Store) GetHistory(connectionID, since string) ([]HistorySample, error) 
 			&hs.PartsPressurePct, &hs.LongQueries); err != nil {
 			return nil, fmt.Errorf("scan history sample: %w", err)
 		}
+		hs.Sample = decodeUnknown(hs.Sample)
 		out = append(out, hs)
 	}
 	return out, rows.Err()
+}
+
+// unknownValue is stored in place of a metric that failed to collect. The
+// sample columns are NOT NULL, and every real value is >= 0, so -1 marks
+// "unknown" without a schema change.
+const unknownValue = -1
+
+// encodeUnknown writes unknownValue into the columns of every failed metric.
+func encodeUnknown(s Sample) Sample {
+	for _, m := range s.Unknown {
+		switch m {
+		case MetricReplication:
+			s.ReplicationMaxDelay, s.ReplicationQueueTotal, s.ReplicasReadonly = unknownValue, unknownValue, unknownValue
+		case MetricMerges:
+			s.MergesRunning = unknownValue
+		case MetricMutations:
+			s.MutationsPending = unknownValue
+		case MetricParts:
+			s.PartsMaxActive, s.PartsPressurePct = unknownValue, unknownValue
+		case MetricLongQueries:
+			s.LongQueries = unknownValue
+		}
+	}
+	return s
+}
+
+// decodeUnknown turns stored unknownValue columns back into Unknown entries
+// (with the value reset to 0). A row with every metric unknown is a node
+// that did not answer the poll, so it reads as Down.
+func decodeUnknown(s Sample) Sample {
+	if s.ReplicationMaxDelay < 0 || s.ReplicationQueueTotal < 0 || s.ReplicasReadonly < 0 {
+		s.ReplicationMaxDelay, s.ReplicationQueueTotal, s.ReplicasReadonly = 0, 0, 0
+		s.markUnknown(MetricReplication)
+	}
+	if s.MergesRunning < 0 {
+		s.MergesRunning = 0
+		s.markUnknown(MetricMerges)
+	}
+	if s.MutationsPending < 0 {
+		s.MutationsPending = 0
+		s.markUnknown(MetricMutations)
+	}
+	if s.PartsMaxActive < 0 || s.PartsPressurePct < 0 {
+		s.PartsMaxActive, s.PartsPressurePct = 0, 0
+		s.markUnknown(MetricParts)
+	}
+	if s.LongQueries < 0 {
+		s.LongQueries = 0
+		s.markUnknown(MetricLongQueries)
+	}
+	s.Down = len(s.Unknown) == len(storedMetrics)
+	return s
 }
 
 // CleanupOldSamples deletes samples older than the given timestamp for a

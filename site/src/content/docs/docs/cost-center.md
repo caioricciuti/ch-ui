@@ -52,7 +52,7 @@ Open the settings drawer (gear icon). The cost model has three knobs:
 
 The defaults approximate on-demand cloud rates (per vCPU-hour, per GB-month of object storage) so the page shows meaningful numbers out of the box; a banner reminds you they are defaults until you save your own. To derive your real CPU rate: instance price ÷ vCPUs, or amortized hardware cost per core-hour.
 
-The model is saved per connection via `GET`/`PUT /api/costs/config`; submitted values are sanitized (rates clamped to sane bounds, currency upper-cased).
+The model is saved per connection via `GET`/`PUT /api/costs/config`; submitted values are sanitized (rates clamped to sane bounds, currency upper-cased). Everyone can read the model, but only admins can change it, and every change is recorded in the audit log as `costs.config.updated`.
 
 ## Mapping users to teams
 

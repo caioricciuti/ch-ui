@@ -57,9 +57,10 @@ func (h *GovernanceHandler) Routes() chi.Router {
 	r.With(middleware.RequireAdmin(h.DB)).Put("/tables/{db}/{table}/columns/{column}/comment", h.UpdateColumnComment)
 	r.Get("/schema-changes", h.ListSchemaChanges)
 
-	// Query Log
-	r.Get("/query-log", h.ListQueryLog)
-	r.Get("/query-log/{query_id}", h.GetQueryByQueryID)
+	// Query Log (admin-only: the harvest runs with privileged credentials and
+	// stores every user's SQL text)
+	r.With(middleware.RequireAdmin(h.DB)).Get("/query-log", h.ListQueryLog)
+	r.With(middleware.RequireAdmin(h.DB)).Get("/query-log/{query_id}", h.GetQueryByQueryID)
 
 	// Query harvest settings (conditional system.query_log harvesting)
 	r.Get("/query-harvest", h.GetQueryHarvestSettings)
@@ -89,16 +90,17 @@ func (h *GovernanceHandler) Routes() chi.Router {
 		pr.With(middleware.RequireAdmin(h.DB)).Delete("/{id}", h.DeletePolicy)
 	})
 
-	// Violations
-	r.Get("/violations", h.ListViolations)
+	// Violations and incidents (admin-only: they name other users and link to
+	// the harvested query text). The overview keeps the counts for everyone.
+	r.With(middleware.RequireAdmin(h.DB)).Get("/violations", h.ListViolations)
 	r.With(middleware.RequireAdmin(h.DB)).Post("/violations/{id}/incident", h.CreateIncidentFromViolation)
 
 	// Incidents
-	r.Get("/incidents", h.ListIncidents)
-	r.Get("/incidents/{id}", h.GetIncident)
+	r.With(middleware.RequireAdmin(h.DB)).Get("/incidents", h.ListIncidents)
+	r.With(middleware.RequireAdmin(h.DB)).Get("/incidents/{id}", h.GetIncident)
 	r.With(middleware.RequireAdmin(h.DB)).Post("/incidents", h.CreateIncident)
 	r.With(middleware.RequireAdmin(h.DB)).Put("/incidents/{id}", h.UpdateIncident)
-	r.Get("/incidents/{id}/comments", h.ListIncidentComments)
+	r.With(middleware.RequireAdmin(h.DB)).Get("/incidents/{id}/comments", h.ListIncidentComments)
 	r.With(middleware.RequireAdmin(h.DB)).Post("/incidents/{id}/comments", h.CreateIncidentComment)
 
 	// Audit logs (admin-only — the trail contains other users' usernames, IPs,
@@ -209,6 +211,11 @@ func (h *GovernanceHandler) GetOverview(w http.ResponseWriter, r *http.Request) 
 		slog.Error("Failed to get governance overview", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to get overview")
 		return
+	}
+	// Non-admins see the counts but not the recent violations, which name
+	// other users (the violation list itself is admin-only).
+	if s := middleware.GetSession(r); overview != nil && (s == nil || s.UserRole != "admin") {
+		overview.RecentViolations = nil
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"overview": overview})
@@ -407,8 +414,13 @@ func (h *GovernanceHandler) GetTableDetail(w http.ResponseWriter, r *http.Reques
 	}
 	table.Tags = tagNames
 
-	// Get recent queries
-	queries, _, _ := h.Store.GetQueryLog(connID, 20, 0, "", dbName+"."+tableName)
+	// Recent queries carry other users' SQL text: admins only.
+	queries := []governance.QueryLogEntry{}
+	if s := middleware.GetSession(r); s != nil && s.UserRole == "admin" {
+		if q, _, err := h.Store.GetQueryLog(connID, 20, 0, "", dbName+"."+tableName); err == nil && q != nil {
+			queries = q
+		}
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"table":          table,
@@ -754,9 +766,10 @@ func (h *GovernanceHandler) GetQueryHarvestSettings(w http.ResponseWriter, r *ht
 
 	mode := h.DB.QueryHarvestMode()
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"mode":         mode,
-		"policy_count": policyCount,
-		"harvesting":   mode == database.QueryHarvestModeAlways || (mode == database.QueryHarvestModeAuto && policyCount > 0),
+		"mode":            mode,
+		"min_duration_ms": governance.QueryHarvestMinDurationMs(h.DB),
+		"policy_count":    policyCount,
+		"harvesting":      mode == database.QueryHarvestModeAlways || (mode == database.QueryHarvestModeAuto && policyCount > 0),
 	})
 }
 
@@ -769,10 +782,18 @@ func (h *GovernanceHandler) UpdateQueryHarvestSettings(w http.ResponseWriter, r 
 	}
 
 	var body struct {
-		Mode string `json:"mode"`
+		Mode          string `json:"mode"`
+		MinDurationMs *int64 `json:"min_duration_ms"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if strings.TrimSpace(body.Mode) == "" {
+		body.Mode = h.DB.QueryHarvestMode()
+	}
+	if body.MinDurationMs != nil && (*body.MinDurationMs < 0 || *body.MinDurationMs > governance.MaxQueryHarvestMinDurationMs) {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("min_duration_ms must be between 0 and %d", governance.MaxQueryHarvestMinDurationMs))
 		return
 	}
 
@@ -780,12 +801,20 @@ func (h *GovernanceHandler) UpdateQueryHarvestSettings(w http.ResponseWriter, r 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	details := fmt.Sprintf(`{"mode":%q}`, strings.ToLower(strings.TrimSpace(body.Mode)))
+	if body.MinDurationMs != nil {
+		if err := governance.SetQueryHarvestMinDurationMs(h.DB, *body.MinDurationMs); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		details = fmt.Sprintf(`{"mode":%q,"min_duration_ms":%d}`, strings.ToLower(strings.TrimSpace(body.Mode)), *body.MinDurationMs)
+	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
 		Action:         "governance.query_harvest_mode",
 		Username:       strPtr(middleware.Actor(session)),
 		ClickhouseUser: &session.ClickhouseUser,
-		Details:        strPtr(fmt.Sprintf(`{"mode":%q}`, strings.ToLower(strings.TrimSpace(body.Mode)))),
+		Details:        strPtr(details),
 		IPAddress:      strPtr(getClientIP(r)),
 	})
 
@@ -1017,15 +1046,13 @@ func (h *GovernanceHandler) CreateChUser(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var createSQL strings.Builder
-	createSQL.WriteString("CREATE USER ")
-	if body.IfNotExists == nil || *body.IfNotExists {
-		createSQL.WriteString("IF NOT EXISTS ")
-	}
-	createSQL.WriteString(escapeIdentifier(name))
-	createSQL.WriteString(buildClickHouseCreateAuthClause(authType, body.Password))
-
-	if err := h.executeClickHouseSQL(creds, createSQL.String()); err != nil {
+	// Plain CREATE USER (if_not_exists is ignored): an existing account must
+	// not silently receive the requested roles.
+	if err := h.executeClickHouseSQL(creds, buildCreateChUserSQL(name, authType, body.Password)); err != nil {
+		if isAccessEntityExistsError(err) {
+			writeError(w, http.StatusConflict, fmt.Sprintf("ClickHouse user %q already exists", name))
+			return
+		}
 		slog.Error("Failed to create ClickHouse user", "connection", session.ConnectionID, "name", name, "error", err)
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
