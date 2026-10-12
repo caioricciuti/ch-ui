@@ -167,7 +167,7 @@ Every artifact is **versioned** and carries its re-runnable definition, so from 
 
 ### Running queries safely
 
-Query-backed artifacts are **read-only only**: `SELECT`, `WITH`, `SHOW`, `DESC`, `DESCRIBE`, `EXPLAIN`. Default timeout 30s (max 5 min). Promoting to a dashboard panel or saved query is an explicit, audited action (`brain.artifact.promoted`); ad-hoc runs are logged as `brain.query.run`.
+Query-backed artifacts are **read-only only**: `SELECT`, `WITH`, `SHOW`, `DESC`, `DESCRIBE`, `EXPLAIN`. They run with ClickHouse `readonly = 1` and return at most 1,000 rows and 16 MB; a `SETTINGS` clause in the SQL is rejected. Default timeout 30s (max 5 min). Promoting to a dashboard panel or saved query is an explicit, audited action (`brain.artifact.promoted`); ad-hoc runs are logged as `brain.query.run`.
 
 ## Storage
 
@@ -178,7 +178,8 @@ Chats, messages, artifacts, and skills are stored in CH-UI's **local SQLite data
 | Control | Value |
 |---|---|
 | Default LIMIT | 100 (enforced in base prompt) |
-| Artifact queries | Read-only only (SELECT, WITH, SHOW, DESC, DESCRIBE, EXPLAIN) |
+| Artifact queries | Read-only only (SELECT, WITH, SHOW, DESC, DESCRIBE, EXPLAIN), ClickHouse `readonly = 1`, 1,000 rows, 16 MB |
+| `run_query` tool | ClickHouse `readonly = 1`, its `limit` (max 1,000) as a row cap, 30s, 16 MB; a `SETTINGS` clause is rejected |
 | Artifact timeout | 30s default, 5 min max |
 | Artifact re-run / promote | Read-only re-run; promote to query/panel is an audited action |
 | Max schema contexts | 10 tables per chat |

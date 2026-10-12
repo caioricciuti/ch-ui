@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -160,10 +161,13 @@ func completeOnce(ctx context.Context, p braincore.Provider, cfg braincore.Provi
 // buildSchemaContext picks the tables most relevant to the question and
 // renders their columns as compact DDL-ish text. Returns the rendered schema
 // and the list of qualified table names included. Introspection goes through
-// the same tunnel query path Brain's tools use (Gateway.ExecuteQuery).
+// the tunnel with readonly=1 and row/time caps, like Brain's tools.
 func (h *BrainHandler) buildSchemaContext(connID, chUser, chPassword, question string) (string, []string) {
 	runSelect := func(sql string, timeout time.Duration) []map[string]any {
-		res, err := h.Gateway.ExecuteQuery(connID, sql, chUser, chPassword, timeout)
+		res, err := h.Gateway.ExecuteQueryWithSettings(connID, sql, chUser, chPassword, map[string]string{
+			"readonly": "1", "max_execution_time": strconv.Itoa(int(timeout.Seconds())),
+			"max_result_rows": "10000", "result_overflow_mode": "break",
+		}, timeout)
 		if err != nil || res == nil {
 			return nil
 		}
@@ -224,7 +228,7 @@ func (h *BrainHandler) buildSchemaContext(connID, chUser, chPassword, question s
 	qualified := make([]string, 0, limit)
 	for _, p := range picked {
 		conds = append(conds, fmt.Sprintf("(database='%s' AND table='%s')",
-			sqlSingleQuote(p.t.db), sqlSingleQuote(p.t.name)))
+			escapeLiteral(p.t.db), escapeLiteral(p.t.name)))
 		qualified = append(qualified, p.t.db+"."+p.t.name)
 	}
 	if len(conds) == 0 {
@@ -292,8 +296,6 @@ func singularize(w string) string {
 	}
 	return w
 }
-
-func sqlSingleQuote(s string) string { return strings.ReplaceAll(s, "'", "''") }
 
 // stripSQLFences removes ```sql fences and surrounding whitespace the model
 // may add despite instructions.

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -504,6 +505,10 @@ func (h *BrainHandler) RunQueryArtifact(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "Only read-only queries are allowed in Brain chat artifacts")
 		return
 	}
+	if brainSettingsClauseRE.MatchString(brainLiteralOrCommentRE.ReplaceAllString(query, " ")) {
+		writeError(w, http.StatusBadRequest, "Remove the SETTINGS clause: Brain queries run with readonly=1 and fixed limits")
+		return
+	}
 
 	password, err := crypto.Decrypt(session.EncryptedPassword, h.Config.AppSecretKey)
 	if err != nil {
@@ -519,7 +524,16 @@ func (h *BrainHandler) RunQueryArtifact(w http.ResponseWriter, r *http.Request) 
 		timeout = 5 * time.Minute
 	}
 
-	result, err := h.Gateway.ExecuteQuery(session.ConnectionID, query, session.ClickhouseUser, password, timeout)
+	// readonly=1 is the real guard: it refuses writes and any setting change
+	// inside the SQL, so the caps below hold.
+	settings := map[string]string{
+		"readonly":             "1",
+		"max_execution_time":   strconv.Itoa(int(timeout.Seconds())),
+		"max_result_rows":      strconv.Itoa(brainArtifactMaxRows),
+		"max_result_bytes":     strconv.Itoa(brainArtifactMaxBytes),
+		"result_overflow_mode": "break",
+	}
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(r.Context(), session.ConnectionID, query, session.ClickhouseUser, password, settings, timeout)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -952,7 +966,24 @@ func autoTitle(prompt string) string {
 	return strings.TrimSpace(t[:48]) + "..."
 }
 
+// Brain chat artifacts are stored in SQLite and rendered in the chat, so a
+// result is capped like the editor's default.
+const (
+	brainArtifactMaxRows  = 1000
+	brainArtifactMaxBytes = 16 << 20
+)
+
+var (
+	brainReadOnlyRE = regexp.MustCompile(`(?is)^\s*(SELECT|WITH|SHOW|DESC|DESCRIBE|EXPLAIN)\b`)
+	// A SETTINGS name = clause, found once literals and comments are
+	// blanked. readonly=1 refuses it, and the gateway's read-only-profile
+	// retry would then drop the caps, so it is rejected up front.
+	brainSettingsClauseRE   = regexp.MustCompile(`(?i)\bSETTINGS\s+[A-Za-z_][A-Za-z0-9_]*\s*=`)
+	brainLiteralOrCommentRE = regexp.MustCompile(`(?s)'(?:[^'\\]|\\.|'')*'|--[^\n]*|/\*.*?\*/`)
+)
+
+// isBrainReadOnlyQuery is a first-line check on the statement kind; the
+// readonly=1 setting the query runs with is the real guard.
 func isBrainReadOnlyQuery(query string) bool {
-	re := regexp.MustCompile(`(?is)^\s*(SELECT|WITH|SHOW|DESC|DESCRIBE|EXPLAIN)\b`)
-	return re.MatchString(query)
+	return brainReadOnlyRE.MatchString(query)
 }

@@ -96,7 +96,7 @@ func TestCompileJSONAttributes(t *testing.T) {
 		{"json exists", "user.id:*", "(has(JSONAllPaths(LogAttributes), 'user.id') OR mapContains(ResourceAttributes, 'user.id'))"},
 		{"json compare", "duration_ms:>100", "(toFloat64OrNull(toString(LogAttributes.`duration_ms`)) > 100 OR toFloat64OrNull(ResourceAttributes['duration_ms']) > 100)"},
 		{"json wildcard", "http.route:/api*", "(toString(LogAttributes.`http`.`route`) ILIKE '/api%' OR ResourceAttributes['http.route'] ILIKE '/api%')"},
-		{"json key with quote", "we`ird:x", "(toString(LogAttributes.`weird`) = 'x' OR ResourceAttributes['we`ird'] = 'x')"},
+		{"json key with quote", "we`ird:x", "(toString(LogAttributes.`we\\`ird`) = 'x' OR ResourceAttributes['we`ird'] = 'x')"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -145,6 +145,9 @@ func registerCatalogTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		if trailingFormatRe.MatchString(sql) {
 			return errResult("omit the FORMAT clause"), nil, nil
 		}
+		if blocked := guardSQL(ctx, deps, ak, sql, nil); blocked != nil {
+			return blocked, nil, nil
+		}
 		rows, err := runCH(ctx, deps, ak, "EXPLAIN ESTIMATE\n"+sql+"\nFORMAT JSON", nil, metaTimeout)
 		if err != nil {
 			return errResult("estimate failed: %v", err), nil, nil
