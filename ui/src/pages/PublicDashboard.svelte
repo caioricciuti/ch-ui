@@ -1,8 +1,11 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import type { Dashboard, Panel, PanelConfig } from '../lib/types/api'
   import type { ColumnMeta } from '../lib/utils/chart-transform'
   import { computeStat } from '../lib/utils/chart-transform'
-  import { toDashboardTimeRangePayload } from '../lib/utils/dashboard-time'
+  import { toDashboardTimeRangePayload, dashboardRangeFromUrlParams, dashboardRangeToUrlParams } from '../lib/utils/dashboard-time'
+  import { setDashboardThemeOverride } from '../lib/components/dashboard/dashboard-theme.svelte'
+  import PanelTable from '../lib/components/dashboard/PanelTable.svelte'
   import { withBase } from '../lib/basePath'
   import { safeParse } from '../lib/utils/safe-json'
   import Spinner from '../lib/components/common/Spinner.svelte'
@@ -13,10 +16,10 @@
   import PiePanel from '../lib/components/dashboard/PiePanel.svelte'
   import TimeRangeSelector from '../lib/components/dashboard/TimeRangeSelector.svelte'
   import {
-    calcColW, gridToPixel, compact, containerHeight,
+    STACK_BELOW, calcColW, gridToPixel, compact, containerHeight, stackLayout,
     type LayoutItem,
   } from '../lib/utils/grid-layout'
-  import { LayoutDashboard, RefreshCw, Lock } from 'lucide-svelte'
+  import { LayoutDashboard, RefreshCw, Lock, Timer } from 'lucide-svelte'
   import logo from '../assets/logo.png'
 
   interface Props {
@@ -25,7 +28,24 @@
 
   let { token }: Props = $props()
 
-  const inviteKey = new URLSearchParams(window.location.search).get('key') ?? ''
+  const urlParams = new URLSearchParams(window.location.search)
+  const inviteKey = urlParams.get('key') ?? ''
+
+  // Link options for wall screens: ?from=&to= (time range), ?theme=dark|light
+  // and ?refresh=30s (auto refresh: s, m or h, at least 5 s).
+  const themeParam = urlParams.get('theme')
+  if (themeParam === 'dark' || themeParam === 'light') setDashboardThemeOverride(themeParam)
+  onDestroy(() => {
+    if (themeParam === 'dark' || themeParam === 'light') setDashboardThemeOverride(null)
+  })
+
+  function parseRefresh(v: string | null): number {
+    const m = /^(\d+)\s*(s|m|h)?$/i.exec((v ?? '').trim())
+    if (!m) return 0
+    const n = Number(m[1]) * ({ s: 1, m: 60, h: 3600 }[(m[2] ?? 's').toLowerCase() as 's' | 'm' | 'h'])
+    return n > 0 ? Math.max(5, n) : 0
+  }
+  const refreshSeconds = parseRefresh(urlParams.get('refresh'))
 
   let dashboard = $state<Dashboard | null>(null)
   let panels = $state<Panel[]>([])
@@ -33,17 +53,18 @@
   let loading = $state(true)
   let error = $state<string | null>(null)
   let isPrivateError = $state(false)
-  let dashboardTimeRange = $state('1h')
+  let dashboardTimeRange = $state(dashboardRangeFromUrlParams(urlParams.get('from'), urlParams.get('to')) ?? '1h')
 
   let gridEl = $state<HTMLDivElement>(undefined!)
   let containerWidth = $state(0)
   const colW = $derived(calcColW(containerWidth))
+  const stacked = $derived(containerWidth > 0 && containerWidth < STACK_BELOW)
 
   const displayLayouts = $derived.by(() => {
     const items: LayoutItem[] = panels.map(p => ({
       id: p.id, x: p.layout_x, y: p.layout_y, w: p.layout_w, h: p.layout_h,
     }))
-    return compact(items)
+    return stacked ? stackLayout(items) : compact(items)
   })
 
   const totalHeight = $derived(containerHeight(displayLayouts))
@@ -109,13 +130,34 @@
     for (const p of panels) runPanelQuery(p)
   }
 
+  // Auto refresh from ?refresh=. A tick is skipped while the previous
+  // refresh is still running, so a slow ClickHouse never piles up queries.
+  let panelsInFlight = 0
+  $effect(() => {
+    if (!refreshSeconds || !dashboard) return
+    const timer = setInterval(() => {
+      if (panelsInFlight === 0) runAllPanelQueries()
+    }, refreshSeconds * 1000)
+    return () => clearInterval(timer)
+  })
+
+  // Per panel request sequence: only the latest request may write a result.
+  const panelSeq = new Map<string, number>()
+
   async function runPanelQuery(p: Panel) {
     if (p.panel_type === 'text') return
 
+    const seq = (panelSeq.get(p.id) ?? 0) + 1
+    panelSeq.set(p.id, seq)
+    const isCurrent = () => panelSeq.get(p.id) === seq
+
+    // Keep the last result on screen while it refreshes.
+    const prev = panelResults.get(p.id)
     const updated = new Map(panelResults)
-    updated.set(p.id, { data: [], meta: [], loading: true })
+    updated.set(p.id, { data: prev?.data ?? [], meta: prev?.meta ?? [], loading: true })
     panelResults = updated
 
+    panelsInFlight++
     try {
       const res = await apiFetch<{ data: Record<string, unknown>[]; meta: ColumnMeta[]; error?: string; success?: boolean }>(
         `/api/public/dashboards/${token}/query`,
@@ -127,6 +169,7 @@
           }),
         },
       )
+      if (!isCurrent()) return
       if (res.success === false) {
         const next = new Map(panelResults)
         next.set(p.id, { data: [], meta: [], error: res.error ?? 'Query failed', loading: false })
@@ -137,14 +180,23 @@
         panelResults = next
       }
     } catch (e: unknown) {
+      if (!isCurrent()) return
       const next = new Map(panelResults)
       next.set(p.id, { data: [], meta: [], error: e instanceof Error ? e.message : 'Query failed', loading: false })
       panelResults = next
+    } finally {
+      panelsInFlight--
     }
   }
 
   function handleTimeRangeChange(nextRange: string) {
     dashboardTimeRange = nextRange
+    // Keep the link shareable: the range goes in the address bar.
+    const url = new URL(window.location.href)
+    const { from, to } = dashboardRangeToUrlParams(nextRange)
+    url.searchParams.set('from', from)
+    url.searchParams.set('to', to)
+    history.replaceState(history.state, '', url)
     runAllPanelQueries()
   }
 
@@ -159,7 +211,7 @@
 
 <div class="flex flex-col h-screen bg-canvas text-fg">
   <!-- Header -->
-  <div class="flex items-center justify-between px-4 py-3 border-b border-edge-subtle shrink-0">
+  <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-edge-subtle shrink-0">
     <div class="flex items-center gap-3">
       <img src={logo} alt="CH-UI" class="w-7 h-7 rounded-lg" />
       {#if dashboard}
@@ -174,6 +226,11 @@
     </div>
     {#if dashboard}
       <div class="flex items-center gap-2">
+        {#if refreshSeconds}
+          <span class="inline-flex items-center gap-1 text-xs text-fg-3" title="Auto refresh">
+            <Timer size={12} class="text-accent" /> {refreshSeconds}s
+          </span>
+        {/if}
         <TimeRangeSelector value={dashboardTimeRange} onchange={handleTimeRangeChange} />
         <button
           class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-edge text-fg-2 hover:bg-hover"
@@ -221,10 +278,10 @@
               <div class="flex items-center px-3 py-2 border-b border-edge-subtle bg-surface-2 shrink-0">
                 <span class="text-xs font-medium text-fg-2 truncate">{panel.name}</span>
               </div>
-              <div class="flex-1 overflow-hidden {panel.panel_type === 'text' ? '' : 'p-2'}">
+              <div class="flex-1 min-h-0 min-w-0 overflow-hidden {panel.panel_type === 'text' ? '' : 'p-2'}">
                 {#if panel.panel_type === 'text'}
                   <MarkdownPanel content={cfg.content ?? ''} />
-                {:else if !result || result.loading}
+                {:else if !result || (result.loading && result.data.length === 0 && result.meta.length === 0)}
                   <div class="flex items-center justify-center h-full"><Spinner size="sm" /></div>
                 {:else if result.error}
                   <p class="text-xs text-danger p-2">{result.error}</p>
@@ -237,30 +294,7 @@
                 {:else if panel.panel_type === 'timeseries' || panel.panel_type === 'bar'}
                   <ChartPanel data={result.data} meta={result.meta} config={cfg} />
                 {:else}
-                  {#if result.meta.length > 0}
-                    <div class="overflow-auto h-full">
-                      <table class="w-full text-xs">
-                        <thead>
-                          <tr class="border-b border-edge-subtle">
-                            {#each result.meta as col}
-                              <th class="text-left py-1 px-2 text-fg-3 font-medium whitespace-nowrap">{col.name}</th>
-                            {/each}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {#each result.data.slice(0, 100) as row}
-                            <tr class="border-b border-edge-subtle">
-                              {#each result.meta as col}
-                                <td class="py-1 px-2 text-fg-2 whitespace-nowrap">{row[col.name] ?? '--'}</td>
-                              {/each}
-                            </tr>
-                          {/each}
-                        </tbody>
-                      </table>
-                    </div>
-                  {:else}
-                    <p class="text-xs text-fg-3 p-2">No data</p>
-                  {/if}
+                  <PanelTable data={result.data} meta={result.meta} />
                 {/if}
               </div>
             </div>

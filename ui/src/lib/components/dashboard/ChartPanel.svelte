@@ -3,9 +3,8 @@
   import uPlot from 'uplot'
   import 'uplot/dist/uPlot.min.css'
   import type { PanelConfig } from '../../types/api'
-  import { toUPlotData, DEFAULT_COLORS, isDateType, isNumericType, type ColumnMeta } from '../../utils/chart-transform'
-  import { getTheme } from '../../stores/theme.svelte'
-  import { tooltipPlugin } from '../../utils/uplot-tooltip'
+  import { toUPlotData, DEFAULT_COLORS, isDateType, isCategoricalColumn, resolveChartColumns, type ColumnMeta } from '../../utils/chart-transform'
+  import { chartTheme, tooltipPlugin } from '../../utils/uplot-tooltip'
 
   interface Props {
     data: Record<string, unknown>[]
@@ -21,28 +20,38 @@
   let measuredWidth = $state(0)
   let measuredHeight = $state(0)
 
+  // Axes as plotted: saved columns, or a sensible pick when none are saved.
+  const axes = $derived(resolveChartColumns(meta, config))
   const plotData = $derived(toUPlotData(data, meta, config))
 
-  const isCategorical = $derived.by(() => {
-    const xMeta = meta.find(m => m.name === config.xColumn)
-    if (!xMeta) return false
-    return !isDateType(xMeta.type) && !isNumericType(xMeta.type)
-  })
+  const isCategorical = $derived(isCategoricalColumn(meta, axes.xColumn))
 
   const xLabels = $derived(
-    isCategorical ? data.map(row => String(row[config.xColumn!] ?? '')) : []
+    isCategorical ? data.map(row => String(row[axes.xColumn ?? ''] ?? '')) : []
   )
 
-  function isDark(): boolean {
-    return getTheme() === 'dark'
-  }
+  // Legend: our own token-styled row (or column), never the uPlot legend.
+  const legendPosition = $derived(config.legendPosition ?? 'bottom')
+  const seriesColors = $derived(config.colors?.length ? config.colors : DEFAULT_COLORS)
+  const legendItems = $derived(
+    axes.yColumns.map((label, i) => ({ label, color: seriesColors[i % seriesColors.length] })),
+  )
+  let hiddenSeries = $state<Set<string>>(new Set())
+  // A string, so a refresh with the same series does not count as a change.
+  const seriesKey = $derived(axes.yColumns.join('\u0000'))
 
-  function axisColor(): string {
-    return isDark() ? '#6b7280' : '#9ca3af'
-  }
+  // A different set of series starts with every series visible again.
+  $effect(() => {
+    void seriesKey
+    hiddenSeries = new Set()
+  })
 
-  function gridColor(): string {
-    return isDark() ? 'rgba(75,85,99,0.3)' : 'rgba(209,213,219,0.5)'
+  function toggleSeries(index: number, label: string) {
+    const next = new Set(hiddenSeries)
+    if (next.has(label)) next.delete(label)
+    else next.add(label)
+    hiddenSeries = next
+    chart?.setSeries(index + 1, { show: !next.has(label) })
   }
 
   function groupedBarPaths(seriesIdx: number, totalSeries: number): uPlot.Series.PathBuilder {
@@ -139,23 +148,26 @@
   }
 
   function buildOpts(w: number, h: number): uPlot.Options {
-    const xMeta = meta.find(m => m.name === config.xColumn)
+    const xMeta = meta.find(m => m.name === axes.xColumn)
     const isTime = xMeta ? isDateType(xMeta.type) : false
     const isCat = isCategorical
     const catLabels = xLabels
-    const colors = config.colors?.length ? config.colors : DEFAULT_COLORS
+    const colors = seriesColors
+    const theme = chartTheme(container)
 
     const series: uPlot.Series[] = [
-      { label: config.xColumn ?? 'X' },
+      { label: axes.xColumn ?? 'X' },
     ]
 
-    const yColumns = config.yColumns ?? []
+    const yColumns = axes.yColumns
     for (let i = 0; i < yColumns.length; i++) {
       const color = colors[i % colors.length]
       const s: uPlot.Series = {
         label: yColumns[i],
         stroke: color,
         width: 2,
+        show: !hiddenSeries.has(yColumns[i]),
+        spanGaps: false,
       }
 
       if (config.chartType === 'bar') {
@@ -200,15 +212,15 @@
       })],
       axes: [
         {
-          stroke: axisColor(),
-          grid: { stroke: gridColor(), width: 1 },
-          ticks: { stroke: gridColor(), width: 1 },
+          stroke: theme.axis,
+          grid: { stroke: theme.grid, width: 1 },
+          ticks: { stroke: theme.grid, width: 1 },
           ...xAxisConfig,
         },
         {
-          stroke: axisColor(),
-          grid: { stroke: gridColor(), width: 1 },
-          ticks: { stroke: gridColor(), width: 1 },
+          stroke: theme.axis,
+          grid: { stroke: theme.grid, width: 1 },
+          ticks: { stroke: theme.grid, width: 1 },
           size: (_self: uPlot, values: string[] | null) => {
             if (!values || values.length === 0) return 50
             const maxLen = Math.max(...values.map(v => v.length))
@@ -309,4 +321,30 @@
   })
 </script>
 
-<div bind:this={container} class="w-full h-full overflow-hidden"></div>
+<div class="flex h-full w-full min-h-0 min-w-0 {legendPosition === 'right' ? 'flex-row gap-2' : 'flex-col gap-1'}">
+  <div bind:this={container} class="min-h-0 min-w-0 flex-1 overflow-hidden"></div>
+  {#if legendPosition !== 'none' && legendItems.length > 0}
+    <ul
+      class="flex shrink-0 text-xs text-fg-3 {legendPosition === 'right'
+        ? 'max-w-[40%] flex-col gap-1 overflow-y-auto'
+        : 'max-h-12 flex-wrap gap-x-3 gap-y-0.5 overflow-y-auto px-1'}"
+      aria-label="Legend"
+    >
+      {#each legendItems as item, i (item.label)}
+        {@const hidden = hiddenSeries.has(item.label)}
+        <li class="min-w-0">
+          <button
+            type="button"
+            class="inline-flex max-w-full items-center gap-1.5 rounded px-1 transition-colors hover:text-fg {hidden ? 'opacity-40' : ''}"
+            aria-pressed={!hidden}
+            title={hidden ? `Show ${item.label}` : `Hide ${item.label}`}
+            onclick={() => toggleSeries(i, item.label)}
+          >
+            <span class="h-2 w-2 shrink-0 rounded-[2px]" style="background:{item.color}"></span>
+            <span class="truncate">{item.label}</span>
+          </button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
+</div>

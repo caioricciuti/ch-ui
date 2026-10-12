@@ -2,7 +2,7 @@
   import type { PanelConfig } from '../../types/api'
   import type { ColumnMeta } from '../../utils/chart-transform'
   import { isNumericType, DEFAULT_COLORS } from '../../utils/chart-transform'
-  import { getTheme } from '../../stores/theme.svelte'
+  import { dashboardIsDark } from './dashboard-theme.svelte'
 
   interface Props {
     data: Record<string, unknown>[]
@@ -17,7 +17,7 @@
   let width = $state(0)
   let height = $state(0)
 
-  const dark = $derived(getTheme() === 'dark')
+  const dark = $derived(dashboardIsDark())
 
   const labelCol = $derived.by(() => {
     if (config.pieLabelColumn && meta.some(m => m.name === config.pieLabelColumn)) return config.pieLabelColumn

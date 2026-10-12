@@ -25,19 +25,21 @@ export function decodeAbsoluteDashboardRange(value: string): { from: string; to:
 function normalizeRelative(value: string, fallback: string): string {
   const trimmed = value.trim()
   if (!trimmed) return fallback
-  const lower = trimmed.toLowerCase()
 
-  if (lower === 'now') return 'now'
+  if (trimmed.toLowerCase() === 'now') return 'now'
 
   // normalize forms like "5min", "now-5 minutes", "2hrs"
-  const match = lower.match(/^(now-)?\s*(\d+)\s*([a-z]+)$/)
+  const match = trimmed.match(/^((?:now|NOW|Now)-)?\s*(\d+)\s*([a-zA-Z]+)$/)
   if (!match) {
     return fallback
   }
 
   const prefix = match[1] ? 'now-' : ''
   const amount = match[2]
-  const rawUnit = match[3]
+  // "M" alone is months and "m" alone is minutes, as in Grafana; every
+  // longer unit is matched without regard to case.
+  if (match[3] === 'M') return `${prefix}${amount}M`
+  const rawUnit = match[3].toLowerCase()
   let unit = 'm'
 
   if (rawUnit === 's' || rawUnit === 'sec' || rawUnit === 'secs' || rawUnit === 'second' || rawUnit === 'seconds') {
@@ -218,4 +220,56 @@ export function toDashboardTimeRangePayload(value: string): DashboardTimeRangePa
     from: normalizeRelative(trimmed, '1h'),
     to: 'now',
   }
+}
+
+// ── URL parameters ─────────────────────────────────────────
+
+/**
+ * The range as ?from=&to= values, Grafana style, so a dashboard link carries
+ * its time range: "now-1h"/"now" for relative ranges, ISO instants for
+ * absolute ones, and the preset name ("preset:today") for named presets.
+ */
+export function dashboardRangeToUrlParams(value: string): { from: string; to: string } {
+  const trimmed = value.trim() || '1h'
+  if (trimmed.startsWith('preset:')) return { from: trimmed, to: 'now' }
+  const absolute = decodeAbsoluteDashboardRange(trimmed)
+  if (absolute) return absolute
+  const payload = toDashboardTimeRangePayload(trimmed)
+  if (payload.type === 'absolute') return { from: payload.from, to: payload.to }
+  const withNow = (v: string) => (v === 'now' || v.startsWith('now-') ? v : `now-${v}`)
+  return { from: withNow(payload.from), to: withNow(payload.to) }
+}
+
+function parseUrlInstant(v: string): string | null {
+  if (/^\d{10,}$/.test(v)) {
+    const n = Number(v)
+    return new Date(v.length <= 10 ? n * 1000 : n).toISOString()
+  }
+  if (!/^\d{4}-\d{2}-\d{2}/.test(v)) return null
+  const t = Date.parse(v)
+  return Number.isNaN(t) ? null : new Date(t).toISOString()
+}
+
+/**
+ * Read ?from=&to= back into a dashboard range value, or null when the
+ * parameters are missing or not understood. Accepts what
+ * dashboardRangeToUrlParams writes, plus epoch milliseconds (as Grafana links
+ * use) and relative values without "now-".
+ */
+export function dashboardRangeFromUrlParams(from: string | null, to: string | null): string | null {
+  const f = (from ?? '').trim()
+  const t = (to ?? '').trim() || 'now'
+  if (!f) return null
+  if (f.startsWith('preset:')) return PRESET_LABELS[f] ? f : null
+
+  const fromInstant = parseUrlInstant(f)
+  const toInstant = t === 'now' ? new Date().toISOString() : parseUrlInstant(t)
+  if (fromInstant && toInstant) return encodeAbsoluteDashboardRange(fromInstant, toInstant)
+  if (fromInstant || (toInstant && t !== 'now')) return null
+
+  const rel = /^(?:now-)?\s*\d+\s*[a-zA-Z]+$/
+  if (!rel.test(f) || (t !== 'now' && !rel.test(t))) return null
+  const short = f.replace(/^now-/, '')
+  if (t === 'now') return short
+  return `now-${short} to ${t.startsWith('now-') ? t : `now-${t}`}`
 }

@@ -77,10 +77,15 @@ DELETE /api/dashboards/{id}
 
 | Type | Use Case |
 |---|---|
-| `table` | Tabular data display (default) |
-| `stat` | Single metric / KPI card |
-| `timeseries` | Line/area chart over time (via uplot) |
-| `bar` | Bar chart (via uplot) |
+| `table` | Tabular data (default). A panel shows the first 100 rows and says "Showing 100 of N rows"; fullscreen shows every row. |
+| `stat` | Single number: last, first, mean, sum, min, max, count or range of a column, with units and color thresholds |
+| `gauge` | Single number on an arc between a min and a max |
+| `timeseries` | Line chart over time |
+| `bar` | Bar chart, grouped or stacked, over time, numbers or categories |
+| `pie` | Pie or donut of a label column and a value column |
+| `text` | Markdown text, no query |
+
+Any other `panel_type` is refused with `400`.
 
 ## Panel Editor
 
@@ -89,71 +94,121 @@ Each panel is configured with:
 | Field | Description | Default |
 |---|---|---|
 | Name | Panel title | Required |
-| Panel Type | `table`, `stat`, `timeseries`, or `bar` | `table` |
-| Query | SQL query (supports template variables) | Required |
-| Config | Chart options (JSON): xColumn, yColumns, colors, legendPosition | `{}` |
+| Panel Type | One of the types above | `table` |
+| Query | SQL query (supports the variables below). Not needed for `text`. | Required |
+| Config | Display options as JSON (below) | `{}` |
 
 ### Chart Config
 
 ```json
 {
   "chartType": "timeseries",
-  "xColumn": "timestamp",
-  "yColumns": ["value", "count"],
-  "colors": ["#3b82f6", "#ef4444"],
+  "xColumn": "ts",
+  "yColumns": ["queries", "errors"],
+  "colors": ["#F97316", "#10B981"],
   "legendPosition": "bottom"
 }
 ```
+
+`legendPosition` is `bottom` (default), `right` or `none`. Click a legend entry to hide or show that series. NULL values are drawn as gaps, not as zero.
+
+Other keys: `barMode` (`grouped` or `stacked`), `gaugeMin` and `gaugeMax`, `pieLabelColumn`, `pieValueColumn` and `pieDonut`, `content` (Markdown for `text`), and for `stat` and `gauge`: `statField`, `statCalculation`, `statUnit`, `statPrefix`, `statSuffix`, `statDecimals`, `statColorMode`, `statThresholds`.
+
+### Time zones
+
+Panel queries run with `date_time_output_format=iso`, so DateTime values arrive as UTC instants and charts show them in the viewer's browser time zone. `Date` values have no time of day and are placed at local midnight, so each point keeps its calendar day.
 
 ## Layout
 
 Panels are arranged on a **12-column grid**. Each panel stores its position:
 
-| Field | Description | Default |
-|---|---|---|
-| `layout_x` | Column offset (0-11) | 0 |
-| `layout_y` | Row offset | 0 |
-| `layout_w` | Width in columns | 6 |
-| `layout_h` | Height in rows | 4 |
+| Field | Description | Default | Allowed |
+|---|---|---|---|
+| `layout_x` | Column offset | 0 | 0 or more, and `layout_x + layout_w` at most 12 |
+| `layout_y` | Row offset | 0 | 0 to 10000 |
+| `layout_w` | Width in columns | 6 | 1 to 12 |
+| `layout_h` | Height in rows | 4 | 1 to 100 |
 
-Drag and resize panels in the UI to adjust layout. Positions are saved automatically.
+A position outside these bounds is refused with `400`. Drag and resize panels in the UI; positions are saved automatically. A new panel is placed below the existing ones. Below 640 px of width (phones), panels stack in one full-width column and cannot be dragged.
+
+## Roles
+
+Viewers can open dashboards, run their panels, change the time range and star dashboards. Adding, editing, moving and deleting panels, renaming, settings, import and sharing need the analyst or admin role, and the UI shows those controls only to them.
+
+Panels run on the connection of your session. A panel saved on another connection says so in its header ("Built on X, running on Y").
 
 ## Time Range
 
-A shared time-range selector applies to all panels in the dashboard.
+A shared time-range selector applies to all panels in the dashboard: quick ranges (last 5 minutes to last 30 days), named ranges (today, yesterday, this or last week, this or last month, last 3 or 6 months) and an absolute range picked on a calendar, in UTC or the browser time zone.
 
-### Presets
+The range is kept in the address bar as `?from=&to=` (for example `?from=now-6h&to=now`, or ISO timestamps for an absolute range; Grafana-style epoch milliseconds are accepted too), so a copied link opens on the same range. Without one, the last range you used is restored (`ch-ui-dashboard-time-range` in localStorage, default `1h`).
 
-`1h`, `6h`, `24h`, `7d`, `30d`, or custom ISO timestamps.
+Relative values are a number and a unit: `s`, `m` (minutes), `h`, `d`, `w`, `M` (months) and `y`, optionally prefixed with `now-`. `M` and `m` are different: `1M` is one month, `1m` is one minute. Long forms such as `15min` or `2months` work too.
 
-Persisted in localStorage (`ch-ui-dashboard-time-range`, default `1h`).
+## Template Variables
 
-### Template Variables
+Panel queries support these variables, replaced before the query runs:
 
-Panel queries support time-range macros that are interpolated before execution:
+| Variable | Replaced with |
+|---|---|
+| `$__timeFilter(col)` | A range predicate on `col`, in parentheses. See below. |
+| `$__timeFilter(col, unit)` | The same, for a column of the given unit: `s`, `ms`, `us`, `ns`, or `datetime` (also for `Date`) |
+| `$__timeFilter` | The same, on the `time_field` of the request (default `timestamp`) |
+| `$__timestamp(col)` | `(col >= toDateTime(<from>) AND col <= toDateTime(<to>))`, with second precision |
+| `$__timeFrom`, `$__timeTo` | The range bounds as epoch milliseconds (or in `time_field_unit` when the request sets one) |
+| `$__interval` | The bucket size in whole seconds: the range divided by `max_data_points` (default 1000), at least 1 |
+| `$__interval_ms` | The same bucket size in milliseconds |
+| `$__timeField` | The request's `time_field` (default `timestamp`) |
+| `$__table` | The request's `table` |
 
-| Variable | Description | Example |
-|---|---|---|
-| `$__from` | Start timestamp (ISO 8601) | `2026-03-15T00:00:00Z` |
-| `$__to` | End timestamp (ISO 8601) | `2026-03-15T01:00:00Z` |
-| `$__interval` | Bucket interval | `1m`, `5m` |
-| `$__rate` | Rate query modifier | None |
+How `$__timeFilter(col)` picks the comparison:
 
-### Example Query
+1. A unit written in the macro wins: `$__timeFilter(created_at, ms)`.
+2. Else the request's `time_field_unit`.
+3. Else a unit suffix on the column name: `_s`, `_ms`, `_us`, `_ns` (`created_ms` is milliseconds).
+4. Else the type is unknown and the predicate matches the range in seconds or in milliseconds:
+   `((col >= <from_s> AND col <= <to_s>) OR (col >= <from_ms> AND col <= <to_ms>))`.
+   This is right for `DateTime`, `DateTime64` and integer epoch columns in seconds or milliseconds, and still uses the primary key. ClickHouse refuses a `Date` column here ("Illegal types"): write `$__timeFilter(col, datetime)`.
+
+With `datetime`, the predicate compares with `fromUnixTimestamp64Milli(<ms>)`, which is right for `Date`, `Date32`, `DateTime` and `DateTime64` columns in any time zone. A `Date` counts as its midnight, so use it with ranges of whole days. The column can be an expression: `$__timeFilter(toUnixTimestamp(event_time), s)`.
+
+### Example Queries
+
+Queries per bucket over the selected range:
 
 ```sql
 SELECT
-  toStartOfInterval(timestamp, INTERVAL $__interval) AS ts,
-  count() AS events
-FROM default.events
-WHERE timestamp BETWEEN '$__from' AND '$__to'
+  toStartOfInterval(event_time, INTERVAL $__interval second) AS ts,
+  count() AS queries
+FROM system.query_log
+WHERE $__timeFilter(event_time)
 GROUP BY ts
 ORDER BY ts
 ```
 
+Millisecond buckets on a DateTime64 column:
+
+```sql
+SELECT
+  toStartOfInterval(event_time_microseconds, toIntervalMillisecond($__interval_ms)) AS ts,
+  count() AS queries
+FROM system.query_log
+WHERE $__timeFilter(event_time)
+GROUP BY ts
+ORDER BY ts
+```
+
+Epoch bounds directly:
+
+```sql
+SELECT count()
+FROM system.query_log
+WHERE toUnixTimestamp64Milli(event_time_microseconds) BETWEEN $__timeFrom AND $__timeTo
+```
+
 ## Panel Query Execution
 
-Panel queries use a dedicated endpoint with time-range interpolation:
+Panel queries use a dedicated endpoint with variable interpolation:
 
 ```bash
 POST /api/dashboards/query
@@ -163,15 +218,16 @@ POST /api/dashboards/query
 {
   "query": "SELECT ...",
   "timeout": 30,
-  "time_range": { "from": "2026-03-15T00:00:00Z", "to": "2026-03-15T01:00:00Z" },
+  "time_range": { "type": "absolute", "from": "2026-03-15T00:00:00Z", "to": "2026-03-15T01:00:00Z" },
   "time_field": "timestamp",
+  "time_field_unit": "ms",
   "max_data_points": 1000
 }
 ```
 
-Timeout max: 5 minutes. `max_data_points` controls downsampling (default 1000).
+`time_range.type` is `relative` (with `from` like `1h` or `now-1h` and `to` like `now`) or `absolute` (ISO timestamps). Timeout max: 5 minutes. Results are capped at 100,000 rows.
 
-The response includes the interpolated query and the resolved variable values.
+The expanded query is checked against your [governance](/docs/governance) policies exactly like a query from the SQL editor; a blocked query gets `403` with `"code": "policy_blocked"`. The response includes the expanded query and the resolved variable values.
 
 ## Panel CRUD
 
@@ -179,20 +235,38 @@ The response includes the interpolated query and the resolved variable values.
 # Create panel
 POST /api/dashboards/{id}/panels
 {
-  "name": "Events per Hour",
+  "name": "Queries per bucket",
   "panel_type": "timeseries",
-  "query": "SELECT toStartOfHour(timestamp) AS ts, count() AS n FROM events WHERE timestamp > '$__from' GROUP BY ts ORDER BY ts",
-  "config": "{\"xColumn\":\"ts\",\"yColumns\":[\"n\"]}",
+  "query": "SELECT toStartOfInterval(event_time, INTERVAL $__interval second) AS ts, count() AS queries FROM system.query_log WHERE $__timeFilter(event_time) GROUP BY ts ORDER BY ts",
+  "config": "{\"chartType\":\"timeseries\",\"xColumn\":\"ts\",\"yColumns\":[\"queries\"]}",
   "layout_x": 0, "layout_y": 0, "layout_w": 12, "layout_h": 4
 }
 
-# Update panel
+# Update panel (only the fields you send change)
 PUT /api/dashboards/{id}/panels/{panelId}
 { "name": "Updated Title", "query": "..." }
 
 # Delete panel
 DELETE /api/dashboards/{id}/panels/{panelId}
 ```
+
+## Import and Export
+
+**Settings → Export / Import** downloads a dashboard as JSON and loads a file into the JSON editor for review. **Apply** replaces the dashboard's name, description and panels:
+
+```bash
+POST /api/dashboards/{id}/import
+{
+  "version": 1,
+  "dashboard": { "name": "Production Metrics", "description": "" },
+  "panels": [
+    { "name": "Queries", "panel_type": "timeseries", "query": "SELECT ...", "config": { "chartType": "timeseries" },
+      "layout_x": 0, "layout_y": 0, "layout_w": 12, "layout_h": 4 }
+  ]
+}
+```
+
+Every panel is validated first (name, type, query, config, layout; at most 200 panels), and the swap runs in one transaction: a bad file is refused with `400` naming the panel, and the dashboard stays as it was. Recorded in the audit log as `dashboard.imported`.
 
 ## Public Sharing
 
@@ -212,4 +286,14 @@ POST /api/dashboards/{id}/shares/{shareId}/invite
 DELETE /api/dashboards/{id}/shares/{shareId}
 ```
 
-Public viewers load the dashboard at `/public/d/<token>`. Their panel queries execute through a token-scoped endpoint (`/api/public/dashboards/{token}/query`). They can only run the queries the dashboard's panels define, never arbitrary SQL, and they never see your connection credentials.
+Public viewers load the dashboard at `/public/d/<token>`. Their panel queries execute through a token-scoped endpoint (`/api/public/dashboards/{token}/query`). They can only run the queries the dashboard's panels define, never arbitrary SQL, and they never see your connection credentials. Queries run read only, for at most 30 seconds and 10,000 rows, and your governance policies apply.
+
+Link options for wall screens and TVs:
+
+| Parameter | Example | Effect |
+|---|---|---|
+| `from`, `to` | `?from=now-24h&to=now` | Time range, as in the app |
+| `theme` | `?theme=light` | `dark` or `light`, for this page only |
+| `refresh` | `?refresh=30s` | Auto refresh: seconds, `m` or `h`, at least 5 s. A refresh is skipped while the previous one is still running. |
+
+Public panel results are cached in memory for 20 seconds, with time ranges rounded to 15 seconds, so many screens showing the same dashboard run each panel once. Queries that miss the cache are limited to 300 per minute per share link and IP address, and all public requests to 1200 per minute per IP address.

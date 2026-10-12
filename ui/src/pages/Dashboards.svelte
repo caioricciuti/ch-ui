@@ -1,12 +1,14 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte'
+  import { onDestroy, untrack } from 'svelte'
   import { goTo, navigate } from '../lib/stores/router.svelte'
   import type { Dashboard, DashboardFolder, Panel } from '../lib/types/api'
   import { apiGet, apiPost, apiPut, apiDel } from '../lib/api/client'
   import { listDashboardFolders, setDashboardStar, deleteDashboard as apiDeleteDashboard } from '../lib/api/dashboards'
   import DashboardBrowser from '../lib/components/dashboard/DashboardBrowser.svelte'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
-  import { toDashboardTimeRangePayload } from '../lib/utils/dashboard-time'
+  import { toDashboardTimeRangePayload, dashboardRangeFromUrlParams, dashboardRangeToUrlParams } from '../lib/utils/dashboard-time'
+  import { nextFreeRow } from '../lib/utils/grid-layout'
+  import { getSession } from '../lib/stores/session.svelte'
   import Button from '../lib/components/common/Button.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
@@ -34,6 +36,11 @@
 
   let { dashboardId }: Props = $props()
 
+  // Viewers are read only: the server refuses their writes, so the page does
+  // not offer them (same rule as the dashboard browser).
+  const session = $derived(getSession())
+  const canWrite = $derived(session?.role !== 'viewer')
+
   // Folders, for the breadcrumb of the detail view
   let folders = $state<DashboardFolder[]>([])
   const folderCrumbs = $derived.by(() => {
@@ -56,6 +63,43 @@
   let detailError = $state<string | null>(null)
   let loadedDashboardId = $state<string | null>(null)
   let dashboardTimeRange = $state(localStorage.getItem('ch-ui-dashboard-time-range') ?? '1h')
+
+  /** The range in the address bar (?from=&to=), so a copied link opens on the same range. */
+  function writeRangeToUrl(range: string) {
+    const url = new URL(window.location.href)
+    const { from, to } = dashboardRangeToUrlParams(range)
+    url.searchParams.set('from', from)
+    url.searchParams.set('to', to)
+    history.replaceState(history.state, '', url)
+  }
+
+  function readRangeFromUrl(): string | null {
+    const params = new URLSearchParams(window.location.search)
+    return dashboardRangeFromUrlParams(params.get('from'), params.get('to'))
+  }
+
+  // Panels built on another connection run on the session's connection;
+  // they say so instead of failing with a confusing error.
+  let connectionNames = $state<Map<string, string>>(new Map())
+  let connectionNamesRequested = false
+
+  function connectionNotice(p: Panel): string | null {
+    const current = session?.connectionId
+    if (!p.connection_id || !current || p.connection_id === current) return null
+    const built = connectionNames.get(p.connection_id) ?? 'another connection'
+    const running = session?.connectionName || 'this connection'
+    return `Built on ${built}, running on ${running}`
+  }
+
+  $effect(() => {
+    const current = session?.connectionId
+    if (connectionNamesRequested || !current) return
+    if (!panels.some((p) => p.connection_id && p.connection_id !== current)) return
+    connectionNamesRequested = true
+    apiGet<{ id: string; name: string }[]>('/api/connections')
+      .then((list) => { connectionNames = new Map(list.map((c) => [c.id, c.name])) })
+      .catch(() => {})
+  })
 
   // Panel editor page
   let panelEditorOpen = $state(false)
@@ -111,6 +155,9 @@
       }, 1000)
       refreshTimer = setInterval(() => {
         refreshCountdown = seconds
+        // A slow dashboard must not pile up queries: skip this tick while
+        // the previous refresh is still running.
+        if (panelsInFlight > 0) return
         runAllPanelQueries()
       }, seconds * 1000)
     }
@@ -153,7 +200,7 @@
   let titleInput = $state('')
 
   function openRename() {
-    if (!currentDashboard) return
+    if (!currentDashboard || !canWrite) return
     titleInput = currentDashboard.name
     renameOpen = true
   }
@@ -171,6 +218,11 @@
     }
     if (loadedDashboardId === id) return
     loadedDashboardId = id
+    untrack(() => {
+      const fromUrl = readRangeFromUrl()
+      if (fromUrl) dashboardTimeRange = fromUrl
+      writeRangeToUrl(dashboardTimeRange)
+    })
     void loadDashboardDetail(id)
     if (folders.length === 0) listDashboardFolders().then((f) => (folders = f)).catch(() => {})
   })
@@ -236,8 +288,18 @@
     for (const p of panelsToRun) runPanelQuery(p)
   }
 
+  // Per panel request sequence: only the latest request for a panel may
+  // write its result, so a slow older response never overwrites a newer one.
+  const panelSeq = new Map<string, number>()
+  let panelsInFlight = 0
+
   async function runPanelQuery(p: Panel) {
     if (p.panel_type === 'text') return
+
+    const seq = (panelSeq.get(p.id) ?? 0) + 1
+    panelSeq.set(p.id, seq)
+    const dashSeq = detailSeq
+    const isCurrent = () => panelSeq.get(p.id) === seq && dashSeq === detailSeq
 
     const existing = panelResults.get(p.id)
     const hasData = existing && (existing.data.length > 0 || existing.meta.length > 0)
@@ -250,25 +312,31 @@
 
     const rangeValue = dashboardTimeRange || '1h'
 
+    panelsInFlight++
     try {
       const res = await apiPost<{ data: Record<string, unknown>[]; meta: ColumnMeta[]; error?: string }>('/api/dashboards/query', {
         query: p.query,
         time_range: toDashboardTimeRangePayload(rangeValue),
       })
+      if (!isCurrent()) return
       const next = new Map(panelResults)
       next.set(p.id, { data: res.data ?? [], meta: res.meta ?? [], loading: false })
       panelResults = next
     } catch (e: unknown) {
+      if (!isCurrent()) return
       const next = new Map(panelResults)
       const prev = panelResults.get(p.id)
       next.set(p.id, { data: prev?.data ?? [], meta: prev?.meta ?? [], error: errorMessage(e), loading: false })
       panelResults = next
+    } finally {
+      panelsInFlight--
     }
   }
 
   function handleTimeRangeChange(nextRange: string) {
     dashboardTimeRange = nextRange
     localStorage.setItem('ch-ui-dashboard-time-range', nextRange)
+    writeRangeToUrl(nextRange)
     runAllPanelQueries()
   }
 
@@ -315,7 +383,7 @@
   async function duplicatePanel(p: Panel) {
     if (!currentDashboard) return
     try {
-      const maxY = panels.reduce((max, pan) => Math.max(max, pan.layout_y + pan.layout_h), 0)
+      const maxY = nextFreeRow(panels.map((pan) => ({ y: pan.layout_y, h: pan.layout_h })))
       const body: Record<string, unknown> = {
         name: p.name + ' (copy)',
         panel_type: p.panel_type,
@@ -417,23 +485,25 @@
         {/each}
         <ChevronRight size={13} class="shrink-0 text-fg-4" />
         <h1
-          class="cursor-text truncate text-[15px] font-semibold tracking-[-0.01em] text-fg"
+          class="truncate text-[15px] font-semibold tracking-[-0.01em] text-fg {canWrite ? 'cursor-text' : ''}"
           ondblclick={openRename}
-          title="Double-click to rename"
+          title={canWrite ? 'Double-click to rename' : undefined}
         >
           {currentDashboard?.name ?? 'Dashboard'}
         </h1>
       </nav>
 
       {#if currentDashboard}
-        <button
-          class="shrink-0 rounded p-0.5 text-fg-4 transition-colors hover:text-fg"
-          onclick={openRename}
-          aria-label="Rename dashboard"
-          title="Rename dashboard"
-        >
-          <Pencil size={13} />
-        </button>
+        {#if canWrite}
+          <button
+            class="shrink-0 rounded p-0.5 text-fg-4 transition-colors hover:text-fg"
+            onclick={openRename}
+            aria-label="Rename dashboard"
+            title="Rename dashboard"
+          >
+            <Pencil size={13} />
+          </button>
+        {/if}
         <button
           class="shrink-0 rounded p-0.5 transition-colors {currentDashboard.starred ? 'text-warning' : 'text-fg-4 hover:text-fg'}"
           onclick={toggleCurrentStar}
@@ -459,12 +529,14 @@
             Panel builder mode
           </span>
         {:else}
-          <Button size="sm" variant="outline" onclick={() => settingsOpen = true}>
-            <Settings size={14} /> Settings
-          </Button>
-          <Button size="sm" variant="outline" onclick={() => shareDialogOpen = true}>
-            <Share2 size={14} /> Share
-          </Button>
+          {#if canWrite}
+            <Button size="sm" variant="outline" onclick={() => settingsOpen = true}>
+              <Settings size={14} /> Settings
+            </Button>
+            <Button size="sm" variant="outline" onclick={() => shareDialogOpen = true}>
+              <Share2 size={14} /> Share
+            </Button>
+          {/if}
           <!-- Refresh with auto-refresh picker -->
           <div class="relative flex items-center">
             <button
@@ -511,9 +583,11 @@
               </div>
             {/if}
           </div>
-          <Button size="sm" onclick={openAddPanel}>
-            <Plus size={14} /> Add Panel
-          </Button>
+          {#if canWrite}
+            <Button size="sm" onclick={openAddPanel}>
+              <Plus size={14} /> Add Panel
+            </Button>
+          {/if}
         {/if}
       </div>
     </div>
@@ -524,6 +598,8 @@
           dashboardId={currentDashboard?.id ?? ''}
           dashboardTimeRange={dashboardTimeRange}
           panel={editingPanel}
+          nextRow={nextFreeRow(panels.map((p) => ({ y: p.layout_y, h: p.layout_h })))}
+          connectionId={session?.connectionId ?? ''}
           onclose={() => panelEditorOpen = false}
           onsave={handlePanelSaved}
         />
@@ -541,6 +617,9 @@
           onduplicatepanel={duplicatePanel}
           ondeletepanel={requestDeletePanel}
           onmaximizepanel={(p) => fullscreenPanel = p}
+          onaddpanel={openAddPanel}
+          {canWrite}
+          {connectionNotice}
         />
       {/if}
     </div>

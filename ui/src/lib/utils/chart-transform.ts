@@ -66,51 +66,114 @@ export function isNumericType(chType: string): boolean {
   return /^(U?Int|Float|Decimal)/.test(base)
 }
 
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/
+const NAIVE_DATETIME = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/
+
+/**
+ * Parse a ClickHouse date or time value into epoch milliseconds.
+ *
+ * Panel queries ask ClickHouse for date_time_output_format=iso, so DateTime
+ * values arrive as UTC instants ("2026-01-01T10:00:00Z") and parse exactly.
+ * Date values ("2026-01-01") have no time of day: they are placed at local
+ * midnight, so a daily chart labels each point with its own calendar day in
+ * the viewer's time zone. A value without a zone (a ClickHouse profile that
+ * refuses the iso setting) is read as local time, the same way. Numbers are
+ * epoch seconds, or milliseconds when too large to be seconds.
+ */
+export function parseTimeValue(raw: unknown): number | null {
+  if (raw == null || raw === '') return null
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw)) return null
+    return Math.abs(raw) < 1e11 ? raw * 1000 : raw
+  }
+  const s = String(raw).trim()
+  const d = DATE_ONLY.exec(s)
+  if (d) return new Date(Number(d[1]), Number(d[2]) - 1, Number(d[3])).getTime()
+  const n = NAIVE_DATETIME.exec(s)
+  if (n) {
+    const ms = n[7] ? Number(n[7].slice(0, 3).padEnd(3, '0')) : 0
+    return new Date(Number(n[1]), Number(n[2]) - 1, Number(n[3]), Number(n[4]), Number(n[5]), Number(n[6]), ms).getTime()
+  }
+  const t = Date.parse(s)
+  return Number.isNaN(t) ? null : t
+}
+
+/** A plotted number, or null for NULL, empty and non-numeric values, so the chart shows a gap instead of a fake zero. */
+function toPlotNumber(raw: unknown): number | null {
+  if (raw == null || raw === '' || typeof raw === 'boolean') return null
+  const n = typeof raw === 'number' ? raw : Number(raw)
+  return Number.isFinite(n) ? n : null
+}
+
+/** The x column is neither a date nor a number: points are placed by row index and labelled with the value. */
+export function isCategoricalColumn(meta: ColumnMeta[], column: string | undefined): boolean {
+  const xMeta = meta.find(m => m.name === column)
+  if (!xMeta) return false
+  return !isDateType(xMeta.type) && !isNumericType(xMeta.type)
+}
+
+/**
+ * The x and y columns a chart plots. Saved columns are used when the result
+ * still has them; otherwise x falls back to the first date column (else the
+ * first column) and y to the numeric columns, as the panel editor picks them.
+ * A panel saved without axes (from the API or an import) still draws.
+ */
+export function resolveChartColumns(
+  meta: ColumnMeta[],
+  config: Pick<PanelConfig, 'xColumn' | 'yColumns'>,
+): { xColumn: string | undefined; yColumns: string[] } {
+  const names = new Set(meta.map(m => m.name))
+  const xColumn = config.xColumn && names.has(config.xColumn)
+    ? config.xColumn
+    : (meta.find(m => isDateType(m.type)) ?? meta[0])?.name
+  let yColumns = (config.yColumns ?? []).filter(c => names.has(c) && c !== xColumn)
+  if (yColumns.length === 0) {
+    yColumns = meta.filter(m => m.name !== xColumn && isNumericType(m.type)).slice(0, 8).map(m => m.name)
+  }
+  return { xColumn, yColumns }
+}
+
 /**
  * Transform dashboard API row-objects into uPlot's AlignedData format.
- * Returns [xValues[], y1Values[], y2Values[], ...]
+ * Returns [xValues[], y1Values[], y2Values[], ...]. Time x values are epoch
+ * seconds; rows whose time or numeric x is missing are left out. Missing y
+ * values are null, which uPlot draws as a gap.
  */
 export function toUPlotData(
   data: Record<string, unknown>[],
   meta: ColumnMeta[],
   config: PanelConfig,
 ): uPlot.AlignedData {
-  if (!data.length || !config.xColumn || !config.yColumns?.length) {
+  const { xColumn, yColumns } = resolveChartColumns(meta, config)
+  if (!data.length || !xColumn || !yColumns.length) {
     return [new Float64Array(0)]
   }
 
-  const xCol = config.xColumn
+  const xCol = xColumn
   const xMeta = meta.find(m => m.name === xCol)
   const isTime = xMeta ? isDateType(xMeta.type) : false
+  const categorical = isCategoricalColumn(meta, xCol)
 
-  // uPlot requires x-axis values to be monotonically ascending
-  const sortedData = [...data].sort((a, b) => {
-    if (isTime) {
-      return new Date(a[xCol] as string).getTime() - new Date(b[xCol] as string).getTime()
-    }
-    return (Number(a[xCol]) || 0) - (Number(b[xCol]) || 0)
-  })
-
-  const xArr = new Float64Array(sortedData.length)
-  for (let i = 0; i < sortedData.length; i++) {
-    const raw = sortedData[i][xCol]
-    if (isTime) {
-      xArr[i] = new Date(raw as string).getTime() / 1000
-    } else {
-      xArr[i] = Number(raw) || i
-    }
+  // Categorical rows keep their order (the axis labels follow it); time and
+  // numeric rows are sorted, since uPlot needs ascending x values.
+  const points: { x: number; row: Record<string, unknown> }[] = []
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i]
+    let x: number | null
+    if (categorical) x = i
+    else if (isTime) {
+      const ms = parseTimeValue(row[xCol])
+      x = ms == null ? null : ms / 1000
+    } else x = toPlotNumber(row[xCol])
+    if (x != null) points.push({ x, row })
   }
+  if (!categorical) points.sort((a, b) => a.x - b.x)
 
-  const series: uPlot.AlignedData = [xArr]
-  for (const yCol of config.yColumns) {
-    const yArr = new Float64Array(sortedData.length)
-    for (let i = 0; i < sortedData.length; i++) {
-      yArr[i] = Number(sortedData[i][yCol]) || 0
-    }
-    series.push(yArr)
-  }
+  const xArr = new Float64Array(points.length)
+  for (let i = 0; i < points.length; i++) xArr[i] = points[i].x
 
-  return series
+  const ys: (number | null)[][] = yColumns.map(yCol => points.map(p => toPlotNumber(p.row[yCol])))
+  return [xArr, ...ys]
 }
 
 // ---------------------------------------------------------------------------
