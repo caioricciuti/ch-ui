@@ -62,7 +62,7 @@ func (g *Gateway) ExecuteQueryWithSettingsCtx(ctx context.Context, connectionID,
 	result, err := g.executeQuery(ctx, connectionID, sql, user, password, settings, timeout)
 	for attempt := 0; attempt < maxRefusedSettings && err != nil; attempt++ {
 		name := refusedSetting(err)
-		if _, ok := settings[name]; !ok || name == "readonly" || strings.HasPrefix(name, "param_") {
+		if _, ok := settings[name]; !ok || name == "readonly" || strings.HasPrefix(name, "param_") || sqlMentionsSetting(sql, name) {
 			break
 		}
 		settings = withoutSetting(settings, name)
@@ -70,6 +70,33 @@ func (g *Gateway) ExecuteQueryWithSettingsCtx(ctx context.Context, connectionID,
 		result, err = g.executeQuery(ctx, connectionID, sql, user, password, settings, timeout)
 	}
 	return result, err
+}
+
+// sqlMentionsSetting reports whether the statement itself names setting, for
+// example in a SETTINGS clause. ClickHouse then refuses the query's own change,
+// not ours, and dropping our value would let the query lift the cap it set.
+func sqlMentionsSetting(sql, setting string) bool {
+	lower := strings.ToLower(sql)
+	name := strings.ToLower(setting)
+	for i := 0; ; {
+		j := strings.Index(lower[i:], name)
+		if j < 0 {
+			return false
+		}
+		start, end := i+j, i+j+len(name)
+		if !isIdentByte(lower, start-1) && !isIdentByte(lower, end) {
+			return true
+		}
+		i = end
+	}
+}
+
+func isIdentByte(s string, i int) bool {
+	if i < 0 || i >= len(s) {
+		return false
+	}
+	c := s[i]
+	return c == '_' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
 }
 
 // maxRefusedSettings bounds the retries for a read-only profile.
@@ -214,8 +241,10 @@ func (g *Gateway) ExecuteQueryWithFormat(connectionID, sql, user, password, form
 }
 
 // ExecuteStreamQuery sends a streaming query to the agent and returns channels for progressive consumption.
-// The caller must range over stream.ChunkCh, then select on stream.DoneCh/ErrorCh.
-// Call CleanupStream when done to release resources.
+// The caller reads stream.ChunkCh until stream.Done() is closed, drains any
+// chunks still buffered, then reads stream.DoneCh or stream.ErrorCh.
+// Call CleanupStream when done to release resources; it also unblocks the
+// tunnel if the caller stopped reading early.
 func (g *Gateway) ExecuteStreamQuery(connectionID, sql, user, password string, settings map[string]string) (requestID string, stream *PendingStreamRequest, err error) {
 	val, ok := g.tunnels.Load(connectionID)
 	if !ok {
@@ -224,13 +253,7 @@ func (g *Gateway) ExecuteStreamQuery(connectionID, sql, user, password string, s
 	t := val.(*ConnectedTunnel)
 
 	requestID = uuid.NewString()
-	stream = &PendingStreamRequest{
-		MetaCh:     make(chan json.RawMessage, 1),
-		ChunkCh:    make(chan json.RawMessage, 8),
-		ProgressCh: make(chan json.RawMessage, 1),
-		DoneCh:     make(chan json.RawMessage, 1),
-		ErrorCh:    make(chan error, 1),
-	}
+	stream = newPendingStream()
 	t.Pending.Store(requestID, stream)
 
 	msg := GatewayMessage{
@@ -246,7 +269,9 @@ func (g *Gateway) ExecuteStreamQuery(connectionID, sql, user, password string, s
 
 	wsErr := t.sendJSON(msg)
 	if wsErr != nil {
-		t.Pending.Delete(requestID)
+		if _, ok := t.Pending.LoadAndDelete(requestID); ok {
+			stream.finish()
+		}
 		return "", nil, wsErr
 	}
 
@@ -273,7 +298,8 @@ func (g *Gateway) CancelStreamQuery(connectionID, requestID string) {
 	}
 }
 
-// CleanupStream removes a pending stream request from the tunnel's pending map.
+// CleanupStream removes a pending stream request from the tunnel's pending map
+// and releases a read loop that may be waiting to hand it a chunk.
 // Call this when the HTTP handler finishes (completion, error, or client disconnect).
 func (g *Gateway) CleanupStream(connectionID, requestID string) {
 	val, ok := g.tunnels.Load(connectionID)
@@ -281,7 +307,11 @@ func (g *Gateway) CleanupStream(connectionID, requestID string) {
 		return
 	}
 	t := val.(*ConnectedTunnel)
-	t.Pending.Delete(requestID)
+	if v, ok := t.Pending.LoadAndDelete(requestID); ok {
+		if p, ok := v.(*PendingStreamRequest); ok {
+			p.finish()
+		}
+	}
 }
 
 // TestConnection tests a ClickHouse connection through the tunnel.

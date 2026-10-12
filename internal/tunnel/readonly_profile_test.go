@@ -105,3 +105,56 @@ func TestRefusedSetting(t *testing.T) {
 		}
 	}
 }
+
+func TestReadonlyRetryKeepsSettingsTheQueryChanges(t *testing.T) {
+	g, connectionID := newTestGateway(t)
+	server := httptest.NewServer(http.HandlerFunc(g.HandleWebSocket))
+	t.Cleanup(server.Close)
+	ws, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ws.Close() })
+	if err := ws.WriteJSON(AgentMessage{Type: "auth", Token: "test-only"}); err != nil {
+		t.Fatal(err)
+	}
+	var ack GatewayMessage
+	if err := ws.ReadJSON(&ack); err != nil || ack.Type != "auth_ok" {
+		t.Fatalf("auth: %+v, %v", ack, err)
+	}
+	seen := make(chan map[string]string, 16)
+	go fakeReadonlyAgent(t, ws, seen)
+
+	// The query lifts max_result_rows itself. ClickHouse refuses that setting,
+	// and dropping our cap would let the query's own value through.
+	settings := map[string]string{"readonly": "1", "max_result_rows": "10"}
+	_, err = g.ExecuteQueryWithSettingsCtx(context.Background(), connectionID, "SELECT number FROM numbers(100) SETTINGS MAX_RESULT_ROWS = 0", "ro", "", settings, 5*time.Second)
+	if err == nil {
+		t.Fatal("a query that sets a capped setting itself must not be retried without the cap")
+	}
+	close(seen)
+	attempts := 0
+	for range seen {
+		attempts++
+	}
+	if attempts != 1 {
+		t.Fatalf("want 1 attempt, got %d", attempts)
+	}
+}
+
+func TestSQLMentionsSetting(t *testing.T) {
+	for _, c := range []struct {
+		sql, name string
+		want      bool
+	}{
+		{"SELECT 1 SETTINGS max_result_rows=0", "max_result_rows", true},
+		{"select 1 settings MAX_RESULT_ROWS = 0", "max_result_rows", true},
+		{"SELECT my_max_result_rows FROM t", "max_result_rows", false},
+		{"SELECT max_result_rows_x FROM t", "max_result_rows", false},
+		{"SELECT 1", "max_execution_time", false},
+	} {
+		if got := sqlMentionsSetting(c.sql, c.name); got != c.want {
+			t.Errorf("sqlMentionsSetting(%q, %q) = %v, want %v", c.sql, c.name, got, c.want)
+		}
+	}
+}

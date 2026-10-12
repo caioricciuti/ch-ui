@@ -15,6 +15,20 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/safe"
+)
+
+// Limits for the agent WebSocket. The endpoint is reachable without
+// credentials, so a client that has not authenticated yet gets a small frame
+// budget and a short deadline to send its auth message. Once authenticated the
+// limit is raised: query_result frames carry a whole non-streamed ClickHouse
+// result in one message (the agent buffers the full HTTP body), so the cap only
+// guards against runaway memory use, not against legitimate large results.
+// The auth deadline is copied into each Gateway so tests can shorten it.
+const (
+	defaultAuthTimeout = 10 * time.Second
+	preAuthReadLimit   = 64 << 10  // 64 KiB: an auth frame is a token and a flag
+	authedReadLimit    = 256 << 20 // 256 MiB per frame
 )
 
 var upgrader = websocket.Upgrader{
@@ -81,12 +95,45 @@ type PendingRequest struct {
 }
 
 // PendingStreamRequest represents a streaming query waiting for chunked responses.
+//
+// ChunkCh is never closed, so a late sender can never panic. The end of the
+// stream is signalled by Done(): whichever path removes the request from the
+// pending map (stream end, stream error, disconnect, or CleanupStream) first
+// puts the outcome on DoneCh or ErrorCh and then closes done, exactly once.
+// Chunks already buffered in ChunkCh when Done() fires belong to the stream
+// and must be drained before reading DoneCh/ErrorCh.
 type PendingStreamRequest struct {
 	MetaCh     chan json.RawMessage // receives query_stream_start meta
-	ChunkCh    chan json.RawMessage // receives query_stream_chunk data (buffered)
+	ChunkCh    chan json.RawMessage // receives query_stream_chunk data (buffered, never closed)
 	ProgressCh chan json.RawMessage // receives query_stream_progress snapshots (latest wins)
 	DoneCh     chan json.RawMessage // receives query_stream_end statistics
 	ErrorCh    chan error
+
+	done     chan struct{}
+	doneOnce sync.Once
+}
+
+func newPendingStream() *PendingStreamRequest {
+	return &PendingStreamRequest{
+		MetaCh:     make(chan json.RawMessage, 1),
+		ChunkCh:    make(chan json.RawMessage, 8),
+		ProgressCh: make(chan json.RawMessage, 1),
+		DoneCh:     make(chan json.RawMessage, 1),
+		ErrorCh:    make(chan error, 1),
+		done:       make(chan struct{}),
+	}
+}
+
+// Done is closed when the stream has finished for any reason. After it is
+// closed, no more chunks are delivered.
+func (p *PendingStreamRequest) Done() <-chan struct{} {
+	return p.done
+}
+
+// finish closes done exactly once. Call it only after the request has been
+// removed from the pending map and any outcome was put on DoneCh/ErrorCh.
+func (p *PendingStreamRequest) finish() {
+	p.doneOnce.Do(func() { close(p.done) })
 }
 
 // ConnectedTunnel represents an active tunnel agent connection.
@@ -123,13 +170,16 @@ type Gateway struct {
 	db      *database.DB
 	tunnels sync.Map // map[connectionID]*ConnectedTunnel
 	stopCh  chan struct{}
+
+	authTimeout time.Duration // how long a new socket may take to authenticate
 }
 
 // NewGateway creates a new tunnel gateway.
 func NewGateway(db *database.DB) *Gateway {
 	g := &Gateway{
-		db:     db,
-		stopCh: make(chan struct{}),
+		db:          db,
+		stopCh:      make(chan struct{}),
+		authTimeout: defaultAuthTimeout,
 	}
 	go g.heartbeatLoop()
 	slog.Info("Tunnel gateway initialized")
@@ -151,12 +201,22 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	slog.Debug("New tunnel WebSocket connection")
 
-	// Read loop
-	go g.readLoop(conn)
+	// Read loop. A panic in a message handler must drop this one agent
+	// connection, not the whole server.
+	safe.Go("tunnel read loop", func() { g.readLoop(conn) })
 }
 
 func (g *Gateway) readLoop(conn *websocket.Conn) {
 	var connID string // set after auth
+
+	// Until the agent authenticates it is an anonymous client: bound the frame
+	// size and the time it may take to send the auth message.
+	conn.SetReadLimit(preAuthReadLimit)
+	authTimeout := g.authTimeout
+	if authTimeout <= 0 {
+		authTimeout = defaultAuthTimeout
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(authTimeout))
 
 	conn.SetPingHandler(func(appData string) error {
 		if connID != "" {
@@ -215,6 +275,8 @@ func (g *Gateway) readLoop(conn *websocket.Conn) {
 				return // auth failed, connection closed
 			}
 			connID = authConnID
+			conn.SetReadLimit(authedReadLimit)
+			_ = conn.SetReadDeadline(time.Time{})
 
 		case "pong":
 			g.handlePong(connID)
@@ -511,7 +573,13 @@ func (g *Gateway) handleStreamChunk(connID string, msg *AgentMessage) {
 		return
 	}
 
-	pending.ChunkCh <- msg.Data // backpressure: blocks if consumer is slow
+	// Backpressure: wait while the consumer is slow, but give up as soon as
+	// the stream is finished (consumer gone, cleanup, or disconnect) so the
+	// read loop of this connection never blocks forever.
+	select {
+	case pending.ChunkCh <- msg.Data:
+	case <-pending.done:
+	}
 }
 
 // handleStreamProgress forwards a progress snapshot to the waiting HTTP handler.
@@ -580,11 +648,11 @@ func (g *Gateway) handleStreamEnd(connID string, msg *AgentMessage) {
 	}
 	payload, _ := json.Marshal(done)
 
-	close(pending.ChunkCh)
 	select {
 	case pending.DoneCh <- payload:
 	default:
 	}
+	pending.finish()
 }
 
 func (g *Gateway) handleStreamError(connID string, msg *AgentMessage) {
@@ -608,11 +676,11 @@ func (g *Gateway) handleStreamError(connID string, msg *AgentMessage) {
 		return
 	}
 
-	close(pending.ChunkCh)
 	select {
 	case pending.ErrorCh <- errors.New(msg.Error):
 	default:
 	}
+	pending.finish()
 }
 
 func (g *Gateway) handleDisconnect(connID string, ws *websocket.Conn) {
@@ -629,8 +697,13 @@ func (g *Gateway) handleDisconnect(connID string, ws *websocket.Conn) {
 		return
 	}
 
-	// Reject all pending requests
-	t.Pending.Range(func(key, value any) bool {
+	// Reject all pending requests. LoadAndDelete makes this path the only one
+	// that finalizes a request, even if the read loop finishes it concurrently.
+	t.Pending.Range(func(key, _ any) bool {
+		value, ok := t.Pending.LoadAndDelete(key)
+		if !ok {
+			return true
+		}
 		switch p := value.(type) {
 		case *PendingRequest:
 			select {
@@ -638,13 +711,12 @@ func (g *Gateway) handleDisconnect(connID string, ws *websocket.Conn) {
 			default:
 			}
 		case *PendingStreamRequest:
-			close(p.ChunkCh)
 			select {
 			case p.ErrorCh <- errors.New("tunnel disconnected"):
 			default:
 			}
+			p.finish()
 		}
-		t.Pending.Delete(key)
 		return true
 	})
 
