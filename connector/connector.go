@@ -506,7 +506,9 @@ func (c *Connector) executeStreamQuery(msg GatewayMessage) {
 	// is the later one: the summary header is exact for queries that emit their
 	// output at the end, the last sample is closer for queries that stream rows.
 	rowsRead, bytesRead := final.ReadRows, final.ReadBytes
+	var rowsWritten uint64
 	if summary != nil {
+		rowsWritten = summary.WrittenRows
 		if summary.ReadRows > rowsRead {
 			rowsRead = summary.ReadRows
 		}
@@ -520,9 +522,10 @@ func (c *Connector) executeStreamQuery(msg GatewayMessage) {
 		QueryID:   queryID,
 		TotalRows: totalRows,
 		Stats: &QueryStats{
-			Elapsed:   elapsed.Seconds(),
-			RowsRead:  rowsRead,
-			BytesRead: bytesRead,
+			Elapsed:     elapsed.Seconds(),
+			RowsRead:    rowsRead,
+			BytesRead:   bytesRead,
+			RowsWritten: rowsWritten,
 		},
 	})
 }

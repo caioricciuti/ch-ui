@@ -107,17 +107,30 @@ type formatRequest struct {
 
 type formatResponse struct {
 	Formatted string `json:"formatted"`
+	// Engine is "clickhouse" when the server's formatQuery() produced the
+	// text, "basic" for the built-in fallback.
+	Engine string `json:"engine"`
+	// CommentsDropped is true when ClickHouse formatted a query that had
+	// comments: formatQuery() does not keep them.
+	CommentsDropped bool `json:"comments_dropped,omitempty"`
 }
 
 type explainRequest struct {
-	Query string `json:"query"`
+	Query  string            `json:"query"`
+	Params map[string]string `json:"params"` // bind parameters, as for /run
+}
+
+type profileRequest struct {
+	Query   string `json:"query"`
+	QueryID string `json:"query_id"`
 }
 
 type sampleRequest struct {
-	Query    string `json:"query"`
-	PerShard int    `json:"per_shard"`
-	ShardBy  string `json:"shard_by"`
-	Timeout  int    `json:"timeout"`
+	Query    string            `json:"query"`
+	PerShard int               `json:"per_shard"`
+	ShardBy  string            `json:"shard_by"`
+	Timeout  int               `json:"timeout"`
+	Params   map[string]string `json:"params"`
 }
 
 type planNode struct {
@@ -336,7 +349,11 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// FormatSQL handles POST /format.
+// FormatSQL handles POST /format. It asks ClickHouse to format the query with
+// formatQuery() (23.10+), which understands every statement and never changes
+// meaning but drops comments. When that fails (older server, syntax error, no
+// connection) the built-in formatter, which is literal and comment aware,
+// reformats whitespace only.
 func (h *QueryHandler) FormatSQL(w http.ResponseWriter, r *http.Request) {
 	var req formatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -350,10 +367,87 @@ func (h *QueryHandler) FormatSQL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	formatted := formatSQL(query)
+	if formatted, ok := h.formatWithClickHouse(r, query); ok {
+		writeJSON(w, http.StatusOK, formatResponse{
+			Formatted:       formatted,
+			Engine:          "clickhouse",
+			CommentsDropped: sqlHasComments(query),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, formatResponse{Formatted: formatSQL(query), Engine: "basic"})
+}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(formatResponse{Formatted: formatted})
+// maxFormatStatements bounds how many statements one format request sends to ClickHouse.
+const maxFormatStatements = 50
+
+// formatWithClickHouse formats each statement with SELECT formatQuery({qN:String}),
+// in one round trip. It reports false when ClickHouse could not do it.
+func (h *QueryHandler) formatWithClickHouse(r *http.Request, query string) (string, bool) {
+	session := middleware.GetSession(r)
+	if session == nil || h.Gateway == nil || h.Config == nil {
+		return "", false
+	}
+	statements := splitSQLStatements(query)
+	if len(statements) == 0 || len(statements) > maxFormatStatements {
+		return "", false
+	}
+	password, err := crypto.Decrypt(session.EncryptedPassword, h.Config.AppSecretKey)
+	if err != nil {
+		return "", false
+	}
+
+	params := make(map[string]string, len(statements))
+	cols := make([]string, len(statements))
+	for i, st := range statements {
+		params[fmt.Sprintf("q%d", i)] = st
+		cols[i] = fmt.Sprintf("formatQuery({q%d:String}) AS f%d", i, i)
+	}
+	settings := buildParamSettings(params)
+	settings["log_queries"] = "0"
+
+	result, err := h.Gateway.ExecuteQueryWithSettings(
+		session.ConnectionID,
+		"SELECT "+strings.Join(cols, ", "),
+		session.ClickhouseUser,
+		password,
+		settings,
+		10*time.Second,
+	)
+	if err != nil {
+		return "", false
+	}
+	rows := decodeRows(result.Data)
+	if len(rows) != 1 {
+		return "", false
+	}
+	out := make([]string, len(statements))
+	for i := range statements {
+		v, ok := rows[0][fmt.Sprintf("f%d", i)].(string)
+		if !ok || strings.TrimSpace(v) == "" {
+			return "", false
+		}
+		out[i] = strings.TrimSpace(v)
+	}
+	formatted := strings.Join(out, ";\n\n")
+	if len(out) > 1 || strings.HasSuffix(stripTrailingComments(query), ";") {
+		formatted += ";"
+	}
+	return formatted, true
+}
+
+// stripTrailingComments drops trailing whitespace and comments.
+func stripTrailingComments(sql string) string {
+	tokens := tokenizeSQL(sql)
+	end := len(tokens)
+	for end > 0 && (tokens[end-1].kind == tokSpace || tokens[end-1].kind == tokComment) {
+		end--
+	}
+	var b strings.Builder
+	for _, t := range tokens[:end] {
+		b.WriteString(t.text)
+	}
+	return b.String()
 }
 
 // ExplainQuery handles POST /explain.
@@ -386,13 +480,18 @@ func (h *QueryHandler) ExplainQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	explainSQL := "EXPLAIN " + query
+	// A statement that is already an EXPLAIN runs as written.
+	explainSQL := query
+	if !startsWithExplain(query) {
+		explainSQL = "EXPLAIN " + query
+	}
 
-	result, err := h.Gateway.ExecuteQuery(
+	result, err := h.Gateway.ExecuteQueryWithSettings(
 		session.ConnectionID,
 		explainSQL,
 		session.ClickhouseUser,
 		password,
+		buildParamSettings(req.Params),
 		30*time.Second,
 	)
 	if err != nil {
@@ -438,22 +537,29 @@ func (h *QueryHandler) QueryPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	candidates := []struct {
+	type planCandidate struct {
 		source string
 		sql    string
-	}{
+	}
+	candidates := []planCandidate{
 		{source: "plan", sql: "EXPLAIN PLAN " + query},
 		{source: "ast", sql: "EXPLAIN AST " + query},
 		{source: "generic", sql: "EXPLAIN " + query},
 	}
+	if startsWithExplain(query) {
+		// Already an EXPLAIN: show what it returns instead of nesting another one.
+		candidates = []planCandidate{{source: "explain", sql: query}}
+	}
+	paramSettings := buildParamSettings(req.Params)
 
 	var lastErr error
 	for _, candidate := range candidates {
-		result, execErr := h.Gateway.ExecuteQuery(
+		result, execErr := h.Gateway.ExecuteQueryWithSettings(
 			session.ConnectionID,
 			candidate.sql,
 			session.ClickhouseUser,
 			password,
+			paramSettings,
 			45*time.Second,
 		)
 		if execErr != nil {
@@ -503,6 +609,14 @@ func (h *QueryHandler) EstimateQuery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Query is required")
 		return
 	}
+	// EXPLAIN ESTIMATE only makes sense for one SELECT.
+	if kw := firstSQLKeyword(query); (kw != "SELECT" && kw != "WITH") || len(splitSQLStatements(query)) != 1 {
+		writeError(w, http.StatusBadRequest, "Estimates are available for a single SELECT query")
+		return
+	}
+	if !h.enforceGuardrailsForQuery(w, r, query, r.URL.Path) {
+		return
+	}
 
 	password, err := crypto.Decrypt(session.EncryptedPassword, h.Config.AppSecretKey)
 	if err != nil {
@@ -511,11 +625,12 @@ func (h *QueryHandler) EstimateQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.Gateway.ExecuteQuery(
+	result, err := h.Gateway.ExecuteQueryWithSettings(
 		session.ConnectionID,
-		"EXPLAIN ESTIMATE "+query,
+		"EXPLAIN ESTIMATE "+stripTrailingSemicolon(query),
 		session.ClickhouseUser,
 		password,
+		buildParamSettings(req.Params),
 		15*time.Second,
 	)
 	if err != nil {
@@ -617,7 +732,7 @@ func (h *QueryHandler) SampleQuery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Query is required")
 		return
 	}
-	if !isReadOnlyQuery(query) {
+	if !isReadOnlyQuery(stripLeadingSQLComments(query)) {
 		writeError(w, http.StatusBadRequest, "Sampling only supports read-only SELECT/WITH queries")
 		return
 	}
@@ -660,12 +775,14 @@ func (h *QueryHandler) SampleQuery(w http.ResponseWriter, r *http.Request) {
 		escapeIdentifier(shardBy),
 	)
 
+	paramSettings := buildParamSettings(req.Params)
 	start := time.Now()
-	result, runErr := h.Gateway.ExecuteQuery(
+	result, runErr := h.Gateway.ExecuteQueryWithSettings(
 		session.ConnectionID,
 		perShardSQL,
 		session.ClickhouseUser,
 		password,
+		paramSettings,
 		timeout,
 	)
 	elapsed := time.Since(start).Milliseconds()
@@ -682,11 +799,12 @@ func (h *QueryHandler) SampleQuery(w http.ResponseWriter, r *http.Request) {
 		)
 
 		start = time.Now()
-		result, runErr = h.Gateway.ExecuteQuery(
+		result, runErr = h.Gateway.ExecuteQueryWithSettings(
 			session.ConnectionID,
 			fallbackSQL,
 			session.ClickhouseUser,
 			password,
+			paramSettings,
 			timeout,
 		)
 		elapsed = time.Since(start).Milliseconds()
@@ -711,7 +829,15 @@ func (h *QueryHandler) SampleQuery(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// QueryProfile handles POST /profile and returns latest query_log metrics for the exact SQL.
+// queryIDRe validates a query_id before it is put into SQL (the gateway uses UUIDs).
+var queryIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// profileRetryDelay is how long QueryProfile waits before its one retry:
+// system.query_log is flushed asynchronously (every 7.5 s by default).
+var profileRetryDelay = 4 * time.Second
+
+// QueryProfile handles POST /profile and returns the query_log row of a query
+// run through /stream, found by the query_id the stream's done message returned.
 func (h *QueryHandler) QueryProfile(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
@@ -719,18 +845,19 @@ func (h *QueryHandler) QueryProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req explainRequest
+	var req profileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	query := strings.TrimSpace(req.Query)
-	if query == "" {
-		writeError(w, http.StatusBadRequest, "Query is required")
+	if query != "" && !h.enforceGuardrailsForQuery(w, r, query, r.URL.Path) {
 		return
 	}
-	if !h.enforceGuardrailsForQuery(w, r, query, r.URL.Path) {
+	queryID := strings.TrimSpace(req.QueryID)
+	if !queryIDRe.MatchString(queryID) {
+		writeError(w, http.StatusBadRequest, "A valid query_id is required")
 		return
 	}
 
@@ -741,12 +868,9 @@ func (h *QueryHandler) QueryProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	escapedQuery := escapeLiteral(stripTrailingSemicolon(query))
-	// system.query_log only knows the ClickHouse account, so SSO people sharing
-	// a service account cannot be told apart here: this may match a teammate's
-	// identical query run under the same account.
-	escapedUser := escapeLiteral(session.ClickhouseUser)
-
+	// event_date first: it is the partition key, so only one or two days are
+	// read instead of the whole log. user keeps people on a shared server from
+	// reading each other's query stats.
 	profileSQL := fmt.Sprintf(`SELECT
   query_duration_ms,
   read_rows,
@@ -758,30 +882,46 @@ func (h *QueryHandler) QueryProfile(w http.ResponseWriter, r *http.Request) {
   ProfileEvents['SelectedBytes'] AS selected_bytes,
   ProfileEvents['SelectedMarks'] AS selected_marks
 FROM system.query_log
-WHERE type = 'QueryFinish'
-  AND query = '%s'
+WHERE event_date >= today() - 1
+  AND event_time >= now() - INTERVAL 1 DAY
+  AND type = 'QueryFinish'
+  AND query_id = '%s'
   AND user = '%s'
 ORDER BY event_time DESC
-LIMIT 1`, escapedQuery, escapedUser)
+LIMIT 1`, escapeLiteral(queryID), escapeLiteral(session.ClickhouseUser))
 
-	result, execErr := h.Gateway.ExecuteQuery(
-		session.ConnectionID,
-		profileSQL,
-		session.ClickhouseUser,
-		password,
-		10*time.Second,
-	)
-	if execErr != nil {
-		// query_log may be unavailable depending on ClickHouse config/version.
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"success":   true,
-			"available": false,
-			"reason":    "system.query_log is unavailable for this connection",
-		})
-		return
+	settings := map[string]string{"log_queries": "0"}
+	var rows []map[string]interface{}
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-time.After(profileRetryDelay):
+			case <-r.Context().Done():
+				return
+			}
+		}
+		result, execErr := h.Gateway.ExecuteQueryWithSettingsCtx(
+			r.Context(),
+			session.ConnectionID,
+			profileSQL,
+			session.ClickhouseUser,
+			password,
+			settings,
+			10*time.Second,
+		)
+		if execErr != nil {
+			// query_log may be unavailable depending on ClickHouse config/version/grants.
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"success":   true,
+				"available": false,
+				"reason":    "system.query_log is unavailable for this connection",
+			})
+			return
+		}
+		if rows = decodeRows(result.Data); len(rows) > 0 {
+			break
+		}
 	}
-
-	rows := decodeRows(result.Data)
 	if len(rows) == 0 {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"success":   true,
@@ -953,6 +1093,9 @@ readChunks:
 			"type":       "done",
 			"statistics": done.Statistics,
 			"total_rows": done.TotalRows,
+			// The agent tags the ClickHouse query with this id, so the
+			// profile can be looked up in system.query_log by it.
+			"query_id": requestID,
 		})
 		flusher.Flush()
 		recordHistory("success", "", done.TotalRows)
@@ -2273,43 +2416,4 @@ func extractNames(data json.RawMessage) []string {
 		}
 	}
 	return names
-}
-
-// formatSQL performs basic SQL formatting: uppercases keywords and adds newlines
-// before major clauses.
-func formatSQL(sql string) string {
-	// Uppercase SQL keywords
-	keywords := []string{
-		"SELECT", "FROM", "WHERE", "AND", "OR", "ORDER BY", "GROUP BY",
-		"HAVING", "LIMIT", "OFFSET", "JOIN", "LEFT JOIN", "RIGHT JOIN",
-		"INNER JOIN", "OUTER JOIN", "FULL JOIN", "CROSS JOIN",
-		"ON", "AS", "IN", "NOT", "NULL", "IS", "BETWEEN", "LIKE",
-		"INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE",
-		"CREATE", "TABLE", "ALTER", "DROP", "INDEX",
-		"DISTINCT", "UNION", "ALL", "EXISTS", "CASE", "WHEN", "THEN",
-		"ELSE", "END", "ASC", "DESC", "WITH", "FORMAT",
-	}
-
-	result := sql
-
-	// Replace keywords with uppercase versions (word-boundary aware)
-	for _, kw := range keywords {
-		pattern := `(?i)\b` + regexp.QuoteMeta(kw) + `\b`
-		re := regexp.MustCompile(pattern)
-		result = re.ReplaceAllString(result, kw)
-	}
-
-	// Add newlines before major clauses
-	clauses := []string{
-		"SELECT", "FROM", "WHERE", "ORDER BY", "GROUP BY", "HAVING",
-		"LIMIT", "LEFT JOIN", "RIGHT JOIN", "INNER JOIN", "OUTER JOIN",
-		"FULL JOIN", "CROSS JOIN", "JOIN", "UNION",
-	}
-	for _, clause := range clauses {
-		pattern := `(?m)\s+` + regexp.QuoteMeta(clause) + `\b`
-		re := regexp.MustCompile(pattern)
-		result = re.ReplaceAllString(result, "\n"+clause)
-	}
-
-	return strings.TrimSpace(result)
 }

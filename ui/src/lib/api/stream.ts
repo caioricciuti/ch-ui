@@ -10,7 +10,8 @@ export async function executeStreamQuery(
   maxResultRows: number,
   onMeta: (meta: ColumnMeta[]) => void,
   onChunk: (rows: unknown[][], seq: number) => void,
-  onDone: (stats: QueryStats | undefined, totalRows: number) => void,
+  /** queryId is the ClickHouse query_id of the run, when the server reports it. */
+  onDone: (stats: QueryStats | undefined, totalRows: number, queryId?: string) => void,
   onError: (error: string) => void,
   signal?: AbortSignal,
   params?: Record<string, string>,
@@ -66,7 +67,7 @@ export async function executeStreamQuery(
             break
           case 'done':
             finished = true
-            onDone(msg.statistics, msg.total_rows)
+            onDone(msg.statistics, msg.total_rows, msg.query_id)
             break
           case 'error':
             finished = true
@@ -85,7 +86,7 @@ export async function executeStreamQuery(
       const msg: StreamMessage = safeParse(buf)
       if (msg.type === 'done') {
         finished = true
-        onDone(msg.statistics, msg.total_rows)
+        onDone(msg.statistics, msg.total_rows, msg.query_id)
       } else if (msg.type === 'error') {
         finished = true
         onError(msg.error)

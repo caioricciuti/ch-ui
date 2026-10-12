@@ -11,8 +11,8 @@
   import InsightsPanel from './InsightsPanel.svelte'
   import { computeColumnStats } from '../../utils/stats'
   import { parseCHError } from '../../utils/ch-error'
-  import { formatNumber } from '../../utils/format'
-  import { SquareTerminal, AlertTriangle, X, Filter, Lightbulb, Crosshair } from 'lucide-svelte'
+  import { formatNumber, formatDuration } from '../../utils/format'
+  import { SquareTerminal, AlertTriangle, X, Filter, Lightbulb, Crosshair, CircleCheck } from 'lucide-svelte'
 
   type Tab = 'data' | 'stats' | 'schema' | 'insights'
 
@@ -20,6 +20,8 @@
     meta: ColumnMeta[]
     data: unknown[][]
     loading?: boolean
+    /** Something ran in this tab; with no columns and no error it was a statement such as DDL or INSERT. */
+    executed?: boolean
     error?: string | null
     stats?: QueryStats | null
     elapsedMs?: number
@@ -66,6 +68,7 @@
     meta,
     data,
     loading = false,
+    executed = false,
     error = null,
     stats = null,
     elapsedMs = 0,
@@ -164,7 +167,8 @@
     </div>
   {/if}
 
-  {#if loading}
+  <!-- Rows show up as they stream in; the spinner covers only the wait for the first columns. -->
+  {#if loading && meta.length === 0}
     <div class="flex flex-col items-center justify-center flex-1 gap-2 text-fg-3">
       <Spinner size="sm" />
       <span class="text-sm">Executing query...</span>
@@ -211,6 +215,14 @@
           {/if}
         </div>
       </div>
+    </div>
+  {:else if meta.length === 0 && executed}
+    <div class="flex flex-col items-center justify-center flex-1 gap-2 text-fg-3">
+      <CircleCheck size={28} class="text-success" />
+      <p class="text-[13px] text-fg">Statement executed</p>
+      <p class="text-xs text-fg-4 tabular-nums">
+        {#if stats?.rows_written}{formatNumber(stats.rows_written)} rows written · {/if}{formatDuration(elapsedMs)}
+      </p>
     </div>
   {:else if meta.length === 0}
     <div class="flex flex-col items-center justify-center flex-1 gap-2 text-fg-4">

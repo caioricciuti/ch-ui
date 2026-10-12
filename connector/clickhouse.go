@@ -143,7 +143,8 @@ func (c *CHClient) Execute(ctx context.Context, query, user, password string, se
 	// For read queries without explicit FORMAT, add FORMAT JSON
 	finalQuery := query
 	if !isWrite && !hasFormat {
-		finalQuery = strings.TrimRight(query, "; \n\t") + " FORMAT JSON"
+		// Use a newline so a trailing -- line comment cannot swallow the clause
+		finalQuery = strings.TrimRight(query, "; \n\t") + "\nFORMAT JSON"
 	}
 
 	fullURL := c.baseURL + "/?" + params.Encode()
@@ -222,7 +223,7 @@ func (c *CHClient) ExecuteRaw(ctx context.Context, query, user, password, format
 		if format == "" {
 			format = "JSON"
 		}
-		finalQuery = strings.TrimRight(query, "; \n\t") + " FORMAT " + format
+		finalQuery = strings.TrimRight(query, "; \n\t") + "\nFORMAT " + format
 	}
 
 	params := url.Values{}
@@ -446,9 +447,11 @@ func (c *CHClient) KillQuery(ctx context.Context, queryID, user, password string
 // headers are flushed, so it is exact for queries that produce their output at
 // the end (aggregations) and a partial snapshot for queries that stream rows.
 type QuerySummary struct {
-	ReadRows  uint64
-	ReadBytes uint64
-	ElapsedNS uint64
+	ReadRows     uint64
+	ReadBytes    uint64
+	WrittenRows  uint64
+	WrittenBytes uint64
+	ElapsedNS    uint64
 }
 
 // parseSummary reads X-ClickHouse-Summary from a response header set.
@@ -458,17 +461,21 @@ func parseSummary(h http.Header) (*QuerySummary, bool) {
 		return nil, false
 	}
 	var payload struct {
-		ReadRows  json.RawMessage `json:"read_rows"`
-		ReadBytes json.RawMessage `json:"read_bytes"`
-		ElapsedNS json.RawMessage `json:"elapsed_ns"`
+		ReadRows     json.RawMessage `json:"read_rows"`
+		ReadBytes    json.RawMessage `json:"read_bytes"`
+		WrittenRows  json.RawMessage `json:"written_rows"`
+		WrittenBytes json.RawMessage `json:"written_bytes"`
+		ElapsedNS    json.RawMessage `json:"elapsed_ns"`
 	}
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
 		return nil, false
 	}
 	return &QuerySummary{
-		ReadRows:  jsonUint(payload.ReadRows),
-		ReadBytes: jsonUint(payload.ReadBytes),
-		ElapsedNS: jsonUint(payload.ElapsedNS),
+		ReadRows:     jsonUint(payload.ReadRows),
+		ReadBytes:    jsonUint(payload.ReadBytes),
+		WrittenRows:  jsonUint(payload.WrittenRows),
+		WrittenBytes: jsonUint(payload.WrittenBytes),
+		ElapsedNS:    jsonUint(payload.ElapsedNS),
 	}, true
 }
 
@@ -498,6 +505,11 @@ func (c *CHClient) ExecuteStreaming(
 	// Get column metadata via a LIMIT 0 query with JSONCompact, or send empty meta for writes
 	if !isWrite && !hasFormat {
 		metaResult, err := c.ExecuteRaw(ctx, buildMetaQuery(query), user, password, "JSONCompact", settings)
+		if err != nil && isCheapIntrospection(query) {
+			// Some statements (SHOW CREATE, DESCRIBE, EXISTS) reject a LIMIT clause.
+			// They are cheap, so read the header from the statement itself.
+			metaResult, err = c.ExecuteRaw(ctx, query, user, password, "JSONCompact", settings)
+		}
 		if err != nil {
 			return nil, 0, fmt.Errorf("metadata query failed: %w", err)
 		}
@@ -539,6 +551,8 @@ func (c *CHClient) ExecuteStreaming(
 	// client cannot read until the response ends, so sampling is what works.
 	trackProgress := onProgress != nil && isSafeQueryID(queryID)
 	if trackProgress {
+		// The same id lets the server find the run in system.query_log
+		// afterwards for the inline profile.
 		params.Set("query_id", queryID)
 	}
 	// Pass settings as ClickHouse HTTP URL params for coarse server-side abort.
@@ -663,9 +677,22 @@ func (c *CHClient) TestConnection(ctx context.Context, user, password string) (s
 // Query patterns
 var (
 	writeQueryPattern = regexp.MustCompile(`(?i)^\s*(INSERT|DELETE|UPDATE|CREATE|DROP|UNDROP|ALTER|TRUNCATE|RENAME|EXCHANGE|ATTACH|DETACH|OPTIMIZE|GRANT|REVOKE|KILL|SYSTEM|SET|USE)\b`)
-	formatPattern     = regexp.MustCompile(`(?i)\bFORMAT\s+\w+\s*$`)
-	commentPattern    = regexp.MustCompile(`(?m)^\s*--.*$`)
+	// formatPattern matches a trailing FORMAT clause, optionally followed by a
+	// SETTINGS clause (ClickHouse accepts both orders).
+	formatPattern = regexp.MustCompile(`(?is)\bFORMAT\s+\w+(\s+SETTINGS\s+[^()]*)?$`)
+	// leadingNoiseRe matches leading whitespace, -- line comments and /* */
+	// block comments, so the statement kind is found however the query starts.
+	leadingNoiseRe = regexp.MustCompile(`(?s)^(?:\s+|--[^\n]*(?:\n|$)|/\*.*?\*/)*`)
+	// trailingNoiseRe matches trailing whitespace and semicolons.
+	trailingNoiseRe = regexp.MustCompile(`[\s;]+$`)
+	// trailingSettingsRe matches a trailing SETTINGS clause (no parentheses after it).
+	trailingSettingsRe = regexp.MustCompile(`(?is)\s+SETTINGS\s+[\w.]+\s*=[^()]*$`)
 )
+
+// stripLeadingComments removes leading whitespace and comments of both kinds.
+func stripLeadingComments(query string) string {
+	return leadingNoiseRe.ReplaceAllString(query, "")
+}
 
 // metaLimitRe matches an existing LIMIT clause, including negative limits/offsets
 // (LIMIT -10 means "all but the last 10 rows" since ClickHouse 25.x).
@@ -676,44 +703,53 @@ var metaLimitRe = regexp.MustCompile(`(?i)\bLIMIT\s+-?\d+(\s*,\s*-?\d+)?(\s+OFFS
 // The caller passes the query with leading whitespace/comments already stripped.
 var metaWrapRe = regexp.MustCompile(`(?is)^\s*(?:SELECT|WITH)\b|^\s*\(`)
 
-// metaSkipRe strips leading whitespace and whole-line -- comments so the
-// statement kind can be detected regardless of how the query was formatted.
-var metaSkipRe = regexp.MustCompile(`(?s)^(?:\s|--[^\n]*\n)*`)
+// isWrappableForMeta reports whether buildMetaQuery wraps the query in a subquery.
+func isWrappableForMeta(query string) bool {
+	return metaWrapRe.MatchString(stripLeadingComments(strings.TrimRight(query, "; \n\t")))
+}
 
 // buildMetaQuery rewrites a query to return zero rows so column metadata can be
 // fetched cheaply before streaming the real result.
 //
 // SELECT / WITH / parenthesized statements are wrapped in an outer subquery
 // (SELECT * FROM (<query>) LIMIT 0). Wrapping is immune to the whole tail of
-// textual cases a LIMIT rewrite keeps missing — LIMIT with an expression like
+// textual cases a LIMIT rewrite keeps missing (LIMIT with an expression like
 // 10*2, WITH TIES, negative limits/offsets, odd whitespace and comment
-// placement — and ClickHouse short-circuits the outer LIMIT 0 to just the
-// header anyway.
+// placement, a trailing SETTINGS clause) and ClickHouse short-circuits the
+// outer LIMIT 0 to just the header anyway. Leading -- and /* */ comments are
+// skipped when detecting the statement kind.
 //
 // Statements that cannot live inside a subquery (SHOW, DESCRIBE, INSERT, ...)
-// keep the textual rewrite path.
+// keep the textual rewrite path; LIMIT 0 goes before a trailing SETTINGS clause.
 func buildMetaQuery(query string) string {
 	trimmed := strings.TrimRight(query, "; \n\t")
-	head := metaSkipRe.ReplaceAllString(trimmed, "")
-	if metaWrapRe.MatchString(head) {
+	if isWrappableForMeta(trimmed) {
 		return "SELECT * FROM (\n" + trimmed + "\n) LIMIT 0"
 	}
 	if metaLimitRe.MatchString(trimmed) {
 		return metaLimitRe.ReplaceAllString(trimmed, "LIMIT 0")
 	}
+	if loc := trailingSettingsRe.FindStringIndex(trimmed); loc != nil {
+		return trimmed[:loc[0]] + "\nLIMIT 0" + trimmed[loc[0]:]
+	}
 	// Use a newline so that trailing -- line comments don't swallow the injected clause
 	return trimmed + "\nLIMIT 0"
 }
 
+// cheapIntrospectionRe matches statements that only read metadata.
+var cheapIntrospectionRe = regexp.MustCompile(`(?i)^(SHOW|DESC|DESCRIBE|EXISTS)\b`)
+
+// isCheapIntrospection reports whether a statement is safe to run twice.
+func isCheapIntrospection(query string) bool {
+	return cheapIntrospectionRe.MatchString(stripLeadingComments(query))
+}
+
 func isWriteQuery(query string) bool {
-	// Strip leading comments
-	stripped := commentPattern.ReplaceAllString(query, "")
-	stripped = strings.TrimSpace(stripped)
-	return writeQueryPattern.MatchString(stripped)
+	return writeQueryPattern.MatchString(stripLeadingComments(query))
 }
 
 func hasFormatClause(query string) bool {
-	return formatPattern.MatchString(strings.TrimSpace(query))
+	return formatPattern.MatchString(trailingNoiseRe.ReplaceAllString(query, ""))
 }
 
 func truncate(s string, maxLen int) string {
