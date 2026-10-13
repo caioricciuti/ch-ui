@@ -30,9 +30,11 @@
     LayoutDashboard, Plus, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Star, FolderInput,
     MoreHorizontal, Pencil, Trash2, Tag, ExternalLink, Search, Copy, LayoutTemplate,
   } from 'lucide-svelte'
+  import { readScoped, writeScoped } from '../../stores/workspace-scope'
 
   // Grafana-style browser: folder tree on the left, dashboards of the
   // selected folder on the right, stars per user, tags for search.
+  // Per user@connection: folder ids differ between connections.
   const OPEN_KEY = 'ch-ui-dash-folders-open'
 
   type Row = Record<string, unknown> & Dashboard & { folder_path: string; owner: string }
@@ -51,7 +53,7 @@
 
   function loadExpanded(): Set<string> {
     try {
-      const raw = localStorage.getItem(OPEN_KEY)
+      const raw = readScoped(OPEN_KEY)
       const parsed: unknown = raw ? JSON.parse(raw) : []
       return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [])
     } catch {
@@ -64,11 +66,7 @@
     if (next.has(id)) next.delete(id)
     else next.add(id)
     expanded = next
-    try {
-      localStorage.setItem(OPEN_KEY, JSON.stringify([...next]))
-    } catch {
-      /* private mode */
-    }
+    writeScoped(OPEN_KEY, JSON.stringify([...next]))
   }
 
   async function loadAll() {

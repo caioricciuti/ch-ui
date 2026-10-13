@@ -20,6 +20,7 @@
   import { encodeAbsoluteDashboardRange } from '../../utils/dashboard-time'
   import { resolveRange } from './time'
   import { formatNumber } from '../../utils/format'
+  import { readScoped, writeScoped } from '../../stores/workspace-scope'
 
   interface Props {
     sources: TelemetrySource[]
@@ -279,7 +280,7 @@
 
   function readColumns(): Record<string, string[]> {
     try {
-      const parsed: unknown = JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? '{}')
+      const parsed: unknown = JSON.parse(readScoped(COLUMNS_KEY) ?? '{}')
       return parsed && typeof parsed === 'object' ? (parsed as Record<string, string[]>) : {}
     } catch {
       return {}
@@ -292,11 +293,7 @@
 
   function toggleColumn(key: string) {
     extraColumns = extraColumns.includes(key) ? extraColumns.filter((k) => k !== key) : [...extraColumns, key]
-    try {
-      localStorage.setItem(COLUMNS_KEY, JSON.stringify({ ...readColumns(), [sourceId]: extraColumns }))
-    } catch {
-      /* private mode */
-    }
+    writeScoped(COLUMNS_KEY, JSON.stringify({ ...readColumns(), [sourceId]: extraColumns }))
   }
 
   const columnCandidates = $derived.by(() => {

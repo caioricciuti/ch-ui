@@ -3,9 +3,10 @@
   import { tick, onMount, untrack } from 'svelte'
   import {
     Search, Plus, Table2, Sparkles, Moon, Sun, Monitor, LogOut, SquareTerminal, Home,
-    Hash, Boxes, Database, Keyboard,
+    Hash, Boxes, Database, Keyboard, ArrowLeftRight,
   } from 'lucide-svelte'
   import { closeCommandPalette, isCommandPaletteOpen } from '../../stores/command-palette.svelte'
+  import { openConnectionSwitcher } from '../../stores/connection-switcher.svelte'
   import { openQueryTab, openTableTab, getTabs, openHomeTab, setActiveTab, type Tab } from '../../stores/tabs.svelte'
   import { PAGE_ROUTES, ADMIN_ONLY_ROUTES, isPageRouteType, type PageRoute } from '../../routes'
   import { getDatabases, loadDatabases, loadTables } from '../../stores/schema.svelte'
@@ -21,6 +22,7 @@
     brainSuggestion as brainSuggestionFor, groupResults, highlight,
   } from './commandPaletteSearch.pro'
   import type { CommandItem, Group, Grouped } from './commandPaletteSearch.pro'
+  import { readScoped, writeScoped } from '../../stores/workspace-scope'
 
   let inputEl: HTMLInputElement | undefined = $state()
   let query = $state('')
@@ -133,6 +135,7 @@
     }
 
     if (session) {
+      items.push(mkAction('switch-connection', 'Switch connection', ArrowLeftRight, undefined, () => openConnectionSwitcher(), 'switch change connection server cluster environment'))
       items.push(mkAction('sign-out', 'Sign out', LogOut, undefined, () => logout(), 'logout sign out session'))
     }
 
@@ -264,7 +267,7 @@
   function persistRecent(id: string) {
     const next = [id, ...recentIds.filter(x => x !== id)].slice(0, MAX_RECENT)
     recentIds = next
-    try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)) } catch {}
+    writeScoped(RECENT_KEY, JSON.stringify(next))
   }
 
   async function runCommand(item: CommandItem) {
@@ -364,7 +367,7 @@
 
   onMount(() => {
     try {
-      const raw = localStorage.getItem(RECENT_KEY)
+      const raw = readScoped(RECENT_KEY)
       if (raw) recentIds = JSON.parse(raw)
     } catch {}
   })

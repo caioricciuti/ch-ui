@@ -1,4 +1,5 @@
 import { withBase } from '../basePath'
+import { connectionHeaders } from '../stores/workspace-scope'
 import { apiDel, apiGet, apiPost, apiPut } from './client'
 import type {
   BrainArtifact,
@@ -74,7 +75,7 @@ export async function streamBrainMessage(
   const response = await fetch(withBase(`/api/brain/chats/${encodeURIComponent(chatId)}/messages/stream`), {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...connectionHeaders() },
     body: JSON.stringify(payload),
     signal,
   })

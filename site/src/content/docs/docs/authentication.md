@@ -101,6 +101,54 @@ Common statuses returned by `/api/auth/login`:
   reached (timeout, refused, network or TLS error). Does not count toward the
   rate limit, so an outage does not lock healthy accounts out.
 
+## Switching Connection
+
+Click the status dot at the bottom of the sidebar, or run **Switch
+connection** from the command palette (`Cmd/Ctrl+K`). The list shows every
+connection with its status; offline ones cannot be picked.
+
+- **Password sessions:** the form is pre-filled with your ClickHouse user and
+  **Use my current password** is ticked. Untick it to sign in to the other
+  connection as a different user. If the other connection refuses your
+  current password, the password field opens; that refusal does not count
+  toward the login rate limit.
+- **SSO sessions:** nothing to type. The switch uses the target connection's
+  SSO service account and keeps your email and role. Connections without a
+  service account show **SSO not set up**.
+
+A switch reloads the app. Open tabs, pinned results, recent palette commands,
+open dashboard folders and log columns are kept per person and connection in
+the browser, so switching back restores what you had there. Theme, split
+sizes and the row limit stay the same everywhere. Other open CH-UI tabs in the
+same browser reload too; a tab that still sends a request for the old
+connection gets `409 connection_changed` and reloads.
+
+```bash
+curl -X POST http://localhost:3488/api/auth/switch-connection \
+  -H "Content-Type: application/json" \
+  -H "Cookie: chui_session=..." \
+  -d '{"connection_id":"<id>"}'
+```
+
+Leave out `username` and `password` to reuse the current ones; send both to
+sign in as someone else. The session cookie is replaced with a new token in
+one step, so a failed switch leaves you signed in where you were.
+
+Statuses:
+
+- `400` missing or unknown connection, or the embedded connection that setup
+  replaced (it is hidden from sign-in too)
+- `401` ClickHouse rejected the credentials. `needs_password: true` when it
+  was your current password; only typed passwords count toward the rate limit
+- `403` the `Origin` header is not CH-UI's own origin or an allowed origin
+- `409` `sso_not_configured` (SSO session, target has no service account),
+  `sso_account_rejected` (ClickHouse refused that service account), or
+  `session_changed` (another request switched or ended this session first)
+- `415` the body is not `application/json`
+- `429` the shared login rate limit (`retryAfter` in the body), or more than
+  20 switch requests a minute from one IP
+- `503` the target is offline or ClickHouse could not be reached
+
 ## Logout
 
 ```bash
@@ -114,7 +162,9 @@ This deletes the server session and clears cookie state.
 
 Both successful and **failed** logins are written to the immutable audit trail
 (with user, IP, and timestamp), so brute-force and credential-stuffing attempts
-are visible. Audit events can be forwarded to your SIEM. See
+are visible. A connection switch is written as `user.switch_connection` with
+the old and new connection; a refused or unreachable switch is a
+`user.login_failed` row naming the switch. Audit events can be forwarded to your SIEM. See
 [Monitoring & SIEM](/docs/monitoring).
 
 ## Security Notes

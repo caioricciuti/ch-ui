@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -67,7 +68,9 @@ func (h *AuthHandler) Routes(r chi.Router) {
 	r.Post("/logout", h.Logout)
 	r.Get("/session", h.Session)
 	r.Get("/connections", h.Connections)
-	r.Post("/switch-connection", h.SwitchConnection)
+	// Per-IP request cap on top of the shared credential budget, which only
+	// counts rejected passwords.
+	r.With(middleware.IPRateLimit(20, time.Minute)).Post("/switch-connection", h.SwitchConnection)
 	if h.Setup != nil {
 		r.Post("/setup", h.Setup.Setup)
 	}
@@ -130,7 +133,10 @@ type connectionInfo struct {
 	// Kind is "direct" when CH-UI itself connects to ClickHouse (embedded or
 	// direct connections) and "agent" when a ch-ui connect agent does. The
 	// login page words its help by it.
-	Kind       string  `json:"kind"`
+	Kind string `json:"kind"`
+	// SSOReady is set only for a caller signed in through SSO: whether the
+	// connection has the SSO service account a switch needs.
+	SSOReady   *bool   `json:"sso_ready,omitempty"`
 	LastSeenAt *string `json:"last_seen_at"`
 	CreatedAt  string  `json:"created_at"`
 }
@@ -777,11 +783,26 @@ func (h *AuthHandler) Connections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The connection switcher of an SSO person disables connections it
+	// cannot switch to. Anyone else (and the sign-in page) never sees it.
+	viaSSO := false
+	if cookie, err := r.Cookie(SessionCookie); err == nil && cookie.Value != "" {
+		if s, err := h.DB.GetSession(cookie.Value); err == nil && s != nil && s.AuthSubject != nil && *s.AuthSubject != "" {
+			viaSSO = true
+		}
+	}
+
 	hidden := hiddenLoginConnectionID(h.DB)
 	result := make([]connectionInfo, 0, len(connections))
 	for _, c := range connections {
 		if c.ID == hidden {
 			continue
+		}
+		var ssoReady *bool
+		if viaSSO {
+			saUser, saPassword, err := h.DB.GetConnectionSSOAccount(c.ID)
+			ready := err == nil && saUser != "" && saPassword != ""
+			ssoReady = &ready
 		}
 		result = append(result, connectionInfo{
 			ID:         c.ID,
@@ -789,6 +810,7 @@ func (h *AuthHandler) Connections(w http.ResponseWriter, r *http.Request) {
 			Status:     c.Status,
 			Online:     h.Gateway.IsTunnelOnline(c.ID),
 			Kind:       connectionKind(c),
+			SSOReady:   ssoReady,
 			LastSeenAt: c.LastSeenAt,
 			CreatedAt:  c.CreatedAt,
 		})
@@ -815,7 +837,53 @@ func waitTunnelOnline(gw *tunnel.Gateway, connID string) bool {
 
 // ---------- POST /switch-connection ----------
 
+// isJSONRequest reports whether r declares a JSON body. HTML forms cannot
+// send application/json, so requiring it keeps cross-site form posts out.
+func isJSONRequest(r *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return err == nil && mediaType == "application/json"
+}
+
+// sameOriginRequest reports whether r comes from CH-UI itself: no Origin
+// header (not a browser cross-site call), the host the request was sent to,
+// or an origin the CORS policy allows.
+func (h *AuthHandler) sameOriginRequest(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	if u, err := url.Parse(origin); err == nil && u.Host != "" && strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	cfg := middleware.CORSConfig{}
+	if h.Config != nil {
+		cfg = middleware.CORSConfig{AllowedOrigins: h.Config.AllowedOrigins, AppURL: h.Config.AppURL, DevMode: h.Config.DevMode}
+	}
+	return middleware.OriginAllowed(cfg, origin)
+}
+
+// SwitchConnection moves the caller's session to another connection.
+//
+// Password sessions test a ClickHouse user and password on the target. An
+// empty password for the session's own ClickHouse user reuses the stored
+// one; when the target rejects it the answer is 401 with needs_password and
+// the attempt is not counted against the lockout (it was not a guess). SSO
+// sessions ignore the request credentials and use the target connection's
+// SSO service account, keeping the person's identity and role.
+//
+// The old session is replaced in one transaction (a fresh token, so session
+// fixation protection holds); a session that changed under the request is a
+// 409 and leaves the caller signed in.
 func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
+	if !isJSONRequest(r) {
+		writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		return
+	}
+	if !h.sameOriginRequest(r) {
+		writeError(w, http.StatusForbidden, "Cross-origin request refused")
+		return
+	}
+
 	cookie, err := r.Cookie(SessionCookie)
 	if err != nil || cookie.Value == "" {
 		writeError(w, http.StatusUnauthorized, "Not authenticated")
@@ -834,13 +902,14 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.ConnectionID = req.resolvedConnectionID()
-	if strings.TrimSpace(req.Username) == "" {
-		req.Username = existingSession.ClickhouseUser
-	}
-	req.Username = strings.TrimSpace(req.Username)
-
 	if req.ConnectionID == "" {
 		writeError(w, http.StatusBadRequest, "connection_id (or connectionId) is required")
+		return
+	}
+	// The embedded connection setup replaced is hidden from sign-in; it is
+	// not a switch target either.
+	if hidden := hiddenLoginConnectionID(h.DB); hidden != "" && req.ConnectionID == hidden {
+		writeError(w, http.StatusBadRequest, "Connection not available")
 		return
 	}
 
@@ -855,12 +924,69 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	info := &middleware.SessionInfo{ClickhouseUser: existingSession.ClickhouseUser}
+	if existingSession.AuthSubject != nil {
+		info.AuthSubject = *existingSession.AuthSubject
+	}
+	actor := middleware.Actor(info)
+	viaSSO := info.AuthSubject != ""
+
+	var username, password, encryptedPwd string
+	reused := false
+	if viaSSO {
+		saUser, saEncrypted, err := h.DB.GetConnectionSSOAccount(newConn.ID)
+		if err != nil {
+			slog.Error("Failed to read SSO service account", "connection", newConn.ID, "error", err)
+			writeError(w, http.StatusInternalServerError, "Failed to retrieve connection")
+			return
+		}
+		if saUser == "" || saEncrypted == "" {
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"success": false,
+				"error":   "sso_not_configured",
+				"message": "SSO is not set up on this connection (no ClickHouse service account).",
+			})
+			return
+		}
+		saPassword, err := crypto.Decrypt(saEncrypted, h.Config.AppSecretKey)
+		if err != nil {
+			slog.Error("Failed to decrypt SSO service account", "connection", newConn.ID, "error", err)
+			writeError(w, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+		username, password, encryptedPwd = saUser, saPassword, saEncrypted
+	} else {
+		username = strings.TrimSpace(req.Username)
+		if username == "" {
+			username = existingSession.ClickhouseUser
+		}
+		password = req.Password
+		if password == "" && username == existingSession.ClickhouseUser {
+			stored, err := crypto.Decrypt(existingSession.EncryptedPassword, h.Config.AppSecretKey)
+			if err != nil {
+				writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
+					"success":        false,
+					"error":          "Authentication failed",
+					"message":        "Enter your password for this connection.",
+					"needs_password": true,
+				})
+				return
+			}
+			password, reused = stored, true
+		}
+	}
+
 	// Same budget as login: switching tests a username and password, so
-	// without it this endpoint is an unthrottled password oracle.
+	// without it this endpoint is an unthrottled password oracle. SSO people
+	// are limited per person, not per shared service account.
+	rateUser := username
+	if viaSSO {
+		rateUser = info.AuthSubject
+	}
 	clientIP := getClientIP(r)
 	attempt := &credentialAttempt{rl: h.RateLimiter}
 	defer attempt.release()
-	if !attempt.reserveIPAndUser(w, clientIP, req.Username, newConn.ID) {
+	if !attempt.reserveIPAndUser(w, clientIP, rateUser, newConn.ID) {
 		return
 	}
 
@@ -874,7 +1000,7 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	testResult, err := h.Gateway.TestConnection(newConn.ID, req.Username, req.Password, 15*time.Second)
+	testResult, err := h.Gateway.TestConnection(newConn.ID, username, password, 15*time.Second)
 	if err == nil && !testResult.Success {
 		errMsg := testResult.Error
 		if errMsg == "" {
@@ -884,7 +1010,8 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		if classifyClickHouseAuthError(err.Error()) == chAuthUnreachable {
-			slog.Info("Switch connection aborted: ClickHouse unreachable", "user", req.Username, "error", err)
+			slog.Info("Switch connection aborted: ClickHouse unreachable", "user", actor, "error", err)
+			h.auditLoginFailure(actor, newConn, clientIP, "clickhouse unreachable (switch connection)")
 			writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
 				"success": false,
 				"error":   "Connection error",
@@ -892,44 +1019,82 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		attempt.failed()
-		slog.Info("Switch connection failed: credentials rejected", "user", req.Username, "error", err)
-		h.auditLoginFailure(req.Username, newConn, clientIP, "invalid credentials (switch connection)")
-		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
-			"success": false,
-			"error":   "Authentication failed",
-			"message": sanitizeClickHouseAuthMessage(err.Error()),
-		})
+		switch {
+		case viaSSO:
+			// A stored service account the target rejects is a setup
+			// problem, not a guess by the caller: never counted.
+			slog.Warn("Switch connection failed: SSO service account rejected", "user", actor, "connection", newConn.Name, "error", err)
+			h.auditLoginFailure(actor, newConn, clientIP, "sso service account rejected (switch connection)")
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"success": false,
+				"error":   "sso_account_rejected",
+				"message": "ClickHouse rejected this connection's SSO service account. Ask an admin to check it.",
+			})
+		case reused:
+			// The stored password is the one that already signed this person
+			// in; a target that refuses it is not a guess either.
+			slog.Info("Switch connection: current password rejected by target", "user", actor, "connection", newConn.Name)
+			h.auditLoginFailure(actor, newConn, clientIP, "current password rejected (switch connection)")
+			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
+				"success":        false,
+				"error":          "Authentication failed",
+				"message":        "Invalid credentials",
+				"needs_password": true,
+			})
+		default:
+			attempt.failed()
+			slog.Info("Switch connection failed: credentials rejected", "user", actor, "error", err)
+			h.auditLoginFailure(actor, newConn, clientIP, "invalid credentials (switch connection)")
+			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
+				"success": false,
+				"error":   "Authentication failed",
+				"message": sanitizeClickHouseAuthMessage(err.Error()),
+			})
+		}
 		return
 	}
 	attempt.succeeded()
 
-	role, roleNote := h.resolveUserRole(newConn.ID, req.Username, req.Password, clientIP)
-
-	encryptedPwd, err := crypto.Encrypt(req.Password, h.Config.AppSecretKey)
-	if err != nil {
-		slog.Error("Failed to encrypt password", "error", err)
-		writeError(w, http.StatusInternalServerError, "Internal server error")
-		return
-	}
-
-	if err := h.DB.DeleteSession(cookie.Value); err != nil {
-		slog.Error("Failed to delete old session", "error", err)
+	var role, roleNote string
+	if viaSSO {
+		// The person's role came from the IdP at sign-in; it does not depend
+		// on the connection.
+		role = "viewer"
+		if existingSession.UserRole != nil && *existingSession.UserRole != "" {
+			role = *existingSession.UserRole
+		}
+	} else {
+		role, roleNote = h.resolveUserRole(newConn.ID, username, password, clientIP)
+		encryptedPwd, err = crypto.Encrypt(password, h.Config.AppSecretKey)
+		if err != nil {
+			slog.Error("Failed to encrypt password", "error", err)
+			writeError(w, http.StatusInternalServerError, "Internal server error")
+			return
+		}
 	}
 
 	token := uuid.NewString()
 	expiresAt := time.Now().UTC().Add(h.sessionDuration()).Format(time.RFC3339)
 
-	_, err = h.DB.CreateSession(database.CreateSessionParams{
+	_, err = h.DB.RotateSession(cookie.Value, database.CreateSessionParams{
 		ConnectionID:      newConn.ID,
-		ClickhouseUser:    req.Username,
+		ClickhouseUser:    username,
 		EncryptedPassword: encryptedPwd,
 		Token:             token,
 		ExpiresAt:         expiresAt,
 		UserRole:          role,
+		AuthSubject:       info.AuthSubject,
 	})
+	if errors.Is(err, database.ErrSessionChanged) {
+		writeJSON(w, http.StatusConflict, map[string]interface{}{
+			"success": false,
+			"error":   "session_changed",
+			"message": "Your session changed while switching. Reload and try again.",
+		})
+		return
+	}
 	if err != nil {
-		slog.Error("Failed to create session", "error", err)
+		slog.Error("Failed to rotate session", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create session")
 		return
 	}
@@ -944,31 +1109,38 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
+	oldName := existingSession.ConnectionID
+	if oldConn, err := h.DB.GetConnectionByID(existingSession.ConnectionID); err == nil && oldConn != nil {
+		oldName = oldConn.Name
+	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:       "user.switch_connection",
-		Username:     strPtr(req.Username),
-		ConnectionID: strPtr(newConn.ID),
-		Details:      strPtr(fmt.Sprintf("Switched to connection %s (role: %s)", newConn.Name, role)),
-		IPAddress:    strPtr(clientIP),
+		Action:         "user.switch_connection",
+		Username:       strPtr(actor),
+		ClickhouseUser: strPtr(username),
+		ConnectionID:   strPtr(newConn.ID),
+		Details:        strPtr(fmt.Sprintf("Switched connection from %s to %s (role: %s)", oldName, newConn.Name, role)),
+		IPAddress:      strPtr(clientIP),
 	})
 
-	slog.Info("User switched connection", "user", req.Username, "connection", newConn.Name, "role", role)
+	slog.Info("User switched connection", "user", actor, "from", oldName, "to", newConn.Name, "role", role)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":            true,
-		"user":               req.Username,
+		"user":               actor,
 		"user_role":          role,
 		"clickhouse_version": testResult.Version,
 		"expires_at":         expiresAt,
+		"via_sso":            viaSSO,
 		"connection": map[string]interface{}{
 			"id":     newConn.ID,
 			"name":   newConn.Name,
 			"online": true,
 		},
 		"session": map[string]interface{}{
-			"user":             req.Username,
+			"user":             actor,
 			"role":             role,
 			"roleNote":         roleNote,
+			"viaSSO":           viaSSO,
 			"connectionId":     newConn.ID,
 			"connectionName":   newConn.Name,
 			"connectionOnline": true,

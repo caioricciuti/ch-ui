@@ -4,6 +4,8 @@ export interface Session {
   role: string
   /** Explanation when the effective role is surprising (implicit admin ignored, degraded detection) */
   roleNote?: string
+  /** Signed in through SSO; user is the person's email. */
+  viaSSO?: boolean
   connectionId: string
   connectionName: string
   connectionOnline: boolean
@@ -18,6 +20,10 @@ export interface Connection {
   name: string
   status: string
   online: boolean
+  /** direct: CH-UI connects itself; agent: a ch-ui connect agent does. */
+  kind?: 'direct' | 'agent'
+  /** Only for SSO sessions: the connection has an SSO service account. */
+  sso_ready?: boolean
   created_at: string
   host_info?: HostInfo
 }

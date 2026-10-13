@@ -75,6 +75,7 @@ func TestSwitchConnectionSharesLoginRateLimit(t *testing.T) {
 		body := `{"connection_id":"` + connID + `","username":"victim","password":"` + password + `"}`
 		req := httptest.NewRequest(http.MethodPost, "/switch-connection", strings.NewReader(body))
 		req.RemoteAddr = "198.51.100.20:5000"
+		req.Header.Set("Content-Type", "application/json")
 		req.AddCookie(&http.Cookie{Name: SessionCookie, Value: "sess-1"})
 		rec := httptest.NewRecorder()
 		h.SwitchConnection(rec, req)
