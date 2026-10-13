@@ -28,6 +28,12 @@ type ProcessorOptions struct {
 	TimeFieldUnit string
 	MaxDataPoints int // defaults to 1000
 	Table         string
+	// Vars holds the current values of the dashboard variables, by name.
+	// They are substituted last, after the built-in macros, and always as
+	// quoted literals (see SubstituteVars).
+	Vars map[string][]string
+	// VarTypes holds the type of each variable that needs one ("interval").
+	VarTypes map[string]string
 }
 
 // ProcessedResult contains the output of query variable interpolation.
@@ -214,6 +220,17 @@ func ProcessQueryVariables(opts ProcessorOptions) ProcessedResult {
 		patInterval.MatchString(processedQuery) ||
 		patTimestampFilter.MatchString(processedQuery) {
 		errors = append(errors, "Time-range variables found but no time range was provided")
+	}
+
+	// 4. Dashboard variables, last, so a macro can never expand inside a
+	// substituted value.
+	if len(errors) == 0 && len(opts.Vars) > 0 {
+		substituted, err := SubstituteVars(processedQuery, opts.Vars, opts.VarTypes)
+		if err != nil {
+			errors = append(errors, err.Error())
+		} else {
+			processedQuery = substituted
+		}
 	}
 
 	return ProcessedResult{

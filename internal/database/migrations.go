@@ -1291,6 +1291,9 @@ Formatting:
 		slog.Warn("Failed to record schema version", "error", err)
 	}
 
+	if err := db.migrateDashboardsV2(); err != nil {
+		return err
+	}
 	slog.Info("Database migrations completed", "schema_version", schemaVersion)
 	return nil
 }

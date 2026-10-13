@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import type { Dashboard, Panel, PanelConfig } from '../lib/types/api'
+  import type { Dashboard, DashboardVariable, Panel, PanelConfig } from '../lib/types/api'
   import type { ColumnMeta } from '../lib/utils/chart-transform'
   import { computeStat } from '../lib/utils/chart-transform'
   import { toDashboardTimeRangePayload, dashboardRangeFromUrlParams, dashboardRangeToUrlParams } from '../lib/utils/dashboard-time'
@@ -15,6 +15,12 @@
   import GaugePanel from '../lib/components/dashboard/GaugePanel.svelte'
   import PiePanel from '../lib/components/dashboard/PiePanel.svelte'
   import TimeRangeSelector from '../lib/components/dashboard/TimeRangeSelector.svelte'
+  import VariableBar from '../lib/components/dashboard/VariableBar.svelte'
+  import { fetchPublicVariableOptions } from '../lib/api/dashboards'
+  import {
+    initialVariableValues, readVariablesFromSearch, reconcileValues, writeVariablesToUrl,
+    type VariableValues,
+  } from '../lib/utils/dashboard-variables'
   import {
     STACK_BELOW, calcColW, gridToPixel, compact, containerHeight, stackLayout,
     type LayoutItem,
@@ -54,6 +60,8 @@
   let error = $state<string | null>(null)
   let isPrivateError = $state(false)
   let dashboardTimeRange = $state(dashboardRangeFromUrlParams(urlParams.get('from'), urlParams.get('to')) ?? '1h')
+  let variables = $state<DashboardVariable[]>([])
+  let variableValues = $state<VariableValues>({})
 
   let gridEl = $state<HTMLDivElement>(undefined!)
   let containerWidth = $state(0)
@@ -110,11 +118,17 @@
     error = null
     isPrivateError = false
     try {
-      const res = await apiFetch<{ dashboard: Dashboard; panels: Panel[] }>(
+      const res = await apiFetch<{ dashboard: Dashboard; panels: Panel[]; variables?: DashboardVariable[] }>(
         `/api/public/dashboards/${token}`,
       )
       dashboard = res.dashboard
       panels = res.panels ?? []
+      variables = res.variables ?? []
+      // A text variable on a share link is always its default.
+      const fromUrl = readVariablesFromSearch(urlParams)
+      for (const v of variables) if (v.type === 'text') delete fromUrl[v.name]
+      variableValues = initialVariableValues(variables, fromUrl)
+      writeVariablesToUrl(variables, variableValues)
       runAllPanelQueries()
     } catch (e: unknown) {
       if (e && typeof e === 'object' && 'isPrivate' in e) {
@@ -166,6 +180,7 @@
           body: JSON.stringify({
             panel_id: p.id,
             time_range: toDashboardTimeRangePayload(dashboardTimeRange || '1h'),
+            variables: variableValues,
           }),
         },
       )
@@ -198,6 +213,19 @@
     url.searchParams.set('to', to)
     history.replaceState(history.state, '', url)
     runAllPanelQueries()
+  }
+
+  function handleVariableValuesChange(values: VariableValues) {
+    variableValues = reconcileValues(variables, values)
+    writeVariablesToUrl(variables, variableValues)
+    runAllPanelQueries()
+  }
+
+  function loadVariableOptions(name: string, values: VariableValues) {
+    return fetchPublicVariableOptions(token, name, {
+      variables: values,
+      time_range: toDashboardTimeRangePayload(dashboardTimeRange || '1h'),
+    }, inviteKey)
   }
 
   function parsePanelConfig(configStr: string): PanelConfig {
@@ -241,6 +269,16 @@
       </div>
     {/if}
   </div>
+
+  {#if dashboard && variables.length > 0}
+    <VariableBar
+      {variables}
+      values={variableValues}
+      loadOptions={loadVariableOptions}
+      onchange={handleVariableValuesChange}
+      lockText
+    />
+  {/if}
 
   <!-- Content -->
   <div class="flex-1 overflow-auto p-4">
