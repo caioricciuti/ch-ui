@@ -2,6 +2,8 @@
   import { onMount } from 'svelte'
   import Button from '../common/Button.svelte'
   import Tooltip from '../common/Tooltip.svelte'
+  import ConnectionSwitcher from './ConnectionSwitcher.svelte'
+  import { isConnectionSwitcherOpen, openConnectionSwitcher, closeConnectionSwitcher } from '../../stores/connection-switcher.svelte'
   import { goTo, goWorkspace, getRouteType } from '../../stores/router.svelte'
   import { groupForRoute, NAV_GROUPS, ADMIN_ONLY_ROUTES, type NavGroup } from '../../routes'
   import { getSession, logout } from '../../stores/session.svelte'
@@ -73,6 +75,11 @@
         ].filter(Boolean).join('\n')
       : '',
   )
+
+  let connectionButton = $state<HTMLButtonElement | null>(null)
+  const switcherOpen = $derived(isConnectionSwitcherOpen())
+  // Measured when the switcher opens (from here or the command palette).
+  const switcherAnchor = $derived(switcherOpen ? connectionButton?.getBoundingClientRect() ?? null : null)
 
   const themePref = $derived(getThemePreference())
   const THEME_LABEL = { system: 'System theme', light: 'Light theme', dark: 'Dark theme' } as const
@@ -179,11 +186,18 @@
   <span class="my-1.5 h-px w-5 bg-edge"></span>
 
   {#if session}
-    <span
-      class="my-1 h-1.5 w-1.5 rounded-full {session.connectionOnline ? 'bg-success' : 'bg-danger'}"
-      title={connectionTitle}
-      aria-hidden="true"
-    ></span>
+    <button
+      bind:this={connectionButton}
+      class="inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-hover {switcherOpen ? 'bg-active' : ''}"
+      onclick={() => (switcherOpen ? closeConnectionSwitcher() : openConnectionSwitcher())}
+      onmousedown={(e) => e.stopPropagation()}
+      title={`${connectionTitle}\nClick to switch connection`}
+      aria-label="Switch connection (now {session.connectionName ?? 'CH-UI'})"
+      aria-expanded={switcherOpen}
+      aria-haspopup="dialog"
+    >
+      <span class="h-1.5 w-1.5 rounded-full {session.connectionOnline ? 'bg-success' : 'bg-danger'}"></span>
+    </button>
     <span class="sr-only" role="status">
       {session.connectionName ?? 'Connection'}: {session.connectionOnline ? 'connected' : 'disconnected'}
     </span>
@@ -204,3 +218,7 @@
     </Button>
   {/if}
 </nav>
+
+{#if session && switcherOpen}
+  <ConnectionSwitcher anchor={switcherAnchor} onclose={closeConnectionSwitcher} />
+{/if}

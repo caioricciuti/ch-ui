@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -95,8 +96,53 @@ func (db *DB) GetSession(token string) (*Session, error) {
 	return &s, nil
 }
 
+// ErrSessionChanged is returned by RotateSession when the old session is
+// already gone: another request rotated, logged out or expired it first.
+var ErrSessionChanged = errors.New("session changed")
+
+// sessionExecer is the part of *sql.DB and *sql.Tx insertSession needs.
+type sessionExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
 // CreateSession creates a new session and returns its ID.
 func (db *DB) CreateSession(params CreateSessionParams) (string, error) {
+	return insertSession(db.conn, params)
+}
+
+// RotateSession replaces the session behind oldToken with a new one in a
+// single transaction. When oldToken no longer exists nothing is written and
+// ErrSessionChanged is returned, so of two concurrent rotations of the same
+// session exactly one wins and no orphan session is left behind.
+func (db *DB) RotateSession(oldToken string, params CreateSessionParams) (string, error) {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return "", fmt.Errorf("rotate session: begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec("DELETE FROM sessions WHERE token = ?", oldToken)
+	if err != nil {
+		return "", fmt.Errorf("rotate session: delete: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return "", fmt.Errorf("rotate session: rows affected: %w", err)
+	}
+	if n == 0 {
+		return "", ErrSessionChanged
+	}
+	id, err := insertSession(tx, params)
+	if err != nil {
+		return "", fmt.Errorf("rotate session: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("rotate session: commit: %w", err)
+	}
+	return id, nil
+}
+
+func insertSession(ex sessionExecer, params CreateSessionParams) (string, error) {
 	id := uuid.NewString()
 
 	userRole := params.UserRole
@@ -109,7 +155,7 @@ func (db *DB) CreateSession(params CreateSessionParams) (string, error) {
 		authSubject = params.AuthSubject
 	}
 
-	_, err := db.conn.Exec(
+	_, err := ex.Exec(
 		`INSERT INTO sessions (id, connection_id, clickhouse_user, encrypted_password, token, expires_at, user_role, auth_subject)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, params.ConnectionID,

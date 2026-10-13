@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 import { withBase } from '../basePath'
+import { connectionHeaders } from '../stores/workspace-scope'
 import { apiPost } from './client'
 import type { BrainUsage } from '../types/brain'
 
@@ -40,7 +41,7 @@ export async function generateSQLStream(
   const response = await fetch(withBase('/api/brain/generate-sql/stream'), {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...connectionHeaders() },
     body: JSON.stringify({ question: payload.question, current_sql: payload.currentSql, model_id: payload.modelId }),
     signal,
   })

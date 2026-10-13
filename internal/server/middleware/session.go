@@ -26,6 +26,10 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	})
 }
 
+// ConnectionHeader carries the connection id the UI believes its session is
+// on. Session rejects a request whose header disagrees with the session.
+const ConnectionHeader = "X-CHUI-Connection"
+
 // Session returns a middleware that validates the chui_session cookie.
 func Session(db *database.DB, _ *tunnel.Gateway) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -43,6 +47,14 @@ func Session(db *database.DB, _ *tunnel.Gateway) func(http.Handler) http.Handler
 			}
 			if session == nil {
 				writeError(w, http.StatusUnauthorized, "Session expired or invalid")
+				return
+			}
+
+			// A tab that still shows another connection (the session was
+			// switched in a different tab) names the connection it thinks it
+			// is on. Refuse instead of running its request on the new one.
+			if want := r.Header.Get(ConnectionHeader); want != "" && want != session.ConnectionID {
+				writeError(w, http.StatusConflict, "connection_changed")
 				return
 			}
 
