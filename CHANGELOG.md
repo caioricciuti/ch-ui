@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.20.0] - 2026-10-13
+
+### Upgrade notes
+
+- **Model schedules are now named pipelines.** Existing schedules are copied into pipelines automatically on first start. The API endpoints `/api/models/schedules` and `/api/models/schedule/{anchorId}` are removed; use `/api/models/pipelines` (#271).
+- **Full result export needs an updated agent.** Remote `ch-ui connect` agents must run v2.20.0 to export from the server; older agents get a clear "update the agent" message. Limits are set with `export_max_bytes` / `export_max_rows` (#270).
+
+### Added
+
+- **Anthropic provider for Brain**: native Messages API with streaming, tool use and prompt caching; Sonnet 5.5 for the agent, Opus 5.5 for harder work, Haiku 5.5 for quick tasks (#268).
+- **Brain usage and cost**: every chat turn and Ask AI request records model and tokens; answers show them with an estimated cost, and Admin > Brain > Usage lists them per person and model. A daily token budget per person, model roles (agent and quick), and streaming Ask AI (#268, #274).
+- **Dashboard variables**: query-driven, custom, text, constant and interval, with multi-select, All, cascading options and URL state. Values are always quoted server side; share links accept only real option values (#272).
+- **Dashboard templates**: ClickHouse server health and Query activity; **version history** with one-click restore; **duplicate** a dashboard (#272).
+- **Incremental models** (append or delete+insert by unique key, watermark column), PARTITION BY and engine arguments (e.g. ReplacingMergeTree), and **materialized view models** (#271).
+- **Data tests on models**: not null, accepted values, relationships and custom expressions, as warnings or errors (#271).
+- **Named model pipelines** with selectors like `+orders+`, cron and timezone; renaming a model updates them (#271).
+- **Compile and preview** a model before running it; GitHub-synced models support the new options and tests (#271).
+- **Result tabs**: running several statements gives one result tab per statement, and results can be pinned so a re-run keeps them (#270).
+- **Full result export** from the server as CSV, TSV, JSONLines or Parquet, without the row limit, read only (#270).
+- **Pipeline checkpoints**: pipelines resume from the last written position after a restart, with no duplicate rows (#269).
+- **Dead-letter table**: rows ClickHouse refuses go to `<table>_dlq` instead of blocking the pipeline (#269).
+- **Pipeline Test button**: sample the source, check sink permissions and preview rows without writing; new sink tables get inferred column types (#269).
+
+### Fixed
+
+- **Brain**: token usage is stored before an answer is marked done, so it shows up right away (#274).
+- Flaky tests in the telemetry monitor and query export suites (#273, #275).
+
 ## [2.19.0] - 2026-10-13
 
 ### Upgrade notes
