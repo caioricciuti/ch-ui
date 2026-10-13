@@ -13,7 +13,7 @@
   import { computeColumnStats } from '../../utils/stats'
   import { parseCHError } from '../../utils/ch-error'
   import { formatNumber, formatDuration } from '../../utils/format'
-  import { SquareTerminal, AlertTriangle, X, Filter, Lightbulb, Crosshair, CircleCheck } from 'lucide-svelte'
+  import { SquareTerminal, AlertTriangle, X, Filter, Lightbulb, Crosshair, CircleCheck, Sparkles } from 'lucide-svelte'
 
   type Tab = 'data' | 'stats' | 'schema' | 'insights'
 
@@ -63,6 +63,8 @@
      * line/col are relative to the executed fragment). */
     errorTargetLine?: number | null
     errorTargetCol?: number | null
+    /** Present only when Fix with AI can rewrite the failed query in place. */
+    onfixwithai?: () => void
     /** Present when the result can be exported in full by the server. */
     onexportfull?: (format: FullExportFormat) => void
     /** A full export in progress, with the bytes received so far. */
@@ -109,6 +111,7 @@
     ongotoerror,
     errorTargetLine = null,
     errorTargetCol = null,
+    onfixwithai,
     onexportfull,
     exportProgress = null,
     oncancelexport,
@@ -202,6 +205,15 @@
                 >
                   <Crosshair size={11} />
                   {errorTargetLine !== null ? `Go to line ${errorTargetLine}, col ${errorTargetCol}` : 'Go to error'}
+                </button>
+              {/if}
+              {#if onfixwithai}
+                <button
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] rounded border border-edge text-accent hover:bg-surface-2 transition-colors"
+                  onclick={onfixwithai}
+                >
+                  <Sparkles size={11} />
+                  Fix with AI
                 </button>
               {/if}
             </div>

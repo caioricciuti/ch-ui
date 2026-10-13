@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 import { describe, expect, it } from 'vitest'
-import { lineDiff } from './lineDiff'
+import { lineDiff } from '../../../utils/lineDiff'
 import { assigneesLabel, describeOp, dropConfirmName, grantObject, revokeOpFor, splitList } from './changes'
 
 describe('lineDiff', () => {

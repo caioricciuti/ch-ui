@@ -200,8 +200,10 @@ func (h *BrainHandler) saveTurnUsage(t *brainTurn) {
 	}
 }
 
-// recordAskAIUsage stores one Ask AI request in the ledger.
-func (h *BrainHandler) recordAskAIUsage(username string, rt *database.BrainModelRuntime, u *braincore.ChatResult) {
+// recordQuickUsage stores one Ask AI or Fix with AI call in the ledger.
+// purpose is ask_ai, fix_sql, or ask_ai_repair / fix_sql_repair for a call
+// that repairs SQL ClickHouse rejected.
+func (h *BrainHandler) recordQuickUsage(username string, rt *database.BrainModelRuntime, purpose string, u *braincore.ChatResult) {
 	if h.DB == nil || rt == nil || u == nil || u.InputTokens+u.OutputTokens+u.CacheReadTokens+u.CacheWriteTokens == 0 {
 		return
 	}
@@ -209,13 +211,13 @@ func (h *BrainHandler) recordAskAIUsage(username string, rt *database.BrainModel
 		Username:         username,
 		Provider:         providerLabel(rt),
 		Model:            rt.ModelName,
-		Purpose:          "ask_ai",
+		Purpose:          purpose,
 		InputTokens:      u.InputTokens,
 		OutputTokens:     u.OutputTokens,
 		CacheReadTokens:  u.CacheReadTokens,
 		CacheWriteTokens: u.CacheWriteTokens,
 	}); err != nil {
-		slog.Warn("Failed to record Ask AI usage", "error", err)
+		slog.Warn("Failed to record quick Brain usage", "error", err)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,12 +25,16 @@ import (
 )
 
 // ── Text-to-SQL grounded in workspace metadata ─────────────────────────────
-// POST /api/brain/generate-sql  Body: { question, model_id? }
-// Retrieves the relevant ClickHouse schema (tables/columns) for the active
-// connection plus any documented models, grounds an LLM call with that
-// context, and returns a single ClickHouse SQL query. Reuses the Brain
-// provider/model resolution, so it honors the admin-configured AI providers.
-// Pro feature, like Brain's agentic tools.
+// POST /api/brain/generate-sql  Body: { question, model_id?, current_sql? }
+// POST /api/brain/fix-sql       Body: { sql, error, params?, model_id? }
+// Both retrieve the relevant ClickHouse schema (tables/columns) for the
+// active connection plus any documented models, ground one LLM call with
+// that context, and return a single ClickHouse SQL query. The answer is then
+// checked with EXPLAIN as the session user; when ClickHouse rejects it with
+// an error a model can fix, the error goes back to the model for up to
+// sqlMaxRepairs repairs. Reuses the Brain provider/model resolution, so it
+// honors the admin-configured AI providers. Pro features, like Brain's
+// agentic tools.
 
 const (
 	tts2sqlMaxTables  = 16
@@ -39,24 +44,224 @@ const (
 	tts2sqlMaxCurrentSQL = 20000
 	// tts2sqlColumnScan bounds the column names read for ranking.
 	tts2sqlColumnScan = 20000
+	// sqlValidateWait bounds the EXPLAIN that checks generated SQL.
+	sqlValidateWait = 10 * time.Second
+	// sqlMaxRepairs is how many times a rejected query goes back to the model.
+	sqlMaxRepairs = 2
+	// sqlErrorClip bounds a ClickHouse error put into a prompt.
+	sqlErrorClip = 1500
 )
 
-// sqlGenJob is one prepared Ask AI request.
+// Validation statuses of generated SQL.
+const (
+	validationPassed  = "passed"
+	validationFailed  = "failed"
+	validationSkipped = "skipped"
+)
+
+// repairableCodes are ClickHouse errors a model can fix by editing the SQL:
+// syntax, unknown names, types, aggregation and parameter mistakes.
+var repairableCodes = map[int]bool{
+	62: true, 47: true, 46: true, 60: true, 81: true, 43: true, 42: true,
+	215: true, 184: true, 53: true, 386: true, 352: true, 10: true, 36: true,
+}
+
+// terminalCodes are errors no SQL edit fixes (access, read-only profile,
+// limits, missing parameter values). The check is skipped for them.
+var terminalCodes = map[int]bool{497: true, 164: true, 201: true, 159: true, 241: true, 456: true}
+
+// sqlRequest is what one quick SQL request asks for.
+type sqlRequest struct {
+	ModelID string
+	// Question is the Ask AI question, or a summary of the fix request.
+	Question string
+	// SQL is the editor SQL (Ask AI) or the query that failed (fix).
+	SQL string
+	// Error is the ClickHouse error of the query to fix.
+	Error string
+	// Params are the query parameter values the query ran with.
+	Params map[string]string
+	// rankText picks the schema tables for the prompt.
+	rankText string
+}
+
+// sqlTask is one kind of quick SQL request: Ask AI or Fix with AI. Both
+// share the model resolution, the schema grounding and the validate and
+// repair loop; they differ in the request body and the prompt.
+type sqlTask struct {
+	label         string
+	purpose       string
+	repairPurpose string
+	auditAction   string
+	// withReason strips a leading "-- fix: <reason>" line into the
+	// explanation.
+	withReason bool
+	parse      func(r *http.Request) (sqlRequest, string)
+	prompt     func(req sqlRequest, schema, models string) (system, user string)
+}
+
+// sqlGenJob is one prepared quick SQL request.
 type sqlGenJob struct {
+	task         *sqlTask
 	actor        string
-	question     string
+	req          sqlRequest
+	settings     brainSettings
 	runtimeModel *database.BrainModelRuntime
 	provider     braincore.Provider
 	providerCfg  braincore.ProviderConfig
 	messages     []braincore.Message
 	tables       []string
 	prices       braincore.PriceTable
+
+	connID     string
+	chUser     string
+	chPassword string
+	guardrail  func(sql string) error
 }
 
-// prepareGenerateSQL validates an Ask AI request, checks the budget,
-// resolves the quick model and builds the grounded prompt. It writes the
-// error response itself and returns nil when the request cannot go on.
-func (h *BrainHandler) prepareGenerateSQL(w http.ResponseWriter, r *http.Request) *sqlGenJob {
+var paramNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+
+var askAITask = &sqlTask{
+	label:         "Ask AI (text-to-SQL)",
+	purpose:       "ask_ai",
+	repairPurpose: "ask_ai_repair",
+	auditAction:   "brain.generate_sql",
+	parse: func(r *http.Request) (sqlRequest, string) {
+		var body struct {
+			Question string `json:"question"`
+			ModelID  string `json:"model_id"`
+			// CurrentSQL is the editor's SQL, sent when the person asks to
+			// change the query they are looking at.
+			CurrentSQL string `json:"current_sql"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			return sqlRequest{}, "Invalid request body"
+		}
+		question := strings.TrimSpace(body.Question)
+		if question == "" {
+			return sqlRequest{}, "Question is required"
+		}
+		current := clipMiddle(strings.TrimSpace(body.CurrentSQL), tts2sqlMaxCurrentSQL)
+		return sqlRequest{ModelID: strings.TrimSpace(body.ModelID), Question: question, SQL: current, rankText: question + "\n" + current}, ""
+	},
+	prompt: func(req sqlRequest, schema, models string) (string, string) {
+		sysPrompt := "You are an expert ClickHouse SQL engineer. Write ONE correct ClickHouse SQL query that answers the user's question.\n" +
+			"Rules:\n" +
+			"- Use ONLY the tables and columns provided in the schema below. Never invent names.\n" +
+			"- Prefer fully-qualified `database.table` names.\n" +
+			"- Use ClickHouse syntax and functions (not Postgres/MySQL).\n" +
+			"- If the question can't be answered from the schema, return a comment explaining what's missing.\n" +
+			"- When a current query is given and the question asks to change it, return the full edited query.\n" +
+			"- Output ONLY the SQL, with no prose and no markdown fences."
+		var user strings.Builder
+		writeSchemaContext(&user, schema, models)
+		if req.SQL != "" {
+			user.WriteString("\n# Current query in the editor\n\n")
+			user.WriteString(req.SQL)
+			user.WriteString("\n")
+		}
+		user.WriteString("\n# Question\n\n")
+		user.WriteString(req.Question)
+		user.WriteString("\n\nReturn only the ClickHouse SQL.")
+		return sysPrompt, user.String()
+	},
+}
+
+var fixSQLTask = &sqlTask{
+	label:         "Fix with AI",
+	purpose:       "fix_sql",
+	repairPurpose: "fix_sql_repair",
+	auditAction:   "brain.fix_sql",
+	withReason:    true,
+	parse: func(r *http.Request) (sqlRequest, string) {
+		var body struct {
+			SQL     string            `json:"sql"`
+			Error   string            `json:"error"`
+			Params  map[string]string `json:"params"`
+			ModelID string            `json:"model_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			return sqlRequest{}, "Invalid request body"
+		}
+		sql := strings.TrimSpace(body.SQL)
+		errText := strings.TrimSpace(body.Error)
+		if sql == "" {
+			return sqlRequest{}, "The query to fix is required"
+		}
+		if errText == "" {
+			return sqlRequest{}, "The error to fix is required"
+		}
+		if len(sql) > tts2sqlMaxCurrentSQL {
+			return sqlRequest{}, fmt.Sprintf("The query is too long to fix (over %d characters)", tts2sqlMaxCurrentSQL)
+		}
+		params := map[string]string{}
+		for k, v := range body.Params {
+			if !paramNameRE.MatchString(k) {
+				return sqlRequest{}, fmt.Sprintf("Invalid query parameter name %q", k)
+			}
+			params[k] = v
+		}
+		errText = clipRunes(errText, sqlErrorClip)
+		return sqlRequest{
+			ModelID:  strings.TrimSpace(body.ModelID),
+			Question: "Fix: " + clipRunes(oneLine(errText), 300),
+			SQL:      sql,
+			Error:    errText,
+			Params:   params,
+			rankText: sql + "\n" + errText,
+		}, ""
+	},
+	prompt: func(req sqlRequest, schema, models string) (string, string) {
+		sysPrompt := "You are an expert ClickHouse SQL engineer. A query failed in ClickHouse. Fix it with the smallest edit that makes it run and keeps its meaning.\n" +
+			"Rules:\n" +
+			"- Change only what the error requires. Keep the columns, filters, grouping, ordering, limits, formatting and comments of the original.\n" +
+			"- Use ONLY the tables and columns provided in the schema below. Never invent names.\n" +
+			"- Keep query parameters such as {name:Type} as they are.\n" +
+			"- Use ClickHouse syntax and functions (not Postgres/MySQL).\n" +
+			"- The first line of your answer must be `-- fix: <one short sentence saying what you changed and why>`, followed by the full corrected query.\n" +
+			"- Output ONLY that line and the SQL, with no other prose and no markdown fences."
+		var user strings.Builder
+		writeSchemaContext(&user, schema, models)
+		user.WriteString("\n# Query that failed\n\n")
+		user.WriteString(req.SQL)
+		user.WriteString("\n\n# ClickHouse error\n\n")
+		user.WriteString(req.Error)
+		user.WriteString("\n")
+		if len(req.Params) > 0 {
+			names := make([]string, 0, len(req.Params))
+			for k := range req.Params {
+				names = append(names, k)
+			}
+			sort.Strings(names)
+			user.WriteString("\n# Query parameter values it ran with\n\n")
+			for _, k := range names {
+				fmt.Fprintf(&user, "- %s = %s\n", k, clipRunes(oneLine(req.Params[k]), 200))
+			}
+		}
+		user.WriteString("\nReturn the `-- fix:` line and the full corrected query.")
+		return sysPrompt, user.String()
+	},
+}
+
+// writeSchemaContext renders the grounding shared by every quick SQL prompt.
+func writeSchemaContext(sb *strings.Builder, schema, models string) {
+	sb.WriteString("# Available schema\n\n")
+	if schema == "" {
+		sb.WriteString("(no user tables found)\n")
+	} else {
+		sb.WriteString(schema)
+	}
+	if models != "" {
+		sb.WriteString("\n# Documented models (curated, prefer these when relevant)\n\n")
+		sb.WriteString(models)
+	}
+}
+
+// prepareGenerateSQL validates a quick SQL request, checks the budget,
+// resolves the quick model and builds the grounded prompt with the task's
+// prompt builder. It writes the error response itself and returns nil when
+// the request cannot go on.
+func (h *BrainHandler) prepareGenerateSQL(w http.ResponseWriter, r *http.Request, task *sqlTask) *sqlGenJob {
 	session := middleware.GetSession(r)
 	if session == nil {
 		writeError(w, http.StatusUnauthorized, "Not authenticated")
@@ -64,24 +269,13 @@ func (h *BrainHandler) prepareGenerateSQL(w http.ResponseWriter, r *http.Request
 	}
 	// Gate like Brain's agentic tools: schema-grounded generation is Pro-only.
 	if !h.Config.IsPro() {
-		writeError(w, http.StatusPaymentRequired, "Ask AI (text-to-SQL) requires a Pro license")
+		writeError(w, http.StatusPaymentRequired, task.label+" requires a Pro license")
 		return nil
 	}
 
-	var body struct {
-		Question string `json:"question"`
-		ModelID  string `json:"model_id"`
-		// CurrentSQL is the editor's SQL, sent when the person asks to
-		// change the query they are looking at.
-		CurrentSQL string `json:"current_sql"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid request body")
-		return nil
-	}
-	question := strings.TrimSpace(body.Question)
-	if question == "" {
-		writeError(w, http.StatusBadRequest, "Question is required")
+	req, msg := task.parse(r)
+	if msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
 		return nil
 	}
 
@@ -95,7 +289,7 @@ func (h *BrainHandler) prepareGenerateSQL(w http.ResponseWriter, r *http.Request
 	if preferred == "" {
 		preferred = settings.AgentModelID
 	}
-	runtimeModel, rmErr := h.resolveRuntimeModel(nil, strings.TrimSpace(body.ModelID), preferred)
+	runtimeModel, rmErr := h.resolveRuntimeModel(nil, req.ModelID, preferred)
 	if rmErr != nil {
 		writeError(w, http.StatusBadRequest, rmErr.Error())
 		return nil
@@ -124,99 +318,304 @@ func (h *BrainHandler) prepareGenerateSQL(w http.ResponseWriter, r *http.Request
 		return nil
 	}
 
-	currentSQL := clipMiddle(strings.TrimSpace(body.CurrentSQL), tts2sqlMaxCurrentSQL)
-	schema, tables := h.buildSchemaContext(r.Context(), session.ConnectionID, session.ClickhouseUser, chPassword, question+"\n"+currentSQL)
-	modelCtx := h.buildModelContext(session.ConnectionID)
-
-	sysPrompt := "You are an expert ClickHouse SQL engineer. Write ONE correct ClickHouse SQL query that answers the user's question.\n" +
-		"Rules:\n" +
-		"- Use ONLY the tables and columns provided in the schema below. Never invent names.\n" +
-		"- Prefer fully-qualified `database.table` names.\n" +
-		"- Use ClickHouse syntax and functions (not Postgres/MySQL).\n" +
-		"- If the question can't be answered from the schema, return a comment explaining what's missing.\n" +
-		"- When a current query is given and the question asks to change it, return the full edited query.\n" +
-		"- Output ONLY the SQL — no prose, no markdown fences."
-
-	var user strings.Builder
-	user.WriteString("# Available schema\n\n")
-	if schema == "" {
-		user.WriteString("(no user tables found)\n")
-	} else {
-		user.WriteString(schema)
-	}
-	if modelCtx != "" {
-		user.WriteString("\n# Documented models (curated, prefer these when relevant)\n\n")
-		user.WriteString(modelCtx)
-	}
-	if currentSQL != "" {
-		user.WriteString("\n# Current query in the editor\n\n")
-		user.WriteString(currentSQL)
-		user.WriteString("\n")
-	}
-	user.WriteString("\n# Question\n\n")
-	user.WriteString(question)
-	user.WriteString("\n\nReturn only the ClickHouse SQL.")
+	schema, tables := h.buildSchemaContext(r.Context(), session.ConnectionID, session.ClickhouseUser, chPassword, req.rankText)
+	sysPrompt, userPrompt := task.prompt(req, schema, h.buildModelContext(session.ConnectionID))
 
 	return &sqlGenJob{
+		task:         task,
 		actor:        actor,
-		question:     question,
+		req:          req,
+		settings:     settings,
 		runtimeModel: runtimeModel,
 		provider:     provider,
 		providerCfg:  providerCfg,
 		messages: []braincore.Message{
 			{Role: "system", Content: sysPrompt},
-			{Role: "user", Content: user.String()},
+			{Role: "user", Content: userPrompt},
 		},
-		tables: tables,
-		prices: settings.Prices,
+		tables:     tables,
+		prices:     settings.Prices,
+		connID:     session.ConnectionID,
+		chUser:     session.ClickhouseUser,
+		chPassword: chPassword,
+		guardrail:  h.guardrailCheck(session, r.URL.Path),
 	}
 }
 
 func (h *BrainHandler) auditGenerateSQL(r *http.Request, job *sqlGenJob) {
 	session := middleware.GetSession(r)
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:         "brain.generate_sql",
+		Action:         job.task.auditAction,
 		Username:       strPtr(job.actor),
 		ClickhouseUser: strPtr(session.ClickhouseUser),
 		ConnectionID:   strPtr(session.ConnectionID),
-		Details:        strPtr(job.question),
+		Details:        strPtr(job.req.Question),
 		IPAddress:      strPtr(getClientIP(r)),
 	})
 }
 
+// ── Validation and repair ──────────────────────────────────────────────────
+
+// sqlValidation is how generated SQL fared against ClickHouse.
+type sqlValidation struct {
+	// Status is passed, failed (ClickHouse still rejects it) or skipped (it
+	// could not be checked; Reason says why).
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	// Rounds is how many repairs were asked of the model.
+	Rounds int `json:"rounds"`
+}
+
+// validationOutcome is the result of one EXPLAIN check.
+type validationOutcome struct {
+	status     string // passed, failed or skipped
+	repairable bool
+	err        string
+	reason     string
+}
+
+var leadingFixRE = regexp.MustCompile(`(?i)^--\s*fix:\s*(.*)$`)
+
+// splitFixReason takes a leading "-- fix: <reason>" line off sql.
+func splitFixReason(sql string) (reason, rest string) {
+	lines := strings.Split(sql, "\n")
+	for i, l := range lines {
+		t := strings.TrimSpace(l)
+		if t == "" {
+			continue
+		}
+		if m := leadingFixRE.FindStringSubmatch(t); m != nil {
+			return strings.TrimSpace(m[1]), strings.TrimSpace(strings.Join(lines[i+1:], "\n"))
+		}
+		break
+	}
+	return "", sql
+}
+
+// sqlCommentRE finds comments, to see whether any SQL is left without them.
+var sqlCommentRE = regexp.MustCompile(`(?s)--[^\n]*|/\*.*?\*/`)
+
+// validateGeneratedSQL checks sql with EXPLAIN as the session user, without
+// running it: EXPLAIN PLAN for a SELECT or WITH query (which resolves
+// tables, columns and types), EXPLAIN AST for anything else (syntax only).
+// It runs with Brain's read-only settings, a 10 s cap and the governance
+// guardrail.
+func (h *BrainHandler) validateGeneratedSQL(ctx context.Context, job *sqlGenJob, sql string) validationOutcome {
+	body := tools.StripTrailingFormat(sql)
+	if strings.TrimSpace(sqlCommentRE.ReplaceAllString(body, " ")) == "" {
+		return validationOutcome{status: validationSkipped, reason: "no_sql"}
+	}
+	if h.Gateway == nil || !h.Gateway.IsTunnelOnline(job.connID) {
+		return validationOutcome{status: validationSkipped, reason: "tunnel_offline"}
+	}
+	if job.guardrail != nil {
+		if err := job.guardrail(body); err != nil {
+			return validationOutcome{status: validationSkipped, reason: "guardrail", err: err.Error()}
+		}
+	}
+	stmt := "EXPLAIN AST " + body
+	if tools.IsSelectStatement(body) {
+		stmt = "EXPLAIN PLAN " + body
+	}
+	settings := tools.ReadOnlySettings(1000, sqlValidateWait)
+	for k, v := range job.req.Params {
+		settings["param_"+k] = v
+	}
+	vctx, cancel := context.WithTimeout(ctx, sqlValidateWait)
+	defer cancel()
+	_, err := h.Gateway.ExecuteQueryWithSettingsCtx(vctx, job.connID, stmt, job.chUser, job.chPassword, settings, sqlValidateWait)
+	if err == nil {
+		return validationOutcome{status: validationPassed}
+	}
+	msg := clipRunes(err.Error(), sqlErrorClip)
+	code := tools.ErrorCode(err)
+	switch {
+	case repairableCodes[code]:
+		return validationOutcome{status: validationFailed, repairable: true, err: msg}
+	case code == 0:
+		// Timeouts, a dropped tunnel or a cancelled request: not the SQL.
+		return validationOutcome{status: validationSkipped, reason: "unavailable", err: msg}
+	case terminalCodes[code]:
+		return validationOutcome{status: validationSkipped, reason: "not_checkable", err: msg}
+	default:
+		return validationOutcome{status: validationFailed, err: msg}
+	}
+}
+
+// sqlGenEvents streams the progress of a generation; nil fields are skipped.
+type sqlGenEvents struct {
+	delta      func(string) error
+	validating func(round int)
+	repair     func(round int, errText string)
+	reset      func()
+}
+
+// sqlGenResult is a finished generation.
+type sqlGenResult struct {
+	sql         string
+	explanation string
+	usage       *braincore.ChatResult
+	truncated   bool
+	validation  sqlValidation
+}
+
+// generateOnce runs one completion and stores its usage in the ledger under
+// purpose. The usage is returned also when the call failed partway.
+func (h *BrainHandler) generateOnce(parent context.Context, job *sqlGenJob, messages []braincore.Message, purpose string, delta func(string) error) (string, *braincore.ChatResult, error) {
+	ctx, cancel := context.WithTimeout(parent, tts2sqlGenWait)
+	defer cancel()
+	var sb strings.Builder
+	usage, err := job.provider.StreamChat(ctx, job.providerCfg, job.runtimeModel.ModelName, messages, func(d string) error {
+		sb.WriteString(d)
+		if delta != nil {
+			return delta(d)
+		}
+		return nil
+	})
+	h.recordQuickUsage(job.actor, job.runtimeModel, purpose, usage)
+	return sb.String(), usage, err
+}
+
+// runSQLGeneration writes the SQL, checks it with EXPLAIN, and sends each
+// repairable rejection back to the model, at most sqlMaxRepairs times and
+// only while the person's daily budget lasts. An error means the first
+// completion failed; a failed repair ends the loop with the last SQL.
+func (h *BrainHandler) runSQLGeneration(ctx context.Context, job *sqlGenJob, ev sqlGenEvents) (*sqlGenResult, error) {
+	raw, usage, err := h.generateOnce(ctx, job, job.messages, job.task.purpose, ev.delta)
+	if err != nil {
+		return nil, err
+	}
+	res := &sqlGenResult{}
+	addUsage := func(u *braincore.ChatResult) {
+		if u == nil {
+			return
+		}
+		if res.usage == nil {
+			c := *u
+			res.usage = &c
+		} else {
+			res.usage.Add(u)
+			res.usage.StopReason = u.StopReason
+		}
+	}
+	addUsage(usage)
+	clean := func(raw string) {
+		sql := stripSQLFences(raw)
+		if job.task.withReason {
+			if reason, rest := splitFixReason(sql); reason != "" {
+				res.explanation, sql = reason, rest
+			}
+		}
+		res.sql = sql
+	}
+	clean(raw)
+	res.truncated = usage != nil && usage.StopReason == "length"
+
+	messages := append([]braincore.Message(nil), job.messages...)
+	for {
+		if ev.validating != nil {
+			ev.validating(res.validation.Rounds)
+		}
+		v := h.validateGeneratedSQL(ctx, job, res.sql)
+		res.validation.Status, res.validation.Error, res.validation.Reason = v.status, v.err, v.reason
+		if !v.repairable {
+			return res, nil
+		}
+		if res.validation.Rounds >= sqlMaxRepairs || ctx.Err() != nil {
+			return res, nil
+		}
+		if budgetExceeded(h.DB, job.actor, job.settings) != "" {
+			res.validation.Reason = "budget"
+			return res, nil
+		}
+		res.validation.Rounds++
+		if ev.repair != nil {
+			ev.repair(res.validation.Rounds, v.err)
+		}
+		if ev.reset != nil {
+			ev.reset()
+		}
+		messages = append(messages,
+			braincore.Message{Role: "assistant", Content: raw},
+			braincore.Message{Role: "user", Content: "ClickHouse rejected it: " + v.err + ". Return the full corrected query only."},
+		)
+		next, usage, err := h.generateOnce(ctx, job, messages, job.task.repairPurpose, ev.delta)
+		addUsage(usage)
+		if err != nil {
+			res.validation.Reason = "repair_failed"
+			return res, nil
+		}
+		raw = next
+		clean(raw)
+		res.truncated = usage != nil && usage.StopReason == "length"
+	}
+}
+
+// ── Handlers ───────────────────────────────────────────────────────────────
+
 // GenerateSQL handles text-to-SQL generation and answers with JSON.
 func (h *BrainHandler) GenerateSQL(w http.ResponseWriter, r *http.Request) {
-	job := h.prepareGenerateSQL(w, r)
+	h.serveSQLTask(w, r, askAITask)
+}
+
+// GenerateSQLStream is GenerateSQL as Server-Sent Events.
+func (h *BrainHandler) GenerateSQLStream(w http.ResponseWriter, r *http.Request) {
+	h.streamSQLTask(w, r, askAITask)
+}
+
+// FixSQL proposes a minimal fix for a query ClickHouse rejected.
+func (h *BrainHandler) FixSQL(w http.ResponseWriter, r *http.Request) {
+	h.serveSQLTask(w, r, fixSQLTask)
+}
+
+// FixSQLStream is FixSQL as Server-Sent Events.
+func (h *BrainHandler) FixSQLStream(w http.ResponseWriter, r *http.Request) {
+	h.streamSQLTask(w, r, fixSQLTask)
+}
+
+// sqlResultPayload is the shared body of the JSON answer and the done event.
+func sqlResultPayload(job *sqlGenJob, res *sqlGenResult) map[string]any {
+	out := map[string]any{
+		"sql":         res.sql,
+		"tables_used": job.tables,
+		"model":       job.runtimeModel.ModelName,
+		"validation":  res.validation,
+	}
+	if job.task.withReason {
+		out["explanation"] = res.explanation
+	}
+	if res.usage != nil {
+		out["usage"] = usagePayload(providerLabel(job.runtimeModel), job.runtimeModel.ModelName, *res.usage, job.prices)
+	}
+	if res.truncated {
+		out["truncated"] = true
+	}
+	return out
+}
+
+func (h *BrainHandler) serveSQLTask(w http.ResponseWriter, r *http.Request, task *sqlTask) {
+	job := h.prepareGenerateSQL(w, r, task)
 	if job == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), tts2sqlGenWait)
-	defer cancel()
-	raw, usage, genErr := completeOnce(ctx, job.provider, job.providerCfg, job.runtimeModel.ModelName, job.messages)
-	h.recordAskAIUsage(job.actor, job.runtimeModel, usage)
-	if genErr != nil {
-		writeError(w, http.StatusBadGateway, "AI generation failed: "+genErr.Error())
+	res, err := h.runSQLGeneration(r.Context(), job, sqlGenEvents{})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "AI generation failed: "+err.Error())
 		return
 	}
 	h.auditGenerateSQL(r, job)
-
-	resp := map[string]any{
-		"success":     true,
-		"sql":         stripSQLFences(raw),
-		"tables_used": job.tables,
-		"model":       job.runtimeModel.ModelName,
-	}
-	if usage != nil {
-		resp["usage"] = usagePayload(providerLabel(job.runtimeModel), job.runtimeModel.ModelName, *usage, job.prices)
-	}
-	writeJSON(w, http.StatusOK, resp)
+	out := sqlResultPayload(job, res)
+	out["success"] = true
+	writeJSON(w, http.StatusOK, out)
 }
 
-// GenerateSQLStream is GenerateSQL as Server-Sent Events: "delta" events
-// while the SQL is written, then one "done" event with the cleaned SQL, or
-// an "error" event.
-func (h *BrainHandler) GenerateSQLStream(w http.ResponseWriter, r *http.Request) {
-	job := h.prepareGenerateSQL(w, r)
+// streamSQLTask answers with Server-Sent Events: "delta" while the SQL is
+// written, "validating" before each EXPLAIN check, "repair" {round, error}
+// and "reset" before a repair writes the query again, then one "done" with
+// the cleaned SQL and its validation, or an "error".
+func (h *BrainHandler) streamSQLTask(w http.ResponseWriter, r *http.Request, task *sqlTask) {
+	job := h.prepareGenerateSQL(w, r, task)
 	if job == nil {
 		return
 	}
@@ -232,46 +631,33 @@ func (h *BrainHandler) GenerateSQLStream(w http.ResponseWriter, r *http.Request)
 	stopHeartbeat := stream.startHeartbeat(r.Context(), brainHeartbeat)
 	defer stopHeartbeat()
 
-	ctx, cancel := context.WithTimeout(r.Context(), tts2sqlGenWait)
-	defer cancel()
-	var sb strings.Builder
-	usage, genErr := job.provider.StreamChat(ctx, job.providerCfg, job.runtimeModel.ModelName, job.messages, func(delta string) error {
-		sb.WriteString(delta)
-		return stream.send(map[string]any{"type": "delta", "delta": delta})
+	res, err := h.runSQLGeneration(r.Context(), job, sqlGenEvents{
+		delta: func(d string) error { return stream.send(map[string]any{"type": "delta", "delta": d}) },
+		validating: func(round int) {
+			_ = stream.send(map[string]any{"type": "validating", "round": round})
+		},
+		repair: func(round int, errText string) {
+			_ = stream.send(map[string]any{"type": "repair", "round": round, "error": errText})
+		},
+		reset: func() { _ = stream.send(map[string]any{"type": "reset"}) },
 	})
-	h.recordAskAIUsage(job.actor, job.runtimeModel, usage)
-	if genErr != nil {
-		_ = stream.send(map[string]any{"type": "error", "error": "AI generation failed: " + genErr.Error()})
+	if err != nil {
+		_ = stream.send(map[string]any{"type": "error", "error": "AI generation failed: " + err.Error()})
 		return
 	}
 	h.auditGenerateSQL(r, job)
-	done := map[string]any{
-		"type":        "done",
-		"sql":         stripSQLFences(sb.String()),
-		"tables_used": job.tables,
-		"model":       job.runtimeModel.ModelName,
-	}
-	if usage != nil {
-		done["usage"] = usagePayload(providerLabel(job.runtimeModel), job.runtimeModel.ModelName, *usage, job.prices)
-		if usage.StopReason == "length" {
-			done["truncated"] = true
-		}
-	}
+	done := sqlResultPayload(job, res)
+	done["type"] = "done"
 	_ = stream.send(done)
 }
 
-// completeOnce runs a non-streaming completion by collecting stream deltas.
-// The usage is returned also when the call failed partway.
-func completeOnce(ctx context.Context, p braincore.Provider, cfg braincore.ProviderConfig, model string, messages []braincore.Message) (string, *braincore.ChatResult, error) {
-	var sb strings.Builder
-	usage, err := p.StreamChat(ctx, cfg, model, messages, func(delta string) error {
-		sb.WriteString(delta)
-		return nil
-	})
-	if err != nil {
-		return "", usage, err
+// clipRunes shortens s to at most n runes, marking the cut.
+func clipRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
 	}
-	return sb.String(), usage, nil
+	return string(r[:n]) + "..."
 }
 
 // schemaTable is one table or view considered for the prompt.

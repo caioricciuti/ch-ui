@@ -139,7 +139,10 @@ export interface BrainUsageRow {
   model: string
   requests: number
   chat_turns: number
+  /** Ask AI and Fix with AI requests. */
   ask_ai: number
+  /** Extra calls that repaired SQL ClickHouse rejected. */
+  repairs: number
   input_tokens: number
   output_tokens: number
   cache_read_tokens: number
