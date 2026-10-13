@@ -52,6 +52,7 @@
     try {
       const res = await adminGetBrainSettings()
       settings = res.settings
+      quickModelSet = res.quickModelSet
       defaultPrices = res.defaultPrices ?? {}
       form = {
         agentModelId: res.settings.agentModelId,
@@ -63,6 +64,21 @@
       toastError(e instanceof Error ? e.message : String(e))
     }
   }
+
+  // Until an admin saves a quick model (Automatic included), Claude Haiku
+  // 5.5 is pre-selected when it is synced and active. Nothing is stored
+  // until Save.
+  const SUGGESTED_QUICK_MODEL = 'claude-haiku-5-5'
+  let quickModelSet = $state(true)
+  let suggestionApplied = false
+  $effect(() => {
+    if (!settings || quickModelSet || suggestionApplied || form.quickModelId) return
+    const id = models.find((m) => m.name === SUGGESTED_QUICK_MODEL && m.is_active && m.provider_active)?.id
+    if (id) {
+      form.quickModelId = id
+      suggestionApplied = true
+    }
+  })
 
   const modelOptions = $derived([
     { value: '', label: 'Automatic: the default model' },
@@ -94,6 +110,7 @@
         dailyTokenBudget: budget,
         maxOutputTokens: maxOut,
       })
+      quickModelSet = true
       toastSuccess('Brain settings saved')
     } catch (e) {
       toastError(e instanceof Error ? e.message : String(e))

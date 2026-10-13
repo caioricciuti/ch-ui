@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/crypto"
+	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
 
 // fakeClaude is a scripted Anthropic Messages endpoint: each request gets
@@ -82,7 +83,13 @@ func claudeToolUse(id, name, args string) []map[string]any {
 // agent model in settings.
 func newClaudeRig(t *testing.T, replies ...[]map[string]any) (*brainRig, *fakeClaude) {
 	t.Helper()
-	rg := newBrainRig(t, "admin", nil, nil)
+	return newClaudeRigWith(t, nil, replies...)
+}
+
+// newClaudeRigWith is newClaudeRig with a scripted ClickHouse.
+func newClaudeRigWith(t *testing.T, respond func(tunnel.GatewayMessage) *tunnel.AgentMessage, replies ...[]map[string]any) (*brainRig, *fakeClaude) {
+	t.Helper()
+	rg := newBrainRig(t, "admin", nil, respond)
 	fc := &fakeClaude{replies: replies}
 	srv := httptest.NewServer(http.HandlerFunc(fc.handler))
 	t.Cleanup(srv.Close)

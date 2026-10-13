@@ -66,6 +66,11 @@
   import Input from '../../common/Input.svelte'
   import QueryHistoryPanel from '../../editor/QueryHistoryPanel.svelte'
   import AskAIBar from '../../editor/AskAIBar.svelte'
+  import SqlDiff from '../../common/SqlDiff.svelte'
+  import Badge from '../../common/Badge.svelte'
+  import Spinner from '../../common/Spinner.svelte'
+  import { fixSQLStream, type FixSQLResult } from '../../../api/brainPro'
+  import { fixRange, fixTarget, locateExecuted } from '../../../editor/fix-with-ai'
 
   interface Props {
     tab: QueryTab
@@ -562,10 +567,7 @@
     if (!result?.error) return null
     const parsed = parseCHError(result.error)
     if (parsed.position === null || !parsed.positionInQuery) return null
-    if (!view.executedSql || view.executedSql !== view.baseSql) return null
-    const base = view.executedFrom >= 0 && currentSql.startsWith(view.executedSql, view.executedFrom)
-      ? view.executedFrom
-      : currentSql.indexOf(view.executedSql)
+    const base = locateExecuted(currentSql, view)
     if (base < 0) return null
     const from = base + byteToCharOffset(view.executedSql, parsed.position - 1)
     // Select the offending token only if the document actually has it at the
@@ -590,6 +592,93 @@
   function handleGoToError() {
     const jump = errorJump
     if (jump) editorComponent?.selectRange(jump.from, jump.to)
+  }
+
+  // ── Fix with AI ──
+  // Offered for errors a model can fix, only when the failed query is the
+  // plain editor text and still sits where it ran from. The fix is shown as
+  // a diff and replaces exactly that statement, as one undoable change.
+  const fixAvailable = $derived(fixTarget({ pro: proActive, error: result?.error, doc: currentSql, view }))
+  let fixOpen = $state(false)
+  let fixLoading = $state(false)
+  let fixPreview = $state('')
+  let fixPhase = $state('')
+  let fixError = $state('')
+  let fixResult = $state<FixSQLResult | null>(null)
+  let fixOriginal = $state<{ from: number; sql: string } | null>(null)
+  let fixController: AbortController | null = null
+
+  const fixBadge = $derived.by((): { tone: 'success' | 'danger' | 'neutral'; label: string; title?: string } | null => {
+    const v = fixResult?.validation
+    if (!v) return null
+    if (v.status === 'passed') return { tone: 'success', label: 'Checked with EXPLAIN' }
+    if (v.status === 'failed') return { tone: 'danger', label: 'Still fails', title: v.error }
+    return { tone: 'neutral', label: 'Not verified', title: v.error ?? v.reason }
+  })
+
+  async function handleFixWithAI() {
+    const target = fixAvailable
+    const error = result?.error
+    if (!target || !error) return
+    fixController?.abort()
+    const controller = new AbortController()
+    fixController = controller
+    fixOriginal = target
+    fixResult = null
+    fixError = ''
+    fixPreview = ''
+    fixPhase = ''
+    fixLoading = true
+    fixOpen = true
+    try {
+      const res = await fixSQLStream(
+        { sql: target.sql, error, params: view.baseParams },
+        {
+          ondelta: (text) => {
+            fixPreview += text
+            fixPhase = ''
+          },
+          onreset: () => (fixPreview = ''),
+          onvalidating: () => (fixPhase = 'Checking the fix with EXPLAIN'),
+          onrepair: (round) => (fixPhase = `ClickHouse rejected the fix, repairing (${round} of 2)`),
+        },
+        controller.signal,
+      )
+      if (fixController !== controller) return
+      if (!res.sql.trim()) fixError = 'The AI did not return a query.'
+      else fixResult = res
+    } catch (e: unknown) {
+      if (e instanceof DOMException && e.name === 'AbortError') return
+      let message = e instanceof Error ? e.message : 'Failed to fix the query'
+      if (/no active ai model/i.test(message)) message = 'No AI provider configured. Add one in Admin > Brain.'
+      if (fixController === controller) fixError = message
+    } finally {
+      if (fixController === controller) {
+        fixLoading = false
+        fixController = null
+      }
+    }
+  }
+
+  function closeFix() {
+    fixController?.abort()
+    fixController = null
+    fixLoading = false
+    fixOpen = false
+  }
+
+  function acceptFix() {
+    const res = fixResult
+    const original = fixOriginal
+    if (!res || !original || !editorComponent) return
+    const range = fixRange(editorComponent.getValue(), original.from, original.sql)
+    if (!range) {
+      toastError('The query changed in the editor since it ran. Run it again to fix it.')
+      return
+    }
+    editorComponent.replaceRange(range.from, range.to, res.sql)
+    closeFix()
+    toastSuccess('Query replaced. Undo restores the original.')
   }
 
   function handleCancel() {
@@ -1002,6 +1091,7 @@
       ongotoerror={errorJump ? handleGoToError : undefined}
       errorTargetLine={errorJump?.line ?? null}
       errorTargetCol={errorJump?.col ?? null}
+      onfixwithai={fixAvailable && !result?.running ? () => void handleFixWithAI() : undefined}
       streamRows={showsLastRun ? streamRows : 0}
       streamChunks={showsLastRun ? streamChunks : 0}
       streamStartedAt={showsLastRun ? streamStartedAt : null}
@@ -1036,6 +1126,51 @@
 {#if dragging}
   <div class="fixed inset-0 z-50 cursor-row-resize"></div>
 {/if}
+
+<!-- Fix with AI -->
+<Sheet
+  open={fixOpen}
+  title="Fix with AI"
+  description="A minimal fix for the failed query. Review the change before replacing it."
+  size="lg"
+  onclose={closeFix}
+>
+  <div class="space-y-4 text-[13px]">
+    {#if fixLoading}
+      <div class="flex items-center gap-2 text-fg-3">
+        <Spinner size="sm" />
+        <span aria-live="polite">{fixPhase || 'Writing a fix'}</span>
+      </div>
+      {#if fixPreview}
+        <pre class="max-h-64 overflow-auto rounded-md bg-surface-2 px-3 py-2 font-mono text-xs text-fg-2 whitespace-pre-wrap">{fixPreview}</pre>
+      {/if}
+    {:else if fixError}
+      <p class="text-danger">{fixError}</p>
+    {:else if fixResult && fixOriginal}
+      <div class="flex flex-wrap items-center gap-2">
+        {#if fixBadge}
+          <Badge tone={fixBadge.tone} title={fixBadge.title}>{fixBadge.label}</Badge>
+        {/if}
+        {#if fixResult.validation && fixResult.validation.rounds > 0}
+          <span class="text-xs text-fg-3">{fixResult.validation.rounds} repair{fixResult.validation.rounds === 1 ? '' : 's'} after ClickHouse rejected it</span>
+        {/if}
+      </div>
+      {#if fixResult.explanation}
+        <p class="text-fg">{fixResult.explanation}</p>
+      {/if}
+      {#if fixResult.validation?.status === 'failed' && fixResult.validation.error}
+        <p class="text-xs text-danger whitespace-pre-wrap break-words">{fixResult.validation.error}</p>
+      {/if}
+      <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
+        <SqlDiff before={fixOriginal.sql} after={fixResult.sql} beforeLabel="Failed query" afterLabel="Fix" />
+      </div>
+    {/if}
+  </div>
+  {#snippet footer()}
+    <Button size="sm" variant="ghost" onclick={closeFix}>Cancel</Button>
+    <Button size="sm" disabled={!fixResult || fixLoading} onclick={acceptFix}>Replace query</Button>
+  {/snippet}
+</Sheet>
 
 <!-- Query history drawer -->
 <Sheet open={showHistorySheet} title="Query History" size="md" onclose={() => (showHistorySheet = false)}>

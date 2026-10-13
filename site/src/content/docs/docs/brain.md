@@ -43,7 +43,7 @@ How CH-UI calls it:
 **Admin → Brain → Model roles and limits** sets two models:
 
 - **Agent model** answers Brain chats that have no model picked.
-- **Quick model** answers Ask AI. A small model such as `claude-haiku-5-5` keeps it fast and cheap. Empty means the agent model.
+- **Quick model** answers Ask AI and Fix with AI. A small model such as `claude-haiku-5-5` keeps it fast and cheap. Empty means the agent model. Until an admin saves this setting, the form pre-selects `claude-haiku-5-5` when that model is synced and active; nothing is stored until **Save**, and a saved choice (Automatic included) is never replaced.
 
 Either can stay on **Automatic**, which uses the default model.
 
@@ -95,12 +95,58 @@ query appears under the box as it is written, then goes into the editor. If the
 answer hit the output limit, you are told the SQL may be incomplete. Always
 review generated SQL before running it.
 
+### Self-checking
+
+Before the query reaches the editor, ClickHouse checks it as you, without
+running it: `EXPLAIN PLAN` for a `SELECT` or `WITH` query (tables, columns and
+types are resolved), `EXPLAIN AST` for anything else (syntax only). The check
+runs with `readonly = 1`, a 10 second cap and the same governance policies as the
+editor.
+
+- When ClickHouse rejects the query with an error a model can fix (syntax,
+  unknown table, database, column or function, type mismatches, aggregation
+  mistakes; codes 62, 47, 46, 60, 81, 43, 42, 215, 184, 53, 386, 352, 10, 36),
+  the error goes back to the model and it writes the query again. At most two
+  repairs, and only while your daily budget lasts. The preview is cleared and
+  refilled while a repair streams.
+- Errors no edit fixes (access denied, read-only profile, limits, timeouts,
+  missing parameter values; codes 497, 164, 201, 159, 241, 456), an offline
+  tunnel and a governance block skip the check.
+- If ClickHouse still rejects the final query, you get a warning instead of a
+  success message. The query is inserted either way, so you can edit it.
+
 :::note
 Endpoints: `POST /api/brain/generate-sql` with `{ "question": "...", "model_id": "?", "current_sql": "?" }`
-returns JSON with the SQL, the tables it grounded on and the usage.
-`POST /api/brain/generate-sql/stream` takes the same body and answers with
-Server-Sent Events: `delta` events, then one `done` event (`sql`, `tables_used`,
-`model`, `usage`) or an `error` event.
+returns JSON with the SQL, the tables it grounded on, the usage and
+`validation` (`status`: `passed`, `failed` or `skipped`, plus `error`, `reason`
+and `rounds`, the number of repairs). `POST /api/brain/generate-sql/stream`
+takes the same body and answers with Server-Sent Events: `delta` events,
+`validating` before each check, `repair` (`round`, `error`) and `reset` before a
+repair writes the query again, then one `done` event (`sql`, `tables_used`,
+`model`, `usage`, `validation`) or an `error` event.
+:::
+
+## Fix with AI
+
+When a query fails with an error a model can fix (the same codes as above), the
+error panel shows **Fix with AI** next to **Go to error**. It appears only with a
+Pro license, when the failed run was the plain editor statement (not a sorted or
+filtered grid re-query), and while that text is still where it ran from.
+
+A sheet opens with the model's one-line reason, a side-by-side diff of the failed
+query and the fix, and a badge: **Checked with EXPLAIN** (ClickHouse accepts the
+fix), **Not verified** (the check was skipped) or **Still fails**. The fix goes
+through the same check and up to two repairs as Ask AI, with the query's
+parameter values bound. The model is asked for the smallest edit that keeps the
+query's meaning. **Replace query** puts the fix in place of exactly that
+statement as one change, so a single undo brings the original back. If you edited
+the statement while the sheet was open, nothing is replaced.
+
+:::note
+Endpoints: `POST /api/brain/fix-sql` with `{ "sql": "...", "error": "...", "params": { "name": "value" }, "model_id": "?" }`
+returns JSON with `sql`, `explanation`, `validation`, `tables_used`, `model` and
+`usage`. `POST /api/brain/fix-sql/stream` takes the same body and sends the same
+events as the Ask AI stream.
 :::
 
 ## Chat workflow
@@ -137,7 +183,7 @@ Brain uses a focused base prompt (prioritize correctness, SQL-first, safe `LIMIT
 
 ## Agentic tools (Pro)
 
-With a Pro license (and a provider that supports tool calling), Brain runs an **agentic loop**: instead of only writing SQL for you, it can call tools to inspect your schema, run queries, and create or modify workspace objects. The catalog is 33 tools:
+With a Pro license (and a provider that supports tool calling), Brain runs an **agentic loop**: instead of only writing SQL for you, it can call tools to inspect your schema, run queries, and create or modify workspace objects. The catalog is 39 tools:
 
 | Group | Tools |
 |---|---|
@@ -148,8 +194,38 @@ With a Pro license (and a provider that supports tool calling), Brain runs an **
 | Pipelines | `list_pipelines`, `get_pipeline_graph`, `create_pipeline`, `configure_pipeline`, `start_pipeline`, `delete_pipeline` |
 | Observability | `list_services`, `query_logs`, `query_traces`, `find_trace`, `list_metrics`, `query_metrics` |
 | Insights | `get_insights` |
+| Performance | `analyze_query_log`, `query_pattern`, `explain_query`, `table_storage`, `merges_and_mutations`, `compare_query_estimates` |
 
 Read-only tools (listing, describing, querying) run without ceremony. [Ask AI](#ask-ai-text-to-sql) is Pro too. `build_model` does the same as `run_model`: models have no data tests yet.
+
+### Performance diagnostics
+
+Ask Brain why things are slow and it reads ClickHouse's own system tables as
+you, read-only, with no approval and for every role, viewers included:
+
+| Tool | What it reads |
+|---|---|
+| `analyze_query_log(view, window?, user?, table?, min_duration_ms?)` | The top 20 from `system.query_log` over 1h, 6h, 24h (default) or 7d. Views: `slow` (patterns by p95), `failed` (by error code), `heavy_readers` (patterns by bytes read), `patterns` (most run), `users` (load per user). Sample queries are clipped to 400 characters. |
+| `query_pattern(hash, window?)` | One pattern: p50, p95 and max latency, rows and bytes read, average `SelectedParts`, `SelectedMarks` and `SelectedRows`, a per-user split and one example query. |
+| `explain_query(sql, mode?)` | `EXPLAIN indexes = 1` (default), `PIPELINE`, `ESTIMATE` or `PLAN` of a single `SELECT` or `WITH` query, without running it. |
+| `table_storage(database, table?)` | Active parts: rows, bytes, compression ratio, partitions and parts per table, partition skew, the 50 largest partitions and the 20 largest columns. Flags tables with over 1,000 partitions or over 300 parts in one partition. |
+| `merges_and_mutations(database?, table?)` | Running merges and unfinished mutations. Flags merges running over an hour and mutations older than 30 minutes that still have parts to do or a failure reason. |
+| `compare_query_estimates(original_sql, candidate_sql)` | Rows, marks, parts and granules each query would read, with deltas. |
+
+Every diagnostic statement carries its own `LIMIT` and, for `system.query_log`,
+its own time window, so it stays bounded even for users whose ClickHouse profile
+is read only (CH-UI's caps are dropped for them). CH-UI's own queries
+(`log_comment` `ch-ui:brain` and `ch-ui:query-insights`) are left out of the
+numbers. When `system.query_log` is missing or not granted, Brain says so and
+suggests `GRANT SELECT ON system.query_log TO <user>`. The tools read the
+connected node only; on a cluster, Brain says the results are local-node only.
+
+Ask Brain to **optimize** a query and it runs `explain_query` with indexes,
+looks at the tables with `describe_table`, writes a rewrite and compares both
+with `compare_query_estimates`. It shows the SQL change and the before and after
+numbers, says these are estimates of data read, not latency, and states any
+change in meaning. In the chat, EXPLAIN output shows in a monospace block and the
+comparison as a small before and after table.
 
 ### What the model sees
 
@@ -222,10 +298,10 @@ Query result artifacts are **read-only only**: `SELECT`, `WITH`, `SHOW`, `DESC`,
 
 ## Usage and budgets
 
-Every chat turn and Ask AI request is recorded with the provider, the model and its tokens: input, output, cache read and cache write. An agent turn sums all of its steps. Counts come from what the provider reports: Anthropic's usage (including `cache_read_input_tokens` and `cache_creation_input_tokens`), OpenAI-style `usage` (cached prompt tokens split out as cache reads) and Ollama's eval counts. A provider that reports nothing records zeros.
+Every chat turn, Ask AI and Fix with AI request is recorded with the provider, the model and its tokens: input, output, cache read and cache write. An agent turn sums all of its steps. Counts come from what the provider reports: Anthropic's usage (including `cache_read_input_tokens` and `cache_creation_input_tokens`), OpenAI-style `usage` (cached prompt tokens split out as cache reads) and Ollama's eval counts. A provider that reports nothing records zeros.
 
 - **Under each answer**, a small footer shows the model, the tokens and, when the model has a price, the estimated cost. Hover it for the exact numbers.
-- **Admin → Brain → Usage** lists tokens per person and model for today, the last 7, 30 or 90 days, with totals and estimated cost.
+- **Admin → Brain → Usage** lists tokens per person and model for today, the last 7, 30 or 90 days, with totals and estimated cost. **Requests** counts every call; its tooltip splits chat turns from Ask AI and Fix with AI requests, and **Repairs** counts the extra calls that repaired SQL ClickHouse rejected (ledger purposes `ask_ai_repair` and `fix_sql_repair`).
 - **Prices** (admin) are US dollars per million tokens for input, output, cache read and cache write. New installs start with the Claude list prices; edit, add or clear any of them. A model without input and output prices shows no cost. Costs are estimates, not a bill. Some models charge more for very long prompts (for example `claude-haiku-5-5` above 100K input tokens); the estimate uses the base price, so it can read low for those requests.
 - **Daily token budget per person** (admin, optional) caps input, output and cache-write tokens per UTC day. Cache reads are not counted. A person past the budget gets a clear message (`429`) before the turn starts and nothing is sent to the provider; it resets at 00:00 UTC.
 
@@ -252,5 +328,7 @@ Chats, messages, artifacts, skills and the usage ledger are stored in CH-UI's **
 | Artifact timeout | 30s default, 5 min max |
 | Schema context | Per message, from `@` mentions; no fixed table limit |
 | API key storage | Encrypted at rest with app secret key |
-| Token budget | Optional per person per UTC day, checked before a turn or Ask AI request starts |
+| Token budget | Optional per person per UTC day, checked before a turn, an Ask AI or Fix with AI request, and each SQL repair |
+| Diagnostics tools | ClickHouse `readonly = 1`, 30s per call, every statement with its own `LIMIT` and, on `system.query_log`, its own time window; local node only |
+| SQL self-check | `EXPLAIN PLAN` or `EXPLAIN AST` as the person, `readonly = 1`, 10s, governance applies; at most 2 repairs |
 | Chat / artifact isolation | Scoped to username + connection; artifact actions verify chat ownership |

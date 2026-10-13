@@ -27,9 +27,17 @@ func (h *AdminHandler) registerBrainUsageRoutes(r chi.Router) {
 // GetBrainSettings returns the model roles, budget, output cap and prices.
 func (h *AdminHandler) GetBrainSettings(w http.ResponseWriter, r *http.Request) {
 	s := loadBrainSettings(h.DB)
+	// quickModelSet tells the UI whether an admin ever saved the quick
+	// model, so it can suggest one only when nobody chose, "Automatic"
+	// included.
+	quickSet := false
+	if all, err := h.DB.GetAllSettings(); err == nil {
+		_, quickSet = all[settingBrainQuickModel]
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":       true,
 		"settings":      s,
+		"quickModelSet": quickSet,
 		"defaultPrices": braincore.DefaultPrices(),
 	})
 }

@@ -92,3 +92,33 @@ func TestAdminBrainSettingsRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// Fix with AI counts as an Ask AI request; repair calls count separately.
+func TestBrainUsageSummaryCountsFixAndRepairs(t *testing.T) {
+	db, h := brainUsageRouter(t)
+	for _, purpose := range []string{"ask_ai", "fix_sql", "ask_ai_repair", "fix_sql_repair", "fix_sql_repair", "chat"} {
+		if err := db.RecordBrainUsage(database.BrainUsageRecord{Username: "ana", Provider: "Claude", Model: "claude-haiku-5-5", Purpose: purpose, InputTokens: 10}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, out := doJSON(t, h, http.MethodGet, "/brain/usage?days=1", "")
+	row := out["rows"].([]any)[0].(map[string]any)
+	if row["requests"] != float64(6) || row["ask_ai"] != float64(2) || row["repairs"] != float64(3) || row["chat_turns"] != float64(1) {
+		t.Errorf("row %v", row)
+	}
+}
+
+// The settings say whether an admin ever saved the quick model, so the UI
+// suggests one only when nobody chose.
+func TestBrainSettingsReportQuickModelSet(t *testing.T) {
+	_, h := brainUsageRouter(t)
+	if _, out := doJSON(t, h, http.MethodGet, "/brain/settings", ""); out["quickModelSet"] != false {
+		t.Errorf("fresh install: %v", out["quickModelSet"])
+	}
+	if code, out := doJSON(t, h, http.MethodPut, "/brain/settings", `{"quickModelId":""}`); code != http.StatusOK {
+		t.Fatalf("save %d %v", code, out)
+	}
+	if _, out := doJSON(t, h, http.MethodGet, "/brain/settings", ""); out["quickModelSet"] != true {
+		t.Errorf("an explicit Automatic choice counts as set: %v", out["quickModelSet"])
+	}
+}
