@@ -30,11 +30,13 @@
     nextRow?: number
     /** Connection the panel is built on, recorded on new panels. */
     connectionId?: string
+    /** Current dashboard variable values, so the preview runs like the panel will. */
+    variables?: Record<string, string[]>
     onclose: () => void
     onsave: (panel: Panel) => void
   }
 
-  let { dashboardId, dashboardTimeRange = '1h', panel = null, nextRow = 0, connectionId = '', onclose, onsave }: Props = $props()
+  let { dashboardId, dashboardTimeRange = '1h', panel = null, nextRow = 0, connectionId = '', variables = {}, onclose, onsave }: Props = $props()
 
   // Form state
   let name = $state('')
@@ -236,6 +238,8 @@
       const res = await apiPost<{ data: Record<string, unknown>[]; meta: ColumnMeta[]; error?: string; success?: boolean }>('/api/dashboards/query', {
         query: sql.trim(),
         time_range: toDashboardTimeRangePayload(dashboardTimeRange || '1h'),
+        dashboard_id: dashboardId || undefined,
+        variables,
       })
       if (res.success === false) {
         queryError = res.error ?? 'Query failed'
@@ -457,6 +461,7 @@
             <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timestamp(col)</code>: DateTime range filter, second precision</div>
             <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__interval</code> / <code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__interval_ms</code>: bucket size in seconds / milliseconds</div>
             <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timeFrom</code> / <code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$__timeTo</code>: range bounds in epoch milliseconds</div>
+            <div><code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">$name</code> / <code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">${'{'}name{'}'}</code>: dashboard variables, quoted for you (<code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">IN (${'{'}db{'}'})</code>); <code class="px-1 py-0.5 rounded bg-surface-2 text-fg-2">${'{'}name:number{'}'}</code> for bare numbers</div>
           </div>
         </details>
         {/if}

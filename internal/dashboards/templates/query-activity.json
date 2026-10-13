@@ -1,0 +1,115 @@
+{
+  "id": "query-activity",
+  "name": "Query activity",
+  "description": "Who runs queries, the most frequent query patterns and the queries that failed, filtered by user.",
+  "tags": [
+    "clickhouse",
+    "queries"
+  ],
+  "version": 1,
+  "dashboard": {
+    "name": "Query activity",
+    "description": "Query activity from system.query_log, filtered by user."
+  },
+  "variables": [
+    {
+      "name": "user",
+      "label": "User",
+      "type": "query",
+      "query": "SELECT DISTINCT user FROM system.query_log WHERE event_date >= today() - 7 ORDER BY user",
+      "multi": true,
+      "include_all": true,
+      "default": [
+        "$__all"
+      ]
+    },
+    {
+      "name": "bucket",
+      "label": "Bucket",
+      "type": "interval",
+      "options": "1m,5m,15m,1h",
+      "default": [
+        "5m"
+      ]
+    }
+  ],
+  "panels": [
+    {
+      "name": "Queries over time",
+      "description": "",
+      "panel_type": "timeseries",
+      "query": "SELECT\n  toStartOfInterval(event_time, INTERVAL $bucket second) AS ts,\n  countIf(type = 'QueryFinish') AS finished,\n  countIf(type != 'QueryFinish') AS failed\nFROM system.query_log\nWHERE type != 'QueryStart'\n  AND $__timeFilter(event_time, datetime)\n  AND user IN (${user})\nGROUP BY ts\nORDER BY ts WITH FILL\n  FROM toStartOfInterval(toDateTime(intDiv($__timeFrom, 1000)), INTERVAL $bucket second)\n  TO toDateTime(intDiv($__timeTo, 1000))\n  STEP $bucket",
+      "config": {
+        "chartType": "timeseries",
+        "xColumn": "ts",
+        "yColumns": [
+          "finished",
+          "failed"
+        ],
+        "legendPosition": "bottom"
+      },
+      "layout_x": 0,
+      "layout_y": 0,
+      "layout_w": 12,
+      "layout_h": 5
+    },
+    {
+      "name": "Top users",
+      "description": "",
+      "panel_type": "bar",
+      "query": "SELECT\n  user,\n  count() AS queries,\n  countIf(type != 'QueryFinish') AS failed\nFROM system.query_log\nWHERE type != 'QueryStart'\n  AND $__timeFilter(event_time, datetime)\n  AND user IN (${user})\nGROUP BY user\nORDER BY queries DESC\nLIMIT 20",
+      "config": {
+        "chartType": "bar",
+        "xColumn": "user",
+        "yColumns": [
+          "queries",
+          "failed"
+        ],
+        "legendPosition": "bottom"
+      },
+      "layout_x": 0,
+      "layout_y": 5,
+      "layout_w": 5,
+      "layout_h": 6
+    },
+    {
+      "name": "Top users by time and data",
+      "description": "",
+      "panel_type": "table",
+      "query": "SELECT\n  user,\n  count() AS queries,\n  round(sum(query_duration_ms) / 1000, 1) AS total_s,\n  formatReadableSize(sum(read_bytes)) AS read,\n  formatReadableSize(max(memory_usage)) AS peak_memory\nFROM system.query_log\nWHERE type != 'QueryStart'\n  AND $__timeFilter(event_time, datetime)\n  AND user IN (${user})\nGROUP BY user\nORDER BY total_s DESC\nLIMIT 20",
+      "config": {
+        "chartType": "table"
+      },
+      "layout_x": 5,
+      "layout_y": 5,
+      "layout_w": 7,
+      "layout_h": 6
+    },
+    {
+      "name": "Top query patterns",
+      "description": "Queries grouped by normalized_query_hash: the same query with different literals counts as one pattern.",
+      "panel_type": "table",
+      "query": "SELECT\n  toString(normalized_query_hash) AS pattern,\n  count() AS runs,\n  round(avg(query_duration_ms), 1) AS avg_ms,\n  round(quantile(0.95)(query_duration_ms), 1) AS p95_ms,\n  formatReadableSize(sum(read_bytes)) AS read,\n  left(normalizeQuery(any(query)), 200) AS sample\nFROM system.query_log\nWHERE type = 'QueryFinish'\n  AND $__timeFilter(event_time, datetime)\n  AND user IN (${user})\nGROUP BY normalized_query_hash\nORDER BY runs DESC\nLIMIT 50",
+      "config": {
+        "chartType": "table"
+      },
+      "layout_x": 0,
+      "layout_y": 11,
+      "layout_w": 12,
+      "layout_h": 7
+    },
+    {
+      "name": "Failed queries",
+      "description": "",
+      "panel_type": "table",
+      "query": "SELECT\n  event_time,\n  user,\n  exception_code,\n  type,\n  left(exception, 200) AS error,\n  left(query, 200) AS query\nFROM system.query_log\nWHERE type IN ('ExceptionBeforeStart', 'ExceptionWhileProcessing')\n  AND $__timeFilter(event_time, datetime)\n  AND user IN (${user})\nORDER BY event_time DESC\nLIMIT 100",
+      "config": {
+        "chartType": "table"
+      },
+      "layout_x": 0,
+      "layout_y": 18,
+      "layout_w": 12,
+      "layout_h": 7
+    }
+  ]
+}
