@@ -7,6 +7,7 @@ export type AlertEventType =
   | 'health.replication_lag' | 'health.replica_readonly' | 'health.disk' | 'health.parts'
   | 'health.mutation_stuck' | 'health.node_unreachable' | 'health.connection_unreachable' | 'health.*'
   | 'sql.alert' | 'sql.*'
+  | 'report.failed' | 'report.disabled' | 'report.*'
   | '*'
 
 export interface AlertChannel {

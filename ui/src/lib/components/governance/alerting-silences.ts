@@ -23,6 +23,9 @@ export const EVENT_TYPE_OPTIONS: Option[] = [
   { value: 'health.*', label: 'All health checks' },
   { value: 'sql.alert', label: 'SQL alert' },
   { value: 'sql.*', label: 'All SQL alerts' },
+  { value: 'report.failed', label: 'Report failed' },
+  { value: 'report.disabled', label: 'Report disabled' },
+  { value: 'report.*', label: 'All report events' },
   { value: '*', label: 'All events' },
 ]
 

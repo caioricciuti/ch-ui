@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -45,15 +46,28 @@ func Send(ctx context.Context, channelType string, channelConfig map[string]inte
 	return (&Sender{}).Send(ctx, channelType, channelConfig, recipients, subject, body)
 }
 
-// Send sends one message through the provider named by channelType.
+// SendMessage sends one message with the default Sender.
+func SendMessage(ctx context.Context, channelType string, channelConfig map[string]interface{}, recipients []string, msg Message) (string, error) {
+	return (&Sender{}).SendMessage(ctx, channelType, channelConfig, recipients, msg)
+}
+
+// Send sends one plain-text message through the provider named by
+// channelType. It is SendMessage with a text body only.
 func (s *Sender) Send(ctx context.Context, channelType string, channelConfig map[string]interface{}, recipients []string, subject, body string) (string, error) {
+	return s.SendMessage(ctx, channelType, channelConfig, recipients, Message{Subject: subject, Text: body})
+}
+
+// SendMessage sends one message, with an optional HTML alternative and
+// attachments, through the provider named by channelType and returns the
+// provider message id when it reports one.
+func (s *Sender) SendMessage(ctx context.Context, channelType string, channelConfig map[string]interface{}, recipients []string, msg Message) (string, error) {
 	switch strings.ToLower(channelType) {
 	case ChannelTypeSMTP:
-		return s.sendSMTP(ctx, channelConfig, recipients, subject, body)
+		return s.sendSMTPMessage(ctx, channelConfig, recipients, msg)
 	case ChannelTypeResend:
-		return s.sendResend(ctx, channelConfig, recipients, subject, body)
+		return s.sendResendMessage(ctx, channelConfig, recipients, msg)
 	case ChannelTypeBrevo:
-		return s.sendBrevo(ctx, channelConfig, recipients, subject, body)
+		return s.sendBrevoMessage(ctx, channelConfig, recipients, msg)
 	default:
 		return "", fmt.Errorf("unsupported channel type: %s", channelType)
 	}
@@ -104,6 +118,10 @@ func intCfg(cfg map[string]interface{}, key string, defaultVal int) int {
 }
 
 func (s *Sender) sendSMTP(ctx context.Context, cfg map[string]interface{}, recipients []string, subject, body string) (string, error) {
+	return s.sendSMTPMessage(ctx, cfg, recipients, Message{Subject: subject, Text: body})
+}
+
+func (s *Sender) sendSMTPMessage(ctx context.Context, cfg map[string]interface{}, recipients []string, m Message) (string, error) {
 	// net/smtp does not honor contexts. Bound both dialing and every protocol
 	// operation, and close the socket promptly when the caller shuts down.
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -127,12 +145,10 @@ func (s *Sender) sendSMTP(ctx context.Context, cfg map[string]interface{}, recip
 		fromHeader = fmt.Sprintf("%s <%s>", fromName, fromEmail)
 	}
 
-	msg := []byte("From: " + fromHeader + "\r\n" +
-		"To: " + strings.Join(recipients, ",") + "\r\n" +
-		"Subject: " + subject + "\r\n" +
-		"MIME-Version: 1.0\r\n" +
-		"Content-Type: text/plain; charset=UTF-8\r\n\r\n" +
-		body)
+	msg, err := BuildMIME(fromHeader, recipients, m)
+	if err != nil {
+		return "", err
+	}
 
 	var auth smtp.Auth
 	if username != "" {
@@ -203,7 +219,7 @@ func (s *Sender) sendSMTP(ctx context.Context, cfg map[string]interface{}, recip
 	return "smtp", nil
 }
 
-func (s *Sender) sendResend(ctx context.Context, cfg map[string]interface{}, recipients []string, subject, body string) (string, error) {
+func (s *Sender) sendResendMessage(ctx context.Context, cfg map[string]interface{}, recipients []string, m Message) (string, error) {
 	apiKey := stringCfg(cfg, "api_key")
 	fromEmail := stringCfg(cfg, "from_email")
 	fromName := stringCfg(cfg, "from_name")
@@ -222,8 +238,18 @@ func (s *Sender) sendResend(ctx context.Context, cfg map[string]interface{}, rec
 	payload := map[string]interface{}{
 		"from":    from,
 		"to":      recipients,
-		"subject": subject,
-		"text":    body,
+		"subject": cleanHeader(m.Subject),
+		"text":    m.Text,
+	}
+	if m.HTML != "" {
+		payload["html"] = m.HTML
+	}
+	if len(m.Attachments) > 0 {
+		list := make([]map[string]string, 0, len(m.Attachments))
+		for _, a := range m.Attachments {
+			list = append(list, map[string]string{"filename": a.Filename, "content": base64.StdEncoding.EncodeToString(a.Data)})
+		}
+		payload["attachments"] = list
 	}
 	raw, _ := json.Marshal(payload)
 
@@ -252,7 +278,7 @@ func (s *Sender) sendResend(ctx context.Context, cfg map[string]interface{}, rec
 	return out.ID, nil
 }
 
-func (s *Sender) sendBrevo(ctx context.Context, cfg map[string]interface{}, recipients []string, subject, body string) (string, error) {
+func (s *Sender) sendBrevoMessage(ctx context.Context, cfg map[string]interface{}, recipients []string, m Message) (string, error) {
 	apiKey := stringCfg(cfg, "api_key")
 	fromEmail := stringCfg(cfg, "from_email")
 	fromName := stringCfg(cfg, "from_name")
@@ -275,8 +301,18 @@ func (s *Sender) sendBrevo(ctx context.Context, cfg map[string]interface{}, reci
 			"email": fromEmail,
 		},
 		"to":          to,
-		"subject":     subject,
-		"textContent": body,
+		"subject":     cleanHeader(m.Subject),
+		"textContent": m.Text,
+	}
+	if m.HTML != "" {
+		payload["htmlContent"] = m.HTML
+	}
+	if len(m.Attachments) > 0 {
+		list := make([]map[string]string, 0, len(m.Attachments))
+		for _, a := range m.Attachments {
+			list = append(list, map[string]string{"name": a.Filename, "content": base64.StdEncoding.EncodeToString(a.Data)})
+		}
+		payload["attachment"] = list
 	}
 	raw, _ := json.Marshal(payload)
 

@@ -25,6 +25,7 @@ export const sidebar = [
       "docs/models",
       "docs/pipelines",
       { slug: "docs/schedules", badge: pro },
+      { slug: "docs/reports", badge: pro },
       { slug: "docs/github", badge: pro },
     ],
   },

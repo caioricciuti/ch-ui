@@ -30,7 +30,10 @@
   import ShareDialog from '../lib/components/dashboard/ShareDialog.svelte'
   import DashboardSettings from '../lib/components/dashboard/DashboardSettings.svelte'
   import VariableBar from '../lib/components/dashboard/VariableBar.svelte'
-  import { Plus, RefreshCw, Share2, ChevronDown, ChevronRight, Star, Timer, Settings, Info, X, Pencil } from 'lucide-svelte'
+  import ReportEditor from '../lib/components/reports/ReportEditor.svelte'
+  import { fetchReports, type ReportChannel, type ReportInput, type ReportWorkerMode } from '../lib/api/reports'
+  import { isProActive } from '../lib/stores/license.svelte'
+  import { Plus, RefreshCw, Share2, ChevronDown, ChevronRight, Star, Timer, Settings, Info, X, Pencil, Mail } from 'lucide-svelte'
 
   interface Props {
     dashboardId?: string
@@ -120,6 +123,41 @@
 
   // Dashboard settings
   let settingsOpen = $state(false)
+
+  // Subscribe: a scheduled report of this dashboard (Pro), prefilled with
+  // the current range and variable values.
+  let subscribeOpen = $state(false)
+  let subscribePrefill = $state<Partial<ReportInput> | null>(null)
+  let subscribeChannels = $state<ReportChannel[]>([])
+  let subscribeModes = $state<Record<string, ReportWorkerMode>>({})
+  let subscribeDomains = $state<string[]>([])
+  let subscribeLoading = $state(false)
+  const canSubscribe = $derived(canWrite && isProActive())
+
+  async function openSubscribe() {
+    if (!currentDashboard || subscribeLoading) return
+    subscribeLoading = true
+    try {
+      const res = await fetchReports()
+      subscribeChannels = res.channels
+      subscribeModes = res.worker_modes
+      subscribeDomains = res.recipient_domains
+      const range = /^[1-9][0-9]{0,3}[mhdwM]$/.test(dashboardTimeRange) ? dashboardTimeRange : '24h'
+      subscribePrefill = {
+        name: currentDashboard.name,
+        source_type: 'dashboard',
+        dashboard_id: currentDashboard.id,
+        connection_id: session?.connectionId ?? '',
+        time_range: range,
+        variables: { ...variableValues },
+      }
+      subscribeOpen = true
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+    } finally {
+      subscribeLoading = false
+    }
+  }
 
   // Fullscreen panel view
   let fullscreenPanel = $state<Panel | null>(null)
@@ -566,6 +604,11 @@
               <Share2 size={14} /> Share
             </Button>
           {/if}
+          {#if canSubscribe}
+            <Button size="sm" variant="outline" loading={subscribeLoading} onclick={() => void openSubscribe()} title="Send a summary of this dashboard on a schedule">
+              <Mail size={14} /> Subscribe
+            </Button>
+          {/if}
           <!-- Refresh with auto-refresh picker -->
           <div class="relative flex items-center">
             <button
@@ -685,6 +728,17 @@
   loading={confirmLoading}
   onconfirm={confirmDelete}
   oncancel={() => confirmOpen = false}
+/>
+
+<ReportEditor
+  open={subscribeOpen}
+  report={null}
+  prefill={subscribePrefill}
+  channels={subscribeChannels}
+  workerModes={subscribeModes}
+  recipientDomains={subscribeDomains}
+  onclose={() => (subscribeOpen = false)}
+  onsaved={() => (subscribeOpen = false)}
 />
 
 {#if currentDashboard}

@@ -19,7 +19,7 @@
     schedule: 'Scheduled queries', model: 'Models', pipeline: 'Pipeline sink',
     governance: 'Governance', cluster_health: 'Cluster Health', 'telemetry.monitor': 'Telemetry monitors',
     performance: 'Performance regression monitor', 'operations.report': 'Weekly operations reports',
-    sql_alert: 'SQL threshold alerts',
+    sql_alert: 'SQL threshold alerts', report: 'Scheduled report delivery',
   }
   const permissions: Record<string, string> = {
     schedule: 'Grant only the operations required by the scheduled SQL.',
@@ -31,6 +31,7 @@
     performance: 'Grant SELECT on system.query_log. Unattended regression checks require a dedicated account.',
     'operations.report': 'Grant SELECT on system.query_log, system.parts and system.clusters. Weekly reports require a dedicated account.',
     sql_alert: 'Grant SELECT on the tables your SQL alerts read. SQL alerts require a dedicated account and run with readonly=1.',
+    report: 'Grant SELECT on the tables your reported saved queries and dashboards read. Reports require a dedicated account and run with readonly=1; Send now and Preview use it too.',
   }
   let accounts = $state<Account[]>([])
   let worker = $state('telemetry.monitor')
@@ -42,7 +43,7 @@
   let loadError = $state('')
   const endpoint = $derived(`/api/connections/${encodeURIComponent(connection.id)}/background-credentials`)
   // These workers never borrow a user session.
-  const DEDICATED_ONLY = new Set(['performance', 'operations.report', 'sql_alert'])
+  const DEDICATED_ONLY = new Set(['performance', 'operations.report', 'sql_alert', 'report'])
   const dedicatedOnly = $derived(DEDICATED_ONLY.has(worker))
 
   function selectWorker() {
