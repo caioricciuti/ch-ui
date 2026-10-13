@@ -24,6 +24,7 @@ const (
 	CodeRowPolicyScope      = "row_policy_scope"
 	CodeOnClusterReplicated = "on_cluster_replicated"
 	CodeSelfRoleChange      = "self_role_change"
+	CodeSelfQuota           = "self_quota"
 )
 
 // GuardContext carries facts the snapshot does not hold.
@@ -46,10 +47,11 @@ var adminDetectPrivileges = map[string]bool{
 }
 
 type guard struct {
-	snap     *Snapshot
+	snap *Snapshot
+	// after is snap with every op of the plan applied.
+	after    *Snapshot
 	ctx      GuardContext
 	cluster  string
-	ops      []Op
 	out      []Warning
 	seen     map[string]bool
 	selfUser string
@@ -74,10 +76,14 @@ func (g *guard) isSelf(t Target) bool {
 }
 
 // coversSelf reports whether a TO clause applies to the session user.
-func (g *guard) coversSelf(a Assignees) bool {
+func (g *guard) coversSelf(a Assignees) bool { return g.covers(a, g.selfRole) }
+
+// covers reports whether a TO clause applies to the session user holding
+// roles.
+func (g *guard) covers(a Assignees, roles map[string]bool) bool {
 	in := func(list []string) bool {
 		for _, n := range list {
-			if n == g.selfUser || g.selfRole[n] {
+			if n == g.selfUser || roles[n] {
 				return true
 			}
 		}
@@ -87,6 +93,93 @@ func (g *guard) coversSelf(a Assignees) bool {
 		return !in(a.Except)
 	}
 	return in(a.Names)
+}
+
+// selfRoles returns the roles the session user holds in s: the enabled ones
+// plus every role granted to the user, followed through roles granted to
+// roles.
+func (g *guard) selfRoles(s *Snapshot) map[string]bool {
+	roles := map[string]bool{}
+	var queue []string
+	push := func(r string) {
+		if !roles[r] {
+			roles[r] = true
+			queue = append(queue, r)
+		}
+	}
+	for r := range g.selfRole {
+		push(r)
+	}
+	for _, rg := range s.RoleGrants {
+		if g.selfUser != "" && rg.UserName == g.selfUser {
+			push(rg.GrantedRole)
+		}
+	}
+	for len(queue) > 0 {
+		r := queue[0]
+		queue = queue[1:]
+		for _, rg := range s.RoleGrants {
+			if rg.RoleName == r {
+				push(rg.GrantedRole)
+			}
+		}
+	}
+	return roles
+}
+
+// selfProfiles maps each settings profile that reaches the session user in
+// s to the role it comes through, or "" when it is assigned in its TO list.
+func (g *guard) selfProfiles(s *Snapshot) map[string]string {
+	roles := g.selfRoles(s)
+	out := map[string]string{}
+	for _, p := range s.SettingsProfiles {
+		if g.covers(p.To, roles) {
+			out[p.Name] = ""
+		}
+	}
+	for _, r := range sortedNames(roles) {
+		for _, p := range s.RoleProfiles[r] {
+			if _, ok := out[p]; !ok {
+				out[p] = r
+			}
+		}
+	}
+	return out
+}
+
+// checkSelfReadonly blocks a plan after which a read-only profile reaches
+// the session user that did not before: assigned directly, set on a held
+// role, granted through a new role, or made read-only through INHERIT.
+func (g *guard) checkSelfReadonly() {
+	before, after := g.selfProfiles(g.snap), g.selfProfiles(g.after)
+	names := map[string]bool{}
+	for n := range after {
+		names[n] = true
+	}
+	for _, name := range sortedNames(names) {
+		if !profileReadonly(g.after, name, 0) {
+			continue
+		}
+		if _, was := before[name]; was && profileReadonly(g.snap, name, 0) {
+			continue
+		}
+		if role := after[name]; role != "" {
+			g.add(CodeSelfReadonlyProfile, SeverityBlock, "Profile %q is read-only and would apply to your own session through role %q.", name, role)
+		} else {
+			g.add(CodeSelfReadonlyProfile, SeverityBlock, "Settings profile %q is read-only and would apply to your own session.", name)
+		}
+	}
+}
+
+func quotaHasLimits(q QuotaSpec) bool {
+	for _, iv := range q.Intervals {
+		for _, v := range iv.Limits {
+			if v > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // roleCarries reports whether role (or a role granted to it) holds one of
@@ -114,33 +207,21 @@ func (g *guard) roleCarries(role string, privs map[string]bool) bool {
 	return walk(role)
 }
 
-// profileReadonly reports whether a profile (as proposed in this plan, or
-// as it is now) sets readonly to a non-zero value, directly or through one
-// level of INHERIT.
-func (g *guard) profileReadonly(name string, depth int) bool {
+// profileReadonly reports whether a profile in s sets readonly to a
+// non-zero value, directly or through INHERIT.
+func profileReadonly(s *Snapshot, name string, depth int) bool {
 	if depth > 4 || name == "" {
 		return false
 	}
-	var spec *ProfileSpec
-	for i := range g.ops {
-		op := g.ops[i]
-		if (op.Kind == OpCreateSettingsProfile || op.Kind == OpAlterSettingsProfile) && op.SettingsProfile != nil && op.SettingsProfile.Name == name {
-			spec = op.SettingsProfile
-		}
-	}
-	if spec == nil {
-		if p := g.snap.profile(name); p != nil {
-			spec = &p.ProfileSpec
-		}
-	}
-	if spec == nil {
+	p := s.profile(name)
+	if p == nil {
 		return false
 	}
-	if specReadonly(*spec) {
+	if specReadonly(p.ProfileSpec) {
 		return true
 	}
-	for _, parent := range spec.Inherit {
-		if g.profileReadonly(parent, depth+1) {
+	for _, parent := range p.Inherit {
+		if profileReadonly(s, parent, depth+1) {
 			return true
 		}
 	}
@@ -193,7 +274,11 @@ func sortedNames(set map[string]bool) []string {
 // Guard checks a change set for self-impact and other risks. Block
 // warnings refuse the plan; ack warnings need an explicit acknowledgement.
 func Guard(ops []Op, snap *Snapshot, cluster string, ctx GuardContext) []Warning {
-	g := &guard{snap: snap, ctx: ctx, cluster: cluster, ops: ops, seen: map[string]bool{}, selfUser: snap.Capabilities.User, selfRole: map[string]bool{}}
+	after := cloneSnapshot(snap)
+	for _, op := range ops {
+		applyOp(after, op)
+	}
+	g := &guard{snap: snap, after: after, ctx: ctx, cluster: cluster, seen: map[string]bool{}, selfUser: snap.Capabilities.User, selfRole: map[string]bool{}}
 	for _, r := range snap.Capabilities.Roles {
 		g.selfRole[r] = true
 	}
@@ -225,9 +310,6 @@ func Guard(ops []Op, snap *Snapshot, cluster string, ctx GuardContext) []Warning
 		case OpSetRoleProfile:
 			g.readOnlyStorage(KindRole, op.Name)
 			noteStorage(KindRole, op.Name)
-			if g.selfRole[op.Name] && g.profileReadonly(op.Profile, 0) {
-				g.add(CodeSelfReadonlyProfile, SeverityBlock, "Profile %q is read-only and would apply to your own session through role %q.", op.Profile, op.Name)
-			}
 		case OpCreateRole:
 			noteStorage(KindRole, op.Name)
 		case OpGrantPrivilege, OpRevokePrivilege, OpGrantRole, OpRevokeRole, OpSetDefaultRoles:
@@ -236,6 +318,17 @@ func Guard(ops []Op, snap *Snapshot, cluster string, ctx GuardContext) []Warning
 			noteStorage(t.Type, t.Name)
 			if t.Type == "user" {
 				checkService(t.Name)
+			}
+			if op.Kind == OpRevokePrivilege && op.GrantOption && g.isSelf(t) {
+				crit := map[string]bool{}
+				for _, a := range op.Access {
+					if criticalPrivileges[a] {
+						crit[a] = true
+					}
+				}
+				if len(crit) > 0 {
+					g.add(CodeSelfRevoke, SeverityBlock, "This revokes the grant option for %s from %s %q. Your session needs it to grant privileges and could not give it back.", strings.Join(sortedNames(crit), ", "), t.Type, t.Name)
+				}
 			}
 			if op.Kind == OpRevokePrivilege && !op.GrantOption {
 				crit, demote := map[string]bool{}, map[string]bool{}
@@ -289,6 +382,9 @@ func Guard(ops []Op, snap *Snapshot, cluster string, ctx GuardContext) []Warning
 			if op.Quota != nil {
 				name = op.Quota.Name
 				checkService(op.Quota.To.Names...)
+				if g.coversSelf(op.Quota.To) && quotaHasLimits(*op.Quota) {
+					g.add(CodeSelfQuota, SeverityAck, "Quota %q would limit your own session. Once a limit is reached you cannot run statements, a rollback included, until the interval resets.", name)
+				}
 			}
 			if op.Kind != OpCreateQuota {
 				g.readOnlyStorage(KindQuota, name)
@@ -299,9 +395,6 @@ func Guard(ops []Op, snap *Snapshot, cluster string, ctx GuardContext) []Warning
 			if op.SettingsProfile != nil {
 				name = op.SettingsProfile.Name
 				checkService(op.SettingsProfile.To.Names...)
-				if g.coversSelf(op.SettingsProfile.To) && g.profileReadonly(name, 0) {
-					g.add(CodeSelfReadonlyProfile, SeverityBlock, "Settings profile %q is read-only and would apply to your own session.", name)
-				}
 			}
 			if op.Kind != OpCreateSettingsProfile {
 				g.readOnlyStorage(KindSettingsProfile, name)
@@ -309,6 +402,7 @@ func Guard(ops []Op, snap *Snapshot, cluster string, ctx GuardContext) []Warning
 			noteStorage(KindSettingsProfile, name)
 		}
 	}
+	g.checkSelfReadonly()
 	for _, n := range sortedNames(serviceTouched) {
 		g.add(CodeServiceAccount, SeverityAck, "User %q is used by CH-UI unattended (%s). Changing its access can break that work.", n, ctx.ServiceAccounts[n])
 	}

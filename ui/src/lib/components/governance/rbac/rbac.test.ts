@@ -22,6 +22,7 @@ describe('change helpers', () => {
     expect(describeOp({ kind: 'grant_privilege', target: { type: 'role', name: 'r' }, access: ['SELECT'], database: 'd', table: 't', columns: ['a'], grant_option: true }))
       .toBe('Grant SELECT(a) on d.t to role r with grant option')
     expect(describeOp({ kind: 'set_default_roles', target: { type: 'user', name: 'u' } })).toBe('Set default roles of user u to NONE')
+    expect(describeOp({ kind: 'set_default_roles', target: { type: 'user', name: 'u' }, default_all: true, default_except: ['a', 'b'] })).toBe('Set default roles of user u to ALL EXCEPT a, b')
     expect(describeOp({ kind: 'drop_row_policy', row_policy: { name: 'p', database: 'd', table: 't', using: '', to: {} } })).toBe('Drop row policy p on d.t')
   })
 

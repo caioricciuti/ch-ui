@@ -283,6 +283,14 @@ func validateOp(op Op, cat Catalog) error {
 		if op.DefaultAll && len(op.Roles) > 0 {
 			return fmt.Errorf("choose ALL or a list of default roles, not both")
 		}
+		if len(op.DefaultExcept) > 0 && !op.DefaultAll {
+			return fmt.Errorf("default role exceptions need ALL")
+		}
+		for _, r := range op.DefaultExcept {
+			if err := ValidateName("role", r); err != nil {
+				return err
+			}
+		}
 	case OpCreateRowPolicy, OpAlterRowPolicy, OpDropRowPolicy:
 		p := op.RowPolicy
 		if p == nil {

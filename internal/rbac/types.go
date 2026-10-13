@@ -127,8 +127,10 @@ type Op struct {
 	Roles       []string `json:"roles,omitempty"`
 	AdminOption bool     `json:"admin_option,omitempty"`
 	// DefaultAll sets DEFAULT ROLE ALL; with no Roles and DefaultAll false
-	// the user gets DEFAULT ROLE NONE.
-	DefaultAll bool `json:"default_all,omitempty"`
+	// the user gets DEFAULT ROLE NONE. DefaultExcept, with DefaultAll, sets
+	// DEFAULT ROLE ALL EXCEPT those roles.
+	DefaultAll    bool     `json:"default_all,omitempty"`
+	DefaultExcept []string `json:"default_except,omitempty"`
 
 	RowPolicy       *RowPolicySpec `json:"row_policy,omitempty"`
 	Quota           *QuotaSpec     `json:"quota,omitempty"`
@@ -144,7 +146,6 @@ type Statement struct {
 	// Inverse holds the operations that undo this statement, used to build
 	// rollback_ops after apply.
 	Inverse []Op `json:"-"`
-	phase   int
 }
 
 // Diff is the before and after of one entity touched by a plan.
