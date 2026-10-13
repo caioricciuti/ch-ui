@@ -15,7 +15,7 @@
   import SavedSearchMenu from './SavedSearchMenu.svelte'
   import { setSection } from '../../stores/nav.svelte'
   import { isMissingTableError } from '../../utils/ch-error'
-  import { searchLogs, logsHistogram, logsFacets } from '../../api/telemetry'
+  import { searchLogs, logsHistogram, logsFacets, logsContext } from '../../api/telemetry'
   import type { TelemetrySource, LogRow, LogFacets, HistogramBucket } from '../../types/telemetry'
   import { encodeAbsoluteDashboardRange } from '../../utils/dashboard-time'
   import { resolveRange } from './time'
@@ -44,6 +44,8 @@
   let range = $state('1h')
   let severity = $state<string[]>([])
   let services = $state<string[]>([])
+  /** A row named by a copied link (row=<ts ns>&rowid=<hash>), opened after the first search. */
+  let pendingRow: { ts: string; id: string } | null = null
 
   function readUrl() {
     const p = new URLSearchParams(window.location.search)
@@ -56,6 +58,8 @@
     else if (from) range = from
     severity = (p.get('sev') ?? '').split(',').filter(Boolean)
     services = (p.get('svc') ?? '').split(',').filter(Boolean)
+    const row = p.get('row')
+    pendingRow = row && /^\d+$/.test(row) ? { ts: row, id: p.get('rowid') ?? '' } : null
   }
 
   function writeUrl() {
@@ -69,6 +73,9 @@
     set('to', abs ? abs.to : '')
     set('sev', severity.join(','))
     set('svc', services.join(','))
+    // A link's row is opened once; the copy-link button makes a new one.
+    url.searchParams.delete('row')
+    url.searchParams.delete('rowid')
     history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`)
   }
 
@@ -84,8 +91,12 @@
   let histogramRange = $state<{ from: string; to: string } | undefined>()
   let facets = $state<LogFacets | null>(null)
   let facetsLoading = $state(false)
+  let facetsError = $state<string | null>(null)
   let expandedKeys = $state<string[]>([])
   let seq = 0
+  let facetsSeq = 0
+  /** Keyset position of the newest row shown: live tail asks for rows past it. */
+  let headCursor: string | null = null
 
   function baseRequest() {
     const r = resolveRange(range)
@@ -106,7 +117,9 @@
       if (mySeq !== seq) return
       rows = search.rows
       nextCursor = search.next_cursor
+      headCursor = search.head_cursor
       tookMs = search.took_ms
+      lastSummaryAt = Date.now()
       if (hist) {
         buckets = hist.buckets
         bucketSeconds = hist.bucket_seconds
@@ -121,21 +134,70 @@
       rows = []
       buckets = []
       nextCursor = null
+      headCursor = null
     } finally {
       if (mySeq === seq) loading = false
     }
     void loadFacets()
+    if (mySeq === seq) void openPendingRow()
+  }
+
+  async function loadHistogram() {
+    if (!sourceId) return
+    const mySeq = seq
+    const req = baseRequest()
+    try {
+      const hist = await logsHistogram(req)
+      if (mySeq !== seq) return
+      buckets = hist.buckets
+      bucketSeconds = hist.bucket_seconds
+      histogramRange = { from: req.from, to: req.to }
+    } catch {
+      /* the next refresh retries */
+    }
   }
 
   async function loadFacets() {
     if (!sourceId) return
+    const mySeq = ++facetsSeq
     facetsLoading = true
     try {
-      facets = await logsFacets({ ...baseRequest(), keys: expandedKeys })
-    } catch {
-      /* facets are best effort */
+      const res = await logsFacets({ ...baseRequest(), keys: expandedKeys })
+      if (mySeq !== facetsSeq) return
+      facets = res
+      facetsError = null
+    } catch (e: unknown) {
+      if (mySeq !== facetsSeq) return
+      facets = null
+      facetsError = e instanceof Error ? e.message : String(e)
     } finally {
-      facetsLoading = false
+      if (mySeq === facetsSeq) facetsLoading = false
+    }
+  }
+
+  /** Open the row a copied link points at: from the page, else fetched around its timestamp. */
+  async function openPendingRow() {
+    const target = pendingRow
+    if (!target) return
+    pendingRow = null
+    const matches = (r: LogRow) => r.timestamp_ns === target.ts && (!target.id || r.row_id === target.id)
+    const i = rows.findIndex(matches)
+    if (i >= 0) {
+      openAt(i)
+      list?.scrollToIndex(i)
+      return
+    }
+    try {
+      const res = await logsContext({ source_id: sourceId, timestamp_ns: target.ts, row_id: target.id, service: '', before: 1, after: 50 })
+      const row = res.rows.find(matches)
+      if (row) {
+        selectedIndex = -1
+        openRow = row
+      } else {
+        error = 'The linked log row was not found. It may have aged out of the table.'
+      }
+    } catch (e: unknown) {
+      error = e instanceof Error ? e.message : String(e)
     }
   }
 
@@ -195,7 +257,11 @@
   }
 
   // ── Saved searches ───────────────────────────────────────────
-  function loadSaved(q: string, preset: string) {
+  function loadSaved(q: string, preset: string, savedSourceId: string | null) {
+    if (savedSourceId && savedSourceId !== sourceId && logSources.some((s) => s.id === savedSourceId)) {
+      sourceId = savedSourceId
+      loadColumns()
+    }
     draft = q
     query = q
     range = preset || range
@@ -277,22 +343,59 @@
   }
 
   // ── Live tail ────────────────────────────────────────────────
+  // Every 5 s ask only for rows newer than the newest one shown and put
+  // them on top; the histogram and facets refresh at most every 30 s. An
+  // absolute range has no "new" rows, so live is off there. Opening a row
+  // or scrolling down pauses it so the list does not move under the reader.
+  const LIVE_POLL_MS = 5_000
+  const LIVE_SUMMARY_MS = 30_000
+  const LIVE_MAX_ROWS = 2_000
   let live = $state(false)
   let atTop = $state(true)
-  let timer: ReturnType<typeof setInterval> | null = null
+  let polling = false
+  let lastSummaryAt = 0
+  const absoluteRange = $derived(range.startsWith('abs:'))
+  const livePaused = $derived(live && (openRow !== null || !atTop))
 
   $effect(() => {
-    if (timer) clearInterval(timer)
-    timer = null
-    if (!live) return
-    timer = setInterval(() => {
-      if (openRow || !atTop || loading) return
-      if (!range.startsWith('abs:')) void run({ keepScroll: true })
-    }, 5000)
-    return () => {
-      if (timer) clearInterval(timer)
-    }
+    if (absoluteRange && untrack(() => live)) live = false
   })
+
+  $effect(() => {
+    if (!live) return
+    const timer = setInterval(() => void liveTick(), LIVE_POLL_MS)
+    return () => clearInterval(timer)
+  })
+
+  async function liveTick() {
+    if (polling || loading || openRow || !atTop || !sourceId || range.startsWith('abs:')) return
+    polling = true
+    const mySeq = seq
+    try {
+      const res = await searchLogs({ ...baseRequest(), limit: 200, order: 'asc', cursor: headCursor })
+      if (mySeq !== seq || openRow || !atTop) return
+      if (res.next_cursor || rows.length + res.rows.length > LIVE_MAX_ROWS) {
+        // More arrived than one page, or the list grew long: start over.
+        polling = false
+        await run({ keepScroll: true })
+        return
+      }
+      if (res.rows.length > 0) {
+        rows = [...[...res.rows].reverse(), ...rows]
+        headCursor = res.tail_cursor
+        if (selectedIndex >= 0) selectedIndex += res.rows.length
+      }
+      if (Date.now() - lastSummaryAt >= LIVE_SUMMARY_MS) {
+        lastSummaryAt = Date.now()
+        void loadHistogram()
+        void loadFacets()
+      }
+    } catch (e: unknown) {
+      if (mySeq === seq) error = e instanceof Error ? e.message : String(e)
+    } finally {
+      polling = false
+    }
+  }
 
   const highlightTerms = $derived(
     query
@@ -371,8 +474,19 @@
         </div>
       {/if}
     </div>
-    <Button size="sm" variant={live ? 'primary' : 'outline'} aria-pressed={live} title="Poll every 5 seconds" onclick={() => (live = !live)}>
-      <Radio size={13} /> Live
+    <Button
+      size="sm"
+      variant={live && !livePaused ? 'primary' : 'outline'}
+      aria-pressed={live}
+      disabled={absoluteRange}
+      title={absoluteRange
+        ? 'Live tail needs a relative range such as the last hour'
+        : livePaused
+          ? 'Paused while a row is open or the list is scrolled down'
+          : 'Show new rows every 5 seconds'}
+      onclick={() => (live = !live)}
+    >
+      <Radio size={13} /> {livePaused ? 'Paused' : 'Live'}
     </Button>
     <Button icon variant="ghost" size="sm" aria-label="Refresh" title="Refresh" onclick={() => run()}>
       <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
@@ -396,6 +510,7 @@
       <LogsFacets
         {facets}
         loading={facetsLoading}
+        error={facetsError}
         selectedSeverity={severity}
         selectedServices={services}
         {expandedKeys}
@@ -445,6 +560,7 @@
         row={openRow}
         {sourceId}
         {traceSourceId}
+        {range}
         width={panelWidth}
         onclose={() => (openRow = null)}
         onwidth={(w) => (panelWidth = w)}

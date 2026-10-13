@@ -5,6 +5,7 @@
   import BrainArtifactCard from './BrainArtifactCard.svelte'
   import BrainToolCallCard from './BrainToolCallCard.svelte'
   import Spinner from '../common/Spinner.svelte'
+  import { usageParts, usageTitle } from './brain-usage'
 
   interface Props {
     message: BrainMessageType
@@ -142,6 +143,14 @@
       {:else if streaming && isLastMessage && (!message.toolCalls || message.toolCalls.length === 0)}
         <div class="bg-surface-2 rounded-lg rounded-bl-sm px-4 py-3">
           <Spinner size="sm" />
+        </div>
+      {/if}
+
+      {#if message.usage && !(streaming && isLastMessage)}
+        <div class="mt-1.5 flex flex-wrap items-center gap-x-2 text-[11px] text-fg-4 tabular-nums" title={usageTitle(message.usage)}>
+          {#each usageParts(message.usage) as part, i (i)}
+            <span class={i === 0 ? 'font-mono' : ''}>{part}</span>
+          {/each}
         </div>
       {/if}
     </div>

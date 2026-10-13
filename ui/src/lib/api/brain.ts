@@ -6,7 +6,10 @@ import type {
   BrainMessage,
   BrainModelOption,
   BrainProviderAdmin,
+  BrainSettings,
   BrainSkill,
+  BrainUsage,
+  BrainUsageReport,
   SchemaContextEntry,
 } from '../types/brain'
 
@@ -59,6 +62,7 @@ export interface StreamEvent {
   args?: Record<string, unknown>
   status?: string
   result?: Record<string, unknown>
+  usage?: BrainUsage
 }
 
 export async function streamBrainMessage(
@@ -186,4 +190,22 @@ export async function adminUpdateBrainSkill(id: string, payload: {
   isDefault?: boolean
 }): Promise<void> {
   await apiPut(`/api/admin/brain/skills/${encodeURIComponent(id)}`, payload)
+}
+
+export async function adminGetBrainSettings(): Promise<{ settings: BrainSettings; defaultPrices: BrainSettings['prices'] }> {
+  const res = await apiGet<{ success: boolean; settings: BrainSettings; defaultPrices: BrainSettings['prices'] }>('/api/admin/brain/settings')
+  return { settings: res.settings, defaultPrices: res.defaultPrices }
+}
+
+export async function adminUpdateBrainSettings(payload: Partial<BrainSettings>): Promise<BrainSettings> {
+  const res = await apiPut<{ success: boolean; settings: BrainSettings }>('/api/admin/brain/settings', payload)
+  return res.settings
+}
+
+export async function adminGetBrainUsage(days: number): Promise<BrainUsageReport> {
+  return apiGet<BrainUsageReport & { success: boolean }>(`/api/admin/brain/usage?days=${days}`)
+}
+
+export async function adminAddBrainModel(providerId: string, name: string): Promise<void> {
+  await apiPost(`/api/admin/brain/providers/${encodeURIComponent(providerId)}/models`, { name })
 }

@@ -55,23 +55,32 @@ ch-ui server --port 3488
 
 Open `http://localhost:3488`.
 
-If CH-UI cannot reach ClickHouse on the first run, use the setup code printed in the server log to point it at the right URL from the login page. See [First-run setup from the login page](/docs/cant-login/#first-run-setup-from-the-login-page).
+If CH-UI cannot reach ClickHouse on the first run, use the setup code printed in the server log to point it at the right URL from the login page. Find it with `docker logs <container> 2>&1 | grep setup_code` (Docker), `journalctl -u ch-ui-server | grep setup_code` (systemd) or `kubectl logs deploy/<release>-ch-ui | grep setup_code` (Helm). See [First-run setup from the login page](/docs/cant-login/#first-run-setup-from-the-login-page).
 
 ## Quick Start (Docker)
 
 Use the official GHCR image:
 
 ```bash
-docker run --rm \
+docker run --name ch-ui \
   -p 3488:3488 \
   -v ch-ui-data:/app/data \
+  --add-host host.docker.internal:host-gateway \
   -e CLICKHOUSE_URL=http://host.docker.internal:8123 \
   ghcr.io/caioricciuti/ch-ui:latest
 ```
 
+If sign-in cannot reach ClickHouse, read the one-time setup code from the log and enter it on the login page:
+
+```bash
+docker logs ch-ui 2>&1 | grep setup_code
+```
+
 Notes:
 
-- On Linux, replace `host.docker.internal` with a host/IP reachable from the container.
+- `CLICKHOUSE_URL` is the HTTP interface, port `8123` (`8443` for HTTPS). Port `9000` is the native protocol and does not work.
+- Inside the container, `localhost` is the container itself. `host.docker.internal` reaches the host; `--add-host ... host-gateway` makes that name work on Linux too. With Docker Compose, use the ClickHouse service name instead (`http://clickhouse:8123`).
+- Run it in the foreground the first time (no `-d`) so the setup code is on screen. Detached runs keep it in `docker logs`.
 - App state is persisted at `/app/data/ch-ui.db` (volume: `ch-ui-data`).
 
 ## Local ClickHouse URL and Name (if needed)

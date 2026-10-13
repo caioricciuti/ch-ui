@@ -615,10 +615,41 @@ func (h *OAuthHandler) tokenFromRefresh(w http.ResponseWriter, r *http.Request) 
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "the grant behind this refresh token was revoked")
 		return
 	}
-	// Rotate: the old refresh token and access token die together.
-	h.DB.RevokeOAuthRefreshToken(t.TokenHash)
+	// Rotate: the old refresh token and access token die together. The
+	// claim is one conditional UPDATE, so of two concurrent requests with
+	// the same refresh token exactly one wins; the other is refused like a
+	// reused token. Refresh tokens carry no family id, so reuse is refused
+	// rather than revoking every token descended from the grant.
+	claimed, err := h.claimRefreshToken(t.TokenHash, clientID)
+	if err != nil {
+		oauthError(w, http.StatusInternalServerError, "server_error", "refresh token update failed")
+		return
+	}
+	if !claimed {
+		slog.Warn("oauth: refresh token reused or raced", "client_id", clientID, "key_id", t.KeyID)
+		oauthError(w, http.StatusBadRequest, "invalid_grant", "refresh token is unknown, revoked, or belongs to another client")
+		return
+	}
 	h.DB.RevokeMCPKey(old.ID)
 	h.issueTokens(w, old.ClientID, old.Name, t.Scope, old.ConnectionID, old.CHUser, old.CHPasswordEnc, old.Subject)
+}
+
+// claimRefreshToken revokes a live refresh token and reports whether this
+// call was the one that revoked it.
+// TODO: move to internal/database next to RevokeOAuthRefreshToken.
+func (h *OAuthHandler) claimRefreshToken(tokenHash, clientID string) (bool, error) {
+	res, err := h.DB.Conn().Exec(
+		`UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE token_hash = ? AND client_id = ? AND revoked_at IS NULL`,
+		time.Now().UTC().Format(time.RFC3339), tokenHash, clientID,
+	)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
 }
 
 // issueTokens mints an access token (an mcp_keys row of kind oauth) and a

@@ -134,6 +134,8 @@ export interface LogRow {
   attributes: Record<string, string>
   scope_name: string
   event_name: string
+  /** Content hash; with timestamp_ns it identifies the row. */
+  row_id: string
 }
 
 export interface LogQuery {
@@ -154,6 +156,9 @@ export interface LogSearchRequest extends LogQuery {
 export interface LogSearchResponse {
   rows: LogRow[]
   next_cursor: string | null
+  /** Keyset position of the first and last returned row (live tail). */
+  head_cursor: string | null
+  tail_cursor: string | null
   took_ms: number
 }
 
@@ -178,7 +183,16 @@ export interface FacetKey {
   source: 'attributes' | 'resource'
 }
 
-export interface LogFacets {
+/** Facet counts come from a capped sample of the matching rows. */
+export interface FacetSample {
+  /** True when the sample was cut: counts are approximate. */
+  sampled: boolean
+  rows_scanned: number
+  /** First facet query failure, when one failed. */
+  error?: string
+}
+
+export interface LogFacets extends FacetSample {
   severity: FacetValue[]
   services: FacetValue[]
   attribute_keys: FacetKey[]

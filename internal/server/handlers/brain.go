@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,9 +13,11 @@ import (
 	"time"
 
 	braincore "github.com/caioricciuti/ch-ui/internal/brain"
+	"github.com/caioricciuti/ch-ui/internal/brain/tools"
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/governance"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"github.com/go-chi/chi/v5"
@@ -42,9 +45,15 @@ type BrainHandler struct {
 	Config         *config.Config
 	ModelRunner    ModelRunner
 	PipelineRunner PipelineRunner
+	// Guardrails evaluates governance policies on Brain queries. When nil,
+	// one is built on DB, so the editor's policies always apply.
+	Guardrails *governance.GuardrailService
 
 	approvalMu sync.Mutex
 	approvals  map[string]chan approvalDecision
+
+	guardOnce sync.Once
+	guard     *governance.GuardrailService
 }
 
 // ModelRunner is the subset of *models.Runner Brain needs.
@@ -60,6 +69,7 @@ type PipelineRunner interface {
 func (h *BrainHandler) Routes(r chi.Router) {
 	r.Get("/models", h.ListModels)
 	r.Post("/generate-sql", h.GenerateSQL) // Pro: text-to-SQL grounded in live schema
+	r.Post("/generate-sql/stream", h.GenerateSQLStream)
 	r.Get("/skills", h.GetSkill)
 	r.Get("/chats", h.ListChats)
 	r.Post("/chats", h.CreateChat)
@@ -394,6 +404,7 @@ func (h *BrainHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to load messages")
 		return
 	}
+	prices := loadBrainSettings(h.DB).Prices
 
 	// Re-hydrate tool cards for Pro chats: pull every tool call for this
 	// chat, group by message_id, and attach as `toolCalls` on each
@@ -429,6 +440,9 @@ func (h *BrainHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 		}
 		if cs, ok := calls[m.ID]; ok && len(cs) > 0 {
 			entry["toolCalls"] = cs
+		}
+		if u := messageUsage(m, prices); u != nil {
+			entry["usage"] = u
 		}
 		hydrated = append(hydrated, entry)
 	}
@@ -509,6 +523,21 @@ func (h *BrainHandler) RunQueryArtifact(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "Remove the SETTINGS clause: Brain queries run with readonly=1 and fixed limits")
 		return
 	}
+	if brainTrailingFormatRE.MatchString(brainLiteralOrCommentRE.ReplaceAllString(query, " ")) {
+		writeError(w, http.StatusBadRequest, "Remove the FORMAT clause: Brain reads results as JSON")
+		return
+	}
+	if check := h.guardrailCheck(session, r.URL.Path); check != nil {
+		if err := check(query); err != nil {
+			var blocked *guardrailBlockedError
+			if errors.As(err, &blocked) {
+				writeBrainPolicyBlocked(w, blocked.Block)
+			} else {
+				writeError(w, http.StatusInternalServerError, err.Error())
+			}
+			return
+		}
+	}
 
 	password, err := crypto.Decrypt(session.EncryptedPassword, h.Config.AppSecretKey)
 	if err != nil {
@@ -532,11 +561,22 @@ func (h *BrainHandler) RunQueryArtifact(w http.ResponseWriter, r *http.Request) 
 		"max_result_rows":      strconv.Itoa(brainArtifactMaxRows),
 		"max_result_bytes":     strconv.Itoa(brainArtifactMaxBytes),
 		"result_overflow_mode": "break",
+		"log_comment":          tools.LogComment,
 	}
+	record := h.queryRecorder(session)
+	start := time.Now()
 	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(r.Context(), session.ConnectionID, query, session.ClickhouseUser, password, settings, timeout)
 	if err != nil {
+		if record != nil {
+			record(query, "error", err.Error(), time.Since(start), 0)
+		}
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
+	}
+	if record != nil {
+		var rows []json.RawMessage
+		_ = json.Unmarshal(result.Data, &rows)
+		record(query, "success", "", time.Since(start), int64(len(rows)))
 	}
 
 	artifactPayload, _ := json.Marshal(map[string]interface{}{
@@ -613,6 +653,12 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	settings := loadBrainSettings(h.DB)
+	if msg := budgetExceeded(h.DB, middleware.Actor(session), settings); msg != "" {
+		writeError(w, http.StatusTooManyRequests, msg)
+		return
+	}
+
 	userMessageID, err := h.DB.CreateBrainMessage(chatID, "user", prompt, "complete", "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to persist user message")
@@ -625,7 +671,7 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runtimeModel, err := h.resolveRuntimeModel(chat, strings.TrimSpace(body.ModelID))
+	runtimeModel, err := h.resolveRuntimeModel(chat, strings.TrimSpace(body.ModelID), settings.AgentModelID)
 	if err != nil {
 		_ = h.DB.UpdateBrainMessage(assistantMessageID, "", "error", err.Error())
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -639,7 +685,7 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerCfg := braincore.ProviderConfig{Kind: runtimeModel.ProviderKind}
+	providerCfg := braincore.ProviderConfig{Kind: runtimeModel.ProviderKind, MaxTokens: settings.MaxOutputTokens}
 	if runtimeModel.ProviderBaseURL != nil {
 		providerCfg.BaseURL = *runtimeModel.ProviderBaseURL
 	}
@@ -677,6 +723,11 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Tool results are stored per call; their ids and row counts ride along
+	// with the assistant turns so follow-ups can refer to them.
+	toolCalls, _ := h.DB.GetBrainToolCallsByChat(chatID)
+	hist, omitted := buildBrainHistory(history, toolCalls, brainHistoryTokenBudget)
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -687,83 +738,125 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Streaming not supported")
 		return
 	}
+	stream := newSSEStream(w, flusher)
+	stopHeartbeat := stream.startHeartbeat(r.Context(), brainHeartbeat)
+	defer stopHeartbeat()
+
+	turn := brainTurn{
+		session:            session,
+		chat:               chat,
+		chatID:             chatID,
+		prompt:             prompt,
+		userMessageID:      userMessageID,
+		assistantMessageID: assistantMessageID,
+		provider:           provider,
+		providerCfg:        providerCfg,
+		runtimeModel:       runtimeModel,
+		history:            hist,
+		omitted:            omitted,
+		contexts:           allContexts,
+		entities:           body.EntityContexts,
+		username:           middleware.Actor(session),
+		usage:              &braincore.ChatResult{},
+		prices:             settings.Prices,
+	}
+	// Record what the turn used however it ends: done, error or stopped.
+	defer h.saveTurnUsage(&turn)
 
 	// Pro path: agentic loop with tools (only if the provider supports tool calling).
 	if h.Config.IsPro() && braincore.SupportsTools(provider) {
-		h.streamMessagePro(w, r, flusher, session, chat, chatID, prompt, userMessageID, assistantMessageID, provider, providerCfg, runtimeModel, history, allContexts, body.EntityContexts)
+		h.streamMessagePro(r, stream, turn)
 		return
 	}
 
 	// Community path: simple streaming chat (no tools).
-	h.streamMessageCommunity(w, r, flusher, session, chat, chatID, prompt, userMessageID, assistantMessageID, provider, providerCfg, runtimeModel, history, allContexts, body.EntityContexts)
+	h.streamMessageCommunity(r, stream, turn)
 }
 
-func (h *BrainHandler) streamMessageCommunity(
-	w http.ResponseWriter,
-	r *http.Request,
-	flusher http.Flusher,
-	session *middleware.SessionInfo,
-	chat *database.BrainChat,
-	chatID, prompt, userMessageID, assistantMessageID string,
-	provider braincore.Provider,
-	providerCfg braincore.ProviderConfig,
-	runtimeModel *database.BrainModelRuntime,
-	history []database.BrainMessage,
-	contexts []schemaContext,
-	entities []entityContext,
-) {
-	providerMessages := make([]braincore.Message, 0, len(history)+1)
-	systemPrompt := h.buildSystemPrompt(contexts, entities, false)
-	providerMessages = append(providerMessages, braincore.Message{Role: "system", Content: systemPrompt})
+// brainTurn is everything one streamed answer needs.
+type brainTurn struct {
+	session            *middleware.SessionInfo
+	chat               *database.BrainChat
+	chatID             string
+	prompt             string
+	userMessageID      string
+	assistantMessageID string
+	provider           braincore.Provider
+	providerCfg        braincore.ProviderConfig
+	runtimeModel       *database.BrainModelRuntime
+	history            []historyMessage
+	omitted            int
+	contexts           []schemaContext
+	entities           []entityContext
+	username           string
+	// usage sums the token counts of every provider call in the turn.
+	usage  *braincore.ChatResult
+	prices braincore.PriceTable
+}
 
-	for _, msg := range history {
-		role := strings.TrimSpace(strings.ToLower(msg.Role))
-		if role != "user" && role != "assistant" {
-			continue
-		}
-		if strings.TrimSpace(msg.Content) == "" {
-			continue
-		}
-		if msg.Status == "error" {
-			continue
-		}
-		providerMessages = append(providerMessages, braincore.Message{Role: role, Content: msg.Content})
-	}
+func (h *BrainHandler) streamMessageCommunity(r *http.Request, stream *sseStream, t brainTurn) {
+	systemPrompt := h.buildSystemPrompt(t.contexts, t.entities, false, true) + historyOmittedNote(t.omitted)
+	providerMessages := append([]braincore.Message{{Role: "system", Content: systemPrompt}}, toMessages(t.history)...)
 
 	var built strings.Builder
-	_, streamErr := provider.StreamChat(r.Context(), providerCfg, runtimeModel.ModelName, providerMessages, func(delta string) error {
+	res, streamErr := t.provider.StreamChat(r.Context(), t.providerCfg, t.runtimeModel.ModelName, providerMessages, func(delta string) error {
 		if delta == "" {
 			return nil
 		}
 		built.WriteString(delta)
-		return writeSSE(w, flusher, map[string]interface{}{"type": "delta", "delta": delta, "messageId": assistantMessageID})
+		return stream.send(map[string]interface{}{"type": "delta", "delta": delta, "messageId": t.assistantMessageID})
 	})
+	if res != nil {
+		t.usage.Add(res)
+		if streamErr == nil {
+			h.sendStopNote(stream, t, &built, res.StopReason)
+		}
+	}
 
 	if streamErr != nil {
+		if r.Context().Err() != nil {
+			h.persistStopped(t.assistantMessageID, built.String())
+			return
+		}
 		errMessage := streamErr.Error()
 		if errMessage == "" {
 			errMessage = "Unknown provider error"
 		}
-		_ = h.DB.UpdateBrainMessage(assistantMessageID, built.String(), "error", errMessage)
-		_ = writeSSE(w, flusher, map[string]interface{}{"type": "error", "error": errMessage, "messageId": assistantMessageID})
+		_ = h.DB.UpdateBrainMessage(t.assistantMessageID, built.String(), "error", errMessage)
+		_ = stream.send(map[string]interface{}{"type": "error", "error": errMessage, "messageId": t.assistantMessageID})
 		return
 	}
 
-	assistantText := built.String()
+	h.finishTurn(r, stream, t, built.String(), false)
+}
+
+// persistStopped records a turn the person stopped, so the message does
+// not stay "streaming" forever.
+func (h *BrainHandler) persistStopped(messageID, content string) {
+	if strings.TrimSpace(content) == "" {
+		content = "_Stopped by user._"
+	}
+	if err := h.DB.UpdateBrainMessage(messageID, content, "stopped", "Stopped by user"); err != nil {
+		slog.Warn("Failed to persist stopped Brain message", "error", err)
+	}
+}
+
+// finishTurn persists the answer, retitles the chat, audits and signals done.
+func (h *BrainHandler) finishTurn(r *http.Request, stream *sseStream, t brainTurn, assistantText string, pro bool) {
 	if strings.TrimSpace(assistantText) == "" {
 		assistantText = "I could not generate a response for that prompt."
 	}
-
-	if err := h.DB.UpdateBrainMessage(assistantMessageID, assistantText, "complete", ""); err != nil {
+	if err := h.DB.UpdateBrainMessage(t.assistantMessageID, assistantText, "complete", ""); err != nil {
 		slog.Warn("Failed to persist assistant message", "error", err)
 	}
-	if err := h.DB.TouchBrainChat(chatID); err != nil {
+	if err := h.DB.TouchBrainChat(t.chatID); err != nil {
 		slog.Warn("Failed to update chat activity", "error", err)
 	}
 
+	chat := t.chat
 	title := chat.Title
 	if title == "New Chat" || strings.TrimSpace(title) == "" {
-		title = autoTitle(prompt)
+		title = autoTitle(t.prompt)
 	}
 	streamCtxDB := ""
 	if chat.ContextDatabase != nil {
@@ -777,23 +870,45 @@ func (h *BrainHandler) streamMessageCommunity(
 	if chat.ContextTables != nil {
 		streamCtxTables = *chat.ContextTables
 	}
-	if err := h.DB.UpdateBrainChat(chatID, title, runtimeModel.ProviderID, runtimeModel.ModelID, chat.Archived, streamCtxDB, streamCtxTable, streamCtxTables); err != nil {
+	if err := h.DB.UpdateBrainChat(t.chatID, title, t.runtimeModel.ProviderID, t.runtimeModel.ModelID, chat.Archived, streamCtxDB, streamCtxTable, streamCtxTables); err != nil {
 		slog.Warn("Failed to update chat title/model", "error", err)
 	}
 
+	details := fmt.Sprintf("chat=%s user_msg=%s", t.chatID, t.userMessageID)
+	if pro {
+		details += " pro=true"
+	}
 	h.DB.CreateAuditLog(database.AuditLogParams{
 		Action:         "brain.chat",
-		Username:       strPtr(middleware.Actor(session)),
-		ClickhouseUser: strPtr(session.ClickhouseUser),
-		ConnectionID:   strPtr(session.ConnectionID),
-		Details:        strPtr(fmt.Sprintf("chat=%s user_msg=%s", chatID, userMessageID)),
+		Username:       strPtr(middleware.Actor(t.session)),
+		ClickhouseUser: strPtr(t.session.ClickhouseUser),
+		ConnectionID:   strPtr(t.session.ConnectionID),
+		Details:        strPtr(details),
 		IPAddress:      strPtr(getClientIP(r)),
 	})
 
-	_ = writeSSE(w, flusher, map[string]interface{}{"type": "done", "messageId": assistantMessageID, "chatId": chatID})
+	done := map[string]interface{}{"type": "done", "messageId": t.assistantMessageID, "chatId": t.chatID}
+	if t.usage != nil {
+		done["usage"] = usagePayload(providerLabel(t.runtimeModel), t.runtimeModel.ModelName, *t.usage, t.prices)
+	}
+	_ = stream.send(done)
 }
 
-func (h *BrainHandler) resolveRuntimeModel(chat *database.BrainChat, requestedModelID string) (*database.BrainModelRuntime, error) {
+// sendStopNote appends a short note when the answer ended early (output cap
+// or a refusal), so the person knows it is not the whole answer.
+func (h *BrainHandler) sendStopNote(stream *sseStream, t brainTurn, built *strings.Builder, reason string) {
+	note := stopNote(reason)
+	if note == "" {
+		return
+	}
+	built.WriteString(note)
+	_ = stream.send(map[string]interface{}{"type": "delta", "delta": note, "messageId": t.assistantMessageID})
+}
+
+// resolveRuntimeModel picks the model for a request: the one asked for,
+// else the chat's model, else the admin's preferred model for the purpose
+// (agent or quick), else the default model.
+func (h *BrainHandler) resolveRuntimeModel(chat *database.BrainChat, requestedModelID, preferredModelID string) (*database.BrainModelRuntime, error) {
 	if requestedModelID != "" {
 		rt, err := h.DB.GetBrainModelRuntimeByID(requestedModelID)
 		if err != nil {
@@ -812,6 +927,13 @@ func (h *BrainHandler) resolveRuntimeModel(chat *database.BrainChat, requestedMo
 		}
 	}
 
+	if preferredModelID != "" {
+		rt, err := h.DB.GetBrainModelRuntimeByID(preferredModelID)
+		if err == nil && rt != nil && rt.ModelActive && rt.ProviderActive {
+			return rt, nil
+		}
+	}
+
 	rt, err := h.DB.GetDefaultBrainModelRuntime()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load default model")
@@ -822,7 +944,7 @@ func (h *BrainHandler) resolveRuntimeModel(chat *database.BrainChat, requestedMo
 	return rt, nil
 }
 
-func (h *BrainHandler) buildSystemPrompt(contexts []schemaContext, entities []entityContext, pro bool) string {
+func (h *BrainHandler) buildSystemPrompt(contexts []schemaContext, entities []entityContext, pro, canWrite bool) string {
 	skillPrompt := ""
 	skill, err := h.DB.GetActiveBrainSkill()
 	if err == nil && skill != nil {
@@ -831,7 +953,7 @@ func (h *BrainHandler) buildSystemPrompt(contexts []schemaContext, entities []en
 
 	prompt := baseBrainPrompt
 	if pro {
-		prompt = proBrainPrompt
+		prompt = proBrainPrompt(canWrite)
 	}
 	if skillPrompt != "" {
 		prompt += "\n\nActive skills:\n" + skillPrompt
@@ -943,27 +1065,16 @@ func buildMultiSchemaPrompt(contexts []schemaContext) string {
 	return sb.String()
 }
 
-func writeSSE(w http.ResponseWriter, flusher http.Flusher, payload map[string]interface{}) error {
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
-		return err
-	}
-	flusher.Flush()
-	return nil
-}
-
 func autoTitle(prompt string) string {
 	t := strings.TrimSpace(prompt)
 	if t == "" {
 		return "New Chat"
 	}
-	if len(t) <= 48 {
+	r := []rune(t)
+	if len(r) <= 48 {
 		return t
 	}
-	return strings.TrimSpace(t[:48]) + "..."
+	return strings.TrimSpace(string(r[:48])) + "..."
 }
 
 // Brain chat artifacts are stored in SQLite and rendered in the chat, so a
@@ -980,6 +1091,7 @@ var (
 	// retry would then drop the caps, so it is rejected up front.
 	brainSettingsClauseRE   = regexp.MustCompile(`(?i)\bSETTINGS\s+[A-Za-z_][A-Za-z0-9_]*\s*=`)
 	brainLiteralOrCommentRE = regexp.MustCompile(`(?s)'(?:[^'\\]|\\.|'')*'|--[^\n]*|/\*.*?\*/`)
+	brainTrailingFormatRE   = regexp.MustCompile(`(?is)\bFORMAT\s+\w+\s*;?\s*$`)
 )
 
 // isBrainReadOnlyQuery is a first-line check on the statement kind; the

@@ -44,7 +44,24 @@ Tabs are saved to **localStorage** (`ch-ui-tabs`) with auto-save via microtask d
 
 ### Split View
 
-Open up to two editor groups side by side. Tabs can be moved between groups. Duplicate detection prevents opening the same saved query twice.
+Open up to two editor groups side by side. Tabs can be moved between groups. Duplicate detection prevents opening the same saved query twice: opening it again brings the existing tab forward and, if the tab has no unsaved edits, reloads the stored SQL and parameter defaults into it.
+
+### Running statements
+
+| Shortcut | Runs |
+|---|---|
+| **⌘↵** / **Ctrl+Enter** | The selection; with no selection, the statement under the cursor when the editor holds several (the active statement is shaded); otherwise the whole editor |
+| **⇧⌘↵** / **Shift+Ctrl+Enter** | Every statement in the editor (or in the selection), one after another, stopping at the first error. The result pane keeps the last result |
+
+Statements are split on `;` outside strings, quoted identifiers, heredocs and comments. The Run button, Explain, the query plan, sampling and the cost estimate all use the same text as **⌘↵**, with the current parameter values.
+
+### Formatting
+
+**Format** (**Shift+Alt+F**) asks ClickHouse to format the SQL with `formatQuery()` (ClickHouse 23.10 and later), so the result always means the same as the input. ClickHouse's formatter drops comments; CH-UI tells you when that happens, and **⌘Z** brings them back. On older servers, or when ClickHouse cannot parse the text, a built-in formatter puts clauses on their own lines and upper-cases a few unambiguous keywords, without touching strings, comments or identifiers.
+
+### Cost estimate
+
+After you stop typing for a few seconds, the toolbar shows an `EXPLAIN ESTIMATE` of the rows, parts and marks the query would read. It runs only when the editor holds a single `SELECT` (or `WITH`) whose parameters all have values, and it goes through the same governance guardrails as a run.
 
 ## Query Execution
 
@@ -83,7 +100,7 @@ Returns chunked NDJSON with message types:
 | `meta` | Column names and types |
 | `chunk` | Data rows (with sequence number) |
 | `progress` | Live progress: elapsed time, rows and bytes read, percent complete |
-| `done` | Statistics (rows and bytes read) and total row count |
+| `done` | Statistics (rows and bytes read, rows written for writes), total row count, and the `query_id` |
 | `error` | Error message |
 
 Stream limit: 1,000,000 rows.
@@ -100,10 +117,13 @@ Cancelling a query, or closing its tab, stops it on ClickHouse: every streamed q
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /api/query/explain` | Raw EXPLAIN output |
+| `POST /api/query/explain` | Raw EXPLAIN output (a statement that already starts with `EXPLAIN` runs as written) |
 | `POST /api/query/plan` | Parsed query plan as tree (tries EXPLAIN PLAN, falls back to EXPLAIN AST, then generic) |
-| `POST /api/query/profile` | Latest `system.query_log` metrics for the exact query (duration, read rows/bytes, memory) |
+| `POST /api/query/profile` | `system.query_log` metrics of a streamed run, looked up by the `query_id` from its `done` message (duration, read rows/bytes, memory). `query_log` is flushed asynchronously, so the lookup retries once |
 | `POST /api/query/sample` | First N rows per shard (default 25, max 500), falls back to global LIMIT |
+| `POST /api/query/estimate` | `EXPLAIN ESTIMATE` for a single `SELECT` |
+
+Explain, plan, sample and estimate accept the same `params` object as a run.
 
 ## Working with Results
 
@@ -117,6 +137,18 @@ CH-UI picks the cheapest *correct* strategy automatically:
 - **Truncated or huge results**: the original query is re-run on the server wrapped as `SELECT * FROM (your query) WHERE … ORDER BY …`, BigQuery-style, so you get the *true* top-N over the full dataset instead of a misleading sort of the loaded page. The footer marks these views as **server-filtered**.
 
 Exports always reflect the filtered/sorted view you're looking at. The feature can be toggled off in the result footer.
+
+### Rows, cells and exports
+
+Rows appear in the grid as they stream in. A statement that returns no columns (DDL, `INSERT`) shows **Statement executed** with the rows written, when ClickHouse reports them, and the elapsed time.
+
+Click a cell to focus it, then press **Enter** (or double-click the cell) to open the cell inspector, which pretty-prints JSON, arrays and maps and copies the value. **⌘C** / **Ctrl+C** copies the focused cell; arrow keys move between cells.
+
+Exports and copies come as CSV, TSV, JSON, JSONCompact, JSONLines, Markdown, SQL `INSERT` and XML. CSV and TSV prefix text that starts with `=`, `+`, `-` or `@` with `'` so spreadsheets do not run it as a formula; numbers such as `-5` are left as they are. The SQL `INSERT` export quotes values by column type (a `String` column holding `01234` stays a string) and writes arrays, maps and tuples as ClickHouse literals.
+
+### Explorer shortcuts
+
+Right-click a table in the explorer for **Preview 100 Rows** (opens a query tab), **Show DDL** (the `SHOW CREATE TABLE` output in a side panel, with copy), **Copy Qualified Name** and **Copy Column List**. Refreshing the schema also refreshes the editor's autocomplete.
 
 ### Query History
 
@@ -330,7 +362,7 @@ PUT /api/saved-queries/{id}
 
 Query parameters in the editor are part of the free core. Only the saved-query Run API below needs a Pro license.
 
-Use ClickHouse's native bind-parameter syntax, `{name:Type}`, directly in your SQL. CH-UI detects parameters automatically and renders an input for each one above the results, so you can test parameterized queries in the editor without hitting an "unbound parameter" error.
+Use ClickHouse's native bind-parameter syntax, `{name:Type}`, directly in your SQL. CH-UI detects parameters automatically (ignoring text inside strings and comments) and counts them on the **Parameters** button in the editor toolbar. The button opens a popover with an input for each one, and **Run** opens it on the first parameter that still has no value, so you never hit an "unbound parameter" error. Values are kept per tab, across tab switches and reloads.
 
 ```sql
 SELECT *
@@ -344,7 +376,7 @@ Values are bound safely by ClickHouse (passed as `param_<name>` URL params), nev
 
 ### Default values
 
-When you save a parameterized query, the current parameter values are stored as defaults (in the `parameters` field):
+When you save a parameterized query, the current parameter values are stored as defaults (in the `parameters` field). Opening the saved query fills the inputs with them. Saving again with a field left empty keeps the stored default for it instead of erasing it:
 
 ```bash
 POST /api/saved-queries

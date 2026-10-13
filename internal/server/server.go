@@ -241,10 +241,13 @@ func (s *Server) setupRoutes() {
 		licenseHandler := &handlers.LicenseHandler{DB: db, Config: cfg}
 		api.Get("/license", licenseHandler.GetLicense)
 
-		// Public dashboard endpoints (no session required) — rate-limited per IP
-		// since they are unauthenticated and execute panel SQL.
-		publicDashboards := &handlers.DashboardsHandler{DB: db, Gateway: gw, Config: cfg}
-		api.With(middleware.IPRateLimit(120, time.Minute)).Mount("/public/dashboards", publicDashboards.PublicRoutes())
+		// Public dashboard endpoints (no session required). The per-IP limit is
+		// an outer bound for every public request; panel queries that miss the
+		// handler's short result cache are also limited per share token and IP
+		// inside the handler, so a 25 panel TV dashboard refreshing every 30 s
+		// fits with room to spare.
+		publicDashboards := &handlers.DashboardsHandler{DB: db, Gateway: gw, Config: cfg, Guardrails: s.guardrails}
+		api.With(middleware.IPRateLimit(1200, time.Minute)).Mount("/public/dashboards", publicDashboards.PublicRoutes())
 
 		// All routes below require a valid session
 		api.Group(func(protected chi.Router) {
@@ -294,7 +297,7 @@ func (s *Server) setupRoutes() {
 
 			// ── Community features ─────────────────────────────────────
 			// Dashboards
-			dashboardsHandler := &handlers.DashboardsHandler{DB: db, Gateway: gw, Config: cfg}
+			dashboardsHandler := &handlers.DashboardsHandler{DB: db, Gateway: gw, Config: cfg, Guardrails: s.guardrails}
 			protected.Mount("/dashboards", dashboardsHandler.Routes())
 
 			// Telemetry (OpenTelemetry data exploration)
@@ -399,7 +402,8 @@ func (s *Server) setupRoutes() {
 				fmt.Fprintln(w, "Frontend assets not available. Build the frontend first or use a release binary.")
 			})
 		} else {
-			fileServer := http.FileServer(http.FS(s.frontendFS))
+			// Text assets are gzipped once and served compressed (compress.go).
+			fileServer := CompressStatic(http.FileServer(http.FS(s.frontendFS)))
 			r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 				// Try to serve the file directly
 				path := r.URL.Path[1:] // strip leading /

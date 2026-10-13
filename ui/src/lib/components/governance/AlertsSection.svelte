@@ -2,7 +2,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { getSession } from '../../stores/session.svelte'
-  import type { AlertChannel, AlertChannelType, AlertEvent, AlertRule } from '../../types/alerts'
+  import type { AlertChannel, AlertChannelType, AlertEvent, AlertRule, WebhookFormat } from '../../types/alerts'
   import {
     adminListAlertChannels, adminCreateAlertChannel, adminUpdateAlertChannel, adminDeleteAlertChannel,
     adminTestAlertChannel, adminListAlertRules, adminCreateAlertRule, adminUpdateAlertRule,
@@ -58,6 +58,13 @@
     api_from_email: '',
     api_from_name: '',
     api_base_url: '',
+    webhook_url: '',
+    webhook_format: 'generic' as WebhookFormat,
+    webhook_header_name: '',
+    webhook_header_value: '',
+    webhook_signing_secret: '',
+    webhook_allow_http: false,
+    webhook_allow_private: false,
   })
   let channelSheetOpen = $state(false)
   let editingChannel = $state<AlertChannel | null>(null)
@@ -95,7 +102,15 @@
     { value: 'smtp', label: 'SMTP' },
     { value: 'resend', label: 'Resend' },
     { value: 'brevo', label: 'Brevo' },
+    { value: 'webhook', label: 'Webhook (JSON, Slack, Teams)' },
   ]
+  const webhookFormatOptions = [
+    { value: 'generic', label: 'Generic JSON' },
+    { value: 'slack', label: 'Slack incoming webhook' },
+    { value: 'teams', label: 'Microsoft Teams workflow' },
+  ]
+  const isWebhook = (type: AlertChannelType | undefined): boolean => type === 'webhook'
+
   const eventTypeOptions = [
     { value: 'policy.violation', label: 'Policy violation' },
     { value: 'schedule.failed', label: 'Schedule failed' },
@@ -129,6 +144,13 @@
     return 'neutral'
   }
   function channelTarget(ch: AlertChannel): string {
+    if (isWebhook(ch.channel_type)) {
+      try {
+        return `${new URL(String(ch.config?.url ?? '')).host} (${String(ch.config?.format || 'generic')})`
+      } catch {
+        return String(ch.config?.url ?? '')
+      }
+    }
     const from = String(ch.config?.from_email ?? '')
     const host = ch.channel_type === 'smtp'
       ? String(ch.config?.host ?? '')
@@ -220,6 +242,11 @@
       api_from_email: ch.channel_type !== 'smtp' ? String(cfg.from_email ?? '') : '',
       api_from_name: ch.channel_type !== 'smtp' ? String(cfg.from_name ?? '') : '',
       api_base_url: String(cfg.base_url ?? ''),
+      webhook_url: String(cfg.url ?? ''),
+      webhook_format: (cfg.format === 'slack' || cfg.format === 'teams' ? cfg.format : 'generic') as WebhookFormat,
+      webhook_header_name: String(cfg.secret_header_name ?? ''),
+      webhook_allow_http: cfg.allow_http === true,
+      webhook_allow_private: cfg.allow_private_network === true,
     }
     channelSheetOpen = true
   }
@@ -239,6 +266,15 @@
       config.from_name = f.smtp_from_name
       config.use_tls = f.smtp_use_tls
       config.starttls = f.smtp_starttls
+    } else if (f.channel_type === 'webhook') {
+      config.url = f.webhook_url.trim()
+      config.format = f.webhook_format
+      config.secret_header_name = f.webhook_header_name.trim()
+      // Secrets are only sent when typed; an empty field keeps the stored one.
+      if (f.webhook_header_value) config.secret_header_value = f.webhook_header_value
+      if (f.webhook_signing_secret) config.signing_secret = f.webhook_signing_secret
+      config.allow_http = f.webhook_allow_http
+      config.allow_private_network = f.webhook_allow_private
     } else {
       if (f.api_key) config.api_key = f.api_key
       config.from_email = f.api_from_email
@@ -291,17 +327,18 @@
     testChannel = ch
     testRecipients = ''
   }
+  const testIsWebhook = $derived(isWebhook(testChannel?.channel_type))
 
   async function sendTest() {
     if (!testChannel) return
     const recipients = testRecipients.split(',').map((r) => r.trim()).filter(Boolean)
-    if (recipients.length === 0) {
+    if (recipients.length === 0 && !testIsWebhook) {
       toastError('Enter at least one recipient')
       return
     }
     testSending = true
     try {
-      await adminTestAlertChannel(testChannel.id, { recipients })
+      await adminTestAlertChannel(testChannel.id, testIsWebhook ? {} : { recipients })
       toastSuccess(`Test alert sent through "${testChannel.name}"`)
       testChannel = null
     } catch (e: unknown) {
@@ -355,7 +392,7 @@
       toastError('Pick at least one channel')
       return
     }
-    const missing = bindings.find((b) => b.checked && !b.recipients.split(',').some((s) => s.trim()))
+    const missing = bindings.find((b) => b.checked && !isWebhook(channels.find((c) => c.id === b.channel_id)?.channel_type) && !b.recipients.split(',').some((s) => s.trim()))
     if (missing) {
       toastError(`Add at least one recipient for "${channels.find((c) => c.id === missing.channel_id)?.name ?? 'the selected channel'}"`)
       return
@@ -529,7 +566,7 @@
 <Sheet
   open={channelSheetOpen}
   title={editingChannel ? 'Edit channel' : 'New channel'}
-  description="Where alerts are sent from. SMTP for your own relay, Resend or Brevo for API delivery."
+  description="Where alerts are sent. SMTP for your own relay, Resend or Brevo for API delivery, or a webhook for Slack, Teams or your own endpoint."
   size="md"
   onclose={() => (channelSheetOpen = false)}
 >
@@ -578,6 +615,37 @@
           STARTTLS
         </label>
       </div>
+    {:else if channelForm.channel_type === 'webhook'}
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <FormField label="URL" for="ch-hook-url" required class="md:col-span-2" hint="CH-UI POSTs JSON here for every alert. HTTPS is required unless you allow plain HTTP below.">
+          <Input id="ch-hook-url" mono placeholder="https://hooks.slack.com/services/..." bind:value={channelForm.webhook_url} required />
+        </FormField>
+        <FormField label="Format" for="ch-hook-format" class="md:col-span-2" hint="Generic sends event_type, severity, title, message, fingerprint, timestamp and link. Slack and Teams shape the body for their incoming webhooks.">
+          <Select id="ch-hook-format" options={webhookFormatOptions} value={channelForm.webhook_format} onchange={(v) => (channelForm.webhook_format = v as WebhookFormat)} />
+        </FormField>
+        <FormField label="Secret header name" for="ch-hook-hname" hint="Optional, for example Authorization or X-Api-Key.">
+          <Input id="ch-hook-hname" mono bind:value={channelForm.webhook_header_name} autocomplete="off" />
+        </FormField>
+        <FormField label="Secret header value" for="ch-hook-hval" hint={editingChannel?.has_secret ? 'Leave empty to keep the stored value.' : undefined}>
+          <Input id="ch-hook-hval" type="password" bind:value={channelForm.webhook_header_value} autocomplete="new-password" />
+        </FormField>
+        <FormField label="Signing secret" for="ch-hook-sign" class="md:col-span-2" hint={`Optional. Adds X-CHUI-Timestamp and X-CHUI-Signature: sha256=HMAC(secret, "timestamp.body").${editingChannel?.has_secret ? ' Leave empty to keep the stored secret.' : ''}`}>
+          <Input id="ch-hook-sign" type="password" bind:value={channelForm.webhook_signing_secret} autocomplete="new-password" />
+        </FormField>
+      </div>
+      <div class="flex flex-wrap items-center gap-4">
+        <label class="ds-checkbox-label">
+          <input type="checkbox" class="ds-checkbox" bind:checked={channelForm.webhook_allow_http} />
+          Allow plain HTTP
+        </label>
+        <label class="ds-checkbox-label">
+          <input type="checkbox" class="ds-checkbox" bind:checked={channelForm.webhook_allow_private} />
+          Allow private network addresses
+        </label>
+      </div>
+      {#if channelForm.webhook_allow_private}
+        <p class="text-xs text-warning">CH-UI will post to loopback and internal addresses through this channel. Only enable it for an endpoint you control.</p>
+      {/if}
     {:else}
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <FormField label="API key" for="ch-key" required={!editingChannel} class="md:col-span-2" hint={editingChannel?.has_secret ? 'Leave empty to keep the stored key.' : undefined}>
@@ -658,7 +726,9 @@
                 <span class="font-medium text-fg">{ch?.name ?? b.channel_id}</span>
                 <span class="text-xs text-fg-4">{ch?.channel_type.toUpperCase()}</span>
               </label>
-              {#if b.checked}
+              {#if b.checked && isWebhook(ch?.channel_type)}
+                <p class="mt-1 pl-6 text-xs text-fg-3">Posts to the channel URL; no recipients needed.</p>
+              {:else if b.checked}
                 <div class="mt-2 pl-6">
                   <Input size="sm" placeholder="Recipients, comma-separated: ops@company.com, data@company.com" bind:value={bindings[i].recipients} />
                 </div>
@@ -684,9 +754,13 @@
 
 <!-- Test send -->
 <Modal open={testChannel !== null} title="Send a test alert" description={testChannel ? `Through "${testChannel.name}" (${testChannel.channel_type.toUpperCase()}).` : ''} size="sm" onclose={() => (testChannel = null)}>
-  <FormField label="Recipients" for="test-recipients" hint="Comma-separated email addresses.">
-    <Input id="test-recipients" placeholder="you@company.com" bind:value={testRecipients} onkeydown={(e) => e.key === 'Enter' && void sendTest()} />
-  </FormField>
+  {#if testIsWebhook}
+    <p class="text-[13px] text-fg-2">Posts a test event to the channel URL.</p>
+  {:else}
+    <FormField label="Recipients" for="test-recipients" hint="Comma-separated email addresses.">
+      <Input id="test-recipients" placeholder="you@company.com" bind:value={testRecipients} onkeydown={(e) => e.key === 'Enter' && void sendTest()} />
+    </FormField>
+  {/if}
   {#snippet footer()}
     <Button variant="ghost" size="sm" onclick={() => (testChannel = null)}>Cancel</Button>
     <Button size="sm" loading={testSending} onclick={() => void sendTest()}><Send size={13} /> Send</Button>

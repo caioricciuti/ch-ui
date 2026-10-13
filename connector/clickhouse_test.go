@@ -72,7 +72,23 @@ func TestBuildMetaQuery(t *testing.T) {
 			want:  "SELECT * FROM (\n-- a note\nSELECT * FROM t LIMIT -3\n) LIMIT 0",
 		},
 
+		{
+			name:  "leading block comment still detected as SELECT",
+			query: "/* ch-ui:result-filter */ SELECT * FROM t SETTINGS max_threads = 1",
+			want:  "SELECT * FROM (\n/* ch-ui:result-filter */ SELECT * FROM t SETTINGS max_threads = 1\n) LIMIT 0",
+		},
+		{
+			name:  "mixed leading comments still detected as WITH",
+			query: "/* a */\n-- b\n/* multi\nline */ WITH 1 AS x SELECT x",
+			want:  "SELECT * FROM (\n/* a */\n-- b\n/* multi\nline */ WITH 1 AS x SELECT x\n) LIMIT 0",
+		},
+
 		// Statements that cannot live inside a subquery keep the textual rewrite path.
+		{
+			name:  "trailing SETTINGS keeps LIMIT 0 before it",
+			query: "SHOW TABLES FROM system SETTINGS max_threads = 1",
+			want:  "SHOW TABLES FROM system\nLIMIT 0 SETTINGS max_threads = 1",
+		},
 		{
 			name:  "show tables keeps rewrite path",
 			query: "SHOW TABLES",
@@ -121,10 +137,46 @@ func TestIsWriteQuery(t *testing.T) {
 		{"SHOW TABLES", false},
 		{"DESCRIBE TABLE t", false},
 		{"USERS_SELECT", false},
+		{"/* cleanup */ DROP TABLE t", true},
+		{"/* a */\n-- b\n/* c\nd */\nINSERT INTO t VALUES (1)", true},
+		{"/* DROP TABLE t */ SELECT 1", false},
+		{"-- DROP TABLE t\nSELECT 1", false},
 	}
 	for _, tt := range tests {
 		if got := isWriteQuery(tt.query); got != tt.want {
 			t.Errorf("isWriteQuery(%q) = %v, want %v", tt.query, got, tt.want)
+		}
+	}
+}
+
+func TestHasFormatClause(t *testing.T) {
+	tests := []struct {
+		query string
+		want  bool
+	}{
+		{"SELECT 1 FORMAT JSON", true},
+		{"SELECT 1 FORMAT JSON;", true},
+		{"SELECT 1 FORMAT JSON SETTINGS max_threads = 1", true},
+		{"SELECT 1", false},
+		{"SELECT format FROM t", false},
+		{"SELECT 1 SETTINGS max_threads = 1", false},
+	}
+	for _, tt := range tests {
+		if got := hasFormatClause(tt.query); got != tt.want {
+			t.Errorf("hasFormatClause(%q) = %v, want %v", tt.query, got, tt.want)
+		}
+	}
+}
+
+func TestIsCheapIntrospection(t *testing.T) {
+	for q, want := range map[string]bool{
+		"SHOW CREATE TABLE t":      true,
+		"/* x */ DESCRIBE TABLE t": true,
+		"CHECK TABLE t":            false,
+		"SELECT 1":                 false,
+	} {
+		if got := isCheapIntrospection(q); got != want {
+			t.Errorf("isCheapIntrospection(%q) = %v, want %v", q, got, want)
 		}
 	}
 }

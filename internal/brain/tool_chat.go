@@ -27,6 +27,13 @@ type ChatMessage struct {
 	ToolCalls  []ToolCallEmit `json:"tool_calls,omitempty"`   // role=assistant
 	ToolCallID string         `json:"tool_call_id,omitempty"` // role=tool
 	Name       string         `json:"name,omitempty"`         // role=tool (function name)
+	// IsError marks a failed tool call (role=tool). Anthropic gets it as
+	// is_error on the tool_result block.
+	IsError bool `json:"-"`
+	// ProviderBlocks is the provider's own content for an assistant message
+	// (Anthropic: thinking with signature, text, tool_use), replayed
+	// unchanged within a turn. Other providers ignore it.
+	ProviderBlocks json.RawMessage `json:"-"`
 }
 
 // ToolCallEmit is the model's request to invoke a function.
@@ -47,6 +54,8 @@ type StreamChatToolsResult struct {
 	FinishReason string         // "stop" | "tool_calls" | "length" | ""
 	ToolCalls    []ToolCallEmit // populated when FinishReason == "tool_calls"
 	Content      string         // any text emitted before the tool calls (or final text)
+	// ProviderBlocks is the raw assistant content to replay (Anthropic).
+	ProviderBlocks json.RawMessage
 }
 
 // toolsCapable is the optional capability for providers that support
@@ -99,8 +108,8 @@ func (p *openAIProvider) StreamChatTools(
 	toolDefs []tools.Definition,
 	onDelta func(string) error,
 ) (*StreamChatToolsResult, error) {
-	if strings.TrimSpace(cfg.APIKey) == "" {
-		return nil, errors.New("provider API key is not configured")
+	if err := checkAPIKey(cfg); err != nil {
+		return nil, err
 	}
 
 	temperatures := []*float64{openAIRequestTemperature(model)}
@@ -157,10 +166,7 @@ type openAIToolsChunk struct {
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-	} `json:"usage"`
+	Usage *openAIUsage `json:"usage"`
 }
 
 func (p *openAIProvider) streamChatToolsAttempt(
@@ -205,7 +211,7 @@ func (p *openAIProvider) streamChatToolsAttempt(
 			return nil, 0, nil, fmt.Errorf("create provider request: %w", reqErr)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		setAuthHeader(req, cfg)
 
 		resp, doErr := p.client.Do(req)
 		if doErr != nil {
@@ -247,10 +253,7 @@ func (p *openAIProvider) streamChatToolsAttempt(
 			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 				continue
 			}
-			if chunk.Usage != nil {
-				result.InputTokens = chunk.Usage.PromptTokens
-				result.OutputTokens = chunk.Usage.CompletionTokens
-			}
+			chunk.Usage.applyTo(&result.ChatResult)
 			for _, c := range chunk.Choices {
 				if c.Delta.Content != "" {
 					contentBuilder.WriteString(c.Delta.Content)
@@ -280,6 +283,9 @@ func (p *openAIProvider) streamChatToolsAttempt(
 				}
 				if c.FinishReason != "" {
 					result.FinishReason = c.FinishReason
+					if c.FinishReason == "length" {
+						result.StopReason = "length"
+					}
 				}
 			}
 		}

@@ -29,13 +29,42 @@ type ProviderConfig struct {
 	Kind    string
 	BaseURL string
 	APIKey  string
+	// MaxTokens caps the output of one request where the API needs a cap
+	// (Anthropic). Zero means the per-model default.
+	MaxTokens int
 }
 
 // ChatResult holds optional metadata returned after streaming completes.
 type ChatResult struct {
-	InputTokens     int
-	OutputTokens    int
+	// InputTokens counts input not read from the prompt cache; cached input
+	// is in CacheReadTokens and input written to the cache in
+	// CacheWriteTokens, so the three never overlap.
+	InputTokens      int
+	OutputTokens     int
+	CacheReadTokens  int
+	CacheWriteTokens int
+	// StopReason is "length" when the answer hit the output cap and
+	// "refusal" when the model declined, where the provider reports it.
+	StopReason      string
 	ModelParameters map[string]interface{}
+}
+
+// Add sums another call's token counts into r.
+func (r *ChatResult) Add(o *ChatResult) {
+	if r == nil || o == nil {
+		return
+	}
+	r.InputTokens += o.InputTokens
+	r.OutputTokens += o.OutputTokens
+	r.CacheReadTokens += o.CacheReadTokens
+	r.CacheWriteTokens += o.CacheWriteTokens
+}
+
+// Tokens is the total the ledger counts toward a budget: input, output and
+// cache writes. Cache reads are left out; they cost a tenth of input or
+// less and an agent turn re-reads its prefix on every step.
+func (r ChatResult) Tokens() int {
+	return r.InputTokens + r.OutputTokens + r.CacheWriteTokens
 }
 
 // Provider handles streaming chat and model discovery.
@@ -59,6 +88,8 @@ func NewProvider(kind string) (Provider, error) {
 		return &openAIProvider{client: sharedHTTPClient}, nil
 	case "ollama":
 		return &ollamaProvider{client: sharedHTTPClient}, nil
+	case "anthropic":
+		return newAnthropicProvider(sharedHTTPClient), nil
 	default:
 		return nil, fmt.Errorf("unsupported provider kind: %s", kind)
 	}
@@ -88,10 +119,33 @@ type openAIChunk struct {
 			Content string `json:"content"`
 		} `json:"delta"`
 	} `json:"choices"`
-	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-	} `json:"usage"`
+	Usage *openAIUsage `json:"usage"`
+}
+
+// openAIUsage is the usage object of an OpenAI-style stream. Cached prompt
+// tokens are part of prompt_tokens there; they are split out here.
+type openAIUsage struct {
+	PromptTokens        int `json:"prompt_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	PromptTokensDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+}
+
+func (u *openAIUsage) applyTo(r *ChatResult) {
+	if u == nil {
+		return
+	}
+	cached := 0
+	if u.PromptTokensDetails != nil {
+		cached = u.PromptTokensDetails.CachedTokens
+	}
+	if cached > u.PromptTokens {
+		cached = u.PromptTokens
+	}
+	r.InputTokens = u.PromptTokens - cached
+	r.CacheReadTokens = cached
+	r.OutputTokens = u.CompletionTokens
 }
 
 const openAIDefaultTemperature = 0.1
@@ -171,7 +225,29 @@ func openAIModelRequiresDefaultTemperature(model string) bool {
 	if slash := strings.LastIndex(name, "/"); slash >= 0 {
 		name = name[slash+1:]
 	}
-	return strings.HasPrefix(name, "o1") || strings.HasPrefix(name, "o3") || strings.HasPrefix(name, "o4")
+	// Current Claude models reject a non-default temperature, also through
+	// OpenAI-compatible gateways, so none is sent.
+	return strings.HasPrefix(name, "o1") || strings.HasPrefix(name, "o3") || strings.HasPrefix(name, "o4") ||
+		strings.HasPrefix(name, "claude") || strings.Contains(name, ".claude") || strings.HasPrefix(name, "anthropic")
+}
+
+// checkAPIKey requires a key for OpenAI itself. OpenAI-compatible servers
+// (local vLLM, LM Studio, llama.cpp, an internal gateway) often run keyless.
+func checkAPIKey(cfg ProviderConfig) error {
+	if strings.TrimSpace(cfg.APIKey) != "" {
+		return nil
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.Kind), "openai_compatible") {
+		return nil
+	}
+	return errors.New("provider API key is not configured")
+}
+
+// setAuthHeader sends the bearer key, or nothing for a keyless provider.
+func setAuthHeader(req *http.Request, cfg ProviderConfig) {
+	if key := strings.TrimSpace(cfg.APIKey); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
 }
 
 func openAIModelParameters(temperature *float64) map[string]interface{} {
@@ -194,8 +270,8 @@ func isUnsupportedOpenAITemperature(status int, body []byte) bool {
 }
 
 func (p *openAIProvider) StreamChat(ctx context.Context, cfg ProviderConfig, model string, messages []Message, onDelta func(string) error) (*ChatResult, error) {
-	if strings.TrimSpace(cfg.APIKey) == "" {
-		return nil, errors.New("provider API key is not configured")
+	if err := checkAPIKey(cfg); err != nil {
+		return nil, err
 	}
 
 	temperatures := []*float64{openAIRequestTemperature(model)}
@@ -257,7 +333,7 @@ func (p *openAIProvider) streamChatAttempt(ctx context.Context, cfg ProviderConf
 			return nil, 0, nil, fmt.Errorf("create provider request: %w", reqErr)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		setAuthHeader(req, cfg)
 
 		resp, doErr := p.client.Do(req)
 		if doErr != nil {
@@ -292,10 +368,7 @@ func (p *openAIProvider) streamChatAttempt(ctx context.Context, cfg ProviderConf
 			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 				continue
 			}
-			if chunk.Usage != nil {
-				result.InputTokens = chunk.Usage.PromptTokens
-				result.OutputTokens = chunk.Usage.CompletionTokens
-			}
+			chunk.Usage.applyTo(&result)
 			for _, c := range chunk.Choices {
 				if c.Delta.Content == "" {
 					continue
@@ -321,8 +394,8 @@ func (p *openAIProvider) streamChatAttempt(ctx context.Context, cfg ProviderConf
 }
 
 func (p *openAIProvider) ListModels(ctx context.Context, cfg ProviderConfig) ([]string, error) {
-	if strings.TrimSpace(cfg.APIKey) == "" {
-		return nil, errors.New("provider API key is not configured")
+	if err := checkAPIKey(cfg); err != nil {
+		return nil, err
 	}
 	primaryBase := p.baseURL(cfg)
 	bases := []string{primaryBase}
@@ -340,7 +413,7 @@ func (p *openAIProvider) ListModels(ctx context.Context, cfg ProviderConfig) ([]
 		if err != nil {
 			return nil, fmt.Errorf("create provider request: %w", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		setAuthHeader(req, cfg)
 
 		resp, err := p.client.Do(req)
 		if err != nil {

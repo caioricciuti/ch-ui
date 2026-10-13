@@ -30,30 +30,43 @@ export function runQuery(params: RunQueryParams): Promise<LegacyQueryResult> {
   return apiPost<LegacyQueryResult>('/api/query/run', params)
 }
 
+export interface FormatResult {
+  formatted: string
+  /** 'clickhouse' when the server's formatQuery() did it, 'basic' for the fallback. */
+  engine: 'clickhouse' | 'basic'
+  /** ClickHouse's formatter does not keep comments. */
+  comments_dropped?: boolean
+}
+
+/** Format a SQL query, with details on how it was formatted */
+export function formatSQLDetailed(query: string): Promise<FormatResult> {
+  return apiPost<FormatResult>('/api/query/format', { query })
+}
+
 /** Format a SQL query */
 export async function formatSQL(query: string): Promise<string> {
-  const res = await apiPost<{ formatted: string }>('/api/query/format', { query })
+  const res = await formatSQLDetailed(query)
   return res.formatted
 }
 
-/** Get EXPLAIN output for a query */
-export function explainQuery(query: string): Promise<LegacyQueryResult> {
-  return apiPost<LegacyQueryResult>('/api/query/explain', { query })
+/** Get EXPLAIN output for a query (bind parameters as for a run) */
+export function explainQuery(query: string, params?: Record<string, string>): Promise<LegacyQueryResult> {
+  return apiPost<LegacyQueryResult>('/api/query/explain', { query, params })
 }
 
 /** Get parsed query plan (tree + raw lines) */
-export function fetchQueryPlan(query: string): Promise<QueryPlanResult> {
-  return apiPost<QueryPlanResult>('/api/query/plan', { query })
+export function fetchQueryPlan(query: string, params?: Record<string, string>): Promise<QueryPlanResult> {
+  return apiPost<QueryPlanResult>('/api/query/plan', { query, params })
 }
 
-/** Get inline profiling row from system.query_log for a query */
-export function fetchQueryProfile(query: string): Promise<QueryProfileResult> {
-  return apiPost<QueryProfileResult>('/api/query/profile', { query })
+/** Get the system.query_log row of a streamed run, by its query_id */
+export function fetchQueryProfile(queryId: string, query?: string): Promise<QueryProfileResult> {
+  return apiPost<QueryProfileResult>('/api/query/profile', { query_id: queryId, query })
 }
 
-/** Get query cost estimate via EXPLAIN ESTIMATE */
-export function estimateQuery(query: string): Promise<QueryEstimateResult> {
-  return apiPost<QueryEstimateResult>('/api/query/estimate', { query })
+/** Get query cost estimate via EXPLAIN ESTIMATE (single SELECT only) */
+export function estimateQuery(query: string, params?: Record<string, string>): Promise<QueryEstimateResult> {
+  return apiPost<QueryEstimateResult>('/api/query/estimate', { query, params })
 }
 
 /** Execute sampling query: first N rows per shard with fallback to global sample */
@@ -62,12 +75,14 @@ export function runSampleQuery(params: {
   per_shard?: number
   shard_by?: string
   timeout?: number
+  params?: Record<string, string>
 }): Promise<SampleQueryResult> {
   return apiPost<SampleQueryResult>('/api/query/sample', {
     query: params.query,
     per_shard: params.per_shard ?? 25,
     shard_by: params.shard_by ?? '_shard_num',
     timeout: params.timeout ?? 45,
+    params: params.params,
   })
 }
 

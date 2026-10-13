@@ -39,7 +39,25 @@ const (
 	monitorTimeout     = 25 * time.Second
 	MinMonitorInterval = 30
 	MinMonitorWindow   = 60
+
+	// EvaluationDelay shifts every window back from now: collectors batch
+	// and ClickHouse inserts land late, so the last minute is still
+	// filling. A window ending at now undercounts and a "less than"
+	// monitor fires on rows that are only late.
+	EvaluationDelay = 60 * time.Second
+
+	// monitorWorkers bounds how many monitors evaluate at once, so one
+	// slow query does not hold up every monitor behind it and a long list
+	// does not flood ClickHouse.
+	monitorWorkers = 4
 )
+
+// lastGood remembers each monitor's last ok/firing outcome across error
+// runs (last_state only holds the latest, "error"), so firing -> error ->
+// firing does not raise a second firing event. Shared by every runner,
+// including the one-off runner behind the Run now button. Process memory
+// only: after a restart, firing after an error emits once.
+var lastGood sync.Map // monitor id -> "ok" | "firing"
 
 // Credentials are the ClickHouse credentials an evaluation runs with.
 type Credentials struct {
@@ -62,6 +80,7 @@ type MonitorRunner struct {
 	mu      sync.Mutex
 	running bool
 	stopCh  chan struct{}
+	ticking sync.Mutex // held while a tick runs; a slow tick skips the next
 }
 
 // NewMonitorRunner wires a runner; call Start to begin ticking. pro reports
@@ -117,6 +136,11 @@ func (r *MonitorRunner) tick() {
 	if r.pro == nil || !r.pro() {
 		return
 	}
+	if !r.ticking.TryLock() {
+		slog.Debug("Telemetry monitors: previous tick still running, skipping")
+		return
+	}
+	defer r.ticking.Unlock()
 	monitors, err := r.db.ListTelemetryMonitors("")
 	if err != nil {
 		slog.Error("Telemetry monitors: failed to list", "error", err)
@@ -124,6 +148,11 @@ func (r *MonitorRunner) tick() {
 	}
 	now := time.Now()
 	creds := map[string]*Credentials{}
+	type job struct {
+		m *database.TelemetryMonitor
+		c Credentials
+	}
+	var jobs []job
 	for i := range monitors {
 		m := &monitors[i]
 		if !m.Enabled || !monitorDue(m, now) {
@@ -143,13 +172,29 @@ func (r *MonitorRunner) tick() {
 		if c == nil {
 			continue
 		}
-		func() {
-			defer safe.Recover("telemetry-monitor-" + m.ID)
-			if _, _, err := r.Evaluate(m, *c); err != nil {
-				slog.Warn("Telemetry monitor evaluation failed", "monitor", m.ID, "error", err)
+		jobs = append(jobs, job{m: m, c: *c})
+	}
+	queue := make(chan job)
+	var wg sync.WaitGroup
+	for w := 0; w < monitorWorkers && w < len(jobs); w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range queue {
+				func() {
+					defer safe.Recover("telemetry-monitor-" + j.m.ID)
+					if _, _, err := r.Evaluate(j.m, j.c); err != nil {
+						slog.Warn("Telemetry monitor evaluation failed", "monitor", j.m.ID, "error", err)
+					}
+				}()
 			}
 		}()
 	}
+	for _, j := range jobs {
+		queue <- j
+	}
+	close(queue)
+	wg.Wait()
 }
 
 // monitorDue reports whether the interval has elapsed since the last run.
@@ -228,8 +273,24 @@ func Compare(comparator string, value, threshold float64) bool {
 // condition holds, and push a notification through every attached
 // channel that often: a 30 s monitor left firing for a day is close to
 // 3,000 emails. The audit log in Evaluate already works this way.
-func ShouldEmit(firing bool, lastState string) bool {
-	return firing && lastState != "firing"
+//
+// An error run sits between two real outcomes, so after one lastState is
+// "error" and lastGood (the outcome before the error) decides: firing,
+// error, firing is still one incident and emits nothing new.
+func ShouldEmit(firing bool, lastState, lastGood string) bool {
+	if !firing {
+		return false
+	}
+	if lastState == "error" {
+		return lastGood != "firing"
+	}
+	return lastState != "firing"
+}
+
+// ShouldEmitError reports whether a failed evaluation deserves an alert
+// event: only the transition into error, for the same reason as above.
+func ShouldEmitError(lastState string) bool {
+	return lastState != "error"
 }
 
 // FingerprintBucket aligns a firing to the monitor's interval so repeated
@@ -244,13 +305,21 @@ func FingerprintBucket(m *database.TelemetryMonitor, now time.Time) string {
 	return "telemetry.monitor:" + m.ID + ":" + strconv.FormatInt(bucket, 10)
 }
 
-// CountSQL builds the count query for a monitor over [now-window, now].
+// EvaluationWindow is the [from, to] a monitor counts over at now: the
+// window length ending EvaluationDelay ago.
+func EvaluationWindow(m *database.TelemetryMonitor, now time.Time) (time.Time, time.Time) {
+	end := now.Add(-EvaluationDelay)
+	return end.Add(-time.Duration(m.WindowSeconds) * time.Second), end
+}
+
+// CountSQL builds the count query for a monitor over EvaluationWindow.
 func CountSQL(m *database.TelemetryMonitor, src *telemetry.Source, columns map[string]string, now time.Time) (string, error) {
 	if src.ConnectionID != m.ConnectionID {
 		return "", fmt.Errorf("source belongs to another connection")
 	}
-	from := now.Add(-time.Duration(m.WindowSeconds) * time.Second).UTC().Format(time.RFC3339Nano)
-	to := now.UTC().Format(time.RFC3339Nano)
+	start, end := EvaluationWindow(m, now)
+	from := start.UTC().Format(time.RFC3339Nano)
+	to := end.UTC().Format(time.RFC3339Nano)
 	switch src.Kind {
 	case telemetry.KindLogs:
 		if m.Kind != string(telemetry.KindLogs) || src.Logs == nil {
@@ -318,6 +387,12 @@ func (r *MonitorRunner) Evaluate(m *database.TelemetryMonitor, c Credentials) (f
 		if rerr := r.db.RecordTelemetryMonitorRun(m.ID, nil, "error", msg); rerr != nil {
 			slog.Warn("Telemetry monitors: failed to record error", "monitor", m.ID, "error", rerr)
 		}
+		if m.LastState == "ok" || m.LastState == "firing" {
+			lastGood.Store(m.ID, m.LastState)
+		}
+		if ShouldEmitError(m.LastState) {
+			r.emitError(m, msg, now)
+		}
 		return 0, false, err
 	}
 	src, err := r.db.GetTelemetrySource(m.SourceID)
@@ -351,7 +426,15 @@ func (r *MonitorRunner) Evaluate(m *database.TelemetryMonitor, c Credentials) (f
 	if err := r.db.RecordTelemetryMonitorRun(m.ID, &value, state, ""); err != nil {
 		slog.Warn("Telemetry monitors: failed to record run", "monitor", m.ID, "error", err)
 	}
-	if ShouldEmit(firing, m.LastState) {
+	prevGood := m.LastState
+	if m.LastState == "error" {
+		prevGood = ""
+		if v, ok := lastGood.Load(m.ID); ok {
+			prevGood, _ = v.(string)
+		}
+	}
+	lastGood.Store(m.ID, state)
+	if ShouldEmit(firing, m.LastState, prevGood) {
 		r.emit(m, value, now)
 	}
 	if state != m.LastState {
@@ -371,9 +454,9 @@ func (r *MonitorRunner) Evaluate(m *database.TelemetryMonitor, c Credentials) (f
 
 func (r *MonitorRunner) emit(m *database.TelemetryMonitor, value float64, now time.Time) {
 	title := fmt.Sprintf("%s: %s %s %s", m.Name, strconv.FormatFloat(value, 'f', -1, 64), comparatorWord(m.Comparator), strconv.FormatFloat(m.Threshold, 'f', -1, 64))
-	message := fmt.Sprintf("%s matched %s %s rows in the last %s (threshold %s %s).",
+	message := fmt.Sprintf("%s matched %s %s rows in the %s ending %s ago (threshold %s %s).",
 		m.Name, strconv.FormatFloat(value, 'f', -1, 64), m.Kind, (time.Duration(m.WindowSeconds) * time.Second).String(),
-		comparatorWord(m.Comparator), strconv.FormatFloat(m.Threshold, 'f', -1, 64))
+		EvaluationDelay.String(), comparatorWord(m.Comparator), strconv.FormatFloat(m.Threshold, 'f', -1, 64))
 	payload := map[string]interface{}{
 		"monitor_id": m.ID, "name": m.Name, "kind": m.Kind, "source_id": m.SourceID, "query": m.Query,
 		"window_seconds": m.WindowSeconds, "value": value, "threshold": m.Threshold, "comparator": m.Comparator,
@@ -381,6 +464,23 @@ func (r *MonitorRunner) emit(m *database.TelemetryMonitor, value float64, now ti
 	conn := m.ConnectionID
 	if _, err := r.db.CreateAlertEvent(&conn, eventTypeTelemetryMonitor, m.Severity, title, message, payload, FingerprintBucket(m, now), m.ID); err != nil {
 		slog.Warn("Telemetry monitors: failed to create alert event", "monitor", m.ID, "error", err)
+	}
+}
+
+// emitError raises an alert event for a monitor that could not evaluate:
+// a broken query or a lost source otherwise looks exactly like a quiet
+// "ok" until someone opens the page. Same event type and source ref as a
+// firing, its own fingerprint so the two never de-duplicate each other.
+func (r *MonitorRunner) emitError(m *database.TelemetryMonitor, msg string, now time.Time) {
+	title := fmt.Sprintf("%s: evaluation failed", m.Name)
+	message := fmt.Sprintf("%s could not be evaluated: %s", m.Name, msg)
+	payload := map[string]interface{}{
+		"monitor_id": m.ID, "name": m.Name, "kind": m.Kind, "source_id": m.SourceID, "query": m.Query, "error": msg,
+	}
+	conn := m.ConnectionID
+	fp := "telemetry.monitor.error:" + strings.TrimPrefix(FingerprintBucket(m, now), "telemetry.monitor:")
+	if _, err := r.db.CreateAlertEvent(&conn, eventTypeTelemetryMonitor, severityWarn, title, message, payload, fp, m.ID); err != nil {
+		slog.Warn("Telemetry monitors: failed to create error alert event", "monitor", m.ID, "error", err)
 	}
 }
 

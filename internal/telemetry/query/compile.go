@@ -68,6 +68,16 @@ type Schema struct {
 // Compile turns a search string into a WHERE fragment (without the
 // keyword). An empty query compiles to "1". Errors are user facing.
 func Compile(q string, s Schema) (string, error) {
+	return CompileExcluding(q, s, "")
+}
+
+// CompileExcluding compiles q like Compile but drops every top-level
+// `field:value` term (negated or not) whose field resolves to exclude.
+// Facets use it so the counts of one field ignore that field's own filter
+// while every other filter still applies. Terms nested in parentheses or
+// a query with a top-level OR are kept as they are: dropping a branch of
+// an OR would widen the result instead of narrowing it.
+func CompileExcluding(q string, s Schema, exclude string) (string, error) {
 	toks, err := tokenize(q)
 	if err != nil {
 		return "", err
@@ -76,6 +86,9 @@ func Compile(q string, s Schema) (string, error) {
 		return "1", nil
 	}
 	p := &parser{toks: toks, schema: s}
+	if exclude != "" && !hasTopLevelOr(toks) {
+		p.exclude = s.canonical(exclude)
+	}
 	sql, err := p.parseOr()
 	if err != nil {
 		return "", err
@@ -163,6 +176,16 @@ func tokenize(q string) ([]token, error) {
 				}
 				out = append(out, token{tField, word})
 				i = j + 1
+				// An unquoted value runs to the next space or parenthesis,
+				// colons included: url:http://x, ts:12:00:01.
+				if i < len(rs) && !unicode.IsSpace(rs[i]) && rs[i] != '"' && rs[i] != '(' && rs[i] != ')' {
+					k := i
+					for k < len(rs) && !unicode.IsSpace(rs[k]) && rs[k] != '(' && rs[k] != ')' {
+						k++
+					}
+					out = append(out, token{tWord, string(rs[i:k])})
+					i = k
+				}
 				continue
 			}
 			switch strings.ToUpper(word) {
@@ -187,6 +210,38 @@ type parser struct {
 	toks   []token
 	pos    int
 	schema Schema
+	// exclude is the canonical field name CompileExcluding drops; depth
+	// counts open parentheses so only top-level terms are dropped.
+	exclude  string
+	depth    int
+	excluded bool
+}
+
+// canonical resolves a field name through the aliases, lower-cased.
+func (s Schema) canonical(field string) string {
+	name := strings.ToLower(field)
+	if a, ok := s.Aliases[name]; ok {
+		return a
+	}
+	return name
+}
+
+// hasTopLevelOr reports whether an OR appears outside parentheses.
+func hasTopLevelOr(toks []token) bool {
+	depth := 0
+	for _, t := range toks {
+		switch t.kind {
+		case tLParen:
+			depth++
+		case tRParen:
+			depth--
+		case tOr:
+			if depth == 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (p *parser) peek() *token {
@@ -252,12 +307,19 @@ func (p *parser) parseNot() (string, error) {
 		if p.peek() == nil {
 			return "", fmt.Errorf("dangling NOT")
 		}
+		p.excluded = false
 		inner, err := p.parseNot()
 		if err != nil {
 			return "", err
 		}
+		if p.excluded {
+			// -field:value on the excluded field: drop it, do not negate
+			// the placeholder.
+			return "1", nil
+		}
 		return "NOT (" + inner + ")", nil
 	}
+	p.excluded = false
 	return p.parsePrimary()
 }
 
@@ -269,7 +331,9 @@ func (p *parser) parsePrimary() (string, error) {
 	switch t.kind {
 	case tLParen:
 		p.pos++
+		p.depth++
 		inner, err := p.parseOr()
+		p.depth--
 		if err != nil {
 			return "", err
 		}
@@ -277,6 +341,7 @@ func (p *parser) parsePrimary() (string, error) {
 			return "", fmt.Errorf("missing ')'")
 		}
 		p.pos++
+		p.excluded = false
 		// Compound expressions already carry their own parentheses.
 		return inner, nil
 	case tRParen:
@@ -290,6 +355,10 @@ func (p *parser) parsePrimary() (string, error) {
 			return "", fmt.Errorf("field %q needs a value", t.text)
 		}
 		p.pos++
+		if p.exclude != "" && p.depth == 0 && p.schema.canonical(t.text) == p.exclude {
+			p.excluded = true
+			return "1", nil
+		}
 		return p.fieldTerm(t.text, v.text, v.kind == tQuoted)
 	case tQuoted:
 		p.pos++
@@ -414,6 +483,13 @@ func (p *parser) fieldTerm(field, raw string, quoted bool) (string, error) {
 	}
 	if len(parts) == 1 {
 		return parts[0], nil
+	}
+	if op == "!=" {
+		// The key may live in any of the maps, and a missing key reads as
+		// ''. "Not equal" must hold in every map, else a key absent from
+		// one map makes the negation true even when another map has the
+		// excluded value.
+		return "(" + strings.Join(parts, " AND ") + ")", nil
 	}
 	return "(" + strings.Join(parts, " OR ") + ")", nil
 }

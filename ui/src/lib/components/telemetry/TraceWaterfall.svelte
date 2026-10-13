@@ -2,7 +2,7 @@
 <script lang="ts">
   import { ChevronRight, ChevronDown, AlertTriangle } from 'lucide-svelte'
   import type { Span } from '../../types/telemetryPro'
-  import { serviceColor, formatDuration } from './services'
+  import { serviceColor, formatDuration, isErrorStatus } from './services'
 
   /**
    * Span tree on the left, time bars on the right. Spans arrive pre-ordered
@@ -97,7 +97,7 @@
     {@const selected = span.span_id === selectedSpanId}
     {@const highlighted = span.span_id === highlightSpanId}
     {@const kids = childCount.get(span.span_id) ?? 0}
-    {@const isError = span.status.toLowerCase() === 'error'}
+    {@const isError = isErrorStatus(span.status)}
     <div
       class="flex shrink-0 cursor-pointer border-b border-edge-subtle transition-colors {selected ? 'bg-active' : highlighted ? 'bg-accent-soft' : 'hover:bg-hover'}"
       style="height:{rowH}px"
@@ -148,7 +148,7 @@
     <div class="pointer-events-none fixed z-[200] rounded-md border border-edge bg-elevated px-2.5 py-1.5 text-[11px] leading-snug text-fg shadow-popover" style="left:{hover.x + 12}px; top:{hover.y + 12}px">
       <div class="font-medium">{hover.span.name}</div>
       <div class="text-fg-3">{hover.span.service} · {hover.span.kind || 'span'} · {formatDuration(hover.span.duration_ms)}</div>
-      {#if hover.span.status.toLowerCase() === 'error'}<div class="text-danger">{hover.span.status_message || 'Error'}</div>{/if}
+      {#if isErrorStatus(hover.span.status)}<div class="text-danger">{hover.span.status_message || 'Error'}</div>{/if}
     </div>
   {/if}
 </div>

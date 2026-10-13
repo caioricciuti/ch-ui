@@ -19,7 +19,7 @@ func RegisterModelActions(r *Registry) {
 
 var runModel = Tool{
 	Name:             "run_model",
-	Description:      "Materialize a single model — execute its SQL against the user's ClickHouse (CREATE OR REPLACE / INSERT depending on materialization). Use this after create_model so the user immediately sees results. Skips tests.",
+	Description:      "Materialize a single model: execute its SQL against the user's ClickHouse (CREATE OR REPLACE / INSERT depending on materialization). Use this after create_model so the user immediately sees results.",
 	RequiresApproval: true,
 	Parameters: mustJSON(map[string]any{
 		"type":     "object",
@@ -58,7 +58,7 @@ var runModel = Tool{
 
 var buildModel = Tool{
 	Name:             "build_model",
-	Description:      "Materialize a model AND execute its data tests (dbt-style build). Same as run_model plus test execution. Prefer this over run_model when the model has tests.",
+	Description:      "Materialize a single model. Models have no data tests yet, so this does exactly what run_model does; it is kept for compatibility. Prefer run_model.",
 	RequiresApproval: true,
 	Parameters: mustJSON(map[string]any{
 		"type":     "object",
@@ -90,7 +90,7 @@ var buildModel = Tool{
 			"model_id": in.ModelID,
 			"run_id":   runID,
 			"open_url": tctx.AbsURL("/models"),
-			"hint":     "Build (run + tests) is in-flight. Check /models for the run history.",
+			"hint":     "Run is in-flight. Check /models for the run history.",
 		}, nil
 	},
 }

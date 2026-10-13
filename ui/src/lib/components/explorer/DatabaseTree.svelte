@@ -14,7 +14,9 @@
     openDatabaseTab,
   } from "../../stores/tabs.svelte";
   import { getSession } from "../../stores/session.svelte";
+  import { invalidateCompletionCaches } from "../../editor/completions";
   import { apiGet, apiPost, apiPostForm } from "../../api/client";
+  import { runQuery, listColumns } from "../../api/query";
   import {
     success as toastSuccess,
     error as toastError,
@@ -48,6 +50,8 @@
     AlertTriangle,
     Eye,
     Layers,
+    FileCode,
+    ListChecks,
   } from "lucide-svelte";
   import ContextMenu, {
     type ContextMenuItem,
@@ -437,9 +441,74 @@
     closeMenu();
   }
 
+  function quoteIdent(name: string): string {
+    return "`" + name.replace(/\\/g, "\\\\").replace(/`/g, "``") + "`";
+  }
+
+  function qualifiedName(database: string, table: string): string {
+    return `${quoteIdent(database)}.${quoteIdent(table)}`;
+  }
+
   function queryTable(database: string, table: string) {
-    openQueryTab(`SELECT *\nFROM \`${database}\`.\`${table}\`\nLIMIT 1000`);
+    openQueryTab(`SELECT *\nFROM ${qualifiedName(database, table)}\nLIMIT 1000`);
     closeMenu();
+  }
+
+  function previewTable(database: string, table: string) {
+    openQueryTab(`SELECT *\nFROM ${qualifiedName(database, table)}\nLIMIT 100`);
+    closeMenu();
+  }
+
+  // ── Show DDL ──
+  let ddlSheetOpen = $state(false);
+  let ddlTarget = $state("");
+  let ddlText = $state("");
+  let ddlLoading = $state(false);
+  let ddlError = $state<string | null>(null);
+  let ddlRequest = 0;
+
+  async function showTableDDL(database: string, table: string) {
+    closeMenu();
+    const request = ++ddlRequest;
+    ddlTarget = `${database}.${table}`;
+    ddlText = "";
+    ddlError = null;
+    ddlLoading = true;
+    ddlSheetOpen = true;
+    try {
+      const res = await runQuery({ query: `SHOW CREATE TABLE ${qualifiedName(database, table)}` });
+      if (request !== ddlRequest) return;
+      const row: unknown = res.data?.[0];
+      const value = Array.isArray(row)
+        ? row[0]
+        : row && typeof row === "object"
+          ? Object.values(row as Record<string, unknown>)[0]
+          : "";
+      ddlText = typeof value === "string" ? value : String(value ?? "");
+    } catch (e) {
+      if (request !== ddlRequest) return;
+      ddlError = e instanceof Error ? e.message : String(e);
+    } finally {
+      if (request === ddlRequest) ddlLoading = false;
+    }
+  }
+
+  async function copyColumnList(database: string, table: string) {
+    try {
+      const columns = await listColumns(database, table);
+      if (columns.length === 0) {
+        toastError("No columns found");
+        closeMenu();
+        return;
+      }
+      const plain = /^[A-Za-z_][A-Za-z0-9_]*$/;
+      await copyToClipboard(
+        columns.map((c) => (plain.test(c.name) ? c.name : quoteIdent(c.name))).join(", "),
+      );
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e));
+      closeMenu();
+    }
   }
 
   function viewDatabaseInfo(database: string) {
@@ -453,13 +522,21 @@
   }
 
   function refreshDatabase(database: string) {
+    invalidateCompletionCaches();
     loadTables(database);
     closeMenu();
   }
 
+  // Schema changed (or the user asked for a refresh): autocomplete must not
+  // keep offering tables from before.
+  async function reloadDatabases() {
+    invalidateCompletionCaches();
+    await loadDatabases();
+  }
+
   async function refreshSchema() {
     if (loading) return;
-    await loadDatabases();
+    await reloadDatabases();
   }
 
   async function loadClusters(force = false) {
@@ -863,7 +940,7 @@
       });
       toastSuccess(`Database "${name}" created`);
       createDatabaseSheetOpen = false;
-      await loadDatabases();
+      await reloadDatabases();
       await loadTables(name);
       selectDatabase(name);
     } catch (e: any) {
@@ -1020,7 +1097,7 @@
       });
       toastSuccess(`Database "${deleteDatabaseForm.name}" deleted`);
       deleteDatabaseSheetOpen = false;
-      await loadDatabases();
+      await reloadDatabases();
     } catch (e: any) {
       toastError(e.message);
     } finally {
@@ -1100,7 +1177,7 @@
           icon: RefreshCw,
           onSelect: async () => {
             closeMenu();
-            await loadDatabases();
+            await reloadDatabases();
           },
         },
       ];
@@ -1178,6 +1255,18 @@
         shortcut: "Cmd/Ctrl+Enter",
         onSelect: () => queryTable(target.database, target.table),
       },
+      {
+        id: "table-preview",
+        label: "Preview 100 Rows",
+        icon: Eye,
+        onSelect: () => previewTable(target.database, target.table),
+      },
+      {
+        id: "table-ddl",
+        label: "Show DDL",
+        icon: FileCode,
+        onSelect: () => void showTableDDL(target.database, target.table),
+      },
       { id: "sep1", separator: true },
       {
         id: "table-delete",
@@ -1193,7 +1282,13 @@
         label: "Copy Qualified Name",
         icon: Copy,
         onSelect: () =>
-          copyToClipboard(`\`${target.database}\`.\`${target.table}\``),
+          copyToClipboard(qualifiedName(target.database, target.table)),
+      },
+      {
+        id: "table-copy-columns",
+        label: "Copy Column List",
+        icon: ListChecks,
+        onSelect: () => void copyColumnList(target.database, target.table),
       },
     ];
   }
@@ -2152,4 +2247,27 @@
       </Button>
     </div>
   </form>
+</Sheet>
+
+<Sheet
+  open={ddlSheetOpen}
+  title="Table DDL"
+  description={ddlTarget}
+  size="lg"
+  onclose={() => (ddlSheetOpen = false)}
+>
+  {#if ddlLoading}
+    <div class="flex items-center justify-center py-10"><Spinner size="sm" /></div>
+  {:else if ddlError}
+    <p class="rounded-md bg-danger-soft p-3 text-[13px] text-danger">{ddlError}</p>
+  {:else}
+    <pre class="overflow-auto rounded-md border border-edge-subtle bg-surface-2 p-3 font-mono text-xs text-fg whitespace-pre">{ddlText}</pre>
+  {/if}
+  {#snippet footer()}
+    <Button size="sm" variant="ghost" onclick={() => (ddlSheetOpen = false)}>Close</Button>
+    <Button size="sm" disabled={!ddlText} onclick={() => void copyToClipboard(ddlText)}>
+      <Copy size={14} />
+      Copy
+    </Button>
+  {/snippet}
 </Sheet>

@@ -16,11 +16,13 @@
   interface Props {
     sourceId: string
     traceId: string
+    /** RFC3339 time near the trace start; bounds the lookup when the trace-id index is absent. */
+    startHint?: string
     onback: () => void
     onfilter?: (key: string, value: string) => void
   }
 
-  let { sourceId, traceId, onback, onfilter }: Props = $props()
+  let { sourceId, traceId, startHint = '', onback, onfilter }: Props = $props()
 
   let detail = $state<TraceDetail | null>(null)
   let loading = $state(true)
@@ -33,10 +35,11 @@
     const mySeq = ++seq
     const sid = sourceId
     const tid = traceId
+    const hint = startHint
     loading = true
     error = null
     selected = null
-    getTrace(sid, tid)
+    getTrace(sid, tid, hint || undefined)
       .then((d) => { if (mySeq === seq) detail = d })
       .catch((e: unknown) => { if (mySeq === seq) { error = e instanceof Error ? e.message : String(e); detail = null } })
       .finally(() => { if (mySeq === seq) loading = false })

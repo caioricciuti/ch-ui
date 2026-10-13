@@ -29,7 +29,8 @@
   import SectionHeader from '../common/SectionHeader.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import Spinner from '../common/Spinner.svelte'
-  import { Plus, Pencil, Trash2, Shield, AlertTriangle, MessageSquare } from 'lucide-svelte'
+  import { Plus, Pencil, Trash2, Shield, AlertTriangle, MessageSquare, Info, Lock } from 'lucide-svelte'
+  import { getSession } from '../../stores/session.svelte'
 
   // Policies: who may touch which objects. The syncer records a violation
   // when a query breaks one; block mode refuses the query before it runs.
@@ -76,7 +77,11 @@
     void load()
   })
 
+  // Policies and violations are admin-only on the server.
+  const isAdmin = $derived(getSession()?.role === 'admin')
+
   async function load() {
+    if (!isAdmin) return
     loading = true
     try {
       const [p, v] = await Promise.all([fetchPolicies(), fetchViolations()])
@@ -360,7 +365,17 @@
   ])
 </script>
 
+{#if !isAdmin}
+  <EmptyState icon={Lock} title="Admins only" description="Policies and their violations name other users, so only admins can see them." />
+{:else}
 <div class="flex h-full min-h-0 flex-col">
+  <div class="mx-5 mt-3 flex shrink-0 items-start gap-2 rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-[13px] text-fg" role="note">
+    <Info size={14} class="mt-0.5 shrink-0 text-warning" />
+    <span>
+      <span class="font-medium">Advisory:</span> guardrails match query text and allow queries when access data is stale.
+      Use ClickHouse grants and row policies for hard enforcement.
+    </span>
+  </div>
   <div class="flex h-10 shrink-0 items-center gap-3 px-5">
     <Tabs variant="segmented" size="sm" items={viewItems} value={view} onchange={(id) => (view = id as View)} />
     <span class="ml-auto text-xs text-fg-4">
@@ -438,6 +453,7 @@
     {/if}
   </div>
 </div>
+{/if}
 
 <Sheet
   open={sheetOpen}

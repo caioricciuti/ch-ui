@@ -37,6 +37,8 @@ type QueryStats struct {
 	Elapsed   float64 `json:"elapsed"`
 	RowsRead  uint64  `json:"rows_read"`
 	BytesRead uint64  `json:"bytes_read"`
+	// RowsWritten is set for INSERT and other writes, from ClickHouse's summary header.
+	RowsWritten uint64 `json:"rows_written,omitempty"`
 }
 
 // Message types from gateway

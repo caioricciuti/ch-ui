@@ -65,7 +65,7 @@
         : 'text-fg-3 hover:text-fg border-b-2 border-transparent'
     }`
 
-  const formatOptions: { id: ExportFormat | 'parquet'; label: string; ext: string; mime: string; icon: typeof FileText; disabled?: boolean }[] = [
+  const formatOptions: { id: ExportFormat; label: string; ext: string; mime: string; icon: typeof FileText }[] = [
     { id: 'csv', label: 'CSV', ext: 'csv', mime: 'text/csv;charset=utf-8', icon: FileText },
     { id: 'tsv', label: 'TSV', ext: 'tsv', mime: 'text/tab-separated-values;charset=utf-8', icon: FileText },
     { id: 'json', label: 'JSON', ext: 'json', mime: 'application/json;charset=utf-8', icon: FileJson },
@@ -74,7 +74,6 @@
     { id: 'markdown', label: 'Markdown', ext: 'md', mime: 'text/markdown;charset=utf-8', icon: FileText },
     { id: 'sql', label: 'SQL Insert', ext: 'sql', mime: 'application/sql;charset=utf-8', icon: Database },
     { id: 'xml', label: 'XML', ext: 'xml', mime: 'application/xml;charset=utf-8', icon: FileText },
-    { id: 'parquet', label: 'Parquet (Soon)', ext: 'parquet', mime: 'application/octet-stream', icon: Database, disabled: true },
   ]
 
   function payloadFor(format: ExportFormat): string {
@@ -91,8 +90,7 @@
     }
   }
 
-  async function handleCopy(format: ExportFormat | 'parquet') {
-    if (format === 'parquet') return
+  async function handleCopy(format: ExportFormat) {
     try {
       await copyToClipboard(payloadFor(format))
       success(`Copied ${formatNumber(rowCount)} rows as ${format.toUpperCase()}`)
@@ -102,8 +100,7 @@
     }
   }
 
-  function handleDownload(format: ExportFormat | 'parquet') {
-    if (format === 'parquet') return
+  function handleDownload(format: ExportFormat) {
     const opt = formatOptions.find((f) => f.id === format)
     if (!opt) return
     const filename = `query_results.${opt.ext}`
@@ -250,9 +247,8 @@
             <div class="flex items-center gap-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-fg-4"><Copy size={10} /> Copy</div>
             {#each formatOptions as option (option.id)}
               <button
-                class="flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-xs transition-colors {option.disabled ? 'cursor-not-allowed text-fg-4' : 'text-fg-2 hover:bg-hover hover:text-fg'}"
-                onclick={() => !option.disabled && handleCopy(option.id)}
-                disabled={option.disabled}
+                class="flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-xs text-fg-2 transition-colors hover:bg-hover hover:text-fg"
+                onclick={() => handleCopy(option.id)}
                 role="menuitem"
               >
                 <option.icon size={12} />
@@ -264,9 +260,8 @@
             <div class="flex items-center gap-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-fg-4"><Download size={10} /> Download</div>
             {#each formatOptions as option (option.id)}
               <button
-                class="flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-xs transition-colors {option.disabled ? 'cursor-not-allowed text-fg-4' : 'text-fg-2 hover:bg-hover hover:text-fg'}"
-                onclick={() => !option.disabled && handleDownload(option.id)}
-                disabled={option.disabled}
+                class="flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-xs text-fg-2 transition-colors hover:bg-hover hover:text-fg"
+                onclick={() => handleDownload(option.id)}
                 role="menuitem"
               >
                 <option.icon size={12} />

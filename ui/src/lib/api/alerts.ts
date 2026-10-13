@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 import { apiDel, apiGet, apiPost, apiPut } from './client'
-import type { AlertChannel, AlertEvent, AlertRule } from '../types/alerts'
+import type { AlertChannel, AlertChannelType, AlertEvent, AlertRule } from '../types/alerts'
 
 const BASE = '/api/governance/alerts'
 
@@ -17,7 +17,7 @@ export async function adminListAlertChannels(): Promise<AlertChannel[]> {
 
 export async function adminCreateAlertChannel(payload: {
   name: string
-  channel_type: 'smtp' | 'resend' | 'brevo'
+  channel_type: AlertChannelType
   is_active: boolean
   config: Record<string, unknown>
 }): Promise<void> {
@@ -26,7 +26,7 @@ export async function adminCreateAlertChannel(payload: {
 
 export async function adminUpdateAlertChannel(id: string, payload: {
   name?: string
-  channel_type?: 'smtp' | 'resend' | 'brevo'
+  channel_type?: AlertChannelType
   is_active?: boolean
   config?: Record<string, unknown>
 }): Promise<void> {
@@ -38,7 +38,8 @@ export async function adminDeleteAlertChannel(id: string): Promise<void> {
 }
 
 export async function adminTestAlertChannel(id: string, payload: {
-  recipients: string[]
+  /** Required for email channels; webhooks ignore it. */
+  recipients?: string[]
   subject?: string
   message?: string
 }): Promise<{ provider_message_id?: string }> {

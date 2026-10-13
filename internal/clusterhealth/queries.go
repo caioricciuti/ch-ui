@@ -17,6 +17,19 @@ import (
 	"regexp"
 )
 
+// LogComment tags every monitoring query so it can be told apart from user
+// queries in system.query_log and system.processes.
+const LogComment = "ch-ui:cluster-health"
+
+// QuerySettings are sent with every monitoring query. skip_unavailable_shards
+// lets a clusterAllReplicas fan-out answer for the nodes that are up instead
+// of failing as a whole when one replica is down; FlagMissingNodes then
+// reports the silent ones. Settings a readonly profile refuses are dropped
+// by the gateway.
+func QuerySettings() map[string]string {
+	return map[string]string{"skip_unavailable_shards": "1", "log_comment": LogComment}
+}
+
 // validClusterName matches the characters ClickHouse permits in a cluster name.
 // We validate before interpolating into clusterAllReplicas('<name>', ...) since
 // the cluster name cannot be passed as a bound parameter.
@@ -25,6 +38,14 @@ var validClusterName = regexp.MustCompile(`^[a-zA-Z0-9_.\-]+$`)
 // IsValidClusterName reports whether name is safe to embed in a cluster() call.
 func IsValidClusterName(name string) bool {
 	return name != "" && len(name) <= 128 && validClusterName.MatchString(name)
+}
+
+// OnCluster returns " ON CLUSTER `name`" for a valid cluster name, else "".
+func OnCluster(cluster string) string {
+	if IsValidClusterName(cluster) {
+		return " ON CLUSTER `" + cluster + "`"
+	}
+	return ""
 }
 
 // source returns the table expression to read from. When cluster is non-empty
@@ -125,7 +146,7 @@ func MutationsQuery(cluster string) string {
   database,
   table,
   mutation_id,
-  substring(command, 1, 300) AS command,
+  command,
   create_time,
   parts_to_do,
   is_done,
@@ -151,7 +172,7 @@ func LongQueriesQuery(cluster string, thresholdSeconds int) string {
   formatReadableSize(memory_usage) AS memory,
   read_rows,
   total_rows_approx,
-  substring(query, 1, 300) AS query
+  query
 FROM %s
 WHERE elapsed > %d
   AND query NOT ILIKE '%%system.processes%%'
@@ -258,10 +279,36 @@ FROM ` + source(cluster, "merges") + `
 GROUP BY node FORMAT JSON`
 }
 
-// MutationsAggQuery counts unfinished mutations per node.
+// MutationsAggQuery counts unfinished mutations per node, with the age of
+// the oldest one (0 when none are pending).
 func MutationsAggQuery(cluster string) string {
-	return `SELECT hostName() AS node, countIf(is_done = 0) AS mutations_pending
+	return `SELECT hostName() AS node, countIf(is_done = 0) AS mutations_pending,
+  if(countIf(is_done = 0) = 0, 0, dateDiff('second', minIf(create_time, is_done = 0), now())) AS mutations_oldest_age_seconds
 FROM ` + source(cluster, "mutations") + `
+GROUP BY node FORMAT JSON`
+}
+
+// NodesQuery returns one row per node that answered the fan-out. It seeds a
+// sample per reachable node so FlagMissingNodes can tell silent nodes apart.
+func NodesQuery(cluster string) string {
+	return `SELECT DISTINCT hostName() AS node FROM ` + source(cluster, "one") + ` FORMAT JSON`
+}
+
+// ClusterNodesQuery lists the nodes a cluster is defined with. For the local
+// entry, self carries hostName() so it matches what the fan-out reports.
+// cluster must pass IsValidClusterName.
+func ClusterNodesQuery(cluster string) string {
+	return `SELECT host_name, is_local, hostName() AS self
+FROM system.clusters
+WHERE cluster = '` + cluster + `'
+FORMAT JSON`
+}
+
+// DiskAggQuery reports the fullest disk per node, in percent.
+func DiskAggQuery(cluster string) string {
+	return `SELECT hostName() AS node,
+  max(if(total_space = 0, 0, (total_space - free_space) / total_space * 100)) AS disk_used_pct
+FROM ` + source(cluster, "disks") + `
 GROUP BY node FORMAT JSON`
 }
 

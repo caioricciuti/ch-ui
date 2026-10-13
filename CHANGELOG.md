@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.19.0] - 2026-10-13
+
+### Upgrade notes
+
+- **Models never replace objects they did not build.** A table model whose name matches a table someone created by hand is now refused with a clear error instead of dropping that table. Models mark what they build with a `ch-ui model <id>` comment; `ALTER MODIFY COMMENT` is recommended for the model account but not required (#259).
+- **Theme follows the system by default** for users who never picked one (#263).
+- **Testing a connection with credentials is admin only** and shares the sign-in rate limit (#263).
+- **Brain write tools need the admin or analyst role**, and approving a Brain action needs an active Pro license (#255, #264).
+
+### Security
+
+- **Brain respects roles and governance.** Viewers are no longer offered or allowed tools that change dashboards, models, saved queries, pipelines or schedules; approvals fail closed; Brain queries pass the same guardrails as the SQL editor, are logged as Brain, and tool output is fenced as data (#264).
+- **Dashboard panel queries follow governance policies**, after variables are expanded, and results are capped at 100,000 rows. Public share links apply the sharer's policies (#262).
+- **Pipeline secrets are encrypted** and shown as `***`; SQLite sources are admin only and cannot read the CH-UI data directory; auto-created tables quote identifiers and allowlist engines; new webhook sources require a token (#260).
+- **Rate limit on every credential check**: switching connection and testing a connection count toward the sign-in lockout (#263).
+- **Query audit is admin only**, queries can no longer hide from audit with a comment, failed or denied queries are harvested, and creating a ClickHouse user that already exists no longer grants it roles (#265).
+- **MCP**: insights and costs tools respect database allow-lists, key changes are audited per person, and OAuth refresh tokens are single use (#264).
+- **Webhook alert targets** on private or loopback addresses are refused unless an admin allows them on the channel; Cost Center config is admin only and audited (#265).
+- **A license dated more than a day in the future is rejected** (#255).
+
+### Added
+
+- **Editor keyboard shortcuts**: Cmd/Ctrl+S saves, Shift+Alt+F formats, Esc or Cmd/Ctrl+. cancels a running query, Tab indents (#254).
+- **Run one statement or all of them**: Cmd/Ctrl+Enter runs the statement under the cursor when the editor holds several; Shift+Cmd/Ctrl+Enter runs them all and stops at the first error (#261).
+- **Cell inspector** with JSON, arrays and maps pretty-printed; **explorer shortcuts** Preview 100 Rows, Show DDL and Copy Column List; DDL and INSERT show rows written; rows appear while they stream (#261).
+- **Webhook alert channel** for any HTTPS endpoint, Slack and Teams, with optional secret header and HMAC signature (#265).
+- **Kill a running query or mutation from Cluster Health**, with confirmation and an audit entry; full query text opens in the editor; max disk used tile (#265).
+- **Version indicator**: the sidebar always shows the running version and whether it is the latest (#263).
+- **Keyboard shortcut sheet** (press ?), **first-run Home** with starter queries, **system theme**, and **gzip** for the web app (#263).
+- **Pipeline Runs sheet** with runs and per-run logs, last error and last batch time in the editor (#260).
+
+### Fixed
+
+- **Models**: table rebuilds go through a temporary table and swap, so a failed run never loses data; failed scheduled runs are recorded as failures; schedules no longer duplicate and can be paused; Run saves first; GitHub sync retries failed commits and reads one commit; models stay on their connection; SQL with `--` inside strings runs unchanged; interrupted runs are closed on restart (#259).
+- **Pipelines**: write failures retry with backoff and sources advance only after a successful write, with a dedup token per batch; shutdown no longer hangs and running pipelines resume after a restart; zero intervals no longer crash the server; Kafka reconnects; webhooks accept a request whole or not at all; S3 endpoint, CSV and JSON parsing fixed (#260).
+- **Dashboards**: panels created outside the editor draw again; `$__timeFilter` works on DateTime and epoch columns with one predicate per column; legends, NULL gaps and time zones are right; import is all or nothing; stale responses no longer overwrite newer ones; public dashboards are cached and rate limited per link; viewers see no edit controls; auto-refresh stops when you leave the page (#253, #262).
+- **SQL editor**: CSV and TSV exports keep negative numbers; Format uses ClickHouse `formatQuery()` and no longer changes queries; saved query parameters persist; Explain uses the same statement and parameters as Run; autocomplete refreshes and retries; queries no longer get stuck running; a cancelled query says so (#254, #261).
+- **Telemetry**: log paging no longer skips rows; colon values and `!=` on attributes work; facets keep their other values and mark sampled counts; the service map keeps its edges; trace lookups are time-bounded; metric rates and percentiles are correct; monitors allow for ingestion lag and alert when evaluation fails; live tail fetches only new rows (#266).
+- **Alerts and schedules**: stuck deliveries are retried, channel secrets survive edits, schedules run in parallel, the query harvest keeps its position, Cluster Health shows unknown instead of green when a metric fails (#265).
+- **Brain**: long chats stay within context, long turns keep the stream alive, Stop during an approval saves the message, keyless OpenAI-compatible providers work, Ask AI uses views and comments (#264).
+- **Sign-in and navigation**: a failed sign-in keeps the form; Option shortcuts work on macOS; unreachable ClickHouse is no longer reported as a wrong password; the explorer opens on small screens; an expired session returns you to the same page (#263).
+- **Accessibility**: dialogs trap focus and close with Escape, side sheets open on their first field, clickable table rows work from the keyboard, icon buttons have labels; light theme tooltips are readable; detail panels ignore late responses (#256).
+- **Grace period**: alerts, weekly reports and the performance monitor keep running; a damaged encrypted value no longer crashes the server; table-rebuild migrations are all or nothing (#255).
+
+### Changed
+
+- **Faster first load**: the sign-in page loads about 90 kB gzipped instead of about 600 kB, and pages load on first visit (#263).
+- **CI and releases**: runs on main are never cancelled, releases run the full CI on the tagged commit, pull requests build the Docker image and check the Helm appVersion; Docker base images and Bun are pinned (#258).
+- **Docs** describe what exists: Models, Dashboards macros, Brain, the CLI and licensing (#252, #259, #262, #264).
+- Frontend cleanup: unused code removed, loose types replaced, 13 px body text everywhere (#257).
+
 ## [2.18.0] - 2026-10-12
 
 ### Changed

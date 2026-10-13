@@ -59,6 +59,7 @@ func (h *AdminHandler) Routes(r chi.Router) {
 	r.Get("/brain/skills", h.ListBrainSkills)
 	r.Post("/brain/skills", h.CreateBrainSkill)
 	r.Put("/brain/skills/{id}", h.UpdateBrainSkill)
+	h.registerBrainUsageRoutes(r)
 
 	// Governance feature toggle
 	r.Get("/governance/settings", h.GetGovernanceSettings)
@@ -563,17 +564,17 @@ func (h *AdminHandler) CreateClickHouseUser(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	var createSQL strings.Builder
-	createSQL.WriteString("CREATE USER ")
-	if body.IfNotExists == nil || *body.IfNotExists {
-		createSQL.WriteString("IF NOT EXISTS ")
-	}
-	createSQL.WriteString(escapeIdentifier(name))
-	createSQL.WriteString(buildClickHouseCreateAuthClause(authType, body.Password))
-	createSQLStr := createSQL.String()
+	// Always a plain CREATE USER: with IF NOT EXISTS an existing account
+	// would silently pass and then receive the requested roles. The
+	// if_not_exists field is accepted for compatibility and ignored.
+	createSQLStr := buildCreateChUserSQL(name, authType, body.Password)
 	executedCommands := []string{createSQLStr}
 
 	if _, err := h.Gateway.ExecuteQuery(session.ConnectionID, createSQLStr, session.ClickhouseUser, password, 30*time.Second); err != nil {
+		if isAccessEntityExistsError(err) {
+			writeError(w, http.StatusConflict, fmt.Sprintf("ClickHouse user %q already exists", name))
+			return
+		}
 		slog.Warn("Failed to create ClickHouse user", "error", err, "connection", session.ConnectionID, "name", name)
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("%s\n\nCommand:\n%s", err.Error(), createSQLStr))
 		return
@@ -816,6 +817,23 @@ func (h *AdminHandler) DeleteClickHouseUser(w http.ResponseWriter, r *http.Reque
 }
 
 // ---------- Helpers ----------
+
+// buildCreateChUserSQL returns a plain CREATE USER statement (never IF NOT
+// EXISTS), so creating a name that already exists fails instead of granting
+// roles to someone else's account.
+func buildCreateChUserSQL(name, authType, password string) string {
+	return "CREATE USER " + escapeIdentifier(name) + buildClickHouseCreateAuthClause(authType, password)
+}
+
+// isAccessEntityExistsError reports ClickHouse error 493
+// (ACCESS_ENTITY_ALREADY_EXISTS), returned by CREATE USER for a taken name.
+func isAccessEntityExistsError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "ACCESS_ENTITY_ALREADY_EXISTS") || strings.Contains(msg, "Code: 493.")
+}
 
 func escapeString(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)

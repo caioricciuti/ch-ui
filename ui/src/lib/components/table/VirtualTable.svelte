@@ -5,6 +5,9 @@
   import TableHeader from './TableHeader.svelte'
   import TableCell from './TableCell.svelte'
   import FilterPopover from './FilterPopover.svelte'
+  import CellInspector from './CellInspector.svelte'
+  import { cellCopyText } from '../../utils/cell-inspect'
+  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import { SearchX } from 'lucide-svelte'
   import { getFormatNumbers } from '../../stores/number-format.svelte'
 
@@ -44,6 +47,64 @@
   let baseWidths = $state<number[]>([])
   let manualTouched = $state<boolean[]>([])
   let selectedRow = $state<number | null>(null)
+  // Column of the focused cell; the focused cell is (selectedRow, focusedCol).
+  let focusedCol = $state<number | null>(null)
+  let inspecting = $state<{ row: number; col: number } | null>(null)
+
+  function focusCell(row: number, col: number) {
+    selectedRow = row
+    focusedCol = col
+  }
+
+  function inspectCell(row: number, col: number) {
+    focusCell(row, col)
+    inspecting = { row, col }
+  }
+
+  async function copyFocusedCell() {
+    if (selectedRow === null || focusedCol === null) return
+    try {
+      await navigator.clipboard.writeText(cellCopyText(data[selectedRow]?.[focusedCol]))
+      toastSuccess('Cell copied')
+    } catch {
+      toastError('Clipboard unavailable')
+    }
+  }
+
+  function scrollRowIntoView(row: number) {
+    if (!container) return
+    const top = row * ROW_HEIGHT
+    const header = ROW_HEIGHT
+    if (top < container.scrollTop) container.scrollTop = top
+    else if (top + ROW_HEIGHT > container.scrollTop + viewportHeight - header) container.scrollTop = top + ROW_HEIGHT * 2 - viewportHeight
+  }
+
+  function handleGridKeydown(e: KeyboardEvent) {
+    if (inspecting || selectedRow === null || focusedCol === null) return
+    const target = e.target as HTMLElement | null
+    if (target && target !== container && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName)) return
+    const mod = e.metaKey || e.ctrlKey
+    if (mod && e.key.toLowerCase() === 'c') {
+      // A text selection made with the mouse keeps the browser's own copy.
+      if (window.getSelection()?.toString()) return
+      e.preventDefault()
+      void copyFocusedCell()
+      return
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      inspecting = { row: selectedRow, col: focusedCol }
+      return
+    }
+    const moves: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }
+    const move = moves[e.key]
+    if (!move || mod || e.altKey) return
+    e.preventDefault()
+    const row = Math.max(0, Math.min(data.length - 1, selectedRow + move[0]))
+    const col = Math.max(0, Math.min(meta.length - 1, focusedCol + move[1]))
+    focusCell(row, col)
+    scrollRowIntoView(row)
+  }
 
   function estimateTextWidth(text: string): number {
     return Math.max(0, Math.ceil(text.length * 7.4))
@@ -209,6 +270,8 @@
   $effect(() => {
     data
     selectedRow = null
+    focusedCol = null
+    inspecting = null
   })
 
   const rowCount = $derived(data.length)
@@ -256,7 +319,17 @@
   })
 </script>
 
-<div bind:this={container} class="relative flex-1 overflow-auto bg-canvas" onscroll={handleScroll}>
+<!-- The grid takes focus so a clicked cell can be inspected (Enter) or copied (Cmd/Ctrl+C). -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<div
+  bind:this={container}
+  class="relative flex-1 overflow-auto bg-canvas focus:outline-none"
+  onscroll={handleScroll}
+  onkeydown={handleGridKeydown}
+  tabindex="0"
+  role="grid"
+  aria-label="Results grid"
+>
   <table class="text-sm border-collapse table-fixed" style="width:{tableWidth}px;min-width:{tableWidth}px">
     <colgroup>
       <col style="width:{ROW_NUMBER_WIDTH}px;min-width:{ROW_NUMBER_WIDTH}px;max-width:{ROW_NUMBER_WIDTH}px" />
@@ -301,6 +374,9 @@
                 value={row[ci]}
                 type={col.type}
                 width={effectiveWidths[ci] ?? 120}
+                focused={selectedRow === absIdx && focusedCol === ci}
+                onfocuscell={() => focusCell(absIdx, ci)}
+                oninspect={() => inspectCell(absIdx, ci)}
               />
             {/each}
           </tr>
@@ -328,6 +404,18 @@
         </p>
       </div>
     </div>
+  {/if}
+
+  {#if inspecting}
+    {@const inspectedCol = meta[inspecting.col]}
+    <CellInspector
+      open={true}
+      column={inspectedCol?.name ?? ''}
+      type={inspectedCol?.type ?? ''}
+      row={inspecting.row}
+      value={data[inspecting.row]?.[inspecting.col]}
+      onclose={() => { inspecting = null; container?.focus() }}
+    />
   {/if}
 
   {#if filterPopover}

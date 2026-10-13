@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -82,9 +83,11 @@ func (h *MCPKeysHandler) create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	plaintext, hash, prefix := mcpserver.GenerateKey()
+	// The person, not the ClickHouse account: under SSO many people share
+	// one service account.
 	createdBy := ""
 	if sess := middleware.GetSession(r); sess != nil {
-		createdBy = sess.ClickhouseUser
+		createdBy = middleware.Actor(sess)
 	}
 	scopes := req.Scopes
 	if scopes != "read_write" {
@@ -110,6 +113,8 @@ func (h *MCPKeysHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.auditKey(r, "mcp.key.created", key.ID, fmt.Sprintf("key=%s name=%q prefix=%s connection=%s ch_user=%s scopes=%s allowed_databases=%q", key.ID, key.Name, prefix, req.ConnectionID, req.CHUser, scopes, req.AllowedDatabases), req.ConnectionID)
+
 	// The plaintext key is returned exactly once, at creation.
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"success": true,
@@ -125,13 +130,14 @@ func (h *MCPKeysHandler) rotate(w http.ResponseWriter, r *http.Request) {
 	plaintext, hash, prefix := mcpserver.GenerateKey()
 	rotatedBy := ""
 	if sess := middleware.GetSession(r); sess != nil {
-		rotatedBy = sess.ClickhouseUser
+		rotatedBy = middleware.Actor(sess)
 	}
 	key, err := h.DB.RotateMCPKey(id, hash, prefix, rotatedBy)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "MCP key not found or already revoked")
 		return
 	}
+	h.auditKey(r, "mcp.key.rotated", key.ID, fmt.Sprintf("old_key=%s new_key=%s name=%q prefix=%s", id, key.ID, key.Name, prefix), key.ConnectionID)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"success": true,
 		"key":     key,
@@ -141,9 +147,36 @@ func (h *MCPKeysHandler) rotate(w http.ResponseWriter, r *http.Request) {
 
 func (h *MCPKeysHandler) revoke(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	existing, _ := h.DB.GetMCPKeyByID(id)
 	if err := h.DB.RevokeMCPKey(id); err != nil {
 		writeError(w, http.StatusNotFound, "MCP key not found or already revoked")
 		return
 	}
+	details, connID := "key="+id, ""
+	if existing != nil {
+		details = fmt.Sprintf("key=%s name=%q prefix=%s", id, existing.Name, existing.KeyPrefix)
+		connID = existing.ConnectionID
+	}
+	h.auditKey(r, "mcp.key.revoked", id, details, connID)
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+// auditKey records a key lifecycle event. A key carries ClickHouse
+// credentials, so who created, rotated or revoked it belongs in the log.
+func (h *MCPKeysHandler) auditKey(r *http.Request, action, keyID, details, connectionID string) {
+	params := database.AuditLogParams{
+		Action:    action,
+		Details:   strPtr(details),
+		IPAddress: strPtr(getClientIP(r)),
+	}
+	if connectionID != "" {
+		params.ConnectionID = strPtr(connectionID)
+	}
+	if sess := middleware.GetSession(r); sess != nil {
+		params.Username = strPtr(middleware.Actor(sess))
+		params.ClickhouseUser = strPtr(sess.ClickhouseUser)
+	}
+	if err := h.DB.CreateAuditLog(params); err != nil {
+		slog.Warn("MCP keys: audit log failed", "action", action, "key", keyID, "error", err)
+	}
 }

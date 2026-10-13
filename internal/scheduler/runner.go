@@ -34,6 +34,13 @@ type Runner struct {
 	// paused is true while the last tick found Pro work not allowed. The
 	// first tick after that skips slots that fell due during the pause.
 	paused bool
+
+	// running holds the IDs of schedules with a run in flight, so a slow
+	// schedule never overlaps itself while the ticker keeps starting others.
+	mu      sync.Mutex
+	running map[string]bool
+	slots   chan struct{}
+	wg      sync.WaitGroup
 }
 
 // NewRunner creates a new schedule runner. pro reports whether Pro work may
@@ -49,6 +56,8 @@ func NewRunner(db *database.DB, gw *tunnel.Gateway, secret string, pro func() bo
 		secret:  secret,
 		pro:     pro,
 		stopCh:  make(chan struct{}),
+		running: make(map[string]bool),
+		slots:   make(chan struct{}, maxConcurrent),
 	}
 }
 
@@ -77,7 +86,10 @@ func (r *Runner) Stop() {
 	close(r.stopCh)
 }
 
-// tick fetches due jobs from SQLite and executes them concurrently.
+// tick starts every due schedule that is not already running, up to
+// maxConcurrent runs in flight, and returns without waiting for them. A
+// schedule left out because all slots are busy stays due and starts on a
+// later tick.
 func (r *Runner) tick() {
 	if r.pro == nil || !r.pro() {
 		r.paused = true
@@ -92,7 +104,7 @@ func (r *Runner) tick() {
 	}
 
 	now := time.Now().UTC()
-	var due []database.Schedule
+	started := 0
 	for _, s := range schedules {
 		if s.NextRunAt == nil {
 			continue
@@ -104,34 +116,59 @@ func (r *Runner) tick() {
 		if nextRun.After(now) {
 			continue
 		}
+		if r.isRunning(s.ID) {
+			continue
+		}
 		if resuming {
 			r.skipMissedRun(s, now)
 			continue
 		}
-		due = append(due, s)
+		if !r.start(s) {
+			break
+		}
+		started++
 	}
 
-	if len(due) == 0 {
-		return
+	if started > 0 {
+		slog.Info("Started due scheduled jobs", "count", started)
 	}
+}
 
-	slog.Info("Processing due scheduled jobs", "count", len(due))
+func (r *Runner) isRunning(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.running[id]
+}
 
-	sem := make(chan struct{}, maxConcurrent)
-	var wg sync.WaitGroup
-
-	for _, schedule := range due {
-		wg.Add(1)
-		sem <- struct{}{}
-
-		go func(s database.Schedule) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			r.runSchedule(s)
-		}(schedule)
+// start runs s in the background when a slot is free; false means all slots
+// are busy.
+func (r *Runner) start(s database.Schedule) bool {
+	select {
+	case r.slots <- struct{}{}:
+	default:
+		return false
 	}
+	r.mu.Lock()
+	r.running[s.ID] = true
+	r.mu.Unlock()
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		defer func() {
+			r.mu.Lock()
+			delete(r.running, s.ID)
+			r.mu.Unlock()
+			<-r.slots
+		}()
+		defer safe.Recover("scheduler-run")
+		r.runSchedule(s)
+	}()
+	return true
+}
 
-	wg.Wait()
+// wait blocks until every started run has finished (tests and shutdown).
+func (r *Runner) wait() {
+	r.wg.Wait()
 }
 
 // skipMissedRun moves a schedule that fell due while Pro work was paused to
@@ -212,10 +249,7 @@ func (r *Runner) runSchedule(schedule database.Schedule) {
 				slog.Warn("Failed to create schedule failure alert event", "schedule", schedule.ID, "error", alertErr)
 			}
 		} else if status == "success" {
-			threshold := int(float64(maxInt(schedule.TimeoutMs, 60000)) * 0.8)
-			if threshold < 5000 {
-				threshold = 5000
-			}
+			threshold := slowThresholdMs(schedule.TimeoutMs)
 			if elapsed >= threshold {
 				fingerprint := fmt.Sprintf("schedule:%s:slow", schedule.ID)
 				payload := map[string]interface{}{
@@ -309,11 +343,17 @@ func nullableConnectionID(connectionID string) *string {
 	return &id
 }
 
-func maxInt(a, b int) int {
-	if a > b {
-		return a
+// slowThresholdMs is 80% of the schedule's effective timeout (60 s when
+// unset), with a 1 s floor so very short timeouts do not flag every run.
+func slowThresholdMs(timeoutMs int) int {
+	if timeoutMs <= 0 {
+		timeoutMs = 60000
 	}
-	return b
+	threshold := timeoutMs * 8 / 10
+	if threshold < 1000 {
+		threshold = 1000
+	}
+	return threshold
 }
 
 // findCredentials resolves the configured background account or session fallback.

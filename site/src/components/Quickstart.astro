@@ -31,14 +31,20 @@ const snippets: Snippet[] = [
   {
     id: "docker",
     label: "Docker",
+    // No -d: the first run prints the setup code, and the log is where to
+    // read it. host-gateway makes host.docker.internal work on Linux too.
     lines: [
-      "$ docker run -d --name ch-ui -p 3488:3488 \\",
+      "$ docker run --name ch-ui -p 3488:3488 \\",
       "    -v ch-ui-data:/app/data \\",
+      "    --add-host host.docker.internal:host-gateway \\",
+      "    -e CLICKHOUSE_URL=http://host.docker.internal:8123 \\",
       "    ghcr.io/caioricciuti/ch-ui:latest",
       "> Open http://localhost:3488",
+      "$ docker logs ch-ui 2>&1 | grep setup_code",
+      "> Only if sign-in fails: the one-time setup code",
     ],
     clipboard:
-      "docker run -d --name ch-ui -p 3488:3488 \\\n  -v ch-ui-data:/app/data \\\n  ghcr.io/caioricciuti/ch-ui:latest",
+      "docker run --name ch-ui -p 3488:3488 \\\n  -v ch-ui-data:/app/data \\\n  --add-host host.docker.internal:host-gateway \\\n  -e CLICKHOUSE_URL=http://host.docker.internal:8123 \\\n  ghcr.io/caioricciuti/ch-ui:latest",
   },
 ];
 ---

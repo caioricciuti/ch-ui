@@ -19,6 +19,9 @@
     Search,
     X,
     Funnel,
+    ExternalLink,
+    Ban,
+    Eye,
   } from 'lucide-svelte'
   import {
     fetchSummary,
@@ -26,6 +29,9 @@
     fetchHistory,
     fetchSettings,
     saveSettings,
+    killQuery,
+    killMutation,
+    type MetricGroup,
     type HealthSummary,
     type NodeSample,
     type LiveResult,
@@ -47,6 +53,9 @@
   import FormField from '../lib/components/common/FormField.svelte'
   import Input from '../lib/components/common/Input.svelte'
   import Select from '../lib/components/common/Select.svelte'
+  import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
+  import { openQueryTab } from '../lib/stores/tabs.svelte'
+  import { getSession } from '../lib/stores/session.svelte'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import { getSection } from '../lib/stores/nav.svelte'
   import { PAGE_SECTIONS } from '../lib/routes'
@@ -170,6 +179,7 @@
         { key: 'database', label: 'Database', mono: true },
         { key: 'table', label: 'Table', mono: true },
         { key: 'mutation_id', label: 'ID', mono: true },
+        { key: 'command', label: 'Command', mono: true },
         { key: 'parts_to_do', label: 'Parts left' },
         { key: 'create_time', label: 'Created', mono: true },
         { key: 'latest_fail_reason', label: 'Fail reason', mono: true },
@@ -291,21 +301,58 @@
   // Tiles, the node table and the trend charts all respect the node filter, so
   // funnelling a node shows that node's health at a glance.
   const filteredNodes = $derived(nodeFilter ? nodes.filter((n) => n.node === nodeFilter) : nodes)
+  // Down nodes get their own signal (badge, row); the tiles aggregate the
+  // nodes that answered. A metric that failed on any of them is unknown.
+  const upNodes = $derived(filteredNodes.filter((n) => !n.down))
+  const downNodes = $derived(nodes.filter((n) => n.down))
+  function unknownIn(list: NodeSample[], m: MetricGroup): boolean {
+    return list.length === 0 || list.some((n) => (n.unknown ?? []).includes(m))
+  }
   const agg = $derived.by(() => {
-    const list = filteredNodes
+    const list = upNodes
     const max = (f: (n: NodeSample) => number) => list.reduce((m, n) => Math.max(m, f(n) || 0), 0)
     const sum = (f: (n: NodeSample) => number) => list.reduce((m, n) => m + (f(n) || 0), 0)
+    const unknown: Record<MetricGroup, boolean> = {
+      replication: unknownIn(list, 'replication'),
+      merges: unknownIn(list, 'merges'),
+      mutations: unknownIn(list, 'mutations'),
+      parts: unknownIn(list, 'parts'),
+      long_queries: unknownIn(list, 'long_queries'),
+      disk: unknownIn(list, 'disk'),
+    }
     return {
       maxDelay: max(n => n.replication_max_delay),
       totalQueue: sum(n => n.replication_queue_total),
       readonly: sum(n => n.replicas_readonly),
       merges: sum(n => n.merges_running),
       mutations: sum(n => n.mutations_pending),
+      mutationsOldest: max(n => n.mutations_oldest_age_seconds ?? 0),
       partsPressure: max(n => n.parts_pressure_pct),
       partsMax: max(n => n.parts_max_active),
       longQueries: sum(n => n.long_queries),
+      diskMax: max(n => n.disk_used_pct ?? 0),
+      unknown,
     }
   })
+  const summaryErrors = $derived(Object.entries(summary?.errors ?? {}))
+
+  // Which metric group each node-table column belongs to.
+  const COLUMN_METRIC: Record<string, MetricGroup> = {
+    replication_max_delay: 'replication',
+    replication_queue_total: 'replication',
+    replicas_readonly: 'replication',
+    merges_running: 'merges',
+    mutations_pending: 'mutations',
+    parts_max_active: 'parts',
+    long_queries: 'long_queries',
+    disk_used_pct: 'disk',
+  }
+  function cellUnknown(row: Record<string, unknown>, key: string): boolean {
+    const metric = COLUMN_METRIC[key]
+    if (!metric) return false
+    if (row.down === true) return true
+    return Array.isArray(row.unknown) && row.unknown.includes(metric)
+  }
 
   // Nodes table on the overview. NodeSample is an interface, so spread it
   // into a plain record for the generic table.
@@ -319,6 +366,7 @@
     { key: 'mutations_pending', label: 'Mutations', align: 'right', format: fmtNum },
     { key: 'parts_max_active', label: 'Max parts', align: 'right', format: fmtNum },
     { key: 'long_queries', label: 'Long queries', align: 'right', format: fmtNum },
+    { key: 'disk_used_pct', label: 'Disk used', align: 'right', format: (v) => (typeof v === 'number' ? fmtPct(v) : '') },
   ]
 
   // ── Status thresholds ──────────────────────────────────────────────────────
@@ -334,6 +382,19 @@
   function statTone(s: Status): 'danger' | 'warning' | 'default' {
     return s === 'crit' ? 'danger' : s === 'warn' ? 'warning' : 'default'
   }
+  // A single pending mutation is normal. Warn at 5 pending or one older than
+  // 15 minutes; critical at 20 pending or one older than an hour.
+  function mutationStatus(count: number, oldestSeconds: number): Status {
+    if (count >= 20 || oldestSeconds >= 3600) return 'crit'
+    if (count >= 5 || oldestSeconds >= 900) return 'warn'
+    return 'ok'
+  }
+  function fmtAge(seconds: number): string {
+    if (seconds < 60) return `${Math.round(seconds)}s`
+    if (seconds < 3600) return `${Math.round(seconds / 60)} min`
+    return `${(seconds / 3600).toFixed(1)} h`
+  }
+  const UNKNOWN_HINT = 'Collection failed, not known to be healthy'
 
   const rangeItems = HISTORY_RANGES.map((r) => ({ id: r, label: r }))
   const nodeOptions = $derived([
@@ -344,7 +405,7 @@
   // ── Trend series (one series per node, aligned on captured_at) ─────────────
   const NODE_COLORS = ['#f97316', '#0ea5e9', '#10b981', '#a855f7', '#f59e0b', '#ec4899', '#84cc16', '#ef4444']
 
-  function buildNodeSeries(metric: (n: NodeSample) => number) {
+  function buildNodeSeries(metric: (n: NodeSample) => number, group: MetricGroup) {
     const samples = nodeFilter ? history.filter((s) => s.node === nodeFilter) : history
     const times = Array.from(new Set(samples.map((s) => s.captured_at))).sort()
     const timeIdx = new Map(times.map((t, i) => [t, i]))
@@ -355,7 +416,8 @@
       for (const s of samples) {
         if (s.node !== name) continue
         const idx = timeIdx.get(s.captured_at)
-        if (idx !== undefined) values[idx] = metric(s) || 0
+        // Unknown samples leave a gap rather than plotting a healthy 0.
+        if (idx !== undefined) values[idx] = s.down || (s.unknown ?? []).includes(group) ? null : metric(s) || 0
       }
       return {
         label: name,
@@ -370,8 +432,8 @@
       series,
     }
   }
-  const delayChart = $derived(buildNodeSeries((n) => n.replication_max_delay))
-  const partsChart = $derived(buildNodeSeries((n) => n.parts_pressure_pct))
+  const delayChart = $derived(buildNodeSeries((n) => n.replication_max_delay, 'replication'))
+  const partsChart = $derived(buildNodeSeries((n) => n.parts_pressure_pct, 'parts'))
 
   // ── Formatting ─────────────────────────────────────────────────────────────
   function fmtNum(v: unknown): string {
@@ -379,6 +441,52 @@
     if (!isFinite(n)) return String(v ?? '—')
     return n.toLocaleString()
   }
+  // ── Row detail and kill (long queries, mutations) ──────────────────────────
+  const canWrite = $derived(['admin', 'analyst'].includes(getSession()?.role ?? ''))
+  type DetailKind = 'query' | 'mutation'
+  let detail = $state<{ kind: DetailKind; row: Record<string, unknown> } | null>(null)
+  let confirmKill = $state(false)
+  let killing = $state(false)
+  const rowDetailKind = $derived<DetailKind | null>(
+    activeSection === 'long-queries' ? 'query' : activeSection === 'mutations' ? 'mutation' : null,
+  )
+
+  function str(v: unknown): string {
+    return v === null || v === undefined ? '' : String(v)
+  }
+  function openDetail(row: Record<string, unknown>) {
+    if (rowDetailKind) detail = { kind: rowDetailKind, row }
+  }
+  const detailText = $derived(detail ? str(detail.kind === 'query' ? detail.row.query : detail.row.command) : '')
+  const killDescription = $derived.by(() => {
+    if (!detail) return ''
+    const r = detail.row
+    const text = detailText.length > 1000 ? `${detailText.slice(0, 1000)}... (full text in the panel)` : detailText
+    if (detail.kind === 'query') {
+      return `Query ${str(r.query_id)} by ${str(r.user)}, running for ${fmtSeconds(Number(r.elapsed) || 0)} on ${str(r.node)}. ClickHouse checks that your account may kill it. Query: ${text}`
+    }
+    return `Mutation ${str(r.mutation_id)} on ${str(r.database)}.${str(r.table)}, created ${str(r.create_time)} on ${str(r.node)}. Parts already rewritten stay rewritten. Command: ${text}`
+  })
+
+  async function runKill() {
+    if (!detail) return
+    killing = true
+    try {
+      const r = detail.row
+      const res = detail.kind === 'query'
+        ? await killQuery(str(r.query_id))
+        : await killMutation(str(r.database), str(r.table), str(r.mutation_id))
+      toastSuccess(res.scope === 'cluster' ? 'Kill sent to every node' : 'Kill sent to the connected node')
+      confirmKill = false
+      detail = null
+      if (activeSection !== 'overview') await loadSection(activeSection, true)
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : 'Kill failed')
+    } finally {
+      killing = false
+    }
+  }
+
   // ── Data loading ───────────────────────────────────────────────────────────
   async function loadSummary(initial = false) {
     if (initial) loading = true
@@ -524,6 +632,16 @@
           {/if}
         </Badge>
       {/if}
+      {#if downNodes.length > 0}
+        <Badge tone="danger" title={downNodes.map((n) => n.node).join(', ')}>
+          <AlertTriangle size={11} /> {downNodes.length} node{downNodes.length === 1 ? '' : 's'} down
+        </Badge>
+      {/if}
+      {#if summaryErrors.length > 0}
+        <Badge tone="neutral" title={summaryErrors.map(([k, v]) => `${k}: ${v}`).join('; ')}>
+          {summaryErrors.length} metric{summaryErrors.length === 1 ? '' : 's'} unknown
+        </Badge>
+      {/if}
       {#if summary?.degraded}
         <Badge tone="warning" title="Some nodes could not be reached; showing local node only">
           <AlertTriangle size={11} /> Degraded
@@ -551,8 +669,9 @@
       {@const queueStatus = band(agg.totalQueue, 10, 100)}
       {@const roStatus = agg.readonly > 0 ? 'crit' : 'ok'}
       {@const partsStatus = band(agg.partsPressure, 50, 80)}
-      {@const mutStatus = band(agg.mutations, 1, 5)}
+      {@const mutStatus = mutationStatus(agg.mutations, agg.mutationsOldest)}
       {@const lqStatus = band(agg.longQueries, 1, 5)}
+      {@const diskStatus = band(agg.diskMax, 80, 90)}
       <PageBody width="lg">
         <div class="space-y-5">
           {#if nodeFilter}
@@ -569,13 +688,41 @@
           {/if}
 
           <!-- Headline tiles -->
-          <div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-            <Stat label="Max repl. delay" value={`${agg.maxDelay} s`} tone={statTone(delayStatus)} />
-            <Stat label="Repl. queue" value={fmtNum(agg.totalQueue)} tone={statTone(queueStatus)} />
-            <Stat label="Readonly replicas" value={agg.readonly} tone={statTone(roStatus)} />
-            <Stat label="Parts pressure" value={fmtPct(agg.partsPressure)} tone={statTone(partsStatus)} hint={`${fmtNum(agg.partsMax)} / ${fmtNum(summary.parts_limits?.parts_to_throw_insert)} parts`} />
-            <Stat label="Mutations pending" value={fmtNum(agg.mutations)} tone={statTone(mutStatus)} hint={`${fmtNum(agg.merges)} merges running`} />
-            <Stat label="Long queries" value={fmtNum(agg.longQueries)} tone={statTone(lqStatus)} hint={`> ${summary.threshold_seconds}s`} />
+          <div class="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+            {#if agg.unknown.replication}
+              <Stat label="Max repl. delay" value="Unknown" hint={UNKNOWN_HINT} />
+              <Stat label="Repl. queue" value="Unknown" hint={UNKNOWN_HINT} />
+              <Stat label="Readonly replicas" value="Unknown" hint={UNKNOWN_HINT} />
+            {:else}
+              <Stat label="Max repl. delay" value={`${agg.maxDelay} s`} tone={statTone(delayStatus)} />
+              <Stat label="Repl. queue" value={fmtNum(agg.totalQueue)} tone={statTone(queueStatus)} />
+              <Stat label="Readonly replicas" value={agg.readonly} tone={statTone(roStatus)} />
+            {/if}
+            {#if agg.unknown.parts}
+              <Stat label="Parts pressure" value="Unknown" hint={UNKNOWN_HINT} />
+            {:else}
+              <Stat label="Parts pressure" value={fmtPct(agg.partsPressure)} tone={statTone(partsStatus)} hint={`${fmtNum(agg.partsMax)} / ${fmtNum(summary.parts_limits?.parts_to_throw_insert)} parts`} />
+            {/if}
+            {#if agg.unknown.mutations}
+              <Stat label="Mutations pending" value="Unknown" hint={UNKNOWN_HINT} />
+            {:else}
+              <Stat
+                label="Mutations pending"
+                value={fmtNum(agg.mutations)}
+                tone={statTone(mutStatus)}
+                hint={agg.mutations > 0 ? `oldest ${fmtAge(agg.mutationsOldest)}` : agg.unknown.merges ? 'merges unknown' : `${fmtNum(agg.merges)} merges running`}
+              />
+            {/if}
+            {#if agg.unknown.long_queries}
+              <Stat label="Long queries" value="Unknown" hint={UNKNOWN_HINT} />
+            {:else}
+              <Stat label="Long queries" value={fmtNum(agg.longQueries)} tone={statTone(lqStatus)} hint={`> ${summary.threshold_seconds}s`} />
+            {/if}
+            {#if agg.unknown.disk}
+              <Stat label="Max disk used" value="Unknown" hint={UNKNOWN_HINT} />
+            {:else}
+              <Stat label="Max disk used" value={fmtPct(agg.diskMax)} tone={statTone(diskStatus)} hint="fullest disk" />
+            {/if}
           </div>
 
           <!-- Trends (one series per node) -->
@@ -600,7 +747,11 @@
           {#if nodeRows.length > 0}
             <DataTable columns={NODE_COLUMNS} rows={nodeRows} rowKey={(r) => String(r.node)} emptyTitle="No nodes reported">
               {#snippet cell(row, col, value)}
-                {#if col.key === 'replication_max_delay'}
+                {#if col.key === 'node' && row.down === true}
+                  <span class="inline-flex items-center gap-1.5"><span class="font-mono">{value}</span><Badge tone="danger">Down</Badge></span>
+                {:else if cellUnknown(row, col.key)}
+                  <span class="text-fg-4" title="Not collected this poll">unknown</span>
+                {:else if col.key === 'replication_max_delay'}
                   <Badge tone={badgeTone(band(Number(row.replication_max_delay) || 0, 10, 60))}>{value}</Badge>
                 {:else if col.key === 'replicas_readonly'}
                   {#if Number(row.replicas_readonly) > 0}<Badge tone="danger">{value}</Badge>{:else}0{/if}
@@ -677,6 +828,8 @@
                 columns={sectionColumns}
                 rows={sectionRows}
                 emptyTitle={sectionResult.data.length === 0 ? activeSpec.empty : 'No rows match the current filters'}
+                onrowclick={rowDetailKind ? openDetail : undefined}
+                actions={rowDetailKind ? rowActions : undefined}
               />
             </div>
           {/if}
@@ -712,3 +865,63 @@
     </Button>
   {/snippet}
 </Sheet>
+
+{#snippet rowActions(row: Record<string, unknown>)}
+  <Button icon variant="ghost" size="xs" onclick={(e: MouseEvent) => { e.stopPropagation(); openDetail(row) }} title="Show details" aria-label="Show details">
+    <Eye size={12} />
+  </Button>
+{/snippet}
+
+<!-- Long query / mutation detail -->
+<Sheet
+  open={detail !== null}
+  title={detail?.kind === 'mutation' ? 'Mutation' : 'Running query'}
+  description={detail ? str(detail.row.node) : ''}
+  size="lg"
+  onclose={() => (detail = null)}
+>
+  {#if detail}
+    {@const r = detail.row}
+    <dl class="mb-4 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-[13px]">
+      {#if detail.kind === 'query'}
+        <dt class="text-fg-3">Query ID</dt><dd class="break-all font-mono text-fg">{str(r.query_id)}</dd>
+        <dt class="text-fg-3">User</dt><dd class="font-mono text-fg">{str(r.user)}</dd>
+        <dt class="text-fg-3">Elapsed</dt><dd class="tabular-nums text-fg">{fmtSeconds(Number(r.elapsed) || 0)}</dd>
+        <dt class="text-fg-3">Memory</dt><dd class="text-fg">{str(r.memory)}</dd>
+        <dt class="text-fg-3">Read rows</dt><dd class="tabular-nums text-fg">{fmtNum(r.read_rows)}</dd>
+      {:else}
+        <dt class="text-fg-3">Mutation ID</dt><dd class="break-all font-mono text-fg">{str(r.mutation_id)}</dd>
+        <dt class="text-fg-3">Table</dt><dd class="font-mono text-fg">{str(r.database)}.{str(r.table)}</dd>
+        <dt class="text-fg-3">Created</dt><dd class="text-fg">{str(r.create_time)}</dd>
+        <dt class="text-fg-3">Parts left</dt><dd class="tabular-nums text-fg">{fmtNum(r.parts_to_do)}</dd>
+        {#if str(r.latest_fail_reason)}
+          <dt class="text-fg-3">Fail reason</dt><dd class="break-words font-mono text-danger">{str(r.latest_fail_reason)}</dd>
+        {/if}
+      {/if}
+    </dl>
+    <pre class="whitespace-pre-wrap break-words rounded-md border border-edge-subtle bg-surface-2 p-3 font-mono text-xs text-fg-2">{detailText}</pre>
+  {/if}
+  {#snippet footer()}
+    {#if detail?.kind === 'query'}
+      <Button variant="outline" size="sm" onclick={() => { openQueryTab(detailText); detail = null }}>
+        <ExternalLink size={13} /> Open in editor
+      </Button>
+    {/if}
+    {#if canWrite}
+      <Button variant="danger" size="sm" onclick={() => (confirmKill = true)}>
+        <Ban size={13} /> {detail?.kind === 'mutation' ? 'Kill mutation' : 'Kill query'}
+      </Button>
+    {/if}
+  {/snippet}
+</Sheet>
+
+<ConfirmDialog
+  open={confirmKill}
+  title={detail?.kind === 'mutation' ? 'Kill this mutation?' : 'Kill this query?'}
+  description={killDescription}
+  confirmLabel="Kill"
+  destructive
+  loading={killing}
+  onconfirm={runKill}
+  oncancel={() => (confirmKill = false)}
+/>

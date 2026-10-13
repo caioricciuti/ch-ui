@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import {
     decodeAbsoluteDashboardRange,
     encodeAbsoluteDashboardRange,
@@ -30,44 +31,59 @@
 
   const label = $derived(formatDashboardTimeRangeLabel(value))
 
-  // Seed calendar state when the picker opens
+  // Calendar day and time of day of an instant, both read in the selected
+  // time zone (UTC or the browser's), so the picker shows what Apply will send.
+  function dayOf(d: Date): Date {
+    return timezone === 'UTC'
+      ? new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+      : new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  }
+
+  function timeOf(d: Date): string {
+    return timezone === 'UTC'
+      ? pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds())
+      : pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
+  }
+
+  function seedFrom(from: Date, to: Date) {
+    rangeStart = dayOf(from)
+    rangeEnd = dayOf(to)
+    fromTime = timeOf(from)
+    toTime = timeOf(to)
+  }
+
+  // Seed calendar state when the picker opens. Changing the time zone later
+  // does not reseed: the dates and times typed so far are read in the new zone.
   $effect(() => {
     if (!open) return
-
-    // Try to decode the current value into calendar state
-    const absolute = decodeAbsoluteDashboardRange(value)
-    if (absolute) {
-      const from = new Date(absolute.from)
-      const to = new Date(absolute.to)
-      if (!isNaN(from.getTime()) && !isNaN(to.getTime())) {
-        rangeStart = new Date(from.getFullYear(), from.getMonth(), from.getDate())
-        rangeEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate())
-        fromTime = pad(from.getUTCHours()) + ':' + pad(from.getUTCMinutes()) + ':' + pad(from.getUTCSeconds())
-        toTime = pad(to.getUTCHours()) + ':' + pad(to.getUTCMinutes()) + ':' + pad(to.getUTCSeconds())
-        return
+    untrack(() => {
+      // Try to decode the current value into calendar state
+      const absolute = decodeAbsoluteDashboardRange(value)
+      if (absolute) {
+        const from = new Date(absolute.from)
+        const to = new Date(absolute.to)
+        if (!isNaN(from.getTime()) && !isNaN(to.getTime())) {
+          seedFrom(from, to)
+          return
+        }
       }
-    }
 
-    // Named presets — resolve to get calendar dates
-    if (value.startsWith('preset:')) {
-      const resolved = resolveNamedPreset(value)
-      if (resolved) {
-        const from = new Date(resolved.from)
-        const to = new Date(resolved.to)
-        rangeStart = new Date(from.getFullYear(), from.getMonth(), from.getDate())
-        rangeEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate())
-        fromTime = pad(from.getUTCHours()) + ':' + pad(from.getUTCMinutes()) + ':' + pad(from.getUTCSeconds())
-        toTime = pad(to.getUTCHours()) + ':' + pad(to.getUTCMinutes()) + ':' + pad(to.getUTCSeconds())
-        return
+      // Named presets — resolve to get calendar dates
+      if (value.startsWith('preset:')) {
+        const resolved = resolveNamedPreset(value)
+        if (resolved) {
+          seedFrom(new Date(resolved.from), new Date(resolved.to))
+          return
+        }
       }
-    }
 
-    // Relative shorthand — show current moment minus offset
-    const now = new Date()
-    rangeEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    rangeStart = null
-    fromTime = '00:00:00'
-    toTime = pad(now.getUTCHours()) + ':' + pad(now.getUTCMinutes()) + ':' + pad(now.getUTCSeconds())
+      // Relative shorthand — today up to now
+      const now = new Date()
+      rangeEnd = dayOf(now)
+      rangeStart = null
+      fromTime = '00:00:00'
+      toTime = timeOf(now)
+    })
   })
 
   function pad(n: number): string {

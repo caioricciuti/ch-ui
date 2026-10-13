@@ -1,3 +1,23 @@
+<script module lang="ts">
+  import { togglePanel } from '../../stores/nav.svelte'
+
+  const NARROW_QUERY = '(max-width: 1100px)'
+
+  // Narrow screens (<= 1100 px) have no room for the explorer beside the
+  // workspace, so it opens over it instead. Not persisted: it is a peek.
+  let overlayOpen = $state(false)
+
+  function isNarrow(): boolean {
+    return typeof matchMedia !== 'undefined' && matchMedia(NARROW_QUERY).matches
+  }
+
+  /** ⌘B and the panel toggle: beside the workspace when wide, over it when narrow. */
+  export function toggleExplorer(groupId: string): void {
+    if (isNarrow()) overlayOpen = !overlayOpen
+    else togglePanel(groupId)
+  }
+</script>
+
 <script lang="ts">
   import DatabaseTree from '../explorer/DatabaseTree.svelte'
   import Button from '../common/Button.svelte'
@@ -6,10 +26,12 @@
   import { getSession } from '../../stores/session.svelte'
   import { hasProReadAccess } from '../../stores/license.svelte'
   import { getSection, setSection, isPanelCollapsed, setPanelCollapsed } from '../../stores/nav.svelte'
+  import { MOD, combo } from '../../utils/shortcuts'
   import {
     groupForRoute, isPageRouteType, PAGE_ROUTES, PAGE_SECTIONS, ADMIN_ONLY_ROUTES, type PageRoute,
   } from '../../routes'
   import { PanelLeftClose, PanelLeftOpen, BookOpen, ExternalLink } from 'lucide-svelte'
+  import { prefetchPage } from './pageLoaders'
 
   // Second column. On the workspace it is the schema explorer: resizable,
   // collapsible, width remembered. On a page it is a plain sidebar for the
@@ -20,7 +42,6 @@
   const DEFAULT_WIDTH = 300
   const NAV_WIDTH = 224
   const COLLAPSED_WIDTH = 32
-  const NARROW_QUERY = '(max-width: 1100px)'
   const WIDTH_KEY = 'ch-ui-explorer-width'
 
   const savedWidth = parseInt(localStorage.getItem(WIDTH_KEY) ?? String(DEFAULT_WIDTH), 10)
@@ -33,14 +54,34 @@
   const routeType = $derived(getRouteType())
   const onWorkspace = $derived(!isPageRouteType(routeType))
   const group = $derived(groupForRoute(routeType))
-  // Only the explorer collapses (button, ⌘B, drag, narrow screens). Page
-  // sidebars are always open: there is nothing else in that column.
-  const collapsed = $derived(onWorkspace && (isPanelCollapsed(group.id) || narrow))
+  // Only the explorer collapses (button, ⌘B, drag). Page sidebars are
+  // always open: there is nothing else in that column. On narrow screens the
+  // column stays collapsed and the explorer opens as an overlay.
+  const overlay = $derived(onWorkspace && narrow && overlayOpen)
+  const collapsed = $derived(onWorkspace && (narrow || isPanelCollapsed(group.id)))
   const width = $derived(collapsed ? COLLAPSED_WIDTH : onWorkspace ? explorerWidth : NAV_WIDTH)
   const licensedPro = $derived(hasProReadAccess())
   const routes = $derived(
     group.routes.filter((r) => !ADMIN_ONLY_ROUTES.has(r) || session?.role === 'admin'),
   )
+
+  // The overlay is a peek: it closes when the screen widens or you leave
+  // the workspace.
+  $effect(() => {
+    if (!narrow || !onWorkspace) overlayOpen = false
+  })
+
+  function openExplorer() {
+    if (narrow) overlayOpen = true
+    else setPanelCollapsed(group.id, false)
+  }
+
+  function onOverlayKeydown(e: KeyboardEvent) {
+    if (overlay && e.key === 'Escape') {
+      e.preventDefault()
+      overlayOpen = false
+    }
+  }
 
   $effect(() => {
     const mq = matchMedia(NARROW_QUERY)
@@ -98,19 +139,20 @@
   aria-label={onWorkspace ? 'Schema explorer' : `${group.label} navigation`}
 >
   {#if collapsed}
-    <Button icon variant="ghost" size="sm" class="mx-auto mt-1.5" onclick={() => setPanelCollapsed(group.id, false)} title="Show panel (⌘B)" aria-label="Show panel">
+    <Button
+      icon
+      variant="ghost"
+      size="sm"
+      class="mx-auto mt-1.5"
+      onclick={() => (overlay ? (overlayOpen = false) : openExplorer())}
+      title="{overlay ? 'Hide' : 'Show'} explorer ({combo(MOD, 'B')})"
+      aria-label="{overlay ? 'Hide' : 'Show'} explorer"
+      aria-expanded={overlay}
+    >
       <PanelLeftOpen size={15} />
     </Button>
   {:else if onWorkspace}
-    <div class="flex h-9 shrink-0 items-center justify-between pl-3 pr-1.5">
-      <span class="text-[10px] font-medium uppercase tracking-[0.1em] text-fg-4">Explorer</span>
-      <Button icon variant="ghost" size="xs" onclick={() => setPanelCollapsed(group.id, true)} title="Hide panel (⌘B)" aria-label="Hide panel">
-        <PanelLeftClose size={14} />
-      </Button>
-    </div>
-    <div class="min-h-0 flex-1 overflow-hidden border-t border-edge-subtle">
-      <DatabaseTree onSelectTable={(database, table) => openTableTab(database, table)} />
-    </div>
+    {@render explorer(() => setPanelCollapsed(group.id, true))}
   {:else}
     <div class="flex h-12 shrink-0 items-center pl-4 pr-2">
       <span class="text-[13px] font-semibold tracking-[-0.01em] text-fg">{group.label}</span>
@@ -125,6 +167,8 @@
           <button
             class="flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-[13px] transition-colors {active ? 'bg-active font-medium text-fg' : 'text-fg-2 hover:bg-hover hover:text-fg'}"
             onclick={() => goTo(route)}
+            onpointerenter={() => prefetchPage(route)}
+            onfocus={() => prefetchPage(route)}
             aria-current={active ? 'page' : undefined}
           >
             <meta.icon size={15} strokeWidth={1.75} class="shrink-0 {active ? 'text-accent' : 'text-fg-3'}" />
@@ -168,6 +212,42 @@
     </nav>
   {/if}
 </div>
+
+{#snippet explorer(hide: () => void)}
+  <div class="flex h-9 shrink-0 items-center justify-between pl-3 pr-1.5">
+    <span class="text-[10px] font-medium uppercase tracking-[0.1em] text-fg-4">Explorer</span>
+    <Button icon variant="ghost" size="xs" onclick={hide} title="Hide explorer ({combo(MOD, 'B')})" aria-label="Hide explorer">
+      <PanelLeftClose size={14} />
+    </Button>
+  </div>
+  <div class="min-h-0 flex-1 overflow-hidden border-t border-edge-subtle">
+    <DatabaseTree
+      onSelectTable={(database, table) => {
+        openTableTab(database, table)
+        overlayOpen = false
+      }}
+    />
+  </div>
+{/snippet}
+
+<svelte:window onkeydown={onOverlayKeydown} />
+
+{#if overlay}
+  <button
+    type="button"
+    class="fixed inset-0 z-40 bg-scrim"
+    aria-label="Close explorer"
+    onclick={() => (overlayOpen = false)}
+  ></button>
+  <div
+    class="fixed inset-y-0 left-12 z-50 flex w-[300px] max-w-[calc(100vw-3rem)] flex-col border-r border-edge bg-sidebar"
+    style="box-shadow: var(--shadow-modal)"
+    role="dialog"
+    aria-label="Schema explorer"
+  >
+    {@render explorer(() => (overlayOpen = false))}
+  </div>
+{/if}
 
 {#if !collapsed && onWorkspace}
   <!-- svelte-ignore a11y_no_static_element_interactions -->

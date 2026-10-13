@@ -25,3 +25,18 @@ export function formatDuration(ms: number): string {
   if (ms < 60_000) return `${(ms / 1000).toFixed(2)} s`
   return `${(ms / 60_000).toFixed(1)} min`
 }
+
+/**
+ * Span status as one of the three tones. The exporter writes "Error" and
+ * "Ok"; other pipelines write the enum names STATUS_CODE_ERROR / _OK.
+ */
+export function isErrorStatus(status: string): boolean {
+  const u = status.toLowerCase()
+  return u === 'error' || u === 'status_code_error'
+}
+
+export function statusTone(status: string): 'success' | 'danger' | 'neutral' {
+  if (isErrorStatus(status)) return 'danger'
+  const u = status.toLowerCase()
+  return u === 'ok' || u === 'status_code_ok' ? 'success' : 'neutral'
+}

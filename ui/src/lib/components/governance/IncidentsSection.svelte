@@ -23,7 +23,9 @@
   import Markdown from '../common/Markdown.svelte'
   import Spinner from '../common/Spinner.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
-  import { Plus } from 'lucide-svelte'
+  import EmptyState from '../common/EmptyState.svelte'
+  import { getSession } from '../../stores/session.svelte'
+  import { Plus, Lock } from 'lucide-svelte'
 
   // Incidents: a queue of things a person has to act on. Manual ones are
   // written here; the syncer promotes violations and over-permissions.
@@ -37,6 +39,9 @@
   const statusFilterOptions = [{ value: '', label: 'All statuses' }, ...STATUSES.map((v) => ({ value: v, label: v }))]
   const severityOptions = SEVERITIES.map((v) => ({ value: v, label: v }))
   const statusOptions = STATUSES.map((v) => ({ value: v, label: v.replace('_', ' ') }))
+
+  // Incidents name other users and carry violation details: admin-only.
+  const isAdmin = $derived(getSession()?.role === 'admin')
 
   let incidents = $state<GovernanceIncident[]>([])
   let loading = $state(false)
@@ -94,6 +99,7 @@
   }
 
   async function load() {
+    if (!isAdmin) return
     loading = true
     try {
       const res = await fetchIncidents({
@@ -232,6 +238,9 @@
   }
 </script>
 
+{#if !isAdmin}
+  <EmptyState icon={Lock} title="Admins only" description="Incidents name other users and carry violation details, so only admins can see them." />
+{:else}
 <div class="flex h-full min-h-0 flex-col">
   <div class="flex h-10 shrink-0 items-center gap-2 px-5">
     <Select size="sm" class="w-40" options={statusFilterOptions} bind:value={statusFilter} />
@@ -275,6 +284,7 @@
     {/if}
   </div>
 </div>
+{/if}
 
 <Sheet open={createOpen} title="New incident" description="Something a person has to look at. Details take markdown." size="lg" onclose={() => (createOpen = false)}>
   <div class="space-y-4">

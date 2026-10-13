@@ -1282,6 +1282,10 @@ Formatting:
 		)
 	}
 
+	if err := db.migrateBrainV2(); err != nil {
+		return err
+	}
+
 	if err := db.migratePipelinesV2(); err != nil {
 		return err
 	}

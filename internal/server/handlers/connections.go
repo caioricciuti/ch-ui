@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -26,6 +28,10 @@ type ConnectionsHandler struct {
 	Gateway *tunnel.Gateway
 	Config  *config.Config
 	Agents  *embedded.Manager
+	// RateLimiter is shared with AuthHandler. nil creates one on first use.
+	RateLimiter *middleware.RateLimiter
+
+	limiterOnce sync.Once
 }
 
 // validateClickHouseURL checks that a direct connection target is a usable
@@ -225,7 +231,7 @@ func (h *ConnectionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"connection":         conn,
 		"tunnel_token":       token,
-		"setup_instructions": getSetupInstructions(token),
+		"setup_instructions": getSetupInstructions(h.Config, token),
 	})
 }
 
@@ -371,9 +377,20 @@ func (h *ConnectionsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Connection deleted successfully"})
 }
 
-// TestConnection tests a ClickHouse connection through the tunnel.
+// TestConnection tests ClickHouse credentials against a connection. Admin
+// only: it takes any username and password, so it shares the login rate
+// limit and counts rejected credentials like a failed sign-in.
 // POST /{id}/test
+//
+// 200 success, 400 credentials rejected, 403 not an admin, 404 unknown
+// connection, 429 rate limited, 502 ClickHouse unreachable, 503 agent offline.
 func (h *ConnectionsHandler) TestConnection(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil || session.UserRole != "admin" {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "Connection ID is required")
@@ -388,11 +405,6 @@ func (h *ConnectionsHandler) TestConnection(w http.ResponseWriter, r *http.Reque
 	}
 	if conn == nil {
 		writeError(w, http.StatusNotFound, "Connection not found")
-		return
-	}
-
-	if !h.Gateway.IsTunnelOnline(id) {
-		writeError(w, http.StatusOK, "Tunnel is not connected. Please ensure the agent is running.")
 		return
 	}
 
@@ -411,14 +423,50 @@ func (h *ConnectionsHandler) TestConnection(w http.ResponseWriter, r *http.Reque
 		username = "default"
 	}
 
-	result, err := h.Gateway.TestConnection(id, username, password, 15*time.Second)
-	if err != nil {
-		slog.Warn("Connection test failed", "error", err, "id", id)
-		writeError(w, http.StatusOK, err.Error())
+	attempt := &credentialAttempt{rl: h.limiter()}
+	defer attempt.release()
+	if !attempt.reserveIPAndUser(w, getClientIP(r), username, id) {
 		return
 	}
 
+	if !h.Gateway.IsTunnelOnline(id) {
+		writeError(w, http.StatusServiceUnavailable, "Tunnel is not connected. Please ensure the agent is running.")
+		return
+	}
+
+	result, err := h.Gateway.TestConnection(id, username, password, 15*time.Second)
+	if err == nil && !result.Success {
+		msg := result.Error
+		if msg == "" {
+			msg = "Invalid credentials"
+		}
+		err = errors.New(msg)
+	}
+	if err != nil {
+		slog.Warn("Connection test failed", "error", err, "id", id)
+		if classifyClickHouseAuthError(err.Error()) == chAuthUnreachable {
+			writeError(w, http.StatusBadGateway, sanitizeClickHouseAuthMessage(err.Error()))
+			return
+		}
+		attempt.failed()
+		writeError(w, http.StatusBadRequest, sanitizeClickHouseAuthMessage(err.Error()))
+		return
+	}
+	attempt.succeeded()
+
 	writeJSON(w, http.StatusOK, result)
+}
+
+// limiter returns the rate limiter shared with login. Attempts are stored in
+// SQLite, so a fallback limiter (when none is wired) still sees the same
+// lockouts; only in-flight reservations are per instance.
+func (h *ConnectionsHandler) limiter() *middleware.RateLimiter {
+	h.limiterOnce.Do(func() {
+		if h.RateLimiter == nil {
+			h.RateLimiter = middleware.NewRateLimiter(h.DB)
+		}
+	})
+	return h.RateLimiter
 }
 
 // GetToken returns the tunnel token for a connection.
@@ -443,7 +491,7 @@ func (h *ConnectionsHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"tunnel_token":       conn.TunnelToken,
-		"setup_instructions": getSetupInstructions(conn.TunnelToken),
+		"setup_instructions": getSetupInstructions(h.Config, conn.TunnelToken),
 	})
 }
 
@@ -491,7 +539,7 @@ func (h *ConnectionsHandler) RegenerateToken(w http.ResponseWriter, r *http.Requ
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"tunnel_token":       newToken,
-		"setup_instructions": getSetupInstructions(newToken),
+		"setup_instructions": getSetupInstructions(h.Config, newToken),
 		"message":            "Token regenerated successfully. The previous token is now invalid.",
 	})
 }
@@ -572,10 +620,42 @@ func (h *ConnectionsHandler) buildConnectionResponse(c database.Connection) conn
 	return resp
 }
 
-// getSetupInstructions returns setup instructions for connecting a tunnel.
-func getSetupInstructions(token string) map[string]string {
-	return map[string]string{
-		"connect": fmt.Sprintf("ch-ui connect --url <YOUR_SERVER_URL>/connect --key %s", token),
-		"service": fmt.Sprintf("ch-ui service install --url <YOUR_SERVER_URL>/connect --key %s", token),
+// getSetupInstructions returns the agent commands for a tunnel token. The
+// server URL comes from app_url (http to ws, https to wss). A loopback or
+// missing app_url keeps the <YOUR_SERVER_URL> placeholder: an agent on
+// another machine cannot use localhost.
+func getSetupInstructions(cfg *config.Config, token string) map[string]string {
+	server := "<YOUR_SERVER_URL>"
+	if cfg != nil {
+		if ws := agentServerURL(cfg.AppURL); ws != "" {
+			server = ws
+		}
 	}
+	return map[string]string{
+		"connect": fmt.Sprintf("ch-ui connect --url %s/connect --key %s", server, token),
+		"service": fmt.Sprintf("ch-ui service install --url %s/connect --key %s", server, token),
+	}
+}
+
+// agentServerURL converts app_url to the websocket base an agent dials, or
+// "" when app_url is empty, unparsable or points at this machine.
+func agentServerURL(appURL string) string {
+	u, err := url.Parse(strings.TrimSpace(appURL))
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	switch u.Scheme {
+	case "http":
+		u.Scheme = "ws"
+	case "https":
+		u.Scheme = "wss"
+	default:
+		return ""
+	}
+	host := u.Hostname()
+	if host == "localhost" || host == "0.0.0.0" || host == "::1" || strings.HasPrefix(host, "127.") {
+		return ""
+	}
+	u.RawQuery, u.Fragment = "", ""
+	return strings.TrimRight(u.String(), "/")
 }

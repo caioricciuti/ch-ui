@@ -135,6 +135,8 @@ export type QueryHarvestMode = 'auto' | 'always' | 'off'
 
 export interface QueryHarvestSettings {
   mode: QueryHarvestMode
+  /** Successful queries faster than this are not harvested; 0 keeps all. */
+  min_duration_ms: number
   policy_count: number
   harvesting: boolean
 }

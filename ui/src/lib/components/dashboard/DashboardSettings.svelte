@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Dashboard, Panel } from '../../types/api'
-  import { apiPost, apiPut, apiDel } from '../../api/client'
+  import { apiPost, apiPut } from '../../api/client'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import Sheet from '../common/Sheet.svelte'
   import Button from '../common/Button.svelte'
@@ -77,47 +77,24 @@
     }
   }
 
+  /**
+   * The server validates every panel first and swaps them in one
+   * transaction, so a bad file leaves the dashboard exactly as it was.
+   */
   async function applyJson() {
     if (!validateJson()) return
     saving = true
     try {
-      const parsed = JSON.parse(jsonText)
-
-      await apiPut(`/api/dashboards/${dashboard.id}`, {
-        name: parsed.dashboard.name ?? dashboard.name,
-        description: parsed.dashboard.description ?? dashboard.description,
-      })
-
-      for (const p of panels) {
-        await apiDel(`/api/dashboards/${dashboard.id}/panels/${p.id}`)
-      }
-
-      const newPanels: Panel[] = []
-      for (const p of parsed.panels) {
-        const res = await apiPost<{ panel: Panel }>(`/api/dashboards/${dashboard.id}/panels`, {
-          name: p.name,
-          description: p.description ?? '',
-          panel_type: p.panel_type,
-          query: p.query,
-          config: typeof p.config === 'string' ? p.config : JSON.stringify(p.config ?? {}),
-          layout_x: p.layout_x ?? 0,
-          layout_y: p.layout_y ?? 0,
-          layout_w: p.layout_w ?? 6,
-          layout_h: p.layout_h ?? 4,
-        })
-        if (res.panel) newPanels.push(res.panel)
-      }
-
-      const updatedDashboard = {
-        ...dashboard,
-        name: parsed.dashboard.name ?? dashboard.name,
-        description: parsed.dashboard.description ?? dashboard.description,
-      }
-
+      const parsed: unknown = JSON.parse(jsonText)
+      const res = await apiPost<{ dashboard: Dashboard; panels: Panel[] }>(
+        `/api/dashboards/${dashboard.id}/import`,
+        parsed,
+      )
       toastSuccess('Dashboard config applied')
-      onimported(updatedDashboard, newPanels)
+      onimported({ ...dashboard, ...res.dashboard }, res.panels ?? [])
     } catch (e: unknown) {
-      toastError('Failed to apply: ' + (e instanceof Error ? e.message : String(e)))
+      jsonError = e instanceof Error ? e.message : String(e)
+      toastError('Failed to apply: ' + jsonError)
     } finally {
       saving = false
     }
@@ -329,7 +306,7 @@
   "version": 1,
   "dashboard": {"{"} "name": "...", "description": "..." {"}"},
   "panels": [
-    {"{"} "name": "...", "panel_type": "stat|table|timeseries|bar",
+    {"{"} "name": "...", "panel_type": "table|stat|gauge|timeseries|bar|pie|text",
       "query": "SELECT ...", "config": {"{"} ... {"}"},
       "layout_x": 0, "layout_y": 0, "layout_w": 6, "layout_h": 4 {"}"}
   ]

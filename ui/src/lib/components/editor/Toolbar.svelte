@@ -28,6 +28,7 @@
   // Shortcuts are bound in SqlEditor and work while the editor has focus.
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
   const runShortcut = isMac ? '⌘↵' : 'Ctrl+↵'
+  const runAllShortcut = isMac ? '⇧⌘↵' : 'Shift+Ctrl+↵'
   const saveShortcut = isMac ? '⌘S' : 'Ctrl+S'
   const formatShortcut = isMac ? '⇧⌥F' : 'Shift+Alt+F'
   const cancelShortcut = isMac ? 'Esc or ⌘.' : 'Esc or Ctrl+.'
@@ -52,7 +53,7 @@
       Cancel
     </button>
   {:else}
-    <Button size="sm" onclick={onrun} title="Run query ({runShortcut})">
+    <Button size="sm" onclick={onrun} title="Run the selection, or the statement under the cursor ({runShortcut}). Run all statements: {runAllShortcut}">
       <Play size={13} />
       Run
       <kbd class="ml-1 rounded-sm bg-accent-fg/20 px-1 font-sans text-[10px] font-medium leading-4 text-accent-fg/85">{runShortcut}</kbd>

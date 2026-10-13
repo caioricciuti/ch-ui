@@ -20,13 +20,15 @@
   import MarkdownPanel from './MarkdownPanel.svelte'
   import GaugePanel from './GaugePanel.svelte'
   import PiePanel from './PiePanel.svelte'
+  import PanelTable from './PanelTable.svelte'
+  import EmptyState from '../common/EmptyState.svelte'
   import { computeStat } from '../../utils/chart-transform'
   import {
-    COLS, ROW_H, GAP, MIN_W, MIN_H,
-    calcColW, gridToPixel, compact, containerHeight,
+    COLS, ROW_H, GAP, MIN_W, MIN_H, STACK_BELOW,
+    calcColW, gridToPixel, compact, containerHeight, stackLayout,
     type LayoutItem,
   } from '../../utils/grid-layout'
-  import { Pencil, Trash2, GripVertical, EllipsisVertical, Copy, Info, Maximize2 } from 'lucide-svelte'
+  import { Pencil, Trash2, GripVertical, EllipsisVertical, Copy, Info, Maximize2, LayoutDashboard, PlugZap } from 'lucide-svelte'
 
   interface Props {
     dashboardId: string
@@ -37,9 +39,17 @@
     onduplicatepanel: (panel: Panel) => void
     ondeletepanel: (panelId: string) => void
     onmaximizepanel?: (panel: Panel) => void
+    /** Viewers get no edit, drag or resize controls: the server would refuse them. */
+    canWrite?: boolean
+    /** A note for a panel built on another connection than the session's, or null. */
+    connectionNotice?: (panel: Panel) => string | null
+    onaddpanel?: () => void
   }
 
-  let { dashboardId, panels, panelResults, onpanelschange, oneditpanel, onduplicatepanel, ondeletepanel, onmaximizepanel }: Props = $props()
+  let {
+    dashboardId, panels, panelResults, onpanelschange, oneditpanel, onduplicatepanel, ondeletepanel, onmaximizepanel,
+    canWrite = true, connectionNotice, onaddpanel,
+  }: Props = $props()
 
   // Panel dropdown menu
   let menuOpenId = $state<string | null>(null)
@@ -63,6 +73,9 @@
   let gridEl = $state<HTMLDivElement>(undefined!)
   let containerWidth = $state(0)
   const colW = $derived(calcColW(containerWidth))
+  // Narrow screens: one column, and no dragging (there is nowhere to drag to).
+  const stacked = $derived(containerWidth > 0 && containerWidth < STACK_BELOW)
+  const editable = $derived(canWrite && !stacked)
 
   // Drag/resize state
   type Mode = 'idle' | 'dragging' | 'resizing'
@@ -80,6 +93,7 @@
 
   // Compacted display layout
   const displayLayouts = $derived.by(() => {
+    if (stacked) return stackLayout(panels.map(panelToLayout))
     const items = panels.map(p => {
       if (p.id === activeId && ghostLayout) {
         return { id: p.id, ...ghostLayout }
@@ -112,7 +126,7 @@
   // --- Drag handlers ---
 
   function handleDragStart(panelId: string, e: PointerEvent) {
-    if (e.button !== 0) return
+    if (e.button !== 0 || !editable) return
     const panel = panels.find(p => p.id === panelId)
     if (!panel) return
     e.preventDefault()
@@ -126,7 +140,7 @@
   }
 
   function handleResizeStart(panelId: string, e: PointerEvent) {
-    if (e.button !== 0) return
+    if (e.button !== 0 || !editable) return
     const panel = panels.find(p => p.id === panelId)
     if (!panel) return
     e.preventDefault()
@@ -231,10 +245,12 @@
 </script>
 
 {#if panels.length === 0}
-  <div class="text-center py-12 text-fg-3">
-    <p class="mb-1">No panels yet</p>
-    <p class="text-xs text-fg-4">Add a panel with a SQL query to visualize data</p>
-  </div>
+  <EmptyState
+    icon={LayoutDashboard}
+    title="No panels yet"
+    description={canWrite ? 'Add a panel with a SQL query to visualize data.' : 'Someone with write access can add panels to this dashboard.'}
+    primary={canWrite && onaddpanel ? { label: 'Add panel', onclick: onaddpanel } : undefined}
+  />
 {:else}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
@@ -250,6 +266,7 @@
       {@const result = panelResults.get(panel.id)}
       {@const cfg = parsePanelConfig(panel.config)}
       {@const isActive = (mode === 'dragging' || mode === 'resizing') && activeId === panel.id}
+      {@const notice = connectionNotice?.(panel) ?? null}
       {#if pos}
         <div
           class="absolute flex flex-col bg-surface border rounded-lg overflow-hidden group
@@ -260,11 +277,13 @@
           <!-- Panel header — drag handle -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
-            class="flex items-center justify-between px-3 py-2 border-b border-edge-subtle bg-surface-2 cursor-grab active:cursor-grabbing select-none shrink-0"
+            class="flex items-center justify-between px-3 py-2 border-b border-edge-subtle bg-surface-2 select-none shrink-0 {editable ? 'cursor-grab active:cursor-grabbing' : ''}"
             onpointerdown={(e) => handleDragStart(panel.id, e)}
           >
             <div class="flex items-center gap-2 min-w-0">
-              <GripVertical size={12} class="text-fg-4 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+              {#if editable}
+                <GripVertical size={12} class="text-fg-4 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+              {/if}
               <span class="text-xs font-medium text-fg-2 truncate">{panel.name}</span>
               {#if panel.description}
                 <div class="relative group/info shrink-0" onpointerdown={(e) => e.stopPropagation()}>
@@ -297,41 +316,52 @@
                   class="absolute right-0 top-full mt-1 z-50 w-36 bg-surface border border-edge-subtle rounded-lg shadow-xl overflow-hidden"
                   onpointerdown={(e) => e.stopPropagation()}
                 >
-                  <button
-                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-fg-2 hover:bg-hover transition-colors"
-                    onclick={() => { menuOpenId = null; oneditpanel(panel) }}
-                  >
-                    <Pencil size={12} /> Edit
-                  </button>
+                  {#if canWrite}
+                    <button
+                      class="w-full flex items-center gap-2 px-3 py-2 text-xs text-fg-2 hover:bg-hover transition-colors"
+                      onclick={() => { menuOpenId = null; oneditpanel(panel) }}
+                    >
+                      <Pencil size={12} /> Edit
+                    </button>
+                  {/if}
                   <button
                     class="w-full flex items-center gap-2 px-3 py-2 text-xs text-fg-2 hover:bg-hover transition-colors"
                     onclick={() => { menuOpenId = null; onmaximizepanel?.(panel) }}
                   >
                     <Maximize2 size={12} /> Fullscreen
                   </button>
-                  <button
-                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-fg-2 hover:bg-hover transition-colors"
-                    onclick={() => { menuOpenId = null; onduplicatepanel(panel) }}
-                  >
-                    <Copy size={12} /> Duplicate
-                  </button>
-                  <div class="border-t border-edge-subtle"></div>
-                  <button
-                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-danger hover:bg-danger-soft transition-colors"
-                    onclick={() => { menuOpenId = null; ondeletepanel(panel.id) }}
-                  >
-                    <Trash2 size={12} /> Delete
-                  </button>
+                  {#if canWrite}
+                    <button
+                      class="w-full flex items-center gap-2 px-3 py-2 text-xs text-fg-2 hover:bg-hover transition-colors"
+                      onclick={() => { menuOpenId = null; onduplicatepanel(panel) }}
+                    >
+                      <Copy size={12} /> Duplicate
+                    </button>
+                    <div class="border-t border-edge-subtle"></div>
+                    <button
+                      class="w-full flex items-center gap-2 px-3 py-2 text-xs text-danger hover:bg-danger-soft transition-colors"
+                      onclick={() => { menuOpenId = null; ondeletepanel(panel.id) }}
+                    >
+                      <Trash2 size={12} /> Delete
+                    </button>
+                  {/if}
                 </div>
               {/if}
             </div>
           </div>
 
+          {#if notice}
+            <p class="flex shrink-0 items-center gap-1.5 border-b border-edge-subtle bg-warning-soft px-3 py-1 text-xs text-fg-2" title={notice}>
+              <PlugZap size={12} class="shrink-0 text-warning" />
+              <span class="truncate">{notice}</span>
+            </p>
+          {/if}
+
           <!-- Panel content -->
           <div class="flex-1 min-h-0 min-w-0 overflow-hidden {panel.panel_type === 'text' ? '' : 'p-2'}">
             {#if panel.panel_type === 'text'}
               <MarkdownPanel content={cfg.content ?? ''} />
-            {:else if !result || result.loading}
+            {:else if !result || (result.loading && result.data.length === 0 && result.meta.length === 0)}
               <div class="flex items-center justify-center h-full"><Spinner size="sm" /></div>
             {:else if result.error}
               <p class="text-xs text-danger p-2">{result.error}</p>
@@ -344,46 +374,24 @@
             {:else if panel.panel_type === 'timeseries' || panel.panel_type === 'bar'}
               <ChartPanel data={result.data} meta={result.meta} config={cfg} />
             {:else}
-              <!-- Table -->
-              {#if result.meta.length > 0}
-                <div class="overflow-auto h-full">
-                  <table class="w-full text-xs">
-                    <thead>
-                      <tr class="border-b border-edge-subtle">
-                        {#each result.meta as col (col.name)}
-                          <th class="text-left py-1 px-2 text-fg-3 font-medium whitespace-nowrap">{col.name}</th>
-                        {/each}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {#each result.data.slice(0, 100) as row}
-                        <tr class="border-b border-edge-subtle">
-                          {#each result.meta as col (col.name)}
-                            <td class="py-1 px-2 text-fg-2 whitespace-nowrap">{row[col.name] ?? '--'}</td>
-                          {/each}
-                        </tr>
-                      {/each}
-                    </tbody>
-                  </table>
-                </div>
-              {:else}
-                <p class="text-xs text-fg-3 p-2">No data</p>
-              {/if}
+              <PanelTable data={result.data} meta={result.meta} />
             {/if}
           </div>
 
-          <!-- Resize handle -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-end p-0.5"
-            onpointerdown={(e) => handleResizeStart(panel.id, e)}
-          >
-            <svg viewBox="0 0 6 6" class="w-3 h-3 text-fg-4">
-              <circle cx="5" cy="1" r="0.7" fill="currentColor" />
-              <circle cx="5" cy="5" r="0.7" fill="currentColor" />
-              <circle cx="1" cy="5" r="0.7" fill="currentColor" />
-            </svg>
-          </div>
+          {#if editable}
+            <!-- Resize handle -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-end p-0.5"
+              onpointerdown={(e) => handleResizeStart(panel.id, e)}
+            >
+              <svg viewBox="0 0 6 6" class="w-3 h-3 text-fg-4">
+                <circle cx="5" cy="1" r="0.7" fill="currentColor" />
+                <circle cx="5" cy="5" r="0.7" fill="currentColor" />
+                <circle cx="1" cy="5" r="0.7" fill="currentColor" />
+              </svg>
+            </div>
+          {/if}
         </div>
       {/if}
     {/each}

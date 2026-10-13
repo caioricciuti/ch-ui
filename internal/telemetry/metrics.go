@@ -275,10 +275,16 @@ func MetricQuerySQL(src *Source, p MetricsParams) (string, error) {
 	switch p.Type {
 	case MetricGauge, MetricSum:
 		if p.Aggregation == "rate" {
-			// One row per raw series (attribute set) so counter resets and
-			// deltas are computed per series, then summed per label group.
-			selects = append(selects, fmt.Sprintf("cityHash64(%s, %s) AS sid", Quote("ServiceName"), Quote("Attributes")))
+			// One row per raw series so counter resets and deltas are
+			// computed per series, then summed per label group. Two hosts
+			// with the same point attributes differ only in their resource
+			// attributes, so those are part of the identity.
+			selects = append(selects, seriesID())
 			selects = append(selects, fmt.Sprintf("max(%s) AS v", Quote("Value")))
+			// cum = 0 when any point is not a cumulative monotonic sum: a
+			// rate over deltas or a gauge-like sum is meaningless, and the
+			// handler refuses it.
+			selects = append(selects, fmt.Sprintf("min(toUInt8(%s = 2 AND %s)) AS cum", Quote("AggregationTemporality"), Quote("IsMonotonic")))
 			groups = append(groups, "sid")
 		} else {
 			selects = append(selects, plainAggregation(p.Aggregation)+" AS v")
@@ -286,10 +292,19 @@ func MetricQuerySQL(src *Source, p MetricsParams) (string, error) {
 	case MetricHistogram:
 		switch p.Aggregation {
 		case "p50", "p95", "p99":
+			// Per raw series: a delta series sums its points (counts_sum);
+			// a cumulative one only grows since the series started, so the
+			// handler takes the increase from the last point of the
+			// previous bucket (or the first point of this one) to the last
+			// point of this one (see HistogramIncrease).
 			selects = append(selects,
-				fmt.Sprintf("sumForEach(%s) AS counts", Quote("BucketCounts")),
+				seriesID(),
+				fmt.Sprintf("sumForEach(%s) AS counts_sum", Quote("BucketCounts")),
+				fmt.Sprintf("argMin(%s, %s) AS counts_first", Quote("BucketCounts"), Quote("TimeUnix")),
+				fmt.Sprintf("argMax(%s, %s) AS counts_last", Quote("BucketCounts"), Quote("TimeUnix")),
 				fmt.Sprintf("any(%s) AS bounds", Quote("ExplicitBounds")),
-				fmt.Sprintf("sum(%s) AS cnt", Quote("Count")))
+				fmt.Sprintf("max(%s = 2) AS cum", Quote("AggregationTemporality")))
+			groups = append(groups, "sid")
 		case "avg":
 			selects = append(selects, fmt.Sprintf("sum(%s) / nullIf(sum(%s), 0) AS v", Quote("Sum"), Quote("Count")))
 		case "sum":
@@ -314,6 +329,11 @@ func MetricQuerySQL(src *Source, p MetricsParams) (string, error) {
 	selects = append(selects, "count() AS n", fmt.Sprintf("any(%s) AS unit", Quote("MetricUnit")))
 	return fmt.Sprintf("SELECT %s FROM %s WHERE %s GROUP BY %s ORDER BY %s %s",
 		strings.Join(selects, ", "), table, where, strings.Join(groups, ", "), strings.Join(groups, ", "), QuerySettings), nil
+}
+
+// seriesID hashes the identity of one raw series.
+func seriesID() string {
+	return fmt.Sprintf("cityHash64(%s, %s, %s) AS sid", Quote("ServiceName"), Quote("Attributes"), Quote("ResourceAttributes"))
 }
 
 func plainAggregation(agg string) string {
@@ -388,6 +408,83 @@ func ComputeRate(points []RatePoint, bucketSeconds int) map[int64]float64 {
 		}
 	}
 	return out
+}
+
+// HistPoint is one bucket of one raw histogram series.
+type HistPoint struct {
+	T          int64
+	SID        string
+	Cumulative bool
+	Sum        []float64 // delta: the bucket counts summed over the bucket
+	First      []float64 // cumulative: counts at the first point in the bucket
+	Last       []float64 // cumulative: counts at the last point in the bucket
+	Bounds     []float64
+}
+
+// HistogramIncrease turns per-series histogram points into per-bucket
+// bucket counts, summed across the series of a label group, ready for
+// HistogramQuantile. Delta series contribute their summed counts.
+// Cumulative series contribute the increase since the last point of the
+// previous bucket (the first point in the bucket for the series' first
+// bucket); a drop in any count is a reset, and the bucket then counts from
+// zero, so the new counts are the increase.
+func HistogramIncrease(points []HistPoint) (map[int64][]float64, map[int64][]float64) {
+	bySeries := map[string][]HistPoint{}
+	for _, p := range points {
+		bySeries[p.SID] = append(bySeries[p.SID], p)
+	}
+	counts := map[int64][]float64{}
+	bounds := map[int64][]float64{}
+	add := func(t int64, v, b []float64) {
+		counts[t] = addFloats(counts[t], v)
+		if len(bounds[t]) == 0 {
+			bounds[t] = b
+		}
+	}
+	for _, pts := range bySeries {
+		sort.Slice(pts, func(i, j int) bool { return pts[i].T < pts[j].T })
+		for i, p := range pts {
+			if !p.Cumulative {
+				add(p.T, p.Sum, p.Bounds)
+				continue
+			}
+			base := p.First
+			if i > 0 && pts[i-1].Cumulative {
+				base = pts[i-1].Last
+			}
+			add(p.T, increase(base, p.Last), p.Bounds)
+		}
+	}
+	return counts, bounds
+}
+
+// increase is last - base per element, or last itself after a reset.
+func increase(base, last []float64) []float64 {
+	out := make([]float64, len(last))
+	if len(base) != len(last) {
+		copy(out, last)
+		return out
+	}
+	for i := range last {
+		if last[i] < base[i] {
+			copy(out, last)
+			return out
+		}
+		out[i] = last[i] - base[i]
+	}
+	return out
+}
+
+func addFloats(a, b []float64) []float64 {
+	if len(b) > len(a) {
+		grown := make([]float64, len(b))
+		copy(grown, a)
+		a = grown
+	}
+	for i := range b {
+		a[i] += b[i]
+	}
+	return a
 }
 
 // HistogramQuantile interpolates a quantile (0..1) from cumulative bucket

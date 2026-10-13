@@ -175,12 +175,17 @@ func (h *Harvester) pollConnection(connID string, settings Settings, now time.Ti
 	cluster := h.resolveCluster(exec)
 	capturedAt := now.UTC().Format(time.RFC3339)
 
-	samples, _, err := CollectSamples(exec, cluster, settings.LongQueryThresholdSecs, capturedAt)
+	col, err := CollectSamples(exec, cluster, settings.LongQueryThresholdSecs, capturedAt)
 	if err != nil && cluster != "" {
-		// Cluster-wide replication agg failed; retry scoped to the local node.
-		if s2, _, err2 := CollectSamples(exec, "", settings.LongQueryThresholdSecs, capturedAt); err2 == nil {
-			samples, cluster = s2, ""
+		// The fan-out failed outright; retry scoped to the local node. Other
+		// nodes are not stored: their state is unknown, not down.
+		if c2, err2 := CollectSamples(exec, "", settings.LongQueryThresholdSecs, capturedAt); err2 == nil {
+			col, cluster = c2, ""
 		}
+	}
+	samples := col.Samples
+	if len(col.Errors) > 0 {
+		slog.Debug("Cluster health: some metrics failed", "connection", connID, "errors", col.Errors)
 	}
 	if len(samples) == 0 {
 		return
@@ -231,7 +236,7 @@ func (h *Harvester) findCredentials(connectionID string) (CHCredentials, error) 
 
 // executeQuery runs a SQL statement through the tunnel and parses the JSON rows.
 func (h *Harvester) executeQuery(creds CHCredentials, sql string) ([]map[string]interface{}, error) {
-	result, err := h.gateway.ExecuteQuery(creds.ConnectionID, sql, creds.User, creds.Password, harvestTimeout)
+	result, err := h.gateway.ExecuteQueryWithSettings(creds.ConnectionID, sql, creds.User, creds.Password, QuerySettings(), harvestTimeout)
 	if err != nil {
 		return nil, err
 	}
