@@ -10,12 +10,19 @@ export const HEALTH_CHECK_LABELS: Record<HealthCheckKind, string> = {
   parts: 'Parts pressure',
   mutation_stuck: 'Stuck mutation',
   node_unreachable: 'Node unreachable',
+  connection_unreachable: 'Connection unreachable',
 }
 
 /** Display order of the built-in checks. */
 export const HEALTH_CHECK_ORDER: HealthCheckKind[] = [
-  'replication_lag', 'replica_readonly', 'disk', 'parts', 'mutation_stuck', 'node_unreachable',
+  'replication_lag', 'replica_readonly', 'disk', 'parts', 'mutation_stuck', 'node_unreachable', 'connection_unreachable',
 ]
+
+/** Connection-level checks report on node "*". */
+export function nodeLabel(node: string | null | undefined): string {
+  if (node === '*') return 'Connection'
+  return node || '-'
+}
 
 export const COMPARATOR_SYMBOLS: Record<SqlAlertComparator, string> = {
   gt: '>', gte: '>=', lt: '<', lte: '<=', eq: '=', ne: '!=',

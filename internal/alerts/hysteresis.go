@@ -8,14 +8,15 @@ package alerts
 // Health check and SQL alert event types. Resolved events reuse the type of
 // the incident they close.
 const (
-	EventTypeHealthReplicationLag  = "health.replication_lag"
-	EventTypeHealthReplicaReadonly = "health.replica_readonly"
-	EventTypeHealthDisk            = "health.disk"
-	EventTypeHealthParts           = "health.parts"
-	EventTypeHealthMutationStuck   = "health.mutation_stuck"
-	EventTypeHealthNodeUnreachable = "health.node_unreachable"
-	EventTypeHealthSummary         = "health.summary"
-	EventTypeSQLAlert              = "sql.alert"
+	EventTypeHealthReplicationLag        = "health.replication_lag"
+	EventTypeHealthReplicaReadonly       = "health.replica_readonly"
+	EventTypeHealthDisk                  = "health.disk"
+	EventTypeHealthParts                 = "health.parts"
+	EventTypeHealthMutationStuck         = "health.mutation_stuck"
+	EventTypeHealthNodeUnreachable       = "health.node_unreachable"
+	EventTypeHealthConnectionUnreachable = "health.connection_unreachable"
+	EventTypeHealthSummary               = "health.summary"
+	EventTypeSQLAlert                    = "sql.alert"
 )
 
 // States of a threshold alert.
