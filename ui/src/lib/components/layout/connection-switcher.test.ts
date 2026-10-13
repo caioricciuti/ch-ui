@@ -30,6 +30,11 @@ describe('switchErrorView', () => {
     expect(switchErrorView(new ApiError('Authentication failed', 401, { needs_password: true }))).toEqual({ message: 'Invalid credentials', needsPassword: true })
   })
 
+  it('401 different_server explains why the password is asked', () => {
+    const e = new ApiError('Authentication failed', 401, { needs_password: true, reason: 'different_server', message: 'Different server, enter the password for alice.' })
+    expect(switchErrorView(e)).toEqual({ message: 'Different server, enter the password for alice.', needsPassword: true })
+  })
+
   it('429 shows the wait', () => {
     expect(switchErrorView(new ApiError('Too many', 429, null, 37)).message).toBe('Too many attempts. Retry in 37s.')
   })
