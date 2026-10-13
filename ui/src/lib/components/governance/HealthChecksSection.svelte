@@ -5,12 +5,16 @@
   import { goTo } from '../../stores/router.svelte'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import { fetchAlertEvaluations, fetchHealthSettings, fetchHealthStates, saveHealthSettings } from '../../api/alerting'
-  import type { AlertEvaluation, HealthAlertState, HealthCheckKind, HealthCheckSetting, HealthCheckSettingInput } from '../../types/alerts'
+  import { createAck, deleteAck, listFiring } from '../../api/alerts'
+  import type {
+    AlertEvaluation, FiringIncident, HealthAlertState, HealthCheckKind, HealthCheckSetting, HealthCheckSettingInput,
+  } from '../../types/alerts'
   import { formatDate, formatRelativeTime } from '../../utils/format'
   import {
-    HEALTH_CHECK_LABELS, HEALTH_CHECK_ORDER, bytesToGb, formatHealthValue, gbToBytes, parseOptionalNumber,
+    HEALTH_CHECK_LABELS, HEALTH_CHECK_ORDER, bytesToGb, formatHealthValue, gbToBytes, nodeLabel, parseOptionalNumber,
     severityTone, stateTone, summarizeStates,
   } from './alerting-format'
+  import { ACK_EXPIRY_OPTIONS, ackTitle, healthFiringKey, indexFiring } from './alerting-silences'
   import PageBody from '../common/PageBody.svelte'
   import SectionHeader from '../common/SectionHeader.svelte'
   import Panel from '../common/Panel.svelte'
@@ -20,6 +24,8 @@
   import Sheet from '../common/Sheet.svelte'
   import FormField from '../common/FormField.svelte'
   import Input from '../common/Input.svelte'
+  import Select from '../common/Select.svelte'
+  import Textarea from '../common/Textarea.svelte'
   import Spinner from '../common/Spinner.svelte'
   import EmptyState from '../common/EmptyState.svelte'
   import { RefreshCw } from 'lucide-svelte'
@@ -29,12 +35,22 @@
   type Row = Record<string, unknown>
   const asRows = <T,>(rows: T[]): Row[] => rows as unknown as Row[]
   const isAdmin = $derived(getSession()?.role === 'admin')
+  // Admins and analysts acknowledge firing alerts (server enforced).
+  const canAck = $derived(getSession()?.role === 'admin' || getSession()?.role === 'analyst')
 
   let loading = $state(true)
   let refreshing = $state(false)
   let settings = $state<HealthCheckSetting[]>([])
   let collectionEnabled = $state(true)
   let states = $state<HealthAlertState[]>([])
+  let firing = $state<FiringIncident[]>([])
+
+  // Acknowledge form, shown in place of the check detail.
+  let ackTarget = $state<FiringIncident | null>(null)
+  let ackComment = $state('')
+  let ackExpiry = $state('')
+  let ackSaving = $state(false)
+  let unacking = $state<string | null>(null)
 
   let selectedKind = $state<HealthCheckKind | null>(null)
   let evaluations = $state<AlertEvaluation[]>([])
@@ -55,6 +71,10 @@
   })
 
   const summaries = $derived(summarizeStates(states))
+  const firingIdx = $derived(indexFiring(firing))
+  const incidentFor = (st: HealthAlertState): FiringIncident | null =>
+    firingIdx.health.get(healthFiringKey(st.connection_id, st.check_kind, st.node)) ?? null
+  const ackedCount = (kind: HealthCheckKind): number => states.filter((st) => st.check_kind === kind && incidentFor(st)?.ack).length
   const ordered = $derived(
     HEALTH_CHECK_ORDER.map((k) => settings.find((s) => s.check_kind === k)).filter((s): s is HealthCheckSetting => !!s),
   )
@@ -93,8 +113,8 @@
   ]
 
   const nodeColumns: DataColumn<Row>[] = [
-    { key: 'node', label: 'Node', mono: true },
-    { key: 'state', label: 'State', width: '100px' },
+    { key: 'node', label: 'Node', mono: true, format: (v) => nodeLabel(v as string | null) },
+    { key: 'state', label: 'State', width: '200px' },
     { key: 'severity', label: 'Severity', width: '100px' },
     { key: 'last_value', label: 'Value', width: '110px', align: 'right', sortable: false },
     { key: 'since', label: 'Since', width: '110px', format: (v) => (v ? formatRelativeTime(v) : '-') },
@@ -102,7 +122,7 @@
 
   const evaluationColumns: DataColumn<Row>[] = [
     { key: 'evaluated_at', label: 'Time', mono: true, width: '170px', format: (v) => formatDate(v) },
-    { key: 'node', label: 'Node', mono: true },
+    { key: 'node', label: 'Node', mono: true, format: (v) => nodeLabel(v as string | null) },
     { key: 'value', label: 'Value', width: '100px', align: 'right', sortable: false },
     { key: 'state', label: 'State', width: '100px' },
     { key: 'duration_ms', label: 'Took', width: '80px', align: 'right', format: (v) => `${Number(v ?? 0)} ms` },
@@ -113,7 +133,7 @@
     if (initial) loading = true
     else refreshing = true
     try {
-      const [s, st] = await Promise.all([fetchHealthSettings(), fetchHealthStates()])
+      const [s, st] = await Promise.all([fetchHealthSettings(), fetchHealthStates(), loadFiring()])
       settings = s.settings
       collectionEnabled = s.collection_enabled
       states = st
@@ -122,6 +142,53 @@
     } finally {
       loading = false
       refreshing = false
+    }
+  }
+
+  // Ack state only decorates the rows; a failure here keeps the checks visible.
+  async function loadFiring() {
+    try {
+      firing = await listFiring()
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  function openAck(inc: FiringIncident) {
+    ackTarget = inc
+    ackComment = ''
+    ackExpiry = ''
+  }
+
+  async function submitAck() {
+    if (!ackTarget?.event_id || ackSaving) return
+    ackSaving = true
+    try {
+      await createAck({
+        event_id: ackTarget.event_id,
+        comment: ackComment.trim() || undefined,
+        expires_in: ackExpiry ? Number(ackExpiry) : undefined,
+      })
+      toastSuccess('Alert acknowledged')
+      ackTarget = null
+      await loadFiring()
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+    } finally {
+      ackSaving = false
+    }
+  }
+
+  async function unacknowledge(ackId: string) {
+    unacking = ackId
+    try {
+      await deleteAck(ackId)
+      toastSuccess('Acknowledgement removed')
+      await loadFiring()
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+    } finally {
+      unacking = null
     }
   }
 
@@ -147,10 +214,11 @@
   }
 
   function closeCheck() {
-    if (saving) return
+    if (saving || ackSaving) return
     detailSeq++
     selectedKind = null
     editing = false
+    ackTarget = null
   }
 
   function startEdit() {
@@ -233,6 +301,7 @@
   <div class="flex items-center gap-1">
     {#if live.firing > 0}<Badge tone="danger">{live.firing} firing</Badge>{/if}
     {#if live.pending > 0}<Badge tone="warning">{live.pending} pending</Badge>{/if}
+    {#if ackedCount(kind) > 0}<Badge tone="info">{ackedCount(kind)} acknowledged</Badge>{/if}
     {#if live.firing === 0 && live.pending === 0}
       <Badge tone="neutral">{enabled ? 'OK' : 'Not evaluated'}</Badge>
     {/if}
@@ -294,12 +363,25 @@
 <Sheet
   open={selected !== null}
   title={selected ? HEALTH_CHECK_LABELS[selected.check_kind] : ''}
-  description={editing ? 'Thresholds apply to every node of this connection.' : selected?.updated_at ? `Thresholds last changed ${formatDate(selected.updated_at)}` : 'Default thresholds.'}
+  description={ackTarget ? 'Acknowledge a firing alert.' : editing ? 'Thresholds apply to every node of this connection.' : selected?.updated_at ? `Thresholds last changed ${formatDate(selected.updated_at)}` : 'Default thresholds.'}
   size="lg"
   onclose={closeCheck}
 >
   {#if selected}
-    {#if editing}
+    {#if ackTarget}
+      <form id="health-ack-form" class="space-y-4" onsubmit={(e) => { e.preventDefault(); void submitAck() }}>
+        <p class="text-[13px] text-fg-2">
+          Acknowledge {HEALTH_CHECK_LABELS[selected.check_kind]} on <span class="font-mono">{nodeLabel(ackTarget.node)}</span>.
+          Notifications for it stop until it resolves or the acknowledgement expires.
+        </p>
+        <FormField label="Comment" for="hc-ack-comment" hint="Optional. Shown to everyone who sees this alert.">
+          <Textarea id="hc-ack-comment" rows={3} placeholder="Looking into it" bind:value={ackComment} />
+        </FormField>
+        <FormField label="Expires" for="hc-ack-expiry">
+          <Select id="hc-ack-expiry" options={ACK_EXPIRY_OPTIONS} bind:value={ackExpiry} />
+        </FormField>
+      </form>
+    {:else if editing}
       <form id="health-check-form" class="space-y-4" onsubmit={(e) => { e.preventDefault(); void save() }}>
         <label class="ds-checkbox-label">
           <input type="checkbox" class="ds-checkbox" bind:checked={form.enabled} />
@@ -323,7 +405,11 @@
             {/if}
           </div>
         {:else}
-          <p class="text-[13px] text-fg-3">Fires as critical when a node does not answer the Cluster Health poll.</p>
+          <p class="text-[13px] text-fg-3">
+            {selected.check_kind === 'connection_unreachable'
+              ? 'Fires as critical when the connection does not answer the Cluster Health poll.'
+              : 'Fires as critical when a node does not answer the Cluster Health poll.'}
+          </p>
         {/if}
 
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -354,13 +440,26 @@
             <DataTable columns={nodeColumns} rows={asRows(selectedStates)} rowKey={(r) => String(r.node)} framed={false}>
               {#snippet cell(row, col, value)}
                 {#if col.key === 'state'}
-                  <Badge tone={stateTone(String(row.state))}>{value}</Badge>
+                  {@const inc = incidentFor(row as unknown as HealthAlertState)}
+                  <span class="inline-flex items-center gap-1">
+                    <Badge tone={stateTone(String(row.state))}>{value}</Badge>
+                    {#if inc?.ack}<Badge tone="info" title={ackTitle(inc.ack)}>Acknowledged</Badge>{/if}
+                  </span>
                 {:else if col.key === 'severity'}
                   {#if row.severity}<Badge tone={severityTone(String(row.severity))}>{value}</Badge>{:else}<span class="text-fg-4">-</span>{/if}
                 {:else if col.key === 'last_value'}
                   {formatHealthValue(row.last_value as number | null, selected.unit)}
                 {:else}
                   {value}
+                {/if}
+              {/snippet}
+              {#snippet actions(row)}
+                {@const inc = incidentFor(row as unknown as HealthAlertState)}
+                {#if canAck && inc?.ack}
+                  {@const ackId = inc.ack.id}
+                  <Button size="xs" variant="ghost" loading={unacking === ackId} onclick={() => void unacknowledge(ackId)}>Unacknowledge</Button>
+                {:else if canAck && inc?.event_id}
+                  <Button size="xs" variant="ghost" onclick={() => openAck(inc)}>Acknowledge</Button>
                 {/if}
               {/snippet}
             </DataTable>
@@ -398,7 +497,10 @@
     {/if}
   {/if}
   {#snippet footer()}
-    {#if editing}
+    {#if ackTarget}
+      <Button variant="ghost" size="sm" disabled={ackSaving} onclick={() => (ackTarget = null)}>Cancel</Button>
+      <Button size="sm" type="submit" form="health-ack-form" loading={ackSaving}>Acknowledge</Button>
+    {:else if editing}
       <Button variant="ghost" size="sm" disabled={saving} onclick={() => (editing = false)}>Cancel</Button>
       <Button size="sm" type="submit" form="health-check-form" loading={saving} disabled={!!formError}>Save</Button>
     {:else}

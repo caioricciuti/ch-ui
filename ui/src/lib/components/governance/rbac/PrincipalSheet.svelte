@@ -14,6 +14,9 @@
   import Panel from '../../common/Panel.svelte'
   import Combobox, { type ComboboxOption } from '../../common/Combobox.svelte'
   import DataTable, { type DataColumn } from '../../common/DataTable.svelte'
+  import { navigate } from '../../../stores/router.svelte'
+  import { withBase } from '../../../basePath'
+  import { explainPath } from './explain'
 
   /**
    * One role or user: its settings profile, privileges, roles and (for
@@ -194,6 +197,14 @@
     </form>
   {:else}
     <div class="space-y-6">
+      {#if target.type === 'user'}
+        <p class="text-[13px] text-fg-3">
+          What can {target.name} actually do, through every role and policy?
+          <a class="font-medium text-fg underline underline-offset-2 hover:text-accent" href={withBase(explainPath(target.name))}
+            onclick={(e) => { e.preventDefault(); navigate(explainPath(target.name)) }}>Explain access</a>
+        </p>
+      {/if}
+
       {#if target.type === 'role'}
         <Panel title="Settings profile" description={members.length ? `Held by ${members.join(', ')}` : 'Not granted to anyone yet.'}>
           <div class="flex items-end gap-2">

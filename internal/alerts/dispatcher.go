@@ -106,12 +106,26 @@ func (d *Dispatcher) tick() {
 }
 
 func (d *Dispatcher) materializeEventJobs() {
+	now := time.Now().UTC()
+	// Silences that ran out release what they held back, and expired acks
+	// stop covering, before this tick's events are looked at.
+	endLapsedSilences(d.db, now)
+	expireAcks(d.db, now)
+
 	events, err := d.db.ListNewAlertEvents(maxNewEventsPerTick)
 	if err != nil {
 		slog.Error("Alert dispatcher failed to list new events", "error", err)
 		return
 	}
 	if len(events) == 0 {
+		return
+	}
+
+	// Active silences and open acks, loaded once per tick. Without them no
+	// event is delivered: it stays 'new' for the next tick.
+	sup, err := loadSuppressor(d.db, now)
+	if err != nil {
+		slog.Error("Alert dispatcher failed to load silences and acks", "error", err)
 		return
 	}
 
@@ -122,8 +136,13 @@ func (d *Dispatcher) materializeEventJobs() {
 	}
 
 	channelsByRule := make(map[string][]database.AlertRuleChannelView)
-	now := time.Now().UTC()
 	for _, event := range events {
+		if status, by := sup.decide(event); status != "" {
+			if err := d.db.SuppressAlertEvent(event.ID, status, by); err != nil {
+				slog.Warn("Alert dispatcher failed to mark event suppressed", "event", event.ID, "error", err)
+			}
+			continue
+		}
 		// complete stays true only when every matching rule was fully
 		// materialized. Otherwise the event stays 'new' and is retried next
 		// tick; jobs already created for it are not duplicated.
@@ -303,6 +322,24 @@ func (d *Dispatcher) sendByChannelType(ctx context.Context, channelType string, 
 }
 
 func ruleMatchesEvent(rule database.AlertRule, event database.AlertEvent) bool {
+	// A rule scoped to connections only takes their events; an event
+	// without a connection matches only unscoped rules.
+	if len(rule.ConnectionIDs) > 0 {
+		if event.ConnectionID == nil {
+			return false
+		}
+		conn := strings.TrimSpace(*event.ConnectionID)
+		found := false
+		for _, id := range rule.ConnectionIDs {
+			if strings.TrimSpace(id) == conn {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
 	eventType := strings.ToLower(strings.TrimSpace(event.EventType))
 	ruleType := strings.ToLower(strings.TrimSpace(rule.EventType))
 	if !EventTypeMatches(ruleType, eventType) {

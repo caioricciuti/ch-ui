@@ -15,14 +15,8 @@
   import { apiPut } from '../../api/client'
   import { error as toastError } from '../../stores/toast.svelte'
   import Spinner from '../common/Spinner.svelte'
-  import ChartPanel from './ChartPanel.svelte'
-  import StatPanel from './StatPanel.svelte'
-  import MarkdownPanel from './MarkdownPanel.svelte'
-  import GaugePanel from './GaugePanel.svelte'
-  import PiePanel from './PiePanel.svelte'
-  import PanelTable from './PanelTable.svelte'
+  import PanelRenderer from './PanelRenderer.svelte'
   import EmptyState from '../common/EmptyState.svelte'
-  import { computeStat } from '../../utils/chart-transform'
   import {
     COLS, ROW_H, GAP, MIN_W, MIN_H, STACK_BELOW,
     calcColW, gridToPixel, compact, containerHeight, stackLayout,
@@ -360,21 +354,13 @@
           <!-- Panel content -->
           <div class="flex-1 min-h-0 min-w-0 overflow-hidden {panel.panel_type === 'text' ? '' : 'p-2'}">
             {#if panel.panel_type === 'text'}
-              <MarkdownPanel content={cfg.content ?? ''} />
+              <PanelRenderer type="text" data={[]} meta={[]} config={cfg} />
             {:else if !result || (result.loading && result.data.length === 0 && result.meta.length === 0)}
               <div class="flex items-center justify-center h-full"><Spinner size="sm" /></div>
             {:else if result.error}
               <p class="text-xs text-danger p-2">{result.error}</p>
-            {:else if panel.panel_type === 'stat'}
-              <StatPanel stat={computeStat(result.data, result.meta, cfg)} />
-            {:else if panel.panel_type === 'gauge'}
-              <GaugePanel stat={computeStat(result.data, result.meta, cfg)} min={cfg.gaugeMin} max={cfg.gaugeMax} />
-            {:else if panel.panel_type === 'pie'}
-              <PiePanel data={result.data} meta={result.meta} config={cfg} />
-            {:else if panel.panel_type === 'timeseries' || panel.panel_type === 'bar'}
-              <ChartPanel data={result.data} meta={result.meta} config={cfg} />
             {:else}
-              <PanelTable data={result.data} meta={result.meta} />
+              <PanelRenderer type={panel.panel_type} data={result.data} meta={result.meta} config={cfg} />
             {/if}
           </div>
 

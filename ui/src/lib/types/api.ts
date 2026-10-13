@@ -234,6 +234,8 @@ export interface PanelConfig {
   chartType: 'table' | 'stat' | 'timeseries' | 'bar' | 'text' | 'gauge' | 'pie'
   xColumn?: string
   yColumns?: string[]
+  /** Column whose values split the first y column into one series each (long to wide). */
+  seriesColumn?: string
   colors?: string[]
   legendPosition?: 'bottom' | 'right' | 'none'
   content?: string

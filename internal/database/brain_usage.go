@@ -14,7 +14,7 @@ type BrainUsageRecord struct {
 	Username         string
 	Provider         string
 	Model            string
-	Purpose          string // "chat" | "ask_ai"
+	Purpose          string // "chat" | "ask_ai" | "fix_sql" | "ask_ai_repair" | "fix_sql_repair"
 	ChatID           string
 	MessageID        string
 	InputTokens      int
@@ -65,12 +65,15 @@ func (db *DB) BrainTokensUsedSince(username string, since time.Time) (int, error
 
 // BrainUsageRow is the ledger summed per person, provider and model.
 type BrainUsageRow struct {
-	Username         string `json:"username"`
-	Provider         string `json:"provider"`
-	Model            string `json:"model"`
-	Requests         int    `json:"requests"`
-	ChatTurns        int    `json:"chat_turns"`
+	Username  string `json:"username"`
+	Provider  string `json:"provider"`
+	Model     string `json:"model"`
+	Requests  int    `json:"requests"`
+	ChatTurns int    `json:"chat_turns"`
+	// AskAI counts Ask AI and Fix with AI requests; Repairs counts the
+	// extra calls that repaired SQL ClickHouse rejected.
 	AskAI            int    `json:"ask_ai"`
+	Repairs          int    `json:"repairs"`
 	InputTokens      int    `json:"input_tokens"`
 	OutputTokens     int    `json:"output_tokens"`
 	CacheReadTokens  int    `json:"cache_read_tokens"`
@@ -83,7 +86,8 @@ type BrainUsageRow struct {
 func (db *DB) BrainUsageSummary(since, until time.Time) ([]BrainUsageRow, error) {
 	rows, err := db.conn.Query(`SELECT username, provider, model, COUNT(*),
 			SUM(CASE WHEN purpose = 'chat' THEN 1 ELSE 0 END),
-			SUM(CASE WHEN purpose = 'ask_ai' THEN 1 ELSE 0 END),
+			SUM(CASE WHEN purpose IN ('ask_ai', 'fix_sql') THEN 1 ELSE 0 END),
+			SUM(CASE WHEN purpose IN ('ask_ai_repair', 'fix_sql_repair') THEN 1 ELSE 0 END),
 			SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens), SUM(cache_write_tokens), MAX(created_at)
 		FROM brain_usage WHERE created_at >= ? AND created_at < ?
 		GROUP BY username, provider, model
@@ -96,7 +100,7 @@ func (db *DB) BrainUsageSummary(since, until time.Time) ([]BrainUsageRow, error)
 	out := make([]BrainUsageRow, 0)
 	for rows.Next() {
 		var r BrainUsageRow
-		if err := rows.Scan(&r.Username, &r.Provider, &r.Model, &r.Requests, &r.ChatTurns, &r.AskAI,
+		if err := rows.Scan(&r.Username, &r.Provider, &r.Model, &r.Requests, &r.ChatTurns, &r.AskAI, &r.Repairs,
 			&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheWriteTokens, &r.LastUsedAt); err != nil {
 			return nil, fmt.Errorf("scan brain usage row: %w", err)
 		}

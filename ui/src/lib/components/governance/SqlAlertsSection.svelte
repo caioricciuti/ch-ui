@@ -4,11 +4,13 @@
   import { getSession } from '../../stores/session.svelte'
   import { goTo } from '../../stores/router.svelte'
   import { setSection } from '../../stores/nav.svelte'
-  import { error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import { fetchSqlAlerts } from '../../api/alerting'
-  import type { SqlAlert, SqlAlertWorkerMode } from '../../types/alerts'
+  import { createAck, deleteAck, listFiring } from '../../api/alerts'
+  import type { FiringIncident, SqlAlert, SqlAlertWorkerMode } from '../../types/alerts'
   import { formatRelativeTime } from '../../utils/format'
   import { conditionLabel, formatNumber, formatSeconds, stateTone } from './alerting-format'
+  import { ACK_EXPIRY_OPTIONS, ackTitle, indexFiring } from './alerting-silences'
   import PageBody from '../common/PageBody.svelte'
   import SectionHeader from '../common/SectionHeader.svelte'
   import Panel from '../common/Panel.svelte'
@@ -16,6 +18,10 @@
   import Badge from '../common/Badge.svelte'
   import Button from '../common/Button.svelte'
   import Spinner from '../common/Spinner.svelte'
+  import Sheet from '../common/Sheet.svelte'
+  import FormField from '../common/FormField.svelte'
+  import Select from '../common/Select.svelte'
+  import Textarea from '../common/Textarea.svelte'
   import EmptyState from '../common/EmptyState.svelte'
   import SqlAlertEditor from './SqlAlertEditor.svelte'
   import { Plus, RefreshCw } from 'lucide-svelte'
@@ -31,6 +37,14 @@
   let refreshing = $state(false)
   let alerts = $state<SqlAlert[]>([])
   let workerMode = $state<SqlAlertWorkerMode>('service_account')
+  let firing = $state<FiringIncident[]>([])
+  const firingIdx = $derived(indexFiring(firing))
+
+  let ackTarget = $state<{ incident: FiringIncident; name: string } | null>(null)
+  let ackComment = $state('')
+  let ackExpiry = $state('')
+  let ackSaving = $state(false)
+  let unacking = $state<string | null>(null)
 
   let editorOpen = $state(false)
   let editingId = $state<string | null>(null)
@@ -40,7 +54,7 @@
 
   const columns: DataColumn<Row>[] = [
     { key: 'name', label: 'Name', truncate: true },
-    { key: 'state', label: 'State', width: '100px' },
+    { key: 'state', label: 'State', width: '200px' },
     { key: 'last_value', label: 'Last value', width: '120px', align: 'right', format: (v) => formatNumber(v as number | null) },
     { key: 'condition', label: 'Condition', mono: true, width: '160px', sortable: false },
     { key: 'interval_seconds', label: 'Interval', width: '90px', align: 'right', format: (v) => formatSeconds(Number(v)) },
@@ -58,7 +72,7 @@
     if (initial) loading = true
     else refreshing = true
     try {
-      const res = await fetchSqlAlerts()
+      const [res] = await Promise.all([fetchSqlAlerts(), loadFiring()])
       alerts = res.alerts
       workerMode = res.worker_mode
     } catch (e: unknown) {
@@ -66,6 +80,58 @@
     } finally {
       loading = false
       refreshing = false
+    }
+  }
+
+  // Ack state only decorates the rows; a failure here keeps the alerts visible.
+  async function loadFiring() {
+    try {
+      firing = await listFiring()
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  function openAck(incident: FiringIncident, name: string) {
+    ackTarget = { incident, name }
+    ackComment = ''
+    ackExpiry = ''
+  }
+
+  function closeAck() {
+    if (!ackSaving) ackTarget = null
+  }
+
+  async function submitAck() {
+    const eventId = ackTarget?.incident.event_id
+    if (!eventId || ackSaving) return
+    ackSaving = true
+    try {
+      await createAck({
+        event_id: eventId,
+        comment: ackComment.trim() || undefined,
+        expires_in: ackExpiry ? Number(ackExpiry) : undefined,
+      })
+      toastSuccess('Alert acknowledged')
+      ackTarget = null
+      await loadFiring()
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+    } finally {
+      ackSaving = false
+    }
+  }
+
+  async function unacknowledge(ackId: string) {
+    unacking = ackId
+    try {
+      await deleteAck(ackId)
+      toastSuccess('Acknowledgement removed')
+      await loadFiring()
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+    } finally {
+      unacking = null
     }
   }
 
@@ -147,11 +213,24 @@
             {#if col.key === 'name'}
               <span class="font-medium text-fg">{value}</span>
             {:else if col.key === 'state'}
-              <Badge tone={stateTone(String(row.state))} title={row.last_error ? String(row.last_error) : undefined}>{value}</Badge>
+              {@const inc = firingIdx.sql.get(String(row.id))}
+              <span class="inline-flex items-center gap-1">
+                <Badge tone={stateTone(String(row.state))} title={row.last_error ? String(row.last_error) : undefined}>{value}</Badge>
+                {#if inc?.ack}<Badge tone="info" title={ackTitle(inc.ack)}>Acknowledged</Badge>{/if}
+              </span>
             {:else if col.key === 'enabled'}
               <Badge dot tone={row.enabled ? 'success' : 'neutral'}>{row.enabled ? 'Enabled' : 'Off'}</Badge>
             {:else}
               {value}
+            {/if}
+          {/snippet}
+          {#snippet actions(row)}
+            {@const inc = firingIdx.sql.get(String(row.id))}
+            {#if canWrite && inc?.ack}
+              {@const ackId = inc.ack.id}
+              <Button size="xs" variant="ghost" loading={unacking === ackId} onclick={(e: MouseEvent) => { e.stopPropagation(); void unacknowledge(ackId) }}>Unacknowledge</Button>
+            {:else if canWrite && inc?.event_id}
+              <Button size="xs" variant="ghost" onclick={(e: MouseEvent) => { e.stopPropagation(); openAck(inc, String(row.name)) }}>Acknowledge</Button>
             {/if}
           {/snippet}
         </DataTable>
@@ -169,3 +248,24 @@
   onchanged={upsert}
   ondeleted={removed}
 />
+
+<Sheet
+  open={ackTarget !== null}
+  title="Acknowledge alert"
+  description={ackTarget ? `"${ackTarget.name}" is firing. Notifications for it stop until it resolves or the acknowledgement expires.` : ''}
+  size="sm"
+  onclose={closeAck}
+>
+  <form id="sql-ack-form" class="space-y-4" onsubmit={(e) => { e.preventDefault(); void submitAck() }}>
+    <FormField label="Comment" for="sql-ack-comment" hint="Optional. Shown to everyone who sees this alert.">
+      <Textarea id="sql-ack-comment" rows={3} placeholder="Looking into it" bind:value={ackComment} />
+    </FormField>
+    <FormField label="Expires" for="sql-ack-expiry">
+      <Select id="sql-ack-expiry" options={ACK_EXPIRY_OPTIONS} bind:value={ackExpiry} />
+    </FormField>
+  </form>
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" disabled={ackSaving} onclick={closeAck}>Cancel</Button>
+    <Button size="sm" type="submit" form="sql-ack-form" loading={ackSaving}>Acknowledge</Button>
+  {/snippet}
+</Sheet>

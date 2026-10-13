@@ -4,7 +4,7 @@
   import { EditorState, Compartment, RangeSetBuilder } from '@codemirror/state'
   import { sql, StandardSQL } from '@codemirror/lang-sql'
   import { autocompletion } from '@codemirror/autocomplete'
-  import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+  import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory } from '@codemirror/commands'
   import { bracketMatching, HighlightStyle, syntaxHighlighting } from '@codemirror/language'
   import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
   import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
@@ -329,6 +329,23 @@
   export function getRunnable(): { text: string; from: number } {
     if (!view) return { text: '', from: 0 }
     return pickRunnable(view.state)
+  }
+
+  /** Replace a range (clamped to the document) as one undoable change of
+   * its own, then select the new text and focus. */
+  export function replaceRange(from: number, to: number, text: string) {
+    if (!view) return
+    const len = view.state.doc.length
+    const start = Math.max(0, Math.min(from, len))
+    const end = Math.max(start, Math.min(to, len))
+    view.dispatch({
+      changes: { from: start, to: end, insert: text },
+      selection: { anchor: start, head: start + text.length },
+      annotations: isolateHistory.of('full'),
+      userEvent: 'input.replace',
+      effects: EditorView.scrollIntoView(start, { y: 'center' }),
+    })
+    view.focus()
   }
 
   /** Select a range (clamped to the document), scroll it into view and focus. */

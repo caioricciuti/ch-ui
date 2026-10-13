@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * Side-by-side line diff for DDL previews. A plain longest-common-subsequence
+ * Side-by-side line diff for SQL and DDL previews. A plain longest-common-subsequence
  * over lines: entity definitions are short, so the O(n*m) table is fine.
  */
 

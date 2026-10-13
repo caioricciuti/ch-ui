@@ -24,14 +24,8 @@
   import Tooltip from '../lib/components/common/Tooltip.svelte'
   import PanelEditor from '../lib/components/dashboard/PanelEditor.svelte'
   import DashboardGrid, { type PanelResult } from '../lib/components/dashboard/DashboardGrid.svelte'
-  import VirtualTable from '../lib/components/table/VirtualTable.svelte'
   import type { ColumnMeta } from '../lib/types/query'
-  import StatPanel from '../lib/components/dashboard/StatPanel.svelte'
-  import ChartPanel from '../lib/components/dashboard/ChartPanel.svelte'
-  import MarkdownPanel from '../lib/components/dashboard/MarkdownPanel.svelte'
-  import GaugePanel from '../lib/components/dashboard/GaugePanel.svelte'
-  import PiePanel from '../lib/components/dashboard/PiePanel.svelte'
-  import { computeStat } from '../lib/utils/chart-transform'
+  import PanelRenderer from '../lib/components/dashboard/PanelRenderer.svelte'
   import TimeRangeSelector from '../lib/components/dashboard/TimeRangeSelector.svelte'
   import ShareDialog from '../lib/components/dashboard/ShareDialog.svelte'
   import DashboardSettings from '../lib/components/dashboard/DashboardSettings.svelte'
@@ -497,11 +491,6 @@
     return () => document.removeEventListener('keydown', handler)
   })
 
-  /** VirtualTable takes positional rows; panel results are keyed by column name. */
-  function toRows(res: PanelResult): unknown[][] {
-    return res.data.map((row) => res.meta.map((col) => row[col.name]))
-  }
-
   function parsePanelConfig(configStr: string): import('../lib/types/api').PanelConfig {
     try {
       return JSON.parse(configStr || '{}')
@@ -727,6 +716,7 @@
 {#if fullscreenPanel}
   {@const fsResult = panelResults.get(fullscreenPanel.id)}
   {@const fsCfg = parsePanelConfig(fullscreenPanel.config)}
+  {@const fsIsTable = !['text', 'stat', 'gauge', 'pie', 'timeseries', 'bar'].includes(fullscreenPanel.panel_type)}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="fixed inset-0 z-[9999] bg-canvas flex flex-col"
@@ -741,28 +731,20 @@
     </div>
     <div class="flex-1 min-h-0 overflow-hidden {fullscreenPanel.panel_type === 'text' ? '' : 'p-4'}">
       {#if fullscreenPanel.panel_type === 'text'}
-        <MarkdownPanel content={fsCfg.content ?? ''} />
+        <PanelRenderer type="text" data={[]} meta={[]} config={fsCfg} />
       {:else if !fsResult || fsResult.loading}
         <div class="flex items-center justify-center h-full"><Spinner /></div>
       {:else if fsResult.error}
         <p class="p-4 text-[13px] text-danger">{fsResult.error}</p>
-      {:else if fullscreenPanel.panel_type === 'stat'}
-        <StatPanel stat={computeStat(fsResult.data, fsResult.meta, fsCfg)} />
-      {:else if fullscreenPanel.panel_type === 'gauge'}
-        <GaugePanel stat={computeStat(fsResult.data, fsResult.meta, fsCfg)} min={fsCfg.gaugeMin} max={fsCfg.gaugeMax} />
-      {:else if fullscreenPanel.panel_type === 'pie'}
-        <PiePanel data={fsResult.data} meta={fsResult.meta} config={fsCfg} />
-      {:else if fullscreenPanel.panel_type === 'timeseries' || fullscreenPanel.panel_type === 'bar'}
-        <ChartPanel data={fsResult.data} meta={fsResult.meta} config={fsCfg} />
+      {:else if fsIsTable && fsResult.meta.length === 0}
+        <p class="p-4 text-[13px] text-fg-3">No data</p>
+      {:else if fsIsTable}
+        <!-- Virtualized: a fullscreen table can hold every row of a large result. -->
+        <div class="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-edge-subtle">
+          <PanelRenderer type={fullscreenPanel.panel_type} data={fsResult.data} meta={fsResult.meta} config={fsCfg} table="virtual" />
+        </div>
       {:else}
-        {#if fsResult.meta.length > 0}
-          <!-- Virtualized: a fullscreen table can hold every row of a large result. -->
-          <div class="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-edge-subtle">
-            <VirtualTable meta={fsResult.meta} data={toRows(fsResult)} />
-          </div>
-        {:else}
-          <p class="p-4 text-[13px] text-fg-3">No data</p>
-        {/if}
+        <PanelRenderer type={fullscreenPanel.panel_type} data={fsResult.data} meta={fsResult.meta} config={fsCfg} />
       {/if}
     </div>
   </div>

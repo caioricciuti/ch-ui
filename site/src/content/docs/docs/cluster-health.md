@@ -79,9 +79,9 @@ These tile colors are display only. To be notified, use the health checks below.
 
 ## Health alerts
 
-Every harvester poll also evaluates six built-in health checks per node: replication lag, read-only replicas, disk usage (with an optional free-space floor), parts pressure, stuck mutations and unreachable nodes. They fire after consecutive breaches, resolve after consecutive OK polls, and send `health.*` events through your [alert rules](/docs/alerts#health-checks). Thresholds are edited per connection under **Governance → Health checks**; their defaults are looser than the tile colors above, since a notification should mean someone has to act.
+Every harvester poll also evaluates six built-in health checks per node: replication lag, read-only replicas, disk usage (with an optional free-space floor), parts pressure, stuck mutations and unreachable nodes. A seventh check, **Connection unreachable**, fires when the connection itself cannot be reached (tunnel offline, or no samples and a failed `SELECT 1`). They fire after consecutive breaches, resolve after consecutive OK polls, and send `health.*` events through your [alert rules](/docs/alerts#health-checks). Thresholds are edited per connection under **Governance → Health checks**; their defaults are looser than the tile colors above, since a notification should mean someone has to act.
 
-Health checks only run while background collection is enabled for the connection. When any check is firing, the Cluster Health header shows an **N alerts firing** badge that links to the Health checks section.
+The node-level checks only run while background collection is enabled for the connection; Connection unreachable also runs with collection off, using only `SELECT 1`. See [Health checks](/docs/alerts#health-checks) for the details, and [Silences and acknowledgements](/docs/alerts#silences-and-acknowledgements) to mute a known incident or a maintenance window. When any check is firing, the Cluster Health header shows an **N alerts firing** badge that links to the Health checks section.
 
 ## Killing queries and mutations
 

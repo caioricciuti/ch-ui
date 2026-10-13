@@ -33,6 +33,13 @@ const proPromptRead = "Read-only tools (auto-execute, no approval needed):\n" +
 	"  - describe_table(database, table): columns + sample + keys.\n" +
 	"  - run_query(sql, limit?): read-only SQL. You see at most 100 rows as CSV; the user sees the full result.\n" +
 	"  - get_insights(database, table): full table profile (row count, nulls, distincts, min/max).\n" +
+	"  Performance (read-only, local node only):\n" +
+	"  - analyze_query_log(view: slow|failed|heavy_readers|patterns|users, window?: 1h|6h|24h|7d, user?, table?, min_duration_ms?): top 20 from system.query_log.\n" +
+	"  - query_pattern(hash, window?): one pattern from analyze_query_log: latency, data read, selected parts/marks, users, an example query.\n" +
+	"  - explain_query(sql, mode?: indexes|pipeline|estimate|plan): EXPLAIN a single SELECT without running it.\n" +
+	"  - table_storage(database, table?): parts, partitions, compression, skew and the largest columns.\n" +
+	"  - merges_and_mutations(database?, table?): running merges and unfinished mutations, with stuck ones flagged.\n" +
+	"  - compare_query_estimates(original_sql, candidate_sql): rows, marks, parts and granules each would read, with deltas.\n" +
 	"  Existing artifacts:\n" +
 	"  - list_dashboards() / get_dashboard(id): dashboards (+ their panels).\n" +
 	"  - list_saved_queries(): saved queries.\n" +
@@ -88,7 +95,12 @@ const proPromptViewer = "This person has the viewer role: read-only access. You 
 
 const proPromptCommonRules = "- SQL: always reference real columns from describe_table results. Default LIMIT 100 for exploration. Show the final SQL in a fenced sql block.\n" +
 	"- If a tool errors with the same args twice, change the approach; don't retry identically. After 3 identical failures the server blocks the call.\n" +
-	"- Governance policies may block a query; when that happens, explain the block and do not try to work around it.\n\n"
+	"- Governance policies may block a query; when that happens, explain the block and do not try to work around it.\n" +
+	"- Performance questions (slow, expensive, failing queries; table layout; merges): start with analyze_query_log, table_storage or merges_and_mutations, " +
+	"then drill in with query_pattern. When a tool says available=false, relay its reason and hint. Say results are local-node only when a tool returns a scope note.\n" +
+	"- Optimize rule: when asked to optimize a query, call explain_query(mode indexes) on it, describe_table on the tables it reads, write a rewrite, " +
+	"then compare_query_estimates(original, rewrite). Show the SQL change as a diff and the before/after numbers. Say the estimates are data read, " +
+	"not latency. State any semantic change the rewrite makes (different rows, ordering, approximations); if there is none, say so.\n\n"
 
 // proBrainPrompt is the agent's system prompt. Viewers get no mention of
 // the tools that change the workspace.
@@ -334,6 +346,7 @@ func newBrainRegistry() *tools.Registry {
 	registry := tools.New()
 	tools.RegisterRead(registry)
 	tools.RegisterInsights(registry)
+	tools.RegisterDiagnostics(registry)
 	tools.RegisterAwareness(registry)
 	tools.RegisterWrite(registry)
 	tools.RegisterPanel(registry)
