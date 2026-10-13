@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.21.0] - 2026-10-13
+
+### Upgrade notes
+
+- **SQL alerts need a dedicated background account.** Scheduled SQL alerts run only with a `sql_alert` background account set up in Admin › Connections; there is no fallback to someone's session (#279).
+- **ON CLUSTER DDL shows per-host rows.** Run from the SQL editor, it now returns one status row per host. Remote `ch-ui connect` agents need v2.21.0 for this; older agents keep working without the rows (#278).
+- **Workspace tabs are kept per person and connection.** On first load after upgrading, existing tabs move to the current person and connection (#277).
+
+### Security
+
+- **Switching connection** requires a JSON, same-origin request, refuses the hidden setup connection, is rate limited per IP, and no longer turns an SSO session into a password session. A browser tab still on an old connection is refused instead of running queries on the new one (#277).
+
+### Added
+
+- **Connection switcher** in the sidebar and command palette. The same ClickHouse user switches with the password already in the session; tabs, pinned results and recent commands are kept per person and connection (#277).
+- **Access control editor** (Governance › Access control, Pro, admins): ClickHouse roles, privilege and role grants, default roles, row policies, quotas and settings profiles. Every change set is reviewed first with a per-entity diff, numbered SQL, optional ON CLUSTER and warnings; statements stop at the first failure and can be rolled back from a preview. Changes that would lock your own user out are refused, and every statement is audited (#278).
+- **Edit grants** from Admin › Users opens a ClickHouse user in Access control (#278).
+- **Health alerts**: six built-in Cluster Health checks (replication lag, read-only replicas, disk, parts pressure, stuck mutations, unreachable nodes) with thresholds per connection, escalation and resolved events (#279).
+- **SQL threshold alerts**: scheduled read-only queries compared to a threshold, with test run, run now, evaluation history and auto-disable after 5 errors (#279).
+- Alert rules accept prefix wildcards such as `health.*` and `sql.*`; Cluster Health shows how many alerts are firing (#279).
+
+### Fixed
+
+- A failed connection switch no longer signs you out, and signing in as someone else without a reload no longer shows the previous person's tabs (#277).
+
 ## [2.20.0] - 2026-10-13
 
 ### Upgrade notes
