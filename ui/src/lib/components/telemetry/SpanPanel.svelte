@@ -9,7 +9,7 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import { severityTone } from './severity'
   import { formatClock, formatFull } from './time'
-  import { serviceColor, formatDuration } from './services'
+  import { serviceColor, formatDuration, statusTone } from './services'
 
   interface Props {
     span: Span
@@ -41,11 +41,6 @@
 
   const parent = $derived(spans.find((s) => s.span_id === span.parent_span_id))
   const logsAreOwn = $derived(logs.some((l) => l.span_id === span.span_id))
-
-  function statusTone(v: string): 'success' | 'danger' | 'neutral' {
-    const u = v.toLowerCase()
-    return u === 'error' ? 'danger' : u === 'ok' ? 'success' : 'neutral'
-  }
 
   async function copy(text: string, what = 'Copied') {
     try {

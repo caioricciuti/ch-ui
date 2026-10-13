@@ -305,3 +305,83 @@ func TestValidateRedirectURI(t *testing.T) {
 		}
 	}
 }
+
+// Two refreshes racing with the same refresh token: exactly one may win.
+// The check and the revoke are one conditional UPDATE, so the loser sees a
+// used token instead of minting a second live token pair.
+func TestOAuthRefreshTokenRaceIssuesOnce(t *testing.T) {
+	r, db, connID := oauthRig(t)
+	key, err := db.CreateMCPKey(database.CreateMCPKeyParams{
+		Name: "c (alice)", KeyHash: "h-race", KeyPrefix: "chm_race", ConnectionID: connID,
+		CHUser: "alice", CHPasswordEnc: "x", Scopes: "read", CreatedBy: "oauth:alice",
+		Kind: "oauth", Subject: "alice", ClientID: "client-race",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := "refresh-race-token"
+	if err := db.CreateOAuthRefreshToken(&database.OAuthRefreshToken{
+		TokenHash: hashToken(raw), KeyID: key.ID, ClientID: "client-race", Scope: "read",
+		ExpiresAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {raw}, "client_id": {"client-race"}}.Encode()
+
+	const n = 8
+	codes := make(chan int, n)
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		go func() {
+			<-start
+			codes <- do(t, r, "POST", "/oauth/token", form, true).Code
+		}()
+	}
+	close(start)
+	ok := 0
+	for i := 0; i < n; i++ {
+		if <-codes == http.StatusOK {
+			ok++
+		}
+	}
+	if ok != 1 {
+		t.Fatalf("want exactly one successful refresh, got %d", ok)
+	}
+	live := 0
+	keys, _ := db.ListMCPKeys()
+	for _, k := range keys {
+		if k.RevokedAt == nil {
+			live++
+		}
+	}
+	if live != 1 {
+		t.Errorf("want one live access token after the race, got %d", live)
+	}
+}
+
+func TestClaimRefreshTokenOnlyOnce(t *testing.T) {
+	_, db, connID := oauthRig(t)
+	key, err := db.CreateMCPKey(database.CreateMCPKeyParams{
+		Name: "c", KeyHash: "h-claim", KeyPrefix: "chm_claim", ConnectionID: connID,
+		CHUser: "alice", CHPasswordEnc: "x", Scopes: "read", Kind: "oauth", Subject: "alice", ClientID: "client-claim",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateOAuthRefreshToken(&database.OAuthRefreshToken{
+		TokenHash: "th-claim", KeyID: key.ID, ClientID: "client-claim", Scope: "read",
+		ExpiresAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h := &OAuthHandler{DB: db}
+	if ok, err := h.claimRefreshToken("th-claim", "other-client"); err != nil || ok {
+		t.Fatalf("another client must not claim the token: ok=%v err=%v", ok, err)
+	}
+	if ok, err := h.claimRefreshToken("th-claim", "client-claim"); err != nil || !ok {
+		t.Fatalf("first claim: ok=%v err=%v", ok, err)
+	}
+	if ok, err := h.claimRefreshToken("th-claim", "client-claim"); err != nil || ok {
+		t.Fatalf("second claim must lose: ok=%v err=%v", ok, err)
+	}
+}

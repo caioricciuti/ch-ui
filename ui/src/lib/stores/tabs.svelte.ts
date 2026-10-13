@@ -3,6 +3,7 @@ import { isPageRouteType } from '../routes'
 import type { ColumnFilter, ResultSort } from '../utils/result-filters'
 import type { ModelEditState } from '../types/models'
 import { createUUID } from '../utils/uuid'
+import { parseSavedParams } from '../utils/query-params'
 import { pushTabRouteForTab } from './router.svelte'
 
 // ── Tab types ────────────────────────────────────────────────────
@@ -21,6 +22,10 @@ export interface QueryTab extends TabBase {
   dirty: boolean
   savedQueryId?: string
   baseSql?: string
+  /** Values typed for {name:Type} query parameters; kept per tab across switches. */
+  paramValues?: Record<string, string>
+  /** Parameter defaults stored with the linked saved query. */
+  savedParams?: Record<string, string>
 }
 
 export interface TableTab extends TabBase {
@@ -214,6 +219,7 @@ interface CreateQueryTabOptions {
   name?: string
   savedQueryId?: string
   baseSql?: string
+  savedParams?: Record<string, string>
 }
 
 function createQueryTab(sql = '', options: CreateQueryTabOptions = {}): QueryTab {
@@ -227,6 +233,8 @@ function createQueryTab(sql = '', options: CreateQueryTabOptions = {}): QueryTab
     dirty: false,
     savedQueryId: options.savedQueryId,
     baseSql: options.baseSql ?? sql,
+    paramValues: options.savedParams ? { ...options.savedParams } : {},
+    savedParams: options.savedParams,
   }
 }
 
@@ -507,12 +515,15 @@ interface SavedQueryTabInput {
   id: string
   name: string
   query: string
+  /** Stored parameter defaults, as the API returns them (JSON object string). */
+  parameters?: string | null
 }
 
 export function openSavedQueryTab(savedQuery: SavedQueryTabInput, targetGroupId?: string): void {
   const existing = tabs.find(
     (tab) => tab.type === 'query' && (tab as QueryTab).savedQueryId === savedQuery.id,
   ) as QueryTab | undefined
+  const savedParams = parseSavedParams(savedQuery.parameters)
   if (existing) {
     tabs = tabs.map((tab) => {
       if (tab.id !== existing.id || tab.type !== 'query') return tab
@@ -523,6 +534,9 @@ export function openSavedQueryTab(savedQuery: SavedQueryTabInput, targetGroupId?
         sql: savedQuery.query,
         baseSql: savedQuery.query,
         dirty: false,
+        // Values typed in this tab win; stored defaults fill the gaps.
+        paramValues: { ...savedParams, ...nonEmpty(tab.paramValues) },
+        savedParams,
       }
     })
     setActiveTab(existing.id)
@@ -533,6 +547,7 @@ export function openSavedQueryTab(savedQuery: SavedQueryTabInput, targetGroupId?
     name: savedQuery.name,
     savedQueryId: savedQuery.id,
     baseSql: savedQuery.query,
+    savedParams,
   })
   tabs = [...tabs, tab]
   const gid = resolveTargetGroupId(targetGroupId)
@@ -656,6 +671,23 @@ export function updateTabSQL(id: string, sql: string): void {
   queueSave()
 }
 
+function nonEmpty(values: Record<string, string> | undefined): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(values ?? {})) {
+    if (v.trim()) out[k] = v
+  }
+  return out
+}
+
+/** Remember the parameter values typed in a query tab. */
+export function setTabParamValues(id: string, values: Record<string, string>): void {
+  tabs = tabs.map((tab) => {
+    if (tab.id !== id || tab.type !== 'query') return tab
+    return { ...tab, paramValues: { ...values } }
+  })
+  queueSave()
+}
+
 export function renameTab(id: string, name: string): void {
   if (isHomeTabId(id)) return
   tabs = tabs.map(t => (t.id === id ? { ...t, name } : t))
@@ -678,7 +710,10 @@ export function renameSavedQueryTabs(savedQueryId: string, name: string): void {
   if (changed) queueSave()
 }
 
-export function markQueryTabSaved(id: string, options: { savedQueryId?: string; name?: string; baseSql?: string } = {}): void {
+export function markQueryTabSaved(
+  id: string,
+  options: { savedQueryId?: string; name?: string; baseSql?: string; savedParams?: Record<string, string> } = {},
+): void {
   tabs = tabs.map((tab) => {
     if (tab.id !== id || tab.type !== 'query') return tab
     const name = options.name?.trim() ? options.name.trim() : tab.name
@@ -689,6 +724,7 @@ export function markQueryTabSaved(id: string, options: { savedQueryId?: string; 
       savedQueryId: options.savedQueryId ?? tab.savedQueryId,
       baseSql,
       dirty: false,
+      savedParams: options.savedParams ?? tab.savedParams,
     }
   })
   queueSave()

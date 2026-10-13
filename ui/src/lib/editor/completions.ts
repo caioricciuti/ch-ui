@@ -2,7 +2,9 @@ import type { CompletionContext, CompletionResult, Completion } from '@codemirro
 import { snippetCompletion } from '@codemirror/autocomplete'
 import { fetchCompletions, listColumns, listTables } from '../api/query'
 import { getDatabases, loadDatabases } from '../stores/schema.svelte'
+import { getSession } from '../stores/session.svelte'
 import type { Column } from '../types/schema'
+import { maskNonCode } from './statements'
 
 // ── Cached server completions ───────────────────────────────────
 
@@ -17,6 +19,46 @@ const tableCache = new Map<string, string[]>()
 const columnCache = new Map<string, Column[]>()
 const tableFetches = new Map<string, Promise<void>>()
 const columnFetches = new Map<string, Promise<void>>()
+
+// Failed fetches are not cached (so a transient error does not hide a table
+// for the rest of the session); they are retried after this long instead of
+// on every keystroke.
+const FAILURE_RETRY_MS = 5000
+const failedAt = new Map<string, number>()
+let functionsFailedAt = 0
+
+function recentlyFailed(key: string): boolean {
+  const at = failedAt.get(key)
+  return at !== undefined && Date.now() - at < FAILURE_RETRY_MS
+}
+
+// How long a completion request waits for table lists before answering with
+// what it has; slower fetches keep going and fill the cache for the next one.
+const TABLE_FETCH_TIMEOUT_MS = 1500
+
+/**
+ * Drop every cached schema and function list. Call when the explorer is
+ * refreshed (tables created or dropped) or the connection changes.
+ */
+export function invalidateCompletionCaches(): void {
+  cachedFunctions = null
+  cachedKeywords = null
+  functionsFailedAt = 0
+  tableCache.clear()
+  columnCache.clear()
+  failedAt.clear()
+  cachedModelNames = null
+  dbLastAttemptAt = 0
+}
+
+// A different connection or ClickHouse user sees a different schema.
+let sessionKey: string | null = null
+function checkSessionChanged(): void {
+  const session = getSession()
+  const key = session ? `${session.connectionId}\u0000${session.user}` : ''
+  if (sessionKey !== null && key !== sessionKey) invalidateCompletionCaches()
+  sessionKey = key
+}
 
 // ── Model name cache for $ref() autocomplete ─────────────────────
 
@@ -103,6 +145,7 @@ async function ensureFunctionKeywordCache(): Promise<void> {
     await fetchPromise
     return
   }
+  if (Date.now() - functionsFailedAt < FAILURE_RETRY_MS) return
 
   fetchPromise = fetchCompletions()
     .then(({ functions, keywords }) => {
@@ -110,8 +153,7 @@ async function ensureFunctionKeywordCache(): Promise<void> {
       cachedKeywords = keywords
     })
     .catch(() => {
-      cachedFunctions = []
-      cachedKeywords = []
+      functionsFailedAt = Date.now()
     })
     .finally(() => {
       fetchPromise = null
@@ -161,13 +203,15 @@ export async function ensureTablesCached(dbName: string): Promise<void> {
     await existing
     return
   }
+  if (recentlyFailed(`t:${dbName}`)) return
 
   const p = listTables(dbName)
     .then((tables) => {
       tableCache.set(dbName, tables)
+      failedAt.delete(`t:${dbName}`)
     })
     .catch(() => {
-      tableCache.set(dbName, [])
+      failedAt.set(`t:${dbName}`, Date.now())
     })
     .finally(() => {
       tableFetches.delete(dbName)
@@ -193,13 +237,15 @@ async function ensureColumnsCached(dbName: string, tableName: string): Promise<v
     await existing
     return
   }
+  if (recentlyFailed(`c:${key}`)) return
 
   const p = listColumns(dbName, tableName)
     .then((cols) => {
       columnCache.set(key, cols)
+      failedAt.delete(`c:${key}`)
     })
     .catch(() => {
-      columnCache.set(key, [])
+      failedAt.set(`c:${key}`, Date.now())
     })
     .finally(() => {
       columnFetches.delete(key)
@@ -225,25 +271,56 @@ function detectContext(doc: string, pos: number): SqlContext {
   return 'default'
 }
 
-function buildAliasMap(doc: string): Map<string, string> {
-  const aliases = new Map<string, string>()
-  const regex = /(?:FROM|JOIN)\s+([`"\w]+(?:\.[`"\w]+)?)(?:\s+(?:AS\s+)?([`"\w]+))?/gi
-  let match: RegExpExecArray | null
+// Words that can follow a table reference but are never its alias.
+const NOT_AN_ALIAS = new Set([
+  'WHERE', 'PREWHERE', 'GROUP', 'ORDER', 'LIMIT', 'JOIN', 'ON', 'USING', 'FINAL',
+  'SAMPLE', 'ARRAY', 'SETTINGS', 'FORMAT', 'UNION', 'LEFT', 'RIGHT', 'INNER',
+  'OUTER', 'FULL', 'CROSS', 'ANY', 'ALL', 'ASOF', 'SEMI', 'ANTI', 'GLOBAL',
+  'PASTE', 'HAVING', 'WINDOW', 'QUALIFY', 'INTO', 'OFFSET', 'EXCEPT', 'INTERSECT',
+  'WITH', 'SELECT', 'AS', 'BY',
+])
 
-  while ((match = regex.exec(doc)) !== null) {
+// Strings and comments look like SQL to the regexes below; blank them first.
+// Quoted identifiers are kept, so `my table` still resolves.
+function codeOnly(doc: string): string {
+  return maskNonCode(doc, { keepIdentifiers: true })
+}
+
+export function buildAliasMap(doc: string): Map<string, string> {
+  const aliases = new Map<string, string>()
+  const regex = /\b(?:FROM|JOIN)\s+([`"\w]+(?:\.[`"\w]+)?)(?:\s+(?:AS\s+)?([`"\w]+))?/gi
+  let match: RegExpExecArray | null
+  const code = codeOnly(doc)
+
+  while ((match = regex.exec(code)) !== null) {
     const tableRef = normalizeIdent(match[1])
     const alias = normalizeIdent(match[2] ?? '')
-    if (alias) aliases.set(alias, tableRef)
+    if (alias && !NOT_AN_ALIAS.has(alias.toUpperCase())) aliases.set(alias, tableRef)
   }
 
   return aliases
 }
 
+/** Names defined by WITH name AS (...) common table expressions. */
+export function findCteNames(doc: string): string[] {
+  const out = new Set<string>()
+  const regex = /(?:\bWITH|,)\s*([A-Za-z_]\w*)\s+AS\s*\(/gi
+  let match: RegExpExecArray | null
+  const code = maskNonCode(doc)
+  while ((match = regex.exec(code)) !== null) out.add(match[1])
+  return [...out]
+}
+
+function buildCteCompletions(doc: string): Completion[] {
+  return findCteNames(doc).map((name) => ({ label: name, type: 'class', detail: 'CTE', boost: 26 }))
+}
+
 function buildReferencedTables(doc: string): string[] {
   const out = new Set<string>()
-  const regex = /(?:FROM|JOIN)\s+([`"\w]+(?:\.[`"\w]+)?)/gi
+  const regex = /\b(?:FROM|JOIN)\s+([`"\w]+(?:\.[`"\w]+)?)/gi
   let match: RegExpExecArray | null
-  while ((match = regex.exec(doc)) !== null) {
+  const code = codeOnly(doc)
+  while ((match = regex.exec(code)) !== null) {
     const tableRef = normalizeIdent(match[1])
     if (tableRef) out.add(tableRef)
   }
@@ -316,10 +393,20 @@ function dedupeCompletions(items: Completion[]): Completion[] {
   return out
 }
 
+/** Load the table lists of all databases in parallel, waiting at most timeoutMs. */
+export async function ensureAllTablesCached(timeoutMs = TABLE_FETCH_TIMEOUT_MS): Promise<void> {
+  const pending = knownDatabases().filter((db) => !hasTablesCached(db)).map((db) => ensureTablesCached(db))
+  if (pending.length === 0) return
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<void>((resolve) => { timer = setTimeout(resolve, timeoutMs) })
+  await Promise.race([Promise.allSettled(pending), timeout])
+  clearTimeout(timer)
+}
+
 async function resolveUnqualifiedTableRefs(tableName: string): Promise<TableRef[]> {
   const refs: TableRef[] = []
+  await ensureAllTablesCached()
   for (const db of knownDatabases()) {
-    await ensureTablesCached(db)
     if (findTablesForDatabase(db).includes(tableName)) {
       refs.push({ db, table: tableName })
     }
@@ -418,8 +505,8 @@ async function buildTableCompletions(term: string): Promise<Completion[]> {
     }
   }
 
+  await ensureAllTablesCached()
   for (const dbName of knownDatabases()) {
-    await ensureTablesCached(dbName)
     for (const table of findTablesForDatabase(dbName)) {
       options.push({
         label: `${dbName}.${table}`,
@@ -566,6 +653,7 @@ export async function clickhouseCompletionSource(
   if (!word) return null
   if (word.from === word.to && !context.explicit) return null
 
+  checkSessionChanged()
   // Warm caches in background so autocomplete stays responsive even when
   // metadata endpoints are slow or temporarily unavailable.
   void ensureFunctionKeywordCache()
@@ -598,6 +686,7 @@ export async function clickhouseCompletionSource(
       break
     case 'table':
       options = [
+        ...buildCteCompletions(doc),
         ...(await buildTableCompletions(term)),
         ...buildDatabaseCompletions(),
         ...buildKeywordCompletions().filter((k) => ['JOIN', 'ON', 'USING', 'WHERE'].includes(k.label)),
@@ -619,6 +708,7 @@ export async function clickhouseCompletionSource(
       break
     default:
       options = [
+        ...buildCteCompletions(doc),
         ...buildSnippetCompletions(),
         ...buildKeywordCompletions(),
         ...buildFunctionCompletions(),

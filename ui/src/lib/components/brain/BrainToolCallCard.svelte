@@ -39,6 +39,25 @@
     return String(args)
   }
 
+  /** Every argument with its full value, for the approval review. */
+  function argEntries(args: unknown): [string, string][] {
+    let value: unknown = args
+    if (typeof value === 'string') {
+      try {
+        value = JSON.parse(value)
+      } catch {
+        return [['arguments', value as string]]
+      }
+    }
+    if (value == null || typeof value !== 'object') return []
+    const out: [string, string][] = []
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v == null || v === '') continue
+      out.push([k, typeof v === 'string' ? v : JSON.stringify(v, null, 2)])
+    }
+    return out
+  }
+
   function formatResult(result: unknown): string {
     if (result == null) return ''
     try {
@@ -85,6 +104,8 @@
   }
   const label = $derived(toolLabel[toolCall.tool] ?? toolCall.tool)
   const isApproval = $derived(toolCall.status === 'pending_approval' && !localDecision)
+  const approvalArgs = $derived(isApproval ? argEntries(toolCall.args) : [])
+  const isDestructive = $derived(toolCall.tool?.startsWith('delete_') ?? false)
   const isWrite = $derived(
     toolCall.tool?.startsWith('create_') ||
     toolCall.tool?.startsWith('update_') ||
@@ -178,7 +199,21 @@
   </button>
 
   {#if isApproval}
-    <BrainApprovalActions approvalId={toolCall.approvalId} {label} bind:decision={localDecision} />
+    <div class="border-t border-warning/30 px-3 py-2 space-y-2">
+      <div class="text-xs text-fg-3">
+        Tool <span class="font-mono text-fg">{toolCall.tool}</span> will run with:
+      </div>
+      {#if approvalArgs.length === 0}
+        <div class="text-xs text-fg-3">No arguments.</div>
+      {/if}
+      {#each approvalArgs as [key, value] (key)}
+        <div>
+          <div class="text-xs font-mono text-fg-3">{key}</div>
+          <pre class="mt-0.5 rounded bg-surface-2 px-2 py-1 text-xs font-mono text-fg whitespace-pre-wrap break-words max-h-64 overflow-auto">{value}</pre>
+        </div>
+      {/each}
+    </div>
+    <BrainApprovalActions approvalId={toolCall.approvalId} {label} destructive={isDestructive} bind:decision={localDecision} />
   {/if}
 
   {#if openUrl && effectiveStatus === 'success' && isWrite}

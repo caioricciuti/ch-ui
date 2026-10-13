@@ -111,6 +111,10 @@ export function updateQueryHarvestMode(mode: QueryHarvestMode) {
   return apiPut<QueryHarvestSettings>(`${BASE}/query-harvest`, { mode })
 }
 
+export function updateQueryHarvestMinDuration(minDurationMs: number) {
+  return apiPut<QueryHarvestSettings>(`${BASE}/query-harvest`, { min_duration_ms: minDurationMs })
+}
+
 // ── Tags ────────────────────────────────────────────────────────
 
 // ── Access ──────────────────────────────────────────────────────

@@ -54,7 +54,9 @@ What the person approving needs to know:
 - Scope `read` is the default. Scope `write` (draft creation in CH-UI) is only
   granted to the admin and analyst roles.
 - Access tokens last one hour and are refreshed silently by the client for up
-  to 30 days of use. Admins see and revoke grants in **Admin → MCP Server**.
+  to 30 days of use. Each refresh token works once: of two requests racing
+  with the same token, one gets new tokens and the other `invalid_grant`.
+  Admins see and revoke grants in **Admin → MCP Server**.
 - CH-UI is the authorization server; nothing leaves your deployment. It
   supports authorization code with PKCE (S256, mandatory), refresh token
   rotation, Dynamic Client Registration for public clients, and Client ID
@@ -186,11 +188,19 @@ An MCP key binds three things:
   of `create_model` / `create_pipeline`, and is enforced on the SQL passed to
   `run_select`, `run_saved_query`, `explain_query` and `estimate_query`. See
   [Allowlist on SQL](#allowlist-on-sql) for what is rejected. It is a second
-  layer on top of ClickHouse grants, not a replacement for them.
+  layer on top of ClickHouse grants, not a replacement for them. The Pro
+  tools `query_insights_top` and `costs_summary` read `system.query_log`
+  across every database, query text included, so a key with an allowlist
+  gets a clear refusal from them instead of data.
 
 Keys are bearer tokens with a `chm_` prefix. Only a SHA-256 hash is stored.
 There is no unauthenticated mode. Each key is limited to 120 requests per
 minute; over that the server answers `429` with `Retry-After`.
+
+Creating, rotating and revoking a key is written to the
+[audit log](/docs/audit-log) as `mcp.key.created`, `mcp.key.rotated` and
+`mcp.key.revoked`, attributed to the person who did it (their SSO email
+when they signed in with SSO, not the shared ClickHouse account).
 
 Keys **expire**: 90 days by default when created from the UI, with 30 days,
 1 year or never as the other options. They can be **rotated** in place:
@@ -225,8 +235,8 @@ the write-scope tools are `readOnlyHint: false, destructiveHint: false`
 | `create_dashboard` (write scope) | Dashboard with SQL panels, laid out automatically |
 | `create_model` (write scope) | Draft SQL model (view or table, `$ref()` supported) |
 | `create_pipeline` (write scope) | Draft pipeline: a Kafka, webhook, database or S3 source wired to a ClickHouse sink |
-| `query_insights_top` (Pro) | Top query patterns by p95 latency, memory or frequency |
-| `costs_summary` (Pro) | Cost Center spend summary with your configured rates |
+| `query_insights_top` (Pro) | Top query patterns by p95 latency, memory or frequency. Refused for keys with a database allowlist |
+| `costs_summary` (Pro) | Cost Center spend summary with your configured rates. Refused for keys with a database allowlist |
 
 Paginated tools return `next_cursor` when more items exist; pass it back as
 `cursor`. Cursors are opaque.
@@ -235,8 +245,9 @@ Paginated tools return `next_cursor` when more items exist; pass it back as
 server's `rows_read` / `bytes_read`. With `format: csv` the rows come as an
 RFC 4180 block (header row, ClickHouse column order), which costs roughly half
 the tokens of JSON for wide results; the metadata follows as a second text
-block. Results are capped at `max_rows` exactly, and `truncated: true` tells
-the model to filter or aggregate.
+block. Results are capped at `max_rows` exactly. `truncated: true` appears
+only when ClickHouse had more rows than `max_rows` (CH-UI asks for one row
+more than the cap to tell), and tells the model to filter or aggregate.
 
 **Byte budget.** `max_bytes` on `run_select` and `run_saved_query` maps to
 ClickHouse's `max_bytes_to_read`: the query is aborted once it has read more

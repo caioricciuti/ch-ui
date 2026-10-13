@@ -22,8 +22,11 @@ export function tracesFacets(req: { source_id: string; from: string; to: string;
   return apiPost<TraceFacets>(`${BASE}/traces/facets`, req)
 }
 
-export function getTrace(sourceId: string, traceId: string): Promise<TraceDetail> {
-  return apiGet<TraceDetail>(`${BASE}/traces/${encodeURIComponent(traceId)}?source_id=${encodeURIComponent(sourceId)}`)
+/** ts (RFC3339) is a time hint near the trace start, used when the exporter's trace-id index is absent. */
+export function getTrace(sourceId: string, traceId: string, ts?: string): Promise<TraceDetail> {
+  const qs = new URLSearchParams({ source_id: sourceId })
+  if (ts) qs.set('ts', ts)
+  return apiGet<TraceDetail>(`${BASE}/traces/${encodeURIComponent(traceId)}?${qs}`)
 }
 
 // ── Metrics (phase 3) ────────────────────────────────────────

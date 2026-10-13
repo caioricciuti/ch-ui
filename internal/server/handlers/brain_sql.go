@@ -16,6 +16,7 @@ import (
 	"time"
 
 	braincore "github.com/caioricciuti/ch-ui/internal/brain"
+	"github.com/caioricciuti/ch-ui/internal/brain/tools"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
@@ -33,6 +34,10 @@ const (
 	tts2sqlMaxTables  = 16
 	tts2sqlSchemaWait = 20 * time.Second
 	tts2sqlGenWait    = 60 * time.Second
+	// tts2sqlMaxCurrentSQL bounds the editor SQL sent along.
+	tts2sqlMaxCurrentSQL = 20000
+	// tts2sqlColumnScan bounds the column names read for ranking.
+	tts2sqlColumnScan = 20000
 )
 
 // GenerateSQL handles text-to-SQL generation.
@@ -51,6 +56,9 @@ func (h *BrainHandler) GenerateSQL(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Question string `json:"question"`
 		ModelID  string `json:"model_id"`
+		// CurrentSQL is the editor's SQL, sent when the person asks to
+		// change the query they are looking at.
+		CurrentSQL string `json:"current_sql"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -91,7 +99,8 @@ func (h *BrainHandler) GenerateSQL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	schema, tables := h.buildSchemaContext(session.ConnectionID, session.ClickhouseUser, chPassword, question)
+	currentSQL := clipMiddle(strings.TrimSpace(body.CurrentSQL), tts2sqlMaxCurrentSQL)
+	schema, tables := h.buildSchemaContext(r.Context(), session.ConnectionID, session.ClickhouseUser, chPassword, question+"\n"+currentSQL)
 	modelCtx := h.buildModelContext(session.ConnectionID)
 
 	sysPrompt := "You are an expert ClickHouse SQL engineer. Write ONE correct ClickHouse SQL query that answers the user's question.\n" +
@@ -100,6 +109,7 @@ func (h *BrainHandler) GenerateSQL(w http.ResponseWriter, r *http.Request) {
 		"- Prefer fully-qualified `database.table` names.\n" +
 		"- Use ClickHouse syntax and functions (not Postgres/MySQL).\n" +
 		"- If the question can't be answered from the schema, return a comment explaining what's missing.\n" +
+		"- When a current query is given and the question asks to change it, return the full edited query.\n" +
 		"- Output ONLY the SQL — no prose, no markdown fences."
 
 	var user strings.Builder
@@ -112,6 +122,11 @@ func (h *BrainHandler) GenerateSQL(w http.ResponseWriter, r *http.Request) {
 	if modelCtx != "" {
 		user.WriteString("\n# Documented models (curated, prefer these when relevant)\n\n")
 		user.WriteString(modelCtx)
+	}
+	if currentSQL != "" {
+		user.WriteString("\n# Current query in the editor\n\n")
+		user.WriteString(currentSQL)
+		user.WriteString("\n")
 	}
 	user.WriteString("\n# Question\n\n")
 	user.WriteString(question)
@@ -158,15 +173,68 @@ func completeOnce(ctx context.Context, p braincore.Provider, cfg braincore.Provi
 	return sb.String(), nil
 }
 
-// buildSchemaContext picks the tables most relevant to the question and
-// renders their columns as compact DDL-ish text. Returns the rendered schema
-// and the list of qualified table names included. Introspection goes through
-// the tunnel with readonly=1 and row/time caps, like Brain's tools.
-func (h *BrainHandler) buildSchemaContext(connID, chUser, chPassword, question string) (string, []string) {
-	runSelect := func(sql string, timeout time.Duration) []map[string]any {
-		res, err := h.Gateway.ExecuteQueryWithSettings(connID, sql, chUser, chPassword, map[string]string{
+// schemaTable is one table or view considered for the prompt.
+type schemaTable struct {
+	db, name, engine, comment string
+}
+
+func (t schemaTable) qualified() string { return t.db + "." + t.name }
+
+// rankSchemaTables orders tables by how well the question (and editor SQL)
+// matches their qualified name and their column names. Name matches weigh
+// more; column matches count up to three per table so a wide table does not
+// win on size alone. The sort is stable, so ties keep catalog order.
+func rankSchemaTables(tables []schemaTable, columns map[string][]string, text string) []schemaTable {
+	tokens := tokenize(text)
+	type scored struct {
+		t     schemaTable
+		score int
+	}
+	out := make([]scored, len(tables))
+	for i, t := range tables {
+		q := strings.ToLower(t.qualified())
+		s := 0
+		for tok := range tokens {
+			if strings.Contains(q, tok) {
+				s += 4
+			} else if strings.Contains(q, singularize(tok)) {
+				s += 2
+			}
+		}
+		colHits := 0
+		for _, c := range columns[t.qualified()] {
+			lc := strings.ToLower(c)
+			for tok := range tokens {
+				if lc == tok || lc == singularize(tok) || strings.Contains(lc, tok) {
+					colHits++
+					break
+				}
+			}
+		}
+		if colHits > 3 {
+			colHits = 3
+		}
+		out[i] = scored{t, s + colHits}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].score > out[j].score })
+	ranked := make([]schemaTable, len(out))
+	for i, s := range out {
+		ranked[i] = s.t
+	}
+	return ranked
+}
+
+// buildSchemaContext picks the tables and views most relevant to the
+// question and renders their columns (with comments) as compact DDL-ish
+// text. Returns the rendered schema and the qualified names included.
+// Introspection goes through the tunnel with readonly=1 and row/time caps,
+// like Brain's tools, and stops when the request is cancelled.
+func (h *BrainHandler) buildSchemaContext(ctx context.Context, connID, chUser, chPassword, question string) (string, []string) {
+	runSelect := func(sql string, timeout time.Duration, maxRows int) []map[string]any {
+		res, err := h.Gateway.ExecuteQueryWithSettingsCtx(ctx, connID, sql, chUser, chPassword, map[string]string{
 			"readonly": "1", "max_execution_time": strconv.Itoa(int(timeout.Seconds())),
-			"max_result_rows": "10000", "result_overflow_mode": "break",
+			"max_result_rows": strconv.Itoa(maxRows), "result_overflow_mode": "break",
+			"log_comment": tools.LogComment,
 		}, timeout)
 		if err != nil || res == nil {
 			return nil
@@ -178,65 +246,50 @@ func (h *BrainHandler) buildSchemaContext(connID, chUser, chPassword, question s
 		return rows
 	}
 
+	const userDBs = `database NOT IN ('system','information_schema','INFORMATION_SCHEMA')`
 	tableRows := runSelect(
-		`SELECT database, name FROM system.tables
-		 WHERE database NOT IN ('system','information_schema','INFORMATION_SCHEMA')
-		   AND engine NOT LIKE '%View' ORDER BY database, name`, tts2sqlSchemaWait)
+		`SELECT database, name, engine, comment FROM system.tables
+		 WHERE `+userDBs+` AND NOT is_temporary AND name NOT LIKE '.inner%'
+		 ORDER BY database, name`, tts2sqlSchemaWait, 10000)
 	if len(tableRows) == 0 {
 		return "", nil
 	}
-
-	type tbl struct{ db, name string }
-	var all []tbl
+	var all []schemaTable
 	for _, row := range tableRows {
+		t := schemaTable{}
+		t.db, _ = row["database"].(string)
+		t.name, _ = row["name"].(string)
+		t.engine, _ = row["engine"].(string)
+		t.comment, _ = row["comment"].(string)
+		if t.db != "" && t.name != "" {
+			all = append(all, t)
+		}
+	}
+
+	// Column names, for ranking only.
+	colNames := map[string][]string{}
+	for _, row := range runSelect(`SELECT database, table, name FROM system.columns WHERE `+userDBs, tts2sqlSchemaWait, tts2sqlColumnScan) {
 		d, _ := row["database"].(string)
+		t, _ := row["table"].(string)
 		n, _ := row["name"].(string)
-		if d != "" && n != "" {
-			all = append(all, tbl{d, n})
-		}
+		colNames[d+"."+t] = append(colNames[d+"."+t], n)
 	}
 
-	// Rank by keyword overlap between the question and the qualified name.
-	tokens := tokenize(question)
-	scored := make([]struct {
-		t     tbl
-		score int
-	}, len(all))
-	for i, t := range all {
-		q := strings.ToLower(t.db + "." + t.name)
-		s := 0
-		for tok := range tokens {
-			if strings.Contains(q, tok) {
-				s += 2
-			} else if strings.Contains(q, singularize(tok)) {
-				s++
-			}
-		}
-		scored[i].t = t
-		scored[i].score = s
+	picked := rankSchemaTables(all, colNames, question)
+	if len(picked) > tts2sqlMaxTables {
+		picked = picked[:tts2sqlMaxTables]
 	}
-	sort.SliceStable(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
 
-	limit := tts2sqlMaxTables
-	if len(scored) < limit {
-		limit = len(scored)
-	}
-	picked := scored[:limit]
-
-	// Fetch columns for the picked tables in one query.
 	var conds []string
-	qualified := make([]string, 0, limit)
 	for _, p := range picked {
-		conds = append(conds, fmt.Sprintf("(database='%s' AND table='%s')",
-			escapeLiteral(p.t.db), escapeLiteral(p.t.name)))
-		qualified = append(qualified, p.t.db+"."+p.t.name)
+		conds = append(conds, fmt.Sprintf("(database='%s' AND table='%s')", escapeLiteral(p.db), escapeLiteral(p.name)))
 	}
 	if len(conds) == 0 {
 		return "", nil
 	}
 	colRows := runSelect(
-		`SELECT database, table, name, type FROM system.columns WHERE `+
-			strings.Join(conds, " OR ")+` ORDER BY database, table, position`, tts2sqlSchemaWait)
+		`SELECT database, table, name, type, comment FROM system.columns WHERE `+
+			strings.Join(conds, " OR ")+` ORDER BY database, table, position`, tts2sqlSchemaWait, 10000)
 
 	cols := map[string][]string{}
 	for _, row := range colRows {
@@ -244,19 +297,41 @@ func (h *BrainHandler) buildSchemaContext(connID, chUser, chPassword, question s
 		t, _ := row["table"].(string)
 		n, _ := row["name"].(string)
 		ty, _ := row["type"].(string)
-		key := d + "." + t
-		cols[key] = append(cols[key], fmt.Sprintf("  %s %s", n, ty))
+		cm, _ := row["comment"].(string)
+		line := fmt.Sprintf("  %s %s", n, ty)
+		if cm = oneLine(cm); cm != "" {
+			line += " -- " + cm
+		}
+		cols[d+"."+t] = append(cols[d+"."+t], line)
 	}
 
 	var sb strings.Builder
-	for _, q := range qualified {
-		c := cols[q]
+	included := make([]string, 0, len(picked))
+	for _, p := range picked {
+		c := cols[p.qualified()]
 		if len(c) == 0 {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("%s (\n%s\n)\n\n", q, strings.Join(c, ",\n")))
+		header := p.qualified()
+		if strings.Contains(strings.ToLower(p.engine), "view") {
+			header += " (" + p.engine + ")"
+		}
+		if cm := oneLine(p.comment); cm != "" {
+			header += " -- " + cm
+		}
+		sb.WriteString(fmt.Sprintf("%s (\n%s\n)\n\n", header, strings.Join(c, ",\n")))
+		included = append(included, p.qualified())
 	}
-	return sb.String(), qualified
+	return sb.String(), included
+}
+
+// oneLine flattens and bounds a comment for the prompt.
+func oneLine(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > 200 {
+		s = string(r[:200]) + "..."
+	}
+	return s
 }
 
 // buildModelContext adds curated model names + descriptions for the connection.

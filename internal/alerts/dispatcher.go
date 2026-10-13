@@ -53,6 +53,8 @@ type Dispatcher struct {
 	cfg    *config.Config
 	stopCh chan struct{}
 	http   *http.Client
+	// webhookHTTP overrides the guarded webhook client (tests only).
+	webhookHTTP *http.Client
 	// allow reports whether alerts may be delivered now. It follows the
 	// license at runtime and stays open through the grace window, like the
 	// other background Pro workers, so monitors that keep firing in grace
@@ -122,6 +124,10 @@ func (d *Dispatcher) materializeEventJobs() {
 	channelsByRule := make(map[string][]database.AlertRuleChannelView)
 	now := time.Now().UTC()
 	for _, event := range events {
+		// complete stays true only when every matching rule was fully
+		// materialized. Otherwise the event stays 'new' and is retried next
+		// tick; jobs already created for it are not duplicated.
+		complete := true
 		for _, rule := range rules {
 			if !ruleMatchesEvent(rule, event) {
 				continue
@@ -131,12 +137,22 @@ func (d *Dispatcher) materializeEventJobs() {
 				bindings, err = d.db.ListActiveAlertRuleChannels(rule.ID)
 				if err != nil {
 					slog.Error("Alert dispatcher failed to list active rule channels", "rule", rule.ID, "error", err)
+					complete = false
 					continue
 				}
 				channelsByRule[rule.ID] = bindings
 			}
 			for _, binding := range bindings {
-				if len(binding.Recipients) == 0 {
+				if len(binding.Recipients) == 0 && !channelNeedsNoRecipients(binding.ChannelType) {
+					continue
+				}
+				exists, err := d.db.AlertDispatchJobExists(event.ID, rule.ID, binding.ChannelID)
+				if err != nil {
+					slog.Error("Alert dispatcher failed to check existing dispatch job", "event", event.ID, "rule", rule.ID, "error", err)
+					complete = false
+					continue
+				}
+				if exists {
 					continue
 				}
 				if event.Fingerprint != nil && strings.TrimSpace(*event.Fingerprint) != "" && rule.CooldownSeconds > 0 {
@@ -150,14 +166,24 @@ func (d *Dispatcher) materializeEventJobs() {
 				}
 				if _, err := d.db.CreateAlertDispatchJob(event.ID, rule.ID, binding.ChannelID, binding.RecipientsJSON, rule.MaxAttempts, now); err != nil {
 					slog.Error("Alert dispatcher failed to create dispatch job", "event", event.ID, "rule", rule.ID, "channel", binding.ChannelID, "error", err)
+					complete = false
 				}
 			}
 		}
 
+		if !complete {
+			continue
+		}
 		if err := d.db.MarkAlertEventProcessed(event.ID); err != nil {
 			slog.Warn("Alert dispatcher failed to mark event processed", "event", event.ID, "error", err)
 		}
 	}
+}
+
+// channelNeedsNoRecipients reports whether a channel type delivers without
+// email recipients (webhooks post to their configured URL).
+func channelNeedsNoRecipients(channelType string) bool {
+	return strings.EqualFold(strings.TrimSpace(channelType), ChannelTypeWebhook)
 }
 
 func (d *Dispatcher) processDueJobs() {
@@ -171,13 +197,17 @@ func (d *Dispatcher) processDueJobs() {
 	}
 
 	for _, job := range jobs {
-		if err := d.db.MarkAlertDispatchJobSending(job.ID); err != nil {
-			slog.Warn("Alert dispatcher failed to mark job sending", "job", job.ID, "error", err)
+		claimed, err := d.db.ClaimAlertDispatchJob(job.ID, time.Now().UTC())
+		if err != nil {
+			slog.Warn("Alert dispatcher failed to claim job", "job", job.ID, "error", err)
+			continue
+		}
+		if !claimed {
 			continue
 		}
 
 		recipients := parseRecipients(job.RecipientsJSON)
-		if len(recipients) == 0 {
+		if len(recipients) == 0 && !channelNeedsNoRecipients(job.ChannelType) {
 			_ = d.db.MarkAlertDispatchJobFailed(job.ID, "job has no recipients")
 			continue
 		}
@@ -200,7 +230,12 @@ func (d *Dispatcher) processDueJobs() {
 		)
 		body := renderTemplate(coalesce(job.RuleBodyTemplate, defaultBody(job)), job)
 
-		providerMessageID, err := d.sendByChannelType(context.Background(), job.ChannelType, channelConfig, recipients, subject, body)
+		var providerMessageID string
+		if channelNeedsNoRecipients(job.ChannelType) {
+			providerMessageID, err = SendWebhook(context.Background(), d.webhookHTTP, channelConfig, d.webhookEvent(job))
+		} else {
+			providerMessageID, err = d.sendByChannelType(context.Background(), job.ChannelType, channelConfig, recipients, subject, body)
+		}
 
 		if err != nil {
 			nextAttempt := job.AttemptCount + 1
@@ -217,6 +252,45 @@ func (d *Dispatcher) processDueJobs() {
 			slog.Warn("Alert dispatcher failed to mark job sent", "job", job.ID, "error", err)
 		}
 	}
+}
+
+// webhookEvent builds the webhook body fields for a dispatch job.
+func (d *Dispatcher) webhookEvent(job database.AlertDispatchJobWithDetails) WebhookEvent {
+	ev := WebhookEvent{
+		EventID:     job.EventID,
+		EventType:   job.EventType,
+		Severity:    job.EventSeverity,
+		Title:       job.EventTitle,
+		Message:     job.EventMessage,
+		Fingerprint: coalesce(job.EventFingerprint, ""),
+		Timestamp:   job.EventCreatedAt,
+		Link:        AlertsLink(d.appURL()),
+		RuleName:    job.RuleName,
+	}
+	if ev.Timestamp == "" {
+		ev.Timestamp = job.CreatedAt
+	}
+	if job.EventPayloadJSON != nil && json.Valid([]byte(*job.EventPayloadJSON)) {
+		ev.Payload = json.RawMessage(*job.EventPayloadJSON)
+	}
+	return ev
+}
+
+func (d *Dispatcher) appURL() string {
+	if d.cfg == nil {
+		return ""
+	}
+	return d.cfg.AppURL
+}
+
+// AlertsLink is the CH-UI page that lists alert events, or "" without an
+// app URL.
+func AlertsLink(appURL string) string {
+	base := strings.TrimRight(strings.TrimSpace(appURL), "/")
+	if base == "" {
+		return ""
+	}
+	return base + "/governance?section=alerts"
 }
 
 // SendDirect sends a one-off notification without queueing.

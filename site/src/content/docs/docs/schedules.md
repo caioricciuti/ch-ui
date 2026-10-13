@@ -62,7 +62,7 @@ The schedule runner wakes every **30 seconds** and checks for enabled schedules 
 
 ### Concurrency
 
-Up to **3 schedules** execute concurrently (system-wide semaphore). Additional due schedules wait for the next tick.
+Up to **3 schedules** run at the same time (system-wide). Each tick starts due schedules in the background and returns, so a long run never holds up the others: the ticker keeps firing every 30 seconds and starts whatever else is due. A schedule never overlaps itself; while a run is in flight, that schedule is skipped until the run ends. When all 3 slots are busy, other due schedules start on a later tick.
 
 ### Credential Resolution
 
@@ -117,7 +117,7 @@ Created immediately when a scheduled run fails.
 | Event Type | `schedule.slow` |
 | Severity | `warn` |
 | Fingerprint | `schedule:{id}:slow` |
-| Threshold | Elapsed time >= 80% of timeout (minimum 5 seconds) |
+| Threshold | Elapsed time >= 80% of the timeout (60 seconds when no timeout is set), minimum 1 second |
 
 Created when a run succeeds but takes too long relative to its timeout. Helps identify schedules that may need timeout increases or query optimization.
 

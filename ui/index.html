@@ -10,8 +10,13 @@
     <link rel="icon" href="./favicon.ico" sizes="any" />
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
     <script>
-      const savedTheme = localStorage.getItem('ch-ui-theme') || 'dark'
-      if (savedTheme === 'dark') document.documentElement.classList.add('dark')
+      // Matches stores/theme.svelte.ts: 'dark', 'light' or 'system' (default).
+      ;(function () {
+        var pref = 'system'
+        try { pref = localStorage.getItem('ch-ui-theme') || 'system' } catch (e) {}
+        var dark = pref === 'dark' || (pref !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        if (dark) document.documentElement.classList.add('dark')
+      })()
     </script>
   </head>
   <body class="h-full text-gray-900 dark:text-gray-100 antialiased">

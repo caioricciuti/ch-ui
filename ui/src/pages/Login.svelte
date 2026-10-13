@@ -56,6 +56,19 @@
 
   type LoginErrorKind = "auth" | "connection" | "rateLimit" | "generic";
 
+  /**
+   * "direct": CH-UI connects to ClickHouse itself (embedded or direct
+   * connection). "agent": a ch-ui connect agent does. The server sends it on
+   * /api/auth/connections; older servers do not, so it can be missing.
+   */
+  type ConnectionKind = "direct" | "agent";
+
+  function connectionKind(c: Connection | null): ConnectionKind | null {
+    if (!c) return null;
+    const kind: unknown = (c as Connection & { kind?: unknown }).kind;
+    return kind === "direct" || kind === "agent" ? kind : null;
+  }
+
   type LoginHelp = {
     title: string;
     detail?: string;
@@ -67,7 +80,7 @@
     if (normalized.includes("invalid credentials") || normalized.includes("authentication failed")) {
       return "auth";
     }
-    if (normalized.includes("connection offline") || normalized.includes("is offline") || normalized.includes("connection to clickhouse failed") || normalized.includes("unreachable") || normalized.includes("tunnel")) {
+    if (normalized.includes("connection offline") || normalized.includes("is offline") || normalized.includes("connection to clickhouse failed") || normalized.includes("could not reach") || normalized.includes("unreachable") || normalized.includes("tunnel")) {
       return "connection";
     }
     if (normalized.includes("too many login attempts") || normalized.includes("retry in")) {
@@ -76,18 +89,36 @@
     return "generic";
   }
 
-  function buildLoginHelp(kind: LoginErrorKind | null): LoginHelp | null {
+  function buildLoginHelp(kind: LoginErrorKind | null, conn: ConnectionKind | null, message: string): LoginHelp | null {
     if (!kind) return null;
     if (kind === "auth") {
       return {
         title: "Authentication failed",
-        detail: "Verify username/password and selected ClickHouse connection.",
+        detail: "Check the username and password, and that the right connection is selected.",
       };
     }
     if (kind === "connection") {
+      // The server message already names the URL and the likely cause.
+      const explained = message.toLowerCase().includes("could not reach");
+      if (conn === "direct" || urlMode) {
+        return {
+          title: "Can't reach ClickHouse",
+          detail: explained
+            ? undefined
+            : "CH-UI connects to ClickHouse itself for this connection. Check the URL uses the HTTP port (8123, or 8443 for HTTPS), not the native port 9000, and that ClickHouse is running. Inside Docker, localhost is the container; use host.docker.internal.",
+        };
+      }
+      if (conn === "agent") {
+        return {
+          title: "Connection unavailable",
+          detail: explained
+            ? "The agent is running but could not reach ClickHouse from its machine."
+            : "This connection goes through a ch-ui connect agent. Start the agent on a machine that can reach ClickHouse, then retry.",
+        };
+      }
       return {
         title: "Connection unavailable",
-        detail: "Start the connector/agent for this connection, then retry.",
+        detail: explained ? undefined : "CH-UI could not reach ClickHouse for this connection. Check that ClickHouse (or its agent) is running, then retry.",
       };
     }
     if (kind === "rateLimit") {
@@ -266,7 +297,14 @@
       : []),
   ]);
   const errorKind = $derived(classifyLoginError(error));
-  const loginHelp = $derived(buildLoginHelp(errorKind));
+  const loginHelp = $derived(buildLoginHelp(errorKind, connectionKind(selectedConnection), error ?? ""));
+  const selectedKind = $derived(connectionKind(selectedConnection));
+  // Where the one-time setup code is printed, per way of running CH-UI.
+  const setupCodeCommands = [
+    ["Docker", "docker logs <container> 2>&1 | grep setup_code"],
+    ["systemd", "journalctl -u ch-ui-server | grep setup_code"],
+    ["Helm", "kubectl logs deploy/<release>-ch-ui | grep setup_code"],
+  ] as const;
   const showSetupRecoveryCTA = $derived(errorKind === "connection" || errorKind === "rateLimit");
   const canSubmitSetup = $derived(Boolean(setupCode.trim() && setupFormName.trim() && setupFormURL.trim()));
   const quickHelpURL = "https://github.com/caioricciuti/ch-ui#cant-log-in";
@@ -284,6 +322,20 @@
     `docker run --rm -p 3488:3488 -v ch-ui-data:/app/data -e CLICKHOUSE_URL=${shellQuote(normalizedSetupURL)} -e CONNECTION_NAME=${shellQuote(normalizedSetupConnectionName)} ghcr.io/caioricciuti/ch-ui:latest`
   );
 </script>
+
+{#snippet setupCodeHelp()}
+  <span class="mt-3 block text-[12px] text-fg-3">
+    Find the setup code in the server log:
+    <span class="mt-1.5 block space-y-1">
+      {#each setupCodeCommands as [where, cmd] (where)}
+        <span class="flex items-baseline gap-2">
+          <span class="w-14 shrink-0 text-fg-4">{where}</span>
+          <code class="min-w-0 break-all rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11.5px] text-fg-2">{cmd}</code>
+        </span>
+      {/each}
+    </span>
+  </span>
+{/snippet}
 
 <div class="relative flex h-full w-full overflow-hidden bg-canvas text-fg">
   <!-- Backdrop: 40 px grid on the theme's subtle edge color, plus one soft orange halo behind the form -->
@@ -334,6 +386,7 @@
           <p class="mt-1 text-[13px] leading-relaxed text-fg-3">
             {#if setupOpen}
               Add the ClickHouse URL with the setup code from the server log, or restart CH-UI with the correct URL.
+              {@render setupCodeHelp()}
             {:else}
               No local connection is ready yet. Open setup and restart CH-UI with the correct URL.
             {/if}
@@ -365,6 +418,7 @@
         <form onsubmit={handleSubmit} class="mt-8 space-y-5">
           <FormField label="Connection" for="connection" controlWidth="full">
             <Combobox
+              id="connection"
               size="lg"
               options={connectionOptions}
               value={selectedId}
@@ -377,9 +431,10 @@
                 <p class="mt-1.5 inline-flex items-center gap-1.5 text-[12px] {selected.online ? 'text-success' : 'text-warning'}">
                   <!-- This is the connector tunnel; ClickHouse itself is only checked when you sign in. -->
                   {#if selected.online}
-                    <Wifi size={12} /> Connector online
+                    <Wifi size={12} /> {selectedKind === "agent" ? "Agent online" : "Connector online"}
                   {:else}
-                    <WifiOff size={12} /> Connector offline
+                    <WifiOff size={12} />
+                    {selectedKind === "agent" ? "Agent offline: start ch-ui connect for this connection" : selectedKind === "direct" ? "Built-in connector not running: check the CH-UI server log" : "Connector offline"}
                   {/if}
                 </p>
                 {#if !selected.online && setupOpen}
@@ -613,6 +668,7 @@
         onclose={() => (showSetupForm = false)}
       >
         <form id="setup-connection-form" class="space-y-4" onsubmit={handleSetupSubmit}>
+          {@render setupCodeHelp()}
           <FormField
             label="Setup code"
             for="setup-code"

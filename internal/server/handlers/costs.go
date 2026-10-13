@@ -7,6 +7,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -52,7 +53,9 @@ var teamMappedSections = map[string]bool{"trend": true, "users": true}
 func (h *CostsHandler) Routes() chi.Router {
 	r := chi.NewRouter()
 	r.Get("/config", h.getConfig)
-	r.Put("/config", h.saveConfig)
+	// Rates and team mappings change what every user sees as their cost,
+	// so only admins may edit them, and every change is audited.
+	r.With(middleware.RequireAdmin(h.DB)).Put("/config", h.saveConfig)
 	r.Get("/{section}", h.getSection)
 	return r
 }
@@ -156,6 +159,16 @@ func (h *CostsHandler) saveConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to save config")
 		return
 	}
+	actor := middleware.Actor(sess)
+	details := fmt.Sprintf("currency=%s teams=%d", cfg.Currency, len(cfg.Teams))
+	h.DB.CreateAuditLog(database.AuditLogParams{
+		Action:         "costs.config.updated",
+		Username:       &actor,
+		ClickhouseUser: &sess.ClickhouseUser,
+		ConnectionID:   &sess.ConnectionID,
+		Details:        &details,
+		IPAddress:      strPtr(getClientIP(r)),
+	})
 	writeJSON(w, http.StatusOK, map[string]interface{}{"config": cfg, "is_default": false})
 }
 

@@ -9,20 +9,22 @@
   import LogTraceWaterfall from './LogTraceWaterfall.svelte'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import { severityTone } from './severity'
-  import { formatClock, formatFull } from './time'
+  import { formatClock, formatFull, resolveRange } from './time'
 
   interface Props {
     row: LogRow
     sourceId: string
     /** Traces source to draw the waterfall from; '' when none is configured. */
     traceSourceId?: string
+    /** The explorer's TimeRangeSelector value; the copied link pins it to absolute bounds. */
+    range: string
     width: number
     onclose: () => void
     onwidth: (w: number) => void
     onfilter: (key: string, value: string, negate: boolean) => void
   }
 
-  let { row, sourceId, traceSourceId = '', width, onclose, onwidth, onfilter }: Props = $props()
+  let { row, sourceId, traceSourceId = '', range, width, onclose, onwidth, onfilter }: Props = $props()
 
   type Tab = 'overview' | 'attributes' | 'trace' | 'context' | 'raw'
   let tab = $state<Tab>('overview')
@@ -44,11 +46,11 @@
   let traceFor = $state('')
 
   $effect(() => {
-    const key = row.timestamp_ns + row.service
+    const key = `${row.timestamp_ns}/${row.row_id}/${row.service}`
     if (tab === 'context' && contextFor !== key) {
       contextFor = key
       contextLoading = true
-      logsContext({ source_id: sourceId, timestamp_ns: row.timestamp_ns, service: row.service, before: 50, after: 50 })
+      logsContext({ source_id: sourceId, timestamp_ns: row.timestamp_ns, row_id: row.row_id, service: row.service, before: 50, after: 50 })
         .then((res) => {
           // A newer row may have been opened while this one was loading.
           if (contextFor !== key) return
@@ -66,7 +68,7 @@
       const traceId = row.trace_id
       traceFor = traceId
       traceLoading = true
-      logsByTrace(sourceId, traceId)
+      logsByTrace(sourceId, traceId, row.timestamp)
         .then((rows) => {
           if (traceFor === traceId) traceRows = rows
         })
@@ -88,9 +90,23 @@
     }
   }
 
+  // The link must find the row again later: a relative range ("last
+  // hour") would have moved on, so pin absolute bounds that contain it.
   function copyLink() {
     const url = new URL(window.location.href)
+    const r = resolveRange(range)
+    let from = new Date(r.from).getTime()
+    let to = new Date(r.to).getTime()
+    const at = new Date(row.timestamp).getTime()
+    if (Number.isFinite(at)) {
+      if (!(at >= from)) from = at - 60_000
+      if (!(at < to)) to = at + 60_000
+    }
+    url.searchParams.set('from', new Date(from).toISOString())
+    url.searchParams.set('to', new Date(to).toISOString())
     url.searchParams.set('row', row.timestamp_ns)
+    if (row.row_id) url.searchParams.set('rowid', row.row_id)
+    else url.searchParams.delete('rowid')
     void copy(url.toString(), 'Link copied')
   }
 
@@ -156,7 +172,7 @@
             <dd class="min-w-0 flex-1 break-all font-mono text-fg">
               {value}
               {#if label === 'Trace id' && row.trace_id}
-                <a class="ml-2 inline-flex items-center gap-1 text-accent hover:underline" href={`/telemetry?section=traces&trace=${encodeURIComponent(row.trace_id)}`}>
+                <a class="ml-2 inline-flex items-center gap-1 text-accent hover:underline" href={`/telemetry?section=traces&trace=${encodeURIComponent(row.trace_id)}&trace_ts=${encodeURIComponent(row.timestamp)}`}>
                   View trace <ExternalLink size={11} />
                 </a>
               {/if}
@@ -192,15 +208,15 @@
         <p class="text-xs text-fg-3">This row carries no trace id.</p>
       {:else}
         {#if traceSourceId}
-          <LogTraceWaterfall {traceSourceId} traceId={row.trace_id} highlightSpanId={row.span_id} />
+          <LogTraceWaterfall {traceSourceId} traceId={row.trace_id} highlightSpanId={row.span_id} timeHint={row.timestamp} />
         {/if}
         <p class="mb-2 text-xs text-fg-4">Logs sharing trace <span class="font-mono text-fg-2">{row.trace_id}</span>:</p>
         {#if traceLoading}
           <div class="flex items-center gap-2 text-xs text-fg-3"><Spinner size="sm" /> Loading…</div>
         {:else}
           <div class="divide-y divide-edge-subtle font-mono text-xs">
-            {#each traceRows as r (r.timestamp_ns + r.span_id)}
-              <div class="flex items-center gap-2 py-1 {r.timestamp_ns === row.timestamp_ns ? 'bg-accent-soft' : ''}">
+            {#each traceRows as r, i (r.timestamp_ns + r.row_id + i)}
+              <div class="flex items-center gap-2 py-1 {r.timestamp_ns === row.timestamp_ns && r.row_id === row.row_id ? 'bg-accent-soft' : ''}">
                 <span class="w-[92px] shrink-0 tabular-nums text-fg-3">{formatClock(r.timestamp)}</span>
                 <Badge tone={severityTone(r.severity)}>{r.severity}</Badge>
                 <span class="w-28 shrink-0 truncate text-fg-2">{r.service}</span>

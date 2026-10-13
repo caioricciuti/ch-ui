@@ -6,9 +6,13 @@
     value: unknown
     type: string
     width: number
+    /** The keyboard-focused cell of the grid (Enter inspects, Cmd/Ctrl+C copies). */
+    focused?: boolean
+    onfocuscell?: () => void
+    oninspect?: () => void
   }
 
-  let { value, type, width }: Props = $props()
+  let { value, type, width, focused = false, onfocuscell, oninspect }: Props = $props()
 
   const displayType = $derived(getDisplayType(type))
 
@@ -41,21 +45,14 @@
   const align = $derived(displayType === 'number' || isBigIntString ? 'text-right' : 'text-left')
   const isUrl = $derived(displayType === 'string' && typeof value === 'string' && /^https?:\/\//i.test(value))
 
-  async function handleCopyCell() {
-    if (typeof navigator === 'undefined' || isNull) return
-    try {
-      await navigator.clipboard.writeText(rawValue)
-    } catch {
-      // Clipboard failures are non-fatal and should not interrupt navigation.
-    }
-  }
 </script>
 
 <td
-  class="px-2.5 truncate border-r border-edge-subtle {align}"
+  class="px-2.5 truncate border-r border-edge-subtle {align} {focused ? 'outline outline-1 -outline-offset-1 outline-accent' : ''}"
   style="width:{width}px;max-width:{width}px;min-width:{width}px"
-  title={isNull ? 'NULL' : `${rawValue}\n\nDouble-click to copy`}
-  ondblclick={handleCopyCell}
+  title={isNull ? 'NULL' : `${rawValue.length > 500 ? rawValue.slice(0, 500) + '…' : rawValue}\n\nDouble-click or Enter to inspect, Cmd/Ctrl+C to copy`}
+  onclick={onfocuscell}
+  ondblclick={oninspect}
 >
   {#if isNull}
     <span class="inline-flex items-center rounded-sm px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-surface-2 text-fg-3">Null</span>

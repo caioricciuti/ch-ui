@@ -41,6 +41,7 @@
   } from 'lucide-svelte'
   import ContextMenu, { type ContextMenuItem } from '../common/ContextMenu.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
+  import { ALT, combo, isEditableTarget, isKey } from '../../utils/shortcuts'
 
   interface Props {
     groupId: string
@@ -285,14 +286,6 @@
     splitDropActive = false
   }
 
-  function shouldIgnoreShortcutTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) return false
-    return target.tagName === 'INPUT' ||
-      target.tagName === 'TEXTAREA' ||
-      target.tagName === 'SELECT' ||
-      target.isContentEditable
-  }
-
   function handleGlobalTabShortcuts(e: KeyboardEvent) {
     if (focusedGroupId !== groupId) return
     if (editingTabId) return
@@ -301,26 +294,28 @@
     const currentTab = tabs.find((t) => t.id === activeId)
     if (!currentTab) return
 
-    if ((e.altKey && e.key.toLowerCase() === 'w') || (mod && e.shiftKey && e.key.toLowerCase() === 'w')) {
+    // isKey falls back to e.code: on macOS Option+W reports e.key "∑".
+    // ⌘⇧W is kept for browsers that allow it; Chrome closes the window.
+    if ((e.altKey && !mod && isKey(e, 'w')) || (mod && e.shiftKey && isKey(e, 'w'))) {
       if (isHomeTab(currentTab)) return
       e.preventDefault()
       requestCloseTabs([currentTab.id])
       return
     }
 
-    if (((e.altKey && e.key.toLowerCase() === 'd') || (mod && e.shiftKey && e.key.toLowerCase() === 'd')) && currentTab.type === 'query') {
+    if (((e.altKey && !mod && isKey(e, 'd')) || (mod && e.shiftKey && isKey(e, 'd'))) && currentTab.type === 'query') {
       e.preventDefault()
       duplicateQueryTab(currentTab)
       return
     }
 
-    if (e.altKey && e.key.toLowerCase() === 's') {
+    if (e.altKey && !mod && isKey(e, 's')) {
       e.preventDefault()
       splitFromMenu(currentTab.id)
       return
     }
 
-    if (e.key === 'F2' && !shouldIgnoreShortcutTarget(e.target)) {
+    if (e.key === 'F2' && !isEditableTarget(e.target)) {
       e.preventDefault()
       startRename(currentTab)
     }
@@ -344,7 +339,7 @@
         id: 'duplicate',
         label: 'Duplicate Query',
         icon: CopyPlus,
-        shortcut: 'Alt+D',
+        shortcut: combo(ALT, 'D'),
         onSelect: () => duplicateQueryTab(menuTab),
       })
     }
@@ -361,7 +356,7 @@
       id: 'split',
       label: split ? 'Move To Other Pane' : 'Split To New Pane',
       icon: Columns2,
-      shortcut: 'Alt+S',
+      shortcut: combo(ALT, 'S'),
       onSelect: () => splitFromMenu(menuTab.id),
     })
 
@@ -398,7 +393,7 @@
       id: 'close',
       label: 'Close',
       icon: X,
-      shortcut: 'Alt+W',
+      shortcut: combo(ALT, 'W'),
       danger: true,
       onSelect: () => {
         requestCloseTabs([menuTab.id])

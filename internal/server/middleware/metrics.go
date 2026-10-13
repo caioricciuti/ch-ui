@@ -74,6 +74,12 @@ func (w *metricsResponseWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+// Unwrap exposes the underlying writer so http.ResponseController can reach
+// it (per-request write deadlines for long streams such as Brain turns).
+func (w *metricsResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 // Flush implements http.Flusher so SSE/streaming responses keep working.
 func (w *metricsResponseWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {

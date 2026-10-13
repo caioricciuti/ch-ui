@@ -100,6 +100,7 @@ type AlertDispatchJobWithDetails struct {
 	EventMessage           string  `json:"event_message"`
 	EventPayloadJSON       *string `json:"event_payload_json"`
 	EventFingerprint       *string `json:"event_fingerprint"`
+	EventCreatedAt         string  `json:"event_created_at"`
 	RuleName               string  `json:"rule_name"`
 	RuleCooldownSeconds    int     `json:"rule_cooldown_seconds"`
 	RuleSubjectTemplate    *string `json:"rule_subject_template"`
@@ -523,7 +524,9 @@ func (db *DB) MarkAlertEventProcessed(id string) error {
 
 // HasRecentAlertDispatch reports whether a job for the same rule/channel pair
 // and event fingerprint was queued or sent since the given time (cooldown
-// deduplication).
+// deduplication). A job left in 'sending' at its final attempt stops counting
+// once its lease expires, so a crashed delivery cannot suppress the
+// fingerprint.
 func (db *DB) HasRecentAlertDispatch(ruleID, channelID, fingerprint string, since time.Time) (bool, error) {
 	if strings.TrimSpace(fingerprint) == "" {
 		return false, nil
@@ -537,10 +540,24 @@ func (db *DB) HasRecentAlertDispatch(ruleID, channelID, fingerprint string, sinc
 		   AND j.channel_id = ?
 		   AND e.fingerprint = ?
 		   AND e.created_at >= ?
-		   AND j.status IN ('queued', 'retrying', 'sending', 'sent')`,
-		ruleID, channelID, fingerprint, since.UTC().Format(time.RFC3339),
+		   AND (j.status IN ('queued', 'retrying', 'sent')
+		        OR (j.status = 'sending' AND (j.attempt_count < j.max_attempts OR j.next_attempt_at > ?)))`,
+		ruleID, channelID, fingerprint, since.UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339),
 	).Scan(&count); err != nil {
 		return false, fmt.Errorf("check recent alert dispatch: %w", err)
+	}
+	return count > 0, nil
+}
+
+// AlertDispatchJobExists reports whether a job was already created for the
+// event on this rule and channel, so a retried event never queues twice.
+func (db *DB) AlertDispatchJobExists(eventID, ruleID, channelID string) (bool, error) {
+	var count int
+	if err := db.conn.QueryRow(
+		`SELECT COUNT(*) FROM alert_dispatch_jobs WHERE event_id = ? AND rule_id = ? AND channel_id = ?`,
+		eventID, ruleID, channelID,
+	).Scan(&count); err != nil {
+		return false, fmt.Errorf("check alert dispatch job: %w", err)
 	}
 	return count > 0, nil
 }
@@ -572,17 +589,29 @@ func (db *DB) ListDueAlertDispatchJobs(limit int) ([]AlertDispatchJobWithDetails
 		limit = 20
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
+	// A job whose lease expired at its final attempt was interrupted
+	// mid-delivery; fail it so it stops counting toward cooldown dedupe.
+	if _, err := db.conn.Exec(
+		`UPDATE alert_dispatch_jobs
+		 SET status = 'failed',
+		     last_error = 'Delivery interrupted after the final attempt.',
+		     updated_at = ?
+		 WHERE status = 'sending' AND attempt_count >= max_attempts AND next_attempt_at <= ?`,
+		now, now,
+	); err != nil {
+		return nil, fmt.Errorf("fail interrupted alert dispatch jobs: %w", err)
+	}
 	rows, err := db.conn.Query(
 		`SELECT
 			j.id, j.event_id, j.rule_id, j.channel_id, j.recipients_json, j.status, j.attempt_count, j.max_attempts, j.next_attempt_at, j.last_error, j.provider_message_id, j.created_at, j.updated_at, j.sent_at,
-			e.event_type, e.severity, e.title, e.message, e.payload_json, e.fingerprint,
+			e.event_type, e.severity, e.title, e.message, e.payload_json, e.fingerprint, e.created_at,
 			r.name, r.cooldown_seconds, r.subject_template, r.body_template,
 			c.name, c.channel_type, c.config_encrypted
 		 FROM alert_dispatch_jobs j
 		 JOIN alert_events e ON e.id = j.event_id
 		 JOIN alert_rules r ON r.id = j.rule_id
 		 JOIN alert_channels c ON c.id = j.channel_id
-		 WHERE j.status IN ('queued', 'retrying')
+		 WHERE j.status IN ('queued', 'retrying', 'sending')
 		   AND j.attempt_count < j.max_attempts
 		   AND j.next_attempt_at <= ?
 		 ORDER BY j.next_attempt_at ASC
@@ -601,7 +630,7 @@ func (db *DB) ListDueAlertDispatchJobs(limit int) ([]AlertDispatchJobWithDetails
 		var eventPayloadJSON, eventFingerprint, subjectTemplate, bodyTemplate sql.NullString
 		if err := rows.Scan(
 			&item.ID, &item.EventID, &item.RuleID, &item.ChannelID, &item.RecipientsJSON, &item.Status, &item.AttemptCount, &item.MaxAttempts, &item.NextAttemptAt, &lastError, &providerMessageID, &item.CreatedAt, &item.UpdatedAt, &sentAt,
-			&item.EventType, &item.EventSeverity, &item.EventTitle, &item.EventMessage, &eventPayloadJSON, &eventFingerprint,
+			&item.EventType, &item.EventSeverity, &item.EventTitle, &item.EventMessage, &eventPayloadJSON, &eventFingerprint, &item.EventCreatedAt,
 			&item.RuleName, &item.RuleCooldownSeconds, &subjectTemplate, &bodyTemplate,
 			&item.ChannelName, &item.ChannelType, &item.ChannelConfigEncrypted,
 		); err != nil {
@@ -622,19 +651,36 @@ func (db *DB) ListDueAlertDispatchJobs(limit int) ([]AlertDispatchJobWithDetails
 	return out, nil
 }
 
-func (db *DB) MarkAlertDispatchJobSending(id string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := db.conn.Exec(
+// AlertDispatchLease is how long a claimed job stays in 'sending' before it
+// is treated as interrupted (process crash mid-delivery) and becomes due again.
+const AlertDispatchLease = 2 * time.Minute
+
+// ClaimAlertDispatchJob moves a due job to 'sending', counts the attempt and
+// stores a lease in next_attempt_at. It reports false when another worker
+// claimed the job first or it is no longer due. A crash during delivery
+// leaves the job in 'sending'; once the lease expires ListDueAlertDispatchJobs
+// returns it again.
+func (db *DB) ClaimAlertDispatchJob(id string, now time.Time) (bool, error) {
+	res, err := db.conn.Exec(
 		`UPDATE alert_dispatch_jobs
 		 SET status = 'sending',
 		     attempt_count = attempt_count + 1,
+		     next_attempt_at = ?,
 		     updated_at = ?
-		 WHERE id = ?`,
-		now, id,
-	); err != nil {
-		return fmt.Errorf("mark alert dispatch sending: %w", err)
+		 WHERE id = ?
+		   AND status IN ('queued', 'retrying', 'sending')
+		   AND attempt_count < max_attempts
+		   AND next_attempt_at <= ?`,
+		now.UTC().Add(AlertDispatchLease).Format(time.RFC3339), now.UTC().Format(time.RFC3339), id, now.UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return false, fmt.Errorf("claim alert dispatch job: %w", err)
 	}
-	return nil
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("claim alert dispatch job: %w", err)
+	}
+	return n == 1, nil
 }
 
 func (db *DB) MarkAlertDispatchJobSent(id, providerMessageID string) error {

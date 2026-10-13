@@ -54,6 +54,7 @@ export function logsFacets(req: LogQuery & { keys?: string[] }): Promise<LogFace
 export function logsContext(req: {
   source_id: string
   timestamp_ns: string
+  row_id?: string
   service: string
   before?: number
   after?: number
@@ -61,10 +62,11 @@ export function logsContext(req: {
   return apiPost<LogContextResponse>(`${BASE}/logs/context`, req)
 }
 
-export async function logsByTrace(sourceId: string, traceId: string): Promise<LogRow[]> {
-  const res = await apiGet<{ rows: LogRow[] }>(
-    `${BASE}/logs/by-trace/${encodeURIComponent(traceId)}?source_id=${encodeURIComponent(sourceId)}`,
-  )
+/** ts (RFC3339) is a time hint near the trace; the server bounds the lookup around it. */
+export async function logsByTrace(sourceId: string, traceId: string, ts?: string): Promise<LogRow[]> {
+  const qs = new URLSearchParams({ source_id: sourceId })
+  if (ts) qs.set('ts', ts)
+  const res = await apiGet<{ rows: LogRow[] }>(`${BASE}/logs/by-trace/${encodeURIComponent(traceId)}?${qs}`)
   return res.rows ?? []
 }
 

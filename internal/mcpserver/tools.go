@@ -597,8 +597,10 @@ func runReadQuery(ctx context.Context, deps Deps, ak *authedKey, q readQuery) *m
 	if maxRows > hardMaxRows {
 		maxRows = hardMaxRows
 	}
+	// Ask for one row more than the cap: getting it back is how a result
+	// that was cut is told apart from one of exactly maxRows rows.
 	settings := map[string]string{
-		"max_result_rows":    strconv.Itoa(maxRows),
+		"max_result_rows":    strconv.Itoa(maxRows + 1),
 		"max_execution_time": strconv.Itoa(int(queryTimeout.Seconds())),
 	}
 	if q.MaxBytes > 0 {
@@ -619,8 +621,8 @@ func runReadQuery(ctx context.Context, deps Deps, ak *authedKey, q readQuery) *m
 	rows := res.Rows
 	// result_overflow_mode=break stops at block granularity, so ClickHouse
 	// may hand back more than max_result_rows; trim so the cap is exact.
-	truncated := len(rows) >= maxRows
-	if len(rows) > maxRows {
+	truncated := len(rows) > maxRows
+	if truncated {
 		rows = rows[:maxRows]
 	}
 	recordQuery(deps, ak, sql, "success", "", elapsed, int64(len(rows)))

@@ -1,4 +1,4 @@
-import { withBase } from '../basePath'
+import { withBase, stripBase } from '../basePath'
 import { safeParse } from '../utils/safe-json'
 
 /** Error carrying the HTTP status so callers can branch on 403/502/503 etc. */
@@ -46,6 +46,34 @@ function buildErrorMessage(status: number, body: unknown): string {
   return `Request failed (${status})`
 }
 
+/**
+ * Validates a ?next= value from the login URL. Only a same-origin path plus
+ * query string is accepted (no scheme, no host, no protocol-relative "//",
+ * no backslash tricks, not /login itself); anything else returns null.
+ */
+export function safeNextPath(raw: string | null | undefined, origin: string = window.location.origin): string | null {
+  if (!raw || raw.length > 2048) return null
+  if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\')) return null
+  if (/[\u0000-\u001f]/.test(raw)) return null
+  let url: URL
+  try {
+    url = new URL(raw, origin)
+  } catch {
+    return null
+  }
+  if (url.origin !== origin) return null
+  if (url.pathname === '/login') return null
+  return url.pathname + url.search
+}
+
+/** /login, carrying the current page as ?next= so sign-in returns there. */
+function loginUrlWithNext(): string {
+  const path = stripBase(window.location.pathname)
+  if (path === '/login') return withBase('/login') + window.location.search
+  const next = safeNextPath(path + window.location.search)
+  return withBase('/login') + (next && next !== '/' ? `?next=${encodeURIComponent(next)}` : '')
+}
+
 async function request<T = unknown>(
   url: string,
   options: RequestInit = {},
@@ -66,8 +94,8 @@ async function request<T = unknown>(
   const isAuthEndpoint = url.startsWith('/api/auth/')
 
   if (res.status === 401 && !isAuthEndpoint) {
-    // Session expired — redirect to login
-    window.location.href = withBase('/login')
+    // Session expired: sign in again, then come back to this page.
+    window.location.href = loginUrlWithNext()
     throw new Error('Session expired')
   }
 

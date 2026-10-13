@@ -203,3 +203,64 @@ func FuzzCompile(f *testing.F) {
 		}
 	})
 }
+
+func TestCompileAttributeNegationIsAndAcrossMaps(t *testing.T) {
+	got, err := Compile("http.method:!=GET", logsSchema())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "(NOT LogAttributes['http.method'] = 'GET' AND NOT ResourceAttributes['http.method'] = 'GET')"
+	if got != want {
+		t.Fatalf("\n got:  %s\n want: %s", got, want)
+	}
+	// The dash form is NOT of the positive OR: same rows.
+	got, err = Compile("-http.method:GET", logsSchema())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "NOT ((LogAttributes['http.method'] = 'GET' OR ResourceAttributes['http.method'] = 'GET'))" {
+		t.Fatalf("dash form: %s", got)
+	}
+}
+
+func TestCompileValuesWithColons(t *testing.T) {
+	cases := []struct{ q, want string }{
+		{"url:http://x", "(LogAttributes['url'] = 'http://x' OR ResourceAttributes['url'] = 'http://x')"},
+		{"ts:12:00", "(LogAttributes['ts'] = '12:00' OR ResourceAttributes['ts'] = '12:00')"},
+		{"service:a:b timeout", "(ServiceName = 'a:b' AND hasTokenCaseInsensitive(Body, 'timeout'))"},
+		{"(service:a:b)", "ServiceName = 'a:b'"},
+		{"service:-x", "ServiceName = '-x'"},
+		{"service:OR", "ServiceName = 'OR'"},
+	}
+	for _, c := range cases {
+		got, err := Compile(c.q, logsSchema())
+		if err != nil {
+			t.Fatalf("%q: %v", c.q, err)
+		}
+		if got != c.want {
+			t.Fatalf("\n q:    %s\n got:  %s\n want: %s", c.q, got, c.want)
+		}
+	}
+}
+
+func TestCompileExcluding(t *testing.T) {
+	cases := []struct{ q, field, want string }{
+		{"http.method:GET timeout", "http.method", "(1 AND hasTokenCaseInsensitive(Body, 'timeout'))"},
+		{"-http.method:GET timeout", "http.method", "(1 AND hasTokenCaseInsensitive(Body, 'timeout'))"},
+		{"severity:warn service:api", "level", "(1 AND ServiceName = 'api')"},
+		{"service:api", "level", "ServiceName = 'api'"},
+		// A top-level OR keeps the whole query: dropping a branch widens it.
+		{"http.method:GET OR timeout", "http.method", "((LogAttributes['http.method'] = 'GET' OR ResourceAttributes['http.method'] = 'GET') OR hasTokenCaseInsensitive(Body, 'timeout'))"},
+		// Terms inside parentheses stay.
+		{"(http.method:GET)", "http.method", "(LogAttributes['http.method'] = 'GET' OR ResourceAttributes['http.method'] = 'GET')"},
+	}
+	for _, c := range cases {
+		got, err := CompileExcluding(c.q, logsSchema(), c.field)
+		if err != nil {
+			t.Fatalf("%q: %v", c.q, err)
+		}
+		if got != c.want {
+			t.Fatalf("\n q:    %s\n got:  %s\n want: %s", c.q, got, c.want)
+		}
+	}
+}

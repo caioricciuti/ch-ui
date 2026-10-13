@@ -88,4 +88,47 @@ type Sample struct {
 	PartsMaxActive        int64   `json:"parts_max_active"`
 	PartsPressurePct      float64 `json:"parts_pressure_pct"`
 	LongQueries           int64   `json:"long_queries"`
+
+	// Live-only fields (not stored in history).
+	// MutationsOldestAgeSec is the age of the oldest unfinished mutation.
+	MutationsOldestAgeSec int64 `json:"mutations_oldest_age_seconds"`
+	// DiskUsedPct is the fullest disk on the node, nil when unknown.
+	DiskUsedPct *float64 `json:"disk_used_pct,omitempty"`
+
+	// Unknown lists the metric groups (see Metric*) whose collection failed
+	// for this node. Their numeric fields read 0 but must be shown as unknown,
+	// never as healthy.
+	Unknown []string `json:"unknown,omitempty"`
+	// Down marks a node listed in system.clusters that returned no data at
+	// all: unreachable, or skipped as unavailable by the fan-out.
+	Down bool `json:"down,omitempty"`
+}
+
+// Metric groups reported in Sample.Unknown and Collection.Errors.
+const (
+	MetricReplication = "replication"
+	MetricMerges      = "merges"
+	MetricMutations   = "mutations"
+	MetricParts       = "parts"
+	MetricLongQueries = "long_queries"
+	MetricDisk        = "disk"
+)
+
+// storedMetrics are the groups persisted in ch_health_samples.
+var storedMetrics = []string{MetricReplication, MetricMerges, MetricMutations, MetricParts, MetricLongQueries}
+
+// IsUnknown reports whether metric failed to collect for this sample.
+func (s Sample) IsUnknown(metric string) bool {
+	for _, m := range s.Unknown {
+		if m == metric {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Sample) markUnknown(metric string) {
+	if !s.IsUnknown(metric) {
+		s.Unknown = append(s.Unknown, metric)
+	}
 }

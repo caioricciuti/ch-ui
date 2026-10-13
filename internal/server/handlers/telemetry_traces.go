@@ -232,32 +232,37 @@ func (h *TelemetryHandler) TracesFacets(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	type facet struct {
-		Value string `json:"value"`
-		Count int64  `json:"count"`
-	}
-	run := func(sqlText string) []facet {
-		out := []facet{}
-		if sqlText == "" {
-			return out
-		}
-		rows, err := h.exec(c, sqlText, telemetrySummaryTimeout)
-		if err != nil {
-			slog.Warn("Telemetry trace facet query failed", "error", err)
-			return out
-		}
-		for _, row := range rows {
-			out = append(out, facet{Value: str(row["value"]), Count: toInt64(row["c"])})
-		}
-		return out
-	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	var fr facetResult
+	writeJSON(w, http.StatusOK, fr.fields(map[string]interface{}{
 		"success":    true,
-		"services":   run(queries.Services),
-		"span_names": run(queries.SpanNames),
-		"status":     run(queries.Status),
-		"kinds":      run(queries.Kinds),
-	})
+		"services":   fr.run(h, c, queries.Services),
+		"span_names": fr.run(h, c, queries.SpanNames),
+		"status":     fr.run(h, c, queries.Status),
+		"kinds":      fr.run(h, c, queries.Kinds),
+	}))
+}
+
+// traceIndexMargin pads the window read from the exporter's trace-id
+// index, which stores whole seconds.
+const traceIndexMargin = time.Minute
+
+// traceWindow bounds a trace lookup. The exporter's <table>_trace_id_ts
+// index gives the trace's real start and end; without it the UI's time
+// hint (the trace row's start, the log line's time) bounds it to an hour
+// either side; with neither the lookup scans the table as before.
+func (h *TelemetryHandler) traceWindow(c chCreds, src *telemetry.Source, traceID string, r *http.Request) *telemetry.TimeWindow {
+	if telemetry.ValidIdent(telemetry.TraceIDTsTable(src)) {
+		if rows, err := h.exec(c, telemetry.TraceIDTsLookupSQL(src), telemetryMetaTimeout); err == nil && len(rows) > 0 {
+			if b, err := h.exec(c, telemetry.TraceBoundsSQL(src, traceID), telemetryMetaTimeout); err == nil && len(b) > 0 && toInt64(b[0]["n"]) > 0 {
+				start := time.Unix(toInt64(b[0]["s"]), 0)
+				end := time.Unix(toInt64(b[0]["e"]), 0)
+				return &telemetry.TimeWindow{FromNs: start.Add(-traceIndexMargin).UnixNano(), ToNs: end.Add(traceIndexMargin).UnixNano()}
+			} else if err != nil {
+				slog.Warn("Telemetry trace index lookup failed", "error", err)
+			}
+		}
+	}
+	return traceHintWindow(r, traceHintAround)
 }
 
 // correlatedLogsSource picks the logs source for a traces source: the
@@ -298,7 +303,7 @@ func (h *TelemetryHandler) GetTrace(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := h.exec(c, telemetry.TraceSpansSQL(src, traceID), telemetrySearchTimeout)
+	rows, err := h.exec(c, telemetry.TraceSpansSQL(src, traceID, h.traceWindow(c, src, traceID, r)), telemetrySearchTimeout)
 	if err != nil {
 		slog.Warn("Telemetry trace load failed", "error", err)
 		writeError(w, http.StatusBadGateway, err.Error())
@@ -355,7 +360,7 @@ func (h *TelemetryHandler) GetTrace(w http.ResponseWriter, r *http.Request) {
 		}
 		a.spans++
 		a.duration += s.DurationMs
-		if s.Status == "Error" {
+		if telemetry.IsErrorStatus(s.Status) {
 			a.errors++
 			errors++
 		}
@@ -380,7 +385,13 @@ func (h *TelemetryHandler) GetTrace(w http.ResponseWriter, r *http.Request) {
 
 	logs := []map[string]interface{}{}
 	if logsSrc := h.correlatedLogsSource(src); logsSrc != nil {
-		if sqlText, err := telemetry.ByTraceSQL(logsSrc, traceID); err == nil {
+		// The spans give the trace's real extent; its log lines sit inside
+		// it, give or take clock skew between services.
+		var win *telemetry.TimeWindow
+		if startNs > 0 && endNs >= startNs {
+			win = &telemetry.TimeWindow{FromNs: startNs - int64(traceIndexMargin), ToNs: endNs + int64(traceIndexMargin)}
+		}
+		if sqlText, err := telemetry.ByTraceSQL(logsSrc, traceID, win); err == nil {
 			if lrows, err := h.exec(c, sqlText, telemetrySearchTimeout); err == nil {
 				logs = shapeLogRows(lrows)
 			} else {

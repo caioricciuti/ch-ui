@@ -112,7 +112,8 @@ func TestCollectSamplesMerge(t *testing.T) {
 		return nil, nil
 	}
 
-	samples, limits, err := CollectSamples(exec, "prod", 30, "2026-06-04T00:00:00Z")
+	col, err := CollectSamples(exec, "prod", 30, "2026-06-04T00:00:00Z")
+	samples, limits := col.Samples, col.Limits
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

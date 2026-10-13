@@ -50,12 +50,16 @@ export default defineConfig({
     minify: process.env.CHUI_VITE_MINIFY !== '0',
     rollupOptions: {
       output: {
+        // Only the editor and the icon set get named chunks: both are big,
+        // shared by many pages and change rarely, so they cache well. Every
+        // other library (xyflow, marked, dompurify, uplot) follows the lazy
+        // page or component that imports it instead of riding in one vendor
+        // chunk the sign-in page has to download.
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined
           if (id.includes('@codemirror') || id.includes('@lezer')) return 'codemirror'
           if (id.includes('lucide-svelte')) return 'icons'
-          if (id.includes('uplot')) return 'charts'
-          return 'vendor'
+          return undefined
         },
       },
     },

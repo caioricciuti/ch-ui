@@ -6,6 +6,7 @@
     updateGovernanceSettings,
     fetchQueryHarvestSettings,
     updateQueryHarvestMode,
+    updateQueryHarvestMinDuration,
   } from '../../api/governance'
   import type { GovernanceSettings, QueryHarvestMode, QueryHarvestSettings } from '../../types/governance'
   import { getSession } from '../../stores/session.svelte'
@@ -18,6 +19,7 @@
   import Select from '../common/Select.svelte'
   import Badge from '../common/Badge.svelte'
   import Button from '../common/Button.svelte'
+  import Input from '../common/Input.svelte'
   import Spinner from '../common/Spinner.svelte'
   import EmptyState from '../common/EmptyState.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
@@ -34,6 +36,8 @@
 
   let queryHarvest = $state<QueryHarvestSettings | null>(null)
   let harvestModeSaving = $state(false)
+  let minDurationDraft = $state<string | number>('0')
+  let minDurationSaving = $state(false)
 
   const isAdmin = $derived(getSession()?.role === 'admin')
 
@@ -69,6 +73,7 @@
     // Informational; a failure must not block the page.
     try {
       queryHarvest = await fetchQueryHarvestSettings()
+      minDurationDraft = String(queryHarvest.min_duration_ms ?? 0)
     } catch {
       queryHarvest = null
     }
@@ -95,6 +100,24 @@
   async function confirmDisableGovernanceSync() {
     showDisableConfirm = false
     await persistGovernanceSettings({ sync_enabled: false })
+  }
+
+  async function saveMinDuration() {
+    const ms = Number(minDurationDraft)
+    if (!Number.isInteger(ms) || ms < 0 || ms > 3_600_000) {
+      toastError('Minimum duration must be a whole number of milliseconds between 0 and 3600000')
+      return
+    }
+    minDurationSaving = true
+    try {
+      queryHarvest = await updateQueryHarvestMinDuration(ms)
+      minDurationDraft = String(queryHarvest.min_duration_ms)
+      toastSuccess(ms === 0 ? 'Every query is harvested' : `Successful queries under ${ms} ms are skipped`)
+    } catch (err: unknown) {
+      toastError('Failed to update minimum duration: ' + (err instanceof Error ? err.message : String(err)))
+    } finally {
+      minDurationSaving = false
+    }
   }
 
   async function changeHarvestMode(mode: QueryHarvestMode) {
@@ -186,6 +209,27 @@
               </div>
             </div>
           </FormField>
+          <FormField
+            layout="row"
+            label="Minimum duration (ms)"
+            hint="Successful queries faster than this are not kept. Failed and denied queries are always kept. 0 keeps every query."
+            controlWidth="md"
+          >
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="w-full sm:w-32">
+                <Input type="number" size="sm" min={0} max={3600000} step={1} bind:value={minDurationDraft} disabled={!isAdmin || minDurationSaving} />
+              </div>
+              {#if isAdmin}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  loading={minDurationSaving}
+                  disabled={String(minDurationDraft) === String(queryHarvest.min_duration_ms)}
+                  onclick={() => void saveMinDuration()}>Save</Button
+                >
+              {/if}
+            </div>
+          </FormField>
         {:else}
           <EmptyState size="compact" title="Harvest settings unavailable" />
         {/if}
@@ -200,7 +244,7 @@
             <h3 class="mb-1.5 text-[13px] font-semibold text-fg">What it collects</h3>
             <ul class="list-disc space-y-1.5 pl-5 text-[13px] leading-relaxed text-fg-2">
               <li>Table and column metadata from <code class="rounded-sm bg-surface-2 px-1 font-mono text-xs">system.tables</code> and <code class="rounded-sm bg-surface-2 px-1 font-mono text-xs">system.columns</code>.</li>
-              <li>Recent queries from <code class="rounded-sm bg-surface-2 px-1 font-mono text-xs">system.query_log</code>, filtered to 10 ms and above, without its own polls.</li>
+              <li>Recent queries from <code class="rounded-sm bg-surface-2 px-1 font-mono text-xs">system.query_log</code>, including failed and denied queries, without its own polls (tagged <code class="rounded-sm bg-surface-2 px-1 font-mono text-xs">log_comment = 'ch-ui:governance'</code>).</li>
               <li>Users, roles and grants from <code class="rounded-sm bg-surface-2 px-1 font-mono text-xs">system.users</code> and <code class="rounded-sm bg-surface-2 px-1 font-mono text-xs">system.grants</code>.</li>
             </ul>
           </div>

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ComputedStat } from '../../utils/chart-transform'
-  import { getTheme } from '../../stores/theme.svelte'
+  import { dashboardIsDark } from './dashboard-theme.svelte'
 
   interface Props {
     stat: ComputedStat
@@ -29,7 +29,7 @@
   const clampedRaw = $derived(stat.raw != null ? Math.max(minVal, Math.min(maxVal, stat.raw)) : minVal)
   const fraction = $derived(maxVal > minVal ? (clampedRaw - minVal) / (maxVal - minVal) : 0)
 
-  const dark = $derived(getTheme() === 'dark')
+  const dark = $derived(dashboardIsDark())
   const bgColor = $derived(dark ? '#374151' : '#e5e7eb')
 
   const strokeW = $derived(Math.max(6, Math.min(width, height) * 0.07))

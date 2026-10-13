@@ -45,12 +45,31 @@ func (h *TelemetryHandler) ServiceMap(w http.ResponseWriter, r *http.Request) {
 	}
 	params := telemetry.ServiceMapParams{From: body.From, To: body.To}
 
-	nodesSQL, err := telemetry.ServiceMapNodesSQL(src, params)
+	// Count first so a busy range samples whole traces on both sides of
+	// the parent/child join instead of cutting each side on its own.
+	countSQL, err := telemetry.ServiceMapCountSQL(src, params)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	edgesSQL, err := telemetry.ServiceMapEdgesSQL(src, params)
+	countRows, err := h.exec(c, countSQL, telemetrySearchTimeout)
+	if err != nil {
+		slog.Warn("Telemetry service map count failed", "error", err)
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	var spans int64
+	if len(countRows) > 0 {
+		spans = toInt64(countRows[0]["c"])
+	}
+	rate := telemetry.ServiceMapSampleRate(spans)
+
+	nodesSQL, err := telemetry.ServiceMapNodesSQL(src, params, rate)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	edgesSQL, err := telemetry.ServiceMapEdgesSQL(src, params, rate)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -92,9 +111,12 @@ func (h *TelemetryHandler) ServiceMap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"nodes":   nodes,
-		"edges":   edges,
+		"success":     true,
+		"nodes":       nodes,
+		"edges":       edges,
+		"sampled":     rate > 1,
+		"sample_rate": rate,
+		"total_spans": spans,
 	})
 }
 

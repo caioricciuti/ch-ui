@@ -116,7 +116,7 @@ func TestBuildTraceFacetsSQL(t *testing.T) {
 
 func TestTraceSpansSQL(t *testing.T) {
 	src := tracesSrcLocal()
-	sql := TraceSpansSQL(src, "abc'def")
+	sql := TraceSpansSQL(src, "abc'def", nil)
 	for _, want := range []string{
 		"WHERE `TraceId` = 'abc\\'def'",
 		"`Events.Name` AS ev_name",
@@ -132,7 +132,7 @@ func TestTraceSpansSQL(t *testing.T) {
 	}
 	src.Traces.Events = ""
 	src.Traces.Links = ""
-	sql = TraceSpansSQL(src, "x")
+	sql = TraceSpansSQL(src, "x", nil)
 	if !strings.Contains(sql, "[] AS ev_name") || !strings.Contains(sql, "[] AS ev_time") || !strings.Contains(sql, "[] AS lk_trace") {
 		t.Errorf("unmapped nested columns must render empty arrays:\n%s", sql)
 	}

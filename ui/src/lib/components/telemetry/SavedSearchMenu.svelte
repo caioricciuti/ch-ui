@@ -13,15 +13,17 @@
 
   /**
    * "Saved" button with a popover listing the saved searches of one kind.
-   * Loading one hands query + range preset back to the owner; saving stores
-   * the owner's current query. Writers only for save, rename, delete.
+   * Loading one hands query, range preset and source back to the owner;
+   * saving stores the owner's current query, range and source. Severity and
+   * service selections are not stored (the table has no column for them).
+   * Writers only for save, rename, delete.
    */
   interface Props {
     kind: SearchKind
     sourceId: string
     currentQuery: string
     currentRange: string
-    onload: (query: string, rangePreset: string) => void
+    onload: (query: string, rangePreset: string, sourceId: string | null) => void
   }
 
   let { kind, sourceId, currentQuery, currentRange, onload }: Props = $props()
@@ -73,7 +75,7 @@
 
   function pick(s: SavedSearch) {
     open = false
-    onload(s.query, s.range_preset)
+    onload(s.query, s.range_preset, s.source_id)
   }
 
   async function save(name: string) {

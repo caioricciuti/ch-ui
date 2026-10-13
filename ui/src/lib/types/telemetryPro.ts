@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 /** Pro telemetry types: traces, metrics, monitors and the service map. */
 
-import type { FacetValue, LogRow, SearchKind } from './telemetry'
+import type { FacetSample, FacetValue, LogRow, SearchKind } from './telemetry'
 
 // ── Phase 2: traces ───────────────────────────────────────────
 
@@ -99,7 +99,7 @@ export interface TraceDetail {
   logs: LogRow[]
 }
 
-export interface TraceFacets {
+export interface TraceFacets extends FacetSample {
   services: FacetValue[]
   span_names: FacetValue[]
   status: FacetValue[]
@@ -147,7 +147,10 @@ export interface MetricQueryResponse {
   bucket_seconds: number
   unit: string
   series: MetricSeries[]
+  /** More series than limit_series: only the top ones are returned. */
   truncated?: boolean
+  /** The row cap cut the query: the series are partial. */
+  rows_truncated?: boolean
   took_ms: number
 }
 
@@ -221,4 +224,8 @@ export interface ServiceMapEdge {
 export interface ServiceMap {
   nodes: ServiceMapNode[]
   edges: ServiceMapEdge[]
+  /** Whole traces were sampled; counts are scaled estimates. */
+  sampled: boolean
+  sample_rate: number
+  total_spans: number
 }
