@@ -35,6 +35,7 @@ func TestQueryEndpointsBlockedByGuardrailPolicy(t *testing.T) {
 		{name: "plan", path: "/api/query/plan", body: `{"query":"SELECT * FROM db.tbl"}`, invoke: h.QueryPlan, wantCTJSON: true},
 		{name: "profile", path: "/api/query/profile", body: `{"query":"SELECT * FROM db.tbl"}`, invoke: h.QueryProfile, wantCTJSON: true},
 		{name: "estimate", path: "/api/query/estimate", body: `{"query":"SELECT * FROM db.tbl"}`, invoke: h.EstimateQuery, wantCTJSON: true},
+		{name: "export", path: "/api/query/export", body: `{"sql":"SELECT * FROM db.tbl","format":"CSVWithNames"}`, invoke: h.ExportQuery, wantCTJSON: true},
 		{name: "explorer", path: "/api/query/explorer-data", body: `{"database":"db","table":"tbl"}`, invoke: h.ExplorerData, wantCTJSON: true},
 	}
 

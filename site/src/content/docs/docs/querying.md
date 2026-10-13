@@ -51,7 +51,7 @@ Open up to two editor groups side by side. Tabs can be moved between groups. Dup
 | Shortcut | Runs |
 |---|---|
 | **⌘↵** / **Ctrl+Enter** | The selection; with no selection, the statement under the cursor when the editor holds several (the active statement is shaded); otherwise the whole editor |
-| **⇧⌘↵** / **Shift+Ctrl+Enter** | Every statement in the editor (or in the selection), one after another, stopping at the first error. The result pane keeps the last result |
+| **⇧⌘↵** / **Shift+Ctrl+Enter** | Every statement in the editor (or in the selection), one after another, stopping at the first error. Each statement gets its own result tab |
 
 Statements are split on `;` outside strings, quoted identifiers, heredocs and comments. The Run button, Explain, the query plan, sampling and the cost estimate all use the same text as **⌘↵**, with the current parameter values.
 
@@ -138,13 +138,55 @@ CH-UI picks the cheapest *correct* strategy automatically:
 
 Exports always reflect the filtered/sorted view you're looking at. The feature can be toggled off in the result footer.
 
+### Result tabs
+
+Every result sits in a tab in the strip above the result grid. A tab shows the statement number and its first keywords (`2 · SELECT count from`), a status icon (running, done, failed), the row count and the elapsed time. Click a tab, or use the arrow keys in the strip, to switch.
+
+- **⇧⌘↵** clears the unpinned result tabs, then adds one tab per statement as it runs.
+- **⌘↵** replaces only the active result tab. When that tab is pinned, the new result gets a tab of its own instead.
+- Sorting and filtering apply to the active tab and are remembered per tab.
+- A query tab keeps at most 10 result tabs; past that, the oldest unpinned one is closed. Each result keeps no more rows than the **Rows** limit.
+
+### Pinned results
+
+Hover a result tab and click the pin to keep it: the next run never replaces a pinned result. A query tab holds up to 5 pinned results; unpin one to pin another. Pinned results stay when you switch query tabs, and come back after a page reload with their columns and up to the first 1,000 rows. When a pinned result had more rows than that, a note says so; re-run the statement to reload it in full. Pinned results are kept in this browser only (localStorage), not on the server.
+
 ### Rows, cells and exports
 
 Rows appear in the grid as they stream in. A statement that returns no columns (DDL, `INSERT`) shows **Statement executed** with the rows written, when ClickHouse reports them, and the elapsed time.
 
 Click a cell to focus it, then press **Enter** (or double-click the cell) to open the cell inspector, which pretty-prints JSON, arrays and maps and copies the value. **⌘C** / **Ctrl+C** copies the focused cell; arrow keys move between cells.
 
-Exports and copies come as CSV, TSV, JSON, JSONCompact, JSONLines, Markdown, SQL `INSERT` and XML. CSV and TSV prefix text that starts with `=`, `+`, `-` or `@` with `'` so spreadsheets do not run it as a formula; numbers such as `-5` are left as they are. The SQL `INSERT` export quotes values by column type (a `String` column holding `01234` stays a string) and writes arrays, maps and tuples as ClickHouse literals.
+The **Export** menu has two parts. **Current rows** copies or downloads the rows loaded in the grid. They come as CSV, TSV, JSON, JSONCompact, JSONLines, Markdown, SQL `INSERT` and XML. CSV and TSV prefix text that starts with `=`, `+`, `-` or `@` with `'` so spreadsheets do not run it as a formula; numbers such as `-5` are left as they are. The SQL `INSERT` export quotes values by column type (a `String` column holding `01234` stays a string) and writes arrays, maps and tuples as ClickHouse literals.
+
+### Full result export
+
+**Full result (server)** in the Export menu runs the statement of the active result again on the server and downloads everything it returns, not just the loaded rows. The formats are ClickHouse's own output formats:
+
+| Menu | ClickHouse format | File |
+|---|---|---|
+| CSV | `CSVWithNames` | `.csv` |
+| TSV | `TSVWithNames` | `.tsv` |
+| JSONLines | `JSONEachRow` | `.jsonl` |
+| Parquet | `Parquet` | `.parquet` |
+
+There is no Excel (XLSX) option: ClickHouse has no XLSX output format. Open the CSV or Parquet file in your spreadsheet tool instead.
+
+The export goes through the same checks as a run: governance guardrails, your session's ClickHouse user, the query parameter values, the audit log (`query.export`) and Query History. It always runs with `readonly=1`, so it cannot change data. The footer shows the bytes received while the export runs, with a button to cancel it.
+
+The export runs without the grid's row limit but with the server's own caps: 10,000,000 rows and 1 GiB by default, set with `export_max_rows` and `export_max_bytes` (see [Configuration](/docs/configuration)). A statement over a cap fails with an error that names it. When ClickHouse fails after the download has started, the server cuts the download off, so you never get a truncated file that looks complete; the reason is in Query History.
+
+The file is collected in the browser before it is saved, so very large exports need the memory to hold them. The statement must not end with its own `FORMAT` clause. Results of Explain and Sample cannot be exported this way.
+
+Over a tunnel, the export needs a CH-UI agent that supports it. An older agent gets the error "update the agent (ch-ui-agent) to export"; the embedded local connection always supports it.
+
+```bash
+curl -X POST http://localhost:3488/api/query/export \
+  -H 'Content-Type: application/json' \
+  -b cookies.txt \
+  -d '{"sql": "SELECT * FROM events WHERE day = {day:Date}", "format": "Parquet", "params": {"day": "2026-10-01"}}' \
+  -o events.parquet
+```
 
 ### Explorer shortcuts
 
@@ -435,6 +477,7 @@ All query endpoints run governance guardrails before execution. If a policy with
 |---|---|
 | Query timeout | 30s default, 5 min max |
 | Stream row limit | 1,000,000 |
+| Full export | `readonly=1`; 10,000,000 rows and 1 GiB by default (`export_max_rows`, `export_max_bytes`) |
 | Upload file size | 25 MB |
 | Upload batch size | 500 rows |
 | Schema operations | Admin-only |

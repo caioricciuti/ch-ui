@@ -231,7 +231,10 @@ export async function copyToClipboard(text: string): Promise<void> {
 
 /** Download content as a file */
 export function downloadFile(content: string, filename: string, mimeType: string): void {
-  const blob = new Blob([content], { type: mimeType })
+  downloadBlob(new Blob([content], { type: mimeType }), filename)
+}
+
+export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -239,5 +242,6 @@ export function downloadFile(content: string, filename: string, mimeType: string
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  // A large file may still be read when click() returns.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }

@@ -21,7 +21,14 @@ type AgentMessage struct {
 	Seq        int             `json:"seq,omitempty"`        // query_stream_chunk sequence number
 	TotalRows  int64           `json:"total_rows,omitempty"` // query_stream_end total row count
 	Progress   json.RawMessage `json:"progress,omitempty"`   // query_stream_progress snapshot
+	// Capabilities lists optional features the agent supports (auth). Agents
+	// that predate this field send none.
+	Capabilities []string `json:"capabilities,omitempty"`
+	Bytes        int64    `json:"bytes,omitempty"` // query_export_end total size
 }
+
+// CapabilityExport marks an agent that handles query_export.
+const CapabilityExport = "export"
 
 // GetMessageID returns the message ID from either legacy or Go agent format.
 func (m *AgentMessage) GetMessageID() string {
@@ -84,6 +91,7 @@ type TestResult struct {
 type StreamDone struct {
 	Statistics json.RawMessage `json:"statistics"`
 	TotalRows  int64           `json:"total_rows"`
+	Bytes      int64           `json:"bytes,omitempty"` // export streams only
 }
 
 // HostInfo represents machine info from the agent.

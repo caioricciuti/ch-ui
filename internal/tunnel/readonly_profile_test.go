@@ -100,8 +100,8 @@ func TestRefusedSetting(t *testing.T) {
 		{nil, ""},
 	}
 	for _, test := range tests {
-		if got := refusedSetting(test.err); got != test.want {
-			t.Fatalf("refusedSetting(%v) = %q, want %q", test.err, got, test.want)
+		if got := RefusedSetting(test.err); got != test.want {
+			t.Fatalf("RefusedSetting(%v) = %q, want %q", test.err, got, test.want)
 		}
 	}
 }

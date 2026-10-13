@@ -71,6 +71,8 @@ key name shows up in the log.
 | `tls_key_file` | `/etc/ch-ui/tls/server.key` | empty | PEM key for native TLS |
 | `session_max_age` | `86400` | `604800` (7 days) | Session lifetime in seconds |
 | `allow_login_url` | `true` | `false` | Lets the login page take a ClickHouse URL instead of a saved connection. Trusted networks only, see [Sign in with a ClickHouse URL](#sign-in-with-a-clickhouse-url) |
+| `export_max_rows` | `5000000` | `10000000` | Most rows one full result export may return (Export, Full result) |
+| `export_max_bytes` | `536870912` | `1073741824` (1 GiB) | Most bytes one full result export may return |
 | `trusted_proxies` | `["10.0.0.0/8", "192.168.1.20"]` | loopback, private and link-local ranges | Reverse proxies whose `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto` and `X-Forwarded-Host` headers are believed. `[]` trusts none. See [Behind a reverse proxy](#behind-a-reverse-proxy) |
 
 `clickhouse_url` and `connection_name` are applied to the embedded connection
@@ -236,6 +238,7 @@ Full setup in [Single Sign-On](/docs/sso).
 | `OIDC_ALLOWED_DOMAINS` / `OIDC_ADMIN_GROUPS` / `OIDC_ANALYST_GROUPS` / `OIDC_GROUPS_CLAIM` | OIDC mapping |
 | `CHUI_LICENSE_FILE` | Path to a Pro license JSON file (e.g. a mounted Kubernetes Secret) |
 | `CHUI_LICENSE` | Pro license JSON inline (file takes precedence) |
+| `EXPORT_MAX_ROWS` / `EXPORT_MAX_BYTES` | Caps for one full result export (defaults `10000000` rows, `1073741824` bytes) |
 | `SESSION_MAX_AGE` | Session lifetime in seconds (default `604800`, i.e. 7 days) |
 | `NODE_ENV` | `development` enables dev mode (relaxed CORS and security headers). The `server` command's `--dev` flag overrides it; `NODE_ENV` is honored for other entry points |
 | `CHUI_SQLITE_MAX_OPEN_CONNS` | Max SQLite connections (default 8) |
