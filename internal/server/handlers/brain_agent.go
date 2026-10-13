@@ -6,6 +6,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -139,6 +140,67 @@ func (h *BrainHandler) signalApproval(id string, decision approvalDecision) bool
 		return true
 	default:
 		return false
+	}
+}
+
+// brainMaxIterations caps the model calls in one agent turn.
+const brainMaxIterations = 20
+
+// brainApprovalTimeout is how long a write waits for the person.
+var brainApprovalTimeout = 5 * time.Minute
+
+// awaitApproval waits for the person's decision on a pending approval. The
+// approve and decline routes settle the row first and then signal; the
+// timeout and a stopped request settle it with the same conditional update
+// (status = 'pending'), so exactly one side wins. When the timeout or the
+// stop loses, the decision already stored is the one that counts.
+// abandoned is true when the request ended and the turn must stop.
+func (h *BrainHandler) awaitApproval(ctx context.Context, id string, ch chan approvalDecision) (decision approvalDecision, abandoned bool) {
+	defer h.deregisterApproval(id)
+	timer := time.NewTimer(brainApprovalTimeout)
+	defer timer.Stop()
+	select {
+	case decision = <-ch:
+		return decision, false
+	case <-timer.C:
+		if won, err := h.DB.MarkBrainApprovalDecided(id, "timeout", "system"); err != nil || won {
+			return approvalDecision{Approved: false, By: "system"}, false
+		}
+		return h.storedApprovalDecision(id), false
+	case <-ctx.Done():
+		// Also covers an approval stored just before the stop: the tool
+		// will not run, so the row must not say approved.
+		if err := h.DB.AbandonBrainApproval(id); err != nil {
+			slog.Warn("failed to mark approval abandoned", "approvalID", id, "error", err)
+		}
+		return approvalDecision{}, true
+	}
+}
+
+// storedApprovalDecision reads a decision another request already stored.
+func (h *BrainHandler) storedApprovalDecision(id string) approvalDecision {
+	a, err := h.DB.GetBrainApprovalByID(id)
+	if err != nil || a == nil {
+		return approvalDecision{Approved: false, By: "system"}
+	}
+	by := "system"
+	if a.DecidedBy != nil {
+		by = *a.DecidedBy
+	}
+	return approvalDecision{Approved: a.Status == "approved", By: by}
+}
+
+// iterationSeparator is what goes between the text of two agent steps so
+// they do not run together: a paragraph break, minus the newlines the
+// earlier text already ends with.
+func iterationSeparator(built string) string {
+	switch {
+	case built == "" || strings.HasSuffix(built, "\n\n"):
+		return ""
+	case strings.HasSuffix(built, "\n"):
+		return "\n"
+	default:
+		return "\n\n"
 	}
 }
 
@@ -350,7 +412,6 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 	}
 	toolDefs := registry.DefinitionsFor(canWrite)
 
-	const maxIterations = 20
 	const maxRetriesPerCall = 3
 	var built strings.Builder
 	var streamErr error
@@ -381,11 +442,26 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 		return b
 	}
 
-	for iter := 0; iter < maxIterations; iter++ {
+	for iter := 0; ; iter++ {
+		if iter >= brainMaxIterations {
+			stopReason = stopReasonToolLimit
+			break
+		}
+		// The budget is checked before the turn too; here it stops a long
+		// tool loop that runs past it.
+		if iter > 0 && h.turnOverBudget(t) {
+			stopReason = stopReasonBudget
+			break
+		}
 		compactTurn(chatMessages, brainTurnMaxChars)
+		needSep := built.Len() > 0
 		res, err := braincore.CallWithTools(t.provider, r.Context(), t.providerCfg, t.runtimeModel.ModelName, chatMessages, toolDefs, func(delta string) error {
 			if delta == "" {
 				return nil
+			}
+			if needSep {
+				needSep = false
+				delta = iterationSeparator(built.String()) + delta
 			}
 			built.WriteString(delta)
 			return stream.send(map[string]interface{}{"type": "delta", "delta": delta, "messageId": assistantMessageID})
@@ -462,30 +538,15 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 					"messageId":  assistantMessageID,
 				})
 
-				var decision approvalDecision
-				var decisionStatus string
-				select {
-				case decision = <-ch:
-					if decision.Approved {
-						decisionStatus = "approved"
-					} else {
-						decisionStatus = "declined"
-					}
-				case <-time.After(5 * time.Minute):
-					decision = approvalDecision{Approved: false, By: "system"}
-					decisionStatus = "timeout"
-				case <-r.Context().Done():
-					// Stopped while waiting: settle the approval, the card
-					// and the message so nothing stays pending.
-					h.deregisterApproval(approvalID)
-					_, _ = h.DB.MarkBrainApprovalDecided(approvalID, "abandoned", "system")
+				decision, abandoned := h.awaitApproval(r.Context(), approvalID, ch)
+				if abandoned {
+					// Stopped while waiting: settle the card and the message
+					// so nothing stays pending.
 					stopped, _ := json.Marshal(map[string]any{"declined": true, "message": "Stopped before approval."})
 					h.updateBrainToolCall(pendingRowID, string(stopped), "declined", "")
 					h.persistStopped(assistantMessageID, built.String())
 					return
 				}
-				h.deregisterApproval(approvalID)
-				_, _ = h.DB.MarkBrainApprovalDecided(approvalID, decisionStatus, decision.By)
 
 				if !decision.Approved {
 					declinedJSON, _ := json.Marshal(map[string]any{"declined": true, "message": "User declined this action. Acknowledge and ask if they'd like a different approach."})
@@ -535,6 +596,7 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 	if legacyFallback {
 		simplePrompt := h.buildSystemPrompt(t.contexts, t.entities, false, canWrite) + historyOmittedNote(t.omitted)
 		legacyMsgs := []braincore.Message{{Role: "system", Content: simplePrompt}}
+		needSep := built.Len() > 0
 		for _, m := range chatMessages {
 			if m.Role != "user" && m.Role != "assistant" {
 				continue
@@ -547,6 +609,10 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 		legacyRes, err := t.provider.StreamChat(r.Context(), t.providerCfg, t.runtimeModel.ModelName, legacyMsgs, func(delta string) error {
 			if delta == "" {
 				return nil
+			}
+			if needSep {
+				needSep = false
+				delta = iterationSeparator(built.String()) + delta
 			}
 			built.WriteString(delta)
 			return stream.send(map[string]interface{}{"type": "delta", "delta": delta, "messageId": assistantMessageID})

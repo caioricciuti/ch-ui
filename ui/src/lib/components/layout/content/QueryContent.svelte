@@ -192,10 +192,34 @@
   let showAsk = $state(false)
   let askQuestion = $state('')
 
+  // What Ask AI edits: the same text Run would execute (the selection, else
+  // the statement under the cursor, else the whole query), taken when the
+  // question is sent.
+  let askTarget: { text: string; from: number } | null = null
+
+  function askContext(): string {
+    if (!editorComponent) return ''
+    askTarget = editorComponent.getRunnable()
+    return askTarget.text
+  }
+
   function insertGeneratedSQL(sql: string) {
-    editorComponent?.setValue(sql)
-    currentSql = sql
-    updateTabSQL(tab.id, sql)
+    if (!editorComponent) return
+    const doc = editorComponent.getValue()
+    let next = sql
+    const target = askTarget
+    askTarget = null
+    if (target?.text) {
+      // Put the revised query where its source was. If that text moved
+      // while the AI was writing, find it again; replace everything only
+      // when it is gone.
+      const from = doc.slice(target.from, target.from + target.text.length) === target.text ? target.from : doc.indexOf(target.text)
+      if (from >= 0) next = doc.slice(0, from) + sql + doc.slice(from + target.text.length)
+    }
+    // One editor transaction, so a single undo brings the old SQL back.
+    editorComponent.setValue(next)
+    currentSql = next
+    updateTabSQL(tab.id, next)
   }
 
   // EXPLAIN ESTIMATE runs after a long typing pause, for a single SELECT
@@ -881,7 +905,7 @@
     {#if showAsk}
       <div class="shrink-0 border-b border-edge-subtle bg-ch-orange/5">
         {#if proActive}
-          <AskAIBar bind:question={askQuestion} oninsert={insertGeneratedSQL} onclose={() => (showAsk = false)} />
+          <AskAIBar bind:question={askQuestion} getSql={askContext} oninsert={insertGeneratedSQL} onclose={() => (showAsk = false)} />
         {:else}
           <!-- Pro upsell -->
           <div class="flex items-center justify-between gap-3 px-3 py-2">
