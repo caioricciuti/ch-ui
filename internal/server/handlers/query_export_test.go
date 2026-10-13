@@ -218,7 +218,18 @@ func TestExportErrorBeforeFirstBytesIsJSON(t *testing.T) {
 		return []tunnel.AgentMessage{{Type: "query_export_error", Error: "Code: 396. DB::Exception: Limit for result exceeded, max rows: 10.00. (TOO_MANY_ROWS_OR_BYTES)"}}
 	})
 	resp, data, _ := f.post(t, `{"sql":"SELECT 1","format":"CSVWithNames"}`)
-	if resp.StatusCode != http.StatusBadGateway || !strings.Contains(string(data), "export limit (10 rows") {
+	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(data), "export limit (10 rows") {
+		t.Fatalf("status %d: %s", resp.StatusCode, data)
+	}
+}
+
+func TestExportAgentErrorWithoutClickHouseExceptionIsBadGateway(t *testing.T) {
+	f := newExportFixture(t, nil, "alice", "")
+	startFakeExportAgent(t, f, []string{tunnel.CapabilityExport}, func(tunnel.GatewayMessage) []tunnel.AgentMessage {
+		return []tunnel.AgentMessage{{Type: "query_export_error", Error: "dial tcp 127.0.0.1:8123: connect: connection refused"}}
+	})
+	resp, data, _ := f.post(t, `{"sql":"SELECT 1","format":"CSVWithNames"}`)
+	if resp.StatusCode != http.StatusBadGateway {
 		t.Fatalf("status %d: %s", resp.StatusCode, data)
 	}
 }

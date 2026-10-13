@@ -73,6 +73,17 @@ func exportErrorMessage(err error, maxBytes, maxRows int64) string {
 	return msg
 }
 
+var clickhouseExceptionRe = regexp.MustCompile(`Code: \d+\. DB::Exception`)
+
+// exportErrorStatus is 422 when ClickHouse answered and refused the query
+// (syntax, access, limits) and 502 when it could not be reached at all.
+func exportErrorStatus(err error) int {
+	if clickhouseExceptionRe.MatchString(err.Error()) {
+		return http.StatusUnprocessableEntity
+	}
+	return http.StatusBadGateway
+}
+
 func formatBytesIEC(n int64) string {
 	const unit = 1024
 	if n < unit {
@@ -174,7 +185,7 @@ func (h *QueryHandler) ExportQuery(w http.ResponseWriter, r *http.Request) {
 	for attempt := 0; ; attempt++ {
 		requestID, stream, err = h.Gateway.ExecuteExportQuery(session.ConnectionID, query, session.ClickhouseUser, password, req.Format, settings)
 		if err != nil {
-			status := http.StatusBadGateway
+			status := exportErrorStatus(err)
 			if errors.Is(err, tunnel.ErrExportUnsupported) {
 				status = http.StatusConflict
 			}
@@ -224,7 +235,7 @@ func (h *QueryHandler) ExportQuery(w http.ResponseWriter, r *http.Request) {
 		msg := exportErrorMessage(firstErr, maxBytes, maxRows)
 		history("error", msg)
 		audit("failed", 0)
-		writeError(w, http.StatusBadGateway, msg)
+		writeError(w, exportErrorStatus(firstErr), msg)
 		return
 	}
 	defer h.Gateway.CleanupStream(session.ConnectionID, requestID)
