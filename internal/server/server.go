@@ -23,6 +23,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/operations"
 	performancemonitor "github.com/caioricciuti/ch-ui/internal/performance/monitor"
 	"github.com/caioricciuti/ch-ui/internal/pipelines"
+	"github.com/caioricciuti/ch-ui/internal/reports"
 	"github.com/caioricciuti/ch-ui/internal/scheduler"
 	"github.com/caioricciuti/ch-ui/internal/server/handlers"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
@@ -47,6 +48,7 @@ type Server struct {
 	sqlAlertRunner     *sqlalerts.Runner
 	performanceMonitor *performancemonitor.Monitor
 	operationsReports  *operations.Runner
+	reportRunner       *reports.Runner
 	githubSyncer       *ghclient.Syncer
 	guardrails         *governance.GuardrailService
 	alerts             *alerts.Dispatcher
@@ -136,6 +138,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 		monitorRunner:      monitorRunner,
 		performanceMonitor: performancemonitor.New(db, gw, cfg.AppSecretKey, config.NewProGate("Performance monitor", cfg.ProAccess).Allow),
 		operationsReports:  operations.NewRunner(db, gw, cfg),
+		reportRunner:       reports.NewRunner(db, gw, guardrails, cfg.AppSecretKey, cfg.AppURL, config.NewProGate("Scheduled report delivery", cfg.ProAccess).Allow),
 		githubSyncer:       githubSyncer,
 		guardrails:         guardrails,
 		sqlAlertRunner:     sqlalerts.NewRunner(db, gw, guardrails, cfg.AppSecretKey, config.NewProGate("SQL alerts", cfg.ProAccess).Allow),
@@ -399,6 +402,8 @@ func (s *Server) setupRoutes() {
 				pro.Mount("/fleet", fleetHandler.Routes())
 				reportsHandler := &handlers.OperationsReportsHandler{DB: db, Config: cfg, Runner: s.operationsReports}
 				pro.Mount("/operations-reports", reportsHandler.Routes())
+				reportDeliveryHandler := &handlers.ReportsHandler{DB: db, Config: cfg, Runner: s.reportRunner}
+				pro.Mount("/reports", reportDeliveryHandler.Routes())
 				timelineHandler := &handlers.IncidentTimelineHandler{DB: db, Gateway: gw, Config: cfg}
 				pro.Route("/incident-timeline", timelineHandler.Routes)
 			})
@@ -461,6 +466,7 @@ func (s *Server) Start() error {
 	s.sqlAlertRunner.Start()
 	s.performanceMonitor.StartBackground()
 	s.operationsReports.Start()
+	s.reportRunner.Start()
 	s.alerts.Start()
 
 	if s.cfg.IsPro() {
@@ -531,6 +537,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.sqlAlertRunner.Stop()
 	s.performanceMonitor.Stop()
 	s.operationsReports.Stop()
+	s.reportRunner.Stop()
 	s.alerts.Stop()
 	s.gateway.Stop()
 	s.auditFwd.Close()

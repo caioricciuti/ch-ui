@@ -29,7 +29,7 @@ const ROUTES = {
   telemetry: { label: 'Telemetry', path: '/telemetry', description: 'Logs, traces and metrics', icon: ScrollText },
   pipelines: { label: 'Pipelines', path: '/pipelines', description: 'Stream data into ClickHouse', icon: Workflow },
   models: { label: 'Models', path: '/models', description: 'SQL transformations in order', icon: Boxes },
-  schedules: { label: 'Schedules', path: '/schedules', description: 'Saved queries on a cron', icon: Clock, pro: true },
+  schedules: { label: 'Schedules', path: '/schedules', description: 'Query jobs and report delivery on a cron', icon: Clock, pro: true },
   brain: { label: 'Brain', path: '/brain', description: 'AI assistant for your data', icon: Brain },
   governance: { label: 'Governance', path: '/governance', description: 'Access, policies, audit', icon: Scale, pro: true },
   'cluster-health': { label: 'Cluster Health', path: '/cluster-health', description: 'Nodes, replication, parts', icon: HeartPulse, pro: true },
@@ -141,6 +141,10 @@ export const PAGE_SECTIONS: Partial<Record<PageRoute, PageSection[]>> = {
     { id: 'github', label: 'GitHub' },
     { id: 'mcp', label: 'MCP Server' },
     { id: 'settings', label: 'Settings' },
+  ],
+  schedules: [
+    { id: 'jobs', label: 'Query jobs' },
+    { id: 'reports', label: 'Report delivery' },
   ],
   performance: [
     { id: 'regressions', label: 'Regressions' },
