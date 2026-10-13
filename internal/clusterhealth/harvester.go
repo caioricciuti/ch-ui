@@ -176,7 +176,7 @@ func (h *Harvester) pollConnection(connID string, settings Settings, now time.Ti
 	h.markPolled(connID, now)
 
 	exec := ExecFunc(func(sql string) ([]map[string]interface{}, error) { return h.executeQuery(creds, sql) })
-	cluster := h.resolveCluster(exec)
+	cluster, clusterKnown := h.resolveCluster(exec)
 	capturedAt := now.UTC().Format(time.RFC3339)
 
 	col, err := CollectSamples(exec, cluster, settings.LongQueryThresholdSecs, capturedAt)
@@ -185,8 +185,12 @@ func (h *Harvester) pollConnection(connID string, settings Settings, now time.Ti
 		// nodes are not stored: their state is unknown, not down.
 		if c2, err2 := CollectSamples(exec, "", settings.LongQueryThresholdSecs, capturedAt); err2 == nil {
 			col, cluster = c2, ""
+			col.Complete = false
 		}
 	}
+	// Without knowing whether there is a cluster, a local-only collection
+	// says nothing about the other nodes.
+	membersKnown := clusterKnown && col.Complete
 	samples := col.Samples
 	if len(col.Errors) > 0 {
 		slog.Debug("Cluster health: some metrics failed", "connection", connID, "errors", col.Errors)
@@ -199,19 +203,24 @@ func (h *Harvester) pollConnection(connID string, settings Settings, now time.Ti
 	} else {
 		slog.Debug("Cluster health sampled", "connection", connID, "cluster", cluster, "nodes", len(samples))
 	}
-	h.evaluateHealthAlerts(connID, cluster, samples, exec, now)
+	h.evaluateHealthAlerts(connID, cluster, samples, membersKnown, exec, now)
 }
 
-func (h *Harvester) resolveCluster(exec ExecFunc) string {
+// resolveCluster returns the cluster the connection belongs to, "" for a
+// single node. ok is false when the lookup failed.
+func (h *Harvester) resolveCluster(exec ExecFunc) (name string, ok bool) {
 	rows, err := exec(ResolveClusterQuery)
-	if err != nil || len(rows) == 0 {
-		return ""
+	if err != nil {
+		return "", false
 	}
-	name, _ := rows[0]["cluster"].(string)
+	if len(rows) == 0 {
+		return "", true
+	}
+	name, _ = rows[0]["cluster"].(string)
 	if IsValidClusterName(name) {
-		return name
+		return name, true
 	}
-	return ""
+	return "", true
 }
 
 // pruneRetention deletes samples older than each connection's retention window.

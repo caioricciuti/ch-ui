@@ -41,6 +41,9 @@ const (
 	evaluationRetention = 30 * 24 * time.Hour
 	// detailRows bounds the top offenders attached to a firing event.
 	detailRows = 5
+	// ghostExpiry is how long a node may be absent from every poll before
+	// its incidents are closed, when the cluster's node list is not known.
+	ghostExpiry = 24 * time.Hour
 )
 
 // HealthCheck describes one built-in check.
@@ -223,12 +226,28 @@ type healthEvent struct {
 	value      float64
 	transition string
 	severity   string
-	stateIdx   int
+	// incident is the start of the incident (its firing time), part of the
+	// firing and resolved fingerprints. at is the time of this transition.
+	incident, at string
+	// announced is true for a resolve whose firing went out as its own
+	// event; the resolve of a summarized firing is summarized too.
+	announced bool
+	// reason is set on a resolve without a recovery: the check was turned
+	// off or the node left the cluster.
+	reason string
+	// stateIdx and ghostIdx point at the state the event belongs to, -1
+	// for none.
+	stateIdx, ghostIdx int
+
+	// Set by raiseHealthEvents: created is true once the event (or the
+	// summary holding it) is written; eventID is "" for a summarized one.
+	created bool
+	eventID string
 }
 
-// HealthFingerprint is the dispatcher de-dupe key of a health incident.
-// Firing and escalation carry the severity so an escalation is not swallowed
-// by the rule cooldown of the warn event; the resolve has its own suffix.
+// HealthFingerprint is the dispatcher de-dupe key of a health event. The
+// suffix names the transition and the incident, so a new incident or a
+// severity change is never taken for a repeat inside a rule's cooldown.
 func HealthFingerprint(connectionID, check, node, suffix string) string {
 	return "health:" + connectionID + ":" + check + ":" + node + ":" + suffix
 }
@@ -236,8 +255,10 @@ func HealthFingerprint(connectionID, check, node, suffix string) string {
 // evaluateHealthAlerts runs every enabled check over one poll's samples,
 // advances the state machines and raises events for transitions. Nodes
 // absent from the samples keep their state: a node only reachable through
-// a failed fan-out is unknown, not recovered.
-func (h *Harvester) evaluateHealthAlerts(connID, cluster string, samples []Sample, exec ExecFunc, now time.Time) {
+// a failed fan-out is unknown, not recovered. With membersKnown the samples
+// list every node of the cluster, and the state of a node no longer in it
+// is closed; otherwise that happens after ghostExpiry without data.
+func (h *Harvester) evaluateHealthAlerts(connID, cluster string, samples []Sample, membersKnown bool, exec ExecFunc, now time.Time) {
 	settings, err := LoadHealthSettings(h.db, connID)
 	if err != nil {
 		slog.Warn("Health alerts: failed to load settings", "connection", connID, "error", err)
@@ -255,21 +276,33 @@ func (h *Harvester) evaluateHealthAlerts(connID, cluster string, samples []Sampl
 	nowStr := now.UTC().Format(time.RFC3339)
 
 	var states []database.HealthAlertState
+	// Per state: goes into the history as a change; was not readable.
+	var changed, unknown []bool
 	var events []healthEvent
-	var history []database.AlertEvaluation
+	enabled := map[string]HealthCheckSetting{}
+	present := map[string]bool{}
+	for _, s := range samples {
+		present[s.Node] = true
+	}
 	for _, set := range settings {
 		if !set.Enabled {
 			continue
 		}
+		enabled[set.CheckKind] = set
 		check, _ := LookupHealthCheck(set.CheckKind)
 		for _, s := range samples {
+			prev, hasPrev := prevByKey[check.Kind+"\x00"+s.Node]
 			value, known := checkValue(check.Kind, s)
 			if !known {
 				// Unknown neither breaches nor recovers: the stored state
-				// stays as it is.
+				// stays as it is, only marked as seen.
+				if hasPrev {
+					states = append(states, prev)
+					changed = append(changed, false)
+					unknown = append(unknown, true)
+				}
 				continue
 			}
-			prev := prevByKey[check.Kind+"\x00"+s.Node]
 			hPrev := alerts.Hysteresis{State: prev.State, BreachCount: prev.BreachCount, OkCount: prev.OkCount}
 			if prev.Severity != nil {
 				hPrev.Severity = *prev.Severity
@@ -292,29 +325,196 @@ func (h *Harvester) evaluateHealthAlerts(connID, cluster string, samples []Sampl
 				st.Since = &nowStr
 			}
 			states = append(states, st)
+			changed = append(changed, next.State != prevState || transition != alerts.TransitionNone)
+			unknown = append(unknown, false)
 			if transition != alerts.TransitionNone {
-				events = append(events, healthEvent{check: check, setting: set, node: s.Node, value: value,
-					transition: transition, severity: next.Severity, stateIdx: len(states) - 1})
+				ev := healthEvent{check: check, setting: set, node: s.Node, value: value,
+					transition: transition, severity: next.Severity, incident: *st.Since, at: nowStr,
+					stateIdx: len(states) - 1, ghostIdx: -1}
+				if transition == alerts.TransitionResolved {
+					ev.incident = incidentOf(prev, nowStr)
+					ev.announced = prev.LastEventID != nil
+				}
+				events = append(events, ev)
 			}
 			if transition == alerts.TransitionResolved {
 				states[len(states)-1].Severity = nil
 			}
-			if h.shouldRecord(connID, check.Kind, s.Node, next.State != prevState || transition != alerts.TransitionNone, now) {
-				history = append(history, database.AlertEvaluation{
-					Source: "health", SourceID: check.Kind, ConnectionID: connID, Node: s.Node,
-					Value: f64(value), State: next.State, EvaluatedAt: nowStr,
-				})
+		}
+	}
+
+	// Ghosts: states of nodes that are no longer polled.
+	var ghosts []database.HealthAlertState
+	for _, st := range stored {
+		set, ok := enabled[st.CheckKind]
+		if !ok || present[st.Node] {
+			continue
+		}
+		reason := ""
+		if membersKnown {
+			reason = "the node is no longer part of the cluster"
+		} else if seen, err := time.Parse(time.RFC3339, deref(st.UpdatedAt)); err == nil && now.Sub(seen) >= ghostExpiry {
+			reason = "the node sent no data for 24 hours"
+		}
+		if reason == "" {
+			continue
+		}
+		ghosts = append(ghosts, st)
+		if st.State == alerts.StateFiring {
+			check, _ := LookupHealthCheck(st.CheckKind)
+			events = append(events, closingEvent(check, set, st, reason, nowStr, -1, len(ghosts)-1))
+		}
+	}
+
+	// A check turned off while this poll ran keeps its events and states
+	// out: the settings change closed its incidents.
+	if current, err := h.db.ListHealthAlertSettings(connID); err == nil {
+		kept := events[:0]
+		for _, ev := range events {
+			if row, ok := current[ev.check.Kind]; ok && !row.Enabled {
+				continue
+			}
+			kept = append(kept, ev)
+		}
+		events = kept
+	}
+
+	raiseHealthEvents(h.db, connID, cluster, events, exec, now)
+
+	skip := map[int]bool{}
+	keepGhost := map[int]bool{}
+	for _, ev := range events {
+		if !ev.created {
+			// Not written: the state does not advance, so the next poll
+			// raises it again.
+			if ev.stateIdx >= 0 {
+				skip[ev.stateIdx] = true
+			}
+			if ev.ghostIdx >= 0 {
+				keepGhost[ev.ghostIdx] = true
+			}
+			continue
+		}
+		if ev.stateIdx < 0 {
+			continue
+		}
+		st := &states[ev.stateIdx]
+		switch ev.transition {
+		case alerts.TransitionFiring:
+			// A summarized firing leaves no event id, so its resolve is
+			// summarized too.
+			st.LastEventID = nil
+			if ev.eventID != "" {
+				id := ev.eventID
+				st.LastEventID = &id
+			}
+		case alerts.TransitionEscalated, alerts.TransitionDeescalated:
+			if ev.eventID != "" {
+				id := ev.eventID
+				st.LastEventID = &id
 			}
 		}
 	}
 
-	h.raiseHealthEvents(connID, cluster, events, states, exec)
-	if err := h.db.SaveHealthAlertStates(states); err != nil {
+	save := make([]database.HealthAlertState, 0, len(states))
+	var history []database.AlertEvaluation
+	for i, st := range states {
+		if skip[i] {
+			continue
+		}
+		save = append(save, st)
+		if unknown[i] {
+			continue
+		}
+		if h.shouldRecord(connID, st.CheckKind, st.Node, changed[i], now) {
+			history = append(history, database.AlertEvaluation{
+				Source: "health", SourceID: st.CheckKind, ConnectionID: connID, Node: st.Node,
+				Value: st.LastValue, State: st.State, EvaluatedAt: nowStr,
+			})
+		}
+	}
+	if err := h.db.SaveHealthAlertStates(save); err != nil {
 		slog.Warn("Health alerts: failed to save state", "connection", connID, "error", err)
+	}
+	for i, st := range ghosts {
+		if keepGhost[i] {
+			continue
+		}
+		if err := h.db.DeleteHealthAlertState(connID, st.CheckKind, st.Node); err != nil {
+			slog.Warn("Health alerts: failed to clear state of a departed node", "connection", connID, "node", st.Node, "error", err)
+			continue
+		}
+		h.forgetHistory(connID, st.CheckKind, st.Node)
 	}
 	if err := h.db.InsertAlertEvaluations(history); err != nil {
 		slog.Warn("Health alerts: failed to record evaluations", "connection", connID, "error", err)
 	}
+}
+
+// incidentOf returns the start of the incident a state holds.
+func incidentOf(st database.HealthAlertState, fallback string) string {
+	if st.Since != nil && *st.Since != "" {
+		return *st.Since
+	}
+	return fallback
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// closingEvent is the resolve of a firing state that ends without a
+// recovery.
+func closingEvent(check HealthCheck, set HealthCheckSetting, st database.HealthAlertState, reason, nowStr string, stateIdx, ghostIdx int) healthEvent {
+	ev := healthEvent{check: check, setting: set, node: st.Node, transition: alerts.TransitionResolved,
+		incident: incidentOf(st, nowStr), at: nowStr, announced: st.LastEventID != nil, reason: reason,
+		stateIdx: stateIdx, ghostIdx: ghostIdx}
+	if st.Severity != nil {
+		ev.severity = *st.Severity
+	}
+	if st.LastValue != nil {
+		ev.value = *st.LastValue
+	}
+	return ev
+}
+
+// CloseCheckIncidents ends the incidents of a check that was turned off on
+// a connection: every firing node gets a resolved event (summarized like a
+// poll's), then the check's state is cleared.
+func CloseCheckIncidents(db *database.DB, connID, checkKind string, now time.Time) error {
+	check, ok := LookupHealthCheck(checkKind)
+	if !ok {
+		return fmt.Errorf("unknown check %q", checkKind)
+	}
+	states, err := db.ListHealthAlertStates(connID, true)
+	if err != nil {
+		return err
+	}
+	set := DefaultHealthSetting(check)
+	if all, err := LoadHealthSettings(db, connID); err == nil {
+		for _, s := range all {
+			if s.CheckKind == checkKind {
+				set = s
+			}
+		}
+	}
+	nowStr := now.UTC().Format(time.RFC3339)
+	var events []healthEvent
+	for _, st := range states {
+		if st.CheckKind == checkKind && st.State == alerts.StateFiring {
+			events = append(events, closingEvent(check, set, st, "the check was turned off", nowStr, -1, -1))
+		}
+	}
+	raiseHealthEvents(db, connID, "", events, nil, now)
+	for _, ev := range events {
+		if !ev.created {
+			slog.Warn("Health alerts: failed to resolve the incident of a disabled check", "connection", connID, "check", checkKind, "node", ev.node)
+		}
+	}
+	return db.DeleteHealthAlertStates(connID, checkKind)
 }
 
 // shouldRecord reports whether an evaluation goes into the history: every
@@ -333,10 +533,19 @@ func (h *Harvester) shouldRecord(connID, check, node string, changed bool, now t
 	return true
 }
 
+// forgetHistory drops the history timestamp of a state that was cleared.
+func (h *Harvester) forgetHistory(connID, check, node string) {
+	h.mu.Lock()
+	delete(h.lastHistory, connID+"\x00"+check+"\x00"+node)
+	h.mu.Unlock()
+}
+
 // raiseHealthEvents writes the transitions as alert events, at most
-// maxHealthEventsPerPoll of them; the rest go into one summary event.
-// Event ids are written back into states.
-func (h *Harvester) raiseHealthEvents(connID, cluster string, events []healthEvent, states []database.HealthAlertState, exec ExecFunc) {
+// maxHealthEventsPerPoll of them; the rest go into one summary event, and
+// so does the resolve of an incident whose firing was summarized. It sorts
+// events and sets created and eventID on each. exec may be nil when there
+// are only resolves.
+func raiseHealthEvents(db *database.DB, connID, cluster string, events []healthEvent, exec ExecFunc, now time.Time) {
 	if len(events) == 0 {
 		return
 	}
@@ -352,13 +561,16 @@ func (h *Harvester) raiseHealthEvents(connID, cluster string, events []healthEve
 	details := map[string][]map[string]interface{}{}
 	conn := connID
 	emitted := 0
-	for _, ev := range events {
-		if emitted >= maxHealthEventsPerPoll {
-			break
+	var rest []int
+	for i := range events {
+		ev := &events[i]
+		if emitted >= maxHealthEventsPerPoll || (ev.transition == alerts.TransitionResolved && !ev.announced) {
+			rest = append(rest, i)
+			continue
 		}
 		emitted++
-		title, message, payload, fp := healthEventContent(connID, cluster, ev)
-		if ev.transition != alerts.TransitionResolved {
+		title, message, payload, fp := healthEventContent(connID, cluster, *ev)
+		if ev.transition != alerts.TransitionResolved && exec != nil {
 			rows, ok := details[ev.check.Kind]
 			if !ok {
 				rows = detailQuery(exec, ev.check.Kind, cluster)
@@ -368,36 +580,45 @@ func (h *Harvester) raiseHealthEvents(connID, cluster string, events []healthEve
 				payload["top_offenders"] = top
 			}
 		}
-		id, err := h.db.CreateAlertEvent(&conn, ev.check.EventType, ev.severity, title, message, payload, fp, "health:"+ev.check.Kind)
+		id, err := db.CreateAlertEvent(&conn, ev.check.EventType, ev.severity, title, message, payload, fp, "health:"+ev.check.Kind)
 		if err != nil {
 			slog.Warn("Health alerts: failed to create event", "connection", connID, "check", ev.check.Kind, "error", err)
 			continue
 		}
-		if ev.transition != alerts.TransitionResolved {
-			states[ev.stateIdx].LastEventID = &id
+		ev.created, ev.eventID = true, id
+	}
+	if len(rest) == 0 {
+		return
+	}
+	sev := alerts.SeverityWarn
+	counts := map[string]int{}
+	resolved := 0
+	for _, i := range rest {
+		ev := events[i]
+		if alerts.SeverityRank(ev.severity) > alerts.SeverityRank(sev) {
+			sev = ev.severity
+		}
+		counts[ev.check.Label]++
+		if ev.transition == alerts.TransitionResolved {
+			resolved++
 		}
 	}
-	if rest := events[emitted:]; len(rest) > 0 {
-		sev := alerts.SeverityWarn
-		counts := map[string]int{}
-		for _, ev := range rest {
-			if alerts.SeverityRank(ev.severity) > alerts.SeverityRank(sev) {
-				sev = ev.severity
-			}
-			counts[ev.check.Label]++
-		}
-		parts := make([]string, 0, len(counts))
-		for label, n := range counts {
-			parts = append(parts, fmt.Sprintf("%s: %d", label, n))
-		}
-		sort.Strings(parts)
-		title := fmt.Sprintf("%d more health check changes", len(rest))
-		message := fmt.Sprintf("%d further health check transitions on this connection were not sent one by one (%s). Open Governance, Health checks for the full state.", len(rest), strings.Join(parts, ", "))
-		payload := map[string]interface{}{"connection_id": connID, "cluster": cluster, "suppressed": len(rest), "by_check": counts}
-		fp := "health:" + connID + ":summary:" + strconv.FormatInt(time.Now().Unix()/60, 10)
-		if _, err := h.db.CreateAlertEvent(&conn, alerts.EventTypeHealthSummary, sev, title, message, payload, fp, "health:summary"); err != nil {
-			slog.Warn("Health alerts: failed to create summary event", "connection", connID, "error", err)
-		}
+	parts := make([]string, 0, len(counts))
+	for label, n := range counts {
+		parts = append(parts, fmt.Sprintf("%s: %d", label, n))
+	}
+	sort.Strings(parts)
+	title := fmt.Sprintf("%d more health check changes", len(rest))
+	message := fmt.Sprintf("%d further health check transitions on this connection were not sent one by one (%s; %d of them resolved). Open Governance, Health checks for the full state.",
+		len(rest), strings.Join(parts, ", "), resolved)
+	payload := map[string]interface{}{"connection_id": connID, "cluster": cluster, "suppressed": len(rest), "resolved": resolved, "by_check": counts}
+	fp := "health:" + connID + ":summary:" + strconv.FormatInt(now.Unix(), 10)
+	if _, err := db.CreateAlertEvent(&conn, alerts.EventTypeHealthSummary, sev, title, message, payload, fp, "health:summary"); err != nil {
+		slog.Warn("Health alerts: failed to create summary event", "connection", connID, "error", err)
+		return
+	}
+	for _, i := range rest {
+		events[i].created = true
 	}
 }
 
@@ -418,11 +639,21 @@ func healthEventContent(connID, cluster string, ev healthEvent) (string, string,
 		payload["status"] = "resolved"
 		title := fmt.Sprintf("[RESOLVED] %s on %s", ev.check.Label, ev.node)
 		message := fmt.Sprintf("%s on node %s is back within thresholds (now %s).", ev.check.Label, ev.node, value)
-		return title, message, payload, HealthFingerprint(connID, ev.check.Kind, ev.node, "resolved")
+		if ev.reason != "" {
+			payload["reason"] = ev.reason
+			message = fmt.Sprintf("%s on node %s is no longer tracked: the incident was closed because %s.", ev.check.Label, ev.node, ev.reason)
+		}
+		return title, message, payload, HealthFingerprint(connID, ev.check.Kind, ev.node, "resolved:"+ev.incident)
 	default:
 		payload["status"] = "firing"
-		if ev.transition == alerts.TransitionEscalated {
+		suffix := ev.severity + ":" + ev.incident
+		switch ev.transition {
+		case alerts.TransitionEscalated:
 			payload["escalated"] = true
+			suffix = "escalated:" + ev.severity + ":" + ev.at
+		case alerts.TransitionDeescalated:
+			payload["deescalated"] = true
+			suffix = "deescalated:" + ev.severity + ":" + ev.at
 		}
 		var title, message string
 		if ev.check.Kind == CheckNodeUnreachable {
@@ -439,8 +670,11 @@ func healthEventContent(connID, cluster string, ev healthEvent) (string, string,
 			}
 			title = fmt.Sprintf("%s on %s: %s", ev.check.Label, ev.node, value)
 			message = fmt.Sprintf("%s on node %s is %s, above %s (%s).", ev.check.Label, ev.node, value, limit, ev.severity)
+			if ev.transition == alerts.TransitionDeescalated {
+				message = fmt.Sprintf("%s on node %s dropped to %s, still above %s (now %s).", ev.check.Label, ev.node, value, limit, ev.severity)
+			}
 		}
-		return title, message, payload, HealthFingerprint(connID, ev.check.Kind, ev.node, ev.severity)
+		return title, message, payload, HealthFingerprint(connID, ev.check.Kind, ev.node, suffix)
 	}
 }
 

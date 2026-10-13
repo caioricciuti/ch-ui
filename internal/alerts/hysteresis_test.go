@@ -31,7 +31,7 @@ func TestStepStateMachine(t *testing.T) {
 		final       Hysteresis
 	}{
 		{"fires after two breaches", 2, 2, []step{warn, warn},
-			[]string{"", TransitionFiring}, Hysteresis{State: StateFiring, Severity: SeverityWarn, BreachCount: 2}},
+			[]string{"", TransitionFiring}, Hysteresis{State: StateFiring, Severity: SeverityWarn}},
 		{"single breach stays pending", 2, 2, []step{warn},
 			[]string{""}, Hysteresis{State: StatePending, Severity: SeverityWarn, BreachCount: 1}},
 		{"pending clears on ok", 2, 2, []step{warn, ok},
@@ -44,12 +44,20 @@ func TestStepStateMachine(t *testing.T) {
 			[]string{"", TransitionFiring, "", "", ""}, Hysteresis{State: StateFiring, Severity: SeverityWarn, OkCount: 1}},
 		{"unknown neither breaches nor recovers", 2, 2, []step{warn, unknown, warn, unknown, ok, unknown, ok},
 			[]string{"", "", TransitionFiring, "", "", "", TransitionResolved}, Hysteresis{State: StateOK, Severity: SeverityWarn}},
-		{"warn to critical escalates once", 1, 1, []step{warn, crit, crit, warn},
-			[]string{TransitionFiring, TransitionEscalated, "", ""}, Hysteresis{State: StateFiring, Severity: SeverityCritical, BreachCount: 4}},
+		{"warn to critical escalates once", 1, 1, []step{warn, crit, crit},
+			[]string{TransitionFiring, TransitionEscalated, ""}, Hysteresis{State: StateFiring, Severity: SeverityCritical}},
+		{"critical to warn de-escalates after resolveN warns", 1, 2, []step{crit, warn, warn, warn},
+			[]string{TransitionFiring, "", TransitionDeescalated, ""}, Hysteresis{State: StateFiring, Severity: SeverityWarn}},
+		{"a critical between warns restarts the de-escalation count", 1, 2, []step{crit, warn, crit, warn},
+			[]string{TransitionFiring, "", "", ""}, Hysteresis{State: StateFiring, Severity: SeverityCritical, BreachCount: 1}},
+		{"an ok between warns restarts the de-escalation count", 1, 2, []step{crit, warn, ok, warn},
+			[]string{TransitionFiring, "", "", ""}, Hysteresis{State: StateFiring, Severity: SeverityCritical, BreachCount: 1}},
+		{"de-escalated incident escalates again", 1, 2, []step{crit, warn, warn, crit},
+			[]string{TransitionFiring, "", TransitionDeescalated, TransitionEscalated}, Hysteresis{State: StateFiring, Severity: SeverityCritical}},
 		{"one evaluation fires and resolves", 1, 1, []step{crit, ok},
 			[]string{TransitionFiring, TransitionResolved}, Hysteresis{State: StateOK, Severity: SeverityCritical}},
 		{"zero counts mean one", 0, 0, []step{crit},
-			[]string{TransitionFiring}, Hysteresis{State: StateFiring, Severity: SeverityCritical, BreachCount: 1}},
+			[]string{TransitionFiring}, Hysteresis{State: StateFiring, Severity: SeverityCritical}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

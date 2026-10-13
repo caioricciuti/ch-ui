@@ -8,14 +8,17 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/caioricciuti/ch-ui/internal/alerts"
 	"github.com/caioricciuti/ch-ui/internal/clusterhealth"
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
@@ -128,8 +131,8 @@ func (h *AlertingHandler) PutHealthSettings(w http.ResponseWriter, r *http.Reque
 	for _, s := range rows {
 		kinds = append(kinds, s.CheckKind)
 		if !s.Enabled {
-			if err := h.DB.DeleteHealthAlertStates(session.ConnectionID, s.CheckKind); err != nil {
-				slog.Warn("Failed to clear state of a disabled health check", "check", s.CheckKind, "error", err)
+			if err := clusterhealth.CloseCheckIncidents(h.DB, session.ConnectionID, s.CheckKind, time.Now()); err != nil {
+				slog.Warn("Failed to close the incidents of a disabled health check", "check", s.CheckKind, "error", err)
 			}
 		}
 	}
@@ -330,10 +333,31 @@ func (h *AlertingHandler) UpdateSQLAlert(w http.ResponseWriter, r *http.Request)
 	}
 	reset := before.SQL != existing.SQL || before.Mode != existing.Mode || before.Comparator != existing.Comparator ||
 		before.Threshold != existing.Threshold || before.Severity != existing.Severity
-	if err := h.DB.UpdateSQLAlert(existing, reset); err != nil {
+	// The update only applies to the state it saw, so the incident it ends
+	// is known; a run that moved the state in between means try again.
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if err = h.DB.UpdateSQLAlert(existing, reset); !errors.Is(err, database.ErrSQLAlertStateChanged) {
+			break
+		}
+		fresh, ferr := h.DB.GetSQLAlert(existing.ID)
+		if ferr != nil || fresh == nil {
+			err = sql.ErrNoRows
+			break
+		}
+		existing.State = fresh.State
+	}
+	if err != nil {
 		slog.Error("Failed to update SQL alert", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to update SQL alert")
 		return
+	}
+	if existing.State == alerts.StateFiring && (reset || !existing.Enabled) {
+		reason := "the alert was turned off"
+		if reset {
+			reason = "its query or condition changed"
+		}
+		sqlalerts.CloseIncident(h.DB, &before, reason, time.Now())
 	}
 	h.audit(session, "sql_alert.updated", existing.Name)
 	saved, _ := h.DB.GetSQLAlert(existing.ID)
@@ -359,6 +383,9 @@ func (h *AlertingHandler) DeleteSQLAlert(w http.ResponseWriter, r *http.Request)
 		slog.Error("Failed to delete SQL alert", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to delete SQL alert")
 		return
+	}
+	if existing.State == alerts.StateFiring {
+		sqlalerts.CloseIncident(h.DB, existing, "the alert was deleted", time.Now())
 	}
 	h.audit(session, "sql_alert.deleted", existing.Name)
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})

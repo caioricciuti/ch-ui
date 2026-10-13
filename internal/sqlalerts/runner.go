@@ -140,6 +140,7 @@ func (r *Runner) tick() {
 		return
 	}
 	now := time.Now()
+	pruneHistory(list)
 	creds := map[string]*Credentials{}
 	type job struct {
 		a *database.SQLAlert
@@ -194,6 +195,21 @@ func (r *Runner) tick() {
 	}
 	close(queue)
 	wg.Wait()
+}
+
+// pruneHistory forgets the history timestamps of alerts that no longer
+// exist.
+func pruneHistory(list []database.SQLAlert) {
+	ids := make(map[string]bool, len(list))
+	for _, a := range list {
+		ids[a.ID] = true
+	}
+	lastHistory.Range(func(k, _ interface{}) bool {
+		if id, _ := k.(string); !ids[id] {
+			lastHistory.Delete(k)
+		}
+		return true
+	})
 }
 
 // Due reports whether an alert's interval has elapsed since its last run.
@@ -290,7 +306,9 @@ type Outcome struct {
 
 // Evaluate runs an alert once with the given credentials, advances its state
 // machine, stores the outcome and raises events on firing, resolve and
-// auto-disable. Errors are stored on the alert and returned.
+// auto-disable. Errors are stored on the alert and returned. When the alert
+// was edited, disabled, deleted or evaluated by someone else while this run
+// was in flight, the outcome is dropped and no event is raised.
 func (r *Runner) Evaluate(a *database.SQLAlert, c Credentials) (Outcome, error) {
 	now := time.Now()
 	res, runErr := r.Run(a.ConnectionID, c, a.SQL, a.Mode, a.Comparator, a.Threshold, a.TimeoutSeconds)
@@ -302,14 +320,32 @@ func (r *Runner) Evaluate(a *database.SQLAlert, c Credentials) (Outcome, error) 
 		}
 		errors := a.ErrorCount + 1
 		disable := errors >= MaxConsecutiveErr
-		if err := r.db.RecordSQLAlertRun(a.ID, database.SQLAlertRun{
+		run := database.SQLAlertRun{
 			State: a.State, BreachCount: a.BreachCount, OkCount: a.OkCount, ErrorCount: errors, Error: msg, Disable: disable,
-		}); err != nil {
+		}
+		if disable {
+			// A disabled alert holds no incident.
+			run.State, run.BreachCount, run.OkCount = alerts.StateOK, 0, 0
+		}
+		applied, err := r.db.RecordSQLAlertRun(a, run)
+		if err != nil {
 			slog.Warn("SQL alerts: failed to record error", "alert", a.ID, "error", err)
+		}
+		if !applied {
+			return out, runErr
+		}
+		if disable && a.State == alerts.StateFiring {
+			// The incident's resolve gates the disable: without it the
+			// alert stays as it was and the next tick tries again.
+			if err := CloseIncident(r.db, a, fmt.Sprintf("it was disabled after %d failed runs", errors), now); err != nil {
+				r.revert(a, run)
+				return out, runErr
+			}
 		}
 		r.record(a, nil, "error", msg, res.DurationMs, now, true)
 		if disable {
 			out.Disabled = true
+			out.State = alerts.StateOK
 			r.emitDisabled(a, msg, errors, now)
 		}
 		return out, runErr
@@ -328,19 +364,31 @@ func (r *Runner) Evaluate(a *database.SQLAlert, c Credentials) (Outcome, error) 
 		prev.Severity = a.Severity
 	}
 	next, transition := alerts.Step(prev, breach, false, a.ForEvaluations, a.ResolveEvaluations)
-	out.State = next.State
-	if err := r.db.RecordSQLAlertRun(a.ID, database.SQLAlertRun{
+	run := database.SQLAlertRun{
 		State: next.State, BreachCount: next.BreachCount, OkCount: next.OkCount, ErrorCount: 0, Value: res.Value,
-	}); err != nil {
+	}
+	applied, err := r.db.RecordSQLAlertRun(a, run)
+	if err != nil {
 		slog.Warn("SQL alerts: failed to record run", "alert", a.ID, "error", err)
 	}
-	r.record(a, res.Value, next.State, "", res.DurationMs, now, next.State != prevState || a.ErrorCount > 0)
+	if !applied {
+		slog.Debug("SQL alerts: alert changed during evaluation, outcome dropped", "alert", a.ID)
+		return out, nil
+	}
+	var emitErr error
 	switch transition {
 	case alerts.TransitionFiring, alerts.TransitionEscalated:
-		r.emit(a, *res.Value, false)
+		emitErr = r.emit(a, *res.Value, false, now)
 	case alerts.TransitionResolved:
-		r.emit(a, *res.Value, true)
+		emitErr = r.emit(a, *res.Value, true, now)
 	}
+	if emitErr != nil {
+		// No event, no transition: the next tick evaluates again.
+		r.revert(a, run)
+		return out, nil
+	}
+	out.State = next.State
+	r.record(a, res.Value, next.State, "", res.DurationMs, now, next.State != prevState || a.ErrorCount > 0)
 	if next.State != prevState && (next.State == alerts.StateFiring || prevState == alerts.StateFiring) {
 		action := "sql_alert.fired"
 		if next.State != alerts.StateFiring {
@@ -354,6 +402,13 @@ func (r *Runner) Evaluate(a *database.SQLAlert, c Credentials) (Outcome, error) 
 		}
 	}
 	return out, nil
+}
+
+// revert undoes an applied run whose alert event could not be written.
+func (r *Runner) revert(a *database.SQLAlert, run database.SQLAlertRun) {
+	if ok, err := r.db.RevertSQLAlertRun(a, run); err != nil || !ok {
+		slog.Warn("SQL alerts: failed to revert a run without its event", "alert", a.ID, "reverted", ok, "error", err)
+	}
 }
 
 // record writes an evaluation row on a change, an error, or once an hour.
@@ -375,14 +430,17 @@ func (r *Runner) record(a *database.SQLAlert, value *float64, state, msg string,
 }
 
 // Fingerprint is the dispatcher de-dupe key of an alert's firing or resolve.
-func Fingerprint(id string, resolved bool) string {
+// It carries the time of the transition, so a new incident is never taken
+// for a repeat of the last one inside a rule's cooldown.
+func Fingerprint(id string, resolved bool, at time.Time) string {
+	kind := "firing"
 	if resolved {
-		return "sql:" + id + ":resolved"
+		kind = "resolved"
 	}
-	return "sql:" + id + ":firing"
+	return "sql:" + id + ":" + kind + ":" + strconv.FormatInt(at.UnixNano(), 10)
 }
 
-func (r *Runner) emit(a *database.SQLAlert, value float64, resolved bool) {
+func (r *Runner) emit(a *database.SQLAlert, value float64, resolved bool, now time.Time) error {
 	v := strconv.FormatFloat(value, 'f', -1, 64)
 	t := strconv.FormatFloat(a.Threshold, 'f', -1, 64)
 	subject := "value"
@@ -401,9 +459,30 @@ func (r *Runner) emit(a *database.SQLAlert, value float64, resolved bool) {
 		message = fmt.Sprintf("SQL alert %s is back to normal (%s %s).", a.Name, subject, v)
 	}
 	conn := a.ConnectionID
-	if _, err := r.db.CreateAlertEvent(&conn, alerts.EventTypeSQLAlert, a.Severity, title, message, payload, Fingerprint(a.ID, resolved), a.ID); err != nil {
+	if _, err := r.db.CreateAlertEvent(&conn, alerts.EventTypeSQLAlert, a.Severity, title, message, payload, Fingerprint(a.ID, resolved, now), a.ID); err != nil {
 		slog.Warn("SQL alerts: failed to create alert event", "alert", a.ID, "error", err)
+		return err
 	}
+	return nil
+}
+
+// CloseIncident raises the resolved event of a firing alert whose incident
+// ends without a recovery: it was disabled, its query or condition changed,
+// or it was deleted. reason completes "The incident was closed because ...".
+// a is the alert as it was while firing.
+func CloseIncident(db *database.DB, a *database.SQLAlert, reason string, now time.Time) error {
+	payload := map[string]interface{}{
+		"alert_id": a.ID, "name": a.Name, "mode": a.Mode, "comparator": a.Comparator,
+		"threshold": a.Threshold, "status": "resolved", "reason": reason,
+	}
+	title := "[RESOLVED] " + a.Name
+	message := fmt.Sprintf("SQL alert %s is no longer firing: the incident was closed because %s.", a.Name, reason)
+	conn := a.ConnectionID
+	if _, err := db.CreateAlertEvent(&conn, alerts.EventTypeSQLAlert, a.Severity, title, message, payload, Fingerprint(a.ID, true, now), a.ID); err != nil {
+		slog.Warn("SQL alerts: failed to create resolved event", "alert", a.ID, "error", err)
+		return err
+	}
+	return nil
 }
 
 // emitDisabled raises the one event of an alert that turned itself off after
