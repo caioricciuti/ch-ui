@@ -77,6 +77,9 @@ func TestPipelinesStayOnTheSessionConnection(t *testing.T) {
 			{http.MethodGet, "/" + theirs + "/status", ""},
 			{http.MethodGet, "/" + theirs + "/runs", ""},
 			{http.MethodGet, "/" + theirs + "/runs/" + theirRun + "/logs", ""},
+			{http.MethodPost, "/" + theirs + "/test", ""},
+			{http.MethodPost, "/" + theirs + "/reset-position", ""},
+			{http.MethodGet, "/" + theirs + "/checkpoints", ""},
 		} {
 			if got := as(c.method, c.path, c.body); got != http.StatusNotFound {
 				t.Errorf("%s %s: status %d, want 404", c.method, c.path, got)

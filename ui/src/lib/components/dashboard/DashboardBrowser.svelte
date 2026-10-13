@@ -3,7 +3,7 @@
   import type { Dashboard, DashboardFolder } from '../../types/api'
   import {
     listDashboards, listDashboardFolders, createDashboardFolder, updateDashboardFolder, deleteDashboardFolder,
-    createDashboard, moveDashboard, setDashboardTags, setDashboardStar, deleteDashboard, renameDashboard, folderPath,
+    createDashboard, moveDashboard, setDashboardTags, setDashboardStar, deleteDashboard, renameDashboard, duplicateDashboard, folderPath, type DashboardDetail,
   } from '../../api/dashboards'
   import { pushDashboardDetail } from '../../stores/router.svelte'
   import { getSession } from '../../stores/session.svelte'
@@ -25,9 +25,10 @@
   import Spinner from '../common/Spinner.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import ContextMenu, { type ContextMenuItem } from '../common/ContextMenu.svelte'
+  import TemplatePicker from './TemplatePicker.svelte'
   import {
     LayoutDashboard, Plus, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Star, FolderInput,
-    MoreHorizontal, Pencil, Trash2, Tag, ExternalLink, Search,
+    MoreHorizontal, Pencil, Trash2, Tag, ExternalLink, Search, Copy, LayoutTemplate,
   } from 'lucide-svelte'
 
   // Grafana-style browser: folder tree on the left, dashboards of the
@@ -219,6 +220,7 @@
         { id: 'move', label: 'Move to folder…', icon: FolderInput, onSelect: () => openMove(d) },
         { id: 'tags', label: 'Edit tags…', icon: Tag, onSelect: () => openTags(d) },
         { id: 'rename', label: 'Rename…', icon: Pencil, onSelect: () => openRename(d) },
+        { id: 'duplicate', label: 'Duplicate', icon: Copy, onSelect: () => void doDuplicate(d) },
         { id: 'sep2', separator: true },
         { id: 'delete', label: 'Delete', icon: Trash2, danger: true, onSelect: () => (deleting = d) },
       )
@@ -304,6 +306,23 @@
       toastError(e instanceof Error ? e.message : String(e))
     } finally {
       creating = false
+    }
+  }
+
+  let templateOpen = $state(false)
+
+  function onTemplateCreated(detail: DashboardDetail) {
+    templateOpen = false
+    pushDashboardDetail(detail.dashboard.id)
+  }
+
+  async function doDuplicate(d: Dashboard) {
+    try {
+      const detail = await duplicateDashboard(d.id)
+      toastSuccess(`Duplicated as "${detail.dashboard.name}"`)
+      await loadAll()
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -518,6 +537,9 @@
         <Button size="sm" variant="outline" onclick={() => openNewFolder(selectedFolder)}>
           <FolderPlus size={14} /> New folder
         </Button>
+        <Button size="sm" variant="outline" onclick={() => (templateOpen = true)}>
+          <LayoutTemplate size={14} /> New from template
+        </Button>
         <Button size="sm" onclick={openCreate}>
           <Plus size={14} /> New dashboard
         </Button>
@@ -548,6 +570,7 @@
       title="No dashboards yet"
       description="Create a dashboard to visualize your ClickHouse data. Folders keep them organized as the list grows."
       primary={canWrite ? { label: 'New dashboard', onclick: openCreate } : undefined}
+      secondary={canWrite ? { label: 'New from template', onclick: () => (templateOpen = true) } : undefined}
     />
   {:else}
     <div class="flex min-h-0 flex-1">
@@ -674,6 +697,14 @@
     <Button size="sm" loading={creating} onclick={submitCreate}>Create dashboard</Button>
   {/snippet}
 </Sheet>
+
+<TemplatePicker
+  open={templateOpen}
+  folderId={selectedFolder}
+  {folderOptions}
+  onclose={() => (templateOpen = false)}
+  oncreated={onTemplateCreated}
+/>
 
 <InputDialog
   open={newFolderOpen}

@@ -170,9 +170,10 @@ func (c *Connector) connect() error {
 
 	// Send auth message
 	authMsg := AgentMessage{
-		Type:     MsgTypeAuth,
-		Token:    c.cfg.Token,
-		Takeover: c.cfg.Takeover,
+		Type:         MsgTypeAuth,
+		Token:        c.cfg.Token,
+		Takeover:     c.cfg.Takeover,
+		Capabilities: agentCapabilities,
 	}
 
 	if err := c.send(authMsg); err != nil {
@@ -311,6 +312,9 @@ func (c *Connector) handleMessage(msg GatewayMessage) {
 
 	case MsgTypeQueryStream:
 		go c.executeStreamQuery(msg)
+
+	case MsgTypeQueryExport:
+		go c.executeExport(msg)
 
 	case MsgTypeTestConnection:
 		go c.testConnection(msg)
@@ -527,6 +531,56 @@ func (c *Connector) executeStreamQuery(msg GatewayMessage) {
 			BytesRead:   bytesRead,
 			RowsWritten: rowsWritten,
 		},
+	})
+}
+
+// executeExport runs a statement in the requested output format and forwards
+// the raw bytes. A cancel from the server stops it like a streaming query.
+func (c *Connector) executeExport(msg GatewayMessage) {
+	start := time.Now()
+	queryID := msg.QueryID
+
+	c.ui.Debug("Export %s (%s): %s", queryID, msg.Format, truncateStr(msg.Query, 80))
+
+	queryCtx, releaseStream := c.registerStream(queryID, msg.User, msg.Password)
+	defer releaseStream()
+
+	seq := 0
+	total, err := c.chClient.ExecuteExport(queryCtx, queryID, msg.Query, msg.User, msg.Password, msg.Format, msg.Settings, func(chunk []byte) error {
+		err := c.send(AgentMessage{
+			Type:    MsgTypeQueryExportChunk,
+			QueryID: queryID,
+			Data:    chunk, // []byte marshals as base64
+			Seq:     seq,
+		})
+		seq++
+		return err
+	})
+	elapsed := time.Since(start)
+
+	if err != nil {
+		if queryCtx.Err() != nil {
+			c.ui.Debug("Export %s cancelled after %s", queryID, elapsed)
+			return
+		}
+		c.ui.QueryError(queryID, err)
+		c.send(AgentMessage{
+			Type:    MsgTypeQueryExportError,
+			QueryID: queryID,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	c.queriesExecuted.Add(1)
+	c.lastQueryTime.Store(time.Now().UnixNano())
+	c.ui.QueryLog(queryID, elapsed, 0)
+
+	c.send(AgentMessage{
+		Type:    MsgTypeQueryExportEnd,
+		QueryID: queryID,
+		Bytes:   total,
+		Stats:   &QueryStats{Elapsed: elapsed.Seconds()},
 	})
 }
 

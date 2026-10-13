@@ -1,9 +1,16 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte'
-  import { goTo, navigate } from '../lib/stores/router.svelte'
-  import type { Dashboard, DashboardFolder, Panel } from '../lib/types/api'
+  import { goTo, navigate, pushDashboardDetail } from '../lib/stores/router.svelte'
+  import type { Dashboard, DashboardFolder, DashboardVariable, Panel } from '../lib/types/api'
   import { apiGet, apiPost, apiPut, apiDel } from '../lib/api/client'
-  import { listDashboardFolders, setDashboardStar, deleteDashboard as apiDeleteDashboard } from '../lib/api/dashboards'
+  import {
+    listDashboardFolders, setDashboardStar, deleteDashboard as apiDeleteDashboard, fetchVariableOptions,
+    type DashboardDetail,
+  } from '../lib/api/dashboards'
+  import {
+    initialVariableValues, readVariablesFromUrl, reconcileValues, writeVariablesToUrl,
+    type VariableValues,
+  } from '../lib/utils/dashboard-variables'
   import DashboardBrowser from '../lib/components/dashboard/DashboardBrowser.svelte'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import { toDashboardTimeRangePayload, dashboardRangeFromUrlParams, dashboardRangeToUrlParams } from '../lib/utils/dashboard-time'
@@ -28,6 +35,7 @@
   import TimeRangeSelector from '../lib/components/dashboard/TimeRangeSelector.svelte'
   import ShareDialog from '../lib/components/dashboard/ShareDialog.svelte'
   import DashboardSettings from '../lib/components/dashboard/DashboardSettings.svelte'
+  import VariableBar from '../lib/components/dashboard/VariableBar.svelte'
   import { Plus, RefreshCw, Share2, ChevronDown, ChevronRight, Star, Timer, Settings, Info, X, Pencil } from 'lucide-svelte'
 
   interface Props {
@@ -63,6 +71,8 @@
   let detailError = $state<string | null>(null)
   let loadedDashboardId = $state<string | null>(null)
   let dashboardTimeRange = $state(localStorage.getItem('ch-ui-dashboard-time-range') ?? '1h')
+  let dashboardVariables = $state<DashboardVariable[]>([])
+  let variableValues = $state<VariableValues>({})
 
   /** The range in the address bar (?from=&to=), so a copied link opens on the same range. */
   function writeRangeToUrl(range: string) {
@@ -211,6 +221,8 @@
       if (loadedDashboardId !== null) {
         currentDashboard = null
         panels = []
+        dashboardVariables = []
+        variableValues = {}
         panelResults = new Map()
         loadedDashboardId = null
       }
@@ -250,10 +262,11 @@
     detailError = null
     panelResults = new Map()
     try {
-      const res = await apiGet<{ dashboard: Dashboard; panels: Panel[] }>(`/api/dashboards/${id}`)
+      const res = await apiGet<Partial<DashboardDetail>>(`/api/dashboards/${id}`)
       if (seq !== detailSeq) return
-      currentDashboard = res.dashboard
+      currentDashboard = res.dashboard ?? null
       panels = res.panels ?? []
+      setVariables(res.variables ?? [], readVariablesFromUrl())
       runAllPanelQueries(res.panels ?? [])
     } catch (e: unknown) {
       if (seq !== detailSeq) return
@@ -262,6 +275,31 @@
     } finally {
       if (seq === detailSeq) detailLoading = false
     }
+  }
+
+  /** New definitions: keep the values that still fit them, mirrored in the URL. */
+  function setVariables(defs: DashboardVariable[], values: VariableValues) {
+    dashboardVariables = defs
+    variableValues = initialVariableValues(defs, values)
+    writeVariablesToUrl(defs, variableValues)
+  }
+
+  function handleVariableValuesChange(values: VariableValues) {
+    variableValues = reconcileValues(dashboardVariables, values)
+    writeVariablesToUrl(dashboardVariables, variableValues)
+    runAllPanelQueries()
+  }
+
+  function handleVariablesSaved(defs: DashboardVariable[]) {
+    setVariables(defs, variableValues)
+    runAllPanelQueries()
+  }
+
+  function loadVariableOptions(name: string, values: VariableValues) {
+    return fetchVariableOptions(currentDashboard?.id ?? dashboardId ?? '', name, {
+      variables: values,
+      time_range: toDashboardTimeRangePayload(dashboardTimeRange || '1h'),
+    })
   }
 
   function openDashboardListTab() {
@@ -317,6 +355,8 @@
       const res = await apiPost<{ data: Record<string, unknown>[]; meta: ColumnMeta[]; error?: string }>('/api/dashboards/query', {
         query: p.query,
         time_range: toDashboardTimeRangePayload(rangeValue),
+        dashboard_id: p.dashboard_id || currentDashboard?.id,
+        variables: variableValues,
       })
       if (!isCurrent()) return
       const next = new Map(panelResults)
@@ -592,6 +632,15 @@
       </div>
     </div>
 
+    {#if currentDashboard && dashboardVariables.length > 0}
+      <VariableBar
+        variables={dashboardVariables}
+        values={variableValues}
+        loadOptions={loadVariableOptions}
+        onchange={handleVariableValuesChange}
+      />
+    {/if}
+
     <div class="flex-1 min-h-0 {panelEditorOpen ? 'overflow-hidden' : 'overflow-auto p-4'}">
       {#if panelEditorOpen}
         <PanelEditor
@@ -600,6 +649,7 @@
           panel={editingPanel}
           nextRow={nextFreeRow(panels.map((p) => ({ y: p.layout_y, h: p.layout_h })))}
           connectionId={session?.connectionId ?? ''}
+          variables={variableValues}
           onclose={() => panelEditorOpen = false}
           onsave={handlePanelSaved}
         />
@@ -659,8 +709,17 @@
     open={settingsOpen}
     dashboard={currentDashboard}
     {panels}
+    variables={dashboardVariables}
     onclose={() => settingsOpen = false}
-    onimported={(d, p) => { currentDashboard = d; panels = p; runAllPanelQueries(p); settingsOpen = false }}
+    onvariableschange={handleVariablesSaved}
+    onimported={(d, p, v) => {
+      currentDashboard = d
+      panels = p
+      if (v) setVariables(v, variableValues)
+      runAllPanelQueries(p)
+      settingsOpen = false
+    }}
+    onduplicated={(detail) => { settingsOpen = false; pushDashboardDetail(detail.dashboard.id) }}
     ondelete={() => { settingsOpen = false; requestDeleteDashboard(currentDashboard!.id) }}
   />
 {/if}

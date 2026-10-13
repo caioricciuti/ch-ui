@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { executeStreamQuery, STREAM_CLOSED_EARLY } from './stream'
+import { executeStreamQuery, exportFullResult, filenameFromDisposition, EXPORT_CUT_OFF, STREAM_CLOSED_EARLY } from './stream'
 
 function ndjsonResponse(lines: string[]): Response {
   const body = new ReadableStream<Uint8Array>({
@@ -57,5 +57,54 @@ describe('executeStreamQuery', () => {
     controller.abort()
     const { onError } = await run(['{"type":"chunk","data":[[1]],"seq":0}'], controller.signal)
     expect(onError).not.toHaveBeenCalled()
+  })
+})
+
+describe('exportFullResult', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('collects the file, reports progress and reads the file name', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([80, 65, 82, 49]))
+        controller.enqueue(new Uint8Array([0, 80, 65, 82, 49]))
+        controller.close()
+      },
+    })
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'application/vnd.apache.parquet', 'Content-Disposition': 'attachment; filename="ch-ui-export-20261013-101112.parquet"' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const progress: number[] = []
+    const { blob, filename } = await exportFullResult('SELECT 1', 'Parquet', { n: '1' }, (b) => progress.push(b))
+    expect(filename).toBe('ch-ui-export-20261013-101112.parquet')
+    expect(blob.size).toBe(9)
+    expect(progress).toEqual([4, 9])
+    const init = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(String(init[1].body))).toEqual({ sql: 'SELECT 1', format: 'Parquet', params: { n: '1' } })
+  })
+
+  it('throws the server message when the export is refused', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'update the agent' }), { status: 409 })))
+    await expect(exportFullResult('SELECT 1', 'CSVWithNames', undefined, () => {})).rejects.toThrow('update the agent')
+  })
+
+  it('reports a download cut off by the server', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]))
+        controller.error(new TypeError('network error'))
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status: 200 })))
+    await expect(exportFullResult('SELECT 1', 'CSVWithNames', undefined, () => {})).rejects.toThrow(EXPORT_CUT_OFF)
+  })
+
+  it('accepts only plain file names from the header', () => {
+    expect(filenameFromDisposition('attachment; filename="../../etc/x"', 'f')).toBe('f')
+    expect(filenameFromDisposition(null, 'f')).toBe('f')
   })
 })

@@ -14,8 +14,10 @@ Each dashboard has:
 - **A name and description**
 - **One or more panels**: each with its own SQL query, chart type, and layout position
 - **A shared time range**: applied to all panels simultaneously
+- **Variables** (optional): drop-downs and inputs above the panels that filter every query
+- **A version history**: every save is kept, and any version can be restored
 
-A default "System Overview" dashboard is auto-created on first access.
+A default "System Overview" dashboard is auto-created on first access. To start from something ready made, use **New from template** in the dashboard browser.
 
 ## Folders, tags and stars
 
@@ -133,7 +135,7 @@ A position outside these bounds is refused with `400`. Drag and resize panels in
 
 ## Roles
 
-Viewers can open dashboards, run their panels, change the time range and star dashboards. Adding, editing, moving and deleting panels, renaming, settings, import and sharing need the analyst or admin role, and the UI shows those controls only to them.
+Viewers can open dashboards, run their panels, change the time range and variable values, see the version history and star dashboards. Adding, editing, moving and deleting panels, renaming, settings, variables, import, restore, templates, duplicate and sharing need the analyst or admin role, and the UI shows those controls only to them.
 
 Panels run on the connection of your session. A panel saved on another connection says so in its header ("Built on X, running on Y").
 
@@ -145,9 +147,9 @@ The range is kept in the address bar as `?from=&to=` (for example `?from=now-6h&
 
 Relative values are a number and a unit: `s`, `m` (minutes), `h`, `d`, `w`, `M` (months) and `y`, optionally prefixed with `now-`. `M` and `m` are different: `1M` is one month, `1m` is one minute. Long forms such as `15min` or `2months` work too.
 
-## Template Variables
+## Time macros
 
-Panel queries support these variables, replaced before the query runs:
+Panel queries support these macros, replaced before the query runs:
 
 | Variable | Replaced with |
 |---|---|
@@ -206,6 +208,108 @@ FROM system.query_log
 WHERE toUnixTimestamp64Milli(event_time_microseconds) BETWEEN $__timeFrom AND $__timeTo
 ```
 
+## Dashboard variables
+
+Variables are the controls in the bar under the dashboard header. A panel query uses one as `$name` or `${name}`; when the value changes, every panel runs again. Define them in **Settings → Variables** (writers only). Their order matters: a variable can use the variables above it.
+
+| Type | Values come from |
+|---|---|
+| `query` | A SQL query: the first column is the value, an optional second column the label shown. At most 1,000 rows. |
+| `custom` | A comma separated list, for example `prod,staging,dev` |
+| `text` | A free text input |
+| `constant` | A fixed value, not shown in the bar (useful for a database name used by many panels) |
+| `interval` | A comma separated list of durations, for example `1m,5m,1h`. Substituted as a number of seconds. |
+
+`query`, `custom` and `interval` variables can be **multi-value**, and can offer **All**, which selects every option. Each variable can have a default; without one, a variable starts on its first option (or on All for a multi-value variable that offers it).
+
+The selected values are kept in the address bar as `?var-name=value`, repeated for several values (`?var-database=default&var-database=system`), so a copied link opens with the same selection. All is written as `$__all`.
+
+### How values are substituted
+
+Values are always quoted by the server as ClickHouse string literals; the browser never pastes them into SQL. Quotes and backslashes in a value are escaped, so a value such as `x') OR 1=1 --` stays a string and matches nothing.
+
+| You write | With values | The query gets |
+|---|---|---|
+| `$env` or `${env}` | `prod` | `'prod'` |
+| `IN (${database})` | `default`, `system` | `IN ('default', 'system')` |
+| `IN (${database})` | nothing selected | `IN (NULL)`, which matches no row |
+| `${top:number}` | `10` | `10`, refused unless every value is a number |
+| `$bucket` (interval) | `5m` | `300` |
+
+- Do not put quotes around a variable: write `WHERE env = $env`, not `WHERE env = '$env'`. A variable inside a string literal is refused with an error, because the value is quoted already.
+- A string literal compares fine with a number column: `WHERE id = $id` works for a `UInt64` column. Use `${name:number}` where ClickHouse needs a number, such as `LIMIT`.
+- `${name:raw}` is not supported, on purpose: no value is ever put into SQL unquoted.
+- Variables inside comments, quoted identifiers and `$$heredoc$$` strings are left alone. Names are word bounded: `$db` does not touch `$db_name`. Names starting with `__` are reserved for the time macros.
+- Variables are substituted after the time macros, so a query variable can use `$__timeFilter` too.
+
+### Examples
+
+A database and table picker, where the table list follows the database:
+
+```sql
+-- variable "database", type query, multi-value, All
+SELECT name FROM system.databases ORDER BY name
+
+-- variable "table", type query, multi-value, All
+SELECT name FROM system.tables WHERE database IN (${database}) ORDER BY name
+
+-- panel
+SELECT table, count() AS parts, sum(rows) AS rows
+FROM system.parts
+WHERE active AND database IN (${database}) AND table IN (${table})
+GROUP BY table
+ORDER BY parts DESC
+```
+
+A bucket size the viewer picks (variable `bucket`, type interval, options `1m,5m,15m,1h`):
+
+```sql
+SELECT
+  toStartOfInterval(event_time, INTERVAL $bucket second) AS ts,
+  count() AS queries
+FROM system.query_log
+WHERE $__timeFilter(event_time, datetime)
+GROUP BY ts
+ORDER BY ts
+```
+
+A free text search (type text) and a top N (type custom, options `10,50,100`):
+
+```sql
+SELECT event_time, user, left(query, 200) AS query
+FROM system.query_log
+WHERE type = 'QueryFinish'
+  AND $__timeFilter(event_time, datetime)
+  AND positionCaseInsensitive(query, ${search}) > 0
+ORDER BY event_time DESC
+LIMIT ${top:number}
+```
+
+A query variable whose second column is the label:
+
+```sql
+SELECT name, concat(name, ' (', engine, ')') FROM system.databases ORDER BY name
+```
+
+### Variables API
+
+```bash
+# Replace the variable definitions (writers)
+PUT /api/dashboards/{id}/variables
+{ "variables": [
+  { "name": "database", "label": "Database", "type": "query",
+    "query": "SELECT name FROM system.databases ORDER BY name",
+    "multi": true, "include_all": true, "default": ["$__all"] },
+  { "name": "bucket", "type": "interval", "options": "1m,5m,1h", "default": ["5m"] }
+] }
+
+# Options of one variable; values of the variables above it come from "variables"
+POST /api/dashboards/{id}/variables/{name}/options
+{ "variables": { "database": ["system"] }, "time_range": { "type": "relative", "from": "1h", "to": "now" } }
+```
+
+`GET /api/dashboards/{id}` returns the definitions as `variables`. An options query runs with your credentials, read only (`readonly=1`), at most 1,000 rows, and your governance policies apply.
+
 ## Panel Query Execution
 
 Panel queries use a dedicated endpoint with variable interpolation:
@@ -221,9 +325,13 @@ POST /api/dashboards/query
   "time_range": { "type": "absolute", "from": "2026-03-15T00:00:00Z", "to": "2026-03-15T01:00:00Z" },
   "time_field": "timestamp",
   "time_field_unit": "ms",
-  "max_data_points": 1000
+  "max_data_points": 1000,
+  "dashboard_id": "<dashboard id>",
+  "variables": { "database": ["default", "system"], "bucket": ["5m"] }
 }
 ```
+
+With `dashboard_id`, the dashboard's variable definitions apply: missing values take their defaults, `$__all` expands to every option, and interval values become seconds. Without it, the values in `variables` are substituted as quoted strings.
 
 `time_range.type` is `relative` (with `from` like `1h` or `now-1h` and `to` like `now`) or `absolute` (ISO timestamps). Timeout max: 5 minutes. Results are capped at 100,000 rows.
 
@@ -252,13 +360,14 @@ DELETE /api/dashboards/{id}/panels/{panelId}
 
 ## Import and Export
 
-**Settings → Export / Import** downloads a dashboard as JSON and loads a file into the JSON editor for review. **Apply** replaces the dashboard's name, description and panels:
+**Settings → Export / Import** downloads a dashboard as JSON and loads a file into the JSON editor for review. **Apply** replaces the dashboard's name, description, variables and panels. A file without `variables` keeps the current ones.
 
 ```bash
 POST /api/dashboards/{id}/import
 {
   "version": 1,
   "dashboard": { "name": "Production Metrics", "description": "" },
+  "variables": [ { "name": "env", "type": "custom", "options": "prod,dev", "default": ["prod"] } ],
   "panels": [
     { "name": "Queries", "panel_type": "timeseries", "query": "SELECT ...", "config": { "chartType": "timeseries" },
       "layout_x": 0, "layout_y": 0, "layout_w": 12, "layout_h": 4 }
@@ -267,6 +376,47 @@ POST /api/dashboards/{id}/import
 ```
 
 Every panel is validated first (name, type, query, config, layout; at most 200 panels), and the swap runs in one transaction: a bad file is refused with `400` naming the panel, and the dashboard stays as it was. Recorded in the audit log as `dashboard.imported`.
+
+## Version history
+
+Every save of a dashboard is kept as a version: panels added, edited, moved or deleted, settings, variables, imports and restores. **Settings → History** lists the versions with when, who and a note, and **Restore** puts the dashboard back to one of them.
+
+- Moving and resizing panels within 30 seconds of the last version updates that version instead of adding one, so dragging panels around does not flood the history. Any other change always adds a version.
+- The latest 50 versions of each dashboard are kept.
+- A restore goes through the same validation and single transaction as an import, and is itself recorded as a new version ("Restored version 12"), so it can be undone.
+- A version is the same JSON as an export: dashboard, variables and panels.
+
+```bash
+GET  /api/dashboards/{id}/versions                 # newest first, without the JSON
+GET  /api/dashboards/{id}/versions/{n}             # one version with its snapshot
+POST /api/dashboards/{id}/versions/{n}/restore     # writers; audit: dashboard.version_restored
+```
+
+## Templates
+
+**New from template** in the dashboard browser creates a dashboard from a built-in template, with its panels and variables, in one transaction:
+
+| Template | Panels |
+|---|---|
+| ClickHouse server health | Queries and inserts per second, memory, merges (from `system.metric_log`), parts per partition for the top tables, replication lag (`system.replicas`), errors (`system.errors`), disk usage (`system.disks`), slowest queries of the last hour. A `database` variable filters the parts and replication panels. |
+| Query activity | Queries over time, top users, top query patterns by `normalized_query_hash`, failed queries. A `user` variable (multi-value, All by default) and a `bucket` interval filter every panel. |
+
+Both read only system tables and run on ClickHouse 25.8. A panel whose table is missing or not readable (for example `system.metric_log` turned off) shows its own error; the rest of the dashboard still loads.
+
+```bash
+GET  /api/dashboards/templates
+POST /api/dashboards/from-template
+{ "template_id": "query-activity", "name": "Query activity (prod)", "folder_id": "" }
+```
+
+## Duplicate
+
+**Duplicate** (in the dashboard browser, or **Settings → General**) copies a dashboard with its panels and variables into a new dashboard called "<name> (copy)", in the same folder and with the same tags, in one transaction. Share links and history are not copied.
+
+```bash
+POST /api/dashboards/{id}/duplicate
+{ "name": "Optional new name" }
+```
 
 ## Public Sharing
 
@@ -288,6 +438,8 @@ DELETE /api/dashboards/{id}/shares/{shareId}
 
 Public viewers load the dashboard at `/public/d/<token>`. Their panel queries execute through a token-scoped endpoint (`/api/public/dashboards/{token}/query`). They can only run the queries the dashboard's panels define, never arbitrary SQL, and they never see your connection credentials. Queries run read only, for at most 30 seconds and 10,000 rows, and your governance policies apply.
 
+Variables work on public links too, with the values limited to what the dashboard offers: a value must be one of the variable's options (the options query runs again on the server with the sharer's credentials, cached for 60 seconds), and a text or constant variable is always its default. Anything else is refused with `400`. Public viewers do not see the options queries.
+
 Link options for wall screens and TVs:
 
 | Parameter | Example | Effect |
@@ -295,5 +447,6 @@ Link options for wall screens and TVs:
 | `from`, `to` | `?from=now-24h&to=now` | Time range, as in the app |
 | `theme` | `?theme=light` | `dark` or `light`, for this page only |
 | `refresh` | `?refresh=30s` | Auto refresh: seconds, `m` or `h`, at least 5 s. A refresh is skipped while the previous one is still running. |
+| `var-<name>` | `?var-env=prod` | Variable values, repeated for several values |
 
 Public panel results are cached in memory for 20 seconds, with time ranges rounded to 15 seconds, so many screens showing the same dashboard run each panel once. Queries that miss the cache are limited to 300 per minute per share link and IP address, and all public requests to 1200 per minute per IP address.

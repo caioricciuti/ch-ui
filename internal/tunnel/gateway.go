@@ -145,6 +145,13 @@ type ConnectedTunnel struct {
 	mu             sync.Mutex // serializes every application-frame write
 	seenMu         sync.RWMutex
 	lastSeen       time.Time
+	// capabilities the agent advertised when it authenticated.
+	capabilities map[string]bool
+}
+
+// Supports reports whether the agent advertised capability at auth time.
+func (t *ConnectedTunnel) Supports(capability string) bool {
+	return t.capabilities[capability]
 }
 
 func (t *ConnectedTunnel) seenAt() time.Time {
@@ -270,7 +277,7 @@ func (g *Gateway) readLoop(conn *websocket.Conn) {
 					websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Already authenticated"), time.Now().Add(5*time.Second))
 				return
 			}
-			authConnID := g.handleAuth(conn, msg.Token, msg.Takeover)
+			authConnID := g.handleAuth(conn, msg.Token, msg.Takeover, msg.Capabilities)
 			if authConnID == "" {
 				return // auth failed, connection closed
 			}
@@ -296,16 +303,18 @@ func (g *Gateway) readLoop(conn *websocket.Conn) {
 		case "query_stream_start":
 			g.handleStreamStart(connID, &msg)
 
-		case "query_stream_chunk":
+		// Export results travel like a stream; the chunks carry base64 bytes
+		// instead of JSON rows, and only the export consumer reads them.
+		case "query_stream_chunk", "query_export_chunk":
 			g.handleStreamChunk(connID, &msg)
 
 		case "query_stream_progress":
 			g.handleStreamProgress(connID, &msg)
 
-		case "query_stream_end":
+		case "query_stream_end", "query_export_end":
 			g.handleStreamEnd(connID, &msg)
 
-		case "query_stream_error":
+		case "query_stream_error", "query_export_error":
 			g.handleStreamError(connID, &msg)
 
 		default:
@@ -314,7 +323,7 @@ func (g *Gateway) readLoop(conn *websocket.Conn) {
 	}
 }
 
-func (g *Gateway) handleAuth(conn *websocket.Conn, token string, takeover bool) string {
+func (g *Gateway) handleAuth(conn *websocket.Conn, token string, takeover bool, capabilities []string) string {
 	remoteAddr := ""
 	if conn != nil && conn.RemoteAddr() != nil {
 		remoteAddr = conn.RemoteAddr().String()
@@ -368,6 +377,10 @@ func (g *Gateway) handleAuth(conn *websocket.Conn, token string, takeover bool) 
 		ConnectionName: tc.Name,
 		WS:             conn,
 		lastSeen:       time.Now(),
+		capabilities:   make(map[string]bool, len(capabilities)),
+	}
+	for _, c := range capabilities {
+		tunnel.capabilities[c] = true
 	}
 	// Publish under the write lock so an API request can find this tunnel as
 	// soon as the agent receives auth_ok, but cannot write ahead of or race
@@ -645,6 +658,7 @@ func (g *Gateway) handleStreamEnd(connID string, msg *AgentMessage) {
 	done := StreamDone{
 		Statistics: msg.GetStats(),
 		TotalRows:  msg.TotalRows,
+		Bytes:      msg.Bytes,
 	}
 	payload, _ := json.Marshal(done)
 

@@ -74,6 +74,54 @@ export interface Dashboard {
   updated_at: string
 }
 
+/** Dashboard variable types. */
+export type DashboardVariableType = 'query' | 'custom' | 'text' | 'constant' | 'interval'
+
+/**
+ * Dashboard variable definition. Panels reference it as $name or ${name};
+ * the server quotes every value. ${name:number} emits bare numbers.
+ */
+export interface DashboardVariable {
+  name: string
+  label?: string
+  type: DashboardVariableType
+  /** type query: first column is the value, optional second the label. */
+  query?: string
+  /** types custom and interval: comma separated list. */
+  options?: string
+  multi?: boolean
+  include_all?: boolean
+  default?: string[]
+}
+
+/** One selectable value of a variable. */
+export interface DashboardVariableOption {
+  value: string
+  label: string
+}
+
+/** One saved state of a dashboard (snapshot only on the single-version endpoint). */
+export interface DashboardVersion {
+  id: string
+  dashboard_id: string
+  version: number
+  snapshot?: unknown
+  created_by: string | null
+  created_at: string
+  note: string
+  panel_count: number
+}
+
+/** Built-in dashboard template. */
+export interface DashboardTemplate {
+  id: string
+  name: string
+  description: string
+  tags: string[]
+  panel_count: number
+  variables: string[]
+}
+
 /** Dashboard folder; folders nest through parent_id. */
 export interface DashboardFolder {
   id: string

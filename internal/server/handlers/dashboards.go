@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
+	"github.com/caioricciuti/ch-ui/internal/dashboards"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/governance"
 	"github.com/caioricciuti/ch-ui/internal/mail"
@@ -36,6 +36,10 @@ type DashboardsHandler struct {
 	publicOnce  sync.Once
 	publicCache *publicQueryCache
 	publicLimit *keyedRateLimiter
+
+	// optionsCache holds variable options for share links.
+	optionsOnce  sync.Once
+	optionsCache *publicQueryCache
 }
 
 // Routes returns a chi.Router with all dashboard and panel routes mounted.
@@ -49,6 +53,10 @@ func (h *DashboardsHandler) Routes() chi.Router {
 	r.Get("/", h.ListDashboards)
 	r.With(writer).Post("/", h.CreateDashboard)
 	r.Post("/query", h.ExecutePanelQuery)
+
+	// Built-in templates.
+	r.Get("/templates", h.ListTemplates)
+	r.With(writer).Post("/from-template", h.CreateFromTemplate)
 
 	// Folders (nested) organize dashboards; stars are per user.
 	r.Get("/folders", h.ListFolders)
@@ -70,6 +78,16 @@ func (h *DashboardsHandler) Routes() chi.Router {
 		r.With(writer).Put("/panels/{panelId}", h.UpdatePanel)
 		r.With(writer).Delete("/panels/{panelId}", h.DeletePanel)
 		r.With(writer).Post("/import", h.ImportDashboard)
+		r.With(writer).Post("/duplicate", h.DuplicateDashboard)
+
+		// Variables
+		r.With(writer).Put("/variables", h.SetVariables)
+		r.Post("/variables/{name}/options", h.VariableOptions)
+
+		// Version history
+		r.Get("/versions", h.ListVersions)
+		r.Get("/versions/{version}", h.GetVersion)
+		r.With(writer).Post("/versions/{version}/restore", h.RestoreVersion)
 
 		// Sharing
 		r.Get("/shares", h.ListShares)
@@ -86,6 +104,7 @@ func (h *DashboardsHandler) PublicRoutes() chi.Router {
 	r := chi.NewRouter()
 	r.Get("/{token}", h.GetPublicDashboard)
 	r.Post("/{token}/query", h.ExecutePublicQuery)
+	r.Post("/{token}/variables/{name}/options", h.PublicVariableOptions)
 	return r
 }
 
@@ -150,6 +169,7 @@ func (h *DashboardsHandler) GetDashboard(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"dashboard": dashboard,
 		"panels":    panels,
+		"variables": h.loadVariables(id),
 	})
 }
 
@@ -202,6 +222,8 @@ func (h *DashboardsHandler) CreateDashboard(w http.ResponseWriter, r *http.Reque
 			slog.Warn("Failed to tag new dashboard", "error", err, "id", id)
 		}
 	}
+
+	h.recordVersion(r, id, "Created")
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
 		Action:         "dashboard.created",
@@ -279,11 +301,13 @@ func (h *DashboardsHandler) UpdateDashboard(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	h.ensureBaselineVersion(id)
 	if err := h.DB.UpdateDashboard(id, name, description); err != nil {
 		slog.Error("Failed to update dashboard", "error", err, "id", id)
 		writeError(w, http.StatusInternalServerError, "Failed to update dashboard")
 		return
 	}
+	h.recordVersion(r, id, "")
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
 		Action:         "dashboard.updated",
@@ -699,12 +723,14 @@ func (h *DashboardsHandler) CreatePanel(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	h.ensureBaselineVersion(dashboardID)
 	id, err := h.DB.CreatePanel(dashboardID, name, description, panelType, query, connectionID, panelConfig, x, y, w2, h2)
 	if err != nil {
 		slog.Error("Failed to create panel", "error", err, "dashboard", dashboardID)
 		writeError(w, http.StatusInternalServerError, "Failed to create panel")
 		return
 	}
+	h.recordVersion(r, dashboardID, "")
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
 		Action:         "panel.created",
@@ -847,11 +873,13 @@ func (h *DashboardsHandler) UpdatePanel(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	h.ensureBaselineVersion(dashboardID)
 	if err := h.DB.UpdatePanel(panelID, name, description, panelType, query, connectionID, panelConfig, x, y, pw, ph); err != nil {
 		slog.Error("Failed to update panel", "error", err, "panel", panelID)
 		writeError(w, http.StatusInternalServerError, "Failed to update panel")
 		return
 	}
+	h.recordVersion(r, dashboardID, "")
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
 		Action:         "panel.updated",
@@ -895,11 +923,13 @@ func (h *DashboardsHandler) DeletePanel(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	h.ensureBaselineVersion(dashboardID)
 	if err := h.DB.DeletePanel(panelID); err != nil {
 		slog.Error("Failed to delete panel", "error", err, "panel", panelID)
 		writeError(w, http.StatusInternalServerError, "Failed to delete panel")
 		return
 	}
+	h.recordVersion(r, dashboardID, "")
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
 		Action:         "panel.deleted",
@@ -1034,10 +1064,86 @@ func (p importPanel) validate(index int) (validImportPanel, error) {
 	return out, nil
 }
 
-// ImportDashboard replaces a dashboard's name, description and panels with
-// the content of an exported dashboard file. Every panel is validated before
-// anything changes, and the replacement runs in one transaction: a failure
-// leaves the dashboard exactly as it was.
+// importBody is an exported dashboard file: what import, restore and the
+// templates read.
+type importBody struct {
+	Dashboard *struct {
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+	} `json:"dashboard"`
+	Variables json.RawMessage `json:"variables"`
+	Panels    []importPanel   `json:"panels"`
+}
+
+// buildContent validates an exported dashboard file against the dashboard it
+// is applied to (existing nil: a new dashboard) and returns what to write.
+// Every panel is checked before anything is written.
+func (h *DashboardsHandler) buildContent(body importBody, existing *database.Dashboard) (database.DashboardContent, error) {
+	var c database.DashboardContent
+	if body.Dashboard == nil || body.Panels == nil {
+		return c, fmt.Errorf(`JSON must have "dashboard" and "panels" fields`)
+	}
+	if len(body.Panels) > maxImportPanels {
+		return c, fmt.Errorf("At most %d panels per dashboard", maxImportPanels)
+	}
+
+	if existing != nil {
+		c.Name = existing.Name
+		c.Description = existing.Description
+	}
+	if body.Dashboard.Name != nil {
+		c.Name = strings.TrimSpace(*body.Dashboard.Name)
+	}
+	if c.Name == "" {
+		return c, fmt.Errorf("Dashboard name cannot be empty")
+	}
+	if body.Dashboard.Description != nil {
+		d := strings.TrimSpace(*body.Dashboard.Description)
+		c.Description = &d
+	}
+
+	// A file without "variables" keeps the current ones.
+	if raw := strings.TrimSpace(string(body.Variables)); raw != "" {
+		vars, err := dashboards.ParseVariables(body.Variables)
+		if err != nil {
+			return c, err
+		}
+		encoded := dashboards.Encode(vars)
+		c.Variables = &encoded
+	}
+
+	c.Panels = make([]database.PanelInput, 0, len(body.Panels))
+	knownConn := map[string]bool{}
+	for i, p := range body.Panels {
+		v, err := p.validate(i)
+		if err != nil {
+			return c, err
+		}
+		// A file exported from another CH-UI can name a connection that does
+		// not exist here; the panel is kept, without the connection.
+		if v.connectionID != "" {
+			ok, seen := knownConn[v.connectionID]
+			if !seen {
+				conn, err := h.DB.GetConnectionByID(v.connectionID)
+				ok = err == nil && conn != nil
+				knownConn[v.connectionID] = ok
+			}
+			if !ok {
+				v.connectionID = ""
+			}
+		}
+		c.Panels = append(c.Panels, database.PanelInput{
+			Name: v.name, Description: v.description, PanelType: v.panelType, Query: v.query,
+			ConnectionID: v.connectionID, Config: v.config, X: v.x, Y: v.y, W: v.w, H: v.h,
+		})
+	}
+	return c, nil
+}
+
+// ImportDashboard replaces a dashboard's name, description, variables and
+// panels with the content of an exported dashboard file. Every panel is
+// validated before anything changes, and the replacement runs in one
+// transaction: a failure leaves the dashboard exactly as it was.
 func (h *DashboardsHandler) ImportDashboard(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
@@ -1057,124 +1163,60 @@ func (h *DashboardsHandler) ImportDashboard(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	var body struct {
-		Dashboard *struct {
-			Name        *string `json:"name"`
-			Description *string `json:"description"`
-		} `json:"dashboard"`
-		Panels []importPanel `json:"panels"`
-	}
+	var body importBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
-	if body.Dashboard == nil || body.Panels == nil {
-		writeError(w, http.StatusBadRequest, `JSON must have "dashboard" and "panels" fields`)
+	h.applyContent(w, r, existing, body, "dashboard.imported", "")
+}
+
+// applyContent validates body, replaces the dashboard with it in one
+// transaction, records a version and writes the dashboard, its panels and
+// variables as the response.
+func (h *DashboardsHandler) applyContent(w http.ResponseWriter, r *http.Request, existing *database.Dashboard, body importBody, action, note string) {
+	session := middleware.GetSession(r)
+	id := existing.ID
+	content, err := h.buildContent(body, existing)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if len(body.Panels) > maxImportPanels {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("At most %d panels per dashboard", maxImportPanels))
-		return
-	}
 
-	name := existing.Name
-	if body.Dashboard.Name != nil {
-		name = strings.TrimSpace(*body.Dashboard.Name)
-		if name == "" {
-			writeError(w, http.StatusBadRequest, "Dashboard name cannot be empty")
-			return
-		}
-	}
-	var description interface{}
-	if existing.Description != nil && *existing.Description != "" {
-		description = *existing.Description
-	}
-	if body.Dashboard.Description != nil {
-		description = nil
-		if d := strings.TrimSpace(*body.Dashboard.Description); d != "" {
-			description = d
-		}
-	}
-
-	panels := make([]validImportPanel, 0, len(body.Panels))
-	knownConn := map[string]bool{}
-	for i, p := range body.Panels {
-		v, err := p.validate(i)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		// A file exported from another CH-UI can name a connection that does
-		// not exist here; the panel is kept, without the connection.
-		if v.connectionID != "" {
-			ok, seen := knownConn[v.connectionID]
-			if !seen {
-				c, err := h.DB.GetConnectionByID(v.connectionID)
-				ok = err == nil && c != nil
-				knownConn[v.connectionID] = ok
-			}
-			if !ok {
-				v.connectionID = ""
-			}
-		}
-		panels = append(panels, v)
-	}
-
-	if err := h.replaceDashboardPanels(id, name, description, panels); err != nil {
-		slog.Error("Failed to import dashboard", "error", err, "id", id)
+	h.ensureBaselineVersion(id)
+	if err := h.DB.ReplaceDashboardContent(id, content); err != nil {
+		slog.Error("Failed to replace dashboard content", "error", err, "id", id)
 		writeError(w, http.StatusInternalServerError, "Failed to import dashboard")
 		return
 	}
+	h.recordVersion(r, id, note)
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:         "dashboard.imported",
+		Action:         action,
 		Username:       strPtr(middleware.Actor(session)),
 		ClickhouseUser: strPtr(session.ClickhouseUser),
-		Details:        strPtr(fmt.Sprintf("%s (%d panels)", name, len(panels))),
+		Details:        strPtr(fmt.Sprintf("%s (%d panels)", content.Name, len(content.Panels))),
 	})
 
-	dashboard, err := h.DB.GetDashboardByIDFor(id, middleware.Actor(session))
+	h.writeDashboardDetail(w, r, id, http.StatusOK)
+}
+
+// writeDashboardDetail writes {dashboard, panels, variables} for one dashboard.
+func (h *DashboardsHandler) writeDashboardDetail(w http.ResponseWriter, r *http.Request, id string, status int) {
+	forUser := ""
+	if session := middleware.GetSession(r); session != nil {
+		forUser = middleware.Actor(session)
+	}
+	dashboard, err := h.DB.GetDashboardByIDFor(id, forUser)
 	if err != nil || dashboard == nil {
-		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+		writeJSON(w, status, map[string]interface{}{"success": true, "id": id})
 		return
 	}
 	saved, err := h.DB.GetPanelsByDashboard(id)
 	if err != nil || saved == nil {
 		saved = []database.Panel{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"dashboard": dashboard, "panels": saved})
-}
-
-// replaceDashboardPanels updates the dashboard row and swaps every panel in
-// one SQLite transaction.
-func (h *DashboardsHandler) replaceDashboardPanels(id, name string, description interface{}, panels []validImportPanel) error {
-	tx, err := h.DB.Conn().Begin()
-	if err != nil {
-		return fmt.Errorf("begin import: %w", err)
-	}
-	defer tx.Rollback()
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := tx.Exec("UPDATE dashboards SET name = ?, description = ?, updated_at = ? WHERE id = ?", name, description, now, id); err != nil {
-		return fmt.Errorf("update dashboard: %w", err)
-	}
-	if _, err := tx.Exec("DELETE FROM panels WHERE dashboard_id = ?", id); err != nil {
-		return fmt.Errorf("delete panels: %w", err)
-	}
-	for _, p := range panels {
-		var connID interface{}
-		if p.connectionID != "" {
-			connID = p.connectionID
-		}
-		if _, err := tx.Exec(
-			`INSERT INTO panels (id, dashboard_id, name, description, panel_type, query, connection_id, config, layout_x, layout_y, layout_w, layout_h, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			uuid.NewString(), id, p.name, p.description, p.panelType, p.query, connID, p.config, p.x, p.y, p.w, p.h, now, now,
-		); err != nil {
-			return fmt.Errorf("insert panel %q: %w", p.name, err)
-		}
-	}
-	return tx.Commit()
+	writeJSON(w, status, map[string]interface{}{"dashboard": dashboard, "panels": saved, "variables": h.loadVariables(id)})
 }
 
 // ---------- Panel Query Execution ----------
@@ -1195,6 +1237,10 @@ func (h *DashboardsHandler) ExecutePanelQuery(w http.ResponseWriter, r *http.Req
 		TimeFieldUnit string               `json:"time_field_unit"`
 		MaxDataPoints *int                 `json:"max_data_points"`
 		Table         string               `json:"table"`
+		// DashboardID names the dashboard whose variable definitions apply;
+		// Variables holds the values the viewer picked, by name.
+		DashboardID string              `json:"dashboard_id"`
+		Variables   map[string][]string `json:"variables"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
@@ -1212,6 +1258,12 @@ func (h *DashboardsHandler) ExecutePanelQuery(w http.ResponseWriter, r *http.Req
 		maxDataPoints = *body.MaxDataPoints
 	}
 
+	vars, varTypes, verr := h.sessionVariableValues(r, session, strings.TrimSpace(body.DashboardID), query, body.Variables, body.TimeRange)
+	if verr != nil {
+		writeError(w, verr.status, verr.msg)
+		return
+	}
+
 	processed := queryproc.ProcessQueryVariables(queryproc.ProcessorOptions{
 		Query:         query,
 		TimeRange:     body.TimeRange,
@@ -1219,6 +1271,8 @@ func (h *DashboardsHandler) ExecutePanelQuery(w http.ResponseWriter, r *http.Req
 		TimeFieldUnit: strings.TrimSpace(body.TimeFieldUnit),
 		MaxDataPoints: maxDataPoints,
 		Table:         strings.TrimSpace(body.Table),
+		Vars:          vars,
+		VarTypes:      varTypes,
 	})
 
 	if len(processed.Errors) > 0 {
@@ -1607,10 +1661,14 @@ func (h *DashboardsHandler) GetPublicDashboard(w http.ResponseWriter, r *http.Re
 	for i := range panels {
 		panels[i].Query = ""
 	}
+	// Constants are left out; ExecutePublicQuery substitutes them from the
+	// stored definition.
+	vars := dashboards.PublicList(h.loadVariables(share.DashboardID))
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"dashboard": dashboard,
 		"panels":    panels,
+		"variables": vars,
 	})
 }
 
@@ -1626,6 +1684,7 @@ func (h *DashboardsHandler) ExecutePublicQuery(w http.ResponseWriter, r *http.Re
 	var body struct {
 		PanelID   string               `json:"panel_id"`
 		TimeRange *queryproc.TimeRange `json:"time_range"`
+		Variables map[string][]string  `json:"variables"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
@@ -1658,7 +1717,15 @@ func (h *DashboardsHandler) ExecutePublicQuery(w http.ResponseWriter, r *http.Re
 	// Snap the range to publicCacheStep so every viewer of a TV dashboard asks
 	// for the same range and shares one cached result.
 	timeRange, rangeKey := snapPublicTimeRange(body.TimeRange, time.Now())
-	key := strings.Join([]string{share.Token, panel.ID, panel.UpdatedAt, rangeKey}, "|")
+
+	// Variable values must be options of their variable (re-run with the
+	// sharer's credentials) or the default of a text or constant variable.
+	vars, varTypes, verr := h.publicVariableValues(r, share, query, body.Variables, timeRange)
+	if verr != nil {
+		writeError(w, verr.status, verr.msg)
+		return
+	}
+	key := strings.Join([]string{share.Token, panel.ID, panel.UpdatedAt, rangeKey, dashboards.CanonicalKey(vars)}, "|")
 
 	cache, limiter := h.publicState()
 	if status, payload, ok := cache.get(key); ok {
@@ -1673,7 +1740,7 @@ func (h *DashboardsHandler) ExecutePublicQuery(w http.ResponseWriter, r *http.Re
 	}
 
 	status, payload := cache.do(key, func() (int, []byte) {
-		return h.runPublicPanel(r, share, query, timeRange)
+		return h.runPublicPanel(r, share, query, timeRange, vars, varTypes)
 	})
 	writePublicPayload(w, status, payload, "MISS")
 }
@@ -1681,11 +1748,13 @@ func (h *DashboardsHandler) ExecutePublicQuery(w http.ResponseWriter, r *http.Re
 // runPublicPanel expands the panel macros and runs the query with the
 // sharer's credentials. It returns the HTTP status and the JSON body, so the
 // result can be cached and shared between concurrent viewers.
-func (h *DashboardsHandler) runPublicPanel(r *http.Request, share *database.DashboardShare, query string, timeRange *queryproc.TimeRange) (int, []byte) {
+func (h *DashboardsHandler) runPublicPanel(r *http.Request, share *database.DashboardShare, query string, timeRange *queryproc.TimeRange, vars map[string][]string, varTypes map[string]string) (int, []byte) {
 	processed := queryproc.ProcessQueryVariables(queryproc.ProcessorOptions{
 		Query:         query,
 		TimeRange:     timeRange,
 		MaxDataPoints: 1000,
+		Vars:          vars,
+		VarTypes:      varTypes,
 	})
 	if len(processed.Errors) > 0 {
 		return errorPayload(http.StatusBadRequest, strings.Join(processed.Errors, "; "))

@@ -15,7 +15,29 @@
 <script lang="ts">
   import { goTo } from '../../../stores/router.svelte'
   import type { QueryTab } from '../../../stores/tabs.svelte'
-  import { updateTabSQL, getTabResult, setTabResult, getTabResultView, setTabResultView, resetTabResultView, markQueryTabSaved, setTabParamValues } from '../../../stores/tabs.svelte'
+  import {
+    updateTabSQL,
+    getTabResult,
+    getTabResults,
+    setTabResult,
+    isTabRunning,
+    startTabResult,
+    dropUnpinnedTabResults,
+    setActiveTabResult,
+    closeTabResult,
+    toggleTabResultPin,
+    getResultView,
+    setResultView,
+    resetResultView,
+    markQueryTabSaved,
+    setTabParamValues,
+  } from '../../../stores/tabs.svelte'
+  import { createUUID } from '../../../utils/uuid'
+  import { resultLabel, MAX_PINNED_PER_TAB } from '../../../editor/result-tabs'
+  import { exportFullResult, type FullExportFormat } from '../../../api/stream'
+  import { downloadBlob } from '../../../utils/export'
+  import { formatNumber } from '../../../utils/format'
+  import ResultTabs from '../../editor/ResultTabs.svelte'
   import type { ColumnFilter, ResultSort } from '../../../utils/result-filters'
   import { filterRows, sortRows, cycleSort, isWrappableQuery, buildWrappedQuery } from '../../../utils/result-filters'
   import { getResultFiltersEnabled } from '../../../stores/result-filters.svelte'
@@ -27,7 +49,7 @@
   import { getMaxResultRows } from '../../../stores/query-limit.svelte'
   import { error as toastError, success as toastSuccess, info as toastInfo } from '../../../stores/toast.svelte'
   import { detectQueryParams, paramDefaultsToSave } from '../../../utils/query-params'
-  import { firstKeyword, splitStatements } from '../../../editor/statements'
+  import { firstKeyword, splitStatements, statementAt } from '../../../editor/statements'
   import { parseCHError, byteToCharOffset } from '../../../utils/ch-error'
   import { isProActive, loadLicense } from '../../../stores/license.svelte'
   import { openQueryTab } from '../../../stores/tabs.svelte'
@@ -112,6 +134,12 @@
   let saving = $state(false)
 
   const result = $derived(getTabResult(tab.id))
+  const tabResults = $derived(getTabResults(tab.id))
+  const running = $derived(isTabRunning(tab.id))
+  // Stream telemetry and the inline profile describe the latest run; another
+  // result tab on screen shows only its own numbers.
+  let lastRunResultId = $state<string | null>(null)
+  const showsLastRun = $derived(!!result && result.id === lastRunResultId)
 
   // ── Query parameters ({name:Type}) ──
   // The component is keyed per tab id, so seeding currentSql once in onMount is
@@ -241,21 +269,34 @@
 
   type RunOutcome = 'ok' | 'error' | 'stopped'
 
-  async function runStreamingQuery(query: string, params: Record<string, string> | undefined, opts: { baseRun?: boolean } = {}): Promise<RunOutcome> {
+  /** Claims a result tab for a run; the run's own id is the result id. */
+  function claimRun(resultId: string, onStop: () => void = () => {}): number {
+    const tabId = tab.id
+    // Supersedes any in-flight run for this tab (even one started before a
+    // remount). The superseded result stops spinning and says why.
+    return tabRuns.start(tabId, () => {
+      onStop()
+      const r = getTabResults(tabId).results.find((x) => x.id === resultId)
+      if (r?.running) setTabResult(tabId, resultId, { running: false, error: 'Query cancelled' })
+    })
+  }
+
+  async function runStreamingQuery(query: string, params: Record<string, string> | undefined, opts: { baseRun?: boolean; resultId: string }): Promise<RunOutcome> {
     let outcome: RunOutcome = 'stopped'
+    const resultId = opts.resultId
     const maxResultRows = getMaxResultRows()
     const startTime = performance.now()
     const abortController = new AbortController()
-    // Rows accumulate here and reach the tab at most once per frame.
+    // Rows accumulate here and reach the result at most once per frame.
     const rows = createFrameBatcher<unknown[]>((data) => {
-      setTabResult(tab.id, { data, elapsedMs: Math.round(performance.now() - startTime) })
+      setTabResult(tab.id, resultId, { data, elapsedMs: Math.round(performance.now() - startTime) })
     })
-    // Supersedes any in-flight run for this tab (even one started before a
-    // remount): aborts its fetch and drops its pending frame of rows.
-    const runId = tabRuns.start(tab.id, () => {
+    // Aborts the fetch and drops the pending frame of rows when superseded.
+    const runId = claimRun(resultId, () => {
       abortController.abort()
       rows.close()
     })
+    lastRunResultId = resultId
     const live = () => tabRuns.isCurrent(tab.id, runId)
 
     // Reset telemetry and inline profile for this run
@@ -270,8 +311,8 @@
     profileError = null
     samplingMode = null
 
-    setTabResultView(tab.id, { executedSql: query })
-    setTabResult(tab.id, { running: true, error: null, meta: [], data: [], stats: null, elapsedMs: 0 })
+    setResultView(resultId, { executedSql: query })
+    setTabResult(tab.id, resultId, { running: true, error: null, meta: [], data: [], stats: null, elapsedMs: 0, rowsDropped: false })
 
     try {
       await executeStreamQuery(
@@ -279,7 +320,7 @@
         maxResultRows,
         (meta) => {
           if (!live()) return
-          setTabResult(tab.id, { meta, running: true })
+          setTabResult(tab.id, resultId, { meta, running: true })
         },
         (chunk, seq) => {
           if (!live()) return
@@ -295,7 +336,7 @@
           rows.close()
           streamRows = totalRows || rows.items.length
           streamLastChunkAt = Date.now()
-          setTabResult(tab.id, {
+          setTabResult(tab.id, resultId, {
             data: rows.items,
             stats: stats ?? null,
             elapsedMs: Math.round(performance.now() - startTime),
@@ -306,7 +347,7 @@
             // sort/filter must go through a server-side re-query (issue #117).
             // The backend hard-caps at 1M rows regardless of the requested limit.
             const effectiveLimit = Math.min(maxResultRows, BACKEND_MAX_ROWS)
-            setTabResultView(tab.id, { truncated: rows.items.length >= effectiveLimit })
+            setResultView(resultId, { truncated: rows.items.length >= effectiveLimit })
           }
           // The profile is looked up by query_id; without one there is nothing to find.
           if (queryId) void loadInlineProfile(queryId, query)
@@ -316,7 +357,7 @@
           outcome = 'error'
           rows.close()
           streamLastChunkAt = Date.now()
-          setTabResult(tab.id, { error, running: false, elapsedMs: Math.round(performance.now() - startTime) })
+          setTabResult(tab.id, resultId, { error, running: false, elapsedMs: Math.round(performance.now() - startTime) })
         },
         abortController.signal,
         params,
@@ -330,7 +371,7 @@
       if (!live() || (e instanceof Error && e.name === 'AbortError')) return 'stopped'
       rows.close()
       streamLastChunkAt = Date.now()
-      setTabResult(tab.id, { error: errorMessage(e), running: false })
+      setTabResult(tab.id, resultId, { error: errorMessage(e), running: false })
       return 'error'
     }
     return live() ? outcome : 'stopped'
@@ -355,21 +396,48 @@
     // already in the first empty field.
     const params = paramsFor([query])
     if (params === null) return
-    await runOne(query, queryFrom, params)
+    await runOne(query, queryFrom, params, 'replace')
   }
 
-  function runOne(query: string, queryFrom: number, params: Record<string, string> | undefined): Promise<RunOutcome> {
-    resetTabResultView(tab.id, {
+  /** 1-based position of the statement at a document offset, or null. */
+  function statementNumber(from: number): number | null {
+    if (from < 0) return null
+    const statements = splitStatements(currentSql)
+    const st = statementAt(statements, from)
+    return st ? statements.indexOf(st) + 1 : null
+  }
+
+  /** "n · TAG" for results that are not a plain run of the statement. */
+  function taggedLabel(tag: string, from: number): string {
+    const n = statementNumber(from)
+    return n !== null ? `${n} · ${tag}` : tag
+  }
+
+  /** Starts a result tab for a run that is about to take over the result pane. */
+  function newResult(sql: string, from: number, params: Record<string, string> | undefined, mode: 'replace' | 'append', label?: string): string {
+    const id = createUUID()
+    startTabResult(tab.id, { id, label: label ?? resultLabel(sql, statementNumber(from)), sql, params }, mode)
+    return id
+  }
+
+  /**
+   * Runs one statement. 'replace' (Mod-Enter) takes the place of the active
+   * result unless it is pinned; 'append' (a run of several) adds a result tab.
+   */
+  function runOne(query: string, queryFrom: number, params: Record<string, string> | undefined, mode: 'replace' | 'append'): Promise<RunOutcome> {
+    const resultId = newResult(query, queryFrom, params, mode)
+    resetResultView(resultId, {
       baseSql: query,
       executedFrom: queryFrom,
       baseParams: params,
       wrappable: isWrappableQuery(query),
     })
-    return runStreamingQuery(query, params, { baseRun: true })
+    return runStreamingQuery(query, params, { baseRun: true, resultId })
   }
 
-  // Shift-Mod-Enter: run every statement in order, stop at the first error,
-  // and leave the last result (or that error) in the result pane.
+  // Shift-Mod-Enter: run every statement in order, each into its own result
+  // tab, and stop at the first error. Pinned results stay; other results of
+  // earlier runs are cleared first.
   let runAllActive = false
 
   async function handleRunAll(statements: { text: string; from: number }[]) {
@@ -377,11 +445,12 @@
     const params = paramsFor(statements.map((st) => st.text))
     if (params === null) return
     runAllActive = true
+    if (statements.length > 1) dropUnpinnedTabResults(tab.id)
     try {
       for (let i = 0; i < statements.length; i++) {
         const st = statements[i]
         const own = paramsFor([st.text], false) ?? undefined
-        const outcome = await runOne(st.text, st.from, own)
+        const outcome = await runOne(st.text, st.from, own, statements.length > 1 ? 'append' : 'replace')
         if (outcome !== 'ok') {
           if (outcome === 'error' && statements.length > 1) toastError(`Statement ${i + 1} of ${statements.length} failed; the rest did not run`)
           return
@@ -394,12 +463,13 @@
   }
 
   /** The text Run would execute (selection or statement under the cursor) and its bind parameters. */
-  function runnableWithParams(): { sql: string; params: Record<string, string> | undefined } | null {
-    const sql = editorComponent?.getRunnable().text ?? ''
+  function runnableWithParams(): { sql: string; from: number; params: Record<string, string> | undefined } | null {
+    const picked = editorComponent?.getRunnable()
+    const sql = picked?.text ?? ''
     if (!sql.trim()) return null
     const params = paramsFor([sql])
     if (params === null) return null
-    return { sql, params }
+    return { sql, from: picked?.from ?? -1, params }
   }
 
   // ── Result filtering & ordering (issue #117) ──
@@ -408,7 +478,7 @@
   // full dataset instead of just the loaded page.
   const CLIENT_OP_MAX_ROWS = 50_000
 
-  const view = $derived(getTabResultView(tab.id))
+  const view = $derived(getResultView(result?.id ?? ''))
   // When a server-side re-query produced the current rows, the data is
   // physically filtered — the toggle must not hide that provenance (chips,
   // badge) or the escape path (removing filters re-runs the base query).
@@ -429,7 +499,7 @@
     const needsServer = view.serverApplied || view.truncated || result.data.length > CLIENT_OP_MAX_ROWS
     if (needsServer && view.wrappable && view.baseSql) {
       const hasView = sort !== null || filters.length > 0
-      setTabResultView(tab.id, { sort, filters, serverApplied: hasView })
+      setResultView(result.id, { sort, filters, serverApplied: hasView })
       // The clear-filters re-run carries the marker too: it's grid mechanics,
       // not a user-initiated run, so it must not land in query history.
       const sql = hasView
@@ -437,9 +507,9 @@
         : `/* ch-ui:result-filter */ ${view.baseSql}`
       // Re-running the base query replaces the in-memory data under the
       // current limit, so truncation must be recomputed for it.
-      void runStreamingQuery(sql, view.baseParams, { baseRun: !hasView })
+      void runStreamingQuery(sql, view.baseParams, { baseRun: !hasView, resultId: result.id })
     } else {
-      setTabResultView(tab.id, { sort, filters, serverApplied: false })
+      setResultView(result.id, { sort, filters, serverApplied: false })
     }
   }
 
@@ -498,10 +568,53 @@
   }
 
   function handleCancel() {
-    const wasRunning = result?.running === true
+    // Stopping the run marks its result cancelled: without an error the empty
+    // result would read as "executed successfully".
     tabRuns.stop(tab.id)
-    // Without an error the empty result reads as "executed successfully".
-    setTabResult(tab.id, wasRunning ? { running: false, error: 'Query cancelled' } : { running: false })
+  }
+
+  // ── Result tabs ──
+  function handleSelectResult(id: string) {
+    setActiveTabResult(tab.id, id)
+  }
+
+  function handlePinResult(id: string) {
+    if (toggleTabResultPin(tab.id, id) === 'limit') {
+      toastInfo(`A tab keeps at most ${MAX_PINNED_PER_TAB} pinned results. Unpin one first.`)
+    }
+  }
+
+  function handleCloseResult(id: string) {
+    // Closing the result that is still streaming stops its query too.
+    if (id === lastRunResultId && tabResults.results.some((r) => r.id === id && r.running)) tabRuns.stop(tab.id)
+    closeTabResult(tab.id, id)
+  }
+
+  // ── Full result export (server side) ──
+  let exportJob = $state<{ format: FullExportFormat; bytes: number; controller: AbortController } | null>(null)
+  const canExportFull = $derived(!!result && !!result.sql && !result.running && !result.error && result.meta.length > 0)
+
+  async function handleExportFull(format: FullExportFormat) {
+    const r = result
+    if (!r || !r.sql || exportJob) return
+    const controller = new AbortController()
+    exportJob = { format, bytes: 0, controller }
+    try {
+      const { blob, filename } = await exportFullResult(r.sql, format, r.params, (bytes) => {
+        if (exportJob?.controller === controller) exportJob = { ...exportJob, bytes }
+      }, controller.signal)
+      downloadBlob(blob, filename)
+      toastSuccess(`Exported ${filename}`)
+    } catch (e) {
+      if (!controller.signal.aborted) toastError(errorMessage(e))
+    } finally {
+      if (exportJob?.controller === controller) exportJob = null
+    }
+  }
+
+  function handleCancelExport() {
+    exportJob?.controller.abort()
+    exportJob = null
   }
 
   let formatting = false
@@ -540,17 +653,19 @@
     profileError = null
     samplingMode = null
 
-    // Explain takes over the tab's result like a run does, so a stream still
+    // Explain takes over the active result like a run does, so a stream still
     // in flight is stopped and a newer run makes this response stale.
-    const runId = tabRuns.start(tab.id, () => {})
-    resetTabResultView(tab.id)
-    setTabResult(tab.id, { running: true, error: null, meta: [], data: [], stats: null })
+    // No sql: an EXPLAIN result has no statement to export or re-run as is.
+    const resultId = newResult('', picked.from, picked.params, 'replace', taggedLabel('EXPLAIN', picked.from))
+    const runId = claimRun(resultId)
+    lastRunResultId = resultId
+    resetResultView(resultId)
 
     try {
       const res = await explainQuery(picked.sql, picked.params)
       if (!tabRuns.isCurrent(tab.id, runId)) return
 
-      setTabResult(tab.id, {
+      setTabResult(tab.id, resultId, {
         meta: res.meta ?? [],
         data: toPositionalRows(res.meta ?? [], res.data ?? []),
         stats: res.statistics ?? null,
@@ -560,7 +675,7 @@
       })
     } catch (e) {
       if (!tabRuns.isCurrent(tab.id, runId)) return
-      setTabResult(tab.id, { error: errorMessage(e), running: false })
+      setTabResult(tab.id, resultId, { error: errorMessage(e), running: false })
     }
   }
 
@@ -589,16 +704,17 @@
     const picked = runnableWithParams()
     if (!picked) return
 
-    const runId = tabRuns.start(tab.id, () => {})
-    resetTabResultView(tab.id)
-    setTabResult(tab.id, { running: true, error: null, meta: [], data: [], stats: null })
+    const resultId = newResult('', picked.from, picked.params, 'replace', taggedLabel('SAMPLE', picked.from))
+    const runId = claimRun(resultId)
+    lastRunResultId = resultId
+    resetResultView(resultId)
     samplingMode = null
 
     try {
       const res = await runSampleQuery({ query: picked.sql, per_shard: perShard, shard_by: '_shard_num', params: picked.params })
       if (!tabRuns.isCurrent(tab.id, runId)) return
       const rows = toPositionalRows(res.meta ?? [], res.data)
-      setTabResult(tab.id, {
+      setTabResult(tab.id, resultId, {
         meta: res.meta ?? [],
         data: rows,
         stats: res.statistics ?? null,
@@ -615,7 +731,7 @@
       if (res.warning) toastSuccess(res.warning)
     } catch (e) {
       if (!tabRuns.isCurrent(tab.id, runId)) return
-      setTabResult(tab.id, { error: errorMessage(e), running: false })
+      setTabResult(tab.id, resultId, { error: errorMessage(e), running: false })
     }
   }
 
@@ -743,7 +859,7 @@
   <!-- Editor pane -->
   <div class="flex flex-col min-h-[80px] overflow-hidden border-b border-edge-subtle" style={editorPaneStyle}>
     <Toolbar
-      running={result?.running ?? false}
+      {running}
       onrun={() => handleRun()}
       oncancel={handleCancel}
       onformat={handleFormat}
@@ -797,7 +913,7 @@
         onsave={handleSaveClick}
         onformat={handleFormat}
         oncancel={handleCancel}
-        running={result?.running ?? false}
+        {running}
       />
     </div>
   </div>
@@ -826,6 +942,21 @@
 
   <!-- Results pane -->
   <div class="flex-1 min-h-[80px] min-h-0 overflow-hidden flex flex-col">
+    {#if tabResults.results.length > 0}
+      <ResultTabs
+        results={tabResults.results}
+        activeIndex={tabResults.activeResult}
+        onselect={handleSelectResult}
+        onpin={handlePinResult}
+        onclose={handleCloseResult}
+      />
+    {/if}
+    {#if result?.rowsDropped && !result.running}
+      <div class="flex items-center gap-1.5 px-3 py-1 border-b border-edge-subtle bg-surface text-xs text-warning shrink-0">
+        Pinned result restored with {formatNumber(result.data.length)} of {formatNumber(result.savedRowCount ?? 0)} rows. Re-run to reload.
+      </div>
+    {/if}
+    {#key result?.id}
     <ResultPanel
       meta={result?.meta ?? []}
       data={displayData}
@@ -846,11 +977,11 @@
       ongotoerror={errorJump ? handleGoToError : undefined}
       errorTargetLine={errorJump?.line ?? null}
       errorTargetCol={errorJump?.col ?? null}
-      {streamRows}
-      {streamChunks}
-      {streamStartedAt}
-      {streamLastChunkAt}
-      progress={streamProgress}
+      streamRows={showsLastRun ? streamRows : 0}
+      streamChunks={showsLastRun ? streamChunks : 0}
+      streamStartedAt={showsLastRun ? streamStartedAt : null}
+      streamLastChunkAt={showsLastRun ? streamLastChunkAt : null}
+      progress={showsLastRun ? streamProgress : null}
       planNodes={planNodes}
       planLines={planLines}
       planSource={planSource}
@@ -858,14 +989,18 @@
       planError={planError}
       onLoadPlan={handleLoadPlan}
       onSample={handleSample}
-      {profile}
-      {profileAvailable}
-      {profileReason}
-      {profileLoading}
-      {profileError}
-      samplingMode={samplingMode}
+      profile={showsLastRun ? profile : null}
+      profileAvailable={showsLastRun && profileAvailable}
+      profileReason={showsLastRun ? profileReason : null}
+      profileLoading={showsLastRun && profileLoading}
+      profileError={showsLastRun ? profileError : null}
+      samplingMode={showsLastRun ? samplingMode : null}
       {estimate}
+      onexportfull={canExportFull ? (format) => void handleExportFull(format) : undefined}
+      exportProgress={exportJob ? { format: exportJob.format, bytes: exportJob.bytes } : null}
+      oncancelexport={handleCancelExport}
     />
+    {/key}
   </div>
 </div>
 

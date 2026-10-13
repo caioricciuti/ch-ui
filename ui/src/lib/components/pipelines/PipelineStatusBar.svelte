@@ -3,7 +3,10 @@
   import type { PipelineStatus, PipelineStatusInfo } from '../../types/pipelines'
   import * as api from '../../api/pipelines'
   import { formatBytes, formatNumber, formatRelativeTime } from '../../utils/format'
-  import { Activity, Rows3, HardDrive, AlertTriangle, Timer, Clock } from 'lucide-svelte'
+  import { openQueryTab } from '../../stores/tabs.svelte'
+  import { goWorkspace } from '../../stores/router.svelte'
+  import { quoteIdent } from '../../types/pipelines'
+  import { Activity, Rows3, HardDrive, AlertTriangle, Timer, Clock, Inbox } from 'lucide-svelte'
 
   interface Props {
     pipelineId: string
@@ -20,12 +23,19 @@
   let batchesSent = $state(0)
   let errorsCount = $state(0)
   let lastBatchAt = $state<string | null>(null)
+  let dlqRows = $state(0)
+  let dlqDatabase = $state('')
+  let dlqTable = $state('')
   let pollTimer: ReturnType<typeof setInterval> | null = null
 
   const isRunning = $derived(status === 'running' || status === 'starting')
 
-  onMount(() => () => {
-    if (pollTimer) clearInterval(pollTimer)
+  onMount(() => {
+    // Once, so a stopped pipeline still shows its dead-letter count.
+    if (!isRunning) void fetchStatus()
+    return () => {
+      if (pollTimer) clearInterval(pollTimer)
+    }
   })
 
   $effect(() => {
@@ -46,14 +56,25 @@
       batchesSent = res.batches_sent ?? 0
       errorsCount = res.errors_count ?? 0
       lastBatchAt = res.last_batch_at ?? lastBatchAt
+      dlqRows = res.dlq_rows ?? 0
+      dlqDatabase = res.dlq_database ?? ''
+      dlqTable = res.dlq_table ?? ''
       onStatus?.(res)
     } catch {
       // Polling errors are transient; the next tick retries.
     }
   }
+
+  /** Opens a query tab on this pipeline's rows in the dead-letter table. */
+  function openDeadLetters() {
+    if (!dlqTable) return
+    const id = pipelineId.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    openQueryTab(`SELECT ts, error, source_position, raw\nFROM ${quoteIdent(dlqDatabase || 'default')}.${quoteIdent(dlqTable)}\nWHERE pipeline_id = '${id}'\nORDER BY ts DESC\nLIMIT 100`)
+    goWorkspace()
+  }
 </script>
 
-{#if isRunning || rowsIngested > 0 || lastError}
+{#if isRunning || rowsIngested > 0 || lastError || dlqRows > 0}
   <div class="flex shrink-0 items-center gap-4 border-t border-edge-subtle bg-surface px-5 py-1.5 text-[12px] tabular-nums text-fg-3">
     {#if isRunning}
       <span class="flex items-center gap-1 {lastError ? 'text-warning' : 'text-success'}">
@@ -89,6 +110,18 @@
         <AlertTriangle size={12} />
         {formatNumber(errorsCount)} errors
       </span>
+    {/if}
+
+    {#if dlqRows > 0}
+      <button
+        class="flex items-center gap-1 text-warning hover:underline"
+        title="Rows ClickHouse refused, kept in {dlqDatabase}.{dlqTable}. Open a query on them."
+        onclick={openDeadLetters}
+        disabled={!dlqTable}
+      >
+        <Inbox size={12} />
+        {formatNumber(dlqRows)} dead-lettered
+      </button>
     {/if}
 
     {#if lastError}

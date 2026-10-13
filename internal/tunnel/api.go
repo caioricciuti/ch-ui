@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -61,7 +62,7 @@ func (g *Gateway) ExecuteQueryWithSettings(connectionID, sql, user, password str
 func (g *Gateway) ExecuteQueryWithSettingsCtx(ctx context.Context, connectionID, sql, user, password string, settings map[string]string, timeout time.Duration) (*QueryResult, error) {
 	result, err := g.executeQuery(ctx, connectionID, sql, user, password, settings, timeout)
 	for attempt := 0; attempt < maxRefusedSettings && err != nil; attempt++ {
-		name := refusedSetting(err)
+		name := RefusedSetting(err)
 		if _, ok := settings[name]; !ok || name == "readonly" || strings.HasPrefix(name, "param_") || sqlMentionsSetting(sql, name) {
 			break
 		}
@@ -104,9 +105,9 @@ const maxRefusedSettings = 8
 
 var refusedSettingPattern = regexp.MustCompile(`Cannot modify '([A-Za-z0-9_]+)' setting in readonly mode`)
 
-// refusedSetting returns the setting ClickHouse refused because the user's
+// RefusedSetting returns the setting ClickHouse refused because the user's
 // profile is read only, or "" for any other error.
-func refusedSetting(err error) string {
+func RefusedSetting(err error) string {
 	if err == nil {
 		return ""
 	}
@@ -276,6 +277,56 @@ func (g *Gateway) ExecuteStreamQuery(connectionID, sql, user, password string, s
 	}
 
 	return requestID, stream, nil
+}
+
+// ErrExportUnsupported is returned for an agent that predates server-side export.
+var ErrExportUnsupported = errors.New("this connection's agent does not support full result export; update the agent (ch-ui-agent) to export")
+
+// ExecuteExportQuery asks the agent to run sql with FORMAT format and stream
+// the raw output back. It is consumed like ExecuteStreamQuery: every chunk on
+// stream.ChunkCh is a JSON string holding base64 bytes (decode with
+// DecodeExportChunk), DoneCh carries a StreamDone with the byte count. Call
+// CleanupStream when finished and CancelStreamQuery to stop it early.
+func (g *Gateway) ExecuteExportQuery(connectionID, sql, user, password, format string, settings map[string]string) (requestID string, stream *PendingStreamRequest, err error) {
+	val, ok := g.tunnels.Load(connectionID)
+	if !ok {
+		return "", nil, errors.New("tunnel not connected")
+	}
+	t := val.(*ConnectedTunnel)
+	if !t.Supports(CapabilityExport) {
+		return "", nil, ErrExportUnsupported
+	}
+
+	requestID = uuid.NewString()
+	stream = newPendingStream()
+	t.Pending.Store(requestID, stream)
+
+	wsErr := t.sendJSON(GatewayMessage{
+		Type:     "query_export",
+		ID:       requestID,
+		QueryID:  requestID,
+		Query:    sql,
+		User:     user,
+		Password: password,
+		Format:   format,
+		Settings: settings,
+	})
+	if wsErr != nil {
+		if _, ok := t.Pending.LoadAndDelete(requestID); ok {
+			stream.finish()
+		}
+		return "", nil, wsErr
+	}
+	return requestID, stream, nil
+}
+
+// DecodeExportChunk turns an export chunk (a JSON base64 string) into bytes.
+func DecodeExportChunk(chunk json.RawMessage) ([]byte, error) {
+	var b []byte
+	if err := json.Unmarshal(chunk, &b); err != nil {
+		return nil, fmt.Errorf("invalid export chunk: %w", err)
+	}
+	return b, nil
 }
 
 // CancelStreamQuery tells the agent to abort a streaming query it is still

@@ -2,7 +2,7 @@
   import type { PipelineStatus } from '../../types/pipelines'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
-  import { ArrowLeft, Save, Play, Square, History } from 'lucide-svelte'
+  import { ArrowLeft, Save, Play, Square, History, FlaskConical } from 'lucide-svelte'
 
   interface Props {
     pipelineName: string
@@ -18,9 +18,12 @@
     onStart: () => void
     onStop: () => void
     onRuns: () => void
+    /** A test is running. */
+    testing: boolean
+    onTest: () => void
   }
 
-  let { pipelineName, status, saving, pending, dirty, retrying, onBack, onSave, onStart, onStop, onRuns }: Props = $props()
+  let { pipelineName, status, saving, pending, dirty, retrying, onBack, onSave, onStart, onStop, onRuns, testing, onTest }: Props = $props()
 
   const isRunning = $derived(status === 'running' || status === 'starting')
 
@@ -48,6 +51,9 @@
   <div class="ml-auto flex shrink-0 items-center gap-2">
     <Button size="sm" variant="ghost" onclick={onRuns} title="Runs and logs">
       <History size={13} /> Runs
+    </Button>
+    <Button size="sm" variant="ghost" onclick={onTest} loading={testing} disabled={testing || saving} title="Save, then read a sample from the source and check the sink">
+      <FlaskConical size={13} /> Test
     </Button>
     <Button size="sm" variant="outline" onclick={onSave} loading={saving} disabled={pending}>
       <Save size={13} /> Save

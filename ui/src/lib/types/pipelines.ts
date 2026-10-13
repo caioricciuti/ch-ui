@@ -75,6 +75,44 @@ export interface PipelineStatusInfo {
   batches_sent?: number
   errors_count?: number
   last_batch_at?: string
+  /** Rows sent to the dead-letter table, across runs. */
+  dlq_rows?: number
+  dlq_database?: string
+  dlq_table?: string
+}
+
+/** A source position saved after a written batch. */
+export interface PipelineCheckpoint {
+  source_key: string
+  position: string
+  updated_at: string
+}
+
+export interface SinkCheck {
+  name: string
+  status: 'ok' | 'warn' | 'fail'
+  detail: string
+}
+
+export interface SchemaColumn {
+  name: string
+  type: string
+}
+
+export interface InferredSchema {
+  columns: SchemaColumn[]
+  order_by: string
+  partition_by: string
+}
+
+export interface PipelineTestResult {
+  source_type: NodeType
+  records: Record<string, unknown>[]
+  note: string
+  source_error?: string
+  sink_checks: SinkCheck[]
+  schema?: InferredSchema
+  schema_error?: string
 }
 
 /** Secrets come back from the API as this mask; sending it back keeps the stored value. */
@@ -96,6 +134,10 @@ export interface ConnectorFieldDef {
   help?: string
   /** Smallest accepted value for number fields. */
   min?: number
+  /** Largest accepted value for number fields. */
+  max?: number
+  /** Number fields that accept fractions (otherwise whole numbers only). */
+  decimal?: boolean
 }
 
 export const SOURCE_NODE_TYPES: { type: NodeType; label: string; description: string }[] = [
@@ -139,7 +181,7 @@ export const CONNECTOR_FIELDS: Record<NodeType, ConnectorFieldDef[]> = {
       { value: 'sqlite', label: 'SQLite (admins only)' },
     ], default: 'postgres' },
     { key: 'connection_string', label: 'Connection String', type: 'password', required: true, placeholder: 'postgres://user:pass@host/db or /path/to/file.db', help: 'Stored encrypted. For SQLite, a file path like /data/my.db (admins only, not inside the CH-UI data directory)' },
-    { key: 'query', label: 'SQL Query', type: 'textarea', required: true, placeholder: 'SELECT * FROM events WHERE id > $1', help: 'Use $1 placeholder with watermark column for incremental polling' },
+    { key: 'query', label: 'SQL Query', type: 'textarea', required: true, placeholder: 'SELECT * FROM events WHERE id > COALESCE($1, 0) ORDER BY id', help: 'With a watermark column, $1 (? for MySQL and SQLite) is the last written watermark, NULL before the first batch. Order by the watermark column.' },
     { key: 'poll_interval', label: 'Poll Interval (seconds)', type: 'number', default: 60, min: 1, help: 'Seconds between each poll' },
     { key: 'watermark_column', label: 'Watermark Column', type: 'text', help: 'Column for incremental polling (e.g. id or created_at)' },
     { key: 'batch_size', label: 'Batch Size', type: 'number', default: 1000, min: 1 },
@@ -171,6 +213,8 @@ export const CONNECTOR_FIELDS: Record<NodeType, ConnectorFieldDef[]> = {
     ], default: 'MergeTree', help: 'Only used when "Create Table" is enabled' },
     { key: 'create_table_order_by', label: 'ORDER BY', type: 'text', placeholder: 'tuple()', help: 'One ClickHouse expression, e.g. (user_id, ts)' },
     { key: 'create_table_partition_by', label: 'PARTITION BY', type: 'text', placeholder: 'toYYYYMM(ts)', help: 'Optional. One ClickHouse expression' },
+    { key: 'dead_letter', label: 'Dead-letter Table', type: 'toggle', default: true, help: 'Rows ClickHouse refuses (parse or type errors) are isolated and written to <table>_dlq; the rest of the batch is inserted. Off: the batch is retried until it is fixed.' },
+    { key: 'max_error_ratio', label: 'Max Error Ratio', type: 'number', default: 0, min: 0, max: 1, decimal: true, help: 'Optional, 0 to 1. Lets ClickHouse skip up to this share of unparsable rows per insert (input_format_allow_errors_ratio). Skipped rows are dropped, not dead-lettered. 0 turns it off.' },
   ],
 }
 
@@ -191,4 +235,39 @@ export function newNodeConfig(type: NodeType, pipelineId: string): Record<string
     default:
       return {}
   }
+}
+
+/** Backtick-quotes a ClickHouse identifier, as the server does. */
+export function quoteIdent(name: string): string {
+  return '`' + name.replace(/\\/g, '\\\\').replace(/`/g, '\\`') + '`'
+}
+
+/** The CREATE TABLE the sink runs for a saved column list. */
+export function createTableDDL(opts: {
+  database: string
+  table: string
+  columns: SchemaColumn[]
+  engine?: string
+  orderBy?: string
+  partitionBy?: string
+}): string {
+  const cols = opts.columns.map((c) => `  ${quoteIdent(c.name)} ${c.type}`).join(',\n')
+  let ddl = `CREATE TABLE IF NOT EXISTS ${quoteIdent(opts.database || 'default')}.${quoteIdent(opts.table || 'table')} (\n${cols}\n) ENGINE = ${(opts.engine || 'MergeTree').replace(/\(\)$/, '')}`
+  if (opts.partitionBy?.trim()) ddl += `\nPARTITION BY ${opts.partitionBy.trim()}`
+  ddl += `\nORDER BY ${opts.orderBy?.trim() || 'tuple()'}`
+  return ddl
+}
+
+/** Reads create_table_columns from a sink config. */
+export function schemaColumnsOf(config: Record<string, unknown>): SchemaColumn[] {
+  const raw = config['create_table_columns']
+  if (!Array.isArray(raw)) return []
+  const out: SchemaColumn[] = []
+  for (const item of raw) {
+    if (item && typeof item === 'object') {
+      const rec = item as Record<string, unknown>
+      if (typeof rec.name === 'string' && typeof rec.type === 'string') out.push({ name: rec.name, type: rec.type })
+    }
+  }
+  return out
 }

@@ -1,0 +1,225 @@
+{
+  "id": "clickhouse-server-health",
+  "name": "ClickHouse server health",
+  "description": "Query and insert rates, memory, merges, parts per partition, replication lag, errors, disks and the slowest queries of the last hour.",
+  "tags": [
+    "clickhouse",
+    "health"
+  ],
+  "version": 1,
+  "dashboard": {
+    "name": "ClickHouse server health",
+    "description": "Server health from the system tables. Panels that read system.metric_log need it enabled (the default)."
+  },
+  "variables": [
+    {
+      "name": "database",
+      "label": "Database",
+      "type": "query",
+      "query": "SELECT name FROM system.databases WHERE name NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema') ORDER BY name",
+      "multi": true,
+      "include_all": true,
+      "default": [
+        "$__all"
+      ]
+    }
+  ],
+  "panels": [
+    {
+      "name": "Running queries",
+      "description": "",
+      "panel_type": "stat",
+      "query": "SELECT count() AS running FROM system.processes",
+      "config": {
+        "chartType": "stat",
+        "statUnit": "short"
+      },
+      "layout_x": 0,
+      "layout_y": 0,
+      "layout_w": 3,
+      "layout_h": 3
+    },
+    {
+      "name": "Memory in use",
+      "description": "",
+      "panel_type": "stat",
+      "query": "SELECT toUInt64(anyIf(value, metric = 'MemoryResident')) AS memory FROM system.asynchronous_metrics",
+      "config": {
+        "chartType": "stat",
+        "statUnit": "bytes"
+      },
+      "layout_x": 3,
+      "layout_y": 0,
+      "layout_w": 3,
+      "layout_h": 3
+    },
+    {
+      "name": "Running merges",
+      "description": "",
+      "panel_type": "stat",
+      "query": "SELECT count() AS merges FROM system.merges",
+      "config": {
+        "chartType": "stat",
+        "statUnit": "short"
+      },
+      "layout_x": 6,
+      "layout_y": 0,
+      "layout_w": 3,
+      "layout_h": 3
+    },
+    {
+      "name": "Max replica lag (s)",
+      "description": "",
+      "panel_type": "stat",
+      "query": "SELECT max(absolute_delay) AS lag_s FROM system.replicas",
+      "config": {
+        "chartType": "stat",
+        "statUnit": "short"
+      },
+      "layout_x": 9,
+      "layout_y": 0,
+      "layout_w": 3,
+      "layout_h": 3
+    },
+    {
+      "name": "Queries per second",
+      "description": "",
+      "panel_type": "timeseries",
+      "query": "SELECT\n  toStartOfInterval(event_time, INTERVAL $__interval second) AS ts,\n  round(sum(ProfileEvent_Query) / $__interval, 3) AS queries_per_s,\n  round(sum(ProfileEvent_SelectQuery) / $__interval, 3) AS selects_per_s\nFROM system.metric_log\nWHERE $__timeFilter(event_time, datetime)\nGROUP BY ts\nORDER BY ts WITH FILL\n  FROM toStartOfInterval(toDateTime(intDiv($__timeFrom, 1000)), INTERVAL $__interval second)\n  TO toDateTime(intDiv($__timeTo, 1000))\n  STEP $__interval",
+      "config": {
+        "chartType": "timeseries",
+        "xColumn": "ts",
+        "yColumns": [
+          "queries_per_s",
+          "selects_per_s"
+        ],
+        "legendPosition": "bottom"
+      },
+      "layout_x": 0,
+      "layout_y": 3,
+      "layout_w": 6,
+      "layout_h": 5
+    },
+    {
+      "name": "Inserts per second",
+      "description": "",
+      "panel_type": "timeseries",
+      "query": "SELECT\n  toStartOfInterval(event_time, INTERVAL $__interval second) AS ts,\n  round(sum(ProfileEvent_InsertQuery) / $__interval, 3) AS inserts_per_s,\n  round(sum(ProfileEvent_InsertedRows) / $__interval, 1) AS rows_per_s\nFROM system.metric_log\nWHERE $__timeFilter(event_time, datetime)\nGROUP BY ts\nORDER BY ts WITH FILL\n  FROM toStartOfInterval(toDateTime(intDiv($__timeFrom, 1000)), INTERVAL $__interval second)\n  TO toDateTime(intDiv($__timeTo, 1000))\n  STEP $__interval",
+      "config": {
+        "chartType": "timeseries",
+        "xColumn": "ts",
+        "yColumns": [
+          "inserts_per_s",
+          "rows_per_s"
+        ],
+        "legendPosition": "bottom"
+      },
+      "layout_x": 6,
+      "layout_y": 3,
+      "layout_w": 6,
+      "layout_h": 5
+    },
+    {
+      "name": "Memory tracked (MB)",
+      "description": "",
+      "panel_type": "timeseries",
+      "query": "SELECT\n  toStartOfInterval(event_time, INTERVAL $__interval second) AS ts,\n  round(max(CurrentMetric_MemoryTracking) / 1048576, 1) AS memory_mb\nFROM system.metric_log\nWHERE $__timeFilter(event_time, datetime)\nGROUP BY ts\nORDER BY ts WITH FILL\n  FROM toStartOfInterval(toDateTime(intDiv($__timeFrom, 1000)), INTERVAL $__interval second)\n  TO toDateTime(intDiv($__timeTo, 1000))\n  STEP $__interval",
+      "config": {
+        "chartType": "timeseries",
+        "xColumn": "ts",
+        "yColumns": [
+          "memory_mb"
+        ],
+        "legendPosition": "bottom"
+      },
+      "layout_x": 0,
+      "layout_y": 8,
+      "layout_w": 6,
+      "layout_h": 5
+    },
+    {
+      "name": "Merges",
+      "description": "",
+      "panel_type": "timeseries",
+      "query": "SELECT\n  toStartOfInterval(event_time, INTERVAL $__interval second) AS ts,\n  max(CurrentMetric_Merge) AS running_merges,\n  round(sum(ProfileEvent_MergedRows) / $__interval, 1) AS merged_rows_per_s\nFROM system.metric_log\nWHERE $__timeFilter(event_time, datetime)\nGROUP BY ts\nORDER BY ts WITH FILL\n  FROM toStartOfInterval(toDateTime(intDiv($__timeFrom, 1000)), INTERVAL $__interval second)\n  TO toDateTime(intDiv($__timeTo, 1000))\n  STEP $__interval",
+      "config": {
+        "chartType": "timeseries",
+        "xColumn": "ts",
+        "yColumns": [
+          "running_merges",
+          "merged_rows_per_s"
+        ],
+        "legendPosition": "bottom"
+      },
+      "layout_x": 6,
+      "layout_y": 8,
+      "layout_w": 6,
+      "layout_h": 5
+    },
+    {
+      "name": "Parts per partition (top tables)",
+      "description": "Many parts in one partition slow down queries and merges.",
+      "panel_type": "table",
+      "query": "SELECT\n  database,\n  table,\n  partition,\n  count() AS parts,\n  sum(rows) AS rows,\n  formatReadableSize(sum(bytes_on_disk)) AS size\nFROM system.parts\nWHERE active AND database IN (${database})\nGROUP BY database, table, partition\nORDER BY parts DESC\nLIMIT 20",
+      "config": {
+        "chartType": "table"
+      },
+      "layout_x": 0,
+      "layout_y": 13,
+      "layout_w": 6,
+      "layout_h": 6
+    },
+    {
+      "name": "Replication lag",
+      "description": "Empty when no table is replicated.",
+      "panel_type": "table",
+      "query": "SELECT\n  database,\n  table,\n  absolute_delay AS lag_s,\n  queue_size,\n  inserts_in_queue,\n  merges_in_queue,\n  is_readonly,\n  is_session_expired\nFROM system.replicas\nWHERE database IN (${database})\nORDER BY absolute_delay DESC\nLIMIT 50",
+      "config": {
+        "chartType": "table"
+      },
+      "layout_x": 6,
+      "layout_y": 13,
+      "layout_w": 6,
+      "layout_h": 6
+    },
+    {
+      "name": "Errors",
+      "description": "Error counters since the server started.",
+      "panel_type": "table",
+      "query": "SELECT\n  name,\n  code,\n  value AS count,\n  last_error_time,\n  left(last_error_message, 200) AS last_message,\n  remote\nFROM system.errors\nORDER BY last_error_time DESC\nLIMIT 50",
+      "config": {
+        "chartType": "table"
+      },
+      "layout_x": 0,
+      "layout_y": 19,
+      "layout_w": 7,
+      "layout_h": 6
+    },
+    {
+      "name": "Disk usage",
+      "description": "",
+      "panel_type": "table",
+      "query": "SELECT\n  name,\n  path,\n  type,\n  formatReadableSize(total_space - free_space) AS used,\n  formatReadableSize(total_space) AS total,\n  round(100 * (1 - free_space / total_space), 1) AS used_pct\nFROM system.disks\nORDER BY used_pct DESC",
+      "config": {
+        "chartType": "table"
+      },
+      "layout_x": 7,
+      "layout_y": 19,
+      "layout_w": 5,
+      "layout_h": 6
+    },
+    {
+      "name": "Slowest queries (last hour)",
+      "description": "",
+      "panel_type": "table",
+      "query": "SELECT\n  event_time,\n  user,\n  query_duration_ms,\n  read_rows,\n  formatReadableSize(read_bytes) AS read,\n  formatReadableSize(memory_usage) AS memory,\n  left(query, 200) AS query\nFROM system.query_log\nWHERE type = 'QueryFinish'\n  AND event_date >= yesterday()\n  AND event_time >= now() - INTERVAL 1 HOUR\nORDER BY query_duration_ms DESC\nLIMIT 20",
+      "config": {
+        "chartType": "table"
+      },
+      "layout_x": 0,
+      "layout_y": 25,
+      "layout_w": 12,
+      "layout_h": 6
+    }
+  ]
+}

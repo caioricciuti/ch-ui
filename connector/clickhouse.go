@@ -2,6 +2,7 @@ package connector
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -654,6 +655,143 @@ func (c *CHClient) ExecuteStreaming(
 	}
 
 	return summary, totalRows, nil
+}
+
+// Export chunking. Output is forwarded in exportChunkSize pieces, and the last
+// exportHoldback bytes are held until the response ends: ClickHouse reports an
+// error that happens after the first bytes were sent by appending an
+// "__exception__" block to the body (the status is already 200), so the tail
+// is checked for it before it is forwarded.
+const (
+	exportChunkSize = 256 << 10
+	exportHoldback  = 64 << 10
+)
+
+var (
+	exportFormatRe     = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*$`)
+	exportExceptionTag = []byte("__exception__")
+	// exportFramingLineRe matches the "<size> <tag>" line newer servers write
+	// after the exception message.
+	exportFramingLineRe = regexp.MustCompile(`^\d+ \S+$`)
+)
+
+// ExecuteExport runs query with FORMAT format and passes the raw output to
+// onChunk as it arrives. It returns the number of bytes forwarded. The query
+// must not carry its own FORMAT clause. When queryID is safe it tags the query
+// so a cancel can KILL it.
+func (c *CHClient) ExecuteExport(
+	ctx context.Context,
+	queryID, query, user, password, format string,
+	settings map[string]string,
+	onChunk func(chunk []byte) error,
+) (int64, error) {
+	if !exportFormatRe.MatchString(format) {
+		return 0, fmt.Errorf("invalid export format %q", format)
+	}
+	if hasFormatClause(query) {
+		return 0, fmt.Errorf("the statement already has a FORMAT clause; remove it to export")
+	}
+	// A newline keeps a trailing -- comment from swallowing the clause.
+	finalQuery := strings.TrimRight(query, "; \n\t") + "\nFORMAT " + format
+
+	params := url.Values{}
+	if isSafeQueryID(queryID) {
+		params.Set("query_id", queryID)
+	}
+	for k, v := range settings {
+		params.Set(k, v)
+	}
+	fullURL := c.baseURL + "/?" + params.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, strings.NewReader(finalQuery))
+	if err != nil {
+		return 0, fmt.Errorf("failed to create request: %w", err)
+	}
+	if user != "" {
+		req.SetBasicAuth(user, password)
+	}
+	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("X-CH-UI-Session", c.sessionID)
+
+	// No client timeout: an export can run long, the context cancels it.
+	resp, err := (&http.Client{Transport: c.transport}).Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return 0, fmt.Errorf("ClickHouse error: %s", strings.TrimSpace(string(body)))
+	}
+
+	var sent int64
+	buf := make([]byte, 0, exportChunkSize+exportHoldback)
+	read := make([]byte, 64<<10)
+	for {
+		n, readErr := resp.Body.Read(read)
+		buf = append(buf, read[:n]...)
+		if len(buf) >= exportChunkSize+exportHoldback {
+			out := len(buf) - exportHoldback
+			if err := onChunk(buf[:out]); err != nil {
+				return sent, err
+			}
+			sent += int64(out)
+			buf = append(buf[:0], buf[out:]...)
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			// ClickHouse may end the chunked body abruptly after writing the
+			// exception block; report the exception rather than the cut.
+			if msg, ok := exportTrailingException(buf); ok {
+				return sent, fmt.Errorf("ClickHouse error: %s", msg)
+			}
+			return sent, fmt.Errorf("export read error: %w", readErr)
+		}
+	}
+
+	if msg, ok := exportTrailingException(buf); ok {
+		return sent, fmt.Errorf("ClickHouse error: %s", msg)
+	}
+	if len(buf) > 0 {
+		if err := onChunk(buf); err != nil {
+			return sent, err
+		}
+		sent += int64(len(buf))
+	}
+	return sent, nil
+}
+
+// exportTrailingException finds the exception block ClickHouse appends to a
+// response that failed after it started, and returns its message.
+func exportTrailingException(tail []byte) (string, bool) {
+	for from := 0; ; {
+		j := bytes.Index(tail[from:], exportExceptionTag)
+		if j < 0 {
+			return "", false
+		}
+		i := from + j
+		from = i + len(exportExceptionTag)
+		if i > 0 && tail[i-1] != '\n' {
+			continue
+		}
+		// Newer servers put a tag line before the message and repeat the
+		// marker after it; older ones write the message straight after.
+		rest := string(tail[from:])
+		if end := strings.Index(rest, string(exportExceptionTag)); end >= 0 {
+			rest = rest[:end]
+		}
+		if idx := strings.Index(rest, "Code: "); idx >= 0 {
+			msg := strings.TrimSpace(rest[idx:])
+			// Drop the trailing "<size> <tag>" line of the newer framing.
+			if nl := strings.LastIndex(msg, "\n"); nl >= 0 && exportFramingLineRe.MatchString(strings.TrimSpace(msg[nl:])) {
+				msg = strings.TrimSpace(msg[:nl])
+			}
+			return msg, true
+		}
+	}
 }
 
 // TestConnection verifies connectivity and returns the ClickHouse version

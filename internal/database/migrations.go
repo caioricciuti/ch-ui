@@ -1286,6 +1286,10 @@ Formatting:
 		return err
 	}
 
+	if err := db.migratePipelinesV2(); err != nil {
+		return err
+	}
+
 	if err := db.migrateModelsV2(); err != nil {
 		return err
 	}
@@ -1299,6 +1303,9 @@ Formatting:
 		slog.Warn("Failed to record schema version", "error", err)
 	}
 
+	if err := db.migrateDashboardsV2(); err != nil {
+		return err
+	}
 	slog.Info("Database migrations completed", "schema_version", schemaVersion)
 	return nil
 }

@@ -99,6 +99,52 @@ type webhookReceiver struct {
 	// atomic with respect to other requests, so a request is accepted whole
 	// or not at all.
 	enqueueMu sync.Mutex
+
+	// recent keeps the last webhookRecentMax accepted records for Test.
+	recentMu sync.Mutex
+	recent   []Record
+}
+
+// webhookRecentMax is how many received records a running webhook keeps
+// for the Test preview.
+const webhookRecentMax = 20
+
+func (r *webhookReceiver) remember(records []Record) {
+	r.recentMu.Lock()
+	defer r.recentMu.Unlock()
+	r.recent = append(r.recent, records...)
+	if over := len(r.recent) - webhookRecentMax; over > 0 {
+		r.recent = append([]Record(nil), r.recent[over:]...)
+	}
+}
+
+func (r *webhookReceiver) recentRecords() []Record {
+	r.recentMu.Lock()
+	defer r.recentMu.Unlock()
+	return append([]Record(nil), r.recent...)
+}
+
+// Sample returns the last records received while the pipeline runs. A
+// webhook cannot be polled, so a stopped pipeline returns instructions.
+func (w *WebhookSource) Sample(_ context.Context, cfg ConnectorConfig, limit int) (SampleResult, error) {
+	pipelineID := stringField(cfg.Fields, "pipeline_id", "")
+	val, ok := webhookRegistry.Load(pipelineID)
+	if !ok {
+		return SampleResult{Note: "A webhook has no data to read until it receives some. Run the pipeline, POST a few events to /api/pipelines/webhook/" + pipelineID + ", then test again to see the last " + fmt.Sprint(webhookRecentMax) + " received records."}, nil
+	}
+	recs := val.(*webhookReceiver).recentRecords()
+	if len(recs) > limit {
+		recs = recs[len(recs)-limit:]
+	}
+	out := make([]map[string]interface{}, 0, len(recs))
+	for _, r := range recs {
+		out = append(out, r.Data)
+	}
+	note := fmt.Sprintf("Last %d records received since the pipeline started.", len(out))
+	if len(out) == 0 {
+		note = "The pipeline is running but has received nothing yet. POST events to /api/pipelines/webhook/" + pipelineID + " and test again."
+	}
+	return SampleResult{Records: out, Note: note}, nil
 }
 
 // enqueue adds all records or none. It reports false when the buffer lacks
@@ -166,6 +212,7 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "pipeline buffer full, try again later", http.StatusTooManyRequests)
 		return
 	}
+	recv.remember(records)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

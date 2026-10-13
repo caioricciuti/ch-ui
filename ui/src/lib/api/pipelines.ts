@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDel } from './client'
-import type { Pipeline, PipelineGraph, PipelineRun, PipelineRunLog, PipelineStatusInfo } from '../types/pipelines'
+import type { Pipeline, PipelineCheckpoint, PipelineGraph, PipelineRun, PipelineRunLog, PipelineStatusInfo, PipelineTestResult } from '../types/pipelines'
 
 const BASE = '/api/pipelines'
 
@@ -45,4 +45,18 @@ export function listRuns(id: string, limit = 50) {
 
 export function getRunLogs(id: string, runId: string, limit = 500) {
   return apiGet<{ logs: PipelineRunLog[] }>(`${BASE}/${id}/runs/${encodeURIComponent(runId)}/logs?limit=${limit}`)
+}
+
+/** Reads a sample from the saved pipeline's source and checks its sink. Writes nothing. */
+export function testPipeline(id: string) {
+  return apiPost<PipelineTestResult>(`${BASE}/${id}/test`)
+}
+
+/** Forgets the saved source position; the next start reads from the beginning. */
+export function resetPosition(id: string) {
+  return apiPost<{ cleared: number }>(`${BASE}/${id}/reset-position`)
+}
+
+export function listCheckpoints(id: string) {
+  return apiGet<{ checkpoints: PipelineCheckpoint[] }>(`${BASE}/${id}/checkpoints`)
 }

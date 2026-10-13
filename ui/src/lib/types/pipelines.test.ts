@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CONNECTOR_FIELDS, generateToken, newNodeConfig } from './pipelines'
+import { CONNECTOR_FIELDS, createTableDDL, generateToken, newNodeConfig, quoteIdent, schemaColumnsOf } from './pipelines'
 
 describe('newNodeConfig', () => {
   it('turns webhook auth on with a fresh token', () => {
@@ -36,5 +36,45 @@ describe('connector fields', () => {
 
   it('generates 24-byte hex tokens', () => {
     expect(generateToken()).toHaveLength(48)
+  })
+})
+
+describe('createTableDDL', () => {
+  it('quotes identifiers like the server', () => {
+    expect(quoteIdent('a`b\\c')).toBe('`a\\`b\\\\c`')
+  })
+
+  it('builds the statement the sink runs', () => {
+    const ddl = createTableDDL({
+      database: 'db',
+      table: 'events',
+      columns: [{ name: 'ts', type: 'DateTime64(3)' }, { name: 'id', type: 'Int64' }],
+      engine: 'MergeTree',
+      orderBy: '(`ts`, `id`)',
+      partitionBy: 'toYYYYMM(`ts`)',
+    })
+    expect(ddl).toBe('CREATE TABLE IF NOT EXISTS `db`.`events` (\n  `ts` DateTime64(3),\n  `id` Int64\n) ENGINE = MergeTree\nPARTITION BY toYYYYMM(`ts`)\nORDER BY (`ts`, `id`)')
+  })
+
+  it('defaults ORDER BY to tuple() and skips an empty PARTITION BY', () => {
+    const ddl = createTableDDL({ database: 'd', table: 't', columns: [{ name: 'a', type: 'String' }] })
+    expect(ddl.endsWith(') ENGINE = MergeTree\nORDER BY tuple()')).toBe(true)
+  })
+})
+
+describe('schemaColumnsOf', () => {
+  it('reads saved columns and ignores junk', () => {
+    expect(schemaColumnsOf({ create_table_columns: [{ name: 'a', type: 'String' }, { name: 1 }, null] })).toEqual([{ name: 'a', type: 'String' }])
+    expect(schemaColumnsOf({ create_table_columns: null })).toEqual([])
+  })
+})
+
+describe('sink fields', () => {
+  it('has the dead-letter toggle on by default and a fractional error ratio', () => {
+    const dl = CONNECTOR_FIELDS.sink_clickhouse.find((f) => f.key === 'dead_letter')
+    const ratio = CONNECTOR_FIELDS.sink_clickhouse.find((f) => f.key === 'max_error_ratio')
+    expect(dl?.default).toBe(true)
+    expect(ratio?.decimal).toBe(true)
+    expect(ratio?.max).toBe(1)
   })
 })

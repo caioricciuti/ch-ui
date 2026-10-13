@@ -759,6 +759,7 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		entities:           body.EntityContexts,
 		username:           middleware.Actor(session),
 		usage:              &braincore.ChatResult{},
+		usageSaved:         new(bool),
 		prices:             settings.Prices,
 	}
 	// Record what the turn used however it ends: done, error or stopped.
@@ -793,6 +794,8 @@ type brainTurn struct {
 	// usage sums the token counts of every provider call in the turn.
 	usage  *braincore.ChatResult
 	prices braincore.PriceTable
+	// usageSaved is shared by every copy of the turn so usage is stored once.
+	usageSaved *bool
 }
 
 func (h *BrainHandler) streamMessageCommunity(r *http.Request, stream *sseStream, t brainTurn) {
@@ -887,6 +890,10 @@ func (h *BrainHandler) finishTurn(r *http.Request, stream *sseStream, t brainTur
 		Details:        strPtr(details),
 		IPAddress:      strPtr(getClientIP(r)),
 	})
+
+	// Store usage before done, so a client that reloads the message on done
+	// sees it.
+	h.saveTurnUsage(&t)
 
 	done := map[string]interface{}{"type": "done", "messageId": t.assistantMessageID, "chatId": t.chatID}
 	if t.usage != nil {
