@@ -16,12 +16,13 @@
   import { success, error } from '../../stores/toast.svelte'
   import type { FullExportFormat } from '../../api/stream'
   import { formatBytes } from '../../utils/format'
-  import { Table2, BarChart3, Columns3, Sparkles, Copy, Download, ChevronUp, FileJson, FileText, Database, Hash, AlertTriangle, ListFilter, CloudCog, Server, LoaderCircle, X } from 'lucide-svelte'
+  import { Table2, BarChart3, Columns3, Sparkles, ChartLine, Copy, Download, ChevronUp, FileJson, FileText, Database, Hash, AlertTriangle, ListFilter, CloudCog, Server, LoaderCircle, X } from 'lucide-svelte'
   import { getFormatNumbers, toggleFormatNumbers } from '../../stores/number-format.svelte'
   import { getMaxResultRows, setMaxResultRows } from '../../stores/query-limit.svelte'
   import { getResultFiltersEnabled, toggleResultFiltersEnabled } from '../../stores/result-filters.svelte'
+  import { RESULT_VIEWS, type ResultView } from '../../editor/result-views'
 
-  type Tab = 'data' | 'stats' | 'schema' | 'insights'
+  type Tab = ResultView
   type ExportFormat = 'csv' | 'tsv' | 'json' | 'jsoncompact' | 'jsonl' | 'markdown' | 'sql' | 'xml'
 
   interface Props {
@@ -84,12 +85,14 @@
 
   const rowCount = $derived(data.length)
 
-  const tabs: { id: Tab; label: string; icon: typeof Table2 }[] = [
-    { id: 'data', label: 'Data', icon: Table2 },
-    { id: 'stats', label: 'Stats', icon: BarChart3 },
-    { id: 'schema', label: 'Schema', icon: Columns3 },
-    { id: 'insights', label: 'Insights', icon: Sparkles },
-  ]
+  const VIEW_ICONS: Record<Tab, typeof Table2> = {
+    data: Table2,
+    stats: BarChart3,
+    schema: Columns3,
+    insights: Sparkles,
+    chart: ChartLine,
+  }
+  const tabs = RESULT_VIEWS.map((v) => ({ ...v, icon: VIEW_ICONS[v.id] }))
 
   const tabClass = (id: Tab) =>
     `flex items-center gap-1 px-2 py-1 text-xs font-medium transition-colors ${

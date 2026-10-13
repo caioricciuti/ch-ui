@@ -122,6 +122,44 @@ func TestCreateAndUpdatePanelValidation(t *testing.T) {
 	}
 }
 
+func TestCreatePanelWithoutLayoutYAppendsBelow(t *testing.T) {
+	f := newDashFixture(t)
+	// The fixture panel sits at y=0, h=4. Add a taller one beside it.
+	if _, err := f.db.CreatePanel(f.dashID, "Tall", "", "table", "SELECT 1", "", "{}", 6, 0, 6, 7); err != nil {
+		t.Fatal(err)
+	}
+	rec := f.do(t, http.MethodPost, "/"+f.dashID+"/panels", `{"name":"From editor","query":"SELECT 1","layout_w":12}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Panel struct {
+			LayoutY int `json:"layout_y"`
+		} `json:"panel"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Panel.LayoutY != 7 {
+		t.Fatalf("layout_y = %d, want 7 (below the tallest panel)", out.Panel.LayoutY)
+	}
+
+	// An explicit layout_y is kept as given.
+	rec = f.do(t, http.MethodPost, "/"+f.dashID+"/panels", `{"name":"Top","query":"SELECT 1","layout_y":0}`)
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Panel.LayoutY != 0 {
+		t.Fatalf("explicit layout_y = %d, want 0", out.Panel.LayoutY)
+	}
+}
+
+func TestNextPanelRowOnEmptyDashboard(t *testing.T) {
+	if got := nextPanelRow(nil); got != 0 {
+		t.Fatalf("nextPanelRow(nil) = %d, want 0", got)
+	}
+}
+
 func TestImportDashboardIsAllOrNothing(t *testing.T) {
 	f := newDashFixture(t)
 	path := "/" + f.dashID + "/import"

@@ -10,12 +10,14 @@
   import QueryProgressBar from './QueryProgressBar.svelte'
   import SchemaPanel from './SchemaPanel.svelte'
   import InsightsPanel from './InsightsPanel.svelte'
+  import ResultChart from './ResultChart.svelte'
+  import { DEFAULT_RESULT_VIEW, type ResultView } from '../../editor/result-views'
   import { computeColumnStats } from '../../utils/stats'
   import { parseCHError } from '../../utils/ch-error'
   import { formatNumber, formatDuration } from '../../utils/format'
   import { SquareTerminal, AlertTriangle, X, Filter, Lightbulb, Crosshair, CircleCheck } from 'lucide-svelte'
 
-  type Tab = 'data' | 'stats' | 'schema' | 'insights'
+  type Tab = ResultView
 
   interface Props {
     meta: ColumnMeta[]
@@ -68,6 +70,12 @@
     /** A full export in progress, with the bytes received so far. */
     exportProgress?: { format: FullExportFormat; bytes: number } | null
     oncancelexport?: () => void
+    /** The statement that produced this result, for Add to dashboard. */
+    sql?: string
+    /** Connection the result came from, recorded on a dashboard panel. */
+    connectionId?: string
+    /** Key for chart settings kept per editor tab. */
+    chartKey?: string
   }
 
   let {
@@ -112,6 +120,9 @@
     onexportfull,
     exportProgress = null,
     oncancelexport,
+    sql = '',
+    connectionId = '',
+    chartKey = '',
   }: Props = $props()
 
   const parsedError = $derived(error ? parseCHError(error) : null)
@@ -121,12 +132,14 @@
     return isUnaryOperator(f.operator) ? `${f.column} ${op}` : `${f.column} ${op} ${f.value}`
   }
 
-  let activeTab = $state<Tab>('data')
+  let activeTab = $state<Tab>(DEFAULT_RESULT_VIEW)
 
-  // Reset to Data tab when query results change
+  // Back to Data when the columns change. A re-query with the same columns
+  // (sorting, server-side filters) keeps the view, so a chart stays open.
+  const columnSignature = $derived(meta.map((m) => `${m.name}\u0000${m.type}`).join('\u0001'))
   $effect(() => {
-    meta; // track meta changes
-    activeTab = 'data'
+    void columnSignature
+    activeTab = DEFAULT_RESULT_VIEW
   })
 
   const columnStats = $derived.by(() => {
@@ -271,6 +284,8 @@
         {samplingMode}
         {estimate}
       />
+    {:else if activeTab === 'chart'}
+      <ResultChart {meta} {data} {sql} {connectionId} configKey={chartKey} filtered={filters.length > 0} />
     {:else}
       <SchemaPanel {meta} />
     {/if}

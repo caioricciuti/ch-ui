@@ -3,7 +3,7 @@
   import uPlot from 'uplot'
   import 'uplot/dist/uPlot.min.css'
   import type { PanelConfig } from '../../types/api'
-  import { toUPlotData, DEFAULT_COLORS, isDateType, isCategoricalColumn, resolveChartColumns, type ColumnMeta } from '../../utils/chart-transform'
+  import { toUPlotData, DEFAULT_COLORS, isDateType, isCategoricalColumn, resolveChartColumns, pivotSeries, type ColumnMeta } from '../../utils/chart-transform'
   import { chartTheme, tooltipPlugin } from '../../utils/uplot-tooltip'
 
   interface Props {
@@ -20,14 +20,29 @@
   let measuredWidth = $state(0)
   let measuredHeight = $state(0)
 
-  // Axes as plotted: saved columns, or a sensible pick when none are saved.
-  const axes = $derived(resolveChartColumns(meta, config))
-  const plotData = $derived(toUPlotData(data, meta, config))
+  // A series column splits the first y column into one series per value:
+  // the long rows are pivoted to wide rows before anything is plotted.
+  const pivot = $derived.by(() => {
+    const series = config.seriesColumn
+    if (!series || !meta.some(m => m.name === series)) return null
+    const base = resolveChartColumns(meta, config)
+    if (!base.xColumn || base.yColumns.length === 0) return null
+    return pivotSeries(data, meta, base.xColumn, base.yColumns[0], series)
+  })
+  const plotRows = $derived(pivot?.rows ?? data)
+  const plotMeta = $derived(pivot?.meta ?? meta)
+  const plotConfig = $derived<PanelConfig>(
+    pivot ? { ...config, seriesColumn: undefined, yColumns: pivot.yColumns } : config,
+  )
 
-  const isCategorical = $derived(isCategoricalColumn(meta, axes.xColumn))
+  // Axes as plotted: saved columns, or a sensible pick when none are saved.
+  const axes = $derived(resolveChartColumns(plotMeta, plotConfig))
+  const plotData = $derived(toUPlotData(plotRows, plotMeta, plotConfig))
+
+  const isCategorical = $derived(isCategoricalColumn(plotMeta, axes.xColumn))
 
   const xLabels = $derived(
-    isCategorical ? data.map(row => String(row[axes.xColumn ?? ''] ?? '')) : []
+    isCategorical ? plotRows.map(row => String(row[axes.xColumn ?? ''] ?? '')) : []
   )
 
   // Legend: our own token-styled row (or column), never the uPlot legend.
@@ -148,7 +163,7 @@
   }
 
   function buildOpts(w: number, h: number): uPlot.Options {
-    const xMeta = meta.find(m => m.name === axes.xColumn)
+    const xMeta = plotMeta.find(m => m.name === axes.xColumn)
     const isTime = xMeta ? isDateType(xMeta.type) : false
     const isCat = isCategorical
     const catLabels = xLabels
@@ -300,6 +315,7 @@
     void config.xColumn
     void config.yColumns
     void config.colors
+    void config.seriesColumn
 
     if (!container || measuredWidth <= 0 || measuredHeight <= 0) return
 
@@ -345,6 +361,9 @@
           </button>
         </li>
       {/each}
+      {#if pivot && pivot.dropped > 0}
+        <li class="px-1 text-fg-4">+{pivot.dropped} more series not shown</li>
+      {/if}
     </ul>
   {/if}
 </div>
