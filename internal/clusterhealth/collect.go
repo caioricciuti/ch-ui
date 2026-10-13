@@ -116,7 +116,12 @@ func CollectSamples(exec ExecFunc, cluster string, longQueryThreshold int, captu
 	} else {
 		for _, r := range rows {
 			v := asFloat(r["disk_used_pct"])
-			node(asString(r["node"])).DiskUsedPct = &v
+			n := node(asString(r["node"]))
+			n.DiskUsedPct = &v
+			if raw, ok := r["disk_free_min_bytes"]; ok && raw != nil {
+				free := asFloat(raw)
+				n.DiskFreeMinBytes = &free
+			}
 		}
 	}
 

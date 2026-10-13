@@ -94,6 +94,9 @@ type Sample struct {
 	MutationsOldestAgeSec int64 `json:"mutations_oldest_age_seconds"`
 	// DiskUsedPct is the fullest disk on the node, nil when unknown.
 	DiskUsedPct *float64 `json:"disk_used_pct,omitempty"`
+	// DiskFreeMinBytes is the free space of the emptiest disk, nil when
+	// unknown.
+	DiskFreeMinBytes *float64 `json:"disk_free_min_bytes,omitempty"`
 
 	// Unknown lists the metric groups (see Metric*) whose collection failed
 	// for this node. Their numeric fields read 0 but must be shown as unknown,

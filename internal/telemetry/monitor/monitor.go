@@ -251,7 +251,8 @@ func ValidateMonitor(m *database.TelemetryMonitor) error {
 	return nil
 }
 
-// Compare applies the monitor's comparator to a value.
+// Compare applies a comparator (gt, gte, lt, lte, eq or ne) to a value.
+// Monitors accept only the first four; SQL alerts use all six.
 func Compare(comparator string, value, threshold float64) bool {
 	switch comparator {
 	case "gt":
@@ -262,6 +263,10 @@ func Compare(comparator string, value, threshold float64) bool {
 		return value < threshold
 	case "lte":
 		return value <= threshold
+	case "eq":
+		return value == threshold
+	case "ne":
+		return value != threshold
 	default:
 		return false
 	}

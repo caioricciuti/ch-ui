@@ -305,10 +305,27 @@ func (d *Dispatcher) sendByChannelType(ctx context.Context, channelType string, 
 func ruleMatchesEvent(rule database.AlertRule, event database.AlertEvent) bool {
 	eventType := strings.ToLower(strings.TrimSpace(event.EventType))
 	ruleType := strings.ToLower(strings.TrimSpace(rule.EventType))
-	if ruleType != "*" && ruleType != "any" && ruleType != eventType {
+	if !EventTypeMatches(ruleType, eventType) {
 		return false
 	}
 	return severityRank(event.Severity) >= severityRank(rule.SeverityMin)
+}
+
+// EventTypeMatches reports whether a rule's event type selects an event
+// type: "*" and "any" match everything, "health.*" every type under the
+// "health." prefix, anything else only itself. Case and surrounding space
+// are ignored.
+func EventTypeMatches(ruleType, eventType string) bool {
+	ruleType = strings.ToLower(strings.TrimSpace(ruleType))
+	eventType = strings.ToLower(strings.TrimSpace(eventType))
+	switch {
+	case ruleType == "*" || ruleType == "any":
+		return true
+	case strings.HasSuffix(ruleType, ".*"):
+		return strings.HasPrefix(eventType, strings.TrimSuffix(ruleType, "*"))
+	default:
+		return ruleType == eventType
+	}
 }
 
 func severityRank(s string) int {

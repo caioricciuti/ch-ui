@@ -38,6 +38,7 @@
     type LiveSection,
     type ClusterHealthSettings,
   } from '../lib/api/clusterHealth'
+  import { fetchHealthStates } from '../lib/api/alerting'
   import TrendChart from '../lib/components/common/TrendChart.svelte'
   import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
   import Sheet from '../lib/components/common/Sheet.svelte'
@@ -57,7 +58,8 @@
   import { openQueryTab } from '../lib/stores/tabs.svelte'
   import { getSession } from '../lib/stores/session.svelte'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
-  import { getSection } from '../lib/stores/nav.svelte'
+  import { getSection, setSection } from '../lib/stores/nav.svelte'
+  import { goTo } from '../lib/stores/router.svelte'
   import { PAGE_SECTIONS } from '../lib/routes'
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -66,6 +68,8 @@
   let error = $state<string | null>(null)
   let lastUpdated = $state<Date | null>(null)
   let refreshing = $state(false)
+  // Health alerts firing on this connection; 0 hides the badge (also on error or 403).
+  let firingAlerts = $state(0)
 
   let history = $state<NodeSample[]>([])
   let settings = $state<ClusterHealthSettings | null>(null)
@@ -488,7 +492,17 @@
   }
 
   // ── Data loading ───────────────────────────────────────────────────────────
+  async function loadFiringAlerts() {
+    try {
+      const states = await fetchHealthStates()
+      firingAlerts = states.filter((s) => s.state === 'firing').length
+    } catch {
+      firingAlerts = 0
+    }
+  }
+
   async function loadSummary(initial = false) {
+    void loadFiringAlerts()
     if (initial) loading = true
     refreshing = !initial
     try {
@@ -641,6 +655,11 @@
         <Badge tone="neutral" title={summaryErrors.map(([k, v]) => `${k}: ${v}`).join('; ')}>
           {summaryErrors.length} metric{summaryErrors.length === 1 ? '' : 's'} unknown
         </Badge>
+      {/if}
+      {#if firingAlerts > 0}
+        <button type="button" class="rounded-md" title="Open health checks in Governance" onclick={() => { goTo('governance'); setSection('health-alerts') }}>
+          <Badge tone="danger">{firingAlerts} {firingAlerts === 1 ? 'alert' : 'alerts'} firing</Badge>
+        </button>
       {/if}
       {#if summary?.degraded}
         <Badge tone="warning" title="Some nodes could not be reached; showing local node only">
