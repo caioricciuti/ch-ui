@@ -9,7 +9,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -20,57 +19,6 @@ import (
 func quoteIdent(s string) string { return safe.Identifier(s) }
 
 func quoteLit(s string) string { return safe.QuotedLiteral(s) }
-
-// Statement phases. Creates come first so later statements can reference
-// the new entities; revokes and drops come last so nothing is removed while
-// it is still referenced by an earlier step.
-const (
-	phaseCreateProfile = iota
-	phaseCreateQuota
-	phaseCreateRole
-	phaseAlter
-	phaseGrantPrivilege
-	phaseGrantRole
-	phaseRowPolicy
-	phaseDefaultRole
-	phaseRevoke
-	phaseDropPolicy
-	phaseDropQuota
-	phaseDropRole
-	phaseDropProfile
-)
-
-func phaseOf(kind string) int {
-	switch kind {
-	case OpCreateSettingsProfile:
-		return phaseCreateProfile
-	case OpCreateQuota:
-		return phaseCreateQuota
-	case OpCreateRole:
-		return phaseCreateRole
-	case OpSetRoleProfile, OpAlterQuota, OpAlterSettingsProfile:
-		return phaseAlter
-	case OpGrantPrivilege:
-		return phaseGrantPrivilege
-	case OpGrantRole:
-		return phaseGrantRole
-	case OpCreateRowPolicy, OpAlterRowPolicy:
-		return phaseRowPolicy
-	case OpSetDefaultRoles:
-		return phaseDefaultRole
-	case OpRevokePrivilege, OpRevokeRole:
-		return phaseRevoke
-	case OpDropRowPolicy:
-		return phaseDropPolicy
-	case OpDropQuota:
-		return phaseDropQuota
-	case OpDropRole:
-		return phaseDropRole
-	case OpDropSettingsProfile:
-		return phaseDropProfile
-	}
-	return phaseRevoke
-}
 
 // grantObject renders the ON clause target: *.*, db.* or db.table.
 func grantObject(database, table string) string {
@@ -269,6 +217,8 @@ func Render(op Op, cluster string, snap *Snapshot) string {
 	case OpSetDefaultRoles:
 		s := "ALTER USER " + quoteIdent(op.Target.Name) + on + " DEFAULT ROLE "
 		switch {
+		case op.DefaultAll && len(op.DefaultExcept) > 0:
+			return s + "ALL EXCEPT " + identList(op.DefaultExcept)
 		case op.DefaultAll:
 			return s + "ALL"
 		case len(op.Roles) == 0:
@@ -321,153 +271,6 @@ func Render(op Op, cluster string, snap *Snapshot) string {
 	return ""
 }
 
-// Inverse returns the ops that undo op, given the state before it ran.
-func Inverse(op Op, snap *Snapshot) []Op {
-	switch op.Kind {
-	case OpCreateRole:
-		return []Op{{Kind: OpDropRole, Name: op.Name}}
-	case OpDropRole:
-		inv := []Op{{Kind: OpCreateRole, Name: op.Name, Profile: firstOf(snap.RoleProfiles[op.Name])}}
-		inv = append(inv, grantsAsOps(snap, Target{Type: "role", Name: op.Name})...)
-		for _, g := range snap.RoleGrants {
-			if g.GrantedRole == op.Name {
-				t := g.Grantee()
-				inv = append(inv, Op{Kind: OpGrantRole, Target: &t, Roles: []string{op.Name}, AdminOption: g.AdminOption})
-			}
-		}
-		return inv
-	case OpSetRoleProfile:
-		return []Op{{Kind: OpSetRoleProfile, Name: op.Name, Profile: firstOf(snap.RoleProfiles[op.Name])}}
-	case OpGrantPrivilege:
-		inv := op
-		inv.Kind = OpRevokePrivilege
-		inv.GrantOption = false
-		return []Op{inv}
-	case OpRevokePrivilege:
-		inv := op
-		inv.Kind = OpGrantPrivilege
-		if op.GrantOption {
-			inv.GrantOption = true
-		}
-		return []Op{inv}
-	case OpGrantRole:
-		inv := op
-		inv.Kind = OpRevokeRole
-		inv.AdminOption = false
-		return []Op{inv}
-	case OpRevokeRole:
-		inv := op
-		inv.Kind = OpGrantRole
-		if op.AdminOption {
-			inv.AdminOption = true
-		} else {
-			for _, g := range snap.RoleGrants {
-				t := g.Grantee()
-				if t == *op.Target && contains(op.Roles, g.GrantedRole) && g.AdminOption {
-					inv.AdminOption = true
-				}
-			}
-		}
-		return []Op{inv}
-	case OpSetDefaultRoles:
-		u := snap.user(op.Target.Name)
-		inv := Op{Kind: OpSetDefaultRoles, Target: op.Target}
-		if u != nil {
-			inv.DefaultAll = u.DefaultAll && len(u.DefaultExcpt) == 0
-			if !u.DefaultAll {
-				inv.Roles = append([]string{}, u.DefaultRoles...)
-			}
-		}
-		return []Op{inv}
-	case OpCreateRowPolicy:
-		return []Op{{Kind: OpDropRowPolicy, RowPolicy: &RowPolicySpec{Name: op.RowPolicy.Name, Database: op.RowPolicy.Database, Table: op.RowPolicy.Table}}}
-	case OpAlterRowPolicy, OpDropRowPolicy:
-		p := snap.rowPolicy(op.RowPolicy.Name, op.RowPolicy.Database, op.RowPolicy.Table)
-		if p == nil {
-			return nil
-		}
-		spec := p.RowPolicySpec
-		kind := OpAlterRowPolicy
-		if op.Kind == OpDropRowPolicy {
-			kind = OpCreateRowPolicy
-		}
-		return []Op{{Kind: kind, RowPolicy: &spec}}
-	case OpCreateQuota:
-		return []Op{{Kind: OpDropQuota, Name: op.Quota.Name}}
-	case OpAlterQuota, OpDropQuota:
-		name := op.Name
-		if op.Quota != nil {
-			name = op.Quota.Name
-		}
-		q := snap.quota(name)
-		if q == nil {
-			return nil
-		}
-		spec := q.QuotaSpec
-		kind := OpAlterQuota
-		if op.Kind == OpDropQuota {
-			kind = OpCreateQuota
-		}
-		return []Op{{Kind: kind, Quota: &spec}}
-	case OpCreateSettingsProfile:
-		return []Op{{Kind: OpDropSettingsProfile, Name: op.SettingsProfile.Name}}
-	case OpAlterSettingsProfile, OpDropSettingsProfile:
-		name := op.Name
-		if op.SettingsProfile != nil {
-			name = op.SettingsProfile.Name
-		}
-		p := snap.profile(name)
-		if p == nil {
-			return nil
-		}
-		spec := p.ProfileSpec
-		kind := OpAlterSettingsProfile
-		if op.Kind == OpDropSettingsProfile {
-			kind = OpCreateSettingsProfile
-		}
-		return []Op{{Kind: kind, SettingsProfile: &spec}}
-	}
-	return nil
-}
-
-func firstOf(list []string) string {
-	if len(list) == 0 {
-		return ""
-	}
-	return list[0]
-}
-
-// grantsAsOps turns the current grants of t into grant_privilege ops, one
-// per object, so a dropped role can be recreated with its privileges.
-func grantsAsOps(snap *Snapshot, t Target) []Op {
-	type key struct {
-		db, table, column string
-		grantOption       bool
-	}
-	groups := map[key][]string{}
-	var order []key
-	for _, g := range snap.Grants {
-		if g.Grantee() != t || g.PartialRevoke {
-			continue
-		}
-		k := key{g.Database, g.Table, g.Column, g.GrantOption}
-		if _, ok := groups[k]; !ok {
-			order = append(order, k)
-		}
-		groups[k] = append(groups[k], g.Access)
-	}
-	var ops []Op
-	for _, k := range order {
-		tt := t
-		op := Op{Kind: OpGrantPrivilege, Target: &tt, Access: groups[k], Database: k.db, Table: k.table, GrantOption: k.grantOption}
-		if k.column != "" {
-			op.Columns = []string{k.column}
-		}
-		ops = append(ops, op)
-	}
-	return ops
-}
-
 // Compose validates ops and builds the plan: ordered statements with their
 // inverses, entity diffs, guard warnings and the plan hash. It reads nothing
 // from ClickHouse; the snapshot and catalog are passed in.
@@ -486,25 +289,78 @@ func Compose(ops []Op, snap *Snapshot, cat Catalog, cluster string, ctx GuardCon
 			return nil, fmt.Errorf("change %d: %w", i+1, err)
 		}
 	}
+	if err := checkOrder(ops, snap); err != nil {
+		return nil, err
+	}
 	plan := &Plan{Cluster: cluster, Statements: []Statement{}, Diffs: []Diff{}, Warnings: []Warning{}}
+	// Statements run in the order they were staged, the same order Diffs
+	// simulates, so the preview is what apply does. Each inverse is read
+	// from the state right before its statement.
+	state := cloneSnapshot(snap)
 	for i, op := range ops {
-		inv := Inverse(op, snap)
+		inv := Inverse(op, state)
+		sql := Render(op, cluster, state)
+		applyOp(state, op)
 		invSQL := make([]string, 0, len(inv))
 		for _, o := range inv {
-			invSQL = append(invSQL, Render(o, cluster, snap))
+			invSQL = append(invSQL, Render(o, cluster, state))
 		}
 		plan.Statements = append(plan.Statements, Statement{
-			SQL: Render(op, cluster, snap), OpIndex: i, Inverse: inv, InverseSQL: strings.Join(invSQL, ";\n"), phase: phaseOf(op.Kind),
+			Seq: i + 1, SQL: sql, OpIndex: i, Inverse: inv, InverseSQL: strings.Join(invSQL, ";\n"),
 		})
-	}
-	sort.SliceStable(plan.Statements, func(a, b int) bool { return plan.Statements[a].phase < plan.Statements[b].phase })
-	for i := range plan.Statements {
-		plan.Statements[i].Seq = i + 1
 	}
 	plan.Diffs = Diffs(ops, snap)
 	plan.Warnings = Guard(ops, snap, cluster, ctx)
 	plan.PlanHash = planHash(plan.Statements, snap)
 	return plan, nil
+}
+
+// checkOrder refuses a plan that uses a role or settings profile before the
+// change that creates it, since statements run in staged order.
+func checkOrder(ops []Op, snap *Snapshot) error {
+	createdRole, createdProfile := map[string]int{}, map[string]int{}
+	for i, op := range ops {
+		if _, ok := createdRole[op.Name]; !ok && op.Kind == OpCreateRole {
+			createdRole[op.Name] = i
+		}
+		if op.Kind == OpCreateSettingsProfile {
+			if _, ok := createdProfile[op.SettingsProfile.Name]; !ok {
+				createdProfile[op.SettingsProfile.Name] = i
+			}
+		}
+	}
+	for i, op := range ops {
+		var roles, profiles []string
+		switch op.Kind {
+		case OpCreateRole:
+			profiles = []string{op.Profile}
+		case OpSetRoleProfile:
+			roles, profiles = []string{op.Name}, []string{op.Profile}
+		case OpGrantPrivilege, OpRevokePrivilege, OpGrantRole, OpRevokeRole, OpSetDefaultRoles:
+			if op.Target.Type == "role" {
+				roles = append(roles, op.Target.Name)
+			}
+			roles = append(append(roles, op.Roles...), op.DefaultExcept...)
+		case OpCreateRowPolicy, OpAlterRowPolicy:
+			roles = append(append(roles, op.RowPolicy.To.Names...), op.RowPolicy.To.Except...)
+		case OpCreateQuota, OpAlterQuota:
+			roles = append(append(roles, op.Quota.To.Names...), op.Quota.To.Except...)
+		case OpCreateSettingsProfile, OpAlterSettingsProfile:
+			roles = append(append(roles, op.SettingsProfile.To.Names...), op.SettingsProfile.To.Except...)
+			profiles = op.SettingsProfile.Inherit
+		}
+		for _, r := range roles {
+			if j, ok := createdRole[r]; ok && j > i && snap.role(r) == nil {
+				return fmt.Errorf("change %d uses role %q before change %d creates it; stage the create first", i+1, r, j+1)
+			}
+		}
+		for _, p := range profiles {
+			if j, ok := createdProfile[p]; ok && j > i && snap.profile(p) == nil {
+				return fmt.Errorf("change %d uses settings profile %q before change %d creates it; stage the create first", i+1, p, j+1)
+			}
+		}
+	}
+	return nil
 }
 
 func planHash(stmts []Statement, snap *Snapshot) string {

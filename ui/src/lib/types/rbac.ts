@@ -84,6 +84,7 @@ export interface RbacOp {
   roles?: string[]
   admin_option?: boolean
   default_all?: boolean
+  default_except?: string[]
   row_policy?: RbacRowPolicySpec
   quota?: RbacQuotaSpec
   settings_profile?: RbacProfileSpec

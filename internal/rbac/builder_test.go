@@ -78,35 +78,99 @@ func TestAlterQuotaClearsRemovedLimits(t *testing.T) {
 	}
 }
 
-func TestComposeOrdersStatements(t *testing.T) {
+func TestComposeKeepsStagedOrder(t *testing.T) {
 	snap := &Snapshot{RoleProfiles: map[string][]string{}, Roles: []Entity{{Name: "old", Storage: "local_directory"}}, Quotas: []Quota{{QuotaSpec: QuotaSpec{Name: "oldq"}}}}
 	ops := []Op{
 		{Kind: OpDropRole, Name: "old"},
+		{Kind: OpCreateSettingsProfile, SettingsProfile: &ProfileSpec{Name: "p"}},
+		{Kind: OpCreateRole, Name: "r"},
 		{Kind: OpRevokePrivilege, Target: role("r"), Access: []string{"INSERT"}},
 		{Kind: OpGrantRole, Target: user("u"), Roles: []string{"r"}},
 		{Kind: OpGrantPrivilege, Target: role("r"), Access: []string{"SELECT"}},
-		{Kind: OpCreateRowPolicy, RowPolicy: &RowPolicySpec{Name: "p", Database: "d", Table: "t", Using: "1"}},
 		{Kind: OpDropQuota, Name: "oldq"},
-		{Kind: OpCreateRole, Name: "r"},
-		{Kind: OpSetDefaultRoles, Target: user("u"), Roles: []string{"r"}},
-		{Kind: OpCreateSettingsProfile, SettingsProfile: &ProfileSpec{Name: "p"}},
-		{Kind: OpCreateQuota, Quota: &QuotaSpec{Name: "q"}},
 		{Kind: OpSetRoleProfile, Name: "r", Profile: "p"},
 	}
 	plan, err := Compose(ops, snap, Catalog{}, "", GuardContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var kinds []string
 	for i, s := range plan.Statements {
-		if s.Seq != i+1 {
-			t.Fatalf("seq %d at %d", s.Seq, i)
+		if s.Seq != i+1 || s.OpIndex != i {
+			t.Fatalf("statement %d: seq %d op %d", i, s.Seq, s.OpIndex)
 		}
-		kinds = append(kinds, ops[s.OpIndex].Kind)
 	}
-	want := []string{OpCreateSettingsProfile, OpCreateQuota, OpCreateRole, OpSetRoleProfile, OpGrantPrivilege, OpGrantRole, OpCreateRowPolicy, OpSetDefaultRoles, OpRevokePrivilege, OpDropQuota, OpDropRole}
-	if strings.Join(kinds, ",") != strings.Join(want, ",") {
-		t.Fatalf("order\n got %v\nwant %v", kinds, want)
+}
+
+func TestComposeRejectsUseBeforeCreate(t *testing.T) {
+	snap := &Snapshot{RoleProfiles: map[string][]string{}, Roles: []Entity{{Name: "kept"}}}
+	cases := []struct {
+		name string
+		ops  []Op
+		ok   bool
+	}{
+		{"grant before create", []Op{{Kind: OpGrantRole, Target: user("u"), Roles: []string{"r"}}, {Kind: OpCreateRole, Name: "r"}}, false},
+		{"privilege before create", []Op{{Kind: OpGrantPrivilege, Target: role("r"), Access: []string{"SELECT"}}, {Kind: OpCreateRole, Name: "r"}}, false},
+		{"profile before create", []Op{{Kind: OpCreateRole, Name: "r", Profile: "p"}, {Kind: OpCreateSettingsProfile, SettingsProfile: &ProfileSpec{Name: "p"}}}, false},
+		{"policy to role before create", []Op{{Kind: OpCreateRowPolicy, RowPolicy: &RowPolicySpec{Name: "p", Database: "d", Table: "t", Using: "1", To: Assignees{Names: []string{"r"}}}}, {Kind: OpCreateRole, Name: "r"}}, false},
+		{"create then grant", []Op{{Kind: OpCreateRole, Name: "r"}, {Kind: OpGrantRole, Target: user("u"), Roles: []string{"r"}}}, true},
+		{"existing role recreated", []Op{{Kind: OpGrantRole, Target: user("u"), Roles: []string{"kept"}}, {Kind: OpDropRole, Name: "kept"}, {Kind: OpCreateRole, Name: "kept"}}, true},
+	}
+	for _, c := range cases {
+		_, err := Compose(c.ops, snap, Catalog{}, "", GuardContext{})
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err = %v", c.name, err)
+		}
+	}
+}
+
+// The preview (Diffs) and the executed statements must agree. Revoking
+// SELECT everywhere and then granting it on one database keeps that
+// database; dropping and recreating a role leaves a fresh role.
+func TestApplyOrderMatchesPreview(t *testing.T) {
+	snap := &Snapshot{
+		RoleProfiles: map[string][]string{},
+		Roles:        []Entity{{Name: "r"}, {Name: "old"}},
+		Grants:       []GrantRow{{RoleName: "r", Access: "SELECT"}, {RoleName: "old", Access: "INSERT"}},
+	}
+	ops := []Op{
+		{Kind: OpRevokePrivilege, Target: role("r"), Access: []string{"SELECT"}},
+		{Kind: OpGrantPrivilege, Target: role("r"), Access: []string{"SELECT"}, Database: "sales"},
+		{Kind: OpDropRole, Name: "old"},
+		{Kind: OpCreateRole, Name: "old"},
+	}
+	plan, err := Compose(ops, snap, Catalog{}, "", GuardContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sqls []string
+	for _, s := range plan.Statements {
+		sqls = append(sqls, s.SQL)
+	}
+	wantSQL := "REVOKE SELECT ON *.* FROM `r`; GRANT SELECT ON `sales`.* TO `r`; DROP ROLE IF EXISTS `old`; CREATE ROLE `old`"
+	if got := strings.Join(sqls, "; "); got != wantSQL {
+		t.Fatalf("statements\n got %s\nwant %s", got, wantSQL)
+	}
+	proposed := map[string]string{}
+	for _, d := range plan.Diffs {
+		proposed[d.Entity] = d.Proposed
+	}
+	if proposed["r"] != "CREATE ROLE `r`\nGRANT SELECT ON `sales`.* TO `r`" {
+		t.Fatalf("r preview = %q", proposed["r"])
+	}
+	if proposed["old"] != "CREATE ROLE `old`" {
+		t.Fatalf("old preview = %q", proposed["old"])
+	}
+	all := make([]Result, len(plan.Statements))
+	for i, s := range plan.Statements {
+		all[i] = Result{Seq: s.Seq, Status: StatusApplied}
+	}
+	var rb []string
+	for _, o := range RollbackOps(plan, all) {
+		rb = append(rb, Render(o, "", nil))
+	}
+	wantRB := "DROP ROLE IF EXISTS `old`; CREATE ROLE `old`; GRANT INSERT ON *.* TO `old`; REVOKE SELECT ON `sales`.* FROM `r`; GRANT SELECT ON *.* TO `r`"
+	if got := strings.Join(rb, "; "); got != wantRB {
+		t.Fatalf("rollback\n got %s\nwant %s", got, wantRB)
 	}
 }
 
@@ -136,7 +200,7 @@ func TestInverses(t *testing.T) {
 		{Op{Kind: OpDropRole, Name: "old"}, "CREATE ROLE `old` SETTINGS PROFILE 'prof'; GRANT SELECT ON `d`.* TO `old`; GRANT `old` TO `u` WITH ADMIN OPTION"},
 		{Op{Kind: OpSetRoleProfile, Name: "old"}, "ALTER ROLE `old` SETTINGS PROFILE 'prof'"},
 		{Op{Kind: OpGrantPrivilege, Target: role("r"), Access: []string{"SELECT"}, GrantOption: true}, "REVOKE SELECT ON *.* FROM `r`"},
-		{Op{Kind: OpRevokePrivilege, Target: role("r"), Access: []string{"SELECT"}, GrantOption: true}, "GRANT SELECT ON *.* TO `r` WITH GRANT OPTION"},
+		{Op{Kind: OpRevokePrivilege, Target: role("r"), Access: []string{"SELECT"}, GrantOption: true}, ""},
 		{Op{Kind: OpGrantRole, Target: user("u"), Roles: []string{"x"}}, "REVOKE `x` FROM `u`"},
 		{Op{Kind: OpRevokeRole, Target: user("u"), Roles: []string{"old"}}, "GRANT `old` TO `u` WITH ADMIN OPTION"},
 		{Op{Kind: OpSetDefaultRoles, Target: user("u"), DefaultAll: true}, "ALTER USER `u` DEFAULT ROLE `a`"},
@@ -162,10 +226,11 @@ func TestRollbackOpsOnlyApplied(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Statements: create a, create b, grant. Only the first two applied.
+	// Statements run as staged: create a, grant, create b. Only the first
+	// two applied.
 	results := []Result{{Seq: 1, Status: StatusApplied}, {Seq: 2, Status: StatusApplied}, {Seq: 3, Status: StatusFailed}}
 	rb := RollbackOps(plan, results)
-	if len(rb) != 2 || rb[0].Kind != OpDropRole || rb[0].Name != "b" || rb[1].Name != "a" {
+	if len(rb) != 2 || rb[0].Kind != OpRevokePrivilege || rb[0].Target.Name != "a" || rb[1].Kind != OpDropRole || rb[1].Name != "a" {
 		t.Fatalf("rollback = %+v", rb)
 	}
 }
@@ -237,5 +302,130 @@ func TestDiffsCanonical(t *testing.T) {
 	}
 	if diffs[1].Current != "" || diffs[1].Proposed != "CREATE ROLE `new`" {
 		t.Fatalf("new role diff = %+v", diffs[1])
+	}
+}
+
+func TestPrivilegeInverseFromSnapshot(t *testing.T) {
+	snap := &Snapshot{
+		RoleProfiles: map[string][]string{},
+		Users:        []UserEntity{{Name: "u"}},
+		Grants: []GrantRow{
+			{UserName: "u", Access: "SELECT"},
+			{UserName: "u", Access: "SELECT", Database: "secret", PartialRevoke: true},
+			{UserName: "u", Access: "INSERT", Database: "d", GrantOption: true},
+		},
+	}
+	cases := []struct {
+		name string
+		op   Op
+		want string
+	}{
+		{"grant already held", Op{Kind: OpGrantPrivilege, Target: user("u"), Access: []string{"SELECT"}, Database: "d"}, ""},
+		{"grant adds grant option only", Op{Kind: OpGrantPrivilege, Target: user("u"), Access: []string{"SELECT"}, Database: "d", GrantOption: true}, "REVOKE GRANT OPTION FOR SELECT ON `d`.* FROM `u`"},
+		{"grant over partial revoke", Op{Kind: OpGrantPrivilege, Target: user("u"), Access: []string{"SELECT"}, Database: "secret"}, "REVOKE SELECT ON `secret`.* FROM `u`"},
+		{"grant clears narrower partial revoke", Op{Kind: OpGrantPrivilege, Target: user("u"), Access: []string{"SELECT"}}, "REVOKE SELECT ON `secret`.* FROM `u`"},
+		{"grant new privilege", Op{Kind: OpGrantPrivilege, Target: user("u"), Access: []string{"ALTER"}, Database: "d", Table: "t"}, "REVOKE ALTER ON `d`.`t` FROM `u`"},
+		{"revoke global keeps partial revoke", Op{Kind: OpRevokePrivilege, Target: user("u"), Access: []string{"SELECT"}}, "GRANT SELECT ON *.* TO `u`; REVOKE SELECT ON `secret`.* FROM `u`"},
+		{"revoke covered table", Op{Kind: OpRevokePrivilege, Target: user("u"), Access: []string{"SELECT"}, Database: "d", Table: "t"}, "GRANT SELECT ON `d`.`t` TO `u`"},
+		{"revoke global restores narrower grant", Op{Kind: OpRevokePrivilege, Target: user("u"), Access: []string{"INSERT"}}, "GRANT INSERT ON `d`.* TO `u` WITH GRANT OPTION"},
+		{"revoke not held", Op{Kind: OpRevokePrivilege, Target: user("u"), Access: []string{"ALTER"}}, ""},
+		{"revoke grant option held", Op{Kind: OpRevokePrivilege, Target: user("u"), Access: []string{"INSERT"}, Database: "d", GrantOption: true}, "GRANT INSERT ON `d`.* TO `u` WITH GRANT OPTION"},
+		{"revoke grant option not held", Op{Kind: OpRevokePrivilege, Target: user("u"), Access: []string{"SELECT"}, GrantOption: true}, ""},
+		{"several privileges fold", Op{Kind: OpRevokePrivilege, Target: user("u"), Access: []string{"SELECT", "INSERT"}, Database: "d"}, "GRANT SELECT ON `d`.* TO `u`; GRANT INSERT ON `d`.* TO `u` WITH GRANT OPTION"},
+		{"same shape folds", Op{Kind: OpRevokePrivilege, Target: user("u"), Access: []string{"SELECT", "ALTER", "CREATE"}}, "GRANT SELECT ON *.* TO `u`; REVOKE SELECT ON `secret`.* FROM `u`"},
+	}
+	for _, c := range cases {
+		var got []string
+		for _, o := range Inverse(c.op, snap) {
+			got = append(got, Render(o, "", snap))
+		}
+		if strings.Join(got, "; ") != c.want {
+			t.Errorf("%s:\n got %s\nwant %s", c.name, strings.Join(got, "; "), c.want)
+		}
+	}
+}
+
+func TestRoleAndDefaultInverses(t *testing.T) {
+	snap := &Snapshot{
+		RoleProfiles: map[string][]string{},
+		Roles:        []Entity{{Name: "old"}, {Name: "base"}},
+		Users: []UserEntity{
+			{Name: "u", DefaultRoles: []string{"old"}},
+			{Name: "v", DefaultAll: true, DefaultExcpt: []string{"old"}},
+			{Name: "w", DefaultAll: true},
+		},
+		Grants: []GrantRow{
+			{RoleName: "old", Access: "SELECT"},
+			{RoleName: "old", Access: "SELECT", Database: "secret", PartialRevoke: true},
+		},
+		RoleGrants: []RoleGrant{
+			{UserName: "u", GrantedRole: "old"},
+			{UserName: "w", GrantedRole: "base", AdminOption: true},
+			{RoleName: "old", GrantedRole: "base"},
+		},
+		RowPolicies: []RowPolicy{
+			{RowPolicySpec: RowPolicySpec{Name: "p", Database: "d", Table: "t", Using: "1", To: Assignees{Names: []string{"old", "w"}}}},
+			{RowPolicySpec: RowPolicySpec{Name: "other", Database: "d", Table: "t", Using: "1", To: Assignees{Names: []string{"w"}}}},
+		},
+		Quotas:           []Quota{{QuotaSpec: QuotaSpec{Name: "q", To: Assignees{All: true, Except: []string{"old"}}}}},
+		SettingsProfiles: []SettingsProfile{{ProfileSpec: ProfileSpec{Name: "sp", To: Assignees{Names: []string{"old"}}}}},
+	}
+	cases := []struct {
+		name string
+		op   Op
+		want string
+	}{
+		{"default all except", Op{Kind: OpSetDefaultRoles, Target: user("v")}, "ALTER USER `v` DEFAULT ROLE ALL EXCEPT `old`"},
+		{"default all", Op{Kind: OpSetDefaultRoles, Target: user("w")}, "ALTER USER `w` DEFAULT ROLE ALL"},
+		{"default list", Op{Kind: OpSetDefaultRoles, Target: user("u"), DefaultAll: true}, "ALTER USER `u` DEFAULT ROLE `old`"},
+		{"grant held role", Op{Kind: OpGrantRole, Target: user("u"), Roles: []string{"old"}}, ""},
+		{"grant admin on held role", Op{Kind: OpGrantRole, Target: user("u"), Roles: []string{"old", "base"}, AdminOption: true}, "REVOKE `base` FROM `u`; REVOKE ADMIN OPTION FOR `old` FROM `u`"},
+		{"revoke role restores defaults", Op{Kind: OpRevokeRole, Target: user("u"), Roles: []string{"old"}}, "GRANT `old` TO `u`; ALTER USER `u` DEFAULT ROLE `old`"},
+		{"revoke admin option not held", Op{Kind: OpRevokeRole, Target: user("u"), Roles: []string{"old"}, AdminOption: true}, ""},
+		{"revoke role not held", Op{Kind: OpRevokeRole, Target: user("v"), Roles: []string{"old"}}, ""},
+		{"drop missing role", Op{Kind: OpDropRole, Name: "ghost"}, ""},
+		{"drop role", Op{Kind: OpDropRole, Name: "old"}, strings.Join([]string{
+			"CREATE ROLE `old`",
+			"GRANT SELECT ON *.* TO `old`",
+			"REVOKE SELECT ON `secret`.* FROM `old`",
+			"GRANT `base` TO `old`",
+			"GRANT `old` TO `u`",
+			"ALTER USER `u` DEFAULT ROLE `old`",
+			"ALTER USER `v` DEFAULT ROLE ALL EXCEPT `old`",
+			"ALTER ROW POLICY `p` ON `d`.`t` FOR SELECT USING (1) AS PERMISSIVE TO `old`, `w`",
+			"ALTER QUOTA `q` NOT KEYED TO ALL EXCEPT `old`",
+			"ALTER SETTINGS PROFILE `sp` SETTINGS NONE TO `old`",
+		}, "; ")},
+	}
+	for _, c := range cases {
+		var got []string
+		for _, o := range Inverse(c.op, snap) {
+			got = append(got, Render(o, "", snap))
+		}
+		if strings.Join(got, "; ") != c.want {
+			t.Errorf("%s:\n got %s\nwant %s", c.name, strings.Join(got, "; "), c.want)
+		}
+	}
+}
+
+// Dropping a role in the preview also takes it out of default roles and TO
+// lists, which is what the drop role rollback puts back.
+func TestDiffDropRoleClearsReferences(t *testing.T) {
+	snap := &Snapshot{
+		RoleProfiles: map[string][]string{},
+		Roles:        []Entity{{Name: "old"}},
+		Users:        []UserEntity{{Name: "u", DefaultRoles: []string{"old"}}},
+		Quotas:       []Quota{{QuotaSpec: QuotaSpec{Name: "q", To: Assignees{Names: []string{"old", "u"}}}}},
+	}
+	after := cloneSnapshot(snap)
+	applyOp(after, Op{Kind: OpDropRole, Name: "old"})
+	if got := renderEntity(after, KindUser, "u"); got != "ALTER USER `u` DEFAULT ROLE NONE" {
+		t.Fatalf("user = %s", got)
+	}
+	if got := renderEntity(after, KindQuota, "q"); got != "CREATE QUOTA `q` NOT KEYED TO `u`" {
+		t.Fatalf("quota = %s", got)
+	}
+	if len(snap.Quotas[0].To.Names) != 2 {
+		t.Fatal("the before snapshot changed")
 	}
 }

@@ -37,7 +37,7 @@ export function describeOp(op: RbacOp): string {
     case 'revoke_role':
       return `Revoke ${op.admin_option ? 'admin option for ' : ''}role ${(op.roles ?? []).join(', ')} from ${who}`
     case 'set_default_roles':
-      return `Set default roles of ${who} to ${op.default_all ? 'ALL' : op.roles && op.roles.length ? op.roles.join(', ') : 'NONE'}`
+      return `Set default roles of ${who} to ${op.default_all ? (op.default_except?.length ? `ALL EXCEPT ${op.default_except.join(', ')}` : 'ALL') : op.roles && op.roles.length ? op.roles.join(', ') : 'NONE'}`
     case 'create_row_policy':
     case 'alter_row_policy': {
       const p = op.row_policy
