@@ -6,10 +6,15 @@
 package monitor
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/caioricciuti/ch-ui/connector"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/telemetry"
 	"github.com/caioricciuti/ch-ui/internal/testutil"
@@ -25,8 +30,28 @@ func TestBackgroundAccountExecution(t *testing.T) {
 		}
 		return &tunnel.AgentMessage{Type: "query_result", Data: json.RawMessage(data)}
 	})
+	// Against a live ClickHouse the fixture above is bypassed, so the logs
+	// table has to exist. A unique name per run keeps parallel runs apart.
+	table := "otel_logs"
+	if endpoint := os.Getenv("CHUI_TEST_CLICKHOUSE_URL"); endpoint != "" {
+		table = fmt.Sprintf("chui_bg_monitor_logs_%d", time.Now().UnixNano())
+		exec := func(sql string) error {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_, err := connector.NewCHClient(endpoint, false).Execute(ctx, sql, os.Getenv("CHUI_TEST_CLICKHOUSE_USER"), os.Getenv("CHUI_TEST_CLICKHOUSE_PASSWORD"), nil)
+			return err
+		}
+		if err := exec("CREATE TABLE default." + table + " (Timestamp DateTime64(9), Body String) ENGINE = MergeTree ORDER BY Timestamp"); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := exec("DROP TABLE IF EXISTS default." + table); err != nil {
+				t.Error(err)
+			}
+		})
+	}
 	mapping := telemetry.DefaultLogsMapping()
-	source, err := db.CreateTelemetrySource(&telemetry.Source{ConnectionID: conn, Name: "logs", Kind: telemetry.KindLogs, Database: "default", Table: "otel_logs", Logs: &mapping, Enabled: true})
+	source, err := db.CreateTelemetrySource(&telemetry.Source{ConnectionID: conn, Name: "logs", Kind: telemetry.KindLogs, Database: "default", Table: table, Logs: &mapping, Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
