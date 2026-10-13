@@ -143,6 +143,12 @@ func (h *BrainHandler) saveTurnUsage(t *brainTurn) {
 	if t == nil || t.usage == nil || h.DB == nil || t.runtimeModel == nil {
 		return
 	}
+	if t.usageSaved != nil {
+		if *t.usageSaved {
+			return
+		}
+		*t.usageSaved = true
+	}
 	u := *t.usage
 	provider := providerLabel(t.runtimeModel)
 	model := t.runtimeModel.ModelName
