@@ -105,6 +105,12 @@ export interface PageSection {
 }
 
 export const PAGE_SECTIONS: Partial<Record<PageRoute, PageSection[]>> = {
+  'saved-queries': [
+    { id: 'all', label: 'All' },
+    { id: 'mine', label: 'Mine' },
+    { id: 'shared', label: 'Shared' },
+    { id: 'verified', label: 'Verified' },
+  ],
   'cluster-health': [
     { id: 'overview', label: 'Overview' },
     { id: 'replication', label: 'Replication' },

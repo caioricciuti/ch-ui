@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -95,7 +96,7 @@ func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Name:        "save_query",
 		Title:       title,
 		Annotations: ann,
-		Description: "Save a SQL query in CH-UI's saved queries library (visible to every user of this instance).",
+		Description: "Save a SQL query in CH-UI's saved queries library (shared: visible to every user of this instance).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args saveQueryArgs) (*mcp.CallToolResult, any, error) {
 		name := strings.TrimSpace(args.Name)
 		sqlText := strings.TrimSpace(args.SQL)
@@ -114,6 +115,9 @@ func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		})
 		if err != nil {
 			return errResult("failed to save query: %v", err), nil, nil
+		}
+		if _, err := deps.DB.RecordSavedQueryVersion(id, mcpAuthor(ak), "Created"); err != nil {
+			slog.Warn("Failed to record saved query version", "error", err, "id", id)
 		}
 		audit(deps, ak, "saved_query.created", "mcp key: "+ak.key.Name+", query: "+name)
 		return jsonResult(map[string]any{"id": id, "name": name, "note": "saved; find it under Saved Queries"}), nil, nil
@@ -323,15 +327,16 @@ func registerListTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Name:        "list_saved_queries",
 		Title:       title,
 		Annotations: ann,
-		Description: "List the saved queries usable on this connection (name, description, creator): queries bound to this connection plus connection-independent ones.",
+		Description: "List the shared saved queries usable on this connection (name, description, creator), plus the ones this key saved: queries bound to this connection and connection-independent ones.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args pageArgs) (*mcp.CallToolResult, any, error) {
-		queries, err := deps.DB.GetSavedQueries()
+		queries, err := deps.DB.ListSavedQueriesVisibleTo(mcpViewer(ak))
 		if err != nil {
 			return errResult("failed to list saved queries: %v", err), nil, nil
 		}
 		out := make([]map[string]any, 0, len(queries))
-		for _, q := range queries {
-			if q.ConnectionID != nil && *q.ConnectionID != "" && *q.ConnectionID != ak.key.ConnectionID {
+		for i := range queries {
+			q := queries[i]
+			if !savedQueryVisible(&q, ak) {
 				continue
 			}
 			out = append(out, map[string]any{"id": q.ID, "name": q.Name, "description": q.Description, "created_by": q.CreatedBy})

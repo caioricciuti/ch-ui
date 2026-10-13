@@ -24,15 +24,26 @@ type SavedQueriesHandler struct {
 // Routes registers saved query routes on the given router.
 func (h *SavedQueriesHandler) Routes(r chi.Router) {
 	// Writes require admin/analyst; viewers are read-only (they can still list,
-	// view, and run saved queries).
+	// view, and run the saved queries they can see). Owner checks happen in
+	// the handlers: only the creator or an admin may change a query.
 	writer := middleware.RequireWriter()
 
 	r.Get("/", h.List)
-	r.Get("/{id}", h.Get)
 	r.With(writer).Post("/", h.Create)
+
+	// Folders are global and nest; any writer may manage them.
+	r.Get("/folders", h.ListFolders)
+	r.With(writer).Post("/folders", h.CreateFolder)
+	r.With(writer).Put("/folders/{folderId}", h.UpdateFolder)
+	r.With(writer).Delete("/folders/{folderId}", h.DeleteFolder)
+
+	r.Get("/{id}", h.Get)
 	r.With(writer).Put("/{id}", h.Update)
 	r.With(writer).Delete("/{id}", h.Delete)
 	r.With(writer).Post("/{id}/duplicate", h.Duplicate)
+	r.Get("/{id}/versions", h.ListVersions)
+	r.Get("/{id}/versions/{version}", h.GetVersion)
+	r.With(writer).Post("/{id}/versions/{version}/restore", h.RestoreVersion)
 	// Executing a saved query with bind parameters is a Pro feature.
 	if h.Config != nil {
 		r.With(middleware.RequirePro(h.Config)).Post("/{id}/run", h.Run)
@@ -52,45 +63,97 @@ func marshalParams(p map[string]string) string {
 	return string(b)
 }
 
-// List returns all saved queries.
+// List returns the saved queries the caller can see. Query parameters:
+// scope=all|mine|shared|verified, folder=<id> (that folder and its
+// subfolders) or folder=root, owners=all (admins: include other people's
+// private queries).
 func (h *SavedQueriesHandler) List(w http.ResponseWriter, r *http.Request) {
-	queries, err := h.DB.GetSavedQueries()
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+	viewer := listViewer(session, r.URL.Query().Get("owners") == "all")
+	queries, err := h.DB.ListSavedQueriesVisibleTo(viewer)
 	if err != nil {
 		slog.Error("Failed to list saved queries", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to fetch saved queries")
 		return
 	}
 
-	if queries == nil {
-		queries = []database.SavedQuery{}
+	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
+	folder := strings.TrimSpace(r.URL.Query().Get("folder"))
+	var inFolder map[string]bool
+	if folder != "" && folder != "root" {
+		inFolder, err = h.folderSubtree(folder)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to load folders")
+			return
+		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{"saved_queries": queries})
+	out := make([]database.SavedQuery, 0, len(queries))
+	for _, q := range queries {
+		switch scope {
+		case "mine":
+			if q.Owner != viewer.Actor {
+				continue
+			}
+		case "shared":
+			if q.Visibility != database.SavedQueryShared {
+				continue
+			}
+		case "verified":
+			if !q.Verified {
+				continue
+			}
+		}
+		switch {
+		case folder == "root":
+			if q.FolderID != nil {
+				continue
+			}
+		case inFolder != nil:
+			if q.FolderID == nil || !inFolder[*q.FolderID] {
+				continue
+			}
+		}
+		q.CanEdit = database.CanEditSavedQuery(&q, viewer)
+		out = append(out, q)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"saved_queries": out})
 }
 
 // Get returns a single saved query by ID.
 func (h *SavedQueriesHandler) Get(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Query ID is required")
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
 		return
 	}
-
-	query, err := h.DB.GetSavedQueryByID(id)
-	if err != nil {
-		slog.Error("Failed to get saved query", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Failed to fetch saved query")
+	q := h.loadSavedQuery(w, r, session, false)
+	if q == nil {
 		return
 	}
-	if query == nil {
-		writeError(w, http.StatusNotFound, "Saved query not found")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, query)
+	writeJSON(w, http.StatusOK, q)
 }
 
-// Create creates a new saved query.
+// savedQueryBody is the JSON body of create and update.
+type savedQueryBody struct {
+	Name         *string           `json:"name"`
+	Description  *string           `json:"description"`
+	Query        *string           `json:"query"`
+	Parameters   map[string]string `json:"parameters"`
+	ConnectionID *string           `json:"connection_id"`
+	Verified     *bool             `json:"verified"`
+	FolderID     *string           `json:"folder_id"`
+	Tags         *[]string         `json:"tags"`
+	Visibility   *string           `json:"visibility"`
+}
+
+// Create creates a new saved query owned by the caller and records it as
+// version 1.
 func (h *SavedQueriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
@@ -98,21 +161,14 @@ func (h *SavedQueriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
-		Name         string            `json:"name"`
-		Description  string            `json:"description"`
-		Query        string            `json:"query"`
-		Parameters   map[string]string `json:"parameters"`
-		ConnectionID string            `json:"connection_id"`
-		Verified     bool              `json:"verified"`
-	}
+	var body savedQueryBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	name := strings.TrimSpace(body.Name)
-	sqlQuery := strings.TrimSpace(body.Query)
+	name := strings.TrimSpace(deref(body.Name))
+	sqlQuery := strings.TrimSpace(deref(body.Query))
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "Name is required")
 		return
@@ -122,29 +178,52 @@ func (h *SavedQueriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	connectionID := strings.TrimSpace(body.ConnectionID)
+	connectionID := strings.TrimSpace(deref(body.ConnectionID))
 	if connectionID == "" {
 		connectionID = session.ConnectionID
 	}
+	visibility := database.SavedQueryShared
+	if body.Visibility != nil && strings.TrimSpace(*body.Visibility) != "" {
+		visibility = strings.TrimSpace(*body.Visibility)
+	}
+	if !h.checkVisibility(w, session, visibility) {
+		return
+	}
+	folderID := strings.TrimSpace(deref(body.FolderID))
+	if !h.checkFolder(w, folderID) {
+		return
+	}
+	var tags []string
+	if body.Tags != nil {
+		if !checkSavedQueryTags(w, *body.Tags) {
+			return
+		}
+		tags = database.NormalizeSavedQueryTags(*body.Tags)
+	}
 
+	actor := middleware.Actor(session)
 	id, err := h.DB.CreateSavedQuery(database.CreateSavedQueryParams{
 		Name:         name,
-		Description:  strings.TrimSpace(body.Description),
+		Description:  strings.TrimSpace(deref(body.Description)),
 		Query:        sqlQuery,
 		Parameters:   marshalParams(body.Parameters),
 		ConnectionID: connectionID,
-		CreatedBy:    middleware.Actor(session),
-		Verified:     body.Verified,
+		CreatedBy:    actor,
+		Verified:     body.Verified != nil && *body.Verified,
+		FolderID:     folderID,
+		Tags:         tags,
+		Visibility:   visibility,
 	})
 	if err != nil {
 		slog.Error("Failed to create saved query", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create saved query")
 		return
 	}
+	h.recordVersion(id, actor, "Created")
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
 		Action:         "saved_query.created",
-		Username:       strPtr(middleware.Actor(session)),
+		Username:       strPtr(actor),
 		ClickhouseUser: &session.ClickhouseUser,
 		Details:        strPtr(name),
 	})
@@ -154,74 +233,56 @@ func (h *SavedQueriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusCreated, map[string]string{"id": id})
 		return
 	}
-
+	created.CanEdit = true
 	writeJSON(w, http.StatusCreated, created)
 }
 
-// Update updates an existing saved query.
+// Update changes a saved query. Content changes (name, description, SQL,
+// parameters, connection) are recorded as a new version; folder, tags and
+// visibility are not part of the history.
 func (h *SavedQueriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
 		writeError(w, http.StatusUnauthorized, "Not authenticated")
 		return
 	}
-
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Query ID is required")
-		return
-	}
-
-	existing, err := h.DB.GetSavedQueryByID(id)
-	if err != nil {
-		slog.Error("Failed to get saved query for update", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Failed to fetch saved query")
-		return
-	}
+	existing := h.loadSavedQuery(w, r, session, true)
 	if existing == nil {
-		writeError(w, http.StatusNotFound, "Saved query not found")
 		return
 	}
+	id := existing.ID
+	viewer := byIDViewer(session)
+	actor := viewer.Actor
 
-	var body struct {
-		Name         *string           `json:"name"`
-		Description  *string           `json:"description"`
-		Query        *string           `json:"query"`
-		Parameters   map[string]string `json:"parameters"`
-		ConnectionID *string           `json:"connection_id"`
-		Verified     *bool             `json:"verified"`
-	}
+	var body savedQueryBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	params := database.UpdateSavedQueryParams{
-		Name:       existing.Name,
-		Query:      existing.Query,
-		Parameters: deref(existing.Parameters),
-		Verified:   existing.Verified,
-	}
-	if existing.Description != nil {
-		params.Description = *existing.Description
-	}
-	if existing.ConnectionID != nil {
-		params.ConnectionID = *existing.ConnectionID
+		Name:         existing.Name,
+		Description:  deref(existing.Description),
+		Query:        existing.Query,
+		Parameters:   deref(existing.Parameters),
+		ConnectionID: deref(existing.ConnectionID),
+		Verified:     existing.Verified,
 	}
 
-	changed := false
+	contentChanged := false
 	if body.Name != nil {
 		n := strings.TrimSpace(*body.Name)
 		if n == "" {
 			writeError(w, http.StatusBadRequest, "Name cannot be empty")
 			return
 		}
+		contentChanged = contentChanged || n != params.Name
 		params.Name = n
-		changed = true
 	}
 	if body.Description != nil {
-		params.Description = strings.TrimSpace(*body.Description)
-		changed = true
+		d := strings.TrimSpace(*body.Description)
+		contentChanged = contentChanged || d != params.Description
+		params.Description = d
 	}
 	if body.Query != nil {
 		q := strings.TrimSpace(*body.Query)
@@ -229,46 +290,118 @@ func (h *SavedQueriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Query cannot be empty")
 			return
 		}
+		contentChanged = contentChanged || q != params.Query
 		params.Query = q
-		changed = true
 	}
 	if body.Parameters != nil {
-		params.Parameters = marshalParams(body.Parameters)
-		changed = true
+		p := marshalParams(body.Parameters)
+		contentChanged = contentChanged || p != params.Parameters
+		params.Parameters = p
 	}
 	if body.ConnectionID != nil {
-		params.ConnectionID = strings.TrimSpace(*body.ConnectionID)
-		changed = true
+		c := strings.TrimSpace(*body.ConnectionID)
+		contentChanged = contentChanged || c != params.ConnectionID
+		params.ConnectionID = c
 	}
-	if body.Verified != nil {
+	verifiedChanged := body.Verified != nil && *body.Verified != existing.Verified
+	if verifiedChanged {
+		if !database.CanVerifySavedQuery(existing, viewer) {
+			writeError(w, http.StatusForbidden, "Only the owner or an admin can change the verified mark")
+			return
+		}
 		params.Verified = *body.Verified
-		changed = true
 	}
 
-	if !changed {
-		writeError(w, http.StatusBadRequest, "No valid fields to update")
+	folderID := deref(existing.FolderID)
+	folderChanged := false
+	if body.FolderID != nil {
+		f := strings.TrimSpace(*body.FolderID)
+		if f != folderID {
+			if !h.checkFolder(w, f) {
+				return
+			}
+			folderID, folderChanged = f, true
+		}
+	}
+	var tags []string
+	tagsChanged := false
+	if body.Tags != nil {
+		if !checkSavedQueryTags(w, *body.Tags) {
+			return
+		}
+		tags = database.NormalizeSavedQueryTags(*body.Tags)
+		tagsChanged = strings.Join(tags, "\x00") != strings.Join(existing.Tags, "\x00")
+	}
+	visibility := existing.Visibility
+	visibilityChanged := false
+	if body.Visibility != nil {
+		v := strings.TrimSpace(*body.Visibility)
+		if v != existing.Visibility {
+			if !h.checkVisibility(w, session, v) {
+				return
+			}
+			visibility, visibilityChanged = v, true
+		}
+	}
+
+	if !contentChanged && !verifiedChanged && !folderChanged && !tagsChanged && !visibilityChanged {
+		existing.CanEdit = true
+		writeJSON(w, http.StatusOK, existing)
 		return
 	}
 
-	if err := h.DB.UpdateSavedQuery(id, params); err != nil {
-		slog.Error("Failed to update saved query", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Failed to update saved query")
-		return
+	if contentChanged || verifiedChanged {
+		if contentChanged {
+			if err := h.DB.EnsureSavedQueryBaseline(id); err != nil {
+				slog.Warn("Failed to record baseline saved query version", "error", err, "id", id)
+			}
+		}
+		if err := h.DB.UpdateSavedQuery(id, params); err != nil {
+			slog.Error("Failed to update saved query", "error", err, "id", id)
+			writeError(w, http.StatusInternalServerError, "Failed to update saved query")
+			return
+		}
+		if contentChanged {
+			h.recordVersion(id, actor, "")
+		}
+		h.audit(session, "saved_query.updated", params.Name)
 	}
-
-	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:         "saved_query.updated",
-		Username:       strPtr(middleware.Actor(session)),
-		ClickhouseUser: &session.ClickhouseUser,
-		Details:        strPtr(params.Name),
-	})
+	if folderChanged {
+		if err := h.DB.SetSavedQueryFolder(id, folderID); err != nil {
+			slog.Error("Failed to move saved query", "error", err, "id", id)
+			writeError(w, http.StatusInternalServerError, "Failed to move saved query")
+			return
+		}
+		dest := "root"
+		if folderID != "" {
+			if f, _ := h.DB.GetSavedQueryFolder(folderID); f != nil {
+				dest = f.Name
+			}
+		}
+		h.audit(session, "saved_query.moved", params.Name+" to "+dest)
+	}
+	if tagsChanged {
+		if err := h.DB.SetSavedQueryTags(id, tags); err != nil {
+			slog.Error("Failed to set saved query tags", "error", err, "id", id)
+			writeError(w, http.StatusInternalServerError, "Failed to set tags")
+			return
+		}
+	}
+	if visibilityChanged {
+		if err := h.DB.SetSavedQueryVisibility(id, visibility, actor); err != nil {
+			slog.Error("Failed to set saved query visibility", "error", err, "id", id)
+			writeError(w, http.StatusInternalServerError, "Failed to change visibility")
+			return
+		}
+		h.audit(session, "saved_query.visibility_changed", params.Name+": "+existing.Visibility+" to "+visibility)
+	}
 
 	updated, err := h.DB.GetSavedQueryByID(id)
 	if err != nil || updated == nil {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 		return
 	}
-
+	updated.CanEdit = database.CanEditSavedQuery(updated, viewer)
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -279,67 +412,34 @@ func (h *SavedQueriesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "Not authenticated")
 		return
 	}
-
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Query ID is required")
-		return
-	}
-
-	existing, err := h.DB.GetSavedQueryByID(id)
-	if err != nil {
-		slog.Error("Failed to get saved query for delete", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Failed to fetch saved query")
-		return
-	}
+	existing := h.loadSavedQuery(w, r, session, true)
 	if existing == nil {
-		writeError(w, http.StatusNotFound, "Saved query not found")
 		return
 	}
 
-	if err := h.DB.DeleteSavedQuery(id); err != nil {
-		slog.Error("Failed to delete saved query", "error", err, "id", id)
+	if err := h.DB.DeleteSavedQuery(existing.ID); err != nil {
+		slog.Error("Failed to delete saved query", "error", err, "id", existing.ID)
 		writeError(w, http.StatusInternalServerError, "Failed to delete saved query")
 		return
 	}
-
-	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:         "saved_query.deleted",
-		Username:       strPtr(middleware.Actor(session)),
-		ClickhouseUser: &session.ClickhouseUser,
-		Details:        strPtr(existing.Name),
-	})
-
+	h.audit(session, "saved_query.deleted", existing.Name)
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
-// Duplicate creates a copy of an existing saved query. An optional "name" in the
-// body sets the copy's name; otherwise it falls back to "<original> (copy)".
+// Duplicate copies a saved query the caller can see. The copy belongs to
+// the caller, is private, and keeps the folder and tags. An optional "name"
+// in the body sets the copy's name; otherwise it is "<original> (copy)".
 func (h *SavedQueriesHandler) Duplicate(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
 		writeError(w, http.StatusUnauthorized, "Not authenticated")
 		return
 	}
-
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Query ID is required")
-		return
-	}
-
-	original, err := h.DB.GetSavedQueryByID(id)
-	if err != nil {
-		slog.Error("Failed to get saved query for duplicate", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Failed to fetch saved query")
-		return
-	}
+	original := h.loadSavedQuery(w, r, session, false)
 	if original == nil {
-		writeError(w, http.StatusNotFound, "Saved query not found")
 		return
 	}
 
-	// Optional custom name for the duplicate.
 	var body struct {
 		Name string `json:"name"`
 	}
@@ -349,42 +449,32 @@ func (h *SavedQueriesHandler) Duplicate(w http.ResponseWriter, r *http.Request) 
 		newName = strings.TrimSpace(original.Name + " (copy)")
 	}
 
-	description := ""
-	if original.Description != nil {
-		description = *original.Description
-	}
-	connectionID := ""
-	if original.ConnectionID != nil {
-		connectionID = *original.ConnectionID
-	}
-
+	actor := middleware.Actor(session)
 	newID, err := h.DB.CreateSavedQuery(database.CreateSavedQueryParams{
 		Name:         newName,
-		Description:  description,
+		Description:  deref(original.Description),
 		Query:        original.Query,
 		Parameters:   deref(original.Parameters),
-		ConnectionID: connectionID,
-		CreatedBy:    middleware.Actor(session),
+		ConnectionID: deref(original.ConnectionID),
+		CreatedBy:    actor,
+		FolderID:     deref(original.FolderID),
+		Tags:         original.Tags,
+		Visibility:   database.SavedQueryPrivate,
 	})
 	if err != nil {
-		slog.Error("Failed to duplicate saved query", "error", err, "id", id)
+		slog.Error("Failed to duplicate saved query", "error", err, "id", original.ID)
 		writeError(w, http.StatusInternalServerError, "Failed to duplicate saved query")
 		return
 	}
-
-	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:         "saved_query.duplicated",
-		Username:       strPtr(middleware.Actor(session)),
-		ClickhouseUser: &session.ClickhouseUser,
-		Details:        strPtr("Duplicated from " + id),
-	})
+	h.recordVersion(newID, actor, "Duplicated from "+original.Name)
+	h.audit(session, "saved_query.duplicated", "Duplicated from "+original.ID)
 
 	duplicated, err := h.DB.GetSavedQueryByID(newID)
 	if err != nil || duplicated == nil {
 		writeJSON(w, http.StatusCreated, map[string]string{"id": newID})
 		return
 	}
-
+	duplicated.CanEdit = true
 	writeJSON(w, http.StatusCreated, duplicated)
 }
 

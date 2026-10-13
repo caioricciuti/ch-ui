@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/caioricciuti/ch-ui/internal/database"
 )
 
 func RegisterDeletes(r *Registry) {
@@ -104,6 +106,17 @@ var deleteSavedQuery = Tool{
 		id, err := decodeIDArg(args)
 		if err != nil {
 			return nil, err
+		}
+		viewer := savedQueryViewer(tctx)
+		sq, err := tctx.DB.GetSavedQueryVisibleTo(id, viewer)
+		if err != nil {
+			return nil, fmt.Errorf("lookup saved query: %w", err)
+		}
+		if sq == nil {
+			return nil, fmt.Errorf("saved query %s not found", id)
+		}
+		if !database.CanEditSavedQuery(sq, viewer) {
+			return nil, errors.New("only the owner or an admin can delete this saved query")
 		}
 		if err := tctx.DB.DeleteSavedQuery(id); err != nil {
 			return nil, fmt.Errorf("delete saved query: %w", err)

@@ -16,6 +16,7 @@ export const SCOPED_KEYS = [
   'ch-ui-pinned-results',
   'ch-ui-palette-recent',
   'ch-ui-dash-folders-open',
+  'ch-ui-saved-query-folders-open',
   'ch-ui-telemetry-log-columns',
 ] as const
 

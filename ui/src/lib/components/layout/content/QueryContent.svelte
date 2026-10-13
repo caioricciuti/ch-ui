@@ -43,7 +43,8 @@
   import { getResultFiltersEnabled } from '../../../stores/result-filters.svelte'
   import { formatSQLDetailed, explainQuery, fetchQueryPlan, runSampleQuery, fetchQueryProfile, estimateQuery } from '../../../api/query'
   import type { QueryPlanNode, QueryEstimateResult, QueryProgress } from '../../../types/query'
-  import type { SavedQuery } from '../../../types/api'
+  import type { SavedQuery, SavedQueryFolder, SavedQueryVisibility } from '../../../types/api'
+  import { listSavedQueryFolders, folderOptions as savedQueryFolderOptions, visibilityOptions } from '../../../api/savedQueries'
   import { executeStreamQuery } from '../../../api/stream'
   import { apiPost, apiPut } from '../../../api/client'
   import { getMaxResultRows } from '../../../stores/query-limit.svelte'
@@ -64,6 +65,7 @@
   import Sheet from '../../common/Sheet.svelte'
   import FormField from '../../common/FormField.svelte'
   import Input from '../../common/Input.svelte'
+  import Select from '../../common/Select.svelte'
   import QueryHistoryPanel from '../../editor/QueryHistoryPanel.svelte'
   import AskAIBar from '../../editor/AskAIBar.svelte'
   import SqlDiff from '../../common/SqlDiff.svelte'
@@ -137,7 +139,11 @@
   let showSaveModal = $state(false)
   let saveName = $state('')
   let saveDescription = $state('')
+  let saveFolder = $state('')
+  let saveVisibility = $state<SavedQueryVisibility>('shared')
+  let saveFolders = $state<SavedQueryFolder[]>([])
   let saving = $state(false)
+  const saveIsAdmin = $derived(getSession()?.role === 'admin')
 
   const result = $derived(getTabResult(tab.id))
   const tabResults = $derived(getTabResults(tab.id))
@@ -881,7 +887,11 @@
     }
     saveName = tab.name
     saveDescription = ''
+    saveFolder = ''
+    saveVisibility = 'shared'
     showSaveModal = true
+    // Folders are optional; a failure leaves the picker at the root.
+    listSavedQueryFolders().then((f) => (saveFolders = f)).catch(() => (saveFolders = []))
   }
 
   async function saveLinkedSavedQuery() {
@@ -916,6 +926,8 @@
         description: saveDescription.trim(),
         query: sql,
         parameters,
+        folder_id: saveFolder,
+        visibility: saveVisibility,
       })
       if (created?.id) {
         markQueryTabSaved(tab.id, {
@@ -1193,6 +1205,12 @@
     </FormField>
     <FormField label="Description" for="save-query-description" controlWidth="full" hint="Optional.">
       <Input id="save-query-description" bind:value={saveDescription} autocomplete="off" />
+    </FormField>
+    <FormField label="Folder" for="save-query-folder" controlWidth="full">
+      <Select id="save-query-folder" options={savedQueryFolderOptions(saveFolders)} bind:value={saveFolder} />
+    </FormField>
+    <FormField label="Visible to" for="save-query-visibility" controlWidth="full" hint="Everyone can see and run shared queries. Change it later from Saved Queries.">
+      <Select id="save-query-visibility" options={visibilityOptions(saveIsAdmin)} bind:value={saveVisibility} />
     </FormField>
     <button type="submit" class="hidden" aria-hidden="true"></button>
   </form>

@@ -1315,6 +1315,10 @@ Formatting:
 		return err
 	}
 
+	if err := db.migrateSavedQueriesV2(); err != nil {
+		return err
+	}
+
 	if err := db.migrateReportsV2(); err != nil {
 		return err
 	}

@@ -380,7 +380,7 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 	chatID, assistantMessageID := t.chatID, t.assistantMessageID
 	canWrite := isWriterRole(session.UserRole)
 
-	systemPrompt := h.buildSystemPrompt(t.contexts, t.entities, true, canWrite) + historyOmittedNote(t.omitted)
+	systemPrompt := h.buildSystemPrompt(t.contexts, t.entities, listViewer(t.session, false), true, canWrite) + historyOmittedNote(t.omitted)
 	chatMessages := append([]braincore.ChatMessage{{Role: "system", Content: systemPrompt}}, toChatMessages(t.history)...)
 
 	registry := newBrainRegistry()
@@ -607,7 +607,7 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 	}
 
 	if legacyFallback {
-		simplePrompt := h.buildSystemPrompt(t.contexts, t.entities, false, canWrite) + historyOmittedNote(t.omitted)
+		simplePrompt := h.buildSystemPrompt(t.contexts, t.entities, listViewer(t.session, false), false, canWrite) + historyOmittedNote(t.omitted)
 		legacyMsgs := []braincore.Message{{Role: "system", Content: simplePrompt}}
 		needSep := built.Len() > 0
 		for _, m := range chatMessages {

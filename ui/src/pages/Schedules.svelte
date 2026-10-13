@@ -356,8 +356,8 @@
                   <Badge tone={badge.tone} dot>{badge.label}</Badge>
                   <span>Last: {formatDate(schedule.last_run_at)}</span>
                   <span>Next: {formatDate(schedule.next_run_at)}</span>
-                  {#if queryRef}
-                    <span class="text-fg-4">{queryRef.name}</span>
+                  {#if queryRef || schedule.saved_query_name}
+                    <span class="text-fg-4">{queryRef?.name ?? schedule.saved_query_name}</span>
                   {/if}
                 </div>
               </div>
@@ -545,6 +545,9 @@
         {#if saved}
           <p class="mb-2 text-[13px] text-fg">{saved.name}</p>
           <pre class="max-h-48 overflow-auto rounded-md border border-edge-subtle bg-surface p-2 font-mono text-xs text-fg-2">{saved.query}</pre>
+        {:else if selectedSchedule.saved_query_name}
+          <p class="text-[13px] text-fg">{selectedSchedule.saved_query_name}</p>
+          <p class="mt-1 text-xs text-fg-3">This query is private to its owner, so only its name is shown.</p>
         {:else}
           <p class="text-xs text-fg-3">Saved query metadata not available.</p>
         {/if}
