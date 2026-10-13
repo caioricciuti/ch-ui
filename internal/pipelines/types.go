@@ -10,6 +10,16 @@ import (
 type Record struct {
 	Data    map[string]interface{} // Column name -> value
 	RawJSON []byte                 // Original bytes for pass-through; must be one valid JSON object
+	// Position, when set, names where the record came from (Kafka
+	// topic/partition/offset, S3 key and line, database watermark). It is
+	// written to the dead-letter table with a rejected record.
+	Position string
+}
+
+// Checkpoint is a source position to persist once its batch is written.
+type Checkpoint struct {
+	Key      string
+	Position string
 }
 
 // Batch is a slice of records ready for INSERT.
@@ -26,6 +36,9 @@ type Batch struct {
 	// batch produces the same token and ClickHouse can drop the duplicate
 	// (Replicated tables, or tables with non_replicated_deduplication_window).
 	DedupToken string
+	// Checkpoint, when set, is saved by the runner after the batch is
+	// written, right before Ack, so a restart resumes after this batch.
+	Checkpoint *Checkpoint
 }
 
 // ConnectorConfig is the parsed config for a connector node.
@@ -35,6 +48,9 @@ type ConnectorConfig struct {
 	// Health, set by the runner, lets a source report connection or poll
 	// errors while it keeps retrying. It may be nil (tests, validation).
 	Health *Health `json:"-"`
+	// Checkpoints are the positions saved by earlier runs, by key. Set by
+	// the runner at start; nil means none.
+	Checkpoints map[string]string `json:"-"`
 }
 
 // SourceConnector is the interface all source connectors implement.
@@ -63,5 +79,6 @@ type Metrics struct {
 	BytesIngested atomic.Int64
 	BatchesSent   atomic.Int64
 	ErrorsCount   atomic.Int64
+	DLQRows       atomic.Int64
 	LastBatchAt   atomic.Value // time.Time
 }

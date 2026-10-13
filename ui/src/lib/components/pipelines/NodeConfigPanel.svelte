@@ -1,7 +1,8 @@
 <script lang="ts">
   import { untrack } from 'svelte'
-  import { CONNECTOR_FIELDS, SECRET_MASK, generateToken, type NodeType, type ConnectorFieldDef } from '../../types/pipelines'
+  import { CONNECTOR_FIELDS, SECRET_MASK, generateToken, schemaColumnsOf, type NodeType, type ConnectorFieldDef, type InferredSchema, type SchemaColumn } from '../../types/pipelines'
   import { X, HelpCircle, Copy, Check, Shield, RefreshCw } from 'lucide-svelte'
+  import SinkSchemaEditor from './SinkSchemaEditor.svelte'
 
   interface Props {
     nodeId: string
@@ -11,9 +12,11 @@
     pipelineId: string
     onUpdate: (nodeId: string, config: Record<string, unknown>, label: string) => void
     onClose: () => void
+    /** Saves, samples the source and returns ClickHouse's inferred schema. */
+    onInferSchema?: () => Promise<InferredSchema | null>
   }
 
-  let { nodeId, nodeType, label, config, pipelineId, onUpdate, onClose }: Props = $props()
+  let { nodeId, nodeType, label, config, pipelineId, onUpdate, onClose, onInferSchema }: Props = $props()
 
   let copied = $state(false)
   let copiedToken = $state(false)
@@ -60,9 +63,10 @@
     const text = raw.trim()
     const n = Number(text)
     let problem = ''
-    if (text === '') problem = 'Enter a number'
-    else if (!Number.isInteger(n)) problem = 'Enter a whole number'
+    if (text === '' || !Number.isFinite(n)) problem = 'Enter a number'
+    else if (!field.decimal && !Number.isInteger(n)) problem = 'Enter a whole number'
     else if (field.min !== undefined && n < field.min) problem = `Must be at least ${field.min}`
+    else if (field.max !== undefined && n > field.max) problem = `Must be at most ${field.max}`
     if (problem) {
       numberErrors = { ...numberErrors, [field.key]: problem }
       return
@@ -70,6 +74,22 @@
     const { [field.key]: _cleared, ...rest } = numberErrors
     numberErrors = rest
     handleChange(field.key, n)
+  }
+
+  const schemaColumns = $derived(schemaColumnsOf(localConfig))
+
+  function setSchemaColumns(columns: SchemaColumn[]) {
+    handleChange('create_table_columns', columns.length ? columns : null)
+  }
+
+  function applySchema(schema: InferredSchema) {
+    localConfig = {
+      ...localConfig,
+      create_table_columns: schema.columns,
+      create_table_order_by: schema.order_by,
+      create_table_partition_by: schema.partition_by,
+    }
+    onUpdate(nodeId, localConfig, localLabel)
   }
 
   function handleAuthToggle(enabled: boolean) {
@@ -163,6 +183,8 @@
             id={inputId}
             type="number"
             min={field.min}
+            max={field.max}
+            step={field.decimal ? 'any' : 1}
             value={Number(getFieldValue(field))}
             oninput={(e) => handleNumberInput(field, (e.target as HTMLInputElement).value)}
             aria-invalid={numberErrors[field.key] ? 'true' : undefined}
@@ -292,5 +314,19 @@
         {/if}
       </div>
     {/each}
+
+    {#if nodeType === 'sink_clickhouse' && localConfig['create_table']}
+      <SinkSchemaEditor
+        columns={schemaColumns}
+        database={String(localConfig['database'] ?? 'default')}
+        table={String(localConfig['table'] ?? '')}
+        engine={String(localConfig['create_table_engine'] ?? 'MergeTree')}
+        orderBy={String(localConfig['create_table_order_by'] ?? '')}
+        partitionBy={String(localConfig['create_table_partition_by'] ?? '')}
+        onColumns={setSchemaColumns}
+        onApply={applySchema}
+        onInfer={onInferSchema}
+      />
+    {/if}
   </div>
 </div>

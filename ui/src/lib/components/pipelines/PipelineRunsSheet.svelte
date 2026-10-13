@@ -7,15 +7,80 @@
   import Spinner from '../common/Spinner.svelte'
   import EmptyState from '../common/EmptyState.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
-  import { ArrowLeft, RefreshCw, AlertTriangle } from 'lucide-svelte'
+  import ConfirmDialog from '../common/ConfirmDialog.svelte'
+  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import type { PipelineCheckpoint } from '../../types/pipelines'
+  import { ArrowLeft, RefreshCw, AlertTriangle, RotateCcw } from 'lucide-svelte'
 
   interface Props {
     open: boolean
     pipelineId: string
+    /** The pipeline is running; its position cannot be reset. */
+    running: boolean
     onclose: () => void
   }
 
-  let { open, pipelineId, onclose }: Props = $props()
+  let { open, pipelineId, running, onclose }: Props = $props()
+
+  type PositionRow = { source_key: string; position: string; updated_at: string }
+  let positions = $state<PositionRow[]>([])
+  let confirmReset = $state(false)
+  let resetting = $state(false)
+
+  const positionColumns: DataColumn<PositionRow>[] = [
+    { key: 'source_key', label: 'Source', width: '30%', mono: true, truncate: true, format: (v) => describeKey(String(v)) },
+    { key: 'position', label: 'Position', mono: true, truncate: true, format: (v, row) => describePosition(row.source_key, String(v)) },
+    { key: 'updated_at', label: 'Saved', width: '150px', format: (v) => formatDate(String(v)) },
+  ]
+
+  function describeKey(key: string): string {
+    if (key === 'watermark') return 'Database watermark'
+    if (key.startsWith('kafka:')) return `Kafka ${key.slice(6)}`
+    if (key.startsWith('s3:')) return `S3 ${key.slice(3)}`
+    return key
+  }
+
+  /** Readable form of a saved position; the raw value is in the tooltip. */
+  function describePosition(key: string, raw: string): string {
+    try {
+      if (key === 'watermark') {
+        const w = JSON.parse(raw) as { value?: unknown }
+        return String(w.value ?? raw)
+      }
+      if (key.startsWith('s3:')) {
+        const p = JSON.parse(raw) as { floor?: string; files?: Record<string, string> }
+        const n = Object.keys(p.files ?? {}).length
+        return `${formatNumber(n)} files processed${p.floor ? `, everything up to ${p.floor}` : ''}`
+      }
+      if (key.startsWith('kafka:')) return `next offset ${raw} (display only; Kafka resumes from the consumer group)`
+    } catch {
+      // Show the raw value.
+    }
+    return raw
+  }
+
+  async function loadPositions() {
+    try {
+      const res = await api.listCheckpoints(pipelineId)
+      positions = (res.checkpoints ?? []).map((c: PipelineCheckpoint) => ({ source_key: c.source_key, position: c.position, updated_at: c.updated_at }))
+    } catch {
+      positions = []
+    }
+  }
+
+  async function doReset() {
+    resetting = true
+    try {
+      const res = await api.resetPosition(pipelineId)
+      toastSuccess(res.cleared > 0 ? 'Position reset. The next run reads the source from the beginning.' : 'There was no saved position to reset.')
+      confirmReset = false
+      await loadPositions()
+    } catch (e: unknown) {
+      toastError(errorText(e, 'Failed to reset the position'))
+    } finally {
+      resetting = false
+    }
+  }
 
   type RunRow = {
     id: string
@@ -55,6 +120,7 @@
     if (open) {
       selected = null
       void loadRuns()
+      void loadPositions()
     }
   })
 
@@ -157,6 +223,21 @@
         {/snippet}
       </DataTable>
     {:else}
+      <section class="space-y-2">
+        <div class="flex items-center justify-between gap-2">
+          <h3 class="text-[13px] font-semibold text-fg">Saved position</h3>
+          <Button size="sm" variant="outline" onclick={() => { confirmReset = true }} disabled={running} title={running ? 'Stop the pipeline to reset its position' : 'Forget the saved position'}>
+            <RotateCcw size={13} /> Reset position
+          </Button>
+        </div>
+        {#if positions.length === 0}
+          <p class="text-[13px] text-fg-3">No saved position. The next run reads the source from the beginning (Kafka: from the consumer group's committed offsets).</p>
+        {:else}
+          <DataTable columns={positionColumns} rows={positions} rowKey={(r) => r.source_key} />
+        {/if}
+      </section>
+
+      <h3 class="pt-2 text-[13px] font-semibold text-fg">Runs</h3>
       <DataTable
         columns={runColumns}
         rows={runs}
@@ -175,3 +256,14 @@
     {/if}
   </div>
 </Sheet>
+
+<ConfirmDialog
+  open={confirmReset}
+  title="Reset the saved position?"
+  description="The next run reads the source from the beginning: database sources from no watermark, S3 sources every file under the prefix again. Rows already in ClickHouse are sent again unless the table deduplicates them. Kafka is not affected: it resumes from its consumer group's offsets; use a new consumer group to re-read a topic."
+  confirmLabel="Reset position"
+  destructive
+  loading={resetting}
+  onconfirm={doReset}
+  oncancel={() => { confirmReset = false }}
+/>

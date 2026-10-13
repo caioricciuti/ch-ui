@@ -47,10 +47,13 @@ func (h *PipelinesHandler) Routes() chi.Router {
 		// Lifecycle
 		r.With(writer).Post("/start", h.StartPipeline)
 		r.With(writer).Post("/stop", h.StopPipeline)
+		r.With(writer).Post("/test", h.TestPipeline)
+		r.With(writer).Post("/reset-position", h.ResetPosition)
 
 		// Status & monitoring
 		r.Get("/status", h.GetStatus)
 		r.Get("/runs", h.ListRuns)
+		r.Get("/checkpoints", h.ListCheckpoints)
 		r.Get("/runs/{runId}/logs", h.GetRunLogs)
 	})
 
@@ -349,14 +352,8 @@ func (h *PipelinesHandler) StartPipeline(w http.ResponseWriter, r *http.Request)
 	}
 
 	// SQLite sources read files on this server: admins only.
-	if nodes, _, err := h.DB.GetPipelineGraph(id); err == nil {
-		for _, n := range nodes {
-			var cfg map[string]interface{}
-			if json.Unmarshal([]byte(n.ConfigEncrypted), &cfg) == nil && pipelines.IsSQLiteSource(n.NodeType, cfg) && session.UserRole != "admin" {
-				writeError(w, http.StatusForbidden, "Only admins can start a pipeline with a SQLite source")
-				return
-			}
-		}
+	if !h.sqliteAllowed(w, id, session) {
+		return
 	}
 
 	if err := h.Runner.StartPipeline(id); err != nil {
@@ -416,6 +413,13 @@ func (h *PipelinesHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		"pipeline_id": pipeline.ID,
 		"status":      pipeline.Status,
 		"last_error":  pipeline.LastError,
+	}
+	if n, err := h.DB.GetPipelineDLQRows(id); err == nil {
+		resp["dlq_rows"] = n
+	}
+	if db, table := h.dlqTarget(id); table != "" {
+		resp["dlq_database"] = db
+		resp["dlq_table"] = table
 	}
 
 	// Add live metrics if pipeline is running
