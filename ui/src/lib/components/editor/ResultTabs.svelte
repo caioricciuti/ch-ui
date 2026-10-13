@@ -41,7 +41,7 @@
     {@const active = i === activeIndex}
     <div
       class="group flex items-center gap-1 my-1 pl-2 pr-0.5 rounded-md text-xs whitespace-nowrap transition-colors
-        {active ? 'bg-surface-2 text-fg' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
+        {active ? 'bg-active font-medium text-fg ring-1 ring-inset ring-edge' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
     >
       <button
         class="flex items-center gap-1.5 h-full outline-none"
