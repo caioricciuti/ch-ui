@@ -10,15 +10,28 @@ import (
 
 // Model represents a SQL model definition (dbt-like).
 type Model struct {
-	ID              string  `json:"id"`
-	Name            string  `json:"name"`
-	Description     string  `json:"description"`
-	ConnectionID    string  `json:"connection_id"`
-	TargetDatabase  string  `json:"target_database"`
-	Materialization string  `json:"materialization"`
-	SQLBody         string  `json:"sql_body"`
-	TableEngine     string  `json:"table_engine"`
-	OrderBy         string  `json:"order_by"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	ConnectionID    string `json:"connection_id"`
+	TargetDatabase  string `json:"target_database"`
+	Materialization string `json:"materialization"`
+	SQLBody         string `json:"sql_body"`
+	TableEngine     string `json:"table_engine"`
+	OrderBy         string `json:"order_by"`
+	// PartitionBy is the PARTITION BY expression for MergeTree-family tables.
+	PartitionBy string `json:"partition_by"`
+	// EngineArgs is the engine's argument list, without the parentheses
+	// (for ReplacingMergeTree, the version column).
+	EngineArgs string `json:"engine_args"`
+	// IncrementalStrategy is 'append' or 'delete_insert' for incremental models.
+	IncrementalStrategy string `json:"incremental_strategy"`
+	// UniqueKey is the key delete_insert replaces rows by (one column or a
+	// comma-separated list).
+	UniqueKey string `json:"unique_key"`
+	// WatermarkColumn limits incremental runs to rows newer than the target's
+	// current maximum of this column.
+	WatermarkColumn string  `json:"watermark_column"`
 	Status          string  `json:"status"`
 	LastError       *string `json:"last_error"`
 	LastRunAt       *string `json:"last_run_at"`
@@ -41,6 +54,8 @@ type ModelRun struct {
 	FinishedAt  *string `json:"finished_at"`
 	TriggeredBy *string `json:"triggered_by"`
 	CreatedAt   string  `json:"created_at"`
+	Selector    string  `json:"selector"`
+	PipelineID  *string `json:"pipeline_id"`
 }
 
 // ModelRunResult represents per-model results within a run.
@@ -56,6 +71,10 @@ type ModelRunResult struct {
 	StartedAt   *string `json:"started_at"`
 	FinishedAt  *string `json:"finished_at"`
 	CreatedAt   string  `json:"created_at"`
+	TestsPassed int     `json:"tests_passed"`
+	TestsFailed int     `json:"tests_failed"`
+	// TestDetails is a JSON array of per-test outcomes, or nil.
+	TestDetails *string `json:"test_details"`
 }
 
 // ── Model CRUD ──────────────────────────────────────────────────────
@@ -64,7 +83,8 @@ type ModelRunResult struct {
 func (db *DB) GetModelsByConnection(connectionID string) ([]Model, error) {
 	rows, err := db.conn.Query(
 		`SELECT id, name, description, connection_id, target_database, materialization,
-		        sql_body, table_engine, order_by, status, last_error, last_run_at,
+		        sql_body, table_engine, order_by, partition_by, engine_args,
+		        incremental_strategy, unique_key, watermark_column, status, last_error, last_run_at,
 		        created_by, source, created_at, updated_at
 		 FROM models WHERE connection_id = ? ORDER BY name ASC`, connectionID,
 	)
@@ -91,7 +111,8 @@ func (db *DB) GetModelsByConnection(connectionID string) ([]Model, error) {
 func (db *DB) GetModelByID(id string) (*Model, error) {
 	row := db.conn.QueryRow(
 		`SELECT id, name, description, connection_id, target_database, materialization,
-		        sql_body, table_engine, order_by, status, last_error, last_run_at,
+		        sql_body, table_engine, order_by, partition_by, engine_args,
+		        incremental_strategy, unique_key, watermark_column, status, last_error, last_run_at,
 		        created_by, source, created_at, updated_at
 		 FROM models WHERE id = ?`, id,
 	)
@@ -109,7 +130,8 @@ func (db *DB) GetModelByID(id string) (*Model, error) {
 func (db *DB) GetModelByName(connectionID, name string) (*Model, error) {
 	row := db.conn.QueryRow(
 		`SELECT id, name, description, connection_id, target_database, materialization,
-		        sql_body, table_engine, order_by, status, last_error, last_run_at,
+		        sql_body, table_engine, order_by, partition_by, engine_args,
+		        incremental_strategy, unique_key, watermark_column, status, last_error, last_run_at,
 		        created_by, source, created_at, updated_at
 		 FROM models WHERE connection_id = ? AND name = ?`, connectionID, name,
 	)
@@ -158,6 +180,125 @@ func (db *DB) UpdateModel(id, name, description, targetDB, materialization, sqlB
 	)
 	if err != nil {
 		return fmt.Errorf("update model: %w", err)
+	}
+	return nil
+}
+
+// ModelSave is one atomic model write for SaveModel.
+type ModelSave struct {
+	// Model is the definition and options to store. An empty ID creates the
+	// model in Model.ConnectionID; Source and CreatedBy are used only then
+	// (an empty Source stores 'manual').
+	Model Model
+	// ReplaceTests swaps the model's tests for Tests.
+	ReplaceTests bool
+	Tests        []ModelTest
+	// RenameInSelector, when set and an update changes the model's name, is
+	// applied to the selector of every pipeline on the model's connection. It
+	// returns the rewritten selector and whether anything changed.
+	RenameInSelector func(selector, oldName, newName string) (string, bool)
+}
+
+// SaveModel creates or updates a model with its options, optionally replaces
+// its tests, and on a rename rewrites pipeline selectors, all in one
+// transaction. Returns the model's id.
+func (db *DB) SaveModel(s ModelSave) (string, error) {
+	m := s.Model
+	now := time.Now().UTC().Format(time.RFC3339)
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return "", fmt.Errorf("save model: %w", err)
+	}
+	defer tx.Rollback()
+
+	if m.ID == "" {
+		m.ID = uuid.NewString()
+		source := m.Source
+		if source == "" {
+			source = "manual"
+		}
+		var creator interface{}
+		if m.CreatedBy != nil && *m.CreatedBy != "" {
+			creator = *m.CreatedBy
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO models (id, name, description, connection_id, target_database, materialization,
+			                     sql_body, table_engine, order_by, partition_by, engine_args,
+			                     incremental_strategy, unique_key, watermark_column,
+			                     status, source, created_by, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
+			m.ID, m.Name, m.Description, m.ConnectionID, m.TargetDatabase, m.Materialization,
+			m.SQLBody, m.TableEngine, m.OrderBy, m.PartitionBy, m.EngineArgs,
+			m.IncrementalStrategy, m.UniqueKey, m.WatermarkColumn, source, creator, now, now,
+		); err != nil {
+			return "", fmt.Errorf("create model: %w", err)
+		}
+	} else {
+		var oldName, connectionID string
+		err := tx.QueryRow(`SELECT name, connection_id FROM models WHERE id = ?`, m.ID).Scan(&oldName, &connectionID)
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("update model: model %s not found", m.ID)
+		}
+		if err != nil {
+			return "", fmt.Errorf("update model: %w", err)
+		}
+		if _, err := tx.Exec(
+			`UPDATE models SET name = ?, description = ?, target_database = ?, materialization = ?,
+			        sql_body = ?, table_engine = ?, order_by = ?, partition_by = ?, engine_args = ?,
+			        incremental_strategy = ?, unique_key = ?, watermark_column = ?, updated_at = ?
+			 WHERE id = ?`,
+			m.Name, m.Description, m.TargetDatabase, m.Materialization,
+			m.SQLBody, m.TableEngine, m.OrderBy, m.PartitionBy, m.EngineArgs,
+			m.IncrementalStrategy, m.UniqueKey, m.WatermarkColumn, now, m.ID,
+		); err != nil {
+			return "", fmt.Errorf("update model: %w", err)
+		}
+		if oldName != m.Name && s.RenameInSelector != nil {
+			if err := renamePipelineSelectors(tx, connectionID, oldName, m.Name, now, s.RenameInSelector); err != nil {
+				return "", err
+			}
+		}
+	}
+
+	if s.ReplaceTests {
+		if err := replaceModelTestsTx(tx, m.ID, s.Tests); err != nil {
+			return "", err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("save model: %w", err)
+	}
+	return m.ID, nil
+}
+
+// renamePipelineSelectors rewrites the connection's pipeline selectors that
+// name oldName.
+func renamePipelineSelectors(tx *sql.Tx, connectionID, oldName, newName, now string, rename func(selector, oldName, newName string) (string, bool)) error {
+	rows, err := tx.Query(`SELECT id, selector FROM model_pipelines WHERE connection_id = ?`, connectionID)
+	if err != nil {
+		return fmt.Errorf("rename in pipelines: %w", err)
+	}
+	type change struct{ id, selector string }
+	var changes []change
+	for rows.Next() {
+		var id, selector string
+		if err := rows.Scan(&id, &selector); err != nil {
+			rows.Close()
+			return fmt.Errorf("rename in pipelines: %w", err)
+		}
+		if next, ok := rename(selector, oldName, newName); ok {
+			changes = append(changes, change{id, next})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("rename in pipelines: %w", err)
+	}
+	rows.Close()
+	for _, c := range changes {
+		if _, err := tx.Exec(`UPDATE model_pipelines SET selector = ?, updated_at = ? WHERE id = ?`, c.selector, now, c.id); err != nil {
+			return fmt.Errorf("rename in pipelines: %w", err)
+		}
 	}
 	return nil
 }
@@ -231,7 +372,7 @@ func (db *DB) FinalizeModelRun(id, status string, succeeded, failed, skipped int
 func (db *DB) GetModelRuns(connectionID string, limit, offset int) ([]ModelRun, error) {
 	rows, err := db.conn.Query(
 		`SELECT id, connection_id, status, total_models, succeeded, failed, skipped,
-		        started_at, finished_at, triggered_by, created_at
+		        started_at, finished_at, triggered_by, created_at, selector, pipeline_id
 		 FROM model_runs WHERE connection_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?`,
 		connectionID, limit, offset,
 	)
@@ -243,13 +384,14 @@ func (db *DB) GetModelRuns(connectionID string, limit, offset int) ([]ModelRun, 
 	var runs []ModelRun
 	for rows.Next() {
 		var r ModelRun
-		var finished, trigger sql.NullString
+		var finished, trigger, pipeline sql.NullString
 		if err := rows.Scan(&r.ID, &r.ConnID, &r.Status, &r.Total, &r.Succeeded,
-			&r.Failed, &r.Skipped, &r.StartedAt, &finished, &trigger, &r.CreatedAt); err != nil {
+			&r.Failed, &r.Skipped, &r.StartedAt, &finished, &trigger, &r.CreatedAt, &r.Selector, &pipeline); err != nil {
 			return nil, fmt.Errorf("scan model run: %w", err)
 		}
 		r.FinishedAt = nullStringToPtr(finished)
 		r.TriggeredBy = nullStringToPtr(trigger)
+		r.PipelineID = nullStringToPtr(pipeline)
 		runs = append(runs, r)
 	}
 	return runs, rows.Err()
@@ -259,14 +401,14 @@ func (db *DB) GetModelRuns(connectionID string, limit, offset int) ([]ModelRun, 
 func (db *DB) GetModelRunByID(id string) (*ModelRun, error) {
 	row := db.conn.QueryRow(
 		`SELECT id, connection_id, status, total_models, succeeded, failed, skipped,
-		        started_at, finished_at, triggered_by, created_at
+		        started_at, finished_at, triggered_by, created_at, selector, pipeline_id
 		 FROM model_runs WHERE id = ?`, id,
 	)
 
 	var r ModelRun
-	var finished, trigger sql.NullString
+	var finished, trigger, pipeline sql.NullString
 	err := row.Scan(&r.ID, &r.ConnID, &r.Status, &r.Total, &r.Succeeded,
-		&r.Failed, &r.Skipped, &r.StartedAt, &finished, &trigger, &r.CreatedAt)
+		&r.Failed, &r.Skipped, &r.StartedAt, &finished, &trigger, &r.CreatedAt, &r.Selector, &pipeline)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -275,6 +417,7 @@ func (db *DB) GetModelRunByID(id string) (*ModelRun, error) {
 	}
 	r.FinishedAt = nullStringToPtr(finished)
 	r.TriggeredBy = nullStringToPtr(trigger)
+	r.PipelineID = nullStringToPtr(pipeline)
 	return &r, nil
 }
 
@@ -324,7 +467,7 @@ func (db *DB) UpdateModelRunResult(runID, modelID, status, resolvedSQL string, e
 func (db *DB) GetModelRunResults(runID string) ([]ModelRunResult, error) {
 	rows, err := db.conn.Query(
 		`SELECT id, run_id, model_id, model_name, status, resolved_sql, elapsed_ms,
-		        error, started_at, finished_at, created_at
+		        error, started_at, finished_at, created_at, tests_passed, tests_failed, test_details
 		 FROM model_run_results WHERE run_id = ? ORDER BY created_at ASC`, runID,
 	)
 	if err != nil {
@@ -335,15 +478,17 @@ func (db *DB) GetModelRunResults(runID string) ([]ModelRunResult, error) {
 	var results []ModelRunResult
 	for rows.Next() {
 		var r ModelRunResult
-		var resolvedSQL, errStr, started, finished sql.NullString
+		var resolvedSQL, errStr, started, finished, details sql.NullString
 		if err := rows.Scan(&r.ID, &r.RunID, &r.ModelID, &r.ModelName, &r.Status,
-			&resolvedSQL, &r.ElapsedMs, &errStr, &started, &finished, &r.CreatedAt); err != nil {
+			&resolvedSQL, &r.ElapsedMs, &errStr, &started, &finished, &r.CreatedAt,
+			&r.TestsPassed, &r.TestsFailed, &details); err != nil {
 			return nil, fmt.Errorf("scan model run result: %w", err)
 		}
 		r.ResolvedSQL = nullStringToPtr(resolvedSQL)
 		r.Error = nullStringToPtr(errStr)
 		r.StartedAt = nullStringToPtr(started)
 		r.FinishedAt = nullStringToPtr(finished)
+		r.TestDetails = nullStringToPtr(details)
 		results = append(results, r)
 	}
 	return results, rows.Err()
@@ -423,7 +568,8 @@ func scanModel(rows *sql.Rows) (Model, error) {
 	var lastErr, lastRun, createdBy sql.NullString
 	if err := rows.Scan(&m.ID, &m.Name, &m.Description, &m.ConnectionID,
 		&m.TargetDatabase, &m.Materialization, &m.SQLBody, &m.TableEngine,
-		&m.OrderBy, &m.Status, &lastErr, &lastRun, &createdBy,
+		&m.OrderBy, &m.PartitionBy, &m.EngineArgs, &m.IncrementalStrategy,
+		&m.UniqueKey, &m.WatermarkColumn, &m.Status, &lastErr, &lastRun, &createdBy,
 		&m.Source, &m.CreatedAt, &m.UpdatedAt); err != nil {
 		return m, fmt.Errorf("scan model: %w", err)
 	}
@@ -438,7 +584,8 @@ func scanModelRow(row *sql.Row) (*Model, error) {
 	var lastErr, lastRun, createdBy sql.NullString
 	err := row.Scan(&m.ID, &m.Name, &m.Description, &m.ConnectionID,
 		&m.TargetDatabase, &m.Materialization, &m.SQLBody, &m.TableEngine,
-		&m.OrderBy, &m.Status, &lastErr, &lastRun, &createdBy,
+		&m.OrderBy, &m.PartitionBy, &m.EngineArgs, &m.IncrementalStrategy,
+		&m.UniqueKey, &m.WatermarkColumn, &m.Status, &lastErr, &lastRun, &createdBy,
 		&m.Source, &m.CreatedAt, &m.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -463,7 +610,8 @@ func (db *DB) SetModelSource(id, source string) error {
 func (db *DB) GetModelsByConnectionAndSource(connectionID, source string) ([]Model, error) {
 	rows, err := db.conn.Query(
 		`SELECT id, name, description, connection_id, target_database, materialization,
-		        sql_body, table_engine, order_by, status, last_error, last_run_at,
+		        sql_body, table_engine, order_by, partition_by, engine_args,
+		        incremental_strategy, unique_key, watermark_column, status, last_error, last_run_at,
 		        created_by, source, created_at, updated_at
 		 FROM models WHERE connection_id = ? AND source = ? ORDER BY name ASC`, connectionID, source,
 	)
@@ -485,7 +633,8 @@ func (db *DB) GetModelsByConnectionAndSource(connectionID, source string) ([]Mod
 
 // ── Model Schedules ─────────────────────────────────────────────────
 
-// ModelSchedule represents a cron schedule for running a model pipeline.
+// ModelSchedule is a legacy per-anchor schedule. model_schedules is only read
+// now, to copy its rows into model_pipelines (see GetAllModelSchedules).
 type ModelSchedule struct {
 	ID            string  `json:"id"`
 	ConnectionID  string  `json:"connection_id"`
@@ -499,157 +648,6 @@ type ModelSchedule struct {
 	CreatedBy     *string `json:"created_by"`
 	CreatedAt     string  `json:"created_at"`
 	UpdatedAt     string  `json:"updated_at"`
-}
-
-// GetModelSchedulesByConnection returns all schedules for a connection.
-func (db *DB) GetModelSchedulesByConnection(connectionID string) ([]ModelSchedule, error) {
-	rows, err := db.conn.Query(
-		`SELECT id, connection_id, anchor_model_id, cron, enabled, last_run_at, next_run_at,
-		        last_status, last_error, created_by, created_at, updated_at
-		 FROM model_schedules WHERE connection_id = ?`, connectionID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("get model schedules: %w", err)
-	}
-	defer rows.Close()
-
-	var schedules []ModelSchedule
-	for rows.Next() {
-		s, err := scanModelSchedule(rows)
-		if err != nil {
-			return nil, err
-		}
-		schedules = append(schedules, s)
-	}
-	return schedules, rows.Err()
-}
-
-// GetModelScheduleByAnchor returns the schedule for a specific pipeline anchor, or nil.
-func (db *DB) GetModelScheduleByAnchor(connectionID, anchorModelID string) (*ModelSchedule, error) {
-	row := db.conn.QueryRow(
-		`SELECT id, connection_id, anchor_model_id, cron, enabled, last_run_at, next_run_at,
-		        last_status, last_error, created_by, created_at, updated_at
-		 FROM model_schedules WHERE connection_id = ? AND anchor_model_id = ?`,
-		connectionID, anchorModelID,
-	)
-
-	var s ModelSchedule
-	var enabled int
-	var anchor, lastRun, nextRun, lastStatus, lastErr, createdBy sql.NullString
-	err := row.Scan(&s.ID, &s.ConnectionID, &anchor, &s.Cron, &enabled,
-		&lastRun, &nextRun, &lastStatus, &lastErr, &createdBy,
-		&s.CreatedAt, &s.UpdatedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get model schedule by anchor: %w", err)
-	}
-	s.Enabled = enabled == 1
-	s.AnchorModelID = nullStringToPtr(anchor)
-	s.LastRunAt = nullStringToPtr(lastRun)
-	s.NextRunAt = nullStringToPtr(nextRun)
-	s.LastStatus = nullStringToPtr(lastStatus)
-	s.LastError = nullStringToPtr(lastErr)
-	s.CreatedBy = nullStringToPtr(createdBy)
-	return &s, nil
-}
-
-// UpsertModelSchedule creates or replaces an enabled model schedule for a
-// pipeline anchor.
-func (db *DB) UpsertModelSchedule(connectionID, anchorModelID, cron, nextRunAt, createdBy string) (string, error) {
-	return db.UpsertModelScheduleEnabled(connectionID, anchorModelID, cron, nextRunAt, createdBy, true)
-}
-
-// UpsertModelScheduleEnabled creates or replaces a model schedule for a
-// pipeline anchor; enabled=false saves it paused.
-func (db *DB) UpsertModelScheduleEnabled(connectionID, anchorModelID, cron, nextRunAt, createdBy string, enabled bool) (string, error) {
-	id := uuid.NewString()
-	now := time.Now().UTC().Format(time.RFC3339)
-
-	var creator interface{}
-	if createdBy != "" {
-		creator = createdBy
-	}
-	enabledVal := 0
-	if enabled {
-		enabledVal = 1
-	}
-
-	_, err := db.conn.Exec(
-		`INSERT INTO model_schedules
-		 (id, connection_id, anchor_model_id, cron, enabled, next_run_at, created_by, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(connection_id, anchor_model_id)
-		 DO UPDATE SET cron = excluded.cron, enabled = excluded.enabled, next_run_at = excluded.next_run_at,
-		               created_by = excluded.created_by, updated_at = excluded.updated_at`,
-		id, connectionID, anchorModelID, cron, enabledVal, nextRunAt, creator, now, now,
-	)
-	if err != nil {
-		return "", fmt.Errorf("upsert model schedule: %w", err)
-	}
-	return id, nil
-}
-
-// UpdateModelScheduleStatusByID updates a schedule after a run attempt, by schedule ID.
-func (db *DB) UpdateModelScheduleStatusByID(scheduleID, status, lastError string, nextRunAt *string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-
-	var errVal interface{}
-	if lastError != "" {
-		errVal = lastError
-	}
-
-	_, err := db.conn.Exec(
-		`UPDATE model_schedules SET last_run_at = ?, last_status = ?, last_error = ?,
-		        next_run_at = ?, updated_at = ?
-		 WHERE id = ?`,
-		now, status, errVal, nextRunAt, now, scheduleID,
-	)
-	if err != nil {
-		return fmt.Errorf("update model schedule status: %w", err)
-	}
-	return nil
-}
-
-// DeleteModelScheduleByAnchor removes the schedule for a specific pipeline
-// anchor and reports whether one existed.
-func (db *DB) DeleteModelScheduleByAnchor(connectionID, anchorModelID string) (bool, error) {
-	res, err := db.conn.Exec(
-		"DELETE FROM model_schedules WHERE connection_id = ? AND anchor_model_id = ?",
-		connectionID, anchorModelID,
-	)
-	if err != nil {
-		return false, fmt.Errorf("delete model schedule: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("delete model schedule: %w", err)
-	}
-	return n > 0, nil
-}
-
-// GetEnabledModelSchedules returns all enabled model schedules.
-func (db *DB) GetEnabledModelSchedules() ([]ModelSchedule, error) {
-	rows, err := db.conn.Query(
-		`SELECT id, connection_id, anchor_model_id, cron, enabled, last_run_at, next_run_at,
-		        last_status, last_error, created_by, created_at, updated_at
-		 FROM model_schedules WHERE enabled = 1`,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("get enabled model schedules: %w", err)
-	}
-	defer rows.Close()
-
-	var schedules []ModelSchedule
-	for rows.Next() {
-		s, err := scanModelSchedule(rows)
-		if err != nil {
-			return nil, err
-		}
-		schedules = append(schedules, s)
-	}
-	return schedules, rows.Err()
 }
 
 func scanModelSchedule(rows *sql.Rows) (ModelSchedule, error) {

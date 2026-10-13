@@ -65,6 +65,16 @@ func parseField(field string, min, max int) map[int]bool {
 // and returns the next matching UTC time after `from`, iterating minute by minute
 // up to 1 year ahead. Returns nil if no match is found.
 func ComputeNextRun(cron string, from time.Time) *time.Time {
+	return ComputeNextRunIn(cron, from, time.UTC)
+}
+
+// ComputeNextRunIn is ComputeNextRun with the fields read as wall-clock time
+// in loc (so "0 9 * * *" in Europe/Lisbon is 09:00 Lisbon time). The result is
+// in UTC.
+func ComputeNextRunIn(cron string, from time.Time, loc *time.Location) *time.Time {
+	if loc == nil {
+		loc = time.UTC
+	}
 	fields := strings.Fields(strings.TrimSpace(cron))
 	if len(fields) != 5 {
 		return nil
@@ -81,7 +91,7 @@ func ComputeNextRun(cron string, from time.Time) *time.Time {
 	}
 
 	// Start from the next minute after `from`, truncated to the minute boundary.
-	next := from.UTC().Truncate(time.Minute).Add(time.Minute)
+	next := from.In(loc).Truncate(time.Minute).Add(time.Minute)
 
 	// 525600 minutes = 1 year
 	for i := 0; i < 525600; i++ {
@@ -92,7 +102,7 @@ func ComputeNextRun(cron string, from time.Time) *time.Time {
 		dw := int(next.Weekday()) // Sunday=0
 
 		if minutes[m] && hours[h] && dom[d] && months[mo] && dow[dw] {
-			result := next
+			result := next.UTC()
 			return &result
 		}
 

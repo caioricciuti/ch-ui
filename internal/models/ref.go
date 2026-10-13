@@ -164,3 +164,37 @@ func ResolveRefs(sqlBody string, modelTargets map[string]string) (string, error)
 	}
 	return b.String(), resolveErr
 }
+
+// thisPattern matches $this, the model's own target table.
+var thisPattern = regexp.MustCompile(`\$this\b`)
+
+// UsesThis reports whether the SQL reads $this outside comments and quotes.
+func UsesThis(sqlBody string) bool {
+	for _, s := range splitSQL(sqlBody) {
+		if s.kind == segCode && thisPattern.MatchString(s.text) {
+			return true
+		}
+	}
+	return false
+}
+
+// ResolveModelSQL resolves $ref(name) like ResolveRefs and $this to the
+// model's own target, `target_database`.`name` (for a materialized view, its
+// target table). Comments, string literals and quoted identifiers are kept as
+// written.
+func ResolveModelSQL(sqlBody string, modelTargets map[string]string, targetDB, name string) (string, error) {
+	resolved, err := ResolveRefs(sqlBody, modelTargets)
+	if err != nil {
+		return resolved, err
+	}
+	this := quoteIdent(targetDB) + "." + quoteIdent(name)
+	var b strings.Builder
+	for _, s := range splitSQL(resolved) {
+		if s.kind != segCode {
+			b.WriteString(s.text)
+			continue
+		}
+		b.WriteString(thisPattern.ReplaceAllLiteralString(s.text, this))
+	}
+	return b.String(), nil
+}

@@ -11,12 +11,12 @@ import (
 )
 
 func TestValidateMaterialization(t *testing.T) {
-	for _, ok := range []string{"view", "table"} {
+	for _, ok := range []string{"view", "table", "incremental", "materialized_view"} {
 		if err := ValidateMaterialization(ok); err != nil {
 			t.Errorf("%s: %v", ok, err)
 		}
 	}
-	for _, bad := range []string{"", "incremental", "materialized_view", "TABLE"} {
+	for _, bad := range []string{"", "ephemeral", "snapshot", "TABLE"} {
 		if err := ValidateMaterialization(bad); err == nil {
 			t.Errorf("%q must be rejected", bad)
 		}
@@ -197,7 +197,7 @@ func TestMaterializeViewKindChangeSwaps(t *testing.T) {
 
 func TestMaterializeRejectsUnknownMaterialization(t *testing.T) {
 	f := &fakeCH{}
-	if _, err := newMZ(f, "incremental", false).run("SELECT 1"); err == nil {
+	if _, err := newMZ(f, "ephemeral", false).run("SELECT 1"); err == nil {
 		t.Fatal("unknown materialization must fail")
 	}
 	if len(f.stmts) != 0 {

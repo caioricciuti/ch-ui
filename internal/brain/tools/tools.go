@@ -36,7 +36,7 @@ type Context struct {
 	Gateway *tunnel.Gateway
 
 	RunModel      func(modelID string) (runID string, err error)
-	BuildModel    func(modelID string) (runID string, err error)
+	BuildModel    func(modelID string, fullRefresh bool) (runID string, err error)
 	StartPipeline func(pipelineID string) error
 }
 

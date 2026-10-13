@@ -1,11 +1,11 @@
 ---
 title: Models (SQL Transformations)
-description: SQL models that build ClickHouse views and tables, reference each other with $ref(), run in dependency order and on a schedule
+description: SQL models that build ClickHouse views, tables, incremental tables and materialized views, reference each other with $ref(), carry data tests, and run in dependency order by hand or in named, scheduled pipelines
 ---
 
 import { CardGrid, LinkCard } from "@astrojs/starlight/components";
 
-A model is a named `SELECT` that CH-UI builds into a ClickHouse view or table. Models reference each other with `$ref(model_name)`; CH-UI turns those references into a dependency graph (DAG) and runs models in dependency order, by hand or on a cron schedule.
+A model is a named `SELECT` that CH-UI builds into a ClickHouse view, table, incremental table or materialized view. Models reference each other with `$ref(model_name)`; CH-UI turns those references into a dependency graph (DAG) and runs models in dependency order, by hand or in named pipelines on a cron schedule. Data tests check each model's output after it builds.
 
 Available on all plans.
 
@@ -14,9 +14,10 @@ Available on all plans.
 Each model has:
 
 - **A name**: a valid ClickHouse identifier, unique per connection. It is also the name of the view or table the model builds.
-- **A SQL body**: one `SELECT`, optionally with `$ref(other_model)` references.
-- **A materialization**: `view` or `table`.
+- **A SQL body**: one `SELECT`, optionally with `$ref(other_model)` references and `$this`.
+- **A materialization**: `view`, `table`, `incremental` or `materialized_view`.
 - **A target database**: where the view or table is created.
+- **Data tests** (optional): checks that run after every successful build.
 
 Models belong to a ClickHouse connection. Every run, manual or scheduled, executes through the tunnel with the connection's `model` [background account](/docs/background-accounts).
 
@@ -24,24 +25,37 @@ Models belong to a ClickHouse connection. Every run, manual or scheduled, execut
 
 Open **Models** in the sidebar and click **New model**. Pick a name, a target database and a materialization; the model starts with `SELECT 1 AS id` and opens in an editor tab. Write the real query there and click **Save**. **Run** saves pending edits first, then builds the model and its upstream dependencies.
 
-| Field | Description | Default |
-|---|---|---|
-| Name | `^[a-zA-Z_][a-zA-Z0-9_]*$` | Required |
-| Description | Free text | Empty |
-| Target database | ClickHouse database for the output | `default` |
-| Materialization | `view` or `table` | `view` |
-| SQL body | The `SELECT`, with optional `$ref(name)` | Required |
-| Table engine | Engine for table models | `MergeTree` |
-| ORDER BY | For MergeTree-family engines | `tuple()` |
+| Field | Applies to | Description | Default |
+|---|---|---|---|
+| Name | all | `^[a-zA-Z_][a-zA-Z0-9_]*$` | Required |
+| Description | all | Free text | Empty |
+| Target database | all | ClickHouse database for the output | `default` |
+| Materialization | all | `view`, `table`, `incremental` or `materialized_view` | `view` |
+| SQL body | all | The `SELECT`, with optional `$ref(name)` and `$this` | Required |
+| Table engine | tables | Engine name | `MergeTree` |
+| Engine args | tables | Engine arguments without the parentheses, for example the version column of `ReplacingMergeTree` | Empty |
+| ORDER BY | tables | MergeTree-family engines only | `tuple()` |
+| PARTITION BY | tables | One expression, MergeTree-family engines only | Empty |
+| Strategy | `incremental` | `append` or `delete_insert` | `append` |
+| Unique key | `delete_insert` | Column, or comma-separated columns, that identify a row | Required for `delete_insert` |
+| Watermark column | `incremental` | Later runs only take rows above the table's current maximum of this column | Empty |
+
+"Tables" means `table`, `incremental` and `materialized_view`: all three build a table. Settings that do not apply to the current materialization are kept (switching back restores them) and ignored by runs.
 
 Any other materialization is rejected with an error, whether it comes from the UI, the API, Brain or a GitHub frontmatter block.
+
+### Expressions are checked before anything is built
+
+ORDER BY, PARTITION BY and the engine arguments are pasted into the `CREATE TABLE` statement, so each must be a single expression: no `;`, no comments, balanced parentheses and quotes. Saving a model checks that. Before a run creates or drops anything, ClickHouse parses PARTITION BY and the engine arguments (`EXPLAIN SYNTAX`); a malformed expression fails the model with `PARTITION BY is not a valid expression: ...` and leaves the existing table untouched. Unique key and watermark column must be plain column names.
 
 ## Materializations
 
 | Type | What a run does |
 |---|---|
 | `view` | `CREATE OR REPLACE VIEW name AS <select>`. ClickHouse replaces the view atomically. |
-| `table` | Builds `CREATE TABLE name__chui_tmp ENGINE = <engine> [ORDER BY ...] AS <select>`, then swaps it in for the old table. The table is rebuilt in full on every run. |
+| `table` | Builds `CREATE TABLE name__chui_tmp ENGINE = <engine>[(args)] [PARTITION BY ...] [ORDER BY ...] AS <select>`, then swaps it in for the old table. The table is rebuilt in full on every run. |
+| `incremental` | The first run builds the table like `table`. Later runs add rows to it: `append` inserts new rows, `delete_insert` replaces rows by a unique key. A full refresh rebuilds it. |
+| `materialized_view` | A table `name` plus a ClickHouse materialized view `name__mv` that writes every insert into the source to that table. The first build backfills the table from the existing data. |
 
 ### Table rebuilds are safe
 
@@ -51,21 +65,185 @@ A table rebuild never drops the current table before the new one exists:
 2. If that fails, the temporary table is dropped and the previous table is left untouched.
 3. If it succeeds, the two are swapped: `EXCHANGE TABLES` when the database engine is `Atomic` (the default), otherwise `RENAME` the old table to `<name>__chui_old`, rename the new one into place and drop the old one.
 
-### Engines
+Full refreshes of `incremental` and `materialized_view` models go through the same swap.
 
-`MergeTree`, `ReplacingMergeTree`, `SummingMergeTree`, `AggregatingMergeTree` and `Memory` are offered in the editor. ORDER BY is only sent for MergeTree-family engines; an empty ORDER BY becomes `tuple()`. Engines that take no ORDER BY (`Memory`, the `Log` family) are created without one.
+### Engines, PARTITION BY and engine arguments
+
+`MergeTree`, `ReplacingMergeTree`, `SummingMergeTree`, `AggregatingMergeTree` and `Memory` are offered in the editor. ORDER BY and PARTITION BY are only sent for MergeTree-family engines; an empty ORDER BY becomes `tuple()`. Engines that take no ORDER BY (`Memory`, the `Log` family) are created without one, and a PARTITION BY on them is rejected when the model is saved.
+
+A daily rollup that keeps the latest version of each row, partitioned by month:
+
+| Setting | Value |
+|---|---|
+| Materialization | `table` |
+| Table engine | `ReplacingMergeTree` |
+| Engine args | `version` |
+| PARTITION BY | `toYYYYMM(event_date)` |
+| ORDER BY | `(event_date, event_type)` |
+
+```sql
+SELECT
+  toDate(ts) AS event_date,
+  event_type,
+  count() AS events,
+  max(ts) AS version
+FROM raw.events
+GROUP BY event_date, event_type
+```
+
+The first run executes:
+
+```sql
+CREATE TABLE `analytics`.`daily_events`
+ENGINE = ReplacingMergeTree(version) PARTITION BY toYYYYMM(event_date) ORDER BY (event_date, event_type)
+AS SELECT ...
+```
+
+Put the arguments either in **Engine args** or in the engine name itself (`ReplacingMergeTree(version)`), not both; a model with both is rejected.
 
 ### Ownership marker
 
-Every view and table a model builds gets the ClickHouse comment `ch-ui model <model id>`. Before replacing or dropping an existing object with the model's name, CH-UI reads `system.tables` and refuses when the object is not marked as this model's:
+Every view and table a model builds gets the ClickHouse comment `ch-ui model <model id>`; so does the `__mv` materialized view of a `materialized_view` model. Before replacing, inserting into or dropping an existing object with the model's name, CH-UI reads `system.tables` and refuses when the object is not marked as this model's:
 
 > a table with this name already exists and was not created by this model
 
-So a model named like a table you made by hand never touches that table. Rename the model, or drop the table yourself.
+So a model named like a table you made by hand never touches that table, and an incremental model never inserts into one. Rename the model, or drop the table yourself.
 
 Views and tables built by CH-UI versions from before the marker have no comment. Such an object is treated as the model's own only when its kind (view or table) matches the model and the model has a successful run on record; the next run adds the marker.
 
-The `model` background account needs `CREATE TABLE`, `CREATE VIEW` and `DROP TABLE`, `DROP VIEW` on the target database (plus `SELECT` on what the models read). `ALTER MODIFY COMMENT` is recommended: CH-UI marks the objects it builds with a comment. Without it, runs still work and ownership falls back to the model's run history.
+The `model` background account needs `CREATE TABLE`, `CREATE VIEW`, `DROP TABLE`, `DROP VIEW` and `INSERT` on the target database (plus `SELECT` on what the models read). `incremental` with `delete_insert` also needs `ALTER DELETE` (lightweight `DELETE` uses it); `materialized_view` needs `CREATE VIEW` for the trigger and `ALTER VIEW MODIFY QUERY` to change its query in place. `ALTER MODIFY COMMENT` is recommended: CH-UI marks the objects it builds with a comment. Without it, runs still work and ownership falls back to the model's run history.
+
+## Incremental models
+
+An incremental model keeps its table between runs and only adds what is new. Use it when a full rebuild is too slow or too expensive.
+
+| Run | What happens |
+|---|---|
+| First run (no table yet) | Builds the table from the full `SELECT`, like `table` |
+| Later runs | `append` or `delete_insert` into the existing table |
+| **Full refresh** | Rebuilds the table from the full `SELECT` through the safe swap |
+
+### append
+
+Inserts the model's rows into the table. With a **watermark column**, only rows above the table's current maximum are taken:
+
+| Setting | Value |
+|---|---|
+| Materialization | `incremental` |
+| Strategy | `append` |
+| Watermark column | `ts` |
+| PARTITION BY | `toYYYYMM(ts)` |
+| ORDER BY | `(ts, event_id)` |
+
+```sql
+SELECT event_id, user_id, event_type, ts
+FROM raw.events
+WHERE event_type != ''
+```
+
+Every run after the first executes:
+
+```sql
+INSERT INTO `analytics`.`events_clean` SELECT * FROM (
+SELECT event_id, user_id, event_type, ts
+FROM raw.events
+WHERE event_type != ''
+) WHERE `ts` > (SELECT max(`ts`) FROM `analytics`.`events_clean`)
+```
+
+Without a watermark column every run appends the whole result again. Rows that arrive late, with a watermark at or below the current maximum, are not picked up; use `delete_insert` or a full refresh for those.
+
+### delete_insert
+
+Replaces rows by a **unique key**. Each run stages the new rows in `<name>__chui_tmp` (same structure as the table), deletes the rows with those keys from the table, then inserts the staged rows. The watermark comparison is `>=`, so rows at the boundary are replaced rather than skipped.
+
+The latest state of each order, from a change log:
+
+| Setting | Value |
+|---|---|
+| Materialization | `incremental` |
+| Strategy | `delete_insert` |
+| Unique key | `order_id` |
+| Watermark column | `last_update` |
+| ORDER BY | `order_id` |
+
+```sql
+SELECT
+  order_id,
+  argMax(status, updated_at) AS status,
+  argMax(amount, updated_at) AS amount,
+  max(updated_at) AS last_update
+FROM raw.orders
+GROUP BY order_id
+```
+
+A later run executes:
+
+```sql
+CREATE TABLE `analytics`.`orders_current__chui_tmp` AS `analytics`.`orders_current`;
+INSERT INTO `analytics`.`orders_current__chui_tmp` SELECT * FROM (<select>)
+  WHERE `last_update` >= (SELECT max(`last_update`) FROM `analytics`.`orders_current`);
+DELETE FROM `analytics`.`orders_current` WHERE (`order_id`) IN (SELECT (`order_id`) FROM `analytics`.`orders_current__chui_tmp`);
+INSERT INTO `analytics`.`orders_current` SELECT * FROM `analytics`.`orders_current__chui_tmp`;
+DROP TABLE `analytics`.`orders_current__chui_tmp`
+```
+
+The delete is a lightweight `DELETE`. Where ClickHouse refuses it (older servers, tables with projections), CH-UI falls back to `ALTER TABLE ... DELETE ... SETTINGS mutations_sync = 2`. Between the delete and the insert, readers briefly miss the replaced rows. Engines without delete support (`Memory`, the `Log` family) cannot use `delete_insert`.
+
+### When the columns change
+
+Incremental runs insert by position into the existing table. If the model's columns change, the insert fails with a hint to run a full refresh:
+
+> Number of columns doesn't match ... (if the model's columns changed, run a full refresh)
+
+**Full refresh** (in the model's **Run** menu, or `POST /api/models/{id}/run` with `{"full_refresh": true}`) rebuilds the table from the full `SELECT` through the safe swap.
+
+### `$this`
+
+`$this` in a model's SQL is the model's own table, `` `target_database`.`name` `` (for a `materialized_view` model, its target table). Like `$ref()`, it is ignored inside comments, string literals and quoted identifiers.
+
+```sql
+SELECT event_id, user_id, event_type, ts
+FROM raw.events
+WHERE ts > (SELECT max(ts) FROM $this)
+```
+
+This filters inside the source scan, which is cheaper than a watermark on a large source. `$this` only works once the table exists: the first build of a model that reads `$this` fails with `the SQL reads $this, but analytics.events_clean does not exist yet`. Build the model once with a watermark column (or without the filter), then add the `$this` filter.
+
+## Materialized views
+
+A `materialized_view` model keeps two objects:
+
+- `name`: a table (engine, ORDER BY, PARTITION BY and engine args as configured).
+- `name__mv`: `CREATE MATERIALIZED VIEW name__mv TO name AS <select>`. ClickHouse runs the `SELECT` on every block inserted into the source table and writes the result to `name`.
+
+Events per hour, summed by `SummingMergeTree`:
+
+| Setting | Value |
+|---|---|
+| Materialization | `materialized_view` |
+| Table engine | `SummingMergeTree` |
+| ORDER BY | `(hour, event_type)` |
+
+```sql
+SELECT
+  toStartOfHour(ts) AS hour,
+  event_type,
+  count() AS events
+FROM raw.events
+GROUP BY hour, event_type
+```
+
+Query the table with `sum(events)` and `GROUP BY`: SummingMergeTree merges rows with the same key in the background, not at insert time.
+
+| Run | What happens |
+|---|---|
+| First run | `CREATE TABLE name ... EMPTY AS <select>`, `CREATE MATERIALIZED VIEW name__mv TO name AS <select>`, then the backfill `INSERT INTO name <select>` over the data already in the source |
+| Later runs, same columns | `ALTER TABLE name__mv MODIFY QUERY <select>`: the trigger's query changes in place, the table keeps its data |
+| Later runs, different columns | Fails: `the SELECT no longer produces the columns of analytics.hourly_events; run a full refresh to rebuild it` |
+| **Full refresh** | Builds `name__chui_tmp` empty, backfills it with the `SELECT`, drops `name__mv`, swaps the new table in and recreates `name__mv` |
+
+The materialized view only sees inserts. Rows inserted into the source between the backfill and the creation of `name__mv` (first build) or between the backfill and the recreated trigger (full refresh) are counted twice or missed; run full refreshes while the source is quiet. Changing a `materialized_view` model to another materialization drops its `name__mv` on the next run.
 
 ## References with `$ref()`
 
@@ -96,6 +274,35 @@ Rules:
 
 Tables that are not models are read with plain SQL (`FROM raw.events`); they are not part of the DAG.
 
+## Data tests
+
+A data test is a check on a model's output. After a model builds, each of its tests runs as one `SELECT count()` of failing rows, with `readonly=1` and a 120-second time limit. A test passes when the count is 0.
+
+| Kind | Settings | Failing rows |
+|---|---|---|
+| `not_null` | column | `` SELECT count() FROM t WHERE `col` IS NULL `` |
+| `unique` | column | `` SELECT count() FROM (SELECT `col` FROM t GROUP BY `col` HAVING count() > 1) ``: one per duplicated value |
+| `accepted_values` | column, values | `` SELECT count() FROM t WHERE toString(`col`) NOT IN ('paid', 'refunded') `` |
+| `relationship` | column, to, field | `` SELECT count() FROM t WHERE `col` IS NOT NULL AND `col` NOT IN (SELECT `field` FROM <to>) `` |
+| `expression` | expression | `SELECT count() FROM t WHERE NOT (<expression>)` |
+
+- `accepted_values` compares as text, so `values: ['1', '2']` works on a number column.
+- `relationship`'s `to` is another model's name (resolved to its database), a table in the model's database, or `database.table`.
+- `expression` is any boolean ClickHouse expression over the model's columns, for example `amount >= 0` or `ended_at >= started_at`. It must be one expression: no `;`, no comments.
+
+Each test has a **severity**:
+
+| Severity | A failing test |
+|---|---|
+| `error` (default) | Marks the model `error` with `data tests failed: not_null(user_id): 3 failing rows` and skips its downstream models |
+| `warn` | Is recorded; the model stays `success` |
+
+A test whose query fails (for example a column that no longer exists) counts as failed with its error. Tests run after the build, so a failed test does not undo the build: the new table is already in place, and only the downstream models are held back.
+
+Add tests in the **Tests** tab of the model editor. Run history shows `tests passed / failed` per model and, when you expand a result, each test with its failing rows and the SQL it ran.
+
+API: `GET /api/models/{id}/tests`, `POST /api/models/{id}/tests`, `PUT` and `DELETE /api/models/{id}/tests/{testId}`. The body is `{"kind": "accepted_values", "column_name": "status", "args": {"values": ["paid", "refunded"]}, "severity": "warn"}`; `args` holds `values`, `to` and `field`, or `expression`.
+
 ## DAG and validation
 
 CH-UI extracts the references from every model, builds the dependency graph and sorts it with Kahn's algorithm. A cycle is reported as an error.
@@ -108,6 +315,13 @@ CH-UI extracts the references from every model, builds the dependency graph and 
 
 Run validation from the UI or with `GET /api/models/validate`. **DAG** in the page header draws the graph.
 
+## Compile and preview
+
+The model editor's lower pane has two tabs that never change ClickHouse:
+
+- **Compiled** shows the SQL with `$ref()` and `$this` resolved, and the statements a run would execute, grouped by when they apply (first build, rebuild, incremental run, full refresh, every run). Ownership checks, leftover cleanup and the database-dependent swap are not listed. `POST /api/models/{id}/compile`, with an optional `{"sql_body": "..."}` to compile unsaved SQL.
+- **Preview** runs `SELECT * FROM (<resolved sql>) LIMIT 100` with your own ClickHouse credentials and `readonly=1`, so it shows what your account can see, not the `model` account. `POST /api/models/preview` with `{"sql_body": "...", "model_id": "..."}`; `model_id` is needed for `$this`. Viewers can compile and preview.
+
 ## Running models
 
 Runs are synchronous: the request returns when the run has finished, with its status. One run per connection at a time; a second one gets `a model run is already in progress for this connection`. Each statement has a 5-minute timeout.
@@ -115,58 +329,82 @@ Runs are synchronous: the request returns when the run has finished, with its st
 | Action | Endpoint | Builds |
 |---|---|---|
 | **Run all** (page header) | `POST /api/models/run` | Every model of the connection, in dependency order |
-| **Run** (pipeline row) | `POST /api/models/pipelines/{anchorId}/run` | The models of one pipeline |
-| **Run** (editor) | `POST /api/models/{id}/run` | The model plus all its upstream dependencies |
+| Selector | `POST /api/models/run` with `{"selector": "+orders"}` | The models the selector picks |
+| **Run** (pipeline group) | `POST /api/models/pipelines/{id}/run` | The models the pipeline's selector picks |
+| **Run** / **Run with upstream** (editor, model menu) | `POST /api/models/{id}/run` | The model plus all its upstream models |
+| **Run downstream** | `POST /api/models/{id}/run` with `{"scope": "downstream"}` | The model plus everything that reads it |
+| **Run only this model** | `POST /api/models/{id}/run` with `{"scope": "only"}` | The model alone |
+| **Full refresh** | `POST /api/models/{id}/run` with `{"full_refresh": true}` | Rebuilds this model from scratch (its upstream models run normally) |
 
-The response is `{"run_id": "...", "status": "success" | "partial" | "error"}`, with an `error` summary when a model failed. An unknown model id returns `404` and records nothing.
+The response is `{"run_id": "...", "status": "success" | "partial" | "error"}`, with an `error` summary when a model failed. An unknown model id returns `404`, and a selector that names an unknown model returns `400`; neither records a run.
 
 Per model, a run:
 
-1. Skips the model if an upstream dependency failed.
-2. Resolves `$ref()`.
-3. Builds the view or table as described above.
-4. Records status, elapsed time, the executed statement and any error.
+1. Skips the model if an upstream dependency in the run failed.
+2. Resolves `$ref()` and `$this`.
+3. Builds the model as described above.
+4. Runs its data tests.
+5. Records status, elapsed time, the executed statements, test outcomes and any error.
 
 If a model fails, its downstream models are `skipped`. The run is `success` when everything built, `partial` when some models built and some failed, and `error` otherwise.
 
+### Selectors
+
+A selector picks models the way dbt's `--select` does, without tags and paths:
+
+| Term | Picks |
+|---|---|
+| `orders` | The model `orders` |
+| `+orders` | `orders` and everything upstream of it |
+| `orders+` | `orders` and everything downstream of it |
+| `+orders+` | Both |
+| `*` | Every model |
+
+Separate terms with commas: `+daily_revenue, customers+` runs the union. Picked models always run in dependency order.
+
 ## Pipelines
 
-A pipeline is a group of models connected through references, directly or indirectly. CH-UI treats the graph as undirected and finds the connected components; each one is a pipeline.
+A pipeline is a named, stable group of models: a **name**, a **selector** and an optional **schedule**. Pipelines are listed on the Models page; each shows the models its selector picks today, its schedule, the next run and the last outcome. Models no pipeline picks are listed under **Ungrouped**.
 
 ```
-Pipeline 1: raw_events → cleaned_events → daily_aggregates
-Pipeline 2: user_signups → user_cohorts
+nightly_events   selector: +daily_events+      cron: 0 2 * * *   Europe/Lisbon
+finance          selector: orders_current+     cron: */15 * * * *  UTC
 ```
 
-Each pipeline is identified by an **anchor model**: the model its schedule is stored on, or, for a pipeline without a schedule, the first model in dependency order.
+Because the selector names models rather than storing a list, a pipeline follows the graph: a new model that reads `daily_events` joins `nightly_events` without editing it. A selector that names a model that was renamed or deleted is shown on the pipeline as an error, and its runs fail until you fix it.
+
+API: `GET /api/models/pipelines` (with `model_ids`, `next_runs` and `ungrouped_model_ids`), `POST /api/models/pipelines`, `PUT` and `DELETE /api/models/pipelines/{id}`, `POST /api/models/pipelines/{id}/run`. The body is `{"name": "nightly_events", "selector": "+daily_events+", "cron": "0 2 * * *", "timezone": "Europe/Lisbon", "enabled": true}`.
 
 ## Scheduling
 
-Each pipeline can have one cron schedule. The scheduler checks for due schedules every 30 seconds.
-
-Click the schedule button on a pipeline row to set it:
+Each pipeline can have one cron schedule. The scheduler checks for due pipelines every 30 seconds.
 
 | Field | Description |
 |---|---|
-| Cron | 5-field cron expression (minute hour day-of-month month day-of-week) |
-| State | **Pause** stops the schedule without deleting it; **Resume** starts it again from the next due time |
+| Cron | 5-field cron expression (minute hour day-of-month month day-of-week). Empty: not scheduled |
+| Timezone | IANA name the cron is read in, for example `Europe/Lisbon`. Default `UTC` |
+| Enabled | Off pauses the schedule without deleting it; on resumes it from the next due time |
+
+The pipeline sheet shows the next three run times as you type. `GET /api/models/schedule-preview?cron=0+9+*+*+*&timezone=Europe/Lisbon` returns the same list.
 
 ```
-0 9 * * *     # Daily at 9:00
+0 9 * * *     # Daily at 9:00 in the pipeline's timezone
 0 */6 * * *   # Every 6 hours
 30 2 * * 0    # Sundays at 2:30
 0 0 1 * *     # First of the month at midnight
 ```
 
-A scheduled run behaves like **Run** on the pipeline, with `triggered_by` set to `scheduler`. The schedule records the outcome: `success`, or `error` with a summary when any model failed or was skipped.
-
-API: `PUT /api/models/schedule/{anchorId}` with `{"cron": "0 * * * *", "enabled": false}` saves a paused schedule; omit `enabled` to keep the current state. `DELETE /api/models/schedule/{anchorId}` returns `404` when the pipeline has no schedule.
+A scheduled run behaves like **Run** on the pipeline, with `triggered_by` set to `scheduler`. The pipeline records the outcome (`success`, or `error` with a summary when any model failed or was skipped) and the run it started.
 
 Credentials come from the `model` [background account](/docs/background-accounts). If none are available, or the worker is disabled, the run fails. Disabled blocks manual runs too.
 
+### Schedules from earlier versions
+
+Before named pipelines, a schedule hung off an "anchor" model and ran that model's whole connected component. On the first start of this version each such schedule becomes a pipeline named after its anchor model, with the same cron, state and next run, in `UTC`. Its selector is `+anchor+` when that picks the whole component, otherwise the component's model names (`raw_events,cleaned_events,daily_aggregates`). The old `model_schedules` table is kept but no longer read; the `/api/models/schedule/{anchorId}` endpoints are gone.
+
 ## Run history
 
-**History** in the page header lists recent runs with their status and counts. Expand a run for per-model results; **SQL** on a result shows the statement that ran.
+**History** in the page header lists recent runs with their status, counts and the selector they ran. Expand a run for per-model results; **SQL** on a result shows the statements that ran, and a model with tests shows each test's outcome.
 
 | Run status | Meaning |
 |---|---|
@@ -179,25 +417,24 @@ Credentials come from the `model` [background account](/docs/background-accounts
 |---|---|
 | `pending` | Not started yet |
 | `running` | Building |
-| `success` | Built |
-| `error` | Failed (see the error) |
+| `success` | Built (and no error-severity test failed) |
+| `error` | Failed (see the error), including failed error-severity tests |
 | `skipped` | An upstream dependency failed |
 
 If CH-UI stops while a run is in progress, the run and its unfinished models are marked `error` with `interrupted by restart` when it starts again.
 
 ## GitHub
 
-Models can be imported from `.sql` files in a GitHub repository and kept in step with it. The sync is one-way: the repository is the source of truth, and GitHub-managed models are read-only in CH-UI. See [GitHub Sync](/docs/github).
+Models can be imported from `.sql` files in a GitHub repository and kept in step with it. The sync is one-way: the repository is the source of truth, and GitHub-managed models (and their tests) are read-only in CH-UI. Every setting on this page, including `tests`, has a frontmatter key. See [GitHub Sync](/docs/github#model-file-format).
 
 ## Planned
 
 These are not available today:
 
-- `incremental` and `materialized_view` materializations
-- dbt-style templating (`{{ ref() }}`, `{{ source() }}`, `{{ this }}`, `{{ config() }}`) and `sources.yml`
-- Data tests on model columns
+- dbt-style templating (`{{ ref() }}`, `{{ source() }}`, `{{ config() }}`, `is_incremental()`) and `sources.yml`
+- Tags and path selectors (`tag:nightly`, `path:marts`)
+- Snapshots (slowly changing dimensions)
 - Pushing model changes from CH-UI back to GitHub
-- `PARTITION BY` for table models
 
 <CardGrid>
   <LinkCard title="GitHub Sync" href="/docs/github" description="Import models from a repository and keep them in sync" />

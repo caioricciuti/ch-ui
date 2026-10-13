@@ -1,9 +1,11 @@
 package models
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,119 +32,126 @@ func NewRunner(db *database.DB, gw *tunnel.Gateway, secret string) *Runner {
 	}
 }
 
-// RunAll executes all models for a connection in dependency order.
-func (r *Runner) RunAll(connectionID, triggeredBy string) (string, error) {
-	if err := r.acquireLock(connectionID); err != nil {
-		return "", err
-	}
-	defer r.releaseLock(connectionID)
-
-	if !r.gateway.IsTunnelOnline(connectionID) {
-		return "", fmt.Errorf("tunnel not connected")
-	}
-
-	user, password, err := r.findCredentials(connectionID)
-	if err != nil {
-		return "", fmt.Errorf("no credentials: %w", err)
-	}
-
-	allModels, err := r.db.GetModelsByConnection(connectionID)
-	if err != nil {
-		return "", fmt.Errorf("load models: %w", err)
-	}
-	if len(allModels) == 0 {
-		return "", fmt.Errorf("no models defined")
-	}
-
-	dag, idToModel, modelTargets, err := r.buildDAG(allModels)
-	if err != nil {
-		return "", err
-	}
-
-	return r.execute(connectionID, triggeredBy, dag, idToModel, modelTargets, user, password)
+// RunOptions selects what a run builds and how.
+type RunOptions struct {
+	// Selector picks the models (see ParseSelector); empty runs every model.
+	Selector string
+	// FullRefresh lists model IDs to rebuild from scratch: incremental and
+	// materialized_view models then go through the safe swap instead of
+	// adding rows.
+	FullRefresh map[string]bool
+	// PipelineID is recorded on the run when a named pipeline started it.
+	PipelineID  string
+	TriggeredBy string
 }
 
-// RunPipeline executes only the connected component containing anchorModelID.
-func (r *Runner) RunPipeline(connectionID, anchorModelID, triggeredBy string) (string, error) {
-	if err := r.acquireLock(connectionID); err != nil {
-		return "", err
-	}
-	defer r.releaseLock(connectionID)
+// Model run scopes for RunModel.
+const (
+	ScopeUpstream   = "upstream"   // the model and everything it reads
+	ScopeDownstream = "downstream" // the model and everything that reads it
+	ScopeOnly       = "only"       // just the model
+)
 
-	if !r.gateway.IsTunnelOnline(connectionID) {
-		return "", fmt.Errorf("tunnel not connected")
-	}
-
-	user, password, err := r.findCredentials(connectionID)
-	if err != nil {
-		return "", fmt.Errorf("no credentials: %w", err)
-	}
-
-	allModels, err := r.db.GetModelsByConnection(connectionID)
-	if err != nil {
-		return "", fmt.Errorf("load models: %w", err)
-	}
-	if len(allModels) == 0 {
-		return "", fmt.Errorf("no models defined")
-	}
-
-	dag, idToModel, modelTargets, err := r.buildDAG(allModels)
-	if err != nil {
-		return "", err
-	}
-
-	component := dag.ComponentContaining(anchorModelID)
-	if len(component) == 0 {
-		return "", ErrModelNotFound
-	}
-
-	dag.Order = component
-	return r.execute(connectionID, triggeredBy, dag, idToModel, modelTargets, user, password)
+// RunAll executes all models for a connection in dependency order.
+func (r *Runner) RunAll(connectionID, triggeredBy string) (string, error) {
+	return r.Run(connectionID, RunOptions{TriggeredBy: triggeredBy})
 }
 
 // RunSingle executes a single model and its upstream dependencies.
 func (r *Runner) RunSingle(connectionID, modelID, triggeredBy string) (string, error) {
+	return r.RunModel(connectionID, modelID, ScopeUpstream, false, triggeredBy)
+}
+
+// RunModel runs one model with its upstream or downstream models (scope);
+// fullRefresh rebuilds that model (not the others) from scratch.
+func (r *Runner) RunModel(connectionID, modelID, scope string, fullRefresh bool, triggeredBy string) (string, error) {
+	m, err := r.db.GetModelByID(modelID)
+	if err != nil {
+		return "", fmt.Errorf("load model: %w", err)
+	}
+	if m == nil || m.ConnectionID != connectionID {
+		return "", ErrModelNotFound
+	}
+	selector := m.Name
+	switch scope {
+	case ScopeUpstream, "":
+		selector = "+" + m.Name
+	case ScopeDownstream:
+		selector = m.Name + "+"
+	case ScopeOnly:
+	default:
+		return "", fmt.Errorf("scope must be upstream, downstream or only (got %q)", scope)
+	}
+	opts := RunOptions{Selector: selector, TriggeredBy: triggeredBy}
+	if fullRefresh {
+		opts.FullRefresh = map[string]bool{m.ID: true}
+	}
+	return r.Run(connectionID, opts)
+}
+
+// RunNamedPipeline runs a stored pipeline's selector.
+func (r *Runner) RunNamedPipeline(connectionID, pipelineID, triggeredBy string) (string, error) {
+	p, err := r.db.GetModelPipelineByID(pipelineID)
+	if err != nil {
+		return "", fmt.Errorf("load pipeline: %w", err)
+	}
+	if p == nil || p.ConnectionID != connectionID {
+		return "", ErrPipelineNotFound
+	}
+	return r.Run(connectionID, RunOptions{Selector: p.Selector, PipelineID: p.ID, TriggeredBy: triggeredBy})
+}
+
+// Run builds the selected models in dependency order. Selection errors
+// (unknown model, bad selector) return before anything is recorded.
+func (r *Runner) Run(connectionID string, opts RunOptions) (string, error) {
 	if err := r.acquireLock(connectionID); err != nil {
 		return "", err
 	}
 	defer r.releaseLock(connectionID)
 
-	if !r.gateway.IsTunnelOnline(connectionID) {
-		return "", fmt.Errorf("tunnel not connected")
-	}
-
-	user, password, err := r.findCredentials(connectionID)
-	if err != nil {
-		return "", fmt.Errorf("no credentials: %w", err)
-	}
-
 	allModels, err := r.db.GetModelsByConnection(connectionID)
 	if err != nil {
 		return "", fmt.Errorf("load models: %w", err)
+	}
+	if len(allModels) == 0 {
+		return "", fmt.Errorf("no models defined")
 	}
 
 	dag, idToModel, modelTargets, err := r.buildDAG(allModels)
 	if err != nil {
 		return "", err
 	}
-	if _, ok := idToModel[modelID]; !ok {
-		return "", ErrModelNotFound
-	}
-
-	// Filter to only the target model and its upstream deps
-	upstream := GetUpstreamDeps(modelID, dag.Deps)
-	upstream[modelID] = true
-
-	var filteredIDs []string
-	for _, id := range dag.Order {
-		if upstream[id] {
-			filteredIDs = append(filteredIDs, id)
+	if s := strings.TrimSpace(opts.Selector); s != "" {
+		nameToID := make(map[string]string, len(allModels))
+		for _, m := range allModels {
+			nameToID[m.Name] = m.ID
 		}
+		ids, err := dag.Select(s, nameToID)
+		if err != nil {
+			return "", &SelectorError{Err: err}
+		}
+		dag.Order = ids
 	}
-	dag.Order = filteredIDs
+	if len(dag.Order) == 0 {
+		return "", fmt.Errorf("the selector picks no models")
+	}
 
-	return r.execute(connectionID, triggeredBy, dag, idToModel, modelTargets, user, password)
+	if !r.gateway.IsTunnelOnline(connectionID) {
+		return "", fmt.Errorf("tunnel not connected")
+	}
+	user, password, err := r.findCredentials(connectionID)
+	if err != nil {
+		return "", fmt.Errorf("no credentials: %w", err)
+	}
+
+	return r.execute(connectionID, opts, dag, idToModel, modelTargets, user, password)
 }
+
+// SelectorError wraps a selector that does not parse or names unknown models.
+type SelectorError struct{ Err error }
+
+func (e *SelectorError) Error() string { return e.Err.Error() }
+func (e *SelectorError) Unwrap() error { return e.Err }
 
 // Validate checks all models for reference errors and cycles.
 func (r *Runner) Validate(connectionID string) ([]ValidationError, error) {
@@ -235,10 +244,15 @@ func (r *Runner) buildDAG(allModels []database.Model) (*DepGraph, map[string]dat
 	return dag, idToModel, modelTargets, nil
 }
 
-func (r *Runner) execute(connectionID, triggeredBy string, dag *DepGraph, idToModel map[string]database.Model, modelTargets map[string]string, user, password string) (string, error) {
-	runID, err := r.db.CreateModelRun(connectionID, len(dag.Order), triggeredBy)
+func (r *Runner) execute(connectionID string, opts RunOptions, dag *DepGraph, idToModel map[string]database.Model, modelTargets map[string]string, user, password string) (string, error) {
+	runID, err := r.db.CreateModelRun(connectionID, len(dag.Order), opts.TriggeredBy)
 	if err != nil {
 		return "", fmt.Errorf("create run: %w", err)
+	}
+	if opts.Selector != "" || opts.PipelineID != "" {
+		if err := r.db.SetModelRunScope(runID, opts.Selector, opts.PipelineID); err != nil {
+			slog.Error("Failed to record run scope", "run", runID, "error", err)
+		}
 	}
 
 	// Create pending result records
@@ -252,6 +266,9 @@ func (r *Runner) execute(connectionID, triggeredBy string, dag *DepGraph, idToMo
 	// Execute in topological order
 	exec := func(sql string) (*tunnel.QueryResult, error) {
 		return r.gateway.ExecuteQuery(connectionID, sql, user, password, 5*time.Minute)
+	}
+	readOnly := func(sql string) (*tunnel.QueryResult, error) {
+		return r.gateway.ExecuteQueryWithSettings(connectionID, sql, user, password, testSettings, 3*time.Minute)
 	}
 	failed := make(map[string]bool)
 	var succeeded, failedCount, skipped int
@@ -276,8 +293,8 @@ func (r *Runner) execute(connectionID, triggeredBy string, dag *DepGraph, idToMo
 			continue
 		}
 
-		// Resolve $ref()
-		resolvedSQL, resolveErr := ResolveRefs(m.SQLBody, modelTargets)
+		// Resolve $ref() and $this
+		resolvedSQL, resolveErr := ResolveModelSQL(m.SQLBody, modelTargets, m.TargetDatabase, m.Name)
 		if resolveErr != nil {
 			failedCount++
 			failed[id] = true
@@ -293,13 +310,20 @@ func (r *Runner) execute(connectionID, triggeredBy string, dag *DepGraph, idToMo
 			exec:         exec,
 			model:        m,
 			priorSuccess: func() (bool, error) { return r.db.HasSuccessfulModelRun(m.ID) },
+			fullRefresh:  opts.FullRefresh[m.ID],
+			usesThis:     UsesThis(m.SQLBody),
 		}
 		start := time.Now()
 		ddl, execErr := mz.run(resolvedSQL)
-		elapsed := time.Since(start).Milliseconds()
 		if ddl == "" {
 			ddl = resolvedSQL
 		}
+
+		// Data tests run only on a model that built.
+		if execErr == nil {
+			execErr = r.runTests(runID, m, modelTargets, readOnly)
+		}
+		elapsed := time.Since(start).Milliseconds()
 
 		if execErr != nil {
 			failedCount++
@@ -329,9 +353,40 @@ func (r *Runner) execute(connectionID, triggeredBy string, dag *DepGraph, idToMo
 	return runID, nil
 }
 
+// runTests runs the model's data tests, records their outcomes on the run
+// result and returns an error when an error-severity test failed.
+func (r *Runner) runTests(runID string, m database.Model, modelTargets map[string]string, query func(string) (*tunnel.QueryResult, error)) error {
+	tests, err := r.db.GetModelTests(m.ID)
+	if err != nil {
+		return fmt.Errorf("load data tests: %w", err)
+	}
+	if len(tests) == 0 {
+		return nil
+	}
+	target := quoteIdent(m.TargetDatabase) + "." + quoteIdent(m.Name)
+	outcomes, blocking := runDataTests(query, tests, target, modelTargets, m.TargetDatabase)
+	passed := 0
+	for _, o := range outcomes {
+		if o.Status == "pass" {
+			passed++
+		}
+	}
+	details, _ := json.Marshal(outcomes)
+	if err := r.db.UpdateModelRunResultTests(runID, m.ID, passed, len(outcomes)-passed, string(details)); err != nil {
+		slog.Error("Failed to record data test results", "model", m.Name, "error", err)
+	}
+	if blocking {
+		return errors.New(summarizeFailures(outcomes))
+	}
+	return nil
+}
+
 // ErrModelNotFound means the model (or pipeline anchor) is not one of the
 // connection's models. Nothing is recorded.
 var ErrModelNotFound = errors.New("model not found")
+
+// ErrPipelineNotFound means the pipeline is not one of the connection's.
+var ErrPipelineNotFound = errors.New("pipeline not found")
 
 // RunFailedError is returned, together with the run ID, when a run finished
 // but at least one model failed or was skipped. The run is recorded.

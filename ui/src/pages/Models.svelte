@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import type { Materialization, Model, ModelRun, ModelRunResult, ModelSchedule, DAGNode, DAGEdge, Pipeline, RunOutcome } from '../lib/types/models'
+  import type { Materialization, Model, ModelPipeline, ModelRun, ModelRunResult, DAGNode, DAGEdge, RunOutcome, RunScope } from '../lib/types/models'
   import * as api from '../lib/api/models'
   import { refreshModelCache } from '../lib/editor/completions'
   import { formatDate } from '../lib/utils/format'
@@ -30,6 +30,14 @@
   import '@xyflow/svelte/dist/style.css'
   import ModelNode from '../lib/components/models/ModelNode.svelte'
   import GitHubSyncButton from '../lib/components/models/GitHubSyncButton.svelte'
+  import PipelineSheet from '../lib/components/models/PipelineSheet.svelte'
+  import TestOutcomesTable from '../lib/components/models/TestOutcomesTable.svelte'
+  import {
+    MATERIALIZATIONS,
+    materializationInfo,
+    parseTestOutcomes,
+    supportsFullRefresh,
+  } from '../lib/components/models/materializations'
   import { getTheme } from '../lib/stores/theme.svelte'
   import {
     Boxes,
@@ -39,21 +47,22 @@
     RefreshCw,
     Eye,
     MoreHorizontal,
-    Table2,
     GitBranch,
     History,
-    Save,
     CheckCircle,
     XCircle,
     SkipForward,
     Clock,
     ChevronDown,
     ChevronRight,
-    Timer,
     X,
     Info,
-    Pause,
     Code,
+    Pencil,
+    ArrowUpFromLine,
+    ArrowDownFromLine,
+    RotateCcw,
+    FlaskConical,
   } from 'lucide-svelte'
 
   // ── State ──────────────────────────────────────────────────────────
@@ -88,8 +97,9 @@
   let runs = $state<ModelRun[]>([])
   let expandedRunId = $state<string | null>(null)
   let runResults = $state<Record<string, ModelRunResult[]>>({})
-  // Result ids whose stored SQL is shown in the history.
+  // Result ids whose stored SQL or test outcomes are shown in the history.
   let expandedSQL = $state<Record<string, boolean>>({})
+  let expandedTests = $state<Record<string, boolean>>({})
 
   // New model sheet
   let showCreate = $state(false)
@@ -99,13 +109,14 @@
   let createError = $state('')
   let creating = $state(false)
   const MODEL_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
-  const MATERIALIZATION_OPTIONS = [
-    { value: 'view', label: 'View: computed when queried' },
-    { value: 'table', label: 'Table: rebuilt on every run' },
-  ]
+  const MATERIALIZATION_OPTIONS = MATERIALIZATIONS.map((m) => ({
+    value: m.value,
+    label: `${m.label}: ${m.description}`,
+  }))
 
   // Run state
   let running = $state(false)
+  let runningModelId = $state<string | null>(null)
 
   // Info banner
   let infoDismissed = $state(localStorage.getItem('chui-pipeline-info-dismissed') === '1')
@@ -115,21 +126,31 @@
     localStorage.setItem('chui-pipeline-info-dismissed', '1')
   }
 
-  // Pipelines
-  let pipelines = $state<Pipeline[]>([])
-
-  // Per-pipeline run state
+  // Named pipelines
+  let pipelines = $state<ModelPipeline[]>([])
+  // Models no pipeline picks, per the server; null until it answered.
+  let serverUngrouped = $state<string[] | null>(null)
   let runningPipeline = $state<string | null>(null)
 
-  // Schedule (per-pipeline)
-  let showSchedule = $state(false)
-  let scheduleAnchorId = $state<string | null>(null)
-  let schedule = $state<ModelSchedule | null>(null)
-  let schedCron = $state('0 */6 * * *')
-  let schedSaving = $state(false)
+  // Pipeline sheet
+  let pipelineSheetOpen = $state(false)
+  let editingPipeline = $state<ModelPipeline | null>(null)
+
+  // Pipeline delete confirm
+  let pendingPipelineDelete = $state<ModelPipeline | null>(null)
+  let deletingPipeline = $state(false)
 
   // Derived: model lookup by id
   let modelById = $derived(new Map(models.map(m => [m.id, m])))
+  let pipelineById = $derived(new Map(pipelines.map(p => [p.id, p])))
+
+  // Models outside every pipeline: the server's list plus models created
+  // since it answered.
+  let ungroupedModels = $derived.by(() => {
+    const grouped = new Set(pipelines.flatMap(p => p.model_ids))
+    const fromServer = new Set(serverUngrouped ?? [])
+    return models.filter(m => fromServer.has(m.id) || !grouped.has(m.id))
+  })
 
   // Context menu
   let contextMenu = $state<{ model: Model; x: number; y: number } | null>(null)
@@ -160,9 +181,16 @@
   function getContextItems(): ContextMenuItem[] {
     const m = contextMenu?.model
     if (!m) return []
+    const busy = runningModelId !== null || running
     const items: ContextMenuItem[] = [
       { id: 'open', label: 'Open', icon: Eye, onSelect: () => selectModel(m.id) },
+      { id: 'sep0', separator: true },
+      { id: 'run-up', label: 'Run with upstream', icon: ArrowUpFromLine, disabled: busy, onSelect: () => handleRunModel(m, {}) },
+      { id: 'run-down', label: 'Run downstream', icon: ArrowDownFromLine, disabled: busy, onSelect: () => handleRunModel(m, { scope: 'downstream' }) },
     ]
+    if (supportsFullRefresh(m.materialization)) {
+      items.push({ id: 'full', label: 'Full refresh', icon: RotateCcw, disabled: busy, onSelect: () => handleRunModel(m, { fullRefresh: true }) })
+    }
     if (m.source !== 'github') {
       items.push(
         { id: 'sep1', separator: true },
@@ -251,67 +279,20 @@
     try {
       const res = await api.listPipelines()
       pipelines = res.pipelines ?? []
-    } catch {
-      // Pipelines not available: ignore
+      serverUngrouped = res.ungrouped_model_ids ?? []
+    } catch (e: unknown) {
+      toastError((e instanceof Error ? e.message : '') || 'Failed to load pipelines')
     }
   }
 
   // ── Actions ────────────────────────────────────────────────────────
 
-  async function handleSaveSchedule() {
-    if (!scheduleAnchorId) return
-    schedSaving = true
+  async function handleRunPipeline(p: ModelPipeline) {
+    runningPipeline = p.id
     try {
-      // Saving keeps a paused schedule paused; a new schedule starts active.
-      const res = await api.upsertPipelineSchedule(scheduleAnchorId, { cron: schedCron, enabled: schedule?.enabled ?? true })
-      schedule = res.schedule
-      toastSuccess('Schedule saved')
+      const res = await api.runPipeline(p.id)
+      await showRunOutcome(res, `Pipeline ${p.name} finished`)
       await loadPipelines()
-    } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to save schedule')
-    } finally {
-      schedSaving = false
-    }
-  }
-
-  async function handleToggleSchedule() {
-    if (!scheduleAnchorId || !schedule) return
-    schedSaving = true
-    const enabled = !schedule.enabled
-    try {
-      const res = await api.upsertPipelineSchedule(scheduleAnchorId, { cron: schedule.cron, enabled })
-      schedule = res.schedule
-      toastSuccess(enabled ? 'Schedule resumed' : 'Schedule paused')
-      await loadPipelines()
-    } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to update schedule')
-    } finally {
-      schedSaving = false
-    }
-  }
-
-  async function handleDeleteSchedule() {
-    if (!scheduleAnchorId) return
-    schedSaving = true
-    try {
-      await api.deletePipelineSchedule(scheduleAnchorId)
-      schedule = null
-      schedCron = '0 */6 * * *'
-      toastSuccess('Schedule removed')
-      showSchedule = false
-      await loadPipelines()
-    } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to delete schedule')
-    } finally {
-      schedSaving = false
-    }
-  }
-
-  async function handleRunPipeline(anchorId: string) {
-    runningPipeline = anchorId
-    try {
-      const res = await api.runPipeline(anchorId)
-      await showRunOutcome(res, 'Pipeline run finished')
     } catch (e: unknown) {
       toastError((e instanceof Error ? e.message : '') || 'Failed to run pipeline')
     } finally {
@@ -319,12 +300,41 @@
     }
   }
 
-  function openPipelineSchedule(anchorId: string, existing: ModelSchedule | null) {
-    // Save and remove act on the row that exists, wherever it is anchored.
-    scheduleAnchorId = existing?.anchor_model_id ?? anchorId
-    schedule = existing
-    schedCron = existing?.cron ?? '0 */6 * * *'
-    showSchedule = true
+  function openNewPipeline() {
+    editingPipeline = null
+    pipelineSheetOpen = true
+  }
+
+  function openEditPipeline(p: ModelPipeline) {
+    editingPipeline = p
+    pipelineSheetOpen = true
+  }
+
+  async function confirmDeletePipeline() {
+    if (!pendingPipelineDelete) return
+    deletingPipeline = true
+    try {
+      await api.deletePipeline(pendingPipelineDelete.id)
+      toastSuccess('Pipeline deleted')
+      await loadPipelines()
+    } catch (e: unknown) {
+      toastError((e instanceof Error ? e.message : '') || 'Failed to delete pipeline')
+    } finally {
+      deletingPipeline = false
+      pendingPipelineDelete = null
+    }
+  }
+
+  async function handleRunModel(m: Model, opts: { scope?: RunScope; fullRefresh?: boolean }) {
+    runningModelId = m.id
+    try {
+      const res = await api.runSingleModel(m.id, opts)
+      await showRunOutcome(res, opts.fullRefresh ? `Full refresh of ${m.name} finished` : 'Model run finished')
+    } catch (e: unknown) {
+      toastError((e instanceof Error ? e.message : '') || 'Failed to run model')
+    } finally {
+      runningModelId = null
+    }
   }
 
   function handleCreate() {
@@ -465,6 +475,14 @@
     }
   }
 
+  function pipelineModels(p: ModelPipeline): Model[] {
+    return p.model_ids.map(id => modelById.get(id)).filter((m): m is Model => !!m)
+  }
+
+  function hasTests(r: ModelRunResult): boolean {
+    return r.tests_passed + r.tests_failed > 0 || !!r.test_details
+  }
+
   // DataTable is typed over Record rows; Model is an interface, so cast in and out.
   type Row = Record<string, unknown>
   const asRows = (rows: Model[]): Row[] => rows as unknown as Row[]
@@ -479,20 +497,71 @@
     { key: 'last_run_at', label: 'Last run', mono: true, format: (v) => (v ? formatDate(String(v)) : '-') },
     { key: 'description', label: 'Description', truncate: true, sortable: false, format: (v, r) => String(r.last_error ?? v ?? '') },
   ]
-
-  const SCHEDULE_PRESETS = [
-    { label: 'Every hour', cron: '0 * * * *' },
-    { label: 'Every 6h', cron: '0 */6 * * *' },
-    { label: 'Daily midnight', cron: '0 0 * * *' },
-    { label: 'Weekly Mon 2am', cron: '0 2 * * 1' },
-  ]
 </script>
+
+{#snippet modelTable(rows: Model[])}
+  <DataTable
+    columns={modelColumns}
+    rows={asRows(rows)}
+    rowKey={(r) => String(r.id)}
+    framed={false}
+    onrowclick={(r) => selectModel(String(r.id))}
+    onrowcontextmenu={(r, e) => { const m = models.find((x) => x.id === String(r.id)); if (m) openContextMenuAtPointer(e, m) }}
+  >
+    {#snippet cell(row, col, value)}
+      {@const model = asModel(row)}
+      {#if col.key === 'name'}
+        {@const MatIcon = materializationInfo(model.materialization).icon}
+        <span class="inline-flex items-center gap-2">
+          <MatIcon size={13} class="shrink-0 text-fg-3" />
+          <span class="font-medium text-fg">{model.name}</span>
+          {#if model.source === 'github'}
+            <span title="Managed by GitHub: edit in your repository"><GitBranch size={12} class="shrink-0 text-fg-3" /></span>
+          {/if}
+          {#if runningModelId === model.id}
+            <Badge tone="info">running</Badge>
+          {/if}
+        </span>
+      {:else if col.key === 'materialization'}
+        <Badge tone="neutral">{materializationInfo(model.materialization).label}</Badge>
+      {:else if col.key === 'depends_on'}
+        {@const deps = upstreamMap.get(model.id) ?? []}
+        {#if deps.length}
+          <span class="inline-flex flex-wrap gap-1">
+            {#each deps as dep (dep)}<Badge tone="brand">{dep}</Badge>{/each}
+          </span>
+        {:else}
+          <span class="text-fg-4">-</span>
+        {/if}
+      {:else if col.key === 'status'}
+        <Badge tone={statusTone(model.status)}>{model.status}</Badge>
+      {:else if col.key === 'description' && model.last_error}
+        <span class="text-danger">{value}</span>
+      {:else}
+        {value}
+      {/if}
+    {/snippet}
+    {#snippet actions(row)}
+      <Button
+        icon
+        size="xs"
+        variant="ghost"
+        aria-label="More actions"
+        title="More actions"
+        onclick={(e) => openContextMenuFromButton(e, asModel(row))}
+      >
+        <MoreHorizontal size={14} />
+      </Button>
+    {/snippet}
+  </DataTable>
+{/snippet}
 
 <div class="flex h-full min-h-0 flex-col overflow-hidden">
   <PageHeader title="Models" subtitle="SQL transformations that run in dependency order">
     {#snippet meta()}
       {#if !loading}
         <Badge tone="neutral">{models.length} model{models.length !== 1 ? 's' : ''}</Badge>
+        <Badge tone="neutral">{pipelines.length} pipeline{pipelines.length !== 1 ? 's' : ''}</Badge>
       {/if}
     {/snippet}
     {#snippet actions()}
@@ -512,6 +581,9 @@
         <History size={13} /> History
       </Button>
       <GitHubSyncButton onsynced={async () => { await loadModels(); loadDAG(); loadPipelines() }} />
+      <Button size="sm" variant="outline" onclick={openNewPipeline} disabled={models.length === 0}>
+        <Plus size={13} /> New pipeline
+      </Button>
       <Button size="sm" onclick={handleCreate}>
         <Plus size={14} /> New model
       </Button>
@@ -536,7 +608,8 @@
         <div class="mx-5 mt-5 flex items-start gap-2.5 rounded-md bg-info-soft px-3 py-2.5 text-xs leading-relaxed text-fg-2">
           <Info size={14} class="mt-0.5 shrink-0 text-info" />
           <p class="flex-1">
-            Models are SQL transformations that form a pipeline. Use <code class="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-[11px] text-fg">$ref(model_name)</code> to reference other models.
+            Models are SQL transformations. Use <code class="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-[11px] text-fg">$ref(model_name)</code> to reference other models.
+            A <span class="font-semibold">pipeline</span> is a named group picked by a selector, run and scheduled together.
             <span class="font-semibold">Run all</span> executes every model in dependency order; if a model fails, its dependents are skipped.
           </p>
           <button onclick={dismissInfo} class="mt-0.5 shrink-0 text-fg-4 hover:text-fg" title="Dismiss" aria-label="Dismiss">
@@ -545,129 +618,81 @@
         </div>
       {/if}
       <div class="space-y-4 p-5">
-        {#each pipelines as pipeline (pipeline.anchor_model_id)}
-          {@const pipelineModels = pipeline.model_ids.map(id => modelById.get(id)).filter((m): m is Model => !!m)}
-          {#if pipelineModels.length > 0}
-            <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
-              <!-- Pipeline header -->
-              <div class="flex items-center gap-2.5 border-b border-edge-subtle px-4 py-2">
-                <Boxes size={14} class="shrink-0 text-fg-3" />
-                <span class="text-xs font-medium text-fg-2">
-                  {pipelineModels.length} model{pipelineModels.length !== 1 ? 's' : ''}
-                </span>
-                <div class="flex-1"></div>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onclick={() => handleRunPipeline(pipeline.anchor_model_id)}
-                  disabled={runningPipeline === pipeline.anchor_model_id || running}
-                  title="Run this pipeline"
-                >
-                  <Play size={11} />
-                  {runningPipeline === pipeline.anchor_model_id ? 'Running...' : 'Run'}
-                </Button>
-                <Button
-                  size="xs"
-                  variant={pipeline.schedule ? 'secondary' : 'ghost'}
-                  class={pipeline.schedule ? 'font-mono' : ''}
-                  onclick={() => openPipelineSchedule(pipeline.anchor_model_id, pipeline.schedule)}
-                  title={pipeline.schedule ? `Schedule: ${pipeline.schedule.cron}${pipeline.schedule.enabled ? '' : ' (paused)'}` : 'No schedule'}
-                >
-                  {#if pipeline.schedule && !pipeline.schedule.enabled}<Pause size={11} />{:else}<Timer size={11} />{/if}
-                  {pipeline.schedule ? pipeline.schedule.cron : 'No schedule'}
-                </Button>
-                {#if pipeline.schedule && !pipeline.schedule.enabled}
-                  <Badge tone="warning">Paused</Badge>
+        {#each pipelines as pipeline (pipeline.id)}
+          {@const picked = pipelineModels(pipeline)}
+          {@const nextRun = pipeline.next_runs[0] ?? pipeline.next_run_at}
+          <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-edge-subtle px-4 py-2 text-xs">
+              <span class="text-[13px] font-medium text-fg">{pipeline.name}</span>
+              <code class="rounded-sm bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-fg-2" title="Selector">{pipeline.selector || '*'}</code>
+              <span class="text-fg-3">{picked.length} model{picked.length !== 1 ? 's' : ''}</span>
+              {#if pipeline.cron}
+                <span class="text-fg-4">|</span>
+                <span class="font-mono text-fg-2">{pipeline.cron}</span>
+                <span class="text-fg-3">{pipeline.timezone}</span>
+                <Badge tone={pipeline.enabled ? 'success' : 'warning'}>{pipeline.enabled ? 'enabled' : 'paused'}</Badge>
+                {#if pipeline.enabled && nextRun}
+                  <span class="tabular-nums text-fg-3">Next {formatDate(nextRun)}</span>
                 {/if}
-              </div>
-              <DataTable
-                columns={modelColumns}
-                rows={asRows(pipelineModels)}
-                rowKey={(r) => String(r.id)}
-                framed={false}
-                onrowclick={(r) => selectModel(String(r.id))}
-                onrowcontextmenu={(r, e) => { const m = models.find((x) => x.id === String(r.id)); if (m) openContextMenuAtPointer(e, m) }}
+              {:else}
+                <span class="text-fg-4">|</span>
+                <span class="text-fg-3">Not scheduled</span>
+              {/if}
+              {#if pipeline.last_status}
+                <Badge tone={statusTone(pipeline.last_status)} title={pipeline.last_error ?? undefined}>last run {pipeline.last_status}</Badge>
+              {/if}
+              <div class="flex-1"></div>
+              <Button
+                size="xs"
+                variant="ghost"
+                onclick={() => handleRunPipeline(pipeline)}
+                disabled={runningPipeline !== null || running || picked.length === 0}
+                title="Run this pipeline now"
               >
-                {#snippet cell(row, col, value)}
-                  {@const model = asModel(row)}
-                  {#if col.key === 'name'}
-                    <span class="inline-flex items-center gap-2">
-                      {#if model.materialization === 'table'}
-                        <Table2 size={13} class="shrink-0 text-fg-3" />
-                      {:else}
-                        <Eye size={13} class="shrink-0 text-fg-3" />
-                      {/if}
-                      <span class="font-medium text-fg">{model.name}</span>
-                      {#if model.source === 'github'}
-                        <span title="Managed by GitHub: edit in your repository"><GitBranch size={12} class="shrink-0 text-fg-3" /></span>
-                      {/if}
-                    </span>
-                  {:else if col.key === 'materialization'}
-                    <Badge tone="neutral">{model.materialization}</Badge>
-                  {:else if col.key === 'depends_on'}
-                    {@const deps = upstreamMap.get(model.id) ?? []}
-                    {#if deps.length}
-                      <span class="inline-flex flex-wrap gap-1">
-                        {#each deps as dep (dep)}<Badge tone="brand">{dep}</Badge>{/each}
-                      </span>
-                    {:else}
-                      <span class="text-fg-4">-</span>
-                    {/if}
-                  {:else if col.key === 'status'}
-                    <Badge tone={statusTone(model.status)}>{model.status}</Badge>
-                  {:else if col.key === 'description' && model.last_error}
-                    <span class="text-danger">{value}</span>
-                  {:else}
-                    {value}
-                  {/if}
-                {/snippet}
-                {#snippet actions(row)}
-                  <Button
-                    icon
-                    size="xs"
-                    variant="ghost"
-                    aria-label="More actions"
-                    title="More actions"
-                    onclick={(e) => openContextMenuFromButton(e, asModel(row))}
-                  >
-                    <MoreHorizontal size={14} />
-                  </Button>
-                {/snippet}
-              </DataTable>
+                <Play size={11} />
+                {runningPipeline === pipeline.id ? 'Running...' : 'Run'}
+              </Button>
+              <Button size="xs" variant="ghost" onclick={() => openEditPipeline(pipeline)} title="Edit pipeline">
+                <Pencil size={11} /> Edit
+              </Button>
+              <Button icon size="xs" variant="ghost" onclick={() => { pendingPipelineDelete = pipeline }} aria-label="Delete pipeline" title="Delete pipeline">
+                <Trash2 size={12} />
+              </Button>
             </div>
-          {/if}
+            {#if pipeline.selector_error}
+              <div class="border-b border-edge-subtle bg-danger-soft px-4 py-2 text-xs text-danger" role="alert">
+                {pipeline.selector_error}
+              </div>
+            {/if}
+            {#if pipeline.last_status === 'error' && pipeline.last_error}
+              <div class="truncate border-b border-edge-subtle px-4 py-1.5 text-xs text-danger" title={pipeline.last_error}>
+                Last run: {pipeline.last_error}
+              </div>
+            {/if}
+            {#if picked.length > 0}
+              {@render modelTable(picked)}
+            {:else if !pipeline.selector_error}
+              <EmptyState size="compact" title="The selector picks no models" description="Edit the pipeline to change its selector." />
+            {/if}
+          </div>
         {/each}
+
+        {#if ungroupedModels.length > 0}
+          <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-edge-subtle px-4 py-2 text-xs">
+              <span class="text-[13px] font-medium text-fg">{pipelines.length > 0 ? 'Ungrouped' : 'All models'}</span>
+              <span class="text-fg-3">{ungroupedModels.length} model{ungroupedModels.length !== 1 ? 's' : ''}</span>
+              <span class="text-fg-4">|</span>
+              <span class="text-fg-3">
+                {pipelines.length > 0 ? 'Not picked by any pipeline; Run all still runs them.' : 'Create a pipeline to run and schedule a group of models together.'}
+              </span>
+            </div>
+            {@render modelTable(ungroupedModels)}
+          </div>
+        {/if}
       </div>
     {/if}
   </div>
-
-  <!-- ─── Schedule Footer ──────────────────────────────────────────── -->
-  {#if !loading && pipelines.length > 0}
-    {@const scheduledPipelines = pipelines.filter(p => p.schedule)}
-    <div class="flex shrink-0 items-center gap-2 border-t border-edge-subtle bg-surface px-5 py-2 text-xs text-fg-3">
-      <Timer size={13} class="shrink-0 text-fg-4" />
-      {#if scheduledPipelines.length > 0}
-        <span>{scheduledPipelines.length} pipeline{scheduledPipelines.length !== 1 ? 's' : ''} scheduled</span>
-        {#each scheduledPipelines as sp (sp.anchor_model_id)}
-          {@const anchorModel = modelById.get(sp.anchor_model_id)}
-          <span class="text-fg-4">·</span>
-          <span class="font-mono text-fg-2" title={anchorModel?.name ?? sp.anchor_model_id}>
-            {sp.schedule?.cron}
-          </span>
-          {#if sp.schedule && !sp.schedule.enabled}
-            <span class="font-medium text-warning">paused</span>
-          {/if}
-          {#if sp.schedule?.last_status}
-            <span class="font-medium {sp.schedule.last_status === 'success' ? 'text-success' : sp.schedule.last_status === 'error' ? 'text-danger' : ''}">
-              {sp.schedule.last_status}
-            </span>
-          {/if}
-        {/each}
-      {:else}
-        <span>No pipelines scheduled</span>
-      {/if}
-    </div>
-  {/if}
 </div>
 
 <!-- ─── DAG Overlay ──────────────────────────────────────────────── -->
@@ -734,6 +759,7 @@
       {:else}
         <div class="mx-auto w-full max-w-6xl space-y-2 px-5 py-5">
           {#each runs as run (run.id)}
+            {@const runPipeline = run.pipeline_id ? pipelineById.get(run.pipeline_id) : undefined}
             <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
               <button
                 onclick={() => toggleRunExpand(run.id)}
@@ -757,6 +783,14 @@
                     <span class="text-fg-4">|</span>
                     <span class="text-fg-3">{run.skipped} skipped</span>
                   {/if}
+                  {#if runPipeline}
+                    <span class="text-fg-4">|</span>
+                    <span class="text-fg-3">{runPipeline.name}</span>
+                  {/if}
+                  {#if run.selector}
+                    <span class="text-fg-4">|</span>
+                    <code class="font-mono text-[11px] text-fg-3">{run.selector}</code>
+                  {/if}
                 </span>
                 <span class="text-[11px] tabular-nums text-fg-4">{formatDate(run.started_at)}</span>
               </button>
@@ -779,10 +813,26 @@
                       <span class="min-w-[120px] font-medium text-fg-2">{result.model_name}</span>
                       <Badge tone={statusTone(result.status)}>{result.status}</Badge>
                       <span class="tabular-nums text-fg-4">{result.elapsed_ms}ms</span>
+                      {#if hasTests(result)}
+                        <Badge tone="success">{result.tests_passed} passed</Badge>
+                        {#if result.tests_failed > 0}
+                          <Badge tone="danger">{result.tests_failed} failed</Badge>
+                        {/if}
+                      {/if}
                       {#if result.error}
                         <span class="flex-1 truncate text-danger" title={result.error}>{result.error}</span>
                       {:else}
                         <span class="flex-1"></span>
+                      {/if}
+                      {#if hasTests(result)}
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          aria-expanded={!!expandedTests[result.id]}
+                          onclick={() => { expandedTests[result.id] = !expandedTests[result.id] }}
+                        >
+                          <FlaskConical size={12} /> Tests
+                        </Button>
                       {/if}
                       {#if result.resolved_sql}
                         <Button
@@ -795,6 +845,11 @@
                         </Button>
                       {/if}
                     </div>
+                    {#if hasTests(result) && expandedTests[result.id]}
+                      <div class="border-b border-edge-subtle bg-surface-2 px-4 py-3 last:border-0">
+                        <TestOutcomesTable outcomes={parseTestOutcomes(result.test_details)} />
+                      </div>
+                    {/if}
                     {#if result.resolved_sql && expandedSQL[result.id]}
                       <pre class="max-h-64 overflow-auto border-b border-edge-subtle bg-surface-2 px-4 py-3 font-mono text-xs text-fg-2 whitespace-pre-wrap break-all last:border-0">{result.resolved_sql}</pre>
                     {/if}
@@ -809,77 +864,13 @@
   </div>
 {/if}
 
-<!-- ─── Schedule sheet ───────────────────────────────────────────── -->
-<Sheet
-  open={showSchedule}
-  title="Pipeline schedule"
-  description={scheduleAnchorId && modelById.get(scheduleAnchorId)
-    ? `Runs the models grouped under ${modelById.get(scheduleAnchorId)?.name} in dependency order.`
-    : 'Runs the models in this pipeline group in dependency order.'}
-  size="sm"
-  onclose={() => { showSchedule = false }}
->
-  <div class="space-y-4">
-    <FormField label="Cron expression (5-field)" for="sched-cron">
-      <Input id="sched-cron" bind:value={schedCron} placeholder="0 */6 * * *" mono spellcheck={false} />
-    </FormField>
-
-    <div class="flex flex-wrap gap-1.5">
-      {#each SCHEDULE_PRESETS as preset (preset.cron)}
-        <Button
-          size="xs"
-          variant={schedCron === preset.cron ? 'secondary' : 'outline'}
-          onclick={() => { schedCron = preset.cron }}
-        >
-          {preset.label}
-        </Button>
-      {/each}
-    </div>
-
-    {#if schedule}
-      <div class="space-y-1 rounded-md bg-surface-2 p-3 text-xs text-fg-3">
-        <div class="flex items-center justify-between">
-          <span>State</span>
-          <span class="flex items-center gap-2">
-            <Badge tone={schedule.enabled ? 'success' : 'warning'}>{schedule.enabled ? 'Active' : 'Paused'}</Badge>
-            <Button size="xs" variant="outline" onclick={handleToggleSchedule} disabled={schedSaving}>
-              {#if schedule.enabled}<Pause size={11} /> Pause{:else}<Play size={11} /> Resume{/if}
-            </Button>
-          </span>
-        </div>
-        <div class="flex justify-between">
-          <span>Last result</span>
-          <span class="font-medium {schedule.last_status === 'success' ? 'text-success' : schedule.last_status === 'error' ? 'text-danger' : 'text-fg-2'}">
-            {schedule.last_status ?? 'pending'}
-          </span>
-        </div>
-        <div class="flex justify-between">
-          <span>Next run</span>
-          <span class="tabular-nums text-fg-2">{schedule.enabled ? formatDate(schedule.next_run_at) : 'Paused'}</span>
-        </div>
-        <div class="flex justify-between">
-          <span>Last run</span>
-          <span class="tabular-nums text-fg-2">{formatDate(schedule.last_run_at)}</span>
-        </div>
-        {#if schedule.last_error}
-          <div class="mt-1 break-all text-[11px] text-danger">{schedule.last_error}</div>
-        {/if}
-      </div>
-    {/if}
-  </div>
-
-  {#snippet footer()}
-    {#if schedule}
-      <Button size="sm" variant="ghost" class="mr-auto text-danger hover:text-danger" onclick={handleDeleteSchedule} disabled={schedSaving}>
-        <Trash2 size={12} /> Remove
-      </Button>
-    {/if}
-    <Button size="sm" variant="outline" onclick={() => { showSchedule = false }}>Close</Button>
-    <Button size="sm" onclick={handleSaveSchedule} disabled={!schedCron.trim()} loading={schedSaving}>
-      <Save size={12} /> Save
-    </Button>
-  {/snippet}
-</Sheet>
+<!-- ─── Pipeline sheet ───────────────────────────────────────────── -->
+<PipelineSheet
+  open={pipelineSheetOpen}
+  pipeline={editingPipeline}
+  onclose={() => { pipelineSheetOpen = false }}
+  onsaved={loadPipelines}
+/>
 
 <!-- ─── New model sheet ──────────────────────────────────────────── -->
 <Sheet
@@ -896,12 +887,12 @@
     <FormField label="Target database" for="new-model-db">
       <Input id="new-model-db" bind:value={createDatabase} mono spellcheck={false} placeholder="default" />
     </FormField>
-    <FormField label="Materialization" for="new-model-mat">
+    <FormField label="Materialization" for="new-model-mat" hint="Engine and incremental options are set in the editor.">
       <Select
         id="new-model-mat"
         value={createMaterialization}
         options={MATERIALIZATION_OPTIONS}
-        onchange={(v) => { createMaterialization = v === 'table' ? 'table' : 'view' }}
+        onchange={(v) => { createMaterialization = MATERIALIZATIONS.find((m) => m.value === v)?.value ?? 'view' }}
       />
     </FormField>
   </form>
@@ -923,6 +914,17 @@
   loading={confirmDeleteLoading}
   onconfirm={confirmDelete}
   oncancel={() => { confirmDeleteOpen = false; pendingDeleteId = ''; pendingDeleteName = '' }}
+/>
+
+<ConfirmDialog
+  open={!!pendingPipelineDelete}
+  title="Delete pipeline"
+  description={pendingPipelineDelete ? `Delete the pipeline "${pendingPipelineDelete.name}" and its schedule? Its models are kept.` : ''}
+  confirmLabel="Delete"
+  destructive
+  loading={deletingPipeline}
+  onconfirm={confirmDeletePipeline}
+  oncancel={() => { pendingPipelineDelete = null }}
 />
 
 <ContextMenu

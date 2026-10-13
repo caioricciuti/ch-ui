@@ -42,8 +42,12 @@ func TestRunSingleUnknownModelRecordsNothing(t *testing.T) {
 	if _, err := r.RunSingle(conn, "no-such-model", "test"); !errors.Is(err, ErrModelNotFound) {
 		t.Fatalf("want ErrModelNotFound, got %v", err)
 	}
-	if _, err := r.RunPipeline(conn, "no-such-model", "test"); !errors.Is(err, ErrModelNotFound) {
-		t.Fatalf("want ErrModelNotFound for a pipeline anchor, got %v", err)
+	if _, err := r.RunNamedPipeline(conn, "no-such-pipeline", "test"); !errors.Is(err, ErrPipelineNotFound) {
+		t.Fatalf("want ErrPipelineNotFound, got %v", err)
+	}
+	var selErr *SelectorError
+	if _, err := r.Run(conn, RunOptions{Selector: "+no_such_model"}); !errors.As(err, &selErr) {
+		t.Fatalf("want a selector error, got %v", err)
 	}
 	runs, err := db.GetModelRuns(conn, 10, 0)
 	if err != nil {
@@ -76,43 +80,106 @@ func TestFailedRunReturnsRunFailedError(t *testing.T) {
 	}
 }
 
-func TestSchedulerRecordsFailedRuns(t *testing.T) {
-	r, db, conn := fakeRunner(t, "broken_column")
-	id, err := db.CreateModel(conn, "bad", "", "default", "view", "SELECT broken_column", "", "", "")
+func scheduledPipeline(t *testing.T, db *database.DB, conn, selector string, enabled bool) string {
+	t.Helper()
+	past := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+	id, err := db.CreateModelPipeline(database.ModelPipeline{
+		ConnectionID: conn, Name: "nightly", Selector: selector, Cron: "0 * * * *", Enabled: enabled, NextRunAt: &past,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	past := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
-	if _, err := db.UpsertModelSchedule(conn, id, "0 * * * *", past, ""); err != nil {
+	return id
+}
+
+func TestSchedulerRecordsFailedRuns(t *testing.T) {
+	r, db, conn := fakeRunner(t, "broken_column")
+	if _, err := db.CreateModel(conn, "bad", "", "default", "view", "SELECT broken_column", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
+	id := scheduledPipeline(t, db, conn, "bad", true)
 	NewScheduler(db, r).tick()
-	sched, err := db.GetModelScheduleByAnchor(conn, id)
-	if err != nil || sched == nil {
-		t.Fatalf("schedule: %v %v", sched, err)
+	p, err := db.GetModelPipelineByID(id)
+	if err != nil || p == nil {
+		t.Fatalf("pipeline: %v %v", p, err)
 	}
-	if sched.LastStatus == nil || *sched.LastStatus != "error" {
-		t.Fatalf("a run with a failed model must be recorded as error, got %v", sched.LastStatus)
+	if p.LastStatus == nil || *p.LastStatus != "error" {
+		t.Fatalf("a run with a failed model must be recorded as error, got %v", p.LastStatus)
 	}
-	if sched.LastError == nil || !strings.Contains(*sched.LastError, "1 failed") {
-		t.Fatalf("last_error should say what failed, got %v", sched.LastError)
+	if p.LastError == nil || !strings.Contains(*p.LastError, "1 failed") {
+		t.Fatalf("last_error should say what failed, got %v", p.LastError)
+	}
+	if p.LastRunID == nil || p.NextRunAt == nil {
+		t.Fatalf("run id and next run must be recorded: %+v", p)
+	}
+	runs, _ := db.GetModelRuns(conn, 10, 0)
+	if len(runs) != 1 || runs[0].PipelineID == nil || *runs[0].PipelineID != id || runs[0].Selector != "bad" {
+		t.Fatalf("the run must record its pipeline and selector: %+v", runs)
 	}
 }
 
 func TestSchedulerSkipsPausedSchedules(t *testing.T) {
 	r, db, conn := fakeRunner(t, "")
-	id, err := db.CreateModel(conn, "m", "", "default", "view", "SELECT 1", "", "", "")
-	if err != nil {
+	if _, err := db.CreateModel(conn, "m", "", "default", "view", "SELECT 1", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	past := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
-	if _, err := db.UpsertModelScheduleEnabled(conn, id, "0 * * * *", past, "", false); err != nil {
-		t.Fatal(err)
-	}
+	scheduledPipeline(t, db, conn, "m", false)
 	NewScheduler(db, r).tick()
 	runs, _ := db.GetModelRuns(conn, 10, 0)
 	if len(runs) != 0 {
 		t.Fatalf("a paused schedule must not run, got %d runs", len(runs))
+	}
+}
+
+func TestMigrateLegacySchedules(t *testing.T) {
+	db, conn := testutil.WorkerDB(t)
+	mk := func(name, sql string) string {
+		t.Helper()
+		id, err := db.CreateModel(conn, name, "", "default", "view", sql, "", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	// raw -> clean -> daily, raw -> other: "+clean+" misses other, so the
+	// component's names are used. lone has its own component.
+	mk("raw", "SELECT 1")
+	clean := mk("clean", "SELECT * FROM $ref(raw)")
+	mk("daily", "SELECT * FROM $ref(clean)")
+	mk("other", "SELECT * FROM $ref(raw)")
+	lone := mk("lone", "SELECT 1")
+	// Legacy rows are only read now, so they are seeded directly.
+	for _, s := range []struct {
+		id, anchor, cron string
+		enabled          int
+	}{{"sched-clean", clean, "0 3 * * *", 1}, {"sched-lone", lone, "0 4 * * *", 0}} {
+		if _, err := db.Conn().Exec(
+			`INSERT INTO model_schedules (id, connection_id, anchor_model_id, cron, enabled) VALUES (?, ?, ?, ?, ?)`,
+			s.id, conn, s.anchor, s.cron, s.enabled,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := MigrateLegacySchedules(db)
+	if err != nil || n != 2 {
+		t.Fatalf("migrated %d, err %v", n, err)
+	}
+	if n, err := MigrateLegacySchedules(db); err != nil || n != 0 {
+		t.Fatalf("second migration must do nothing: %d %v", n, err)
+	}
+	byName := map[string]database.ModelPipeline{}
+	ps, _ := db.GetModelPipelines(conn)
+	for _, p := range ps {
+		byName[p.Name] = p
+	}
+	if p := byName["clean"]; len(strings.Split(p.Selector, ",")) != 4 || strings.Contains(p.Selector, "lone") || p.Cron != "0 3 * * *" || !p.Enabled {
+		t.Fatalf("clean pipeline: %+v", p)
+	}
+	if p := byName["lone"]; p.Selector != "+lone+" || p.Enabled {
+		t.Fatalf("lone pipeline: %+v", p)
+	}
+	if all, err := db.GetAllModelSchedules(); err != nil || len(all) != 2 {
+		t.Fatalf("the legacy schedules must be kept: %d %v", len(all), err)
 	}
 }
 
@@ -151,5 +218,48 @@ func TestStartClosesInterruptedRuns(t *testing.T) {
 		if res.ModelID == a && res.Status != "success" {
 			t.Fatalf("finished result must keep its status: %+v", res)
 		}
+	}
+}
+
+func TestSchedulerRecordsAnInvalidSelectorOncePerDueTime(t *testing.T) {
+	r, db, conn := fakeRunner(t, "")
+	id, err := db.CreateModel(conn, "gone", "", "default", "view", "SELECT 1", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateModel(conn, "kept", "", "default", "view", "SELECT 1", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	pid := scheduledPipeline(t, db, conn, "kept,+gone", true)
+	if err := db.DeleteModel(id); err != nil {
+		t.Fatal(err)
+	}
+	s := NewScheduler(db, r)
+	s.tick()
+	p, err := db.GetModelPipelineByID(pid)
+	if err != nil || p == nil {
+		t.Fatalf("pipeline: %v %v", p, err)
+	}
+	if p.LastStatus == nil || *p.LastStatus != "error" || p.LastError == nil || !strings.Contains(*p.LastError, `unknown model "gone"`) {
+		t.Fatalf("an invalid selector must be recorded as an error naming the model: %+v", p)
+	}
+	if p.NextRunAt == nil || p.LastRunAt == nil {
+		t.Fatalf("the next run must still be scheduled: %+v", p)
+	}
+	next, err := time.Parse(time.RFC3339, *p.NextRunAt)
+	if err != nil || !next.After(time.Now()) {
+		t.Fatalf("next run must move to the future, got %v", *p.NextRunAt)
+	}
+	// Not due again until the next cron time: a second tick records nothing new.
+	lastRun := *p.LastRunAt
+	if _, err := db.Conn().Exec(`UPDATE model_pipelines SET last_run_at = 'marker' WHERE id = ?`, pid); err != nil {
+		t.Fatal(err)
+	}
+	s.tick()
+	if p, _ = db.GetModelPipelineByID(pid); p.LastRunAt == nil || *p.LastRunAt != "marker" {
+		t.Fatalf("a pipeline that is not due must not be recorded again (was %s): %+v", lastRun, p)
+	}
+	if runs, _ := db.GetModelRuns(conn, 10, 0); len(runs) != 0 {
+		t.Fatalf("an invalid selector must not record a run, got %d", len(runs))
 	}
 }

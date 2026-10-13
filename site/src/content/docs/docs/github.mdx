@@ -53,10 +53,11 @@ A model is a `.sql` file, optionally starting with a YAML frontmatter block:
 
 ```sql
 ---
-materialization: table        # view (default) or table
+materialization: table        # view (default), table, incremental or materialized_view
 target_database: analytics    # default: default
 table_engine: MergeTree       # tables only, default: MergeTree
 order_by: (event_date, id)    # MergeTree-family tables only, default: tuple()
+partition_by: toYYYYMM(event_date)  # MergeTree-family tables only
 description: Daily rollup of events
 ---
 SELECT
@@ -66,7 +67,61 @@ FROM events
 GROUP BY event_date
 ```
 
-These five keys are the only ones read. The filename (minus `.sql`) becomes the model name, so it must be a valid identifier (`^[a-zA-Z_][a-zA-Z0-9_]*$`); a file like `daily-events.sql` is reported as an error. Any `materialization` other than `view` or `table` is an error too. Files without frontmatter are imported as views against the `default` database.
+The keys read are:
+
+| Key | Applies to | Meaning |
+|---|---|---|
+| `materialization` | all | `view` (default), `table`, `incremental` or `materialized_view` |
+| `target_database` | all | Database the model builds into (default `default`) |
+| `description` | all | Free text |
+| `table_engine` | tables | Engine name (default `MergeTree`) |
+| `engine_args` | tables | Engine arguments without the parentheses, e.g. `version` for `ReplacingMergeTree` |
+| `order_by` | tables | ORDER BY for MergeTree-family engines (default `tuple()`) |
+| `partition_by` | tables | PARTITION BY for MergeTree-family engines |
+| `incremental_strategy` | `incremental` | `append` (default) or `delete_insert` |
+| `unique_key` | `delete_insert` | Column or comma-separated columns |
+| `watermark_column` | `incremental` | Later runs take rows above the table's maximum of this column |
+| `tests` | all | Data tests, see below |
+
+"Tables" means `table`, `incremental` and `materialized_view`. The filename (minus `.sql`) becomes the model name, so it must be a valid identifier (`^[a-zA-Z_][a-zA-Z0-9_]*$`); a file like `daily-events.sql` is reported as an error. An unknown `materialization`, a `delete_insert` model without `unique_key`, or an invalid test is an error too, and the file is skipped. Files without frontmatter are imported as views against the `default` database.
+
+An incremental model with tests:
+
+```sql
+---
+materialization: incremental
+target_database: analytics
+incremental_strategy: delete_insert
+unique_key: order_id
+watermark_column: last_update
+order_by: order_id
+tests:
+  - kind: unique
+    column: order_id
+  - kind: not_null
+    column: status
+  - kind: accepted_values
+    column: status
+    values: [placed, paid, refunded]
+    severity: warn
+  - kind: relationship
+    column: user_id
+    to: users            # a model, a table in analytics, or database.table
+    field: user_id
+  - kind: expression
+    expression: amount >= 0
+---
+SELECT
+  order_id,
+  argMax(user_id, updated_at) AS user_id,
+  argMax(status, updated_at) AS status,
+  argMax(amount, updated_at) AS amount,
+  max(updated_at) AS last_update
+FROM raw.orders
+GROUP BY order_id
+```
+
+Each test takes `kind` (`not_null`, `unique`, `accepted_values`, `relationship`, `expression`), `column` (all kinds but `expression`), `severity` (`error`, the default, or `warn`) and its own keys: `values` for `accepted_values`, `to` and `field` for `relationship`, `expression` for `expression`. The file is the source of truth: a sync replaces the model's tests with the list, in order, and a file without `tests` leaves the model with none. See [Data tests](/docs/models#data-tests).
 
 Reference other models with `$ref(model_name)`, as in the editor. See [Models](/docs/models).
 
