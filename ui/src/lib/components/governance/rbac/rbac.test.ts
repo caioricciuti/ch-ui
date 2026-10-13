@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { lineDiff } from './lineDiff'
 import { assigneesLabel, describeOp, dropConfirmName, grantObject, revokeOpFor, splitList } from './changes'
+import { effectBadge, explainPath, objectName, queryFromSearch, searchWithQuery, verdictLabel, verdictTone } from './explain'
 
 describe('lineDiff', () => {
   it('marks unchanged, changed, added and removed lines', () => {
@@ -47,5 +48,29 @@ describe('change helpers', () => {
       kind: 'revoke_privilege', target: t, access: ['SELECT'], database: 'd', table: '', columns: ['c'],
     })
     expect(revokeOpFor(t, { role_name: 'r', access: 'SELECT', partial_revoke: true }).kind).toBe('grant_privilege')
+  })
+})
+
+describe('effective access helpers', () => {
+  it('round-trips the question through the URL and keeps the section', () => {
+    const q = queryFromSearch('?section=effective-access&user=ana&database=d&table=t')
+    expect(q).toEqual({ user: 'ana', database: 'd', table: 't', column: '', privilege: 'SELECT' })
+    expect(searchWithQuery('section=effective-access&user=old', { ...q, user: '', privilege: 'INSERT' }))
+      .toBe('section=effective-access&database=d&table=t&privilege=INSERT')
+    // A table without a database is dropped; the default privilege is implied.
+    expect(searchWithQuery('', { user: 'u', database: '', table: 't', column: 'c', privilege: 'SELECT' })).toBe('user=u')
+  })
+
+  it('links a user into the section', () => {
+    expect(explainPath('we ird')).toBe('/governance?section=effective-access&user=we+ird')
+  })
+
+  it('labels verdicts and effects', () => {
+    expect(verdictLabel('denied')).toBe('No access')
+    expect(verdictTone('allowed')).toBe('success')
+    expect(verdictTone('unknown')).toBe('neutral')
+    expect(effectBadge('filters')).toEqual({ label: 'Filters rows', tone: 'info' })
+    expect(objectName({ database: 'd', table: 't', column: 'c' })).toBe('d.t(c)')
+    expect(objectName({ database: '', table: '', column: '' })).toBe('*.*')
   })
 })
