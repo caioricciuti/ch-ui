@@ -29,7 +29,14 @@ const (
 	CheckParts           = "parts"
 	CheckMutationStuck   = "mutation_stuck"
 	CheckNodeUnreachable = "node_unreachable"
+	// CheckConnectionUnreachable is not read from samples: the harvester
+	// probes the connection itself (tunnel, then SELECT 1) and keeps its
+	// state on the node ConnectionNode.
+	CheckConnectionUnreachable = "connection_unreachable"
 )
+
+// ConnectionNode is the node of the connection-level check's state.
+const ConnectionNode = "*"
 
 const (
 	// maxHealthEventsPerPoll caps the events one poll of one connection may
@@ -55,6 +62,10 @@ type HealthCheck struct {
 	SupportsWarn bool
 	DefaultWarn  *float64
 	DefaultCrit  *float64
+	// DefaultFor and DefaultResolve are the default for and resolve
+	// evaluations; 0 means 2.
+	DefaultFor     int
+	DefaultResolve int
 }
 
 func f64(v float64) *float64 { return &v }
@@ -67,6 +78,7 @@ var HealthChecks = []HealthCheck{
 	{Kind: CheckParts, Label: "Parts pressure", EventType: alerts.EventTypeHealthParts, Unit: "percent", SupportsWarn: true, DefaultWarn: f64(50), DefaultCrit: f64(80)},
 	{Kind: CheckMutationStuck, Label: "Stuck mutation", EventType: alerts.EventTypeHealthMutationStuck, Unit: "seconds", SupportsWarn: true, DefaultWarn: f64(1800), DefaultCrit: f64(7200)},
 	{Kind: CheckNodeUnreachable, Label: "Node unreachable", EventType: alerts.EventTypeHealthNodeUnreachable, Unit: "down", DefaultCrit: f64(0)},
+	{Kind: CheckConnectionUnreachable, Label: "Connection unreachable", EventType: alerts.EventTypeHealthConnectionUnreachable, Unit: "down", DefaultCrit: f64(0), DefaultFor: 3, DefaultResolve: 2},
 }
 
 // LookupHealthCheck returns the check of a kind.
@@ -96,9 +108,16 @@ type HealthCheckSetting struct {
 
 // DefaultHealthSetting returns a check's built-in configuration.
 func DefaultHealthSetting(c HealthCheck) HealthCheckSetting {
+	forN, resolveN := c.DefaultFor, c.DefaultResolve
+	if forN < 1 {
+		forN = 2
+	}
+	if resolveN < 1 {
+		resolveN = 2
+	}
 	return HealthCheckSetting{
 		CheckKind: c.Kind, Enabled: true, WarnThreshold: c.DefaultWarn, CritThreshold: c.DefaultCrit,
-		ForEvaluations: 2, ResolveEvaluations: 2, Unit: c.Unit, SupportsWarn: c.SupportsWarn,
+		ForEvaluations: forN, ResolveEvaluations: resolveN, Unit: c.Unit, SupportsWarn: c.SupportsWarn,
 	}
 }
 
@@ -132,7 +151,7 @@ func normalizeSetting(c HealthCheck, s HealthCheckSetting) HealthCheckSetting {
 	if !c.SupportsWarn {
 		s.WarnThreshold = nil
 	}
-	if c.Kind == CheckNodeUnreachable {
+	if c.Kind == CheckNodeUnreachable || c.Kind == CheckConnectionUnreachable {
 		s.CritThreshold = f64(0)
 	}
 	if c.Kind != CheckDisk {
@@ -235,6 +254,9 @@ type healthEvent struct {
 	// reason is set on a resolve without a recovery: the check was turned
 	// off or the node left the cluster.
 	reason string
+	// detail says why the connection check breached (tunnel offline, the
+	// probe's error).
+	detail string
 	// stateIdx and ghostIdx point at the state the event belongs to, -1
 	// for none.
 	stateIdx, ghostIdx int
@@ -249,7 +271,13 @@ type healthEvent struct {
 // suffix names the transition and the incident, so a new incident or a
 // severity change is never taken for a repeat inside a rule's cooldown.
 func HealthFingerprint(connectionID, check, node, suffix string) string {
-	return "health:" + connectionID + ":" + check + ":" + node + ":" + suffix
+	return HealthAlertKey(connectionID, check, node) + ":" + suffix
+}
+
+// HealthAlertKey names one check on one node of a connection: the alert an
+// acknowledgement applies to.
+func HealthAlertKey(connectionID, check, node string) string {
+	return "health:" + connectionID + ":" + check + ":" + node
 }
 
 // evaluateHealthAlerts runs every enabled check over one poll's samples,
@@ -285,7 +313,9 @@ func (h *Harvester) evaluateHealthAlerts(connID, cluster string, samples []Sampl
 		present[s.Node] = true
 	}
 	for _, set := range settings {
-		if !set.Enabled {
+		// The connection check is evaluated by evaluateReachability; leaving
+		// it out of enabled also keeps its state out of the ghost sweep.
+		if !set.Enabled || set.CheckKind == CheckConnectionUnreachable {
 			continue
 		}
 		enabled[set.CheckKind] = set
@@ -630,6 +660,10 @@ func healthEventContent(connID, cluster string, ev healthEvent) (string, string,
 		"connection_id": connID, "cluster": cluster, "check": ev.check.Kind, "node": ev.node,
 		"value": ev.value, "severity": ev.severity,
 		"warn_threshold": ev.setting.WarnThreshold, "crit_threshold": ev.setting.CritThreshold,
+		"alert_key": HealthAlertKey(connID, ev.check.Kind, ev.node), "incident_id": ev.incident,
+	}
+	if ev.detail != "" {
+		payload["error"] = ev.detail
 	}
 	if ev.setting.FreeBytesFloor != nil {
 		payload["free_bytes_floor"] = *ev.setting.FreeBytesFloor
@@ -639,9 +673,16 @@ func healthEventContent(connID, cluster string, ev healthEvent) (string, string,
 		payload["status"] = "resolved"
 		title := fmt.Sprintf("[RESOLVED] %s on %s", ev.check.Label, ev.node)
 		message := fmt.Sprintf("%s on node %s is back within thresholds (now %s).", ev.check.Label, ev.node, value)
+		if ev.check.Kind == CheckConnectionUnreachable {
+			title = "[RESOLVED] Connection unreachable"
+			message = "The connection answers again."
+		}
 		if ev.reason != "" {
 			payload["reason"] = ev.reason
 			message = fmt.Sprintf("%s on node %s is no longer tracked: the incident was closed because %s.", ev.check.Label, ev.node, ev.reason)
+			if ev.check.Kind == CheckConnectionUnreachable {
+				message = fmt.Sprintf("Connection unreachable is no longer tracked: the incident was closed because %s.", ev.reason)
+			}
 		}
 		return title, message, payload, HealthFingerprint(connID, ev.check.Kind, ev.node, "resolved:"+ev.incident)
 	default:
@@ -656,7 +697,13 @@ func healthEventContent(connID, cluster string, ev healthEvent) (string, string,
 			suffix = "deescalated:" + ev.severity + ":" + ev.at
 		}
 		var title, message string
-		if ev.check.Kind == CheckNodeUnreachable {
+		if ev.check.Kind == CheckConnectionUnreachable {
+			title = "Connection unreachable"
+			message = "CH-UI cannot reach this connection."
+			if ev.detail != "" {
+				message = fmt.Sprintf("CH-UI cannot reach this connection: %s.", ev.detail)
+			}
+		} else if ev.check.Kind == CheckNodeUnreachable {
 			title = fmt.Sprintf("Node %s unreachable", ev.node)
 			message = fmt.Sprintf("Node %s is listed in system.clusters but did not answer the cluster fan-out.", ev.node)
 		} else {

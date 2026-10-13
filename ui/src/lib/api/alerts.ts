@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 import { apiDel, apiGet, apiPost, apiPut } from './client'
-import type { AlertChannel, AlertChannelType, AlertEvent, AlertRule } from '../types/alerts'
+import type { AlertAck, AlertChannel, AlertChannelType, AlertEvent, AlertRule, FiringIncident, Silence, SilenceInput } from '../types/alerts'
 
 const BASE = '/api/governance/alerts'
 
@@ -61,6 +61,8 @@ export async function adminCreateAlertRule(payload: {
   subject_template?: string
   body_template?: string
   channels: AlertRuleChannelPayload[]
+  /** null = every connection. */
+  connection_ids?: string[] | null
 }): Promise<void> {
   await apiPost(`${BASE}/rules`, payload)
 }
@@ -75,6 +77,7 @@ export async function adminUpdateAlertRule(id: string, payload: {
   subject_template?: string
   body_template?: string
   channels?: AlertRuleChannelPayload[]
+  connection_ids?: string[] | null
 }): Promise<void> {
   await apiPut(`${BASE}/rules/${encodeURIComponent(id)}`, payload)
 }
@@ -91,4 +94,39 @@ export async function adminListAlertEvents(params: { limit?: number; eventType?:
   const url = `${BASE}/events${q.toString() ? `?${q.toString()}` : ''}`
   const res = await apiGet<{ events: AlertEvent[] }>(url)
   return res.events ?? []
+}
+
+/** Newest first. */
+export async function listSilences(): Promise<Silence[]> {
+  const res = await apiGet<{ silences?: Silence[] }>(`${BASE}/silences`)
+  return res.silences ?? []
+}
+
+export async function createSilence(input: SilenceInput): Promise<string> {
+  const res = await apiPost<{ id: string }>(`${BASE}/silences`, input)
+  return res.id
+}
+
+export async function updateSilence(id: string, input: SilenceInput): Promise<void> {
+  await apiPut(`${BASE}/silences/${encodeURIComponent(id)}`, input)
+}
+
+/** Ends the silence now. */
+export async function expireSilence(id: string): Promise<void> {
+  await apiPost(`${BASE}/silences/${encodeURIComponent(id)}/expire`)
+}
+
+/** Open incidents across health checks and SQL alerts, with their ack. */
+export async function listFiring(): Promise<FiringIncident[]> {
+  const res = await apiGet<{ incidents?: FiringIncident[] }>(`${BASE}/firing`)
+  return res.incidents ?? []
+}
+
+export async function createAck(input: { event_id: string; comment?: string; expires_in?: number }): Promise<AlertAck> {
+  const res = await apiPost<{ ack: AlertAck }>(`${BASE}/acks`, input)
+  return res.ack
+}
+
+export async function deleteAck(id: string): Promise<void> {
+  await apiDel(`${BASE}/acks/${encodeURIComponent(id)}`)
 }

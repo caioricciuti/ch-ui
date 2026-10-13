@@ -440,6 +440,22 @@ func Fingerprint(id string, resolved bool, at time.Time) string {
 	return "sql:" + id + ":" + kind + ":" + strconv.FormatInt(at.UnixNano(), 10)
 }
 
+// AlertKey names a SQL alert for acknowledgements.
+func AlertKey(id string) string {
+	return "sql:" + id
+}
+
+// incidentID names the incident of a firing or resolve: a firing starts one
+// at its own time; a resolve closes the one the last firing started.
+func incidentID(db *database.DB, id string, resolved bool, now time.Time) string {
+	if resolved {
+		if inc, err := db.LatestAlertIncidentID(id, AlertKey(id)); err == nil && inc != "" {
+			return inc
+		}
+	}
+	return now.UTC().Format(time.RFC3339)
+}
+
 func (r *Runner) emit(a *database.SQLAlert, value float64, resolved bool, now time.Time) error {
 	v := strconv.FormatFloat(value, 'f', -1, 64)
 	t := strconv.FormatFloat(a.Threshold, 'f', -1, 64)
@@ -450,6 +466,7 @@ func (r *Runner) emit(a *database.SQLAlert, value float64, resolved bool, now ti
 	payload := map[string]interface{}{
 		"alert_id": a.ID, "name": a.Name, "mode": a.Mode, "comparator": a.Comparator,
 		"threshold": a.Threshold, "value": value, "status": "firing",
+		"alert_key": AlertKey(a.ID), "incident_id": incidentID(r.db, a.ID, resolved, now),
 	}
 	title := fmt.Sprintf("%s: %s %s %s %s", a.Name, subject, v, ComparatorSymbol(a.Comparator), t)
 	message := fmt.Sprintf("SQL alert %s returned %s %s, which is %s %s.", a.Name, subject, v, ComparatorSymbol(a.Comparator), t)
@@ -474,6 +491,7 @@ func CloseIncident(db *database.DB, a *database.SQLAlert, reason string, now tim
 	payload := map[string]interface{}{
 		"alert_id": a.ID, "name": a.Name, "mode": a.Mode, "comparator": a.Comparator,
 		"threshold": a.Threshold, "status": "resolved", "reason": reason,
+		"alert_key": AlertKey(a.ID), "incident_id": incidentID(db, a.ID, true, now),
 	}
 	title := "[RESOLVED] " + a.Name
 	message := fmt.Sprintf("SQL alert %s is no longer firing: the incident was closed because %s.", a.Name, reason)
@@ -490,7 +508,7 @@ func CloseIncident(db *database.DB, a *database.SQLAlert, reason string, now tim
 func (r *Runner) emitDisabled(a *database.SQLAlert, msg string, errors int, now time.Time) {
 	title := fmt.Sprintf("%s: disabled after %d failed runs", a.Name, errors)
 	message := fmt.Sprintf("SQL alert %s failed %d times in a row and was disabled. Last error: %s", a.Name, errors, msg)
-	payload := map[string]interface{}{"alert_id": a.ID, "name": a.Name, "error": msg, "status": "disabled"}
+	payload := map[string]interface{}{"alert_id": a.ID, "name": a.Name, "error": msg, "status": "disabled", "alert_key": AlertKey(a.ID)}
 	conn := a.ConnectionID
 	fp := "sql:" + a.ID + ":disabled:" + strconv.FormatInt(now.Unix(), 10)
 	if _, err := r.db.CreateAlertEvent(&conn, alerts.EventTypeSQLAlert, alerts.SeverityWarn, title, message, payload, fp, a.ID); err != nil {
