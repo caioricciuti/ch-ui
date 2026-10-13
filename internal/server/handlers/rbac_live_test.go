@@ -264,5 +264,19 @@ func TestRBACLive(t *testing.T) {
 		if ar.Results[0].Status != rbac.StatusApplied || len(ar.Results[0].Hosts) == 0 {
 			t.Fatalf("on cluster result = %+v", ar.Results[0])
 		}
+		for _, h := range ar.Results[0].Hosts {
+			if h.Status != rbac.StatusApplied {
+				t.Fatalf("host %s = %+v", h.Host, h)
+			}
+		}
+		// The role exists on every node, not only the one we talk to.
+		res, err := exec(admin, adminPassword, "SELECT countIf(name = '"+clusterRole+"') AS with_role, count() AS nodes FROM clusterAllReplicas('"+cluster+"', system.roles)")
+		if err != nil {
+			t.Fatal(err)
+		}
+		row := res.Data[0]
+		if fmt.Sprint(row["with_role"]) != fmt.Sprint(len(ar.Results[0].Hosts)) {
+			t.Fatalf("role on %v nodes, %d hosts reported", row["with_role"], len(ar.Results[0].Hosts))
+		}
 	})
 }
