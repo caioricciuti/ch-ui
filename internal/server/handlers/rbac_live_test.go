@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -250,6 +251,97 @@ func TestRBACLive(t *testing.T) {
 			return false
 		}() {
 			t.Fatal("a skipped statement ran")
+		}
+	})
+
+	t.Run("effective access matches SHOW GRANTS FINAL", func(t *testing.T) {
+		// roleName (default) holds SELECT on events; take one column away
+		// and give a non-default role INSERT.
+		must("REVOKE SELECT(tenant) ON " + db + ".events FROM " + roleName)
+		must("GRANT INSERT ON " + db + ".events TO " + otherRole)
+		must("GRANT " + otherRole + " TO " + userName)
+		get := func(path string) (int, []byte) {
+			req := httptest.NewRequest("GET", path, nil)
+			req = req.WithContext(middleware.SetSession(req.Context(), &middleware.SessionInfo{
+				UserRole: "admin", ClickhouseUser: admin, ConnectionID: conn, EncryptedPassword: enc,
+			}))
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			return rec.Code, rec.Body.Bytes()
+		}
+		explain := func(table, column, privilege string) rbac.Explanation {
+			t.Helper()
+			q := url.Values{"user": {userName}, "database": {db}, "table": {table}, "column": {column}, "privilege": {privilege}}
+			code, body := get("/effective?" + q.Encode())
+			if code != http.StatusOK {
+				t.Fatalf("effective: %d %s", code, body)
+			}
+			var e rbac.Explanation
+			if err := json.Unmarshal(body, &e); err != nil {
+				t.Fatal(err)
+			}
+			if e.Verification.Status != "match" {
+				t.Fatalf("%s %s.%s(%s): verification %+v, warnings %v", privilege, db, table, column, e.Verification, e.Warnings)
+			}
+			if e.Node.Host == "" || e.Incomplete {
+				t.Fatalf("node %+v incomplete %v", e.Node, e.IncompleteReasons)
+			}
+			return e
+		}
+
+		e := explain("events", "", "SELECT")
+		if v := e.Verdict.Default; v.Status != rbac.VerdictPartial || strings.Join(v.Except, ",") != "tenant" || !v.RowFiltered {
+			t.Fatalf("select events = %+v", v)
+		}
+		if _, err := exec(userName, userPassword, "SELECT tenant FROM "+db+".events"); err == nil {
+			t.Fatal("ClickHouse let the user read the revoked column")
+		}
+		if e := explain("events", "id", "SELECT"); e.Verdict.Default.Status != rbac.VerdictAllowed {
+			t.Fatalf("select id = %+v", e.Verdict.Default)
+		}
+		e = explain("events", "", "INSERT")
+		if e.Verdict.Default.Status != rbac.VerdictDenied || e.Verdict.AllRoles.Status != rbac.VerdictAllowed {
+			t.Fatalf("insert = %+v", e.Verdict)
+		}
+		if _, err := exec(userName, userPassword, "INSERT INTO "+db+".events VALUES (9, 'z')"); err == nil {
+			t.Fatal("INSERT worked without SET ROLE")
+		}
+
+		// System tables: one is always readable; the rest follow the server
+		// setting, which the implicit grants resolve.
+		sys := func(table string) rbac.Verdict {
+			t.Helper()
+			q := url.Values{"user": {userName}, "database": {"system"}, "table": {table}}
+			code, body := get("/effective?" + q.Encode())
+			if code != http.StatusOK {
+				t.Fatalf("effective: %d %s", code, body)
+			}
+			var e rbac.Explanation
+			_ = json.Unmarshal(body, &e)
+			return e.Verdict.Default
+		}
+		_, partsErr := exec(userName, userPassword, "SELECT count() FROM system.parts")
+		if v := sys("one"); v.Status != rbac.VerdictAllowed {
+			t.Fatalf("system.one = %+v", v)
+		}
+		if v := sys("parts"); (v.Status == rbac.VerdictAllowed) != (partsErr == nil) {
+			t.Fatalf("system.parts = %+v, ClickHouse error %v", v, partsErr)
+		}
+
+		code, body := get("/who-can?" + url.Values{"database": {db}, "table": {"events"}, "privilege": {"INSERT"}}.Encode())
+		if code != http.StatusOK {
+			t.Fatalf("who-can: %d %s", code, body)
+		}
+		var wc rbac.WhoCanResult
+		_ = json.Unmarshal(body, &wc)
+		found := false
+		for _, u := range wc.Users {
+			if u.User == userName {
+				found = u.Default.Status == rbac.VerdictDenied && u.AllRoles.Status == rbac.VerdictAllowed
+			}
+		}
+		if !found {
+			t.Fatalf("who-can users = %+v", wc.Users)
 		}
 	})
 

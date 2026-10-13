@@ -152,6 +152,7 @@ export const PAGE_SECTIONS: Partial<Record<PageRoute, PageSection[]>> = {
     { id: 'queries', label: 'Query Audit' },
     { id: 'access', label: 'Access' },
     { id: 'rbac', label: 'Access control' },
+    { id: 'effective-access', label: 'Effective access' },
     { id: 'incidents', label: 'Incidents' },
     { id: 'policies', label: 'Policies' },
     { id: 'alerts', label: 'Alerts' },
