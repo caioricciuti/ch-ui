@@ -123,6 +123,8 @@ func TestRBACRouteGating(t *testing.T) {
 	routes := []struct{ method, path string }{
 		{"GET", "/api/rbac/snapshot"},
 		{"GET", "/api/rbac/entity/role/analyst"},
+		{"GET", "/api/rbac/effective?user=analyst"},
+		{"GET", "/api/rbac/who-can"},
 		{"POST", "/api/rbac/plan"},
 		{"POST", "/api/rbac/apply"},
 	}
@@ -135,7 +137,7 @@ func TestRBACRouteGating(t *testing.T) {
 			t.Errorf("viewer %s %s: got %d, want 403", rt.method, rt.path, rec.Code)
 		}
 	}
-	for _, rt := range routes[:3] {
+	for _, rt := range routes[:5] {
 		if rec := serve("admin-session", rt.method, rt.path); !reached(rec.Code) {
 			t.Errorf("grace %s %s: got %d, want it to reach the handler", rt.method, rt.path, rec.Code)
 		}

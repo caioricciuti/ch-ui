@@ -71,6 +71,8 @@ func (h *BrainHandler) Routes(r chi.Router) {
 	r.Get("/models", h.ListModels)
 	r.Post("/generate-sql", h.GenerateSQL) // Pro: text-to-SQL grounded in live schema
 	r.Post("/generate-sql/stream", h.GenerateSQLStream)
+	r.Post("/fix-sql", h.FixSQL) // Pro: minimal fix for a query ClickHouse rejected
+	r.Post("/fix-sql/stream", h.FixSQLStream)
 	r.Get("/skills", h.GetSkill)
 	r.Get("/chats", h.ListChats)
 	r.Post("/chats", h.CreateChat)

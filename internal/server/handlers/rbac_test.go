@@ -28,6 +28,7 @@ import (
 type fakeAccess struct {
 	mu    sync.Mutex
 	roles []string
+	users []string
 	ddl   []string
 }
 
@@ -47,6 +48,12 @@ func (f *fakeAccess) respond(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
 		out := []map[string]any{}
 		for _, r := range f.roles {
 			out = append(out, map[string]any{"name": r, "storage": "local_directory"})
+		}
+		return rows(out)
+	case strings.Contains(sql, "FROM system.users"):
+		out := []map[string]any{}
+		for _, u := range f.users {
+			out = append(out, map[string]any{"name": u, "storage": "local_directory", "default_roles_all": 1, "default_roles_list": []any{}, "default_roles_except": []any{}})
 		}
 		return rows(out)
 	case strings.Contains(sql, "currentUser()"):
@@ -250,5 +257,83 @@ func TestRBACApplyRefusesWarnings(t *testing.T) {
 	}
 	if rec := call("POST", "/apply", `{"ops":`+ack+`,"plan_hash":"`+pr.Plan.PlanHash+`","acknowledged":["row_policy_scope"]}`); rec.Code != http.StatusOK {
 		t.Fatalf("acknowledged apply: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The explainer routes are admin only, gated on Pro (GET stays open in the
+// grace window), validate their input and write no audit entries.
+func TestRBACExplainRoutes(t *testing.T) {
+	h, db, fake, call := newRBACTestHandler(t)
+	fake.mu.Lock()
+	fake.users = []string{"admin", "analyst"}
+	fake.mu.Unlock()
+
+	rec := call("GET", "/effective?user=analyst&database=d&table=t", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("effective: %d %s", rec.Code, rec.Body.String())
+	}
+	var e struct {
+		Success bool `json:"success"`
+		rbac.Explanation
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil {
+		t.Fatal(err)
+	}
+	// The fake answers SHOW GRANTS with ALL ON *.*, while the snapshot has
+	// no grants for analyst: ClickHouse wins.
+	if !e.Success || e.Query.Privilege != "SELECT" || e.Verification.Status != "mismatch" || e.Verdict.AllRoles.Status != rbac.VerdictAllowed {
+		t.Fatalf("effective = %+v", e)
+	}
+	if rec := call("GET", "/effective?database=d", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing user: %d", rec.Code)
+	}
+	if rec := call("GET", "/effective?user=analyst&table=t", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("table without database: %d", rec.Code)
+	}
+	if rec := call("GET", "/effective?user=analyst&privilege=select%3B%20drop", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad privilege: %d", rec.Code)
+	}
+	if rec := call("GET", "/effective?user=ghost", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown user: %d", rec.Code)
+	}
+	rec = call("GET", "/who-can?database=d&table=t&privilege=INSERT", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"users":[]`) {
+		t.Fatalf("who-can: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(fake.ddl) != 0 {
+		t.Fatalf("explainer ran DDL: %v", fake.ddl)
+	}
+	logs, _ := db.GetAuditLogs(20)
+	for _, l := range logs {
+		if strings.HasPrefix(l.Action, "rbac.") {
+			t.Fatalf("explainer wrote audit %s", l.Action)
+		}
+	}
+
+	// Gating: viewers get 403; without a license 402; in grace GETs work.
+	router := h.Routes()
+	serve := func(role, path string) int {
+		req := httptest.NewRequest("GET", path, nil)
+		req = req.WithContext(middleware.SetSession(req.Context(), &middleware.SessionInfo{UserRole: role, ClickhouseUser: "admin"}))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for _, path := range []string{"/effective?user=analyst", "/who-can"} {
+		if code := serve("viewer", path); code != http.StatusForbidden {
+			t.Fatalf("viewer %s: %d", path, code)
+		}
+	}
+	h.Config.SetProAccessForTest(func() config.ProAccess { return config.ProNone })
+	for _, path := range []string{"/effective?user=analyst", "/who-can"} {
+		if code := serve("admin", path); code != http.StatusPaymentRequired {
+			t.Fatalf("no license %s: %d", path, code)
+		}
+	}
+	h.Config.SetProAccessForTest(func() config.ProAccess { return config.ProGrace })
+	for _, path := range []string{"/effective?user=analyst", "/who-can"} {
+		if rec := call("GET", path, ""); rec.Code != http.StatusOK {
+			t.Fatalf("grace %s: %d %s", path, rec.Code, rec.Body.String())
+		}
 	}
 }

@@ -101,6 +101,12 @@
     find_trace: 'Find trace',
     list_metrics: 'List metrics',
     query_metrics: 'Query metrics',
+    analyze_query_log: 'Analyze query log',
+    query_pattern: 'Query pattern',
+    explain_query: 'Explain query',
+    table_storage: 'Table storage',
+    merges_and_mutations: 'Merges and mutations',
+    compare_query_estimates: 'Compare estimates',
   }
   const label = $derived(toolLabel[toolCall.tool] ?? toolCall.tool)
   const isApproval = $derived(toolCall.status === 'pending_approval' && !localDecision)
@@ -134,6 +140,47 @@
     if (!Array.isArray(data) || !Array.isArray(meta)) return null
     return `${data.length} row${data.length === 1 ? '' : 's'} · ${meta.length} col${meta.length === 1 ? '' : 's'}`
   })
+
+  // explain_query: the plan text, shown as is in a monospace block.
+  const explainText = $derived.by(() => {
+    if (toolCall.tool !== 'explain_query') return null
+    const r = toolCall.result as Record<string, unknown> | undefined
+    return r && typeof r.text === 'string' && r.text ? r.text : null
+  })
+
+  // compare_query_estimates: before and after numbers in a small table.
+  interface EstimateNumbers {
+    rows: number
+    marks: number
+    parts: number
+    granules_selected: number
+    granules_known: boolean
+  }
+  function isEstimate(v: unknown): v is EstimateNumbers {
+    if (v == null || typeof v !== 'object') return false
+    const o = v as Record<string, unknown>
+    return typeof o.rows === 'number' && typeof o.marks === 'number' && typeof o.parts === 'number'
+  }
+  const compareRows = $derived.by(() => {
+    if (toolCall.tool !== 'compare_query_estimates') return null
+    const r = toolCall.result as Record<string, unknown> | undefined
+    if (!r || !isEstimate(r.before) || !isEstimate(r.after)) return null
+    const b = r.before
+    const a = r.after
+    const rows: { label: string; before: number; after: number }[] = [
+      { label: 'Rows', before: b.rows, after: a.rows },
+      { label: 'Marks', before: b.marks, after: a.marks },
+      { label: 'Parts', before: b.parts, after: a.parts },
+    ]
+    if (b.granules_known && a.granules_known) rows.push({ label: 'Granules', before: b.granules_selected, after: a.granules_selected })
+    return rows
+  })
+  function deltaLabel(before: number, after: number): string {
+    if (before === after) return 'same'
+    if (before === 0) return after > 0 ? `+${after.toLocaleString('en-US')}` : after.toLocaleString('en-US')
+    const pct = ((after - before) / before) * 100
+    return `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`
+  }
 
   const effectiveStatus = $derived(localDecision === 'approved' ? 'pending' : localDecision === 'declined' ? 'declined' : toolCall.status)
   const compact = $derived(
@@ -224,6 +271,40 @@
 
   {#if expanded}
     <div class="border-t border-border bg-background/50 px-3 py-2 space-y-2">
+      {#if explainText}
+        <div>
+          <div class="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">EXPLAIN</div>
+          <pre class="text-[11px] font-mono whitespace-pre overflow-auto max-h-80 rounded bg-surface-2 px-2 py-1 text-fg">{explainText}</pre>
+        </div>
+      {/if}
+      {#if compareRows}
+        <div>
+          <div class="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Estimated data read</div>
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse text-[11px]">
+              <thead>
+                <tr class="text-left text-fg-3">
+                  <th class="border-b border-edge-subtle py-1 pr-3 font-medium"></th>
+                  <th class="border-b border-edge-subtle py-1 pr-3 text-right font-medium">Before</th>
+                  <th class="border-b border-edge-subtle py-1 pr-3 text-right font-medium">After</th>
+                  <th class="border-b border-edge-subtle py-1 text-right font-medium">Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each compareRows as row (row.label)}
+                  <tr>
+                    <td class="py-0.5 pr-3 text-fg-2">{row.label}</td>
+                    <td class="py-0.5 pr-3 text-right font-mono tabular-nums text-fg">{row.before.toLocaleString('en-US')}</td>
+                    <td class="py-0.5 pr-3 text-right font-mono tabular-nums text-fg">{row.after.toLocaleString('en-US')}</td>
+                    <td class="py-0.5 text-right font-mono tabular-nums {row.after < row.before ? 'text-success' : row.after > row.before ? 'text-danger' : 'text-fg-3'}">{deltaLabel(row.before, row.after)}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+          <p class="mt-1 text-[11px] text-fg-3">Estimates of data read, not latency.</p>
+        </div>
+      {/if}
       {#if toolCall.args != null}
         <div>
           <div class="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Args</div>

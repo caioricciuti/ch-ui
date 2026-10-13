@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeStat, isDateType, isNumericType, parseTimeValue, resolveChartColumns, resolveThresholdColor, toUPlotData } from './chart-transform'
+import { computeStat, isDateType, isNumericType, parseTimeValue, pivotSeries, resolveChartColumns, resolveThresholdColor, suggestChart, toUPlotData } from './chart-transform'
 
 describe('column type detection', () => {
   it('recognises date and datetime types, nullable or not', () => {
@@ -187,5 +187,107 @@ describe('panel saved without axes (ISO DateTime and UInt64 from ClickHouse JSON
     expect(Array.from(out[0])).toEqual([start, start + 60])
     expect(Array.from(out[1] as ArrayLike<number>)).toEqual([34, 34])
     expect(Array.from(out[2] as ArrayLike<number>)).toEqual([68, 68])
+  })
+})
+
+describe('suggestChart', () => {
+  it('suggests a stat for one row with a single numeric column', () => {
+    expect(suggestChart([{ name: 'total', type: 'UInt64' }], 1)).toEqual({ chartType: 'stat', statField: 'total' })
+    expect(suggestChart([{ name: 'db', type: 'String' }, { name: 'n', type: 'UInt64' }], 1))
+      .toEqual({ chartType: 'stat', statField: 'n' })
+  })
+
+  it('suggests a time series for a date column plus numeric columns', () => {
+    const meta = [
+      { name: 'host', type: 'String' },
+      { name: 'day', type: 'Date' },
+      { name: 'hits', type: 'UInt64' },
+      { name: 'bytes', type: 'Nullable(Float64)' },
+    ]
+    expect(suggestChart(meta, 30)).toEqual({ chartType: 'timeseries', xColumn: 'day', yColumns: ['hits', 'bytes'] })
+  })
+
+  it('suggests a bar chart for text plus numeric columns', () => {
+    const meta = [{ name: 'database', type: 'LowCardinality(String)' }, { name: 'tables', type: 'UInt64' }]
+    expect(suggestChart(meta, 5)).toEqual({ chartType: 'bar', xColumn: 'database', yColumns: ['tables'] })
+  })
+
+  it('falls back to a table when there is no numeric column', () => {
+    expect(suggestChart([{ name: 'name', type: 'String' }, { name: 'at', type: 'DateTime' }], 10)).toEqual({ chartType: 'table' })
+    expect(suggestChart([], 0)).toEqual({ chartType: 'table' })
+  })
+
+  it('never suggests a pie', () => {
+    const shapes = [
+      [{ name: 'k', type: 'String' }, { name: 'v', type: 'UInt8' }],
+      [{ name: 'a', type: 'Int32' }, { name: 'b', type: 'Int32' }],
+      [{ name: 'v', type: 'Float64' }],
+    ]
+    for (const meta of shapes) {
+      for (const rows of [1, 3, 500]) expect(suggestChart(meta, rows).chartType).not.toBe('pie')
+    }
+  })
+
+  it('picks the text column for x on new charts, while saved panels keep the first column', () => {
+    const meta = [{ name: 'n', type: 'UInt32' }, { name: 'label', type: 'String' }, { name: 'v', type: 'Float64' }]
+    expect(suggestChart(meta, 4)).toEqual({ chartType: 'bar', xColumn: 'label', yColumns: ['n', 'v'] })
+    // A saved panel without axes renders as before: first column as x.
+    expect(resolveChartColumns(meta, {})).toEqual({ xColumn: 'n', yColumns: ['v'] })
+  })
+})
+
+describe('pivotSeries', () => {
+  const meta = [
+    { name: 'day', type: 'Date' },
+    { name: 'host', type: 'String' },
+    { name: 'hits', type: 'UInt64' },
+  ]
+
+  it('turns long rows into one column per series value, with null gaps', () => {
+    const rows = [
+      { day: '2026-01-01', host: 'a', hits: 1 },
+      { day: '2026-01-01', host: 'b', hits: 2 },
+      { day: '2026-01-02', host: 'a', hits: 3 },
+    ]
+    const out = pivotSeries(rows, meta, 'day', 'hits', 'host')
+    expect(out.yColumns).toEqual(['a', 'b'])
+    expect(out.rows).toEqual([
+      { day: '2026-01-01', a: 1, b: 2 },
+      { day: '2026-01-02', a: 3, b: null },
+    ])
+    expect(out.meta.map(m => m.name)).toEqual(['day', 'a', 'b'])
+    expect(out.dropped).toBe(0)
+  })
+
+  it('keeps the largest series up to the cap and counts the rest', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({ day: '2026-01-01', host: `h${i}`, hits: i + 1 }))
+    const out = pivotSeries(rows, meta, 'day', 'hits', 'host', 10)
+    expect(out.yColumns).toHaveLength(10)
+    expect(out.yColumns).not.toContain('h0')
+    expect(out.yColumns).not.toContain('h1')
+    expect(out.dropped).toBe(2)
+  })
+
+  it('groups numeric x values by number and sums repeats', () => {
+    const numMeta = [{ name: 'bucket', type: 'UInt32' }, { name: 'kind', type: 'String' }, { name: 'n', type: 'UInt64' }]
+    const rows = [
+      { bucket: '10', kind: 'x', n: '4' },
+      { bucket: 10, kind: 'x', n: 1 },
+      { bucket: 20, kind: 'y', n: 2 },
+    ]
+    const out = pivotSeries(rows, numMeta, 'bucket', 'n', 'kind')
+    expect(out.rows).toEqual([
+      { bucket: '10', x: 5, y: null },
+      { bucket: 20, x: null, y: 2 },
+    ])
+    const [x, xs, ys] = toUPlotData(out.rows, out.meta, { chartType: 'bar', xColumn: 'bucket', yColumns: out.yColumns })
+    expect(Array.from(x)).toEqual([10, 20])
+    expect(Array.from(xs as ArrayLike<number | null>)).toEqual([5, null])
+    expect(Array.from(ys as ArrayLike<number | null>)).toEqual([null, 2])
+  })
+
+  it('labels NULL series values', () => {
+    const out = pivotSeries([{ day: '2026-01-01', host: null, hits: 1 }], meta, 'day', 'hits', 'host')
+    expect(out.yColumns).toEqual(['NULL'])
   })
 })

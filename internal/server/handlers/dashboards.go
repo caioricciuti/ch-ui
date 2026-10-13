@@ -711,6 +711,16 @@ func (h *DashboardsHandler) CreatePanel(w http.ResponseWriter, r *http.Request) 
 	}
 	if body.LayoutY != nil {
 		y = *body.LayoutY
+	} else {
+		// No row given: append below every existing panel instead of
+		// stacking on top of the first row.
+		existing, err := h.DB.GetPanelsByDashboard(dashboardID)
+		if err != nil {
+			slog.Error("Failed to list panels for placement", "error", err, "dashboard", dashboardID)
+			writeError(w, http.StatusInternalServerError, "Failed to create panel")
+			return
+		}
+		y = nextPanelRow(existing)
 	}
 	if body.LayoutW != nil {
 		w2 = *body.LayoutW
@@ -957,6 +967,21 @@ var panelTypes = map[string]bool{
 const invalidPanelTypeMessage = "panel_type must be one of table, stat, gauge, timeseries, bar, pie, text"
 
 func validPanelType(t string) bool { return panelTypes[t] }
+
+// nextPanelRow is the first grid row below every panel: max(y+h), 0 when
+// there are none, capped so the result still passes validateLayout.
+func nextPanelRow(panels []database.Panel) int {
+	row := 0
+	for _, p := range panels {
+		if bottom := p.LayoutY + p.LayoutH; bottom > row {
+			row = bottom
+		}
+	}
+	if row > gridMaxRow {
+		row = gridMaxRow
+	}
+	return row
+}
 
 // validateLayout returns an error message when a panel does not fit the grid,
 // or "" when it does.
