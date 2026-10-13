@@ -16,6 +16,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Defaults for the full result export limits.
+const (
+	DefaultExportMaxBytes int64 = 1 << 30 // 1 GiB
+	DefaultExportMaxRows  int64 = 10_000_000
+)
+
 type Config struct {
 	// Server
 	Port    int
@@ -54,6 +60,11 @@ type Config struct {
 
 	// Tunnel
 	TunnelURL string
+
+	// Full result export (POST /api/query/export). Caps on what one export
+	// may produce; 0 means the default (DefaultExportMaxBytes/Rows).
+	ExportMaxBytes int64
+	ExportMaxRows  int64
 
 	// Embedded agent
 	ClickHouseURL  string // default http://localhost:8123
@@ -94,6 +105,8 @@ type serverConfigFile struct {
 	AllowLoginURL      bool     `yaml:"allow_login_url"`
 	TrustedProxies     []string `yaml:"trusted_proxies"`
 	TunnelURL          string   `yaml:"tunnel_url"`
+	ExportMaxBytes     int64    `yaml:"export_max_bytes"`
+	ExportMaxRows      int64    `yaml:"export_max_rows"`
 	TLSCertFile        string   `yaml:"tls_cert_file"`
 	TLSKeyFile         string   `yaml:"tls_key_file"`
 	AuditWebhookURL    string   `yaml:"audit_webhook_url"`
@@ -198,6 +211,16 @@ func Load(configPath string) *Config {
 	}
 	if v := os.Getenv("TUNNEL_URL"); v != "" {
 		cfg.TunnelURL = v
+	}
+	if v := os.Getenv("EXPORT_MAX_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil && n > 0 {
+			cfg.ExportMaxBytes = n
+		}
+	}
+	if v := os.Getenv("EXPORT_MAX_ROWS"); v != "" {
+		if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil && n > 0 {
+			cfg.ExportMaxRows = n
+		}
 	}
 	if v := os.Getenv("TLS_CERT_FILE"); v != "" {
 		cfg.TLSCertFile = trimQuotes(v)
@@ -327,6 +350,12 @@ func loadServerConfigFile(path string, cfg *Config) error {
 	}
 	if fc.AllowLoginURL {
 		cfg.AllowLoginURL = true
+	}
+	if fc.ExportMaxBytes > 0 {
+		cfg.ExportMaxBytes = fc.ExportMaxBytes
+	}
+	if fc.ExportMaxRows > 0 {
+		cfg.ExportMaxRows = fc.ExportMaxRows
 	}
 	if fc.TrustedProxies != nil {
 		cfg.TrustedProxies = fc.TrustedProxies
@@ -638,4 +667,16 @@ func trimQuotes(s string) string {
 		}
 	}
 	return s
+}
+
+// ExportLimits returns the byte and row caps for one full result export.
+func (c *Config) ExportLimits() (maxBytes, maxRows int64) {
+	maxBytes, maxRows = DefaultExportMaxBytes, DefaultExportMaxRows
+	if c != nil && c.ExportMaxBytes > 0 {
+		maxBytes = c.ExportMaxBytes
+	}
+	if c != nil && c.ExportMaxRows > 0 {
+		maxRows = c.ExportMaxRows
+	}
+	return maxBytes, maxRows
 }

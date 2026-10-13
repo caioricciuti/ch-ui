@@ -1,4 +1,19 @@
-import type { ColumnMeta, QueryStats } from '../types/query'
+import type { ResultEntry, TabResults } from '../editor/result-tabs'
+import {
+  EMPTY_TAB_RESULTS,
+  addResult,
+  capRows,
+  dropUnpinned,
+  removeResult,
+  replaceActiveResult,
+  restorePinned,
+  serializePinned,
+  setActiveResult,
+  togglePin,
+  updateResult,
+  type PinOutcome,
+} from '../editor/result-tabs'
+import { getMaxResultRows } from './query-limit.svelte'
 import { isPageRouteType } from '../routes'
 import type { ColumnFilter, ResultSort } from '../utils/result-filters'
 import type { ModelEditState } from '../types/models'
@@ -64,18 +79,13 @@ export interface TabGroup {
 }
 
 // ── Per-tab query results ────────────────────────────────────────
+// Each query tab keeps a list of results (one per run statement) and the
+// index of the one on screen; see editor/result-tabs.ts for the rules.
 
-export interface TabResult {
-  meta: ColumnMeta[]
-  data: unknown[][]
-  stats: QueryStats | null
-  elapsedMs: number
-  error: string | null
-  running: boolean
-}
+export type { ResultEntry as TabResult, TabResults } from '../editor/result-tabs'
 
-// Sort/filter view over a tab's result (issue #117). Lives beside TabResult so
-// it survives tab switches; reset on every fresh run.
+// Sort/filter view over a result (issue #117), kept per result id so it
+// survives tab and result switches; reset on every fresh run.
 export interface ResultViewState {
   sort: ResultSort | null
   filters: ColumnFilter[]
@@ -113,6 +123,8 @@ const DEFAULT_RESULT_VIEW: ResultViewState = {
 // ── Persistence ─────────────────────────────────────────────────
 
 const STORAGE_KEY = 'ch-ui-tabs'
+// Pinned results, per query tab id, so they survive a reload (bounded size).
+const PINNED_STORAGE_KEY = 'ch-ui-pinned-results'
 const HOME_TAB_ID = 'home'
 const HOME_TAB_NAME = 'Home'
 
@@ -324,7 +336,8 @@ let tabs = $state<Tab[]>(initial.tabs.map((tab) => {
 }))
 let groups = $state<TabGroup[]>(initial.groups)
 let focusedGroupId = $state<string>(initial.focusedGroupId)
-let results = $state<Map<string, TabResult>>(new Map())
+let results = $state<Map<string, TabResults>>(loadPinnedResults(new Set(initial.tabs.filter((t) => t.type === 'query').map((t) => t.id))))
+// Sort/filter state per result id.
 let resultViews = $state<Map<string, ResultViewState>>(new Map())
 
 // Auto-save on any change (debounced via microtask)
@@ -405,47 +418,174 @@ export function getGroupActiveTabId(groupId: string): string {
 
 // ── Tab result accessors ─────────────────────────────────────────
 
-export function getTabResult(tabId: string): TabResult | undefined {
-  return results.get(tabId)
+/** Pinned results saved by an earlier page, for the query tabs that still exist. */
+function loadPinnedResults(tabIds: Set<string>): Map<string, TabResults> {
+  const out = new Map<string, TabResults>()
+  try {
+    const raw = localStorage.getItem(PINNED_STORAGE_KEY)
+    if (!raw) return out
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return out
+    for (const [tabId, saved] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!tabIds.has(tabId)) continue
+      const entries = restorePinned(saved)
+      if (entries.length > 0) out.set(tabId, { results: entries, activeResult: entries.length - 1 })
+    }
+  } catch {
+    // corrupt or unavailable storage: start without pinned results
+  }
+  return out
 }
 
-export function setTabResult(tabId: string, partial: Partial<TabResult>): void {
-  const current = results.get(tabId) ?? {
+let pinnedSaveQueued = false
+/** Saves every tab's pinned results (metadata plus a bounded number of rows). */
+function queuePinnedSave(): void {
+  if (pinnedSaveQueued) return
+  pinnedSaveQueued = true
+  queueMicrotask(() => {
+    pinnedSaveQueued = false
+    const out: Record<string, ResultEntry[]> = {}
+    for (const [tabId, state] of results) {
+      const saved = serializePinned(state)
+      if (saved.length > 0) out[tabId] = saved
+    }
+    try {
+      if (Object.keys(out).length === 0) localStorage.removeItem(PINNED_STORAGE_KEY)
+      else localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(out))
+    } catch {
+      // quota exceeded: pinned results still live for this page
+    }
+  })
+}
+
+function setTabResults(tabId: string, next: TabResults, persist = false): void {
+  const prev = results.get(tabId)
+  if (prev === next) return
+  const updated = new Map(results)
+  if (next.results.length === 0) updated.delete(tabId)
+  else updated.set(tabId, next)
+  results = updated
+  // Results that left the list take their sort/filter state with them.
+  if (prev) {
+    const kept = new Set(next.results.map((r) => r.id))
+    const gone = prev.results.filter((r) => !kept.has(r.id))
+    if (gone.length > 0) {
+      const views = new Map(resultViews)
+      for (const r of gone) views.delete(r.id)
+      resultViews = views
+    }
+    if (persist || gone.some((r) => r.pinned)) queuePinnedSave()
+  }
+}
+
+/** All results of a tab and the index of the active one. */
+export function getTabResults(tabId: string): TabResults {
+  return results.get(tabId) ?? EMPTY_TAB_RESULTS
+}
+
+/** The result on screen in a tab, if any. */
+export function getTabResult(tabId: string): ResultEntry | undefined {
+  const state = results.get(tabId)
+  return state ? state.results[state.activeResult] : undefined
+}
+
+/** True while any result of the tab is still running. */
+export function isTabRunning(tabId: string): boolean {
+  return results.get(tabId)?.results.some((r) => r.running) ?? false
+}
+
+export interface NewResultInput {
+  id: string
+  label: string
+  sql: string
+  params?: Record<string, string>
+}
+
+function newEntry(input: NewResultInput): ResultEntry {
+  return {
+    ...input,
     meta: [],
     data: [],
     stats: null,
     elapsedMs: 0,
     error: null,
-    running: false,
+    running: true,
+    pinned: false,
+    createdAt: Date.now(),
   }
-  const updated = new Map(results)
-  updated.set(tabId, { ...current, ...partial })
-  results = updated
+}
+
+/**
+ * Starts a result for a run. 'replace' takes the place of the active result
+ * (a pinned one is kept and the new result is added beside it); 'append'
+ * adds a new result tab. Either way the new result becomes active.
+ */
+export function startTabResult(tabId: string, input: NewResultInput, mode: 'replace' | 'append'): void {
+  const state = results.get(tabId) ?? EMPTY_TAB_RESULTS
+  const entry = newEntry(input)
+  setTabResults(tabId, mode === 'replace' ? replaceActiveResult(state, entry) : addResult(state, entry))
+}
+
+/** Clears unpinned results before a run of several statements. */
+export function dropUnpinnedTabResults(tabId: string): void {
+  const state = results.get(tabId)
+  if (state) setTabResults(tabId, dropUnpinned(state))
+}
+
+/**
+ * Updates one result of a tab. Rows past the result row limit are not kept.
+ * Does nothing when the result is gone (closed or evicted meanwhile).
+ */
+export function setTabResult(tabId: string, resultId: string, partial: Partial<ResultEntry>): void {
+  const state = results.get(tabId)
+  if (!state) return
+  const patch = partial.data ? { ...partial, data: capRows(partial.data, getMaxResultRows()) } : partial
+  const entry = state.results.find((r) => r.id === resultId)
+  if (!entry) return
+  // A finished run of a pinned result changes what is saved for reloads.
+  const persist = entry.pinned && (partial.running === false || partial.pinned !== undefined)
+  setTabResults(tabId, updateResult(state, resultId, patch), persist)
+}
+
+export function setActiveTabResult(tabId: string, resultId: string): void {
+  const state = results.get(tabId)
+  if (state) setTabResults(tabId, setActiveResult(state, resultId))
+}
+
+export function closeTabResult(tabId: string, resultId: string): void {
+  const state = results.get(tabId)
+  if (state) setTabResults(tabId, removeResult(state, resultId), true)
+}
+
+/** Pins or unpins a result; 'limit' when the tab already has the most pins. */
+export function toggleTabResultPin(tabId: string, resultId: string): PinOutcome {
+  const state = results.get(tabId)
+  if (!state) return 'unpinned'
+  const { state: next, outcome } = togglePin(state, resultId)
+  setTabResults(tabId, next, outcome !== 'limit')
+  return outcome
 }
 
 export function clearTabResult(tabId: string): void {
-  const updated = new Map(results)
-  updated.delete(tabId)
-  results = updated
-  const views = new Map(resultViews)
-  views.delete(tabId)
-  resultViews = views
+  const state = results.get(tabId)
+  if (!state) return
+  setTabResults(tabId, EMPTY_TAB_RESULTS, true)
 }
 
-export function getTabResultView(tabId: string): ResultViewState {
-  return resultViews.get(tabId) ?? DEFAULT_RESULT_VIEW
+export function getResultView(resultId: string): ResultViewState {
+  return resultViews.get(resultId) ?? DEFAULT_RESULT_VIEW
 }
 
-export function setTabResultView(tabId: string, partial: Partial<ResultViewState>): void {
-  const current = resultViews.get(tabId) ?? DEFAULT_RESULT_VIEW
+export function setResultView(resultId: string, partial: Partial<ResultViewState>): void {
+  const current = resultViews.get(resultId) ?? DEFAULT_RESULT_VIEW
   const updated = new Map(resultViews)
-  updated.set(tabId, { ...current, ...partial })
+  updated.set(resultId, { ...current, ...partial })
   resultViews = updated
 }
 
-export function resetTabResultView(tabId: string, partial: Partial<ResultViewState> = {}): void {
+export function resetResultView(resultId: string, partial: Partial<ResultViewState> = {}): void {
   const updated = new Map(resultViews)
-  updated.set(tabId, { ...DEFAULT_RESULT_VIEW, ...partial })
+  updated.set(resultId, { ...DEFAULT_RESULT_VIEW, ...partial })
   resultViews = updated
 }
 

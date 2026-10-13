@@ -36,6 +36,7 @@ func (h *QueryHandler) Routes(r chi.Router) {
 	r.Post("/", h.ExecuteQuery)
 	r.Post("/run", h.ExecuteQuery)
 	r.Post("/stream", h.StreamQuery)
+	r.Post("/export", h.ExportQuery)
 	r.Post("/sample", h.SampleQuery)
 	r.Post("/explorer-data", h.ExplorerData)
 	r.Post("/format", h.FormatSQL)

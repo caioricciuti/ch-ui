@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ColumnMeta, QueryPlanNode, QueryStats, QueryEstimateResult, QueryProgress } from '../../types/query'
   import type { ColumnFilter, ResultSort } from '../../utils/result-filters'
+  import type { FullExportFormat } from '../../api/stream'
   import { OPERATOR_LABELS, isUnaryOperator } from '../../utils/result-filters'
   import VirtualTable from '../table/VirtualTable.svelte'
   import Spinner from '../common/Spinner.svelte'
@@ -62,6 +63,11 @@
      * line/col are relative to the executed fragment). */
     errorTargetLine?: number | null
     errorTargetCol?: number | null
+    /** Present when the result can be exported in full by the server. */
+    onexportfull?: (format: FullExportFormat) => void
+    /** A full export in progress, with the bytes received so far. */
+    exportProgress?: { format: FullExportFormat; bytes: number } | null
+    oncancelexport?: () => void
   }
 
   let {
@@ -103,6 +109,9 @@
     ongotoerror,
     errorTargetLine = null,
     errorTargetCol = null,
+    onexportfull,
+    exportProgress = null,
+    oncancelexport,
   }: Props = $props()
 
   const parsedError = $derived(error ? parseCHError(error) : null)
@@ -276,6 +285,9 @@
       {streamChunks}
       {totalRows}
       {serverApplied}
+      {onexportfull}
+      {exportProgress}
+      {oncancelexport}
     />
   {/if}
 </div>

@@ -30,6 +30,13 @@ type AgentMessage struct {
 	TotalRows int64       `json:"total_rows,omitempty"` // Total row count (for streaming)
 
 	Progress *QueryProgress `json:"progress,omitempty"` // Live progress of a running query (for streaming)
+
+	// Capabilities lists optional protocol features this agent supports. It is
+	// sent with the auth message so the server can refuse a feature an older
+	// agent would silently ignore.
+	Capabilities []string `json:"capabilities,omitempty"`
+	// Bytes is the total size of an export (for query_export_end).
+	Bytes int64 `json:"bytes,omitempty"`
 }
 
 // QueryStats contains query execution statistics
@@ -50,7 +57,17 @@ const (
 	MsgTypePing           = "ping"
 	MsgTypeCancelQuery    = "cancel_query"
 	MsgTypeTestConnection = "test_connection"
+	// MsgTypeQueryExport asks the agent to run a statement with FORMAT <format>
+	// and send the raw output bytes back (base64 in query_export_chunk).
+	MsgTypeQueryExport = "query_export"
 )
+
+// CapabilityExport is advertised in the auth message by agents that handle
+// query_export. Agents without it get a clear "update the agent" error.
+const CapabilityExport = "export"
+
+// agentCapabilities is what this agent build supports.
+var agentCapabilities = []string{CapabilityExport}
 
 // Message types to gateway
 const (
@@ -67,4 +84,9 @@ const (
 	MsgTypeQueryStreamProgress = "query_stream_progress"
 	MsgTypeQueryStreamEnd      = "query_stream_end"
 	MsgTypeQueryStreamError    = "query_stream_error"
+	// Export results: raw bytes of the requested format, base64 encoded in
+	// Data, then an end message with the byte count, or an error.
+	MsgTypeQueryExportChunk = "query_export_chunk"
+	MsgTypeQueryExportEnd   = "query_export_end"
+	MsgTypeQueryExportError = "query_export_error"
 )

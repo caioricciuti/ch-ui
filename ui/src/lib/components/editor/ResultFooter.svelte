@@ -14,7 +14,9 @@
     downloadFile,
   } from '../../utils/export'
   import { success, error } from '../../stores/toast.svelte'
-  import { Table2, BarChart3, Columns3, Sparkles, Copy, Download, ChevronUp, FileJson, FileText, Database, Hash, AlertTriangle, ListFilter, CloudCog } from 'lucide-svelte'
+  import type { FullExportFormat } from '../../api/stream'
+  import { formatBytes } from '../../utils/format'
+  import { Table2, BarChart3, Columns3, Sparkles, Copy, Download, ChevronUp, FileJson, FileText, Database, Hash, AlertTriangle, ListFilter, CloudCog, Server, LoaderCircle, X } from 'lucide-svelte'
   import { getFormatNumbers, toggleFormatNumbers } from '../../stores/number-format.svelte'
   import { getMaxResultRows, setMaxResultRows } from '../../stores/query-limit.svelte'
   import { getResultFiltersEnabled, toggleResultFiltersEnabled } from '../../stores/result-filters.svelte'
@@ -34,9 +36,40 @@
     totalRows?: number | null
     /** Rows came from a server-side filtered/ordered re-query. */
     serverApplied?: boolean
+    /** Present when the server can export the full result. */
+    onexportfull?: (format: FullExportFormat) => void
+    exportProgress?: { format: FullExportFormat; bytes: number } | null
+    oncancelexport?: () => void
   }
 
-  let { activeTab, onTabChange, meta, data, elapsedMs = 0, streamRows = 0, streamChunks = 0, totalRows = null, serverApplied = false }: Props = $props()
+  let {
+    activeTab,
+    onTabChange,
+    meta,
+    data,
+    elapsedMs = 0,
+    streamRows = 0,
+    streamChunks = 0,
+    totalRows = null,
+    serverApplied = false,
+    onexportfull,
+    exportProgress = null,
+    oncancelexport,
+  }: Props = $props()
+
+  // Formats the server re-runs the statement in. XLSX is not offered:
+  // ClickHouse has no native XLSX output format.
+  const fullFormats: { id: FullExportFormat; label: string; icon: typeof FileText }[] = [
+    { id: 'CSVWithNames', label: 'CSV', icon: FileText },
+    { id: 'TSVWithNames', label: 'TSV', icon: FileText },
+    { id: 'JSONEachRow', label: 'JSONLines', icon: FileJson },
+    { id: 'Parquet', label: 'Parquet', icon: Database },
+  ]
+
+  function handleExportFull(format: FullExportFormat) {
+    exportMenuOpen = false
+    onexportfull?.(format)
+  }
   let exportMenuOpen = $state(false)
   let exportMenuRef = $state<HTMLDivElement | null>(null)
   let rowsMenuOpen = $state(false)
@@ -227,7 +260,22 @@
     {/if}
   </div>
 
-  <!-- Export: one menu, copy or download in any format -->
+  {#if exportProgress}
+    <div class="flex items-center gap-1.5 px-1.5 text-xs text-fg-3 tabular-nums" role="status">
+      <LoaderCircle size={12} class="animate-spin" />
+      Exporting {formatBytes(exportProgress.bytes)}
+      <button
+        class="p-0.5 rounded text-fg-4 hover:bg-hover hover:text-fg"
+        onclick={() => oncancelexport?.()}
+        title="Cancel export"
+        aria-label="Cancel export"
+      >
+        <X size={11} />
+      </button>
+    </div>
+  {/if}
+
+  <!-- Export: the rows on screen (copy or download), or the full result re-run by the server -->
   <div class="relative" bind:this={exportMenuRef}>
     <button
       class="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-fg-3 transition-colors hover:bg-hover hover:text-fg"
@@ -242,6 +290,7 @@
 
     {#if exportMenuOpen}
       <div class="surface-card absolute bottom-full right-0 z-20 mb-1 w-80 rounded-md p-1" role="menu">
+        <div class="px-2 pt-1 text-[11px] font-medium text-fg-2">Current rows <span class="font-normal text-fg-4">({formatNumber(rowCount)} loaded)</span></div>
         <div class="grid grid-cols-2 gap-1">
           <div>
             <div class="flex items-center gap-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-fg-4"><Copy size={10} /> Copy</div>
@@ -269,6 +318,27 @@
               </button>
             {/each}
           </div>
+        </div>
+        <div class="mt-1 border-t border-edge-subtle pt-1">
+          <div class="flex items-center gap-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-fg-4"><Server size={10} /> Full result (server)</div>
+          {#if onexportfull}
+            <div class="grid grid-cols-2 gap-x-1">
+              {#each fullFormats as option (option.id)}
+                <button
+                  class="flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-xs text-fg-2 transition-colors hover:bg-hover hover:text-fg disabled:opacity-50 disabled:pointer-events-none"
+                  onclick={() => handleExportFull(option.id)}
+                  disabled={exportProgress !== null}
+                  role="menuitem"
+                >
+                  <option.icon size={12} />
+                  {option.label}
+                </button>
+              {/each}
+            </div>
+            <p class="px-2 pt-1 pb-0.5 text-[11px] text-fg-4">Runs the statement again on the server, read only, without the row limit, up to the server's export limit.</p>
+          {:else}
+            <p class="px-2 pb-1 text-[11px] text-fg-4">Available for a finished result of a statement you ran.</p>
+          {/if}
         </div>
       </div>
     {/if}

@@ -100,3 +100,64 @@ export async function executeStreamQuery(
     onError(STREAM_CLOSED_EARLY)
   }
 }
+
+/** ClickHouse output formats the server can export a full result in. */
+export type FullExportFormat = 'CSVWithNames' | 'TSVWithNames' | 'JSONEachRow' | 'Parquet'
+
+export const EXPORT_CUT_OFF =
+  'The export stopped before it finished (a ClickHouse error or the export size limit). Nothing was saved; Query History has the reason.'
+
+/** Picks the file name out of a Content-Disposition header. */
+export function filenameFromDisposition(header: string | null, fallback: string): string {
+  const m = /filename="([^"]+)"/.exec(header ?? '')
+  const name = m?.[1] ?? ''
+  return /^[\w.-]+$/.test(name) ? name : fallback
+}
+
+/**
+ * Re-runs a statement on the server with FORMAT <format> and collects the
+ * whole file. onProgress gets the bytes received so far. Throws with the
+ * server's message when the export is refused, and EXPORT_CUT_OFF when it
+ * stops part way (the server aborts the download rather than send a
+ * truncated file).
+ */
+export async function exportFullResult(
+  sql: string,
+  format: FullExportFormat,
+  params: Record<string, string> | undefined,
+  onProgress: (bytes: number) => void,
+  signal?: AbortSignal,
+): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(withBase('/api/query/export'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sql, format, params }),
+    credentials: 'include',
+    signal,
+  })
+  if (!res.ok) {
+    const body: unknown = await res.json().catch(() => null)
+    const msg = typeof body === 'object' && body !== null && 'error' in body ? String((body as { error: unknown }).error) : ''
+    throw new Error(msg || `Export failed (${res.status})`)
+  }
+  const type = res.headers.get('content-type') ?? 'application/octet-stream'
+  const filename = filenameFromDisposition(res.headers.get('content-disposition'), 'ch-ui-export')
+  if (!res.body) return { blob: new Blob([], { type }), filename }
+
+  const reader = res.body.getReader()
+  const parts: Uint8Array[] = []
+  let bytes = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      parts.push(value)
+      bytes += value.byteLength
+      onProgress(bytes)
+    }
+  } catch (e) {
+    if (signal?.aborted) throw e
+    throw new Error(EXPORT_CUT_OFF)
+  }
+  return { blob: new Blob(parts as BlobPart[], { type }), filename }
+}
