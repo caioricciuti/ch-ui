@@ -112,7 +112,7 @@ func TestHealthAlertsFireAndResolve(t *testing.T) {
 	}
 	for _, ev := range events {
 		fp, ok := want[ev.EventType]
-		if !ok || ev.Fingerprint == nil || *ev.Fingerprint != fp || ev.Severity != alerts.SeverityCritical {
+		if !ok || ev.Fingerprint == nil || !strings.HasPrefix(*ev.Fingerprint, fp+":") || ev.Severity != alerts.SeverityCritical {
 			t.Fatalf("unexpected event %s fp=%v sev=%s", ev.EventType, ev.Fingerprint, ev.Severity)
 		}
 		var payload map[string]interface{}
@@ -152,7 +152,7 @@ func TestHealthAlertsFireAndResolve(t *testing.T) {
 			continue
 		}
 		resolved++
-		if ev.Severity != alerts.SeverityCritical || ev.Fingerprint == nil || !strings.HasSuffix(*ev.Fingerprint, ":resolved") {
+		if ev.Severity != alerts.SeverityCritical || ev.Fingerprint == nil || !strings.Contains(*ev.Fingerprint, ":resolved:") {
 			t.Fatalf("resolved event %+v", ev)
 		}
 		if ev.PayloadJSON == nil || !strings.Contains(*ev.PayloadJSON, `"status":"resolved"`) {
@@ -184,15 +184,15 @@ func TestHealthAlertsUnknownFreezesState(t *testing.T) {
 	h, db, conn := evalHarvester(t)
 	now := time.Now()
 	bad := []Sample{{Node: "ch-1", ReplicasReadonly: 3}}
-	h.evaluateHealthAlerts(conn, "", bad, noExec, now)
-	h.evaluateHealthAlerts(conn, "", bad, noExec, now)
+	h.evaluateHealthAlerts(conn, "", bad, false, noExec, now)
+	h.evaluateHealthAlerts(conn, "", bad, false, noExec, now)
 	unknown := []Sample{{Node: "ch-1", Unknown: []string{MetricReplication}}}
 	for i := 0; i < 3; i++ {
-		h.evaluateHealthAlerts(conn, "", unknown, noExec, now)
+		h.evaluateHealthAlerts(conn, "", unknown, false, noExec, now)
 	}
 	// A node missing from the poll (local-only fallback) is frozen too.
 	for i := 0; i < 3; i++ {
-		h.evaluateHealthAlerts(conn, "", []Sample{{Node: "ch-2"}}, noExec, now)
+		h.evaluateHealthAlerts(conn, "", []Sample{{Node: "ch-2"}}, false, noExec, now)
 	}
 	states, err := db.ListHealthAlertStates(conn, true)
 	if err != nil || len(states) != 1 || states[0].State != alerts.StateFiring || states[0].OkCount != 0 {
@@ -214,17 +214,19 @@ func TestHealthAlertsEscalateAndCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	h.evaluateHealthAlerts(conn, "", []Sample{{Node: "ch-1", ReplicationMaxDelay: 120}}, noExec, now)
-	h.evaluateHealthAlerts(conn, "", []Sample{{Node: "ch-1", ReplicationMaxDelay: 900}}, noExec, now)
+	h.evaluateHealthAlerts(conn, "", []Sample{{Node: "ch-1", ReplicationMaxDelay: 120}}, false, noExec, now)
+	h.evaluateHealthAlerts(conn, "", []Sample{{Node: "ch-1", ReplicationMaxDelay: 900}}, false, noExec, now)
 	events := healthEvents(t, db)
 	if len(events) != 2 {
 		t.Fatalf("want warn firing and critical escalation, got %d", len(events))
 	}
+	since := now.UTC().Format(time.RFC3339)
 	fps := map[string]bool{}
 	for _, ev := range events {
 		fps[*ev.Fingerprint] = true
 	}
-	if !fps[HealthFingerprint(conn, CheckReplicationLag, "ch-1", "warn")] || !fps[HealthFingerprint(conn, CheckReplicationLag, "ch-1", "critical")] {
+	if !fps[HealthFingerprint(conn, CheckReplicationLag, "ch-1", "warn:"+since)] ||
+		!fps[HealthFingerprint(conn, CheckReplicationLag, "ch-1", "escalated:critical:"+since)] {
 		t.Fatalf("fingerprints %v", fps)
 	}
 
@@ -233,7 +235,7 @@ func TestHealthAlertsEscalateAndCap(t *testing.T) {
 	for i := 0; i < 25; i++ {
 		many = append(many, Sample{Node: fmt.Sprintf("n-%02d", i), ReplicasReadonly: 1})
 	}
-	h.evaluateHealthAlerts(conn, "", many, noExec, now)
+	h.evaluateHealthAlerts(conn, "", many, false, noExec, now)
 	events, _ = db.ListAlertEvents(100, alerts.EventTypeHealthReplicaReadonly, "")
 	if len(events) != maxHealthEventsPerPoll {
 		t.Fatalf("want %d capped events, got %d", maxHealthEventsPerPoll, len(events))

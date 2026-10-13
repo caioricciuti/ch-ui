@@ -27,10 +27,16 @@ type PartsLimits struct {
 // Collection is one poll: a Sample per node, the parts limits, and the error
 // of every metric group that failed (keyed by Metric*). A failed group is
 // also listed in each sample's Unknown so it is never mistaken for zero.
+//
+// Complete reports that Samples hold every node of the cluster (or the one
+// node without a cluster): the node presence query answered and, on a
+// cluster, system.clusters was read. A node missing from a complete
+// collection is no longer part of the cluster.
 type Collection struct {
-	Samples []Sample
-	Limits  PartsLimits
-	Errors  map[string]string
+	Samples  []Sample
+	Limits   PartsLimits
+	Errors   map[string]string
+	Complete bool
 }
 
 // CollectSamples runs the per-node aggregate queries and merges them into one
@@ -159,8 +165,15 @@ func CollectSamples(exec ExecFunc, cluster string, longQueryThreshold int, captu
 	}
 
 	out := Collection{Samples: samples, Limits: limits, Errors: errs}
-	if cluster != "" && fanOutErr == nil {
-		out.Samples = FlagMissingNodes(exec, cluster, out.Samples, capturedAt, true)
+	if fanOutErr == nil {
+		if _, failed := errs["nodes"]; !failed {
+			out.Complete = cluster == ""
+		}
+		if cluster != "" {
+			var listed bool
+			out.Samples, listed = flagMissingNodes(exec, cluster, out.Samples, capturedAt, true)
+			out.Complete = listed
+		}
 	}
 	return out, fanOutErr
 }
@@ -172,12 +185,19 @@ func CollectSamples(exec ExecFunc, cluster string, longQueryThreshold int, captu
 // the local node, where their state is simply unknown. On error the samples
 // are returned unchanged.
 func FlagMissingNodes(exec ExecFunc, cluster string, samples []Sample, capturedAt string, down bool) []Sample {
+	out, _ := flagMissingNodes(exec, cluster, samples, capturedAt, down)
+	return out
+}
+
+// flagMissingNodes is FlagMissingNodes; listed reports whether the cluster's
+// node list was read.
+func flagMissingNodes(exec ExecFunc, cluster string, samples []Sample, capturedAt string, down bool) (out []Sample, listed bool) {
 	if !IsValidClusterName(cluster) {
-		return samples
+		return samples, false
 	}
 	rows, err := exec(ClusterNodesQuery(cluster))
-	if err != nil {
-		return samples
+	if err != nil || len(rows) == 0 {
+		return samples, false
 	}
 	seen := map[string]bool{}
 	for _, s := range samples {
@@ -207,7 +227,7 @@ func FlagMissingNodes(exec ExecFunc, cluster string, samples []Sample, capturedA
 		missing.markUnknown(MetricDisk)
 		samples = append(samples, missing)
 	}
-	return samples
+	return samples, true
 }
 
 // shortHost lowercases a host name and drops its domain, so "ch-1" matches

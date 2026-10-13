@@ -121,3 +121,72 @@ func TestAlertingRoles(t *testing.T) {
 		}
 	}
 }
+
+// TestAlertingDisableResolvesIncidents checks that turning off a firing
+// health check or SQL alert raises a resolved event instead of dropping the
+// incident silently.
+func TestAlertingDisableResolvesIncidents(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "alerting.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	conn, err := db.CreateConnection(database.CreateConnectionParams{Name: "c", TunnelToken: "c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := (&AlertingHandler{DB: db, Config: &config.Config{}}).Routes()
+	resolvedEvents := func(eventType string) int {
+		t.Helper()
+		evs, err := db.ListAlertEvents(50, eventType, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, ev := range evs {
+			if strings.HasPrefix(ev.Title, "[RESOLVED] ") {
+				n++
+			}
+		}
+		return n
+	}
+
+	crit := "critical"
+	since := "2026-10-13T10:00:00Z"
+	firedID := "fired-event"
+	if err := db.SaveHealthAlertStates([]database.HealthAlertState{{ConnectionID: conn, CheckKind: "disk", Node: "ch-1", State: "firing", Severity: &crit, Since: &since, LastEventID: &firedID}}); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"settings":[{"check_kind":"disk","enabled":false,"warn_threshold":80,"crit_threshold":90,"for_evaluations":2,"resolve_evaluations":2}]}`
+	if rec := serveAs(router, "admin", conn, http.MethodPut, "/health/settings", body); rec.Code != http.StatusOK {
+		t.Fatalf("disable disk check: %d %s", rec.Code, rec.Body.String())
+	}
+	if n := resolvedEvents("health.disk"); n != 1 {
+		t.Fatalf("want 1 resolved health event, got %d", n)
+	}
+	if states, _ := db.ListHealthAlertStates(conn, false); len(states) != 0 {
+		t.Fatalf("disabled check kept state: %+v", states)
+	}
+
+	alert := `{"name":"errors","sql":"SELECT count() FROM system.errors","mode":"value","comparator":"gt","threshold":0,"severity":"warn","interval_seconds":300,"timeout_seconds":30,"enabled":true}`
+	rec := serveAsUser(router, "admin", "root", conn, http.MethodPost, "/sql", alert)
+	var created struct {
+		Alert database.SQLAlert `json:"alert"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil || created.Alert.ID == "" {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	if _, err := db.Conn().Exec(`UPDATE sql_alerts SET state = 'firing' WHERE id = ?`, created.Alert.ID); err != nil {
+		t.Fatal(err)
+	}
+	path := "/sql/" + created.Alert.ID
+	if rec := serveAsUser(router, "admin", "root", conn, http.MethodPut, path, strings.Replace(alert, `"enabled":true`, `"enabled":false`, 1)); rec.Code != http.StatusOK {
+		t.Fatalf("disable SQL alert: %d %s", rec.Code, rec.Body.String())
+	}
+	if n := resolvedEvents("sql.alert"); n != 1 {
+		t.Fatalf("want 1 resolved SQL event, got %d", n)
+	}
+	if a, _ := db.GetSQLAlert(created.Alert.ID); a == nil || a.State != "ok" || a.Enabled {
+		t.Fatalf("disabled alert state: %+v", a)
+	}
+}

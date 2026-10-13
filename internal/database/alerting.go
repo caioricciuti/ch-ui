@@ -7,6 +7,7 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -146,7 +147,9 @@ func (db *DB) ListHealthAlertStates(connectionID string, activeOnly bool) ([]Hea
 	return out, rows.Err()
 }
 
-// SaveHealthAlertStates upserts states in one transaction.
+// SaveHealthAlertStates upserts states in one transaction. A state of a
+// check that is disabled on its connection is not written, so a poll that
+// started before the check was turned off cannot bring its rows back.
 func (db *DB) SaveHealthAlertStates(states []HealthAlertState) error {
 	if len(states) == 0 {
 		return nil
@@ -159,13 +162,16 @@ func (db *DB) SaveHealthAlertStates(states []HealthAlertState) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, s := range states {
 		if _, err := tx.Exec(`INSERT INTO health_alert_state (`+healthStateColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+			WHERE NOT EXISTS (SELECT 1 FROM health_alert_settings
+				WHERE connection_id = ? AND check_kind = ? AND enabled = 0)
 			ON CONFLICT(connection_id, check_kind, node) DO UPDATE SET state = excluded.state,
 			severity = excluded.severity, breach_count = excluded.breach_count, ok_count = excluded.ok_count,
 			last_value = excluded.last_value, since = excluded.since, last_event_id = excluded.last_event_id,
 			updated_at = excluded.updated_at`,
 			s.ConnectionID, s.CheckKind, s.Node, s.State, nullStr(s.Severity), s.BreachCount, s.OkCount,
-			nullFloat(s.LastValue), nullStr(s.Since), nullStr(s.LastEventID), now); err != nil {
+			nullFloat(s.LastValue), nullStr(s.Since), nullStr(s.LastEventID), now,
+			s.ConnectionID, s.CheckKind); err != nil {
 			return fmt.Errorf("save health alert state: %w", err)
 		}
 	}
@@ -173,10 +179,20 @@ func (db *DB) SaveHealthAlertStates(states []HealthAlertState) error {
 }
 
 // DeleteHealthAlertStates clears the state of one check on a connection,
-// for a check that was turned off: an incident it held is dropped, not
-// resolved.
+// for a check that was turned off. The caller raises the resolved events of
+// the incidents it held first.
 func (db *DB) DeleteHealthAlertStates(connectionID, checkKind string) error {
 	if _, err := db.conn.Exec(`DELETE FROM health_alert_state WHERE connection_id = ? AND check_kind = ?`, connectionID, checkKind); err != nil {
+		return fmt.Errorf("delete health alert state: %w", err)
+	}
+	return nil
+}
+
+// DeleteHealthAlertState clears the state of one check on one node, for a
+// node that left the cluster.
+func (db *DB) DeleteHealthAlertState(connectionID, checkKind, node string) error {
+	if _, err := db.conn.Exec(`DELETE FROM health_alert_state WHERE connection_id = ? AND check_kind = ? AND node = ?`,
+		connectionID, checkKind, node); err != nil {
 		return fmt.Errorf("delete health alert state: %w", err)
 	}
 	return nil
@@ -284,9 +300,16 @@ func (db *DB) CreateSQLAlert(a *SQLAlert) (string, error) {
 	return id, nil
 }
 
+// ErrSQLAlertStateChanged is returned by UpdateSQLAlert when the alert's
+// state moved since it was loaded: reload it and try again.
+var ErrSQLAlertStateChanged = errors.New("sql alert state changed")
+
 // UpdateSQLAlert replaces the definition of a SQL alert. A changed query or
 // condition starts over: counters reset and the state returns to ok, so the
-// old incident does not carry over to a different alert.
+// old incident does not carry over to a different alert. A disabled alert
+// holds no incident either: its state returns to ok, its errors are kept.
+// The write only applies while the state is still a.State, so the caller
+// knows which incident it ended; otherwise ErrSQLAlertStateChanged.
 func (db *DB) UpdateSQLAlert(a *SQLAlert, resetState bool) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	q := `UPDATE sql_alerts SET name = ?, sql = ?, mode = ?, comparator = ?, threshold = ?, severity = ?,
@@ -295,19 +318,29 @@ func (db *DB) UpdateSQLAlert(a *SQLAlert, resetState bool) error {
 		q += `, state = 'ok', breach_count = 0, ok_count = 0, error_count = 0, last_error = NULL`
 	} else {
 		q += `, error_count = CASE WHEN ? = 1 THEN 0 ELSE error_count END`
+		if !a.Enabled {
+			q += `, state = 'ok', breach_count = 0, ok_count = 0`
+		}
 	}
-	q += ` WHERE id = ?`
+	q += ` WHERE id = ? AND state = ?`
 	args := []interface{}{strings.TrimSpace(a.Name), a.SQL, a.Mode, a.Comparator, a.Threshold, a.Severity,
 		a.IntervalSeconds, a.TimeoutSeconds, a.ForEvaluations, a.ResolveEvaluations, boolInt(a.Enabled), now}
 	if !resetState {
 		args = append(args, boolInt(a.Enabled))
 	}
-	args = append(args, a.ID)
+	args = append(args, a.ID, a.State)
 	res, err := db.conn.Exec(q, args...)
 	if err != nil {
 		return fmt.Errorf("update sql alert: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		var exists int
+		if err := db.conn.QueryRow(`SELECT COUNT(*) FROM sql_alerts WHERE id = ?`, a.ID).Scan(&exists); err != nil {
+			return fmt.Errorf("update sql alert: %w", err)
+		}
+		if exists > 0 {
+			return ErrSQLAlertStateChanged
+		}
 		return sql.ErrNoRows
 	}
 	return nil
@@ -340,21 +373,44 @@ type SQLAlertRun struct {
 }
 
 // RecordSQLAlertRun stores an evaluation's outcome on the alert. The last
-// value is kept across error runs.
-func (db *DB) RecordSQLAlertRun(id string, run SQLAlertRun) error {
+// value is kept across error runs. The write only applies while the alert is
+// still as loaded (a): an edit, a disable, a delete or another run in the
+// meantime wins, and applied is false so the caller raises no event.
+func (db *DB) RecordSQLAlertRun(a *SQLAlert, run SQLAlertRun) (applied bool, err error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	q := `UPDATE sql_alerts SET state = ?, breach_count = ?, ok_count = ?, error_count = ?, last_run_at = ?,
 		last_error = ?, last_value = COALESCE(?, last_value)`
 	if run.Disable {
 		q += `, enabled = 0`
 	}
-	q += ` WHERE id = ?`
-	_, err := db.conn.Exec(q, run.State, run.BreachCount, run.OkCount, run.ErrorCount, now,
-		nullableString(run.Error), nullFloat(run.Value), id)
+	q += ` WHERE id = ? AND updated_at = ? AND state = ? AND breach_count = ? AND ok_count = ? AND error_count = ? AND enabled = ?`
+	res, err := db.conn.Exec(q, run.State, run.BreachCount, run.OkCount, run.ErrorCount, now,
+		nullableString(run.Error), nullFloat(run.Value),
+		a.ID, a.UpdatedAt, a.State, a.BreachCount, a.OkCount, a.ErrorCount, boolInt(a.Enabled))
 	if err != nil {
-		return fmt.Errorf("record sql alert run: %w", err)
+		return false, fmt.Errorf("record sql alert run: %w", err)
 	}
-	return nil
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// RevertSQLAlertRun undoes a run RecordSQLAlertRun applied, for when the
+// run's alert event could not be written: the alert returns to before (as
+// loaded for the run, including its last run time), so the next tick
+// evaluates it again. It only applies while the alert still holds run.
+func (db *DB) RevertSQLAlertRun(before *SQLAlert, run SQLAlertRun) (bool, error) {
+	enabledAfter := before.Enabled && !run.Disable
+	res, err := db.conn.Exec(`UPDATE sql_alerts SET state = ?, breach_count = ?, ok_count = ?, error_count = ?,
+		last_run_at = ?, last_error = ?, last_value = ?, enabled = ?
+		WHERE id = ? AND updated_at = ? AND state = ? AND breach_count = ? AND ok_count = ? AND error_count = ? AND enabled = ?`,
+		before.State, before.BreachCount, before.OkCount, before.ErrorCount,
+		nullStr(before.LastRunAt), nullStr(before.LastError), nullFloat(before.LastValue), boolInt(before.Enabled),
+		before.ID, before.UpdatedAt, run.State, run.BreachCount, run.OkCount, run.ErrorCount, boolInt(enabledAfter))
+	if err != nil {
+		return false, fmt.Errorf("revert sql alert run: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // ── Evaluation history ───────────────────────────────────────────────────────
