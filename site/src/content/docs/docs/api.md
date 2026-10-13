@@ -175,16 +175,25 @@ Background accounts are available in every edition. `{worker}` is one of
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/saved-queries` | List saved queries |
-| `POST` | `/api/saved-queries` | Create saved query |
-| `GET` | `/api/saved-queries/{id}` | Get saved query |
-| `PUT` | `/api/saved-queries/{id}` | Update saved query (also sets `verified`) |
+| `GET` | `/api/saved-queries` | List the saved queries you can see (`scope`, `folder`, `owners=all` for admins) |
+| `POST` | `/api/saved-queries` | Create saved query (optional `folder_id`, `tags`, `visibility`) |
+| `GET` | `/api/saved-queries/{id}` | Get saved query (with `can_edit`) |
+| `PUT` | `/api/saved-queries/{id}` | Update saved query (also `verified`, `folder_id`, `tags`, `visibility`) |
 | `DELETE` | `/api/saved-queries/{id}` | Delete saved query |
-| `POST` | `/api/saved-queries/{id}/duplicate` | Duplicate saved query |
+| `POST` | `/api/saved-queries/{id}/duplicate` | Duplicate as your own private copy |
+| `GET` | `/api/saved-queries/{id}/versions` | List versions (no snapshots) |
+| `GET` | `/api/saved-queries/{id}/versions/{n}` | Get one version with its snapshot |
+| `POST` | `/api/saved-queries/{id}/versions/{n}/restore` | Restore a version |
+| `GET` | `/api/saved-queries/folders` | List folders |
+| `POST` | `/api/saved-queries/folders` | Create folder (`409` on a sibling with the same name) |
+| `PUT` | `/api/saved-queries/folders/{folderId}` | Rename or move folder |
+| `DELETE` | `/api/saved-queries/folders/{folderId}` | Delete folder and subfolders; queries move to the root |
 | `POST` | `/api/saved-queries/{id}/run` | Run with parameters, result as JSON (**Pro**, see [Query Parameters](/docs/querying#running-a-saved-query-via-the-api)) |
 
-Create, update, delete and duplicate need the admin or analyst role. Viewers
-can list, read and run.
+Create, update, delete, duplicate, restore and folder changes need the admin or
+analyst role. Viewers can list, read and run what they can see. Only the owner
+or an admin can change a query; a private query you cannot see answers `404`.
+See [Saved Queries](/docs/querying#saved-queries).
 
 ### Dashboards
 

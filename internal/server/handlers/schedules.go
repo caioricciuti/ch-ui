@@ -57,6 +57,17 @@ func (h *SchedulesHandler) List(w http.ResponseWriter, r *http.Request) {
 	if schedules == nil {
 		schedules = []database.Schedule{}
 	}
+	// Name only: a job keeps running a query that became private, and the
+	// list still says which one without exposing its SQL.
+	if queries, err := h.DB.GetSavedQueries(); err == nil {
+		names := make(map[string]string, len(queries))
+		for _, q := range queries {
+			names[q.ID] = q.Name
+		}
+		for i := range schedules {
+			schedules[i].SavedQueryName = names[schedules[i].SavedQueryID]
+		}
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"schedules": schedules})
 }
@@ -124,8 +135,8 @@ func (h *SchedulesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify saved query exists
-	savedQuery, err := h.DB.GetSavedQueryByID(savedQueryID)
+	// Verify the saved query exists and the caller can see it.
+	savedQuery, err := h.DB.GetSavedQueryVisibleTo(savedQueryID, byIDViewer(session))
 	if err != nil {
 		slog.Error("Failed to verify saved query", "error", err, "saved_query_id", savedQueryID)
 		writeError(w, http.StatusInternalServerError, "Failed to verify saved query")

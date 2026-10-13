@@ -25,18 +25,15 @@
   import Spinner from '../common/Spinner.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import ContextMenu, { type ContextMenuItem } from '../common/ContextMenu.svelte'
+  import FolderTree from '../common/FolderTree.svelte'
   import TemplatePicker from './TemplatePicker.svelte'
   import {
-    LayoutDashboard, Plus, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Star, FolderInput,
+    LayoutDashboard, Plus, FolderPlus, Star, FolderInput,
     MoreHorizontal, Pencil, Trash2, Tag, ExternalLink, Search, Copy, LayoutTemplate,
   } from 'lucide-svelte'
-  import { readScoped, writeScoped } from '../../stores/workspace-scope'
 
   // Grafana-style browser: folder tree on the left, dashboards of the
   // selected folder on the right, stars per user, tags for search.
-  // Per user@connection: folder ids differ between connections.
-  const OPEN_KEY = 'ch-ui-dash-folders-open'
-
   type Row = Record<string, unknown> & Dashboard & { folder_path: string; owner: string }
 
   let dashboards = $state<Dashboard[]>([])
@@ -45,29 +42,9 @@
   let search = $state('')
   let scope = $state<'all' | 'starred'>('all')
   let selectedFolder = $state<string | null>(null)
-  let expanded = $state<Set<string>>(loadExpanded())
-  let dragOverFolder = $state<string | null | undefined>(undefined)
 
   const session = $derived(getSession())
   const canWrite = $derived(session?.role !== 'viewer')
-
-  function loadExpanded(): Set<string> {
-    try {
-      const raw = readScoped(OPEN_KEY)
-      const parsed: unknown = raw ? JSON.parse(raw) : []
-      return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [])
-    } catch {
-      return new Set()
-    }
-  }
-
-  function toggleExpanded(id: string) {
-    const next = new Set(expanded)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
-    expanded = next
-    writeScoped(OPEN_KEY, JSON.stringify([...next]))
-  }
 
   async function loadAll() {
     try {
@@ -246,21 +223,6 @@
     e.dataTransfer.effectAllowed = 'move'
   }
 
-  function onDragOver(e: DragEvent, folderId: string | null) {
-    if (!canWrite || !e.dataTransfer?.types.includes(DRAG_TYPE)) return
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    dragOverFolder = folderId
-  }
-
-  async function onDrop(e: DragEvent, folderId: string | null) {
-    dragOverFolder = undefined
-    const id = e.dataTransfer?.getData(DRAG_TYPE)
-    if (!id) return
-    e.preventDefault()
-    await doMove(id, folderId)
-  }
-
   async function doMove(id: string, folderId: string | null) {
     try {
       await moveDashboard(id, folderId)
@@ -341,7 +303,6 @@
     try {
       const f = await createDashboardFolder(name.trim(), newFolderParent)
       newFolderOpen = false
-      if (newFolderParent && !expanded.has(newFolderParent)) toggleExpanded(newFolderParent)
       await loadAll()
       selectedFolder = f.id
     } catch (e: unknown) {
@@ -478,52 +439,6 @@
 
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') { menu = null; folderMenu = null } }} />
 
-{#snippet folderNode(folder: DashboardFolder, depth: number)}
-  {@const kids = childrenOf(folder.id)}
-  {@const open = expanded.has(folder.id)}
-  {@const active = selectedFolder === folder.id}
-  <div
-    class="group flex h-7 items-center gap-1 rounded-md pr-1 text-[13px] transition-colors {active ? 'bg-active text-fg' : dragOverFolder === folder.id ? 'bg-accent-soft text-fg' : 'text-fg-2 hover:bg-hover hover:text-fg'}"
-    style="padding-left: {8 + depth * 14}px"
-    role="treeitem"
-    aria-selected={active}
-    aria-expanded={kids.length > 0 ? open : undefined}
-    tabindex="-1"
-    ondragover={(e) => onDragOver(e, folder.id)}
-    ondragleave={() => { if (dragOverFolder === folder.id) dragOverFolder = undefined }}
-    ondrop={(e) => void onDrop(e, folder.id)}
-  >
-    <button
-      class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-fg-4 hover:text-fg {kids.length === 0 ? 'invisible' : ''}"
-      onclick={(e) => { e.stopPropagation(); toggleExpanded(folder.id) }}
-      aria-label={open ? 'Collapse' : 'Expand'}
-      tabindex="-1"
-    >
-      {#if open}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}
-    </button>
-    <button class="flex min-w-0 flex-1 items-center gap-2 text-left" onclick={() => (selectedFolder = folder.id)}>
-      {#if open && kids.length > 0}
-        <FolderOpen size={14} class="shrink-0 {active ? 'text-accent' : 'text-fg-3'}" />
-      {:else}
-        <Folder size={14} class="shrink-0 {active ? 'text-accent' : 'text-fg-3'}" />
-      {/if}
-      <span class="truncate">{folder.name}</span>
-    </button>
-    <span class="shrink-0 text-[11px] tabular-nums text-fg-4 group-hover:hidden">{countIn(folder.id)}</span>
-    {#if canWrite}
-      <span class="hidden shrink-0 group-hover:inline-flex">
-        <Button icon variant="ghost" size="xs" aria-label="Folder actions" onclick={(e) => openFolderMenu(e, folder)}>
-          <MoreHorizontal size={13} />
-        </Button>
-      </span>
-    {/if}
-  </div>
-  {#if open}
-    {#each kids as child (child.id)}
-      {@render folderNode(child, depth + 1)}
-    {/each}
-  {/if}
-{/snippet}
 
 <div class="flex h-full min-h-0 flex-col">
   <PageHeader title="Dashboards" subtitle="Panels over saved queries, organized in folders.">
@@ -572,33 +487,22 @@
     />
   {:else}
     <div class="flex min-h-0 flex-1">
-      <div class="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-edge-subtle bg-surface px-2 py-2" role="tree" aria-label="Dashboard folders">
-        <div
-          class="flex h-7 items-center gap-2 rounded-md px-2 text-[13px] transition-colors {selectedFolder === null ? 'bg-active text-fg' : dragOverFolder === null ? 'bg-accent-soft text-fg' : 'text-fg-2 hover:bg-hover hover:text-fg'}"
-          role="treeitem"
-          aria-selected={selectedFolder === null}
-          tabindex="-1"
-          ondragover={(e) => onDragOver(e, null)}
-          ondragleave={() => { if (dragOverFolder === null) dragOverFolder = undefined }}
-          ondrop={(e) => void onDrop(e, null)}
-        >
-          <button class="flex min-w-0 flex-1 items-center gap-2 text-left" onclick={() => (selectedFolder = null)}>
-            <LayoutDashboard size={14} class="shrink-0 {selectedFolder === null ? 'text-accent' : 'text-fg-3'}" />
-            <span class="truncate font-medium">All dashboards</span>
-          </button>
-          <span class="text-[11px] tabular-nums text-fg-4">{dashboards.length}</span>
-        </div>
-        <div class="mt-1 space-y-px">
-          {#each childrenOf(null) as folder (folder.id)}
-            {@render folderNode(folder, 0)}
-          {/each}
-        </div>
-        {#if folders.length === 0 && canWrite}
-          <button class="mt-2 flex h-7 items-center gap-2 rounded-md px-2 text-xs text-fg-4 hover:bg-hover hover:text-fg" onclick={() => openNewFolder(null)}>
-            <FolderPlus size={13} /> Create a folder
-          </button>
-        {/if}
-      </div>
+      <FolderTree
+        {folders}
+        selected={selectedFolder}
+        onselect={(id) => (selectedFolder = id)}
+        rootLabel="All dashboards"
+        rootIcon={LayoutDashboard}
+        total={dashboards.length}
+        {countIn}
+        storageKey="ch-ui-dash-folders-open"
+        {canWrite}
+        ariaLabel="Dashboard folders"
+        onfoldermenu={openFolderMenu}
+        onnewfolder={() => openNewFolder(null)}
+        dragType={DRAG_TYPE}
+        ondropitem={(id, folderId) => void doMove(id, folderId)}
+      />
 
       <div class="flex min-h-0 flex-1 flex-col">
         <div class="min-h-0 flex-1 p-4 pl-5">

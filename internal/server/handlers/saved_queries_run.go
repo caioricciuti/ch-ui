@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
@@ -39,29 +37,18 @@ func (h *SavedQueriesHandler) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Query ID is required")
-		return
-	}
-
-	sq, err := h.DB.GetSavedQueryByID(id)
-	if err != nil {
-		slog.Error("Failed to get saved query for run", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Failed to fetch saved query")
-		return
-	}
+	sq := h.loadSavedQuery(w, r, session, false)
 	if sq == nil {
-		writeError(w, http.StatusNotFound, "Saved query not found")
 		return
 	}
+	id := sq.ID
 
 	var body struct {
 		Params        map[string]string `json:"params"`
 		Timeout       int               `json:"timeout"`
 		MaxResultRows int               `json:"maxResultRows"`
 	}
-	// Body is optional — a parameterless saved query can be run with no body.
+	// Body is optional: a parameterless saved query can be run with no body.
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
 	query := strings.TrimSpace(sq.Query)

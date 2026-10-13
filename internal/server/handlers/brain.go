@@ -804,7 +804,7 @@ type brainTurn struct {
 }
 
 func (h *BrainHandler) streamMessageCommunity(r *http.Request, stream *sseStream, t brainTurn) {
-	systemPrompt := h.buildSystemPrompt(t.contexts, t.entities, false, true) + historyOmittedNote(t.omitted)
+	systemPrompt := h.buildSystemPrompt(t.contexts, t.entities, listViewer(t.session, false), false, true) + historyOmittedNote(t.omitted)
 	providerMessages := append([]braincore.Message{{Role: "system", Content: systemPrompt}}, toMessages(t.history)...)
 
 	var built strings.Builder
@@ -943,7 +943,7 @@ func (h *BrainHandler) resolveRuntimeModel(chat *database.BrainChat, requestedMo
 	return rt, nil
 }
 
-func (h *BrainHandler) buildSystemPrompt(contexts []schemaContext, entities []entityContext, pro, canWrite bool) string {
+func (h *BrainHandler) buildSystemPrompt(contexts []schemaContext, entities []entityContext, viewer database.SavedQueryViewer, pro, canWrite bool) string {
 	skillPrompt := ""
 	skill, err := h.DB.GetActiveBrainSkill()
 	if err == nil && skill != nil {
@@ -961,12 +961,15 @@ func (h *BrainHandler) buildSystemPrompt(contexts []schemaContext, entities []en
 		prompt += buildMultiSchemaPrompt(contexts)
 	}
 	if len(entities) > 0 {
-		prompt += h.buildEntityContextPrompt(entities)
+		prompt += h.buildEntityContextPrompt(entities, viewer)
 	}
 	return prompt
 }
 
-func (h *BrainHandler) buildEntityContextPrompt(entities []entityContext) string {
+// buildEntityContextPrompt describes the entities attached to a chat. Saved
+// queries the person cannot see read as not found, so a private query never
+// reaches the model through a crafted entity id.
+func (h *BrainHandler) buildEntityContextPrompt(entities []entityContext, viewer database.SavedQueryViewer) string {
 	var sb strings.Builder
 	sb.WriteString("\n\nWorkspace entity context:\n")
 	for _, e := range entities {
@@ -994,7 +997,7 @@ func (h *BrainHandler) buildEntityContextPrompt(entities []entityContext) string
 				}
 			}
 		case "saved_query":
-			sq, err := h.DB.GetSavedQueryByID(e.ID)
+			sq, err := h.DB.GetSavedQueryVisibleTo(e.ID, viewer)
 			if err != nil || sq == nil {
 				sb.WriteString(fmt.Sprintf("- Saved Query '%s' (id=%s): not found\n", e.Name, e.ID))
 				continue

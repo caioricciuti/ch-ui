@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/caioricciuti/ch-ui/internal/database"
 )
 
 func RegisterAwareness(r *Registry) {
@@ -101,10 +103,10 @@ var getDashboard = Tool{
 
 var listSavedQueries = Tool{
 	Name:        "list_saved_queries",
-	Description: "List every saved query (id, name, description, updated_at). Check this before create_saved_query.",
+	Description: "List the saved queries the user can see (id, name, description, visibility, updated_at). Check this before create_saved_query.",
 	Parameters:  mustJSON(map[string]any{"type": "object", "properties": map[string]any{}}),
 	Handler: func(tctx Context, _ json.RawMessage) (any, error) {
-		qs, err := tctx.DB.GetSavedQueries()
+		qs, err := tctx.DB.ListSavedQueriesVisibleTo(savedQueryViewer(tctx))
 		if err != nil {
 			return nil, fmt.Errorf("list saved queries: %w", err)
 		}
@@ -114,6 +116,7 @@ var listSavedQueries = Tool{
 				"id":         q.ID,
 				"name":       q.Name,
 				"updated_at": q.UpdatedAt,
+				"visibility": q.Visibility,
 			}
 			if q.Description != nil {
 				row["description"] = *q.Description
@@ -172,4 +175,10 @@ var listPipelines = Tool{
 		}
 		return map[string]any{"pipelines": out}, nil
 	},
+}
+
+// savedQueryViewer is the person chatting, for saved query visibility: Brain
+// sees what that person sees in the Saved Queries list.
+func savedQueryViewer(tctx Context) database.SavedQueryViewer {
+	return database.SavedQueryViewer{Actor: tctx.Username, Role: tctx.Role}
 }
