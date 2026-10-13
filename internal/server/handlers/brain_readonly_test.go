@@ -12,6 +12,7 @@ import (
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
+	"github.com/caioricciuti/ch-ui/internal/safe"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/testutil"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
@@ -81,8 +82,8 @@ func TestEscapeLiteralBackslash(t *testing.T) {
 		`a\`:   `a\\`,
 		`a\'`:  `a\\''`,
 	} {
-		if got := escapeLiteral(in); got != want {
-			t.Errorf("escapeLiteral(%q) = %q, want %q", in, got, want)
+		if got := safe.Literal(in); got != want {
+			t.Errorf("safe.Literal(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { apiGet, apiPut, apiDel, apiPost, ApiError } from '../../api/client'
   import { formatDate, formatRelativeTime } from '../../utils/format'
+  import { navigate } from '../../stores/router.svelte'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import Spinner from '../common/Spinner.svelte'
   import Sheet from '../common/Sheet.svelte'
@@ -477,6 +478,9 @@
             emptyDescription={term ? 'Try another search.' : 'Create the first user with the button above.'}
           >
             {#snippet actions(row)}
+              <Button size="xs" variant="ghost" title="Edit this user's roles and privileges in Governance > Access control" onclick={() => navigate(`/governance?section=rbac&user=${encodeURIComponent(String(row.name))}`)}>
+                Edit grants
+              </Button>
               <Button icon variant="ghost" size="xs" aria-label="Change password" title="Change password" onclick={() => openUpdateCHUserPasswordSheet(String(row.name), row.auth_type)}>
                 <KeyRound size={13} />
               </Button>

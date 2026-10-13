@@ -26,14 +26,14 @@ func TestCompareDriftAndReviewOnly(t *testing.T) {
 	if strings.Contains(result.ReviewSQL, "DROP ") {
 		t.Fatal("generated destructive drop")
 	}
-	if !strings.Contains(result.ReviewSQL, "`prod\\`db`.`events\\`archive`") {
+	if !strings.Contains(result.ReviewSQL, "`prod``db`.`events``archive`") {
 		t.Fatal("target identifiers not quoted")
 	}
 	assertCommented(t, result.ReviewSQL)
 }
 
 func TestIdentifierAndMetadataInjectionCannotEscapeReview(t *testing.T) {
-	if got := QuoteIdentifier("a\\`b"); got != "`a\\\\\\`b`" {
+	if got := QuoteIdentifier("a\\`b"); got != "`a\\\\``b`" {
 		t.Fatalf("quote = %q", got)
 	}
 	result := Compare([]Table{{Name: "x\nDROP TABLE y", Engine: "MergeTree", Columns: []Column{{Name: "v", Type: "String\r\nDROP TABLE secret;"}}}}, nil, "d")

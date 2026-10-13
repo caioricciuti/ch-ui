@@ -51,6 +51,7 @@ export const sidebar = [
     label: "Govern and secure",
     items: [
       { slug: "docs/governance", badge: pro },
+      { slug: "docs/rbac", badge: pro },
       { slug: "docs/alerts", badge: pro },
       { slug: "docs/audit-log", badge: pro },
       "docs/authentication",

@@ -338,6 +338,12 @@ func (s *Server) setupRoutes() {
 			schemaHandler := &handlers.SchemaCompareHandler{DB: db, Gateway: gw, Config: cfg}
 			protected.With(middleware.RequireProRead(cfg)).Mount("/schema-compare", schemaHandler.Routes())
 
+			// ClickHouse access control editor (Pro, admin only). Gated per
+			// route: reads and the plan stay open in the read-only grace
+			// window, apply needs an active license.
+			rbacHandler := &handlers.RBACHandler{DB: db, Gateway: gw, Config: cfg, Syncer: s.govSyncer}
+			protected.Mount("/rbac", rbacHandler.Routes())
+
 			// ── Pro-only features ──────────────────────────────────────
 			protected.Group(func(pro chi.Router) {
 				pro.Use(middleware.RequirePro(cfg))
