@@ -52,6 +52,7 @@
   import { firstKeyword, splitStatements, statementAt } from '../../../editor/statements'
   import { parseCHError, byteToCharOffset } from '../../../utils/ch-error'
   import { isProActive, loadLicense } from '../../../stores/license.svelte'
+  import { getSession } from '../../../stores/session.svelte'
   import { openQueryTab } from '../../../stores/tabs.svelte'
   import { onMount, untrack } from 'svelte'
   import { Lock, X } from 'lucide-svelte'
@@ -1023,6 +1024,9 @@
       onexportfull={canExportFull ? (format) => void handleExportFull(format) : undefined}
       exportProgress={exportJob ? { format: exportJob.format, bytes: exportJob.bytes } : null}
       oncancelexport={handleCancelExport}
+      sql={result?.sql ?? ''}
+      connectionId={getSession()?.connectionId ?? ''}
+      chartKey={tab.id}
     />
     {/key}
   </div>

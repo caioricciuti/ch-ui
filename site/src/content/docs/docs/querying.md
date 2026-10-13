@@ -159,6 +159,14 @@ Click a cell to focus it, then press **Enter** (or double-click the cell) to ope
 
 The **Export** menu has two parts. **Current rows** copies or downloads the rows loaded in the grid. They come as CSV, TSV, JSON, JSONCompact, JSONLines, Markdown, SQL `INSERT` and XML. CSV and TSV prefix text that starts with `=`, `+`, `-` or `@` with `'` so spreadsheets do not run it as a formula; numbers such as `-5` are left as they are. The SQL `INSERT` export quotes values by column type (a `String` column holding `01234` stays a string) and writes arrays, maps and tuples as ClickHouse literals.
 
+### Chart a result
+
+The **Chart** view in the result footer, after Insights, draws the result with the same charts dashboards use. It picks a type from the columns: one row with a single numeric column is a stat, a date or DateTime column with numeric columns is a time series, and a text column with numeric columns is a bar chart. A result with no numeric column has nothing to chart. The column on the right changes the type, the X column, the Y columns and a **Series** column, which splits the first Y column into one line or bar per value (up to 10). Settings are kept per query tab until the columns change.
+
+The chart follows the sorting and filters of the Data view and draws at most the first 10,000 rows.
+
+**Add to dashboard** saves the statement that produced the result, with the chart settings, as a panel on an existing dashboard or on a new one (pick a name and a folder). Choose the panel name and a half or full width; the panel goes below the existing panels. The panel runs the statement as written, without the editor's filters. Statements with `{name:Type}` bind parameters cannot be added, since dashboards have no bind parameters. Viewers do not see the button.
+
 ### Full result export
 
 **Full result (server)** in the Export menu runs the statement of the active result again on the server and downloads everything it returns, not just the loaded rows. The formats are ClickHouse's own output formats:
