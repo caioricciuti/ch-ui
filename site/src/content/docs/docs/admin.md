@@ -138,6 +138,10 @@ DELETE /api/admin/clickhouse-users/{username}?if_exists=true
 
 Safety: cannot delete the current session's ClickHouse user.
 
+### Roles and grants
+
+Each ClickHouse user row has an **Edit grants** button. It opens the user in **Governance → Access control** (`/governance?section=rbac&user=<name>`), where roles, privileges, default roles, row policies, quotas and settings profiles are edited through a reviewed change set. Pro, admin only. See [Access Control Editor](/docs/rbac).
+
 ## Data Retention
 
 CH-UI's SQLite database accumulates append-only history (audit logs, alert events, run logs). The retention manager prunes each table on its own window. **Admin → Settings** shows a status table (what each table holds, its window, the default, and the last cleanup), and **Edit retention** opens a sheet where you change the windows or reset them to defaults. The same is available through the API:

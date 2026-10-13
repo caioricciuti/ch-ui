@@ -189,6 +189,15 @@ func (c *CHClient) Execute(ctx context.Context, query, user, password string, se
 
 	// For write queries or queries with explicit format, we may get empty body
 	if len(body) == 0 || (isWrite && !hasFormat) {
+		// DDL with ON CLUSTER answers with one status row per host in the
+		// default JSON format. Keep those rows; any other write body is
+		// ignored as before.
+		if isWrite && len(body) > 0 && body[0] == '{' {
+			var hosts QueryResult
+			if json.Unmarshal(body, &hosts) == nil && len(hosts.Data) > 0 {
+				return &hosts, nil
+			}
+		}
 		return &QueryResult{
 			Data: []map[string]interface{}{},
 			Meta: []ColumnMeta{},

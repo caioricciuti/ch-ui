@@ -90,6 +90,17 @@ For password sessions, the user's own ClickHouse grants are also enforced by
 ClickHouse itself (queries run as that user). For SSO sessions, CH-UI RBAC plus
 the service account's ClickHouse grants are the access control.
 
+ClickHouse access entities can be edited from **Governance → Access control**
+(Pro, admin only). The browser sends structured operations, never SQL: the
+server validates names against `system.privileges` and `system.settings`,
+quotes every identifier, checks row policy conditions with a lexer and
+`EXPLAIN SYNTAX`, and runs each statement as the signed-in session's ClickHouse
+user, never a background account. It refuses plans that would remove the
+session's own access management or apply a restrictive policy or read-only
+profile to it, requires typed confirmation for drops, re-checks a plan hash at
+apply time, and audits every statement. See
+[Access Control Editor](/docs/rbac).
+
 ## Audit logging & SIEM
 
 Every security-relevant action, such as logins (including failures), logouts, query

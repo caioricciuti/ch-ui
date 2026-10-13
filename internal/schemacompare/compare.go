@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/caioricciuti/ch-ui/internal/safe"
 )
 
 type Column struct {
@@ -51,8 +53,10 @@ type Result struct {
 	ReviewSQL      string       `json:"review_sql"`
 }
 
+// QuoteIdentifier quotes s exactly like every other ClickHouse identifier the
+// server renders.
 func QuoteIdentifier(s string) string {
-	return "`" + strings.ReplaceAll(strings.ReplaceAll(s, "\\", "\\\\"), "`", "\\`") + "`"
+	return safe.Identifier(s)
 }
 
 // ReviewOnly comments every line, including newlines originating from untrusted

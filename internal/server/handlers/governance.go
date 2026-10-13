@@ -20,6 +20,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/governance"
+	"github.com/caioricciuti/ch-ui/internal/safe"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"github.com/go-chi/chi/v5"
@@ -461,9 +462,9 @@ func (h *GovernanceHandler) UpdateTableComment(w http.ResponseWriter, r *http.Re
 
 	sql := fmt.Sprintf(
 		"ALTER TABLE %s.%s MODIFY COMMENT '%s'",
-		escapeIdentifier(dbName),
-		escapeIdentifier(tableName),
-		escapeLiteral(body.Comment),
+		safe.Identifier(dbName),
+		safe.Identifier(tableName),
+		safe.Literal(body.Comment),
 	)
 	if err := h.executeClickHouseSQL(creds, sql); err != nil {
 		slog.Error("Failed to update table comment", "connection", session.ConnectionID, "db", dbName, "table", tableName, "error", err)
@@ -514,10 +515,10 @@ func (h *GovernanceHandler) UpdateColumnComment(w http.ResponseWriter, r *http.R
 
 	sql := fmt.Sprintf(
 		"ALTER TABLE %s.%s COMMENT COLUMN %s '%s'",
-		escapeIdentifier(dbName),
-		escapeIdentifier(tableName),
-		escapeIdentifier(columnName),
-		escapeLiteral(body.Comment),
+		safe.Identifier(dbName),
+		safe.Identifier(tableName),
+		safe.Identifier(columnName),
+		safe.Literal(body.Comment),
 	)
 	if err := h.executeClickHouseSQL(creds, sql); err != nil {
 		slog.Error("Failed to update column comment", "connection", session.ConnectionID, "db", dbName, "table", tableName, "column", columnName, "error", err)
@@ -1060,10 +1061,10 @@ func (h *GovernanceHandler) CreateChUser(w http.ResponseWriter, r *http.Request)
 
 	escapedRoles := make([]string, 0, len(roleNames))
 	for _, role := range roleNames {
-		escapedRoles = append(escapedRoles, escapeIdentifier(role))
+		escapedRoles = append(escapedRoles, safe.Identifier(role))
 	}
 	if len(escapedRoles) > 0 {
-		grantSQL := "GRANT " + strings.Join(escapedRoles, ", ") + " TO " + escapeIdentifier(name)
+		grantSQL := "GRANT " + strings.Join(escapedRoles, ", ") + " TO " + safe.Identifier(name)
 		if err := h.executeClickHouseSQL(creds, grantSQL); err != nil {
 			slog.Error("ClickHouse user created but role grant failed", "connection", session.ConnectionID, "name", name, "error", err)
 			writeError(w, http.StatusBadGateway, fmt.Sprintf("user created but failed to grant roles: %v", err))
@@ -1075,7 +1076,7 @@ func (h *GovernanceHandler) CreateChUser(w http.ResponseWriter, r *http.Request)
 		if !allRoles {
 			defaultRoleClause = strings.Join(escapedRoles, ", ")
 		}
-		alterSQL := "ALTER USER " + escapeIdentifier(name) + " DEFAULT ROLE " + defaultRoleClause
+		alterSQL := "ALTER USER " + safe.Identifier(name) + " DEFAULT ROLE " + defaultRoleClause
 		if err := h.executeClickHouseSQL(creds, alterSQL); err != nil {
 			slog.Error("ClickHouse user created but default role assignment failed", "connection", session.ConnectionID, "name", name, "error", err)
 			writeError(w, http.StatusBadGateway, fmt.Sprintf("user created but failed to set default role: %v", err))
@@ -1123,7 +1124,7 @@ func (h *GovernanceHandler) DeleteChUser(w http.ResponseWriter, r *http.Request)
 	if ifExists {
 		sql += "IF EXISTS "
 	}
-	sql += escapeIdentifier(name)
+	sql += safe.Identifier(name)
 
 	if err := h.executeClickHouseSQL(creds, sql); err != nil {
 		slog.Error("Failed to delete ClickHouse user", "connection", session.ConnectionID, "name", name, "error", err)

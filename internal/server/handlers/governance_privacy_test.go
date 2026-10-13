@@ -17,6 +17,7 @@ import (
 
 	"github.com/caioricciuti/ch-ui/connector"
 	"github.com/caioricciuti/ch-ui/internal/governance"
+	"github.com/caioricciuti/ch-ui/internal/safe"
 )
 
 // B6: harvested SQL, violations and incidents are admin-only; the overview
@@ -108,7 +109,7 @@ func TestCreateChUserExistsLive(t *testing.T) {
 	user, pass := os.Getenv("CHUI_TEST_CLICKHOUSE_USER"), os.Getenv("CHUI_TEST_CLICKHOUSE_PASSWORD")
 	name := "chui_test_b8_" + time.Now().Format("150405")
 	t.Cleanup(func() {
-		_, _ = client.Execute(context.Background(), "DROP USER IF EXISTS "+escapeIdentifier(name), user, pass, nil)
+		_, _ = client.Execute(context.Background(), "DROP USER IF EXISTS "+safe.Identifier(name), user, pass, nil)
 	})
 	sql := buildCreateChUserSQL(name, "no_password", "")
 	if _, err := client.Execute(ctx, sql, user, pass, nil); err != nil {

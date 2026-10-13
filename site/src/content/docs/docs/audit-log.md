@@ -67,6 +67,12 @@ ClickHouse query activity and metadata changes inside a connection.
   (`operations.report.generated`), and a report emailed from the page
   (`operations.report.email_queued`). See
   [Operations Reports](/docs/operations-reports)
+- **ClickHouse access control changes**: each apply from
+  [Governance → Access control](/docs/rbac) (`rbac.apply`, with the number of
+  changes, the cluster and the plan hash), and one row per statement that ran
+  (`rbac.statement.applied` or `rbac.statement.failed`, with the SQL truncated
+  to 2 KB and the error on failure). The actor is the person; `ch_user` is the
+  ClickHouse account the statements ran as
 - **First-run setup**: a wrong setup code on the login page
   (`setup.code_rejected`), the code discarded after 10 wrong attempts
   (`setup.code_burned`), a connection saved through setup

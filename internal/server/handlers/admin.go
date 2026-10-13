@@ -17,6 +17,7 @@ import (
 	ghclient "github.com/caioricciuti/ch-ui/internal/github"
 	"github.com/caioricciuti/ch-ui/internal/governance"
 	"github.com/caioricciuti/ch-ui/internal/oidc"
+	"github.com/caioricciuti/ch-ui/internal/safe"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
@@ -582,12 +583,12 @@ func (h *AdminHandler) CreateClickHouseUser(w http.ResponseWriter, r *http.Reque
 
 	escapedRoles := make([]string, 0, len(roleNames))
 	for _, role := range roleNames {
-		escapedRoles = append(escapedRoles, escapeIdentifier(role))
+		escapedRoles = append(escapedRoles, safe.Identifier(role))
 	}
 
 	// Apply role membership/default role as follow-up statements for broad ClickHouse compatibility.
 	if len(escapedRoles) > 0 {
-		grantSQL := "GRANT " + strings.Join(escapedRoles, ", ") + " TO " + escapeIdentifier(name)
+		grantSQL := "GRANT " + strings.Join(escapedRoles, ", ") + " TO " + safe.Identifier(name)
 		executedCommands = append(executedCommands, grantSQL)
 		if _, err := h.Gateway.ExecuteQuery(session.ConnectionID, grantSQL, session.ClickhouseUser, password, 30*time.Second); err != nil {
 			slog.Warn("ClickHouse user created but role grant failed", "error", err, "connection", session.ConnectionID, "name", name)
@@ -601,7 +602,7 @@ func (h *AdminHandler) CreateClickHouseUser(w http.ResponseWriter, r *http.Reque
 		if !allRoles {
 			defaultRoleClause = strings.Join(escapedRoles, ", ")
 		}
-		alterSQL := "ALTER USER " + escapeIdentifier(name) + " DEFAULT ROLE " + defaultRoleClause
+		alterSQL := "ALTER USER " + safe.Identifier(name) + " DEFAULT ROLE " + defaultRoleClause
 		executedCommands = append(executedCommands, alterSQL)
 		if _, err := h.Gateway.ExecuteQuery(session.ConnectionID, alterSQL, session.ClickhouseUser, password, 30*time.Second); err != nil {
 			slog.Warn("ClickHouse user created but default role assignment failed", "error", err, "connection", session.ConnectionID, "name", name)
@@ -684,7 +685,7 @@ func (h *AdminHandler) UpdateClickHouseUserPassword(w http.ResponseWriter, r *ht
 	if ifExists {
 		b.WriteString("IF EXISTS ")
 	}
-	b.WriteString(escapeIdentifier(username))
+	b.WriteString(safe.Identifier(username))
 	b.WriteString(buildClickHouseAlterAuthClause(authType, body.Password))
 
 	if _, err := h.Gateway.ExecuteQuery(session.ConnectionID, b.String(), session.ClickhouseUser, password, 30*time.Second); err != nil {
@@ -713,9 +714,9 @@ func buildClickHouseCreateAuthClause(authType, password string) string {
 	case "no_password":
 		return ""
 	case "plaintext_password":
-		return " IDENTIFIED BY '" + escapeLiteral(password) + "'"
+		return " IDENTIFIED BY '" + safe.Literal(password) + "'"
 	default:
-		return " IDENTIFIED WITH " + authType + " BY '" + escapeLiteral(password) + "'"
+		return " IDENTIFIED WITH " + authType + " BY '" + safe.Literal(password) + "'"
 	}
 }
 
@@ -724,9 +725,9 @@ func buildClickHouseAlterAuthClause(authType, password string) string {
 	case "no_password":
 		return " IDENTIFIED WITH no_password"
 	case "plaintext_password":
-		return " IDENTIFIED BY '" + escapeLiteral(password) + "'"
+		return " IDENTIFIED BY '" + safe.Literal(password) + "'"
 	default:
-		return " IDENTIFIED WITH " + authType + " BY '" + escapeLiteral(password) + "'"
+		return " IDENTIFIED WITH " + authType + " BY '" + safe.Literal(password) + "'"
 	}
 }
 
@@ -793,7 +794,7 @@ func (h *AdminHandler) DeleteClickHouseUser(w http.ResponseWriter, r *http.Reque
 	if ifExists {
 		sql += "IF EXISTS "
 	}
-	sql += escapeIdentifier(username)
+	sql += safe.Identifier(username)
 
 	if _, err := h.Gateway.ExecuteQuery(session.ConnectionID, sql, session.ClickhouseUser, password, 30*time.Second); err != nil {
 		slog.Warn("Failed to delete ClickHouse user", "error", err, "connection", session.ConnectionID, "name", username)
@@ -822,7 +823,7 @@ func (h *AdminHandler) DeleteClickHouseUser(w http.ResponseWriter, r *http.Reque
 // EXISTS), so creating a name that already exists fails instead of granting
 // roles to someone else's account.
 func buildCreateChUserSQL(name, authType, password string) string {
-	return "CREATE USER " + escapeIdentifier(name) + buildClickHouseCreateAuthClause(authType, password)
+	return "CREATE USER " + safe.Identifier(name) + buildClickHouseCreateAuthClause(authType, password)
 }
 
 // isAccessEntityExistsError reports ClickHouse error 493
