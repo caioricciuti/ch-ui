@@ -26,6 +26,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/scheduler"
 	"github.com/caioricciuti/ch-ui/internal/server/handlers"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
+	"github.com/caioricciuti/ch-ui/internal/sqlalerts"
 	"github.com/caioricciuti/ch-ui/internal/telemetry/monitor"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"github.com/go-chi/chi/v5"
@@ -43,6 +44,7 @@ type Server struct {
 	govSyncer          *governance.Syncer
 	chHarvester        *clusterhealth.Harvester
 	monitorRunner      *monitor.MonitorRunner
+	sqlAlertRunner     *sqlalerts.Runner
 	performanceMonitor *performancemonitor.Monitor
 	operationsReports  *operations.Runner
 	githubSyncer       *ghclient.Syncer
@@ -75,6 +77,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 	monitorRunner := monitor.NewMonitorRunner(db, gw, cfg.AppSecretKey, config.NewProGate("Telemetry monitors", cfg.ProAccess).Allow)
 	githubSyncer := ghclient.NewSyncer(db, cfg.AppSecretKey)
 	alertDispatcher := alerts.NewDispatcher(db, cfg)
+	guardrails := governance.NewGuardrailService(govStore, db)
 
 	// Initialize OIDC SSO if configured — via env/YAML (which always wins) or
 	// via the admin-managed DB config. Discovery hits the network, so bound it
@@ -134,7 +137,8 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 		performanceMonitor: performancemonitor.New(db, gw, cfg.AppSecretKey, config.NewProGate("Performance monitor", cfg.ProAccess).Allow),
 		operationsReports:  operations.NewRunner(db, gw, cfg),
 		githubSyncer:       githubSyncer,
-		guardrails:         governance.NewGuardrailService(govStore, db),
+		guardrails:         guardrails,
+		sqlAlertRunner:     sqlalerts.NewRunner(db, gw, guardrails, cfg.AppSecretKey, config.NewProGate("SQL alerts", cfg.ProAccess).Allow),
 		alerts:             alertDispatcher,
 		auditFwd:           auditFwd,
 		oidcManager:        oidcManager,
@@ -361,6 +365,10 @@ func (s *Server) setupRoutes() {
 				}
 				pro.Mount("/cluster-health", clusterHealthHandler.Routes())
 
+				// Health checks and SQL threshold alerts
+				alertingHandler := &handlers.AlertingHandler{DB: db, Gateway: gw, Config: cfg, Guardrails: s.guardrails}
+				pro.Mount("/alerting", alertingHandler.Routes())
+
 				// Query Insights (system.query_log analytics)
 				queryInsightsHandler := &handlers.QueryInsightsHandler{DB: db, Gateway: gw, Config: cfg}
 				pro.Mount("/query-insights", queryInsightsHandler.Routes())
@@ -444,6 +452,7 @@ func (s *Server) Start() error {
 	}
 	s.chHarvester.StartBackground()
 	s.monitorRunner.Start()
+	s.sqlAlertRunner.Start()
 	s.performanceMonitor.StartBackground()
 	s.operationsReports.Start()
 	s.alerts.Start()
@@ -513,6 +522,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.govSyncer.Stop()
 	s.chHarvester.Stop()
 	s.monitorRunner.Stop()
+	s.sqlAlertRunner.Stop()
 	s.performanceMonitor.Stop()
 	s.operationsReports.Stop()
 	s.alerts.Stop()

@@ -304,10 +304,12 @@ WHERE cluster = '` + cluster + `'
 FORMAT JSON`
 }
 
-// DiskAggQuery reports the fullest disk per node, in percent.
+// DiskAggQuery reports the fullest disk per node, in percent, and the free
+// bytes of the emptiest sized disk (disks reporting no total are skipped).
 func DiskAggQuery(cluster string) string {
 	return `SELECT hostName() AS node,
-  max(if(total_space = 0, 0, (total_space - free_space) / total_space * 100)) AS disk_used_pct
+  max(if(total_space = 0, 0, (total_space - free_space) / total_space * 100)) AS disk_used_pct,
+  if(countIf(total_space > 0) = 0, NULL, minIf(free_space, total_space > 0)) AS disk_free_min_bytes
 FROM ` + source(cluster, "disks") + `
 GROUP BY node FORMAT JSON`
 }

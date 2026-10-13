@@ -42,6 +42,9 @@ type Harvester struct {
 	stopCh    chan struct{}
 	lastPoll  map[string]time.Time
 	lastPrune time.Time
+	// lastHistory remembers when each health check node last wrote an
+	// evaluation row, for the hourly steady-state sample.
+	lastHistory map[string]time.Time
 }
 
 // NewHarvester creates a cluster-health Harvester. pro reports whether Pro
@@ -141,6 +144,7 @@ func (h *Harvester) tick() {
 
 	if now.Sub(h.lastPrune) >= pruneInterval {
 		h.pruneRetention(connections)
+		h.pruneEvaluations(now)
 		h.lastPrune = now
 	}
 }
@@ -192,9 +196,10 @@ func (h *Harvester) pollConnection(connID string, settings Settings, now time.Ti
 	}
 	if err := h.store.InsertSamples(connID, cluster, samples); err != nil {
 		slog.Warn("Cluster health: failed to store samples", "connection", connID, "error", err)
-		return
+	} else {
+		slog.Debug("Cluster health sampled", "connection", connID, "cluster", cluster, "nodes", len(samples))
 	}
-	slog.Debug("Cluster health sampled", "connection", connID, "cluster", cluster, "nodes", len(samples))
+	h.evaluateHealthAlerts(connID, cluster, samples, exec, now)
 }
 
 func (h *Harvester) resolveCluster(exec ExecFunc) string {

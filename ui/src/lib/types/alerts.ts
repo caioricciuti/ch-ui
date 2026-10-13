@@ -2,7 +2,12 @@
 export type AlertChannelType = 'smtp' | 'resend' | 'brevo' | 'webhook'
 export type WebhookFormat = 'generic' | 'slack' | 'teams'
 export type AlertSeverity = 'info' | 'warn' | 'error' | 'critical'
-export type AlertEventType = 'policy.violation' | 'schedule.failed' | 'schedule.slow' | 'telemetry.monitor' | '*'
+export type AlertEventType =
+  | 'policy.violation' | 'schedule.failed' | 'schedule.slow' | 'telemetry.monitor'
+  | 'health.replication_lag' | 'health.replica_readonly' | 'health.disk' | 'health.parts'
+  | 'health.mutation_stuck' | 'health.node_unreachable' | 'health.*'
+  | 'sql.alert' | 'sql.*'
+  | '*'
 
 export interface AlertChannel {
   id: string
@@ -57,4 +62,127 @@ export interface AlertEvent {
   status: string
   created_at: string
   processed_at?: string | null
+}
+
+// ── Health checks and SQL threshold alerts (/api/alerting) ──
+
+export type HealthCheckKind = 'replication_lag' | 'replica_readonly' | 'disk' | 'parts' | 'mutation_stuck' | 'node_unreachable'
+export type HealthCheckUnit = 'seconds' | 'count' | 'percent' | 'down'
+export type AlertState = 'ok' | 'pending' | 'firing'
+
+export interface HealthCheckSetting {
+  check_kind: HealthCheckKind
+  enabled: boolean
+  /** null = no warn level */
+  warn_threshold: number | null
+  /** null = no critical level */
+  crit_threshold: number | null
+  /** Disk only: critical when the emptiest disk has fewer free bytes than this; null = off. */
+  free_bytes_floor: number | null
+  /** Consecutive breaches before firing (1-20). */
+  for_evaluations: number
+  /** Consecutive OKs before resolving (1-20). */
+  resolve_evaluations: number
+  unit: HealthCheckUnit
+  /** false for replica_readonly and node_unreachable */
+  supports_warn: boolean
+  updated_at: string | null
+}
+
+export type HealthCheckSettingInput = Pick<
+  HealthCheckSetting,
+  'check_kind' | 'enabled' | 'warn_threshold' | 'crit_threshold' | 'free_bytes_floor' | 'for_evaluations' | 'resolve_evaluations'
+>
+
+export interface HealthAlertState {
+  connection_id: string
+  check_kind: HealthCheckKind
+  node: string
+  state: AlertState
+  severity: 'warn' | 'critical' | null
+  breach_count: number
+  ok_count: number
+  last_value: number | null
+  since: string | null
+  last_event_id: string | null
+  updated_at: string | null
+}
+
+export type SqlAlertMode = 'value' | 'rows'
+export type SqlAlertComparator = 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'ne'
+export type SqlAlertState = AlertState | 'error'
+export type SqlAlertWorkerMode = 'session' | 'service_account' | 'disabled'
+
+export interface SqlAlert {
+  id: string
+  connection_id: string
+  name: string
+  sql: string
+  mode: SqlAlertMode
+  comparator: SqlAlertComparator
+  threshold: number
+  severity: AlertSeverity
+  /** 60..86400 */
+  interval_seconds: number
+  /** 5..60 */
+  timeout_seconds: number
+  /** 1..20 */
+  for_evaluations: number
+  /** 1..20 */
+  resolve_evaluations: number
+  enabled: boolean
+  state: SqlAlertState
+  breach_count: number
+  ok_count: number
+  error_count: number
+  last_run_at: string | null
+  last_value: number | null
+  last_error: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SqlAlertInput {
+  name: string
+  sql: string
+  mode: SqlAlertMode
+  comparator: SqlAlertComparator
+  threshold: number
+  severity: AlertSeverity
+  interval_seconds: number
+  timeout_seconds: number
+  for_evaluations: number
+  resolve_evaluations: number
+  enabled: boolean
+}
+
+export type SqlAlertTestInput = Pick<SqlAlertInput, 'sql' | 'mode' | 'comparator' | 'threshold' | 'timeout_seconds'>
+
+export interface SqlAlertTestResult {
+  value: number | null
+  rows: number
+  /** Up to 10 rows. */
+  rows_preview: Record<string, unknown>[]
+  firing: boolean
+  duration_ms: number
+}
+
+export interface SqlAlertRunResult {
+  value: number | null
+  firing: boolean
+  alert: SqlAlert
+}
+
+export interface AlertEvaluation {
+  id: number
+  source: 'health' | 'sql'
+  source_id: string
+  connection_id: string
+  node: string
+  value: number | null
+  state: string
+  error: string
+  duration_ms: number
+  evaluated_at: string
 }

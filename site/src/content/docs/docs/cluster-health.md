@@ -75,6 +75,14 @@ The headline tiles turn amber or red at these levels:
 
 A single pending mutation is normal and stays neutral. Max disk used is the fullest disk on any node (`system.disks`), shown live and not stored in history.
 
+These tile colors are display only. To be notified, use the health checks below.
+
+## Health alerts
+
+Every harvester poll also evaluates six built-in health checks per node: replication lag, read-only replicas, disk usage (with an optional free-space floor), parts pressure, stuck mutations and unreachable nodes. They fire after consecutive breaches, resolve after consecutive OK polls, and send `health.*` events through your [alert rules](/docs/alerts#health-checks). Thresholds are edited per connection under **Governance → Health checks**; their defaults are looser than the tile colors above, since a notification should mean someone has to act.
+
+Health checks only run while background collection is enabled for the connection. When any check is firing, the Cluster Health header shows an **N alerts firing** badge that links to the Health checks section.
+
 ## Killing queries and mutations
 
 From **Long Queries** or **Mutations**, open a row and choose **Kill**. A confirmation shows the query or mutation command, the user and how long it has been running. CH-UI then runs `KILL QUERY` or `KILL MUTATION` with your own ClickHouse credentials, so ClickHouse decides whether you may (any user can kill their own queries; killing others needs the `KILL QUERY` grant, and killing a mutation needs `ALTER` on the table). In CH-UI it needs the admin or analyst role. On a cluster the statement is sent `ON CLUSTER`; when distributed DDL is not available it runs on the connected node only and the toast says so. Every kill is written to the audit log (`cluster_health.query.killed`, `cluster_health.mutation.killed`).

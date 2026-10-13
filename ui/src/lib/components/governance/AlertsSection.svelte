@@ -116,6 +116,15 @@
     { value: 'schedule.failed', label: 'Schedule failed' },
     { value: 'schedule.slow', label: 'Schedule slow' },
     { value: 'telemetry.monitor', label: 'Telemetry monitor' },
+    { value: 'health.replication_lag', label: 'Health: replication lag' },
+    { value: 'health.replica_readonly', label: 'Health: replica readonly' },
+    { value: 'health.disk', label: 'Health: disk' },
+    { value: 'health.parts', label: 'Health: parts pressure' },
+    { value: 'health.mutation_stuck', label: 'Health: stuck mutation' },
+    { value: 'health.node_unreachable', label: 'Health: node unreachable' },
+    { value: 'health.*', label: 'All health checks' },
+    { value: 'sql.alert', label: 'SQL alert' },
+    { value: 'sql.*', label: 'All SQL alerts' },
     { value: '*', label: 'All events' },
   ]
   const severityOptions = [

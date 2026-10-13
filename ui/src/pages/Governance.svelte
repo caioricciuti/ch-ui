@@ -33,6 +33,8 @@
 	import IncidentsSection from '../lib/components/governance/IncidentsSection.svelte';
 	import PoliciesSection from '../lib/components/governance/PoliciesSection.svelte';
 	import AlertsSection from '../lib/components/governance/AlertsSection.svelte';
+	import HealthChecksSection from '../lib/components/governance/HealthChecksSection.svelte';
+	import SqlAlertsSection from '../lib/components/governance/SqlAlertsSection.svelte';
 	import AuditLogSection from '../lib/components/governance/AuditLogSection.svelte';
 	import SettingsSection from '../lib/components/governance/SettingsSection.svelte';
 	import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte';
@@ -63,7 +65,7 @@
 	} from '../lib/types/governance';
 
 	// State
-	type GovernanceTab = 'dashboard' | 'tables' | 'queries' | 'access' | 'incidents' | 'policies' | 'alerts' | 'auditlog' | 'settings';
+	type GovernanceTab = 'dashboard' | 'tables' | 'queries' | 'access' | 'incidents' | 'policies' | 'alerts' | 'health-alerts' | 'sql-alerts' | 'auditlog' | 'settings';
 	const governanceTabs: Array<{ id: GovernanceTab; label: string }> = [
 		{ id: 'dashboard', label: 'Dashboard' },
 		{ id: 'tables', label: 'Tables' },
@@ -72,6 +74,8 @@
 		{ id: 'incidents', label: 'Incidents' },
 		{ id: 'policies', label: 'Policies' },
 		{ id: 'alerts', label: 'Alerts' },
+		{ id: 'health-alerts', label: 'Health checks' },
+		{ id: 'sql-alerts', label: 'SQL alerts' },
 		{ id: 'auditlog', label: 'Audit Log' },
 		{ id: 'settings', label: 'Settings' },
 	];
@@ -206,7 +210,7 @@
 		return status;
 	}
 
-	const governanceTabIds: GovernanceTab[] = ['dashboard', 'tables', 'queries', 'access', 'incidents', 'policies', 'alerts', 'auditlog', 'settings'];
+	const governanceTabIds: GovernanceTab[] = ['dashboard', 'tables', 'queries', 'access', 'incidents', 'policies', 'alerts', 'health-alerts', 'sql-alerts', 'auditlog', 'settings'];
 
 
 	function normalizeGovernanceTab(value: string | null | undefined): GovernanceTab {
@@ -253,7 +257,7 @@
 		} else if (tab === 'queries') {
 			loadQueries();
 		}
-		// access, incidents, policies, alerts, auditlog and settings load
+		// access, incidents, policies, alerts, health-alerts, sql-alerts, auditlog and settings load
 		// inside their own section components.
 	}
 
@@ -509,6 +513,10 @@
 		<PoliciesSection />
 	{:else if activeTab === 'alerts'}
 		<AlertsSection />
+	{:else if activeTab === 'health-alerts'}
+		<HealthChecksSection />
+	{:else if activeTab === 'sql-alerts'}
+		<SqlAlertsSection />
 	{:else if activeTab === 'auditlog'}
 		<AuditLogSection />
 	{:else if activeTab === 'settings'}
