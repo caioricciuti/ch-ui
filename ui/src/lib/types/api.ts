@@ -53,16 +53,51 @@ export interface LicenseInfo {
 }
 
 /** Saved query */
+/** Who can see a saved query: the owner only, everyone, or admins and the owner. */
+export type SavedQueryVisibility = 'private' | 'shared' | 'admins'
+
 export interface SavedQuery {
   id: string
   name: string
   query: string
-  description?: string
+  description?: string | null
   parameters?: string | null // JSON object of default {name: value} bind params
+  connection_id?: string | null
   /** Reviewed by a human; AI clients prefer verified queries. */
   verified?: boolean
+  folder_id: string | null
+  tags: string[]
+  visibility: SavedQueryVisibility
+  /** Creator; "" for queries saved before owners were recorded. */
+  owner: string
+  /** Whether the current user may edit, move, delete or restore it. */
+  can_edit: boolean
   created_at: string
   updated_at: string
+}
+
+/** Saved query folders share the dashboard folder shape. */
+export type SavedQueryFolder = DashboardFolder
+
+/** The content of a saved query at one point in its history. */
+export interface SavedQuerySnapshot {
+  name: string
+  description: string
+  query: string
+  parameters: string
+  connection_id: string
+  verified: boolean
+}
+
+export interface SavedQueryVersion {
+  id: string
+  saved_query_id: string
+  version: number
+  /** Only present when one version is fetched. */
+  snapshot?: SavedQuerySnapshot
+  created_by: string | null
+  created_at: string
+  note: string
 }
 
 /** Dashboard */
@@ -161,6 +196,8 @@ export interface Schedule {
   id: string
   name: string
   saved_query_id: string
+  /** Name of the saved query, also when it is private to someone else. */
+  saved_query_name?: string
   connection_id: string | null
   cron: string
   timezone: string

@@ -1,105 +1,62 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import type { SavedQuery } from '../lib/types/api'
-  import { apiGet, apiDel, apiPost, apiPut } from '../lib/api/client'
+  import type { SavedQuery, SavedQueryFolder, SavedQueryVisibility } from '../lib/types/api'
+  import {
+    listSavedQueries, listSavedQueryFolders, createSavedQueryFolder, renameSavedQueryFolder, deleteSavedQueryFolder,
+    updateSavedQuery, duplicateSavedQuery, deleteSavedQuery, scopeForSection, folderOptions, folderLabel, VISIBILITY_LABELS,
+  } from '../lib/api/savedQueries'
   import { openQueryTab, openSavedQueryTab, renameSavedQueryTabs } from '../lib/stores/tabs.svelte'
-  import { detectQueryParams } from '../lib/utils/query-params'
+  import { getSection } from '../lib/stores/nav.svelte'
+  import { getSession } from '../lib/stores/session.svelte'
+  import { PAGE_SECTIONS } from '../lib/routes'
   import { formatDate, formatRelativeTime } from '../lib/utils/format'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import Button from '../lib/components/common/Button.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
   import Input from '../lib/components/common/Input.svelte'
+  import Select from '../lib/components/common/Select.svelte'
+  import FormField from '../lib/components/common/FormField.svelte'
   import Sheet from '../lib/components/common/Sheet.svelte'
   import ContextMenu, { type ContextMenuItem } from '../lib/components/common/ContextMenu.svelte'
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
   import InputDialog from '../lib/components/common/InputDialog.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
-  import PageBody from '../lib/components/common/PageBody.svelte'
-  import Panel from '../lib/components/common/Panel.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
-  import Tabs from '../lib/components/common/Tabs.svelte'
+  import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
+  import FolderTree from '../lib/components/common/FolderTree.svelte'
+  import SavedQuerySheet from '../lib/components/saved/SavedQuerySheet.svelte'
+  import SavedQueryHistorySheet from '../lib/components/saved/SavedQueryHistorySheet.svelte'
   import {
-    Play,
-    Trash2,
-    Search,
-    X,
-    RefreshCw,
-    MoreHorizontal,
-    Copy,
-    CopyPlus,
-    FileCode2,
-    Eye,
-    Pencil,
-    BadgeCheck,
-    ChevronUp,
-    ChevronDown,
+    Play, Trash2, Search, MoreHorizontal, Copy, CopyPlus, FileCode2, Pencil, BadgeCheck, FolderInput, FolderPlus, History,
   } from 'lucide-svelte'
 
+  type Row = Record<string, unknown> & SavedQuery & { folder_path: string; owner_label: string }
+
+  const session = $derived(getSession())
+  const isAdmin = $derived(session?.role === 'admin')
+  const canWrite = $derived(session?.role === 'admin' || session?.role === 'analyst')
+
+  // The sidebar drives the section through ?section=.
+  const scope = $derived(scopeForSection(getSection()))
+  const sectionLabel = $derived((PAGE_SECTIONS['saved-queries'] ?? []).find((s) => s.id === scope)?.label ?? 'All')
+
   let queries = $state<SavedQuery[]>([])
+  let folders = $state<SavedQueryFolder[]>([])
   let loading = $state(true)
+  let search = $state('')
+  let tagFilter = $state('')
+  let owners = $state<'visible' | 'all'>('visible')
+  let selectedFolder = $state<string | null>(null)
 
-  let searchTerm = $state('')
-  type SortKey = 'name' | 'updated'
-  type Scope = 'all' | 'verified'
-  let sortKey = $state<SortKey>('updated')
-  let sortDir = $state<'asc' | 'desc'>('desc')
-  let scope = $state<Scope>('all')
-
-  let detailsOpen = $state(false)
-  let selectedQuery = $state<SavedQuery | null>(null)
-
-  let contextMenu = $state<{ query: SavedQuery; x: number; y: number } | null>(null)
-
-  let confirmOpen = $state(false)
-  let confirmLoading = $state(false)
-  let pendingDeleteId = $state<string | null>(null)
-  let pendingDeleteName = $state('')
-
-  let renameOpen = $state(false)
-  let renameLoading = $state(false)
-  let renameId = $state<string | null>(null)
-  let renameValue = $state('')
-
-  onMount(loadQueries)
-
-  const verifiedCount = $derived(queries.filter((q) => q.verified).length)
-
-  const visibleQueries = $derived.by(() => {
-    const term = searchTerm.trim().toLowerCase()
-    const rows = queries.filter((q) => {
-      if (scope === 'verified' && !q.verified) return false
-      if (!term) return true
-      return (
-        q.name.toLowerCase().includes(term) ||
-        (q.description ?? '').toLowerCase().includes(term) ||
-        q.query.toLowerCase().includes(term)
-      )
-    })
-    const dir = sortDir === 'asc' ? 1 : -1
-    return rows.slice().sort((a, b) =>
-      sortKey === 'name'
-        ? a.name.localeCompare(b.name) * dir
-        : (parseTime(a.updated_at) - parseTime(b.updated_at)) * dir,
-    )
-  })
-
-  // Click a column header to sort by it; click again to flip. Name defaults
-  // to A-Z, Updated to newest first, the way a file manager does it.
-  function sortBy(key: SortKey) {
-    if (sortKey === key) {
-      sortDir = sortDir === 'asc' ? 'desc' : 'asc'
-    } else {
-      sortKey = key
-      sortDir = key === 'name' ? 'asc' : 'desc'
-    }
-  }
-
-  async function loadQueries() {
-    loading = true
+  async function loadAll() {
     try {
-      const res = await apiGet<{ saved_queries: SavedQuery[] }>('/api/saved-queries')
-      queries = res.saved_queries ?? []
+      const [q, f] = await Promise.all([
+        listSavedQueries({ scope, allOwners: isAdmin && owners === 'all' }),
+        listSavedQueryFolders(),
+      ])
+      queries = q
+      folders = f
+      if (selectedFolder && !f.some((x) => x.id === selectedFolder)) selectedFolder = null
     } catch (e: unknown) {
       toastError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -107,451 +64,483 @@
     }
   }
 
-  function openInEditor(query: SavedQuery) {
-    closeContextMenu()
-    openSavedQueryTab(query)
+  // Reload when the section or the owner filter changes.
+  $effect(() => {
+    void scope
+    void owners
+    void loadAll()
+  })
+
+  // ── Tree and rows ──────────────────────────────────────────
+  function subtree(folderId: string | null): Set<string | null> {
+    const out = new Set<string | null>([folderId])
+    let added = true
+    while (added) {
+      added = false
+      for (const f of folders) {
+        if (f.parent_id && out.has(f.parent_id) && !out.has(f.id)) {
+          out.add(f.id)
+          added = true
+        }
+      }
+    }
+    return out
   }
 
-  function openDetails(query: SavedQuery) {
-    selectedQuery = query
-    detailsOpen = true
-    closeContextMenu()
+  function countIn(folderId: string): number {
+    const ids = subtree(folderId)
+    return queries.filter((q) => ids.has(q.folder_id ?? null)).length
   }
 
-  function closeDetails() {
-    detailsOpen = false
-    selectedQuery = null
+  const allTags = $derived([...new Set(queries.flatMap((q) => q.tags))].sort((a, b) => a.localeCompare(b)))
+  const tagOptions = $derived([{ value: '', label: 'Any tag' }, ...allTags.map((t) => ({ value: t, label: t }))])
+
+  const rows = $derived.by<Row[]>(() => {
+    const term = search.trim().toLowerCase()
+    // A folder lists its whole subtree; the root lists everything.
+    const inScope = selectedFolder ? subtree(selectedFolder) : null
+    return queries
+      .filter((q) => !inScope || inScope.has(q.folder_id ?? null))
+      .filter((q) => !tagFilter || q.tags.includes(tagFilter))
+      .map((q) => ({ ...q, folder_path: folderLabel(folders, q.folder_id), owner_label: q.owner || 'Legacy' }))
+      .filter((r) => {
+        if (!term) return true
+        return (
+          r.name.toLowerCase().includes(term) ||
+          (r.description ?? '').toLowerCase().includes(term) ||
+          r.query.toLowerCase().includes(term) ||
+          r.tags.some((t) => t.toLowerCase().includes(term))
+        )
+      })
+  })
+
+  const columns: DataColumn<Row>[] = [
+    { key: 'name', label: 'Name', width: '36%' },
+    { key: 'folder_path', label: 'Folder', truncate: true, format: (v) => String(v || '') },
+    { key: 'owner_label', label: 'Owner', width: '160px', truncate: true },
+    { key: 'visibility', label: 'Visibility', width: '110px' },
+    { key: 'updated_at', label: 'Updated', width: '120px', format: (v) => formatRelativeTime(v) },
+  ]
+
+  const visibilityTone: Record<SavedQueryVisibility, 'neutral' | 'info' | 'warning'> = {
+    shared: 'neutral',
+    private: 'info',
+    admins: 'warning',
   }
 
-  async function copySQL(query: SavedQuery) {
+  const filtered = $derived(search.trim() !== '' || tagFilter !== '')
+
+  // ── Row actions ────────────────────────────────────────────
+  let menu = $state<{ query: SavedQuery; x: number; y: number } | null>(null)
+  let folderMenu = $state<{ folder: SavedQueryFolder; x: number; y: number } | null>(null)
+
+  function openRowMenu(e: MouseEvent, q: SavedQuery) {
+    e.preventDefault()
+    e.stopPropagation()
+    const el = e.currentTarget as HTMLElement | null
+    const rect = el && e.type === 'click' ? el.getBoundingClientRect() : null
+    menu = {
+      query: q,
+      x: Math.min(window.innerWidth - 240, rect ? rect.left - 180 : e.clientX),
+      y: Math.min(window.innerHeight - 300, rect ? rect.bottom + 6 : e.clientY),
+    }
+  }
+
+  function openFolderMenu(e: MouseEvent, f: SavedQueryFolder) {
+    e.preventDefault()
+    e.stopPropagation()
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    folderMenu = { folder: f, x: Math.min(window.innerWidth - 240, rect.left), y: rect.bottom + 4 }
+  }
+
+  function canVerify(q: SavedQuery): boolean {
+    return isAdmin || (session?.role === 'analyst' && q.owner !== '' && q.owner === session.user)
+  }
+
+  function rowMenuItems(): ContextMenuItem[] {
+    const q = menu?.query
+    if (!q) return []
+    const locked = !q.can_edit
+    const items: ContextMenuItem[] = [
+      { id: 'open', label: 'Open', icon: Play, onSelect: () => openSavedQueryTab(q) },
+      { id: 'details', label: 'Edit details', icon: Pencil, disabled: locked, onSelect: () => (editing = q) },
+      { id: 'move', label: 'Move', icon: FolderInput, disabled: locked, onSelect: () => openMove(q) },
+      { id: 'history', label: 'History', icon: History, onSelect: () => (historyFor = q) },
+      { id: 'copy', label: 'Copy SQL', icon: Copy, onSelect: () => void copySQL(q) },
+    ]
+    if (canWrite) {
+      items.push({ id: 'duplicate', label: 'Duplicate', icon: CopyPlus, onSelect: () => void doDuplicate(q) })
+    }
+    if (canVerify(q)) {
+      items.push({ id: 'verify', label: q.verified ? 'Remove verified mark' : 'Mark as verified', icon: BadgeCheck, onSelect: () => void toggleVerified(q) })
+    }
+    items.push(
+      { id: 'sep', separator: true },
+      { id: 'delete', label: 'Delete', icon: Trash2, danger: true, disabled: locked, onSelect: () => (deleting = q) },
+    )
+    return items
+  }
+
+  function folderMenuItems(): ContextMenuItem[] {
+    const f = folderMenu?.folder
+    if (!f) return []
+    return [
+      { id: 'sub', label: 'New subfolder', icon: FolderPlus, onSelect: () => openNewFolder(f.id) },
+      { id: 'rename', label: 'Rename', icon: Pencil, onSelect: () => (renamingFolder = f) },
+      { id: 'sep', separator: true },
+      { id: 'delete', label: 'Delete', icon: Trash2, danger: true, onSelect: () => (deletingFolder = f) },
+    ]
+  }
+
+  async function copySQL(q: SavedQuery) {
     try {
-      await navigator.clipboard.writeText(query.query)
-      toastSuccess(`Copied SQL for "${query.name}"`)
+      await navigator.clipboard.writeText(q.query)
+      toastSuccess(`Copied SQL for "${q.name}"`)
     } catch {
       toastError('Clipboard unavailable')
-    } finally {
-      closeContextMenu()
     }
   }
 
-  async function duplicateQuery(query: SavedQuery) {
+  async function doDuplicate(q: SavedQuery) {
     try {
-      const created = await apiPost<SavedQuery>(`/api/saved-queries/${query.id}/duplicate`)
-      if (created?.id) {
-        queries = [created, ...queries]
-      } else {
-        await loadQueries()
-      }
-      toastSuccess('Query duplicated')
-    } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
-    } finally {
-      closeContextMenu()
-    }
-  }
-
-  async function deleteQuery(id: string) {
-    try {
-      await apiDel(`/api/saved-queries/${id}`)
-      queries = queries.filter((q) => q.id !== id)
-      if (selectedQuery?.id === id) closeDetails()
-      toastSuccess('Query deleted')
+      const copy = await duplicateSavedQuery(q.id)
+      toastSuccess(`Duplicated as "${copy.name}", visible only to you`)
+      await loadAll()
     } catch (e: unknown) {
       toastError(e instanceof Error ? e.message : String(e))
     }
-  }
-
-  function requestRename(query: SavedQuery) {
-    renameId = query.id
-    renameValue = query.name
-    renameOpen = true
-    closeContextMenu()
-  }
-
-  function cancelRename() {
-    renameOpen = false
-    renameId = null
-    renameValue = ''
   }
 
   // Verified marks a query a human reviewed as correct. The MCP server tells
   // AI clients to prefer verified queries over writing new SQL.
   async function toggleVerified(q: SavedQuery) {
-    const next = !q.verified
     try {
-      await apiPut<SavedQuery>(`/api/saved-queries/${q.id}`, { verified: next })
-      queries = queries.map((row) => (row.id === q.id ? { ...row, verified: next } : row))
-      if (selectedQuery?.id === q.id) selectedQuery = { ...selectedQuery, verified: next }
-      toastSuccess(next ? 'Marked as verified' : 'Verified mark removed')
+      await updateSavedQuery(q.id, { verified: !q.verified })
+      toastSuccess(q.verified ? 'Verified mark removed' : 'Marked as verified')
+      await loadAll()
     } catch (e: unknown) {
       toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
-  async function confirmRename(newName: string) {
-    const name = newName.trim()
-    if (!renameId || !name) return
-    renameLoading = true
+  // ── Drag and drop into folders ─────────────────────────────
+  const DRAG_TYPE = 'text/ch-ui-saved-query'
+
+  function onDragStart(e: DragEvent, q: SavedQuery) {
+    if (!q.can_edit || !e.dataTransfer) return
+    e.dataTransfer.setData(DRAG_TYPE, q.id)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  async function doMove(id: string, folderId: string | null) {
     try {
-      const updated = await apiPut<SavedQuery>(`/api/saved-queries/${renameId}`, { name })
-      const finalName = updated?.name ?? name
-      queries = queries.map((q) => (q.id === renameId ? { ...q, name: finalName } : q))
-      if (selectedQuery?.id === renameId) selectedQuery = { ...selectedQuery, name: finalName }
-      // Keep any open tab linked to this saved query in sync.
-      renameSavedQueryTabs(renameId, finalName)
-      toastSuccess('Query renamed')
-      cancelRename()
+      await updateSavedQuery(id, { folder_id: folderId })
+      toastSuccess(folderId ? `Moved to ${folderLabel(folders, folderId)}` : 'Moved to the root')
+      await loadAll()
     } catch (e: unknown) {
       toastError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  // ── Sheets and dialogs ─────────────────────────────────────
+  let editing = $state<SavedQuery | null>(null)
+  let historyFor = $state<SavedQuery | null>(null)
+
+  function onDetailsSaved(updated: SavedQuery) {
+    editing = null
+    renameSavedQueryTabs(updated.id, updated.name)
+    void loadAll()
+  }
+
+  let moving = $state<SavedQuery | null>(null)
+  let moveTarget = $state('')
+  let moveSaving = $state(false)
+
+  function openMove(q: SavedQuery) {
+    moving = q
+    moveTarget = q.folder_id ?? ''
+  }
+
+  async function submitMove() {
+    if (!moving) return
+    moveSaving = true
+    try {
+      await doMove(moving.id, moveTarget || null)
+      moving = null
     } finally {
-      renameLoading = false
+      moveSaving = false
     }
   }
 
-  function requestDelete(query: SavedQuery) {
-    pendingDeleteName = query.name
-    pendingDeleteId = query.id
-    confirmOpen = true
-    closeContextMenu()
-  }
-
-  function cancelDelete() {
-    confirmOpen = false
-    pendingDeleteId = null
-    pendingDeleteName = ''
-  }
+  let deleting = $state<SavedQuery | null>(null)
+  let deleteSaving = $state(false)
 
   async function confirmDelete() {
-    if (!pendingDeleteId) return
-    confirmLoading = true
+    if (!deleting) return
+    deleteSaving = true
     try {
-      await deleteQuery(pendingDeleteId)
-      cancelDelete()
+      await deleteSavedQuery(deleting.id)
+      toastSuccess('Saved query deleted')
+      deleting = null
+      await loadAll()
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     } finally {
-      confirmLoading = false
+      deleteSaving = false
     }
   }
 
-  function parseTime(value: string): number {
-    const t = Date.parse(value)
-    return Number.isFinite(t) ? t : 0
+  let newFolderOpen = $state(false)
+  let newFolderParent = $state<string | null>(null)
+  let newFolderName = $state('')
+  let folderSaving = $state(false)
+
+  function openNewFolder(parentId: string | null) {
+    newFolderParent = parentId
+    newFolderName = ''
+    newFolderOpen = true
   }
 
-  function countLines(sql: string): number {
-    if (!sql.trim()) return 0
-    return sql.split(/\r?\n/).length
-  }
-
-  function clearSearch() {
-    searchTerm = ''
-  }
-
-  // Stored default values for a saved query's parameters ({name: value}).
-  function storedParamDefaults(q: SavedQuery): Record<string, string> {
-    if (!q.parameters) return {}
+  async function submitNewFolder(name: string) {
+    if (!name.trim()) return
+    folderSaving = true
     try {
-      const parsed = JSON.parse(q.parameters)
-      return parsed && typeof parsed === 'object' ? parsed : {}
-    } catch {
-      return {}
+      const f = await createSavedQueryFolder(name.trim(), newFolderParent)
+      newFolderOpen = false
+      await loadAll()
+      selectedFolder = f.id
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+    } finally {
+      folderSaving = false
     }
   }
 
-  function closeContextMenu() {
-    contextMenu = null
-  }
+  let renamingFolder = $state<SavedQueryFolder | null>(null)
+  let renameFolderValue = $state('')
+  $effect(() => {
+    renameFolderValue = renamingFolder?.name ?? ''
+  })
 
-  function openContextMenu(event: MouseEvent, query: SavedQuery) {
-    event.preventDefault()
-    event.stopPropagation()
-    contextMenu = {
-      query,
-      x: Math.min(window.innerWidth - 240, event.clientX),
-      y: Math.min(window.innerHeight - 220, event.clientY),
+  async function submitRenameFolder(name: string) {
+    if (!renamingFolder || !name.trim()) return
+    folderSaving = true
+    try {
+      await renameSavedQueryFolder(renamingFolder.id, name.trim())
+      renamingFolder = null
+      await loadAll()
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+    } finally {
+      folderSaving = false
     }
   }
 
-  function openContextMenuFromButton(event: MouseEvent, query: SavedQuery) {
-    event.preventDefault()
-    event.stopPropagation()
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-    contextMenu = {
-      query,
-      x: Math.min(window.innerWidth - 240, rect.left - 170),
-      y: Math.min(window.innerHeight - 220, rect.bottom + 6),
+  let deletingFolder = $state<SavedQueryFolder | null>(null)
+  const deletingFolderCounts = $derived.by(() => {
+    if (!deletingFolder) return { queries: 0, subfolders: 0 }
+    const ids = subtree(deletingFolder.id)
+    return {
+      queries: queries.filter((q) => ids.has(q.folder_id ?? null)).length,
+      subfolders: ids.size - 1,
     }
+  })
+
+  function plural(n: number, one: string, many: string): string {
+    return `${n} ${n === 1 ? one : many}`
   }
 
-  function getContextItems(): ContextMenuItem[] {
-    const row = contextMenu?.query
-    if (!row) return []
-    return [
-      {
-        id: 'open',
-        label: 'Open in Editor',
-        icon: Play,
-        shortcut: 'Enter',
-        onSelect: () => openInEditor(row),
-      },
-      {
-        id: 'details',
-        label: 'View Details',
-        icon: Eye,
-        shortcut: 'Space',
-        onSelect: () => openDetails(row),
-      },
-      { id: 'sep-main', separator: true },
-      {
-        id: 'rename',
-        label: 'Rename',
-        icon: Pencil,
-        shortcut: 'F2',
-        onSelect: () => requestRename(row),
-      },
-      {
-        id: 'verify',
-        label: row.verified ? 'Remove verified mark' : 'Mark as verified',
-        icon: BadgeCheck,
-        onSelect: () => toggleVerified(row),
-      },
-      {
-        id: 'copy',
-        label: 'Copy SQL',
-        icon: Copy,
-        shortcut: 'Cmd/Ctrl+C',
-        onSelect: () => copySQL(row),
-      },
-      {
-        id: 'duplicate',
-        label: 'Duplicate',
-        icon: CopyPlus,
-        shortcut: 'Cmd/Ctrl+D',
-        onSelect: () => duplicateQuery(row),
-      },
-      { id: 'sep-danger', separator: true },
-      {
-        id: 'delete',
-        label: 'Delete Saved Query',
-        icon: Trash2,
-        danger: true,
-        onSelect: () => requestDelete(row),
-      },
-    ]
+  async function confirmDeleteFolder() {
+    if (!deletingFolder) return
+    folderSaving = true
+    try {
+      const moved = await deleteSavedQueryFolder(deletingFolder.id)
+      if (selectedFolder && subtree(deletingFolder.id).has(selectedFolder)) selectedFolder = null
+      deletingFolder = null
+      toastSuccess(moved > 0 ? `Folder deleted, ${plural(moved, 'query', 'queries')} moved to the root` : 'Folder deleted')
+      await loadAll()
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+    } finally {
+      folderSaving = false
+    }
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && closeContextMenu()} />
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') { menu = null; folderMenu = null } }} />
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Saved Queries" subtitle="Saved from the editor, reusable by people and MCP clients.">
+  <PageHeader title="Saved Queries" subtitle={sectionLabel} docs="https://ch-ui.com/docs/querying/#saved-queries">
     {#snippet meta()}
       {#if !loading}<Badge>{queries.length}</Badge>{/if}
     {/snippet}
     {#snippet actions()}
-      <Button icon variant="ghost" size="sm" aria-label="Refresh" title="Refresh" onclick={() => { void loadQueries() }}>
-        <RefreshCw size={14} />
-      </Button>
+      {#if canWrite}
+        <Button size="sm" variant="outline" onclick={() => openNewFolder(selectedFolder)}>New folder</Button>
+      {/if}
+      <Button size="sm" variant="ghost" onclick={() => void loadAll()}>Refresh</Button>
     {/snippet}
   </PageHeader>
 
-  <PageBody width="md">
-    {#if loading}
-      <div class="flex items-center justify-center py-14"><Spinner /></div>
-    {:else if queries.length === 0}
-      <EmptyState
-        icon={FileCode2}
-        title="No saved queries yet"
-        description="Save a query from the SQL editor and it will show up here."
-        primary={{ label: 'Open the editor', onclick: () => openQueryTab() }}
+  {#if loading}
+    <div class="flex flex-1 items-center justify-center"><Spinner /></div>
+  {:else if queries.length === 0 && folders.length === 0 && scope === 'all' && owners === 'visible'}
+    <EmptyState
+      icon={FileCode2}
+      title="No saved queries yet"
+      description="Save a query from the SQL editor and it will show up here. Folders keep them organized as the list grows."
+      primary={{ label: 'Open the editor', onclick: () => openQueryTab() }}
+    />
+  {:else}
+    <div class="flex min-h-0 flex-1">
+      <FolderTree
+        {folders}
+        selected={selectedFolder}
+        onselect={(id) => (selectedFolder = id)}
+        rootLabel="All queries"
+        rootIcon={FileCode2}
+        total={queries.length}
+        {countIn}
+        storageKey="ch-ui-saved-query-folders-open"
+        {canWrite}
+        ariaLabel="Saved query folders"
+        onfoldermenu={openFolderMenu}
+        onnewfolder={() => openNewFolder(null)}
+        dragType={DRAG_TYPE}
+        ondropitem={(id, folderId) => {
+          const q = queries.find((x) => x.id === id)
+          if (q?.can_edit) void doMove(id, folderId)
+        }}
       />
-    {:else}
-      <div class="space-y-3">
-        <div class="flex items-center gap-2">
-          <div class="relative flex-1">
-            <Search size={14} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-4" />
-            <Input type="search" class="pl-8 pr-8" placeholder="Search by name, description or SQL" bind:value={searchTerm} spellcheck={false} />
-            {#if searchTerm}
-              <Button icon variant="ghost" size="xs" class="absolute right-1 top-1/2 -translate-y-1/2" aria-label="Clear search" onclick={clearSearch}>
-                <X size={13} />
-              </Button>
-            {/if}
-          </div>
-          <Tabs
-            variant="segmented"
-            items={[{ id: 'all', label: 'All', count: queries.length }, { id: 'verified', label: 'Verified', count: verifiedCount }]}
-            value={scope}
-            onchange={(id) => scope = id as Scope}
-          />
-        </div>
 
-        {#if visibleQueries.length === 0}
-          <EmptyState
-            icon={Search}
-            title="Nothing matches"
-            description={scope === 'verified' ? 'No verified query matches. Verified queries are the ones a person reviewed.' : 'Try another search.'}
-            secondary={{ label: 'Clear search', onclick: () => { clearSearch(); scope = 'all' } }}
-          />
-        {:else}
-          <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
-            <table class="w-full table-fixed text-[13px]">
-              <colgroup>
-                <col style="width: 38%" />
-                <col />
-                <col style="width: 120px" />
-                <col style="width: 88px" />
-              </colgroup>
-              <thead>
-                <tr class="border-b border-edge-subtle">
-                  <th class="h-8 px-3 text-left text-xs font-medium text-fg-3" aria-sort={sortKey === 'name' ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}>
-                    <button class="inline-flex items-center gap-1 hover:text-fg" onclick={() => sortBy('name')}>
-                      Name
-                      {#if sortKey === 'name'}{#if sortDir === 'asc'}<ChevronUp size={12} />{:else}<ChevronDown size={12} />{/if}{/if}
-                    </button>
-                  </th>
-                  <th class="h-8 px-3 text-left text-xs font-medium text-fg-3">Description</th>
-                  <th class="h-8 px-3 text-left text-xs font-medium text-fg-3" aria-sort={sortKey === 'updated' ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}>
-                    <button class="inline-flex items-center gap-1 hover:text-fg" onclick={() => sortBy('updated')}>
-                      Updated
-                      {#if sortKey === 'updated'}{#if sortDir === 'asc'}<ChevronUp size={12} />{:else}<ChevronDown size={12} />{/if}{/if}
-                    </button>
-                  </th>
-                  <th class="h-8 px-3"><span class="sr-only">Actions</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each visibleQueries as query (query.id)}
-                  <tr
-                    class="group cursor-default border-b border-edge-subtle last:border-b-0 transition-colors hover:bg-hover"
-                    ondblclick={() => openInEditor(query)}
-                    oncontextmenu={(e) => openContextMenu(e, query)}
-                  >
-                    <td class="px-3 py-2">
-                      <button class="flex w-full min-w-0 items-center gap-2.5 text-left" onclick={() => openInEditor(query)} title="Open in the editor">
-                        <FileCode2 size={15} strokeWidth={1.75} class="shrink-0 text-fg-3" />
-                        <span class="truncate font-medium text-fg">{query.name}</span>
-                        {#if query.verified}
-                          <BadgeCheck size={13} class="shrink-0 text-success" aria-label="Verified" />
-                        {/if}
-                      </button>
-                    </td>
-                    <td class="truncate px-3 py-2 text-fg-3">{query.description?.trim() || ''}</td>
-                    <td class="px-3 py-2 text-fg-3 tabular-nums" title={formatDate(query.updated_at)}>{formatRelativeTime(query.updated_at)}</td>
-                    <td class="px-2 py-1.5">
-                      <div class="flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                        <Button icon variant="ghost" size="sm" aria-label="Open in the editor" title="Open" onclick={() => openInEditor(query)}>
-                          <Play size={14} />
-                        </Button>
-                        <Button icon variant="ghost" size="sm" aria-label="More actions" onclick={(e) => openContextMenuFromButton(e, query)}>
-                          <MoreHorizontal size={15} />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div class="flex h-10 shrink-0 items-center gap-2 border-b border-edge-subtle px-4">
+          <div class="relative">
+            <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-4" />
+            <Input size="sm" type="search" class="w-64 pl-8" placeholder="Search name, SQL, tags" bind:value={search} spellcheck={false} />
           </div>
-        {/if}
+          {#if allTags.length > 0}
+            <Select size="sm" class="w-40" options={tagOptions} bind:value={tagFilter} />
+          {/if}
+          {#if isAdmin}
+            <Select
+              size="sm"
+              class="w-44"
+              options={[{ value: 'visible', label: 'Visible to me' }, { value: 'all', label: 'All owners' }]}
+              value={owners}
+              onchange={(v: string) => (owners = v === 'all' ? 'all' : 'visible')}
+            />
+          {/if}
+          <span class="ml-auto text-xs text-fg-4">{plural(rows.length, 'query', 'queries')}</span>
+        </div>
+        <div class="min-h-0 flex-1">
+          <DataTable
+            fill
+            {columns}
+            {rows}
+            rowKey={(r) => r.id}
+            sort={{ key: 'updated_at', dir: 'desc' }}
+            emptyTitle={filtered ? 'Nothing matches' : selectedFolder ? 'This folder is empty' : 'Nothing in this section'}
+            emptyDescription={filtered ? 'Try another search or tag.' : selectedFolder ? (canWrite ? 'Move a query here from its menu or drag it onto the folder.' : undefined) : 'Queries you can see in this section show up here.'}
+            onrowclick={(r) => openSavedQueryTab(r)}
+            onrowcontextmenu={(r, e) => openRowMenu(e, r)}
+          >
+            {#snippet cell(row, col, value)}
+              {#if col.key === 'name'}
+                <div class="flex min-w-0 items-center gap-2" draggable={row.can_edit} ondragstart={(e) => onDragStart(e, row)} role="presentation">
+                  <div class="min-w-0">
+                    <div class="flex min-w-0 items-center gap-1.5">
+                      <span class="truncate font-medium text-fg">{row.name}</span>
+                      {#if row.verified}<Badge tone="success">Verified</Badge>{/if}
+                    </div>
+                    {#if row.description}
+                      <div class="truncate text-xs text-fg-3">{row.description}</div>
+                    {/if}
+                  </div>
+                </div>
+              {:else if col.key === 'folder_path'}
+                <span class="text-fg-3">{value || 'Root'}</span>
+              {:else if col.key === 'owner_label'}
+                <span class={row.owner ? '' : 'text-fg-4'}>{value}</span>
+              {:else if col.key === 'visibility'}
+                <Badge tone={visibilityTone[row.visibility]}>{VISIBILITY_LABELS[row.visibility]}</Badge>
+              {:else if col.key === 'updated_at'}
+                <span title={formatDate(row.updated_at)}>{value}</span>
+              {:else}
+                {value}
+              {/if}
+            {/snippet}
+            {#snippet actions(row)}
+              <Button icon variant="ghost" size="xs" aria-label="More actions" onclick={(e) => openRowMenu(e, row)}>
+                <MoreHorizontal size={14} />
+              </Button>
+            {/snippet}
+          </DataTable>
+        </div>
       </div>
-    {/if}
-  </PageBody>
+    </div>
+  {/if}
 </div>
 
+<ContextMenu open={!!menu} x={menu?.x ?? 0} y={menu?.y ?? 0} items={rowMenuItems()} onclose={() => (menu = null)} />
+<ContextMenu open={!!folderMenu} x={folderMenu?.x ?? 0} y={folderMenu?.y ?? 0} items={folderMenuItems()} onclose={() => (folderMenu = null)} />
+
+<SavedQuerySheet query={editing} {folders} {isAdmin} onclose={() => (editing = null)} onsaved={onDetailsSaved} />
+<SavedQueryHistorySheet query={historyFor} onclose={() => (historyFor = null)} onrestored={() => void loadAll()} />
+
+<Sheet open={!!moving} title="Move" description={moving ? `Where "${moving.name}" should live.` : undefined} size="sm" onclose={() => (moving = null)}>
+  <FormField label="Folder" for="sq-move-folder" controlWidth="full">
+    <Select id="sq-move-folder" options={folderOptions(folders)} bind:value={moveTarget} />
+  </FormField>
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" onclick={() => (moving = null)}>Cancel</Button>
+    <Button size="sm" loading={moveSaving} onclick={() => void submitMove()}>Move</Button>
+  {/snippet}
+</Sheet>
+
 <ConfirmDialog
-  open={confirmOpen}
+  open={!!deleting}
   title="Delete saved query?"
-  description={pendingDeleteName ? `Delete "${pendingDeleteName}"? This action cannot be undone.` : 'This action cannot be undone.'}
+  description={deleting ? `"${deleting.name}" and its history will be permanently removed. Schedules that run it stop working.` : ''}
   confirmLabel="Delete"
   destructive={true}
-  loading={confirmLoading}
-  onconfirm={confirmDelete}
-  oncancel={cancelDelete}
+  loading={deleteSaving}
+  onconfirm={() => void confirmDelete()}
+  oncancel={() => (deleting = null)}
 />
 
 <InputDialog
-  open={renameOpen}
-  title="Rename saved query"
-  placeholder="Query name"
-  bind:value={renameValue}
+  open={newFolderOpen}
+  title={newFolderParent ? `New folder in ${folderLabel(folders, newFolderParent)}` : 'New folder'}
+  description="Folders nest and are shared by everyone. A query lives in one folder at a time."
+  placeholder="Folder name"
+  bind:value={newFolderName}
+  confirmLabel="Create"
+  loading={folderSaving}
+  onconfirm={submitNewFolder}
+  oncancel={() => (newFolderOpen = false)}
+/>
+
+<InputDialog
+  open={!!renamingFolder}
+  title="Rename folder"
+  placeholder="Folder name"
+  bind:value={renameFolderValue}
   confirmLabel="Rename"
-  loading={renameLoading}
-  onconfirm={confirmRename}
-  oncancel={cancelRename}
+  loading={folderSaving}
+  onconfirm={submitRenameFolder}
+  oncancel={() => (renamingFolder = null)}
 />
 
-<ContextMenu
-  open={!!contextMenu}
-  x={contextMenu?.x ?? 0}
-  y={contextMenu?.y ?? 0}
-  items={getContextItems()}
-  onclose={closeContextMenu}
+<ConfirmDialog
+  open={!!deletingFolder}
+  title="Delete folder?"
+  description={deletingFolder
+    ? `"${deletingFolder.name}"${deletingFolderCounts.subfolders > 0 ? ` and ${plural(deletingFolderCounts.subfolders, 'subfolder', 'subfolders')}` : ''} will be removed. ${plural(deletingFolderCounts.queries, 'saved query', 'saved queries')} you can see in it move to the root; no query is deleted.`
+    : ''}
+  confirmLabel="Delete folder"
+  destructive={true}
+  loading={folderSaving}
+  onconfirm={() => void confirmDeleteFolder()}
+  oncancel={() => (deletingFolder = null)}
 />
-
-<Sheet
-  open={detailsOpen}
-  title={selectedQuery?.name ?? 'Saved Query'}
-  description={selectedQuery ? `Updated ${formatDate(selectedQuery.updated_at)} · created ${formatDate(selectedQuery.created_at)} · ${countLines(selectedQuery.query)} lines` : undefined}
-  size="lg"
-  onclose={closeDetails}
->
-  {#if selectedQuery}
-    <div class="space-y-4">
-      {#if selectedQuery.description?.trim()}
-        <p class="text-[13px] leading-relaxed text-fg-2">{selectedQuery.description}</p>
-      {/if}
-
-      <Panel variant="muted" padding="sm" title="Verified for AI">
-        {#snippet actions()}
-          <Button size="sm" variant="outline" onclick={() => selectedQuery && toggleVerified(selectedQuery)}>
-            <BadgeCheck size={13} /> {selectedQuery?.verified ? 'Unmark' : 'Mark verified'}
-          </Button>
-        {/snippet}
-        <p class="text-xs text-fg-2">
-          {selectedQuery.verified ? 'Reviewed by a person. MCP clients prefer this query over writing new SQL.' : 'Not reviewed. Mark it once the SQL is known to be correct.'}
-        </p>
-      </Panel>
-
-      {#if detectQueryParams(selectedQuery.query).length > 0}
-        {@const defaults = storedParamDefaults(selectedQuery)}
-        <Panel variant="muted" padding="sm" title="Parameters">
-          {#snippet actions()}<Badge tone="brand">Pro</Badge>{/snippet}
-          <div class="space-y-1.5">
-            {#each detectQueryParams(selectedQuery.query) as p (p.name)}
-              <div class="flex items-center gap-2 text-xs">
-                <span class="font-mono text-fg-2">{p.name}<span class="text-fg-4">:{p.type}</span></span>
-                {#if defaults[p.name]}
-                  <span class="text-fg-4">default</span>
-                  <span class="font-mono text-fg-2">{defaults[p.name]}</span>
-                {/if}
-              </div>
-            {/each}
-          </div>
-          <p class="mt-2 text-[11px] text-fg-4">Open in the editor to set values and run, or call <span class="font-mono">POST /api/saved-queries/{selectedQuery.id}/run</span>.</p>
-        </Panel>
-      {/if}
-
-      <pre class="overflow-x-auto whitespace-pre rounded-md border border-edge-subtle bg-surface-2 p-3 font-mono text-xs leading-relaxed text-fg">{selectedQuery.query}</pre>
-    </div>
-  {/if}
-  {#snippet footer()}
-    <div class="flex w-full flex-wrap items-center gap-2">
-      <Button size="sm" variant="danger" onclick={() => selectedQuery && requestDelete(selectedQuery)}>
-        <Trash2 size={13} /> Delete
-      </Button>
-      <div class="ml-auto flex items-center gap-2">
-        <Button size="sm" variant="outline" onclick={() => selectedQuery && requestRename(selectedQuery)}>
-          <Pencil size={13} /> Rename
-        </Button>
-        <Button size="sm" variant="outline" onclick={() => selectedQuery && duplicateQuery(selectedQuery)}>
-          <CopyPlus size={13} /> Duplicate
-        </Button>
-        <Button size="sm" variant="outline" onclick={() => selectedQuery && copySQL(selectedQuery)}>
-          <Copy size={13} /> Copy SQL
-        </Button>
-        <Button size="sm" onclick={() => selectedQuery && openInEditor(selectedQuery)}>
-          <Play size={13} /> Open
-        </Button>
-      </div>
-    </div>
-  {/snippet}
-</Sheet>

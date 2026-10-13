@@ -106,3 +106,38 @@ func errText(r *mcpResultAlias) string {
 	}
 	return ""
 }
+
+func TestMCPHidesPrivateSavedQueries(t *testing.T) {
+	deps, key := testDeps(t)
+	keys, _ := deps.DB.ListMCPKeys()
+	ak := &authedKey{key: keys[0]}
+	conn := keys[0].ConnectionID
+
+	shared, _ := deps.DB.CreateSavedQuery(database.CreateSavedQueryParams{Name: "Shared one", Query: "SELECT 1", ConnectionID: conn, CreatedBy: "alice"})
+	private, _ := deps.DB.CreateSavedQuery(database.CreateSavedQueryParams{Name: "Private one", Query: "SELECT 2", ConnectionID: conn, CreatedBy: "alice", Visibility: database.SavedQueryPrivate})
+	admins, _ := deps.DB.CreateSavedQuery(database.CreateSavedQueryParams{Name: "Admins one", Query: "SELECT 3", ConnectionID: conn, CreatedBy: "admin", Visibility: database.SavedQueryAdmins})
+	ownByKey, _ := deps.DB.CreateSavedQuery(database.CreateSavedQueryParams{Name: "Key one", Query: "SELECT 4", ConnectionID: conn, CreatedBy: mcpAuthor(ak), Visibility: database.SavedQueryPrivate})
+
+	if _, e := findSavedQuery(deps, ak, shared, ""); e != nil {
+		t.Errorf("shared query should resolve: %v", errText(e))
+	}
+	for _, id := range []string{private, admins} {
+		if _, e := findSavedQuery(deps, ak, id, ""); e == nil {
+			t.Errorf("query %s must not resolve over MCP", id)
+		}
+	}
+	if _, e := findSavedQuery(deps, ak, "", "Private one"); e == nil {
+		t.Error("private query must not resolve by name")
+	}
+	if _, e := findSavedQuery(deps, ak, ownByKey, ""); e != nil {
+		t.Errorf("a query this key created should resolve: %v", errText(e))
+	}
+
+	body := callCatalogTool(t, deps, key, "list_saved_queries", `{}`)
+	if !strings.Contains(body, shared) || !strings.Contains(body, ownByKey) {
+		t.Errorf("list should include the shared and own queries: %s", body)
+	}
+	if strings.Contains(body, private) || strings.Contains(body, admins) {
+		t.Errorf("list leaked a private or admins query: %s", body)
+	}
+}
