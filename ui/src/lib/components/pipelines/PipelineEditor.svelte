@@ -1,13 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import type { Node, Edge, Connection } from '@xyflow/svelte'
-  import type { Pipeline, PipelineStatus, PipelineStatusInfo, NodeType } from '../../types/pipelines'
+  import type { Pipeline, PipelineStatus, PipelineStatusInfo, NodeType, PipelineTestResult, InferredSchema } from '../../types/pipelines'
   import * as api from '../../api/pipelines'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import PipelineToolbar from './PipelineToolbar.svelte'
   import PipelineCanvas from './PipelineCanvas.svelte'
   import PipelineStatusBar from './PipelineStatusBar.svelte'
   import PipelineRunsSheet from './PipelineRunsSheet.svelte'
+  import PipelineTestSheet from './PipelineTestSheet.svelte'
   import NodeConfigPanel from './NodeConfigPanel.svelte'
   import Spinner from '../common/Spinner.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
@@ -27,6 +28,12 @@
   let pending = $state(false)
   let showRuns = $state(false)
   let confirmLeave = $state(false)
+  let showTest = $state(false)
+  let testing = $state(false)
+  let testResult = $state<PipelineTestResult | null>(null)
+  let testError = $state('')
+  /** Bumped when the editor changes a node config, to remount the open panel. */
+  let panelVersion = $state(0)
 
   let nodes = $state<Node[]>([])
   let edges = $state<Edge[]>([])
@@ -178,6 +185,71 @@
     }
   }
 
+  /** Saves when needed, then tests the saved pipeline. */
+  async function runTest(): Promise<PipelineTestResult | null> {
+    if (testing) return null
+    testing = true
+    testError = ''
+    try {
+      if (dirty && !(await handleSave())) {
+        testError = 'Save failed; fix the pipeline and test again.'
+        return null
+      }
+      testResult = await api.testPipeline(pipelineId)
+      return testResult
+    } catch (e: unknown) {
+      testResult = null
+      testError = errorText(e, 'Test failed')
+      return null
+    } finally {
+      testing = false
+    }
+  }
+
+  async function handleTest() {
+    showTest = true
+    await runTest()
+  }
+
+  /** For the sink panel: sample the source and return ClickHouse's schema. */
+  async function handleInferSchema(): Promise<InferredSchema | null> {
+    const res = await runTest()
+    if (!res) {
+      toastError(testError || 'Test failed')
+      return null
+    }
+    if (res.source_error) {
+      toastError(res.source_error)
+      return null
+    }
+    if (!res.schema) {
+      toastError(res.schema_error || 'The source returned no sample records to infer from')
+      return null
+    }
+    return res.schema
+  }
+
+  /** Applies an inferred schema to the sink node from the test sheet. */
+  function applySchemaToSink(schema: InferredSchema) {
+    const sink = nodes.find((n) => n.data.node_type === 'sink_clickhouse')
+    if (!sink) {
+      toastError('Add a ClickHouse sink first')
+      return
+    }
+    const config = {
+      ...((sink.data.config || {}) as Record<string, unknown>),
+      create_table: true,
+      create_table_columns: schema.columns,
+      create_table_order_by: schema.order_by,
+      create_table_partition_by: schema.partition_by,
+    }
+    handleNodeConfigUpdate(sink.id, config, sink.data.label as string)
+    panelVersion++
+    showTest = false
+    selectedNodeId = sink.id
+    toastSuccess('Columns applied to the sink. Save to keep them.')
+  }
+
   function handleBack() {
     if (dirty) {
       confirmLeave = true
@@ -246,6 +318,8 @@
       onStart={handleStart}
       onStop={handleStop}
       onRuns={() => { showRuns = true }}
+      {testing}
+      onTest={handleTest}
     />
 
     {#if isRunning}
@@ -270,7 +344,7 @@
       {#if selectedNode}
         <!-- Keyed: the panel copies label/config into local state on mount,
              so switching nodes must remount it or edits land on the old node. -->
-        {#key selectedNode.id}
+        {#key `${selectedNode.id}:${panelVersion}`}
           <NodeConfigPanel
             nodeId={selectedNode.id}
             nodeType={selectedNode.data.node_type as NodeType}
@@ -279,6 +353,7 @@
             {pipelineId}
             onUpdate={handleNodeConfigUpdate}
             onClose={() => { selectedNodeId = null }}
+            onInferSchema={handleInferSchema}
           />
         {/key}
       {/if}
@@ -297,7 +372,17 @@
   {/if}
 </div>
 
-<PipelineRunsSheet open={showRuns} {pipelineId} onclose={() => { showRuns = false }} />
+<PipelineRunsSheet open={showRuns} {pipelineId} running={isRunning} onclose={() => { showRuns = false }} />
+
+<PipelineTestSheet
+  open={showTest}
+  loading={testing}
+  result={testResult}
+  error={testError}
+  onclose={() => { showTest = false }}
+  onretest={() => { void runTest() }}
+  onapplyschema={applySchemaToSink}
+/>
 
 <ConfirmDialog
   open={confirmLeave}

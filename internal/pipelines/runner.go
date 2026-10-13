@@ -221,6 +221,11 @@ func (r *Runner) prepare(pipelineID string) (SourceConnector, SinkConnector, Con
 	// Inject runtime fields into configs
 	sinkCfg.Fields["connection_id"] = pipeline.ConnectionID
 	sourceCfg.Fields["pipeline_id"] = pipelineID
+	checkpoints, err := r.db.PipelineCheckpointMap(pipelineID)
+	if err != nil {
+		return nil, nil, none, none, fmt.Errorf("load checkpoints: %w", err)
+	}
+	sourceCfg.Checkpoints = checkpoints
 
 	source, err := r.newSource(sourceCfg.NodeType)
 	if err != nil {
@@ -384,20 +389,49 @@ loop:
 // writeWithRetry writes one batch, retrying with exponential backoff until it
 // succeeds or ctx is cancelled. The batch is acked only after a successful
 // write; an unacked batch is re-read by the source on its next run.
+//
+// When ClickHouse refuses the batch because of its data (a parse or type
+// error, see IsDataError) and the sink has a dead-letter table, the batch is
+// split to isolate the bad rows: good rows are inserted, bad rows go to the
+// dead-letter table, and the batch counts as written.
 func (r *Runner) writeWithRetry(ctx context.Context, rp *RunningPipeline, sink SinkConnector, cfg ConnectorConfig, batch Batch) {
 	backoff := minBackoff
+	dls, canDLQ := sink.(DeadLetterSink)
+	canDLQ = canDLQ && boolField(cfg.Fields, "dead_letter", true)
+	var iso *isolation
 	for attempt := 1; ; attempt++ {
-		rows, err := sink.WriteBatch(ctx, cfg, batch)
+		rows, dlq, err := 0, 0, error(nil)
+		if iso == nil {
+			rows, err = sink.WriteBatch(ctx, cfg, batch)
+			if err != nil && canDLQ && len(batch.Records) > 0 && IsDataError(err) && ctx.Err() == nil {
+				iso = newIsolation(len(batch.Records), err)
+				r.db.CreatePipelineRunLog(rp.RunID, "warn", fmt.Sprintf("ClickHouse refused a batch of %d rows because of its data; isolating the bad rows: %s", len(batch.Records), shortError(err)))
+			}
+		}
+		if iso != nil {
+			err = iso.run(ctx, sink, dls, cfg, rp.PipelineID, batch)
+			rows, dlq = iso.rows, iso.dlq
+		}
 		if err == nil {
+			r.saveCheckpoint(rp, batch)
 			if batch.Ack != nil {
 				batch.Ack()
 			}
 			cfg.Health.OK()
+			if len(batch.Records) == 0 {
+				return // a checkpoint-only batch (e.g. an S3 file without records)
+			}
 			rp.Metrics.RowsIngested.Add(int64(rows))
 			rp.Metrics.BatchesSent.Add(1)
 			rp.Metrics.LastBatchAt.Store(time.Now())
 			for _, rec := range batch.Records {
 				rp.Metrics.BytesIngested.Add(int64(len(rec.RawJSON)))
+			}
+			if dlq > 0 {
+				rp.Metrics.DLQRows.Add(int64(dlq))
+				r.db.AddPipelineDLQRows(rp.PipelineID, int64(dlq))
+				dbName, table := dls.DeadLetterTable(cfg)
+				r.db.CreatePipelineRunLog(rp.RunID, "warn", fmt.Sprintf("%d of %d rows were refused and written to %s.%s", dlq, len(batch.Records), dbName, table))
 			}
 			if attempt > 1 {
 				r.db.CreatePipelineRunLog(rp.RunID, "info", fmt.Sprintf("Batch written after %d attempts", attempt))
@@ -416,6 +450,19 @@ func (r *Runner) writeWithRetry(ctx context.Context, rp *RunningPipeline, sink S
 			return
 		}
 		backoff = nextBackoff(backoff)
+	}
+}
+
+// saveCheckpoint persists the batch's source position. It runs after the
+// write and before Ack, in batch order. A failed save is logged: the source
+// then re-reads from the previous position after a restart (at least once).
+func (r *Runner) saveCheckpoint(rp *RunningPipeline, batch Batch) {
+	if batch.Checkpoint == nil || batch.Checkpoint.Key == "" {
+		return
+	}
+	if err := r.db.SavePipelineCheckpoint(rp.PipelineID, batch.Checkpoint.Key, batch.Checkpoint.Position); err != nil {
+		slog.Warn("Failed to save pipeline checkpoint", "pipeline", rp.PipelineID, "error", err)
+		r.db.CreatePipelineRunLog(rp.RunID, "warn", fmt.Sprintf("Could not save the source position: %v", err))
 	}
 }
 

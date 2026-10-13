@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ type ClickHouseSink struct {
 	// next batch instead of being cached forever.
 	tableMu      sync.Mutex
 	tableCreated bool
+	dlqCreated   bool
 }
 
 // insertTimeout bounds one INSERT or CREATE TABLE through the gateway.
@@ -62,8 +64,42 @@ func (s *ClickHouseSink) Validate(cfg ConnectorConfig) error {
 		if err := validateExpr("PARTITION BY", stringField(cfg.Fields, "create_table_partition_by", "")); err != nil {
 			return err
 		}
+		if _, err := schemaColumns(cfg.Fields); err != nil {
+			return err
+		}
+	}
+	if _, err := errorRatio(cfg.Fields); err != nil {
+		return err
 	}
 	return nil
+}
+
+// errorRatio returns the optional max_error_ratio (0 when unset), which is
+// sent as input_format_allow_errors_ratio.
+func errorRatio(fields map[string]interface{}) (float64, error) {
+	v, ok := fields["max_error_ratio"]
+	if !ok || v == nil || v == "" {
+		return 0, nil
+	}
+	var f float64
+	switch n := v.(type) {
+	case float64:
+		f = n
+	case int:
+		f = float64(n)
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
+		if err != nil {
+			return 0, fmt.Errorf("max_error_ratio must be a number between 0 and 1")
+		}
+		f = parsed
+	default:
+		return 0, fmt.Errorf("max_error_ratio must be a number between 0 and 1")
+	}
+	if f < 0 || f > 1 {
+		return 0, fmt.Errorf("max_error_ratio must be between 0 and 1 (got %g)", f)
+	}
+	return f, nil
 }
 
 // WriteBatch inserts a batch of records into the ClickHouse table using INSERT FORMAT JSONEachRow.
@@ -116,9 +152,12 @@ func (s *ClickHouseSink) WriteBatch(ctx context.Context, cfg ConnectorConfig, ba
 		return 0, fmt.Errorf("find credentials: %w", err)
 	}
 
-	var settings map[string]string
+	settings := map[string]string{}
 	if batch.DedupToken != "" {
-		settings = map[string]string{"insert_deduplication_token": batch.DedupToken}
+		settings["insert_deduplication_token"] = batch.DedupToken
+	}
+	if ratio, _ := errorRatio(cfg.Fields); ratio > 0 {
+		settings["input_format_allow_errors_ratio"] = strconv.FormatFloat(ratio, 'f', -1, 64)
 	}
 	_, execErr := s.gateway.ExecuteQueryWithSettingsCtx(ctx, connectionID, query, user, password, settings, insertTimeout)
 	if execErr != nil {
@@ -152,28 +191,33 @@ func (s *ClickHouseSink) ensureTable(ctx context.Context, cfg ConnectorConfig, b
 		orderBy = "tuple()"
 	}
 
-	// Infer columns from first record
-	if len(batch.Records) == 0 {
-		return fmt.Errorf("cannot infer schema from empty batch")
+	// Columns saved in the sink config (inferred by ClickHouse from a
+	// sample, see InferSchema) win; otherwise infer from the first record.
+	saved, err := schemaColumns(cfg.Fields)
+	if err != nil {
+		return err
 	}
-
-	data := batch.Records[0].Data
-	if len(data) == 0 {
-		return fmt.Errorf("cannot infer schema from empty record")
-	}
-
-	// Collect column names sorted for deterministic output
-	colNames := make([]string, 0, len(data))
-	for k := range data {
-		colNames = append(colNames, k)
-	}
-	sort.Strings(colNames)
-
-	// Build column definitions
 	var cols []string
-	for _, name := range colNames {
-		chType := inferClickHouseType(data[name])
-		cols = append(cols, fmt.Sprintf("%s %s", quoteIdent(name), chType))
+	if len(saved) > 0 {
+		for _, c := range saved {
+			cols = append(cols, fmt.Sprintf("%s %s", quoteIdent(c.Name), c.Type))
+		}
+	} else {
+		if len(batch.Records) == 0 {
+			return fmt.Errorf("cannot infer schema from empty batch")
+		}
+		data := batch.Records[0].Data
+		if len(data) == 0 {
+			return fmt.Errorf("cannot infer schema from empty record")
+		}
+		colNames := make([]string, 0, len(data))
+		for k := range data {
+			colNames = append(colNames, k)
+		}
+		sort.Strings(colNames)
+		for _, name := range colNames {
+			cols = append(cols, fmt.Sprintf("%s %s", quoteIdent(name), inferClickHouseType(data[name])))
+		}
 	}
 
 	ddl := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.%s (\n  %s\n) ENGINE = %s",

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -134,6 +135,17 @@ func (d *DatabaseSource) Start(ctx context.Context, cfg ConnectorConfig, out cha
 		wmMu      sync.Mutex
 		watermark interface{} // last watermark of a written batch
 	)
+	// Resume from the watermark saved after the last written batch.
+	if watermarkCol != "" {
+		if saved := cfg.Checkpoints[watermarkCheckpointKey]; saved != "" {
+			if v, err := decodeWatermark(saved); err == nil {
+				watermark = v
+				slog.Info("Database source resuming from saved watermark", "pipeline", pipelineID, "watermark", watermarkString(v))
+			} else {
+				slog.Warn("Ignoring unreadable saved watermark", "pipeline", pipelineID, "error", err)
+			}
+		}
+	}
 	committed := func() interface{} {
 		wmMu.Lock()
 		defer wmMu.Unlock()
@@ -144,7 +156,9 @@ func (d *DatabaseSource) Start(ctx context.Context, cfg ConnectorConfig, out cha
 		start := committed()
 		var rows *sql.Rows
 		var queryErr error
-		if watermarkCol != "" && start != nil {
+		if watermarkCol != "" {
+			// Before the first written batch the watermark is NULL, so a
+			// query like "WHERE id > COALESCE($1, 0)" reads from the start.
 			rows, queryErr = db.QueryContext(ctx, query, start)
 		} else {
 			rows, queryErr = db.QueryContext(ctx, query)
@@ -181,6 +195,11 @@ func (d *DatabaseSource) Start(ctx context.Context, cfg ConnectorConfig, out cha
 			}
 			if watermarkCol != "" {
 				batch.DedupToken = dedupToken("db", pipelineID, watermarkString(start), seq, watermarkString(last), len(buf))
+				if last != nil {
+					if pos, err := encodeWatermark(last); err == nil {
+						batch.Checkpoint = &Checkpoint{Key: watermarkCheckpointKey, Position: pos}
+					}
+				}
 			}
 			select {
 			case out <- batch:
@@ -213,9 +232,11 @@ func (d *DatabaseSource) Start(ctx context.Context, cfg ConnectorConfig, out cha
 					data[col] = val
 				}
 			}
+			pos := ""
 			if watermarkCol != "" {
 				if wv, ok := data[watermarkCol]; ok {
 					last = wv
+					pos = watermarkCol + "=" + watermarkString(wv)
 				}
 			}
 
@@ -223,7 +244,7 @@ func (d *DatabaseSource) Start(ctx context.Context, cfg ConnectorConfig, out cha
 			if err != nil {
 				return fmt.Errorf("encode row: %w", err)
 			}
-			buf = append(buf, Record{Data: data, RawJSON: raw})
+			buf = append(buf, Record{Data: data, RawJSON: raw, Position: pos})
 			if len(buf) >= batchSize {
 				if !emit(buf, last) {
 					return nil
@@ -283,4 +304,130 @@ func watermarkString(v interface{}) string {
 	default:
 		return fmt.Sprint(t)
 	}
+}
+
+// watermarkCheckpointKey is the checkpoint key of a database source.
+const watermarkCheckpointKey = "watermark"
+
+// savedWatermark keeps the Go type of a watermark so a resumed poll binds
+// the same kind of value (an integer stays an integer).
+type savedWatermark struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value"`
+}
+
+func encodeWatermark(v interface{}) (string, error) {
+	var w savedWatermark
+	switch t := v.(type) {
+	case int64:
+		w = savedWatermark{"int", strconv.FormatInt(t, 10)}
+	case int:
+		w = savedWatermark{"int", strconv.Itoa(t)}
+	case int32:
+		w = savedWatermark{"int", strconv.FormatInt(int64(t), 10)}
+	case uint64:
+		w = savedWatermark{"uint", strconv.FormatUint(t, 10)}
+	case float64:
+		w = savedWatermark{"float", strconv.FormatFloat(t, 'g', -1, 64)}
+	case float32:
+		w = savedWatermark{"float", strconv.FormatFloat(float64(t), 'g', -1, 32)}
+	case bool:
+		w = savedWatermark{"bool", strconv.FormatBool(t)}
+	case time.Time:
+		w = savedWatermark{"time", t.Format(time.RFC3339Nano)}
+	case string:
+		w = savedWatermark{"string", t}
+	case []byte:
+		w = savedWatermark{"string", string(t)}
+	default:
+		w = savedWatermark{"string", fmt.Sprint(t)}
+	}
+	b, err := json.Marshal(w)
+	return string(b), err
+}
+
+func decodeWatermark(s string) (interface{}, error) {
+	var w savedWatermark
+	if err := json.Unmarshal([]byte(s), &w); err != nil {
+		return nil, err
+	}
+	switch w.Kind {
+	case "int":
+		return strconv.ParseInt(w.Value, 10, 64)
+	case "uint":
+		return strconv.ParseUint(w.Value, 10, 64)
+	case "float":
+		return strconv.ParseFloat(w.Value, 64)
+	case "bool":
+		return strconv.ParseBool(w.Value)
+	case "time":
+		return time.Parse(time.RFC3339Nano, w.Value)
+	case "string":
+		return w.Value, nil
+	}
+	return nil, fmt.Errorf("unknown watermark kind %q", w.Kind)
+}
+
+// Sample runs the query once (wrapped in LIMIT) and returns up to limit rows.
+// A saved watermark is bound as on a resumed poll.
+func (d *DatabaseSource) Sample(ctx context.Context, cfg ConnectorConfig, limit int) (SampleResult, error) {
+	dbType := dbTypeOf(cfg.Fields)
+	query := strings.TrimRight(strings.TrimSpace(stringField(cfg.Fields, "query", "")), "; \n\t")
+	watermarkCol := stringField(cfg.Fields, "watermark_column", "")
+
+	db, err := sql.Open(dbType, stringField(cfg.Fields, "connection_string", ""))
+	if err != nil {
+		return SampleResult{}, fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+
+	wrapped := fmt.Sprintf("SELECT * FROM (%s) AS chui_sample LIMIT %d", query, limit)
+	var rows *sql.Rows
+	note := "First rows of the query (LIMIT " + strconv.Itoa(limit) + ")."
+	if saved := cfg.Checkpoints[watermarkCheckpointKey]; watermarkCol != "" && saved != "" {
+		wm, derr := decodeWatermark(saved)
+		if derr != nil {
+			return SampleResult{}, fmt.Errorf("saved watermark: %w", derr)
+		}
+		rows, err = db.QueryContext(ctx, wrapped, wm)
+		note = fmt.Sprintf("Next rows after the saved watermark %s = %s (LIMIT %d).", watermarkCol, watermarkString(wm), limit)
+	} else if watermarkCol != "" {
+		rows, err = db.QueryContext(ctx, wrapped, nil)
+		note = fmt.Sprintf("First rows with no saved watermark, the parameter bound as NULL (LIMIT %d).", limit)
+	} else {
+		rows, err = db.QueryContext(ctx, wrapped)
+	}
+	if err != nil {
+		return SampleResult{}, fmt.Errorf("query: %w", err)
+	}
+	defer rows.Close()
+	columns, err := rows.Columns()
+	if err != nil {
+		return SampleResult{}, err
+	}
+	var out []map[string]interface{}
+	for rows.Next() && len(out) < limit {
+		values := make([]interface{}, len(columns))
+		ptrs := make([]interface{}, len(columns))
+		for i := range values {
+			ptrs[i] = &values[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			return SampleResult{}, fmt.Errorf("scan row: %w", err)
+		}
+		row := make(map[string]interface{}, len(columns))
+		for i, c := range columns {
+			if b, ok := values[i].([]byte); ok {
+				row[c] = string(b)
+			} else {
+				row[c] = values[i]
+			}
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return SampleResult{}, err
+	}
+	return SampleResult{Records: out, Note: note}, nil
 }
