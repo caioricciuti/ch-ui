@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,8 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
+	"github.com/caioricciuti/ch-ui/internal/testutil"
+	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
 
 const switchSecret = "test-secret"
@@ -305,5 +308,133 @@ func TestConnectionsReportSSOReadinessOnlyToSSOSessions(t *testing.T) {
 		if c.SSOReady != nil {
 			t.Fatal("password session must not see sso_ready")
 		}
+	}
+}
+
+// serverSwitchFixture signs alice in (stored password "right") on a
+// connection described by current and puts a live agent behind a second
+// connection described by target. It returns the target's ID and the agent,
+// whose messages show which passwords reached the target.
+func serverSwitchFixture(t *testing.T, current, target database.CreateConnectionParams) (*AuthHandler, *database.DB, string, *testutil.Agent) {
+	t.Helper()
+	db, err := database.Open(filepath.Join(t.TempDir(), "switch.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	current.Name, current.TunnelToken = "current", "current-token"
+	target.Name, target.TunnelToken = "target", "target-token"
+	currentID, err := db.CreateConnection(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetID, err := db.CreateConnection(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := testutil.NewAgent(t, db, "target-token", func(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
+		if msg.Type != "test_connection" {
+			return nil
+		}
+		ok := msg.Password == "right"
+		if !ok {
+			return &tunnel.AgentMessage{Type: "test_result", Online: &ok,
+				Error: "ClickHouse error: Code: 516. DB::Exception: alice: Authentication failed. (AUTHENTICATION_FAILED)"}
+		}
+		return &tunnel.AgentMessage{Type: "test_result", Online: &ok, Version: "25.1"}
+	})
+	deadline := time.Now().Add(5 * time.Second)
+	for !agent.Gateway.IsTunnelOnline(targetID) {
+		if time.Now().After(deadline) {
+			t.Fatal("agent never came online")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	h := &AuthHandler{DB: db, Gateway: agent.Gateway, RateLimiter: middleware.NewRateLimiter(db), Config: &config.Config{AppSecretKey: switchSecret}}
+	enc, err := crypto.Encrypt("right", switchSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetUserRole("alice", "analyst"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateSession(database.CreateSessionParams{
+		ConnectionID: currentID, ClickhouseUser: "alice", EncryptedPassword: enc, Token: "sess",
+		ExpiresAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339), UserRole: "analyst",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return h, db, targetID, agent
+}
+
+func directConn(url string) database.CreateConnectionParams {
+	return database.CreateConnectionParams{Type: database.ConnectionTypeDirect, ClickHouseURL: url}
+}
+
+func testedPasswords(agent *testutil.Agent) []string {
+	var out []string
+	for _, m := range agent.Messages() {
+		if m.Type == "test_connection" {
+			out = append(out, m.Password)
+		}
+	}
+	return out
+}
+
+func TestSwitchConnectionSameServerReusesPassword(t *testing.T) {
+	// Same host and port: case and the scheme's default port do not matter.
+	h, db, targetID, agent := serverSwitchFixture(t, directConn("http://CH.internal:8123"), directConn("http://ch.internal/"))
+	rec := postSwitch(h, `{"connection_id":"`+targetID+`"}`, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("same server: %d %s, want 200", rec.Code, rec.Body.String())
+	}
+	if got := testedPasswords(agent); len(got) != 1 || got[0] != "right" {
+		t.Fatalf("passwords sent to target: %v, want the stored one", got)
+	}
+	s, _ := db.GetSession(newSessionToken(t, rec))
+	if s == nil || s.ConnectionID != targetID {
+		t.Fatalf("session not moved to the target: %+v", s)
+	}
+}
+
+func TestSwitchConnectionOtherServerNeedsPassword(t *testing.T) {
+	cases := []struct {
+		name            string
+		current, target database.CreateConnectionParams
+	}{
+		{"different host", directConn("http://ch-a:8123"), directConn("http://ch-b:8123")},
+		{"different port", directConn("http://ch:8123"), directConn("http://ch:9123")},
+		{"agent target", directConn("http://ch:8123"), database.CreateConnectionParams{}},
+		{"agent to agent", database.CreateConnectionParams{}, database.CreateConnectionParams{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, db, targetID, agent := serverSwitchFixture(t, tc.current, tc.target)
+			rec := postSwitch(h, `{"connection_id":"`+targetID+`"}`, nil)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("%d %s, want 401", rec.Code, rec.Body.String())
+			}
+			var out map[string]interface{}
+			_ = json.Unmarshal(rec.Body.Bytes(), &out)
+			if out["needs_password"] != true || out["reason"] != "different_server" || out["message"] != "Different server, enter the password for alice." {
+				t.Fatalf("response: %v", out)
+			}
+			if strings.Contains(rec.Body.String(), "right") {
+				t.Fatal("stored password leaked into the response")
+			}
+			if got := testedPasswords(agent); len(got) != 0 {
+				t.Fatalf("target received passwords %v, want none", got)
+			}
+			if a := findAudit(auditActions(t, db), "user.login_failed", ""); a != nil {
+				t.Fatalf("failure recorded against the target: %+v", a)
+			}
+			if s, _ := db.GetSession("sess"); s == nil {
+				t.Fatal("refused switch dropped the session")
+			}
+			// The typed password goes through.
+			if rec := postSwitch(h, `{"connection_id":"`+targetID+`","username":"alice","password":"right"}`, nil); rec.Code != http.StatusOK {
+				t.Fatalf("typed password: %d %s", rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
