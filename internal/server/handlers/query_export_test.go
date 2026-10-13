@@ -56,6 +56,8 @@ func newExportFixture(t *testing.T, cfg *config.Config, user, password string) *
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ExportQuery(w, r.WithContext(middleware.SetSession(r.Context(), session)))
 	}))
+	// Runs after api.Close and before the database's temp dir is removed.
+	t.Cleanup(h.waitBackground)
 	t.Cleanup(api.Close)
 
 	return &exportFixture{db: db, conn: conn, gateway: gw, gwURL: "ws" + strings.TrimPrefix(gwSrv.URL, "http"), handler: h, api: api}

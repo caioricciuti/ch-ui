@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -29,7 +30,23 @@ type QueryHandler struct {
 	Gateway    *tunnel.Gateway
 	Config     *config.Config
 	Guardrails *governance.GuardrailService
+
+	// pending tracks history and audit writes that run after a response.
+	pending sync.WaitGroup
 }
+
+// background runs fn after the response without blocking it; tests wait
+// for it with waitBackground.
+func (h *QueryHandler) background(fn func()) {
+	h.pending.Add(1)
+	go func() {
+		defer h.pending.Done()
+		fn()
+	}()
+}
+
+// waitBackground blocks until every background write has finished.
+func (h *QueryHandler) waitBackground() { h.pending.Wait() }
 
 // Routes registers all query-related routes on the given chi.Router.
 func (h *QueryHandler) Routes(r chi.Router) {
@@ -242,7 +259,7 @@ func (h *QueryHandler) recordQueryHistory(connectionID, user, actor, query, stat
 	if len(errMsg) > maxHistoryErrorLen {
 		errMsg = truncateUTF8(errMsg, maxHistoryErrorLen) + " … [truncated]"
 	}
-	go func() {
+	h.background(func() {
 		if err := h.DB.CreateQueryHistoryEntry(database.CreateQueryHistoryParams{
 			ConnectionID: connectionID,
 			User:         user,
@@ -255,7 +272,7 @@ func (h *QueryHandler) recordQueryHistory(connectionID, user, actor, query, stat
 		}); err != nil {
 			slog.Warn("Failed to record query history", "error", err)
 		}
-	}()
+	})
 }
 
 // ExecuteQuery handles POST / and POST /run.
@@ -324,7 +341,7 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	if len(preview) > 100 {
 		preview = preview[:100] + "..."
 	}
-	go func() {
+	h.background(func() {
 		ip := getClientIP(r)
 		h.DB.CreateAuditLog(database.AuditLogParams{
 			Action:         "query.execute",
@@ -334,7 +351,7 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 			Details:        strPtr(preview),
 			IPAddress:      strPtr(ip),
 		})
-	}()
+	})
 
 	resp := executeQueryResponse{
 		Success:    true,
@@ -1114,7 +1131,7 @@ readChunks:
 	if len(preview) > 100 {
 		preview = preview[:100] + "..."
 	}
-	go func() {
+	h.background(func() {
 		h.DB.CreateAuditLog(database.AuditLogParams{
 			Action:         "query.stream",
 			Username:       strPtr(middleware.Actor(session)),
@@ -1123,7 +1140,7 @@ readChunks:
 			Details:        strPtr(preview),
 			IPAddress:      strPtr(getClientIP(r)),
 		})
-	}()
+	})
 }
 
 // ExplorerData handles POST /explorer-data — server-side paginated data browsing.
