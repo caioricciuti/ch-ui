@@ -20,6 +20,7 @@ import (
 
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/safe"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/xitongsys/parquet-go-source/local"
 	"github.com/xitongsys/parquet-go/reader"
@@ -874,7 +875,7 @@ func buildCreateTableSQL(req createTableRequest) (string, error) {
 			return "", fmt.Errorf("invalid type for column %q", colName)
 		}
 
-		part := escapeIdentifier(colName) + " " + colType
+		part := safe.Identifier(colName) + " " + colType
 		if def := strings.TrimSpace(col.DefaultExpression); def != "" {
 			if isUnsafeSQLFragment(def) {
 				return "", fmt.Errorf("invalid default expression for column %q", colName)
@@ -882,7 +883,7 @@ func buildCreateTableSQL(req createTableRequest) (string, error) {
 			part += " DEFAULT " + def
 		}
 		if comment := strings.TrimSpace(col.Comment); comment != "" {
-			part += " COMMENT '" + escapeLiteral(comment) + "'"
+			part += " COMMENT '" + safe.Literal(comment) + "'"
 		}
 		columnsSQL = append(columnsSQL, part)
 	}
@@ -923,12 +924,12 @@ func buildCreateTableSQL(req createTableRequest) (string, error) {
 	if ifNotExists {
 		sqlBuilder.WriteString("IF NOT EXISTS ")
 	}
-	sqlBuilder.WriteString(escapeIdentifier(dbName))
+	sqlBuilder.WriteString(safe.Identifier(dbName))
 	sqlBuilder.WriteString(".")
-	sqlBuilder.WriteString(escapeIdentifier(tableName))
+	sqlBuilder.WriteString(safe.Identifier(tableName))
 	if cluster != "" {
 		sqlBuilder.WriteString(" ON CLUSTER ")
-		sqlBuilder.WriteString(escapeIdentifier(cluster))
+		sqlBuilder.WriteString(safe.Identifier(cluster))
 	}
 	sqlBuilder.WriteString(" (\n  ")
 	sqlBuilder.WriteString(strings.Join(columnsSQL, ",\n  "))
@@ -961,7 +962,7 @@ func buildCreateTableSQL(req createTableRequest) (string, error) {
 	}
 	if comment != "" {
 		sqlBuilder.WriteString("\nCOMMENT '")
-		sqlBuilder.WriteString(escapeLiteral(comment))
+		sqlBuilder.WriteString(safe.Literal(comment))
 		sqlBuilder.WriteString("'")
 	}
 
@@ -997,7 +998,7 @@ func (h *QueryHandler) resolveInsertColumns(
 
 	result, err := h.Gateway.ExecuteQuery(
 		session.ConnectionID,
-		fmt.Sprintf("DESCRIBE TABLE %s.%s", escapeIdentifier(databaseName), escapeIdentifier(tableName)),
+		fmt.Sprintf("DESCRIBE TABLE %s.%s", safe.Identifier(databaseName), safe.Identifier(tableName)),
 		session.ClickhouseUser,
 		password,
 		20*time.Second,
@@ -1151,15 +1152,15 @@ func buildJSONEachRowInsertQuery(
 
 	var builder strings.Builder
 	builder.WriteString("INSERT INTO ")
-	builder.WriteString(escapeIdentifier(databaseName))
+	builder.WriteString(safe.Identifier(databaseName))
 	builder.WriteString(".")
-	builder.WriteString(escapeIdentifier(tableName))
+	builder.WriteString(safe.Identifier(tableName))
 	builder.WriteString(" (")
 	for idx, col := range columns {
 		if idx > 0 {
 			builder.WriteString(", ")
 		}
-		builder.WriteString(escapeIdentifier(col.Name))
+		builder.WriteString(safe.Identifier(col.Name))
 	}
 	builder.WriteString(") FORMAT JSONEachRow\n")
 

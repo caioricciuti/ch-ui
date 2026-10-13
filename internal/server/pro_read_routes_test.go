@@ -88,3 +88,70 @@ func TestProReadRoutesInGrace(t *testing.T) {
 		t.Errorf("no license GET /api/schema-compare/connections: got %d, want 402", rec.Code)
 	}
 }
+
+// The access control editor is admin only. In grace its reads and the plan
+// still work while apply returns 402; without a license all of it is 402.
+func TestRBACRouteGating(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "rbac-routes.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	conn, err := db.CreateConnection(database.CreateConnectionParams{Name: "test", TunnelToken: "test-only"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expires := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	for token, role := range map[string]string{"admin-session": "admin", "viewer-session": "viewer"} {
+		if _, err := db.CreateSession(database.CreateSessionParams{ConnectionID: conn, ClickhouseUser: role, UserRole: role, Token: token, ExpiresAt: expires}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	access := config.ProGrace
+	cfg := &config.Config{DevMode: true, AppSecretKey: "test-only"}
+	cfg.SetProAccessForTest(func() config.ProAccess { return access })
+	s := New(cfg, db, nil, nil)
+	defer s.gateway.Stop()
+
+	serve := func(token, method, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(`{"ops":[]}`))
+		req.AddCookie(&http.Cookie{Name: "chui_session", Value: token})
+		rec := httptest.NewRecorder()
+		s.router.ServeHTTP(rec, req)
+		return rec
+	}
+	routes := []struct{ method, path string }{
+		{"GET", "/api/rbac/snapshot"},
+		{"GET", "/api/rbac/entity/role/analyst"},
+		{"POST", "/api/rbac/plan"},
+		{"POST", "/api/rbac/apply"},
+	}
+	reached := func(code int) bool {
+		return code != http.StatusPaymentRequired && code != http.StatusForbidden && code != http.StatusNotFound && code != http.StatusMethodNotAllowed
+	}
+
+	for _, rt := range routes {
+		if rec := serve("viewer-session", rt.method, rt.path); rec.Code != http.StatusForbidden {
+			t.Errorf("viewer %s %s: got %d, want 403", rt.method, rt.path, rec.Code)
+		}
+	}
+	for _, rt := range routes[:3] {
+		if rec := serve("admin-session", rt.method, rt.path); !reached(rec.Code) {
+			t.Errorf("grace %s %s: got %d, want it to reach the handler", rt.method, rt.path, rec.Code)
+		}
+	}
+	if rec := serve("admin-session", "POST", "/api/rbac/apply"); rec.Code != http.StatusPaymentRequired {
+		t.Errorf("grace apply: got %d, want 402", rec.Code)
+	}
+
+	access = config.ProNone
+	for _, rt := range routes {
+		if rec := serve("admin-session", rt.method, rt.path); rec.Code != http.StatusPaymentRequired {
+			t.Errorf("no license %s %s: got %d, want 402", rt.method, rt.path, rec.Code)
+		}
+	}
+	access = config.ProActive
+	if rec := serve("admin-session", "POST", "/api/rbac/apply"); !reached(rec.Code) {
+		t.Errorf("active apply: got %d, want it to reach the handler", rec.Code)
+	}
+}

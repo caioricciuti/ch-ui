@@ -19,6 +19,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/brain/tools"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/safe"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
@@ -382,7 +383,7 @@ func (h *BrainHandler) buildSchemaContext(ctx context.Context, connID, chUser, c
 
 	var conds []string
 	for _, p := range picked {
-		conds = append(conds, fmt.Sprintf("(database='%s' AND table='%s')", escapeLiteral(p.db), escapeLiteral(p.name)))
+		conds = append(conds, fmt.Sprintf("(database='%s' AND table='%s')", safe.Literal(p.db), safe.Literal(p.name)))
 	}
 	if len(conds) == 0 {
 		return "", nil

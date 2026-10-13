@@ -17,6 +17,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/governance"
+	"github.com/caioricciuti/ch-ui/internal/safe"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"github.com/go-chi/chi/v5"
@@ -790,7 +791,7 @@ func (h *QueryHandler) SampleQuery(w http.ResponseWriter, r *http.Request) {
 		"SELECT * FROM (%s) AS __ch_ui_sample LIMIT %d BY %s",
 		base,
 		perShard,
-		escapeIdentifier(shardBy),
+		safe.Identifier(shardBy),
 	)
 
 	paramSettings := buildParamSettings(req.Params)
@@ -906,7 +907,7 @@ WHERE event_date >= today() - 1
   AND query_id = '%s'
   AND user = '%s'
 ORDER BY event_time DESC
-LIMIT 1`, escapeLiteral(queryID), escapeLiteral(session.ClickhouseUser))
+LIMIT 1`, safe.Literal(queryID), safe.Literal(session.ClickhouseUser))
 
 	settings := map[string]string{"log_queries": "0"}
 	var rows []map[string]interface{}
@@ -1192,14 +1193,14 @@ func (h *QueryHandler) ExplorerData(w http.ResponseWriter, r *http.Request) {
 
 	// Build data query with LIMIT/OFFSET
 	offset := req.Page * req.PageSize
-	dataSQL := fmt.Sprintf("SELECT * FROM %s.%s", escapeIdentifier(req.Database), escapeIdentifier(req.Table))
+	dataSQL := fmt.Sprintf("SELECT * FROM %s.%s", safe.Identifier(req.Database), safe.Identifier(req.Table))
 	if req.SortColumn != "" {
-		dataSQL += fmt.Sprintf(" ORDER BY %s %s", escapeIdentifier(req.SortColumn), sortDir)
+		dataSQL += fmt.Sprintf(" ORDER BY %s %s", safe.Identifier(req.SortColumn), sortDir)
 	}
 	dataSQL += fmt.Sprintf(" LIMIT %d OFFSET %d", req.PageSize, offset)
 
 	// Build count query
-	countSQL := fmt.Sprintf("SELECT count() FROM %s.%s", escapeIdentifier(req.Database), escapeIdentifier(req.Table))
+	countSQL := fmt.Sprintf("SELECT count() FROM %s.%s", safe.Identifier(req.Database), safe.Identifier(req.Table))
 
 	// Execute data query (JSONCompact — positional arrays, smaller payload)
 	dataRaw, err := h.Gateway.ExecuteQueryWithFormat(
@@ -1314,7 +1315,7 @@ func (h *QueryHandler) ListTables(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := fmt.Sprintf("SELECT name, engine FROM system.tables WHERE database = '%s' ORDER BY name", escapeLiteral(db))
+	query := fmt.Sprintf("SELECT name, engine FROM system.tables WHERE database = '%s' ORDER BY name", safe.Literal(db))
 
 	result, err := h.Gateway.ExecuteQuery(
 		session.ConnectionID,
@@ -1376,7 +1377,7 @@ func (h *QueryHandler) ListColumns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := fmt.Sprintf("DESCRIBE TABLE %s.%s", escapeIdentifier(dbName), escapeIdentifier(table))
+	query := fmt.Sprintf("DESCRIBE TABLE %s.%s", safe.Identifier(dbName), safe.Identifier(table))
 
 	result, err := h.Gateway.ExecuteQuery(
 		session.ConnectionID,
@@ -1704,10 +1705,10 @@ func (h *QueryHandler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 	if ifNotExists {
 		sqlBuilder.WriteString("IF NOT EXISTS ")
 	}
-	sqlBuilder.WriteString(escapeIdentifier(name))
+	sqlBuilder.WriteString(safe.Identifier(name))
 	if cluster != "" {
 		sqlBuilder.WriteString(" ON CLUSTER ")
-		sqlBuilder.WriteString(escapeIdentifier(cluster))
+		sqlBuilder.WriteString(safe.Identifier(cluster))
 	}
 	sqlBuilder.WriteString(" ENGINE = ")
 	sqlBuilder.WriteString(engine)
@@ -1781,10 +1782,10 @@ func (h *QueryHandler) DropDatabase(w http.ResponseWriter, r *http.Request) {
 	if ifExists {
 		sqlBuilder.WriteString("IF EXISTS ")
 	}
-	sqlBuilder.WriteString(escapeIdentifier(name))
+	sqlBuilder.WriteString(safe.Identifier(name))
 	if cluster != "" {
 		sqlBuilder.WriteString(" ON CLUSTER ")
-		sqlBuilder.WriteString(escapeIdentifier(cluster))
+		sqlBuilder.WriteString(safe.Identifier(cluster))
 	}
 	if req.Sync {
 		sqlBuilder.WriteString(" SYNC")
@@ -1878,7 +1879,7 @@ func (h *QueryHandler) CreateTable(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		part := escapeIdentifier(colName) + " " + colType
+		part := safe.Identifier(colName) + " " + colType
 		if def := strings.TrimSpace(col.DefaultExpression); def != "" {
 			if isUnsafeSQLFragment(def) {
 				writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid default expression for column %q", colName))
@@ -1887,7 +1888,7 @@ func (h *QueryHandler) CreateTable(w http.ResponseWriter, r *http.Request) {
 			part += " DEFAULT " + def
 		}
 		if comment := strings.TrimSpace(col.Comment); comment != "" {
-			part += " COMMENT '" + escapeLiteral(comment) + "'"
+			part += " COMMENT '" + safe.Literal(comment) + "'"
 		}
 		columnsSQL = append(columnsSQL, part)
 	}
@@ -1936,12 +1937,12 @@ func (h *QueryHandler) CreateTable(w http.ResponseWriter, r *http.Request) {
 	if ifNotExists {
 		sqlBuilder.WriteString("IF NOT EXISTS ")
 	}
-	sqlBuilder.WriteString(escapeIdentifier(dbName))
+	sqlBuilder.WriteString(safe.Identifier(dbName))
 	sqlBuilder.WriteString(".")
-	sqlBuilder.WriteString(escapeIdentifier(tableName))
+	sqlBuilder.WriteString(safe.Identifier(tableName))
 	if cluster != "" {
 		sqlBuilder.WriteString(" ON CLUSTER ")
-		sqlBuilder.WriteString(escapeIdentifier(cluster))
+		sqlBuilder.WriteString(safe.Identifier(cluster))
 	}
 	sqlBuilder.WriteString(" (\n  ")
 	sqlBuilder.WriteString(strings.Join(columnsSQL, ",\n  "))
@@ -1974,7 +1975,7 @@ func (h *QueryHandler) CreateTable(w http.ResponseWriter, r *http.Request) {
 	}
 	if comment != "" {
 		sqlBuilder.WriteString("\nCOMMENT '")
-		sqlBuilder.WriteString(escapeLiteral(comment))
+		sqlBuilder.WriteString(safe.Literal(comment))
 		sqlBuilder.WriteString("'")
 	}
 
@@ -2055,12 +2056,12 @@ func (h *QueryHandler) DropTable(w http.ResponseWriter, r *http.Request) {
 	if ifExists {
 		sqlBuilder.WriteString("IF EXISTS ")
 	}
-	sqlBuilder.WriteString(escapeIdentifier(dbName))
+	sqlBuilder.WriteString(safe.Identifier(dbName))
 	sqlBuilder.WriteString(".")
-	sqlBuilder.WriteString(escapeIdentifier(tableName))
+	sqlBuilder.WriteString(safe.Identifier(tableName))
 	if cluster != "" {
 		sqlBuilder.WriteString(" ON CLUSTER ")
-		sqlBuilder.WriteString(escapeIdentifier(cluster))
+		sqlBuilder.WriteString(safe.Identifier(cluster))
 	}
 	if req.Sync {
 		sqlBuilder.WriteString(" SYNC")
@@ -2173,21 +2174,6 @@ func (h *QueryHandler) ListCompletions(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Helpers ---
-
-// escapeIdentifier wraps a SQL identifier in backticks and escapes any inner backticks.
-func escapeIdentifier(name string) string {
-	// Backslash first: inside backticks it escapes the next character, so a
-	// name ending in \ would otherwise swallow the closing backtick.
-	escaped := strings.ReplaceAll(name, `\`, `\\`)
-	escaped = strings.ReplaceAll(escaped, "`", "``")
-	return "`" + escaped + "`"
-}
-
-// escapeLiteral escapes single quotes and backslashes for ClickHouse SQL string literals.
-// ClickHouse uses ” (doubled single-quote) to escape single quotes in string literals.
-func escapeLiteral(value string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(value, "\\", "\\\\"), "'", "''")
-}
 
 func stripTrailingSemicolon(query string) string {
 	return strings.TrimRight(query, " \n\t;")
