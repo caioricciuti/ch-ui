@@ -19,7 +19,7 @@ func RegisterModelActions(r *Registry) {
 
 var runModel = Tool{
 	Name:             "run_model",
-	Description:      "Materialize a single model: execute its SQL against the user's ClickHouse (CREATE OR REPLACE / INSERT depending on materialization). Use this after create_model so the user immediately sees results.",
+	Description:      "Build a model and its upstream models in the user's ClickHouse, then run their data tests. view: CREATE OR REPLACE VIEW; table: rebuilt through a temp table and swap; incremental: first run builds the table, later runs insert new rows; materialized_view: creates the target table and the <name>__mv trigger (backfilled on first build), later runs update the trigger's query. Same as build_model without full_refresh.",
 	RequiresApproval: true,
 	Parameters: mustJSON(map[string]any{
 		"type":     "object",
@@ -47,29 +47,31 @@ var runModel = Tool{
 			return nil, fmt.Errorf("run model: %w", err)
 		}
 		return map[string]any{
-			"started":  true,
+			"finished": true,
 			"model_id": in.ModelID,
 			"run_id":   runID,
 			"open_url": tctx.AbsURL("/models"),
-			"hint":     "Run is in-flight. Check /models for the run history.",
+			"hint":     "The run finished successfully. Run history is on /models.",
 		}, nil
 	},
 }
 
 var buildModel = Tool{
 	Name:             "build_model",
-	Description:      "Materialize a single model. Models have no data tests yet, so this does exactly what run_model does; it is kept for compatibility. Prefer run_model.",
+	Description:      "Build a model and its upstream models, then run their data tests (not_null, unique, accepted_values, relationship, expression). A failed error-severity test marks the model failed and skips its downstream models; warn tests are only recorded. Pass full_refresh=true to rebuild an incremental or materialized_view model from scratch (needed after its columns change).",
 	RequiresApproval: true,
 	Parameters: mustJSON(map[string]any{
 		"type":     "object",
 		"required": []string{"model_id"},
 		"properties": map[string]any{
-			"model_id": map[string]any{"type": "string"},
+			"model_id":     map[string]any{"type": "string"},
+			"full_refresh": map[string]any{"type": "boolean", "description": "Rebuild this model from scratch (incremental and materialized_view)."},
 		},
 	}),
 	Handler: func(tctx Context, args json.RawMessage) (any, error) {
 		var in struct {
-			ModelID string `json:"model_id"`
+			ModelID     string `json:"model_id"`
+			FullRefresh bool   `json:"full_refresh"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, fmt.Errorf("invalid args: %w", err)
@@ -81,16 +83,16 @@ var buildModel = Tool{
 		if tctx.BuildModel == nil {
 			return nil, errors.New("build_model is not available in this context")
 		}
-		runID, err := tctx.BuildModel(in.ModelID)
+		runID, err := tctx.BuildModel(in.ModelID, in.FullRefresh)
 		if err != nil {
 			return nil, fmt.Errorf("build model: %w", err)
 		}
 		return map[string]any{
-			"started":  true,
+			"finished": true,
 			"model_id": in.ModelID,
 			"run_id":   runID,
 			"open_url": tctx.AbsURL("/models"),
-			"hint":     "Run is in-flight. Check /models for the run history.",
+			"hint":     "Build and data tests finished successfully. Run history is on /models.",
 		}, nil
 	},
 }

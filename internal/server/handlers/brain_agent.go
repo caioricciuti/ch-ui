@@ -48,7 +48,7 @@ const proPromptRead = "Read-only tools (auto-execute, no approval needed):\n" +
 const proPromptWrite = "Mutating tools (the user must approve each one; they see a card with the full arguments and Approve/Decline):\n" +
 	"  Create (ALWAYS call the matching list_* first to avoid duplicates):\n" +
 	"  - create_saved_query(name, sql, description?)\n" +
-	"  - create_model(name, target_database, materialization, sql_body, ...): view | table | incremental | materialized_view\n" +
+	"  - create_model(name, target_database, materialization, sql_body, ..., tests?): view | table | incremental (append or delete_insert) | materialized_view; tests: not_null | unique | accepted_values | relationship | expression\n" +
 	"  - create_dashboard(name, description?): creates an empty dashboard; CHAIN add_dashboard_panel right after.\n" +
 	"  - add_dashboard_panel(dashboard_id, name, panel_type, sql, ...): timeseries | bar | pie | stat | gauge | table | text. THIS is how charts get on a dashboard. Always call get_dashboard first to see what's there.\n" +
 	"    Dashboard SQL supports template variables for time-range filtering (the dashboard time picker fills these in):\n" +
@@ -63,8 +63,8 @@ const proPromptWrite = "Mutating tools (the user must approve each one; they see
 	"  - configure_pipeline(pipeline_id, source: {node_type, config}, sink: {node_type, config}): ONE-SHOT source + sink + wire. Source types: source_webhook | source_kafka | source_database | source_s3. Sink: sink_clickhouse. Replaces any existing graph.\n" +
 	"  - start_pipeline(pipeline_id): begin ingestion.\n" +
 	"  Run / schedule models:\n" +
-	"  - run_model(model_id): materialize a model. Models have no data tests; build_model is the same as run_model.\n" +
-	"  - schedule_model(model_id, cron): cron is 5-field UTC (e.g. '0 6 * * *').\n" +
+	"  - run_model(model_id) / build_model(model_id, full_refresh?): build a model with its upstream models and run their data tests. full_refresh rebuilds an incremental or materialized_view model from scratch.\n" +
+	"  - schedule_model(model_id, cron, timezone?): saves a named pipeline (+model+) on a 5-field cron, read in timezone (default UTC).\n" +
 	"  Update:\n" +
 	"  - update_saved_query(id, ...) / update_model(id, ...): fix existing things instead of recreating. Unspecified fields keep their current value.\n" +
 	"  Delete (irreversible):\n" +
@@ -335,12 +335,12 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 		runner := h.ModelRunner
 		connID := session.ConnectionID
 		user := middleware.Actor(session)
-		run := func(modelID string) (string, error) {
+		tctx.RunModel = func(modelID string) (string, error) {
 			return runner.RunSingle(connID, modelID, user)
 		}
-		// Models have no data tests yet, so build_model runs the same thing.
-		tctx.RunModel = run
-		tctx.BuildModel = run
+		tctx.BuildModel = func(modelID string, fullRefresh bool) (string, error) {
+			return runner.RunModel(connID, modelID, "upstream", fullRefresh, user)
+		}
 	}
 	if h.PipelineRunner != nil {
 		runner := h.PipelineRunner

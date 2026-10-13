@@ -176,6 +176,13 @@ function loadTabs(): StorageFormat {
         // longer tabs; drop stale ones instead of rendering nothing.
         const TAB_TYPES: ReadonlySet<string> = new Set(['home', 'query', 'table', 'database', 'model'])
         parsed.tabs = parsed.tabs.filter((t: { type?: string }) => !!t.type && TAB_TYPES.has(t.type) && !isPageRouteType(t.type))
+        // Model tabs saved before models v2 lack the option fields.
+        for (const t of parsed.tabs) {
+          if (t.type === 'model') {
+            t.edit = withModelEditDefaults(t.edit)
+            t.base = withModelEditDefaults(t.base)
+          }
+        }
       }
       if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) {
         // Derive nextNum from existing query tab names
@@ -1007,6 +1014,28 @@ export function unsplit(): void {
 
 // ── Model tabs ──────────────────────────────────────────────────
 
+const MODEL_OPTION_DEFAULTS = {
+  partitionBy: '',
+  engineArgs: '',
+  incrementalStrategy: '',
+  uniqueKey: '',
+  watermarkColumn: '',
+}
+
+function withModelEditDefaults(state: Partial<ModelEditState> | undefined): ModelEditState {
+  return {
+    modelName: '',
+    description: '',
+    targetDatabase: 'default',
+    materialization: 'view',
+    sqlBody: '',
+    tableEngine: '',
+    orderBy: '',
+    ...MODEL_OPTION_DEFAULTS,
+    ...(state ?? {}),
+  }
+}
+
 function modelEditEqual(a: ModelEditState, b: ModelEditState): boolean {
   return a.modelName === b.modelName &&
     a.description === b.description &&
@@ -1014,7 +1043,12 @@ function modelEditEqual(a: ModelEditState, b: ModelEditState): boolean {
     a.materialization === b.materialization &&
     a.sqlBody === b.sqlBody &&
     a.tableEngine === b.tableEngine &&
-    a.orderBy === b.orderBy
+    a.orderBy === b.orderBy &&
+    a.partitionBy === b.partitionBy &&
+    a.engineArgs === b.engineArgs &&
+    a.incrementalStrategy === b.incrementalStrategy &&
+    a.uniqueKey === b.uniqueKey &&
+    a.watermarkColumn === b.watermarkColumn
 }
 
 interface ModelTabInput {
@@ -1026,6 +1060,11 @@ interface ModelTabInput {
   sql_body: string
   table_engine: string
   order_by: string
+  partition_by?: string
+  engine_args?: string
+  incremental_strategy?: string
+  unique_key?: string
+  watermark_column?: string
   status: string
   last_error: string | null
 }
@@ -1045,6 +1084,11 @@ export function openModelTab(model: ModelTabInput, targetGroupId?: string): void
     sqlBody: model.sql_body,
     tableEngine: model.table_engine,
     orderBy: model.order_by,
+    partitionBy: model.partition_by ?? '',
+    engineArgs: model.engine_args ?? '',
+    incrementalStrategy: model.incremental_strategy ?? '',
+    uniqueKey: model.unique_key ?? '',
+    watermarkColumn: model.watermark_column ?? '',
   }
 
   const tab: ModelTab = {

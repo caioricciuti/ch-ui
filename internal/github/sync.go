@@ -144,28 +144,27 @@ func (s *Syncer) doSync(connectionID, owner, repoName, branch, path, pat, lastSH
 		seen[p.Name] = true
 		ex, exists := existingByName[p.Name]
 
+		pm := p.Model()
 		if !exists {
-			id, err := s.db.CreateModel(
-				connectionID, p.Name, p.Frontmatter.Description,
-				p.Frontmatter.TargetDatabase, p.Frontmatter.Materialization,
-				p.SQLBody, p.Frontmatter.TableEngine, p.Frontmatter.OrderBy, "",
-			)
-			if err != nil {
+			// The model, its options and its tests are written in one
+			// transaction: a failure leaves no half-created model.
+			pm.ConnectionID, pm.Source = connectionID, "github"
+			if _, err := s.db.SaveModel(database.ModelSave{Model: pm, ReplaceTests: true, Tests: p.Tests}); err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("create %s: %v", p.Name, err))
 				continue
 			}
-			_ = s.db.SetModelSource(id, "github")
 			result.Created++
 			continue
 		}
 
-		if modelChanged(ex, p) {
-			err := s.db.UpdateModel(
-				ex.ID, p.Name, p.Frontmatter.Description,
-				p.Frontmatter.TargetDatabase, p.Frontmatter.Materialization,
-				p.SQLBody, p.Frontmatter.TableEngine, p.Frontmatter.OrderBy,
-			)
-			if err != nil {
+		testsChanged, err := s.testsChanged(ex.ID, p.Tests)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("tests of %s: %v", p.Name, err))
+			continue
+		}
+		if modelChanged(ex, p) || testsChanged {
+			pm.ID = ex.ID
+			if _, err := s.db.SaveModel(database.ModelSave{Model: pm, ReplaceTests: testsChanged, Tests: p.Tests}); err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("update %s: %v", p.Name, err))
 				continue
 			}
@@ -201,7 +200,28 @@ func modelNameFromPath(p string) string {
 	return strings.TrimSuffix(base, path.Ext(base))
 }
 
+// testsChanged reports whether the file's tests differ from the stored ones.
+func (s *Syncer) testsChanged(modelID string, want []database.ModelTest) (bool, error) {
+	have, err := s.db.GetModelTests(modelID)
+	if err != nil {
+		return false, err
+	}
+	if len(have) != len(want) {
+		return true, nil
+	}
+	for i := range want {
+		h, w := have[i], want[i]
+		if h.Kind != w.Kind || h.ColumnName != w.ColumnName || h.Args != w.Args || h.Severity != w.Severity {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func modelChanged(existing database.Model, parsed *ParsedModel) bool {
+	if existing.Options() != parsed.Model().Options() {
+		return true
+	}
 	if existing.SQLBody != parsed.SQLBody {
 		return true
 	}

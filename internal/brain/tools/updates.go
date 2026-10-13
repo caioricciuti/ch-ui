@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/models"
 )
 
 func RegisterUpdates(r *Registry) {
@@ -92,32 +93,35 @@ var updateSavedQuery = Tool{
 
 var updateModel = Tool{
 	Name:             "update_model",
-	Description:      "Update an existing model. Unspecified fields keep their current value. Use list_models to find the id; propose build_model in the same turn so the user sees the new output.",
+	Description:      "Update an existing model. Unspecified fields keep their current value. Materializations: view, table, incremental (append or delete_insert, with optional watermark_column), materialized_view. Changing an incremental or materialized_view model's columns needs a full refresh (build_model with full_refresh). Use list_models to find the id; propose build_model in the same turn so the user sees the new output.",
 	RequiresApproval: true,
 	Parameters: mustJSON(map[string]any{
 		"type":     "object",
 		"required": []string{"id"},
-		"properties": map[string]any{
+		"properties": withProps(modelOptionParams, map[string]any{
 			"id":              map[string]any{"type": "string"},
 			"name":            map[string]any{"type": "string"},
 			"description":     map[string]any{"type": "string"},
 			"target_database": map[string]any{"type": "string"},
-			"materialization": map[string]any{"type": "string", "enum": []string{"view", "table", "incremental", "materialized_view"}},
+			"materialization": map[string]any{"type": "string", "enum": []string{models.MaterializationView, models.MaterializationTable, models.MaterializationIncremental, models.MaterializationMaterializedView}},
 			"sql_body":        map[string]any{"type": "string"},
-			"table_engine":    map[string]any{"type": "string"},
-			"order_by":        map[string]any{"type": "string"},
-		},
+		}),
 	}),
 	Handler: func(tctx Context, args json.RawMessage) (any, error) {
 		var in struct {
-			ID              string `json:"id"`
-			Name            string `json:"name"`
-			Description     string `json:"description"`
-			TargetDatabase  string `json:"target_database"`
-			Materialization string `json:"materialization"`
-			SQLBody         string `json:"sql_body"`
-			TableEngine     string `json:"table_engine"`
-			OrderBy         string `json:"order_by"`
+			ID                  string  `json:"id"`
+			Name                string  `json:"name"`
+			Description         string  `json:"description"`
+			TargetDatabase      string  `json:"target_database"`
+			Materialization     string  `json:"materialization"`
+			SQLBody             string  `json:"sql_body"`
+			TableEngine         string  `json:"table_engine"`
+			OrderBy             string  `json:"order_by"`
+			PartitionBy         *string `json:"partition_by"`
+			EngineArgs          *string `json:"engine_args"`
+			IncrementalStrategy *string `json:"incremental_strategy"`
+			UniqueKey           *string `json:"unique_key"`
+			WatermarkColumn     *string `json:"watermark_column"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, fmt.Errorf("invalid args: %w", err)
@@ -130,8 +134,11 @@ var updateModel = Tool{
 		if err != nil {
 			return nil, fmt.Errorf("lookup model: %w", err)
 		}
-		if current == nil {
+		if current == nil || current.ConnectionID != tctx.ConnectionID {
 			return nil, fmt.Errorf("model %s not found", in.ID)
+		}
+		if current.Source == "github" {
+			return nil, errors.New("this model is managed by GitHub; edit it in the repository")
 		}
 		pick := func(new, old string) string {
 			if strings.TrimSpace(new) != "" {
@@ -139,17 +146,34 @@ var updateModel = Tool{
 			}
 			return old
 		}
-		err = tctx.DB.UpdateModel(
-			in.ID,
-			pick(in.Name, current.Name),
-			pick(in.Description, current.Description),
-			pick(in.TargetDatabase, current.TargetDatabase),
-			pick(in.Materialization, current.Materialization),
-			pick(in.SQLBody, current.SQLBody),
-			pick(in.TableEngine, current.TableEngine),
-			pick(in.OrderBy, current.OrderBy),
-		)
-		if err != nil {
+		opt := func(new *string, old string) string {
+			if new != nil {
+				return *new
+			}
+			return old
+		}
+		m := *current
+		m.Name = pick(in.Name, current.Name)
+		m.Description = pick(in.Description, current.Description)
+		m.TargetDatabase = pick(in.TargetDatabase, current.TargetDatabase)
+		m.Materialization = pick(in.Materialization, current.Materialization)
+		m.SQLBody = pick(in.SQLBody, current.SQLBody)
+		m.TableEngine = pick(in.TableEngine, current.TableEngine)
+		m.OrderBy = pick(in.OrderBy, current.OrderBy)
+		m.PartitionBy = opt(in.PartitionBy, current.PartitionBy)
+		m.EngineArgs = opt(in.EngineArgs, current.EngineArgs)
+		m.IncrementalStrategy = opt(in.IncrementalStrategy, current.IncrementalStrategy)
+		m.UniqueKey = opt(in.UniqueKey, current.UniqueKey)
+		m.WatermarkColumn = opt(in.WatermarkColumn, current.WatermarkColumn)
+		if err := models.ValidateModelName(m.Name); err != nil {
+			return nil, err
+		}
+		if err := models.NormalizeModel(&m); err != nil {
+			return nil, err
+		}
+		// One transaction; a rename rewrites the pipeline selectors naming
+		// the old name.
+		if _, err := tctx.DB.SaveModel(database.ModelSave{Model: m, RenameInSelector: models.RenameInSelector}); err != nil {
 			return nil, fmt.Errorf("update model: %w", err)
 		}
 		return map[string]any{

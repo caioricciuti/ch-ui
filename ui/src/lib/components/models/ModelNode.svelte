@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Handle, Position } from '@xyflow/svelte'
-  import { Eye, Table2 } from 'lucide-svelte'
   import type { Materialization, ModelStatus } from '../../types/models'
+  import { materializationInfo } from './materializations'
 
   interface Props {
     data: {
@@ -38,7 +38,8 @@
         : 'bg-fg-4'
   )
 
-  const Icon = $derived(data.materialization === 'table' ? Table2 : Eye)
+  const info = $derived(materializationInfo(data.materialization))
+  const Icon = $derived(info.icon)
 </script>
 
 <div class="rounded-lg border-2 {statusColor} {statusBg} shadow-sm min-w-[180px] cursor-pointer hover:shadow-md transition-shadow">
@@ -47,7 +48,7 @@
     <div class="min-w-0 flex-1">
       <div class="text-xs font-medium text-fg truncate">{data.name}</div>
       <div class="text-[10px] text-fg-3 flex items-center gap-1">
-        <span>{data.materialization}</span>
+        <span>{info.label}</span>
         <span class="opacity-50">|</span>
         <span>{data.target_database}</span>
       </div>

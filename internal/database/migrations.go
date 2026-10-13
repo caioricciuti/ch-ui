@@ -1290,6 +1290,10 @@ Formatting:
 		return err
 	}
 
+	if err := db.migrateModelsV2(); err != nil {
+		return err
+	}
+
 	// Record the applied schema version for upgrade observability.
 	if _, err := db.conn.Exec(
 		`INSERT INTO settings (key, value, updated_at) VALUES ('schema_version', ?, CURRENT_TIMESTAMP)

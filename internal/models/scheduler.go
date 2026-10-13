@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/caioricciuti/ch-ui/internal/cronexpr"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/safe"
 )
@@ -15,7 +14,7 @@ const modelTickInterval = 30 * time.Second
 // when the process stopped.
 const InterruptedRunMessage = "interrupted by restart"
 
-// Scheduler checks for due model schedules and triggers RunAll.
+// Scheduler checks for due model pipelines and runs their selectors.
 type Scheduler struct {
 	db     *database.DB
 	runner *Runner
@@ -31,9 +30,15 @@ func NewScheduler(db *database.DB, runner *Runner) *Scheduler {
 	}
 }
 
-// Start marks runs a previous process left in "running" as failed, then
-// begins the scheduler goroutine.
+// Start marks runs a previous process left in "running" as failed, copies
+// legacy per-anchor schedules into named pipelines, then begins the scheduler
+// goroutine.
 func (s *Scheduler) Start() {
+	if n, err := MigrateLegacySchedules(s.db); err != nil {
+		slog.Error("Failed to copy model schedules into pipelines", "error", err)
+	} else if n > 0 {
+		slog.Info("Copied model schedules into named pipelines", "pipelines", n)
+	}
 	if n, err := s.db.MarkInterruptedModelRuns(InterruptedRunMessage); err != nil {
 		slog.Error("Failed to close interrupted model runs", "error", err)
 	} else if n > 0 {
@@ -63,55 +68,44 @@ func (s *Scheduler) Stop() {
 }
 
 func (s *Scheduler) tick() {
-	schedules, err := s.db.GetEnabledModelSchedules()
+	pipelines, err := s.db.GetEnabledModelPipelines()
 	if err != nil {
-		slog.Error("Failed to load enabled model schedules", "error", err)
+		slog.Error("Failed to load scheduled model pipelines", "error", err)
 		return
 	}
 
 	now := time.Now().UTC()
-	for _, sched := range schedules {
-		if sched.NextRunAt == nil || sched.AnchorModelID == nil {
+	for _, p := range pipelines {
+		if p.NextRunAt == nil {
 			continue
 		}
-		nextRun, err := time.Parse(time.RFC3339, *sched.NextRunAt)
-		if err != nil {
-			continue
-		}
-		if nextRun.After(now) {
+		nextRun, err := time.Parse(time.RFC3339, *p.NextRunAt)
+		if err != nil || nextRun.After(now) {
 			continue
 		}
 
-		slog.Info("Model schedule triggered",
-			"connection_id", sched.ConnectionID,
-			"anchor_model_id", *sched.AnchorModelID,
-			"cron", sched.Cron)
+		slog.Info("Model pipeline schedule triggered",
+			"connection_id", p.ConnectionID, "pipeline", p.Name, "selector", p.Selector, "cron", p.Cron)
 
 		status := "success"
 		var runError string
-
-		// RunPipeline returns an error (a *RunFailedError, with the run
-		// recorded) when any model failed or was skipped, so a run with
-		// failures is never recorded as a success here.
-		_, runErr := s.runner.RunPipeline(sched.ConnectionID, *sched.AnchorModelID, "scheduler")
+		// Run returns an error (a *RunFailedError, with the run recorded)
+		// when any model failed or was skipped, so a run with failures is
+		// never recorded as a success here.
+		runID, runErr := s.runner.Run(p.ConnectionID, RunOptions{Selector: p.Selector, PipelineID: p.ID, TriggeredBy: "scheduler"})
 		if runErr != nil {
 			status = "error"
 			runError = runErr.Error()
-			slog.Error("Scheduled model run failed",
-				"connection_id", sched.ConnectionID,
-				"anchor_model_id", *sched.AnchorModelID,
-				"error", runErr)
+			slog.Error("Scheduled model pipeline failed", "connection_id", p.ConnectionID, "pipeline", p.Name, "error", runErr)
 		}
 
-		// Compute next run and update status by schedule ID
 		var nextRunAt *string
-		if next := cronexpr.ComputeNextRun(sched.Cron, time.Now().UTC()); next != nil {
-			formatted := next.Format(time.RFC3339)
+		if next := NextRuns(p.Cron, p.Timezone, time.Now(), 1); len(next) > 0 {
+			formatted := next[0].Format(time.RFC3339)
 			nextRunAt = &formatted
 		}
-
-		if err := s.db.UpdateModelScheduleStatusByID(sched.ID, status, runError, nextRunAt); err != nil {
-			slog.Error("Failed to update model schedule status", "schedule_id", sched.ID, "error", err)
+		if err := s.db.RecordModelPipelineRun(p.ID, status, runError, runID, nextRunAt); err != nil {
+			slog.Error("Failed to record model pipeline run", "pipeline_id", p.ID, "error", err)
 		}
 	}
 }

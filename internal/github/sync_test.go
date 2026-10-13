@@ -80,7 +80,7 @@ func TestSyncRecordsTheCommitOnlyWhenClean(t *testing.T) {
 	gh := &fakeGitHub{sha: "sha1", files: map[string]string{
 		"models/good.sql":     "SELECT 1 AS id",
 		"models/bad-name.sql": "SELECT 2",
-		"models/keep.sql":     "---\nmaterialization: incremental\n---\nSELECT 3",
+		"models/keep.sql":     "---\nmaterialization: ephemeral\n---\nSELECT 3",
 	}}
 	srv := httptest.NewServer(gh)
 	t.Cleanup(srv.Close)
@@ -141,8 +141,14 @@ func TestParseModelFileValidation(t *testing.T) {
 	if _, err := ParseModelFile("models/my-model.sql", "SELECT 1"); err == nil {
 		t.Error("a file name that is not an identifier must be rejected")
 	}
-	if _, err := ParseModelFile("models/m.sql", "---\nmaterialization: materialized_view\n---\nSELECT 1"); err == nil {
+	if _, err := ParseModelFile("models/m.sql", "---\nmaterialization: ephemeral\n---\nSELECT 1"); err == nil {
 		t.Error("unknown materialization must be rejected")
+	}
+	if _, err := ParseModelFile("models/m.sql", "---\nmaterialization: incremental\nincremental_strategy: delete_insert\n---\nSELECT 1"); err == nil {
+		t.Error("delete_insert without unique_key must be rejected")
+	}
+	if _, err := ParseModelFile("models/m.sql", "---\ntests:\n  - kind: accepted_values\n    column: status\n---\nSELECT 1"); err == nil {
+		t.Error("a test without its values must be rejected")
 	}
 	p, err := ParseModelFile("models/m.sql", "---\nmaterialization: table\norder_by: ''\n---\nSELECT 1")
 	if err != nil {
@@ -150,5 +156,97 @@ func TestParseModelFileValidation(t *testing.T) {
 	}
 	if p.Name != "m" || p.Frontmatter.TableEngine != "MergeTree" || p.Frontmatter.OrderBy != "tuple()" {
 		t.Fatalf("unexpected defaults: %+v", p)
+	}
+}
+
+func TestParseModelFileOptionsAndTests(t *testing.T) {
+	p, err := ParseModelFile("models/events.sql", `---
+materialization: incremental
+incremental_strategy: delete_insert
+unique_key: id
+watermark_column: updated_at
+table_engine: ReplacingMergeTree
+engine_args: updated_at
+partition_by: toYYYYMM(updated_at)
+order_by: id
+tests:
+  - kind: not_null
+    column: id
+  - kind: accepted_values
+    column: status
+    values: [paid, refunded]
+    severity: warn
+  - kind: relationship
+    column: user_id
+    to: users
+    field: id
+  - kind: expression
+    expression: amount >= 0
+---
+SELECT * FROM raw.events`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := p.Model()
+	if m.IncrementalStrategy != "delete_insert" || m.UniqueKey != "id" || m.EngineArgs != "updated_at" || m.PartitionBy != "toYYYYMM(updated_at)" {
+		t.Fatalf("options: %+v", m)
+	}
+	if len(p.Tests) != 4 || p.Tests[1].Severity != "warn" || p.Tests[1].Args != `{"values":["paid","refunded"]}` || p.Tests[2].Args != `{"to":"users","field":"id"}` || p.Tests[3].Args != `{"expression":"amount >= 0"}` {
+		t.Fatalf("tests: %+v", p.Tests)
+	}
+}
+
+func TestSyncCreatesModelAndTestsTogether(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "sync.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	conn, err := db.CreateConnection(database.CreateConnectionParams{Name: "c", TunnelToken: "c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pat, err := crypto.Encrypt("token", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SaveGitHubIntegration(conn, map[string]string{"repo": "o/r", "encrypted_pat": pat}); err != nil {
+		t.Fatal(err)
+	}
+	// Writing the tests fails, after the model row would have been written.
+	if _, err := db.Conn().Exec(`CREATE TRIGGER fail_tests BEFORE INSERT ON model_tests BEGIN SELECT RAISE(ABORT, 'injected'); END`); err != nil {
+		t.Fatal(err)
+	}
+	gh := &fakeGitHub{sha: "sha1", files: map[string]string{
+		"models/tested.sql": "---\nmaterialization: table\npartition_by: id\ntests:\n  - kind: not_null\n    column: id\n---\nSELECT 1 AS id",
+	}}
+	srv := httptest.NewServer(gh)
+	t.Cleanup(srv.Close)
+	s := &Syncer{db: db, secret: "secret", apiBase: srv.URL}
+
+	res, err := s.SyncConnection(conn, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Created != 0 || len(res.Errors) != 1 || !strings.Contains(res.Errors[0], "injected") {
+		t.Fatalf("want the create to fail on its tests, got %+v", res)
+	}
+	if m, _ := db.GetModelByName(conn, "tested"); m != nil {
+		t.Fatalf("a failed create left a half-created model: %+v", m)
+	}
+
+	if _, err := db.Conn().Exec(`DROP TRIGGER fail_tests`); err != nil {
+		t.Fatal(err)
+	}
+	res, err = s.SyncConnection(conn, "test")
+	if err != nil || res.Created != 1 || len(res.Errors) != 0 {
+		t.Fatalf("retry: %+v %v", res, err)
+	}
+	m, _ := db.GetModelByName(conn, "tested")
+	if m == nil || m.Source != "github" || m.PartitionBy != "id" {
+		t.Fatalf("model not created with its source and options: %+v", m)
+	}
+	if ts, _ := db.GetModelTests(m.ID); len(ts) != 1 || ts[0].Kind != "not_null" {
+		t.Fatalf("tests not created: %+v", ts)
 	}
 }

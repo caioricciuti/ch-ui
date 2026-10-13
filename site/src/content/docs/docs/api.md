@@ -266,17 +266,23 @@ and the provider supports tools.
 | `PUT` | `/api/models/{id}` | Update model |
 | `DELETE` | `/api/models/{id}` | Delete model |
 | `GET` | `/api/models/validate` | Validate all models (refs, cycles) |
-| `POST` | `/api/models/run` | Execute all models |
-| `POST` | `/api/models/{id}/run` | Execute single model + upstream deps |
+| `POST` | `/api/models/run` | Execute all models, or `{"selector": "+name"}` |
+| `POST` | `/api/models/{id}/run` | Execute a model with upstream deps; `{"scope": "upstream" \| "downstream" \| "only", "full_refresh": true}` |
+| `POST` | `/api/models/{id}/compile` | Resolved SQL and planned statements (optional `{"sql_body"}`) |
+| `POST` | `/api/models/preview` | First 100 rows of `{"sql_body", "model_id"?}`, read-only, session credentials |
+| `GET` | `/api/models/{id}/tests` | List data tests |
+| `POST` | `/api/models/{id}/tests` | Create data test |
+| `PUT` | `/api/models/{id}/tests/{testId}` | Update data test |
+| `DELETE` | `/api/models/{id}/tests/{testId}` | Delete data test |
 | `GET` | `/api/models/dag` | Get DAG for visualization |
 | `GET` | `/api/models/runs` | List runs (`?limit=&offset=`) |
 | `GET` | `/api/models/runs/{runId}` | Get run + per-model results |
-| `GET` | `/api/models/pipelines` | List pipelines (connected components) |
-| `POST` | `/api/models/pipelines/{anchorId}/run` | Execute pipeline |
-| `GET` | `/api/models/schedules` | List model schedules |
-| `GET` | `/api/models/schedule/{anchorId}` | Get pipeline schedule |
-| `PUT` | `/api/models/schedule/{anchorId}` | Create/update pipeline schedule |
-| `DELETE` | `/api/models/schedule/{anchorId}` | Delete pipeline schedule |
+| `GET` | `/api/models/pipelines` | List named pipelines with picked models and next runs |
+| `POST` | `/api/models/pipelines` | Create pipeline (`name`, `selector`, `cron`, `timezone`, `enabled`) |
+| `PUT` | `/api/models/pipelines/{id}` | Update pipeline |
+| `DELETE` | `/api/models/pipelines/{id}` | Delete pipeline |
+| `POST` | `/api/models/pipelines/{id}/run` | Execute pipeline |
+| `GET` | `/api/models/schedule-preview` | Next 3 run times for `?cron=&timezone=` |
 
 ### Pipelines (Data Ingestion)
 

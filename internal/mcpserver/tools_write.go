@@ -226,7 +226,12 @@ func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		if res := confirmWrite(deps, ak, req, fmt.Sprintf("Create draft model %q (%s in %s) in CH-UI?", name, mat, targetDB)); res != nil {
 			return res, nil, nil
 		}
-		id, err := deps.DB.CreateModel(ak.key.ConnectionID, name, strings.TrimSpace(args.Description), targetDB, mat, sqlBody, engine, orderBy, mcpAuthor(ak))
+		author := mcpAuthor(ak)
+		id, err := deps.DB.SaveModel(database.ModelSave{Model: database.Model{
+			ConnectionID: ak.key.ConnectionID, Name: name, Description: strings.TrimSpace(args.Description),
+			TargetDatabase: targetDB, Materialization: mat, SQLBody: sqlBody, TableEngine: engine, OrderBy: orderBy,
+			CreatedBy: &author,
+		}})
 		if err != nil {
 			return errResult("failed to create model (name taken on this connection?): %v", err), nil, nil
 		}

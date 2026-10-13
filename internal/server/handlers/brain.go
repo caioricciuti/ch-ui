@@ -59,6 +59,7 @@ type BrainHandler struct {
 // ModelRunner is the subset of *models.Runner Brain needs.
 type ModelRunner interface {
 	RunSingle(connectionID, modelID, triggeredBy string) (string, error)
+	RunModel(connectionID, modelID, scope string, fullRefresh bool, triggeredBy string) (string, error)
 }
 
 // PipelineRunner is the subset of *pipelines.Runner Brain needs.
