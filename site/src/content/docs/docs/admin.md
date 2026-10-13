@@ -181,7 +181,7 @@ SSO status and configuration also live in **Admin → Settings**: a status panel
 
 ## Brain configuration
 
-Brain's AI configuration (providers, models, and **skills**) lives in the **Admin → Brain** section, restricted to admins. Configure a provider (OpenAI, OpenAI-compatible, or Ollama), sync and activate models, and author skills there.
+Brain's AI configuration (providers, models, and **skills**) lives in the **Admin → Brain** section, restricted to admins. Configure a provider (Anthropic, OpenAI, OpenAI-compatible, or Ollama), sync and activate models, and author skills there.
 
 See [Brain → Configuring AI](/docs/brain#configuring-ai) for providers/models and [Brain → Skills](/docs/brain#skills) for authoring reusable expertise.
 

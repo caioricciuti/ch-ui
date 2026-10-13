@@ -55,7 +55,28 @@ ch-ui server --port 3488
 
 Open `http://localhost:3488`.
 
-If CH-UI cannot reach ClickHouse on the first run, use the setup code printed in the server log to point it at the right URL from the login page. Find it with `docker logs <container> 2>&1 | grep setup_code` (Docker), `journalctl -u ch-ui-server | grep setup_code` (systemd) or `kubectl logs deploy/<release>-ch-ui | grep setup_code` (Helm). See [First-run setup from the login page](/docs/cant-login/#first-run-setup-from-the-login-page).
+If CH-UI cannot reach ClickHouse on the first run, use the setup code printed in the server log to point it at the right URL from the login page. Find it with `docker logs <container> 2>&1 | grep setup_code` (Docker), `journalctl -u ch-ui-server | grep setup_code` (systemd) or `kubectl logs deploy/<release>-ch-ui | grep setup_code` (Helm). With `ch-ui server --detach` the log goes to `ch-ui-server.log` in the directory you started it from: `grep setup_code ./ch-ui-server.log`. See [First-run setup from the login page](/docs/cant-login/#first-run-setup-from-the-login-page).
+
+## Quick Start (Docker Compose)
+
+The repository's `docker-compose.yml` runs CH-UI and a local ClickHouse together:
+
+```bash
+docker compose up -d
+```
+
+Open `http://localhost:3488` and sign in with:
+
+- Username: `admin`
+- Password: `change-me-admin-password`
+
+That ClickHouse user is created by the compose file and has access management, so CH-UI makes it the admin. To pick your own:
+
+```bash
+CLICKHOUSE_ADMIN_USER=me CLICKHOUSE_ADMIN_PASSWORD='a-long-password' docker compose up -d
+```
+
+The ClickHouse container applies these every time it is recreated, so changing them and running `docker compose up -d` again is enough; your data is kept. If you rename the user after the first sign-in, the new name signs in as a viewer until an admin promotes it in Admin › Users. Also set `APP_SECRET_KEY` to a strong random value outside of a local test.
 
 ## Quick Start (Docker)
 
@@ -130,15 +151,16 @@ When the server starts, CH-UI can run an embedded connector against local ClickH
 
 ## Recommended First Steps
 
-1. Login with a ClickHouse username/password.
-2. If login fails, open [Can't login?](/docs/cant-login).
-3. Configure **Brain providers** in Admin.
-4. With a [Pro license](/pricing) activated, open **Governance** and run initial sync, then check **Query Insights** and **Cluster Health**.
+1. Sign in with a ClickHouse username and password. If that fails, open [Can't login?](/docs/cant-login).
+2. Run a first query: Home has starter queries that open in a new tab.
+3. Create a dashboard: **New from template** in Dashboards gives you a ready made one. See [Dashboards](/docs/dashboards).
+4. Configure **Brain providers** in Admin. See [Brain](/docs/brain).
+5. With a [Pro license](/pricing) activated, open **Governance** and run initial sync, then check **Query Insights** and **Cluster Health**.
 
 ## Next Steps
 
 <CardGrid>
   <LinkCard title="Can't Login?" href="/docs/cant-login" description="Local URL, retry windows, and login recovery" />
   <LinkCard title="Deployment" href="/docs/deployment" description="Run CH-UI and ClickHouse on separate hosts" />
-  <LinkCard title="Connections" href="/docs/ingestion" description="Set up tunnel agents and connection tokens" />
+  <LinkCard title="Connections" href="/docs/connections" description="Direct and tunnel connections, agents and tokens" />
 </CardGrid>

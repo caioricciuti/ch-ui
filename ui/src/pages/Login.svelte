@@ -304,6 +304,7 @@
     ["Docker", "docker logs <container> 2>&1 | grep setup_code"],
     ["systemd", "journalctl -u ch-ui-server | grep setup_code"],
     ["Helm", "kubectl logs deploy/<release>-ch-ui | grep setup_code"],
+    ["Detached", "grep setup_code ./ch-ui-server.log"],
   ] as const;
   const showSetupRecoveryCTA = $derived(errorKind === "connection" || errorKind === "rateLimit");
   const canSubmitSetup = $derived(Boolean(setupCode.trim() && setupFormName.trim() && setupFormURL.trim()));

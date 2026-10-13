@@ -5,6 +5,15 @@ description: Login model, session cookies, and admin authorization
 
 CH-UI authenticates users with ClickHouse credentials against a connection.
 
+> **Who becomes admin:** only the first ClickHouse admin to sign in becomes
+> the CH-UI admin. A ClickHouse user counts as admin when it can read
+> `system.users` (access management) or has grants like `ALL`, `CREATE` or
+> `DROP`. Every ClickHouse admin who signs in after that is a `viewer` in
+> CH-UI until a CH-UI admin grants the role in
+> [Admin > Users](/docs/admin#users). If no CH-UI admin can sign in, run
+> `ch-ui reset-admin` on the server. See
+> [Recover the admin role](/docs/cant-login/#recover-the-admin-role).
+
 > **Single Sign-On:** CH-UI also supports OIDC SSO (Okta, Entra ID, Google,
 > Keycloak, …) alongside password login. See **[Single Sign-On](/docs/sso)**.
 
