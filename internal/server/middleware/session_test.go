@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,5 +72,50 @@ func TestSessionRoleIsPerSSOPerson(t *testing.T) {
 	}
 	if role, _ := roleFor("tok-pw"); role != "admin" {
 		t.Fatalf("password login as svc_sso: role %q, want admin", role)
+	}
+}
+
+// A request naming a connection other than its session's is refused with
+// 409 connection_changed; a request without the header passes.
+func TestSessionConnectionGuard(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "guard.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	connID, err := db.CreateConnection(database.CreateConnectionParams{Name: "guard", TunnelToken: "cht_guard_test", Type: database.ConnectionTypeTunnel})
+	if err != nil {
+		t.Fatalf("CreateConnection: %v", err)
+	}
+	if _, err := db.CreateSession(database.CreateSessionParams{
+		ConnectionID: connID, ClickhouseUser: "alice", EncryptedPassword: "enc", Token: "tok-guard",
+		ExpiresAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	serve := func(header string) *httptest.ResponseRecorder {
+		h := Session(db, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		req := httptest.NewRequest(http.MethodGet, "/api/query", nil)
+		req.AddCookie(&http.Cookie{Name: "chui_session", Value: "tok-guard"})
+		if header != "" {
+			req.Header.Set(ConnectionHeader, header)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	if rec := serve(""); rec.Code != http.StatusNoContent {
+		t.Fatalf("no header: %d, want 204", rec.Code)
+	}
+	if rec := serve(connID); rec.Code != http.StatusNoContent {
+		t.Fatalf("matching header: %d, want 204", rec.Code)
+	}
+	rec := serve("some-other-connection")
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "connection_changed") {
+		t.Fatalf("mismatched header: %d %s, want 409 connection_changed", rec.Code, rec.Body.String())
 	}
 }

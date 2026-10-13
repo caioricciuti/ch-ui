@@ -1,4 +1,5 @@
 import { withBase } from '../basePath'
+import { connectionHeaders } from '../stores/workspace-scope'
 import type { ColumnMeta, QueryProgress, QueryStats, StreamMessage } from '../types/query'
 import { safeParse } from '../utils/safe-json'
 
@@ -19,7 +20,7 @@ export async function executeStreamQuery(
 ): Promise<void> {
   const res = await fetch(withBase('/api/query/stream'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...connectionHeaders() },
     body: JSON.stringify({ query: sql, maxResultRows, params }),
     credentials: 'include',
     signal,
@@ -130,7 +131,7 @@ export async function exportFullResult(
 ): Promise<{ blob: Blob; filename: string }> {
   const res = await fetch(withBase('/api/query/export'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...connectionHeaders() },
     body: JSON.stringify({ sql, format, params }),
     credentials: 'include',
     signal,

@@ -45,7 +45,7 @@
   async function signIn() {
     if (!selected) return
     signingIn = true
-    try { await login(selected.id, username, password); password = ''; selected = null; navigate(destination) }
+    try { await login(selected.id, username, password, undefined, destination); password = ''; selected = null; navigate(destination) }
     catch (e) { signInError = e instanceof Error ? e.message : 'Sign in failed'; password = '' }
     finally { signingIn = false }
   }

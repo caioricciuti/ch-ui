@@ -1,13 +1,23 @@
+import { toast } from 'svelte-sonner'
 import { withBase, stripBase } from '../basePath'
 import { safeParse } from '../utils/safe-json'
+import { connectionHeaders } from '../stores/workspace-scope'
 
-/** Error carrying the HTTP status so callers can branch on 403/502/503 etc. */
+/**
+ * Error carrying the HTTP status so callers can branch on 403/502/503 etc.
+ * body is the parsed response; retryAfter is the server's wait in seconds on
+ * a 429 (0 when it gave none).
+ */
 export class ApiError extends Error {
   readonly status: number
-  constructor(message: string, status: number) {
+  readonly body: unknown
+  readonly retryAfter: number
+  constructor(message: string, status: number, body: unknown = null, retryAfter = 0) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.body = body
+    this.retryAfter = retryAfter
   }
 }
 
@@ -30,6 +40,26 @@ async function parseResponseBody(res: Response): Promise<unknown> {
   const text = await res.text().catch(() => '')
   if (!text) return null
   return { message: text }
+}
+
+function retryAfterSeconds(res: Response, body: unknown): number {
+  const fromBody = isRecord(body) ? Number(body.retryAfter || body.retry_after || 0) : 0
+  if (fromBody > 0) return fromBody
+  const fromHeader = Number(res.headers.get('retry-after') || 0)
+  return Number.isFinite(fromHeader) && fromHeader > 0 ? fromHeader : 0
+}
+
+let reloadingForConnection = false
+
+/**
+ * The session moved to another connection in a different tab: this page
+ * still shows the old one, so say so and reload once.
+ */
+function handleConnectionChanged(): void {
+  if (reloadingForConnection) return
+  reloadingForConnection = true
+  toast.warning('The connection changed in another tab. Reloading.')
+  setTimeout(() => window.location.reload(), 1200)
 }
 
 function buildErrorMessage(status: number, body: unknown): string {
@@ -81,17 +111,24 @@ async function request<T = unknown>(
   const isFormDataBody =
     typeof FormData !== 'undefined' && options.body instanceof FormData
 
+  const { headers, ...rest } = options
   const res = await fetch(withBase(url), {
     credentials: 'include',
+    ...rest,
     headers: {
       ...(isFormDataBody ? {} : { 'Content-Type': 'application/json' }),
-      ...options.headers,
+      ...connectionHeaders(),
+      ...headers,
     },
-    ...options,
   })
 
   const body = await parseResponseBody(res)
   const isAuthEndpoint = url.startsWith('/api/auth/')
+
+  if (res.status === 409 && isRecord(body) && body.error === 'connection_changed') {
+    handleConnectionChanged()
+    throw new ApiError('The connection changed in another tab', res.status, body)
+  }
 
   if (res.status === 401 && !isAuthEndpoint) {
     // Session expired: sign in again, then come back to this page.
@@ -104,7 +141,7 @@ async function request<T = unknown>(
   }
 
   if (!res.ok || (isRecord(body) && body.success === false)) {
-    throw new ApiError(buildErrorMessage(res.status, body), res.status)
+    throw new ApiError(buildErrorMessage(res.status, body), res.status, body, res.status === 429 ? retryAfterSeconds(res, body) : 0)
   }
 
   return body as T

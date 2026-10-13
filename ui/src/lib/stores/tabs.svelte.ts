@@ -20,6 +20,7 @@ import type { ModelEditState } from '../types/models'
 import { createUUID } from '../utils/uuid'
 import { parseSavedParams } from '../utils/query-params'
 import { pushTabRouteForTab } from './router.svelte'
+import { onScopeChange, scoped } from './workspace-scope'
 
 // ── Tab types ────────────────────────────────────────────────────
 
@@ -122,6 +123,7 @@ const DEFAULT_RESULT_VIEW: ResultViewState = {
 
 // ── Persistence ─────────────────────────────────────────────────
 
+// Both are kept per user@connection scope (see workspace-scope.ts).
 const STORAGE_KEY = 'ch-ui-tabs'
 // Pinned results, per query tab id, so they survive a reload (bounded size).
 const PINNED_STORAGE_KEY = 'ch-ui-pinned-results'
@@ -140,8 +142,14 @@ interface StorageFormat {
 let persisted = true
 
 function saveTabs(): void {
+  // Nobody signed in: nothing to save, and nothing at risk.
+  const key = scoped(STORAGE_KEY)
+  if (!key) {
+    persisted = true
+    return
+  }
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    localStorage.setItem(key, JSON.stringify({
       tabs,
       groups,
       focusedGroupId,
@@ -153,13 +161,23 @@ function saveTabs(): void {
   }
 }
 
-function hasUnpersistedChanges(): boolean {
+/** True when edited tabs could not be written to storage and a reload would lose them. */
+export function hasUnpersistedChanges(): boolean {
   return !persisted && tabs.some((tab) => isTabDirty(tab.id))
+}
+
+// Set once the user already confirmed losing unsaved tabs (connection
+// switch), so the browser does not ask a second time.
+let unloadConfirmed = false
+
+/** Skip the leave-page prompt (true) or ask again (false, the navigation failed). */
+export function confirmUnload(confirmed = true): void {
+  unloadConfirmed = confirmed
 }
 
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', (e) => {
-    if (!hasUnpersistedChanges()) return
+    if (unloadConfirmed || !hasUnpersistedChanges()) return
     e.preventDefault()
     // Older browsers only show the prompt when returnValue is set.
     e.returnValue = ''
@@ -168,7 +186,8 @@ if (typeof window !== 'undefined') {
 
 function loadTabs(): StorageFormat {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const key = scoped(STORAGE_KEY)
+    const raw = key ? localStorage.getItem(key) : null
     if (raw) {
       const parsed = JSON.parse(raw)
       if (Array.isArray(parsed.tabs)) {
@@ -329,9 +348,7 @@ function normalizeTabsState(state: StorageFormat): StorageFormat {
   }
 }
 
-const initial = loadTabs()
-
-let tabs = $state<Tab[]>(initial.tabs.map((tab) => {
+function withBaseSql(tab: Tab): Tab {
   if (tab.type !== 'query') return tab
   const queryTab = tab as QueryTab
   return {
@@ -340,12 +357,41 @@ let tabs = $state<Tab[]>(initial.tabs.map((tab) => {
       ? queryTab.baseSql
       : (queryTab.dirty ? '' : queryTab.sql),
   }
-}))
+}
+
+function queryTabIds(state: StorageFormat): Set<string> {
+  return new Set(state.tabs.filter((t) => t.type === 'query').map((t) => t.id))
+}
+
+// The session is set before the Shell loads, so this usually reads the signed
+// in scope. When the Shell was prefetched on the sign-in page there is no
+// scope yet; rehydrateForScope runs once there is.
+const initial = loadTabs()
+
+let tabs = $state<Tab[]>(initial.tabs.map(withBaseSql))
 let groups = $state<TabGroup[]>(initial.groups)
 let focusedGroupId = $state<string>(initial.focusedGroupId)
-let results = $state<Map<string, TabResults>>(loadPinnedResults(new Set(initial.tabs.filter((t) => t.type === 'query').map((t) => t.id))))
+let results = $state<Map<string, TabResults>>(loadPinnedResults(queryTabIds(initial)))
 // Sort/filter state per result id.
 let resultViews = $state<Map<string, ResultViewState>>(new Map())
+
+/**
+ * Replaces every tab, group and result with what the active scope saved (a
+ * lone Home tab when nobody is signed in), so one person's workspace never
+ * stays in memory for the next.
+ */
+export function rehydrateForScope(): void {
+  nextNum = 1
+  const state = loadTabs()
+  tabs = state.tabs.map(withBaseSql)
+  groups = state.groups
+  focusedGroupId = state.focusedGroupId
+  results = loadPinnedResults(queryTabIds(state))
+  resultViews = new Map()
+  persisted = true
+}
+
+onScopeChange(rehydrateForScope)
 
 // Auto-save on any change (debounced via microtask)
 let saveQueued = false
@@ -429,7 +475,8 @@ export function getGroupActiveTabId(groupId: string): string {
 function loadPinnedResults(tabIds: Set<string>): Map<string, TabResults> {
   const out = new Map<string, TabResults>()
   try {
-    const raw = localStorage.getItem(PINNED_STORAGE_KEY)
+    const key = scoped(PINNED_STORAGE_KEY)
+    const raw = key ? localStorage.getItem(key) : null
     if (!raw) return out
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return out
@@ -456,9 +503,11 @@ function queuePinnedSave(): void {
       const saved = serializePinned(state)
       if (saved.length > 0) out[tabId] = saved
     }
+    const key = scoped(PINNED_STORAGE_KEY)
+    if (!key) return
     try {
-      if (Object.keys(out).length === 0) localStorage.removeItem(PINNED_STORAGE_KEY)
-      else localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(out))
+      if (Object.keys(out).length === 0) localStorage.removeItem(key)
+      else localStorage.setItem(key, JSON.stringify(out))
     } catch {
       // quota exceeded: pinned results still live for this page
     }

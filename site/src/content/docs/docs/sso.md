@@ -139,6 +139,12 @@ actions apart by email:
 - **Audit log:** the actor is the person's email; the ClickHouse account the
   action ran as is kept alongside it (`ch_user`).
 
+- **Switching connection:** an SSO person can switch to any connection that
+  has its own SSO service account, without typing anything. The session keeps
+  the email and role; queries then run as that connection's service account.
+  Connections without one show **SSO not set up** in the switcher, and the API
+  answers `409 sso_not_configured`.
+
 Shared by design: ClickHouse itself only sees the service account, so
 `system.query_log` and the query profile cannot tell SSO people apart.
 
@@ -177,6 +183,7 @@ shared them. On upgrade:
 | `GET` | `/api/auth/config` | Reports `oidc_enabled` and the SSO login URL (unauthenticated) |
 | `GET` | `/api/auth/oidc/login` | Starts the SSO flow (redirects to the IdP) |
 | `GET` | `/api/auth/oidc/callback` | IdP redirect target; creates the session |
+| `POST` | `/api/auth/switch-connection` | Move the SSO session to another connection with its service account |
 | `PUT` | `/api/connections/{id}/sso-account` | Set the connection's ClickHouse service account (admin) |
 | `GET` | `/api/admin/sso` | Current SSO config, secret redacted (admin) |
 | `PUT` | `/api/admin/sso` | Update DB-managed SSO config and hot-reload the provider (admin) |

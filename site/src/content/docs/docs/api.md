@@ -21,8 +21,8 @@ http://localhost:3488
 | `POST` | `/api/auth/login` | Session login |
 | `POST` | `/api/auth/logout` | Session logout |
 | `GET` | `/api/auth/session` | Session details |
-| `GET` | `/api/auth/connections` | Login-time connection list |
-| `POST` | `/api/auth/switch-connection` | Switch active connection |
+| `GET` | `/api/auth/connections` | Login-time connection list (with `sso_ready` per connection when the caller has an SSO session) |
+| `POST` | `/api/auth/switch-connection` | Move the session to another connection (needs the session cookie and `Content-Type: application/json`; see [Authentication](/docs/authentication#switching-connection)) |
 | `GET` | `/api/auth/oidc/login` | Start OIDC SSO (redirects to IdP) |
 | `GET` | `/api/auth/oidc/callback` | OIDC SSO redirect target |
 | `GET` | `/api/license` | Current license status |
@@ -94,6 +94,11 @@ The consent page in the app calls these with the session cookie:
 ## Session-Protected Endpoints
 
 All below require `chui_session` cookie.
+
+Optional `X-CHUI-Connection: <connection id>` header: when present and the
+session is on a different connection (it was switched in another tab), the
+request is refused with `409 {"error":"connection_changed"}` instead of
+running on the new connection. The UI sends it on every request.
 
 ### License
 

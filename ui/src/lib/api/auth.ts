@@ -90,3 +90,23 @@ export async function listConnections(): Promise<Connection[]> {
   const res = await apiGet<ConnectionsResponse>('/api/auth/connections')
   return res.connections ?? []
 }
+
+export interface SwitchConnectionParams {
+  connectionId: string
+  /** Omit, with password, to reuse the current ClickHouse user and password. */
+  username?: string
+  password?: string
+}
+
+/**
+ * Move the session to another connection. The server replaces the session
+ * cookie; the caller reloads. Errors are ApiError: 401 (body.needs_password
+ * when the current password was refused), 409 (sso_not_configured,
+ * session_changed), 429 (retryAfter), 503 (connection offline or unreachable).
+ */
+export function switchConnection(params: SwitchConnectionParams): Promise<LoginResponse> {
+  const body: Record<string, string> = { connection_id: params.connectionId }
+  if (params.username) body.username = params.username
+  if (params.password) body.password = params.password
+  return apiPost<LoginResponse>('/api/auth/switch-connection', body)
+}
