@@ -1,6 +1,6 @@
 ---
 title: Brain (AI Assistant)
-description: "Schema-aware AI copilot for ClickHouse: bring your own model, with custom skills, approvals and query result artifacts."
+description: "Schema-aware AI copilot for ClickHouse: bring your own model (Anthropic, OpenAI or local), with custom skills, approvals, usage tracking and query result artifacts."
 ---
 
 Brain is a built-in AI copilot that understands your ClickHouse schema and writes executable, ClickHouse-idiomatic SQL. It supports persisted multi-chat history, streaming responses, **skills** (reusable expertise applied to every chat), and **query result artifacts** (tables you can view as a chart, re-run from the SQL block, or open in the editor).
@@ -11,11 +11,41 @@ Brain runs on **your own LLM provider**: your key, your cost, unmetered. Configu
 
 | Kind | Base URL | Auth | Notes |
 |---|---|---|---|
+| `anthropic` | `https://api.anthropic.com` (default) | API key | Native Anthropic Messages API: Claude models, prompt caching, native tool use. See [Anthropic](#anthropic) |
 | `openai` | `https://api.openai.com` (default) | API key | Native OpenAI API |
 | `openai_compatible` | Any URL | API key, or none | Azure, OpenRouter, Together, Groq, an Anthropic gateway, or a local server (vLLM, LM Studio, llama.cpp) |
 | `ollama` | `http://localhost:11434` (default) | None | Local models via Ollama |
 
 An `openai_compatible` provider may be saved without a key. CH-UI then sends no `Authorization` header, which is what keyless local servers expect.
+
+### Anthropic
+
+Pick **Anthropic** under **Admin → Brain → Add provider**, paste an API key from the Anthropic Console (`sk-ant-...`, stored encrypted like every provider key) and click **Sync models**. Leave the base URL at `https://api.anthropic.com`, or point it at a proxy that speaks the Messages API (a root URL or one ending in `/v1` both work). If the proxy has no `/v1/models` endpoint, sync offers the current Claude models instead. **+ Model id** on a provider adds any other model id by hand, for a new release or a proxy alias.
+
+| Model | Use |
+|---|---|
+| `claude-sonnet-5-5` | The agent model: everyday Brain chat with tools |
+| `claude-opus-5-5` | Harder agent work, at about twice the Sonnet price |
+| `claude-haiku-5-5` | Quick tasks such as Ask AI |
+| `claude-fable-5-1` | The most capable and most expensive; only used when you choose it |
+
+How CH-UI calls it:
+
+- `POST {base}/v1/messages` with `x-api-key`, `anthropic-version: 2023-06-01`, streamed over SSE.
+- **Prompt caching.** The system prompt and the tool list carry an ephemeral `cache_control` marker, so that stable prefix is written to the cache once and read back at a tenth of the input price (or less) on every later request. One more marker on the newest message lets each step of an agent turn read the earlier steps from cache. Cache reads and writes show up in the usage numbers.
+- **Tool use.** Brain's tools are sent with their JSON schemas and `tool_choice: auto` (never forced). Tool results go back as `tool_result` blocks, with `is_error` when a tool failed. Within a turn, the model's own blocks (including its thinking, with signature) are sent back unchanged; if the API rejects a replayed thinking block, CH-UI retries once without thinking blocks.
+- **No `temperature` or `top_p`.** Current Claude models reject non-default sampling.
+- **Output limit.** `max_tokens` defaults to 16,384 (8,192 for Haiku); thinking counts toward it. Change it with **Output token limit** under **Model roles and limits**. When an answer reaches the limit, Brain says it was cut off. A refusal is reported in plain words too.
+- **Errors and retries.** `429` (rate limit) and `529` (overloaded) are retried up to three times, waiting what `retry-after` asks (at most 60 seconds) or 1, 2, then 4 seconds. Other errors are shown with the API's error type, message and request id.
+
+### Model roles
+
+**Admin → Brain → Model roles and limits** sets two models:
+
+- **Agent model** answers Brain chats that have no model picked.
+- **Quick model** answers Ask AI. A small model such as `claude-haiku-5-5` keeps it fast and cheap. Empty means the agent model.
+
+Either can stay on **Automatic**, which uses the default model.
 
 ### Recommended models
 
@@ -36,7 +66,8 @@ When you send a message, the model is resolved in this order:
 
 1. Model selected in the request
 2. The chat's stored model
-3. The default active model
+3. The **agent model** (Ask AI: the **quick model**, then the agent model)
+4. The default active model
 
 ## Ask AI (text-to-SQL)
 
@@ -59,12 +90,17 @@ The generation is **grounded in your metadata**, not guessed:
 - When the request carries the editor's current SQL (`current_sql`), the model
   edits that query instead of starting over.
 
-It uses the same AI provider as Brain. Always review generated SQL
-before running it.
+It uses the **quick model** (see [Model roles](#model-roles)) and streams: the
+query appears under the box as it is written, then goes into the editor. If the
+answer hit the output limit, you are told the SQL may be incomplete. Always
+review generated SQL before running it.
 
 :::note
-Endpoint: `POST /api/brain/generate-sql` with `{ "question": "...", "model_id": "?", "current_sql": "?" }`.
-Returns the SQL plus the list of tables it grounded on.
+Endpoints: `POST /api/brain/generate-sql` with `{ "question": "...", "model_id": "?", "current_sql": "?" }`
+returns JSON with the SQL, the tables it grounded on and the usage.
+`POST /api/brain/generate-sql/stream` takes the same body and answers with
+Server-Sent Events: `delta` events, then one `done` event (`sql`, `tables_used`,
+`model`, `usage`) or an `error` event.
 :::
 
 ## Chat workflow
@@ -184,9 +220,24 @@ When Brain runs `run_query`, or you press **Run** on a SQL block in its answer, 
 
 Query result artifacts are **read-only only**: `SELECT`, `WITH`, `SHOW`, `DESC`, `DESCRIBE`, `EXPLAIN`. They run with ClickHouse `readonly = 1` and return at most 1,000 rows and 16 MB; a `SETTINGS` or trailing `FORMAT` clause in the SQL is rejected, and governance policies apply. Default timeout 30s (max 5 min). Runs are logged as `brain.query.run`.
 
+## Usage and budgets
+
+Every chat turn and Ask AI request is recorded with the provider, the model and its tokens: input, output, cache read and cache write. An agent turn sums all of its steps. Counts come from what the provider reports: Anthropic's usage (including `cache_read_input_tokens` and `cache_creation_input_tokens`), OpenAI-style `usage` (cached prompt tokens split out as cache reads) and Ollama's eval counts. A provider that reports nothing records zeros.
+
+- **Under each answer**, a small footer shows the model, the tokens and, when the model has a price, the estimated cost. Hover it for the exact numbers.
+- **Admin → Brain → Usage** lists tokens per person and model for today, the last 7, 30 or 90 days, with totals and estimated cost.
+- **Prices** (admin) are US dollars per million tokens for input, output, cache read and cache write. New installs start with the Claude list prices; edit, add or clear any of them. A model without input and output prices shows no cost. Costs are estimates, not a bill. Some models charge more for very long prompts (for example `claude-haiku-5-5` above 100K input tokens); the estimate uses the base price, so it can read low for those requests.
+- **Daily token budget per person** (admin, optional) caps input, output and cache-write tokens per UTC day. Cache reads are not counted. A person past the budget gets a clear message (`429`) before the turn starts and nothing is sent to the provider; it resets at 00:00 UTC.
+
+The ledger lives in the `brain_usage` table; each assistant message also keeps its own counts.
+
+:::note
+Admin endpoints: `GET /api/admin/brain/usage?days=30`, `GET` and `PUT /api/admin/brain/settings` (`agentModelId`, `quickModelId`, `dailyTokenBudget`, `maxOutputTokens`, `prices`), `POST /api/admin/brain/providers/{id}/models` with `{ "name": "claude-sonnet-5-5" }`.
+:::
+
 ## Storage
 
-Chats, messages, artifacts, and skills are stored in CH-UI's **local SQLite database** on your own server. History survives restarts.
+Chats, messages, artifacts, skills and the usage ledger are stored in CH-UI's **local SQLite database** on your own server. History survives restarts.
 
 ## Safety defaults
 
@@ -201,4 +252,5 @@ Chats, messages, artifacts, and skills are stored in CH-UI's **local SQLite data
 | Artifact timeout | 30s default, 5 min max |
 | Schema context | Per message, from `@` mentions; no fixed table limit |
 | API key storage | Encrypted at rest with app secret key |
+| Token budget | Optional per person per UTC day, checked before a turn or Ask AI request starts |
 | Chat / artifact isolation | Scoped to username + connection; artifact actions verify chat ownership |

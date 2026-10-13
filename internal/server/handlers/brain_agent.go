@@ -355,6 +355,7 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 	var built strings.Builder
 	var streamErr error
 	var legacyFallback bool
+	var stopReason string
 	failureCounts := make(map[string]int)
 
 	// toolResult reports one finished call to the person and to the model.
@@ -372,6 +373,7 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 			ToolCallID: tc.ID,
 			Name:       tc.Function.Name,
 			Content:    tools.ModelView(tc.Function.Name, resultJSON),
+			IsError:    status == "error",
 		})
 	}
 	errorJSON := func(msg string) json.RawMessage {
@@ -388,6 +390,10 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 			built.WriteString(delta)
 			return stream.send(map[string]interface{}{"type": "delta", "delta": delta, "messageId": assistantMessageID})
 		})
+		if res != nil {
+			// Sum every iteration, also one that failed midway.
+			t.usage.Add(&res.ChatResult)
+		}
 		if errors.Is(err, braincore.ErrToolsUnsupported) {
 			legacyFallback = true
 			break
@@ -397,13 +403,17 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 			break
 		}
 		if res == nil || res.FinishReason != "tool_calls" || len(res.ToolCalls) == 0 {
+			if res != nil {
+				stopReason = res.StopReason
+			}
 			break
 		}
 
 		chatMessages = append(chatMessages, braincore.ChatMessage{
-			Role:      "assistant",
-			Content:   res.Content,
-			ToolCalls: res.ToolCalls,
+			Role:           "assistant",
+			Content:        res.Content,
+			ToolCalls:      res.ToolCalls,
+			ProviderBlocks: res.ProviderBlocks,
 		})
 		for _, tc := range res.ToolCalls {
 			argsRaw := json.RawMessage(tc.Function.Arguments)
@@ -534,13 +544,17 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 			}
 			legacyMsgs = append(legacyMsgs, braincore.Message{Role: m.Role, Content: m.Content})
 		}
-		_, err := t.provider.StreamChat(r.Context(), t.providerCfg, t.runtimeModel.ModelName, legacyMsgs, func(delta string) error {
+		legacyRes, err := t.provider.StreamChat(r.Context(), t.providerCfg, t.runtimeModel.ModelName, legacyMsgs, func(delta string) error {
 			if delta == "" {
 				return nil
 			}
 			built.WriteString(delta)
 			return stream.send(map[string]interface{}{"type": "delta", "delta": delta, "messageId": assistantMessageID})
 		})
+		if legacyRes != nil {
+			t.usage.Add(legacyRes)
+			stopReason = legacyRes.StopReason
+		}
 		if err != nil {
 			streamErr = err
 		}
@@ -560,5 +574,6 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 		return
 	}
 
+	h.sendStopNote(stream, t, &built, stopReason)
 	h.finishTurn(r, stream, t, built.String(), true)
 }

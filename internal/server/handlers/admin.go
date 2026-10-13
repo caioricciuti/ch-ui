@@ -59,6 +59,7 @@ func (h *AdminHandler) Routes(r chi.Router) {
 	r.Get("/brain/skills", h.ListBrainSkills)
 	r.Post("/brain/skills", h.CreateBrainSkill)
 	r.Put("/brain/skills/{id}", h.UpdateBrainSkill)
+	h.registerBrainUsageRoutes(r)
 
 	// Governance feature toggle
 	r.Get("/governance/settings", h.GetGovernanceSettings)

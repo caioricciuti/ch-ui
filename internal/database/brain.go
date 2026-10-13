@@ -81,6 +81,13 @@ type BrainMessage struct {
 	Error     *string `json:"error"`
 	CreatedAt string  `json:"created_at"`
 	UpdatedAt string  `json:"updated_at"`
+	// Usage of the provider calls behind an assistant message.
+	Provider         *string `json:"provider"`
+	Model            *string `json:"model"`
+	InputTokens      int     `json:"input_tokens"`
+	OutputTokens     int     `json:"output_tokens"`
+	CacheReadTokens  int     `json:"cache_read_tokens"`
+	CacheWriteTokens int     `json:"cache_write_tokens"`
 }
 
 // BrainArtifact stores generated artifacts linked to chats/messages.
@@ -789,7 +796,9 @@ func (db *DB) DeleteBrainChat(chatID string) error {
 
 // GetBrainMessages lists all messages in a chat.
 func (db *DB) GetBrainMessages(chatID string) ([]BrainMessage, error) {
-	rows, err := db.conn.Query(`SELECT id, chat_id, role, content, status, error, created_at, updated_at FROM brain_messages WHERE chat_id = ? ORDER BY created_at ASC`, chatID)
+	rows, err := db.conn.Query(`SELECT id, chat_id, role, content, status, error, created_at, updated_at,
+		provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+		FROM brain_messages WHERE chat_id = ? ORDER BY created_at ASC`, chatID)
 	if err != nil {
 		return nil, fmt.Errorf("get brain messages: %w", err)
 	}
@@ -798,11 +807,14 @@ func (db *DB) GetBrainMessages(chatID string) ([]BrainMessage, error) {
 	messages := make([]BrainMessage, 0)
 	for rows.Next() {
 		var m BrainMessage
-		var msgErr sql.NullString
-		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.Status, &msgErr, &m.CreatedAt, &m.UpdatedAt); err != nil {
+		var msgErr, provider, model sql.NullString
+		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.Status, &msgErr, &m.CreatedAt, &m.UpdatedAt,
+			&provider, &model, &m.InputTokens, &m.OutputTokens, &m.CacheReadTokens, &m.CacheWriteTokens); err != nil {
 			return nil, fmt.Errorf("scan brain message: %w", err)
 		}
 		m.Error = nullStringToPtr(msgErr)
+		m.Provider = nullStringToPtr(provider)
+		m.Model = nullStringToPtr(model)
 		messages = append(messages, m)
 	}
 	if err := rows.Err(); err != nil {

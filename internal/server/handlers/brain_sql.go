@@ -40,17 +40,31 @@ const (
 	tts2sqlColumnScan = 20000
 )
 
-// GenerateSQL handles text-to-SQL generation.
-func (h *BrainHandler) GenerateSQL(w http.ResponseWriter, r *http.Request) {
+// sqlGenJob is one prepared Ask AI request.
+type sqlGenJob struct {
+	actor        string
+	question     string
+	runtimeModel *database.BrainModelRuntime
+	provider     braincore.Provider
+	providerCfg  braincore.ProviderConfig
+	messages     []braincore.Message
+	tables       []string
+	prices       braincore.PriceTable
+}
+
+// prepareGenerateSQL validates an Ask AI request, checks the budget,
+// resolves the quick model and builds the grounded prompt. It writes the
+// error response itself and returns nil when the request cannot go on.
+func (h *BrainHandler) prepareGenerateSQL(w http.ResponseWriter, r *http.Request) *sqlGenJob {
 	session := middleware.GetSession(r)
 	if session == nil {
 		writeError(w, http.StatusUnauthorized, "Not authenticated")
-		return
+		return nil
 	}
 	// Gate like Brain's agentic tools: schema-grounded generation is Pro-only.
 	if !h.Config.IsPro() {
 		writeError(w, http.StatusPaymentRequired, "Ask AI (text-to-SQL) requires a Pro license")
-		return
+		return nil
 	}
 
 	var body struct {
@@ -62,25 +76,35 @@ func (h *BrainHandler) GenerateSQL(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
-		return
+		return nil
 	}
 	question := strings.TrimSpace(body.Question)
 	if question == "" {
 		writeError(w, http.StatusBadRequest, "Question is required")
-		return
+		return nil
 	}
 
-	runtimeModel, rmErr := h.resolveRuntimeModel(nil, strings.TrimSpace(body.ModelID))
+	settings := loadBrainSettings(h.DB)
+	actor := middleware.Actor(session)
+	if msg := budgetExceeded(h.DB, actor, settings); msg != "" {
+		writeError(w, http.StatusTooManyRequests, msg)
+		return nil
+	}
+	preferred := settings.QuickModelID
+	if preferred == "" {
+		preferred = settings.AgentModelID
+	}
+	runtimeModel, rmErr := h.resolveRuntimeModel(nil, strings.TrimSpace(body.ModelID), preferred)
 	if rmErr != nil {
 		writeError(w, http.StatusBadRequest, rmErr.Error())
-		return
+		return nil
 	}
 	provider, err := braincore.NewProvider(runtimeModel.ProviderKind)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return nil
 	}
-	providerCfg := braincore.ProviderConfig{Kind: runtimeModel.ProviderKind}
+	providerCfg := braincore.ProviderConfig{Kind: runtimeModel.ProviderKind, MaxTokens: settings.MaxOutputTokens}
 	if runtimeModel.ProviderBaseURL != nil {
 		providerCfg.BaseURL = *runtimeModel.ProviderBaseURL
 	}
@@ -88,7 +112,7 @@ func (h *BrainHandler) GenerateSQL(w http.ResponseWriter, r *http.Request) {
 		decrypted, decErr := crypto.Decrypt(*runtimeModel.ProviderEncryptedKey, h.Config.AppSecretKey)
 		if decErr != nil {
 			writeError(w, http.StatusInternalServerError, "Failed to decrypt provider API key")
-			return
+			return nil
 		}
 		providerCfg.APIKey = decrypted
 	}
@@ -96,7 +120,7 @@ func (h *BrainHandler) GenerateSQL(w http.ResponseWriter, r *http.Request) {
 	chPassword, decErr := crypto.Decrypt(session.EncryptedPassword, h.Config.AppSecretKey)
 	if decErr != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to decrypt credentials")
-		return
+		return nil
 	}
 
 	currentSQL := clipMiddle(strings.TrimSpace(body.CurrentSQL), tts2sqlMaxCurrentSQL)
@@ -132,45 +156,121 @@ func (h *BrainHandler) GenerateSQL(w http.ResponseWriter, r *http.Request) {
 	user.WriteString(question)
 	user.WriteString("\n\nReturn only the ClickHouse SQL.")
 
+	return &sqlGenJob{
+		actor:        actor,
+		question:     question,
+		runtimeModel: runtimeModel,
+		provider:     provider,
+		providerCfg:  providerCfg,
+		messages: []braincore.Message{
+			{Role: "system", Content: sysPrompt},
+			{Role: "user", Content: user.String()},
+		},
+		tables: tables,
+		prices: settings.Prices,
+	}
+}
+
+func (h *BrainHandler) auditGenerateSQL(r *http.Request, job *sqlGenJob) {
+	session := middleware.GetSession(r)
+	h.DB.CreateAuditLog(database.AuditLogParams{
+		Action:         "brain.generate_sql",
+		Username:       strPtr(job.actor),
+		ClickhouseUser: strPtr(session.ClickhouseUser),
+		ConnectionID:   strPtr(session.ConnectionID),
+		Details:        strPtr(job.question),
+		IPAddress:      strPtr(getClientIP(r)),
+	})
+}
+
+// GenerateSQL handles text-to-SQL generation and answers with JSON.
+func (h *BrainHandler) GenerateSQL(w http.ResponseWriter, r *http.Request) {
+	job := h.prepareGenerateSQL(w, r)
+	if job == nil {
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), tts2sqlGenWait)
 	defer cancel()
-	raw, genErr := completeOnce(ctx, provider, providerCfg, runtimeModel.ModelName, []braincore.Message{
-		{Role: "system", Content: sysPrompt},
-		{Role: "user", Content: user.String()},
-	})
+	raw, usage, genErr := completeOnce(ctx, job.provider, job.providerCfg, job.runtimeModel.ModelName, job.messages)
+	h.recordAskAIUsage(job.actor, job.runtimeModel, usage)
 	if genErr != nil {
 		writeError(w, http.StatusBadGateway, "AI generation failed: "+genErr.Error())
 		return
 	}
+	h.auditGenerateSQL(r, job)
 
-	h.DB.CreateAuditLog(database.AuditLogParams{
-		Action:         "brain.generate_sql",
-		Username:       strPtr(middleware.Actor(session)),
-		ClickhouseUser: strPtr(session.ClickhouseUser),
-		ConnectionID:   strPtr(session.ConnectionID),
-		Details:        strPtr(question),
-		IPAddress:      strPtr(getClientIP(r)),
-	})
-
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"success":     true,
 		"sql":         stripSQLFences(raw),
-		"tables_used": tables,
-		"model":       runtimeModel.ModelName,
+		"tables_used": job.tables,
+		"model":       job.runtimeModel.ModelName,
+	}
+	if usage != nil {
+		resp["usage"] = usagePayload(providerLabel(job.runtimeModel), job.runtimeModel.ModelName, *usage, job.prices)
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// GenerateSQLStream is GenerateSQL as Server-Sent Events: "delta" events
+// while the SQL is written, then one "done" event with the cleaned SQL, or
+// an "error" event.
+func (h *BrainHandler) GenerateSQLStream(w http.ResponseWriter, r *http.Request) {
+	job := h.prepareGenerateSQL(w, r)
+	if job == nil {
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "Streaming not supported")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	stream := newSSEStream(w, flusher)
+	stopHeartbeat := stream.startHeartbeat(r.Context(), brainHeartbeat)
+	defer stopHeartbeat()
+
+	ctx, cancel := context.WithTimeout(r.Context(), tts2sqlGenWait)
+	defer cancel()
+	var sb strings.Builder
+	usage, genErr := job.provider.StreamChat(ctx, job.providerCfg, job.runtimeModel.ModelName, job.messages, func(delta string) error {
+		sb.WriteString(delta)
+		return stream.send(map[string]any{"type": "delta", "delta": delta})
 	})
+	h.recordAskAIUsage(job.actor, job.runtimeModel, usage)
+	if genErr != nil {
+		_ = stream.send(map[string]any{"type": "error", "error": "AI generation failed: " + genErr.Error()})
+		return
+	}
+	h.auditGenerateSQL(r, job)
+	done := map[string]any{
+		"type":        "done",
+		"sql":         stripSQLFences(sb.String()),
+		"tables_used": job.tables,
+		"model":       job.runtimeModel.ModelName,
+	}
+	if usage != nil {
+		done["usage"] = usagePayload(providerLabel(job.runtimeModel), job.runtimeModel.ModelName, *usage, job.prices)
+		if usage.StopReason == "length" {
+			done["truncated"] = true
+		}
+	}
+	_ = stream.send(done)
 }
 
 // completeOnce runs a non-streaming completion by collecting stream deltas.
-func completeOnce(ctx context.Context, p braincore.Provider, cfg braincore.ProviderConfig, model string, messages []braincore.Message) (string, error) {
+// The usage is returned also when the call failed partway.
+func completeOnce(ctx context.Context, p braincore.Provider, cfg braincore.ProviderConfig, model string, messages []braincore.Message) (string, *braincore.ChatResult, error) {
 	var sb strings.Builder
-	_, err := p.StreamChat(ctx, cfg, model, messages, func(delta string) error {
+	usage, err := p.StreamChat(ctx, cfg, model, messages, func(delta string) error {
 		sb.WriteString(delta)
 		return nil
 	})
 	if err != nil {
-		return "", err
+		return "", usage, err
 	}
-	return sb.String(), nil
+	return sb.String(), usage, nil
 }
 
 // schemaTable is one table or view considered for the prompt.

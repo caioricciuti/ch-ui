@@ -70,6 +70,7 @@ type PipelineRunner interface {
 func (h *BrainHandler) Routes(r chi.Router) {
 	r.Get("/models", h.ListModels)
 	r.Post("/generate-sql", h.GenerateSQL) // Pro: text-to-SQL grounded in live schema
+	r.Post("/generate-sql/stream", h.GenerateSQLStream)
 	r.Get("/skills", h.GetSkill)
 	r.Get("/chats", h.ListChats)
 	r.Post("/chats", h.CreateChat)
@@ -404,6 +405,7 @@ func (h *BrainHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to load messages")
 		return
 	}
+	prices := loadBrainSettings(h.DB).Prices
 
 	// Re-hydrate tool cards for Pro chats: pull every tool call for this
 	// chat, group by message_id, and attach as `toolCalls` on each
@@ -439,6 +441,9 @@ func (h *BrainHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 		}
 		if cs, ok := calls[m.ID]; ok && len(cs) > 0 {
 			entry["toolCalls"] = cs
+		}
+		if u := messageUsage(m, prices); u != nil {
+			entry["usage"] = u
 		}
 		hydrated = append(hydrated, entry)
 	}
@@ -649,6 +654,12 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	settings := loadBrainSettings(h.DB)
+	if msg := budgetExceeded(h.DB, middleware.Actor(session), settings); msg != "" {
+		writeError(w, http.StatusTooManyRequests, msg)
+		return
+	}
+
 	userMessageID, err := h.DB.CreateBrainMessage(chatID, "user", prompt, "complete", "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to persist user message")
@@ -661,7 +672,7 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runtimeModel, err := h.resolveRuntimeModel(chat, strings.TrimSpace(body.ModelID))
+	runtimeModel, err := h.resolveRuntimeModel(chat, strings.TrimSpace(body.ModelID), settings.AgentModelID)
 	if err != nil {
 		_ = h.DB.UpdateBrainMessage(assistantMessageID, "", "error", err.Error())
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -675,7 +686,7 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerCfg := braincore.ProviderConfig{Kind: runtimeModel.ProviderKind}
+	providerCfg := braincore.ProviderConfig{Kind: runtimeModel.ProviderKind, MaxTokens: settings.MaxOutputTokens}
 	if runtimeModel.ProviderBaseURL != nil {
 		providerCfg.BaseURL = *runtimeModel.ProviderBaseURL
 	}
@@ -746,7 +757,12 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		omitted:            omitted,
 		contexts:           allContexts,
 		entities:           body.EntityContexts,
+		username:           middleware.Actor(session),
+		usage:              &braincore.ChatResult{},
+		prices:             settings.Prices,
 	}
+	// Record what the turn used however it ends: done, error or stopped.
+	defer h.saveTurnUsage(&turn)
 
 	// Pro path: agentic loop with tools (only if the provider supports tool calling).
 	if h.Config.IsPro() && braincore.SupportsTools(provider) {
@@ -773,6 +789,10 @@ type brainTurn struct {
 	omitted            int
 	contexts           []schemaContext
 	entities           []entityContext
+	username           string
+	// usage sums the token counts of every provider call in the turn.
+	usage  *braincore.ChatResult
+	prices braincore.PriceTable
 }
 
 func (h *BrainHandler) streamMessageCommunity(r *http.Request, stream *sseStream, t brainTurn) {
@@ -780,13 +800,19 @@ func (h *BrainHandler) streamMessageCommunity(r *http.Request, stream *sseStream
 	providerMessages := append([]braincore.Message{{Role: "system", Content: systemPrompt}}, toMessages(t.history)...)
 
 	var built strings.Builder
-	_, streamErr := t.provider.StreamChat(r.Context(), t.providerCfg, t.runtimeModel.ModelName, providerMessages, func(delta string) error {
+	res, streamErr := t.provider.StreamChat(r.Context(), t.providerCfg, t.runtimeModel.ModelName, providerMessages, func(delta string) error {
 		if delta == "" {
 			return nil
 		}
 		built.WriteString(delta)
 		return stream.send(map[string]interface{}{"type": "delta", "delta": delta, "messageId": t.assistantMessageID})
 	})
+	if res != nil {
+		t.usage.Add(res)
+		if streamErr == nil {
+			h.sendStopNote(stream, t, &built, res.StopReason)
+		}
+	}
 
 	if streamErr != nil {
 		if r.Context().Err() != nil {
@@ -862,10 +888,28 @@ func (h *BrainHandler) finishTurn(r *http.Request, stream *sseStream, t brainTur
 		IPAddress:      strPtr(getClientIP(r)),
 	})
 
-	_ = stream.send(map[string]interface{}{"type": "done", "messageId": t.assistantMessageID, "chatId": t.chatID})
+	done := map[string]interface{}{"type": "done", "messageId": t.assistantMessageID, "chatId": t.chatID}
+	if t.usage != nil {
+		done["usage"] = usagePayload(providerLabel(t.runtimeModel), t.runtimeModel.ModelName, *t.usage, t.prices)
+	}
+	_ = stream.send(done)
 }
 
-func (h *BrainHandler) resolveRuntimeModel(chat *database.BrainChat, requestedModelID string) (*database.BrainModelRuntime, error) {
+// sendStopNote appends a short note when the answer ended early (output cap
+// or a refusal), so the person knows it is not the whole answer.
+func (h *BrainHandler) sendStopNote(stream *sseStream, t brainTurn, built *strings.Builder, reason string) {
+	note := stopNote(reason)
+	if note == "" {
+		return
+	}
+	built.WriteString(note)
+	_ = stream.send(map[string]interface{}{"type": "delta", "delta": note, "messageId": t.assistantMessageID})
+}
+
+// resolveRuntimeModel picks the model for a request: the one asked for,
+// else the chat's model, else the admin's preferred model for the purpose
+// (agent or quick), else the default model.
+func (h *BrainHandler) resolveRuntimeModel(chat *database.BrainChat, requestedModelID, preferredModelID string) (*database.BrainModelRuntime, error) {
 	if requestedModelID != "" {
 		rt, err := h.DB.GetBrainModelRuntimeByID(requestedModelID)
 		if err != nil {
@@ -879,6 +923,13 @@ func (h *BrainHandler) resolveRuntimeModel(chat *database.BrainChat, requestedMo
 
 	if chat != nil && chat.ModelID != nil && strings.TrimSpace(*chat.ModelID) != "" {
 		rt, err := h.DB.GetBrainModelRuntimeByID(*chat.ModelID)
+		if err == nil && rt != nil && rt.ModelActive && rt.ProviderActive {
+			return rt, nil
+		}
+	}
+
+	if preferredModelID != "" {
+		rt, err := h.DB.GetBrainModelRuntimeByID(preferredModelID)
 		if err == nil && rt != nil && rt.ModelActive && rt.ProviderActive {
 			return rt, nil
 		}

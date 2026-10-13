@@ -26,6 +26,8 @@ func normalizeProviderKind(kind string) (string, bool) {
 		return "openai_compatible", true
 	case "ollama":
 		return "ollama", true
+	case "anthropic":
+		return "anthropic", true
 	default:
 		return "", false
 	}
@@ -225,7 +227,7 @@ func (h *AdminHandler) CreateBrainProvider(w http.ResponseWriter, r *http.Reques
 	}
 	kind, ok := normalizeProviderKind(body.Kind)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "Provider kind must be openai, openai_compatible, or ollama")
+		writeError(w, http.StatusBadRequest, "Provider kind must be anthropic, openai, openai_compatible, or ollama")
 		return
 	}
 
@@ -308,7 +310,7 @@ func (h *AdminHandler) UpdateBrainProvider(w http.ResponseWriter, r *http.Reques
 	if body.Kind != nil {
 		n, ok := normalizeProviderKind(*body.Kind)
 		if !ok {
-			writeError(w, http.StatusBadRequest, "Provider kind must be openai, openai_compatible, or ollama")
+			writeError(w, http.StatusBadRequest, "Provider kind must be anthropic, openai, openai_compatible, or ollama")
 			return
 		}
 		kind = n
