@@ -146,13 +146,15 @@ func (h *QueryHandler) ExportQuery(w http.ResponseWriter, r *http.Request) {
 		}
 		details := fmt.Sprintf("%s, %s, %d bytes: %s", req.Format, outcome, bytes, preview)
 		ip := getClientIP(r)
-		go h.DB.CreateAuditLog(database.AuditLogParams{
-			Action:         "query.export",
-			Username:       strPtr(actor),
-			ClickhouseUser: strPtr(session.ClickhouseUser),
-			ConnectionID:   strPtr(session.ConnectionID),
-			Details:        strPtr(details),
-			IPAddress:      strPtr(ip),
+		h.background(func() {
+			h.DB.CreateAuditLog(database.AuditLogParams{
+				Action:         "query.export",
+				Username:       strPtr(actor),
+				ClickhouseUser: strPtr(session.ClickhouseUser),
+				ConnectionID:   strPtr(session.ConnectionID),
+				Details:        strPtr(details),
+				IPAddress:      strPtr(ip),
+			})
 		})
 	}
 
