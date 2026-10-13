@@ -299,7 +299,7 @@
             streamErrored = true
             messages = messages.map((m, i) => i === assistantIdx ? { ...m, content: m.content || `Error: ${event.error ?? 'Unknown error'}`, status: 'error' } : m)
           } else if (event.type === 'done') {
-            messages = messages.map((m, i) => i === assistantIdx ? { ...m, status: 'complete' } : m)
+            messages = messages.map((m, i) => i === assistantIdx ? { ...m, status: 'complete', usage: event.usage ?? m.usage } : m)
           }
         },
         streamController?.signal,

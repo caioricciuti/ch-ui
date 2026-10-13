@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import type { BrainModelOption, BrainProviderAdmin, BrainSkill } from '../../types/brain'
   import {
+    adminAddBrainModel,
     adminBulkUpdateBrainModels,
     adminCreateBrainProvider,
     adminCreateBrainSkill,
@@ -32,6 +33,8 @@
   import Textarea from '../common/Textarea.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import { Brain, RefreshCw, Plus, Trash2, RefreshCcw } from 'lucide-svelte'
+  import BrainSettingsPanel from './BrainSettingsPanel.svelte'
+  import BrainUsagePanel from './BrainUsagePanel.svelte'
 
   // AI providers, the models they expose and the system prompt every Brain
   // chat starts from. Self-contained: loads on mount, reloads after writes.
@@ -48,16 +51,19 @@
   let deletingProvider = $state<BrainProviderAdmin | null>(null)
 
   const providerKindOptions = [
+    { value: 'anthropic', label: 'Anthropic' },
     { value: 'openai', label: 'OpenAI' },
     { value: 'openai_compatible', label: 'OpenAI compatible' },
     { value: 'ollama', label: 'Ollama (local)' },
   ]
   const providerKindDescriptions: Record<string, string> = {
+    anthropic: 'Claude models through the Anthropic API, with prompt caching and native tool use.',
     openai: 'The official OpenAI API: GPT-4o, o3 and friends.',
     openai_compatible: 'Any provider with an OpenAI-compatible API: Together, Groq, Azure, DeepSeek.',
     ollama: 'A local Ollama instance. No API key needed.',
   }
   const providerBaseUrls: Record<string, string> = {
+    anthropic: 'https://api.anthropic.com',
     openai: 'https://api.openai.com/v1',
     openai_compatible: '',
     ollama: 'http://localhost:11434',
@@ -65,8 +71,8 @@
 
   let providerForm = $state({
     name: '',
-    kind: 'openai',
-    baseUrl: 'https://api.openai.com/v1',
+    kind: 'anthropic',
+    baseUrl: 'https://api.anthropic.com',
     apiKey: '',
     isActive: true,
     isDefault: false,
@@ -109,7 +115,7 @@
 
   // ── Providers ─────────────────────────────────────────────
   function resetProviderForm() {
-    providerForm = { name: '', kind: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: '', isActive: true, isDefault: false }
+    providerForm = { name: '', kind: 'anthropic', baseUrl: 'https://api.anthropic.com', apiKey: '', isActive: true, isDefault: false }
     providerError = ''
     providerCreating = false
   }
@@ -180,6 +186,35 @@
     { key: 'is_default', label: 'Default', width: '80px', align: 'right', sortable: false },
   ]
   const providerRows = $derived(providers as ProviderRow[])
+
+  // ── Custom model ids ──────────────────────────────────────
+  const claudeModels = ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5', 'claude-fable-5-1']
+  let addModelProvider = $state<BrainProviderAdmin | null>(null)
+  let addModelName = $state('')
+  let addModelError = $state('')
+  let addingModel = $state(false)
+
+  function openAddModel(provider: BrainProviderAdmin) {
+    addModelProvider = provider
+    addModelName = ''
+    addModelError = ''
+  }
+
+  async function addModel() {
+    if (!addModelProvider) return
+    addModelError = ''
+    addingModel = true
+    try {
+      await adminAddBrainModel(addModelProvider.id, addModelName.trim())
+      toastSuccess(`Added ${addModelName.trim()}`)
+      addModelProvider = null
+      await loadAll()
+    } catch (e) {
+      addModelError = e instanceof Error && e.message ? e.message : 'Failed to add model'
+    } finally {
+      addingModel = false
+    }
+  }
 
   // ── Models ────────────────────────────────────────────────
   async function updateModel(model: BrainModelOption, key: 'is_active' | 'is_default', value: boolean) {
@@ -301,7 +336,7 @@
               size="compact"
               icon={Brain}
               title="No providers yet"
-              description="Add an OpenAI-compatible provider or a local Ollama to enable Brain."
+              description="Add Anthropic, an OpenAI-compatible provider or a local Ollama to enable Brain."
               primary={{ label: 'Add provider', onclick: () => (providerSheetOpen = true) }}
             />
           </Panel>
@@ -350,6 +385,9 @@
             {#snippet actions(row)}
               <Button size="xs" variant="outline" onclick={() => syncProviderModels(row)}>
                 <RefreshCcw size={12} /> Sync models
+              </Button>
+              <Button size="xs" variant="ghost" onclick={() => openAddModel(row)}>
+                <Plus size={12} /> Model id
               </Button>
               <Button icon size="xs" variant="ghost" class="text-danger hover:bg-danger-soft hover:text-danger" aria-label="Delete provider" title="Delete provider" onclick={() => (deletingProvider = row)}>
                 <Trash2 size={13} />
@@ -429,6 +467,10 @@
         {/if}
       </section>
 
+      <BrainSettingsPanel {models} />
+
+      <BrainUsagePanel />
+
       <section>
         <SectionHeader title="System prompt" description="Steers SQL safety, artifacts and tool behavior for every chat.">
           {#snippet actions()}
@@ -459,7 +501,7 @@
   >
     <div>
       <span class="mb-1.5 block text-xs font-medium text-fg-2">Provider type</span>
-      <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
+      <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
         {#each providerKindOptions as opt (opt.value)}
           <button
             type="button"
@@ -478,7 +520,7 @@
 
     <div class="space-y-3">
       <FormField label="Display name" for="provider-name" required controlWidth="full">
-        <Input id="provider-name" placeholder={providerForm.kind === 'ollama' ? 'Local Ollama' : providerForm.kind === 'openai' ? 'OpenAI' : 'My provider'} bind:value={providerForm.name} required />
+        <Input id="provider-name" placeholder={providerForm.kind === 'ollama' ? 'Local Ollama' : providerForm.kind === 'openai' ? 'OpenAI' : providerForm.kind === 'anthropic' ? 'Anthropic' : 'My provider'} bind:value={providerForm.name} required />
       </FormField>
       <FormField
         label="Base URL"
@@ -492,7 +534,7 @@
       </FormField>
       {#if providerForm.kind !== 'ollama'}
         <FormField label="API key" for="provider-api-key" controlWidth="full" hint="Stored encrypted. Never shown again after saving.">
-          <Input id="provider-api-key" mono type="password" placeholder="sk-..." autocomplete="new-password" bind:value={providerForm.apiKey} />
+          <Input id="provider-api-key" mono type="password" placeholder={providerForm.kind === 'anthropic' ? 'sk-ant-...' : 'sk-...'} autocomplete="new-password" bind:value={providerForm.apiKey} />
         </FormField>
       {:else}
         <Panel variant="muted" padding="sm">
@@ -556,6 +598,41 @@
   {#snippet footer()}
     <Button size="sm" variant="ghost" onclick={() => (skillSheetOpen = false)}>Cancel</Button>
     <Button size="sm" disabled={!skillForm.name.trim() || !skillForm.content.trim()} onclick={() => void saveSkill()}>Save prompt</Button>
+  {/snippet}
+</Sheet>
+
+<Sheet
+  open={addModelProvider !== null}
+  title="Add a model id"
+  description={addModelProvider ? `For ${addModelProvider.name}. Use it for a model the provider list does not return yet, or a proxy alias.` : ''}
+  size="sm"
+  onclose={() => (addModelProvider = null)}
+>
+  <form
+    class="space-y-4"
+    onsubmit={(e) => {
+      e.preventDefault()
+      void addModel()
+    }}
+  >
+    <FormField label="Model id" for="brain-model-id" required controlWidth="full" hint="Exactly as the API expects it. The model is added active.">
+      <Input id="brain-model-id" mono placeholder="claude-sonnet-5-5" bind:value={addModelName} required />
+    </FormField>
+    {#if addModelProvider?.kind === 'anthropic'}
+      <div class="flex flex-wrap gap-1.5">
+        {#each claudeModels as m (m)}
+          <Button size="xs" variant="outline" onclick={() => (addModelName = m)}>{m}</Button>
+        {/each}
+      </div>
+      <p class="text-xs text-fg-3">Sonnet 5.5 for the agent, Haiku 5.5 for quick tasks, Opus 5.5 for hard work. Fable 5.1 is the most capable and costs the most.</p>
+    {/if}
+    {#if addModelError}
+      <div class="rounded-md bg-danger-soft p-3"><p class="text-xs font-medium text-danger">{addModelError}</p></div>
+    {/if}
+  </form>
+  {#snippet footer()}
+    <Button size="sm" variant="ghost" onclick={() => (addModelProvider = null)}>Cancel</Button>
+    <Button size="sm" disabled={!addModelName.trim()} loading={addingModel} onclick={() => void addModel()}>Add model</Button>
   {/snippet}
 </Sheet>
 
