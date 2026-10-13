@@ -61,6 +61,20 @@ func (db *DB) MarkBrainApprovalDecided(id, status, decidedBy string) (bool, erro
 	return n > 0, nil
 }
 
+// AbandonBrainApproval settles an approval whose turn stopped before the
+// tool ran: a pending one, or one approved too late to run. A decline is
+// kept.
+func (db *DB) AbandonBrainApproval(id string) error {
+	if _, err := db.conn.Exec(
+		`UPDATE brain_approvals SET status = 'abandoned', decided_by = COALESCE(decided_by, 'system'), decided_at = ?
+		 WHERE id = ? AND status IN ('pending', 'approved')`,
+		time.Now().UTC().Format(time.RFC3339), id,
+	); err != nil {
+		return fmt.Errorf("abandon brain approval: %w", err)
+	}
+	return nil
+}
+
 // DecideBrainApprovalAs records a decision on a pending approval, but only
 // for the person who requested it (the chat owner, middleware.Actor). It
 // returns false when the approval does not exist, is not pending, or belongs

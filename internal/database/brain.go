@@ -777,6 +777,22 @@ func (db *DB) UpdateBrainChat(chatID, title, providerID, modelID string, archive
 	return nil
 }
 
+// SetBrainChatTurnModel records what a finished chat turn owns: the model
+// that answered, and a title when the chat still has the default one. Every
+// other column (a rename, archive or context set meanwhile) is left as is.
+func (db *DB) SetBrainChatTurnModel(chatID, providerID, modelID, autoTitle string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.conn.Exec(`UPDATE brain_chats SET
+			provider_id = ?, model_id = ?,
+			title = CASE WHEN TRIM(COALESCE(title, '')) IN ('', 'New Chat') THEN ? ELSE title END,
+			updated_at = ?
+		WHERE id = ?`,
+		nullableString(providerID), nullableString(modelID), strings.TrimSpace(autoTitle), now, chatID); err != nil {
+		return fmt.Errorf("set brain chat turn model: %w", err)
+	}
+	return nil
+}
+
 // TouchBrainChat updates last activity timestamp.
 func (db *DB) TouchBrainChat(chatID string) error {
 	now := time.Now().UTC().Format(time.RFC3339)

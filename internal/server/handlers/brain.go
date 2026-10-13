@@ -761,6 +761,7 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		usage:              &braincore.ChatResult{},
 		usageSaved:         new(bool),
 		prices:             settings.Prices,
+		budget:             settings.DailyTokenBudget,
 	}
 	// Record what the turn used however it ends: done, error or stopped.
 	defer h.saveTurnUsage(&turn)
@@ -794,6 +795,8 @@ type brainTurn struct {
 	// usage sums the token counts of every provider call in the turn.
 	usage  *braincore.ChatResult
 	prices braincore.PriceTable
+	// budget is the person's daily token budget (0 means none).
+	budget int
 	// usageSaved is shared by every copy of the turn so usage is stored once.
 	usageSaved *bool
 }
@@ -857,24 +860,10 @@ func (h *BrainHandler) finishTurn(r *http.Request, stream *sseStream, t brainTur
 		slog.Warn("Failed to update chat activity", "error", err)
 	}
 
-	chat := t.chat
-	title := chat.Title
-	if title == "New Chat" || strings.TrimSpace(title) == "" {
-		title = autoTitle(t.prompt)
-	}
-	streamCtxDB := ""
-	if chat.ContextDatabase != nil {
-		streamCtxDB = *chat.ContextDatabase
-	}
-	streamCtxTable := ""
-	if chat.ContextTable != nil {
-		streamCtxTable = *chat.ContextTable
-	}
-	streamCtxTables := ""
-	if chat.ContextTables != nil {
-		streamCtxTables = *chat.ContextTables
-	}
-	if err := h.DB.UpdateBrainChat(t.chatID, title, t.runtimeModel.ProviderID, t.runtimeModel.ModelID, chat.Archived, streamCtxDB, streamCtxTable, streamCtxTables); err != nil {
+	// Only the model and a first title belong to the turn. A rename,
+	// archive or context change made while it ran must survive, so the
+	// chat is not written back from the copy loaded at the start.
+	if err := h.DB.SetBrainChatTurnModel(t.chatID, t.runtimeModel.ProviderID, t.runtimeModel.ModelID, autoTitle(t.prompt)); err != nil {
 		slog.Warn("Failed to update chat title/model", "error", err)
 	}
 

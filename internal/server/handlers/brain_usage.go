@@ -82,6 +82,28 @@ func budgetExceeded(db *database.DB, username string, s brainSettings) string {
 		formatTokenCount(s.DailyTokenBudget), formatTokenCount(used))
 }
 
+// Stop reasons the agent loop sets itself, next to the provider's "length"
+// and "refusal".
+const (
+	stopReasonToolLimit = "tool_limit"
+	stopReasonBudget    = "budget"
+)
+
+// turnOverBudget reports whether the tokens stored today plus what this
+// turn used so far reach the daily budget. Usage is stored when a turn
+// ends, so the stored sum never includes the running turn.
+func (h *BrainHandler) turnOverBudget(t brainTurn) bool {
+	if t.budget <= 0 || h.DB == nil || t.usage == nil {
+		return false
+	}
+	used, err := h.DB.BrainTokensUsedSince(t.username, startOfDayUTC(time.Now()))
+	if err != nil {
+		slog.Warn("Failed to check Brain token budget", "error", err)
+		return false
+	}
+	return used+t.usage.Tokens() >= t.budget
+}
+
 func formatTokenCount(n int) string {
 	s := strconv.Itoa(n)
 	var out []byte
@@ -121,6 +143,10 @@ func stopNote(reason string) string {
 		return "\n\n_The answer was cut off because it reached the output token limit. Ask me to continue for the rest._"
 	case "refusal":
 		return "\n\n_The model declined to answer this request._"
+	case stopReasonToolLimit:
+		return fmt.Sprintf("\n\n_Stopped after %d steps in one turn. Ask me to continue if there is more to do._", brainMaxIterations)
+	case stopReasonBudget:
+		return "\n\n_Stopped because your daily Brain budget is used up. It resets at 00:00 UTC; an admin can raise it in Admin > Brain._"
 	default:
 		return ""
 	}

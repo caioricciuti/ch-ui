@@ -9,12 +9,14 @@
   interface Props {
     /** Draft question; bound so it survives closing and reopening the bar. */
     question: string
-    /** Put the generated SQL into the editor. */
+    /** The SQL the question is about (the selection or the current query). */
+    getSql?: () => string
+    /** Put the generated SQL into the editor in place of what getSql returned. */
     oninsert: (sql: string) => void
     onclose: () => void
   }
 
-  let { question = $bindable(), oninsert, onclose }: Props = $props()
+  let { question = $bindable(), getSql, oninsert, onclose }: Props = $props()
 
   // Ask AI (text-to-SQL), streamed so the query shows up as it is written.
   let asking = $state(false)
@@ -35,7 +37,9 @@
     preview = ''
     controller = new AbortController()
     try {
-      const res = await generateSQLStream({ question: q }, (text) => (preview += text), controller.signal)
+      // Send the query in the editor so the AI edits it instead of starting over.
+      const currentSql = getSql?.().trim() || undefined
+      const res = await generateSQLStream({ question: q, currentSql }, (text) => (preview += text), controller.signal)
       const sql = (res.sql ?? '').trim()
       if (!sql) {
         toastError('The AI did not return a query. Try rephrasing.')
@@ -46,7 +50,8 @@
       if (res.truncated) {
         toastError('The answer hit the output limit, so the SQL may be incomplete. Review it before running.')
       } else {
-        toastSuccess(`Generated SQL${used}. Review before running.`)
+        const undo = currentSql ? ' Undo restores your query.' : ''
+        toastSuccess(`Generated SQL${used}. Review before running.${undo}`)
       }
       onclose()
       question = ''
