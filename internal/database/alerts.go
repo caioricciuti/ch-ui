@@ -39,6 +39,9 @@ type AlertRule struct {
 	CreatedBy       *string `json:"created_by"`
 	CreatedAt       string  `json:"created_at"`
 	UpdatedAt       string  `json:"updated_at"`
+	// ConnectionIDs limits the rule to events of these connections; nil or
+	// empty means every connection.
+	ConnectionIDs []string `json:"connection_ids"`
 }
 
 // AlertRuleChannel binds an alert rule directly to a delivery channel with a
@@ -73,6 +76,9 @@ type AlertEvent struct {
 	Status       string  `json:"status"`
 	CreatedAt    string  `json:"created_at"`
 	ProcessedAt  *string `json:"processed_at"`
+	// SuppressedBy is 'silence:<id>' or 'ack:<id>' for an event that was
+	// held back instead of delivered.
+	SuppressedBy *string `json:"suppressed_by"`
 }
 
 type AlertDispatchJob struct {
@@ -240,7 +246,7 @@ func (db *DB) DeleteAlertRule(id string) error {
 
 func (db *DB) GetAlertRuleByID(id string) (*AlertRule, error) {
 	row := db.conn.QueryRow(
-		`SELECT id, name, event_type, severity_min, enabled, cooldown_seconds, max_attempts, subject_template, body_template, created_by, created_at, updated_at
+		`SELECT id, name, event_type, severity_min, enabled, cooldown_seconds, max_attempts, subject_template, body_template, created_by, created_at, updated_at, connection_ids
 		 FROM alert_rules WHERE id = ?`,
 		id,
 	)
@@ -249,7 +255,7 @@ func (db *DB) GetAlertRuleByID(id string) (*AlertRule, error) {
 
 func (db *DB) ListAlertRules() ([]AlertRule, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, name, event_type, severity_min, enabled, cooldown_seconds, max_attempts, subject_template, body_template, created_by, created_at, updated_at
+		`SELECT id, name, event_type, severity_min, enabled, cooldown_seconds, max_attempts, subject_template, body_template, created_by, created_at, updated_at, connection_ids
 		 FROM alert_rules
 		 ORDER BY created_at DESC`,
 	)
@@ -274,7 +280,7 @@ func (db *DB) ListAlertRules() ([]AlertRule, error) {
 
 func (db *DB) ListEnabledAlertRules() ([]AlertRule, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, name, event_type, severity_min, enabled, cooldown_seconds, max_attempts, subject_template, body_template, created_by, created_at, updated_at
+		`SELECT id, name, event_type, severity_min, enabled, cooldown_seconds, max_attempts, subject_template, body_template, created_by, created_at, updated_at, connection_ids
 		 FROM alert_rules
 		 WHERE enabled = 1
 		 ORDER BY created_at DESC`,
@@ -434,7 +440,7 @@ func (db *DB) ListAlertEvents(limit int, eventType, status string) ([]AlertEvent
 	args = append(args, limit)
 
 	query := fmt.Sprintf(
-		`SELECT id, connection_id, event_type, severity, title, message, payload_json, fingerprint, source_ref, status, created_at, processed_at
+		`SELECT id, connection_id, event_type, severity, title, message, payload_json, fingerprint, source_ref, status, created_at, processed_at, suppressed_by
 		 FROM alert_events
 		 WHERE %s
 		 ORDER BY created_at DESC
@@ -450,10 +456,10 @@ func (db *DB) ListAlertEvents(limit int, eventType, status string) ([]AlertEvent
 	out := make([]AlertEvent, 0)
 	for rows.Next() {
 		var item AlertEvent
-		var connectionID, payloadJSON, fingerprint, sourceRef, processedAt sql.NullString
+		var connectionID, payloadJSON, fingerprint, sourceRef, processedAt, suppressedBy sql.NullString
 		if err := rows.Scan(
 			&item.ID, &connectionID, &item.EventType, &item.Severity, &item.Title, &item.Message,
-			&payloadJSON, &fingerprint, &sourceRef, &item.Status, &item.CreatedAt, &processedAt,
+			&payloadJSON, &fingerprint, &sourceRef, &item.Status, &item.CreatedAt, &processedAt, &suppressedBy,
 		); err != nil {
 			return nil, fmt.Errorf("scan alert event: %w", err)
 		}
@@ -462,6 +468,7 @@ func (db *DB) ListAlertEvents(limit int, eventType, status string) ([]AlertEvent
 		item.Fingerprint = nullStringToPtr(fingerprint)
 		item.SourceRef = nullStringToPtr(sourceRef)
 		item.ProcessedAt = nullStringToPtr(processedAt)
+		item.SuppressedBy = nullStringToPtr(suppressedBy)
 		out = append(out, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -476,7 +483,7 @@ func (db *DB) ListNewAlertEvents(limit int) ([]AlertEvent, error) {
 	}
 
 	rows, err := db.conn.Query(
-		`SELECT id, connection_id, event_type, severity, title, message, payload_json, fingerprint, source_ref, status, created_at, processed_at
+		`SELECT id, connection_id, event_type, severity, title, message, payload_json, fingerprint, source_ref, status, created_at, processed_at, suppressed_by
 		 FROM alert_events
 		 WHERE status = 'new'
 		 ORDER BY created_at ASC
@@ -491,10 +498,10 @@ func (db *DB) ListNewAlertEvents(limit int) ([]AlertEvent, error) {
 	out := make([]AlertEvent, 0)
 	for rows.Next() {
 		var item AlertEvent
-		var connectionID, payloadJSON, fingerprint, sourceRef, processedAt sql.NullString
+		var connectionID, payloadJSON, fingerprint, sourceRef, processedAt, suppressedBy sql.NullString
 		if err := rows.Scan(
 			&item.ID, &connectionID, &item.EventType, &item.Severity, &item.Title, &item.Message,
-			&payloadJSON, &fingerprint, &sourceRef, &item.Status, &item.CreatedAt, &processedAt,
+			&payloadJSON, &fingerprint, &sourceRef, &item.Status, &item.CreatedAt, &processedAt, &suppressedBy,
 		); err != nil {
 			return nil, fmt.Errorf("scan new alert event: %w", err)
 		}
@@ -503,6 +510,7 @@ func (db *DB) ListNewAlertEvents(limit int) ([]AlertEvent, error) {
 		item.Fingerprint = nullStringToPtr(fingerprint)
 		item.SourceRef = nullStringToPtr(sourceRef)
 		item.ProcessedAt = nullStringToPtr(processedAt)
+		item.SuppressedBy = nullStringToPtr(suppressedBy)
 		out = append(out, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -770,11 +778,11 @@ func scanAlertRule(scanner interface {
 	Scan(dest ...interface{}) error
 }) (AlertRule, error) {
 	var item AlertRule
-	var subjectTemplate, bodyTemplate, createdBy sql.NullString
+	var subjectTemplate, bodyTemplate, createdBy, connectionIDs sql.NullString
 	var enabled int
 	if err := scanner.Scan(
 		&item.ID, &item.Name, &item.EventType, &item.SeverityMin, &enabled, &item.CooldownSeconds, &item.MaxAttempts,
-		&subjectTemplate, &bodyTemplate, &createdBy, &item.CreatedAt, &item.UpdatedAt,
+		&subjectTemplate, &bodyTemplate, &createdBy, &item.CreatedAt, &item.UpdatedAt, &connectionIDs,
 	); err != nil {
 		return item, fmt.Errorf("scan alert rule: %w", err)
 	}
@@ -782,16 +790,17 @@ func scanAlertRule(scanner interface {
 	item.SubjectTemplate = nullStringToPtr(subjectTemplate)
 	item.BodyTemplate = nullStringToPtr(bodyTemplate)
 	item.CreatedBy = nullStringToPtr(createdBy)
+	item.ConnectionIDs = parseConnectionIDs(connectionIDs)
 	return item, nil
 }
 
 func scanAlertRuleRow(row *sql.Row) (*AlertRule, error) {
 	var item AlertRule
 	var enabled int
-	var subjectTemplate, bodyTemplate, createdBy sql.NullString
+	var subjectTemplate, bodyTemplate, createdBy, connectionIDs sql.NullString
 	err := row.Scan(
 		&item.ID, &item.Name, &item.EventType, &item.SeverityMin, &enabled, &item.CooldownSeconds, &item.MaxAttempts,
-		&subjectTemplate, &bodyTemplate, &createdBy, &item.CreatedAt, &item.UpdatedAt,
+		&subjectTemplate, &bodyTemplate, &createdBy, &item.CreatedAt, &item.UpdatedAt, &connectionIDs,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -803,6 +812,7 @@ func scanAlertRuleRow(row *sql.Row) (*AlertRule, error) {
 	item.SubjectTemplate = nullStringToPtr(subjectTemplate)
 	item.BodyTemplate = nullStringToPtr(bodyTemplate)
 	item.CreatedBy = nullStringToPtr(createdBy)
+	item.ConnectionIDs = parseConnectionIDs(connectionIDs)
 	return &item, nil
 }
 

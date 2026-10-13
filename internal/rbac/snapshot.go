@@ -125,6 +125,43 @@ type Snapshot struct {
 	// not part of the fingerprint.
 	Privileges []Privilege `json:"privileges"`
 	Errors     []string    `json:"errors,omitempty"`
+
+	// The fields below feed the effective access explainer. None of them
+	// is part of the fingerprint, so plans made before they existed stay
+	// valid.
+
+	// UserSettings and RoleSettings hold the settings elements set
+	// directly on a user or role, in order: settings and inherited
+	// profiles.
+	UserSettings map[string][]ProfileElement `json:"user_settings,omitempty"`
+	RoleSettings map[string][]ProfileElement `json:"role_settings,omitempty"`
+	// PrivilegeParents maps a privilege to its parent_group in
+	// system.privileges (SELECT -> ALL).
+	PrivilegeParents map[string]string `json:"privilege_parents,omitempty"`
+	// QuotaUsage is system.quotas_usage, nil when the login cannot read it.
+	QuotaUsage []QuotaUsage `json:"quota_usage,omitempty"`
+	// Host is hostName() of the node that answered.
+	Host string `json:"host,omitempty"`
+	// MultiNode is true when system.clusters has a cluster of more than
+	// one node, so entities not stored in replicated storage are local.
+	MultiNode bool `json:"multi_node,omitempty"`
+}
+
+// ProfileElement is one settings element attached directly to a user or a
+// role: either a setting or an inherited profile.
+type ProfileElement struct {
+	Inherit string `json:"inherit,omitempty"`
+	ProfileSetting
+}
+
+// QuotaUsage is one row of system.quotas_usage: the consumption of one
+// quota key in one interval.
+type QuotaUsage struct {
+	Quota    string             `json:"quota"`
+	Key      string             `json:"key"`
+	Duration uint64             `json:"duration"`
+	EndTime  string             `json:"end_time,omitempty"`
+	Used     map[string]float64 `json:"used"`
 }
 
 // Privilege is one row of system.privileges.
@@ -136,7 +173,7 @@ type Privilege struct {
 // ReadSnapshot reads every access entity visible to the session user. A
 // failed section is recorded in Errors and left empty; the rest still loads.
 func ReadSnapshot(ctx context.Context, ex Executor) (*Snapshot, error) {
-	s := &Snapshot{RoleProfiles: map[string][]string{}}
+	s := &Snapshot{RoleProfiles: map[string][]string{}, UserSettings: map[string][]ProfileElement{}, RoleSettings: map[string][]ProfileElement{}}
 	fail := func(section string, err error) {
 		s.Errors = append(s.Errors, section+": "+err.Error())
 	}
@@ -210,14 +247,46 @@ func ReadSnapshot(ctx context.Context, ex Executor) (*Snapshot, error) {
 	}
 	readCapabilities(ctx, ex, s)
 	s.Privileges = []Privilege{}
-	if rows, err := ex.Query(ctx, `SELECT toString(privilege) AS name, ifNull(toString(level), '') AS level FROM system.privileges ORDER BY name`, nil); err == nil {
+	s.PrivilegeParents = map[string]string{}
+	if rows, err := ex.Query(ctx, `SELECT toString(privilege) AS name, ifNull(toString(level), '') AS level, ifNull(toString(parent_group), '') AS parent
+		FROM system.privileges ORDER BY name`, nil); err == nil {
 		for _, r := range rows {
-			if name := str(r, "name"); privilegeRe.MatchString(name) {
+			name := str(r, "name")
+			if parent := str(r, "parent"); parent != "" {
+				s.PrivilegeParents[name] = parent
+			}
+			if privilegeRe.MatchString(name) {
 				s.Privileges = append(s.Privileges, Privilege{Name: name, Level: str(r, "level")})
 			}
 		}
 	}
+	readExplainerFacts(ctx, ex, s)
 	return s, nil
+}
+
+// readExplainerFacts loads what only the explainer needs. Failures leave the
+// field empty and are not recorded as errors, since the editor does not
+// depend on them.
+func readExplainerFacts(ctx context.Context, ex Executor, s *Snapshot) {
+	if rows, err := ex.Query(ctx, `SELECT hostName() AS h`, nil); err == nil && len(rows) > 0 {
+		s.Host = str(rows[0], "h")
+	}
+	if rows, err := ex.Query(ctx, `SELECT count() AS n FROM (SELECT cluster FROM system.clusters GROUP BY cluster HAVING count() > 1)`, nil); err == nil && len(rows) > 0 {
+		s.MultiNode = u64(rows[0], "n") > 0
+	}
+	if rows, err := ex.Query(ctx, `SELECT * FROM system.quotas_usage`, nil); err == nil {
+		s.QuotaUsage = []QuotaUsage{}
+		for _, r := range rows {
+			u := QuotaUsage{Quota: str(r, "quota_name"), Key: str(r, "quota_key"), Duration: u64(r, "duration"), EndTime: str(r, "end_time"), Used: map[string]float64{}}
+			for _, res := range QuotaResources {
+				if v, ok := r[res]; ok && v != nil {
+					f, _ := strconv.ParseFloat(str(r, res), 64)
+					u.Used[res] = f
+				}
+			}
+			s.QuotaUsage = append(s.QuotaUsage, u)
+		}
+	}
 }
 
 func readQuotas(ctx context.Context, ex Executor, s *Snapshot) error {
@@ -285,11 +354,19 @@ func readProfiles(ctx context.Context, ex Executor, s *Snapshot) error {
 		return err
 	}
 	for _, r := range elems {
-		profile, role := str(r, "profile_name"), str(r, "role_name")
+		profile, role, user := str(r, "profile_name"), str(r, "role_name"), str(r, "user_name")
 		inherit := str(r, "inherit_profile")
-		if role != "" {
-			if inherit != "" {
-				s.RoleProfiles[role] = append(s.RoleProfiles[role], inherit)
+		if role != "" || user != "" {
+			el := ProfileElement{Inherit: inherit, ProfileSetting: ProfileSetting{
+				Name: str(r, "setting_name"), Value: optStr(r, "value"), Min: optStr(r, "min"), Max: optStr(r, "max"), Writability: str(r, "writability"),
+			}}
+			if role != "" {
+				if inherit != "" {
+					s.RoleProfiles[role] = append(s.RoleProfiles[role], inherit)
+				}
+				s.RoleSettings[role] = append(s.RoleSettings[role], el)
+			} else {
+				s.UserSettings[user] = append(s.UserSettings[user], el)
 			}
 			continue
 		}

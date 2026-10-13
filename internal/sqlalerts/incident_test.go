@@ -229,3 +229,37 @@ func TestSQLStateWaitsForItsEvent(t *testing.T) {
 		t.Fatalf("want exactly one resolve, got %d", resolved)
 	}
 }
+
+// Firing and resolve events carry the alert key and the same incident id,
+// so an acknowledgement covers exactly one incident.
+func TestSQLAlertEventsCarryIncident(t *testing.T) {
+	db, conn := testutil.WorkerDB(t)
+	var v atomic.Int64
+	v.Store(150)
+	agent := valueAgent(t, db, &v, nil)
+	id := createAlert(t, db, database.SQLAlert{ConnectionID: conn, Name: "lag", SQL: "SELECT 1 AS v", Comparator: "gte", Threshold: 100,
+		ForEvaluations: 1, ResolveEvaluations: 1, Enabled: true})
+	r := NewRunner(db, agent.Gateway, nil, "test-secret", nil)
+	if _, err := r.Evaluate(mustGet(t, db, id), Credentials{User: "u"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	v.Store(0)
+	if _, err := r.Evaluate(mustGet(t, db, id), Credentials{User: "u"}); err != nil {
+		t.Fatal(err)
+	}
+	evs := sqlEvents(t, db)
+	if len(evs) != 2 {
+		t.Fatalf("want firing and resolve, got %d", len(evs))
+	}
+	var ids []alerts.EventIdentity
+	for _, ev := range evs {
+		ids = append(ids, alerts.IdentifyEvent(ev))
+	}
+	if ids[0].AlertKey != AlertKey(id) || ids[0].AlertKey != ids[1].AlertKey || ids[0].IncidentID == "" || ids[0].IncidentID != ids[1].IncidentID {
+		t.Fatalf("identities %+v", ids)
+	}
+	if !strings.Contains(*evs[0].PayloadJSON, `"status":"resolved"`) && !strings.Contains(*evs[1].PayloadJSON, `"status":"resolved"`) {
+		t.Fatal("no resolve")
+	}
+}

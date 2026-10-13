@@ -116,6 +116,64 @@ The plan carries a hash of its statements and of the access state it was built
 on. If anyone changes access control between the review and **Apply**, apply
 returns `409` and the review rebuilds.
 
+## Effective access
+
+**Governance → Effective access** (`/governance?section=effective-access`)
+answers two questions without changing anything:
+
+- **What can this user do here, and why?** Pick a user, a database, a table
+  (both optional) and a privilege (`SELECT` by default), then **Explain**.
+- **Who can do this here?** Leave the user blank. The table lists every user
+  holding the privilege, at login and after `SET ROLE ALL`, through which
+  role path, and whether row policies filter what they read. Click a user to
+  explain them.
+
+The verdict line shows two badges: **At login** (the user's default roles)
+and **After SET ROLE** (every granted role). Below it, one row per step:
+the source path (`user ana > role analyst > role reader`), the statement, and
+its effect (**Allows**, **Removes**, **Filters rows**, **Limits**,
+**Blocks**). The **Explain access** link in a user's sheet under Access
+control opens this section for that user (`?section=effective-access&user=<name>`).
+
+How the answer is built:
+
+- Roles are followed through roles granted to roles, with cycles stopped.
+  Default roles honour `DEFAULT ROLE ALL EXCEPT`.
+- A grant covers a privilege through `system.privileges` groups (`ALL`
+  covers `SELECT`, `ALTER` covers `ALTER UPDATE`). For each user or role the
+  most specific level wins, so a partial revoke only subtracts from the user
+  or role it was made on: a revoke in role A never cancels a grant from role
+  B. Column grants show as "Only a, b".
+- Row policies that apply to the user or an active role combine as ClickHouse
+  does: permissive ones with `OR`, restrictive ones with `AND`. When the table
+  has policies but none permissive applies, the result depends on
+  `users_without_row_policies_can_read_rows`, which CH-UI cannot read, so both
+  outcomes are shown.
+- Settings from profiles (assigned with `TO`, inherited, or set on a role or
+  the user) are listed with their source. `readonly` 1 or 2 blocks writes,
+  `allow_ddl = 0` blocks DDL, and `CONST` settings are reported.
+- Matching quotas show their limits and, when `system.quotas_usage` is
+  readable, current usage, with a note on how the quota is keyed.
+- System tables such as `system.one` are readable by everyone; other
+  `system` and `information_schema` tables depend on
+  `select_from_system_db_requires_grant` and its `information_schema` twin.
+
+Every answer is checked against `SHOW GRANTS FOR <user> WITH IMPLICIT FINAL`
+(plain `FINAL` on servers without `IMPLICIT`). If ClickHouse disagrees, a
+warning says so and ClickHouse wins. Wildcard grants (`db.prefix*`) are one
+case where this matters, since `system.grants` does not mark them.
+
+:::caution
+Without `SHOW ACCESS`, ClickHouse only shows the signed-in user's own grants.
+The answer is then marked incomplete and shows **Unknown**, never "No access".
+:::
+
+The answer comes from the node CH-UI is connected to; its host name is shown
+in the toolbar. When a cluster of several nodes exists, any user, role,
+policy, quota or profile not kept in replicated storage is marked **Local to
+this node**, since other nodes may differ. These are reads: nothing is
+written to the audit log.
+
 ## Permissions
 
 CH-UI side: admin only. ClickHouse side, for the user you signed in with (for
@@ -148,7 +206,7 @@ when background sync is on.
 ## License
 
 Reads and the review (`GET /api/rbac/snapshot`, `GET /api/rbac/entity/...`,
-`POST /api/rbac/plan`) work with an active license and during the read-only
+`GET /api/rbac/effective`, `GET /api/rbac/who-can`, `POST /api/rbac/plan`) work with an active license and during the read-only
 grace period. **Apply** needs an active license and returns `402` otherwise.
 
 ## API
@@ -162,6 +220,13 @@ GET  /api/rbac/snapshot
 # SHOW CREATE (and SHOW GRANTS for roles and users); kind is role, user,
 # row_policy (name "policy ON db.table"), quota or settings_profile
 GET  /api/rbac/entity/{kind}/{name}
+
+# Explain one user's access: verdict (default, all_roles), evidence,
+# row_policies, profile, quotas, verification, warnings, incomplete
+GET  /api/rbac/effective?user=ana&database=sales&table=orders&column=&privilege=SELECT
+
+# Every user holding a privilege on an object
+GET  /api/rbac/who-can?database=sales&table=orders&privilege=INSERT
 
 # Build statements, diffs and warnings. Changes nothing.
 POST /api/rbac/plan

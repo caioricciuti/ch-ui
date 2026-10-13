@@ -3,7 +3,7 @@
   import { X, Sparkles } from 'lucide-svelte'
   import { onDestroy } from 'svelte'
   import { generateSQLStream } from '../../api/brainPro'
-  import { error as toastError, success as toastSuccess } from '../../stores/toast.svelte'
+  import { error as toastError, success as toastSuccess, warning as toastWarning } from '../../stores/toast.svelte'
   import Button from '../common/Button.svelte'
 
   interface Props {
@@ -21,6 +21,8 @@
   // Ask AI (text-to-SQL), streamed so the query shows up as it is written.
   let asking = $state(false)
   let preview = $state('')
+  // What the server is doing after the model wrote the SQL.
+  let phase = $state('')
   let controller: AbortController | null = null
 
   onDestroy(() => controller?.abort())
@@ -35,11 +37,25 @@
     if (!q || asking) return
     asking = true
     preview = ''
+    phase = ''
     controller = new AbortController()
     try {
       // Send the query in the editor so the AI edits it instead of starting over.
       const currentSql = getSql?.().trim() || undefined
-      const res = await generateSQLStream({ question: q, currentSql }, (text) => (preview += text), controller.signal)
+      const res = await generateSQLStream(
+        { question: q, currentSql },
+        {
+          ondelta: (text) => {
+            preview += text
+            phase = ''
+          },
+          // A repair writes the query again from the start.
+          onreset: () => (preview = ''),
+          onvalidating: () => (phase = 'Checking with EXPLAIN'),
+          onrepair: (round) => (phase = `ClickHouse rejected it, repairing (${round} of 2)`),
+        },
+        controller.signal,
+      )
       const sql = (res.sql ?? '').trim()
       if (!sql) {
         toastError('The AI did not return a query. Try rephrasing.')
@@ -49,9 +65,13 @@
       const used = res.tables_used?.length ? `, ${res.tables_used.length} table(s)` : ''
       if (res.truncated) {
         toastError('The answer hit the output limit, so the SQL may be incomplete. Review it before running.')
+      } else if (res.validation?.status === 'failed') {
+        const why = res.validation.error ? ` ${res.validation.error.split('\n')[0].slice(0, 200)}` : ''
+        toastWarning(`ClickHouse still rejects the generated SQL. Review it before running.${why}`)
       } else {
         const undo = currentSql ? ' Undo restores your query.' : ''
-        toastSuccess(`Generated SQL${used}. Review before running.${undo}`)
+        const checked = res.validation?.status === 'passed' ? ' Checked with EXPLAIN.' : ''
+        toastSuccess(`Generated SQL${used}.${checked} Review before running.${undo}`)
       }
       onclose()
       question = ''
@@ -65,6 +85,7 @@
     } finally {
       asking = false
       preview = ''
+      phase = ''
       controller = null
     }
   }
@@ -89,6 +110,9 @@
 </div>
 {#if asking && preview}
   <pre class="mx-3 mb-2 max-h-40 overflow-auto rounded-md bg-surface-2 px-3 py-2 font-mono text-xs text-fg-2 whitespace-pre-wrap" aria-live="polite">{preview}</pre>
+{/if}
+{#if asking && phase}
+  <p class="px-3 pb-2 text-[11px] text-fg-3" aria-live="polite">{phase}</p>
 {/if}
 <p class="px-3 pb-2 -mt-1 text-[11px] text-fg-3">
   Grounded in this connection's schema and your documented models. Always review generated SQL before running.

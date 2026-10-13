@@ -8,6 +8,9 @@
     adminTestAlertChannel, adminListAlertRules, adminCreateAlertRule, adminUpdateAlertRule,
     adminDeleteAlertRule, adminListAlertEvents, type AlertRuleChannelPayload,
   } from '../../api/alerts'
+  import { listConnections } from '../../api/auth'
+  import type { Connection } from '../../types/api'
+  import { EVENT_TYPE_OPTIONS as eventTypeOptions, eventTypeLabel as eventLabel } from './alerting-silences'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import { formatDate } from '../../utils/format'
   import Button from '../common/Button.svelte'
@@ -39,6 +42,9 @@
   let channels = $state<AlertChannel[]>([])
   let rules = $state<AlertRule[]>([])
   let events = $state<AlertEvent[]>([])
+  let connections = $state<Connection[]>([])
+  // Without the list nothing can be called deleted, so rule scopes are kept as they are.
+  let connectionsLoaded = $state(false)
   let eventLimit = $state('50')
 
   // ── Channel form ──────────────────────────────────────────
@@ -93,6 +99,8 @@
   let editingRule = $state<AlertRule | null>(null)
   let ruleForm = $state(emptyRule())
   let bindings = $state<Binding[]>([])
+  // Connection ids the rule is scoped to; empty = every connection.
+  let ruleConnections = $state<string[]>([])
   let ruleSaving = $state(false)
   let deletingRule = $state<AlertRule | null>(null)
 
@@ -111,25 +119,6 @@
   ]
   const isWebhook = (type: AlertChannelType | undefined): boolean => type === 'webhook'
 
-  const eventTypeOptions = [
-    { value: 'policy.violation', label: 'Policy violation' },
-    { value: 'schedule.failed', label: 'Schedule failed' },
-    { value: 'schedule.slow', label: 'Schedule slow' },
-    { value: 'telemetry.monitor', label: 'Telemetry monitor' },
-    { value: 'health.replication_lag', label: 'Health: replication lag' },
-    { value: 'health.replica_readonly', label: 'Health: replica readonly' },
-    { value: 'health.disk', label: 'Health: disk' },
-    { value: 'health.parts', label: 'Health: parts pressure' },
-    { value: 'health.mutation_stuck', label: 'Health: stuck mutation' },
-    { value: 'health.node_unreachable', label: 'Health: node unreachable' },
-    { value: 'health.*', label: 'All health checks' },
-    { value: 'sql.alert', label: 'SQL alert' },
-    { value: 'sql.*', label: 'All SQL alerts' },
-    { value: 'report.failed', label: 'Report failed' },
-    { value: 'report.disabled', label: 'Report disabled' },
-    { value: 'report.*', label: 'All report events' },
-    { value: '*', label: 'All events' },
-  ]
   const severityOptions = [
     { value: 'info', label: 'Info' },
     { value: 'warn', label: 'Warning' },
@@ -153,6 +142,7 @@
     if (status === 'sent' || status === 'delivered' || status === 'processed') return 'success'
     if (status === 'failed' || status === 'error') return 'danger'
     if (status === 'pending' || status === 'queued') return 'warning'
+    if (status === 'acknowledged') return 'info'
     return 'neutral'
   }
   function channelTarget(ch: AlertChannel): string {
@@ -170,10 +160,14 @@
     return [from, host].filter(Boolean).join(' via ')
   }
   function ruleChannelNames(rule: AlertRule): string {
-    return rule.channels.map((b) => b.channel_name).join(', ') || '—'
+    return rule.channels.map((b) => b.channel_name).join(', ') || '-'
   }
-  function eventLabel(v: string): string {
-    return eventTypeOptions.find((o) => o.value === v)?.label ?? v
+  const connectionExists = (id: string) => !connectionsLoaded || connections.some((c) => c.id === id)
+  function ruleConnectionNames(rule: AlertRule): string {
+    const ids = rule.connection_ids ?? []
+    if (ids.length === 0) return 'All'
+    if (!connectionsLoaded) return `${ids.length} selected`
+    return ids.map((id) => connections.find((c) => c.id === id)?.name).filter(Boolean).join(', ')
   }
 
   const channelColumns: DataColumn<Row>[] = [
@@ -187,6 +181,7 @@
     { key: 'event_type', label: 'Event', width: '160px', format: (v) => eventLabel(String(v)) },
     { key: 'severity_min', label: 'Min severity', width: '120px' },
     { key: 'channel_names', label: 'Channels', truncate: true, sortable: false },
+    { key: 'connection_names', label: 'Connections', truncate: true, sortable: false },
     { key: 'enabled', label: 'Status', width: '110px' },
   ]
   const eventColumns: DataColumn<Row>[] = [
@@ -198,20 +193,26 @@
   ]
 
   const channelRows = $derived(asRows(channels.map((c) => ({ ...c, target: channelTarget(c) }))))
-  const ruleRows = $derived(asRows(rules.map((r) => ({ ...r, channel_names: ruleChannelNames(r) }))))
+  const ruleRows = $derived(asRows(rules.map((r) => ({ ...r, channel_names: ruleChannelNames(r), connection_names: ruleConnectionNames(r) }))))
 
   // ── Loading ───────────────────────────────────────────────
   async function loadAll() {
     loading = true
     try {
-      const [c, r, e] = await Promise.all([
+      const [c, r, e, conns] = await Promise.all([
         adminListAlertChannels(),
         adminListAlertRules(),
         adminListAlertEvents({ limit: Number(eventLimit) }),
+        // Only names and the rule scope list need it; keep the page usable without.
+        listConnections().then((list) => {
+          connectionsLoaded = true
+          return list
+        }).catch(() => connections),
       ])
       channels = c
       rules = r
       events = e
+      connections = conns
     } catch (e: unknown) {
       toastError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -372,6 +373,7 @@
     editingRule = null
     ruleForm = emptyRule()
     bindings = bindingsFor(null)
+    ruleConnections = []
     ruleSheetOpen = true
   }
 
@@ -388,6 +390,7 @@
       body_template: rule.body_template ?? '',
     }
     bindings = bindingsFor(rule)
+    ruleConnections = [...(rule.connection_ids ?? [])]
     ruleSheetOpen = true
   }
 
@@ -421,6 +424,8 @@
         subject_template: ruleForm.subject_template || undefined,
         body_template: ruleForm.body_template || undefined,
         channels: channelPayload,
+        // Deleted connections are dropped; the server rejects unknown ids.
+        connection_ids: liveRuleConnections.length ? liveRuleConnections : null,
       }
       if (editingRule) {
         await adminUpdateAlertRule(editingRule.id, payload)
@@ -436,6 +441,13 @@
     } finally {
       ruleSaving = false
     }
+  }
+
+  const liveRuleConnections = $derived(ruleConnections.filter(connectionExists))
+  const deletedRuleConnections = $derived(ruleConnections.filter((id) => !connectionExists(id)))
+
+  function toggleRuleConnection(id: string, checked: boolean) {
+    ruleConnections = checked ? [...ruleConnections, id] : ruleConnections.filter((x) => x !== id)
   }
 
   async function confirmDeleteRule() {
@@ -535,6 +547,12 @@
                 <Badge tone={severityTone(String(value))}>{value}</Badge>
               {:else if col.key === 'enabled'}
                 <Badge dot tone={row.enabled ? 'success' : 'neutral'}>{row.enabled ? 'Enabled' : 'Off'}</Badge>
+              {:else if col.key === 'connection_names'}
+                {@const deleted = ((row.connection_ids as string[] | null) ?? []).filter((id) => !connectionExists(id)).length}
+                <span class="inline-flex items-center gap-1.5">
+                  {#if value}<span class="truncate">{value}</span>{/if}
+                  {#if deleted > 0}<Badge tone="warning">{deleted === 1 ? 'Deleted connection' : `${deleted} deleted connections`}</Badge>{/if}
+                </span>
               {:else}
                 {value}
               {/if}
@@ -562,7 +580,13 @@
               {#if col.key === 'severity'}
                 <Badge tone={severityTone(String(value))}>{value}</Badge>
               {:else if col.key === 'status'}
-                <Badge tone={statusTone(String(value))}>{value}</Badge>
+                {#if value === 'silenced'}
+                  <Badge tone="neutral" title={row.suppressed_by ? `Held back by ${row.suppressed_by}` : undefined}>Silenced</Badge>
+                {:else if value === 'acknowledged'}
+                  <Badge tone="info" title={row.suppressed_by ? `Held back by ${row.suppressed_by}` : undefined}>Acknowledged</Badge>
+                {:else}
+                  <Badge tone={statusTone(String(value))}>{value}</Badge>
+                {/if}
               {:else}
                 {value}
               {/if}
@@ -751,6 +775,41 @@
       {/if}
     </div>
 
+    <div class="space-y-2 border-t border-edge-subtle pt-4">
+      <div class="text-[13px] font-semibold text-fg">Connections</div>
+      <p class="text-xs text-fg-3">Only events from the checked connections match. None checked means every connection.</p>
+      {#if !connectionsLoaded}
+        <p class="text-xs text-warning">Could not load the connection list. Saving keeps the current connections.</p>
+      {/if}
+      {#if connections.length > 0 || deletedRuleConnections.length > 0}
+        <div class="divide-y divide-edge-subtle rounded-md border border-edge-subtle">
+          {#each connections as conn (conn.id)}
+            <div class="px-3 py-2">
+              <label class="ds-checkbox-label">
+                <input
+                  type="checkbox"
+                  class="ds-checkbox"
+                  checked={ruleConnections.includes(conn.id)}
+                  onchange={(e) => toggleRuleConnection(conn.id, e.currentTarget.checked)}
+                />
+                <span class="font-medium text-fg">{conn.name}</span>
+              </label>
+            </div>
+          {/each}
+          {#each deletedRuleConnections as id (id)}
+            <div class="flex items-center gap-2 px-3 py-2">
+              <Badge tone="warning">Deleted connection</Badge>
+              <span class="truncate font-mono text-xs text-fg-3">{id}</span>
+              <span class="ml-auto text-xs text-fg-4">Removed on save</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+      {#if deletedRuleConnections.length > 0 && liveRuleConnections.length === 0}
+        <p class="text-xs text-warning">Every connection this rule was limited to is gone. Saving without checking one makes it match every connection.</p>
+      {/if}
+    </div>
+
     <label class="ds-checkbox-label">
       <input type="checkbox" class="ds-checkbox" bind:checked={ruleForm.enabled} />
       Enabled
@@ -789,6 +848,9 @@
         {#if selectedEvent.processed_at}<span class="text-xs text-fg-3">processed {formatDate(selectedEvent.processed_at)}</span>{/if}
       </div>
       <p class="whitespace-pre-wrap text-[13px] leading-relaxed text-fg-2">{selectedEvent.message}</p>
+      {#if selectedEvent.suppressed_by}
+        <div class="text-xs text-fg-3">Held back by <span class="font-mono text-fg-2">{selectedEvent.suppressed_by}</span></div>
+      {/if}
       {#if selectedEvent.source_ref}
         <div class="text-xs text-fg-3">Source: <span class="font-mono text-fg-2">{selectedEvent.source_ref}</span></div>
       {/if}

@@ -193,9 +193,9 @@ export async function adminUpdateBrainSkill(id: string, payload: {
   await apiPut(`/api/admin/brain/skills/${encodeURIComponent(id)}`, payload)
 }
 
-export async function adminGetBrainSettings(): Promise<{ settings: BrainSettings; defaultPrices: BrainSettings['prices'] }> {
-  const res = await apiGet<{ success: boolean; settings: BrainSettings; defaultPrices: BrainSettings['prices'] }>('/api/admin/brain/settings')
-  return { settings: res.settings, defaultPrices: res.defaultPrices }
+export async function adminGetBrainSettings(): Promise<{ settings: BrainSettings; defaultPrices: BrainSettings['prices']; quickModelSet: boolean }> {
+  const res = await apiGet<{ success: boolean; settings: BrainSettings; defaultPrices: BrainSettings['prices']; quickModelSet?: boolean }>('/api/admin/brain/settings')
+  return { settings: res.settings, defaultPrices: res.defaultPrices, quickModelSet: res.quickModelSet ?? true }
 }
 
 export async function adminUpdateBrainSettings(payload: Partial<BrainSettings>): Promise<BrainSettings> {

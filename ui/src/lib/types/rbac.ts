@@ -247,3 +247,110 @@ export const WRITABILITIES: Array<{ value: string; label: string }> = [
   { value: 'CONST', label: 'Const' },
   { value: 'CHANGEABLE_IN_READONLY', label: 'Changeable in readonly' },
 ]
+
+// ── Effective access explainer (Governance > Effective access) ─────────
+
+export type RbacVerdictStatus = 'allowed' | 'partial' | 'denied' | 'blocked' | 'conditional' | 'unknown'
+export type RbacEffect = 'allows' | 'removes' | 'filters' | 'limits' | 'blocks'
+
+export interface RbacExplainQuery {
+  user: string
+  database: string
+  table: string
+  column: string
+  privilege: string
+}
+
+export interface RbacVerdict {
+  status: RbacVerdictStatus
+  summary: string
+  only?: string[]
+  except?: string[]
+  grant_option: boolean
+  row_filtered: boolean
+  roles: string[]
+  via?: string[]
+}
+
+export interface RbacEvidence {
+  step: number
+  mode: 'both' | 'all_roles'
+  source: string
+  statement: string
+  effect: RbacEffect
+  detail?: string
+  grant_option?: boolean
+  local?: boolean
+}
+
+export interface RbacNode {
+  host: string
+  multi_node: boolean
+  local_entities: string[]
+}
+
+export interface RbacRowPolicyOutcome {
+  table_has_policies: boolean
+  permissive: string[]
+  restrictive: string[]
+  filter?: string
+  no_permissive: boolean
+  if_setting_on?: string
+  if_setting_off?: string
+  filters: boolean
+  setting_dependent: boolean
+}
+
+export interface RbacProfileElementResult {
+  setting: string
+  value?: string
+  min?: string
+  max?: string
+  writability?: string
+  source: string
+  local?: boolean
+}
+
+export interface RbacQuotaResult {
+  name: string
+  keyed_by: string
+  key_note: string
+  storage: string
+  local?: boolean
+  intervals: Array<{ interval: string; limits: Record<string, number>; used?: Record<string, number>; end_time?: string }>
+  usage_visible: boolean
+}
+
+export interface RbacExplanation {
+  query: RbacExplainQuery
+  node: RbacNode
+  storage: string
+  verdict: { default: RbacVerdict; all_roles: RbacVerdict }
+  evidence: RbacEvidence[]
+  row_policies: { applicable: boolean; note?: string; default: RbacRowPolicyOutcome; all_roles: RbacRowPolicyOutcome }
+  profile: { elements: RbacProfileElementResult[]; readonly: string; allow_ddl: boolean; const: string[]; verdicts: string[]; blocks?: string }
+  quotas: RbacQuotaResult[]
+  verification: { status: 'match' | 'mismatch' | 'unavailable'; statement?: string; clickhouse?: RbacVerdict; detail?: string }
+  warnings: string[]
+  incomplete: boolean
+  incomplete_reasons: string[] | null
+}
+
+export interface RbacWhoCanUser {
+  user: string
+  storage: string
+  default: RbacVerdict
+  all_roles: RbacVerdict
+  via: string[]
+  row_filtered: boolean
+  columns: string[]
+  local?: boolean
+}
+
+export interface RbacWhoCanResult {
+  query: RbacExplainQuery
+  node: RbacNode
+  users: RbacWhoCanUser[]
+  incomplete: boolean
+  incomplete_reasons: string[] | null
+}

@@ -112,7 +112,7 @@ Each panel is configured with:
 }
 ```
 
-`legendPosition` is `bottom` (default), `right` or `none`. Click a legend entry to hide or show that series. NULL values are drawn as gaps, not as zero.
+`legendPosition` is `bottom` (default), `right` or `none`. `seriesColumn` names a column whose values split the first Y column into one series each (rows in long form, such as `day, host, hits`); the 10 largest series are drawn and the legend says how many more were left out. Click a legend entry to hide or show that series. NULL values are drawn as gaps, not as zero.
 
 Other keys: `barMode` (`grouped` or `stacked`), `gaugeMin` and `gaugeMax`, `pieLabelColumn`, `pieValueColumn` and `pieDonut`, `content` (Markdown for `text`), and for `stat` and `gauge`: `statField`, `statCalculation`, `statUnit`, `statPrefix`, `statSuffix`, `statDecimals`, `statColorMode`, `statThresholds`.
 
@@ -127,11 +127,11 @@ Panels are arranged on a **12-column grid**. Each panel stores its position:
 | Field | Description | Default | Allowed |
 |---|---|---|---|
 | `layout_x` | Column offset | 0 | 0 or more, and `layout_x + layout_w` at most 12 |
-| `layout_y` | Row offset | 0 | 0 to 10000 |
+| `layout_y` | Row offset | below the last panel | 0 to 10000 |
 | `layout_w` | Width in columns | 6 | 1 to 12 |
 | `layout_h` | Height in rows | 4 | 1 to 100 |
 
-A position outside these bounds is refused with `400`. Drag and resize panels in the UI; positions are saved automatically. A new panel is placed below the existing ones. Below 640 px of width (phones), panels stack in one full-width column and cannot be dragged.
+A position outside these bounds is refused with `400`. Drag and resize panels in the UI; positions are saved automatically. A new panel is placed below the existing ones; through the API, leave out `layout_y` to get the same placement. Panels can also come from the SQL editor: see [Chart a result](/docs/querying#chart-a-result). Below 640 px of width (phones), panels stack in one full-width column and cannot be dragged.
 
 ## Roles
 
