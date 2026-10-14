@@ -515,36 +515,90 @@ func closingEvent(check HealthCheck, set HealthCheckSetting, st database.HealthA
 // a connection: every firing node gets a resolved event (summarized like a
 // poll's), then the check's state is cleared.
 func CloseCheckIncidents(db *database.DB, connID, checkKind string, now time.Time) error {
-	check, ok := LookupHealthCheck(checkKind)
-	if !ok {
+	if _, ok := LookupHealthCheck(checkKind); !ok {
 		return fmt.Errorf("unknown check %q", checkKind)
 	}
-	states, err := db.ListHealthAlertStates(connID, true)
+	return closeIncidents(db, connID, func(kind string, _ HealthCheckSetting) string {
+		if kind == checkKind {
+			return "the check was turned off"
+		}
+		return ""
+	}, now)
+}
+
+// CloseOrphanedIncidents ends the incidents nothing evaluates any more on a
+// connection: those of a check that is turned off, and, with Cluster Health
+// sampling off, those of every check that reads samples. The connection
+// check runs on probes without sampling and keeps its state. It is cheap
+// when there is no state, so the harvester calls it on every tick.
+func CloseOrphanedIncidents(db *database.DB, connID string, samplingOn bool, now time.Time) error {
+	return closeIncidents(db, connID, func(kind string, set HealthCheckSetting) string {
+		switch {
+		case !set.Enabled:
+			return "the check was turned off"
+		case !samplingOn && kind != CheckConnectionUnreachable:
+			return "Cluster Health sampling was turned off"
+		}
+		return ""
+	}, now)
+}
+
+// closeIncidents clears the state of the checks reason selects (a non-empty
+// reason), raising the resolved event of every firing node first; the
+// resolves clear the acks of those incidents when the dispatcher picks them
+// up. A firing node whose event could not be written keeps its state, so a
+// later call tries again.
+func closeIncidents(db *database.DB, connID string, reason func(kind string, set HealthCheckSetting) string, now time.Time) error {
+	states, err := db.ListHealthAlertStates(connID, false)
+	if err != nil || len(states) == 0 {
+		return err
+	}
+	settings := map[string]HealthCheckSetting{}
+	all, err := LoadHealthSettings(db, connID)
 	if err != nil {
 		return err
 	}
-	set := DefaultHealthSetting(check)
-	if all, err := LoadHealthSettings(db, connID); err == nil {
-		for _, s := range all {
-			if s.CheckKind == checkKind {
-				set = s
-			}
-		}
+	for _, s := range all {
+		settings[s.CheckKind] = s
 	}
 	nowStr := now.UTC().Format(time.RFC3339)
 	var events []healthEvent
+	var closed []database.HealthAlertState
 	for _, st := range states {
-		if st.CheckKind == checkKind && st.State == alerts.StateFiring {
-			events = append(events, closingEvent(check, set, st, "the check was turned off", nowStr, -1, -1))
+		check, ok := LookupHealthCheck(st.CheckKind)
+		if !ok {
+			continue
+		}
+		set, ok := settings[st.CheckKind]
+		if !ok {
+			set = DefaultHealthSetting(check)
+		}
+		why := reason(st.CheckKind, set)
+		if why == "" {
+			continue
+		}
+		closed = append(closed, st)
+		if st.State == alerts.StateFiring {
+			events = append(events, closingEvent(check, set, st, why, nowStr, len(closed)-1, -1))
 		}
 	}
 	raiseHealthEvents(db, connID, "", events, nil, now)
+	keep := map[int]bool{}
 	for _, ev := range events {
 		if !ev.created {
-			slog.Warn("Health alerts: failed to resolve the incident of a disabled check", "connection", connID, "check", checkKind, "node", ev.node)
+			keep[ev.stateIdx] = true
+			slog.Warn("Health alerts: failed to resolve a closed incident", "connection", connID, "check", ev.check.Kind, "node", ev.node)
 		}
 	}
-	return db.DeleteHealthAlertStates(connID, checkKind)
+	for i, st := range closed {
+		if keep[i] {
+			continue
+		}
+		if err := db.DeleteHealthAlertState(connID, st.CheckKind, st.Node); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // shouldRecord reports whether an evaluation goes into the history: every

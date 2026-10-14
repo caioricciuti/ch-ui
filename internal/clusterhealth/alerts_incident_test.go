@@ -14,6 +14,8 @@ import (
 
 	"github.com/caioricciuti/ch-ui/internal/alerts"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/testutil"
+	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
 
 // fastReadonly makes the read-only replica check fire and resolve on one
@@ -286,5 +288,59 @@ func TestDisabledCheckClosesAndStaysClosed(t *testing.T) {
 	}
 	if st := stateOf(t, db, conn, CheckReplicaReadonly, "ch-1"); st != nil {
 		t.Fatalf("a late save resurrected the state: %+v", st)
+	}
+}
+
+// Sampling turned off: the next tick resolves the incidents of the checks
+// that read samples, once, and leaves the connection check, which still
+// runs on probes, as it is.
+func TestSamplingOffClosesSampleIncidents(t *testing.T) {
+	db, conn := testutil.WorkerDB(t)
+	h := NewHarvester(NewStore(db), db, tunnel.NewGateway(db), "test-secret", func() bool { return true })
+	t.Cleanup(h.gateway.Stop)
+	off := DefaultSettings(conn)
+	off.Enabled = false
+	if _, err := h.store.UpsertSettings(off); err != nil {
+		t.Fatal(err)
+	}
+	crit := alerts.SeverityCritical
+	since := "2026-10-13T10:00:00Z"
+	eventID := "fired-event"
+	if err := db.SaveHealthAlertStates([]database.HealthAlertState{
+		{ConnectionID: conn, CheckKind: CheckDisk, Node: "ch-1", State: alerts.StateFiring, Severity: &crit, Since: &since, LastEventID: &eventID},
+		{ConnectionID: conn, CheckKind: CheckDisk, Node: "ch-2", State: alerts.StatePending, BreachCount: 1},
+		{ConnectionID: conn, CheckKind: CheckConnectionUnreachable, Node: ConnectionNode, State: alerts.StateFiring, Severity: &crit, Since: &since, LastEventID: &eventID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	h.tick()
+	pollAgain(h)
+	h.tick()
+
+	var resolves []database.AlertEvent
+	for _, ev := range eventsOf(t, db, alerts.EventTypeHealthDisk) {
+		if strings.HasPrefix(ev.Title, "[RESOLVED] ") {
+			resolves = append(resolves, ev)
+		}
+	}
+	if len(resolves) != 1 || !strings.Contains(resolves[0].Message, "sampling was turned off") {
+		t.Fatalf("want one resolve of the disk incident, got %+v", resolves)
+	}
+	if !strings.Contains(*resolves[0].PayloadJSON, `"alert_key":"`+HealthAlertKey(conn, CheckDisk, "ch-1")+`"`) ||
+		!strings.Contains(*resolves[0].PayloadJSON, `"incident_id":"`+since+`"`) {
+		t.Fatalf("resolve must name the incident so its ack clears: %s", *resolves[0].PayloadJSON)
+	}
+	if st := stateOf(t, db, conn, CheckDisk, "ch-1"); st != nil {
+		t.Fatalf("firing disk state kept: %+v", st)
+	}
+	if st := stateOf(t, db, conn, CheckDisk, "ch-2"); st != nil {
+		t.Fatalf("pending disk state kept: %+v", st)
+	}
+	if st := stateOf(t, db, conn, CheckConnectionUnreachable, ConnectionNode); st == nil || st.State != alerts.StateFiring {
+		t.Fatalf("connection check must keep its state: %+v", st)
+	}
+	if n := len(connectionEvents(t, db)); n != 0 {
+		t.Fatalf("connection check closed: %d events", n)
 	}
 }

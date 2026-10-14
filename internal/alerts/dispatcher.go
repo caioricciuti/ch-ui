@@ -215,8 +215,27 @@ func (d *Dispatcher) processDueJobs() {
 	if len(jobs) == 0 {
 		return
 	}
+	// A silence created after a job was queued holds it back too. Without
+	// the silences nothing is sent: the jobs stay due for the next tick.
+	silences, err := d.db.ListActiveAlertSilences(time.Now().UTC())
+	if err != nil {
+		slog.Error("Alert dispatcher failed to load silences", "error", err)
+		return
+	}
 
 	for _, job := range jobs {
+		if reason, silence := cancelReason(job, silences); reason != "" {
+			cancelled, err := d.db.CancelAlertDispatchJob(job.ID, reason, time.Now().UTC())
+			if err != nil {
+				slog.Warn("Alert dispatcher failed to cancel job", "job", job.ID, "error", err)
+			}
+			if cancelled && silence != "" {
+				if err := d.db.SilenceUndeliveredAlertEvent(job.EventID, silence); err != nil {
+					slog.Warn("Alert dispatcher failed to mark event silenced", "event", job.EventID, "error", err)
+				}
+			}
+			continue
+		}
 		claimed, err := d.db.ClaimAlertDispatchJob(job.ID, time.Now().UTC())
 		if err != nil {
 			slog.Warn("Alert dispatcher failed to claim job", "job", job.ID, "error", err)
@@ -272,6 +291,29 @@ func (d *Dispatcher) processDueJobs() {
 			slog.Warn("Alert dispatcher failed to mark job sent", "job", job.ID, "error", err)
 		}
 	}
+}
+
+// cancelReason returns why a queued job must not be sent any more, or "":
+// its rule, channel or binding was turned off, or an active silence covers
+// its event. silence is the suppressed_by reference of that silence.
+func cancelReason(job database.AlertDispatchJobWithDetails, silences []database.AlertSilence) (reason, silence string) {
+	switch {
+	case !job.RuleEnabled:
+		return "Cancelled: the alert rule was turned off.", ""
+	case !job.ChannelActive:
+		return "Cancelled: the channel was turned off.", ""
+	case !job.BindingActive:
+		return "Cancelled: the channel was removed from the rule or turned off on it.", ""
+	}
+	ev := database.AlertEvent{ID: job.EventID, ConnectionID: job.EventConnectionID, EventType: job.EventType,
+		Severity: job.EventSeverity, PayloadJSON: job.EventPayloadJSON, Fingerprint: job.EventFingerprint, SourceRef: job.EventSourceRef}
+	node := IdentifyEvent(ev).Node
+	for _, s := range silences {
+		if SilenceMatches(s, ev, node) {
+			return "Cancelled: silenced by silence " + s.ID + ".", "silence:" + s.ID
+		}
+	}
+	return "", ""
 }
 
 // webhookEvent builds the webhook body fields for a dispatch job.

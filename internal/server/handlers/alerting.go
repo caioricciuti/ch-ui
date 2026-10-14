@@ -440,8 +440,22 @@ func (h *AlertingHandler) TestSQLAlert(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// RunSQLAlert evaluates a stored alert now with the session's credentials
-// and records the result like a scheduled run.
+// canRecordRun reports whether a manual run of an alert may move its state:
+// only for an enabled alert, and only by its creator or an admin. Anyone
+// else gets a dry run.
+func canRecordRun(session *middleware.SessionInfo, a *database.SQLAlert) bool {
+	if !a.Enabled {
+		return false
+	}
+	return session.UserRole == "admin" || (a.CreatedBy != nil && *a.CreatedBy == middleware.Actor(session))
+}
+
+// RunSQLAlert evaluates a stored alert now with the session's credentials.
+// For the creator or an admin, on an enabled alert, the result is recorded
+// like a scheduled run. Otherwise it is a dry run: the result is returned
+// and the alert's state, error count and events stay as they are, so a
+// disabled alert never opens an incident nothing would close, and another
+// user's credentials never move the state or auto-disable it.
 func (h *AlertingHandler) RunSQLAlert(w http.ResponseWriter, r *http.Request) {
 	c, session, err := h.sessionCreds(r)
 	if err != nil {
@@ -450,6 +464,22 @@ func (h *AlertingHandler) RunSQLAlert(w http.ResponseWriter, r *http.Request) {
 	}
 	existing := h.loadOwnedAlert(w, r, session, false)
 	if existing == nil {
+		return
+	}
+	if !canRecordRun(session, existing) {
+		res, err := h.runner().Run(existing.ConnectionID, c, existing.SQL, existing.Mode, existing.Comparator, existing.Threshold, existing.TimeoutSeconds)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		reason := "the alert is turned off"
+		if existing.Enabled {
+			reason = "only its creator or an admin can record a run"
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"success": true, "value": res.Value, "firing": res.Firing, "alert": sqlAlertView(*existing),
+			"recorded": false, "reason": reason,
+		})
 		return
 	}
 	out, err := h.runner().Evaluate(existing, c)
@@ -462,7 +492,7 @@ func (h *AlertingHandler) RunSQLAlert(w http.ResponseWriter, r *http.Request) {
 	if saved != nil {
 		view = sqlAlertView(*saved)
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "value": out.Value, "firing": out.Firing, "alert": view})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "value": out.Value, "firing": out.Firing, "alert": view, "recorded": true})
 }
 
 // ListEvaluations returns the evaluation history of a health check or a SQL

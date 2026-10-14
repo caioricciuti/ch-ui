@@ -542,31 +542,28 @@ func (h *GovernanceHandler) UpdateAlertRule(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	if err := h.DB.UpdateAlertRule(id, name, eventType, severityMin, enabled, cooldownSeconds, maxAttempts, subjectTemplate, bodyTemplate); err != nil {
-		slog.Error("Failed to update alert rule", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "Failed to update alert rule")
-		return
+	edit := database.AlertRuleEdit{
+		Name: name, EventType: eventType, SeverityMin: severityMin, Enabled: enabled,
+		CooldownSeconds: cooldownSeconds, MaxAttempts: maxAttempts,
+		SubjectTemplate: subjectTemplate, BodyTemplate: bodyTemplate,
 	}
-
 	if connsSent {
-		if err := h.DB.SetAlertRuleConnections(id, connectionIDs); err != nil {
-			slog.Error("Failed to store alert rule connections", "rule", id, "error", err)
-			writeError(w, http.StatusInternalServerError, "Failed to update alert rule connections")
-			return
-		}
+		edit.ConnectionIDs = &connectionIDs
 	}
-
+	// Channels are validated before anything is written, and the edit is
+	// applied in one transaction: a refused edit changes nothing.
 	if body.Channels != nil {
 		channels, err := h.validateRuleChannels(*body.Channels)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if err := h.DB.ReplaceAlertRuleChannels(id, channels); err != nil {
-			slog.Error("Failed to replace alert rule channels", "rule", id, "error", err)
-			writeError(w, http.StatusInternalServerError, "Failed to update alert rule channels")
-			return
-		}
+		edit.Channels = &channels
+	}
+	if err := h.DB.EditAlertRule(id, edit); err != nil {
+		slog.Error("Failed to update alert rule", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to update alert rule")
+		return
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
@@ -614,6 +611,9 @@ func (h *GovernanceHandler) DeleteAlertRule(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
+// adminOnlyAlertEventTypes are left out of the event list for non-admins.
+var adminOnlyAlertEventTypes = []string{alerts.EventTypePolicyViolation, alerts.EventTypeAccessDrift}
+
 func (h *GovernanceHandler) ListAlertEvents(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
@@ -623,7 +623,14 @@ func (h *GovernanceHandler) ListAlertEvents(w http.ResponseWriter, r *http.Reque
 	}
 	eventType := strings.TrimSpace(r.URL.Query().Get("event_type"))
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
-	events, err := h.DB.ListAlertEvents(limit, eventType, status)
+	// Policy violations and access drift name other users and what they
+	// ran or were granted; like /violations and /incidents, only admins
+	// read them.
+	var exclude []string
+	if session := middleware.GetSession(r); session == nil || session.UserRole != "admin" {
+		exclude = adminOnlyAlertEventTypes
+	}
+	events, err := h.DB.ListAlertEventsExcept(limit, eventType, status, exclude)
 	if err != nil {
 		slog.Error("Failed to list alert events", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to list alert events")

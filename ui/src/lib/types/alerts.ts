@@ -243,6 +243,10 @@ export interface SqlAlertRunResult {
   value: number | null
   firing: boolean
   alert: SqlAlert
+  /** False for a dry run: a disabled alert, or a writer who is not its creator or an admin. */
+  recorded: boolean
+  /** Why a dry run was not recorded. */
+  reason?: string
 }
 
 export interface AlertEvaluation {

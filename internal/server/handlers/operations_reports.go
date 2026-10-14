@@ -65,7 +65,7 @@ func (h *OperationsReportsHandler) channels(w http.ResponseWriter, r *http.Reque
 	}
 	out := []map[string]string{}
 	for _, c := range channels {
-		if c.IsActive {
+		if c.IsActive && operations.EmailChannel(c.ChannelType) {
 			out = append(out, map[string]string{"id": c.ID, "name": c.Name, "type": c.ChannelType})
 		}
 	}
@@ -99,8 +99,8 @@ func (h *OperationsReportsHandler) saveSettings(w http.ResponseWriter, r *http.R
 			writeError(w, 500, "Could not load email channel")
 			return
 		}
-		if c == nil || !c.IsActive {
-			writeError(w, 400, "Choose an active email channel")
+		if c == nil || !c.IsActive || !operations.EmailChannel(c.ChannelType) {
+			writeError(w, 400, "Choose an active email channel (SMTP, Resend or Brevo); reports cannot be sent to a webhook")
 			return
 		}
 	}
@@ -167,6 +167,15 @@ func (h *OperationsReportsHandler) send(w http.ResponseWriter, r *http.Request) 
 	}
 	if err := operations.ValidateSettings(s); err != nil {
 		writeError(w, 400, err.Error())
+		return
+	}
+	c, err := h.DB.GetAlertChannelByID(s.ChannelID)
+	if err != nil {
+		writeError(w, 500, "Could not load email channel")
+		return
+	}
+	if c == nil || !c.IsActive || !operations.EmailChannel(c.ChannelType) {
+		writeError(w, 400, "The saved report channel is not an active email channel. Choose an email channel in the report settings.")
 		return
 	}
 	if err := h.DB.QueueOperationsReport(conn, report.ID, s.ChannelID, s.Recipients); err != nil {

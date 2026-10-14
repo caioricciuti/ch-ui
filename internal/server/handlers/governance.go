@@ -1115,15 +1115,28 @@ func (h *GovernanceHandler) DeleteChUser(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	creds, err := h.getCredentials(r)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
-		return
-	}
-
 	name := strings.TrimSpace(chi.URLParam(r, "name"))
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if name == session.ClickhouseUser {
+		writeError(w, http.StatusBadRequest, "cannot delete current session user")
+		return
+	}
+	// A login CH-UI runs unattended work with (a background account, an
+	// MCP key, the SSO service account) breaks that work when dropped.
+	force := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("force")))
+	if force != "true" && force != "1" {
+		if reason, ok := (&RBACHandler{DB: h.DB}).serviceAccounts(session.ConnectionID)[name]; ok {
+			writeError(w, http.StatusConflict, fmt.Sprintf("User %s is used by CH-UI unattended (%s). Dropping it breaks that work; send force=true to drop it anyway.", name, reason))
+			return
+		}
+	}
+
+	creds, err := h.getCredentials(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 

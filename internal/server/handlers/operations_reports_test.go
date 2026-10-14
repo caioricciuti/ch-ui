@@ -114,3 +114,63 @@ func TestOperationsReportSettingsPartialPutKeepsSchedule(t *testing.T) {
 		t.Fatalf("partial PUT lost fields: %+v", s)
 	}
 }
+
+// Reports go out as email only: the channel list offers no webhook, and a
+// webhook is refused on save and on send, even when saved earlier.
+func TestOperationsReportsAcceptEmailChannelsOnly(t *testing.T) {
+	db, err := dbtest.Open(t, "reports.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err = db.Conn().Exec(`INSERT INTO connections(id,name,tunnel_token) VALUES('a','a','a')`); err != nil {
+		t.Fatal(err)
+	}
+	mail, err := db.CreateAlertChannel("mail", "smtp", "enc", true, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook, err := db.CreateAlertChannel("hook", "webhook", "enc", true, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := (&OperationsReportsHandler{DB: db, Config: &config.Config{}}).Routes()
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req = req.WithContext(middleware.SetSession(req.Context(), &middleware.SessionInfo{ConnectionID: "a", UserRole: "admin"}))
+		res := httptest.NewRecorder()
+		h.ServeHTTP(res, req)
+		return res
+	}
+
+	res := do("GET", "/channels", "")
+	if res.Code != 200 || !strings.Contains(res.Body.String(), mail) || strings.Contains(res.Body.String(), hook) {
+		t.Fatalf("channels: %d %s", res.Code, res.Body.String())
+	}
+	if res := do("PUT", "/settings", `{"channel_id":"`+hook+`","recipients":["ops@example.com"]}`); res.Code != 400 || !strings.Contains(res.Body.String(), "webhook") {
+		t.Fatalf("webhook saved: %d %s", res.Code, res.Body.String())
+	}
+	if res := do("PUT", "/settings", `{"channel_id":"`+mail+`","recipients":["ops@example.com"]}`); res.Code != 200 {
+		t.Fatalf("email channel refused: %d %s", res.Code, res.Body.String())
+	}
+
+	// A webhook saved before this check: sending is refused, nothing queued.
+	s, err := db.GetOperationsReportSettings("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.ChannelID = hook
+	if err := db.SaveOperationsReportSettings(s); err != nil {
+		t.Fatal(err)
+	}
+	report, err := db.SaveOperationsReport(database.OperationsReport{ConnectionID: "a", Body: "b", Payload: json.RawMessage(`{}`)}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res := do("POST", "/"+report.ID+"/send", ""); res.Code != 400 || !strings.Contains(res.Body.String(), "not an active email channel") {
+		t.Fatalf("send to webhook: %d %s", res.Code, res.Body.String())
+	}
+	if got, _ := db.GetOperationsReport("a", report.ID); got == nil || got.DeliveryStatus == "queued" {
+		t.Fatalf("report queued for a webhook: %+v", got)
+	}
+}

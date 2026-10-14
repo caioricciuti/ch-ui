@@ -10,6 +10,7 @@ package operations
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/mail"
@@ -71,6 +72,19 @@ func ValidateSettings(s database.OperationsReportSettings) error {
 	}
 	return nil
 }
+
+// EmailChannel reports whether a channel type sends email. Reports go out
+// as email only; a webhook channel cannot carry them.
+func EmailChannel(channelType string) bool {
+	switch strings.ToLower(strings.TrimSpace(channelType)) {
+	case alerts.ChannelTypeSMTP, alerts.ChannelTypeResend, alerts.ChannelTypeBrevo:
+		return true
+	}
+	return false
+}
+
+// errNotEmailChannel fails a delivery for good: retrying cannot help.
+var errNotEmailChannel = errors.New("the report channel is not an email channel")
 
 // NextWeekly is strictly after the supplied instant; all schedules use UTC.
 func NextWeekly(now time.Time, weekday, hour int) time.Time {
@@ -405,6 +419,10 @@ func (r *Runner) DeliverDue(ctx context.Context, now time.Time) {
 			if report.Attempts+1 >= 5 {
 				status = "failed"
 			}
+			if errors.Is(e, errNotEmailChannel) {
+				status = "failed"
+				message = "The selected channel is not an email channel. Choose an email channel in the report settings."
+			}
 			slog.Warn("Report email failed", "report", report.ID, "error", e)
 		}
 		next := now.Add(time.Duration((report.Attempts+1)*5) * time.Minute)
@@ -421,6 +439,9 @@ func (r *Runner) deliver(ctx context.Context, report database.OperationsReport) 
 	}
 	if channel == nil || !channel.IsActive {
 		return fmt.Errorf("email channel is missing or disabled")
+	}
+	if !EmailChannel(channel.ChannelType) {
+		return errNotEmailChannel
 	}
 	raw, err := crypto.Decrypt(channel.ConfigEncrypted, r.Config.AppSecretKey)
 	if err != nil {

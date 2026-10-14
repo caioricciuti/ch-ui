@@ -29,7 +29,7 @@
     alert: SqlAlert | null
     /** Can save and delete this alert (writer, and creator or admin for an existing one). */
     canEdit: boolean
-    /** Can test and run (any writer). */
+    /** Can test and run (any writer); a run records only when canEdit and the alert is on. */
     canRun: boolean
     onclose: () => void
     /** Saved or run: the fresh row. */
@@ -38,6 +38,9 @@
   }
 
   let { open, alert, canEdit, canRun, onclose, onchanged, ondeleted }: Props = $props()
+
+  /** Run now records only for the creator or an admin on an enabled alert; anything else is a dry run. */
+  const runRecords = $derived(!!alert && alert.enabled && canEdit)
 
   type Row = Record<string, unknown>
   const asRows = <T,>(rows: T[]): Row[] => rows as unknown as Row[]
@@ -208,9 +211,14 @@
     error = ''
     try {
       const res = await runSqlAlert(alert.id)
-      onchanged(res.alert)
-      toastSuccess(res.firing ? `Ran: firing, value ${formatNumber(res.value)}` : `Ran: not firing, value ${formatNumber(res.value)}`)
-      void loadEvaluations(alert.id)
+      const outcome = `${res.firing ? 'firing' : 'not firing'}, value ${formatNumber(res.value)}`
+      if (res.recorded) {
+        onchanged(res.alert)
+        toastSuccess(`Ran: ${outcome}`)
+        void loadEvaluations(alert.id)
+      } else {
+        toastSuccess(`Dry run, not recorded: ${outcome}`)
+      }
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : String(e)
     } finally {
@@ -405,7 +413,7 @@
       <Button variant="danger" size="sm" class="mr-auto" disabled={saving} onclick={() => (confirmDelete = true)}>Delete</Button>
     {/if}
     {#if alert && canRun}
-      <Button variant="outline" size="sm" loading={running} disabled={saving} title="Runs the saved version now and records the result" onclick={() => void runNow()}>Run now</Button>
+      <Button variant="outline" size="sm" loading={running} disabled={saving} title={runRecords ? 'Runs the saved version now and records the result' : 'Runs the saved version now without recording it: the alert is off, or you are not its creator or an admin'} onclick={() => void runNow()}>{runRecords ? 'Run now' : 'Dry run'}</Button>
     {/if}
     <Button variant="ghost" size="sm" disabled={saving} onclick={close}>{canEdit ? 'Cancel' : 'Close'}</Button>
     {#if canEdit}
