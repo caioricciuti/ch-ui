@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.22.0] - 2026-10-14
+
+### Upgrade notes
+
+- **Scheduled reports need a dedicated background account.** Reports run only with a `report` background account set up in Admin › Connections, never as the person who created them (#292).
+- **Switching to a different server asks for its password.** The switcher reuses your current ClickHouse password only for a connection to the same host and port; any other server, including agent connections, asks for its own (#282).
+- **Refused exports return 422.** A server-side export that ClickHouse refuses (syntax, grants, export limits) now returns 422 instead of 502; scripts that check for 502 should accept both. An unreachable ClickHouse is still 502 (#281).
+- **Alert fingerprints carry an incident id.** Health and SQL alert events now use `...:<severity>:<since>` style fingerprints so each incident is delivered; webhook receivers that deduplicate on the exact fingerprint see a new value per incident (#286).
+- **Access control plans keep the order you staged.** A plan that uses a role or profile before the step that creates it is now refused with "stage the create first" instead of being reordered (#285).
+- **Docker Compose quick start** now creates a ClickHouse `admin` user (password `change-me-admin-password`, override with `CLICKHOUSE_ADMIN_USER` / `CLICKHOUSE_ADMIN_PASSWORD`). The bundled ClickHouse refused the passwordless `default` user over the network, so the old file could not sign in (#283).
+
+### Security
+
+- **Connection switcher** no longer sends your current ClickHouse password to a different server, and nothing is sent to the target until you type its password (#282).
+
+### Added
+
+- **Chart a query result**: a Chart view in the SQL editor's result footer suggests a stat, time series or bar chart; change type, X, Y and a Series column, then **Add to dashboard**, placed below the existing panels. Dashboard charts can split one Y column into series by another column (#287).
+- **Brain for ClickHouse performance** (Pro): the agent diagnoses slow and failed queries from the query log, EXPLAIN, parts, merges and mutations, and compares what a rewritten query would read against the original (#289).
+- **Ask AI checks its SQL** with EXPLAIN and repairs it up to twice when ClickHouse rejects it; **Fix with AI** on query errors shows a checked, minimal fix as a diff and replaces the statement in one undo step (Pro). Brain usage shows SQL repairs, and Claude Haiku 5.5 is pre-selected as the quick model until an admin picks one (#289).
+- **Effective access** (Governance, Pro, admins): what a ClickHouse user can do on a database, table or column and why, through role paths, partial revokes, row policies, settings profiles and quotas, at login and after SET ROLE; or who holds a privilege on an object. Each answer is cross-checked with SHOW GRANTS. Access control's user sheet links to it (#291).
+- **Connection unreachable** health check: alerts when a connection's tunnel is offline or it stops answering, even with Cluster Health sampling off (#288).
+- **Alert silences** (Governance › Silences) mute matching alerts for a maintenance window and deliver incidents still firing when it ends; **acknowledge** a firing health check or SQL alert to stop further notifications for that incident; alert rules can be **limited to specific connections** (#288).
+- **Saved queries** get nested folders, tags, sections (All, Mine, Shared, Verified), visibility (everyone, owner, admins) enforced for Brain and MCP keys too, and a version history of the last 50 changes with restore. The editor's Save form asks for a folder and visibility (#290).
+- **Scheduled report delivery** (Pro): a saved query result (CSV attachment, inline table or both) or a text summary of a dashboard on a cron to email, Slack, Teams or webhook channels, with delivery history, CSV download, retries, auto-disable after 10 failures and an optional allowed email domains setting (#292).
+- **Subscribe** on dashboards and saved queries opens the report form prefilled (#292, #294).
+
+### Changed
+
+- **Ask AI edits the query in the editor** (the selection or the statement under the cursor) instead of starting over; one undo restores the previous SQL (#284).
+- Login and installation docs cover the `--detach` setup code log, first steps, Anthropic as a Brain provider and first-admin rules (#283).
+
+### Fixed
+
+- **Access control** runs changes in the order staged, matching the preview; rollback restores the exact previous grants, default roles and memberships, including everything a dropped role was referenced by; the lockout guard catches quotas on your own session, revoking your own grant option, and read-only profiles that reach you through a role or inheritance (#285).
+- **Alerts**: a re-fire shortly after a resolve is delivered instead of swallowed by the rule cooldown; turning off, editing, deleting or auto-disabling a firing alert sends RESOLVED; critical incidents step back to warning; incidents on nodes that left the cluster resolve; a failed event write retries instead of being lost (#286).
+- **Brain**: a paragraph break between the steps of a multi-step answer; the daily token budget holds inside a long answer; the step limit is explained; renaming or archiving a chat during an answer is kept; an approval clicked at the 5-minute timeout runs the action (#284).
+- The "Slowest queries today" starter on Home explains why it is unavailable when `system.query_log` cannot be read (#283).
+- The active result tab is clearly marked in light mode (#293).
+
 ## [2.21.0] - 2026-10-13
 
 ### Upgrade notes
