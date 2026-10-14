@@ -26,8 +26,11 @@
   import FolderTree from '../lib/components/common/FolderTree.svelte'
   import SavedQuerySheet from '../lib/components/saved/SavedQuerySheet.svelte'
   import SavedQueryHistorySheet from '../lib/components/saved/SavedQueryHistorySheet.svelte'
+  import ReportEditor from '../lib/components/reports/ReportEditor.svelte'
+  import { fetchReports, type ReportChannel, type ReportInput, type ReportWorkerMode } from '../lib/api/reports'
+  import { isProActive } from '../lib/stores/license.svelte'
   import {
-    Play, Trash2, Search, MoreHorizontal, Copy, CopyPlus, FileCode2, Pencil, BadgeCheck, FolderInput, FolderPlus, History,
+    Play, Trash2, Search, MoreHorizontal, Copy, CopyPlus, FileCode2, Pencil, BadgeCheck, FolderInput, FolderPlus, History, Mail,
   } from 'lucide-svelte'
 
   type Row = Record<string, unknown> & SavedQuery & { folder_path: string; owner_label: string }
@@ -171,6 +174,9 @@
     if (canWrite) {
       items.push({ id: 'duplicate', label: 'Duplicate', icon: CopyPlus, onSelect: () => void doDuplicate(q) })
     }
+    if (canWrite && isProActive()) {
+      items.push({ id: 'subscribe', label: 'Subscribe', icon: Mail, onSelect: () => void openSubscribe(q) })
+    }
     if (canVerify(q)) {
       items.push({ id: 'verify', label: q.verified ? 'Remove verified mark' : 'Mark as verified', icon: BadgeCheck, onSelect: () => void toggleVerified(q) })
     }
@@ -198,6 +204,31 @@
       toastSuccess(`Copied SQL for "${q.name}"`)
     } catch {
       toastError('Clipboard unavailable')
+    }
+  }
+
+  // Subscribe: a scheduled report of this query's result (Pro).
+  let subscribeOpen = $state(false)
+  let subscribePrefill = $state<Partial<ReportInput> | null>(null)
+  let subscribeChannels = $state<ReportChannel[]>([])
+  let subscribeModes = $state<Record<string, ReportWorkerMode>>({})
+  let subscribeDomains = $state<string[]>([])
+
+  async function openSubscribe(q: SavedQuery) {
+    try {
+      const res = await fetchReports()
+      subscribeChannels = res.channels
+      subscribeModes = res.worker_modes
+      subscribeDomains = res.recipient_domains
+      subscribePrefill = {
+        name: q.name,
+        source_type: 'saved_query',
+        saved_query_id: q.id,
+        connection_id: q.connection_id || session?.connectionId || '',
+      }
+      subscribeOpen = true
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -486,6 +517,20 @@
 <ContextMenu open={!!folderMenu} x={folderMenu?.x ?? 0} y={folderMenu?.y ?? 0} items={folderMenuItems()} onclose={() => (folderMenu = null)} />
 
 <SavedQuerySheet query={editing} {folders} {isAdmin} onclose={() => (editing = null)} onsaved={onDetailsSaved} />
+<ReportEditor
+  open={subscribeOpen}
+  report={null}
+  prefill={subscribePrefill}
+  channels={subscribeChannels}
+  workerModes={subscribeModes}
+  recipientDomains={subscribeDomains}
+  onclose={() => (subscribeOpen = false)}
+  onsaved={() => {
+    subscribeOpen = false
+    toastSuccess('Report scheduled. Manage it in Schedules, Report delivery.')
+  }}
+/>
+
 <SavedQueryHistorySheet query={historyFor} onclose={() => (historyFor = null)} onrestored={() => void loadAll()} />
 
 <Sheet open={!!moving} title="Move" description={moving ? `Where "${moving.name}" should live.` : undefined} size="sm" onclose={() => (moving = null)}>
