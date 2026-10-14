@@ -15,6 +15,8 @@ export interface SSOConfigView {
   analyst_groups: string[]
   viewer_groups: string[]
   allowed_domains: string[]
+  /** Accept ID tokens with no email_verified claim. An explicit false is always refused. */
+  accept_unverified_email: boolean
 }
 
 export interface SSOSettings {
@@ -38,6 +40,7 @@ export interface SSOUpdateRequest {
   analyst_groups: string[]
   viewer_groups: string[]
   allowed_domains: string[]
+  accept_unverified_email: boolean
 }
 
 export function fetchSSOSettings() {

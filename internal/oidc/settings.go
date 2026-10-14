@@ -33,7 +33,11 @@ type Settings struct {
 	AdminGroups    []string
 	AnalystGroups  []string
 	ViewerGroups   []string
-	Source         string // SourceEnv or SourceDB
+	// AcceptUnverifiedEmail lets a login through when the ID token has no
+	// email_verified claim at all (IdPs that never send it). An explicit
+	// email_verified=false is always refused.
+	AcceptUnverifiedEmail bool
+	Source                string // SourceEnv or SourceDB
 }
 
 // Complete reports whether the settings carry everything needed to run the
@@ -49,17 +53,18 @@ func (s Settings) Complete() bool {
 // Enabled mirrors config.OIDCEnabled(): all required fields present.
 func SettingsFromConfig(cfg *config.Config) Settings {
 	return Settings{
-		Enabled:        cfg.OIDCEnabled(),
-		IssuerURL:      cfg.OIDCIssuerURL,
-		ClientID:       cfg.OIDCClientID,
-		ClientSecret:   cfg.OIDCClientSecret,
-		RedirectURL:    cfg.OIDCRedirectURL,
-		ConnectionID:   cfg.OIDCConnectionID,
-		GroupsClaim:    cfg.OIDCGroupsClaim,
-		AllowedDomains: cfg.OIDCAllowedDomains,
-		AdminGroups:    cfg.OIDCAdminGroups,
-		AnalystGroups:  cfg.OIDCAnalystGroups,
-		Source:         SourceEnv,
+		Enabled:               cfg.OIDCEnabled(),
+		IssuerURL:             cfg.OIDCIssuerURL,
+		ClientID:              cfg.OIDCClientID,
+		ClientSecret:          cfg.OIDCClientSecret,
+		RedirectURL:           cfg.OIDCRedirectURL,
+		ConnectionID:          cfg.OIDCConnectionID,
+		GroupsClaim:           cfg.OIDCGroupsClaim,
+		AllowedDomains:        cfg.OIDCAllowedDomains,
+		AdminGroups:           cfg.OIDCAdminGroups,
+		AnalystGroups:         cfg.OIDCAnalystGroups,
+		AcceptUnverifiedEmail: cfg.OIDCAcceptUnverifiedEmail,
+		Source:                SourceEnv,
 	}
 }
 
