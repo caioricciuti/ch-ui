@@ -354,3 +354,47 @@ export interface RbacWhoCanResult {
   incomplete: boolean
   incomplete_reasons: string[] | null
 }
+
+// ── Access as code ─────────────────────────────────────────────────
+
+/** Parts of an access file an import can apply. Users means default roles. */
+export type RbacImportKind = 'roles' | 'users' | 'grants' | 'role_grants' | 'row_policies' | 'quotas' | 'profiles'
+
+export type RbacPruneKind = Exclude<RbacImportKind, 'users'>
+
+export type RbacPrune = Partial<Record<RbacPruneKind, boolean>>
+
+export interface RbacRename {
+  principals?: Record<string, string>
+  databases?: Record<string, string>
+}
+
+export interface RbacImportRequest {
+  file: string
+  prune: RbacPrune
+  rename: RbacRename
+  kinds?: RbacImportKind[]
+}
+
+export interface RbacSkip {
+  kind: string
+  name: string
+  reason: string
+}
+
+export interface RbacFileSource {
+  connection?: string
+  host?: string
+  exported_at?: string
+}
+
+export interface RbacImportPlan {
+  ops: RbacOp[]
+  skipped: RbacSkip[]
+  summary: Partial<Record<RbacImportKind, number>>
+  over_cap: boolean
+  message?: string
+  source?: RbacFileSource
+}
+
+export type RbacExportFormat = 'yaml' | 'json' | 'sql'
