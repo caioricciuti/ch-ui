@@ -386,7 +386,7 @@ func (h *GovernanceHandler) CreateAlertRule(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if !isSupportedEventType(eventType) {
-		writeError(w, http.StatusBadRequest, "event_type must be policy.violation, schedule.failed, schedule.slow, telemetry.monitor, access.drift, a health.* or sql.* type, or *")
+		writeError(w, http.StatusBadRequest, "event_type must be policy.violation, schedule.failed, schedule.slow, telemetry.monitor, access.drift, report.failed, report.disabled, a health.*, sql.* or report.* type, or *")
 		return
 	}
 	if !isSupportedSeverity(severityMin) {
@@ -521,7 +521,7 @@ func (h *GovernanceHandler) UpdateAlertRule(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if !isSupportedEventType(eventType) {
-		writeError(w, http.StatusBadRequest, "event_type must be policy.violation, schedule.failed, schedule.slow, telemetry.monitor, access.drift, a health.* or sql.* type, or *")
+		writeError(w, http.StatusBadRequest, "event_type must be policy.violation, schedule.failed, schedule.slow, telemetry.monitor, access.drift, report.failed, report.disabled, a health.*, sql.* or report.* type, or *")
 		return
 	}
 	if !isSupportedSeverity(severityMin) {
@@ -818,7 +818,8 @@ func isSupportedEventType(v string) bool {
 	case "*", "any", alerts.EventTypePolicyViolation, alerts.EventTypeScheduleFailed, alerts.EventTypeScheduleSlow, alerts.EventTypeTelemetryMonitor,
 		alerts.EventTypeHealthReplicationLag, alerts.EventTypeHealthReplicaReadonly, alerts.EventTypeHealthDisk,
 		alerts.EventTypeHealthParts, alerts.EventTypeHealthMutationStuck, alerts.EventTypeHealthNodeUnreachable,
-		alerts.EventTypeHealthConnectionUnreachable, alerts.EventTypeHealthSummary, alerts.EventTypeSQLAlert, alerts.EventTypeAccessDrift, "health.*", "sql.*":
+		alerts.EventTypeHealthConnectionUnreachable, alerts.EventTypeHealthSummary, alerts.EventTypeSQLAlert, alerts.EventTypeAccessDrift, alerts.EventTypeReportFailed, alerts.EventTypeReportDisabled,
+		"health.*", "sql.*", "report.*":
 		return true
 	default:
 		return false

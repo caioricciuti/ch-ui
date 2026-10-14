@@ -8,6 +8,8 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -201,5 +203,27 @@ func TestAlertRuleConnectionIDs(t *testing.T) {
 func TestSupportedEventTypeAccessDrift(t *testing.T) {
 	if !isSupportedEventType("access.drift") || isSupportedEventType("access.other") {
 		t.Fatal("access.drift must be selectable, unknown access types must not")
+	}
+}
+
+// Every event type the rule editor offers must be accepted when the rule is
+// saved. report.* types were offered but refused with a 400.
+func TestRuleEditorEventTypesAreSupported(t *testing.T) {
+	src, err := os.ReadFile("../../../ui/src/lib/components/governance/alerting-silences.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := regexp.MustCompile(`(?s)export const EVENT_TYPE_OPTIONS[^\n]*\n(.*?)\n\]`).FindSubmatch(src)
+	if block == nil {
+		t.Fatal("EVENT_TYPE_OPTIONS not found")
+	}
+	values := regexp.MustCompile(`value: '([a-z_*.]+)'`).FindAllStringSubmatch(string(block[1]), -1)
+	if len(values) < 10 {
+		t.Fatalf("found only %d event type options; did the file change shape?", len(values))
+	}
+	for _, v := range values {
+		if !isSupportedEventType(v[1]) {
+			t.Errorf("the rule editor offers %q but saving a rule with it is refused", v[1])
+		}
 	}
 }
