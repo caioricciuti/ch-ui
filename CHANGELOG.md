@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.23.1] - 2026-10-15
+
+Security release. Every install should upgrade.
+
+### Upgrade notes
+
+- **Role overrides apply per connection.** On upgrade, each existing role override for a ClickHouse user (password login) is copied to every saved connection, so current access is kept; review Admin › Users per connection afterwards. A connection added later starts with no overrides until an admin sets them. SSO people keep their overrides on all connections. Connections created from the login page (sign in with a ClickHouse URL) grant at most the analyst role. `ch-ui reset-admin --user` takes a new `--connection` flag (#321).
+- **SSO needs a verified email.** If your identity provider never sends the `email_verified` claim (Microsoft Entra ID commonly does not), turn on "Accept emails without email_verified" in Admin › Settings › Configure SSO, or set `OIDC_ACCEPT_UNVERIFIED_EMAIL=true`, or people cannot sign in with SSO (#318).
+- **Scheduled reports are private** to their creator and admins; the report list shows your own reports (#320).
+- **Dashboard share links**: only the creator of a link or an admin can see or copy it; other writers can still see and revoke it (#320).
+
+### Security
+
+- **Tunnel tokens** are no longer included in connection list and detail responses; only admins can read them, from the token endpoints. Regenerating a token or deleting a connection disconnects any agent already attached (#319).
+- **Role overrides** for ClickHouse users apply only on the connection they were set for; connections added from the login page never carry overrides, never make the first admin and grant at most analyst; password logins named `sso:...` are refused (#321).
+- **SSO** refuses email addresses the identity provider has not verified (#318).
+- **Dashboard share links**: listing them needs write access, and only the creator of a link or an admin sees its URL (#320).
+- **Scheduled reports**, their previews, delivery history and CSV downloads are visible only to their creator and admins, and a report can only use a saved query its author can open (#320).
+- **ClickHouse user passwords** are masked in executed commands, error messages and server logs (#320).
+- The public **license endpoint** no longer returns the customer name or license ID (#320).
+
+### Fixed
+
+- The SQL editor showed "No rows returned" while a query was still running, before its rows arrived (#316).
+- On a multi-node cluster, an access drift alert could resolve when snapshots were read from another node that lacked an entity kept in local storage (#317).
+
 ## [2.23.0] - 2026-10-14
 
 ### Upgrade notes
