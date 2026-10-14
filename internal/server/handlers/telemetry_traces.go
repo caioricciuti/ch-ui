@@ -55,7 +55,7 @@ func (h *TelemetryHandler) tracesSource(w http.ResponseWriter, c chCreds, id, co
 func (h *TelemetryHandler) tracesSetup(w http.ResponseWriter, r *http.Request) (chCreds, *telemetry.Source, map[string]string, tracesRequest, bool) {
 	c, session, err := h.creds(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeCredsError(w, err)
 		return chCreds{}, nil, nil, tracesRequest{}, false
 	}
 	var body tracesRequest
@@ -291,7 +291,7 @@ func (h *TelemetryHandler) correlatedLogsSource(src *telemetry.Source) *telemetr
 func (h *TelemetryHandler) GetTrace(w http.ResponseWriter, r *http.Request) {
 	c, session, err := h.creds(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeCredsError(w, err)
 		return
 	}
 	traceID := strings.TrimSpace(chi.URLParam(r, "traceId"))

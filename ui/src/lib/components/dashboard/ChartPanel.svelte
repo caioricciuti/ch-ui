@@ -3,16 +3,29 @@
   import uPlot from 'uplot'
   import 'uplot/dist/uPlot.min.css'
   import type { PanelConfig } from '../../types/api'
-  import { toUPlotData, DEFAULT_COLORS, isDateType, isCategoricalColumn, resolveChartColumns, pivotSeries, type ColumnMeta } from '../../utils/chart-transform'
+  import {
+    toUPlotData, DEFAULT_COLORS, isDateType, isCategoricalColumn, resolveChartColumns, pivotSeries, stackSeries,
+    histogramBins, resolveHistogramColumn, toScatterData, type ColumnMeta,
+  } from '../../utils/chart-transform'
+  import { formatNumber } from '../../utils/format'
   import { chartTheme, tooltipPlugin } from '../../utils/uplot-tooltip'
 
   interface Props {
     data: Record<string, unknown>[]
     meta: ColumnMeta[]
     config: PanelConfig
+    /** Panel type; histogram and scatter draw their own data. Defaults to the config's chart type. */
+    type?: string
   }
 
-  let { data, meta, config }: Props = $props()
+  let { data, meta, config, type }: Props = $props()
+
+  const kind = $derived(type ?? config.chartType)
+  const isHistogram = $derived(kind === 'histogram')
+  const isScatter = $derived(kind === 'scatter')
+  const isBar = $derived(!isHistogram && !isScatter && config.chartType === 'bar')
+  // Stacked areas: time series only. Saved panels without the field draw as before.
+  const isStacked = $derived(!isHistogram && !isScatter && !isBar && config.stacked === true)
 
   let container: HTMLDivElement
   let chart: uPlot | undefined
@@ -23,6 +36,7 @@
   // A series column splits the first y column into one series per value:
   // the long rows are pivoted to wide rows before anything is plotted.
   const pivot = $derived.by(() => {
+    if (isHistogram || isScatter) return null
     const series = config.seriesColumn
     if (!series || !meta.some(m => m.name === series)) return null
     const base = resolveChartColumns(meta, config)
@@ -37,9 +51,35 @@
 
   // Axes as plotted: saved columns, or a sensible pick when none are saved.
   const axes = $derived(resolveChartColumns(plotMeta, plotConfig))
-  const plotData = $derived(toUPlotData(plotRows, plotMeta, plotConfig))
 
-  const isCategorical = $derived(isCategoricalColumn(plotMeta, axes.xColumn))
+  const histogram = $derived.by(() => {
+    if (!isHistogram) return null
+    const column = resolveHistogramColumn(meta, config)
+    return column ? { column, ...histogramBins(data, column, config.histogramBuckets) } : null
+  })
+  const scatter = $derived(isScatter ? toScatterData(data, meta, config) : null)
+
+  // What uPlot draws: x, then one array per series, with the series labels.
+  const plot = $derived.by<{ data: uPlot.AlignedData; labels: string[] }>(() => {
+    if (histogram) {
+      const { edges, counts } = histogram
+      const centers = new Float64Array(counts.length)
+      for (let i = 0; i < counts.length; i++) centers[i] = (edges[i] + edges[i + 1]) / 2
+      return { data: [centers, counts], labels: ['count'] }
+    }
+    if (scatter) return { data: scatter.data, labels: scatter.labels }
+    if (isHistogram || isScatter) return { data: [new Float64Array(0)], labels: [] }
+    return { data: toUPlotData(plotRows, plotMeta, plotConfig), labels: axes.yColumns }
+  })
+  const plotData = $derived(plot.data)
+
+  const isCategorical = $derived(!isHistogram && !isScatter && isCategoricalColumn(plotMeta, axes.xColumn))
+  const isTime = $derived.by(() => {
+    if (histogram) return false
+    if (scatter) return scatter.xIsTime
+    const xMeta = plotMeta.find(m => m.name === axes.xColumn)
+    return xMeta ? isDateType(xMeta.type) : false
+  })
 
   const xLabels = $derived(
     isCategorical ? plotRows.map(row => String(row[axes.xColumn ?? ''] ?? '')) : []
@@ -48,12 +88,13 @@
   // Legend: our own token-styled row (or column), never the uPlot legend.
   const legendPosition = $derived(config.legendPosition ?? 'bottom')
   const seriesColors = $derived(config.colors?.length ? config.colors : DEFAULT_COLORS)
+  // A histogram has one series, the bucket counts: nothing to tell apart.
   const legendItems = $derived(
-    axes.yColumns.map((label, i) => ({ label, color: seriesColors[i % seriesColors.length] })),
+    isHistogram ? [] : plot.labels.map((label, i) => ({ label, color: seriesColors[i % seriesColors.length] })),
   )
   let hiddenSeries = $state<Set<string>>(new Set())
   // A string, so a refresh with the same series does not count as a change.
-  const seriesKey = $derived(axes.yColumns.join('\u0000'))
+  const seriesKey = $derived(plot.labels.join('\u0000'))
 
   // A different set of series starts with every series visible again.
   $effect(() => {
@@ -66,7 +107,104 @@
     if (next.has(label)) next.delete(label)
     else next.add(label)
     hiddenSeries = next
-    chart?.setSeries(index + 1, { show: !next.has(label) })
+    // A stack is summed without the hidden series, so it is drawn again.
+    if (isStacked) createChart()
+    else chart?.setSeries(index + 1, { show: !next.has(label) })
+  }
+
+  /** The data as drawn: running totals for a stacked chart, hidden series left out. */
+  function drawData(): uPlot.AlignedData {
+    if (!isStacked) return plotData
+    const skip = new Set<number>()
+    plot.labels.forEach((label, i) => {
+      if (hiddenSeries.has(label)) skip.add(i + 1)
+    })
+    return stackSeries(plotData, skip)
+  }
+
+  // Scatter points: circles, sized by the size column (square root, so area
+  // follows the value) or all the same size.
+  function scatterPaths(sizes: (number | null)[] | null): uPlot.Series.PathBuilder {
+    let lo = Infinity
+    let hi = -Infinity
+    for (const v of sizes ?? []) {
+      if (v == null) continue
+      lo = Math.min(lo, v)
+      hi = Math.max(hi, v)
+    }
+    const radius = (i: number): number => {
+      if (!sizes) return 2.5
+      const v = sizes[i]
+      if (v == null) return 2
+      if (hi === lo) return 3
+      return 1.5 + 5.5 * Math.sqrt((v - lo) / (hi - lo))
+    }
+    return (u, sidx, i0, i1) => {
+      const fill = new Path2D()
+      const xs = u.data[0]
+      const ys = u.data[sidx]
+      for (let i = i0; i <= i1; i++) {
+        const y = ys[i]
+        if (y == null) continue
+        const cx = u.valToPos(xs[i], 'x', true)
+        const cy = u.valToPos(y, 'y', true)
+        const r = radius(i) * uPlot.pxRatio
+        fill.moveTo(cx + r, cy)
+        fill.arc(cx, cy, r, 0, Math.PI * 2)
+      }
+      return { fill, stroke: fill }
+    }
+  }
+
+  // The scatter point under the cursor: the nearest within a small radius,
+  // found among the points whose x is close enough (x is sorted).
+  function nearestPoint(u: uPlot): number | null {
+    const { left, top } = u.cursor
+    if (left == null || top == null || left < 0 || top < 0) return null
+    const reach = 16
+    const xs = u.data[0]
+    const from = u.posToVal(left - reach, 'x')
+    const to = u.posToVal(left + reach, 'x')
+    let lo = 0
+    let hi = xs.length
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (xs[mid] < from) lo = mid + 1
+      else hi = mid
+    }
+    let best: number | null = null
+    let bestDist = reach * reach
+    for (let i = lo; i < xs.length && xs[i] <= to; i++) {
+      const dx = u.valToPos(xs[i], 'x') - left
+      for (let s = 1; s < u.series.length; s++) {
+        const y = u.data[s][i]
+        if (y == null || !u.series[s].show) continue
+        const dy = u.valToPos(y, 'y') - top
+        const dist = dx * dx + dy * dy
+        if (dist < bestDist) {
+          bestDist = dist
+          best = i
+        }
+      }
+    }
+    return best
+  }
+
+  const missingColumns = $derived((isHistogram && !histogram) || (isScatter && !scatter))
+
+  // Rows the chart could not show.
+  const note = $derived.by(() => {
+    if (histogram && histogram.skipped > 0) {
+      return `${formatNumber(histogram.skipped)} ${histogram.skipped === 1 ? 'row' : 'rows'} without a number left out`
+    }
+    if (scatter && scatter.total > plotData[0].length) {
+      return `Showing the first ${formatNumber(plotData[0].length)} of ${formatNumber(scatter.total)} points`
+    }
+    return ''
+  })
+
+  function fmt(v: number): string {
+    return v.toLocaleString(undefined, { maximumFractionDigits: 2 })
   }
 
   function groupedBarPaths(seriesIdx: number, totalSeries: number): uPlot.Series.PathBuilder {
@@ -163,18 +301,17 @@
   }
 
   function buildOpts(w: number, h: number): uPlot.Options {
-    const xMeta = plotMeta.find(m => m.name === axes.xColumn)
-    const isTime = xMeta ? isDateType(xMeta.type) : false
     const isCat = isCategorical
     const catLabels = xLabels
     const colors = seriesColors
     const theme = chartTheme(container)
 
+    const xLabel = histogram?.column ?? scatter?.xColumn ?? axes.xColumn ?? 'X'
     const series: uPlot.Series[] = [
-      { label: axes.xColumn ?? 'X' },
+      { label: xLabel },
     ]
 
-    const yColumns = axes.yColumns
+    const yColumns = plot.labels
     for (let i = 0; i < yColumns.length; i++) {
       const color = colors[i % colors.length]
       const s: uPlot.Series = {
@@ -182,14 +319,26 @@
         stroke: color,
         width: 2,
         show: !hiddenSeries.has(yColumns[i]),
-        spanGaps: false,
+        // A pivoted series has no row where another series has one; join
+        // across those holes instead of drawing nothing.
+        spanGaps: pivot != null,
       }
 
-      if (config.chartType === 'bar') {
+      if (histogram) {
+        s.fill = color + '80'
+        s.paths = groupedBarPaths(0, 1)
+        s.points = { show: false }
+      } else if (scatter) {
+        s.fill = color + '66'
+        s.width = 1
+        s.paths = scatterPaths(scatter.sizes)
+        s.points = { show: false }
+      } else if (isBar) {
         s.fill = color + '80'
         s.paths = config.barMode === 'stacked' ? stackedBarPaths() : groupedBarPaths(i, yColumns.length)
+        s.points = { show: false }
       } else {
-        s.fill = color + '1A'
+        s.fill = color + (config.fill === 'area' ? '4D' : '1A')
       }
 
       series.push(s)
@@ -216,15 +365,49 @@
       }
     }
 
+    // Stacked areas: each series fills down to the visible series below it.
+    const bands: uPlot.Band[] = []
+    if (isStacked) {
+      let below = 0
+      for (let i = 1; i <= yColumns.length; i++) {
+        if (hiddenSeries.has(yColumns[i - 1])) continue
+        if (below > 0) bands.push({ series: [i, below] })
+        below = i
+      }
+    }
+
+    const formatTime = (xVal: number) => new Date(xVal * 1000).toLocaleString()
+    let tooltip: uPlot.Plugin
+    if (histogram) {
+      const { edges } = histogram
+      tooltip = tooltipPlugin({ formatX: (_x, idx) => `${fmt(edges[idx])} to ${fmt(edges[idx + 1])}` })
+    } else if (scatter) {
+      const { sizes, sizeColumn } = scatter
+      tooltip = tooltipPlugin({
+        formatX: (xVal, idx) => {
+          const x = `${scatter.xColumn} ${isTime ? formatTime(xVal) : fmt(xVal)}`
+          const size = sizes?.[idx]
+          return sizeColumn && size != null ? `${x}, ${sizeColumn} ${fmt(size)}` : x
+        },
+        dataIndex: nearestPoint,
+        skipNull: true,
+      })
+    } else {
+      tooltip = tooltipPlugin({
+        formatX: (xVal, idx) => isTime
+          ? formatTime(xVal)
+          : isCat ? (catLabels[idx] ?? String(xVal)) : xVal.toLocaleString(),
+        // A stack draws running totals; the tooltip shows each series' own value.
+        formatValue: isStacked ? (_v, s, idx) => fmt(Number(plotData[s][idx])) : undefined,
+      })
+    }
+
     return {
       width: w,
       height: h,
       series,
-      plugins: [tooltipPlugin({
-        formatX: (xVal, idx) => isTime
-          ? new Date(xVal * 1000).toLocaleString()
-          : isCat ? (catLabels[idx] ?? String(xVal)) : xVal.toLocaleString(),
-      })],
+      bands,
+      plugins: [tooltip],
       axes: [
         {
           stroke: theme.axis,
@@ -248,8 +431,13 @@
           ? { time: true }
           : isCat
             ? { time: false, distr: 2, range: (_u: uPlot, min: number, max: number) => [min - 0.5, max + 0.5] }
-            : { time: false },
-        ...(config.chartType === 'bar' && config.barMode === 'stacked' ? {
+            : histogram
+              ? { time: false, range: () => [histogram.edges[0], histogram.edges[histogram.edges.length - 1]] as [number, number] }
+              : { time: false },
+        ...(histogram ? {
+          y: { range: (_u: uPlot, _min: number, max: number) => [0, (max || 1) * 1.05] as [number, number] },
+        } : {}),
+        ...(isBar && config.barMode === 'stacked' ? {
           y: {
             range: () => {
               let stackMax = 0
@@ -266,7 +454,8 @@
         } : {}),
       },
       legend: { show: false },
-      cursor: { drag: { x: true, y: false } },
+      // Scatter: the tooltip marks the nearest point, not one point per series.
+      cursor: { drag: { x: true, y: false }, ...(scatter ? { points: { show: false } } : {}) },
     }
   }
 
@@ -282,7 +471,7 @@
     if (!container || !plotData[0]?.length || measuredWidth <= 0 || measuredHeight <= 0) return
 
     const opts = buildOpts(measuredWidth, measuredHeight)
-    chart = new uPlot(opts, plotData, container)
+    chart = new uPlot(opts, drawData(), container)
   }
 
   // Measure container using clientWidth/clientHeight (accounts for padding)
@@ -316,6 +505,8 @@
     void config.yColumns
     void config.colors
     void config.seriesColumn
+    void config.fill
+    void config.stacked
 
     if (!container || measuredWidth <= 0 || measuredHeight <= 0) return
 
@@ -338,7 +529,17 @@
 </script>
 
 <div class="flex h-full w-full min-h-0 min-w-0 {legendPosition === 'right' ? 'flex-row gap-2' : 'flex-col gap-1'}">
-  <div bind:this={container} class="min-h-0 min-w-0 flex-1 overflow-hidden"></div>
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+    {#if missingColumns}
+      <div class="flex flex-1 items-center justify-center text-xs text-fg-4">
+        {isHistogram ? 'Needs a numeric column' : 'Needs two numeric columns'}
+      </div>
+    {/if}
+    <div bind:this={container} class="min-h-0 min-w-0 flex-1 overflow-hidden" hidden={missingColumns}></div>
+    {#if note}
+      <p class="shrink-0 truncate px-1 pt-1 text-xs text-fg-4">{note}</p>
+    {/if}
+  </div>
   {#if legendPosition !== 'none' && legendItems.length > 0}
     <ul
       class="flex shrink-0 text-xs text-fg-3 {legendPosition === 'right'

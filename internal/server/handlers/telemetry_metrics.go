@@ -25,7 +25,7 @@ import (
 func (h *TelemetryHandler) metricsSetup(w http.ResponseWriter, r *http.Request, sourceID string) (chCreds, *telemetry.Source, bool) {
 	c, session, err := h.creds(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeCredsError(w, err)
 		return chCreds{}, nil, false
 	}
 	if sourceID == "" {
