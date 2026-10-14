@@ -102,7 +102,7 @@ func TestCreateAndUpdatePanelValidation(t *testing.T) {
 		name, method, path, body string
 		want                     int
 	}{
-		{"unknown type", http.MethodPost, create, `{"name":"a","query":"SELECT 1","panel_type":"heatmap"}`, 400},
+		{"unknown type", http.MethodPost, create, `{"name":"a","query":"SELECT 1","panel_type":"treemap"}`, 400},
 		{"too wide", http.MethodPost, create, `{"name":"a","query":"SELECT 1","layout_x":8,"layout_w":6}`, 400},
 		{"negative y", http.MethodPost, create, `{"name":"a","query":"SELECT 1","layout_y":-1}`, 400},
 		{"zero height", http.MethodPost, create, `{"name":"a","query":"SELECT 1","layout_h":0}`, 400},
@@ -112,6 +112,11 @@ func TestCreateAndUpdatePanelValidation(t *testing.T) {
 		{"update layout", http.MethodPut, update, `{"layout_x":11,"layout_w":2}`, 400},
 		{"update empty name", http.MethodPut, update, `{"name":"  "}`, 400},
 		{"update valid", http.MethodPut, update, `{"layout_x":6,"layout_w":6,"panel_type":"gauge"}`, 200},
+		{"histogram", http.MethodPost, create, `{"name":"h","query":"SELECT 1","panel_type":"histogram","config":"{\"chartType\":\"histogram\",\"histogramColumn\":\"v\",\"histogramBuckets\":20}"}`, 201},
+		{"scatter", http.MethodPost, create, `{"name":"s","query":"SELECT 1","panel_type":"scatter","config":"{\"chartType\":\"scatter\",\"scatterX\":\"a\",\"scatterY\":\"b\"}"}`, 201},
+		{"heatmap", http.MethodPost, create, `{"name":"m","query":"SELECT 1","panel_type":"heatmap","config":"{\"chartType\":\"heatmap\"}"}`, 201},
+		{"stacked timeseries", http.MethodPost, create, `{"name":"t","query":"SELECT 1","panel_type":"timeseries","config":"{\"chartType\":\"timeseries\",\"fill\":\"area\",\"stacked\":true}"}`, 201},
+		{"update to heatmap", http.MethodPut, update, `{"panel_type":"heatmap"}`, 200},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

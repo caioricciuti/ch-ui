@@ -231,7 +231,7 @@ export interface StatThreshold {
 
 /** Panel visualization config (stored as JSON in panel.config) */
 export interface PanelConfig {
-  chartType: 'table' | 'stat' | 'timeseries' | 'bar' | 'text' | 'gauge' | 'pie'
+  chartType: 'table' | 'stat' | 'timeseries' | 'bar' | 'text' | 'gauge' | 'pie' | 'histogram' | 'scatter' | 'heatmap'
   xColumn?: string
   yColumns?: string[]
   /** Column whose values split the first y column into one series each (long to wide). */
@@ -240,6 +240,24 @@ export interface PanelConfig {
   legendPosition?: 'bottom' | 'right' | 'none'
   content?: string
   barMode?: 'grouped' | 'stacked'
+  /** Time series: a line with a light tint (the default), or a filled area. */
+  fill?: 'line' | 'area'
+  /** Time series: each series sits on top of the ones before it. */
+  stacked?: boolean
+  /** Histogram: the column whose values are bucketed; first numeric when unset. */
+  histogramColumn?: string
+  /** Histogram: number of equal-width buckets, 30 when unset. */
+  histogramBuckets?: number
+  scatterX?: string
+  scatterY?: string
+  /** Scatter: column that scales each point. */
+  scatterSize?: string
+  /** Scatter: column whose values split points into colored groups. */
+  scatterSeries?: string
+  heatmapX?: string
+  heatmapY?: string
+  /** Heatmap: column summed per cell; rows are counted when there is no numeric column. */
+  heatmapValue?: string
   gaugeMin?: number
   gaugeMax?: number
   pieDonut?: boolean

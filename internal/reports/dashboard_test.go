@@ -30,6 +30,12 @@ func TestRenderPanelPerType(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		pie.Rows = append(pie.Rows, []string{fmt.Sprintf("c%02d", i), fmt.Sprint(i + 1)})
 	}
+	dist := Table{Columns: []string{"host", "latency", "size"}, Types: []string{"String", "Float64", "UInt64"}, Rows: [][]string{
+		{"a", "1", "10"}, {"b", "4", "40"}, {"a", "2", "20"}, {"b", "\\N", "0"}, {"c", "3", "30"},
+	}}
+	grid := Table{Columns: []string{"day", "hour", "n"}, Types: []string{"String", "UInt8", "UInt64"}, Rows: [][]string{
+		{"Mon", "1", "3"}, {"Mon", "2", "9"}, {"Tue", "1", "4"}, {"Mon", "2", "1"},
+	}}
 	big := Table{Columns: []string{"id"}, Types: []string{"UInt64"}}
 	for i := 0; i < 30; i++ {
 		big.Rows = append(big.Rows, []string{fmt.Sprint(i)})
@@ -49,6 +55,13 @@ func TestRenderPanelPerType(t *testing.T) {
 		{"bar long form", panel("Hosts", "bar", `{}`), long, []string{"a: last 3, min 1, max 3", "b: last 2, min 2, max 5"}, nil},
 		{"pie top 10", panel("Countries", "pie", `{}`), pie, []string{"c11: 12", "c02: 3", "... 2 more"}, []string{"c01:", "c00:"}},
 		{"table 20 rows", panel("Rows", "table", `{}`), big, []string{"Showing the first 20 of 30 rows", " 19"}, []string{" 25\n"}},
+		{"stacked timeseries", panel("Load", "timeseries", `{"xColumn":"t","fill":"area","stacked":true}`), ts, []string{"cpu: last 0.2, min 0.2, max 0.9"}, nil},
+		{"histogram", panel("Latency", "histogram", `{"histogramColumn":"latency"}`), dist, []string{"Latency (histogram)", "latency: 4 values, min 1, median 2.5, mean 2.5, max 4"}, nil},
+		{"histogram default column", panel("Latency", "histogram", `{}`), dist, []string{"latency: 4 values"}, nil},
+		{"scatter", panel("Size", "scatter", `{"scatterX":"size","scatterY":"latency"}`), dist, []string{"latency vs size: 4 points", "correlation 1.00"}, nil},
+		{"scatter no numbers", panel("S", "scatter", `{}`), Table{Columns: []string{"a"}, Types: []string{"String"}, Rows: [][]string{{"x"}}}, []string{"Needs two numeric columns."}, nil},
+		{"heatmap", panel("Load", "heatmap", `{"heatmapX":"day","heatmapY":"hour","heatmapValue":"n"}`), grid, []string{"3 cells of n by day and hour", "Mon / 2: 10", "Tue / 1: 4"}, nil},
+		{"heatmap counts rows", panel("Load", "heatmap", `{"heatmapX":"day","heatmapY":"hour"}`), Table{Columns: []string{"day", "hour"}, Types: []string{"String", "String"}, Rows: [][]string{{"Mon", "1"}, {"Mon", "1"}}}, []string{"1 cell of rows by day and hour", "Mon / 1: 2"}, nil},
 		{"empty", panel("Nothing", "table", `{}`), Table{Columns: []string{"a"}}, []string{"No data in this time range."}, nil},
 	}
 	for _, c := range cases {
