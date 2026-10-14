@@ -76,6 +76,7 @@
   const effective = $derived(diff?.diff.effective ?? [])
   const entities = $derived(diff?.diff.entities ?? [])
   const summary = $derived(row?.summary ?? {})
+  const liveCompare = $derived(!!diff?.to.live)
 
   const pickedOps = $derived((revert?.entities ?? []).filter((e) => picked[e.name]).reduce((n, e) => n + e.ops, 0))
 
@@ -216,7 +217,7 @@
         <section class="space-y-2">
           <h3 class="text-[13px] font-semibold text-fg">Changes by entity</h3>
           {#each entities as d (d.kind + d.entity)}
-            <DdlDiff diff={d} />
+            <DdlDiff diff={d} beforeLabel={liveCompare ? 'Snapshot' : 'Before'} afterLabel={liveCompare ? 'Live' : 'After'} />
           {/each}
         </section>
       {/if}
