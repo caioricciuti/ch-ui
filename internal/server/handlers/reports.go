@@ -29,9 +29,10 @@ import (
 )
 
 // ReportsHandler serves scheduled report delivery. Mounted behind
-// RequirePro. Reads are open to every signed-in user; writes, previews and
-// sends need a writer, and only the creator or an admin may change or delete
-// a report.
+// RequirePro. A report, its previews, deliveries and CSV files are visible
+// only to its creator and to admins: its output comes from the connection's
+// report account, not from the caller's grants. Writes, previews and sends
+// also need a writer.
 type ReportsHandler struct {
 	DB     *database.DB
 	Config *config.Config
@@ -63,14 +64,26 @@ type reportChannel struct {
 	IsActive    bool   `json:"is_active"`
 }
 
-// List returns every report, the channels a report can target and the
-// report account mode of each connection.
+// List returns the reports the caller may see (all of them for admins), the
+// channels a report can target and the report account mode of each
+// connection.
 func (h *ReportsHandler) List(w http.ResponseWriter, r *http.Request) {
-	list, err := h.DB.ListReportSubscriptions(false)
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+	all, err := h.DB.ListReportSubscriptions(false)
 	if err != nil {
 		slog.Error("Failed to list reports", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to list reports")
 		return
+	}
+	list := make([]database.ReportSubscription, 0, len(all))
+	for _, s := range all {
+		if canSeeReport(session, &s) {
+			list = append(list, s)
+		}
 	}
 	channels, err := h.DB.ListAlertChannels()
 	if err != nil {
@@ -163,7 +176,9 @@ func (h *ReportsHandler) decode(w http.ResponseWriter, r *http.Request, session 
 	}
 	switch s.SourceType {
 	case reports.SourceSavedQuery:
-		q, err := h.DB.GetSavedQueryByID(*s.SavedQueryID)
+		// The report runs with the report account, so it may only be built on
+		// a saved query the caller can open.
+		q, err := h.DB.GetSavedQueryVisibleTo(*s.SavedQueryID, byIDViewer(session))
 		if err != nil || q == nil {
 			writeError(w, http.StatusBadRequest, "Saved query not found")
 			return false
@@ -250,21 +265,27 @@ func validateReportVariables(vars map[string][]string) error {
 	return nil
 }
 
-// load returns the report in the URL; with forWrite only its creator or an
-// admin passes. On failure it has written the error.
-func (h *ReportsHandler) load(w http.ResponseWriter, r *http.Request, session *middleware.SessionInfo, forWrite bool) *database.ReportSubscription {
+// canSeeReport reports whether the caller is the report's creator or an
+// admin.
+func canSeeReport(session *middleware.SessionInfo, s *database.ReportSubscription) bool {
+	if session == nil || s == nil {
+		return false
+	}
+	return session.UserRole == "admin" || (s.CreatedBy != nil && *s.CreatedBy == middleware.Actor(session))
+}
+
+// load returns the report in the URL when the caller may see it. A report
+// the caller cannot see is 404, never 403, so ids cannot be probed. On
+// failure it has written the error.
+func (h *ReportsHandler) load(w http.ResponseWriter, r *http.Request, session *middleware.SessionInfo) *database.ReportSubscription {
 	s, err := h.DB.GetReportSubscription(chi.URLParam(r, "id"))
 	if err != nil {
 		slog.Error("Failed to load report", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to load report")
 		return nil
 	}
-	if s == nil {
+	if s == nil || !canSeeReport(session, s) {
 		writeError(w, http.StatusNotFound, "Report not found")
-		return nil
-	}
-	if forWrite && session.UserRole != "admin" && (s.CreatedBy == nil || *s.CreatedBy != middleware.Actor(session)) {
-		writeError(w, http.StatusForbidden, "Only the creator or an admin can change this report")
 		return nil
 	}
 	return s
@@ -304,7 +325,7 @@ func (h *ReportsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "Not authenticated")
 		return
 	}
-	existing := h.load(w, r, session, true)
+	existing := h.load(w, r, session)
 	if existing == nil {
 		return
 	}
@@ -337,7 +358,7 @@ func (h *ReportsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "Not authenticated")
 		return
 	}
-	existing := h.load(w, r, session, true)
+	existing := h.load(w, r, session)
 	if existing == nil {
 		return
 	}
@@ -361,7 +382,7 @@ func (h *ReportsHandler) Preview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "Not authenticated")
 		return
 	}
-	s := h.load(w, r, session, false)
+	s := h.load(w, r, session)
 	if s == nil {
 		return
 	}
@@ -395,7 +416,7 @@ func (h *ReportsHandler) Send(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "Not authenticated")
 		return
 	}
-	s := h.load(w, r, session, false)
+	s := h.load(w, r, session)
 	if s == nil {
 		return
 	}
@@ -431,7 +452,7 @@ func (h *ReportsHandler) Deliveries(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "Not authenticated")
 		return
 	}
-	s := h.load(w, r, session, false)
+	s := h.load(w, r, session)
 	if s == nil {
 		return
 	}
@@ -458,6 +479,16 @@ func (h *ReportsHandler) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if d == nil {
+		writeError(w, http.StatusNotFound, "Delivery not found")
+		return
+	}
+	s, err := h.DB.GetReportSubscription(d.SubscriptionID)
+	if err != nil {
+		slog.Error("Failed to load report for delivery", "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to load delivery")
+		return
+	}
+	if !canSeeReport(session, s) {
 		writeError(w, http.StatusNotFound, "Delivery not found")
 		return
 	}

@@ -90,7 +90,7 @@ func (h *DashboardsHandler) Routes() chi.Router {
 		r.With(writer).Post("/versions/{version}/restore", h.RestoreVersion)
 
 		// Sharing
-		r.Get("/shares", h.ListShares)
+		r.With(writer).Get("/shares", h.ListShares)
 		r.With(writer).Post("/shares", h.CreateShare)
 		r.With(writer).Delete("/shares/{shareId}", h.DeleteShare)
 		r.With(writer).Post("/shares/{shareId}/invite", h.InviteToShare)
@@ -1401,8 +1401,16 @@ func (h *DashboardsHandler) enforceGuardrails(w http.ResponseWriter, r *http.Req
 
 // ---------- Sharing ----------
 
-// ListShares returns all share links for a dashboard.
+// ListShares returns all share links for a dashboard. A share link runs
+// panels with its creator's ClickHouse credentials and needs no login, so
+// only the creator and admins get the token; other writers see that the
+// link exists (and may revoke it) without the token.
 func (h *DashboardsHandler) ListShares(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
 	dashboardID := chi.URLParam(r, "id")
 	shares, err := h.DB.GetDashboardSharesByDashboard(dashboardID)
 	if err != nil {
@@ -1413,7 +1421,20 @@ func (h *DashboardsHandler) ListShares(w http.ResponseWriter, r *http.Request) {
 	if shares == nil {
 		shares = []database.DashboardShare{}
 	}
+	for i := range shares {
+		if !ownsShare(session, &shares[i]) {
+			shares[i].Token = ""
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"shares": shares})
+}
+
+// ownsShare reports whether the caller created the share or is an admin.
+func ownsShare(session *middleware.SessionInfo, share *database.DashboardShare) bool {
+	if session.UserRole == "admin" {
+		return true
+	}
+	return share.CreatedBy != nil && *share.CreatedBy == middleware.Actor(session)
 }
 
 // CreateShare creates a share link for a dashboard.
@@ -1514,8 +1535,14 @@ func (h *DashboardsHandler) InviteToShare(w http.ResponseWriter, r *http.Request
 
 	shareID := chi.URLParam(r, "shareId")
 	share, err := h.DB.GetDashboardShareByID(shareID)
-	if err != nil || share == nil {
+	if err != nil || share == nil || share.DashboardID != chi.URLParam(r, "id") {
 		writeError(w, http.StatusNotFound, "Share not found")
+		return
+	}
+	// The invite mail carries the share token, so it follows the same rule
+	// as seeing the token in ListShares.
+	if !ownsShare(session, share) {
+		writeError(w, http.StatusForbidden, "Only the creator of this link or an admin can send its invites")
 		return
 	}
 

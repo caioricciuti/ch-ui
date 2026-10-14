@@ -270,7 +270,8 @@
   function buildCreateCHUserCommandPreview(): string {
     const user = createCHUserForm.name.trim() || 'new_user'
     const auth = createCHUserForm.authType
-    const pass = createCHUserForm.password
+    // The preview never shows the typed password.
+    const pass = createCHUserForm.password ? '***' : ''
     const roles = createCHUserForm.defaultRoles.split(',').map((value) => value.trim()).filter(Boolean)
 
     const createParts: string[] = ['CREATE USER']

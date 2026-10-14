@@ -90,7 +90,9 @@
 
   const proActive = $derived(isProActive())
   const inGrace = $derived(isLicenseInGrace())
-  const expiredLicense = $derived(!!(license && !license.valid && !!license.license_id))
+  // Customer and license id reach admins only; expires_at is set for any
+  // license that verified, so it marks an expired one for every role.
+  const expiredLicense = $derived(!!(license && !license.valid && !!license.expires_at))
 
   const licenseState = $derived.by(() => {
     if (loading) return 'loading'
@@ -298,7 +300,7 @@
       <div class="space-y-8">
         <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Stat size="md" label="Edition" value={license?.edition || 'community'} />
-          <Stat size="md" label="Customer" value={license?.customer || 'Open Source Deployment'} />
+          <Stat size="md" label="Customer" value={license?.customer || (license?.expires_at ? '—' : 'Open Source Deployment')} />
           <Stat size="md" label="License ID" value={license?.license_id || '—'} />
           <Stat size="md" label="Expiration" value={formatDate(license?.expires_at)} />
         </div>

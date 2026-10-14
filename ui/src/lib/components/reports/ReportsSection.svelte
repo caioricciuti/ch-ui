@@ -24,7 +24,7 @@
   import { formatBytes, formatDate, formatRelativeTime } from '../../utils/format'
   import type { Dashboard, SavedQuery } from '../../types/api'
 
-  /** Report delivery: saved query results and dashboard summaries sent on a cron to alert channels. */
+  /** Report delivery: saved query results and dashboard summaries sent on a cron to alert channels. The API lists only the caller's own reports (all of them for admins). */
   const session = $derived(getSession())
   const isAdmin = $derived(session?.role === 'admin')
   const canWrite = $derived(session?.role === 'admin' || session?.role === 'analyst')
@@ -280,7 +280,7 @@
       <EmptyState
         icon={Mail}
         title="No reports yet"
-        description="Send a saved query result or a dashboard summary on a cron to email, Slack, Teams or a webhook. Reports run with the connection's dedicated report account."
+        description="Send a saved query result or a dashboard summary on a cron to email, Slack, Teams or a webhook. Reports run with the connection's dedicated report account, so each report is visible only to its creator and admins."
         primary={canWrite ? { label: 'New report', onclick: openNew } : undefined}
       />
     {:else}
@@ -300,7 +300,7 @@
             {/if}
           {/snippet}
           {#snippet actions(row)}
-            {#if canWrite}
+            {#if canChange(row)}
               <Button icon variant="ghost" size="xs" aria-label="Send now" title="Send now" loading={busyId === row.id} onclick={(e) => { e.stopPropagation(); void sendNow(row) }}><Send size={13} /></Button>
               <Button icon variant="ghost" size="xs" aria-label="Preview" title="Preview" onclick={(e) => { e.stopPropagation(); void openPreview(row) }}><Eye size={13} /></Button>
             {/if}

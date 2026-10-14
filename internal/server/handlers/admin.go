@@ -569,15 +569,17 @@ func (h *AdminHandler) CreateClickHouseUser(w http.ResponseWriter, r *http.Reque
 	// would silently pass and then receive the requested roles. The
 	// if_not_exists field is accepted for compatibility and ignored.
 	createSQLStr := buildCreateChUserSQL(name, authType, body.Password)
-	executedCommands := []string{createSQLStr}
+	shownCreateSQL := maskChUserPassword(createSQLStr, body.Password)
+	executedCommands := []string{shownCreateSQL}
 
 	if _, err := h.Gateway.ExecuteQuery(session.ConnectionID, createSQLStr, session.ClickhouseUser, password, 30*time.Second); err != nil {
 		if isAccessEntityExistsError(err) {
 			writeError(w, http.StatusConflict, fmt.Sprintf("ClickHouse user %q already exists", name))
 			return
 		}
-		slog.Warn("Failed to create ClickHouse user", "error", err, "connection", session.ConnectionID, "name", name)
-		writeError(w, http.StatusBadGateway, fmt.Sprintf("%s\n\nCommand:\n%s", err.Error(), createSQLStr))
+		errText := maskChUserPassword(err.Error(), body.Password)
+		slog.Warn("Failed to create ClickHouse user", "error", errText, "connection", session.ConnectionID, "name", name)
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("%s\n\nCommand:\n%s", errText, shownCreateSQL))
 		return
 	}
 
@@ -623,7 +625,7 @@ func (h *AdminHandler) CreateClickHouseUser(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"success":  true,
 		"name":     name,
-		"command":  createSQLStr,
+		"command":  shownCreateSQL,
 		"commands": executedCommands,
 	})
 }
@@ -687,10 +689,12 @@ func (h *AdminHandler) UpdateClickHouseUserPassword(w http.ResponseWriter, r *ht
 	}
 	b.WriteString(safe.Identifier(username))
 	b.WriteString(buildClickHouseAlterAuthClause(authType, body.Password))
+	shownSQL := maskChUserPassword(b.String(), body.Password)
 
 	if _, err := h.Gateway.ExecuteQuery(session.ConnectionID, b.String(), session.ClickhouseUser, password, 30*time.Second); err != nil {
-		slog.Warn("Failed to update ClickHouse user password", "error", err, "connection", session.ConnectionID, "name", username)
-		writeError(w, http.StatusBadGateway, fmt.Sprintf("%s\n\nCommand:\n%s", err.Error(), b.String()))
+		errText := maskChUserPassword(err.Error(), body.Password)
+		slog.Warn("Failed to update ClickHouse user password", "error", errText, "connection", session.ConnectionID, "name", username)
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("%s\n\nCommand:\n%s", errText, shownSQL))
 		return
 	}
 
@@ -705,8 +709,20 @@ func (h *AdminHandler) UpdateClickHouseUserPassword(w http.ResponseWriter, r *ht
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
-		"command": b.String(),
+		"command": shownSQL,
 	})
+}
+
+// maskChUserPassword hides a ClickHouse user's new password in SQL or error
+// text before it is returned to the browser or logged: IDENTIFIED BY
+// literals become '***', and any other copy of the password (ClickHouse may
+// quote the statement back in an error) becomes ***.
+func maskChUserPassword(text, password string) string {
+	if password != "" {
+		text = strings.ReplaceAll(text, safe.Literal(password), "***")
+		text = strings.ReplaceAll(text, password, "***")
+	}
+	return redactIdentifiedRe.ReplaceAllString(text, "$1'***'")
 }
 
 func buildClickHouseCreateAuthClause(authType, password string) string {

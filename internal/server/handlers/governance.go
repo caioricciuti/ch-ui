@@ -1064,8 +1064,10 @@ func (h *GovernanceHandler) CreateChUser(w http.ResponseWriter, r *http.Request)
 			writeError(w, http.StatusConflict, fmt.Sprintf("ClickHouse user %q already exists", name))
 			return
 		}
-		slog.Error("Failed to create ClickHouse user", "connection", session.ConnectionID, "name", name, "error", err)
-		writeError(w, http.StatusBadGateway, err.Error())
+		// ClickHouse can quote the statement back, password included.
+		msg := maskChUserPassword(err.Error(), body.Password)
+		slog.Error("Failed to create ClickHouse user", "connection", session.ConnectionID, "name", name, "error", msg)
+		writeError(w, http.StatusBadGateway, msg)
 		return
 	}
 
