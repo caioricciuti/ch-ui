@@ -6,10 +6,10 @@
 package governance
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 type guardrailTestContext struct {
@@ -22,8 +22,7 @@ type guardrailTestContext struct {
 func newGuardrailTestContext(t *testing.T) *guardrailTestContext {
 	t.Helper()
 
-	dbPath := filepath.Join(t.TempDir(), "guardrails.db")
-	db, err := database.Open(dbPath)
+	db, err := dbtest.Open(t, "guardrails.db")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

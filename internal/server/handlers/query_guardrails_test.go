@@ -9,10 +9,9 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
-	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/governance"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
@@ -68,8 +67,7 @@ func TestQueryEndpointsBlockedByGuardrailPolicy(t *testing.T) {
 func newBlockedQueryHandler(t *testing.T) (*QueryHandler, func()) {
 	t.Helper()
 
-	dbPath := filepath.Join(t.TempDir(), "query_guardrails.db")
-	db, err := database.Open(dbPath)
+	db, err := dbtest.Open(t, "query_guardrails.db")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
