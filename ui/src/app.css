@@ -166,6 +166,17 @@
   --fill-fg: #ffffff;
   --warning-fg: #ffffff;
 
+  /* Chart series, same in both themes (each is 3:1 or more on light and
+     dark backgrounds). Mirrored by DEFAULT_COLORS in utils/chart-transform. */
+  --chart-1: #ea580c;
+  --chart-2: #3b82f6;
+  --chart-3: #0d9488;
+  --chart-4: #8b5cf6;
+  --chart-5: #db2777;
+  --chart-6: #b38200;
+  --chart-7: #5c9a0b;
+  --chart-8: #71717a;
+
   /* legacy names still referenced by a few components */
   --radius: 6px;
   --background: var(--canvas);

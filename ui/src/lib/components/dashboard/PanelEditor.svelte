@@ -10,7 +10,7 @@
   import SqlEditor from '../editor/SqlEditor.svelte'
   import PanelRenderer from './PanelRenderer.svelte'
   import ChartConfigFields from './ChartConfigFields.svelte'
-  import { DEFAULT_COLORS, resolveChartColumns } from '../../utils/chart-transform'
+  import { resolveChartColumns } from '../../utils/chart-transform'
   import { formatDashboardTimeRangeLabel } from '../../utils/dashboard-time'
   import { toDashboardTimeRangePayload } from '../../utils/dashboard-time'
   import MarkdownPanel from './MarkdownPanel.svelte'
@@ -68,7 +68,7 @@
       xColumn: config.xColumn ?? '',
       yColumns: config.yColumns ?? [],
       seriesColumn: axis && config.seriesColumn ? config.seriesColumn : undefined,
-      colors: config.colors ?? [...DEFAULT_COLORS],
+      colors: config.colors,
       legendPosition: config.legendPosition ?? 'bottom',
       content: content || undefined,
       barMode: t === 'bar' ? (config.barMode ?? 'grouped') : undefined,
@@ -124,7 +124,6 @@
       chartType: existingConfig.chartType ?? (currentPanel?.panel_type as PanelConfig['chartType']) ?? 'table',
       xColumn: existingConfig.xColumn ?? '',
       yColumns: [...new Set(existingConfig.yColumns ?? [])],
-      colors: existingConfig.colors ?? [...DEFAULT_COLORS],
       statThresholds: existingConfig.statThresholds ?? DEFAULT_THRESHOLDS.map(t => ({ ...t })),
     }
     queryData = []

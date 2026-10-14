@@ -4,7 +4,7 @@
   import 'uplot/dist/uPlot.min.css'
   import type { PanelConfig } from '../../types/api'
   import {
-    toUPlotData, DEFAULT_COLORS, isDateType, isCategoricalColumn, resolveChartColumns, pivotSeries, stackSeries,
+    toUPlotData, seriesColors, isDateType, isCategoricalColumn, resolveChartColumns, pivotSeries, stackSeries,
     histogramBins, resolveHistogramColumn, toScatterData, plotPoints, type ColumnMeta,
   } from '../../utils/chart-transform'
   import { formatNumber } from '../../utils/format'
@@ -91,10 +91,10 @@
 
   // Legend: our own token-styled row (or column), never the uPlot legend.
   const legendPosition = $derived(config.legendPosition ?? 'bottom')
-  const seriesColors = $derived(config.colors?.length ? config.colors : DEFAULT_COLORS)
+  const colors = $derived(seriesColors(config.colors))
   // A histogram has one series, the bucket counts: nothing to tell apart.
   const legendItems = $derived(
-    isHistogram ? [] : plot.labels.map((label, i) => ({ label, color: seriesColors[i % seriesColors.length] })),
+    isHistogram ? [] : plot.labels.map((label, i) => ({ label, color: colors[i % colors.length] })),
   )
   let hiddenSeries = $state<Set<string>>(new Set())
   // A string, so a refresh with the same series does not count as a change.
@@ -337,7 +337,6 @@
   function buildOpts(w: number, h: number): uPlot.Options {
     const isCat = isCategorical
     const catLabels = xLabels
-    const colors = seriesColors
     const theme = chartTheme(container)
 
     const xLabel = histogram?.column ?? scatter?.xColumn ?? axes.xColumn ?? 'X'

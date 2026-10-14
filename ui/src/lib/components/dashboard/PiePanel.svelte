@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { PanelConfig } from '../../types/api'
   import type { ColumnMeta } from '../../utils/chart-transform'
-  import { isNumericType, DEFAULT_COLORS } from '../../utils/chart-transform'
+  import { isNumericType, seriesColors } from '../../utils/chart-transform'
   import { dashboardIsDark } from './dashboard-theme.svelte'
   import { buildClickContext, type PanelClick } from '../../utils/drilldown'
 
@@ -36,7 +36,7 @@
 
   const slices = $derived.by(() => {
     if (!labelCol || !valueCol || data.length === 0) return []
-    const colors = config.colors?.length ? config.colors : DEFAULT_COLORS
+    const colors = seriesColors(config.colors)
     const items: { label: string; value: number; color: string; row: Record<string, unknown> }[] = []
     let total = 0
     for (const row of data) {
