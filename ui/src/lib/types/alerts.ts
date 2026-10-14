@@ -8,6 +8,7 @@ export type AlertEventType =
   | 'health.mutation_stuck' | 'health.node_unreachable' | 'health.connection_unreachable' | 'health.*'
   | 'sql.alert' | 'sql.*'
   | 'report.failed' | 'report.disabled' | 'report.*'
+  | 'access.drift'
   | '*'
 
 export interface AlertChannel {

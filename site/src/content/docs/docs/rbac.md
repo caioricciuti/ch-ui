@@ -331,7 +331,10 @@ A partial read (a section that failed, or a login without `SHOW ACCESS`) is
 stored and marked **Partial read**, and never judged as drift. The toolbar
 filters to **Drift only**. Access control shows an **N outside changes**
 badge when outside changes happened in the last 30 days; clicking it opens
-Access history. Drift is not sent as an alert.
+Access history. Each new drift row also raises an `access.drift`
+[alert event](/docs/alerts#access-drift), so an alert rule can send it by
+email, Slack or webhook; it resolves when the state goes back to where it was
+before the drift.
 
 ### Compare and revert
 

@@ -33,6 +33,7 @@ const (
 	EventTypeScheduleFailed   = "schedule.failed"
 	EventTypeScheduleSlow     = "schedule.slow"
 	EventTypeTelemetryMonitor = "telemetry.monitor"
+	EventTypeAccessDrift      = "access.drift"
 )
 
 const (
@@ -283,7 +284,7 @@ func (d *Dispatcher) webhookEvent(job database.AlertDispatchJobWithDetails) Webh
 		Message:     job.EventMessage,
 		Fingerprint: coalesce(job.EventFingerprint, ""),
 		Timestamp:   job.EventCreatedAt,
-		Link:        AlertsLink(d.appURL()),
+		Link:        EventLink(d.appURL(), job.EventPayloadJSON),
 		RuleName:    job.RuleName,
 	}
 	if ev.Timestamp == "" {
@@ -310,6 +311,24 @@ func AlertsLink(appURL string) string {
 		return ""
 	}
 	return base + "/governance?section=alerts"
+}
+
+// EventLink is the CH-UI page an event points at: the path its payload
+// names in link_path, or the alert events page. "" without an app URL.
+func EventLink(appURL string, payloadJSON *string) string {
+	base := strings.TrimRight(strings.TrimSpace(appURL), "/")
+	if base == "" {
+		return ""
+	}
+	if payloadJSON != nil {
+		var p struct {
+			LinkPath string `json:"link_path"`
+		}
+		if json.Unmarshal([]byte(*payloadJSON), &p) == nil && strings.HasPrefix(p.LinkPath, "/") && !strings.HasPrefix(p.LinkPath, "//") {
+			return base + p.LinkPath
+		}
+	}
+	return AlertsLink(appURL)
 }
 
 // SendDirect sends a one-off notification without queueing.

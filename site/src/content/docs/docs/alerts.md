@@ -24,6 +24,7 @@ These event types are emitted automatically:
 | `health.replication_lag`, `health.replica_readonly`, `health.disk`, `health.parts`, `health.mutation_stuck`, `health.node_unreachable`, `health.connection_unreachable` | `warn` or `critical` | A built-in [health check](#health-checks) fires, escalates from warn to critical, or resolves |
 | `health.summary` | worst of the batch | More than 20 health check changes on one connection in one poll; the rest are folded into this one event |
 | `sql.alert` | alert severity (`warn` when disabled) | A [SQL alert](#sql-alerts) fires or resolves, or turns itself off after 5 failed runs |
+| `access.drift` | `warn` (outside change) or `error` (mixed apply) | [Access history](/docs/rbac#access-history) records a new snapshot with drift, or the access state returns to where it was before the drift (resolves). See [Access drift](#access-drift) |
 
 So yes, **schedules alert out of the box**: every failed run emits a `schedule.failed` event with the schedule name, run ID, elapsed time, and error in the payload. You only need a rule and a channel to receive it.
 
@@ -94,7 +95,7 @@ The generic body:
 }
 ```
 
-`link` points at the alert events page and is built from `APP_URL`.
+`link` points at the alert events page (Access history for `access.drift`) and is built from `APP_URL`.
 
 Outbound protection: by default CH-UI refuses a webhook URL whose host is, or resolves to, a loopback, private, link-local or multicast address. The check runs on the address actually dialed, so a hostname that later resolves somewhere internal is still refused. Redirects are not followed, proxies from the environment are not used, and each request times out after 15 seconds. A non-2xx response counts as a failed attempt and is retried like any other delivery. Only admins can create or edit channels, so turning on `allow_private_network` (for an internal Mattermost, say) is an admin decision.
 
@@ -158,6 +159,12 @@ A silence needs at least one matcher. A held-back event gets the status **silenc
 Events carry `alert_key` (the alert: one check on one node, or one SQL alert) and `incident_id` (when the incident started) in their payload; acknowledgements are keyed on both. Silences and acks are stored and evaluated by the dispatcher, so without a Pro license nothing is held back or released until the license is back; their state is kept.
 
 Audit actions: `alerts.silence.created`, `.updated`, `.expired`, `alerts.incident.acknowledged`, `alerts.incident.unacknowledged`.
+
+## Access drift
+
+When [Access history](/docs/rbac#access-history) stores a new snapshot marked **Outside change** or **Mixed**, an `access.drift` event is raised for that connection. A seen-again snapshot never raises one. The payload carries the connection name, the source (`view`, `sync`, `manual`, `apply`, `revert`), the actor, the ClickHouse user, the `added` / `removed` / `changed` counts, up to 20 changed entities (for a mixed apply, the ones its operations do not explain) with `entities_total`, and the snapshot `hash`.
+
+One incident covers the drift on a connection (`alert_key` `access:<connection id>`). Further drift while it is open is another firing event of the same incident; a mixed apply after an outside change escalates it to `error`. A snapshot of the same drifted state (another ClickHouse user reading it, say) does not fire again. The incident resolves when a complete snapshot shows the state from before the first drift again, for example after **Revert to this state**. Leaving the change in place keeps the incident open. To stop hearing about further drift on that connection, add a [silence](#silences-and-acknowledgements) for the connection and alert type `access.drift`, or acknowledge the event with `POST /api/governance/alerts/acks`. Drift incidents are not listed under `GET /api/governance/alerts/firing`. The fingerprint is `access:<connection id>:drift:<hash>`, so the cooldown holds back the same state, not a new one.
 
 ## Events history
 
