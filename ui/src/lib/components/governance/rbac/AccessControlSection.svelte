@@ -1,9 +1,11 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Plus, RefreshCw, Search } from 'lucide-svelte'
-  import type { RbacApplyResponse, RbacOp, RbacRowPolicy, RbacQuota, RbacSettingsProfile, RbacSnapshot, RbacTarget } from '../../../types/rbac'
-  import { fetchRbacHistory, fetchRbacSnapshot } from '../../../api/rbac'
+  import { Download, Plus, RefreshCw, Search, Upload } from 'lucide-svelte'
+  import type { RbacApplyResponse, RbacExportFormat, RbacOp, RbacRowPolicy, RbacQuota, RbacSettingsProfile, RbacSnapshot, RbacTarget } from '../../../types/rbac'
+  import { exportRbac, fetchRbacHistory, fetchRbacSnapshot } from '../../../api/rbac'
+  import { hasProReadAccess } from '../../../stores/license.svelte'
+  import { downloadBlob } from '../../../utils/export'
   import { setSection } from '../../../stores/nav.svelte'
   import { takeStagedRevert } from './history'
   import { success as toastSuccess, error as toastError } from '../../../stores/toast.svelte'
@@ -20,6 +22,8 @@
   import QuotaSheet from './QuotaSheet.svelte'
   import ProfileSheet from './ProfileSheet.svelte'
   import ReviewSheet from './ReviewSheet.svelte'
+  import ImportSheet from './ImportSheet.svelte'
+  import ContextMenu, { type ContextMenuItem } from '../../common/ContextMenu.svelte'
 
   /**
    * Governance > Access control. One table per entity kind, picked in the
@@ -45,6 +49,9 @@
   let quotaSheet = $state<{ open: boolean; quota: RbacQuota | null }>({ open: false, quota: null })
   let profileSheet = $state<{ open: boolean; profile: RbacSettingsProfile | null }>({ open: false, profile: null })
   let reviewOpen = $state(false)
+  let importOpen = $state(false)
+  let exportMenu = $state<{ x: number; y: number } | null>(null)
+  let exporting = $state(false)
   // Bumped on every open so each sheet starts from a fresh form.
   let sheetSeq = $state(0)
 
@@ -261,6 +268,39 @@
     revertOf = ''
   }
 
+  // ── Access as code ────────────────────────────────────────────────
+
+  const proRead = $derived(hasProReadAccess())
+
+  async function exportAs(format: RbacExportFormat) {
+    exporting = true
+    try {
+      const { blob, filename } = await exportRbac(format)
+      downloadBlob(blob, filename)
+    } catch (err: unknown) {
+      toastError(err instanceof Error ? err.message : String(err))
+    } finally {
+      exporting = false
+    }
+  }
+
+  const exportItems: ContextMenuItem[] = [
+    { id: 'yaml', label: 'YAML (importable)', onSelect: () => void exportAs('yaml') },
+    { id: 'json', label: 'JSON (importable)', onSelect: () => void exportAs('json') },
+    { id: 'sql', label: 'SQL (read only)', onSelect: () => void exportAs('sql') },
+  ]
+
+  function openExportMenu(e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    exportMenu = { x: r.left, y: r.bottom + 4 }
+  }
+
+  function stageImport(ops: RbacOp[]) {
+    pending = ops
+    importOpen = false
+    reviewOpen = true
+  }
+
   function storageTone(s: unknown): 'neutral' | 'info' | 'warning' {
     return s === 'replicated' ? 'info' : s === 'users_xml' ? 'warning' : 'neutral'
   }
@@ -288,6 +328,29 @@
     <span class="text-xs tabular-nums text-fg-4">{visibleRows.length} rows</span>
     <Button icon variant="ghost" size="sm" aria-label="Refresh" title="Refresh" onclick={() => void load()}>
       <RefreshCw size={14} />
+    </Button>
+    {#if !proRead}
+      <span class="text-xs text-fg-4">Export and import need Pro</span>
+    {/if}
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={!snapshot || !proRead}
+      loading={exporting}
+      title={proRead ? 'Download the access state of this connection' : 'Export needs a Pro license'}
+      aria-expanded={!!exportMenu}
+      onclick={openExportMenu}
+    >
+      <Download size={14} /> Export
+    </Button>
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={!snapshot || !proRead}
+      title={proRead ? 'Make this connection match an access file' : 'Import needs a Pro license'}
+      onclick={() => (importOpen = true)}
+    >
+      <Upload size={14} /> Import
     </Button>
     {#if pending.length > 0}
       <Button size="sm" variant="outline" onclick={openReview}>Pending changes ({pending.length})</Button>
@@ -385,6 +448,10 @@
     onclose={() => (profileSheet = { ...profileSheet, open: false })}
   />
 {/key}
+
+<ContextMenu open={!!exportMenu} x={exportMenu?.x ?? 0} y={exportMenu?.y ?? 0} items={exportItems} onclose={() => (exportMenu = null)} />
+
+<ImportSheet open={importOpen} pendingCount={pending.length} onstage={stageImport} onclose={() => (importOpen = false)} />
 
 <ReviewSheet
   open={reviewOpen}

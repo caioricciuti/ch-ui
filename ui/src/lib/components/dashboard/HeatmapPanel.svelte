@@ -1,15 +1,18 @@
 <script lang="ts">
   import type { PanelConfig } from '../../types/api'
-  import { heatmapMatrix, type ColumnMeta } from '../../utils/chart-transform'
+  import { heatmapMatrix, isDateType, parseTimeValue, type ColumnMeta } from '../../utils/chart-transform'
+  import { buildClickContext, bucketStep, bucketWindow, type PanelClick } from '../../utils/drilldown'
   import { dashboardIsDark } from './dashboard-theme.svelte'
 
   interface Props {
     data: Record<string, unknown>[]
     meta: ColumnMeta[]
     config: PanelConfig
+    /** A click on a cell; set only when the panel has links. */
+    onpointclick?: (click: PanelClick) => void
   }
 
-  let { data, meta, config }: Props = $props()
+  let { data, meta, config, onpointclick }: Props = $props()
 
   let canvasEl = $state<HTMLCanvasElement>(undefined!)
   let containerEl = $state<HTMLDivElement>(undefined!)
@@ -86,18 +89,39 @@
     return { x: matrix.x[hover.xi], y: matrix.y[hover.yi], value }
   })
 
-  function handleMove(e: MouseEvent) {
-    if (!geom || !matrix) return
+  /** The cell under a mouse event, or null between and around the cells. */
+  function cellAt(e: MouseEvent): { xi: number; yi: number; x: number; y: number } | null {
+    if (!geom || !matrix) return null
     const rect = containerEl.getBoundingClientRect()
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
     const col = Math.floor((x - geom.left) / geom.cellW)
     const row = Math.floor((y - geom.top) / geom.cellH)
-    if (col < 0 || col >= matrix.x.length || row < 0 || row >= matrix.y.length) {
-      hover = null
-      return
+    if (col < 0 || col >= matrix.x.length || row < 0 || row >= matrix.y.length) return null
+    return { xi: col, yi: rowPos(row), x, y }
+  }
+
+  function handleMove(e: MouseEvent) {
+    hover = cellAt(e)
+  }
+
+  // A click on a cell passes on the first raw x and y values of the cell;
+  // a time column opens on the cell's span.
+  function handleClick(e: MouseEvent) {
+    const cell = cellAt(e)
+    if (!cell || !matrix || !onpointclick) return
+    const value = matrix.values[cell.yi]?.[cell.xi]
+    if (value == null) return
+    const { xColumn, yColumn, valueColumn } = matrix
+    const row = { [xColumn]: matrix.xValues[cell.xi], [yColumn]: matrix.yValues[cell.yi], [valueColumn ?? 'count']: value }
+    const xType = meta.find(m => m.name === xColumn)?.type ?? ''
+    let bucket: { from: number; to: number } | null = null
+    if (isDateType(xType)) {
+      const secs = matrix.xValues.map(v => (parseTimeValue(v) ?? NaN) / 1000)
+      if (Number.isFinite(secs[cell.xi])) bucket = bucketWindow(secs[cell.xi], bucketStep(secs, cell.xi))
     }
-    hover = { xi: col, yi: rowPos(row), x, y }
+    const ctx = buildClickContext(row, xColumn, String(matrix.yValues[cell.yi] ?? ''), meta, bucket)
+    onpointclick({ ctx, x: e.clientX, y: e.clientY })
   }
 
   // Keep the tooltip inside the panel, like the uPlot tooltip does.
@@ -184,12 +208,13 @@
 </script>
 
 <div class="flex h-full w-full min-h-0 min-w-0 flex-col gap-1">
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
   <div
     bind:this={containerEl}
-    class="relative min-h-0 flex-1 overflow-hidden"
+    class="relative min-h-0 flex-1 overflow-hidden {onpointclick && hovered ? 'cursor-pointer' : ''}"
     onmousemove={empty ? undefined : handleMove}
     onmouseleave={() => (hover = null)}
+    onclick={onpointclick && !empty ? handleClick : undefined}
   >
     {#if empty}
       <div class="flex h-full items-center justify-center text-xs text-fg-4">No data</div>

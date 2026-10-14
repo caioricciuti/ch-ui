@@ -5,10 +5,12 @@
   import type { PanelConfig } from '../../types/api'
   import {
     toUPlotData, DEFAULT_COLORS, isDateType, isCategoricalColumn, resolveChartColumns, pivotSeries, stackSeries,
-    histogramBins, resolveHistogramColumn, toScatterData, type ColumnMeta,
+    histogramBins, resolveHistogramColumn, toScatterData, plotPoints, type ColumnMeta,
   } from '../../utils/chart-transform'
   import { formatNumber } from '../../utils/format'
   import { chartTheme, tooltipPlugin } from '../../utils/uplot-tooltip'
+  import { clickPlugin, type ChartPoint } from '../../utils/uplot-click'
+  import { buildClickContext, bucketStep, bucketWindow, type ClickContext, type PanelClick } from '../../utils/drilldown'
 
   interface Props {
     data: Record<string, unknown>[]
@@ -16,9 +18,11 @@
     config: PanelConfig
     /** Panel type; histogram and scatter draw their own data. Defaults to the config's chart type. */
     type?: string
+    /** A click on a point; set only when the panel has links. */
+    onpointclick?: (click: PanelClick) => void
   }
 
-  let { data, meta, config, type }: Props = $props()
+  let { data, meta, config, type, onpointclick }: Props = $props()
 
   const kind = $derived(type ?? config.chartType)
   const isHistogram = $derived(kind === 'histogram')
@@ -188,6 +192,36 @@
       }
     }
     return best
+  }
+
+  // The context of a click on point `idx` of series `s`: the source row, or
+  // the bucket for a histogram.
+  function clickContext({ idx, series: s }: ChartPoint, u: uPlot): ClickContext | null {
+    const xs = u.data[0]
+    const label = plot.labels[s - 1] ?? ''
+    const bucket = isTime ? bucketWindow(xs[idx], bucketStep(xs, idx)) : null
+    if (histogram) {
+      const { column, edges, counts } = histogram
+      const row = { [column]: edges[idx], from: edges[idx], to: edges[idx + 1], count: counts[idx] }
+      return buildClickContext(row, column, label, [])
+    }
+    if (scatter) {
+      const row = scatter.rows[idx]
+      return row ? buildClickContext(row, scatter.xColumn, label, meta, bucket) : null
+    }
+    const point = plotPoints(plotRows, plotMeta, plotConfig)[idx]
+    if (!point || !axes.xColumn) return null
+    // A pivoted row has one column per series: the series column comes back as the clicked series.
+    const row = pivot && config.seriesColumn ? { ...point.row, [config.seriesColumn]: label } : point.row
+    return buildClickContext(row, axes.xColumn, label, plotMeta, bucket)
+  }
+
+  // Only whether a handler is set redraws the chart (it sets the cursor), not each new handler.
+  const clickable = $derived(!!onpointclick)
+
+  function handlePointClick(point: ChartPoint, u: uPlot, e: MouseEvent) {
+    const ctx = clickContext(point, u)
+    if (ctx) onpointclick?.({ ctx, x: e.clientX, y: e.clientY })
   }
 
   const missingColumns = $derived((isHistogram && !histogram) || (isScatter && !scatter))
@@ -407,7 +441,13 @@
       height: h,
       series,
       bands,
-      plugins: [tooltip],
+      plugins: [
+        tooltip,
+        clickPlugin(() => (onpointclick ? handlePointClick : undefined), {
+          dataIndex: scatter ? nearestPoint : undefined,
+          stacked: isBar && config.barMode === 'stacked',
+        }),
+      ],
       axes: [
         {
           stroke: theme.axis,
@@ -507,6 +547,7 @@
     void config.seriesColumn
     void config.fill
     void config.stacked
+    void clickable
 
     if (!container || measuredWidth <= 0 || measuredHeight <= 0) return
 

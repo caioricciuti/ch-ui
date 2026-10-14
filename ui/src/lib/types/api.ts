@@ -229,6 +229,28 @@ export interface StatThreshold {
   color: string
 }
 
+/** What a click on a data point does. */
+export type PanelLinkKind = 'setVariable' | 'dashboard' | 'sql' | 'url'
+
+/**
+ * A drilldown link of a panel. Templates take ${__value}, ${__field},
+ * ${__series}, ${__row.<column>}, ${<variable>}, and ${__value:raw} (sql only).
+ */
+export interface PanelLink {
+  kind: PanelLinkKind
+  label?: string
+  /** setVariable: the dashboard variable that takes the clicked value. */
+  variable?: string
+  /** dashboard: the dashboard to open. */
+  dashboardId?: string
+  /** dashboard: pass the current variable values along. */
+  carryVariables?: boolean
+  /** dashboard: variable values for the target, as templates. */
+  params?: Record<string, string>
+  /** sql and url: the text to interpolate. */
+  template?: string
+}
+
 /** Panel visualization config (stored as JSON in panel.config) */
 export interface PanelConfig {
   chartType: 'table' | 'stat' | 'timeseries' | 'bar' | 'text' | 'gauge' | 'pie' | 'histogram' | 'scatter' | 'heatmap'
@@ -271,6 +293,8 @@ export interface PanelConfig {
   statDecimals?: number
   statColorMode?: 'none' | 'value' | 'background'
   statThresholds?: StatThreshold[]
+  /** Drilldown: what a click on a data point does. At most 10. */
+  links?: PanelLink[]
 }
 
 /** Audit log entry */

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import type { Dashboard, DashboardVariable, Panel, PanelConfig } from '../lib/types/api'
+  import type { Dashboard, DashboardVariable, Panel, PanelConfig, PanelLink } from '../lib/types/api'
   import type { ColumnMeta } from '../lib/utils/chart-transform'
   import { computeStat } from '../lib/utils/chart-transform'
   import { toDashboardTimeRangePayload, dashboardRangeFromUrlParams, dashboardRangeToUrlParams } from '../lib/utils/dashboard-time'
@@ -26,6 +26,9 @@
     STACK_BELOW, calcColW, gridToPixel, compact, containerHeight, stackLayout,
     type LayoutItem,
   } from '../lib/utils/grid-layout'
+  import { linkLabel, resolveLink, type ClickContext, type PanelClick } from '../lib/utils/drilldown'
+  import ContextMenu, { type ContextMenuItem } from '../lib/components/common/ContextMenu.svelte'
+  import { error as toastError } from '../lib/stores/toast.svelte'
   import { LayoutDashboard, RefreshCw, Lock, Timer } from 'lucide-svelte'
   import logo from '../assets/logo.png'
 
@@ -229,6 +232,60 @@
     }, inviteKey)
   }
 
+  // Drilldown on a share link: only filters (setVariable) and http(s) links.
+  // The server leaves the other link kinds out of the panel config.
+  let linkMenu = $state<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
+
+  const publicLinks = (cfg: PanelConfig): PanelLink[] =>
+    (cfg.links ?? []).filter(l => l.kind === 'setVariable' || l.kind === 'url')
+
+  function clickHandler(cfg: PanelConfig): ((click: PanelClick) => void) | undefined {
+    const links = publicLinks(cfg)
+    if (links.length === 0) return undefined
+    return (click) => {
+      if (links.length === 1) {
+        void runLink(links[0], click.ctx)
+        return
+      }
+      linkMenu = {
+        x: click.x,
+        y: click.y,
+        items: links.map((link, i) => ({ id: String(i), label: linkLabel(link), onSelect: () => void runLink(link, click.ctx) })),
+      }
+    }
+  }
+
+  async function runLink(link: PanelLink, ctx: ClickContext) {
+    const action = resolveLink(link, ctx, { variables: variableValues })
+    if (action.kind === 'url') {
+      window.open(action.url, '_blank', 'noopener,noreferrer')
+      return
+    }
+    if (action.kind === 'blocked') {
+      toastError(action.reason)
+      return
+    }
+    if (action.kind !== 'setVariable') return
+    // A share link takes only values that are options of the variable;
+    // text variables stay at their default.
+    const v = variables.find(x => x.name === action.variable)
+    if (!v || (v.type !== 'query' && v.type !== 'custom' && v.type !== 'interval')) {
+      toastError('This filter is not available on shared dashboards')
+      return
+    }
+    try {
+      const { options, truncated } = await loadVariableOptions(v.name, variableValues)
+      if (!truncated && !options.some(o => o.value === action.value)) {
+        toastError(`${action.value || 'An empty value'} is not one of the options of ${v.label?.trim() || v.name}`)
+        return
+      }
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+      return
+    }
+    handleVariableValuesChange({ ...variableValues, [v.name]: [action.value] })
+  }
+
   function parsePanelConfig(configStr: string): PanelConfig {
     try {
       return JSON.parse(configStr || '{}')
@@ -308,6 +365,7 @@
           {@const pos = layout && colW > 0 ? gridToPixel(layout, colW) : null}
           {@const result = panelResults.get(panel.id)}
           {@const cfg = parsePanelConfig(panel.config)}
+          {@const onpointclick = clickHandler(cfg)}
           {#if pos}
             <div
               class="absolute flex flex-col bg-surface border border-edge-subtle rounded-lg overflow-hidden"
@@ -329,13 +387,13 @@
                 {:else if panel.panel_type === 'gauge'}
                   <GaugePanel stat={computeStat(result.data, result.meta, cfg)} min={cfg.gaugeMin} max={cfg.gaugeMax} />
                 {:else if panel.panel_type === 'pie'}
-                  <PiePanel data={result.data} meta={result.meta} config={cfg} />
+                  <PiePanel data={result.data} meta={result.meta} config={cfg} {onpointclick} />
                 {:else if panel.panel_type === 'heatmap'}
-                  <HeatmapPanel data={result.data} meta={result.meta} config={cfg} />
+                  <HeatmapPanel data={result.data} meta={result.meta} config={cfg} {onpointclick} />
                 {:else if panel.panel_type === 'timeseries' || panel.panel_type === 'bar' || panel.panel_type === 'histogram' || panel.panel_type === 'scatter'}
-                  <ChartPanel data={result.data} meta={result.meta} config={cfg} type={panel.panel_type} />
+                  <ChartPanel data={result.data} meta={result.meta} config={cfg} type={panel.panel_type} {onpointclick} />
                 {:else}
-                  <PanelTable data={result.data} meta={result.meta} />
+                  <PanelTable data={result.data} meta={result.meta} {onpointclick} />
                 {/if}
               </div>
             </div>
@@ -345,3 +403,11 @@
     {/if}
   </div>
 </div>
+
+<ContextMenu
+  open={linkMenu !== null}
+  x={linkMenu?.x ?? 0}
+  y={linkMenu?.y ?? 0}
+  items={linkMenu?.items ?? []}
+  onclose={() => (linkMenu = null)}
+/>
