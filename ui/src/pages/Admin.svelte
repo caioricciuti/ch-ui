@@ -4,6 +4,8 @@
   import ConnectionsSection from '../lib/components/admin/ConnectionsSection.svelte'
   import UsersSection from '../lib/components/admin/UsersSection.svelte'
   import BrainSection from '../lib/components/admin/BrainSection.svelte'
+  import BrainBudgetsSection from '../lib/components/admin/BrainBudgetsSection.svelte'
+  import BrainUsagePanel from '../lib/components/admin/BrainUsagePanel.svelte'
   import GitHubSection from '../lib/components/admin/GitHubSection.svelte'
   import SettingsSection from '../lib/components/admin/SettingsSection.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
@@ -15,7 +17,7 @@
 
   // Sections come from the context panel via ?section=; each section is a
   // self-contained component that loads its own data on mount.
-  type AdminTab = 'overview' | 'tunnels' | 'users' | 'brain' | 'github' | 'mcp' | 'settings'
+  type AdminTab = 'overview' | 'tunnels' | 'users' | 'brain' | 'brain-budgets' | 'brain-usage' | 'github' | 'mcp' | 'settings'
   const adminTabs = PAGE_SECTIONS.admin ?? []
   const adminTabIds = adminTabs.map((t) => t.id) as AdminTab[]
   let activeTab = $state<AdminTab>('overview')
@@ -62,6 +64,12 @@
         <UsersSection />
       {:else if activeTab === 'brain'}
         <BrainSection />
+      {:else if activeTab === 'brain-budgets'}
+        <BrainBudgetsSection />
+      {:else if activeTab === 'brain-usage'}
+        <PageBody width="lg">
+          <BrainUsagePanel />
+        </PageBody>
       {:else if activeTab === 'github'}
         <GitHubSection />
       {:else if activeTab === 'mcp'}

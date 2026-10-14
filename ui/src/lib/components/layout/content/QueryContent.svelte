@@ -48,7 +48,8 @@
   import { executeStreamQuery } from '../../../api/stream'
   import { apiPost, apiPut } from '../../../api/client'
   import { getMaxResultRows } from '../../../stores/query-limit.svelte'
-  import { error as toastError, success as toastSuccess, info as toastInfo } from '../../../stores/toast.svelte'
+  import { error as toastError, success as toastSuccess, info as toastInfo, warning as toastWarning } from '../../../stores/toast.svelte'
+  import { budgetWarningText } from '../../brain/brain-budget'
   import { detectQueryParams, paramDefaultsToSave } from '../../../utils/query-params'
   import { firstKeyword, splitStatements, statementAt } from '../../../editor/statements'
   import { parseCHError, byteToCharOffset } from '../../../utils/ch-error'
@@ -653,6 +654,7 @@
       if (fixController !== controller) return
       if (!res.sql.trim()) fixError = 'The AI did not return a query.'
       else fixResult = res
+      if (res.budget) toastWarning(budgetWarningText(res.budget))
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === 'AbortError') return
       let message = e instanceof Error ? e.message : 'Failed to fix the query'

@@ -144,6 +144,8 @@ export const PAGE_SECTIONS: Partial<Record<PageRoute, PageSection[]>> = {
     { id: 'tunnels', label: 'Connections' },
     { id: 'users', label: 'Users' },
     { id: 'brain', label: 'Brain' },
+    { id: 'brain-budgets', label: 'Brain budgets' },
+    { id: 'brain-usage', label: 'Brain usage' },
     { id: 'github', label: 'GitHub' },
     { id: 'mcp', label: 'MCP Server' },
     { id: 'settings', label: 'Settings' },

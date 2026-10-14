@@ -2,7 +2,7 @@
 import { withBase } from '../basePath'
 import { connectionHeaders } from '../stores/workspace-scope'
 import { apiPost } from './client'
-import type { BrainUsage } from '../types/brain'
+import type { BrainBudgetStatus, BrainUsage } from '../types/brain'
 
 /** How generated SQL fared when ClickHouse checked it with EXPLAIN. */
 export interface SQLValidation {
@@ -24,6 +24,8 @@ export interface GenerateSQLResult {
   /** The answer hit the output limit, so the SQL may be incomplete. */
   truncated?: boolean
   validation?: SQLValidation
+  /** Present when an applicable budget is at 80% or more. */
+  budget?: BrainBudgetStatus
 }
 
 export interface FixSQLResult extends GenerateSQLResult {
@@ -49,6 +51,7 @@ interface SQLStreamEvent {
   usage?: BrainUsage
   truncated?: boolean
   validation?: SQLValidation
+  budget?: BrainBudgetStatus
 }
 
 /** Progress callbacks of a streamed SQL request. */
@@ -110,6 +113,7 @@ async function streamSQL(path: string, body: unknown, handlers: SQLStreamHandler
           usage: ev.usage,
           truncated: ev.truncated,
           validation: ev.validation,
+          budget: ev.budget,
         }
       }
     }

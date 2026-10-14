@@ -430,6 +430,8 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 	var streamErr error
 	var legacyFallback bool
 	var stopReason string
+	// budgetStop is why the budget ended the turn, for the closing note.
+	var budgetStop string
 	failureCounts := make(map[string]int)
 
 	// toolResult reports one finished call to the person and to the model.
@@ -462,9 +464,11 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 		}
 		// The budget is checked before the turn too; here it stops a long
 		// tool loop that runs past it.
-		if iter > 0 && h.turnOverBudget(t) {
-			stopReason = stopReasonBudget
-			break
+		if iter > 0 {
+			if msg := h.turnBudgetStop(t); msg != "" {
+				stopReason, budgetStop = stopReasonBudget, msg
+				break
+			}
 		}
 		compactTurn(chatMessages, brainTurnMaxChars)
 		needSep := built.Len() > 0
@@ -481,7 +485,7 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 		})
 		if res != nil {
 			// Sum every iteration, also one that failed midway.
-			t.usage.Add(&res.ChatResult)
+			h.addTurnUsage(t, &res.ChatResult)
 		}
 		if errors.Is(err, braincore.ErrToolsUnsupported) {
 			legacyFallback = true
@@ -606,6 +610,13 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 		}
 	}
 
+	// The fallback is one more provider call, so it is checked like a step.
+	if legacyFallback {
+		if msg := h.turnBudgetStop(t); msg != "" {
+			legacyFallback = false
+			stopReason, budgetStop = stopReasonBudget, msg
+		}
+	}
 	if legacyFallback {
 		simplePrompt := h.buildSystemPrompt(t.contexts, t.entities, listViewer(t.session, false), false, canWrite) + historyOmittedNote(t.omitted)
 		legacyMsgs := []braincore.Message{{Role: "system", Content: simplePrompt}}
@@ -631,7 +642,7 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 			return stream.send(map[string]interface{}{"type": "delta", "delta": delta, "messageId": assistantMessageID})
 		})
 		if legacyRes != nil {
-			t.usage.Add(legacyRes)
+			h.addTurnUsage(t, legacyRes)
 			stopReason = legacyRes.StopReason
 		}
 		if err != nil {
@@ -653,6 +664,10 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 		return
 	}
 
-	h.sendStopNote(stream, t, &built, stopReason)
+	if stopReason == stopReasonBudget {
+		h.sendNote(stream, t, &built, "\n\n_Stopped. "+budgetStop+"_")
+	} else {
+		h.sendStopNote(stream, t, &built, stopReason)
+	}
 	h.finishTurn(r, stream, t, built.String(), true)
 }

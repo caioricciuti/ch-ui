@@ -9,14 +9,31 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
-	"github.com/caioricciuti/ch-ui/internal/testutil"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 func brainUsageRouter(t *testing.T) (*database.DB, http.Handler) {
 	t.Helper()
-	db, _ := testutil.WorkerDB(t)
+	return brainUsageRouterWith(t, nil)
+}
+
+// brainUsageRouterWith mounts the routes with a license state; nil means
+// no config, as without Pro.
+func brainUsageRouterWith(t *testing.T, access *config.ProAccess) (*database.DB, http.Handler) {
+	t.Helper()
+	db, err := dbtest.Open(t, "brain-usage.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
 	h := &AdminHandler{DB: db}
+	if access != nil {
+		a := *access
+		h.Config = &config.Config{}
+		h.Config.SetProAccessForTest(func() config.ProAccess { return a })
+	}
 	r := chi.NewRouter()
 	h.registerBrainUsageRoutes(r)
 	return db, r
@@ -35,9 +52,10 @@ func doJSON(t *testing.T, h http.Handler, method, path, body string) (int, map[s
 
 func TestAdminBrainUsageSummaryAndCost(t *testing.T) {
 	db, h := brainUsageRouter(t)
+	three, tiny := 3.0, 0.002
 	for _, rec := range []database.BrainUsageRecord{
-		{Username: "ana", Provider: "Claude", Model: "claude-sonnet-5-5", Purpose: "chat", InputTokens: 1_000_000, OutputTokens: 100_000},
-		{Username: "ana", Provider: "Claude", Model: "claude-sonnet-5-5", Purpose: "ask_ai", InputTokens: 1000},
+		{Username: "ana", Provider: "Claude", Model: "claude-sonnet-5-5", Purpose: "chat", InputTokens: 1_000_000, OutputTokens: 100_000, CostUSD: &three},
+		{Username: "ana", Provider: "Claude", Model: "claude-sonnet-5-5", Purpose: "ask_ai", InputTokens: 1000, CostUSD: &tiny},
 		{Username: "bo", Provider: "Local", Model: "llama", Purpose: "chat", InputTokens: 5, OutputTokens: 5},
 	} {
 		if err := db.RecordBrainUsage(rec); err != nil {
@@ -53,15 +71,22 @@ func TestAdminBrainUsageSummaryAndCost(t *testing.T) {
 		t.Fatalf("rows %v", rows)
 	}
 	top := rows[0].(map[string]any)
-	if top["username"] != "ana" || top["requests"] != float64(2) || top["ask_ai"] != float64(1) || top["cost_usd"] == nil {
+	if top["username"] != "ana" || top["requests"] != float64(2) || top["ask_ai"] != float64(1) || top["cost_usd"] != 3.002 || top["estimated"] != false {
 		t.Errorf("top row %v", top)
 	}
 	if rows[1].(map[string]any)["cost_usd"] != nil {
 		t.Error("an unpriced model has no cost")
 	}
 	totals := out["totals"].(map[string]any)
-	if totals["users"] != float64(2) || totals["unpriced_rows"] != float64(1) {
+	if totals["users"] != float64(2) || totals["unpriced_requests"] != float64(1) || totals["cost_usd"] != 3.002 {
 		t.Errorf("totals %v", totals)
+	}
+	unpriced := out["unpriced_models"].([]any)
+	if len(unpriced) != 1 || unpriced[0].(map[string]any)["model"] != "llama" {
+		t.Errorf("unpriced models %v", unpriced)
+	}
+	if code, _ := doJSON(t, h, http.MethodGet, "/brain/usage?group_by=team", ""); code != http.StatusBadRequest {
+		t.Errorf("an unknown grouping should be rejected, got %d", code)
 	}
 	if code, _ := doJSON(t, h, http.MethodGet, "/brain/usage?days=0", ""); code != http.StatusBadRequest {
 		t.Errorf("days=0 should be rejected, got %d", code)

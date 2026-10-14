@@ -3,6 +3,7 @@
   import { Plus, Trash2 } from 'lucide-svelte'
   import type { BrainModelOption, BrainModelPrice, BrainSettings } from '../../types/brain'
   import { adminGetBrainSettings, adminUpdateBrainSettings } from '../../api/brain'
+  import { isPriced } from '../brain/brain-budget'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import SectionHeader from '../common/SectionHeader.svelte'
   import Panel from '../common/Panel.svelte'
@@ -15,8 +16,8 @@
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
 
-  // Model roles (agent and quick), the per-person daily token budget, the
-  // output cap and the price table behind the cost estimates.
+  // Model roles (agent and quick), the output cap and the price table each
+  // request's cost is stored from. Budgets live in Admin > Brain budgets.
 
   interface Props {
     /** Every model the admin has synced; inactive ones are not offered. */
@@ -28,7 +29,7 @@
   let settings = $state<BrainSettings | null>(null)
   let defaultPrices = $state<Record<string, BrainModelPrice>>({})
   let saving = $state(false)
-  let form = $state<{ agentModelId: string; quickModelId: string; dailyTokenBudget: string | number; maxOutputTokens: string | number }>({ agentModelId: '', quickModelId: '', dailyTokenBudget: '', maxOutputTokens: '' })
+  let form = $state<{ agentModelId: string; quickModelId: string; maxOutputTokens: string | number }>({ agentModelId: '', quickModelId: '', maxOutputTokens: '' })
 
   interface PriceDraft {
     key: number
@@ -57,8 +58,14 @@
       form = {
         agentModelId: res.settings.agentModelId,
         quickModelId: res.settings.quickModelId,
-        dailyTokenBudget: res.settings.dailyTokenBudget ? String(res.settings.dailyTokenBudget) : '',
         maxOutputTokens: res.settings.maxOutputTokens ? String(res.settings.maxOutputTokens) : '',
+      }
+      // Brain usage links here with ?edit=prices to fix unpriced models.
+      const url = new URL(window.location.href)
+      if (url.searchParams.get('edit') === 'prices') {
+        url.searchParams.delete('edit')
+        history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`)
+        openPrices()
       }
     } catch (e) {
       toastError(e instanceof Error ? e.message : String(e))
@@ -99,15 +106,13 @@
   }
 
   async function saveRoles() {
-    const budget = parseCount(form.dailyTokenBudget, 'Daily token budget')
     const maxOut = parseCount(form.maxOutputTokens, 'Output token limit', 128000)
-    if (budget === null || maxOut === null) return
+    if (maxOut === null) return
     saving = true
     try {
       settings = await adminUpdateBrainSettings({
         agentModelId: form.agentModelId,
         quickModelId: form.quickModelId,
-        dailyTokenBudget: budget,
         maxOutputTokens: maxOut,
       })
       quickModelSet = true
@@ -194,6 +199,13 @@
   const priceRows = $derived<PriceRow[]>(
     Object.entries(settings?.prices ?? {}).map(([model, p]) => ({ model, input: p.input, output: p.output, cacheRead: p.cacheRead, cacheWrite: p.cacheWrite })),
   )
+  // Active models the price table does not cover: their requests store no
+  // cost and do not count toward dollar budgets.
+  const unpricedActive = $derived(
+    settings
+      ? [...new Set(models.filter((m) => m.is_active && m.provider_active && !isPriced(settings?.prices ?? null, m.name)).map((m) => m.name))].sort()
+      : [],
+  )
   const money = (v: unknown) => (typeof v === 'number' ? `$${v}` : 'Not set')
   const priceColumns: DataColumn<PriceRow>[] = [
     { key: 'model', label: 'Model', mono: true, truncate: true },
@@ -205,7 +217,7 @@
 </script>
 
 <section>
-  <SectionHeader title="Model roles and limits" description="Which model answers chat and which answers quick tasks, and how many tokens each person may use per day.">
+  <SectionHeader title="Model roles" description="Which model answers chat and which answers quick tasks, and how long an answer may be. Budgets are set in Admin > Brain budgets.">
     {#snippet actions()}
       <Button size="sm" loading={saving} disabled={!settings} onclick={() => void saveRoles()}>Save</Button>
     {/snippet}
@@ -217,9 +229,6 @@
     <FormField layout="row" label="Quick model" for="brain-quick-model" hint="Answers Ask AI in the editor. A small, fast model such as Claude Haiku 5.5 keeps it cheap. Empty uses the agent model.">
       <Select id="brain-quick-model" options={modelOptions} bind:value={form.quickModelId} />
     </FormField>
-    <FormField layout="row" label="Daily token budget per person" for="brain-daily-budget" controlWidth="sm" hint="Input, output and cache-write tokens per UTC day. A turn that would start past it is refused with a clear message. Empty means no limit.">
-      <Input id="brain-daily-budget" type="number" min="0" step="1000" placeholder="No limit" bind:value={form.dailyTokenBudget} />
-    </FormField>
     <FormField layout="row" label="Output token limit" for="brain-max-output" controlWidth="sm" hint="max_tokens for each Anthropic request. Empty uses 16,384 (8,192 for Haiku). Thinking counts toward it.">
       <Input id="brain-max-output" type="number" min="0" max="128000" step="1024" placeholder="Model default" bind:value={form.maxOutputTokens} />
     </FormField>
@@ -227,11 +236,20 @@
 </section>
 
 <section>
-  <SectionHeader title="Prices" description="US dollars per million tokens. Used only to estimate cost in message footers and the usage table.">
+  <SectionHeader title="Prices" description="US dollars per million tokens. Each request's cost is stored from these prices when it runs; editing them changes new requests only.">
     {#snippet actions()}
       <Button size="sm" variant="outline" disabled={!settings} onclick={openPrices}>Edit prices</Button>
     {/snippet}
   </SectionHeader>
+  {#if unpricedActive.length > 0}
+    <Panel variant="muted" class="mb-3">
+      <p class="text-[13px] font-medium text-fg">{unpricedActive.length} active {unpricedActive.length === 1 ? 'model has' : 'models have'} no price</p>
+      <p class="mt-1 text-[13px] leading-relaxed text-fg-3">Their requests show no cost and count toward token budgets only. A dollar budget that blocks unpriced models refuses them.</p>
+      <div class="mt-2 flex flex-wrap gap-1.5">
+        {#each unpricedActive as m (m)}<Badge tone="warning">{m}</Badge>{/each}
+      </div>
+    </Panel>
+  {/if}
   <DataTable columns={priceColumns} rows={priceRows} rowKey={(r) => r.model} sort={{ key: 'model', dir: 'asc' }} emptyTitle="No prices set" emptyDescription="Costs are not shown until a model has a price.">
     {#snippet cell(row, col, value)}
       {#if col.key !== 'model' && row[col.key] === null}

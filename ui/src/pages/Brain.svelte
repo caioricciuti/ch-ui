@@ -3,10 +3,11 @@
   import { openQueryTab } from '../lib/stores/tabs.svelte'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import { getDatabases, loadDatabases, loadTables, loadColumns } from '../lib/stores/schema.svelte'
-  import type { BrainArtifact, BrainChat, BrainMessage as BrainMessageType, BrainModelOption, MentionRef, EntityContext } from '../lib/types/brain'
+  import type { BrainArtifact, BrainBudgetStatus, BrainChat, BrainMessage as BrainMessageType, BrainModelOption, MentionRef, EntityContext } from '../lib/types/brain'
   import {
     createBrainChat,
     deleteBrainChat,
+    getMyBrainUsage,
     listBrainArtifacts,
     listBrainChats,
     listBrainMessages,
@@ -15,6 +16,7 @@
     streamBrainMessage,
     updateBrainChat,
   } from '../lib/api/brain'
+  import { budgetWarningText, nearestBudget } from '../lib/components/brain/brain-budget'
 
   import BrainSidebar from '../lib/components/brain/BrainSidebar.svelte'
   import BrainHeader from '../lib/components/brain/BrainHeader.svelte'
@@ -32,6 +34,8 @@
   let messages = $state<BrainMessageType[]>([])
   let artifacts = $state<BrainArtifact[]>([])
   let streaming = $state(false)
+  // A budget at 80% or more, shown quietly above the input.
+  let budgetWarning = $state<BrainBudgetStatus | null>(null)
   let streamController: AbortController | null = $state(null)
 
   function stopStreaming() {
@@ -67,7 +71,7 @@
     const dbs = getDatabases()
     if (dbs.length === 0) await loadDatabases()
 
-    await Promise.all([loadModels(), loadChats()])
+    await Promise.all([loadModels(), loadChats(), loadBudget()])
     if (!selectedChatId) {
       await createChat('New Chat')
     }
@@ -84,6 +88,14 @@
   })
 
   // ── API functions ──────────────────────────────────────────
+  async function loadBudget() {
+    try {
+      budgetWarning = nearestBudget((await getMyBrainUsage()).budgets ?? [])
+    } catch {
+      // The warning is a convenience; a failed read shows none.
+    }
+  }
+
   async function loadModels() {
     try {
       models = await listBrainModels()
@@ -300,6 +312,7 @@
             messages = messages.map((m, i) => i === assistantIdx ? { ...m, content: m.content || `Error: ${event.error ?? 'Unknown error'}`, status: 'error' } : m)
           } else if (event.type === 'done') {
             messages = messages.map((m, i) => i === assistantIdx ? { ...m, status: 'complete', usage: event.usage ?? m.usage } : m)
+            budgetWarning = event.budget ?? null
           }
         },
         streamController?.signal,
@@ -398,6 +411,9 @@
       {/if}
     </div>
 
+    {#if budgetWarning}
+      <p class="px-6 pb-1 text-[12px] {budgetWarning.exceeded ? 'text-warning' : 'text-fg-3'}" role="status">{budgetWarningText(budgetWarning)}</p>
+    {/if}
     <BrainInput
       {streaming}
       onSend={sendMessage}
