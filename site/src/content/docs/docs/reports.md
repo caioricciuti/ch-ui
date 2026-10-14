@@ -10,7 +10,7 @@ Available on Pro and Enterprise plans. Find reports under **Schedules → Report
 ## Before you start
 
 - **A dedicated report account.** Every run, including **Send now** and **Preview**, uses the connection's `report` [background account](/docs/background-accounts). Reports never borrow a signed-in session: without a dedicated account the run fails and nothing is sent. Give the account SELECT on the tables your reported queries and dashboard panels read.
-- **At least one alert channel.** An admin creates channels under **Governance → Alerts**. Reports reuse them; there is nothing new to configure.
+- **At least one alert channel.** An admin creates channels under **Governance → Alert channels**. Reports reuse them; there is nothing new to configure.
 
 ## Create a report
 
