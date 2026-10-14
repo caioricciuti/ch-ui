@@ -55,7 +55,8 @@ func TestValidatePanelLinks(t *testing.T) {
 
 func TestPublicPanelConfigKeepsOnlySafeLinks(t *testing.T) {
 	cfg := `{"chartType":"bar","links":[
-		{"kind":"setVariable","label":"Filter","variable":"host","template":"leftover"},
+		{"kind":"setVariable","label":"Filter","variable":"host","template":"${__row.host}:${__value}"},
+		{"kind":"setVariable","variable":"env","template":"${secret_constant}-${__value}"},
 		{"kind":"dashboard","dashboardId":"secret-id","params":{"a":"b"}},
 		{"kind":"sql","template":"SELECT secret"},
 		{"kind":"url","template":"https://x.example/${__value}","dashboardId":"smuggled"}]}`
@@ -72,8 +73,20 @@ func TestPublicPanelConfigKeepsOnlySafeLinks(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.ChartType != "bar" || len(got.Links) != 2 || got.Links[0].Variable != "host" || got.Links[1].Kind != LinkURL {
+	if got.ChartType != "bar" || len(got.Links) != 3 || got.Links[0].Variable != "host" || got.Links[2].Kind != LinkURL {
 		t.Fatalf("unexpected public config: %s", out)
+	}
+	// A template of click tokens only survives; one naming a variable does not.
+	if got.Links[0].Template != "${__row.host}:${__value}" || got.Links[1].Template != "" {
+		t.Fatalf("setVariable templates: %+v", got.Links[:2])
+	}
+	for tpl, want := range map[string]bool{
+		"${__value}": true, "x-${__field}-${__series}": true, "plain": true, "": true,
+		"${__row.}": false, "${env}": false, "${__value:raw}": false, "${__from}": false,
+	} {
+		if clickOnly(tpl) != want {
+			t.Errorf("clickOnly(%q) != %v", tpl, want)
+		}
 	}
 
 	if out := PublicPanelConfig(`{"links":[{"kind":"sql","template":"x"}]}`); strings.Contains(out, "links") {

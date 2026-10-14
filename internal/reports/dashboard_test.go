@@ -81,6 +81,45 @@ func TestRenderPanelPerType(t *testing.T) {
 	}
 }
 
+// A series column splits the first y column like the chart does, and last is
+// the latest point by x, whatever order the rows came in.
+func TestRenderPanelSeriesColumnAndXOrder(t *testing.T) {
+	split := Table{Columns: []string{"t", "host", "requests", "errors"}, Types: []string{"DateTime", "LowCardinality(String)", "UInt64", "UInt64"}, Rows: [][]string{
+		{"2026-10-13T02:00:00Z", "a", "7", "0"},
+		{"2026-10-13T00:00:00Z", "a", "1", "0"},
+		{"2026-10-13T01:00:00Z", "b", "5", "0"},
+		{"2026-10-13T00:00:00Z", "b", "2", "0"},
+		{"2026-10-13T01:00:00Z", "a", "3", "0"},
+		{"2026-10-13T01:00:00Z", "a", "1", "0"},
+		{"2026-10-13T00:00:00Z", "", "4", "0"},
+	}}
+	out := RenderPanel(panel("Requests", "timeseries", `{"xColumn":"t","yColumns":["requests"],"seriesColumn":"host"}`), split)
+	for _, w := range []string{"a: last 7, min 1, max 7", "b: last 5, min 2, max 5", "NULL: last 4, min 4, max 4"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("missing %q in:\n%s", w, out)
+		}
+	}
+	if strings.Contains(out, "errors:") || strings.Contains(out, "requests:") {
+		t.Errorf("a split chart lists one series per host only:\n%s", out)
+	}
+
+	// Without a series column, every y column is a series, in time order.
+	out = RenderPanel(panel("Requests", "timeseries", `{"xColumn":"t","yColumns":["requests"]}`), split)
+	if !strings.Contains(out, "requests: last 7,") {
+		t.Errorf("last must be the latest point:\n%s", out)
+	}
+
+	// More than maxSeries values: the largest are kept, the rest counted.
+	many := Table{Columns: []string{"t", "host", "n"}, Types: []string{"DateTime", "String", "UInt64"}}
+	for i := 0; i < maxSeries+2; i++ {
+		many.Rows = append(many.Rows, []string{"2026-10-13T00:00:00Z", fmt.Sprintf("h%02d", i), fmt.Sprint(i + 1)})
+	}
+	out = RenderPanel(panel("Hosts", "bar", `{"xColumn":"t","seriesColumn":"host"}`), many)
+	if !strings.Contains(out, "h11: last 12") || strings.Contains(out, "h00:") || !strings.Contains(out, "2 smaller series left out") {
+		t.Errorf("series cap:\n%s", out)
+	}
+}
+
 func TestRenderDashboardSummary(t *testing.T) {
 	s := &database.ReportSubscription{ID: "r", Name: "Ops daily", Timezone: "UTC", SourceType: SourceDashboard}
 	now := time.Date(2026, 10, 13, 8, 0, 0, 0, time.UTC)

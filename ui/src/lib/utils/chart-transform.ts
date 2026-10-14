@@ -142,9 +142,14 @@ export function parseTimeValue(raw: unknown): number | null {
   return Number.isNaN(t) ? null : t
 }
 
-/** A plotted number, or null for NULL, empty and non-numeric values, so the chart shows a gap instead of a fake zero. */
+/**
+ * A plotted number, or null for NULL, empty (or blank) and non-numeric values,
+ * so the chart shows a gap instead of a fake zero (Number(null), Number('')
+ * and Number(false) are all 0).
+ */
 function toPlotNumber(raw: unknown): number | null {
-  if (raw == null || raw === '' || typeof raw === 'boolean') return null
+  if (raw == null || typeof raw === 'boolean') return null
+  if (typeof raw === 'string' && raw.trim() === '') return null
   const n = typeof raw === 'number' ? raw : Number(raw)
   return Number.isFinite(n) ? n : null
 }
@@ -722,11 +727,16 @@ export function heatmapMatrix(
 
 type StatCalc = NonNullable<PanelConfig['statCalculation']>
 
+/**
+ * The numbers of a column, skipping NULL, empty and non-numeric values the
+ * way report summaries do (columnValues in internal/reports), so a stat reads
+ * the same on screen and in the email.
+ */
 function extractNumbers(data: Record<string, unknown>[], field: string): number[] {
   const nums: number[] = []
   for (const row of data) {
-    const n = Number(row[field])
-    if (!isNaN(n)) nums.push(n)
+    const n = toPlotNumber(row[field])
+    if (n != null) nums.push(n)
   }
   return nums
 }
@@ -854,9 +864,13 @@ export function computeStat(
 
   const nums = extractNumbers(data, field)
 
+  // No numbers: a numeric column is all NULL, so there is no data; a text
+  // column shows its last value as is.
   if (nums.length === 0) {
+    const type = meta.find(m => m.name === field)?.type
     const val = data[data.length - 1][field]
-    return { ...empty, value: val != null ? String(val) : '--' }
+    if ((type && isNumericType(type)) || val == null || val === '') return empty
+    return { ...empty, value: String(val) }
   }
 
   const raw = reduce(nums, calc)

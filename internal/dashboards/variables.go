@@ -154,6 +154,9 @@ func Validate(vars []Variable) error {
 			if len(v.StaticOptions()) == 0 {
 				return fmt.Errorf("%s: options are required (a comma separated list)", where)
 			}
+			if countOptions(v.Options) > MaxOptions {
+				return fmt.Errorf("%s: at most %d options (use a query variable for more)", where, MaxOptions)
+			}
 			v.Query = ""
 			if v.Type == TypeInterval {
 				for _, o := range v.StaticOptions() {
@@ -176,6 +179,18 @@ func Validate(vars []Variable) error {
 		}
 	}
 	return nil
+}
+
+// countOptions counts the distinct entries of a comma separated list, past
+// the MaxOptions that StaticOptions keeps.
+func countOptions(list string) int {
+	seen := map[string]bool{}
+	for _, part := range strings.Split(list, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			seen[p] = true
+		}
+	}
+	return len(seen)
 }
 
 // StaticOptions returns the options of a custom or interval variable.

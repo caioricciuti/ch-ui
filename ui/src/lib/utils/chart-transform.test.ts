@@ -164,6 +164,25 @@ describe('computeStat', () => {
   it('returns a placeholder for no rows', () => {
     expect(computeStat([], meta, {}).value).toBe('--')
   })
+
+  it('skips NULL, empty and boolean values instead of counting them as 0', () => {
+    const m = [{ name: 'n', type: 'Nullable(Float64)' }]
+    const rows = [{ n: 5 }, { n: '7' }, { n: null }, { n: '' }, { n: '  ' }, { n: false }]
+    expect(computeStat(rows, m, { statCalculation: 'last' }).raw).toBe(7)
+    expect(computeStat(rows, m, { statCalculation: 'min' }).raw).toBe(5)
+    expect(computeStat(rows, m, { statCalculation: 'mean' }).raw).toBe(6)
+    expect(computeStat(rows, m, { statCalculation: 'count' }).raw).toBe(2)
+  })
+
+  it('shows the placeholder when a numeric column has no numbers', () => {
+    const m = [{ name: 'n', type: 'Nullable(UInt64)' }]
+    for (const rows of [[{ n: null }], [{ n: null }, { n: '' }]]) {
+      const s = computeStat(rows, m, {})
+      expect(s.raw).toBeNull()
+      expect(s.value).toBe('--')
+    }
+    expect(computeStat([{ label: null }], [{ name: 'label', type: 'Nullable(String)' }], {}).value).toBe('--')
+  })
 })
 
 describe('panel saved without axes (ISO DateTime and UInt64 from ClickHouse JSON)', () => {

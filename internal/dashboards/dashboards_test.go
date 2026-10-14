@@ -2,9 +2,12 @@ package dashboards
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/caioricciuti/ch-ui/internal/queryproc"
 )
 
 func TestValidateVariables(t *testing.T) {
@@ -13,6 +16,7 @@ func TestValidateVariables(t *testing.T) {
 		"reserved name":    `[{"name":"__interval","type":"text"}]`,
 		"duplicate":        `[{"name":"a","type":"text"},{"name":"a","type":"text"}]`,
 		"unknown type":     `[{"name":"a","type":"list"}]`,
+		"long custom list": `[{"name":"a","type":"custom","options":"` + longList(MaxOptions+1) + `"}]`,
 		"query missing":    `[{"name":"a","type":"query"}]`,
 		"options missing":  `[{"name":"a","type":"custom"}]`,
 		"bad interval":     `[{"name":"a","type":"interval","options":"5m,soon"}]`,
@@ -45,6 +49,14 @@ func TestValidateVariables(t *testing.T) {
 	}
 }
 
+func longList(n int) string {
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = fmt.Sprint("v", i)
+	}
+	return strings.Join(parts, ",")
+}
+
 func TestResolve(t *testing.T) {
 	vars := []Variable{
 		{Name: "db", Type: TypeQuery, Query: "SELECT name FROM system.databases", IncludeAll: true, Multi: true},
@@ -55,16 +67,16 @@ func TestResolve(t *testing.T) {
 		{Name: "bucket", Type: TypeInterval, Options: "1m,5m"},
 	}
 	var seenParents []map[string][]string
-	run := func(v Variable, parents map[string][]string) ([]Option, error) {
+	run := func(v Variable, parents map[string][]string, _ map[string]string) ([]Option, string, error) {
 		cp := map[string][]string{}
 		for k, val := range parents {
 			cp[k] = val
 		}
 		seenParents = append(seenParents, cp)
 		if v.Name == "db" {
-			return []Option{{Value: "system"}, {Value: "default"}}, nil
+			return []Option{{Value: "system"}, {Value: "default"}}, "", nil
 		}
-		return []Option{{Value: parents["db"][0] + ".t1"}, {Value: parents["db"][0] + ".t2"}}, nil
+		return []Option{{Value: parents["db"][0] + ".t1"}, {Value: parents["db"][0] + ".t2"}}, "", nil
 	}
 
 	values, types, err := Resolve(vars, map[string][]string{"db": {AllValue}, "q": {"typed"}, "c": {"override"}}, false, run)
@@ -102,6 +114,48 @@ func TestResolve(t *testing.T) {
 	}
 	if _, _, err := Resolve([]Variable{{Name: "env", Type: TypeCustom, Options: "a"}}, map[string][]string{"env": {AllValue}}, false, run); err == nil {
 		t.Fatal("All must be refused without include_all")
+	}
+}
+
+// "All" of a query variable whose options were cut at MaxOptions becomes the
+// runner's subquery, never the first MaxOptions values, also on share links;
+// a child variable sees it with its type.
+func TestResolveAllPastTheCap(t *testing.T) {
+	vars := []Variable{
+		{Name: "host", Type: TypeQuery, Query: "SELECT host FROM logs", IncludeAll: true, Multi: true},
+		{Name: "path", Type: TypeQuery, Query: "SELECT path FROM logs WHERE host IN ($host)", IncludeAll: true, Multi: true},
+	}
+	full := make([]Option, MaxOptions)
+	for i := range full {
+		full[i] = Option{Value: fmt.Sprint("h", i)}
+	}
+	var childTypes map[string]string
+	run := func(v Variable, parents map[string][]string, parentTypes map[string]string) ([]Option, string, error) {
+		if v.Name == "host" {
+			return full, AllSubquery("SELECT host FROM logs;", "host"), nil
+		}
+		childTypes = parentTypes
+		return []Option{{Value: "/a"}, {Value: "/b"}}, "", nil
+	}
+	for _, strict := range []bool{false, true} {
+		values, types, err := Resolve(vars, map[string][]string{"host": {AllValue}, "path": {AllValue}}, strict, run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "SELECT `host` FROM (\nSELECT host FROM logs\n)"
+		if !reflect.DeepEqual(values["host"], []string{want}) || types["host"] != queryproc.VarTypeSubquery {
+			t.Fatalf("strict=%v: host %q type %q", strict, values["host"], types["host"])
+		}
+		if childTypes["host"] != queryproc.VarTypeSubquery {
+			t.Fatalf("child options query did not see the subquery type: %v", childTypes)
+		}
+		// A list under the cap still expands to its values.
+		if !reflect.DeepEqual(values["path"], []string{"/a", "/b"}) || types["path"] != "" {
+			t.Fatalf("path %v type %q", values["path"], types["path"])
+		}
+	}
+	if got := AllSubquery("SELECT 1 AS `a``b` -- note", "a`b"); got != "SELECT `a\\`b` FROM (\nSELECT 1 AS `a``b` -- note\n)" {
+		t.Fatalf("AllSubquery: %q", got)
 	}
 }
 

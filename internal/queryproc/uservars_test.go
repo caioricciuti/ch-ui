@@ -101,3 +101,35 @@ func TestValidVarName(t *testing.T) {
 		}
 	}
 }
+
+func TestSubstituteVarsSubquery(t *testing.T) {
+	sub := "SELECT `host` FROM (\nSELECT DISTINCT host FROM logs\n)"
+	vars := map[string][]string{"host": {sub}}
+	types := map[string]string{"host": VarTypeSubquery}
+	for in, want := range map[string]string{
+		"WHERE host IN ($host)":            "WHERE host IN (" + sub + ")",
+		"WHERE host not in ( ${host} )":    "WHERE host not in ( " + sub + " )",
+		"WHERE host GLOBAL IN (\n$host\n)": "WHERE host GLOBAL IN (\n" + sub + "\n)",
+	} {
+		got, err := SubstituteVars(in, vars, types)
+		if err != nil {
+			t.Fatalf("%q: %v", in, err)
+		}
+		if got != want {
+			t.Fatalf("got  %q\nwant %q", got, want)
+		}
+	}
+	for _, in := range []string{
+		"WHERE host = $host",
+		"WHERE host IN ($host, 'x')",
+		"WHERE host IN ('x', $host)",
+		"WHERE has([$host], host)",
+		"WHERE host IN (${host:number})",
+		"WHERE login($host)",
+		"SELECT $host",
+	} {
+		if _, err := SubstituteVars(in, vars, types); err == nil || !strings.Contains(err.Error(), "IN ($host)") {
+			t.Fatalf("%q: expected the IN-only error, got %v", in, err)
+		}
+	}
+}

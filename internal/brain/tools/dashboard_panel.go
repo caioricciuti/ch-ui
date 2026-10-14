@@ -9,11 +9,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/dashboards"
 )
 
 func RegisterPanel(r *Registry) {
@@ -86,10 +87,10 @@ Layout defaults to width 6, height 4 on a 12-col grid. Pass x/y to position; omi
 			"gauge_min":         map[string]any{"type": "number"},
 			"gauge_max":         map[string]any{"type": "number"},
 			"content":           map[string]any{"type": "string", "description": "Markdown body (text panels only)."},
-			"layout_x":          map[string]any{"type": "integer", "minimum": 0, "maximum": 12},
-			"layout_y":          map[string]any{"type": "integer", "minimum": 0},
+			"layout_x":          map[string]any{"type": "integer", "minimum": 0, "maximum": 11, "description": "Column, 0 to 11; layout_x + layout_w is at most 12."},
+			"layout_y":          map[string]any{"type": "integer", "minimum": 0, "maximum": 10000, "description": "Row. Default: below every existing panel."},
 			"layout_w":          map[string]any{"type": "integer", "minimum": 1, "maximum": 12, "description": "Width on the 12-col grid. Default 6."},
-			"layout_h":          map[string]any{"type": "integer", "minimum": 1, "description": "Height. Default 4."},
+			"layout_h":          map[string]any{"type": "integer", "minimum": 1, "maximum": 100, "description": "Height in rows, at most 100. Default 4."},
 		},
 	}),
 	Handler: func(tctx Context, args json.RawMessage) (any, error) {
@@ -212,26 +213,34 @@ Layout defaults to width 6, height 4 on a 12-col grid. Pass x/y to position; omi
 
 		configJSON, _ := json.Marshal(panelConfigFor(in))
 
-		x, y, wd, ht := 0, autoNextY(existing), 6, 4
+		// Same placement and grid rules as the REST create: below every
+		// panel unless a row is given, then clamped into the grid instead of
+		// refused, since the model cannot see the grid.
+		x, y, wd, ht := 0, dashboards.NextPanelRow(existing), 6, 4
 		if in.LayoutX != nil {
-			x = clamp(*in.LayoutX, 0, 11)
+			x = *in.LayoutX
 		}
 		if in.LayoutY != nil {
 			y = *in.LayoutY
-			if y < 0 {
-				y = 0
-			}
 		}
 		if in.LayoutW != nil {
-			wd = clamp(*in.LayoutW, 1, 12)
+			wd = *in.LayoutW
 		}
 		if in.LayoutH != nil {
 			ht = *in.LayoutH
-			if ht < 1 {
-				ht = 1
-			}
+		}
+		x, y, wd, ht = dashboards.ClampLayout(x, y, wd, ht)
+		if msg := dashboards.ValidateLayout(x, y, wd, ht); msg != "" {
+			return nil, errors.New(msg)
 		}
 
+		// Recorded like a REST create, so the change can be undone from the
+		// dashboard's history.
+		if has, err := tctx.DB.HasDashboardVersions(in.DashboardID); err == nil && !has {
+			if _, err := tctx.DB.RecordDashboardVersion(in.DashboardID, "", "Before first recorded change"); err != nil {
+				slog.Warn("Failed to record baseline dashboard version", "error", err, "id", in.DashboardID)
+			}
+		}
 		id, err := tctx.DB.CreatePanel(
 			in.DashboardID, in.Name, strings.TrimSpace(in.Description),
 			in.PanelType, in.SQL, tctx.ConnectionID, string(configJSON),
@@ -239,6 +248,9 @@ Layout defaults to width 6, height 4 on a 12-col grid. Pass x/y to position; omi
 		)
 		if err != nil {
 			return nil, fmt.Errorf("create panel: %w", err)
+		}
+		if _, err := tctx.DB.RecordDashboardVersion(in.DashboardID, tctx.Username, ""); err != nil {
+			slog.Warn("Failed to record dashboard version", "error", err, "id", in.DashboardID)
 		}
 		result := map[string]any{
 			"created":      true,
@@ -542,17 +554,6 @@ func containsString(xs []string, target string) bool {
 		}
 	}
 	return false
-}
-
-func autoNextY(panels []database.Panel) int {
-	max := 0
-	for _, p := range panels {
-		bottom := p.LayoutY + p.LayoutH
-		if bottom > max {
-			max = bottom
-		}
-	}
-	return max
 }
 
 func clamp(v, lo, hi int) int {

@@ -278,6 +278,16 @@ func (t Table) numericColumn(i int) bool {
 	return seen
 }
 
+// timeColumn reports whether column i is a Date or DateTime column.
+func (t Table) timeColumn(i int) bool {
+	if i >= len(t.Types) {
+		return false
+	}
+	typ := strings.TrimPrefix(t.Types[i], "Nullable(")
+	typ = strings.TrimPrefix(typ, "LowCardinality(")
+	return strings.HasPrefix(typ, "Date")
+}
+
 func (t Table) columnIndex(name string) int {
 	for i, c := range t.Columns {
 		if c == name {

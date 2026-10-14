@@ -8,20 +8,42 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/queryproc"
 )
 
-// OptionsRunner returns the options of a query variable, with the values of
-// the variables defined before it.
-type OptionsRunner func(v Variable, parents map[string][]string) ([]Option, error)
+// OptionsRunner returns the options of a query variable, given the values
+// and types of the variables defined before it. all is a SELECT of every
+// value of the variable (see AllSubquery), set when the options stopped at
+// MaxOptions so a list would leave values out; empty otherwise.
+type OptionsRunner func(v Variable, parents map[string][]string, parentTypes map[string]string) (opts []Option, all string, err error)
 
 // Options returns the options of v: the static list, or the result of run
 // for a query variable.
-func Options(v Variable, parents map[string][]string, run OptionsRunner) ([]Option, error) {
+func Options(v Variable, parents map[string][]string, parentTypes map[string]string, run OptionsRunner) ([]Option, error) {
+	opts, _, err := options(v, parents, parentTypes, run)
+	return opts, err
+}
+
+func options(v Variable, parents map[string][]string, parentTypes map[string]string, run OptionsRunner) ([]Option, string, error) {
 	if v.Type == TypeQuery {
 		if run == nil {
-			return nil, fmt.Errorf("variable %s: options are not available", v.Name)
+			return nil, "", fmt.Errorf("variable %s: options are not available", v.Name)
 		}
-		return run(v, parents)
+		return run(v, parents, parentTypes)
 	}
-	return v.StaticOptions(), nil
+	return v.StaticOptions(), "", nil
+}
+
+// AllSubquery is the SELECT that "All" of a query variable expands to when
+// its options query returns MaxOptions rows or more: the value column of
+// the options query, already expanded (macros and parent variables). A
+// trailing semicolon is dropped and the query sits on its own lines, so a
+// trailing comment cannot swallow the closing parenthesis.
+func AllSubquery(expandedQuery, valueColumn string) string {
+	q := strings.TrimRight(strings.TrimSpace(expandedQuery), "; \t\r\n")
+	return "SELECT " + quoteIdent(valueColumn) + " FROM (\n" + q + "\n)"
+}
+
+// quoteIdent returns name as a ClickHouse backquoted identifier.
+func quoteIdent(name string) string {
+	return "`" + strings.ReplaceAll(strings.ReplaceAll(name, `\`, `\\`), "`", "\\`") + "`"
 }
 
 // Resolve works out the value of every variable, in definition order, so a
@@ -31,12 +53,18 @@ func Options(v Variable, parents map[string][]string, run OptionsRunner) ([]Opti
 // takes its default, else its first option. AllValue selects every option of
 // a variable with include_all. A constant is always its default.
 //
+// "All" of a query variable whose options stop at MaxOptions does not become
+// a list, which would silently filter to the first MaxOptions values: its
+// value is the SELECT the runner returned, typed queryproc.VarTypeSubquery,
+// and it substitutes only inside IN (...).
+//
 // strict is for share links: a value must be one of the variable's options
 // (re-run here, with the sharer's credentials), and a text variable can only
 // be its default. Otherwise any value is accepted; it is quoted when it is
 // substituted anyway.
 //
-// It returns the values by name and the type of every interval variable.
+// It returns the values by name and the type of every interval variable and
+// every "All" subquery.
 func Resolve(vars []Variable, requested map[string][]string, strict bool, run OptionsRunner) (map[string][]string, map[string]string, error) {
 	values := make(map[string][]string, len(vars))
 	types := map[string]string{}
@@ -60,16 +88,17 @@ func Resolve(vars []Variable, requested map[string][]string, strict bool, run Op
 		}
 
 		var opts []Option
+		var allSQL string
 		haveOpts := false
 		loadOpts := func() ([]Option, error) {
 			if haveOpts {
 				return opts, nil
 			}
-			o, err := Options(v, values, run)
+			o, all, err := options(v, values, types, run)
 			if err != nil {
 				return nil, err
 			}
-			opts, haveOpts = o, true
+			opts, allSQL, haveOpts = o, all, true
 			return opts, nil
 		}
 
@@ -95,6 +124,11 @@ func Resolve(vars []Variable, requested map[string][]string, strict bool, run Op
 			o, err := loadOpts()
 			if err != nil {
 				return nil, nil, err
+			}
+			if allSQL != "" {
+				values[v.Name] = []string{allSQL}
+				types[v.Name] = queryproc.VarTypeSubquery
+				continue
 			}
 			chosen = make([]string, 0, len(o))
 			for _, x := range o {
