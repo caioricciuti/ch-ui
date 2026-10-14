@@ -29,9 +29,11 @@
     onclose: () => void
     onapplied: (res: RbacApplyResponse) => void
     onrollback: (ops: RbacOp[]) => void
+    /** The access history row this change set reverts to, if any. */
+    revertOf?: string
   }
 
-  let { open, ops, snapshot, onunstage, onclose, onapplied, onrollback }: Props = $props()
+  let { open, ops, snapshot, onunstage, onclose, onapplied, onrollback, revertOf = '' }: Props = $props()
 
   let clusters = $state<string[]>([])
   let cluster = $state('')
@@ -82,7 +84,7 @@
     planning = true
     planError = ''
     try {
-      const next = await planRbac(currentOps, target)
+      const next = await planRbac(currentOps, target, revertOf)
       if (id !== request) return
       plan = next
     } catch (err: unknown) {
@@ -107,7 +109,7 @@
     applying = true
     applyError = ''
     try {
-      const res = await applyRbac(ops, effectiveCluster, plan.plan_hash, ackCodes)
+      const res = await applyRbac(ops, effectiveCluster, plan.plan_hash, ackCodes, revertOf)
       result = res
       onapplied(res)
     } catch (err: unknown) {

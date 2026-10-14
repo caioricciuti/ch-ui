@@ -1322,6 +1322,10 @@ Formatting:
 	if err := db.migrateReportsV2(); err != nil {
 		return err
 	}
+
+	if err := db.migrateRBACHistoryV2(); err != nil {
+		return err
+	}
 	slog.Info("Database migrations completed", "schema_version", schemaVersion)
 	return nil
 }
