@@ -3,7 +3,6 @@
 // this layout is everything else: one dark look, nav and footer.
 import "../styles/landing.css";
 import GitHubStars from "../components/GitHubStars.astro";
-import NewsletterForm from "../components/NewsletterForm.astro";
 import { comparisons } from "../data/comparisons";
 
 interface Props {
@@ -108,10 +107,6 @@ const nav = [
         <div class="footer-links">
           <h3>Compare</h3>
           {comparisons.map((c) => <a href={`/vs/${c.slug}/`}>CH-UI vs {c.name}</a>)}
-        </div>
-        <div class="footer-news">
-          <h3>Stay in the loop</h3>
-          <NewsletterForm placement="footer" />
         </div>
       </div>
       <div class="container footer-base">

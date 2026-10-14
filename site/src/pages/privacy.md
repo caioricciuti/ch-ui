@@ -3,7 +3,7 @@ layout: ../layouts/Legal.astro
 title: Privacy Policy
 description: "How CH-UI handles your data: this website, self-hosted CH-UI, and the license service at license.ch-ui.com. Self-hosted CH-UI keeps everything local."
 effective: September 30, 2026
-updated: September 30, 2026
+updated: October 14, 2026
 ---
 
 This policy explains what personal data CH-UI handles, why, on what legal basis, who else sees it, and for how long. It covers this **website and documentation** (ch-ui.com), the **license service** at license.ch-ui.com, and the CH-UI software you **self-host**.
@@ -19,16 +19,12 @@ The controller is **Caio Ricciuti**, a sole trader established in Spain, who ope
 - **GitHub star count.** Some pages show the project's GitHub star count. Your browser fetches it directly from GitHub's public API (api.github.com), so GitHub, Inc. (USA) receives your IP address and user agent under its own privacy policy. The count is cached in your browser for six hours.
 - **Cookies and local storage.** This site sets no cookies. Your browser's local storage may hold your light/dark theme choice and the cached star count; they stay on your device and are not sent to us.
 
-## Newsletter
-
-If you subscribe, we store your email address in a mailing list hosted by **Resend** and send you release notes and tips. Legal basis: your consent (Art. 6(1)(a)), which you can withdraw at any time with the unsubscribe link in any newsletter or by emailing us. We keep your address until you unsubscribe. Sign-ups are rate-limited by IP address; the counter is kept by Cloudflare for about a minute and we never store the address.
-
 ## Trials and purchases (license.ch-ui.com)
 
 - **Trials.** We store your email address, the name you give (optional), and the trial license issued to you. To keep trials to one per person we also store a normalized form of your address and check that its domain can receive email and is not a disposable-email service.
 - **Purchases.** Payment is handled by **Stripe**, which collects your payment and billing details; we never see or store your full card number. From Stripe we receive your name, email address, and Stripe customer and subscription identifiers. We store those together with the licenses issued to you, their dates and status.
 - **The license file.** Your name (or, if you give none, your email address) is written into the signed license file, which is how CH-UI shows who a license belongs to.
-- **Email.** License files, renewals and billing-portal links are sent through **Resend**. We also get a short notification email about trials, purchases, renewals, cancellations, refunds and disputes.
+- **Email.** License files, renewals and billing-portal links are sent from our own mail server, on the Hetzner server in Finland that runs the license service. We also get a short notification email about trials, purchases, renewals, cancellations, refunds and disputes.
 - **Server logs.** The license server records each request: IP address, user agent, requested URL and time. Request traces (IP address, user agent, path) are deleted automatically after 30 days; access logs are rotated out by size. We use them to keep the service secure and working. Legal basis: our legitimate interest in running a secure service (Art. 6(1)(f)).
 - **Abuse protection.** Requests are rate-limited by IP address, held in memory for up to an hour and never stored.
 - **Legal bases.** Issuing, delivering and renewing your license: performance of our contract with you, or steps you asked for before one (Art. 6(1)(b)). Keeping purchase records: our legal obligations under tax and accounting law (Art. 6(1)(c)). One-trial-per-person checks, rate limits and payment alerts: our legitimate interest in preventing abuse and fraud (Art. 6(1)(f)).
@@ -37,7 +33,6 @@ If you subscribe, we store your email address in a mailing list hosted by **Rese
 
 - **License and purchase records:** for the life of the license, then for as long as Spanish tax and accounting law requires us to keep purchase records (generally up to six years).
 - **Trial records:** kept so a trial can only be taken once per person; we delete them on request.
-- **Newsletter:** until you unsubscribe.
 - **Analytics:** at most 25 months.
 - **Server logs and traces:** as described above.
 - **Backups:** the license database is backed up nightly and each backup is kept for up to 14 days, so deleted data can remain in backups for that long.
@@ -47,11 +42,10 @@ If you subscribe, we store your email address in a mailing list hosted by **Rese
 We do not sell your data or use it for advertising. These providers process it on our behalf, each only for its function:
 
 - **Cloudflare**: serves this website from its network and answers DNS for the domain.
-- **Hetzner Online**: hosting of the license service, the analytics and their logs, on servers in Helsinki, Finland (EU).
+- **Hetzner Online**: hosting of the license service, our mail server, the analytics and their logs, on servers in Helsinki, Finland (EU).
 - **Stripe**: payment processing, subscriptions and the billing portal.
-- **Resend**: email delivery (license emails, owner notifications) and the newsletter list.
 
-Cloudflare, Stripe and Resend may process data in the United States. For those transfers we rely on the EU-US Data Privacy Framework or on the European Commission's Standard Contractual Clauses, as provided in each provider's data processing terms.
+Cloudflare and Stripe may process data in the United States. For those transfers we rely on the EU-US Data Privacy Framework or on the European Commission's Standard Contractual Clauses, as provided in each provider's data processing terms.
 
 ## Self-hosted CH-UI
 
