@@ -300,26 +300,10 @@ func privOp(t Target, access []string, sc scope, revoke, grantOption bool) Op {
 }
 
 // heldAt reports whether t holds access on sc in s, and with grant option,
-// reading the rows that cover sc from the broadest to the most specific.
+// counting the groups that cover access (ALL, ALTER for ALTER UPDATE).
 func heldAt(s *Snapshot, t Target, access string, sc scope) (has, grantOption bool) {
-	var rows []GrantRow
-	for _, g := range s.Grants {
-		if g.Grantee() == t && (g.Access == access || g.Access == "ALL") && sc.within(scopeOf(g)) {
-			rows = append(rows, g)
-		}
-	}
-	sort.SliceStable(rows, func(a, b int) bool { return scopeOf(rows[a]).depth() < scopeOf(rows[b]).depth() })
-	for _, g := range rows {
-		switch {
-		case !g.PartialRevoke:
-			has, grantOption = true, grantOption || g.GrantOption
-		case g.GrantOption:
-			grantOption = false
-		default:
-			has, grantOption = false, false
-		}
-	}
-	return has, grantOption
+	level := privilegeAt(s, privTree{parents: s.PrivilegeParents}, t, access, sc)
+	return level >= privGranted, level == privWithGrantOption
 }
 
 // Which rows restoreRows puts back: none, those carrying grant option, or all.
@@ -335,13 +319,15 @@ type invEntry struct {
 }
 
 // restoreRows returns ops that put back t's rows for access strictly inside
-// sc as they are in s. grants and partials pick which grants and which
-// partial revokes are restored.
+// sc, and the rows of privileges access covers on sc itself, as they are in
+// s. grants and partials pick which grants and which partial revokes are
+// restored.
 func restoreRows(s *Snapshot, t Target, access string, sc scope, grants, partials int) []invEntry {
+	tree := privTree{parents: s.PrivilegeParents}
 	var out []invEntry
 	for _, g := range s.Grants {
 		gs := scopeOf(g)
-		if g.Grantee() != t || gs == sc || !gs.within(sc) || (g.Access != access && access != "ALL") {
+		if g.Grantee() != t || !gs.within(sc) || (gs == sc && g.Access == access) || !tree.covers(access, g.Access) {
 			continue
 		}
 		mode := grants
@@ -392,7 +378,28 @@ func privilegeInverse(op Op, s *Snapshot) []Op {
 			}
 		}
 	}
-	return mergeEntries(entries)
+	inv := mergeEntries(entries)
+	return append(inv, privilegeRepair(s, t, op, inv)...)
+}
+
+// privilegeRepair returns the ops still needed after op and inv to give t
+// back the rows it holds in s. A change to a group (ALL, ALTER) also moves
+// the privileges it covers on objects the rows above do not name; replaying
+// both on t's rows finds what is left.
+func privilegeRepair(s *Snapshot, t Target, op Op, inv []Op) []Op {
+	var before []GrantRow
+	for _, g := range s.Grants {
+		if g.Grantee() == t {
+			before = append(before, g)
+		}
+	}
+	rows := &Snapshot{Grants: append([]GrantRow{}, before...), PrivilegeParents: s.PrivilegeParents, PrivilegeLevels: s.PrivilegeLevels, RoleProfiles: map[string][]string{}}
+	applyOp(rows, op)
+	for _, o := range inv {
+		applyOp(rows, o)
+	}
+	early, late := privilegeOps(rows, t, before, true)
+	return append(early, late...)
 }
 
 // mergeEntries orders entries from broad to narrow scope and folds ops that

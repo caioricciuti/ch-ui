@@ -32,6 +32,7 @@
 	import AccessSection from '../lib/components/governance/AccessSection.svelte';
 	import AccessControlSection from '../lib/components/governance/rbac/AccessControlSection.svelte';
 	import EffectiveAccessSection from '../lib/components/governance/rbac/EffectiveAccessSection.svelte';
+	import AccessHistorySection from '../lib/components/governance/rbac/AccessHistorySection.svelte';
 	import IncidentsSection from '../lib/components/governance/IncidentsSection.svelte';
 	import PoliciesSection from '../lib/components/governance/PoliciesSection.svelte';
 	import AlertsSection from '../lib/components/governance/AlertsSection.svelte';
@@ -68,7 +69,7 @@
 	} from '../lib/types/governance';
 
 	// State
-	type GovernanceTab = 'dashboard' | 'tables' | 'queries' | 'access' | 'rbac' | 'effective-access' | 'incidents' | 'policies' | 'alerts' | 'silences' | 'health-alerts' | 'sql-alerts' | 'auditlog' | 'settings';
+	type GovernanceTab = 'dashboard' | 'tables' | 'queries' | 'access' | 'rbac' | 'effective-access' | 'access-history' | 'incidents' | 'policies' | 'alerts' | 'silences' | 'health-alerts' | 'sql-alerts' | 'auditlog' | 'settings';
 	const governanceTabs: Array<{ id: GovernanceTab; label: string }> = [
 		{ id: 'dashboard', label: 'Dashboard' },
 		{ id: 'tables', label: 'Tables' },
@@ -76,6 +77,7 @@
 		{ id: 'access', label: 'Access' },
 		{ id: 'rbac', label: 'Access control' },
 		{ id: 'effective-access', label: 'Effective access' },
+		{ id: 'access-history', label: 'Access history' },
 		{ id: 'incidents', label: 'Incidents' },
 		{ id: 'policies', label: 'Policies' },
 		{ id: 'alerts', label: 'Alerts' },
@@ -216,7 +218,7 @@
 		return status;
 	}
 
-	const governanceTabIds: GovernanceTab[] = ['dashboard', 'tables', 'queries', 'access', 'rbac', 'effective-access', 'incidents', 'policies', 'alerts', 'silences', 'health-alerts', 'sql-alerts', 'auditlog', 'settings'];
+	const governanceTabIds: GovernanceTab[] = ['dashboard', 'tables', 'queries', 'access', 'rbac', 'effective-access', 'access-history', 'incidents', 'policies', 'alerts', 'silences', 'health-alerts', 'sql-alerts', 'auditlog', 'settings'];
 
 
 	function normalizeGovernanceTab(value: string | null | undefined): GovernanceTab {
@@ -524,6 +526,12 @@
 			<EffectiveAccessSection />
 		{:else}
 			<EmptyState icon={Lock} title="Admins only" description="Explaining another user's ClickHouse access is limited to CH-UI admins." />
+		{/if}
+	{:else if activeTab === 'access-history'}
+		{#if isAdmin}
+			<AccessHistorySection />
+		{:else}
+			<EmptyState icon={Lock} title="Admins only" description="The history of ClickHouse access control is limited to CH-UI admins." />
 		{/if}
 	{:else if activeTab === 'incidents'}
 		<IncidentsSection />

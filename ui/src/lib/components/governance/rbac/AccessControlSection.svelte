@@ -1,9 +1,13 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Plus, RefreshCw, Search } from 'lucide-svelte'
-  import type { RbacApplyResponse, RbacOp, RbacRowPolicy, RbacQuota, RbacSettingsProfile, RbacSnapshot, RbacTarget } from '../../../types/rbac'
-  import { fetchRbacSnapshot } from '../../../api/rbac'
+  import { Download, Plus, RefreshCw, Search, Upload } from 'lucide-svelte'
+  import type { RbacApplyResponse, RbacExportFormat, RbacOp, RbacRowPolicy, RbacQuota, RbacSettingsProfile, RbacSnapshot, RbacTarget } from '../../../types/rbac'
+  import { exportRbac, fetchRbacHistory, fetchRbacSnapshot } from '../../../api/rbac'
+  import { hasProReadAccess } from '../../../stores/license.svelte'
+  import { downloadBlob } from '../../../utils/export'
+  import { setSection } from '../../../stores/nav.svelte'
+  import { takeStagedRevert } from './history'
   import { success as toastSuccess, error as toastError } from '../../../stores/toast.svelte'
   import { assigneesLabel, membersOf } from './changes'
   import Select from '../../common/Select.svelte'
@@ -18,6 +22,8 @@
   import QuotaSheet from './QuotaSheet.svelte'
   import ProfileSheet from './ProfileSheet.svelte'
   import ReviewSheet from './ReviewSheet.svelte'
+  import ImportSheet from './ImportSheet.svelte'
+  import ContextMenu, { type ContextMenuItem } from '../../common/ContextMenu.svelte'
 
   /**
    * Governance > Access control. One table per entity kind, picked in the
@@ -34,18 +40,34 @@
   let kind = $state<Kind>('roles')
   let search = $state('')
   let pending = $state<RbacOp[]>([])
+  // The access history row a staged revert goes back to.
+  let revertOf = $state('')
+  let outsideChanges = $state(0)
 
   let principal = $state<{ open: boolean; target: RbacTarget | null }>({ open: false, target: null })
   let policySheet = $state<{ open: boolean; policy: RbacRowPolicy | null }>({ open: false, policy: null })
   let quotaSheet = $state<{ open: boolean; quota: RbacQuota | null }>({ open: false, quota: null })
   let profileSheet = $state<{ open: boolean; profile: RbacSettingsProfile | null }>({ open: false, profile: null })
   let reviewOpen = $state(false)
+  let importOpen = $state(false)
+  let exportMenu = $state<{ x: number; y: number } | null>(null)
+  let exporting = $state(false)
   // Bumped on every open so each sheet starts from a fresh form.
   let sheetSeq = $state(0)
 
   onMount(() => {
     const wanted = new URLSearchParams(window.location.search).get('user')
+    const staged = takeStagedRevert()
+    fetchRbacHistory({ driftOnly: true, limit: 1 })
+      .then((p) => (outsideChanges = p.outside_last_30d))
+      .catch(() => (outsideChanges = 0))
     void load().then(() => {
+      if (staged) {
+        pending = staged.ops
+        revertOf = staged.revertOf
+        reviewOpen = true
+        return
+      }
       if (wanted && snapshot?.users?.some((u) => u.name === wanted)) {
         kind = 'users'
         sheetSeq++
@@ -219,6 +241,7 @@
 
   function unstage(index: number) {
     pending = pending.filter((_, i) => i !== index)
+    if (pending.length === 0) revertOf = ''
   }
 
   function storageOf(t: RbacTarget | null): string {
@@ -234,6 +257,7 @@
 
   function applied(res: RbacApplyResponse) {
     pending = []
+    revertOf = ''
     if (res.failed > 0) toastError(`${res.failed} statement failed; later ones were skipped`)
     else toastSuccess(`Applied ${res.results.length} statement${res.results.length === 1 ? '' : 's'}`)
     void load()
@@ -241,6 +265,40 @@
 
   function rollback(ops: RbacOp[]) {
     pending = ops
+    revertOf = ''
+  }
+
+  // ── Access as code ────────────────────────────────────────────────
+
+  const proRead = $derived(hasProReadAccess())
+
+  async function exportAs(format: RbacExportFormat) {
+    exporting = true
+    try {
+      const { blob, filename } = await exportRbac(format)
+      downloadBlob(blob, filename)
+    } catch (err: unknown) {
+      toastError(err instanceof Error ? err.message : String(err))
+    } finally {
+      exporting = false
+    }
+  }
+
+  const exportItems: ContextMenuItem[] = [
+    { id: 'yaml', label: 'YAML (importable)', onSelect: () => void exportAs('yaml') },
+    { id: 'json', label: 'JSON (importable)', onSelect: () => void exportAs('json') },
+    { id: 'sql', label: 'SQL (read only)', onSelect: () => void exportAs('sql') },
+  ]
+
+  function openExportMenu(e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    exportMenu = { x: r.left, y: r.bottom + 4 }
+  }
+
+  function stageImport(ops: RbacOp[]) {
+    pending = ops
+    importOpen = false
+    reviewOpen = true
   }
 
   function storageTone(s: unknown): 'neutral' | 'info' | 'warning' {
@@ -257,6 +315,11 @@
     {#if snapshot?.errors?.length}
       <Badge tone="warning" title={snapshot.errors.join('\n')}>Partial data</Badge>
     {/if}
+    {#if outsideChanges > 0}
+      <button type="button" class="rounded-sm" title="Changes made outside CH-UI in the last 30 days" onclick={() => setSection('access-history')}>
+        <Badge tone="warning">{outsideChanges} outside change{outsideChanges === 1 ? '' : 's'}</Badge>
+      </button>
+    {/if}
     <div class="flex-1"></div>
     <div class="relative">
       <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-4" />
@@ -265,6 +328,29 @@
     <span class="text-xs tabular-nums text-fg-4">{visibleRows.length} rows</span>
     <Button icon variant="ghost" size="sm" aria-label="Refresh" title="Refresh" onclick={() => void load()}>
       <RefreshCw size={14} />
+    </Button>
+    {#if !proRead}
+      <span class="text-xs text-fg-4">Export and import need Pro</span>
+    {/if}
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={!snapshot || !proRead}
+      loading={exporting}
+      title={proRead ? 'Download the access state of this connection' : 'Export needs a Pro license'}
+      aria-expanded={!!exportMenu}
+      onclick={openExportMenu}
+    >
+      <Download size={14} /> Export
+    </Button>
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={!snapshot || !proRead}
+      title={proRead ? 'Make this connection match an access file' : 'Import needs a Pro license'}
+      onclick={() => (importOpen = true)}
+    >
+      <Upload size={14} /> Import
     </Button>
     {#if pending.length > 0}
       <Button size="sm" variant="outline" onclick={openReview}>Pending changes ({pending.length})</Button>
@@ -363,6 +449,10 @@
   />
 {/key}
 
+<ContextMenu open={!!exportMenu} x={exportMenu?.x ?? 0} y={exportMenu?.y ?? 0} items={exportItems} onclose={() => (exportMenu = null)} />
+
+<ImportSheet open={importOpen} pendingCount={pending.length} onstage={stageImport} onclose={() => (importOpen = false)} />
+
 <ReviewSheet
   open={reviewOpen}
   ops={pending}
@@ -371,4 +461,5 @@
   onclose={() => (reviewOpen = false)}
   onapplied={applied}
   onrollback={rollback}
+  {revertOf}
 />

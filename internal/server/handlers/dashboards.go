@@ -704,6 +704,10 @@ func (h *DashboardsHandler) CreatePanel(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "config must be valid JSON")
 		return
 	}
+	if err := dashboards.ValidatePanelLinks(panelConfig); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	x, y, w2, h2 := 0, 0, 6, 4
 	if body.LayoutX != nil {
@@ -874,6 +878,12 @@ func (h *DashboardsHandler) UpdatePanel(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "config must be valid JSON")
 		return
 	}
+	if body.Config != nil {
+		if err := dashboards.ValidatePanelLinks(panelConfig); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	// Only a request that moves or resizes the panel is held to the layout
 	// bounds, so a panel saved before validation existed can still be renamed.
 	if body.LayoutX != nil || body.LayoutY != nil || body.LayoutW != nil || body.LayoutH != nil {
@@ -962,9 +972,10 @@ const (
 var panelTypes = map[string]bool{
 	"table": true, "stat": true, "gauge": true, "timeseries": true,
 	"bar": true, "pie": true, "text": true,
+	"histogram": true, "scatter": true, "heatmap": true,
 }
 
-const invalidPanelTypeMessage = "panel_type must be one of table, stat, gauge, timeseries, bar, pie, text"
+const invalidPanelTypeMessage = "panel_type must be one of table, stat, gauge, timeseries, bar, pie, text, histogram, scatter, heatmap"
 
 func validPanelType(t string) bool { return panelTypes[t] }
 
@@ -1069,6 +1080,9 @@ func (p importPanel) validate(index int) (validImportPanel, error) {
 		out.config = inner
 	default:
 		return out, fmt.Errorf("%s: config must be an object", where)
+	}
+	if err := dashboards.ValidatePanelLinks(out.config); err != nil {
+		return out, fmt.Errorf("%s: %w", where, err)
 	}
 
 	if p.LayoutX != nil {
@@ -1683,8 +1697,11 @@ func (h *DashboardsHandler) GetPublicDashboard(w http.ResponseWriter, r *http.Re
 	if err != nil || panels == nil {
 		panels = []database.Panel{}
 	}
+	// Share links never see panel SQL, SQL link templates or links to other
+	// dashboards.
 	for i := range panels {
 		panels[i].Query = ""
+		panels[i].Config = dashboards.PublicPanelConfig(panels[i].Config)
 	}
 	// Constants are left out; ExecutePublicQuery substitutes them from the
 	// stored definition.

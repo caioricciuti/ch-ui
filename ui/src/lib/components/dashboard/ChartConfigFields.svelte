@@ -1,10 +1,11 @@
 <script lang="ts">
-  import type { PanelConfig, StatThreshold } from '../../types/api'
-  import { DEFAULT_COLORS, isNumericType, type ColumnMeta } from '../../utils/chart-transform'
+  import type { DashboardVariable, PanelConfig, StatThreshold } from '../../types/api'
+  import { DEFAULT_COLORS, DEFAULT_HISTOGRAM_BUCKETS, MAX_HISTOGRAM_BUCKETS, isDateType, isNumericType, type ColumnMeta } from '../../utils/chart-transform'
   import Combobox from '../common/Combobox.svelte'
   import type { ComboboxOption } from '../common/Combobox.svelte'
   import ColorPicker from '../common/ColorPicker.svelte'
-  import { Table2, Hash, TrendingUp, BarChart3, Plus, X, FileText, Gauge, PieChart } from 'lucide-svelte'
+  import PanelLinksFields from './PanelLinksFields.svelte'
+  import { Table2, Hash, TrendingUp, BarChart3, Plus, X, FileText, Gauge, PieChart, ChartColumnBig, ChartScatter, Grid3x3 } from 'lucide-svelte'
 
   interface Props {
     config: PanelConfig
@@ -13,9 +14,11 @@
     compact?: boolean
     /** Dashboard time range label, shown as the time scope in full mode. */
     rangeLabel?: string
+    /** Variables of the panel's dashboard. Set in the dashboard panel editor, which then offers drilldown links. */
+    linkVariables?: DashboardVariable[]
   }
 
-  let { config = $bindable(), meta, compact = false, rangeLabel = '' }: Props = $props()
+  let { config = $bindable(), meta, compact = false, rangeLabel = '', linkVariables }: Props = $props()
 
   type ChartType = PanelConfig['chartType']
   type StatCalc = NonNullable<PanelConfig['statCalculation']>
@@ -23,6 +26,7 @@
   type StatColorMode = NonNullable<PanelConfig['statColorMode']>
   type BarMode = NonNullable<PanelConfig['barMode']>
   type LegendPosition = NonNullable<PanelConfig['legendPosition']>
+  type Fill = NonNullable<PanelConfig['fill']>
 
   const allVizTypes: { type: ChartType; label: string; icon: typeof Table2 }[] = [
     { type: 'table', label: 'Table', icon: Table2 },
@@ -31,6 +35,9 @@
     { type: 'timeseries', label: 'Time Series', icon: TrendingUp },
     { type: 'bar', label: 'Bar', icon: BarChart3 },
     { type: 'pie', label: 'Pie', icon: PieChart },
+    { type: 'histogram', label: 'Histogram', icon: ChartColumnBig },
+    { type: 'scatter', label: 'Scatter', icon: ChartScatter },
+    { type: 'heatmap', label: 'Heatmap', icon: Grid3x3 },
     { type: 'text', label: 'Text', icon: FileText },
   ]
   // Text panels have no query result to chart.
@@ -55,6 +62,10 @@
     { value: 'grouped', label: 'Grouped' },
     { value: 'stacked', label: 'Stacked' },
   ]
+  const FILLS: { value: Fill; label: string }[] = [
+    { value: 'line', label: 'Line' },
+    { value: 'area', label: 'Area' },
+  ]
   const legendOptions: ComboboxOption[] = [
     { value: 'bottom', label: 'Bottom' },
     { value: 'right', label: 'Right' },
@@ -67,6 +78,10 @@
     meta.map(col => ({ value: col.name, label: col.name, hint: col.type, keywords: `${col.name} ${col.type}` })),
   )
   const xAxisOptions = $derived<ComboboxOption[]>([{ value: '', label: 'Select column...' }, ...columnOptions])
+  const numericOptions = $derived(columnOptions.filter(o => isNumericType(o.hint ?? '')))
+  const textOptions = $derived(columnOptions.filter(o => !isNumericType(o.hint ?? '')))
+  // Scatter x: numbers or dates, anything that has a position on an axis.
+  const scatterXOptions = $derived(columnOptions.filter(o => isNumericType(o.hint ?? '') || isDateType(o.hint ?? '')))
   // Series splits rows by a column's values; numbers rarely make good series.
   const seriesOptions = $derived<ComboboxOption[]>([
     { value: '', label: 'None' },
@@ -78,6 +93,9 @@
   const colors = $derived(config.colors ?? DEFAULT_COLORS)
   const thresholds = $derived<StatThreshold[]>(config.statThresholds ?? [])
   const isAxisChart = $derived(config.chartType === 'timeseries' || config.chartType === 'bar')
+  const legendTypes: PanelConfig['chartType'][] = ['timeseries', 'bar', 'scatter']
+  // Panels whose data points can be clicked.
+  const linkTypes: PanelConfig['chartType'][] = ['table', 'timeseries', 'bar', 'pie', 'histogram', 'scatter', 'heatmap']
 
   // Client-side keys for the threshold rows, parallel to the thresholds.
   // Kept out of the threshold objects so they never reach the saved config.
@@ -386,6 +404,32 @@
         </div>
       </div>
     {/if}
+
+    {#if config.chartType === 'timeseries'}
+      <div>
+        <span id="fill-{uid}" class="block text-xs font-medium text-fg-2 mb-1">Style</span>
+        <div class="grid grid-cols-2 gap-1" role="group" aria-labelledby="fill-{uid}">
+          {#each FILLS as f (f.value)}
+            <button
+              type="button"
+              class="py-1.5 rounded text-[11px] font-medium border transition-colors {choiceClass((config.fill ?? 'line') === f.value)}"
+              onclick={() => set({ fill: f.value })}
+            >
+              {f.label}
+            </button>
+          {/each}
+        </div>
+      </div>
+      <label class="flex items-center gap-2 text-xs text-fg-2 cursor-pointer">
+        <input
+          type="checkbox"
+          class="ds-checkbox ds-checkbox-sm"
+          checked={config.stacked ?? false}
+          onchange={(e) => set({ stacked: e.currentTarget.checked || undefined })}
+        />
+        Stack series
+      </label>
+    {/if}
   {/if}
 
   <div>
@@ -438,15 +482,138 @@
       </div>
     {/if}
 
+  {/if}
+{/if}
+
+<!-- Histogram config -->
+{#if config.chartType === 'histogram'}
+  <div>
+    <label for="histogram-column-{uid}" class="block text-xs font-medium text-fg-2 mb-1">Column</label>
+    <Combobox
+      id="histogram-column-{uid}"
+      options={[{ value: '', label: 'Auto (first numeric)' }, ...numericOptions]}
+      value={config.histogramColumn ?? ''}
+      onChange={(v) => set({ histogramColumn: v || undefined })}
+      placeholder="Auto"
+    />
+  </div>
+  <div>
+    <label for="histogram-buckets-{uid}" class="block text-xs font-medium text-fg-2 mb-1">Buckets</label>
+    <input
+      id="histogram-buckets-{uid}"
+      type="number"
+      min="1"
+      max={MAX_HISTOGRAM_BUCKETS}
+      class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
+      placeholder={String(DEFAULT_HISTOGRAM_BUCKETS)}
+      value={config.histogramBuckets ?? ''}
+      oninput={(e) => {
+        const v = e.currentTarget.value
+        set({ histogramBuckets: v === '' ? undefined : Number(v) })
+      }}
+    />
+  </div>
+{/if}
+
+<!-- Scatter config -->
+{#if config.chartType === 'scatter'}
+  <div>
+    <label for="scatter-x-{uid}" class="block text-xs font-medium text-fg-2 mb-1">{compact ? 'X' : 'X-Axis Column'}</label>
+    <Combobox
+      id="scatter-x-{uid}"
+      options={[{ value: '', label: 'Auto (first numeric)' }, ...scatterXOptions]}
+      value={config.scatterX ?? ''}
+      onChange={(v) => set({ scatterX: v || undefined })}
+      placeholder="Auto"
+    />
+  </div>
+  <div>
+    <label for="scatter-y-{uid}" class="block text-xs font-medium text-fg-2 mb-1">{compact ? 'Y' : 'Y-Axis Column'}</label>
+    <Combobox
+      id="scatter-y-{uid}"
+      options={[{ value: '', label: 'Auto (next numeric)' }, ...numericOptions.filter(o => o.value !== config.scatterX)]}
+      value={config.scatterY ?? ''}
+      onChange={(v) => set({ scatterY: v || undefined })}
+      placeholder="Auto"
+    />
+  </div>
+  {#if !compact}
     <div>
-      <label for="legend-{uid}" class="block text-xs font-medium text-fg-2 mb-1">Legend</label>
+      <label for="scatter-size-{uid}" class="block text-xs font-medium text-fg-2 mb-1">Point Size</label>
       <Combobox
-        id="legend-{uid}"
-        options={legendOptions}
-        value={config.legendPosition ?? 'bottom'}
-        onChange={(v) => set({ legendPosition: v as LegendPosition })}
-        placeholder="Legend position"
+        id="scatter-size-{uid}"
+        options={[{ value: '', label: 'Fixed' }, ...numericOptions]}
+        value={config.scatterSize ?? ''}
+        onChange={(v) => set({ scatterSize: v || undefined })}
+        placeholder="Fixed"
       />
     </div>
   {/if}
+  <div>
+    <label for="scatter-series-{uid}" class="block text-xs font-medium text-fg-2 mb-1">Series</label>
+    <Combobox
+      id="scatter-series-{uid}"
+      options={[{ value: '', label: 'None' }, ...textOptions]}
+      value={config.scatterSeries ?? ''}
+      onChange={(v) => set({ scatterSeries: v || undefined })}
+      placeholder="None"
+    />
+    {#if config.scatterSeries}
+      <p class="mt-1 text-xs text-fg-3">One color per value of {config.scatterSeries}. Up to 10; the rest are grouped as Other.</p>
+    {/if}
+  </div>
+{/if}
+
+<!-- Heatmap config -->
+{#if config.chartType === 'heatmap'}
+  <div>
+    <label for="heatmap-x-{uid}" class="block text-xs font-medium text-fg-2 mb-1">{compact ? 'X' : 'X-Axis Column'}</label>
+    <Combobox
+      id="heatmap-x-{uid}"
+      options={[{ value: '', label: 'Auto (first date or text)' }, ...columnOptions]}
+      value={config.heatmapX ?? ''}
+      onChange={(v) => set({ heatmapX: v || undefined })}
+      placeholder="Auto"
+    />
+  </div>
+  <div>
+    <label for="heatmap-y-{uid}" class="block text-xs font-medium text-fg-2 mb-1">{compact ? 'Y' : 'Y-Axis Column'}</label>
+    <Combobox
+      id="heatmap-y-{uid}"
+      options={[{ value: '', label: 'Auto (next text)' }, ...columnOptions.filter(o => o.value !== config.heatmapX)]}
+      value={config.heatmapY ?? ''}
+      onChange={(v) => set({ heatmapY: v || undefined })}
+      placeholder="Auto"
+    />
+  </div>
+  <div>
+    <label for="heatmap-value-{uid}" class="block text-xs font-medium text-fg-2 mb-1">Value</label>
+    <Combobox
+      id="heatmap-value-{uid}"
+      options={[{ value: '', label: 'Auto (first numeric, else row count)' }, ...numericOptions]}
+      value={config.heatmapValue ?? ''}
+      onChange={(v) => set({ heatmapValue: v || undefined })}
+      placeholder="Auto"
+    />
+    {#if !compact}
+      <p class="mt-1 text-xs text-fg-3">Values are summed per cell. Up to 200 columns and rows; beyond that, neighbouring values share a cell.</p>
+    {/if}
+  </div>
+{/if}
+
+{#if !compact && legendTypes.includes(config.chartType)}
+  <div>
+    <label for="legend-{uid}" class="block text-xs font-medium text-fg-2 mb-1">Legend</label>
+    <Combobox
+      id="legend-{uid}"
+      options={legendOptions}
+      value={config.legendPosition ?? 'bottom'}
+      onChange={(v) => set({ legendPosition: v as LegendPosition })}
+      placeholder="Legend position"
+    />
+  </div>
+{/if}
+
+{#if !compact && linkVariables && linkTypes.includes(config.chartType)}
+  <PanelLinksFields links={config.links ?? []} variables={linkVariables} onchange={(links) => set({ links })} />
 {/if}

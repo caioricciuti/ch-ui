@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,6 +28,9 @@ var supportedPanelTypes = map[string]bool{
 	"stat":       true,
 	"gauge":      true,
 	"text":       true,
+	"histogram":  true,
+	"scatter":    true,
+	"heatmap":    true,
 }
 
 var addDashboardPanel = Tool{
@@ -34,13 +38,16 @@ var addDashboardPanel = Tool{
 	Description: `Add a chart/panel to an existing dashboard. Always call get_dashboard first to see current panels (so layout doesn't collide and you don't duplicate).
 
 panel_type options:
-- "timeseries" → time-series line chart. Needs sql, x_column (time), y_columns (numeric).
+- "timeseries" → time-series line chart. Needs sql, x_column (time), y_columns (numeric). Optional fill (line|area) and stacked (true stacks the series on each other).
 - "bar" → bar chart. Needs sql, x_column, y_columns.
 - "pie" → pie chart. Needs sql, pie_label_column (text), pie_value_column (numeric).
 - "stat" → single big number. Needs sql, stat_field, optional stat_calculation (last|first|min|max|mean|sum, default last).
 - "gauge" → gauge. Needs sql, stat_field, optional gauge_min/gauge_max.
 - "table" → raw table. Needs sql.
 - "text" → markdown note. Needs content (no sql).
+- "histogram" → distribution of one numeric column, bucketed in the browser. Needs sql returning raw values (not pre-aggregated), histogram_column, optional histogram_buckets (default 30).
+- "scatter" → one point per row. Needs sql, scatter_x and scatter_y (numeric), optional scatter_size (numeric) and scatter_series (text column that colors points). Up to 10,000 points are drawn.
+- "heatmap" → grid of cells colored by value. Needs sql, heatmap_x and heatmap_y (any type, e.g. day and hour), optional heatmap_value (numeric, summed per cell; rows are counted without one).
 
 The SQL should reference a real ClickHouse table — describe_table or run_query to validate it first.
 Layout defaults to width 6, height 4 on a 12-col grid. Pass x/y to position; omit and we'll stack vertically.`,
@@ -49,57 +56,44 @@ Layout defaults to width 6, height 4 on a 12-col grid. Pass x/y to position; omi
 		"type":     "object",
 		"required": []string{"dashboard_id", "name", "panel_type"},
 		"properties": map[string]any{
-			"dashboard_id":     map[string]any{"type": "string"},
-			"name":             map[string]any{"type": "string"},
-			"description":      map[string]any{"type": "string"},
-			"panel_type":       map[string]any{"type": "string", "enum": []string{"table", "timeseries", "bar", "pie", "stat", "gauge", "text"}},
-			"sql":              map[string]any{"type": "string", "description": "ClickHouse query (omit for text panels)."},
-			"x_column":         map[string]any{"type": "string", "description": "Column used as X axis (timeseries/bar)."},
-			"y_columns":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Numeric columns to plot (timeseries/bar)."},
-			"bar_mode":         map[string]any{"type": "string", "enum": []string{"grouped", "stacked"}},
-			"pie_label_column": map[string]any{"type": "string"},
-			"pie_value_column": map[string]any{"type": "string"},
-			"pie_donut":        map[string]any{"type": "boolean"},
-			"stat_field":       map[string]any{"type": "string"},
-			"stat_calculation": map[string]any{"type": "string", "enum": []string{"last", "first", "min", "max", "mean", "sum", "count"}},
-			"stat_unit":        map[string]any{"type": "string", "enum": []string{"none", "percent", "ms", "s", "bytes", "kb", "mb", "gb", "currency"}},
-			"stat_prefix":      map[string]any{"type": "string"},
-			"stat_suffix":      map[string]any{"type": "string"},
-			"gauge_min":        map[string]any{"type": "number"},
-			"gauge_max":        map[string]any{"type": "number"},
-			"content":          map[string]any{"type": "string", "description": "Markdown body (text panels only)."},
-			"layout_x":         map[string]any{"type": "integer", "minimum": 0, "maximum": 12},
-			"layout_y":         map[string]any{"type": "integer", "minimum": 0},
-			"layout_w":         map[string]any{"type": "integer", "minimum": 1, "maximum": 12, "description": "Width on the 12-col grid. Default 6."},
-			"layout_h":         map[string]any{"type": "integer", "minimum": 1, "description": "Height. Default 4."},
+			"dashboard_id":      map[string]any{"type": "string"},
+			"name":              map[string]any{"type": "string"},
+			"description":       map[string]any{"type": "string"},
+			"panel_type":        map[string]any{"type": "string", "enum": panelTypeEnum},
+			"sql":               map[string]any{"type": "string", "description": "ClickHouse query (omit for text panels)."},
+			"x_column":          map[string]any{"type": "string", "description": "Column used as X axis (timeseries/bar)."},
+			"y_columns":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Numeric columns to plot (timeseries/bar)."},
+			"bar_mode":          map[string]any{"type": "string", "enum": []string{"grouped", "stacked"}},
+			"fill":              map[string]any{"type": "string", "enum": []string{"line", "area"}, "description": "Timeseries only: a line (default) or a filled area."},
+			"stacked":           map[string]any{"type": "boolean", "description": "Timeseries only: stack the series on each other."},
+			"histogram_column":  map[string]any{"type": "string", "description": "Numeric column to bucket (histogram)."},
+			"histogram_buckets": map[string]any{"type": "integer", "minimum": 1, "maximum": 200, "description": "Bucket count (histogram). Default 30."},
+			"scatter_x":         map[string]any{"type": "string", "description": "X column (scatter)."},
+			"scatter_y":         map[string]any{"type": "string", "description": "Y column (scatter)."},
+			"scatter_size":      map[string]any{"type": "string", "description": "Numeric column that sizes points (scatter)."},
+			"scatter_series":    map[string]any{"type": "string", "description": "Column whose values color points (scatter)."},
+			"heatmap_x":         map[string]any{"type": "string", "description": "Column for heatmap columns."},
+			"heatmap_y":         map[string]any{"type": "string", "description": "Column for heatmap rows."},
+			"heatmap_value":     map[string]any{"type": "string", "description": "Numeric column summed per cell (heatmap)."},
+			"pie_label_column":  map[string]any{"type": "string"},
+			"pie_value_column":  map[string]any{"type": "string"},
+			"pie_donut":         map[string]any{"type": "boolean"},
+			"stat_field":        map[string]any{"type": "string"},
+			"stat_calculation":  map[string]any{"type": "string", "enum": []string{"last", "first", "min", "max", "mean", "sum", "count"}},
+			"stat_unit":         map[string]any{"type": "string", "enum": []string{"none", "percent", "ms", "s", "bytes", "kb", "mb", "gb", "currency"}},
+			"stat_prefix":       map[string]any{"type": "string"},
+			"stat_suffix":       map[string]any{"type": "string"},
+			"gauge_min":         map[string]any{"type": "number"},
+			"gauge_max":         map[string]any{"type": "number"},
+			"content":           map[string]any{"type": "string", "description": "Markdown body (text panels only)."},
+			"layout_x":          map[string]any{"type": "integer", "minimum": 0, "maximum": 12},
+			"layout_y":          map[string]any{"type": "integer", "minimum": 0},
+			"layout_w":          map[string]any{"type": "integer", "minimum": 1, "maximum": 12, "description": "Width on the 12-col grid. Default 6."},
+			"layout_h":          map[string]any{"type": "integer", "minimum": 1, "description": "Height. Default 4."},
 		},
 	}),
 	Handler: func(tctx Context, args json.RawMessage) (any, error) {
-		var in struct {
-			DashboardID     string   `json:"dashboard_id"`
-			Name            string   `json:"name"`
-			Description     string   `json:"description"`
-			PanelType       string   `json:"panel_type"`
-			SQL             string   `json:"sql"`
-			XColumn         string   `json:"x_column"`
-			YColumns        []string `json:"y_columns"`
-			BarMode         string   `json:"bar_mode"`
-			PieLabelColumn  string   `json:"pie_label_column"`
-			PieValueColumn  string   `json:"pie_value_column"`
-			PieDonut        bool     `json:"pie_donut"`
-			StatField       string   `json:"stat_field"`
-			StatCalculation string   `json:"stat_calculation"`
-			StatUnit        string   `json:"stat_unit"`
-			StatPrefix      string   `json:"stat_prefix"`
-			StatSuffix      string   `json:"stat_suffix"`
-			GaugeMin        *float64 `json:"gauge_min"`
-			GaugeMax        *float64 `json:"gauge_max"`
-			Content         string   `json:"content"`
-			LayoutX         *int     `json:"layout_x"`
-			LayoutY         *int     `json:"layout_y"`
-			LayoutW         *int     `json:"layout_w"`
-			LayoutH         *int     `json:"layout_h"`
-		}
+		var in panelArgs
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, fmt.Errorf("invalid args: %w", err)
 		}
@@ -199,6 +193,11 @@ Layout defaults to width 6, height 4 on a 12-col grid. Pass x/y to position; omi
 						return nil, fmt.Errorf("no numeric column for pie_value_column. Available columns: %s", availableSummary)
 					}
 				}
+			case "histogram", "scatter", "heatmap":
+				inferenceNotes = append(inferenceNotes, pickChartColumns(&in, dateCols, numCols, strCols)...)
+				if err := checkChartColumns(in, meta); err != nil {
+					return nil, fmt.Errorf("%w. Available columns: %s", err, availableSummary)
+				}
 			case "stat", "gauge":
 				if in.StatField == "" {
 					if len(numCols) > 0 {
@@ -211,56 +210,7 @@ Layout defaults to width 6, height 4 on a 12-col grid. Pass x/y to position; omi
 			}
 		}
 
-		config := map[string]any{
-			"chartType": in.PanelType,
-		}
-		switch in.PanelType {
-		case "timeseries", "bar":
-			config["xColumn"] = in.XColumn
-			config["yColumns"] = in.YColumns
-			if in.BarMode != "" {
-				config["barMode"] = in.BarMode
-			}
-			config["legendPosition"] = "bottom"
-		case "pie":
-			config["pieLabelColumn"] = in.PieLabelColumn
-			config["pieValueColumn"] = in.PieValueColumn
-			if in.PieDonut {
-				config["pieDonut"] = true
-			}
-			config["legendPosition"] = "bottom"
-		case "stat":
-			config["statField"] = in.StatField
-			if in.StatCalculation != "" {
-				config["statCalculation"] = in.StatCalculation
-			} else {
-				config["statCalculation"] = "last"
-			}
-			if in.StatUnit != "" {
-				config["statUnit"] = in.StatUnit
-			}
-			if in.StatPrefix != "" {
-				config["statPrefix"] = in.StatPrefix
-			}
-			if in.StatSuffix != "" {
-				config["statSuffix"] = in.StatSuffix
-			}
-		case "gauge":
-			config["statField"] = in.StatField
-			if in.GaugeMin != nil {
-				config["gaugeMin"] = *in.GaugeMin
-			} else {
-				config["gaugeMin"] = 0
-			}
-			if in.GaugeMax != nil {
-				config["gaugeMax"] = *in.GaugeMax
-			} else {
-				config["gaugeMax"] = 100
-			}
-		case "text":
-			config["content"] = in.Content
-		}
-		configJSON, _ := json.Marshal(config)
+		configJSON, _ := json.Marshal(panelConfigFor(in))
 
 		x, y, wd, ht := 0, autoNextY(existing), 6, 4
 		if in.LayoutX != nil {
@@ -305,9 +255,209 @@ Layout defaults to width 6, height 4 on a 12-col grid. Pass x/y to position; omi
 	},
 }
 
+// panelTypeEnum is the panel_type enum the tool offers: every supported type.
+var panelTypeEnum = []string{"table", "timeseries", "bar", "pie", "stat", "gauge", "text", "histogram", "scatter", "heatmap"}
+
+// panelArgs are the add_dashboard_panel arguments.
+type panelArgs struct {
+	DashboardID      string   `json:"dashboard_id"`
+	Name             string   `json:"name"`
+	Description      string   `json:"description"`
+	PanelType        string   `json:"panel_type"`
+	SQL              string   `json:"sql"`
+	XColumn          string   `json:"x_column"`
+	YColumns         []string `json:"y_columns"`
+	BarMode          string   `json:"bar_mode"`
+	PieLabelColumn   string   `json:"pie_label_column"`
+	PieValueColumn   string   `json:"pie_value_column"`
+	PieDonut         bool     `json:"pie_donut"`
+	StatField        string   `json:"stat_field"`
+	StatCalculation  string   `json:"stat_calculation"`
+	StatUnit         string   `json:"stat_unit"`
+	StatPrefix       string   `json:"stat_prefix"`
+	StatSuffix       string   `json:"stat_suffix"`
+	GaugeMin         *float64 `json:"gauge_min"`
+	GaugeMax         *float64 `json:"gauge_max"`
+	Content          string   `json:"content"`
+	LayoutX          *int     `json:"layout_x"`
+	LayoutY          *int     `json:"layout_y"`
+	LayoutW          *int     `json:"layout_w"`
+	LayoutH          *int     `json:"layout_h"`
+	Fill             string   `json:"fill"`
+	Stacked          bool     `json:"stacked"`
+	HistogramColumn  string   `json:"histogram_column"`
+	HistogramBuckets *int     `json:"histogram_buckets"`
+	ScatterX         string   `json:"scatter_x"`
+	ScatterY         string   `json:"scatter_y"`
+	ScatterSize      string   `json:"scatter_size"`
+	ScatterSeries    string   `json:"scatter_series"`
+	HeatmapX         string   `json:"heatmap_x"`
+	HeatmapY         string   `json:"heatmap_y"`
+	HeatmapValue     string   `json:"heatmap_value"`
+}
+
+// panelConfigFor is the stored panel config for the arguments, after the
+// column picks: only the settings of the chosen panel type.
+func panelConfigFor(in panelArgs) map[string]any {
+	config := map[string]any{
+		"chartType": in.PanelType,
+	}
+	switch in.PanelType {
+	case "timeseries", "bar":
+		config["xColumn"] = in.XColumn
+		config["yColumns"] = in.YColumns
+		if in.BarMode != "" {
+			config["barMode"] = in.BarMode
+		}
+		if in.PanelType == "timeseries" {
+			if in.Fill == "line" || in.Fill == "area" {
+				config["fill"] = in.Fill
+			}
+			if in.Stacked {
+				config["stacked"] = true
+			}
+		}
+		config["legendPosition"] = "bottom"
+	case "histogram":
+		config["histogramColumn"] = in.HistogramColumn
+		if in.HistogramBuckets != nil {
+			config["histogramBuckets"] = clamp(*in.HistogramBuckets, 1, 200)
+		}
+	case "scatter":
+		config["scatterX"] = in.ScatterX
+		config["scatterY"] = in.ScatterY
+		if in.ScatterSize != "" {
+			config["scatterSize"] = in.ScatterSize
+		}
+		if in.ScatterSeries != "" {
+			config["scatterSeries"] = in.ScatterSeries
+		}
+		config["legendPosition"] = "bottom"
+	case "heatmap":
+		config["heatmapX"] = in.HeatmapX
+		config["heatmapY"] = in.HeatmapY
+		if in.HeatmapValue != "" {
+			config["heatmapValue"] = in.HeatmapValue
+		}
+	case "pie":
+		config["pieLabelColumn"] = in.PieLabelColumn
+		config["pieValueColumn"] = in.PieValueColumn
+		if in.PieDonut {
+			config["pieDonut"] = true
+		}
+		config["legendPosition"] = "bottom"
+	case "stat":
+		config["statField"] = in.StatField
+		if in.StatCalculation != "" {
+			config["statCalculation"] = in.StatCalculation
+		} else {
+			config["statCalculation"] = "last"
+		}
+		if in.StatUnit != "" {
+			config["statUnit"] = in.StatUnit
+		}
+		if in.StatPrefix != "" {
+			config["statPrefix"] = in.StatPrefix
+		}
+		if in.StatSuffix != "" {
+			config["statSuffix"] = in.StatSuffix
+		}
+	case "gauge":
+		config["statField"] = in.StatField
+		if in.GaugeMin != nil {
+			config["gaugeMin"] = *in.GaugeMin
+		} else {
+			config["gaugeMin"] = 0
+		}
+		if in.GaugeMax != nil {
+			config["gaugeMax"] = *in.GaugeMax
+		} else {
+			config["gaugeMax"] = 100
+		}
+	case "text":
+		config["content"] = in.Content
+	}
+	return config
+}
+
 type colMeta struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
+}
+
+// pickChartColumns fills the columns a histogram, scatter or heatmap panel
+// needs when the caller left them out, and returns a note per pick.
+func pickChartColumns(in *panelArgs, dateCols, numCols, strCols []string) []string {
+	var notes []string
+	pick := func(field *string, name string, candidates ...string) {
+		if *field != "" {
+			return
+		}
+		for _, c := range candidates {
+			if c != "" {
+				*field = c
+				notes = append(notes, name+" auto-picked: "+c)
+				return
+			}
+		}
+	}
+	first := func(cols []string, skip ...string) string {
+		for _, c := range cols {
+			if !containsString(skip, c) {
+				return c
+			}
+		}
+		return ""
+	}
+	switch in.PanelType {
+	case "histogram":
+		pick(&in.HistogramColumn, "histogram_column", first(numCols))
+	case "scatter":
+		pick(&in.ScatterX, "scatter_x", first(numCols), first(dateCols))
+		pick(&in.ScatterY, "scatter_y", first(numCols, in.ScatterX))
+	case "heatmap":
+		pick(&in.HeatmapX, "heatmap_x", first(dateCols), first(strCols), first(numCols))
+		pick(&in.HeatmapY, "heatmap_y", first(strCols, in.HeatmapX), first(dateCols, in.HeatmapX), first(numCols, in.HeatmapX))
+		pick(&in.HeatmapValue, "heatmap_value", first(numCols, in.HeatmapX, in.HeatmapY))
+	}
+	return notes
+}
+
+// checkChartColumns reports a histogram, scatter or heatmap panel whose
+// required columns are missing from the SQL result.
+func checkChartColumns(in panelArgs, meta []colMeta) error {
+	has := func(name string) bool {
+		for _, c := range meta {
+			if c.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+	var required map[string]string
+	switch in.PanelType {
+	case "histogram":
+		required = map[string]string{"histogram_column": in.HistogramColumn}
+	case "scatter":
+		required = map[string]string{"scatter_x": in.ScatterX, "scatter_y": in.ScatterY}
+	case "heatmap":
+		required = map[string]string{"heatmap_x": in.HeatmapX, "heatmap_y": in.HeatmapY}
+	}
+	names := make([]string, 0, len(required))
+	for name := range required {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		col := required[name]
+		if col == "" {
+			return fmt.Errorf("no usable %s found in SQL result; pass %s explicitly or rewrite the SQL", name, name)
+		}
+		if !has(col) {
+			return fmt.Errorf("%s %q is not a column of the SQL result", name, col)
+		}
+	}
+	return nil
 }
 
 func peekSQLMeta(tctx Context, sql string) ([]colMeta, error) {

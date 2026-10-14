@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
-import { apiGet, apiPost } from './client'
-import type { RbacApplyResponse, RbacEntityKind, RbacEntityText, RbacExplainQuery, RbacExplanation, RbacOp, RbacPlan, RbacSnapshot, RbacWhoCanResult } from '../types/rbac'
+import { ApiError, apiGet, apiPost } from './client'
+import { withBase } from '../basePath'
+import { connectionHeaders } from '../stores/workspace-scope'
+import type {
+  RbacApplyResponse, RbacEntityKind, RbacEntityText, RbacExplainQuery, RbacExplanation, RbacExportFormat, RbacHistoryDiff,
+  RbacHistoryPage, RbacHistoryRow, RbacImportRequest, RbacOp, RbacPlan, RbacRevertPlan, RbacSnapshot, RbacWhoCanResult,
+} from '../types/rbac'
 
 const BASE = '/api/rbac'
 
@@ -12,12 +17,13 @@ export function fetchRbacEntity(kind: RbacEntityKind, name: string): Promise<Rba
   return apiGet<RbacEntityText>(`${BASE}/entity/${kind}/${encodeURIComponent(name)}`)
 }
 
-export function planRbac(ops: RbacOp[], cluster: string): Promise<RbacPlan> {
-  return apiPost<{ plan: RbacPlan }>(`${BASE}/plan`, { ops, cluster }).then((r) => r.plan)
+/** revertOf names the access history row a revert goes back to. */
+export function planRbac(ops: RbacOp[], cluster: string, revertOf = ''): Promise<RbacPlan> {
+  return apiPost<{ plan: RbacPlan }>(`${BASE}/plan`, { ops, cluster, ...(revertOf ? { revert_of: revertOf } : {}) }).then((r) => r.plan)
 }
 
-export function applyRbac(ops: RbacOp[], cluster: string, planHash: string, acknowledged: string[]): Promise<RbacApplyResponse> {
-  return apiPost<RbacApplyResponse>(`${BASE}/apply`, { ops, cluster, plan_hash: planHash, acknowledged })
+export function applyRbac(ops: RbacOp[], cluster: string, planHash: string, acknowledged: string[], revertOf = ''): Promise<RbacApplyResponse> {
+  return apiPost<RbacApplyResponse>(`${BASE}/apply`, { ops, cluster, plan_hash: planHash, acknowledged, ...(revertOf ? { revert_of: revertOf } : {}) })
 }
 
 export function fetchClusterNames(): Promise<string[]> {
@@ -41,4 +47,58 @@ export function fetchEffectiveAccess(q: Partial<RbacExplainQuery>): Promise<Rbac
 /** Every user that can use a privilege on an object. */
 export function fetchWhoCan(q: Partial<RbacExplainQuery>): Promise<RbacWhoCanResult> {
   return apiGet<RbacWhoCanResult>(`${BASE}/who-can?${explainParams({ ...q, user: '' })}`)
+}
+
+// ── Access history ───────────────────────────────────────────────────
+
+export function fetchRbacHistory(opts: { driftOnly?: boolean; limit?: number; cursor?: string } = {}): Promise<RbacHistoryPage> {
+  const p = new URLSearchParams()
+  if (opts.driftOnly) p.set('drift', 'only')
+  if (opts.limit) p.set('limit', String(opts.limit))
+  if (opts.cursor) p.set('cursor', opts.cursor)
+  const qs = p.toString()
+  return apiGet<RbacHistoryPage>(`${BASE}/history${qs ? `?${qs}` : ''}`)
+}
+
+/** against: 'previous', 'live' or another snapshot id. */
+export function fetchRbacHistoryDiff(id: string, against: string): Promise<RbacHistoryDiff> {
+  return apiGet<RbacHistoryDiff>(`${BASE}/history/${encodeURIComponent(id)}/diff?against=${encodeURIComponent(against)}`)
+}
+
+export function takeRbacSnapshot(): Promise<{ snapshot: RbacHistoryRow; created: boolean }> {
+  return apiPost<{ snapshot: RbacHistoryRow; created: boolean }>(`${BASE}/history/snapshot`, {})
+}
+
+/** only limits the revert to these entity names. */
+export function planRbacRevert(id: string, only: string[] = []): Promise<RbacRevertPlan> {
+  return apiPost<RbacRevertPlan>(`${BASE}/history/${encodeURIComponent(id)}/revert-plan`, only.length ? { only } : {})
+}
+
+/** The access state of the connection as a file to download. */
+export async function exportRbac(format: RbacExportFormat): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(withBase(`${BASE}/export?format=${format}`), {
+    credentials: 'include',
+    headers: { ...connectionHeaders() },
+  })
+  if (!res.ok) {
+    let message = `Export failed (${res.status})`
+    try {
+      const body: unknown = await res.json()
+      if (typeof body === 'object' && body !== null && 'error' in body) message = String((body as { error: unknown }).error)
+    } catch {
+      // not JSON
+    }
+    throw new ApiError(message, res.status)
+  }
+  const disposition = res.headers.get('content-disposition') ?? ''
+  const match = /filename="([^"]+)"/.exec(disposition)
+  return { blob: await res.blob(), filename: match?.[1] ?? `chui-access.${format}` }
+}
+
+/**
+ * The ops an access file would apply. Changes nothing. The body is checked
+ * by importPlanFrom before its ops are staged.
+ */
+export function planRbacImport(req: RbacImportRequest): Promise<unknown> {
+  return apiPost<unknown>(`${BASE}/import/plan`, req)
 }

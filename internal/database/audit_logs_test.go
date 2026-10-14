@@ -1,21 +1,12 @@
 package database
 
 import (
-	"path/filepath"
 	"testing"
 )
 
 func openTestDB(t *testing.T) *DB {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := Open(dbPath)
-	if err != nil {
-		t.Fatalf("open test db: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = db.Close()
-	})
-	return db
+	return openMigrated(t, "test.db")
 }
 
 func insertAuditLogAt(t *testing.T, db *DB, action, username, details, ip, createdAtExpr string) {

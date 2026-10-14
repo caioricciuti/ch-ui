@@ -149,11 +149,14 @@ func applyOp(s *Snapshot, op Op) {
 			s.RoleProfiles[op.Name] = []string{op.Profile}
 		}
 	case OpGrantPrivilege, OpRevokePrivilege:
-		db, tbl := normDB(op.Database), normDB(op.Table)
-		for _, a := range op.Access {
-			for _, col := range columnsOrBlank(op.Columns) {
-				applyGrant(s, *op.Target, GrantRow{Access: a, Database: db, Table: tbl, Column: col}, op.Kind == OpGrantPrivilege, op.GrantOption)
-			}
+		applyPrivilegeOp(s, op)
+		// With the privilege catalog, rows read the way ClickHouse prints
+		// them, so the preview matches what the server will show.
+		if s.catalog == nil {
+			s.catalog = catalogOf(s)
+		}
+		if s.catalog != nil {
+			normalizeGrantee(s, s.catalog, *op.Target)
 		}
 	case OpGrantRole, OpRevokeRole:
 		for _, role := range op.Roles {
@@ -239,6 +242,17 @@ func applyOp(s *Snapshot, op Op) {
 	}
 }
 
+// applyPrivilegeOp applies a grant or revoke of privileges without
+// rewriting the rows in printed form; the levels are the same.
+func applyPrivilegeOp(s *Snapshot, op Op) {
+	db, tbl := normDB(op.Database), normDB(op.Table)
+	for _, a := range op.Access {
+		for _, col := range columnsOrBlank(op.Columns) {
+			applyGrant(s, *op.Target, GrantRow{Access: a, Database: db, Table: tbl, Column: col}, op.Kind == OpGrantPrivilege, op.GrantOption)
+		}
+	}
+}
+
 // without returns a new list with name removed.
 func without(list []string, name string) []string {
 	out := make([]string, 0, len(list))
@@ -254,43 +268,225 @@ func assigneesWithout(a Assignees, name string) Assignees {
 	return Assignees{All: a.All, Names: without(a.Names, name), Except: without(a.Except, name)}
 }
 
+// Levels of one privilege on one object, lowest first.
+const (
+	privNone = iota
+	privGranted
+	privWithGrantOption
+)
+
+// privLevel is the level a system.grants row sets on its object.
+func privLevel(g GrantRow) int {
+	switch {
+	case !g.PartialRevoke && g.GrantOption:
+		return privWithGrantOption
+	case !g.PartialRevoke, g.GrantOption:
+		// A grant row, or a REVOKE GRANT OPTION FOR row that keeps access.
+		return privGranted
+	}
+	return privNone
+}
+
+// privSource is one row that may decide a privilege level: own is a row of
+// the privilege itself rather than of a group covering it, and narrow ranks
+// groups, ALTER over ALL.
+type privSource struct {
+	depth  int
+	own    bool
+	narrow int
+	level  int
+}
+
+// pickLevel returns the level of the deciding source: the one on the most
+// specific object, a row of the privilege itself over a group row, the
+// narrowest group over a wider one.
+func pickLevel(srcs []privSource) int {
+	if len(srcs) == 0 {
+		return privNone
+	}
+	best := srcs[0]
+	for _, s := range srcs[1:] {
+		if better(s, best) {
+			best = s
+		}
+	}
+	return best.level
+}
+
+// better reports whether a decides a level over b, as pickLevel orders them.
+func better(a, b privSource) bool {
+	switch {
+	case a.depth != b.depth:
+		return a.depth > b.depth
+	case a.own != b.own:
+		return a.own
+	case a.narrow != b.narrow:
+		return a.narrow > b.narrow
+	}
+	return a.level > b.level
+}
+
+// groupSources returns t's rows of the groups covering access (ALL, ALTER
+// for ALTER UPDATE) on sc or above it.
+func groupSources(s *Snapshot, tree privTree, t Target, access string, sc scope) []privSource {
+	var out []privSource
+	for _, g := range s.Grants {
+		if g.Grantee() == t && g.Access != access && tree.covers(g.Access, access) && sc.within(scopeOf(g)) {
+			out = append(out, privSource{scopeOf(g).depth(), false, tree.narrowness(g.Access), privLevel(g)})
+		}
+	}
+	return out
+}
+
+// narrowness ranks a privilege group by how far it sits below ALL; only
+// groups covering the same privilege are compared, and those form a chain.
+func (t privTree) narrowness(p string) int {
+	p = normPriv(p)
+	if p == "ALL" {
+		return 0
+	}
+	if len(t.parents) == 0 {
+		return len(strings.Fields(p))
+	}
+	return len(t.ancestors(p))
+}
+
+// privilegeAt returns the level of access t holds on sc in s.
+func privilegeAt(s *Snapshot, tree privTree, t Target, access string, sc scope) int {
+	srcs := groupSources(s, tree, t, access, sc)
+	for _, g := range s.Grants {
+		if g.Grantee() == t && g.Access == access && sc.within(scopeOf(g)) {
+			srcs = append(srcs, privSource{depth: scopeOf(g).depth(), own: true, level: privLevel(g)})
+		}
+	}
+	return pickLevel(srcs)
+}
+
+// applyGrant changes access on row's object the way ClickHouse does: the
+// change covers every object inside it and every privilege the access
+// covers, and the rows are rebuilt as system.grants shows them, one row
+// where an object differs from the one above it. A revoke of something not
+// held leaves no row; a grant on a database clears partial revokes inside it.
 func applyGrant(s *Snapshot, t Target, row GrantRow, grant, grantOptionOnly bool) {
-	if t.Type == "user" {
-		row.UserName = t.Name
-	} else {
-		row.RoleName = t.Name
+	tree := privTree{parents: s.PrivilegeParents}
+	sc := scopeOf(row)
+	change := func(level int) int {
+		switch {
+		case grant && grantOptionOnly:
+			return privWithGrantOption
+		case grant:
+			return max(level, privGranted)
+		case grantOptionOnly:
+			return min(level, privGranted)
+		}
+		return privNone
 	}
-	idx := -1
-	for i, g := range s.Grants {
-		if g.Grantee() == t && g.Access == row.Access && g.Database == row.Database && g.Table == row.Table && g.Column == row.Column {
-			idx = i
+	accesses := []string{row.Access}
+	for _, g := range s.Grants {
+		if g.Grantee() == t && !contains(accesses, g.Access) && tree.covers(row.Access, g.Access) {
+			accesses = append(accesses, g.Access)
 		}
 	}
-	if grant {
-		if idx >= 0 && s.Grants[idx].PartialRevoke {
-			s.Grants = append(s.Grants[:idx], s.Grants[idx+1:]...)
-			idx = -1
-		}
-		if idx >= 0 {
-			s.Grants[idx].GrantOption = s.Grants[idx].GrantOption || grantOptionOnly
-			return
-		}
-		row.GrantOption = grantOptionOnly
-		s.Grants = append(s.Grants, row)
-		return
+	// Groups before their members, so a member reads its group's new rows.
+	sortAccesses(tree, accesses)
+
+	// Every level is read before any row changes.
+	type levelChange struct {
+		access string
+		scopes []scope
+		levels []int
 	}
-	if idx >= 0 {
-		if grantOptionOnly {
-			s.Grants[idx].GrantOption = false
-		} else {
-			s.Grants = append(s.Grants[:idx], s.Grants[idx+1:]...)
+	var changes []levelChange
+	for _, a := range accesses {
+		// The change reaches a's own rows and, inside sc, the objects where
+		// a group row would otherwise decide a's level.
+		scopes := []scope{sc}
+		for _, g := range s.Grants {
+			own := g.Access == a
+			group := !own && tree.covers(g.Access, a) && scopeOf(g).within(sc)
+			if g.Grantee() == t && (own || group) && !containsScope(scopes, scopeOf(g)) {
+				scopes = append(scopes, scopeOf(g))
+			}
 		}
-		return
+		levels := make([]int, len(scopes))
+		for i, c := range scopes {
+			levels[i] = privilegeAt(s, tree, t, a, c)
+			if c.within(sc) {
+				levels[i] = change(levels[i])
+			}
+		}
+		changes = append(changes, levelChange{a, scopes, levels})
 	}
-	if !grantOptionOnly {
-		row.PartialRevoke = true
-		s.Grants = append(s.Grants, row)
+	for _, ch := range changes {
+		kept := make([]GrantRow, 0, len(s.Grants))
+		for _, g := range s.Grants {
+			if g.Grantee() != t || g.Access != ch.access {
+				kept = append(kept, g)
+			}
+		}
+		s.Grants = kept
+		order := make([]int, len(ch.scopes))
+		for i := range order {
+			order[i] = i
+		}
+		sort.SliceStable(order, func(a, b int) bool { return ch.scopes[order[a]].depth() < ch.scopes[order[b]].depth() })
+		for _, i := range order {
+			c, level := ch.scopes[i], ch.levels[i]
+			srcs := groupSources(s, tree, t, ch.access, c)
+			for j, o := range ch.scopes {
+				if o != c && c.within(o) {
+					srcs = append(srcs, privSource{depth: o.depth(), own: true, level: ch.levels[j]})
+				}
+			}
+			parent := pickLevel(srcs)
+			if level == parent {
+				continue
+			}
+			r := GrantRow{Access: ch.access, Database: c.db, Table: c.table, Column: c.column}
+			if t.Type == "user" {
+				r.UserName = t.Name
+			} else {
+				r.RoleName = t.Name
+			}
+			switch {
+			case level == privNone:
+				r.PartialRevoke = true
+			case level == privGranted && parent == privWithGrantOption:
+				r.PartialRevoke, r.GrantOption = true, true
+			default:
+				r.GrantOption = level == privWithGrantOption
+			}
+			s.Grants = append(s.Grants, r)
+		}
 	}
+}
+
+func containsScope(list []scope, sc scope) bool {
+	for _, s := range list {
+		if s == sc {
+			return true
+		}
+	}
+	return false
+}
+
+// sortAccesses orders privileges so a group comes before the privileges it
+// covers (ALL, then ALTER, then ALTER UPDATE), by name otherwise.
+func sortAccesses(tree privTree, accesses []string) {
+	covering := map[string]int{}
+	for _, a := range accesses {
+		for _, b := range accesses {
+			if a != b && tree.covers(b, a) {
+				covering[a]++
+			}
+		}
+	}
+	sort.SliceStable(accesses, func(i, j int) bool {
+		if covering[accesses[i]] != covering[accesses[j]] {
+			return covering[accesses[i]] < covering[accesses[j]]
+		}
+		return accesses[i] < accesses[j]
+	})
 }
 
 // renderGrantRow renders one system.grants row as a statement.

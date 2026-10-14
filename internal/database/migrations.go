@@ -1323,6 +1323,10 @@ Formatting:
 		return err
 	}
 
+	if err := db.migrateRBACHistoryV2(); err != nil {
+		return err
+	}
+
 	if err := db.migrateBrainV3(); err != nil {
 		return err
 	}

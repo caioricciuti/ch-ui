@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/caioricciuti/ch-ui/internal/accesshistory"
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
@@ -52,6 +53,9 @@ func (h *RBACHandler) Routes() chi.Router {
 	r.With(middleware.RequirePro(h.Config)).Get("/who-can", h.WhoCan)
 	r.With(middleware.RequireProRead(h.Config)).Post("/plan", h.Plan)
 	r.With(middleware.RequirePro(h.Config)).Post("/apply", h.Apply)
+	h.historyRoutes(r)
+	r.With(middleware.RequirePro(h.Config)).Get("/export", h.Export)
+	r.With(middleware.RequireProRead(h.Config)).Post("/import/plan", h.ImportPlan)
 	return r
 }
 
@@ -93,7 +97,7 @@ func (h *RBACHandler) executor(w http.ResponseWriter, r *http.Request) (*middlew
 
 // Snapshot handles GET /snapshot.
 func (h *RBACHandler) Snapshot(w http.ResponseWriter, r *http.Request) {
-	_, ex, ok := h.executor(w, r)
+	session, ex, ok := h.executor(w, r)
 	if !ok {
 		return
 	}
@@ -102,6 +106,7 @@ func (h *RBACHandler) Snapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	h.recordHistory(session, accesshistory.Capture{Source: accesshistory.SourceView, Snapshot: snap})
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "snapshot": snap})
 }
 
@@ -243,6 +248,8 @@ type rbacPlanRequest struct {
 	Cluster      string    `json:"cluster"`
 	PlanHash     string    `json:"plan_hash"`
 	Acknowledged []string  `json:"acknowledged"`
+	// RevertOf names the access history row an apply reverts to.
+	RevertOf string `json:"revert_of,omitempty"`
 }
 
 func decodeRBACRequest(w http.ResponseWriter, r *http.Request) (rbacPlanRequest, bool) {
@@ -288,7 +295,13 @@ func addReason(m map[string]string, user, reason string) {
 }
 
 func (h *RBACHandler) plan(w http.ResponseWriter, r *http.Request, ex sessionExecutor, connID string, req rbacPlanRequest) (*rbac.Plan, bool) {
-	plan, _, err := rbac.PlanLive(r.Context(), ex, req.Ops, req.Cluster, rbac.GuardContext{ServiceAccounts: h.serviceAccounts(connID)})
+	plan, _, ok := h.planWithSnapshot(w, r, ex, connID, req)
+	return plan, ok
+}
+
+// planWithSnapshot is plan that also returns the snapshot it planned on.
+func (h *RBACHandler) planWithSnapshot(w http.ResponseWriter, r *http.Request, ex sessionExecutor, connID string, req rbacPlanRequest) (*rbac.Plan, *rbac.Snapshot, bool) {
+	plan, snap, err := rbac.PlanLive(r.Context(), ex, req.Ops, req.Cluster, rbac.GuardContext{ServiceAccounts: h.serviceAccounts(connID)})
 	if err != nil {
 		var verr *rbac.ValidationError
 		if errors.As(err, &verr) {
@@ -296,9 +309,9 @@ func (h *RBACHandler) plan(w http.ResponseWriter, r *http.Request, ex sessionExe
 		} else {
 			writeError(w, http.StatusBadGateway, err.Error())
 		}
-		return nil, false
+		return nil, nil, false
 	}
-	return plan, true
+	return plan, snap, true
 }
 
 // Plan handles POST /plan. It reads and validates only; nothing changes.
@@ -329,7 +342,10 @@ func (h *RBACHandler) Apply(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	plan, ok := h.plan(w, r, ex, session.ConnectionID, req)
+	if !h.checkRevertOf(w, session, req.RevertOf) {
+		return
+	}
+	plan, pre, ok := h.planWithSnapshot(w, r, ex, session.ConnectionID, req)
 	if !ok {
 		return
 	}
@@ -358,6 +374,7 @@ func (h *RBACHandler) Apply(w http.ResponseWriter, r *http.Request) {
 	}
 	summary, _ := json.Marshal(map[string]any{"ops": len(req.Ops), "statements": len(plan.Statements), "cluster": plan.Cluster, "plan_hash": plan.PlanHash})
 	audit("rbac.apply", string(summary))
+	h.recordHistory(session, accesshistory.Capture{Source: accesshistory.SourceView, Snapshot: pre, Note: "read before an apply"})
 
 	results := rbac.Apply(r.Context(), ex, plan, func(res rbac.Result) {
 		details := map[string]any{"seq": res.Seq, "sql": truncateAudit(res.SQL, 2048), "plan_hash": plan.PlanHash}
@@ -369,6 +386,7 @@ func (h *RBACHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		b, _ := json.Marshal(details)
 		audit(action, string(b))
 	})
+	h.recordApply(r.Context(), session, ex, req, plan, pre, results)
 
 	if h.Syncer != nil {
 		gov := &GovernanceHandler{DB: h.DB, Syncer: h.Syncer}

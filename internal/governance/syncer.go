@@ -13,7 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/caioricciuti/ch-ui/internal/accesshistory"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/rbac"
 	"github.com/caioricciuti/ch-ui/internal/safe"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
@@ -157,7 +159,38 @@ func (s *Syncer) SyncConnection(ctx context.Context, creds CHCredentials) (*Sync
 		result.AccessResult = accessResult
 	}
 
+	// Phase 4: Access history, read with the governance account so drift
+	// is judged on one steady view.
+	if s.proAllowed() && s.db.GovernanceSyncEnabled() {
+		s.recordAccessHistory(ctx, creds)
+	}
+
 	return result, nil
+}
+
+// syncExecutor runs access snapshot queries through executeQuery.
+type syncExecutor struct {
+	s     *Syncer
+	creds CHCredentials
+}
+
+func (e syncExecutor) Query(_ context.Context, sql string, _ map[string]string) ([]map[string]any, error) {
+	return e.s.executeQuery(e.creds, sql)
+}
+
+// recordAccessHistory stores the access control state for access history.
+// Failures are logged; they never fail the sync.
+func (s *Syncer) recordAccessHistory(ctx context.Context, creds CHCredentials) {
+	snap, err := rbac.ReadSnapshot(ctx, syncExecutor{s: s, creds: creds})
+	if err != nil {
+		slog.Warn("Access history snapshot failed", "connection", creds.ConnectionID, "error", err)
+		return
+	}
+	if _, _, err := accesshistory.Record(s.db, accesshistory.Capture{
+		ConnectionID: creds.ConnectionID, Source: accesshistory.SourceSync, Actor: "governance sync", CHUser: creds.User, Snapshot: snap,
+	}); err != nil {
+		slog.Warn("Access history record failed", "connection", creds.ConnectionID, "error", err)
+	}
 }
 
 // SyncSingle runs a single sync phase for a connection.
@@ -268,6 +301,11 @@ func (s *Syncer) pruneRetention(connections []database.Connection) {
 			slog.Info("Governance retention pruned violations",
 				"connection", conn.ID, "rows", n, "older_than", cutoff)
 		}
+	}
+	if n, err := s.db.PruneRBACSnapshots(time.Now()); err != nil {
+		slog.Warn("Access history retention prune failed", "error", err)
+	} else if n > 0 {
+		slog.Info("Access history retention pruned snapshots", "rows", n)
 	}
 }
 

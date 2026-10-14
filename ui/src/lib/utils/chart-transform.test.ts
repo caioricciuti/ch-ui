@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { computeStat, isDateType, isNumericType, parseTimeValue, pivotSeries, resolveChartColumns, resolveThresholdColor, suggestChart, toUPlotData } from './chart-transform'
+import type uPlot from 'uplot'
+import {
+  computeStat, heatmapMatrix, histogramBins, isDateType, isNumericType, parseTimeValue, pivotSeries, plotPoints, resolveChartColumns,
+  resolveHistogramColumn, resolveThresholdColor, stackSeries, suggestChart, toScatterData, toUPlotData,
+} from './chart-transform'
 
 describe('column type detection', () => {
   it('recognises date and datetime types, nullable or not', () => {
@@ -289,5 +293,215 @@ describe('pivotSeries', () => {
   it('labels NULL series values', () => {
     const out = pivotSeries([{ day: '2026-01-01', host: null, hits: 1 }], meta, 'day', 'hits', 'host')
     expect(out.yColumns).toEqual(['NULL'])
+  })
+})
+
+describe('stackSeries', () => {
+  const data = [new Float64Array([1, 2, 3]), [1, 2, 3], [10, null, 30], [100, 200, 300]] as unknown as uPlot.AlignedData
+
+  it('sums each series onto the ones below it', () => {
+    const out = stackSeries(data)
+    expect(Array.from(out[0])).toEqual([1, 2, 3])
+    expect(out[1]).toEqual([1, 2, 3])
+    // A null stacks as 0: the band stays closed and adds nothing above it.
+    expect(out[2]).toEqual([11, 2, 33])
+    expect(out[3]).toEqual([111, 202, 333])
+  })
+
+  it('leaves skipped series out of the totals and as they are', () => {
+    const out = stackSeries(data, new Set([2]))
+    expect(out[2]).toBe(data[2])
+    expect(out[3]).toEqual([101, 202, 303])
+  })
+
+  it('handles a chart with no points', () => {
+    const out = stackSeries([new Float64Array(0), []] as unknown as uPlot.AlignedData)
+    expect(out[1]).toEqual([])
+  })
+})
+
+describe('histogramBins', () => {
+  const rows = (values: unknown[]) => values.map(v => ({ v }))
+
+  it('makes equal-width buckets from min to max, the max landing in the last one', () => {
+    const h = histogramBins(rows([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), 'v', 5)
+    expect(h.edges).toEqual([0, 2, 4, 6, 8, 10])
+    expect(h.counts).toEqual([2, 2, 2, 2, 3])
+    expect(h.counts.reduce((a, b) => a + b, 0)).toBe(11)
+    expect(h.skipped).toBe(0)
+  })
+
+  it('puts a value on an inner edge in the bucket that starts there', () => {
+    const h = histogramBins(rows([0, 5, 10]), 'v', 2)
+    expect(h.edges).toEqual([0, 5, 10])
+    expect(h.counts).toEqual([1, 2])
+  })
+
+  it('skips and counts NULL, empty and non-numeric values', () => {
+    const h = histogramBins(rows([1, null, '', 'abc', undefined, '3', 2]), 'v', 2)
+    expect(h.skipped).toBe(4)
+    expect(h.counts.reduce((a, b) => a + b, 0)).toBe(3)
+  })
+
+  it('gives a single value one bucket centered on it', () => {
+    expect(histogramBins(rows([7]), 'v')).toEqual({ edges: [6.5, 7.5], counts: [1], skipped: 0 })
+  })
+
+  it('gives all-equal values one bucket', () => {
+    expect(histogramBins(rows([3, 3, '3', 3]), 'v', 30)).toEqual({ edges: [2.5, 3.5], counts: [4], skipped: 0 })
+  })
+
+  it('returns no buckets when nothing is a number', () => {
+    expect(histogramBins(rows([null, 'x']), 'v')).toEqual({ edges: [], counts: [], skipped: 2 })
+  })
+
+  it('keeps the bucket count between 1 and 200, 30 by default', () => {
+    const many = rows(Array.from({ length: 1000 }, (_, i) => i))
+    expect(histogramBins(many, 'v').counts).toHaveLength(30)
+    expect(histogramBins(many, 'v', 0).counts).toHaveLength(1)
+    expect(histogramBins(many, 'v', 5000).counts).toHaveLength(200)
+    expect(histogramBins(many, 'v', Number.NaN).counts).toHaveLength(30)
+  })
+
+  it('picks the saved column, else the first numeric one', () => {
+    const meta = [{ name: 's', type: 'String' }, { name: 'a', type: 'UInt64' }, { name: 'b', type: 'Float64' }]
+    expect(resolveHistogramColumn(meta, { histogramColumn: 'b' })).toBe('b')
+    expect(resolveHistogramColumn(meta, { histogramColumn: 'gone' })).toBe('a')
+    expect(resolveHistogramColumn([{ name: 's', type: 'String' }], {})).toBeUndefined()
+  })
+})
+
+describe('toScatterData', () => {
+  const meta = [
+    { name: 'x', type: 'Float64' },
+    { name: 'y', type: 'Float64' },
+    { name: 'size', type: 'UInt32' },
+    { name: 'kind', type: 'String' },
+  ]
+
+  it('sorts points by x and drops rows missing a coordinate', () => {
+    const rows = [
+      { x: 3, y: 30, size: 1, kind: 'a' },
+      { x: 1, y: 10, size: 2, kind: 'b' },
+      { x: null, y: 5, size: 3, kind: 'a' },
+      { x: 2, y: 'n/a', size: 4, kind: 'a' },
+    ]
+    const out = toScatterData(rows, meta, { scatterX: 'x', scatterY: 'y', scatterSize: 'size' })!
+    expect(Array.from(out.data[0])).toEqual([1, 3])
+    expect(out.data[1]).toEqual([10, 30])
+    expect(out.sizes).toEqual([2, 1])
+    expect(out.labels).toEqual(['y'])
+    expect(out.total).toBe(2)
+  })
+
+  it('splits points into one series per group, null elsewhere', () => {
+    const rows = [
+      { x: 1, y: 10, kind: 'a' },
+      { x: 2, y: 20, kind: 'b' },
+      { x: 3, y: 30, kind: 'a' },
+    ]
+    const out = toScatterData(rows, meta, { scatterX: 'x', scatterY: 'y', scatterSeries: 'kind' })!
+    expect(out.labels).toEqual(['a', 'b'])
+    expect(out.data[1]).toEqual([10, null, 30])
+    expect(out.data[2]).toEqual([null, 20, null])
+    expect(out.sizes).toBeNull()
+  })
+
+  it('caps the points and counts the rest', () => {
+    const rows = Array.from({ length: 50 }, (_, i) => ({ x: i, y: i }))
+    const out = toScatterData(rows, meta, { scatterX: 'x', scatterY: 'y' }, 20)!
+    expect(out.data[0]).toHaveLength(20)
+    expect(out.total).toBe(50)
+  })
+
+  it('picks two numeric columns when none are saved, and needs two', () => {
+    const out = toScatterData([{ x: 1, y: 2 }], meta, {})!
+    expect([out.xColumn, out.yColumn]).toEqual(['x', 'y'])
+    expect(toScatterData([], [{ name: 'x', type: 'Float64' }], {})).toBeNull()
+  })
+})
+
+describe('heatmapMatrix', () => {
+  const meta = [
+    { name: 'day', type: 'String' },
+    { name: 'hour', type: 'UInt8' },
+    { name: 'n', type: 'UInt64' },
+  ]
+
+  it('sums the value per cell, numbers ascending, text in first-seen order', () => {
+    const rows = [
+      { day: 'Tue', hour: 2, n: 5 },
+      { day: 'Mon', hour: 1, n: 1 },
+      { day: 'Mon', hour: 1, n: 2 },
+      { day: 'Tue', hour: 1, n: 4 },
+    ]
+    const m = heatmapMatrix(rows, meta, { heatmapX: 'day', heatmapY: 'hour', heatmapValue: 'n' })!
+    expect(m.x).toEqual(['Tue', 'Mon'])
+    expect(m.y).toEqual(['1', '2'])
+    expect(m.values).toEqual([
+      [4, 3],
+      [5, null],
+    ])
+    expect([m.min, m.max]).toEqual([3, 5])
+    expect(m.yAscending).toBe(true)
+    expect(m.merged).toBe(false)
+  })
+
+  it('counts rows when there is no numeric value column', () => {
+    const textMeta = [{ name: 'a', type: 'String' }, { name: 'b', type: 'String' }]
+    const rows = [{ a: 'x', b: 'p' }, { a: 'x', b: 'p' }, { a: 'y', b: 'q' }]
+    const m = heatmapMatrix(rows, textMeta, {})!
+    expect(m.valueColumn).toBeUndefined()
+    expect(m.values).toEqual([
+      [2, null],
+      [null, 1],
+    ])
+  })
+
+  it('merges neighbouring values beyond the cap and sums their cells', () => {
+    const rows = Array.from({ length: 10 }, (_, i) => ({ day: 'Mon', hour: i, n: 1 }))
+    const m = heatmapMatrix(rows, meta, { heatmapX: 'hour', heatmapY: 'day', heatmapValue: 'n' }, 4)!
+    // 10 values, 3 per bucket: 0-2, 3-5, 6-8, 9.
+    expect(m.x).toEqual(['0 to 2', '3 to 5', '6 to 8', '9'])
+    expect(m.values).toEqual([[3, 3, 3, 1]])
+    expect(m.merged).toBe(true)
+  })
+
+  it('keeps at most the cap on each axis', () => {
+    const rows = Array.from({ length: 1000 }, (_, i) => ({ day: `d${i % 500}`, hour: i, n: 1 }))
+    const m = heatmapMatrix(rows, meta, { heatmapX: 'hour', heatmapY: 'day', heatmapValue: 'n' })!
+    expect(m.x.length).toBeLessThanOrEqual(200)
+    expect(m.y.length).toBeLessThanOrEqual(200)
+    const total = m.values.flat().reduce<number>((a, v) => a + (v ?? 0), 0)
+    expect(total).toBe(1000)
+  })
+
+  it('skips rows whose value is not a number', () => {
+    const rows = [{ day: 'Mon', hour: 1, n: null }, { day: 'Mon', hour: 1, n: 2 }]
+    const m = heatmapMatrix(rows, meta, { heatmapX: 'day', heatmapY: 'hour', heatmapValue: 'n' })!
+    expect(m.values).toEqual([[2]])
+  })
+})
+
+describe('click targets', () => {
+  it('plotPoints lists rows in plotted order', () => {
+    const meta = [{ name: 'n', type: 'UInt32' }, { name: 'v', type: 'Float64' }]
+    const rows = [{ n: 3, v: 1 }, { n: null, v: 2 }, { n: 1, v: 3 }]
+    const points = plotPoints(rows, meta, { chartType: 'bar', xColumn: 'n', yColumns: ['v'] })
+    expect(points.map(p => p.row)).toEqual([rows[2], rows[0]])
+    expect(Array.from(toUPlotData(rows, meta, { chartType: 'bar', xColumn: 'n', yColumns: ['v'] })[0])).toEqual([1, 3])
+  })
+
+  it('scatter keeps each point\'s source row', () => {
+    const meta = [{ name: 'a', type: 'Float64' }, { name: 'b', type: 'Float64' }, { name: 'id', type: 'String' }]
+    const rows = [{ a: 2, b: 1, id: 'x' }, { a: 1, b: 1, id: 'y' }]
+    expect(toScatterData(rows, meta, {})!.rows.map(r => r.id)).toEqual(['y', 'x'])
+  })
+
+  it('heatmap keeps the first raw value of each column and row', () => {
+    const meta = [{ name: 'day', type: 'String' }, { name: 'hour', type: 'UInt8' }]
+    const m = heatmapMatrix([{ day: 'Tue', hour: 9 }, { day: 'Mon', hour: 2 }], meta, {})!
+    expect(m.xValues).toEqual(['Tue', 'Mon'])
+    expect(m.yValues).toEqual([2, 9])
   })
 })

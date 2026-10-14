@@ -354,3 +354,143 @@ export interface RbacWhoCanResult {
   incomplete: boolean
   incomplete_reasons: string[] | null
 }
+
+// ── Access history ───────────────────────────────────────────────────
+
+export type RbacHistorySource = 'apply' | 'revert' | 'sync' | 'view' | 'manual'
+export type RbacHistoryDrift = 'none' | 'outside' | 'mixed'
+export type RbacChangeKind = 'grant' | 'role_grant' | 'default_roles' | 'entity' | 'setting'
+export type RbacChangeType = 'added' | 'removed' | 'changed'
+
+export interface RbacHistorySummary {
+  added?: Partial<Record<RbacChangeKind, number>>
+  removed?: Partial<Record<RbacChangeKind, number>>
+  changed?: Partial<Record<RbacChangeKind, number>>
+  entities?: string[]
+  truncated?: boolean
+  unexplained?: string[]
+  local?: string[]
+  host_changed?: boolean
+  previous_host?: string
+  revert_of?: string
+  first?: boolean
+  note?: string
+  incomplete?: string[]
+}
+
+export interface RbacHistoryRow {
+  id: string
+  connection_id: string
+  hash: string
+  first_seen_at: string
+  last_seen_at: string
+  seen_count: number
+  source: RbacHistorySource
+  actor: string
+  ch_user: string
+  host: string
+  multi_node: boolean
+  plan_hash: string
+  complete: boolean
+  drift: RbacHistoryDrift
+  summary: RbacHistorySummary
+}
+
+export interface RbacHistoryPage {
+  snapshots: RbacHistoryRow[]
+  next_cursor: string
+  outside_last_30d: number
+}
+
+export interface RbacStateChange {
+  kind: RbacChangeKind
+  change: RbacChangeType
+  entity_kind: RbacEntityKind
+  grantee: string
+  detail: string
+}
+
+export interface RbacEffectiveChange {
+  user: string
+  change: 'gained' | 'lost'
+  what: string
+  via: string
+}
+
+export interface RbacStateDiff {
+  changes: RbacStateChange[]
+  entities: RbacDiff[]
+  effective: RbacEffectiveChange[]
+}
+
+export interface RbacHistorySide {
+  id?: string
+  live?: boolean
+  at?: string
+  label: string
+}
+
+export interface RbacHistoryDiff {
+  from: RbacHistorySide
+  to: RbacHistorySide
+  diff: RbacStateDiff
+}
+
+export interface RbacUnrevertable {
+  kind: string
+  name: string
+  reason: string
+}
+
+export interface RbacRevertPlan {
+  snapshot_id: string
+  ops: RbacOp[]
+  unrevertable: RbacUnrevertable[]
+  over_cap: boolean
+  max_ops: number
+  entities: Array<{ name: string; ops: number }>
+}
+
+// ── Access as code ─────────────────────────────────────────────────
+
+/** Parts of an access file an import can apply. Users means default roles. */
+export type RbacImportKind = 'roles' | 'users' | 'grants' | 'role_grants' | 'row_policies' | 'quotas' | 'profiles'
+
+export type RbacPruneKind = Exclude<RbacImportKind, 'users'>
+
+export type RbacPrune = Partial<Record<RbacPruneKind, boolean>>
+
+export interface RbacRename {
+  principals?: Record<string, string>
+  databases?: Record<string, string>
+}
+
+export interface RbacImportRequest {
+  file: string
+  prune: RbacPrune
+  rename: RbacRename
+  kinds?: RbacImportKind[]
+}
+
+export interface RbacSkip {
+  kind: string
+  name: string
+  reason: string
+}
+
+export interface RbacFileSource {
+  connection?: string
+  host?: string
+  exported_at?: string
+}
+
+export interface RbacImportPlan {
+  ops: RbacOp[]
+  skipped: RbacSkip[]
+  summary: Partial<Record<RbacImportKind, number>>
+  over_cap: boolean
+  message?: string
+  source?: RbacFileSource
+}
+
+export type RbacExportFormat = 'yaml' | 'json' | 'sql'

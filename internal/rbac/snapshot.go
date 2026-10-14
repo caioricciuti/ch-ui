@@ -138,6 +138,12 @@ type Snapshot struct {
 	// PrivilegeParents maps a privilege to its parent_group in
 	// system.privileges (SELECT -> ALL).
 	PrivilegeParents map[string]string `json:"privilege_parents,omitempty"`
+	// PrivilegeLevels maps a privilege to its level in system.privileges
+	// (GLOBAL, DATABASE, TABLE, COLUMN, ...); groups have none.
+	PrivilegeLevels map[string]string `json:"privilege_levels,omitempty"`
+	// catalog caches the privilege catalog for applyOp, which owns the
+	// snapshot it changes. Copies made by cloneSnapshot start without it.
+	catalog *privCatalog
 	// QuotaUsage is system.quotas_usage, nil when the login cannot read it.
 	QuotaUsage []QuotaUsage `json:"quota_usage,omitempty"`
 	// Host is hostName() of the node that answered.
@@ -248,12 +254,16 @@ func ReadSnapshot(ctx context.Context, ex Executor) (*Snapshot, error) {
 	readCapabilities(ctx, ex, s)
 	s.Privileges = []Privilege{}
 	s.PrivilegeParents = map[string]string{}
+	s.PrivilegeLevels = map[string]string{}
 	if rows, err := ex.Query(ctx, `SELECT toString(privilege) AS name, ifNull(toString(level), '') AS level, ifNull(toString(parent_group), '') AS parent
 		FROM system.privileges ORDER BY name`, nil); err == nil {
 		for _, r := range rows {
 			name := str(r, "name")
 			if parent := str(r, "parent"); parent != "" {
 				s.PrivilegeParents[name] = parent
+			}
+			if level := str(r, "level"); level != "" {
+				s.PrivilegeLevels[name] = level
 			}
 			if privilegeRe.MatchString(name) {
 				s.Privileges = append(s.Privileges, Privilege{Name: name, Level: str(r, "level")})

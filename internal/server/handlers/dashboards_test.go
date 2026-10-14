@@ -102,7 +102,7 @@ func TestCreateAndUpdatePanelValidation(t *testing.T) {
 		name, method, path, body string
 		want                     int
 	}{
-		{"unknown type", http.MethodPost, create, `{"name":"a","query":"SELECT 1","panel_type":"heatmap"}`, 400},
+		{"unknown type", http.MethodPost, create, `{"name":"a","query":"SELECT 1","panel_type":"treemap"}`, 400},
 		{"too wide", http.MethodPost, create, `{"name":"a","query":"SELECT 1","layout_x":8,"layout_w":6}`, 400},
 		{"negative y", http.MethodPost, create, `{"name":"a","query":"SELECT 1","layout_y":-1}`, 400},
 		{"zero height", http.MethodPost, create, `{"name":"a","query":"SELECT 1","layout_h":0}`, 400},
@@ -112,6 +112,15 @@ func TestCreateAndUpdatePanelValidation(t *testing.T) {
 		{"update layout", http.MethodPut, update, `{"layout_x":11,"layout_w":2}`, 400},
 		{"update empty name", http.MethodPut, update, `{"name":"  "}`, 400},
 		{"update valid", http.MethodPut, update, `{"layout_x":6,"layout_w":6,"panel_type":"gauge"}`, 200},
+		{"histogram", http.MethodPost, create, `{"name":"h","query":"SELECT 1","panel_type":"histogram","config":"{\"chartType\":\"histogram\",\"histogramColumn\":\"v\",\"histogramBuckets\":20}"}`, 201},
+		{"scatter", http.MethodPost, create, `{"name":"s","query":"SELECT 1","panel_type":"scatter","config":"{\"chartType\":\"scatter\",\"scatterX\":\"a\",\"scatterY\":\"b\"}"}`, 201},
+		{"heatmap", http.MethodPost, create, `{"name":"m","query":"SELECT 1","panel_type":"heatmap","config":"{\"chartType\":\"heatmap\"}"}`, 201},
+		{"stacked timeseries", http.MethodPost, create, `{"name":"t","query":"SELECT 1","panel_type":"timeseries","config":"{\"chartType\":\"timeseries\",\"fill\":\"area\",\"stacked\":true}"}`, 201},
+		{"update to heatmap", http.MethodPut, update, `{"panel_type":"heatmap"}`, 200},
+		{"links valid", http.MethodPost, create, `{"name":"l","query":"SELECT 1","panel_type":"bar","config":"{\"links\":[{\"kind\":\"url\",\"template\":\"https://x.example/${__value}\"},{\"kind\":\"sql\",\"template\":\"SELECT ${__value:raw}\"}]}"}`, 201},
+		{"links javascript url", http.MethodPost, create, `{"name":"l","query":"SELECT 1","config":"{\"links\":[{\"kind\":\"url\",\"template\":\"javascript:alert(1)\"}]}"}`, 400},
+		{"links raw outside sql", http.MethodPut, update, `{"config":"{\"links\":[{\"kind\":\"dashboard\",\"dashboardId\":\"d\",\"params\":{\"a\":\"${__value:raw}\"}}]}"}`, 400},
+		{"links unknown kind", http.MethodPut, update, `{"config":"{\"links\":[{\"kind\":\"eval\"}]}"}`, 400},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -178,6 +187,11 @@ func TestImportDashboardIsAllOrNothing(t *testing.T) {
 	}
 	if d, _ := f.db.GetDashboardByID(f.dashID); d.Name != "Ops" {
 		t.Fatalf("a failed import renamed the dashboard to %q", d.Name)
+	}
+
+	badLink := `{"dashboard":{"name":"Ops"},"panels":[{"name":"linked","query":"SELECT 1","config":{"links":[{"kind":"url","template":"javascript:alert(1)"}]}}]}`
+	if rec := f.do(t, http.MethodPost, path, badLink); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "panel 1 (linked)") {
+		t.Fatalf("import with a javascript: link: status %d: %s", rec.Code, rec.Body.String())
 	}
 
 	good := `{"dashboard":{"name":"New","description":""},"panels":[
