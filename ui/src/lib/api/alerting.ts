@@ -68,7 +68,7 @@ export async function testSqlAlert(input: SqlAlertTestInput): Promise<SqlAlertTe
   return { ...res, rows_preview: res.rows_preview ?? [] }
 }
 
-/** Runs now with the caller's session and records the result. */
+/** Runs now with the caller's session. Records the result only for the creator or an admin on an enabled alert; otherwise a dry run. */
 export async function runSqlAlert(id: string): Promise<SqlAlertRunResult> {
   return apiPost<SqlAlertRunResult>(`${BASE}/sql/${encodeURIComponent(id)}/run`)
 }

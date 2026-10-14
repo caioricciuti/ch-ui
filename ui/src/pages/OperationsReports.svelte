@@ -24,6 +24,8 @@
   let selectedID = $state('')
   const selected = $derived(reports.find((r) => r.id === selectedID) ?? reports[0])
   const admin = $derived(getSession()?.role === 'admin')
+  /** A saved channel the list no longer offers: a webhook, or one turned off or deleted. Reports go out as email only. */
+  const staleChannel = $derived(!!settings?.channel_id && !channels.some((c) => c.id === settings?.channel_id))
   const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
   function errorMessage(e: unknown) { return e instanceof Error ? e.message : 'Request failed' }
@@ -84,6 +86,7 @@
             </div>
             <FormField label="Email recipients" for="report-recipients" hint="Comma-separated addresses. Leave empty for in-app reports; email contains workload identifiers and operational metrics."><Input id="report-recipients" bind:value={recipients} placeholder="data-team@example.com" disabled={busy} /></FormField>
             <p class="text-xs text-fg-3">Configure a dedicated Weekly operations reports account under Admin → Connections → Background accounts before enabling. Manual generation uses your current ClickHouse account. Email channels are managed under Governance → Alert channels.</p>
+            {#if staleChannel}<p role="alert" class="text-xs text-danger">The saved channel is not an active email channel, so reports cannot be emailed. Choose an email channel or In-app only.</p>{/if}
             {#if settings.last_error}<p role="alert" class="text-xs text-danger">{settings.last_error}</p>{/if}
             <div class="flex items-center justify-between gap-3"><p class="text-xs text-fg-3">{settings.enabled && settings.next_run_at ? `Next report: ${new Date(settings.next_run_at).toLocaleString()}` : 'Automatic reports are disabled.'}</p><Button type="submit" size="sm" loading={busy}>Save settings</Button></div>
           </form>
@@ -97,7 +100,7 @@
           {#if selected}
             <div class="min-w-0 space-y-4">
               <div class="grid grid-cols-3 gap-3"><Stat label="Regressions" value={String(selected.payload.regression_count)} /><Stat label="Failed executions" value={String(selected.payload.failures)} /><Stat label="Resolved investigations" value={String(selected.payload.resolved_investigations)} /></div>
-              <div class="flex flex-wrap items-center justify-between gap-2"><p class="text-xs text-fg-3">Saved by {selected.created_by} · Email: {selected.delivery_status.replaceAll('_', ' ')}</p><div class="flex gap-2"><Button variant="outline" size="sm" onclick={download}><Download size={14} /> Download</Button><Button variant="outline" size="sm" disabled={busy || !settings?.channel_id || ['queued','retry','sending'].includes(selected.delivery_status)} onclick={send}><Send size={14} /> Email report</Button></div></div>
+              <div class="flex flex-wrap items-center justify-between gap-2"><p class="text-xs text-fg-3">Saved by {selected.created_by} · Email: {selected.delivery_status.replaceAll('_', ' ')}</p><div class="flex gap-2"><Button variant="outline" size="sm" onclick={download}><Download size={14} /> Download</Button><Button variant="outline" size="sm" disabled={busy || !settings?.channel_id || staleChannel || ['queued','retry','sending'].includes(selected.delivery_status)} onclick={send}><Send size={14} /> Email report</Button></div></div>
               {#if selected.delivery_error}<p role="alert" class="text-xs text-danger">{selected.delivery_error}</p>{/if}
               <Panel><pre class="whitespace-pre-wrap break-words font-sans text-[13px] leading-6 text-fg-2">{selected.body}</pre></Panel>
             </div>

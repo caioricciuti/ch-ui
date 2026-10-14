@@ -223,3 +223,49 @@ func TestReportDeliveryUsesSavedSnapshotAndConfiguredChannel(t *testing.T) {
 		t.Fatal("community sent a report")
 	}
 }
+
+// A report queued for a webhook channel fails once with a clear message
+// instead of retrying a send that can never work.
+func TestReportDeliveryRefusesWebhookChannel(t *testing.T) {
+	for kind, want := range map[string]bool{"smtp": true, "Resend": true, "brevo": true, "webhook": false, "": false} {
+		if EmailChannel(kind) != want {
+			t.Errorf("EmailChannel(%q) = %v", kind, !want)
+		}
+	}
+	db, err := dbtest.Open(t, "reports.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	conn, err := db.CreateConnection(database.CreateConnectionParams{Name: "c", TunnelToken: "c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const secret = "report-test-only-secret"
+	cfgJSON, _ := crypto.Encrypt(`{"url":"https://hooks.example.com/x"}`, secret)
+	channel, err := db.CreateAlertChannel("hook", "webhook", cfgJSON, true, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := NewRunner(db, nil, &config.Config{AppSecretKey: secret})
+	runner.isPro = func() bool { return true }
+	runner.Send = func(context.Context, string, map[string]interface{}, []string, string, string) (string, error) {
+		t.Fatal("a webhook channel must not be sent to")
+		return "", nil
+	}
+	report, err := db.SaveOperationsReport(database.OperationsReport{ConnectionID: conn, Body: "b", Payload: json.RawMessage(`{}`)}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueueOperationsReport(conn, report.ID, channel, []string{"ops@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	runner.DeliverDue(context.Background(), time.Now())
+	got, err := db.GetOperationsReport(conn, report.ID)
+	if err != nil || got == nil {
+		t.Fatal(err)
+	}
+	if got.DeliveryStatus != "failed" || !strings.Contains(got.DeliveryError, "not an email channel") {
+		t.Fatalf("delivery %s %q, want failed with a clear error", got.DeliveryStatus, got.DeliveryError)
+	}
+}

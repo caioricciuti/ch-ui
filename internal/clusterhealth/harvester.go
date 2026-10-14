@@ -135,6 +135,11 @@ func (h *Harvester) tick() {
 			slog.Warn("Cluster health: failed to load settings", "connection", conn.ID, "error", err)
 			continue
 		}
+		// Sampling or a check turned off leaves incidents nothing would
+		// evaluate again: close them, however the setting changed.
+		if err := CloseOrphanedIncidents(h.db, conn.ID, settings.Enabled, now); err != nil {
+			slog.Warn("Health alerts: failed to close orphaned incidents", "connection", conn.ID, "error", err)
+		}
 		if !h.due(conn.ID, settings.PollIntervalSeconds, now) {
 			continue
 		}

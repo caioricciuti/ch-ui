@@ -27,6 +27,10 @@ const (
 // SetAlertRuleConnections stores the connections a rule is limited to; nil
 // or empty clears the scope (every connection).
 func (db *DB) SetAlertRuleConnections(ruleID string, ids []string) error {
+	return setAlertRuleConnections(db.conn, ruleID, ids)
+}
+
+func setAlertRuleConnections(ex alertExecer, ruleID string, ids []string) error {
 	var val interface{}
 	if len(ids) > 0 {
 		data, err := json.Marshal(ids)
@@ -35,7 +39,7 @@ func (db *DB) SetAlertRuleConnections(ruleID string, ids []string) error {
 		}
 		val = string(data)
 	}
-	if _, err := db.conn.Exec(`UPDATE alert_rules SET connection_ids = ? WHERE id = ?`, val, ruleID); err != nil {
+	if _, err := ex.Exec(`UPDATE alert_rules SET connection_ids = ? WHERE id = ?`, val, ruleID); err != nil {
 		return fmt.Errorf("set alert rule connections: %w", err)
 	}
 	return nil
@@ -221,6 +225,20 @@ func (db *DB) SuppressAlertEvent(id, status, by string) error {
 	if _, err := db.conn.Exec(`UPDATE alert_events SET status = ?, suppressed_by = ?, processed_at = ? WHERE id = ? AND status = 'new'`,
 		status, by, now, id); err != nil {
 		return fmt.Errorf("suppress alert event: %w", err)
+	}
+	return nil
+}
+
+// SilenceUndeliveredAlertEvent marks a processed event as held back by a
+// silence that covered it at send time, so the silence's end can release it
+// like one it held back on arrival. An event any job already went out for
+// stays processed.
+func (db *DB) SilenceUndeliveredAlertEvent(id, by string) error {
+	if _, err := db.conn.Exec(`UPDATE alert_events SET status = 'silenced', suppressed_by = ?
+		WHERE id = ? AND status = 'processed'
+		  AND NOT EXISTS (SELECT 1 FROM alert_dispatch_jobs WHERE event_id = ? AND status IN ('sent', 'sending'))`,
+		by, id, id); err != nil {
+		return fmt.Errorf("silence undelivered alert event: %w", err)
 	}
 	return nil
 }

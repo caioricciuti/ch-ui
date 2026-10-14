@@ -114,7 +114,19 @@ type AlertDispatchJobWithDetails struct {
 	ChannelName            string  `json:"channel_name"`
 	ChannelType            string  `json:"channel_type"`
 	ChannelConfigEncrypted string  `json:"channel_config_encrypted"`
+	EventConnectionID      *string `json:"event_connection_id"`
+	EventSourceRef         *string `json:"event_source_ref"`
+	// Live at listing time, not snapshotted: a job whose rule, channel or
+	// binding was turned off since it was queued is cancelled, not sent.
+	RuleEnabled   bool `json:"rule_enabled"`
+	ChannelActive bool `json:"channel_active"`
+	BindingActive bool `json:"binding_active"`
 }
+
+// AlertDispatchCancelled is the status of a job that was never sent because
+// its rule, channel or binding was turned off, or a silence covered its
+// event, after it was queued. last_error holds the reason.
+const AlertDispatchCancelled = "cancelled"
 
 func (db *DB) CreateAlertChannel(name, channelType, encryptedConfig string, isActive bool, createdBy string) (string, error) {
 	id := uuid.NewString()
@@ -218,6 +230,10 @@ func (db *DB) CreateAlertRule(name, eventType, severityMin string, enabled bool,
 }
 
 func (db *DB) UpdateAlertRule(id, name, eventType, severityMin string, enabled bool, cooldownSeconds, maxAttempts int, subjectTemplate, bodyTemplate string) error {
+	return updateAlertRule(db.conn, id, name, eventType, severityMin, enabled, cooldownSeconds, maxAttempts, subjectTemplate, bodyTemplate)
+}
+
+func updateAlertRule(ex alertExecer, id, name, eventType, severityMin string, enabled bool, cooldownSeconds, maxAttempts int, subjectTemplate, bodyTemplate string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	if cooldownSeconds < 0 {
 		cooldownSeconds = 0
@@ -225,7 +241,7 @@ func (db *DB) UpdateAlertRule(id, name, eventType, severityMin string, enabled b
 	if maxAttempts <= 0 {
 		maxAttempts = 5
 	}
-	if _, err := db.conn.Exec(
+	if _, err := ex.Exec(
 		`UPDATE alert_rules
 		 SET name = ?, event_type = ?, severity_min = ?, enabled = ?, cooldown_seconds = ?, max_attempts = ?, subject_template = ?, body_template = ?, updated_at = ?
 		 WHERE id = ?`,
@@ -235,6 +251,49 @@ func (db *DB) UpdateAlertRule(id, name, eventType, severityMin string, enabled b
 		return fmt.Errorf("update alert rule: %w", err)
 	}
 	return nil
+}
+
+// AlertRuleEdit is a whole edit of an alert rule. A nil ConnectionIDs or
+// Channels leaves that part as it is.
+type AlertRuleEdit struct {
+	Name, EventType, SeverityMin  string
+	Enabled                       bool
+	CooldownSeconds, MaxAttempts  int
+	SubjectTemplate, BodyTemplate string
+	ConnectionIDs                 *[]string
+	Channels                      *[]AlertRuleChannel
+}
+
+// EditAlertRule applies an edit in one transaction: the rule, its
+// connections and its channels change together or not at all.
+func (db *DB) EditAlertRule(id string, e AlertRuleEdit) error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("begin edit alert rule: %w", err)
+	}
+	defer tx.Rollback()
+	if err := updateAlertRule(tx, id, e.Name, e.EventType, e.SeverityMin, e.Enabled, e.CooldownSeconds, e.MaxAttempts, e.SubjectTemplate, e.BodyTemplate); err != nil {
+		return err
+	}
+	if e.ConnectionIDs != nil {
+		if err := setAlertRuleConnections(tx, id, *e.ConnectionIDs); err != nil {
+			return err
+		}
+	}
+	if e.Channels != nil {
+		if err := replaceAlertRuleChannels(tx, id, *e.Channels); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit edit alert rule: %w", err)
+	}
+	return nil
+}
+
+// alertExecer is a connection or a transaction.
+type alertExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
 }
 
 func (db *DB) DeleteAlertRule(id string) error {
@@ -311,7 +370,16 @@ func (db *DB) ReplaceAlertRuleChannels(ruleID string, bindings []AlertRuleChanne
 		return fmt.Errorf("begin replace alert rule channels: %w", err)
 	}
 	defer tx.Rollback()
+	if err := replaceAlertRuleChannels(tx, ruleID, bindings); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit replace alert rule channels: %w", err)
+	}
+	return nil
+}
 
+func replaceAlertRuleChannels(tx alertExecer, ruleID string, bindings []AlertRuleChannel) error {
 	if _, err := tx.Exec(`DELETE FROM alert_rule_channels WHERE rule_id = ?`, ruleID); err != nil {
 		return fmt.Errorf("clear alert rule channels: %w", err)
 	}
@@ -333,10 +401,6 @@ func (db *DB) ReplaceAlertRuleChannels(ruleID string, bindings []AlertRuleChanne
 		); err != nil {
 			return fmt.Errorf("insert alert rule channel: %w", err)
 		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit replace alert rule channels: %w", err)
 	}
 	return nil
 }
@@ -420,6 +484,12 @@ func (db *DB) CreateAlertEvent(connectionID *string, eventType, severity, title,
 }
 
 func (db *DB) ListAlertEvents(limit int, eventType, status string) ([]AlertEvent, error) {
+	return db.ListAlertEventsExcept(limit, eventType, status, nil)
+}
+
+// ListAlertEventsExcept is ListAlertEvents without the events of the
+// excluded types; the limit counts the events that remain.
+func (db *DB) ListAlertEventsExcept(limit int, eventType, status string, exclude []string) ([]AlertEvent, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -436,6 +506,10 @@ func (db *DB) ListAlertEvents(limit int, eventType, status string) ([]AlertEvent
 	if strings.TrimSpace(status) != "" {
 		where = append(where, "status = ?")
 		args = append(args, strings.TrimSpace(status))
+	}
+	for _, t := range exclude {
+		where = append(where, "event_type != ?")
+		args = append(args, t)
 	}
 	args = append(args, limit)
 
@@ -558,11 +632,13 @@ func (db *DB) HasRecentAlertDispatch(ruleID, channelID, fingerprint string, sinc
 }
 
 // AlertDispatchJobExists reports whether a job was already created for the
-// event on this rule and channel, so a retried event never queues twice.
+// event on this rule and channel, so a retried event never queues twice. A
+// cancelled job does not count: an event a silence held back at send time
+// is queued again when the silence ends.
 func (db *DB) AlertDispatchJobExists(eventID, ruleID, channelID string) (bool, error) {
 	var count int
 	if err := db.conn.QueryRow(
-		`SELECT COUNT(*) FROM alert_dispatch_jobs WHERE event_id = ? AND rule_id = ? AND channel_id = ?`,
+		`SELECT COUNT(*) FROM alert_dispatch_jobs WHERE event_id = ? AND rule_id = ? AND channel_id = ? AND status != 'cancelled'`,
 		eventID, ruleID, channelID,
 	).Scan(&count); err != nil {
 		return false, fmt.Errorf("check alert dispatch job: %w", err)
@@ -614,7 +690,9 @@ func (db *DB) ListDueAlertDispatchJobs(limit int) ([]AlertDispatchJobWithDetails
 			j.id, j.event_id, j.rule_id, j.channel_id, j.recipients_json, j.status, j.attempt_count, j.max_attempts, j.next_attempt_at, j.last_error, j.provider_message_id, j.created_at, j.updated_at, j.sent_at,
 			e.event_type, e.severity, e.title, e.message, e.payload_json, e.fingerprint, e.created_at,
 			r.name, r.cooldown_seconds, r.subject_template, r.body_template,
-			c.name, c.channel_type, c.config_encrypted
+			c.name, c.channel_type, c.config_encrypted,
+			e.connection_id, e.source_ref, r.enabled, c.is_active,
+			EXISTS (SELECT 1 FROM alert_rule_channels rc WHERE rc.rule_id = j.rule_id AND rc.channel_id = j.channel_id AND rc.is_active = 1)
 		 FROM alert_dispatch_jobs j
 		 JOIN alert_events e ON e.id = j.event_id
 		 JOIN alert_rules r ON r.id = j.rule_id
@@ -635,15 +713,20 @@ func (db *DB) ListDueAlertDispatchJobs(limit int) ([]AlertDispatchJobWithDetails
 	for rows.Next() {
 		var item AlertDispatchJobWithDetails
 		var lastError, providerMessageID, sentAt sql.NullString
-		var eventPayloadJSON, eventFingerprint, subjectTemplate, bodyTemplate sql.NullString
+		var eventPayloadJSON, eventFingerprint, subjectTemplate, bodyTemplate, eventConn, eventSource sql.NullString
+		var ruleEnabled, channelActive, bindingActive int
 		if err := rows.Scan(
 			&item.ID, &item.EventID, &item.RuleID, &item.ChannelID, &item.RecipientsJSON, &item.Status, &item.AttemptCount, &item.MaxAttempts, &item.NextAttemptAt, &lastError, &providerMessageID, &item.CreatedAt, &item.UpdatedAt, &sentAt,
 			&item.EventType, &item.EventSeverity, &item.EventTitle, &item.EventMessage, &eventPayloadJSON, &eventFingerprint, &item.EventCreatedAt,
 			&item.RuleName, &item.RuleCooldownSeconds, &subjectTemplate, &bodyTemplate,
 			&item.ChannelName, &item.ChannelType, &item.ChannelConfigEncrypted,
+			&eventConn, &eventSource, &ruleEnabled, &channelActive, &bindingActive,
 		); err != nil {
 			return nil, fmt.Errorf("scan due alert dispatch job: %w", err)
 		}
+		item.EventConnectionID = nullStringToPtr(eventConn)
+		item.EventSourceRef = nullStringToPtr(eventSource)
+		item.RuleEnabled, item.ChannelActive, item.BindingActive = intToBool(ruleEnabled), intToBool(channelActive), intToBool(bindingActive)
 		item.LastError = nullStringToPtr(lastError)
 		item.ProviderMessageID = nullStringToPtr(providerMessageID)
 		item.SentAt = nullStringToPtr(sentAt)
@@ -687,6 +770,32 @@ func (db *DB) ClaimAlertDispatchJob(id string, now time.Time) (bool, error) {
 	n, err := res.RowsAffected()
 	if err != nil {
 		return false, fmt.Errorf("claim alert dispatch job: %w", err)
+	}
+	return n == 1, nil
+}
+
+// CancelAlertDispatchJob ends a due job without sending it. It reports false
+// when the job is no longer due or another worker claimed it, under the
+// same conditions as ClaimAlertDispatchJob.
+func (db *DB) CancelAlertDispatchJob(id, reason string, now time.Time) (bool, error) {
+	ts := now.UTC().Format(time.RFC3339)
+	res, err := db.conn.Exec(
+		`UPDATE alert_dispatch_jobs
+		 SET status = 'cancelled',
+		     last_error = ?,
+		     updated_at = ?
+		 WHERE id = ?
+		   AND status IN ('queued', 'retrying', 'sending')
+		   AND attempt_count < max_attempts
+		   AND next_attempt_at <= ?`,
+		nullableString(reason), ts, id, ts,
+	)
+	if err != nil {
+		return false, fmt.Errorf("cancel alert dispatch job: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("cancel alert dispatch job: %w", err)
 	}
 	return n == 1, nil
 }
