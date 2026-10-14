@@ -252,6 +252,7 @@ v2.11.0) now return `410 Gone`.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/api/brain/models` | List active models |
+| `GET` | `/api/brain/usage/me` | What you used today and this month, and the [budget](/docs/brain#budgets) rules that apply to you |
 | `GET` | `/api/brain/chats` | List user's chats (`?includeArchived=`) |
 | `POST` | `/api/brain/chats` | Create chat |
 | `GET` | `/api/brain/chats/{chatID}` | Get chat |
@@ -344,6 +345,14 @@ Every `/api/admin/*` route requires the admin role.
 | `GET` | `/api/admin/brain/skills` | List skills |
 | `POST` | `/api/admin/brain/skills` | Create skill |
 | `PUT` | `/api/admin/brain/skills/{id}` | Update skill |
+| `GET` | `/api/admin/brain/settings` | Model roles, output limit, prices |
+| `PUT` | `/api/admin/brain/settings` | Save model roles, output limit, prices (partial body) |
+| `POST` | `/api/admin/brain/providers/{id}/models` | Add a model id by hand |
+| `GET` | `/api/admin/brain/usage` | Token and cost ledger (`?days=` 1 to 366, default 30; `?group_by=person\|role`) |
+| `GET` | `/api/admin/brain/budgets` | Brain budget rules, each with its use this period |
+| `POST` | `/api/admin/brain/budgets` | Create a budget rule (role, person and dollar rules need **Pro**) |
+| `PUT` | `/api/admin/brain/budgets/{id}` | Replace a budget rule (role, person and dollar rules need **Pro**) |
+| `DELETE` | `/api/admin/brain/budgets/{id}` | Delete a budget rule |
 | `GET` | `/api/admin/governance/settings` | Governance background sync toggle |
 | `PUT` | `/api/admin/governance/settings` | Turn governance sync on or off (turning it on needs **Pro**) |
 | `GET` | `/api/admin/retention` | Data retention config, defaults and last run |
@@ -380,8 +389,10 @@ Outside these groups, a few endpoints are Pro on their own:
 `POST /api/saved-queries/{id}/run`, `POST /api/brain/generate-sql`,
 `/api/admin/sso`, the write routes under `/api/admin/github/*`,
 `POST /api/github/webhook/{connectionId}`, `/api/auth/oidc/*`, the traces,
-metrics, service map and monitor routes under `/api/telemetry`, and turning
-governance sync on through `PUT /api/admin/governance/settings`.
+metrics, service map and monitor routes under `/api/telemetry`, turning
+governance sync on through `PUT /api/admin/governance/settings`, and Brain
+budget rules per role or person or with a dollar limit
+(`POST` and `PUT /api/admin/brain/budgets`).
 
 ### Schedules
 
@@ -480,6 +491,27 @@ See [Cost Center](/docs/cost-center).
 | `POST` | `/api/governance/incidents/{id}/comments` | Add incident comment (admin) |
 | `GET` | `/api/governance/audit-logs` | Query audit log (admin) |
 | `GET` | `/api/governance/audit-logs/export` | Export audit log as CSV/JSON (admin, `?format=csv\|json`) |
+
+### Access control
+
+Admin only. Changes ClickHouse access control through a reviewed plan; see
+[Access Control Editor](/docs/rbac#api) for request bodies.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/rbac/snapshot` | Roles, users, grants, row policies, quotas, profiles and your capabilities |
+| `GET` | `/api/rbac/entity/{kind}/{name}` | `SHOW CREATE` (and `SHOW GRANTS`) for one entity |
+| `GET` | `/api/rbac/effective` | Explain one user's access to an object |
+| `GET` | `/api/rbac/who-can` | Every user holding a privilege on an object |
+| `POST` | `/api/rbac/plan` | Build statements, diffs and warnings; changes nothing (read) |
+| `POST` | `/api/rbac/apply` | Apply a plan (`402` during the grace period) |
+| `GET` | `/api/rbac/export` | Download the access file (`?format=yaml\|json\|sql`) |
+| `POST` | `/api/rbac/import/plan` | Plan the import of an access file; changes nothing (read) |
+| `GET` | `/api/rbac/history` | Access history, newest first (`?drift=only&limit=&cursor=`) |
+| `GET` | `/api/rbac/history/{id}` | One snapshot with its stored state |
+| `GET` | `/api/rbac/history/{id}/diff` | Changes against `?against=previous\|live\|<id>` |
+| `POST` | `/api/rbac/history/snapshot` | Store the live state now (`402` during the grace period) |
+| `POST` | `/api/rbac/history/{id}/revert-plan` | The changes that bring the server back to a snapshot; changes nothing (read) |
 
 ### Governance Alerts
 

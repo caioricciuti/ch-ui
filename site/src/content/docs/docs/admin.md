@@ -5,7 +5,7 @@ description: Users, ClickHouse user management, Brain providers, and operational
 
 Admin is where operators manage users, connections, AI providers, and system configuration.
 
-Admin is part of the open-source core: no Pro license is needed and nothing in it is limited by plan. It is only visible to users with the `admin` role. A few settings inside it (SSO, GitHub sync) need Pro.
+Admin is part of the open-source core: no Pro license is needed and nothing in it is limited by plan. It is only visible to users with the `admin` role. A few settings inside it (SSO, GitHub sync, Brain budgets per role or person and dollar limits) need Pro.
 
 ## Sections
 
@@ -16,7 +16,9 @@ Open **Admin** from the Settings group in the rail. Its sections are listed in t
 | **Overview** | System statistics and the cluster topology |
 | **Connections** | Every ClickHouse connection, direct or remote agent, with its status; details open in a side sheet |
 | **Users** | Application users with role overrides, and ClickHouse users |
-| **Brain** | AI providers, models and skills |
+| **Brain** | AI providers, models, model roles, prices and the system prompt |
+| **Brain budgets** | Token and dollar limits on Brain per person, role or everyone |
+| **Brain usage** | Tokens and cost per person or role and model |
 | **GitHub** | GitHub sync for models, per connection |
 | **MCP Server** | Endpoint, client snippets, MCP keys and OAuth grants |
 | **Settings** | Data retention and SSO |
@@ -181,9 +183,11 @@ SSO status and configuration also live in **Admin → Settings**: a status panel
 
 ## Brain configuration
 
-Brain's AI configuration (providers, models, and **skills**) lives in the **Admin → Brain** section, restricted to admins. Configure a provider (Anthropic, OpenAI, OpenAI-compatible, or Ollama), sync and activate models, and author skills there.
+Brain's AI configuration (providers, models, model roles, prices and **skills**) lives in the **Admin → Brain** section, restricted to admins. Configure a provider (Anthropic, OpenAI, OpenAI-compatible, or Ollama), sync and activate models, and author skills there.
 
-See [Brain → Configuring AI](/docs/brain#configuring-ai) for providers/models and [Brain → Skills](/docs/brain#skills) for authoring reusable expertise.
+**Admin → Brain budgets** (`/admin?section=brain-budgets`) lists the budget rules with each one's use this period, and **Admin → Brain usage** (`/admin?section=brain-usage`) shows tokens and cost by person or by role. Global token budgets work on every plan; role and person rules and dollar limits need Pro.
+
+See [Brain → Configuring AI](/docs/brain#configuring-ai) for providers/models, [Brain → Budgets](/docs/brain#budgets) for limits and [Brain → Skills](/docs/brain#skills) for authoring reusable expertise.
 
 ## Operational Commands
 

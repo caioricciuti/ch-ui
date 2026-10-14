@@ -58,6 +58,8 @@ All AI configuration lives at **Admin → Brain** and is restricted to **admins*
 - **Providers**: add/edit/remove providers, sync their model lists, activate models, set a default.
 - **Skills**: create, edit, and activate the reusable expertise Brain draws on (see [Skills](#skills)).
 
+**Admin → Brain budgets** holds the spending limits (see [Budgets](#budgets)) and **Admin → Brain usage** the token and cost ledger (see [Usage and budgets](#usage-and-budgets)).
+
 API keys are encrypted at rest with the app secret key.
 
 ### Model resolution
@@ -107,7 +109,7 @@ editor.
   unknown table, database, column or function, type mismatches, aggregation
   mistakes; codes 62, 47, 46, 60, 81, 43, 42, 215, 184, 53, 386, 352, 10, 36),
   the error goes back to the model and it writes the query again. At most two
-  repairs, and only while your daily budget lasts. The preview is cleared and
+  repairs, and only while your [budget](#budgets) lasts. The preview is cleared and
   refilled while a repair streams.
 - Errors no edit fixes (access denied, read-only profile, limits, timeouts,
   missing parameter values; codes 497, 164, 201, 159, 241, 456), an offline
@@ -300,15 +302,58 @@ Query result artifacts are **read-only only**: `SELECT`, `WITH`, `SHOW`, `DESC`,
 
 Every chat turn, Ask AI and Fix with AI request is recorded with the provider, the model and its tokens: input, output, cache read and cache write. An agent turn sums all of its steps. Counts come from what the provider reports: Anthropic's usage (including `cache_read_input_tokens` and `cache_creation_input_tokens`), OpenAI-style `usage` (cached prompt tokens split out as cache reads) and Ollama's eval counts. A provider that reports nothing records zeros.
 
-- **Under each answer**, a small footer shows the model, the tokens and, when the model has a price, the estimated cost. Hover it for the exact numbers.
-- **Admin → Brain → Usage** lists tokens per person and model for today, the last 7, 30 or 90 days, with totals and estimated cost. **Requests** counts every call; its tooltip splits chat turns from Ask AI and Fix with AI requests, and **Repairs** counts the extra calls that repaired SQL ClickHouse rejected (ledger purposes `ask_ai_repair` and `fix_sql_repair`).
-- **Prices** (admin) are US dollars per million tokens for input, output, cache read and cache write. New installs start with the Claude list prices; edit, add or clear any of them. A model without input and output prices shows no cost. Costs are estimates, not a bill. Some models charge more for very long prompts (for example `claude-haiku-5-5` above 100K input tokens); the estimate uses the base price, so it can read low for those requests.
-- **Daily token budget per person** (admin, optional) caps input, output and cache-write tokens per UTC day. Cache reads are not counted. A person past the budget gets a clear message (`429`) before the turn starts and nothing is sent to the provider; it resets at 00:00 UTC.
+The cost of each request is worked out from the price table when it runs and stored with it, so editing a price changes new requests only. Rows from before budgets existed were priced once at upgrade, from the prices in effect then, and are marked **est.** in the usage table. A request on a model without a price has no cost: it shows none instead of $0.
 
-The ledger lives in the `brain_usage` table; each assistant message also keeps its own counts.
+- **Under each answer**, a small footer shows the model, the tokens and, when the model has a price, the cost. Hover it for the exact numbers.
+- **Admin → Brain usage** lists tokens and cost per person or per role, and per model, for today or the last 7, 30 or 90 days, with totals. The role is the one the person had when the request ran; older rows show "Not recorded". **Requests** counts every call; its tooltip splits chat turns from Ask AI and Fix with AI requests, and **Repairs** counts the extra calls that repaired SQL ClickHouse rejected (ledger purposes `ask_ai_repair` and `fix_sql_repair`). Models used without a price are listed, with a link to set one.
+- **Prices** (Admin → Brain) are US dollars per million tokens for input, output, cache read and cache write. New installs start with the Claude list prices; edit, add or clear any of them. A model without input and output prices has no cost, and the price list flags active models that have none. Costs are estimates, not a bill. Some models charge more for very long prompts (for example `claude-haiku-5-5` above 100K input tokens); the estimate uses the base price, so it can read low for those requests.
+
+The ledger lives in the `brain_usage` table; each assistant message also keeps its own counts and cost.
+
+### Budgets
+
+**Admin → Brain budgets** limits how much each person can use Brain chat, Ask AI and Fix with AI. Each rule has:
+
+| Field | Values |
+|---|---|
+| Applies to | Everyone (global), a role (`admin`, `analyst` or `viewer`), or one person |
+| Period | A day or a month, in UTC |
+| Token limit | Input, output and cache-write tokens. Cache reads are not counted |
+| Dollar limit | US dollars, from the cost stored with each request |
+| Block models without a price | With a dollar limit only: refuse models that have no price while the rule applies |
+
+Leave a limit empty for no limit. There is one rule per scope, subject and period.
+
+How a rule is picked:
+
+- Days and months are resolved separately, so a person can be under a daily and a monthly rule at once.
+- In each period the most specific rule wins: the person's own rule, then their role's, then the global one.
+- A person or role rule without limits exempts them from broader rules in that period.
+- Each rule caps every person it applies to separately. A role rule is not a pool shared by the role.
+- A model without a price counts toward token limits only, unless the rule has a dollar limit with **Block models without a price**.
+
+A request is refused when either limit is reached. Budgets are checked before a chat turn, an Ask AI or a Fix with AI request, between the steps of an agent turn, and before each SQL repair. A person's turns that are still running count while they run, so parallel tabs cannot each slip past the limit; a turn can go over by at most one call to the provider. A refused request gets `429` before anything is sent to the provider, with a message that names the rule, the amount used and when it resets:
+
+```text
+You have used your role's daily Brain budget of $5.00 ($5.02 used). It resets at 00:00 UTC; an admin can change it in Admin > Brain budgets.
+```
+
+From 80% of a limit, Brain chat shows a quiet warning under the answer and Ask AI and Fix with AI show a toast.
+
+The list of rules shows each rule's use this period: how many people used Brain under it, the person closest to the limit and how many reached it, and when it resets.
+
+| | Community | Pro |
+|---|---|---|
+| Global token limits | Yes | Yes |
+| Role and person rules, exemptions | No | Yes |
+| Dollar limits, blocking unpriced models | No | Yes |
+
+Without Pro, creating or editing a role, person or dollar rule returns `402`, and existing ones are shown as not enforced. Deleting a rule always works, so an admin can clean up. The older single daily token budget (`dailyTokenBudget` in the settings) became the global daily rule on upgrade, and still sets that rule's token limit.
 
 :::note
-Admin endpoints: `GET /api/admin/brain/usage?days=30`, `GET` and `PUT /api/admin/brain/settings` (`agentModelId`, `quickModelId`, `dailyTokenBudget`, `maxOutputTokens`, `prices`), `POST /api/admin/brain/providers/{id}/models` with `{ "name": "claude-sonnet-5-5" }`.
+Endpoints: `GET /api/brain/usage/me` (any signed-in person) returns what you used today and this month (`usage.day` and `usage.month`: `tokens`, `cost_usd`, `reset_at`) and each rule that applies to you (`budgets`). Admin only: `GET /api/admin/brain/usage?days=30&group_by=person` (`person` or `role`; `days` 1 to 366), `GET` and `POST /api/admin/brain/budgets`, `PUT` and `DELETE /api/admin/brain/budgets/{id}`, `GET` and `PUT /api/admin/brain/settings` (`agentModelId`, `quickModelId`, `dailyTokenBudget`, `maxOutputTokens`, `prices`), `POST /api/admin/brain/providers/{id}/models` with `{ "name": "claude-sonnet-5-5" }`.
+
+A budget rule body: `{ "scope": "role", "subject": "analyst", "period": "month", "token_limit": null, "usd_limit": 50, "block_unpriced": true }`. `scope` is `global`, `role` or `user`; for `user`, `subject` is the person's key from [Admin → Users](/docs/admin#role-overrides) (`sso:<email>` for SSO people). A global rule needs at least one limit. Changes are recorded in the audit log as `brain.budget.created`, `brain.budget.updated` and `brain.budget.deleted`.
 :::
 
 ## Storage
@@ -328,7 +373,7 @@ Chats, messages, artifacts, skills and the usage ledger are stored in CH-UI's **
 | Artifact timeout | 30s default, 5 min max |
 | Schema context | Per message, from `@` mentions; no fixed table limit |
 | API key storage | Encrypted at rest with app secret key |
-| Token budget | Optional per person per UTC day, checked before a turn, an Ask AI or Fix with AI request, and each SQL repair |
+| Budgets | Optional, per UTC day or month, global, per role or per person; checked before a turn, between agent steps, before an Ask AI or Fix with AI request and each SQL repair |
 | Diagnostics tools | ClickHouse `readonly = 1`, 30s per call, every statement with its own `LIMIT` and, on `system.query_log`, its own time window; local node only |
 | SQL self-check | `EXPLAIN PLAN` or `EXPLAIN AST` as the person, `readonly = 1`, 10s, governance applies; at most 2 repairs |
 | Chat / artifact isolation | Scoped to username + connection; artifact actions verify chat ownership |

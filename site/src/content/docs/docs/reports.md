@@ -46,6 +46,9 @@ A saved query with bind parameters (`{name:Type}`) needs a saved default for eve
 | Table | The first 20 rows |
 | Time series, bar | Last, minimum and maximum per series |
 | Pie | The 10 largest slices with their share |
+| Histogram | Count, minimum, median, mean and maximum of the column |
+| Scatter | The number of points and the correlation of X and Y |
+| Heatmap | The number of cells and the 5 largest |
 | Text | Skipped |
 
 The summary ends with a link to the dashboard when `app_url` is configured. There is no image of the dashboard.

@@ -16,6 +16,8 @@ Governance is split into sections, listed in the sidebar under Governance (each 
 - **Query Audit**: the queries harvested from `system.query_log`, filterable by user, with a detail sheet per query
 - **Access**: one table of risky grants, plus users and the grants matrix, with details in a side sheet
 - **Access control** (admins): edit ClickHouse roles, grants, row policies, quotas and settings profiles through a reviewed change set (see [Access Control Editor](/docs/rbac))
+- **Effective access** (admins): what a user can do on an object and through which roles (see [Effective access](/docs/rbac#effective-access))
+- **Access history** (admins): snapshots of ClickHouse access control over time, changes made outside CH-UI flagged as drift, compare and revert (see [Access history](/docs/rbac#access-history))
 - **Incidents**: the incident queue from policy violations, with comments. Incident details are Markdown, with a Write / Preview toggle
 - **Policies**: guardrail definitions with warn/block enforcement. The editor picks databases, tables, columns and roles from your schema and shows a plain-words summary of what the policy does
 - **Alerts**: channels, rules and events (see [Alerts](/docs/alerts))
@@ -108,7 +110,7 @@ Harvested from `system.users` and `system.roles`. Tracks auth type (`no_password
 
 Creating a user (`POST /api/governance/access/users`, admin only) runs a plain `CREATE USER`, never `IF NOT EXISTS`. If the name is taken the request fails with `409` and no roles are granted, so an existing account cannot pick up roles by accident.
 
-To change roles, grants, row policies, quotas or settings profiles, use **Governance → Access control**: see [Access Control Editor](/docs/rbac). Applying a change there triggers an access sync when background sync is on.
+To change roles, grants, row policies, quotas or settings profiles, use **Governance → Access control**: see [Access Control Editor](/docs/rbac). Applying a change there triggers an access sync when background sync is on. With background sync on, each sync also stores a snapshot for [Access history](/docs/rbac#access-history).
 
 ### Grants
 
@@ -303,6 +305,7 @@ Tracks privileged actions across governance and alerts.
 - `governance.tag.created` / `governance.tag.deleted`: tag change
 - `governance.access.user.created` / `governance.access.user.deleted`: user change
 - `rbac.apply`, `rbac.statement.applied`, `rbac.statement.failed`: an access control change set applied, and each statement's outcome (see [Access Control Editor](/docs/rbac#audit))
+- `rbac.exported`, `rbac.import.planned`, `rbac.history.revert_prepared`: an access file exported, an import previewed, a revert built from access history
 - `governance.policy.created` / `governance.policy.updated` / `governance.policy.deleted`: policy change
 - `governance.incident.from_violation`: incident auto-created
 - `alerts.channel.created` / `alerts.channel.updated` / `alerts.channel.deleted`: channel change
