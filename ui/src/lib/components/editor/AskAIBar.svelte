@@ -4,6 +4,7 @@
   import { onDestroy } from 'svelte'
   import { generateSQLStream } from '../../api/brainPro'
   import { error as toastError, success as toastSuccess, warning as toastWarning } from '../../stores/toast.svelte'
+  import { budgetWarningText } from '../brain/brain-budget'
   import Button from '../common/Button.svelte'
 
   interface Props {
@@ -73,6 +74,7 @@
         const checked = res.validation?.status === 'passed' ? ' Checked with EXPLAIN.' : ''
         toastSuccess(`Generated SQL${used}.${checked} Review before running.${undo}`)
       }
+      if (res.budget) toastWarning(budgetWarningText(res.budget))
       onclose()
       question = ''
     } catch (e: unknown) {

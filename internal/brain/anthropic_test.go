@@ -446,14 +446,14 @@ func TestAnthropicListModels(t *testing.T) {
 func TestPriceTableCost(t *testing.T) {
 	t.Parallel()
 	prices := DefaultPrices()
-	cost, ok := prices.Cost("claude-sonnet-5-5", ChatResult{InputTokens: 1_000_000, OutputTokens: 100_000, CacheReadTokens: 1_000_000, CacheWriteTokens: 0})
+	cost, ok := prices.Cost("claude-sonnet-5-5", ChatResult{InputTokens: 1_000_000, OutputTokens: 100_000, CacheReadTokens: 1_000_000, CacheWriteTokens: 0}.PriceUsage())
 	if !ok || cost < 3.199 || cost > 3.201 {
 		t.Fatalf("cost %v %v", cost, ok)
 	}
 	if _, ok := prices.Lookup("anthropic/claude-haiku-5-5"); !ok {
 		t.Error("prefixed model ids should match")
 	}
-	if _, ok := prices.Cost("gpt-x", ChatResult{InputTokens: 1}); ok {
+	if _, ok := prices.Cost("gpt-x", ChatResult{InputTokens: 1}.PriceUsage()); ok {
 		t.Error("unknown model has no cost")
 	}
 	if ParsePriceTable("not json") != nil {

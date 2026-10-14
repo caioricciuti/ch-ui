@@ -3,6 +3,10 @@ import { connectionHeaders } from '../stores/workspace-scope'
 import { apiDel, apiGet, apiPost, apiPut } from './client'
 import type {
   BrainArtifact,
+  BrainBudgetList,
+  BrainBudgetPeriod,
+  BrainBudgetScope,
+  BrainBudgetStatus,
   BrainChat,
   BrainMessage,
   BrainModelOption,
@@ -10,6 +14,7 @@ import type {
   BrainSettings,
   BrainSkill,
   BrainUsage,
+  BrainUsageGroupBy,
   BrainUsageReport,
   SchemaContextEntry,
 } from '../types/brain'
@@ -64,6 +69,8 @@ export interface StreamEvent {
   status?: string
   result?: Record<string, unknown>
   usage?: BrainUsage
+  /** On done, when an applicable budget is at 80% or more. */
+  budget?: BrainBudgetStatus
 }
 
 export async function streamBrainMessage(
@@ -203,8 +210,40 @@ export async function adminUpdateBrainSettings(payload: Partial<BrainSettings>):
   return res.settings
 }
 
-export async function adminGetBrainUsage(days: number): Promise<BrainUsageReport> {
-  return apiGet<BrainUsageReport & { success: boolean }>(`/api/admin/brain/usage?days=${days}`)
+export async function adminGetBrainUsage(days: number, groupBy: BrainUsageGroupBy = 'person'): Promise<BrainUsageReport> {
+  return apiGet<BrainUsageReport & { success: boolean }>(`/api/admin/brain/usage?days=${days}&group_by=${groupBy}`)
+}
+
+/** The body of a budget rule create or update. */
+export interface BrainBudgetInput {
+  scope: BrainBudgetScope
+  subject: string
+  period: BrainBudgetPeriod
+  token_limit: number | null
+  usd_limit: number | null
+  block_unpriced: boolean
+}
+
+export async function adminListBrainBudgets(): Promise<BrainBudgetList> {
+  const res = await apiGet<BrainBudgetList & { success: boolean }>('/api/admin/brain/budgets')
+  return { budgets: res.budgets ?? [], pro: res.pro, legacyDailyTokens: res.legacyDailyTokens ?? 0 }
+}
+
+export async function adminCreateBrainBudget(input: BrainBudgetInput): Promise<void> {
+  await apiPost('/api/admin/brain/budgets', input)
+}
+
+export async function adminUpdateBrainBudget(id: string, input: BrainBudgetInput): Promise<void> {
+  await apiPut(`/api/admin/brain/budgets/${encodeURIComponent(id)}`, input)
+}
+
+export async function adminDeleteBrainBudget(id: string): Promise<void> {
+  await apiDel(`/api/admin/brain/budgets/${encodeURIComponent(id)}`)
+}
+
+/** What the signed-in person used today and this month, and the budgets that apply to them. */
+export async function getMyBrainUsage(): Promise<{ usage: Record<BrainBudgetPeriod, { tokens: number; cost_usd: number; reset_at: string }>; budgets: BrainBudgetStatus[] }> {
+  return apiGet('/api/brain/usage/me')
 }
 
 export async function adminAddBrainModel(providerId: string, name: string): Promise<void> {

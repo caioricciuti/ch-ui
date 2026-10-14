@@ -34,7 +34,6 @@
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import { Brain, RefreshCw, Plus, Trash2, RefreshCcw } from 'lucide-svelte'
   import BrainSettingsPanel from './BrainSettingsPanel.svelte'
-  import BrainUsagePanel from './BrainUsagePanel.svelte'
 
   // AI providers, the models they expose and the system prompt every Brain
   // chat starts from. Self-contained: loads on mount, reloads after writes.
@@ -307,7 +306,7 @@
 {:else}
   <PageBody width="md">
     <div class="space-y-8">
-      <SectionHeader level="page" title="Brain" description="AI providers, the models they expose and the system prompt every chat starts from.">
+      <SectionHeader level="page" title="Brain" description="AI providers, the models they expose, model roles, prices and the system prompt every chat starts from. Budgets and usage have their own sections.">
         {#snippet actions()}
           <Button icon size="sm" variant="ghost" aria-label="Refresh" title="Refresh" onclick={() => loadAll()}>
             <RefreshCw size={14} />
@@ -468,8 +467,6 @@
       </section>
 
       <BrainSettingsPanel {models} />
-
-      <BrainUsagePanel />
 
       <section>
         <SectionHeader title="System prompt" description="Steers SQL safety, artifacts and tool behavior for every chat.">

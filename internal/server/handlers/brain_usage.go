@@ -7,9 +7,9 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"time"
 
 	braincore "github.com/caioricciuti/ch-ui/internal/brain"
+	"github.com/caioricciuti/ch-ui/internal/brain/pricing"
 	"github.com/caioricciuti/ch-ui/internal/database"
 )
 
@@ -19,7 +19,7 @@ const (
 	settingBrainQuickModel  = "brain.quick_model_id"
 	settingBrainDailyBudget = "brain.daily_token_budget"
 	settingBrainMaxOutput   = "brain.max_output_tokens"
-	settingBrainPrices      = "brain.prices"
+	settingBrainPrices      = pricing.SettingKey
 )
 
 // brainSettings are the admin's Brain choices: which model answers chat
@@ -49,37 +49,8 @@ func loadBrainSettings(db *database.DB) brainSettings {
 	s.QuickModelID = strings.TrimSpace(all[settingBrainQuickModel])
 	s.DailyTokenBudget, _ = strconv.Atoi(strings.TrimSpace(all[settingBrainDailyBudget]))
 	s.MaxOutputTokens, _ = strconv.Atoi(strings.TrimSpace(all[settingBrainMaxOutput]))
-	if raw, ok := all[settingBrainPrices]; ok {
-		s.Prices = braincore.ParsePriceTable(raw)
-		if s.Prices == nil {
-			s.Prices = braincore.PriceTable{}
-		}
-	}
+	s.Prices = pricing.FromSettings(all)
 	return s
-}
-
-// startOfDayUTC is when today's budget started.
-func startOfDayUTC(now time.Time) time.Time {
-	y, m, d := now.UTC().Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
-}
-
-// budgetExceeded returns a message for the person when their daily token
-// budget is used up, or "" when they may start a turn.
-func budgetExceeded(db *database.DB, username string, s brainSettings) string {
-	if s.DailyTokenBudget <= 0 || db == nil {
-		return ""
-	}
-	used, err := db.BrainTokensUsedSince(username, startOfDayUTC(time.Now()))
-	if err != nil {
-		slog.Warn("Failed to check Brain token budget", "error", err)
-		return ""
-	}
-	if used < s.DailyTokenBudget {
-		return ""
-	}
-	return fmt.Sprintf("You have used your daily Brain budget of %s tokens (%s used today). It resets at 00:00 UTC; an admin can raise it in Admin > Brain.",
-		formatTokenCount(s.DailyTokenBudget), formatTokenCount(used))
 }
 
 // Stop reasons the agent loop sets itself, next to the provider's "length"
@@ -89,19 +60,28 @@ const (
 	stopReasonBudget    = "budget"
 )
 
-// turnOverBudget reports whether the tokens stored today plus what this
-// turn used so far reach the daily budget. Usage is stored when a turn
-// ends, so the stored sum never includes the running turn.
-func (h *BrainHandler) turnOverBudget(t brainTurn) bool {
-	if t.budget <= 0 || h.DB == nil || t.usage == nil {
-		return false
+// turnBudgetStop records what the running turn used so far and returns why
+// it must stop, or "": the person's stored usage, this turn and their other
+// running turns reached an applicable limit. The turn's own usage reaches
+// the ledger only when it ends.
+func (h *BrainHandler) turnBudgetStop(t brainTurn) string {
+	if h.DB == nil || t.usage == nil || t.runtimeModel == nil {
+		return ""
 	}
-	used, err := h.DB.BrainTokensUsedSince(t.username, startOfDayUTC(time.Now()))
-	if err != nil {
-		slog.Warn("Failed to check Brain token budget", "error", err)
-		return false
+	h.live.set(t.liveID, spendOf(*t.usage, t.runtimeModel.ModelName, t.prices))
+	return h.checkBudget(t.ident, "", t.prices, h.live.others(t.ident.subject, ""))
+}
+
+// addTurnUsage sums one provider call into the turn and publishes the
+// running total to the other turns' budget checks.
+func (h *BrainHandler) addTurnUsage(t brainTurn, res *braincore.ChatResult) {
+	if t.usage == nil || res == nil {
+		return
 	}
-	return used+t.usage.Tokens() >= t.budget
+	t.usage.Add(res)
+	if t.runtimeModel != nil {
+		h.live.set(t.liveID, spendOf(*t.usage, t.runtimeModel.ModelName, t.prices))
+	}
 }
 
 func formatTokenCount(n int) string {
@@ -116,8 +96,9 @@ func formatTokenCount(n int) string {
 	return string(out)
 }
 
-// usagePayload is the usage the UI shows under a message.
-func usagePayload(provider, model string, u braincore.ChatResult, prices braincore.PriceTable) map[string]any {
+// usagePayload is the usage the UI shows under a message. cost is the
+// stored cost; nil means unpriced and no cost is shown.
+func usagePayload(provider, model string, u braincore.ChatResult, cost *float64) map[string]any {
 	out := map[string]any{
 		"provider":           provider,
 		"model":              model,
@@ -126,8 +107,8 @@ func usagePayload(provider, model string, u braincore.ChatResult, prices brainco
 		"cache_read_tokens":  u.CacheReadTokens,
 		"cache_write_tokens": u.CacheWriteTokens,
 	}
-	if cost, ok := prices.Cost(model, u); ok {
-		out["cost_usd"] = roundCost(cost)
+	if cost != nil {
+		out["cost_usd"] = roundCost(*cost)
 	}
 	return out
 }
@@ -145,8 +126,6 @@ func stopNote(reason string) string {
 		return "\n\n_The model declined to answer this request._"
 	case stopReasonToolLimit:
 		return fmt.Sprintf("\n\n_Stopped after %d steps in one turn. Ask me to continue if there is more to do._", brainMaxIterations)
-	case stopReasonBudget:
-		return "\n\n_Stopped because your daily Brain budget is used up. It resets at 00:00 UTC; an admin can raise it in Admin > Brain._"
 	default:
 		return ""
 	}
@@ -175,17 +154,24 @@ func (h *BrainHandler) saveTurnUsage(t *brainTurn) {
 		}
 		*t.usageSaved = true
 	}
+	// The running total leaves the live map once the row is stored; until
+	// then it keeps counting for the person's other turns.
+	defer h.live.end(t.liveID)
 	u := *t.usage
 	provider := providerLabel(t.runtimeModel)
 	model := t.runtimeModel.ModelName
-	if err := h.DB.SetBrainMessageUsage(t.assistantMessageID, provider, model, u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens); err != nil {
+	cost := costPtr(u, model, t.prices)
+	if err := h.DB.SetBrainMessageUsage(t.assistantMessageID, provider, model, u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens, cost); err != nil {
 		slog.Warn("Failed to store Brain message usage", "error", err)
 	}
 	if u.InputTokens+u.OutputTokens+u.CacheReadTokens+u.CacheWriteTokens == 0 {
 		return
 	}
 	if err := h.DB.RecordBrainUsage(database.BrainUsageRecord{
-		Username:         t.username,
+		Username:         t.ident.actor,
+		Subject:          t.ident.subject,
+		Role:             t.ident.role,
+		CostUSD:          cost,
 		Provider:         provider,
 		Model:            model,
 		Purpose:          "chat",
@@ -203,12 +189,15 @@ func (h *BrainHandler) saveTurnUsage(t *brainTurn) {
 // recordQuickUsage stores one Ask AI or Fix with AI call in the ledger.
 // purpose is ask_ai, fix_sql, or ask_ai_repair / fix_sql_repair for a call
 // that repairs SQL ClickHouse rejected.
-func (h *BrainHandler) recordQuickUsage(username string, rt *database.BrainModelRuntime, purpose string, u *braincore.ChatResult) {
+func (h *BrainHandler) recordQuickUsage(id budgetIdentity, rt *database.BrainModelRuntime, purpose string, u *braincore.ChatResult, prices braincore.PriceTable) {
 	if h.DB == nil || rt == nil || u == nil || u.InputTokens+u.OutputTokens+u.CacheReadTokens+u.CacheWriteTokens == 0 {
 		return
 	}
 	if err := h.DB.RecordBrainUsage(database.BrainUsageRecord{
-		Username:         username,
+		Username:         id.actor,
+		Subject:          id.subject,
+		Role:             id.role,
+		CostUSD:          costPtr(*u, rt.ModelName, prices),
 		Provider:         providerLabel(rt),
 		Model:            rt.ModelName,
 		Purpose:          purpose,
@@ -221,8 +210,9 @@ func (h *BrainHandler) recordQuickUsage(username string, rt *database.BrainModel
 	}
 }
 
-// messageUsage is the stored usage of one message for the UI, or nil.
-func messageUsage(m database.BrainMessage, prices braincore.PriceTable) map[string]any {
+// messageUsage is the stored usage and cost of one message for the UI, or
+// nil.
+func messageUsage(m database.BrainMessage) map[string]any {
 	if m.Role != "assistant" || m.Model == nil {
 		return nil
 	}
@@ -235,7 +225,7 @@ func messageUsage(m database.BrainMessage, prices braincore.PriceTable) map[stri
 		OutputTokens:     m.OutputTokens,
 		CacheReadTokens:  m.CacheReadTokens,
 		CacheWriteTokens: m.CacheWriteTokens,
-	}, prices)
+	}, m.CostUSD)
 }
 
 // marshalPrices is the stored form of a price table.

@@ -52,6 +52,9 @@ type BrainHandler struct {
 	approvalMu sync.Mutex
 	approvals  map[string]chan approvalDecision
 
+	// live holds the running chat turns' usage for budget checks.
+	live liveSpend
+
 	guardOnce sync.Once
 	guard     *governance.GuardrailService
 }
@@ -69,6 +72,7 @@ type PipelineRunner interface {
 
 func (h *BrainHandler) Routes(r chi.Router) {
 	r.Get("/models", h.ListModels)
+	r.Get("/usage/me", h.GetMyUsage)
 	r.Post("/generate-sql", h.GenerateSQL) // Pro: text-to-SQL grounded in live schema
 	r.Post("/generate-sql/stream", h.GenerateSQLStream)
 	r.Post("/fix-sql", h.FixSQL) // Pro: minimal fix for a query ClickHouse rejected
@@ -407,7 +411,6 @@ func (h *BrainHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to load messages")
 		return
 	}
-	prices := loadBrainSettings(h.DB).Prices
 
 	// Re-hydrate tool cards for Pro chats: pull every tool call for this
 	// chat, group by message_id, and attach as `toolCalls` on each
@@ -444,7 +447,7 @@ func (h *BrainHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 		if cs, ok := calls[m.ID]; ok && len(cs) > 0 {
 			entry["toolCalls"] = cs
 		}
-		if u := messageUsage(m, prices); u != nil {
+		if u := messageUsage(m); u != nil {
 			entry["usage"] = u
 		}
 		hydrated = append(hydrated, entry)
@@ -657,9 +660,16 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	settings := loadBrainSettings(h.DB)
-	if msg := budgetExceeded(h.DB, middleware.Actor(session), settings); msg != "" {
-		writeError(w, http.StatusTooManyRequests, msg)
-		return
+	ident := identityOf(session)
+	// The model is resolved before anything is stored so the budget check
+	// can refuse an unpriced model; a resolve error is stored on the
+	// assistant message below, as before.
+	runtimeModel, rmErr := h.resolveRuntimeModel(chat, strings.TrimSpace(body.ModelID), settings.AgentModelID)
+	if rmErr == nil {
+		if msg := h.checkBudget(ident, runtimeModel.ModelName, settings.Prices, h.live.others(ident.subject, "")); msg != "" {
+			writeError(w, http.StatusTooManyRequests, msg)
+			return
+		}
 	}
 
 	userMessageID, err := h.DB.CreateBrainMessage(chatID, "user", prompt, "complete", "")
@@ -674,10 +684,9 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runtimeModel, err := h.resolveRuntimeModel(chat, strings.TrimSpace(body.ModelID), settings.AgentModelID)
-	if err != nil {
-		_ = h.DB.UpdateBrainMessage(assistantMessageID, "", "error", err.Error())
-		writeError(w, http.StatusBadRequest, err.Error())
+	if rmErr != nil {
+		_ = h.DB.UpdateBrainMessage(assistantMessageID, "", "error", rmErr.Error())
+		writeError(w, http.StatusBadRequest, rmErr.Error())
 		return
 	}
 
@@ -759,13 +768,16 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		omitted:            omitted,
 		contexts:           allContexts,
 		entities:           body.EntityContexts,
-		username:           middleware.Actor(session),
+		ident:              ident,
+		liveID:             h.live.start(ident.subject),
 		usage:              &braincore.ChatResult{},
 		usageSaved:         new(bool),
 		prices:             settings.Prices,
-		budget:             settings.DailyTokenBudget,
 	}
 	// Record what the turn used however it ends: done, error or stopped.
+	// saveTurnUsage takes the turn out of the live map; the second defer
+	// covers a turn that ended before any usage.
+	defer h.live.end(turn.liveID)
 	defer h.saveTurnUsage(&turn)
 
 	// Pro path: agentic loop with tools (only if the provider supports tool calling).
@@ -793,12 +805,13 @@ type brainTurn struct {
 	omitted            int
 	contexts           []schemaContext
 	entities           []entityContext
-	username           string
+	// ident is who the turn's usage and budget belong to.
+	ident budgetIdentity
+	// liveID is the turn's entry in the handler's running-usage map.
+	liveID string
 	// usage sums the token counts of every provider call in the turn.
 	usage  *braincore.ChatResult
 	prices braincore.PriceTable
-	// budget is the person's daily token budget (0 means none).
-	budget int
 	// usageSaved is shared by every copy of the turn so usage is stored once.
 	usageSaved *bool
 }
@@ -816,7 +829,7 @@ func (h *BrainHandler) streamMessageCommunity(r *http.Request, stream *sseStream
 		return stream.send(map[string]interface{}{"type": "delta", "delta": delta, "messageId": t.assistantMessageID})
 	})
 	if res != nil {
-		t.usage.Add(res)
+		h.addTurnUsage(t, res)
 		if streamErr == nil {
 			h.sendStopNote(stream, t, &built, res.StopReason)
 		}
@@ -888,7 +901,10 @@ func (h *BrainHandler) finishTurn(r *http.Request, stream *sseStream, t brainTur
 
 	done := map[string]interface{}{"type": "done", "messageId": t.assistantMessageID, "chatId": t.chatID}
 	if t.usage != nil {
-		done["usage"] = usagePayload(providerLabel(t.runtimeModel), t.runtimeModel.ModelName, *t.usage, t.prices)
+		done["usage"] = usagePayload(providerLabel(t.runtimeModel), t.runtimeModel.ModelName, *t.usage, costPtr(*t.usage, t.runtimeModel.ModelName, t.prices))
+	}
+	if b := h.budgetWarningFor(t.ident); b != nil {
+		done["budget"] = b
 	}
 	_ = stream.send(done)
 }
@@ -896,7 +912,11 @@ func (h *BrainHandler) finishTurn(r *http.Request, stream *sseStream, t brainTur
 // sendStopNote appends a short note when the answer ended early (output cap
 // or a refusal), so the person knows it is not the whole answer.
 func (h *BrainHandler) sendStopNote(stream *sseStream, t brainTurn, built *strings.Builder, reason string) {
-	note := stopNote(reason)
+	h.sendNote(stream, t, built, stopNote(reason))
+}
+
+// sendNote appends a note to the answer, in the stream and the stored text.
+func (h *BrainHandler) sendNote(stream *sseStream, t brainTurn, built *strings.Builder, note string) {
 	if note == "" {
 		return
 	}

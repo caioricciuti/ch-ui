@@ -21,6 +21,10 @@ func (h *AdminHandler) registerBrainUsageRoutes(r chi.Router) {
 	r.Get("/brain/settings", h.GetBrainSettings)
 	r.Put("/brain/settings", h.UpdateBrainSettings)
 	r.Get("/brain/usage", h.GetBrainUsage)
+	r.Get("/brain/budgets", h.ListBrainBudgets)
+	r.Post("/brain/budgets", h.CreateBrainBudget)
+	r.Put("/brain/budgets/{id}", h.UpdateBrainBudget)
+	r.Delete("/brain/budgets/{id}", h.DeleteBrainBudget)
 	r.Post("/brain/providers/{id}/models", h.AddBrainProviderModel)
 }
 
@@ -102,7 +106,8 @@ func (h *AdminHandler) UpdateBrainSettings(w http.ResponseWriter, r *http.Reques
 		err = firstErr(err, set(settingBrainQuickModel, strings.TrimSpace(*body.QuickModelID)))
 	}
 	if body.DailyTokenBudget != nil {
-		err = firstErr(err, set(settingBrainDailyBudget, strconv.Itoa(*body.DailyTokenBudget)))
+		// Kept for older clients: it is the global daily rule's token limit.
+		err = firstErr(err, h.DB.SetGlobalDailyTokenBudget(*body.DailyTokenBudget))
 	}
 	if body.MaxOutputTokens != nil {
 		err = firstErr(err, set(settingBrainMaxOutput, strconv.Itoa(*body.MaxOutputTokens)))
@@ -131,8 +136,9 @@ func firstErr(a, b error) error {
 }
 
 // GetBrainUsage returns the token ledger for the last ?days= days (1 to
-// 366, default 30), per person, provider and model, with estimated cost
-// where a price is set, plus totals.
+// 366, default 30), per person (?group_by=person, the default) or per role
+// (?group_by=role), provider and model, with the cost stored when each
+// request ran, plus totals and the models that had no price.
 func (h *AdminHandler) GetBrainUsage(w http.ResponseWriter, r *http.Request) {
 	days := 30
 	if v := strings.TrimSpace(r.URL.Query().Get("days")); v != "" {
@@ -143,64 +149,91 @@ func (h *AdminHandler) GetBrainUsage(w http.ResponseWriter, r *http.Request) {
 		}
 		days = n
 	}
+	groupBy := strings.TrimSpace(r.URL.Query().Get("group_by"))
+	switch groupBy {
+	case "":
+		groupBy = "person"
+	case "person", "role":
+	default:
+		writeError(w, http.StatusBadRequest, "group_by must be person or role")
+		return
+	}
 	until := time.Now().UTC()
-	since := startOfDayUTC(until).AddDate(0, 0, -(days - 1))
+	since := periodStart("day", until).AddDate(0, 0, -(days - 1))
 
-	rows, err := h.DB.BrainUsageSummary(since, until.Add(time.Second))
+	rows, err := h.DB.BrainUsageSummary(since, until.Add(time.Second), groupBy)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to load Brain usage")
 		return
 	}
-	prices := loadBrainSettings(h.DB).Prices
 
-	type usageRow struct {
-		database.BrainUsageRow
-		CostUSD *float64 `json:"cost_usd"`
+	type unpricedModel struct {
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+		Requests int    `json:"requests"`
 	}
-	out := make([]usageRow, 0, len(rows))
 	var total braincore.ChatResult
 	totalCost := 0.0
-	priced, unpriced, requests := 0, 0, 0
-	users := map[string]bool{}
+	unpriced, requests := 0, 0
+	estimated := false
+	groups := map[string]bool{}
+	unpricedByModel := map[string]*unpricedModel{}
+	unpricedModels := make([]*unpricedModel, 0)
 	for _, row := range rows {
-		u := braincore.ChatResult{
+		total.Add(&braincore.ChatResult{
 			InputTokens:      row.InputTokens,
 			OutputTokens:     row.OutputTokens,
 			CacheReadTokens:  row.CacheReadTokens,
 			CacheWriteTokens: row.CacheWriteTokens,
-		}
-		total.Add(&u)
+		})
 		requests += row.Requests
-		users[row.Username] = true
-		item := usageRow{BrainUsageRow: row}
-		if cost, ok := prices.Cost(row.Model, u); ok {
-			c := roundCost(cost)
-			item.CostUSD = &c
-			totalCost += cost
-			priced++
-		} else {
-			unpriced++
+		groups[row.Group] = true
+		if row.CostUSD != nil {
+			totalCost += *row.CostUSD
 		}
-		out = append(out, item)
+		estimated = estimated || row.Estimated
+		unpriced += row.UnpricedRequests
+		if row.UnpricedRequests > 0 {
+			key := row.Provider + "\x00" + row.Model
+			m, ok := unpricedByModel[key]
+			if !ok {
+				m = &unpricedModel{Provider: row.Provider, Model: row.Model}
+				unpricedByModel[key] = m
+				unpricedModels = append(unpricedModels, m)
+			}
+			m.Requests += row.UnpricedRequests
+		}
+	}
+	for i := range rows {
+		if rows[i].CostUSD != nil {
+			c := roundCost(*rows[i].CostUSD)
+			rows[i].CostUSD = &c
+		}
 	}
 
+	totals := map[string]any{
+		"requests":           requests,
+		"groups":             len(groups),
+		"input_tokens":       total.InputTokens,
+		"output_tokens":      total.OutputTokens,
+		"cache_read_tokens":  total.CacheReadTokens,
+		"cache_write_tokens": total.CacheWriteTokens,
+		"cost_usd":           roundCost(totalCost),
+		"cost_estimated":     estimated,
+		"unpriced_requests":  unpriced,
+	}
+	if groupBy == "person" {
+		totals["users"] = len(groups)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"success": true,
-		"since":   since.Format(time.RFC3339),
-		"until":   until.Format(time.RFC3339),
-		"days":    days,
-		"rows":    out,
-		"totals": map[string]any{
-			"requests":           requests,
-			"users":              len(users),
-			"input_tokens":       total.InputTokens,
-			"output_tokens":      total.OutputTokens,
-			"cache_read_tokens":  total.CacheReadTokens,
-			"cache_write_tokens": total.CacheWriteTokens,
-			"cost_usd":           roundCost(totalCost),
-			"unpriced_rows":      unpriced,
-			"priced_rows":        priced,
-		},
+		"success":         true,
+		"since":           since.Format(time.RFC3339),
+		"until":           until.Format(time.RFC3339),
+		"days":            days,
+		"group_by":        groupBy,
+		"rows":            rows,
+		"unpriced_models": unpricedModels,
+		"totals":          totals,
 	})
 }
 

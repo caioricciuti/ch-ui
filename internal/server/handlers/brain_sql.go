@@ -104,6 +104,7 @@ type sqlTask struct {
 type sqlGenJob struct {
 	task         *sqlTask
 	actor        string
+	ident        budgetIdentity
 	req          sqlRequest
 	settings     brainSettings
 	runtimeModel *database.BrainModelRuntime
@@ -281,10 +282,7 @@ func (h *BrainHandler) prepareGenerateSQL(w http.ResponseWriter, r *http.Request
 
 	settings := loadBrainSettings(h.DB)
 	actor := middleware.Actor(session)
-	if msg := budgetExceeded(h.DB, actor, settings); msg != "" {
-		writeError(w, http.StatusTooManyRequests, msg)
-		return nil
-	}
+	ident := identityOf(session)
 	preferred := settings.QuickModelID
 	if preferred == "" {
 		preferred = settings.AgentModelID
@@ -292,6 +290,10 @@ func (h *BrainHandler) prepareGenerateSQL(w http.ResponseWriter, r *http.Request
 	runtimeModel, rmErr := h.resolveRuntimeModel(nil, req.ModelID, preferred)
 	if rmErr != nil {
 		writeError(w, http.StatusBadRequest, rmErr.Error())
+		return nil
+	}
+	if msg := h.checkBudget(ident, runtimeModel.ModelName, settings.Prices, h.live.others(ident.subject, "")); msg != "" {
+		writeError(w, http.StatusTooManyRequests, msg)
 		return nil
 	}
 	provider, err := braincore.NewProvider(runtimeModel.ProviderKind)
@@ -324,6 +326,7 @@ func (h *BrainHandler) prepareGenerateSQL(w http.ResponseWriter, r *http.Request
 	return &sqlGenJob{
 		task:         task,
 		actor:        actor,
+		ident:        ident,
 		req:          req,
 		settings:     settings,
 		runtimeModel: runtimeModel,
@@ -473,7 +476,7 @@ func (h *BrainHandler) generateOnce(parent context.Context, job *sqlGenJob, mess
 		}
 		return nil
 	})
-	h.recordQuickUsage(job.actor, job.runtimeModel, purpose, usage)
+	h.recordQuickUsage(job.ident, job.runtimeModel, purpose, usage, job.prices)
 	return sb.String(), usage, err
 }
 
@@ -525,7 +528,7 @@ func (h *BrainHandler) runSQLGeneration(ctx context.Context, job *sqlGenJob, ev 
 		if res.validation.Rounds >= sqlMaxRepairs || ctx.Err() != nil {
 			return res, nil
 		}
-		if budgetExceeded(h.DB, job.actor, job.settings) != "" {
+		if h.checkBudget(job.ident, "", job.prices, h.live.others(job.ident.subject, "")) != "" {
 			res.validation.Reason = "budget"
 			return res, nil
 		}
@@ -586,7 +589,7 @@ func sqlResultPayload(job *sqlGenJob, res *sqlGenResult) map[string]any {
 		out["explanation"] = res.explanation
 	}
 	if res.usage != nil {
-		out["usage"] = usagePayload(providerLabel(job.runtimeModel), job.runtimeModel.ModelName, *res.usage, job.prices)
+		out["usage"] = usagePayload(providerLabel(job.runtimeModel), job.runtimeModel.ModelName, *res.usage, costPtr(*res.usage, job.runtimeModel.ModelName, job.prices))
 	}
 	if res.truncated {
 		out["truncated"] = true
@@ -606,6 +609,9 @@ func (h *BrainHandler) serveSQLTask(w http.ResponseWriter, r *http.Request, task
 	}
 	h.auditGenerateSQL(r, job)
 	out := sqlResultPayload(job, res)
+	if b := h.budgetWarningFor(job.ident); b != nil {
+		out["budget"] = b
+	}
 	out["success"] = true
 	writeJSON(w, http.StatusOK, out)
 }
@@ -647,6 +653,9 @@ func (h *BrainHandler) streamSQLTask(w http.ResponseWriter, r *http.Request, tas
 	}
 	h.auditGenerateSQL(r, job)
 	done := sqlResultPayload(job, res)
+	if b := h.budgetWarningFor(job.ident); b != nil {
+		done["budget"] = b
+	}
 	done["type"] = "done"
 	_ = stream.send(done)
 }

@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caioricciuti/ch-ui/internal/config"
+	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
@@ -74,11 +76,69 @@ func TestBrainAgentStopsWhenBudgetRunsOutMidTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	done, text := rg.runTurn(t, "dashboards?")
-	if done == nil || !strings.Contains(text, "daily Brain budget is used up") {
+	if done == nil || !strings.Contains(text, "Stopped. You have used the daily Brain budget of 500 tokens") {
 		t.Fatalf("done %v text %q", done, text)
 	}
 	if fc.request(1) != nil {
 		t.Error("no model call after the budget ran out")
+	}
+	if b, _ := done["budget"].(map[string]any); b == nil || b["exceeded"] != true || b["period"] != "day" {
+		t.Errorf("done carries the budget state: %v", done["budget"])
+	}
+}
+
+// Another running turn of the same person counts between steps: its usage
+// is not in the ledger yet, but the reservation map has it.
+func TestBrainAgentCountsParallelTurns(t *testing.T) {
+	rg, fc := newClaudeRig(t,
+		claudeToolUse("toolu_1", "list_dashboards", `{}`),
+		claudeText("never sent", "end_turn", 1, 1),
+	)
+	if err := rg.db.SetSetting(settingBrainDailyBudget, "5000"); err != nil {
+		t.Fatal(err)
+	}
+	other := rg.h.live.start(identityOf(rg.session).subject)
+	defer rg.h.live.end(other)
+	// Under the budget at the start; this turn's first step (2,000 cache
+	// writes and some tokens) takes the sum past it.
+	rg.h.live.set(other, database.BrainSpend{Tokens: 4000})
+	_, text := rg.runTurn(t, "dashboards?")
+	if !strings.Contains(text, "Stopped. You have used") {
+		t.Fatalf("text %q", text)
+	}
+	if fc.request(1) != nil {
+		t.Error("no second step once the running turns used the budget")
+	}
+	if got := rg.h.live.others(identityOf(rg.session).subject, other); got.Tokens != 0 {
+		t.Errorf("the finished turn left a reservation: %+v", got)
+	}
+}
+
+// The plain streaming path (no tools) is checked before it starts, with
+// the person's running turns counted.
+func TestBrainCommunityPathBudgetCheck(t *testing.T) {
+	rg := newBrainRig(t, "analyst", []string{"hi"}, nil)
+	rg.h.Config.SetProAccessForTest(func() config.ProAccess { return config.ProNone })
+	if err := rg.db.SetSetting(settingBrainDailyBudget, "100"); err != nil {
+		t.Fatal(err)
+	}
+	other := rg.h.live.start(identityOf(rg.session).subject)
+	rg.h.live.set(other, database.BrainSpend{Tokens: 100})
+	resp, err := http.Post(rg.app.URL+"/chats/"+rg.chatID+"/messages/stream", "application/json", strings.NewReader(`{"content":"hi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if rg.llm.request(0) != nil {
+		t.Error("no provider call when running turns used the budget")
+	}
+	rg.h.live.end(other)
+	rg.stream(t, context.Background(), "hi", func(map[string]any) bool { return true })
+	if rg.llm.request(0) == nil {
+		t.Error("the turn runs once the other turn ended")
 	}
 }
 

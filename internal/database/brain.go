@@ -88,6 +88,8 @@ type BrainMessage struct {
 	OutputTokens     int     `json:"output_tokens"`
 	CacheReadTokens  int     `json:"cache_read_tokens"`
 	CacheWriteTokens int     `json:"cache_write_tokens"`
+	// CostUSD is the cost stored with the usage; nil when unpriced.
+	CostUSD *float64 `json:"cost_usd"`
 }
 
 // BrainArtifact stores generated artifacts linked to chats/messages.
@@ -813,7 +815,7 @@ func (db *DB) DeleteBrainChat(chatID string) error {
 // GetBrainMessages lists all messages in a chat.
 func (db *DB) GetBrainMessages(chatID string) ([]BrainMessage, error) {
 	rows, err := db.conn.Query(`SELECT id, chat_id, role, content, status, error, created_at, updated_at,
-		provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+		provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd
 		FROM brain_messages WHERE chat_id = ? ORDER BY created_at ASC`, chatID)
 	if err != nil {
 		return nil, fmt.Errorf("get brain messages: %w", err)
@@ -824,13 +826,18 @@ func (db *DB) GetBrainMessages(chatID string) ([]BrainMessage, error) {
 	for rows.Next() {
 		var m BrainMessage
 		var msgErr, provider, model sql.NullString
+		var cost sql.NullFloat64
 		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.Status, &msgErr, &m.CreatedAt, &m.UpdatedAt,
-			&provider, &model, &m.InputTokens, &m.OutputTokens, &m.CacheReadTokens, &m.CacheWriteTokens); err != nil {
+			&provider, &model, &m.InputTokens, &m.OutputTokens, &m.CacheReadTokens, &m.CacheWriteTokens, &cost); err != nil {
 			return nil, fmt.Errorf("scan brain message: %w", err)
 		}
 		m.Error = nullStringToPtr(msgErr)
 		m.Provider = nullStringToPtr(provider)
 		m.Model = nullStringToPtr(model)
+		if cost.Valid {
+			c := cost.Float64
+			m.CostUSD = &c
+		}
 		messages = append(messages, m)
 	}
 	if err := rows.Err(); err != nil {
