@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 func TestProgressiveLockoutSchedule(t *testing.T) {
@@ -142,7 +143,7 @@ func TestLegacyLongLockIsCappedToCurrentSchedule(t *testing.T) {
 }
 
 func TestParallelAttemptsCannotExceedLimit(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "rate-limit-parallel.db"))
+	db, err := dbtest.Open(t, "rate-limit-parallel.db")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -191,7 +192,7 @@ func TestParallelAttemptsCannotExceedLimit(t *testing.T) {
 }
 
 func TestInFlightRefusalIsTransient(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "rate-limit-inflight.db"))
+	db, err := dbtest.Open(t, "rate-limit-inflight.db")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +12,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/testutil"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
@@ -317,7 +317,7 @@ func TestConnectionsReportSSOReadinessOnlyToSSOSessions(t *testing.T) {
 // whose messages show which passwords reached the target.
 func serverSwitchFixture(t *testing.T, current, target database.CreateConnectionParams) (*AuthHandler, *database.DB, string, *testutil.Agent) {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "switch.db"))
+	db, err := dbtest.Open(t, "switch.db")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/queryproc"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
@@ -68,7 +68,7 @@ type dashFixture struct {
 
 func newDashFixture(t *testing.T) dashFixture {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "dash.db"))
+	db, err := dbtest.Open(t, "dash.db")
 	if err != nil {
 		t.Fatal(err)
 	}

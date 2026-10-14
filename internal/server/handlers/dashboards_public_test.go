@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 type publicFixture struct {
@@ -24,7 +24,7 @@ type publicFixture struct {
 
 func newPublicFixture(t *testing.T) publicFixture {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "public.db"))
+	db, err := dbtest.Open(t, "public.db")
 	if err != nil {
 		t.Fatal(err)
 	}

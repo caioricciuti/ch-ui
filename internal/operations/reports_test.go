@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/performance"
 	"github.com/caioricciuti/ch-ui/internal/testutil"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
@@ -183,7 +183,7 @@ func TestGeneratedReportCountsResolutionTimeWithFractionalBoundaries(t *testing.
 }
 
 func TestReportDeliveryUsesSavedSnapshotAndConfiguredChannel(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "reports.db"))
+	db, err := dbtest.Open(t, "reports.db")
 	if err != nil {
 		t.Fatal(err)
 	}

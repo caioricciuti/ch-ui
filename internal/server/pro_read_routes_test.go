@@ -8,19 +8,19 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 // Read-only Pro routes that use POST stay open in the grace window, while Pro
 // writes keep returning 402 there. Without a license everything is 402.
 func TestProReadRoutesInGrace(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "routes.db"))
+	db, err := dbtest.Open(t, "routes.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestProReadRoutesInGrace(t *testing.T) {
 // The access control editor is admin only. In grace its reads and the plan
 // still work while apply returns 402; without a license all of it is 402.
 func TestRBACRouteGating(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "rbac-routes.db"))
+	db, err := dbtest.Open(t, "rbac-routes.db")
 	if err != nil {
 		t.Fatal(err)
 	}
