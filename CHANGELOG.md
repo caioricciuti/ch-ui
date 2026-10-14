@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.23.0] - 2026-10-14
+
+### Upgrade notes
+
+- **Two new tables are created on start** (access history snapshots, Brain budgets) and existing Brain usage rows get a stored cost. This runs once and needs no action (#300, #304).
+- **Brain's daily token budget becomes the global daily rule** in Admin › Brain budgets; the old setting keeps working and stays in sync. Brain usage rows from before the upgrade are priced once from the current price table and marked "est." (#300).
+- **Brain usage API keys renamed.** In `GET /api/admin/brain/usage` totals, `unpriced_rows` is now `unpriced_requests` and `users` is now `groups` (`users` is still sent when grouping by person) (#300).
+- **`?section=alerts` now opens the fired alert events.** Rules and channels have their own sections, `?section=alert-rules` and `?section=alert-channels` (#310).
+- **Access control previews print grants the way SHOW GRANTS does**, so `GRANT ALL ON db.*` shows as the privileges it expands to, and plans now follow ClickHouse when a revoke covers narrower grants (#302).
+- **Multi-series charts change colors** to the new categorical palette; colors you picked on a panel are kept (#311).
+
+### Added
+
+- **Dashboard drilldown**: panels can have links that run on click. Filter the dashboard by the clicked value, open another dashboard with variables and the clicked time range, open a filled-in query in the SQL editor (not run), or open an http(s) URL. Templates take `${__value}`, `${__field}`, `${__series}`, `${__row.<col>}` and dashboard variables. Share links keep filter and URL links only (#305).
+- **Histogram, Scatter and Heatmap** panel types, also in the SQL editor's chart view and to Brain; time series panels can be drawn as a filled area and stacked (#298).
+- **Access history** (Governance, Pro): a history of each connection's ClickHouse access control, captured on every apply and revert, when Access control is opened and the state changed, on each governance sync, and on demand. Changes made outside CH-UI are flagged as drift; each snapshot shows what changed and who gained or lost access through which role, compares with any snapshot or the live server, and can be reverted through the normal review. Kept for 180 days, up to 500 snapshots per connection (#304).
+- **Access drift alerts**: drift raises an `access.drift` alert event (warn for an outside change, error for an apply that did not land as planned) that rules, silences and acks can use, linking to Access history and resolving when access returns to the earlier state (#312).
+- **Access as code** (Pro): export a connection's roles, default roles, privileges, role grants, row policies, quotas and settings profiles as YAML or JSON (plus read-only SQL), and import such a file into the same or another connection with optional per-kind prune, user/role and database renames and a kinds filter. Import previews the changes and what it skips, then stages them into the normal review. Passwords and users.xml entities are never included, and import never creates users (#306).
+- **Brain budgets per person and per role** (Pro), per UTC day or month, with token and dollar limits; the most specific rule applies and a rule without limits exempts people from broader ones. People see a warning at 80%, and a refused request names the rule, the amount used and when it resets. Dollar budgets can refuse models without a price. Admin › Brain is split into Brain, Brain budgets and Brain usage (grouped by person or role) (#300).
+
+### Changed
+
+- **Brain costs are stored when a request runs**, so editing prices no longer rewrites past costs; unpriced requests show no cost instead of $0 (#300).
+- **Chart colors**: multi-series charts use a categorical palette (orange, blue, teal, violet, pink, gold, lime, gray) with at least 3:1 contrast in both themes. Panels save only the series colors you pick, and the color picker offers the chart palette first (#311).
+- **Governance alerts** are three sidebar sections instead of sub-tabs: Alerts, Alert rules and Alert channels (#310).
+
+### Fixed
+
+- **Access control rollback** no longer drops a privilege held on a database when undoing `GRANT ALL` on one of its tables, and previews and rollbacks follow ClickHouse for grants on nested objects and privilege groups (ALL, ALTER and similar). Privileges such as `dictGet` and `S3` can be granted (#302).
+- **Telemetry** no longer reloads in a loop when the stored ClickHouse password cannot be decrypted; it shows the error (#297).
+- **Alert rules for report events** (failed, disabled, all) could not be saved (#312).
+- **Chart tooltips** were cut off at the edge of short dashboard panels (#313).
+- **Time series split by a series column** drew nothing when the series did not share timestamps (#298).
+- **Brain budgets match SSO people** by their user-role key (#300).
+
+### Docs and site
+
+- Docs for the new panel types, drilldown, access control previews, access as code, access history, Brain budgets, and the API and audit references (#308).
+- The newsletter signup is removed; ch-ui.com is fully static, and the privacy policy no longer lists Resend (#314).
+
+### Internal
+
+- CI: the race detector runs in four parallel shards and, on pull requests, only for affected packages; live ClickHouse tests run in their own job. The longest check went from about 6m45s to about 2m30s (#309). Test databases copy a migrated template instead of migrating per test (#301, #307).
+
 ## [2.22.0] - 2026-10-14
 
 ### Upgrade notes
