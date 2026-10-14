@@ -90,37 +90,41 @@ type Config struct {
 	OIDCGroupsClaim    string   // ID-token claim holding group memberships (default "groups")
 	OIDCAdminGroups    []string // group values mapped to the admin role
 	OIDCAnalystGroups  []string // group values mapped to the analyst role
+	// OIDCAcceptUnverifiedEmail accepts ID tokens with no email_verified claim
+	// (IdPs that never send it). An explicit false is always refused.
+	OIDCAcceptUnverifiedEmail bool
 }
 
 // serverConfigFile is the YAML structure for the server config file.
 type serverConfigFile struct {
-	Port               int      `yaml:"port"`
-	AppURL             string   `yaml:"app_url"`
-	DatabasePath       string   `yaml:"database_path"`
-	ClickHouseURL      string   `yaml:"clickhouse_url"`
-	ConnectionName     string   `yaml:"connection_name"`
-	AppSecretKey       string   `yaml:"app_secret_key"`
-	SessionMaxAge      int      `yaml:"session_max_age"`
-	AllowedOrigins     []string `yaml:"allowed_origins"`
-	AllowLoginURL      bool     `yaml:"allow_login_url"`
-	TrustedProxies     []string `yaml:"trusted_proxies"`
-	TunnelURL          string   `yaml:"tunnel_url"`
-	ExportMaxBytes     int64    `yaml:"export_max_bytes"`
-	ExportMaxRows      int64    `yaml:"export_max_rows"`
-	TLSCertFile        string   `yaml:"tls_cert_file"`
-	TLSKeyFile         string   `yaml:"tls_key_file"`
-	AuditWebhookURL    string   `yaml:"audit_webhook_url"`
-	AuditLogFile       string   `yaml:"audit_log_file"`
-	AuditForwardStdout bool     `yaml:"audit_forward_stdout"`
-	OIDCIssuerURL      string   `yaml:"oidc_issuer_url"`
-	OIDCClientID       string   `yaml:"oidc_client_id"`
-	OIDCClientSecret   string   `yaml:"oidc_client_secret"`
-	OIDCRedirectURL    string   `yaml:"oidc_redirect_url"`
-	OIDCConnectionID   string   `yaml:"oidc_connection_id"`
-	OIDCAllowedDomains []string `yaml:"oidc_allowed_domains"`
-	OIDCGroupsClaim    string   `yaml:"oidc_groups_claim"`
-	OIDCAdminGroups    []string `yaml:"oidc_admin_groups"`
-	OIDCAnalystGroups  []string `yaml:"oidc_analyst_groups"`
+	Port                      int      `yaml:"port"`
+	AppURL                    string   `yaml:"app_url"`
+	DatabasePath              string   `yaml:"database_path"`
+	ClickHouseURL             string   `yaml:"clickhouse_url"`
+	ConnectionName            string   `yaml:"connection_name"`
+	AppSecretKey              string   `yaml:"app_secret_key"`
+	SessionMaxAge             int      `yaml:"session_max_age"`
+	AllowedOrigins            []string `yaml:"allowed_origins"`
+	AllowLoginURL             bool     `yaml:"allow_login_url"`
+	TrustedProxies            []string `yaml:"trusted_proxies"`
+	TunnelURL                 string   `yaml:"tunnel_url"`
+	ExportMaxBytes            int64    `yaml:"export_max_bytes"`
+	ExportMaxRows             int64    `yaml:"export_max_rows"`
+	TLSCertFile               string   `yaml:"tls_cert_file"`
+	TLSKeyFile                string   `yaml:"tls_key_file"`
+	AuditWebhookURL           string   `yaml:"audit_webhook_url"`
+	AuditLogFile              string   `yaml:"audit_log_file"`
+	AuditForwardStdout        bool     `yaml:"audit_forward_stdout"`
+	OIDCIssuerURL             string   `yaml:"oidc_issuer_url"`
+	OIDCClientID              string   `yaml:"oidc_client_id"`
+	OIDCClientSecret          string   `yaml:"oidc_client_secret"`
+	OIDCRedirectURL           string   `yaml:"oidc_redirect_url"`
+	OIDCConnectionID          string   `yaml:"oidc_connection_id"`
+	OIDCAllowedDomains        []string `yaml:"oidc_allowed_domains"`
+	OIDCGroupsClaim           string   `yaml:"oidc_groups_claim"`
+	OIDCAdminGroups           []string `yaml:"oidc_admin_groups"`
+	OIDCAnalystGroups         []string `yaml:"oidc_analyst_groups"`
+	OIDCAcceptUnverifiedEmail bool     `yaml:"oidc_accept_unverified_email"`
 }
 
 // DefaultServerConfigPath returns the platform-specific default config path.
@@ -264,6 +268,9 @@ func Load(configPath string) *Config {
 	if v := os.Getenv("OIDC_ANALYST_GROUPS"); v != "" {
 		cfg.OIDCAnalystGroups = splitList(v)
 	}
+	if v := os.Getenv("OIDC_ACCEPT_UNVERIFIED_EMAIL"); v != "" {
+		cfg.OIDCAcceptUnverifiedEmail = parseEnvBool(v)
+	}
 
 	// Derive defaults for computed fields
 	if cfg.AppURL == "" {
@@ -404,6 +411,9 @@ func loadServerConfigFile(path string, cfg *Config) error {
 	}
 	if len(fc.OIDCAnalystGroups) > 0 {
 		cfg.OIDCAnalystGroups = fc.OIDCAnalystGroups
+	}
+	if fc.OIDCAcceptUnverifiedEmail {
+		cfg.OIDCAcceptUnverifiedEmail = true
 	}
 
 	return nil
@@ -558,6 +568,7 @@ port: 3488
 # oidc_groups_claim: groups               # ID-token claim with group memberships
 # oidc_admin_groups: [ch-ui-admins]       # IdP groups mapped to the admin role
 # oidc_analyst_groups: [data-analysts]    # IdP groups mapped to the analyst role
+# oidc_accept_unverified_email: false     # accept tokens without email_verified (e.g. Entra ID)
 `
 }
 

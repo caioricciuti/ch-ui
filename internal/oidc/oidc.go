@@ -27,11 +27,15 @@ type Provider struct {
 
 // Claims is the subset of ID-token claims CH-UI uses.
 type Claims struct {
-	Subject       string
-	Email         string
-	EmailVerified bool
-	Name          string
-	Groups        []string
+	Subject string
+	Email   string
+	// EmailVerified is the email_verified claim. EmailVerifiedPresent reports
+	// whether the IdP sent the claim at all; some (Microsoft Entra ID commonly)
+	// never do, which is different from an explicit false.
+	EmailVerified        bool
+	EmailVerifiedPresent bool
+	Name                 string
+	Groups               []string
 }
 
 // New initializes an OIDC provider from settings by discovering the issuer.
@@ -101,16 +105,38 @@ func (p *Provider) Exchange(ctx context.Context, code, expectedNonce, verifier s
 		return nil, fmt.Errorf("parse claims: %w", err)
 	}
 
+	return claimsFromRaw(idToken.Subject, raw, p.groupsClaim), nil
+}
+
+// claimsFromRaw extracts the claims CH-UI uses from a verified ID token's
+// claim set.
+func claimsFromRaw(subject string, raw map[string]interface{}, groupsClaim string) *Claims {
 	c := &Claims{
-		Subject: idToken.Subject,
+		Subject: subject,
 		Email:   asString(raw["email"]),
 		Name:    asString(raw["name"]),
+		Groups:  asStringSlice(raw[groupsClaim]),
 	}
-	if v, ok := raw["email_verified"].(bool); ok {
-		c.EmailVerified = v
+	c.EmailVerified, c.EmailVerifiedPresent = parseEmailVerified(raw)
+	return c
+}
+
+// parseEmailVerified reads email_verified. A JSON bool is taken as is; the
+// strings "true"/"false" are accepted because some IdPs (older AWS Cognito
+// pools) send them that way. Any other value counts as present but not
+// verified, so a malformed claim is refused rather than treated as missing.
+func parseEmailVerified(raw map[string]interface{}) (verified, present bool) {
+	v, ok := raw["email_verified"]
+	if !ok || v == nil {
+		return false, false
 	}
-	c.Groups = asStringSlice(raw[p.groupsClaim])
-	return c, nil
+	switch t := v.(type) {
+	case bool:
+		return t, true
+	case string:
+		return strings.EqualFold(strings.TrimSpace(t), "true"), true
+	}
+	return false, true
 }
 
 func asString(v interface{}) string {

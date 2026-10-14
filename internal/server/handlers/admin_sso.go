@@ -48,16 +48,17 @@ func LoadDBSSOSettings(db *database.DB, cfg *config.Config) (oidc.Settings, erro
 		}
 	}
 	return oidc.Settings{
-		Enabled:        stored.Enabled,
-		IssuerURL:      stored.IssuerURL,
-		ClientID:       stored.ClientID,
-		ClientSecret:   secret,
-		RedirectURL:    oidcRedirectURL(stored.RedirectBaseURL, cfg),
-		AllowedDomains: stored.AllowedDomains,
-		AdminGroups:    stored.AdminGroups,
-		AnalystGroups:  stored.AnalystGroups,
-		ViewerGroups:   stored.ViewerGroups,
-		Source:         oidc.SourceDB,
+		Enabled:               stored.Enabled,
+		IssuerURL:             stored.IssuerURL,
+		ClientID:              stored.ClientID,
+		ClientSecret:          secret,
+		RedirectURL:           oidcRedirectURL(stored.RedirectBaseURL, cfg),
+		AllowedDomains:        stored.AllowedDomains,
+		AdminGroups:           stored.AdminGroups,
+		AnalystGroups:         stored.AnalystGroups,
+		ViewerGroups:          stored.ViewerGroups,
+		AcceptUnverifiedEmail: stored.AcceptUnverifiedEmail,
+		Source:                oidc.SourceDB,
 	}, nil
 }
 
@@ -77,16 +78,17 @@ func ResolveOIDCSettings(cfg *config.Config, db *database.DB) (oidc.Settings, bo
 // ssoConfigView is the secret-free view of the SSO config returned to the
 // admin UI. The client secret itself is never returned — only has_secret.
 type ssoConfigView struct {
-	Enabled         bool     `json:"enabled"`
-	IssuerURL       string   `json:"issuer_url"`
-	ClientID        string   `json:"client_id"`
-	HasSecret       bool     `json:"has_secret"`
-	RedirectBaseURL string   `json:"redirect_base_url"`
-	RedirectURL     string   `json:"redirect_url"`
-	AdminGroups     []string `json:"admin_groups"`
-	AnalystGroups   []string `json:"analyst_groups"`
-	ViewerGroups    []string `json:"viewer_groups"`
-	AllowedDomains  []string `json:"allowed_domains"`
+	Enabled               bool     `json:"enabled"`
+	IssuerURL             string   `json:"issuer_url"`
+	ClientID              string   `json:"client_id"`
+	HasSecret             bool     `json:"has_secret"`
+	RedirectBaseURL       string   `json:"redirect_base_url"`
+	RedirectURL           string   `json:"redirect_url"`
+	AdminGroups           []string `json:"admin_groups"`
+	AnalystGroups         []string `json:"analyst_groups"`
+	ViewerGroups          []string `json:"viewer_groups"`
+	AllowedDomains        []string `json:"allowed_domains"`
+	AcceptUnverifiedEmail bool     `json:"accept_unverified_email"`
 }
 
 // ssoSettingsResponse is the shape returned by GET/PUT /api/admin/sso.
@@ -106,15 +108,16 @@ type ssoSettingsResponse struct {
 // ssoUpdateRequest is the PUT /api/admin/sso body. ClientSecret is optional:
 // blank keeps the currently stored (encrypted) secret.
 type ssoUpdateRequest struct {
-	Enabled         bool     `json:"enabled"`
-	IssuerURL       string   `json:"issuer_url"`
-	ClientID        string   `json:"client_id"`
-	ClientSecret    string   `json:"client_secret"`
-	RedirectBaseURL string   `json:"redirect_base_url"`
-	AdminGroups     []string `json:"admin_groups"`
-	AnalystGroups   []string `json:"analyst_groups"`
-	ViewerGroups    []string `json:"viewer_groups"`
-	AllowedDomains  []string `json:"allowed_domains"`
+	Enabled               bool     `json:"enabled"`
+	IssuerURL             string   `json:"issuer_url"`
+	ClientID              string   `json:"client_id"`
+	ClientSecret          string   `json:"client_secret"`
+	RedirectBaseURL       string   `json:"redirect_base_url"`
+	AdminGroups           []string `json:"admin_groups"`
+	AnalystGroups         []string `json:"analyst_groups"`
+	ViewerGroups          []string `json:"viewer_groups"`
+	AllowedDomains        []string `json:"allowed_domains"`
+	AcceptUnverifiedEmail bool     `json:"accept_unverified_email"`
 }
 
 // GetSSOSettings returns the current SSO configuration (secret redacted).
@@ -163,15 +166,16 @@ func (h *AdminHandler) UpdateSSOSettings(w http.ResponseWriter, r *http.Request)
 	}
 
 	next := database.SSOConfig{
-		Enabled:         req.Enabled,
-		IssuerURL:       strings.TrimSpace(req.IssuerURL),
-		ClientID:        strings.TrimSpace(req.ClientID),
-		ClientSecretEnc: current.ClientSecretEnc, // blank secret in the request keeps the stored one
-		RedirectBaseURL: strings.TrimSpace(req.RedirectBaseURL),
-		AdminGroups:     cleanList(req.AdminGroups),
-		AnalystGroups:   cleanList(req.AnalystGroups),
-		ViewerGroups:    cleanList(req.ViewerGroups),
-		AllowedDomains:  cleanList(req.AllowedDomains),
+		Enabled:               req.Enabled,
+		IssuerURL:             strings.TrimSpace(req.IssuerURL),
+		ClientID:              strings.TrimSpace(req.ClientID),
+		ClientSecretEnc:       current.ClientSecretEnc, // blank secret in the request keeps the stored one
+		RedirectBaseURL:       strings.TrimSpace(req.RedirectBaseURL),
+		AdminGroups:           cleanList(req.AdminGroups),
+		AnalystGroups:         cleanList(req.AnalystGroups),
+		ViewerGroups:          cleanList(req.ViewerGroups),
+		AllowedDomains:        cleanList(req.AllowedDomains),
+		AcceptUnverifiedEmail: req.AcceptUnverifiedEmail,
 	}
 	if secret := strings.TrimSpace(req.ClientSecret); secret != "" {
 		enc, err := crypto.Encrypt(secret, h.Config.AppSecretKey)
@@ -251,15 +255,16 @@ func (h *AdminHandler) buildSSOSettingsResponse() (ssoSettingsResponse, error) {
 			EnvManaged: true,
 			Active:     active,
 			Config: ssoConfigView{
-				Enabled:        true,
-				IssuerURL:      h.Config.OIDCIssuerURL,
-				ClientID:       h.Config.OIDCClientID,
-				HasSecret:      true,
-				RedirectURL:    h.Config.OIDCRedirectURL,
-				AdminGroups:    emptyIfNil(h.Config.OIDCAdminGroups),
-				AnalystGroups:  emptyIfNil(h.Config.OIDCAnalystGroups),
-				ViewerGroups:   []string{},
-				AllowedDomains: emptyIfNil(h.Config.OIDCAllowedDomains),
+				Enabled:               true,
+				IssuerURL:             h.Config.OIDCIssuerURL,
+				ClientID:              h.Config.OIDCClientID,
+				HasSecret:             true,
+				RedirectURL:           h.Config.OIDCRedirectURL,
+				AdminGroups:           emptyIfNil(h.Config.OIDCAdminGroups),
+				AnalystGroups:         emptyIfNil(h.Config.OIDCAnalystGroups),
+				ViewerGroups:          []string{},
+				AllowedDomains:        emptyIfNil(h.Config.OIDCAllowedDomains),
+				AcceptUnverifiedEmail: h.Config.OIDCAcceptUnverifiedEmail,
 			},
 		}, nil
 	}
@@ -272,16 +277,17 @@ func (h *AdminHandler) buildSSOSettingsResponse() (ssoSettingsResponse, error) {
 		EnvManaged: false,
 		Active:     active,
 		Config: ssoConfigView{
-			Enabled:         stored.Enabled,
-			IssuerURL:       stored.IssuerURL,
-			ClientID:        stored.ClientID,
-			HasSecret:       stored.ClientSecretEnc != "",
-			RedirectBaseURL: stored.RedirectBaseURL,
-			RedirectURL:     oidcRedirectURL(stored.RedirectBaseURL, h.Config),
-			AdminGroups:     emptyIfNil(stored.AdminGroups),
-			AnalystGroups:   emptyIfNil(stored.AnalystGroups),
-			ViewerGroups:    emptyIfNil(stored.ViewerGroups),
-			AllowedDomains:  emptyIfNil(stored.AllowedDomains),
+			Enabled:               stored.Enabled,
+			IssuerURL:             stored.IssuerURL,
+			ClientID:              stored.ClientID,
+			HasSecret:             stored.ClientSecretEnc != "",
+			RedirectBaseURL:       stored.RedirectBaseURL,
+			RedirectURL:           oidcRedirectURL(stored.RedirectBaseURL, h.Config),
+			AdminGroups:           emptyIfNil(stored.AdminGroups),
+			AnalystGroups:         emptyIfNil(stored.AnalystGroups),
+			ViewerGroups:          emptyIfNil(stored.ViewerGroups),
+			AllowedDomains:        emptyIfNil(stored.AllowedDomains),
+			AcceptUnverifiedEmail: stored.AcceptUnverifiedEmail,
 		},
 	}, nil
 }

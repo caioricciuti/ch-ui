@@ -30,6 +30,9 @@ type SSOConfig struct {
 	AnalystGroups   []string `json:"analyst_groups"`
 	ViewerGroups    []string `json:"viewer_groups"`
 	AllowedDomains  []string `json:"allowed_domains"`
+	// AcceptUnverifiedEmail accepts ID tokens that carry no email_verified
+	// claim. Absent in configs saved before it existed, so it defaults off.
+	AcceptUnverifiedEmail bool `json:"accept_unverified_email"`
 }
 
 // Validate rejects configs that could never complete an OIDC flow. Only

@@ -35,6 +35,7 @@
     analyst_groups: '',
     viewer_groups: '',
     allowed_domains: '',
+    accept_unverified_email: false,
   })
 
   const ssoConfigured = $derived(!!sso && sso.config.issuer_url.trim().length > 0)
@@ -59,6 +60,7 @@
       analyst_groups: next.config.analyst_groups.join(', '),
       viewer_groups: next.config.viewer_groups.join(', '),
       allowed_domains: next.config.allowed_domains.join(', '),
+      accept_unverified_email: next.config.accept_unverified_email,
     }
     ssoSecret = ''
   }
@@ -101,6 +103,7 @@
         analyst_groups: splitCsv(ssoForm.analyst_groups),
         viewer_groups: splitCsv(ssoForm.viewer_groups),
         allowed_domains: splitCsv(ssoForm.allowed_domains),
+        accept_unverified_email: ssoForm.accept_unverified_email,
       })
       applySSOSettings(next)
       ssoSheetOpen = false
@@ -244,6 +247,12 @@
               </dd>
             </div>
           {/each}
+          <div class="flex items-center gap-4 px-4 py-2.5">
+            <dt class="w-40 shrink-0 text-fg-3">Unverified emails</dt>
+            <dd class="min-w-0 flex-1 text-xs text-fg-2">
+              {sso.config.accept_unverified_email ? 'Accepted when the provider sends no email_verified claim' : 'Refused'}
+            </dd>
+          </div>
         </dl>
       </Panel>
     </div>
@@ -307,6 +316,13 @@
         <FormField label="Allowed email domains" for="sso-allowed_domains" controlWidth="full" hint="Empty allows every domain the provider returns.">
           <Input id="sso-allowed_domains" autocomplete="off" placeholder="yourcompany.com" bind:value={ssoForm.allowed_domains} />
         </FormField>
+        <div class="space-y-1">
+          <label class="ds-checkbox-label">
+            <input type="checkbox" class="ds-checkbox" bind:checked={ssoForm.accept_unverified_email} />
+            Accept emails without email_verified
+          </label>
+          <p class="text-xs text-fg-4">Only for providers that never send the email_verified claim, such as Microsoft Entra ID. An email marked unverified is always refused.</p>
+        </div>
         <label class="ds-checkbox-label">
           <input type="checkbox" class="ds-checkbox" bind:checked={ssoForm.enabled} />
           Enable sign-in through the identity provider

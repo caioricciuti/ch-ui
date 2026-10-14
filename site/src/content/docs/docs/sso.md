@@ -56,6 +56,7 @@ OIDC_ALLOWED_DOMAINS=yourcompany.com # restrict by email domain (comma-separated
 OIDC_GROUPS_CLAIM=groups             # ID-token claim holding group memberships
 OIDC_ADMIN_GROUPS=ch-ui-admins       # IdP groups → admin role (comma-separated)
 OIDC_ANALYST_GROUPS=data-analysts    # IdP groups → analyst role
+OIDC_ACCEPT_UNVERIFIED_EMAIL=false   # accept tokens without email_verified (see Verified email)
 ```
 
 If `OIDC_CONNECTION_ID` is empty, SSO sessions use the embedded connection. If
@@ -162,6 +163,29 @@ shared them. On upgrade:
   people (only to password logins as that account). CH-UI logs a warning at
   startup for each one; set roles per person instead.
 - Audit rows written before the upgrade keep the service account as the actor.
+
+## Verified email
+
+CH-UI uses the email in the ID token to check allowed domains and to identify
+the person, including their role override. It only trusts an email the IdP has
+verified, so someone who signs up at a self-service IdP with a colleague's
+address cannot sign in as that colleague.
+
+| `email_verified` in the ID token | Result |
+|---|---|
+| `true` | Sign-in continues |
+| `false` (or any value that is not true) | Refused: "your identity provider says this email address is not verified" |
+| Missing | Refused, unless **Accept emails without email_verified** is on |
+
+Some IdPs never send `email_verified` (Microsoft Entra ID commonly does not).
+For those, turn on **Accept emails without email_verified** in
+**Admin → Settings → Configure SSO**, or set `OIDC_ACCEPT_UNVERIFIED_EMAIL=true`
+(`oidc_accept_unverified_email: true` in `server.yaml`). Only do this when the
+IdP itself controls which addresses its users can have. An explicit
+`email_verified: false` is refused either way.
+
+Each refusal is written to the audit log as `user.login_failed` with the
+reason.
 
 ## Security
 

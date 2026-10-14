@@ -125,6 +125,14 @@ func (h *AuthHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		h.oidcFail(w, r, "your identity provider did not return an email", fmt.Errorf("empty email claim"))
 		return
 	}
+	// The email decides the allowed domain and the person's identity, so it
+	// must be one the IdP has verified. Without this, an IdP that allows
+	// self-signup lets anyone claim a colleague's address.
+	if userMsg, reason, ok := oidcEmailVerified(settings, claims); !ok {
+		h.auditSSOLoginRefused(r, email, reason)
+		h.oidcFail(w, r, userMsg, fmt.Errorf("%s: %s", reason, email))
+		return
+	}
 	if !oidcDomainAllowed(settings, email) {
 		h.oidcFail(w, r, "your email domain is not allowed", fmt.Errorf("domain not allowed: %s", email))
 		return
@@ -202,6 +210,35 @@ func oidcRole(s oidc.Settings, groups []string) string {
 		return "analyst"
 	}
 	return "viewer"
+}
+
+// oidcEmailVerified decides whether the ID token's email may be trusted. An
+// explicit email_verified=false is always refused. A missing claim is refused
+// unless the admin turned on AcceptUnverifiedEmail for an IdP that never sends
+// it. On refusal it returns the message shown to the person and a coarse
+// reason for the logs.
+func oidcEmailVerified(s oidc.Settings, c *oidc.Claims) (userMsg, reason string, ok bool) {
+	if c.EmailVerifiedPresent {
+		if c.EmailVerified {
+			return "", "", true
+		}
+		return "your identity provider says this email address is not verified", "email_verified is false", false
+	}
+	if s.AcceptUnverifiedEmail {
+		return "", "", true
+	}
+	return `your identity provider did not say whether this email address is verified; an admin can enable "Accept emails without email_verified" in the SSO settings if the provider never sends that claim`, "email_verified claim missing", false
+}
+
+// auditSSOLoginRefused records an SSO login refused after the ID token
+// verified, with the same detail the failure log already carries.
+func (h *AuthHandler) auditSSOLoginRefused(r *http.Request, email, reason string) {
+	_ = h.DB.CreateAuditLog(database.AuditLogParams{
+		Action:    "user.login_failed",
+		Username:  strPtr(email),
+		Details:   strPtr("SSO login via OIDC refused (" + reason + ")"),
+		IPAddress: strPtr(getClientIP(r)),
+	})
 }
 
 func oidcDomainAllowed(s oidc.Settings, email string) bool {
