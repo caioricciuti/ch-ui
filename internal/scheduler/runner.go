@@ -174,7 +174,7 @@ func (r *Runner) wait() {
 // skipMissedRun moves a schedule that fell due while Pro work was paused to
 // its next slot without running it.
 func (r *Runner) skipMissedRun(s database.Schedule, now time.Time) {
-	next := cronexpr.ComputeNextRun(s.Cron, now)
+	next := cronexpr.ComputeNextRunInZone(s.Cron, s.Timezone, now)
 	if err := r.db.SetScheduleNextRun(s.ID, next); err != nil {
 		slog.Error("Failed to skip missed schedule run", "error", err, "schedule", s.ID)
 		return
@@ -206,7 +206,7 @@ func (r *Runner) runSchedule(schedule database.Schedule) {
 		// Update schedule status
 		var nextRun *time.Time
 		if schedule.Enabled {
-			nextRun = cronexpr.ComputeNextRun(schedule.Cron, time.Now().UTC())
+			nextRun = cronexpr.ComputeNextRunInZone(schedule.Cron, schedule.Timezone, time.Now().UTC())
 		}
 		r.db.UpdateScheduleStatus(schedule.ID, status, runError, nextRun)
 

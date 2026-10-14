@@ -151,6 +151,10 @@ func (h *SchedulesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if timezone == "" {
 		timezone = "UTC"
 	}
+	if _, err := time.LoadLocation(timezone); err != nil {
+		writeError(w, http.StatusBadRequest, "Unknown timezone")
+		return
+	}
 
 	timeoutMs := 60000
 	if body.TimeoutMs != nil && *body.TimeoutMs > 0 {
@@ -175,7 +179,7 @@ func (h *SchedulesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set next run time
-	next := cronexpr.ComputeNextRun(cronExpr, time.Now().UTC())
+	next := cronexpr.ComputeNextRunInZone(cronExpr, timezone, time.Now().UTC())
 	if next != nil {
 		if err := h.DB.SetScheduleNextRun(id, next); err != nil {
 			slog.Error("Failed to set schedule next run", "error", err, "id", id)
@@ -265,6 +269,10 @@ func (h *SchedulesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		if tz == "" {
 			tz = "UTC"
 		}
+		if _, err := time.LoadLocation(tz); err != nil {
+			writeError(w, http.StatusBadRequest, "Unknown timezone")
+			return
+		}
 		timezone = tz
 		changed = true
 	}
@@ -296,7 +304,7 @@ func (h *SchedulesHandler) Update(w http.ResponseWriter, r *http.Request) {
 	// the last run time and status stay as they were.
 	var next *time.Time
 	if enabled {
-		next = cronexpr.ComputeNextRun(cron, time.Now().UTC())
+		next = cronexpr.ComputeNextRunInZone(cron, timezone, time.Now().UTC())
 	}
 	if err := h.DB.SetScheduleNextRun(id, next); err != nil {
 		slog.Error("Failed to set schedule next run", "error", err, "id", id)
@@ -493,7 +501,7 @@ func (h *SchedulesHandler) ManualRun(w http.ResponseWriter, r *http.Request) {
 	// Update schedule status
 	var nextRun *time.Time
 	if schedule.Enabled {
-		nextRun = cronexpr.ComputeNextRun(schedule.Cron, time.Now().UTC())
+		nextRun = cronexpr.ComputeNextRunInZone(schedule.Cron, schedule.Timezone, time.Now().UTC())
 	}
 	h.DB.UpdateScheduleStatus(id, status, runErr, nextRun)
 

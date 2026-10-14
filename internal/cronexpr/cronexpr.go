@@ -10,9 +10,15 @@ import (
 )
 
 // parseField parses a single cron field (e.g. "*/5", "1-15", "1,5,10", "*")
-// and returns a set of matching integer values within [min, max].
+// and returns a set of matching integer values within [min, max]. Values
+// outside [min, max] are dropped, so a field holding only those is empty.
 func parseField(field string, min, max int) map[int]bool {
 	values := make(map[int]bool)
+	add := func(v int) {
+		if v >= min && v <= max {
+			values[v] = true
+		}
+	}
 	parts := strings.Split(field, ",")
 
 	for _, part := range parts {
@@ -46,14 +52,14 @@ func parseField(field string, min, max int) map[int]bool {
 			}
 			for v := s; v <= e; v++ {
 				if (v-s)%step == 0 {
-					values[v] = true
+					add(v)
 				}
 			}
 
 		default:
 			num, err := strconv.Atoi(rangePart)
 			if err == nil {
-				values[num] = true
+				add(num)
 			}
 		}
 	}
@@ -84,11 +90,21 @@ func ComputeNextRunIn(cron string, from time.Time, loc *time.Location) *time.Tim
 	hours := parseField(fields[1], 0, 23)
 	dom := parseField(fields[2], 1, 31)
 	months := parseField(fields[3], 1, 12)
-	dow := parseField(fields[4], 0, 6)
+	// Day of week accepts 0-7 like standard cron, with 7 = Sunday. Over 0-7 a
+	// "*" step only adds 7 when it also adds 0, so "*/2" stays 0,2,4,6.
+	dow := parseField(fields[4], 0, 7)
+	if dow[7] {
+		dow[0] = true
+		delete(dow, 7)
+	}
 
 	if len(minutes) == 0 || len(hours) == 0 || len(dom) == 0 || len(months) == 0 || len(dow) == 0 {
 		return nil
 	}
+
+	// Vixie cron: when both day fields are restricted (neither starts with
+	// "*"), a day matches if either field does. Otherwise both must match.
+	dayOr := !strings.HasPrefix(fields[2], "*") && !strings.HasPrefix(fields[4], "*")
 
 	// Start from the next minute after `from`, truncated to the minute boundary.
 	next := from.In(loc).Truncate(time.Minute).Add(time.Minute)
@@ -101,7 +117,12 @@ func ComputeNextRunIn(cron string, from time.Time, loc *time.Location) *time.Tim
 		mo := int(next.Month())
 		dw := int(next.Weekday()) // Sunday=0
 
-		if minutes[m] && hours[h] && dom[d] && months[mo] && dow[dw] {
+		dayOK := dom[d] && dow[dw]
+		if dayOr {
+			dayOK = dom[d] || dow[dw]
+		}
+
+		if minutes[m] && hours[h] && months[mo] && dayOK {
 			result := next.UTC()
 			return &result
 		}
@@ -110,6 +131,18 @@ func ComputeNextRunIn(cron string, from time.Time, loc *time.Location) *time.Tim
 	}
 
 	return nil
+}
+
+// ComputeNextRunInZone is ComputeNextRunIn with loc named by an IANA
+// timezone. An empty or unknown name reads the cron in UTC.
+func ComputeNextRunInZone(cron, tz string, from time.Time) *time.Time {
+	loc := time.UTC
+	if tz = strings.TrimSpace(tz); tz != "" {
+		if l, err := time.LoadLocation(tz); err == nil {
+			loc = l
+		}
+	}
+	return ComputeNextRunIn(cron, from, loc)
 }
 
 // ValidateCron returns true if the cron expression is syntactically valid

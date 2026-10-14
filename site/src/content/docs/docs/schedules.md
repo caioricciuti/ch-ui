@@ -29,7 +29,7 @@ Navigate to **Schedules** in the sidebar and click **New Schedule**.
 | Name | Schedule identifier | Required |
 | Saved Query | Select from existing saved queries | Required |
 | Cron | 5-field cron expression | Required |
-| Timezone | IANA timezone (e.g. `America/New_York`) | `UTC` |
+| Timezone | IANA timezone the cron is read in (e.g. `America/New_York`); unknown names are rejected | `UTC` |
 | Timeout (ms) | Max execution time | 60000 (60s) |
 | Enabled | Whether the scheduler should trigger this | `true` |
 
@@ -43,7 +43,11 @@ Standard 5-field format:
 | Hour | 0-23 | `*`, `,`, `-`, `/` |
 | Day of month | 1-31 | `*`, `,`, `-`, `/` |
 | Month | 1-12 | `*`, `,`, `-`, `/` |
-| Day of week | 0-6 (Sun=0) | `*`, `,`, `-`, `/` |
+| Day of week | 0-7 (Sun=0 or 7) | `*`, `,`, `-`, `/` |
+
+Names (`MON`, `JAN`) and shortcuts (`@daily`) are not supported; use numbers.
+
+When both day of month and day of week are restricted (neither starts with `*`), a run happens on days that match either one, as in standard cron. `0 9 1 * 1` runs on the 1st of the month and on every Monday. When either starts with `*`, both must match.
 
 Examples:
 
@@ -51,10 +55,11 @@ Examples:
 0 9 * * *     # Daily at 9:00 AM
 0 */6 * * *   # Every 6 hours
 30 2 * * 0    # Sundays at 2:30 AM
+0 9 * * 5-7   # Friday to Sunday at 9:00 AM
 0 0 1 * *     # First of month at midnight
 ```
 
-`next_run_at` is computed automatically and always stored in UTC.
+The cron is read as wall-clock time in the schedule's timezone, so `0 9 * * *` in `Europe/Madrid` runs at 09:00 Madrid time all year, across daylight saving changes. `next_run_at` is computed automatically and always stored in UTC.
 
 ## Execution Model
 

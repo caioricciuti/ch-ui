@@ -381,7 +381,7 @@ Each pipeline can have one cron schedule. The scheduler checks for due pipelines
 
 | Field | Description |
 |---|---|
-| Cron | 5-field cron expression (minute hour day-of-month month day-of-week). Empty: not scheduled |
+| Cron | 5-field cron expression (minute hour day-of-month month day-of-week). Empty: not scheduled. Same syntax as [scheduled queries](/docs/schedules#cron-syntax) |
 | Timezone | IANA name the cron is read in, for example `Europe/Lisbon`. Default `UTC` |
 | Enabled | Off pauses the schedule without deleting it; on resumes it from the next due time |
 

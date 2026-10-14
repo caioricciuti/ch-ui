@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
@@ -94,5 +95,75 @@ func TestScheduleSharedWorkspaceDelegation(t *testing.T) {
 	jobs, err := db.GetSchedules()
 	if err != nil || len(jobs) != 2 {
 		t.Fatalf("jobs: %d %v", len(jobs), err)
+	}
+}
+
+// A job's next run is the cron read in its timezone, and an unknown timezone
+// is rejected on create and update.
+func TestScheduleTimezone(t *testing.T) {
+	db, err := dbtest.Open(t, "tz.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	conn, err := db.CreateConnection(database.CreateConnectionParams{Name: "c", TunnelToken: "tz-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query, err := db.CreateSavedQuery(database.CreateSavedQueryParams{Name: "q", Query: "SELECT 1", ConnectionID: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &SchedulesHandler{DB: db}
+	r := chi.NewRouter()
+	r.Route("/schedules", h.Routes)
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req = req.WithContext(middleware.SetSession(req.Context(), &middleware.SessionInfo{UserRole: "admin", ConnectionID: conn, ClickhouseUser: "admin"}))
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		return rr
+	}
+	nextRunIn := func(id, tz string) string {
+		t.Helper()
+		s, err := db.GetScheduleByID(id)
+		if err != nil || s == nil || s.NextRunAt == nil {
+			t.Fatalf("schedule: %v %v", s, err)
+		}
+		next, err := time.Parse(time.RFC3339, *s.NextRunAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		loc, err := time.LoadLocation(tz)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return next.In(loc).Format("15:04")
+	}
+
+	base := `"name":"job","cron":"0 9 * * *","saved_query_id":"` + query + `"`
+	if rr := do("POST", "/schedules/", `{`+base+`,"timezone":"Not/AZone"}`); rr.Code != http.StatusBadRequest {
+		t.Fatalf("unknown timezone on create: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr := do("POST", "/schedules/", `{`+base+`,"timezone":"Europe/Madrid"}`); rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+	jobs, err := db.GetSchedules()
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("jobs: %d %v", len(jobs), err)
+	}
+	id := jobs[0].ID
+	if got := nextRunIn(id, "Europe/Madrid"); got != "09:00" {
+		t.Errorf("create: next run %s Madrid time, want 09:00", got)
+	}
+
+	if rr := do("PUT", "/schedules/"+id, `{"timezone":"Not/AZone"}`); rr.Code != http.StatusBadRequest {
+		t.Fatalf("unknown timezone on update: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr := do("PUT", "/schedules/"+id, `{"timezone":"America/New_York"}`); rr.Code != http.StatusOK {
+		t.Fatalf("update: %d %s", rr.Code, rr.Body.String())
+	}
+	if got := nextRunIn(id, "America/New_York"); got != "09:00" {
+		t.Errorf("update: next run %s New York time, want 09:00", got)
 	}
 }
