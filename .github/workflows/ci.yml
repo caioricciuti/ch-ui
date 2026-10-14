@@ -23,21 +23,6 @@ jobs:
     name: Backend (Go)
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    services:
-      clickhouse:
-        # Mirror of clickhouse/clickhouse-server:25.8, same digest (mirror-images.yml).
-        image: ghcr.io/caioricciuti/ci-clickhouse-server@sha256:0152dd511befe6a2c2ef53e930726179669b08116da78500b37c51c96ff5ee77
-        env:
-          CLICKHOUSE_USER: release_admin
-          CLICKHOUSE_PASSWORD: ci-test-only
-          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
-        ports:
-          - 18123:8123
-        options: >-
-          --health-cmd "wget -q -O - http://localhost:8123/ping || exit 1"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,6 +59,49 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Vulnerability scan (govulncheck)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          govulncheck ./...
+
+  live:
+    # Tests against a real ClickHouse, in parallel with the unit tests.
+    name: Backend live (ClickHouse)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      clickhouse:
+        # Mirror of clickhouse/clickhouse-server:25.8, same digest (mirror-images.yml).
+        image: ghcr.io/caioricciuti/ci-clickhouse-server@sha256:0152dd511befe6a2c2ef53e930726179669b08116da78500b37c51c96ff5ee77
+        env:
+          CLICKHOUSE_USER: release_admin
+          CLICKHOUSE_PASSWORD: ci-test-only
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports:
+          - 18123:8123
+        options: >-
+          --health-cmd "wget -q -O - http://localhost:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # frontend.go embeds ui/dist via //go:embed; the backend job doesn't build
+      # the UI, so provide a placeholder file so the package compiles for
+      # vet/test/govulncheck. Real builds (Docker/release) embed the actual UI.
+      - name: Prepare embedded frontend placeholder
+        run: |
+          mkdir -p ui/dist
+          printf '<!doctype html><title>ch-ui</title>' > ui/dist/index.html
+
       - name: Background workers against ClickHouse
         env:
           CHUI_TEST_CLICKHOUSE_URL: http://127.0.0.1:18123
@@ -85,6 +113,7 @@ jobs:
             'CREATE TABLE default.otel_logs (Timestamp DateTime64(9), Body String) ENGINE=MergeTree ORDER BY Timestamp'
           go test ./internal/scheduler ./internal/models ./internal/pipelines \
             ./internal/clusterhealth ./internal/governance ./internal/telemetry/monitor \
+            ./internal/sqlalerts \
             -run TestBackgroundAccountExecution -count=1 -race
 
       - name: Operations and telemetry against ClickHouse
@@ -93,17 +122,12 @@ jobs:
           CHUI_TEST_CLICKHOUSE_USER: release_admin
           CHUI_TEST_CLICKHOUSE_PASSWORD: ci-test-only
         run: |
+          # The performance test takes a flag the other test binaries do not
+          # define, so it runs on its own.
           go test ./internal/performance -run TestPerformanceQueryLive -count=1 -race -args -performance-fixtures
-          go test ./internal/operations -run TestScheduledReportUsesDedicatedAccountAndPersistsOnce -count=1 -race
-          go test ./internal/server/handlers -run 'TestSchemaCompareLive|TestReadonlyProfileUserLive' -count=1 -race
-          go test ./internal/incidenttimeline -run TestIncidentTimelineQueriesLive -count=1 -race
-          go test ./internal/telemetry -run TestHistogramWindowLive -count=1 -race
-          go test ./internal/mcpserver -run TestMCPReadonlyAndAllowListLive -count=1 -race
-
-      - name: Vulnerability scan (govulncheck)
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-          govulncheck ./...
+          go test ./internal/operations ./internal/server/handlers ./internal/incidenttimeline \
+            ./internal/telemetry ./internal/mcpserver -count=1 -race \
+            -run '^(TestScheduledReportUsesDedicatedAccountAndPersistsOnce|TestSchemaCompareLive|TestReadonlyProfileUserLive|TestIncidentTimelineQueriesLive|TestHistogramWindowLive|TestMCPReadonlyAndAllowListLive)$'
 
   race:
     # The race detector makes tests about ten times slower, so it is split
