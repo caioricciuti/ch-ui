@@ -227,6 +227,6 @@ For multi-pod setups behind a load balancer, see [ClickHouse Clusters & Load Bal
 
 - Keep at least one admin override account
 - Rotate provider API keys periodically
-- Rotate `APP_SECRET_KEY` per environment (encrypts API keys and session credentials)
+- Use a different `APP_SECRET_KEY` per environment (it encrypts API keys, tokens and session credentials). To change it, follow [Rotating the app secret key](/docs/configuration#rotating-the-app-secret-key): replacing the key alone makes every stored secret unreadable
 - Keep governance sync healthy before relying on policy alerts
 - Test alert channels before enabling rules

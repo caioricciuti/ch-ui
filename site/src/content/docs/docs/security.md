@@ -118,7 +118,10 @@ See [Monitoring & SIEM](/docs/monitoring) for setup.
   encrypted at rest (AES-256-GCM) with `APP_SECRET_KEY` before being stored in
   SQLite.
 - Source `APP_SECRET_KEY` from the environment or `server.yaml`; keep it out of
-  the database directory and rotate it per environment.
+  the database directory and use a different key per environment. Rotate it
+  with `APP_SECRET_KEY_PREVIOUS`, which re-encrypts every stored secret on
+  startup; see
+  [Rotating the app secret key](/docs/configuration#rotating-the-app-secret-key).
 - No telemetry or usage data is sent to the vendor. Outbound connections are
   only to destinations you configure (ClickHouse, your LLM provider, GitHub for
   updates, your alert provider). See the privacy policy for the full list.

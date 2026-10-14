@@ -64,7 +64,8 @@ key name shows up in the log.
 | `database_path` | `/var/lib/ch-ui/ch-ui.db` | `./data/ch-ui.db` | Where CH-UI stores app state |
 | `clickhouse_url` | `http://localhost:8123` | `http://localhost:8123` | Embedded local connection target |
 | `connection_name` | `Local ClickHouse` | `Local ClickHouse` | Display name for embedded local connection |
-| `app_secret_key` | random long string | auto-generated | Encrypts stored credentials. When unset, CH-UI generates a random key on first start and persists it to `.app_secret_key` next to the database. Back it up with the DB |
+| `app_secret_key` | random long string | auto-generated | Encrypts stored credentials. When unset, CH-UI generates a random key on first start and persists it to `.app_secret_key` next to the database. Back it up with the DB. To change it, see [Rotating the app secret key](#rotating-the-app-secret-key) |
+| `app_secret_key_previous` | the old key | empty | Only while rotating `app_secret_key`: stored secrets still decrypt with it and are re-encrypted with the new key on startup |
 | `allowed_origins` | `["https://ch-ui.yourcompany.com"]` | empty | CORS allowlist |
 | `tunnel_url` | `wss://ch-ui.yourcompany.com/connect` | derived from port | Explicit tunnel endpoint advertised to agents |
 | `tls_cert_file` | `/etc/ch-ui/tls/server.crt` | empty | PEM cert for native TLS (with `tls_key_file`) |
@@ -226,7 +227,8 @@ Full setup in [Single Sign-On](/docs/sso).
 | `CLICKHOUSE_URL` | Local ClickHouse URL for embedded connector |
 | `CONNECTION_NAME` | Display name for embedded local connection |
 | `CONNECITION_NAME` | Backward-compatible typo alias for `CONNECTION_NAME` |
-| `APP_SECRET_KEY` | Session/password encryption secret |
+| `APP_SECRET_KEY` | Encryption key for stored secrets (session passwords, API keys, tokens) |
+| `APP_SECRET_KEY_PREVIOUS` | The old key, only while rotating `APP_SECRET_KEY` |
 | `ALLOWED_ORIGINS` | Comma-separated CORS origins |
 | `ALLOW_LOGIN_URL` | Sign in with a ClickHouse URL on the login page (`true`, `1` or `yes`; default off). Trusted networks only |
 | `TRUSTED_PROXIES` | Comma-separated IPs or CIDRs of reverse proxies whose forwarding headers are believed; `none` trusts no proxy. Default: loopback, private and link-local ranges |
@@ -244,6 +246,44 @@ Full setup in [Single Sign-On](/docs/sso).
 | `CHUI_SQLITE_MAX_OPEN_CONNS` | Max SQLite connections (default 8) |
 | `CHUI_VITE_MINIFY` | Build-time: toggle frontend build minification (`0` disables) |
 | `VITE_BASE_PATH` | Build-time: base path for hosting the UI under a sub-path (e.g. `/ch-ui`), read by `ui/vite.config.ts` |
+
+### Rotating the app secret key
+
+`APP_SECRET_KEY` encrypts every secret CH-UI stores in its database: session
+passwords, saved connection SSO service accounts, background account
+passwords, dashboard share credentials, MCP key and OAuth passwords, Brain
+provider API keys, alert channel configs, pipeline credentials, the SSO client
+secret, and GitHub sync tokens and webhook secrets. Changing the key on its own
+makes all of them unreadable. Rotate it this way instead:
+
+1. Back up the database with `ch-ui backup` and keep the current key with the
+   backup. That backup only opens with the current key.
+2. Generate a new key, for example `openssl rand -base64 48`.
+3. Restart the server with the new key in `APP_SECRET_KEY` and the current key
+   in `APP_SECRET_KEY_PREVIOUS` (or `app_secret_key` and
+   `app_secret_key_previous` in `server.yaml`). If you never set a key, the
+   current one is the content of `.app_secret_key` next to the database: put
+   that in `APP_SECRET_KEY_PREVIOUS` and the new key in `APP_SECRET_KEY`.
+4. On startup CH-UI re-encrypts every stored secret with the new key in one
+   transaction. The log shows one `Secret key rotation` line per kind of
+   secret with how many were re-encrypted and how many were already current,
+   then `Secret key rotation complete, you can remove APP_SECRET_KEY_PREVIOUS`.
+   Secret values are never logged.
+5. Remove `APP_SECRET_KEY_PREVIOUS` (and `.app_secret_key`, if you replaced it
+   with an explicit key) and restart.
+
+What to expect:
+
+- Sessions are re-encrypted too, so nobody is signed out and running
+  schedules keep working.
+- While `APP_SECRET_KEY_PREVIOUS` is set, any secret still under the old key
+  decrypts with it. Each start re-checks every secret and only rewrites the
+  ones still under the old key, so leaving it set for a restart or two is safe.
+- A secret that decrypts with neither key is left unchanged and logged as a
+  warning with its kind and ID only. Re-enter it in the UI (for example the
+  Brain provider key or the alert channel settings).
+- If the rotation fails, nothing in the database changes. The server still
+  starts, reads secrets with either key, and tries again on the next start.
 
 ## Connector Config
 
@@ -305,7 +345,9 @@ tunnel_url: "wss://ch-ui.yourcompany.com/connect"
 
 ## Recommended Production Values
 
-- Rotate `APP_SECRET_KEY` per environment.
+- Use a different `APP_SECRET_KEY` per environment, and change it with
+  [`APP_SECRET_KEY_PREVIOUS`](#rotating-the-app-secret-key), never by
+  replacing it alone.
 - Use `wss://` for all connector tunnels.
 - Keep connector close to ClickHouse to reduce latency.
 - Use non-default file paths managed by system services.

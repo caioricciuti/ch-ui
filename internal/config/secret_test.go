@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -58,5 +59,22 @@ func TestEnsureAppSecretKeyGenerateAndReload(t *testing.T) {
 	}
 	if cfgReload.AppSecretKey != first {
 		t.Fatalf("reloaded secret mismatch")
+	}
+}
+
+func TestAppSecretKeyPreviousLoad(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("app_secret_key: new\napp_secret_key_previous: old-from-yaml\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("APP_SECRET_KEY", "")
+	t.Setenv("APP_SECRET_KEY_PREVIOUS", "")
+	if got := Load(path).AppSecretKeyPrevious; got != "old-from-yaml" {
+		t.Fatalf("yaml: got %q", got)
+	}
+	t.Setenv("APP_SECRET_KEY_PREVIOUS", `"old-from-env"`)
+	if got := Load(path).AppSecretKeyPrevious; got != "old-from-env" {
+		t.Fatalf("env: got %q", got)
 	}
 }
