@@ -16,18 +16,49 @@ export interface TooltipOptions {
   skipNull?: boolean
 }
 
+/** Above every panel and the fullscreen panel overlay (z 9999). */
+export const TOOLTIP_Z = 10000
+
+/**
+ * Where a floating tooltip goes for a pointer at (cx, cy), in viewport
+ * coordinates: right of and above the pointer, flipped when that would leave
+ * the window, then clamped inside it. Tooltips live on document.body with
+ * position fixed, so no panel with overflow hidden can cut them off.
+ */
+export function tipPosition(cx: number, cy: number, tw: number, th: number, pad = 12): { left: number; top: number } {
+  const margin = 4
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  let left = cx + pad
+  let top = cy - th - pad
+  if (left + tw > vw - margin) left = cx - tw - pad
+  if (top < margin) top = cy + pad
+  left = Math.max(margin, Math.min(left, vw - tw - margin))
+  top = Math.max(margin, Math.min(top, vh - th - margin))
+  return { left, top }
+}
+
+/** Svelte action: moves the element to document.body for its lifetime. */
+export function portal(node: HTMLElement): { destroy: () => void } {
+  document.body.appendChild(node)
+  return { destroy: () => node.remove() }
+}
+
 export function tooltipPlugin(options: TooltipOptions): uPlot.Plugin {
   const formatValue = options.formatValue ?? ((v) => v.toLocaleString(undefined, { maximumFractionDigits: 2 }))
   let tip: HTMLDivElement
+  const hide = () => {
+    if (tip) tip.style.display = 'none'
+  }
 
   function init(u: uPlot) {
     tip = document.createElement('div')
     tip.className = 'chart-tip'
     Object.assign(tip.style, {
-      position: 'absolute',
+      position: 'fixed',
       display: 'none',
       pointerEvents: 'none',
-      zIndex: '100',
+      zIndex: String(TOOLTIP_Z),
       whiteSpace: 'nowrap',
       background: 'var(--elevated)',
       color: 'var(--fg)',
@@ -38,8 +69,14 @@ export function tooltipPlugin(options: TooltipOptions): uPlot.Plugin {
       font: '11px var(--font-sans)',
       lineHeight: '1.5',
     })
-    u.over.appendChild(tip)
-    u.over.addEventListener('mouseleave', () => (tip.style.display = 'none'))
+    document.body.appendChild(tip)
+    u.over.addEventListener('mouseleave', hide)
+    window.addEventListener('scroll', hide, true)
+  }
+
+  function destroy() {
+    window.removeEventListener('scroll', hide, true)
+    tip?.remove()
   }
 
   function setCursor(u: uPlot) {
@@ -77,20 +114,17 @@ export function tooltipPlugin(options: TooltipOptions): uPlot.Plugin {
       tip.appendChild(row)
     }
 
-    const pad = 12
-    const ow = u.over.clientWidth
-    const tw = tip.offsetWidth
-    const th = tip.offsetHeight
-    let x = left + pad
-    let y = top - th - pad
-    if (x + tw > ow) x = left - tw - pad
-    if (y < 0) y = top + pad
-    tip.style.left = `${x}px`
-    tip.style.top = `${y}px`
+    // Measure while visible but before placing, then place in the viewport.
+    tip.style.visibility = 'hidden'
     tip.style.display = 'block'
+    const rect = u.over.getBoundingClientRect()
+    const pos = tipPosition(rect.left + left, rect.top + top, tip.offsetWidth, tip.offsetHeight)
+    tip.style.left = `${pos.left}px`
+    tip.style.top = `${pos.top}px`
+    tip.style.visibility = ''
   }
 
-  return { hooks: { init, setCursor } }
+  return { hooks: { init, setCursor, destroy } }
 }
 
 /** Axis and grid colors read from the theme, so charts follow light/dark. */

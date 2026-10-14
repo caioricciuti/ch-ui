@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { portal, tipPosition } from '../../utils/uplot-tooltip'
   import type { PanelConfig } from '../../types/api'
   import type { ColumnMeta } from '../../utils/chart-transform'
   import { isNumericType, seriesColors } from '../../utils/chart-transform'
@@ -79,7 +80,7 @@
   })
 
   // Hover tooltip, styled like the shared uPlot chart tooltip.
-  let hover = $state<{ index: number; x: number; y: number } | null>(null)
+  let hover = $state<{ index: number; x: number; y: number; cx: number; cy: number } | null>(null)
   let tipEl = $state<HTMLDivElement>()
   const hovered = $derived(hover ? slices[hover.index] : undefined)
 
@@ -105,7 +106,7 @@
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
     const index = sliceAt(x, y)
-    hover = index >= 0 ? { index, x, y } : null
+    hover = index >= 0 ? { index, x, y, cx: e.clientX, cy: e.clientY } : null
   }
 
   function handleClick(e: MouseEvent) {
@@ -116,17 +117,10 @@
     onpointclick({ ctx: buildClickContext(slice.row, labelCol, valueCol, meta), x: e.clientX, y: e.clientY })
   }
 
-  // Keep the tooltip inside the panel, like the uPlot tooltip does.
+  // Placed in the viewport (see tipPosition), so the panel edge never cuts it.
   const tipPos = $derived.by(() => {
     if (!hover) return { left: 0, top: 0 }
-    const pad = 12
-    const tw = tipEl?.offsetWidth ?? 0
-    const th = tipEl?.offsetHeight ?? 0
-    let left = hover.x + pad
-    let top = hover.y - th - pad
-    if (left + tw > width) left = hover.x - tw - pad
-    if (top < 0) top = hover.y + pad
-    return { left, top }
+    return tipPosition(hover.cx, hover.cy, tipEl?.offsetWidth ?? 0, tipEl?.offsetHeight ?? 0)
   })
 
   function fmtValue(v: number): string {
@@ -217,7 +211,8 @@
     {#if hover && hovered}
       <div
         bind:this={tipEl}
-        class="pointer-events-none absolute z-[100] whitespace-nowrap rounded-md border border-edge bg-elevated px-[9px] py-1.5 text-[11px] leading-normal text-fg"
+        use:portal
+          class="pointer-events-none fixed z-[10000] whitespace-nowrap rounded-md border border-edge bg-elevated px-[9px] py-1.5 text-[11px] leading-normal text-fg"
         style="left:{tipPos.left}px; top:{tipPos.top}px; box-shadow: var(--shadow-popover)"
       >
         <div class="mb-0.5 font-semibold text-fg-2">{hovered.label}</div>
