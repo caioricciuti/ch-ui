@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -317,4 +318,52 @@ func (db *DB) GetConnectionHostInfo(connId string) (*HostInfo, error) {
 		return nil, nil
 	}
 	return &info, nil
+}
+
+// SettingLoginURLConnectionIDs is a JSON array of the ids of connections the
+// login page created (sign-in with a ClickHouse URL). Anyone who can reach the
+// login page can point such a connection at a server they run, so it never
+// carries a CH-UI role override and never grants CH-UI admin.
+const SettingLoginURLConnectionIDs = "login_url_connection_ids"
+
+// ErrLoginURLListUnreadable is returned when the stored login URL connection
+// list is not valid JSON.
+var ErrLoginURLListUnreadable = fmt.Errorf("unreadable %s setting", SettingLoginURLConnectionIDs)
+
+// LoginURLConnectionIDs returns the ids recorded in
+// SettingLoginURLConnectionIDs, including ids of connections deleted since.
+// An unreadable value returns ErrLoginURLListUnreadable.
+func (db *DB) LoginURLConnectionIDs() ([]string, error) {
+	raw, err := db.GetSetting(SettingLoginURLConnectionIDs)
+	if err != nil {
+		return nil, err
+	}
+	return parseLoginURLConnectionIDs(raw)
+}
+
+func parseLoginURLConnectionIDs(raw string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrLoginURLListUnreadable, err)
+	}
+	return ids, nil
+}
+
+// IsLoginURLConnection reports whether the login page created the connection.
+// Callers deciding a role treat an error as true, so a broken list never lets
+// such a connection grant more than it should.
+func (db *DB) IsLoginURLConnection(connectionID string) (bool, error) {
+	ids, err := db.LoginURLConnectionIDs()
+	if err != nil {
+		return true, err
+	}
+	for _, id := range ids {
+		if id == connectionID {
+			return true, nil
+		}
+	}
+	return false, nil
 }

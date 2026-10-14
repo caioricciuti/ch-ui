@@ -3,6 +3,7 @@
   import { apiGet, apiPut, apiDel, apiPost, ApiError } from '../../api/client'
   import { formatDate, formatRelativeTime } from '../../utils/format'
   import { navigate } from '../../stores/router.svelte'
+  import { getSession } from '../../stores/session.svelte'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import Spinner from '../common/Spinner.svelte'
   import Sheet from '../common/Sheet.svelte'
@@ -21,6 +22,9 @@
   // Admin > Users. Two lists: CH-UI application users (with the role
   // override that grants Admin UI access) and the users defined in the
   // active ClickHouse connection (create, rotate password, delete).
+  // A ClickHouse user's role override applies on one connection, so the
+  // application list is scoped to the current connection; an SSO person's
+  // override applies on every connection.
   type View = 'app' | 'clickhouse'
   type Row = Record<string, unknown>
 
@@ -36,7 +40,8 @@
     exists_in_clickhouse?: boolean
   }
   type UsersResponse = { users?: AppUser[]; sync?: { clickhouse_user_check?: boolean } }
-  type UserRoleOverride = { username: string; role: string; created_at: string }
+  /** One entry of GET /api/admin/user-roles. connection_id is '' for SSO people (all connections). */
+  type UserRoleOverride = { username: string; connection_id: string; connection_name?: string; role: string; created_at: string }
 
   let view = $state<View>('app')
   let search = $state('')
@@ -48,6 +53,9 @@
   let userRoles = $state<Record<string, string>>({})
   let usersLoading = $state(true)
   let roleSavingUser = $state<string | null>(null)
+
+  const currentConnectionId = $derived(getSession()?.connectionId ?? '')
+  const currentConnectionName = $derived(getSession()?.connectionName || 'this connection')
 
   const roleOptions = [
     { value: 'admin', label: 'admin' },
@@ -115,7 +123,7 @@
       }
       const map: Record<string, string> = {}
       for (const r of roles ?? []) {
-        map[r.username] = r.role
+        if (r.connection_id === '' || r.connection_id === currentConnectionId) map[r.username] = r.role
       }
       userRoles = map
     } catch (e: unknown) {
@@ -149,13 +157,23 @@
     return username.startsWith('sso:') ? username.slice(4) : username
   }
 
+  function isSSOKey(username: string): boolean {
+    return username.startsWith('sso:')
+  }
+
+  /** Where an override for this user applies. */
+  function roleScopeLabel(username: string): string {
+    return isSSOKey(username) ? 'All connections' : currentConnectionName
+  }
+
   async function setRole(username: string, role: string) {
     if (!username || roleSavingUser === username) return
     roleSavingUser = username
     try {
-      await apiPut(`/api/admin/user-roles/${encodeURIComponent(username)}`, { role })
+      const body = isSSOKey(username) ? { role } : { role, connection_id: currentConnectionId }
+      await apiPut(`/api/admin/user-roles/${encodeURIComponent(username)}`, body)
       userRoles = { ...userRoles, [username]: role }
-      toastSuccess(`Role set to ${role} for ${displayUser(username)}`)
+      toastSuccess(`Role set to ${role} for ${displayUser(username)} on ${isSSOKey(username) ? 'all connections' : currentConnectionName}`)
     } catch (e) {
       toastError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -165,7 +183,8 @@
 
   async function removeRole(username: string) {
     try {
-      await apiDel(`/api/admin/user-roles/${encodeURIComponent(username)}`)
+      const query = isSSOKey(username) ? '' : `?connection_id=${encodeURIComponent(currentConnectionId)}`
+      await apiDel(`/api/admin/user-roles/${encodeURIComponent(username)}${query}`)
       const { [username]: _, ...rest } = userRoles
       userRoles = rest
       toastSuccess(`Role override removed for ${displayUser(username)}`)
@@ -347,6 +366,7 @@
         ...u,
         role: userRoles[u.username] ?? u.user_role ?? 'viewer',
         has_override: !!userRoles[u.username],
+        scope_label: roleScopeLabel(u.username),
         last_login_label: u.last_login ? formatRelativeTime(u.last_login) : '—',
       }))
       .filter((r) => !term || String(r.display_name ?? r.username).toLowerCase().includes(term) || String(r.role).includes(term)),
@@ -371,6 +391,7 @@
   const appColumns: DataColumn<Row>[] = [
     { key: 'username', label: 'Username', mono: true, width: '30%' },
     { key: 'role', label: 'Role', sortable: false, width: '320px' },
+    { key: 'scope_label', label: 'Applies to', sortable: false },
     { key: 'last_login_label', label: 'Last login', sortValue: (r) => String(r.last_login ?? '') },
   ]
 
@@ -391,7 +412,7 @@
   <div class="flex h-10 shrink-0 items-center gap-3 px-5">
     <Tabs variant="segmented" size="sm" items={viewItems} value={view} onchange={(id) => (view = id as View)} />
     {#if view === 'app'}
-      <HelpTip text="Admin access is explicit in CH-UI (role override). ClickHouse grants alone do not grant Admin UI actions. The last admin override cannot be removed." />
+      <HelpTip text="Admin access is explicit in CH-UI (role override). ClickHouse grants alone do not grant Admin UI actions. A ClickHouse user's role applies on the current connection only; an SSO person's role applies on all connections. Connections added from the login page never grant admin. The last admin override cannot be removed." />
     {:else}
       <HelpTip text="Direct user management in ClickHouse. Create users, rotate passwords, and remove users without leaving CH-UI." />
     {/if}
@@ -453,6 +474,8 @@
                     <span class="truncate text-xs text-fg-3" title="ClickHouse account this person queries as">as {row.clickhouse_user}</span>
                   {/if}
                 </span>
+              {:else if col.key === 'scope_label'}
+                <span class="text-xs text-fg-3" title={row.via_sso ? 'SSO roles follow the person to every connection' : 'ClickHouse user roles are set per connection'}>{value}</span>
               {:else if col.key === 'last_login_label'}
                 <span title={row.last_login ? formatDate(row.last_login) : undefined}>{value}</span>
               {:else}

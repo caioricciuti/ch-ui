@@ -2,20 +2,30 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 )
 
-// UserRole represents a CH-UI role assignment for a ClickHouse user.
+// UserRole represents a CH-UI role assignment.
+//
+// An override for a ClickHouse user (password login) applies on one
+// connection only: the same username on another server is a different
+// account. An override for an SSO person ("sso:<email>") applies on every
+// connection, since the IdP verified who they are; its ConnectionID is "".
 type UserRole struct {
-	Username  string `json:"username"`
-	Role      string `json:"role"`
-	CreatedAt string `json:"created_at"`
+	Username       string `json:"username"`
+	ConnectionID   string `json:"connection_id"`
+	ConnectionName string `json:"connection_name,omitempty"`
+	Role           string `json:"role"`
+	CreatedAt      string `json:"created_at"`
 }
 
 // SSORoleKeyPrefix namespaces role overrides for people who sign in with SSO.
 // SSO people share one ClickHouse service account, so their overrides are keyed
 // on their email instead, and the prefix keeps an email from ever matching a
-// ClickHouse username.
+// ClickHouse username. Password logins with a username starting with it are
+// refused (see IsReservedRoleUsername).
 const SSORoleKeyPrefix = "sso:"
 
 // RoleKey returns the user_roles key for a session identity: "sso:<email>" for
@@ -27,52 +37,121 @@ func RoleKey(clickhouseUser, authSubject string) string {
 	return clickhouseUser
 }
 
+// IsSSORoleKey reports whether a role key names an SSO person.
+func IsSSORoleKey(key string) bool {
+	return strings.HasPrefix(key, SSORoleKeyPrefix)
+}
+
+// IsReservedRoleUsername reports whether a ClickHouse username could be
+// mistaken for an SSO role key. Such names cannot sign in with a password.
+func IsReservedRoleUsername(username string) bool {
+	return strings.HasPrefix(strings.ToLower(username), SSORoleKeyPrefix)
+}
+
+// CapLoginURLRole is the most a connection created from the login page can
+// grant: anyone can point one at a server they run, where they hold every
+// ClickHouse privilege, so it never yields CH-UI admin.
+func CapLoginURLRole(role string) string {
+	if role == "admin" {
+		return "analyst"
+	}
+	return role
+}
+
+var (
+	// ErrRoleConnectionRequired is returned when a ClickHouse user's
+	// override is written without a connection.
+	ErrRoleConnectionRequired = errors.New("a connection is required for a ClickHouse user's role override")
+	// ErrRoleLoginURLConnection is returned when an override targets a
+	// connection created from the login page.
+	ErrRoleLoginURLConnection = errors.New("connections created from the login page cannot carry role overrides")
+	// ErrRoleConnectionNotFound is returned when the target connection does
+	// not exist.
+	ErrRoleConnectionNotFound = errors.New("connection not found")
+)
+
+// roleScope returns the connection_id a key's override is stored under: ""
+// for an SSO person, else connectionID.
+func roleScope(roleKey, connectionID string) string {
+	if IsSSORoleKey(roleKey) {
+		return ""
+	}
+	return connectionID
+}
+
 // SSOServiceAccountRoleOverrides returns role overrides stored under a
-// connection's SSO service account name. Before overrides were keyed per
-// person, such a row applied to every SSO person on that connection; it now
-// applies only to password logins as that ClickHouse user.
+// connection's SSO service account name on that connection. Before overrides
+// were keyed per person, such a row applied to every SSO person on that
+// connection; it now applies only to password logins as that ClickHouse user.
 func (db *DB) SSOServiceAccountRoleOverrides() ([]UserRole, error) {
 	rows, err := db.conn.Query(`
-		SELECT ur.username, ur.role, ur.created_at
+		SELECT ur.username, ur.connection_id, c.name, ur.role, ur.created_at
 		FROM user_roles ur
-		WHERE ur.username IN (SELECT sso_ch_user FROM connections WHERE sso_ch_user IS NOT NULL AND sso_ch_user != '')
-		ORDER BY ur.username ASC`)
+		JOIN connections c ON c.id = ur.connection_id
+		WHERE c.sso_ch_user IS NOT NULL AND c.sso_ch_user != '' AND ur.username = c.sso_ch_user
+		ORDER BY ur.username ASC, c.name ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("get sso service account role overrides: %w", err)
 	}
-	defer rows.Close()
-
-	var roles []UserRole
-	for rows.Next() {
-		var r UserRole
-		if err := rows.Scan(&r.Username, &r.Role, &r.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan user role: %w", err)
-		}
-		roles = append(roles, r)
-	}
-	return roles, rows.Err()
+	return scanUserRoles(rows)
 }
 
-// GetUserRole retrieves the CH-UI role for a user.
-// Returns empty string if not set (meaning auto-detect from ClickHouse).
-func (db *DB) GetUserRole(username string) (string, error) {
+// GetUserRole retrieves the CH-UI role override for a role key on a
+// connection. An SSO key matches its global override; a ClickHouse user
+// matches only an override on that connection. Returns "" when none is set
+// (meaning auto-detect from ClickHouse).
+func (db *DB) GetUserRole(roleKey, connectionID string) (string, error) {
+	scope := roleScope(roleKey, connectionID)
+	if scope == "" && !IsSSORoleKey(roleKey) {
+		return "", nil
+	}
 	var role string
-	err := db.conn.QueryRow("SELECT role FROM user_roles WHERE username = ?", username).Scan(&role)
+	err := db.conn.QueryRow("SELECT role FROM user_roles WHERE username = ? AND connection_id = ?", roleKey, scope).Scan(&role)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
 	if err != nil {
-		if err.Error() == "sql: no rows in result set" {
-			return "", nil
-		}
 		return "", fmt.Errorf("get user role: %w", err)
 	}
 	return role, nil
 }
 
-// SetUserRole sets or updates the CH-UI role for a user (upsert).
-func (db *DB) SetUserRole(username, role string) error {
+// checkRoleConnection validates the connection a ClickHouse user's override
+// is written for.
+func (db *DB) checkRoleConnection(connectionID string) error {
+	if connectionID == "" {
+		return ErrRoleConnectionRequired
+	}
+	var n int
+	if err := db.conn.QueryRow("SELECT COUNT(*) FROM connections WHERE id = ?", connectionID).Scan(&n); err != nil {
+		return fmt.Errorf("check role connection: %w", err)
+	}
+	if n == 0 {
+		return ErrRoleConnectionNotFound
+	}
+	loginURL, err := db.IsLoginURLConnection(connectionID)
+	if err != nil {
+		return fmt.Errorf("check role connection: %w", err)
+	}
+	if loginURL {
+		return ErrRoleLoginURLConnection
+	}
+	return nil
+}
+
+// SetUserRole sets or updates a CH-UI role override (upsert). connectionID
+// is ignored for an SSO key and required for a ClickHouse user.
+func (db *DB) SetUserRole(roleKey, connectionID, role string) error {
+	scope := roleScope(roleKey, connectionID)
+	if !IsSSORoleKey(roleKey) {
+		if err := db.checkRoleConnection(scope); err != nil {
+			return err
+		}
+	}
 	_, err := db.conn.Exec(
-		`INSERT INTO user_roles (username, role) VALUES (?, ?)
-		 ON CONFLICT(username) DO UPDATE SET role = excluded.role`,
-		username, role,
+		`INSERT INTO user_roles (username, connection_id, role) VALUES (?, ?, ?)
+		 ON CONFLICT(username, connection_id) DO UPDATE SET role = excluded.role`,
+		roleKey, scope, role,
 	)
 	if err != nil {
 		return fmt.Errorf("set user role: %w", err)
@@ -80,29 +159,64 @@ func (db *DB) SetUserRole(username, role string) error {
 	return nil
 }
 
-// DeleteUserRole removes the CH-UI role assignment for a user (reverts to auto-detect).
-func (db *DB) DeleteUserRole(username string) error {
-	_, err := db.conn.Exec("DELETE FROM user_roles WHERE username = ?", username)
+// BootstrapFirstAdmin makes a ClickHouse user the CH-UI admin on a connection
+// if, and only if, nobody holds an admin override anywhere. The check and the
+// write are one statement, so two first logins cannot both win. The caller
+// must not pass a connection created from the login page.
+func (db *DB) BootstrapFirstAdmin(username, connectionID string) (bool, error) {
+	if IsSSORoleKey(username) || connectionID == "" {
+		return false, ErrRoleConnectionRequired
+	}
+	res, err := db.conn.Exec(
+		`INSERT INTO user_roles (username, connection_id, role)
+		 SELECT ?, ?, 'admin'
+		 WHERE NOT EXISTS (SELECT 1 FROM user_roles WHERE role = 'admin')`,
+		username, connectionID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("bootstrap first admin: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("bootstrap first admin: %w", err)
+	}
+	return n == 1, nil
+}
+
+// DeleteUserRole removes a CH-UI role override (reverts to auto-detect).
+// connectionID is ignored for an SSO key.
+func (db *DB) DeleteUserRole(roleKey, connectionID string) error {
+	_, err := db.conn.Exec("DELETE FROM user_roles WHERE username = ? AND connection_id = ?", roleKey, roleScope(roleKey, connectionID))
 	if err != nil {
 		return fmt.Errorf("delete user role: %w", err)
 	}
 	return nil
 }
 
-// GetAllUserRoles retrieves all CH-UI role assignments.
+// GetAllUserRoles retrieves all CH-UI role overrides, with the connection
+// name for ClickHouse user overrides.
 func (db *DB) GetAllUserRoles() ([]UserRole, error) {
-	rows, err := db.conn.Query("SELECT username, role, created_at FROM user_roles ORDER BY username ASC")
+	rows, err := db.conn.Query(`
+		SELECT ur.username, ur.connection_id, COALESCE(c.name, ''), ur.role, ur.created_at
+		FROM user_roles ur
+		LEFT JOIN connections c ON c.id = ur.connection_id
+		ORDER BY ur.username ASC, COALESCE(c.name, '') ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("get all user roles: %w", err)
 	}
-	defer rows.Close()
+	return scanUserRoles(rows)
+}
 
+func scanUserRoles(rows *sql.Rows) ([]UserRole, error) {
+	defer rows.Close()
 	var roles []UserRole
 	for rows.Next() {
 		var r UserRole
-		if err := rows.Scan(&r.Username, &r.Role, &r.CreatedAt); err != nil {
+		var createdAt sql.NullString
+		if err := rows.Scan(&r.Username, &r.ConnectionID, &r.ConnectionName, &r.Role, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan user role: %w", err)
 		}
+		r.CreatedAt = createdAt.String
 		roles = append(roles, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -111,7 +225,8 @@ func (db *DB) GetAllUserRoles() ([]UserRole, error) {
 	return roles, nil
 }
 
-// CountUsersWithRole returns the number of users currently assigned a given CH-UI role.
+// CountUsersWithRole returns the number of overrides with a given CH-UI role,
+// across every connection.
 func (db *DB) CountUsersWithRole(role string) (int, error) {
 	var count int
 	err := db.conn.QueryRow("SELECT COUNT(*) FROM user_roles WHERE role = ?", role).Scan(&count)
@@ -121,12 +236,13 @@ func (db *DB) CountUsersWithRole(role string) (int, error) {
 	return count, nil
 }
 
-// IsUserRole returns true if username currently has the given explicit role in CH-UI.
-func (db *DB) IsUserRole(username, role string) (bool, error) {
+// IsUserRole returns true if the role key has the given explicit role on the
+// connection (globally for an SSO key).
+func (db *DB) IsUserRole(roleKey, connectionID, role string) (bool, error) {
 	var exists int
 	err := db.conn.QueryRow(
-		"SELECT 1 FROM user_roles WHERE username = ? AND role = ? LIMIT 1",
-		username, role,
+		"SELECT 1 FROM user_roles WHERE username = ? AND connection_id = ? AND role = ? LIMIT 1",
+		roleKey, roleScope(roleKey, connectionID), role,
 	).Scan(&exists)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -137,32 +253,59 @@ func (db *DB) IsUserRole(username, role string) (bool, error) {
 	return exists == 1, nil
 }
 
+// SessionRole returns the app role a session acts with: the override for its
+// identity on its connection, else the role cached at sign-in, else viewer.
+// On a connection created from the login page the result is capped by
+// CapLoginURLRole. On error it returns viewer.
+func (db *DB) SessionRole(s *Session) (string, error) {
+	authSubject := ""
+	if s.AuthSubject != nil {
+		authSubject = *s.AuthSubject
+	}
+	if authSubject == "" && IsReservedRoleUsername(s.ClickhouseUser) {
+		// A password session from before such names were refused: its key
+		// would read an SSO person's override.
+		return "viewer", nil
+	}
+	override, err := db.GetUserRole(RoleKey(s.ClickhouseUser, authSubject), s.ConnectionID)
+	if err != nil {
+		return "viewer", err
+	}
+	role := "viewer"
+	if override != "" {
+		role = override
+	} else if s.UserRole != nil && *s.UserRole != "" {
+		role = *s.UserRole
+	}
+	loginURL, err := db.IsLoginURLConnection(s.ConnectionID)
+	if loginURL {
+		role = CapLoginURLRole(role)
+	}
+	return role, err
+}
+
 // RevokeAllAdmins removes every explicit admin assignment and drops the cached
 // admin role from those people's sessions, so they fall back to viewer until
 // they sign in again. The next ClickHouse admin who signs in then becomes the
-// CH-UI admin, as on a fresh install. Returns the role keys that were revoked.
-func (db *DB) RevokeAllAdmins() ([]string, error) {
+// CH-UI admin, as on a fresh install. Returns the overrides that were revoked.
+func (db *DB) RevokeAllAdmins() ([]UserRole, error) {
 	tx, err := db.conn.Begin()
 	if err != nil {
 		return nil, fmt.Errorf("revoke admins: %w", err)
 	}
 	defer tx.Rollback()
 
-	rows, err := tx.Query("SELECT username FROM user_roles WHERE role = 'admin' ORDER BY username ASC")
+	rows, err := tx.Query(`
+		SELECT ur.username, ur.connection_id, COALESCE(c.name, ''), ur.role, ur.created_at
+		FROM user_roles ur
+		LEFT JOIN connections c ON c.id = ur.connection_id
+		WHERE ur.role = 'admin'
+		ORDER BY ur.username ASC, COALESCE(c.name, '') ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("revoke admins: %w", err)
 	}
-	var keys []string
-	for rows.Next() {
-		var k string
-		if err := rows.Scan(&k); err != nil {
-			rows.Close()
-			return nil, fmt.Errorf("revoke admins: %w", err)
-		}
-		keys = append(keys, k)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
+	revoked, err := scanUserRoles(rows)
+	if err != nil {
 		return nil, fmt.Errorf("revoke admins: %w", err)
 	}
 
@@ -175,5 +318,18 @@ func (db *DB) RevokeAllAdmins() ([]string, error) {
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("revoke admins: %w", err)
 	}
-	return keys, nil
+	return revoked, nil
+}
+
+// String renders an override for logs and the CLI: the key, and the
+// connection it applies on for a ClickHouse user.
+func (r UserRole) String() string {
+	if r.ConnectionID == "" {
+		return r.Username
+	}
+	name := r.ConnectionName
+	if name == "" {
+		name = r.ConnectionID
+	}
+	return r.Username + " on " + name
 }

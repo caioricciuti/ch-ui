@@ -32,7 +32,7 @@ func switchFixture(t *testing.T, storedPassword, authSubject string) (*AuthHandl
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetUserRole("alice", "analyst"); err != nil {
+	if err := db.SetUserRole("alice", connID, "analyst"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.CreateSession(database.CreateSessionParams{
@@ -355,7 +355,7 @@ func serverSwitchFixture(t *testing.T, current, target database.CreateConnection
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetUserRole("alice", "analyst"); err != nil {
+	if err := db.SetUserRole("alice", targetID, "analyst"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.CreateSession(database.CreateSessionParams{

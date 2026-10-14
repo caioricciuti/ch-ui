@@ -63,17 +63,11 @@ func Session(db *database.DB, _ *tunnel.Gateway) func(http.Handler) http.Handler
 				authSubject = *session.AuthSubject
 			}
 			// SSO people share one ClickHouse account, so overrides are looked
-			// up per person, never by the shared account name.
-			roleKey := database.RoleKey(session.ClickhouseUser, authSubject)
-
-			role := "viewer"
-			overrideRole, err := db.GetUserRole(roleKey)
+			// up per person, never by the shared account name. A ClickHouse
+			// user's override counts only on the connection it was set for.
+			role, err := db.SessionRole(session)
 			if err != nil {
-				slog.Warn("Failed to resolve explicit user role", "user", roleKey, "error", err)
-			} else if overrideRole != "" {
-				role = overrideRole
-			} else if session.UserRole != nil && *session.UserRole != "" {
-				role = *session.UserRole
+				slog.Warn("Failed to resolve explicit user role", "user", database.RoleKey(session.ClickhouseUser, authSubject), "connection", session.ConnectionID, "error", err)
 			}
 
 			info := &SessionInfo{

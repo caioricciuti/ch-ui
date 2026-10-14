@@ -42,10 +42,10 @@ func TestSessionRoleIsPerSSOPerson(t *testing.T) {
 
 	// The pre-v2.13.2 way to "set a role" for an SSO person, which used to
 	// promote every SSO person on the connection.
-	if err := db.SetUserRole("svc_sso", "admin"); err != nil {
+	if err := db.SetUserRole("svc_sso", connID, "admin"); err != nil {
 		t.Fatalf("SetUserRole svc_sso: %v", err)
 	}
-	if err := db.SetUserRole("sso:alice@example.com", "analyst"); err != nil {
+	if err := db.SetUserRole("sso:alice@example.com", "", "analyst"); err != nil {
 		t.Fatalf("SetUserRole alice: %v", err)
 	}
 
@@ -117,5 +117,64 @@ func TestSessionConnectionGuard(t *testing.T) {
 	rec := serve("some-other-connection")
 	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "connection_changed") {
 		t.Fatalf("mismatched header: %d %s, want 409 connection_changed", rec.Code, rec.Body.String())
+	}
+}
+
+// A ClickHouse user's override counts only on the connection it was set for,
+// and a connection created from the login page never yields admin.
+func TestSessionRoleIsPerConnection(t *testing.T) {
+	db, err := dbtest.Open(t, "scope.db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mk := func(name string) string {
+		id, err := db.CreateConnection(database.CreateConnectionParams{Name: name, TunnelToken: "cht_" + name, Type: database.ConnectionTypeTunnel})
+		if err != nil {
+			t.Fatalf("CreateConnection: %v", err)
+		}
+		return id
+	}
+	a, b, l := mk("a"), mk("b"), mk("l")
+	if err := db.SetSetting(database.SettingLoginURLConnectionIDs, `["`+l+`"]`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetUserRole("default", a, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	expires := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	for _, p := range []database.CreateSessionParams{
+		{ConnectionID: a, ClickhouseUser: "default", EncryptedPassword: "enc", Token: "tok-a", ExpiresAt: expires, UserRole: "viewer"},
+		{ConnectionID: b, ClickhouseUser: "default", EncryptedPassword: "enc", Token: "tok-b", ExpiresAt: expires, UserRole: "viewer"},
+		{ConnectionID: l, ClickhouseUser: "default", EncryptedPassword: "enc", Token: "tok-l", ExpiresAt: expires, UserRole: "admin"},
+	} {
+		if _, err := db.CreateSession(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	roleFor := func(token string) string {
+		t.Helper()
+		var got *SessionInfo
+		h := Session(db, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got = GetSession(r)
+		}))
+		req := httptest.NewRequest(http.MethodGet, "/api/session", nil)
+		req.AddCookie(&http.Cookie{Name: "chui_session", Value: token})
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		if got == nil {
+			t.Fatalf("%s: no session in context", token)
+		}
+		return got.UserRole
+	}
+	if r := roleFor("tok-a"); r != "admin" {
+		t.Fatalf("connection a: %q, want admin", r)
+	}
+	if r := roleFor("tok-b"); r != "viewer" {
+		t.Fatalf("connection b: %q, want viewer (override is for a only)", r)
+	}
+	if r := roleFor("tok-l"); r != "analyst" {
+		t.Fatalf("login URL connection: %q, want analyst cap", r)
 	}
 }

@@ -15,7 +15,7 @@ import (
 // schemaVersion is the current database schema version. Bump it (date-based)
 // whenever schema-affecting migrations are added below. It is recorded in the
 // settings table after a successful migration run for upgrade observability.
-const schemaVersion = "2026.10.14"
+const schemaVersion = "2026.10.15"
 
 func (db *DB) runMigrations() error {
 	var prev string
@@ -88,12 +88,8 @@ func (db *DB) runMigrations() error {
 		`CREATE INDEX IF NOT EXISTS idx_rate_limit_type ON rate_limits(type)`,
 		`CREATE INDEX IF NOT EXISTS idx_rate_limit_locked ON rate_limits(locked_until)`,
 
-		// User role overrides
-		`CREATE TABLE IF NOT EXISTS user_roles (
-			username TEXT PRIMARY KEY,
-			role TEXT NOT NULL DEFAULT 'viewer',
-			created_at TEXT DEFAULT CURRENT_TIMESTAMP
-		)`,
+		// User role overrides, scoped per connection (see migrateUserRolesV2)
+		userRolesV2Table,
 
 		// Saved queries (was in ClickHouse, now SQLite)
 		`CREATE TABLE IF NOT EXISTS saved_queries (
@@ -1328,6 +1324,10 @@ Formatting:
 	}
 
 	if err := db.migrateBrainV3(); err != nil {
+		return err
+	}
+
+	if err := db.migrateUserRolesV2(); err != nil {
 		return err
 	}
 	slog.Info("Database migrations completed", "schema_version", schemaVersion)

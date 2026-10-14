@@ -119,8 +119,8 @@ gets `admin`.
 
 An admin can override one person's role in **Admin, Users**. SSO people are
 listed by email with an **SSO** badge and the service account they query as.
-An override applies to that person only and wins over the group mapping until
-it is removed. In the API, an SSO person's override is keyed `sso:<email>`
+An override applies to that person only, on every connection, and wins over
+the group mapping until it is removed. In the API, an SSO person's override is keyed `sso:<email>`
 (URL-encode it in `PUT`/`DELETE /api/admin/user-roles/{username}`).
 
 ## What is per person

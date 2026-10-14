@@ -255,7 +255,7 @@ func TestSetupClosed(t *testing.T) {
 	})
 	t.Run("admin exists", func(t *testing.T) {
 		h, db, _, code := setupFixture(t)
-		if err := db.SetUserRole("bob", "admin"); err != nil {
+		if err := db.SetUserRole("sso:bob@example.com", "", "admin"); err != nil {
 			t.Fatal(err)
 		}
 		rec, out := postSetup(t, h, "198.51.100.12", map[string]string{"code": code, "name": "x", "clickhouse_url": "http://localhost:8123"})
@@ -413,7 +413,7 @@ func TestAuthConfigSetupOpen(t *testing.T) {
 	}
 
 	h3, db3, _, _ := setupFixture(t)
-	if err := db3.SetUserRole("bob", "admin"); err != nil {
+	if err := db3.SetUserRole("sso:bob@example.com", "", "admin"); err != nil {
 		t.Fatal(err)
 	}
 	if got := authConfigSetupOpen(t, &AuthHandler{DB: db3, Setup: h3}); got != false {
@@ -464,7 +464,7 @@ func TestSetupStart(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { db.Close() })
-		if err := db.SetUserRole("bob", "admin"); err != nil {
+		if err := db.SetUserRole("sso:bob@example.com", "", "admin"); err != nil {
 			t.Fatal(err)
 		}
 		h := &SetupHandler{DB: db}
@@ -479,7 +479,7 @@ func TestSetupStart(t *testing.T) {
 			t.Fatalf("setup.closed rows = %d, want 1", n)
 		}
 		// Sticky: removing the admin does not reopen setup.
-		if err := db.DeleteUserRole("bob"); err != nil {
+		if err := db.DeleteUserRole("sso:bob@example.com", ""); err != nil {
 			t.Fatal(err)
 		}
 		h.Start()

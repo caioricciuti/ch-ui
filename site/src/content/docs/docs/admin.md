@@ -65,6 +65,9 @@ email, with an **SSO** badge and the ClickHouse service account they query as.
 Their role override applies to that person only. An override set on the service
 account name applies to password logins as that account, not to SSO people.
 
+The application list shows the current connection: its password users and every
+SSO person. Switch connection to manage another connection's users.
+
 ### Role Overrides
 
 Set CH-UI role overrides to control application-level permissions:
@@ -75,14 +78,24 @@ Set CH-UI role overrides to control application-level permissions:
 | `analyst` | Query execution, saved queries, dashboards, brain chat |
 | `viewer` | Read-only access |
 
-```bash
-# Set role
-PUT /api/admin/user-roles/{username}
-{ "role": "admin" }
+Overrides for ClickHouse users (password login) apply per connection: an admin
+role on one connection does nothing for the same username on another. Overrides
+for SSO people apply on all connections, since the identity provider verified
+who they are. Connections added from the login page (sign-in with a ClickHouse
+URL) take no overrides and never grant `admin`; the most a user gets there is
+`analyst`.
 
-# Remove override (reverts to viewer)
-DELETE /api/admin/user-roles/{username}
+```bash
+# Set role (connection_id defaults to your current connection; ignored for sso:<email>)
+PUT /api/admin/user-roles/{username}
+{ "role": "admin", "connection_id": "<connection id>" }
+
+# Remove override (reverts to the detected role)
+DELETE /api/admin/user-roles/{username}?connection_id=<connection id>
 ```
+
+`GET /api/admin/user-roles` lists every override with `connection_id` and
+`connection_name`; `connection_id` is empty for SSO overrides.
 
 For an SSO person, `{username}` is `sso:<email>`, URL-encoded (for example
 `sso%3Aana%40example.com`). `GET /api/admin/users` returns this key as

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -88,7 +89,17 @@ func (h *AdminHandler) Routes(r chi.Router) {
 // ---------- GET /users ----------
 
 func (h *AdminHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.DB.GetUsers()
+	// A ClickHouse user's role is per connection, so the list is the
+	// admin's current connection: its password users plus every SSO person.
+	connectionID := ""
+	if session := middleware.GetSession(r); session != nil {
+		connectionID = session.ConnectionID
+	}
+	if connectionID == "" {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+	users, err := h.DB.GetUsers(connectionID)
 	if err != nil {
 		slog.Error("Failed to get users", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to retrieve users")
@@ -107,6 +118,9 @@ func (h *AdminHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		userMap[u.Username] = u
 	}
 	for _, ov := range roleOverrides {
+		if ov.ConnectionID != "" && ov.ConnectionID != connectionID {
+			continue
+		}
 		if _, exists := userMap[ov.Username]; exists {
 			continue
 		}
@@ -221,6 +235,8 @@ func (h *AdminHandler) fetchCurrentClickHouseUsers(r *http.Request) (map[string]
 
 // ---------- GET /user-roles ----------
 
+// Every override: SSO people's (connection_id "", all connections) and
+// ClickHouse users' (one row per connection).
 func (h *AdminHandler) GetUserRoles(w http.ResponseWriter, r *http.Request) {
 	roles, err := h.DB.GetAllUserRoles()
 	if err != nil {
@@ -261,6 +277,9 @@ func (h *AdminHandler) SetUserRole(w http.ResponseWriter, r *http.Request) {
 
 	var body struct {
 		Role string `json:"role"`
+		// ConnectionID scopes a ClickHouse user's override; it defaults to
+		// the admin's current connection and is ignored for "sso:<email>".
+		ConnectionID string `json:"connection_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -273,8 +292,9 @@ func (h *AdminHandler) SetUserRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Role must be one of: admin, analyst, viewer")
 		return
 	}
+	connectionID := roleConnectionID(session, username, body.ConnectionID)
 
-	isTargetAdmin, err := h.DB.IsUserRole(username, "admin")
+	isTargetAdmin, err := h.DB.IsUserRole(username, connectionID, "admin")
 	if err != nil {
 		slog.Error("Failed checking current role assignment", "error", err, "user", username)
 		writeError(w, http.StatusInternalServerError, "Failed to validate current role")
@@ -293,12 +313,16 @@ func (h *AdminHandler) SetUserRole(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.DB.SetUserRole(username, body.Role); err != nil {
+	if err := h.DB.SetUserRole(username, connectionID, body.Role); err != nil {
+		if msg, ok := roleScopeError(err); ok {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
 		slog.Error("Failed to set user role", "error", err, "user", username)
 		writeError(w, http.StatusInternalServerError, "Failed to set user role")
 		return
 	}
-	if err := h.DB.SetSessionsUserRole(username, body.Role); err != nil {
+	if err := h.DB.SetSessionsUserRole(username, connectionID, body.Role); err != nil {
 		slog.Warn("Failed to refresh active session roles after role update", "error", err, "user", username)
 	}
 
@@ -310,14 +334,16 @@ func (h *AdminHandler) SetUserRole(w http.ResponseWriter, r *http.Request) {
 		Action:         "user_role.set",
 		Username:       actorName,
 		ClickhouseUser: chUser,
-		Details:        strPtr(fmt.Sprintf("Set role for %q to %s", username, body.Role)),
+		ConnectionID:   nonEmptyPtr(connectionID),
+		Details:        strPtr(fmt.Sprintf("Set role for %q to %s %s", username, body.Role, h.roleScopeLabel(connectionID))),
 		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"message":  "User role updated",
-		"username": username,
-		"role":     body.Role,
+		"message":       "User role updated",
+		"username":      username,
+		"role":          body.Role,
+		"connection_id": connectionID,
 	})
 }
 
@@ -332,7 +358,9 @@ func (h *AdminHandler) DeleteUserRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isTargetAdmin, err := h.DB.IsUserRole(username, "admin")
+	connectionID := roleConnectionID(session, username, r.URL.Query().Get("connection_id"))
+
+	isTargetAdmin, err := h.DB.IsUserRole(username, connectionID, "admin")
 	if err != nil {
 		slog.Error("Failed checking current role assignment", "error", err, "user", username)
 		writeError(w, http.StatusInternalServerError, "Failed to validate current role")
@@ -351,12 +379,12 @@ func (h *AdminHandler) DeleteUserRole(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.DB.DeleteUserRole(username); err != nil {
+	if err := h.DB.DeleteUserRole(username, connectionID); err != nil {
 		slog.Error("Failed to delete user role", "error", err, "user", username)
 		writeError(w, http.StatusInternalServerError, "Failed to delete user role")
 		return
 	}
-	if err := h.DB.SetSessionsUserRole(username, "viewer"); err != nil {
+	if err := h.DB.SetSessionsUserRole(username, connectionID, "viewer"); err != nil {
 		slog.Warn("Failed to refresh active session roles after role override removal", "error", err, "user", username)
 	}
 
@@ -368,14 +396,65 @@ func (h *AdminHandler) DeleteUserRole(w http.ResponseWriter, r *http.Request) {
 		Action:         "user_role.deleted",
 		Username:       actorName,
 		ClickhouseUser: chUser,
-		Details:        strPtr(fmt.Sprintf("Removed role override for %q", username)),
+		ConnectionID:   nonEmptyPtr(connectionID),
+		Details:        strPtr(fmt.Sprintf("Removed role override for %q %s", username, h.roleScopeLabel(connectionID))),
 		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"message":  "User role override removed",
-		"username": username,
+		"message":       "User role override removed",
+		"username":      username,
+		"connection_id": connectionID,
 	})
+}
+
+// roleConnectionID is the connection a role change applies on: "" for an SSO
+// person (all connections), else the requested connection or, when none is
+// named, the admin's current one.
+func roleConnectionID(session *middleware.SessionInfo, roleKey, requested string) string {
+	if database.IsSSORoleKey(roleKey) {
+		return ""
+	}
+	if requested = strings.TrimSpace(requested); requested != "" {
+		return requested
+	}
+	if session != nil {
+		return session.ConnectionID
+	}
+	return ""
+}
+
+// roleScopeError maps the scope errors of SetUserRole to a client message.
+func roleScopeError(err error) (string, bool) {
+	switch {
+	case errors.Is(err, database.ErrRoleConnectionRequired):
+		return "A connection is required to set a ClickHouse user's role", true
+	case errors.Is(err, database.ErrRoleConnectionNotFound):
+		return "Connection not found", true
+	case errors.Is(err, database.ErrRoleLoginURLConnection):
+		return "Connections added from the login page cannot carry role overrides", true
+	}
+	return "", false
+}
+
+// nonEmptyPtr is strPtr, or nil for "".
+func nonEmptyPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// roleScopeLabel describes where an override applies, for audit details.
+func (h *AdminHandler) roleScopeLabel(connectionID string) string {
+	if connectionID == "" {
+		return "on all connections"
+	}
+	name := connectionID
+	if c, err := h.DB.GetConnectionByID(connectionID); err == nil && c != nil {
+		name = c.Name
+	}
+	return fmt.Sprintf("on connection %q", name)
 }
 
 // ---------- GET /connections ----------
@@ -415,7 +494,7 @@ func (h *AdminHandler) GetConnections(w http.ResponseWriter, r *http.Request) {
 // ---------- GET /stats ----------
 
 func (h *AdminHandler) GetStats(w http.ResponseWriter, r *http.Request) {
-	users, err := h.DB.GetUsers()
+	users, err := h.DB.GetUsers("")
 	if err != nil {
 		slog.Error("Failed to get users for stats", "error", err)
 		users = []database.SessionUser{}

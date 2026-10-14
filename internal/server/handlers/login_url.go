@@ -19,7 +19,9 @@ import (
 const (
 	// settingLoginURLConnectionIDs is a JSON array of connection ids created
 	// from the login page. Only ids that still exist count toward the cap.
-	settingLoginURLConnectionIDs = "login_url_connection_ids"
+	// Such a connection never carries a role override and never grants CH-UI
+	// admin (see database.CapLoginURLRole).
+	settingLoginURLConnectionIDs = database.SettingLoginURLConnectionIDs
 
 	// loginURLMaxConnections caps the connections the login page may create.
 	loginURLMaxConnections = 20
@@ -137,19 +139,8 @@ func (h *AuthHandler) loginURLConnection(chURL, username, clientIP string) (conn
 }
 
 // loginURLConnectionIDs reads settingLoginURLConnectionIDs. An unreadable
-// value is treated as empty, with a warning, rather than blocking logins.
+// value is an error: rewriting it would forget which connections came from
+// the login page, and those must never grant CH-UI admin.
 func loginURLConnectionIDs(db *database.DB) ([]string, error) {
-	raw, err := db.GetSetting(settingLoginURLConnectionIDs)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(raw) == "" {
-		return nil, nil
-	}
-	var ids []string
-	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
-		slog.Warn("Ignoring unreadable login URL connection list", "key", settingLoginURLConnectionIDs, "error", err)
-		return nil, nil
-	}
-	return ids, nil
+	return db.LoginURLConnectionIDs()
 }

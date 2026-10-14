@@ -254,7 +254,7 @@ func runServer(cmd *cobra.Command) error {
 	} else {
 		for _, r := range stale {
 			slog.Warn("Role override on an SSO service account no longer applies to SSO users; set roles per person in Admin, Users",
-				"service_account", r.Username, "role", r.Role)
+				"service_account", r.Username, "connection", r.ConnectionName, "role", r.Role)
 		}
 	}
 

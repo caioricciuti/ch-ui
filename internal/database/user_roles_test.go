@@ -28,7 +28,7 @@ func TestRevokeAllAdmins(t *testing.T) {
 		}
 	}
 	for user, role := range map[string]string{"default": "admin", "sso:alice@example.com": "admin", "ana": "analyst"} {
-		if err := db.SetUserRole(user, role); err != nil {
+		if err := db.SetUserRole(user, connID, role); err != nil {
 			t.Fatalf("SetUserRole %s: %v", user, err)
 		}
 	}
@@ -37,14 +37,14 @@ func TestRevokeAllAdmins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RevokeAllAdmins: %v", err)
 	}
-	if len(revoked) != 2 || revoked[0] != "default" || revoked[1] != "sso:alice@example.com" {
+	if len(revoked) != 2 || revoked[0].String() != "default on revoke-test" || revoked[1].String() != "sso:alice@example.com" {
 		t.Fatalf("revoked = %v", revoked)
 	}
 
 	if n, _ := db.CountUsersWithRole("admin"); n != 0 {
 		t.Fatalf("admins left = %d", n)
 	}
-	if r, _ := db.GetUserRole("ana"); r != "analyst" {
+	if r, _ := db.GetUserRole("ana", connID); r != "analyst" {
 		t.Fatalf("ana role = %q, want analyst kept", r)
 	}
 	if r := sessionRole(t, db, "tok-default"); r != "viewer" {

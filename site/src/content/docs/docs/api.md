@@ -327,8 +327,8 @@ Every `/api/admin/*` route requires the admin role.
 | `GET` | `/api/admin/stats` | System statistics (users, connections, queries) |
 | `GET` | `/api/admin/users` | List users with login history |
 | `GET` | `/api/admin/user-roles` | Get role overrides |
-| `PUT` | `/api/admin/user-roles/{username}` | Set role override |
-| `DELETE` | `/api/admin/user-roles/{username}` | Remove role override |
+| `PUT` | `/api/admin/user-roles/{username}` | Set role override (body `role`, optional `connection_id`, default the current connection; SSO overrides apply on all connections) |
+| `DELETE` | `/api/admin/user-roles/{username}` | Remove role override (optional `?connection_id=`, default the current connection) |
 | `GET` | `/api/admin/connections` | List connections with tunnel status |
 | `GET` | `/api/admin/clickhouse-users` | Query system.users from ClickHouse |
 | `POST` | `/api/admin/clickhouse-users` | Create ClickHouse user |
