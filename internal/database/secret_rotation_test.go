@@ -220,3 +220,35 @@ func TestRotateSecretsRequiresBothKeys(t *testing.T) {
 		t.Fatal("missing previous key accepted")
 	}
 }
+
+// Every column whose name says it holds an encrypted value must be in
+// encryptedColumns, or a key rotation silently leaves it behind. Columns that
+// are encrypted in a different shape (pipeline_nodes.config_encrypted holds
+// JSON with enc:v1: fields) are handled separately and listed here.
+func TestEncryptedColumnsListIsComplete(t *testing.T) {
+	db := openTestDB(t)
+	handledElsewhere := map[string]bool{"pipeline_nodes.config_encrypted": true}
+	listed := map[string]bool{}
+	for _, c := range encryptedColumns {
+		listed[c.table+"."+c.column] = true
+	}
+	rows, err := db.conn.Query(`SELECT m.name, p.name FROM sqlite_master m, pragma_table_info(m.name) p
+		WHERE m.type = 'table' AND (p.name LIKE '%encrypt%' OR p.name LIKE '%\_enc' ESCAPE '\')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var table, column string
+		if err := rows.Scan(&table, &column); err != nil {
+			t.Fatal(err)
+		}
+		key := table + "." + column
+		if !listed[key] && !handledElsewhere[key] {
+			t.Errorf("%s looks encrypted but is not in encryptedColumns; APP_SECRET_KEY rotation would skip it", key)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
