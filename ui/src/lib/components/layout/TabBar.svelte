@@ -41,7 +41,7 @@
   } from 'lucide-svelte'
   import ContextMenu, { type ContextMenuItem } from '../common/ContextMenu.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
-  import { ALT, combo, isEditableTarget, isKey } from '../../utils/shortcuts'
+  import { ALT, combo, tabShortcut } from '../../utils/shortcuts'
 
   interface Props {
     groupId: string
@@ -290,34 +290,28 @@
     if (focusedGroupId !== groupId) return
     if (editingTabId) return
 
-    const mod = e.metaKey || e.ctrlKey
     const currentTab = tabs.find((t) => t.id === activeId)
     if (!currentTab) return
 
     // isKey falls back to e.code: on macOS Option+W reports e.key "∑".
-    // ⌘⇧W is kept for browsers that allow it; Chrome closes the window.
-    if ((e.altKey && !mod && isKey(e, 'w')) || (mod && e.shiftKey && isKey(e, 'w'))) {
-      if (isHomeTab(currentTab)) return
-      e.preventDefault()
-      requestCloseTabs([currentTab.id])
-      return
-    }
-
-    if (((e.altKey && !mod && isKey(e, 'd')) || (mod && e.shiftKey && isKey(e, 'd'))) && currentTab.type === 'query') {
-      e.preventDefault()
-      duplicateQueryTab(currentTab)
-      return
-    }
-
-    if (e.altKey && !mod && isKey(e, 's')) {
-      e.preventDefault()
-      splitFromMenu(currentTab.id)
-      return
-    }
-
-    if (e.key === 'F2' && !isEditableTarget(e.target)) {
-      e.preventDefault()
-      startRename(currentTab)
+    switch (tabShortcut(e)) {
+      case 'close':
+        if (isHomeTab(currentTab)) return
+        e.preventDefault()
+        requestCloseTabs([currentTab.id])
+        return
+      case 'duplicate':
+        if (currentTab.type !== 'query') return
+        e.preventDefault()
+        duplicateQueryTab(currentTab)
+        return
+      case 'split':
+        e.preventDefault()
+        splitFromMenu(currentTab.id)
+        return
+      case 'rename':
+        e.preventDefault()
+        startRename(currentTab)
     }
   }
 

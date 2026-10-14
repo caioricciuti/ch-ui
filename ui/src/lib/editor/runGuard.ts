@@ -4,17 +4,24 @@
 // the user is looking at?" a single check.
 
 export interface RunRegistry {
-  /** Stop the current run for key (if any) and register a new one. Returns its id. */
-  start(key: string, cancel: () => void): number
+  /**
+   * Stop the current run for key (if any) and register a new one. Returns its
+   * id. owner names what the run fills (a result id), see stopOwned.
+   */
+  start(key: string, cancel: () => void, owner?: string): number
   /** Stop the current run for key: calls its cancel and forgets it. */
   stop(key: string): void
+  /** Stop the current run for key only when owner started it. */
+  stopOwned(key: string, owner: string): void
+  /** Stop every run. */
+  stopAll(): void
   /** True while id is the latest run registered for key. */
   isCurrent(key: string, id: number): boolean
 }
 
 export function createRunRegistry(): RunRegistry {
   let seq = 0
-  const runs = new Map<string, { id: number; cancel: () => void }>()
+  const runs = new Map<string, { id: number; cancel: () => void; owner?: string }>()
 
   function stop(key: string): void {
     const run = runs.get(key)
@@ -24,13 +31,19 @@ export function createRunRegistry(): RunRegistry {
   }
 
   return {
-    start(key, cancel) {
+    start(key, cancel, owner) {
       stop(key)
       const id = ++seq
-      runs.set(key, { id, cancel })
+      runs.set(key, { id, cancel, owner })
       return id
     },
     stop,
+    stopOwned(key, owner) {
+      if (runs.get(key)?.owner === owner) stop(key)
+    },
+    stopAll() {
+      for (const key of [...runs.keys()]) stop(key)
+    },
     isCurrent(key, id) {
       return runs.get(key)?.id === id
     },

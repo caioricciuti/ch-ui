@@ -35,6 +35,14 @@ describe('splitStatements', () => {
     ])
   })
 
+  it('drops a trailing comment after the only statement (what Run sends)', () => {
+    const sql = '  SELECT 1; -- note\n'
+    const st = splitStatements(sql)
+    expect(st.map((s) => s.text)).toEqual(['SELECT 1'])
+    expect(st[0].from).toBe(2)
+    expect(texts("SELECT '--x'; # c")).toEqual(["SELECT '--x'"])
+  })
+
   it('drops empty and comment-only statements', () => {
     expect(texts(';;SELECT 1;\n-- trailing note\n;  ')).toEqual(['SELECT 1'])
     expect(texts('/* only */')).toEqual([])

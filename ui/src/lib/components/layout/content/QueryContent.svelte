@@ -1,12 +1,14 @@
 <script lang="ts" module>
-  import { createRunRegistry, createFrameBatcher } from '../../../editor/runGuard'
+  import { createFrameBatcher } from '../../../editor/runGuard'
+  import { queryRuns } from '../../../editor/query-runs'
 
   // One in-flight run per tab, shared across remounts: the component is
   // keyed by tab id, so switching tabs (or split-moving) destroys the instance
-  // while the stream keeps running. Keeping the run here lets the remounted
-  // instance cancel or supersede it, and lets late callbacks of a superseded
-  // run (rows, done, error) see that they no longer own the tab's result.
-  const tabRuns = createRunRegistry()
+  // while the stream keeps running. The shared registry lets the remounted
+  // instance cancel or supersede it, lets the tab store stop it when the tab,
+  // its result or the connection goes away, and lets late callbacks of a
+  // superseded run (rows, done, error) see that they no longer own the result.
+  const tabRuns = queryRuns
 
   // Backend stream handler hard-caps maxRows (internal/server/handlers/query.go).
   const BACKEND_MAX_ROWS = 1_000_000
@@ -50,7 +52,7 @@
   import { getMaxResultRows } from '../../../stores/query-limit.svelte'
   import { error as toastError, success as toastSuccess, info as toastInfo, warning as toastWarning } from '../../../stores/toast.svelte'
   import { budgetWarningText } from '../../brain/brain-budget'
-  import { detectQueryParams, paramDefaultsToSave } from '../../../utils/query-params'
+  import { detectQueryParams, isParamValueMissing, paramDefaultsToSave } from '../../../utils/query-params'
   import { firstKeyword, splitStatements, statementAt } from '../../../editor/statements'
   import { parseCHError, byteToCharOffset } from '../../../utils/ch-error'
   import { isProActive, loadLicense } from '../../../stores/license.svelte'
@@ -283,7 +285,7 @@
     const seen = new Set<string>()
     const list = sqls.flatMap((q) => detectQueryParams(q)).filter((p) => !seen.has(p.name) && seen.add(p.name))
     if (list.length === 0) return undefined
-    const missing = list.find((p) => !(paramValues[p.name] ?? '').trim())
+    const missing = list.find((p) => isParamValueMissing(p, paramValues[p.name]))
     if (missing) {
       if (ask) openParams(missing.name)
       return null
@@ -311,11 +313,15 @@
     const tabId = tab.id
     // Supersedes any in-flight run for this tab (even one started before a
     // remount). The superseded result stops spinning and says why.
-    return tabRuns.start(tabId, () => {
-      onStop()
-      const r = getTabResults(tabId).results.find((x) => x.id === resultId)
-      if (r?.running) setTabResult(tabId, resultId, { running: false, error: 'Query cancelled' })
-    })
+    return tabRuns.start(
+      tabId,
+      () => {
+        onStop()
+        const r = getTabResults(tabId).results.find((x) => x.id === resultId)
+        if (r?.running) setTabResult(tabId, resultId, { running: false, error: 'Query cancelled' })
+      },
+      resultId,
+    )
   }
 
   async function runStreamingQuery(query: string, params: Record<string, string> | undefined, opts: { baseRun?: boolean; resultId: string }): Promise<RunOutcome> {
@@ -708,7 +714,6 @@
 
   function handleCloseResult(id: string) {
     // Closing the result that is still streaming stops its query too.
-    if (id === lastRunResultId && tabResults.results.some((r) => r.id === id && r.running)) tabRuns.stop(tab.id)
     closeTabResult(tab.id, id)
   }
 

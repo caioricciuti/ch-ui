@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { detectQueryParams, paramDefaultsToSave, parseSavedParams } from './query-params'
+import { detectQueryParams, isParamValueMissing, paramDefaultsToSave, parseSavedParams } from './query-params'
 
 describe('detectQueryParams', () => {
   it('returns nothing for an empty or parameterless query', () => {
@@ -56,5 +56,23 @@ describe('saved parameter defaults', () => {
       a: 'new',
       b: 'kept',
     })
+  })
+})
+
+describe('isParamValueMissing', () => {
+  it('lets a String parameter bind the empty string', () => {
+    for (const type of ['String', 'Nullable(String)', 'LowCardinality(String)', 'LowCardinality(Nullable(String))']) {
+      expect(isParamValueMissing({ name: 'q', type }, '')).toBe(false)
+      expect(isParamValueMissing({ name: 'q', type }, undefined)).toBe(false)
+    }
+  })
+
+  it('still requires a value for other types', () => {
+    expect(isParamValueMissing({ name: 'n', type: 'UInt64' }, '')).toBe(true)
+    expect(isParamValueMissing({ name: 'n', type: 'UInt64' }, '  ')).toBe(true)
+    expect(isParamValueMissing({ name: 'n', type: 'UInt64' }, undefined)).toBe(true)
+    expect(isParamValueMissing({ name: 'a', type: 'Array(String)' }, '')).toBe(true)
+    expect(isParamValueMissing({ name: 'f', type: 'FixedString(3)' }, '')).toBe(true)
+    expect(isParamValueMissing({ name: 'n', type: 'UInt64' }, '1')).toBe(false)
   })
 })

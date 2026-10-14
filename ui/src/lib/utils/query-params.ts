@@ -31,6 +31,18 @@ export function detectQueryParams(sql: string): QueryParam[] {
   return Array.from(seen, ([name, type]) => ({ name, type }))
 }
 
+// String, Nullable(String), LowCardinality(String), LowCardinality(Nullable(String)).
+const STRING_TYPE_RE = /^(?:(?:Nullable|LowCardinality)\s*\(\s*)*String(?:\s*\))*$/
+
+/**
+ * True when a run cannot bind the parameter. An empty value is missing,
+ * except for String types, where '' is a value like any other.
+ */
+export function isParamValueMissing(param: QueryParam, value: string | undefined): boolean {
+  if (STRING_TYPE_RE.test(param.type)) return false
+  return !(value ?? '').trim()
+}
+
 /** Parse a saved query's stored parameters (a JSON object string) into string values. */
 export function parseSavedParams(raw: string | null | undefined): Record<string, string> {
   if (!raw || !raw.trim()) return {}
