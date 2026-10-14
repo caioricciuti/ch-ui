@@ -10,6 +10,7 @@ import (
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
@@ -24,7 +25,7 @@ func pipelineRequestAs(router http.Handler, role, connectionID, method, path, bo
 
 func TestPipelineSecretsAreEncryptedAndMasked(t *testing.T) {
 	dir := t.TempDir()
-	db, err := database.Open(filepath.Join(dir, "ch-ui.db"))
+	db, err := dbtest.OpenIn(t, dir, "ch-ui.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func TestPipelineSecretsAreEncryptedAndMasked(t *testing.T) {
 
 func TestSQLiteSourceIsAdminOnly(t *testing.T) {
 	dir := t.TempDir()
-	db, err := database.Open(filepath.Join(dir, "ch-ui.db"))
+	db, err := dbtest.OpenIn(t, dir, "ch-ui.db")
 	if err != nil {
 		t.Fatal(err)
 	}

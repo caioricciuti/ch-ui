@@ -12,6 +12,7 @@ import (
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 // fakeSink records batches; fail makes the first n writes fail.
@@ -64,7 +65,7 @@ func shortBackoff(t *testing.T) {
 func testRunnerDB(t *testing.T) (*database.DB, string, *config.Config) {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := database.Open(filepath.Join(dir, "ch-ui.db"))
+	db, err := dbtest.OpenIn(t, dir, "ch-ui.db")
 	if err != nil {
 		t.Fatal(err)
 	}

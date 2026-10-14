@@ -23,6 +23,52 @@ jobs:
     name: Backend (Go)
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # frontend.go embeds ui/dist via //go:embed; the backend job doesn't build
+      # the UI, so provide a placeholder file so the package compiles for
+      # vet/test/govulncheck. Real builds (Docker/release) embed the actual UI.
+      - name: Prepare embedded frontend placeholder
+        run: |
+          mkdir -p ui/dist
+          printf '<!doctype html><title>ch-ui</title>' > ui/dist/index.html
+
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l ./cmd ./internal ./connector)"
+          if [ -n "${unformatted}" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "${unformatted}"
+            echo "Run: gofmt -w ./cmd ./internal ./connector"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      # Every test, without the race detector: fast, and it catches failures
+      # in any package. The race detector runs in the race job below.
+      - name: Test
+        run: go test ./...
+
+      - name: Vulnerability scan (govulncheck)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          govulncheck ./...
+
+  live:
+    # Tests against a real ClickHouse, in parallel with the unit tests.
+    name: Backend live (ClickHouse)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       clickhouse:
         # Mirror of clickhouse/clickhouse-server:25.8, same digest (mirror-images.yml).
@@ -56,22 +102,6 @@ jobs:
           mkdir -p ui/dist
           printf '<!doctype html><title>ch-ui</title>' > ui/dist/index.html
 
-      - name: Check formatting
-        run: |
-          unformatted="$(gofmt -l ./cmd ./internal ./connector)"
-          if [ -n "${unformatted}" ]; then
-            echo "These files are not gofmt-clean:"
-            echo "${unformatted}"
-            echo "Run: gofmt -w ./cmd ./internal ./connector"
-            exit 1
-          fi
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test ./... -race
-
       - name: Background workers against ClickHouse
         env:
           CHUI_TEST_CLICKHOUSE_URL: http://127.0.0.1:18123
@@ -83,6 +113,7 @@ jobs:
             'CREATE TABLE default.otel_logs (Timestamp DateTime64(9), Body String) ENGINE=MergeTree ORDER BY Timestamp'
           go test ./internal/scheduler ./internal/models ./internal/pipelines \
             ./internal/clusterhealth ./internal/governance ./internal/telemetry/monitor \
+            ./internal/sqlalerts \
             -run TestBackgroundAccountExecution -count=1 -race
 
       - name: Operations and telemetry against ClickHouse
@@ -91,17 +122,61 @@ jobs:
           CHUI_TEST_CLICKHOUSE_USER: release_admin
           CHUI_TEST_CLICKHOUSE_PASSWORD: ci-test-only
         run: |
+          # The performance test takes a flag the other test binaries do not
+          # define, so it runs on its own.
           go test ./internal/performance -run TestPerformanceQueryLive -count=1 -race -args -performance-fixtures
-          go test ./internal/operations -run TestScheduledReportUsesDedicatedAccountAndPersistsOnce -count=1 -race
-          go test ./internal/server/handlers -run 'TestSchemaCompareLive|TestReadonlyProfileUserLive' -count=1 -race
-          go test ./internal/incidenttimeline -run TestIncidentTimelineQueriesLive -count=1 -race
-          go test ./internal/telemetry -run TestHistogramWindowLive -count=1 -race
-          go test ./internal/mcpserver -run TestMCPReadonlyAndAllowListLive -count=1 -race
+          go test ./internal/operations ./internal/server/handlers ./internal/incidenttimeline \
+            ./internal/telemetry ./internal/mcpserver -count=1 -race \
+            -run '^(TestScheduledReportUsesDedicatedAccountAndPersistsOnce|TestSchemaCompareLive|TestReadonlyProfileUserLive|TestIncidentTimelineQueriesLive|TestHistogramWindowLive|TestMCPReadonlyAndAllowListLive)$'
 
-      - name: Vulnerability scan (govulncheck)
+  race:
+    # The race detector makes tests about ten times slower, so it is split
+    # over four runners. On a pull request each shard runs only the packages
+    # the change can affect (.github/ci/raceplan); on main and for releases
+    # every package runs.
+    name: Backend race (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request checks out its merge commit; HEAD^1 is the base.
+          fetch-depth: 2
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare embedded frontend placeholder
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-          govulncheck ./...
+          mkdir -p ui/dist
+          printf '<!doctype html><title>ch-ui</title>' > ui/dist/index.html
+
+      - name: Plan
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+        run: |
+          go run ./.github/ci/raceplan -shard ${{ matrix.shard }} -shards 4 -base "$BASE" > race-plan.txt
+          cat race-plan.txt
+
+      - name: Test with the race detector
+        run: |
+          set -euo pipefail
+          if [ ! -s race-plan.txt ]; then
+            echo "Nothing in this shard is affected by the change."
+            exit 0
+          fi
+          while IFS= read -r line; do
+            read -ra args <<< "$line"
+            go test -race -count=1 "${args[@]}"
+          done < race-plan.txt
 
   frontend:
     name: Frontend (Svelte)

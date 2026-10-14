@@ -46,11 +46,18 @@ func template() (string, error) {
 // Open returns a migrated database stored as name in t.TempDir().
 func Open(t testing.TB, name string) (*database.DB, error) {
 	t.Helper()
+	return OpenIn(t, t.TempDir(), name)
+}
+
+// OpenIn is Open for tests that need the database at a known path, for
+// example as the config's DatabasePath.
+func OpenIn(t testing.TB, dir, name string) (*database.DB, error) {
+	t.Helper()
 	src, err := template()
 	if err != nil {
 		return nil, err
 	}
-	dst := filepath.Join(t.TempDir(), name)
+	dst := filepath.Join(dir, name)
 	if err := copyFile(src, dst); err != nil {
 		return nil, err
 	}
