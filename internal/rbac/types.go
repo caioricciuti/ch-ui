@@ -55,55 +55,55 @@ type Target struct {
 
 // Assignees is the TO clause of a row policy, quota or settings profile.
 type Assignees struct {
-	All    bool     `json:"all,omitempty"`
-	Names  []string `json:"names,omitempty"`
-	Except []string `json:"except,omitempty"`
+	All    bool     `json:"all,omitempty" yaml:"all,omitempty"`
+	Names  []string `json:"names,omitempty" yaml:"names,omitempty"`
+	Except []string `json:"except,omitempty" yaml:"except,omitempty"`
 }
 
 // RowPolicySpec describes a row policy. Name is the short name; the policy
 // is identified by (Name, Database, Table).
 type RowPolicySpec struct {
-	Name        string    `json:"name"`
-	Database    string    `json:"database"`
-	Table       string    `json:"table"`
-	Using       string    `json:"using"`
-	Restrictive bool      `json:"restrictive,omitempty"`
-	To          Assignees `json:"to"`
+	Name        string    `json:"name" yaml:"name"`
+	Database    string    `json:"database" yaml:"database"`
+	Table       string    `json:"table" yaml:"table"`
+	Using       string    `json:"using" yaml:"using"`
+	Restrictive bool      `json:"restrictive,omitempty" yaml:"restrictive,omitempty"`
+	To          Assignees `json:"to" yaml:"to"`
 }
 
 // QuotaInterval is one FOR INTERVAL clause. Limits maps a resource name
 // (queries, read_rows, ...) to its maximum; a missing key or 0 is no limit.
 type QuotaInterval struct {
-	Duration   uint64            `json:"duration"`
-	Unit       string            `json:"unit"`
-	Randomized bool              `json:"randomized,omitempty"`
-	Limits     map[string]uint64 `json:"limits"`
+	Duration   uint64            `json:"duration" yaml:"duration"`
+	Unit       string            `json:"unit" yaml:"unit"`
+	Randomized bool              `json:"randomized,omitempty" yaml:"randomized,omitempty"`
+	Limits     map[string]uint64 `json:"limits" yaml:"limits,omitempty"`
 }
 
 // QuotaSpec describes a quota.
 type QuotaSpec struct {
-	Name      string          `json:"name"`
-	KeyedBy   string          `json:"keyed_by,omitempty"`
-	Intervals []QuotaInterval `json:"intervals"`
-	To        Assignees       `json:"to"`
+	Name      string          `json:"name" yaml:"name"`
+	KeyedBy   string          `json:"keyed_by,omitempty" yaml:"keyed_by,omitempty"`
+	Intervals []QuotaInterval `json:"intervals" yaml:"intervals,omitempty"`
+	To        Assignees       `json:"to" yaml:"to"`
 }
 
 // ProfileSetting is one setting constraint inside a settings profile.
 type ProfileSetting struct {
-	Name string `json:"name"`
+	Name string `json:"name" yaml:"name"`
 	// Value, Min and Max are optional; nil means not set.
-	Value       *string `json:"value,omitempty"`
-	Min         *string `json:"min,omitempty"`
-	Max         *string `json:"max,omitempty"`
-	Writability string  `json:"writability,omitempty"` // "", CONST, WRITABLE, CHANGEABLE_IN_READONLY
+	Value       *string `json:"value,omitempty" yaml:"value,omitempty"`
+	Min         *string `json:"min,omitempty" yaml:"min,omitempty"`
+	Max         *string `json:"max,omitempty" yaml:"max,omitempty"`
+	Writability string  `json:"writability,omitempty" yaml:"writability,omitempty"` // "", CONST, WRITABLE, CHANGEABLE_IN_READONLY
 }
 
 // ProfileSpec describes a settings profile.
 type ProfileSpec struct {
-	Name     string           `json:"name"`
-	Settings []ProfileSetting `json:"settings"`
-	Inherit  []string         `json:"inherit,omitempty"`
-	To       Assignees        `json:"to"`
+	Name     string           `json:"name" yaml:"name"`
+	Settings []ProfileSetting `json:"settings" yaml:"settings,omitempty"`
+	Inherit  []string         `json:"inherit,omitempty" yaml:"inherit,omitempty"`
+	To       Assignees        `json:"to" yaml:"to"`
 }
 
 // Op is one requested change. Which fields matter depends on Kind.
