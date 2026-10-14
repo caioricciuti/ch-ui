@@ -12,6 +12,7 @@
   interface DashboardShare {
     id: string
     dashboard_id: string
+    /** Empty unless the caller created the link or is an admin. */
     token: string
     access_level: string
     visibility: string
@@ -279,32 +280,36 @@
             </div>
 
             <!-- Share link -->
-            <div class="flex items-center gap-1.5 mb-2">
-              <input
-                type="text"
-                readonly
-                value={getPublicUrl(share.token)}
-                class="flex-1 text-xs bg-surface-2 border border-edge-subtle rounded px-2 py-1.5 text-fg-2 font-mono"
-              />
-              <button
-                class="p-1.5 rounded border border-edge-subtle text-fg-3 hover:text-fg hover:bg-hover"
-                onclick={() => copyToClipboard(getPublicUrl(share.token), 'Link')}
-                title="Copy link"
-                aria-label="Copy link"
-              >
-                <Copy size={14} />
-              </button>
-              <a
-                href={getPublicUrl(share.token)}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="p-1.5 rounded border border-edge-subtle text-fg-3 hover:text-fg hover:bg-hover"
-                title="Open in new tab"
-                aria-label="Open in new tab"
-              >
-                <ExternalLink size={14} />
-              </a>
-            </div>
+            {#if !share.token}
+              <p class="mb-2 text-xs text-fg-4">Only the creator of this link or an admin can see and copy it.</p>
+            {:else}
+              <div class="flex items-center gap-1.5 mb-2">
+                <input
+                  type="text"
+                  readonly
+                  value={getPublicUrl(share.token)}
+                  class="flex-1 text-xs bg-surface-2 border border-edge-subtle rounded px-2 py-1.5 text-fg-2 font-mono"
+                />
+                <button
+                  class="p-1.5 rounded border border-edge-subtle text-fg-3 hover:text-fg hover:bg-hover"
+                  onclick={() => copyToClipboard(getPublicUrl(share.token), 'Link')}
+                  title="Copy link"
+                  aria-label="Copy link"
+                >
+                  <Copy size={14} />
+                </button>
+                <a
+                  href={getPublicUrl(share.token)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="p-1.5 rounded border border-edge-subtle text-fg-3 hover:text-fg hover:bg-hover"
+                  title="Open in new tab"
+                  aria-label="Open in new tab"
+                >
+                  <ExternalLink size={14} />
+                </a>
+              </div>
+            {/if}
 
             <!-- Allowed emails for private shares -->
             {#if share.visibility === 'private' && share.allowed_emails?.length > 0}
@@ -315,14 +320,16 @@
                   </span>
                 {/each}
               </div>
-              <button
-                class="flex items-center gap-1.5 text-[11px] font-medium text-fg-3 hover:text-fg disabled:opacity-50 px-2 py-1 rounded border border-edge-subtle hover:bg-hover"
-                onclick={() => sendInvites(share)}
-                disabled={sendingInvites[share.id]}
-              >
-                <Send size={12} />
-                {sendingInvites[share.id] ? 'Sending...' : 'Resend invites'}
-              </button>
+              {#if share.token}
+                <button
+                  class="flex items-center gap-1.5 text-[11px] font-medium text-fg-3 hover:text-fg disabled:opacity-50 px-2 py-1 rounded border border-edge-subtle hover:bg-hover"
+                  onclick={() => sendInvites(share)}
+                  disabled={sendingInvites[share.id]}
+                >
+                  <Send size={12} />
+                  {sendingInvites[share.id] ? 'Sending...' : 'Resend invites'}
+                </button>
+              {/if}
             {/if}
 
             <!-- Footer -->
@@ -330,7 +337,7 @@
               <p class="text-[10px] text-fg-4">
                 Created {formatDate(share.created_at)}{share.created_by ? ` by ${share.created_by}` : ''}
               </p>
-              {#if share.visibility === 'public'}
+              {#if share.visibility === 'public' && share.token}
                 <button
                   class="flex items-center gap-1 text-[10px] text-fg-4 hover:text-fg"
                   onclick={() => copyToClipboard(getEmbedSnippet(share.token), 'Embed code')}
