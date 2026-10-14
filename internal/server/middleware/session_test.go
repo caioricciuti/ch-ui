@@ -3,19 +3,19 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 // SSO people share one ClickHouse service account. A role override on that
 // account name must not reach them; an override on one person must reach only
 // that person, and their IdP-mapped role applies otherwise.
 func TestSessionRoleIsPerSSOPerson(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "session.db"))
+	db, err := dbtest.Open(t, "session.db")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestSessionRoleIsPerSSOPerson(t *testing.T) {
 // A request naming a connection other than its session's is refused with
 // 409 connection_changed; a request without the header passes.
 func TestSessionConnectionGuard(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "guard.db"))
+	db, err := dbtest.Open(t, "guard.db")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

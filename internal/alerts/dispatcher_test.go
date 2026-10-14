@@ -6,15 +6,15 @@
 package alerts
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 func openTestDB(t *testing.T) *database.DB {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	db, err := dbtest.Open(t, "test.db")
 	if err != nil {
 		t.Fatalf("open test db: %v", err)
 	}

@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
@@ -22,7 +22,7 @@ func pipelineRequest(router http.Handler, connectionID, method, path, body strin
 }
 
 func TestPipelinesStayOnTheSessionConnection(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "pipelines.db"))
+	db, err := dbtest.Open(t, "pipelines.db")
 	if err != nil {
 		t.Fatal(err)
 	}

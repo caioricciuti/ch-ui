@@ -8,20 +8,19 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
-	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
 // Approve and decline are writes on a Pro-only queue: they pass the gate only
 // with an active license, like the tool path that creates approvals.
 func TestBrainApprovalRoutesRequirePro(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "brain.db"))
+	db, err := dbtest.Open(t, "brain.db")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

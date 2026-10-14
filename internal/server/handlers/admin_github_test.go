@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -17,13 +16,14 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 const ghTestConn = "conn-gh"
 
 func githubWebhookRig(t *testing.T) (*chi.Mux, *database.DB, *config.Config) {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "gh.db"))
+	db, err := dbtest.Open(t, "gh.db")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

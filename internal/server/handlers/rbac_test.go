@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +16,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/rbac"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/testutil"
@@ -75,7 +75,7 @@ func (f *fakeAccess) respond(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
 
 func newRBACTestHandler(t *testing.T) (*RBACHandler, *database.DB, *fakeAccess, func(method, path, body string) *httptest.ResponseRecorder) {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "rbac.db"))
+	db, err := dbtest.Open(t, "rbac.db")
 	if err != nil {
 		t.Fatal(err)
 	}

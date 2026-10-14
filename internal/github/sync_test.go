@@ -10,13 +10,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 // fakeGitHub serves one commit; only requests made at that SHA succeed.
@@ -52,7 +52,7 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestSyncRecordsTheCommitOnlyWhenClean(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "sync.db"))
+	db, err := dbtest.Open(t, "sync.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ SELECT * FROM raw.events`)
 }
 
 func TestSyncCreatesModelAndTestsTogether(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "sync.db"))
+	db, err := dbtest.Open(t, "sync.db")
 	if err != nil {
 		t.Fatal(err)
 	}

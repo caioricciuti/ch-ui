@@ -11,7 +11,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/incidenttimeline"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
@@ -79,7 +79,7 @@ func TestIncidentTimelineMalformedResponseIsUnavailable(t *testing.T) {
 
 func timelineFixture(t *testing.T) (*database.DB, *IncidentTimelineHandler, *middleware.SessionInfo, chi.Router) {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "timeline.db"))
+	db, err := dbtest.Open(t, "timeline.db")
 	if err != nil {
 		t.Fatal(err)
 	}

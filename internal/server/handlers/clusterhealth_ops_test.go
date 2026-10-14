@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,12 +20,13 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/testutil"
 )
 
 func TestCostsConfigWriteIsAdminOnlyAndAudited(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "costs.db"))
+	db, err := dbtest.Open(t, "costs.db")
 	if err != nil {
 		t.Fatal(err)
 	}

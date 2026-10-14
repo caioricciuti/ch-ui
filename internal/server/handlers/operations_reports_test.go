@@ -8,17 +8,17 @@ package handlers
 import (
 	"encoding/json"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
 func TestOperationsReportsRequireAdminAndScopeSavedReports(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "reports.db"))
+	db, err := dbtest.Open(t, "reports.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestOperationsReportsRequireAdminAndScopeSavedReports(t *testing.T) {
 }
 
 func TestOperationsReportScheduleNeedsExplicitBackgroundAccount(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "reports.db"))
+	db, err := dbtest.Open(t, "reports.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestOperationsReportScheduleNeedsExplicitBackgroundAccount(t *testing.T) {
 }
 
 func TestOperationsReportSettingsPartialPutKeepsSchedule(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "reports.db"))
+	db, err := dbtest.Open(t, "reports.db")
 	if err != nil {
 		t.Fatal(err)
 	}
