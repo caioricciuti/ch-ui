@@ -23,6 +23,9 @@ const dashboardTableRows = 20
 // pieSlices is how many slices a pie panel lists.
 const pieSlices = 10
 
+// heatmapCells is how many of the largest cells a heatmap panel lists.
+const heatmapCells = 5
+
 // panelConfig is the part of a panel's stored config a summary reads.
 type panelConfig struct {
 	ChartType       string   `json:"chartType"`
@@ -35,6 +38,12 @@ type panelConfig struct {
 	StatSuffix      string   `json:"statSuffix"`
 	PieLabelColumn  string   `json:"pieLabelColumn"`
 	PieValueColumn  string   `json:"pieValueColumn"`
+	HistogramColumn string   `json:"histogramColumn"`
+	ScatterX        string   `json:"scatterX"`
+	ScatterY        string   `json:"scatterY"`
+	HeatmapX        string   `json:"heatmapX"`
+	HeatmapY        string   `json:"heatmapY"`
+	HeatmapValue    string   `json:"heatmapValue"`
 }
 
 func parsePanelConfig(raw string) panelConfig {
@@ -168,6 +177,127 @@ func RenderPanel(p database.Panel, t Table) string {
 			}
 			fmt.Fprintf(&b, "  %s: %s%s\n", s.label, formatNumber(s.value), share)
 		}
+	case "histogram":
+		col := t.columnIndex(cfg.HistogramColumn)
+		if col < 0 {
+			col = firstNumeric(t, -1)
+		}
+		var values []float64
+		if col >= 0 {
+			values = columnValues(t, col)
+		}
+		if len(values) == 0 {
+			b.WriteString("  No numeric values.\n")
+			break
+		}
+		sorted := append([]float64(nil), values...)
+		sort.Float64s(sorted)
+		mean, _ := calculate(values, "mean")
+		fmt.Fprintf(&b, "  %s: %d values, min %s, median %s, mean %s, max %s\n", t.Columns[col], len(values),
+			formatNumber(sorted[0]), formatNumber(median(sorted)), formatNumber(mean), formatNumber(sorted[len(sorted)-1]))
+	case "scatter":
+		x := t.columnIndex(cfg.ScatterX)
+		if x < 0 {
+			x = firstNumeric(t, -1)
+		}
+		y := t.columnIndex(cfg.ScatterY)
+		if y < 0 || y == x {
+			y = firstNumeric(t, x)
+		}
+		if x < 0 || y < 0 {
+			b.WriteString("  Needs two numeric columns.\n")
+			break
+		}
+		var xs, ys []float64
+		for _, row := range t.Rows {
+			xv, errX := strconv.ParseFloat(cell(row, x), 64)
+			yv, errY := strconv.ParseFloat(cell(row, y), 64)
+			if errX != nil || errY != nil {
+				continue
+			}
+			xs = append(xs, xv)
+			ys = append(ys, yv)
+		}
+		if len(xs) == 0 {
+			b.WriteString("  No numeric points.\n")
+			break
+		}
+		fmt.Fprintf(&b, "  %s vs %s: %d points\n", t.Columns[y], t.Columns[x], len(xs))
+		if r, ok := correlation(xs, ys); ok {
+			fmt.Fprintf(&b, "  correlation %.2f\n", r)
+		}
+	case "heatmap":
+		x := t.columnIndex(cfg.HeatmapX)
+		if x < 0 {
+			x = 0
+		}
+		y := t.columnIndex(cfg.HeatmapY)
+		if y < 0 || y == x {
+			y = -1
+			for i := range t.Columns {
+				if i != x {
+					y = i
+					break
+				}
+			}
+		}
+		if y < 0 {
+			b.WriteString("  Needs two columns.\n")
+			break
+		}
+		value := t.columnIndex(cfg.HeatmapValue)
+		if value < 0 || value == x || value == y {
+			value = -1
+			for i := range t.Columns {
+				if i != x && i != y && t.numericColumn(i) {
+					value = i
+					break
+				}
+			}
+		}
+		type heatCell struct {
+			x, y  string
+			value float64
+		}
+		var order []string
+		cells := map[string]*heatCell{}
+		for _, row := range t.Rows {
+			v := 1.0
+			if value >= 0 {
+				var err error
+				if v, err = strconv.ParseFloat(cell(row, value), 64); err != nil {
+					continue
+				}
+			}
+			key := cell(row, x) + "\x00" + cell(row, y)
+			c, ok := cells[key]
+			if !ok {
+				c = &heatCell{x: cell(row, x), y: cell(row, y)}
+				cells[key] = c
+				order = append(order, key)
+			}
+			c.value += v
+		}
+		list := make([]heatCell, 0, len(order))
+		for _, k := range order {
+			list = append(list, *cells[k])
+		}
+		sort.SliceStable(list, func(i, j int) bool { return list[i].value > list[j].value })
+		what := "rows"
+		if value >= 0 {
+			what = t.Columns[value]
+		}
+		cellsWord := "cells"
+		if len(list) == 1 {
+			cellsWord = "cell"
+		}
+		fmt.Fprintf(&b, "  %d %s of %s by %s and %s, largest:\n", len(list), cellsWord, what, t.Columns[x], t.Columns[y])
+		for i, c := range list {
+			if i == heatmapCells {
+				break
+			}
+			fmt.Fprintf(&b, "  %s / %s: %s\n", c.x, c.y, formatNumber(c.value))
+		}
 	default:
 		rows := t.Rows
 		if len(rows) > dashboardTableRows {
@@ -246,6 +376,42 @@ func seriesOf(t Table, x int, yColumns []string) []series {
 		out = append(out, series{name: t.Columns[i], values: columnValues(t, i)})
 	}
 	return out
+}
+
+// median of sorted values.
+func median(sorted []float64) float64 {
+	n := len(sorted)
+	if n%2 == 1 {
+		return sorted[n/2]
+	}
+	return (sorted[n/2-1] + sorted[n/2]) / 2
+}
+
+// correlation is the Pearson correlation of two equally long series; false
+// when either series is constant or there are fewer than two points.
+func correlation(xs, ys []float64) (float64, bool) {
+	n := float64(len(xs))
+	if len(xs) < 2 {
+		return 0, false
+	}
+	var mx, my float64
+	for i := range xs {
+		mx += xs[i]
+		my += ys[i]
+	}
+	mx /= n
+	my /= n
+	var sxy, sxx, syy float64
+	for i := range xs {
+		dx, dy := xs[i]-mx, ys[i]-my
+		sxy += dx * dy
+		sxx += dx * dx
+		syy += dy * dy
+	}
+	if sxx == 0 || syy == 0 {
+		return 0, false
+	}
+	return sxy / math.Sqrt(sxx*syy), true
 }
 
 func cell(row []string, i int) string {

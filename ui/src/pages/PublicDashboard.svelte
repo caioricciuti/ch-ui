@@ -14,6 +14,7 @@
   import MarkdownPanel from '../lib/components/dashboard/MarkdownPanel.svelte'
   import GaugePanel from '../lib/components/dashboard/GaugePanel.svelte'
   import PiePanel from '../lib/components/dashboard/PiePanel.svelte'
+  import HeatmapPanel from '../lib/components/dashboard/HeatmapPanel.svelte'
   import TimeRangeSelector from '../lib/components/dashboard/TimeRangeSelector.svelte'
   import VariableBar from '../lib/components/dashboard/VariableBar.svelte'
   import { fetchPublicVariableOptions } from '../lib/api/dashboards'
@@ -329,8 +330,10 @@
                   <GaugePanel stat={computeStat(result.data, result.meta, cfg)} min={cfg.gaugeMin} max={cfg.gaugeMax} />
                 {:else if panel.panel_type === 'pie'}
                   <PiePanel data={result.data} meta={result.meta} config={cfg} />
-                {:else if panel.panel_type === 'timeseries' || panel.panel_type === 'bar'}
-                  <ChartPanel data={result.data} meta={result.meta} config={cfg} />
+                {:else if panel.panel_type === 'heatmap'}
+                  <HeatmapPanel data={result.data} meta={result.meta} config={cfg} />
+                {:else if panel.panel_type === 'timeseries' || panel.panel_type === 'bar' || panel.panel_type === 'histogram' || panel.panel_type === 'scatter'}
+                  <ChartPanel data={result.data} meta={result.meta} config={cfg} type={panel.panel_type} />
                 {:else}
                   <PanelTable data={result.data} meta={result.meta} />
                 {/if}

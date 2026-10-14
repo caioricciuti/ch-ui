@@ -174,7 +174,7 @@ func (h *TelemetryHandler) DeleteMonitor(w http.ResponseWriter, r *http.Request)
 func (h *TelemetryHandler) RunMonitor(w http.ResponseWriter, r *http.Request) {
 	c, session, err := h.creds(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeCredsError(w, err)
 		return
 	}
 	id := chi.URLParam(r, "id")

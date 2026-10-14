@@ -6,6 +6,7 @@
   import StatPanel from './StatPanel.svelte'
   import GaugePanel from './GaugePanel.svelte'
   import PiePanel from './PiePanel.svelte'
+  import HeatmapPanel from './HeatmapPanel.svelte'
   import PanelTable from './PanelTable.svelte'
   import MarkdownPanel from './MarkdownPanel.svelte'
 
@@ -33,8 +34,10 @@
   <GaugePanel {stat} min={config.gaugeMin} max={config.gaugeMax} />
 {:else if type === 'pie'}
   <PiePanel {data} {meta} {config} />
-{:else if type === 'timeseries' || type === 'bar'}
-  <ChartPanel {data} {meta} {config} />
+{:else if type === 'heatmap'}
+  <HeatmapPanel {data} {meta} {config} />
+{:else if type === 'timeseries' || type === 'bar' || type === 'histogram' || type === 'scatter'}
+  <ChartPanel {data} {meta} {config} {type} />
 {:else if table === 'virtual'}
   <VirtualTable {meta} data={positional} />
 {:else}

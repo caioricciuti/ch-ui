@@ -962,9 +962,10 @@ const (
 var panelTypes = map[string]bool{
 	"table": true, "stat": true, "gauge": true, "timeseries": true,
 	"bar": true, "pie": true, "text": true,
+	"histogram": true, "scatter": true, "heatmap": true,
 }
 
-const invalidPanelTypeMessage = "panel_type must be one of table, stat, gauge, timeseries, bar, pie, text"
+const invalidPanelTypeMessage = "panel_type must be one of table, stat, gauge, timeseries, bar, pie, text, histogram, scatter, heatmap"
 
 func validPanelType(t string) bool { return panelTypes[t] }
 

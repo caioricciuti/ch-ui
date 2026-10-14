@@ -56,6 +56,14 @@
   function defaultPanelName(): string {
     const label: Record<PanelConfig['chartType'], string> = {
       table: 'Table', stat: 'Stat', timeseries: 'Time series', bar: 'Bar chart', text: 'Text', gauge: 'Gauge', pie: 'Pie chart',
+      histogram: 'Histogram', scatter: 'Scatter plot', heatmap: 'Heatmap',
+    }
+    if (config.chartType === 'histogram') return config.histogramColumn ? `${config.histogramColumn} distribution` : label.histogram
+    if (config.chartType === 'scatter') {
+      return config.scatterX && config.scatterY ? `${config.scatterY} vs ${config.scatterX}` : label.scatter
+    }
+    if (config.chartType === 'heatmap') {
+      return config.heatmapX && config.heatmapY ? `${config.heatmapY} by ${config.heatmapX}` : label.heatmap
     }
     const y = config.chartType === 'stat' ? config.statField : config.yColumns?.[0]
     return y ? `${y} ${config.chartType === 'stat' ? '' : 'by ' + (config.xColumn ?? '')}`.trim() : label[config.chartType]

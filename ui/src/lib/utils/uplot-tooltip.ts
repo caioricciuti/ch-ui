@@ -12,6 +12,8 @@ export interface TooltipOptions {
   formatValue?: (value: number, seriesIdx: number, dataIdx: number) => string
   /** Histograms use interval containment instead of the nearest sample. */
   dataIndex?: (chart: uPlot) => number | null
+  /** Leave out series with no value at the index (scatter groups). */
+  skipNull?: boolean
 }
 
 export function tooltipPlugin(options: TooltipOptions): uPlot.Plugin {
@@ -58,6 +60,7 @@ export function tooltipPlugin(options: TooltipOptions): uPlot.Plugin {
       const s = u.series[i]
       if (!s.show) continue
       const raw = u.data[i][idx]
+      if (raw == null && options.skipNull) continue
       const stroke = typeof s.stroke === 'function' ? (s.stroke as (u: uPlot, i: number) => string)(u, i) : s.stroke
 
       const row = document.createElement('div')
