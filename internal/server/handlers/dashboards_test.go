@@ -117,6 +117,10 @@ func TestCreateAndUpdatePanelValidation(t *testing.T) {
 		{"heatmap", http.MethodPost, create, `{"name":"m","query":"SELECT 1","panel_type":"heatmap","config":"{\"chartType\":\"heatmap\"}"}`, 201},
 		{"stacked timeseries", http.MethodPost, create, `{"name":"t","query":"SELECT 1","panel_type":"timeseries","config":"{\"chartType\":\"timeseries\",\"fill\":\"area\",\"stacked\":true}"}`, 201},
 		{"update to heatmap", http.MethodPut, update, `{"panel_type":"heatmap"}`, 200},
+		{"links valid", http.MethodPost, create, `{"name":"l","query":"SELECT 1","panel_type":"bar","config":"{\"links\":[{\"kind\":\"url\",\"template\":\"https://x.example/${__value}\"},{\"kind\":\"sql\",\"template\":\"SELECT ${__value:raw}\"}]}"}`, 201},
+		{"links javascript url", http.MethodPost, create, `{"name":"l","query":"SELECT 1","config":"{\"links\":[{\"kind\":\"url\",\"template\":\"javascript:alert(1)\"}]}"}`, 400},
+		{"links raw outside sql", http.MethodPut, update, `{"config":"{\"links\":[{\"kind\":\"dashboard\",\"dashboardId\":\"d\",\"params\":{\"a\":\"${__value:raw}\"}}]}"}`, 400},
+		{"links unknown kind", http.MethodPut, update, `{"config":"{\"links\":[{\"kind\":\"eval\"}]}"}`, 400},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -183,6 +187,11 @@ func TestImportDashboardIsAllOrNothing(t *testing.T) {
 	}
 	if d, _ := f.db.GetDashboardByID(f.dashID); d.Name != "Ops" {
 		t.Fatalf("a failed import renamed the dashboard to %q", d.Name)
+	}
+
+	badLink := `{"dashboard":{"name":"Ops"},"panels":[{"name":"linked","query":"SELECT 1","config":{"links":[{"kind":"url","template":"javascript:alert(1)"}]}}]}`
+	if rec := f.do(t, http.MethodPost, path, badLink); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "panel 1 (linked)") {
+		t.Fatalf("import with a javascript: link: status %d: %s", rec.Code, rec.Body.String())
 	}
 
 	good := `{"dashboard":{"name":"New","description":""},"panels":[

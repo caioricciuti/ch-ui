@@ -1,9 +1,10 @@
 <script lang="ts">
-  import type { PanelConfig, StatThreshold } from '../../types/api'
+  import type { DashboardVariable, PanelConfig, StatThreshold } from '../../types/api'
   import { DEFAULT_COLORS, DEFAULT_HISTOGRAM_BUCKETS, MAX_HISTOGRAM_BUCKETS, isDateType, isNumericType, type ColumnMeta } from '../../utils/chart-transform'
   import Combobox from '../common/Combobox.svelte'
   import type { ComboboxOption } from '../common/Combobox.svelte'
   import ColorPicker from '../common/ColorPicker.svelte'
+  import PanelLinksFields from './PanelLinksFields.svelte'
   import { Table2, Hash, TrendingUp, BarChart3, Plus, X, FileText, Gauge, PieChart, ChartColumnBig, ChartScatter, Grid3x3 } from 'lucide-svelte'
 
   interface Props {
@@ -13,9 +14,11 @@
     compact?: boolean
     /** Dashboard time range label, shown as the time scope in full mode. */
     rangeLabel?: string
+    /** Variables of the panel's dashboard. Set in the dashboard panel editor, which then offers drilldown links. */
+    linkVariables?: DashboardVariable[]
   }
 
-  let { config = $bindable(), meta, compact = false, rangeLabel = '' }: Props = $props()
+  let { config = $bindable(), meta, compact = false, rangeLabel = '', linkVariables }: Props = $props()
 
   type ChartType = PanelConfig['chartType']
   type StatCalc = NonNullable<PanelConfig['statCalculation']>
@@ -91,6 +94,8 @@
   const thresholds = $derived<StatThreshold[]>(config.statThresholds ?? [])
   const isAxisChart = $derived(config.chartType === 'timeseries' || config.chartType === 'bar')
   const legendTypes: PanelConfig['chartType'][] = ['timeseries', 'bar', 'scatter']
+  // Panels whose data points can be clicked.
+  const linkTypes: PanelConfig['chartType'][] = ['table', 'timeseries', 'bar', 'pie', 'histogram', 'scatter', 'heatmap']
 
   // Client-side keys for the threshold rows, parallel to the thresholds.
   // Kept out of the threshold objects so they never reach the saved config.
@@ -607,4 +612,8 @@
       placeholder="Legend position"
     />
   </div>
+{/if}
+
+{#if !compact && linkVariables && linkTypes.includes(config.chartType)}
+  <PanelLinksFields links={config.links ?? []} variables={linkVariables} onchange={(links) => set({ links })} />
 {/if}

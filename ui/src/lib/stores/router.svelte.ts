@@ -99,9 +99,10 @@ export function pushTabRouteForTab(tab: { id: string; type: string }): void {
   pushUrl(path, tab.id)
 }
 
-export function pushDashboardDetail(id: string): void {
+/** Open a dashboard; search ("?var-x=1&from=...") sets its variables and range. */
+export function pushDashboardDetail(id: string, search = ''): void {
   if (suppressPush) return
-  navigate('/dashboards/' + id)
+  navigate('/dashboards/' + id + search)
   dashboardId = id
 }
 
