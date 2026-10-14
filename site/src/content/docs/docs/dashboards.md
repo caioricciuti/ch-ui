@@ -82,12 +82,15 @@ DELETE /api/dashboards/{id}
 | `table` | Tabular data (default). A panel shows the first 100 rows and says "Showing 100 of N rows"; fullscreen shows every row. |
 | `stat` | Single number: last, first, mean, sum, min, max, count or range of a column, with units and color thresholds |
 | `gauge` | Single number on an arc between a min and a max |
-| `timeseries` | Line chart over time |
+| `timeseries` | Line chart over time. Can be drawn as a filled area, and its series stacked |
 | `bar` | Bar chart, grouped or stacked, over time, numbers or categories |
 | `pie` | Pie or donut of a label column and a value column |
+| `histogram` | Distribution of one numeric column, bucketed in the browser. The query returns raw values, not counts. 30 equal-width buckets by default, 1 to 200. Rows without a number are left out, and a note says how many |
+| `scatter` | One point per row: an X and a Y column, an optional size column (the point area follows the value) and an optional group column that colors the points (up to 10 groups, the rest as "Other"). At most 10,000 points are drawn |
+| `heatmap` | A grid of cells: one column per X value, one row per Y value. Each cell sums the value column, or counts rows when there is no numeric column. Up to 200 values per axis; beyond that, neighbouring values share a cell |
 | `text` | Markdown text, no query |
 
-Any other `panel_type` is refused with `400`.
+Any other `panel_type` is refused with `400`. The same chart types (all but `text`) are in the SQL editor's [Chart view](/docs/querying#chart-a-result), and Brain's `add_dashboard_panel` tool can create every one of them.
 
 ## Panel Editor
 
@@ -112,9 +115,17 @@ Each panel is configured with:
 }
 ```
 
-`legendPosition` is `bottom` (default), `right` or `none`. `seriesColumn` names a column whose values split the first Y column into one series each (rows in long form, such as `day, host, hits`); the 10 largest series are drawn and the legend says how many more were left out. Click a legend entry to hide or show that series. NULL values are drawn as gaps, not as zero.
+`legendPosition` is `bottom` (default), `right` or `none`. `seriesColumn` names a column whose values split the first Y column into one series each (rows in long form, such as `day, host, hits`); the 10 largest series are drawn and the legend says how many more were left out. Click a legend entry to hide or show that series. NULL values are drawn as gaps, not as zero. A series split by `seriesColumn` that has no row at some time is joined across it, so series that do not share timestamps still draw.
 
-Other keys: `barMode` (`grouped` or `stacked`), `gaugeMin` and `gaugeMax`, `pieLabelColumn`, `pieValueColumn` and `pieDonut`, `content` (Markdown for `text`), and for `stat` and `gauge`: `statField`, `statCalculation`, `statUnit`, `statPrefix`, `statSuffix`, `statDecimals`, `statColorMode`, `statThresholds`.
+For `timeseries`, `fill` is `line` (default, a line with a light tint) or `area`, and `stacked: true` puts each series on top of the ones before it. A stacked series counts a missing value as 0, so the bands stay closed.
+
+| Type | Keys | When unset |
+|---|---|---|
+| `histogram` | `histogramColumn`, `histogramBuckets` | The first numeric column, 30 buckets |
+| `scatter` | `scatterX`, `scatterY`, `scatterSize`, `scatterSeries` | X and Y are the first two numeric columns; fixed point size; one group |
+| `heatmap` | `heatmapX`, `heatmapY`, `heatmapValue` | X is the first date or text column, Y the next text column, the value the first other numeric column (else a row count) |
+
+Other keys: `barMode` (`grouped` or `stacked`), `gaugeMin` and `gaugeMax`, `pieLabelColumn`, `pieValueColumn` and `pieDonut`, `content` (Markdown for `text`), and for `stat` and `gauge`: `statField`, `statCalculation`, `statUnit`, `statPrefix`, `statSuffix`, `statDecimals`, `statColorMode`, `statThresholds`, and `links` (see [Drilldown links](#drilldown-links)).
 
 ### Time zones
 
@@ -309,6 +320,47 @@ POST /api/dashboards/{id}/variables/{name}/options
 ```
 
 `GET /api/dashboards/{id}` returns the definitions as `variables`. An options query runs with your credentials, read only (`readonly=1`), at most 1,000 rows, and your governance policies apply.
+
+## Drilldown links
+
+A panel can have up to 10 links that run when you click a data point, a bar, a pie slice, a heatmap cell or a table cell. Add them under **Links** in the panel editor, for table, time series, bar, pie, histogram, scatter and heatmap panels. With one link, a click runs it; with several, a menu opens where you clicked and shows each link's label. Panels without links behave as before.
+
+| Kind | What a click does |
+|---|---|
+| Filter (`setVariable`) | Sets a dashboard variable to the clicked value, or to the **Value** template, and runs the panels again |
+| Dashboard (`dashboard`) | Opens another dashboard. **Set variables** gives the target's variables a value each (templates); **Pass the current variable values along** copies this dashboard's selection. The time range is the bucket around the clicked point, or the current range when the click has no time. A deleted target says "That dashboard no longer exists" |
+| SQL (`sql`) | Opens the filled-in query in a new SQL editor tab. It is never run |
+| URL (`url`) | Opens an `http://` or `https://` URL in a new browser tab. Anything else (`javascript:`, `data:`, relative URLs) is refused |
+
+Templates take these tokens:
+
+| Token | Replaced with |
+|---|---|
+| `${__value}` | The clicked value. A time is written as an ISO instant |
+| `${__field}` | The column of the clicked value |
+| `${__series}` | The series of the clicked point; empty when the panel has none |
+| `${__row.<column>}` | Another column of the clicked row, such as `${__row.host}` |
+| `${<variable>}` | A dashboard variable's current value; several values are joined with commas |
+| `${__value:raw}` | SQL links only: the clicked value unquoted |
+
+What is clicked, per panel: on a time series or bar, the X value, with the series name in `${__series}`; on a scatter, the point's row; on a heatmap, the X value of the cell, with the Y value in `${__series}`; on a pie, the slice label; on a histogram, the bucket's lower bound, with `${__row.from}`, `${__row.to}` and `${__row.count}`; on a table, the cell.
+
+Values are encoded for where they go: percent-encoded in a URL, and in SQL quoted like the server quotes variables (finite numbers stay bare, everything else is a string literal, `NULL` for null). Tokens that match nothing are left as written.
+
+```json
+"links": [
+  { "kind": "setVariable", "label": "Filter by host", "variable": "host" },
+  { "kind": "dashboard", "label": "Host detail", "dashboardId": "<dashboard id>",
+    "carryVariables": true, "params": { "host": "${__value}" } },
+  { "kind": "sql", "label": "Recent errors",
+    "template": "SELECT * FROM logs WHERE host = ${__value} ORDER BY ts DESC LIMIT 100" },
+  { "kind": "url", "label": "Runbook", "template": "https://wiki.example.com/hosts/${__value}" }
+]
+```
+
+Links are checked when a panel is saved, imported or restored: a known kind, at most 10 links, a variable or dashboard picked, a URL that starts with `http://` or `https://`, and `${__value:raw}` only in SQL links. A bad link is refused with `400`.
+
+On a [public share link](#public-sharing), only Filter and URL links are kept; the server leaves SQL and Dashboard links out of what viewers receive, and a Filter link loses its value template there, so it uses the clicked value. A Filter applies only to `query`, `custom` and `interval` variables, and only when the clicked value is one of the variable's options. The fullscreen panel view has no drilldown.
 
 ## Panel Query Execution
 

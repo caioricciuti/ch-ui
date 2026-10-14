@@ -161,7 +161,7 @@ The **Export** menu has two parts. **Current rows** copies or downloads the rows
 
 ### Chart a result
 
-The **Chart** view in the result footer, after Insights, draws the result with the same charts dashboards use. It picks a type from the columns: one row with a single numeric column is a stat, a date or DateTime column with numeric columns is a time series, and a text column with numeric columns is a bar chart. A result with no numeric column has nothing to chart. The column on the right changes the type, the X column, the Y columns and a **Series** column, which splits the first Y column into one line or bar per value (up to 10). Settings are kept per query tab until the columns change.
+The **Chart** view in the result footer, after Insights, draws the result with the same charts dashboards use. It picks a type from the columns: one row with a single numeric column is a stat, a date or DateTime column with numeric columns is a time series, and a text column with numeric columns is a bar chart. A result with no numeric column has nothing to chart. The column on the right changes the type (table, stat, gauge, time series, bar, pie, histogram, scatter or heatmap; see [Panel Types](/docs/dashboards#panel-types)), the X column, the Y columns and a **Series** column, which splits the first Y column into one line or bar per value (up to 10). Settings are kept per query tab until the columns change.
 
 The chart follows the sorting and filters of the Data view and draws at most the first 10,000 rows.
 

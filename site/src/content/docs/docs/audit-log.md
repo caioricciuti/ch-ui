@@ -73,6 +73,13 @@ ClickHouse query activity and metadata changes inside a connection.
   (`rbac.statement.applied` or `rbac.statement.failed`, with the SQL truncated
   to 2 KB and the error on failure). The actor is the person; `ch_user` is the
   ClickHouse account the statements ran as
+- **Access as code and history**: an access file exported (`rbac.exported`),
+  an import previewed (`rbac.import.planned`), and a revert built from
+  [Access history](/docs/rbac#access-history)
+  (`rbac.history.revert_prepared`), with counts only, never file content
+- **Brain budgets**: a budget rule created, changed or deleted
+  (`brain.budget.created`, `brain.budget.updated`, `brain.budget.deleted`).
+  See [Brain → Budgets](/docs/brain#budgets)
 - **First-run setup**: a wrong setup code on the login page
   (`setup.code_rejected`), the code discarded after 10 wrong attempts
   (`setup.code_burned`), a connection saved through setup

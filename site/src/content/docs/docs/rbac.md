@@ -6,7 +6,9 @@ description: Edit ClickHouse roles, grants, row policies, quotas and settings pr
 The access control editor changes ClickHouse access entities from CH-UI: roles,
 privilege and role grants, row policies, quotas and settings profiles. Every
 change is staged first, previewed as the exact SQL that will run, checked for
-risks, and applied in order with a result per statement.
+risks, and applied in order with a result per statement. The access setup can
+be exported and imported as a file ([Access as code](#access-as-code)), and
+every change is kept in [Access history](#access-history).
 
 It is a **Pro** feature for **CH-UI admins**, under
 **Governance → Access control** (`/governance?section=rbac`).
@@ -89,6 +91,24 @@ Statements always run in this order: create settings profiles, quotas, roles;
 change roles, quotas and profiles; grant privileges; grant roles; create or
 change row policies; default roles; revokes; then drop row policies, quotas,
 roles and profiles.
+
+### How grants are previewed
+
+The diffs and **Prepare rollback** follow ClickHouse's own rules for
+privileges, so the review shows what the server will hold afterwards:
+
+- A revoke on a database (`db.*`) or on `*.*` also removes the narrower
+  grants inside it.
+- A grant clears the partial revokes inside it.
+- Revoking something that is not held changes nothing.
+- Groups such as `ALL` and `ALTER` act on the privileges they contain.
+- `REVOKE GRANT OPTION` on a narrower object is shown as its own line.
+- Grants are printed the way `SHOW GRANTS` prints them.
+
+A rollback restores what was held through a broader object: undoing
+`GRANT ALL ON d.t` for a role that also has `SHOW TABLES ON d.*` leaves its
+`SHOW TABLES` on `d.t` in place. Privileges whose names have lowercase letters
+or digits, such as `dictGet` and `S3`, can be granted and revoked.
 
 ### Safety checks
 
@@ -174,6 +194,171 @@ policy, quota or profile not kept in replicated storage is marked **Local to
 this node**, since other nodes may differ. These are reads: nothing is
 written to the audit log.
 
+## Access as code
+
+**Export** in the Access control toolbar downloads the connection's access
+setup as a file: roles and their settings profiles, users' default roles,
+privileges, role grants, row policies, quotas and settings profiles.
+
+| Format | Use |
+|---|---|
+| YAML (importable) | The canonical form |
+| JSON (importable) | The same schema as the YAML |
+| SQL (read only) | The statements that would create it, for reading. It cannot be imported |
+
+The file is named `chui-access-<connection>-<date>.<ext>`. Passwords and
+authentication settings are never exported: a user entry carries only its
+default roles. Entities defined in `users.xml` are left out and listed in the
+comment at the top of the file, as are any parts that could not be read.
+
+```yaml
+chui_access: 1
+source: {connection: prod, host: ch-1, exported_at: 2026-10-14T10:00:00Z}
+roles:
+  analyst: {profile: readonly_p}
+  auditor:
+users:
+  alice: {default_roles: all, except: [auditor]}
+  bob: {default_roles: [analyst]}
+grants:
+  analyst:
+    - {access: [SELECT], on: "analytics.*"}
+    - {access: SELECT, on: pii.users, columns: [id, country]}
+    - {access: [SELECT], on: pii.users, columns: [email], revoke: true}
+  role:auditor:
+    - {access: [SHOW TABLES], on: "*.*", grant_option: true}
+role_grants:
+  alice: [analyst, {role: auditor, admin_option: true}]
+row_policies:
+  - {name: tenant, on: analytics.events, using: "tenant_id = 7", to: [analyst]}
+quotas:
+  daily:
+    keyed_by: user_name
+    intervals:
+      - {every: 1 day, limits: {queries: 1000, read_rows: 1000000}}
+      - {every: 60 minutes, randomized: true}
+    to: all
+    except: [bob]
+settings_profiles:
+  readonly_p:
+    inherit: [default]
+    settings:
+      - {name: readonly, value: 1, writability: CONST}
+      - {name: max_threads, max: "8"}
+```
+
+- `on` is `*.*`, `db.*` or `db.table`; names with dots, stars or spaces go in
+  backticks.
+- `default_roles` and `to` take `all`, `none` or a list; `except` goes with
+  `all`.
+- A key under `grants` or `role_grants` must be listed under `roles` or
+  `users`. Otherwise write it as `role:name` or `user:name`.
+- Quota intervals are a number and a unit (`second` to `year`), with limits
+  such as `queries`, `read_rows`, `result_bytes` or `execution_time`.
+- Parsing is strict: an unknown key, a wrong `chui_access` version, a bad
+  `on`, unit or limit is an error that names the path and line, such as
+  `grants.analyst[0].on`.
+
+### Import
+
+**Import** opens a sheet. Choose a file or paste one (YAML or JSON, up to
+1 MB), then:
+
+- **What to import**: tick the parts of the file to use (roles, default roles
+  of users, privileges, role grants, row policies, quotas, settings profiles).
+- **Prune**: for each ticked part except default roles, revoke or drop what
+  the file does not list. Without it, anything missing from the file is left
+  alone. Entities in `users.xml` are never changed.
+- **Rename**: map users and roles, and databases, from their name in the file
+  to their name here. User and role renames apply everywhere the name appears:
+  entries, grantees, granted roles, default roles and `TO` lists. Database
+  renames apply to privileges and row policies.
+
+**Preview** asks the server what the file would change on this connection and
+changes nothing. It shows the number of changes per part and a **Skipped**
+list with a reason for each entry it leaves out:
+
+- Users are never created. A user in the file that does not exist here is
+  skipped.
+- Grants and row policies on a database that does not exist here are skipped.
+- Anything the editor cannot express, and anything in `users.xml`.
+
+Privileges and settings that this server does not know are refused, with the
+entry named. One plan holds at most 200 changes; a bigger import says so and
+lists the counts per part, so you can import fewer parts at a time.
+
+**Stage N changes** puts the changes into the normal review (replacing any
+pending changes), where the safety checks, acknowledgements, typed drop
+confirmations, plan hash and rollback work as for changes made by hand.
+Nothing runs until you **Apply**.
+
+## Access history
+
+**Governance → Access history** (`/governance?section=access-history`) keeps
+a history of each connection's ClickHouse access control, flags changes made
+outside CH-UI, and goes back to any earlier state through the normal review.
+Pro, admins only.
+
+A snapshot is stored:
+
+| Source | When |
+|---|---|
+| **Apply** | After every apply in Access control |
+| **Revert** | After an apply that came from **Revert to this state** |
+| **Page view** | When Access control is opened, and just before an apply |
+| **Governance sync** | At the end of each governance sync, when [background sync](/docs/governance#settings) is on. It reads with the governance account |
+| **Manual** | **Take snapshot** in the toolbar |
+
+A new row is added only when the state differs from the newest one; otherwise
+that row is marked as seen again. Snapshots keep no passwords or authentication data.
+History is per ClickHouse user that read it, so each comparison is between two
+reads by the same user.
+
+### Drift
+
+The **Drift** column marks changes CH-UI did not make:
+
+- **Outside change**: a page view, sync or manual snapshot differs from the
+  previous complete one read by the same ClickHouse user. Not flagged when
+  every changed entity was changed by an apply through CH-UI made by another
+  ClickHouse user in between, or, on a cluster of several nodes, when the
+  answering host changed and only entities in local (not replicated) storage
+  differ.
+- **Mixed**: an apply whose result is not only what its changes predict, so
+  something else changed at the same time.
+
+A partial read (a section that failed, or a login without `SHOW ACCESS`) is
+stored and marked **Partial read**, and never judged as drift. The toolbar
+filters to **Drift only**. Access control shows an **N outside changes**
+badge when outside changes happened in the last 30 days; clicking it opens
+Access history. Drift is not sent as an alert.
+
+### Compare and revert
+
+Clicking a row opens a sheet with the list of changes, the **Effective
+access** each user gained or lost and the role it came through ("alice gained
+SELECT ON `sales`.* via analyst"), and the before and after DDL of each
+changed entity. **Compare with** picks what to compare against: the previous
+snapshot, any other snapshot, or the live server.
+
+**Revert to this state** builds the changes that bring the server back to that
+snapshot, with every kind pruned, and opens them in Access control's review.
+Nothing runs until you apply, and the apply is recorded as a **Revert** row.
+Some differences cannot be reverted and are listed before you stage:
+
+- Users: CH-UI never creates or drops them, so a user deleted since the
+  snapshot stays deleted.
+- Entities defined in `users.xml`.
+- A role's settings profile, when the role has settings set on itself that
+  changing the profile would remove.
+
+A revert over 200 changes asks you to pick entities to revert now; repeat for
+the rest.
+
+Snapshots are kept for 180 days, at most 500 per connection, and the newest
+one is always kept. Retention runs with governance pruning and on every new
+snapshot, so it applies with background sync off too.
+
 ## Permissions
 
 CH-UI side: admin only. ClickHouse side, for the user you signed in with (for
@@ -185,6 +370,10 @@ CH-UI side: admin only. ClickHouse side, for the user you signed in with (for
 - the grant option on every privilege you grant
 - `SHOW ACCESS` to read roles, policies, quotas and profiles
 - `CLUSTER` for `ON CLUSTER`
+
+Export, import and access history read the same way. For history snapshots
+taken by the governance sync, the governance account needs `SHOW ACCESS` too;
+without it those rows are partial reads.
 
 The page reads your `SHOW GRANTS` and disables what your user cannot do. With
 SSO, the audit log records the person; ClickHouse sees the service account.
@@ -198,6 +387,16 @@ Every apply writes:
 - `rbac.statement.applied` / `rbac.statement.failed`: one row per statement
   that ran, with the SQL (truncated to 2 KB) and, on failure, the error
 
+Access as code and history also write:
+
+- `rbac.exported`: the format and the number of roles, users, row policies,
+  quotas, profiles and left-out entities (no file content)
+- `rbac.import.planned`: a preview, with the source connection, the number of
+  changes and skipped entries, the parts and the prune choices (no file
+  content)
+- `rbac.history.revert_prepared`: a revert built from a snapshot, with its id,
+  hash and the number of changes and of differences it cannot revert
+
 Each row carries the person (actor), the ClickHouse user it ran as, the
 connection and the IP. See [Audit Log](/docs/audit-log). After an apply, an
 access sync refreshes [Governance → Access](/docs/governance#access-control)
@@ -205,9 +404,13 @@ when background sync is on.
 
 ## License
 
-Reads and the review (`GET /api/rbac/snapshot`, `GET /api/rbac/entity/...`,
-`GET /api/rbac/effective`, `GET /api/rbac/who-can`, `POST /api/rbac/plan`) work with an active license and during the read-only
-grace period. **Apply** needs an active license and returns `402` otherwise.
+Every route needs Pro. Reads and anything that only builds a plan work with an
+active license and during the read-only grace period: the `GET` routes
+(snapshot, entity, effective access, who can, export, history and diffs),
+`POST /api/rbac/plan`, `POST /api/rbac/import/plan` and
+`POST /api/rbac/history/{id}/revert-plan`. **Apply** and **Take snapshot**
+need an active license and return `402` otherwise. Without a license, every
+route returns `402`.
 
 ## API
 
@@ -234,10 +437,44 @@ POST /api/rbac/plan
           "access": ["SELECT"], "database": "sales", "table": "orders"}],
  "cluster": ""}
 
-# Re-plan, compare plan_hash, run in order
+# Re-plan, compare plan_hash, run in order. revert_of (optional) is the
+# history snapshot id a revert goes back to; the apply is then recorded as a revert.
 POST /api/rbac/apply
 {"ops": [...], "cluster": "", "plan_hash": "<from plan>", "acknowledged": ["row_policy_scope"]}
+
+# Access as code: download the access file (format yaml, the default, json or sql)
+GET  /api/rbac/export?format=yaml
+
+# Plan an import. Changes nothing; stage the ops through /plan and /apply.
+POST /api/rbac/import/plan
+{"file": "chui_access: 1\n...", "prune": {"grants": true},
+ "rename": {"principals": {"alice": "alice_eu"}, "databases": {"sales": "sales_eu"}},
+ "kinds": ["roles", "grants"]}
+# -> {"ops": [...], "skipped": [{"kind", "name", "reason"}], "summary": {"grants": 3, ...},
+#     "over_cap": false, "message": "", "source": {"connection", "host", "exported_at"}}
+
+# Access history, newest first: drift=only for drift rows, limit (default 50,
+# max 200) and cursor (next_cursor of the previous page); also outside_last_30d
+GET  /api/rbac/history?drift=only&limit=50
+
+# One snapshot with its stored state
+GET  /api/rbac/history/{id}
+
+# Changes between two states: against=previous (default), live, or another snapshot id
+GET  /api/rbac/history/{id}/diff?against=live
+
+# Store the live state now
+POST /api/rbac/history/snapshot
+
+# The ops that bring the server back to a snapshot, what they cannot revert,
+# over_cap, max_ops and the ops per entity. "only" limits it to entity names.
+POST /api/rbac/history/{id}/revert-plan
+{"only": ["analyst"]}
 ```
+
+`prune` keys are `roles`, `grants`, `role_grants`, `row_policies`, `quotas`
+and `profiles`; `kinds` takes those plus `users` (default roles). Leave
+`kinds` out to import every part.
 
 Operation kinds: `create_role`, `drop_role`, `set_role_profile`,
 `grant_privilege`, `revoke_privilege`, `grant_role`, `revoke_role`,
