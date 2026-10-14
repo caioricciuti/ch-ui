@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +15,7 @@ import (
 	"github.com/caioricciuti/ch-ui/connector"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"github.com/gorilla/websocket"
 )
@@ -48,7 +48,7 @@ func NewWorkerAgent(t *testing.T, db *database.DB, respond func(tunnel.GatewayMe
 
 func WorkerDB(t *testing.T) (*database.DB, string) {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "worker.db"))
+	db, err := dbtest.Open(t, "worker.db")
 	if err != nil {
 		t.Fatal(err)
 	}

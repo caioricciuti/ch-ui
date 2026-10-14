@@ -1,19 +1,16 @@
 package middleware
 
 import (
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 func TestProgressiveLockoutSchedule(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "rate-limit.db")
-	db, err := database.Open(dbPath)
+	db, err := dbtest.Open(t, "rate-limit.db")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -102,8 +99,7 @@ func TestProgressiveLockoutSchedule(t *testing.T) {
 }
 
 func TestLegacyLongLockIsCappedToCurrentSchedule(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "rate-limit-legacy.db")
-	db, err := database.Open(dbPath)
+	db, err := dbtest.Open(t, "rate-limit-legacy.db")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
