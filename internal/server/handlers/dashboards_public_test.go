@@ -122,6 +122,36 @@ func TestPublicDashboardHidesPanelSQL(t *testing.T) {
 	}
 }
 
+func TestPublicDashboardStripsPrivateLinks(t *testing.T) {
+	f := newPublicFixture(t)
+	panel, err := f.db.GetPanelByID(f.panelID)
+	if err != nil || panel == nil {
+		t.Fatal(err)
+	}
+	cfg := `{"chartType":"bar","links":[
+		{"kind":"setVariable","variable":"host"},
+		{"kind":"url","template":"https://x.example/${__value}"},
+		{"kind":"sql","template":"SELECT * FROM private_table"},
+		{"kind":"dashboard","dashboardId":"` + f.otherID + `"}]}`
+	if _, err := f.db.CreatePanel(panel.DashboardID, "Linked", "", "bar", "SELECT 1", "", cfg, 4, 0, 4, 4); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	f.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/"+f.token, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, leak := range []string{"private_table", f.otherID, `\"sql\"`, `\"dashboard\"`} {
+		if strings.Contains(body, leak) {
+			t.Fatalf("public dashboard leaks %s: %s", leak, body)
+		}
+	}
+	if !strings.Contains(body, "setVariable") || !strings.Contains(body, "https://x.example/") {
+		t.Fatalf("public dashboard dropped the safe links: %s", body)
+	}
+}
+
 func TestPublicQuerySettingsAreReadOnly(t *testing.T) {
 	if publicQuerySettings["readonly"] != "1" {
 		t.Fatalf("public queries must run with readonly=1, got %q", publicQuerySettings["readonly"])

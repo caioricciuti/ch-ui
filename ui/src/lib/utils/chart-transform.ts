@@ -262,28 +262,25 @@ export function pivotSeries(
 }
 
 /**
- * Transform dashboard API row-objects into uPlot's AlignedData format.
- * Returns [xValues[], y1Values[], y2Values[], ...]. Time x values are epoch
- * seconds; rows whose time or numeric x is missing are left out. Missing y
- * values are null, which uPlot draws as a gap.
+ * The rows a chart plots, in plotted order, with their x values. Time x
+ * values are epoch seconds; rows whose time or numeric x is missing are left
+ * out. Categorical rows keep their order (the axis labels follow it); time and
+ * numeric rows are sorted, since uPlot needs ascending x values. A click on
+ * point i of the chart is a click on row i of this list.
  */
-export function toUPlotData(
+export function plotPoints(
   data: Record<string, unknown>[],
   meta: ColumnMeta[],
   config: PanelConfig,
-): uPlot.AlignedData {
+): { x: number; row: Record<string, unknown> }[] {
   const { xColumn, yColumns } = resolveChartColumns(meta, config)
-  if (!data.length || !xColumn || !yColumns.length) {
-    return [new Float64Array(0)]
-  }
+  if (!data.length || !xColumn || !yColumns.length) return []
 
   const xCol = xColumn
   const xMeta = meta.find(m => m.name === xCol)
   const isTime = xMeta ? isDateType(xMeta.type) : false
   const categorical = isCategoricalColumn(meta, xCol)
 
-  // Categorical rows keep their order (the axis labels follow it); time and
-  // numeric rows are sorted, since uPlot needs ascending x values.
   const points: { x: number; row: Record<string, unknown> }[] = []
   for (let i = 0; i < data.length; i++) {
     const row = data[i]
@@ -296,6 +293,22 @@ export function toUPlotData(
     if (x != null) points.push({ x, row })
   }
   if (!categorical) points.sort((a, b) => a.x - b.x)
+  return points
+}
+
+/**
+ * Transform dashboard API row-objects into uPlot's AlignedData format.
+ * Returns [xValues[], y1Values[], y2Values[], ...], over the rows of
+ * plotPoints. Missing y values are null, which uPlot draws as a gap.
+ */
+export function toUPlotData(
+  data: Record<string, unknown>[],
+  meta: ColumnMeta[],
+  config: PanelConfig,
+): uPlot.AlignedData {
+  const { yColumns } = resolveChartColumns(meta, config)
+  const points = plotPoints(data, meta, config)
+  if (points.length === 0) return [new Float64Array(0)]
 
   const xArr = new Float64Array(points.length)
   for (let i = 0; i < points.length; i++) xArr[i] = points[i].x
@@ -409,6 +422,8 @@ export interface ScatterData {
   xIsTime: boolean
   /** Points with both coordinates, before the cap. */
   total: number
+  /** The source row of each point, in x order. */
+  rows: Record<string, unknown>[]
 }
 
 /**
@@ -441,7 +456,7 @@ export function toScatterData(
   const OTHER = 'Other'
   const groups: string[] = []
   const groupIndex = new Map<string, number>()
-  const points: { x: number; y: number; size: number | null; group: number }[] = []
+  const points: { x: number; y: number; size: number | null; group: number; row: Record<string, unknown> }[] = []
   let total = 0
   for (const row of rows) {
     let x: number | null
@@ -465,7 +480,7 @@ export function toScatterData(
       }
       group = idx
     }
-    points.push({ x, y, size: sizeColumn ? toPlotNumber(row[sizeColumn]) : null, group })
+    points.push({ x, y, size: sizeColumn ? toPlotNumber(row[sizeColumn]) : null, group, row })
   }
   if (!seriesColumn) groups.push(yColumn)
   points.sort((a, b) => a.x - b.x)
@@ -485,6 +500,7 @@ export function toScatterData(
     sizeColumn,
     xIsTime,
     total,
+    rows: points.map(p => p.row),
   }
 }
 
@@ -507,10 +523,15 @@ export interface HeatmapMatrix {
   yAscending: boolean
   /** Neighbouring values were merged to stay within the cell cap. */
   merged: boolean
+  /** The first raw value of each column and row, what a click on a cell passes on. */
+  xValues: unknown[]
+  yValues: unknown[]
 }
 
 interface HeatmapAxis {
   labels: string[]
+  /** First raw value of each bucket. */
+  values: unknown[]
   /** Bucket of each raw value key. */
   bucketOf: Map<string, number>
   ordered: boolean
@@ -537,7 +558,7 @@ function heatmapAxis(rows: Record<string, unknown>[], column: string, chType: st
   const numeric = isNumericType(chType)
   const time = isDateType(chType)
   const ordered = numeric || time
-  const seen = new Map<string, { sort: number; label: string; first: number }>()
+  const seen = new Map<string, { sort: number; label: string; first: number; raw: unknown }>()
   for (const row of rows) {
     const raw = row[column]
     const key = heatmapKey(raw, numeric, time)
@@ -545,7 +566,7 @@ function heatmapAxis(rows: Record<string, unknown>[], column: string, chType: st
     let sort = seen.size
     if (numeric) sort = toPlotNumber(raw) ?? Infinity
     else if (time) sort = parseTimeValue(raw) ?? Infinity
-    seen.set(key, { sort, label: axisLabel(raw, chType), first: seen.size })
+    seen.set(key, { sort, label: axisLabel(raw, chType), first: seen.size, raw })
   }
   const keys = [...seen.keys()]
   if (ordered) {
@@ -558,13 +579,15 @@ function heatmapAxis(rows: Record<string, unknown>[], column: string, chType: st
   const per = Math.max(1, Math.ceil(keys.length / Math.max(1, max)))
   const bucketOf = new Map<string, number>()
   const labels: string[] = []
+  const values: unknown[] = []
   for (let start = 0; start < keys.length; start += per) {
     const end = Math.min(keys.length, start + per) - 1
     const first = seen.get(keys[start])!.label
     labels.push(end === start ? first : `${first} to ${seen.get(keys[end])!.label}`)
+    values.push(seen.get(keys[start])!.raw)
     for (let i = start; i <= end; i++) bucketOf.set(keys[i], labels.length - 1)
   }
-  return { labels, bucketOf, ordered, merged: per > 1 }
+  return { labels, values, bucketOf, ordered, merged: per > 1 }
 }
 
 function heatmapKey(raw: unknown, numeric: boolean, time: boolean): string {
@@ -646,6 +669,8 @@ export function heatmapMatrix(
     valueColumn,
     yAscending: yAxis.ordered,
     merged: xAxis.merged || yAxis.merged,
+    xValues: xAxis.values,
+    yValues: yAxis.values,
   }
 }
 

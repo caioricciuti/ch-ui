@@ -1,8 +1,11 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte'
-  import { goTo, navigate, pushDashboardDetail } from '../lib/stores/router.svelte'
-  import type { Dashboard, DashboardFolder, DashboardVariable, Panel } from '../lib/types/api'
-  import { apiGet, apiPost, apiPut, apiDel } from '../lib/api/client'
+  import { goTo, goWorkspace, navigate, pushDashboardDetail } from '../lib/stores/router.svelte'
+  import type { Dashboard, DashboardFolder, DashboardVariable, Panel, PanelLink } from '../lib/types/api'
+  import { apiGet, apiPost, apiPut, apiDel, ApiError } from '../lib/api/client'
+  import { openQueryTab } from '../lib/stores/tabs.svelte'
+  import { linkLabel, resolveLink, type ClickContext, type PanelClick } from '../lib/utils/drilldown'
+  import ContextMenu, { type ContextMenuItem } from '../lib/components/common/ContextMenu.svelte'
   import {
     listDashboardFolders, setDashboardStar, deleteDashboard as apiDeleteDashboard, fetchVariableOptions,
     type DashboardDetail,
@@ -529,6 +532,65 @@
     return () => document.removeEventListener('keydown', handler)
   })
 
+  // Drilldown: a click on a panel with links runs its one link, or offers
+  // the links in a menu at the click.
+  let linkMenu = $state<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
+
+  function handlePanelClick(p: Panel, click: PanelClick) {
+    const links = parsePanelConfig(p.config).links ?? []
+    if (links.length === 0) return
+    if (links.length === 1) {
+      void runLink(links[0], click.ctx)
+      return
+    }
+    linkMenu = {
+      x: click.x,
+      y: click.y,
+      items: links.map((link, i) => ({ id: String(i), label: linkLabel(link), onSelect: () => void runLink(link, click.ctx) })),
+    }
+  }
+
+  async function runLink(link: PanelLink, ctx: ClickContext) {
+    const action = resolveLink(link, ctx, {
+      variables: variableValues,
+      range: dashboardRangeToUrlParams(dashboardTimeRange || '1h'),
+    })
+    switch (action.kind) {
+      case 'setVariable':
+        if (!dashboardVariables.some((v) => v.name === action.variable)) {
+          toastError(`This dashboard has no variable ${action.variable}`)
+          return
+        }
+        handleVariableValuesChange({ ...variableValues, [action.variable]: [action.value] })
+        return
+      case 'dashboard':
+        try {
+          await apiGet(`/api/dashboards/${encodeURIComponent(action.dashboardId)}`)
+        } catch (e: unknown) {
+          toastError(e instanceof ApiError && e.status === 404 ? 'That dashboard no longer exists' : errorMessage(e))
+          return
+        }
+        pushDashboardDetail(action.dashboardId, action.search)
+        // The same dashboard is not loaded again: take the new values here.
+        if (action.dashboardId === loadedDashboardId) {
+          const fromUrl = readRangeFromUrl()
+          if (fromUrl) dashboardTimeRange = fromUrl
+          setVariables(dashboardVariables, readVariablesFromUrl())
+          runAllPanelQueries()
+        }
+        return
+      case 'sql':
+        openQueryTab(action.sql)
+        goWorkspace()
+        return
+      case 'url':
+        window.open(action.url, '_blank', 'noopener,noreferrer')
+        return
+      case 'blocked':
+        toastError(action.reason)
+    }
+  }
+
   function parsePanelConfig(configStr: string): import('../lib/types/api').PanelConfig {
     try {
       return JSON.parse(configStr || '{}')
@@ -682,6 +744,7 @@
           nextRow={nextFreeRow(panels.map((p) => ({ y: p.layout_y, h: p.layout_h })))}
           connectionId={session?.connectionId ?? ''}
           variables={variableValues}
+          variableDefs={dashboardVariables}
           onclose={() => panelEditorOpen = false}
           onsave={handlePanelSaved}
         />
@@ -702,11 +765,20 @@
           onaddpanel={openAddPanel}
           {canWrite}
           {connectionNotice}
+          onpanelclick={handlePanelClick}
         />
       {/if}
     </div>
   {/if}
 </div>
+
+<ContextMenu
+  open={linkMenu !== null}
+  x={linkMenu?.x ?? 0}
+  y={linkMenu?.y ?? 0}
+  items={linkMenu?.items ?? []}
+  onclose={() => (linkMenu = null)}
+/>
 
 <InputDialog
   open={renameOpen}

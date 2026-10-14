@@ -17,6 +17,7 @@
   import Spinner from '../common/Spinner.svelte'
   import PanelRenderer from './PanelRenderer.svelte'
   import EmptyState from '../common/EmptyState.svelte'
+  import type { PanelClick } from '../../utils/drilldown'
   import {
     COLS, ROW_H, GAP, MIN_W, MIN_H, STACK_BELOW,
     calcColW, gridToPixel, compact, containerHeight, stackLayout,
@@ -38,11 +39,13 @@
     /** A note for a panel built on another connection than the session's, or null. */
     connectionNotice?: (panel: Panel) => string | null
     onaddpanel?: () => void
+    /** A click on a data point of a panel with links. */
+    onpanelclick?: (panel: Panel, click: PanelClick) => void
   }
 
   let {
     dashboardId, panels, panelResults, onpanelschange, oneditpanel, onduplicatepanel, ondeletepanel, onmaximizepanel,
-    canWrite = true, connectionNotice, onaddpanel,
+    canWrite = true, connectionNotice, onaddpanel, onpanelclick,
   }: Props = $props()
 
   // Panel dropdown menu
@@ -360,7 +363,13 @@
             {:else if result.error}
               <p class="text-xs text-danger p-2">{result.error}</p>
             {:else}
-              <PanelRenderer type={panel.panel_type} data={result.data} meta={result.meta} config={cfg} />
+              <PanelRenderer
+                type={panel.panel_type}
+                data={result.data}
+                meta={result.meta}
+                config={cfg}
+                onpointclick={onpanelclick ? (click) => onpanelclick(panel, click) : undefined}
+              />
             {/if}
           </div>
 

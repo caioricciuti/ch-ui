@@ -3,14 +3,17 @@
   import type { ColumnMeta } from '../../utils/chart-transform'
   import { isNumericType, DEFAULT_COLORS } from '../../utils/chart-transform'
   import { dashboardIsDark } from './dashboard-theme.svelte'
+  import { buildClickContext, type PanelClick } from '../../utils/drilldown'
 
   interface Props {
     data: Record<string, unknown>[]
     meta: ColumnMeta[]
     config: PanelConfig
+    /** A click on a slice; set only when the panel has links. */
+    onpointclick?: (click: PanelClick) => void
   }
 
-  let { data, meta, config }: Props = $props()
+  let { data, meta, config, onpointclick }: Props = $props()
 
   let canvasEl = $state<HTMLCanvasElement>(undefined!)
   let containerEl = $state<HTMLDivElement>(undefined!)
@@ -34,7 +37,7 @@
   const slices = $derived.by(() => {
     if (!labelCol || !valueCol || data.length === 0) return []
     const colors = config.colors?.length ? config.colors : DEFAULT_COLORS
-    const items: { label: string; value: number; color: string }[] = []
+    const items: { label: string; value: number; color: string; row: Record<string, unknown> }[] = []
     let total = 0
     for (const row of data) {
       const v = Number(row[valueCol]) || 0
@@ -44,6 +47,7 @@
         label: String(row[labelCol] ?? ''),
         value: v,
         color: colors[(items.length) % colors.length],
+        row,
       })
     }
     return items.map(s => ({ ...s, pct: total > 0 ? s.value / total : 0 }))
@@ -102,6 +106,14 @@
     const y = e.clientY - rect.top
     const index = sliceAt(x, y)
     hover = index >= 0 ? { index, x, y } : null
+  }
+
+  function handleClick(e: MouseEvent) {
+    if (!onpointclick) return
+    const rect = containerEl.getBoundingClientRect()
+    const slice = slices[sliceAt(e.clientX - rect.left, e.clientY - rect.top)]
+    if (!slice) return
+    onpointclick({ ctx: buildClickContext(slice.row, labelCol, valueCol, meta), x: e.clientX, y: e.clientY })
   }
 
   // Keep the tooltip inside the panel, like the uPlot tooltip does.
@@ -190,12 +202,13 @@
   })
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
 <div
   bind:this={containerEl}
-  class="w-full h-full overflow-hidden relative"
+  class="w-full h-full overflow-hidden relative {onpointclick && hover ? 'cursor-pointer' : ''}"
   onmousemove={slices.length > 0 ? handleMove : undefined}
   onmouseleave={() => (hover = null)}
+  onclick={onpointclick ? handleClick : undefined}
 >
   {#if slices.length === 0}
     <div class="flex items-center justify-center h-full text-xs text-fg-4">No data</div>

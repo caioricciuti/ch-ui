@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Panel, PanelConfig, StatThreshold } from '../../types/api'
+  import type { DashboardVariable, Panel, PanelConfig, StatThreshold } from '../../types/api'
   import type { ColumnMeta } from '../../types/query'
   import { apiPost, apiPut } from '../../api/client'
   import { formatSQL } from '../../api/query'
@@ -27,11 +27,13 @@
     connectionId?: string
     /** Current dashboard variable values, so the preview runs like the panel will. */
     variables?: Record<string, string[]>
+    /** Variable definitions of the dashboard, for drilldown links. */
+    variableDefs?: DashboardVariable[]
     onclose: () => void
     onsave: (panel: Panel) => void
   }
 
-  let { dashboardId, dashboardTimeRange = '1h', panel = null, nextRow = 0, connectionId = '', variables = {}, onclose, onsave }: Props = $props()
+  let { dashboardId, dashboardTimeRange = '1h', panel = null, nextRow = 0, connectionId = '', variables = {}, variableDefs = [], onclose, onsave }: Props = $props()
 
   // Form state
   let name = $state('')
@@ -94,6 +96,7 @@
       statDecimals: config.statDecimals,
       statColorMode: config.statColorMode ?? 'none',
       statThresholds: config.statThresholds ?? DEFAULT_THRESHOLDS,
+      links: t !== 'stat' && t !== 'gauge' && t !== 'text' && config.links?.length ? config.links : undefined,
     }
   })
 
@@ -370,7 +373,7 @@
         </details>
         {/if}
 
-        <ChartConfigFields bind:config meta={queryMeta} rangeLabel={dashboardRangeLabel} />
+        <ChartConfigFields bind:config meta={queryMeta} rangeLabel={dashboardRangeLabel} linkVariables={variableDefs} />
       </div>
     </div>
   </div>

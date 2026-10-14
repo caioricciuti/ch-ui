@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type uPlot from 'uplot'
 import {
-  computeStat, heatmapMatrix, histogramBins, isDateType, isNumericType, parseTimeValue, pivotSeries, resolveChartColumns,
+  computeStat, heatmapMatrix, histogramBins, isDateType, isNumericType, parseTimeValue, pivotSeries, plotPoints, resolveChartColumns,
   resolveHistogramColumn, resolveThresholdColor, stackSeries, suggestChart, toScatterData, toUPlotData,
 } from './chart-transform'
 
@@ -480,5 +480,28 @@ describe('heatmapMatrix', () => {
     const rows = [{ day: 'Mon', hour: 1, n: null }, { day: 'Mon', hour: 1, n: 2 }]
     const m = heatmapMatrix(rows, meta, { heatmapX: 'day', heatmapY: 'hour', heatmapValue: 'n' })!
     expect(m.values).toEqual([[2]])
+  })
+})
+
+describe('click targets', () => {
+  it('plotPoints lists rows in plotted order', () => {
+    const meta = [{ name: 'n', type: 'UInt32' }, { name: 'v', type: 'Float64' }]
+    const rows = [{ n: 3, v: 1 }, { n: null, v: 2 }, { n: 1, v: 3 }]
+    const points = plotPoints(rows, meta, { chartType: 'bar', xColumn: 'n', yColumns: ['v'] })
+    expect(points.map(p => p.row)).toEqual([rows[2], rows[0]])
+    expect(Array.from(toUPlotData(rows, meta, { chartType: 'bar', xColumn: 'n', yColumns: ['v'] })[0])).toEqual([1, 3])
+  })
+
+  it('scatter keeps each point\'s source row', () => {
+    const meta = [{ name: 'a', type: 'Float64' }, { name: 'b', type: 'Float64' }, { name: 'id', type: 'String' }]
+    const rows = [{ a: 2, b: 1, id: 'x' }, { a: 1, b: 1, id: 'y' }]
+    expect(toScatterData(rows, meta, {})!.rows.map(r => r.id)).toEqual(['y', 'x'])
+  })
+
+  it('heatmap keeps the first raw value of each column and row', () => {
+    const meta = [{ name: 'day', type: 'String' }, { name: 'hour', type: 'UInt8' }]
+    const m = heatmapMatrix([{ day: 'Tue', hour: 9 }, { day: 'Mon', hour: 2 }], meta, {})!
+    expect(m.xValues).toEqual(['Tue', 'Mon'])
+    expect(m.yValues).toEqual([2, 9])
   })
 })

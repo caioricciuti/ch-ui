@@ -1,14 +1,29 @@
 <script lang="ts">
   import type { ColumnMeta } from '../../utils/chart-transform'
+  import { buildClickContext, type PanelClick } from '../../utils/drilldown'
 
   interface Props {
     data: Record<string, unknown>[]
     meta: ColumnMeta[]
     /** Rows drawn in the panel; the fullscreen view shows every row. */
     limit?: number
+    /** A click on a cell; set only when the panel has links. */
+    onpointclick?: (click: PanelClick) => void
   }
 
-  let { data, meta, limit = 100 }: Props = $props()
+  let { data, meta, limit = 100, onpointclick }: Props = $props()
+
+  function clickCell(e: MouseEvent, row: Record<string, unknown>, column: string) {
+    if (!onpointclick) return
+    // A keyboard press has no pointer position: open at the cell.
+    let { clientX: x, clientY: y } = e
+    if (x === 0 && y === 0 && e.currentTarget instanceof HTMLElement) {
+      const rect = e.currentTarget.getBoundingClientRect()
+      x = rect.left
+      y = rect.bottom
+    }
+    onpointclick({ ctx: buildClickContext(row, column, '', meta), x, y })
+  }
 
   const shown = $derived(data.slice(0, limit))
   const capped = $derived(data.length > limit)
@@ -35,7 +50,17 @@
           {#each shown as row, i (i)}
             <tr class="border-b border-edge-subtle">
               {#each meta as col (col.name)}
-                <td class="whitespace-nowrap px-2 py-1 text-fg-2">{cell(row[col.name])}</td>
+                {#if onpointclick}
+                  <td class="whitespace-nowrap p-0 text-fg-2">
+                    <button
+                      type="button"
+                      class="w-full px-2 py-1 text-left hover:bg-hover hover:text-fg"
+                      onclick={(e) => clickCell(e, row, col.name)}
+                    >{cell(row[col.name])}</button>
+                  </td>
+                {:else}
+                  <td class="whitespace-nowrap px-2 py-1 text-fg-2">{cell(row[col.name])}</td>
+                {/if}
               {/each}
             </tr>
           {/each}
