@@ -20,7 +20,7 @@ Governance is split into sections, listed in the sidebar under Governance (each 
 - **Access history** (admins): snapshots of ClickHouse access control over time, changes made outside CH-UI flagged as drift, compare and revert (see [Access history](/docs/rbac#access-history))
 - **Incidents**: the incident queue from policy violations, with comments. Incident details are Markdown, with a Write / Preview toggle
 - **Policies**: guardrail definitions with warn/block enforcement. The editor picks databases, tables, columns and roles from your schema and shows a plain-words summary of what the policy does
-- **Alerts**: channels, rules and events (see [Alerts](/docs/alerts))
+- **Alerts**, **Alert rules** and **Alert channels**: fired events, routing rules and delivery channels (see [Alerts](/docs/alerts))
 - **Audit Log**: the privileged action audit trail
 - **Settings**: the background sync switch and the query harvest mode (see [Settings](#settings) below)
 

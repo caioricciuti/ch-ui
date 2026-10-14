@@ -5,7 +5,7 @@ description: "Alerting for governance, scheduled jobs, cluster health checks and
 
 Alerts turn governance, scheduler, telemetry, cluster health and SQL alert events into notifications: a policy blocks a query, a scheduled job fails or runs slow, a telemetry monitor starts firing, a replica falls behind, a query you wrote crosses a threshold, and the right people hear about it through your own SMTP server, a transactional provider, or a webhook into Slack, Teams or your own endpoint.
 
-Alerts are a Pro feature. Manage them under **Governance → Alerts**; the API lives at `/api/governance/alerts/*` (returns `402` on the free edition, and the background dispatcher only runs with a Pro license).
+Alerts are a Pro feature. Manage them in Governance: **Alerts** lists the events that fired, **Alert rules** decides which events are delivered, **Alert channels** holds the delivery settings. The API lives at `/api/governance/alerts/*` (returns `402` on the free edition, and the background dispatcher only runs with a Pro license).
 
 Everyone signed in can see channels, rules and events (channel secrets are never returned). Creating, editing or deleting a channel or rule, and sending a test alert, is admin only; other roles get `403` and do not see those buttons.
 
@@ -161,7 +161,7 @@ Audit actions: `alerts.silence.created`, `.updated`, `.expired`, `alerts.inciden
 
 ## Events history
 
-**Governance → Alerts → Events** shows the raw event stream: every alert-worthy thing that happened, whether or not a rule matched it. Each event records its type, severity, title, message, JSON payload, fingerprint, and processing status (`new`, `processed`, `silenced` or `acknowledged`, with what held it back).
+**Governance → Alerts** shows the raw event stream: every alert-worthy thing that happened, whether or not a rule matched it. Each event records its type, severity, title, message, JSON payload, fingerprint, and processing status (`new`, `processed`, `silenced` or `acknowledged`, with what held it back).
 
 `GET /api/governance/alerts/events` supports `limit` (default 100), `event_type`, and `status` filters. If an email never arrived, check here first: an event with no matching rule means a routing gap, no event at all means the trigger never fired.
 

@@ -169,6 +169,8 @@ export const PAGE_SECTIONS: Partial<Record<PageRoute, PageSection[]>> = {
     { id: 'incidents', label: 'Incidents' },
     { id: 'policies', label: 'Policies' },
     { id: 'alerts', label: 'Alerts' },
+    { id: 'alert-rules', label: 'Alert rules' },
+    { id: 'alert-channels', label: 'Alert channels' },
     { id: 'silences', label: 'Silences' },
     { id: 'health-alerts', label: 'Health checks' },
     { id: 'sql-alerts', label: 'SQL alerts' },

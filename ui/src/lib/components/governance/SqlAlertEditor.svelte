@@ -338,7 +338,7 @@
       {sentence}
       <p class="mt-1 text-xs text-fg-4">
         Firing creates a <span class="font-mono">sql.alert</span> event. Rules in
-        <button type="button" class="text-accent hover:underline" onclick={() => { goTo('governance'); setSection('alerts') }}>Governance, Alerts</button>
+        <button type="button" class="text-accent hover:underline" onclick={() => { goTo('governance'); setSection('alert-rules') }}>Governance, Alert rules</button>
         decide where it is delivered.
       </p>
     </div>

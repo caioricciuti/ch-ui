@@ -57,7 +57,7 @@ If a scheduled run fails, the error appears under the schedule and CH-UI tries a
 
 ## Email delivery
 
-Email is optional. Reports can go out through an existing [alert channel](/docs/alerts) of type SMTP, Resend or Brevo, configured under **Governance → Alerts**. Choose the channel and enter up to 20 comma-separated recipient addresses. Channel and recipients go together: set both, or leave both empty for in-app reports only.
+Email is optional. Reports can go out through an existing [alert channel](/docs/alerts) of type SMTP, Resend or Brevo, configured under **Governance → Alert channels**. Choose the channel and enter up to 20 comma-separated recipient addresses. Channel and recipients go together: set both, or leave both empty for in-app reports only.
 
 - A scheduled report with a channel set is queued for email automatically.
 - A manually generated report is only emailed when you click **Email report**. You cannot queue a report that is already queued or sending.
