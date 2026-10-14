@@ -8,12 +8,11 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
-	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/governance"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
@@ -34,7 +33,7 @@ func TestUpdateGovernanceSettingsRequiresProToEnable(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			db, err := database.Open(filepath.Join(t.TempDir(), "gov.db"))
+			db, err := dbtest.Open(t, "gov.db")
 			if err != nil {
 				t.Fatal(err)
 			}

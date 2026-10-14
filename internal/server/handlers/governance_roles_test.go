@@ -8,19 +8,19 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/governance"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
 func newGovernanceRoleRouter(t *testing.T) (*database.DB, *governance.Store, string, string, http.Handler) {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "gov-roles.db"))
+	db, err := dbtest.Open(t, "gov-roles.db")
 	if err != nil {
 		t.Fatal(err)
 	}

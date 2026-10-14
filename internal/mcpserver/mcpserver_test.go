@@ -6,13 +6,13 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
 
@@ -111,7 +111,7 @@ func TestAllowedDBs(t *testing.T) {
 // database or in a temp dir that is being removed.
 func openTestDB(t *testing.T) *database.DB {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	db, err := dbtest.Open(t, "test.db")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

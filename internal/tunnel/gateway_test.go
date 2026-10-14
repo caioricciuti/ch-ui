@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/gorilla/websocket"
 )
 
@@ -53,7 +53,7 @@ func (c *authPauseConn) Write(p []byte) (int, error) {
 
 func newTestGateway(t *testing.T) (*Gateway, string) {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "tunnel.db"))
+	db, err := dbtest.Open(t, "tunnel.db")
 	if err != nil {
 		t.Fatal(err)
 	}

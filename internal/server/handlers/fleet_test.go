@@ -8,12 +8,12 @@ package handlers
 import (
 	"encoding/json"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/clusterhealth"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
@@ -46,7 +46,7 @@ func TestFleetStatusesDoNotCallMissingDataHealthy(t *testing.T) {
 }
 
 func TestFleetAdminOnlyAndUsesLatestCompletePoll(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "fleet.db"))
+	db, err := dbtest.Open(t, "fleet.db")
 	if err != nil {
 		t.Fatal(err)
 	}

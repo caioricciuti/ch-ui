@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,6 +12,7 @@ import (
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
@@ -24,7 +24,7 @@ type sqFixture struct {
 
 func newSQFixture(t *testing.T) sqFixture {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "sq.db"))
+	db, err := dbtest.Open(t, "sq.db")
 	if err != nil {
 		t.Fatal(err)
 	}

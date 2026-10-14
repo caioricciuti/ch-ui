@@ -8,16 +8,16 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 func TestOperationsRoutesRequireSessionAndPro(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "routes.db"))
+	db, err := dbtest.Open(t, "routes.db")
 	if err != nil {
 		t.Fatal(err)
 	}

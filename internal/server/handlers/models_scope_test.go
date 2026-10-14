@@ -3,16 +3,16 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"path/filepath"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/models"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
 
 func TestModelsStayOnTheSessionConnection(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "models.db"))
+	db, err := dbtest.Open(t, "models.db")
 	if err != nil {
 		t.Fatal(err)
 	}

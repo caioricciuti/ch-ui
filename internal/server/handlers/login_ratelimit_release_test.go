@@ -3,12 +3,11 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
-	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
@@ -16,7 +15,7 @@ import (
 // must give its rate-limit slot back, or a burst of such requests from one IP
 // would lock that IP out for the reservation lifetime.
 func TestLoginEarlyReturnReleasesRateLimitSlot(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "login.db"))
+	db, err := dbtest.Open(t, "login.db")
 	if err != nil {
 		t.Fatal(err)
 	}

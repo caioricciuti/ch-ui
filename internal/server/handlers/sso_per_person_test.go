@@ -9,12 +9,12 @@ import (
 	"encoding/json"
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/go-chi/chi/v5"
 )
@@ -32,7 +32,7 @@ type ssoPeople struct {
 
 func ssoFixture(t *testing.T) (*database.DB, ssoPeople) {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "sso.db"))
+	db, err := dbtest.Open(t, "sso.db")
 	if err != nil {
 		t.Fatal(err)
 	}

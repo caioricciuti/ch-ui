@@ -9,17 +9,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
 func TestReportsHandlerValidationAndRoles(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "reports.db"))
+	db, err := dbtest.Open(t, "reports.db")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,17 +8,17 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/go-chi/chi/v5"
 )
 
 func TestScheduleRoutesRequireWriter(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "schedules.db"))
+	db, err := dbtest.Open(t, "schedules.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestScheduleRoutesRequireWriter(t *testing.T) {
 // The writer role is instance-wide, as with shared pipelines and saved queries.
 // Account configuration is an explicit delegation to those writers.
 func TestScheduleSharedWorkspaceDelegation(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "shared.db"))
+	db, err := dbtest.Open(t, "shared.db")
 	if err != nil {
 		t.Fatal(err)
 	}

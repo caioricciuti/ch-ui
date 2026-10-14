@@ -9,12 +9,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
@@ -28,7 +28,7 @@ func serveAsUser(router http.Handler, role, user, connectionID, method, path, bo
 }
 
 func TestAlertingRoles(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "alerting.db"))
+	db, err := dbtest.Open(t, "alerting.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestAlertingRoles(t *testing.T) {
 // health check or SQL alert raises a resolved event instead of dropping the
 // incident silently.
 func TestAlertingDisableResolvesIncidents(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "alerting.db"))
+	db, err := dbtest.Open(t, "alerting.db")
 	if err != nil {
 		t.Fatal(err)
 	}
