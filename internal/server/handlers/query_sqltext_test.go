@@ -139,3 +139,17 @@ func TestStripTrailingComments(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestTrimTrailingSQLNoise(t *testing.T) {
+	for in, want := range map[string]string{
+		"SELECT 1":                "SELECT 1",
+		"SELECT 1; -- note":       "SELECT 1",
+		"SELECT 1 # note\n":       "SELECT 1",
+		"SELECT '--' /* c */ ;\n": "SELECT '--'",
+		"SELECT 1 -- a\n+ 1 -- b": "SELECT 1 -- a\n+ 1",
+	} {
+		if got := trimTrailingSQLNoise(in); got != want {
+			t.Errorf("trimTrailingSQLNoise(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

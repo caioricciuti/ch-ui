@@ -62,9 +62,9 @@ func TestBuildMetaQuery(t *testing.T) {
 			want:  "SELECT * FROM (\nSELECT * FROM t LIMIT -1\n) LIMIT 0",
 		},
 		{
-			name:  "trailing line comment within a select is safe to wrap",
+			name:  "trailing line comment is dropped before wrapping",
 			query: "SELECT * FROM t -- comment",
-			want:  "SELECT * FROM (\nSELECT * FROM t -- comment\n) LIMIT 0",
+			want:  "SELECT * FROM (\nSELECT * FROM t\n) LIMIT 0",
 		},
 		{
 			name:  "leading comment still detected as SELECT",
@@ -104,11 +104,6 @@ func TestBuildMetaQuery(t *testing.T) {
 			query: "DESCRIBE TABLE t",
 			want:  "DESCRIBE TABLE t\nLIMIT 0",
 		},
-		{
-			name:  "set statement keeps rewrite path",
-			query: "SET max_threads = 4",
-			want:  "SET max_threads = 4\nLIMIT 0",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -141,6 +136,11 @@ func TestIsWriteQuery(t *testing.T) {
 		{"/* a */\n-- b\n/* c\nd */\nINSERT INTO t VALUES (1)", true},
 		{"/* DROP TABLE t */ SELECT 1", false},
 		{"-- DROP TABLE t\nSELECT 1", false},
+		{"# c\nCREATE TABLE t ENGINE = Memory AS SELECT 1", true},
+		{"REPLACE TABLE t ENGINE = Memory AS SELECT 1", true},
+		{"BACKUP TABLE t TO Disk('b', 'x')", false},
+		{"RESTORE TABLE t FROM Disk('b', 'x')", false},
+		{"MOVE USER u TO local_directory", true},
 	}
 	for _, tt := range tests {
 		if got := isWriteQuery(tt.query); got != tt.want {
@@ -160,6 +160,8 @@ func TestHasFormatClause(t *testing.T) {
 		{"SELECT 1", false},
 		{"SELECT format FROM t", false},
 		{"SELECT 1 SETTINGS max_threads = 1", false},
+		{"SELECT 1 FORMAT JSON -- note", true},
+		{"SELECT 1 -- FORMAT JSON", false},
 	}
 	for _, tt := range tests {
 		if got := hasFormatClause(tt.query); got != tt.want {
@@ -173,6 +175,7 @@ func TestIsCheapIntrospection(t *testing.T) {
 		"SHOW CREATE TABLE t":      true,
 		"/* x */ DESCRIBE TABLE t": true,
 		"CHECK TABLE t":            false,
+		"EXPLAIN SELECT 1":         true,
 		"SELECT 1":                 false,
 	} {
 		if got := isCheapIntrospection(q); got != want {

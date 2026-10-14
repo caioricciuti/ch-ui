@@ -147,6 +147,11 @@
     const doc = state.doc.toString()
     const active = activeStatement(state)
     if (active) return { text: active.text, from: active.from }
+    // A lone statement drops its ';' and a comment after it ("SELECT 1; -- note").
+    if (doc.length <= MAX_SPLIT_CHARS) {
+      const statements = splitStatements(doc)
+      if (statements.length === 1) return { text: statements[0].text, from: statements[0].from }
+    }
     const lead = doc.length - doc.trimStart().length
     return { text: doc.trim(), from: lead }
   }

@@ -786,9 +786,11 @@ func (h *QueryHandler) SampleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	base := stripFormatClause(stripTrailingSemicolon(query))
+	// The closing parenthesis goes on its own line, so a -- comment left in
+	// the statement cannot swallow it.
+	base := stripFormatClause(trimTrailingSQLNoise(query))
 	perShardSQL := fmt.Sprintf(
-		"SELECT * FROM (%s) AS __ch_ui_sample LIMIT %d BY %s",
+		"SELECT * FROM (\n%s\n) AS __ch_ui_sample LIMIT %d BY %s",
 		base,
 		perShard,
 		safe.Identifier(shardBy),
@@ -812,7 +814,7 @@ func (h *QueryHandler) SampleQuery(w http.ResponseWriter, r *http.Request) {
 	if runErr != nil && shouldFallbackToGlobalSample(runErr.Error()) {
 		// Fallback for local/non-distributed queries where _shard_num is unavailable.
 		fallbackSQL := fmt.Sprintf(
-			"SELECT * FROM (%s) AS __ch_ui_sample LIMIT %d",
+			"SELECT * FROM (\n%s\n) AS __ch_ui_sample LIMIT %d",
 			base,
 			perShard,
 		)
@@ -1010,20 +1012,30 @@ func (h *QueryHandler) StreamQuery(w http.ResponseWriter, r *http.Request) {
 		settings[k] = v
 	}
 
-	streamStart := time.Now()
-	requestID, stream, err := h.Gateway.ExecuteStreamQuery(
-		session.ConnectionID,
-		query,
-		session.ClickhouseUser,
-		password,
-		settings,
+	var (
+		requestID string
+		stream    *tunnel.PendingStreamRequest
 	)
-	if err != nil {
+	dispatch := func() error {
+		var err error
+		requestID, stream, err = h.Gateway.ExecuteStreamQuery(
+			session.ConnectionID,
+			query,
+			session.ClickhouseUser,
+			password,
+			settings,
+		)
+		return err
+	}
+
+	streamStart := time.Now()
+	if err := dispatch(); err != nil {
 		h.recordQueryHistory(session.ConnectionID, session.ClickhouseUser, middleware.Actor(session), query, "error", err.Error(), time.Since(streamStart).Milliseconds(), 0)
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	defer h.Gateway.CleanupStream(session.ConnectionID, requestID)
+	// Closures, so a retry's request is the one released and cancelled.
+	defer func() { h.Gateway.CleanupStream(session.ConnectionID, requestID) }()
 
 	// The browser aborts the fetch when the user cancels a query or closes the
 	// tab. Tell the agent so ClickHouse stops working on a result nobody wants.
@@ -1055,76 +1067,171 @@ func (h *QueryHandler) StreamQuery(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
 	ctx := r.Context()
 
-	// Wait for meta or error
-	select {
-	case meta := <-stream.MetaCh:
-		enc.Encode(map[string]interface{}{"type": "meta", "meta": meta})
-		flusher.Flush()
-	case err := <-stream.ErrorCh:
+	fail := func(err error) {
+		streamFinished = true
 		enc.Encode(map[string]interface{}{"type": "error", "error": err.Error()})
 		flusher.Flush()
 		recordHistory("error", err.Error(), 0)
-		return
-	case <-ctx.Done():
-		return
 	}
 
-	// Read chunks until the stream finishes or the client disconnects. Progress
-	// snapshots are interleaved so a query that emits no rows until it finishes
-	// still reports rows read and throughput while it runs.
+	// rowCap is set once ClickHouse refused the row limit: the stream is then
+	// cut here after rowCap rows, as ClickHouse and the agent no longer stop it.
+	var rowCap, sentRows int64
 	seq := 0
-	writeChunk := func(chunk json.RawMessage) {
+	metaSent := false
+	retries := 0
+
+	// A user whose ClickHouse profile is readonly=1 may not change any setting,
+	// so ClickHouse refuses ours (max_result_rows, ...) by name. Before any row
+	// was sent the query is dispatched again without it; the readonly profile
+	// already blocks writes. Bind parameters and settings the statement names
+	// itself are never dropped.
+	retryWithout := func(err error) (bool, error) {
+		if seq > 0 || retries >= tunnel.MaxRefusedSettings {
+			return false, nil
+		}
+		name := tunnel.DroppableRefusedSetting(err, query, settings)
+		if name == "" {
+			return false, nil
+		}
+		retries++
+		delete(settings, name)
+		if name == "max_result_rows" || name == "result_overflow_mode" {
+			// One without the other would either not stop or throw on overflow.
+			delete(settings, "max_result_rows")
+			delete(settings, "result_overflow_mode")
+			rowCap = int64(maxRows)
+		}
+		slog.Debug("ClickHouse profile is read only, retrying stream without setting", "setting", name, "user", session.ClickhouseUser)
+		h.Gateway.CleanupStream(session.ConnectionID, requestID)
+		if err := dispatch(); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	// handleError retries a refused setting, else reports err.
+	handleError := func(err error) bool {
+		retried, dispatchErr := retryWithout(err)
+		if retried {
+			return true
+		}
+		if dispatchErr != nil {
+			err = dispatchErr
+		}
+		fail(err)
+		return false
+	}
+
+	// writeChunk forwards a chunk and reports whether the row cap was reached.
+	writeChunk := func(chunk json.RawMessage) bool {
+		if rowCap > 0 {
+			left := rowCap - sentRows
+			if left <= 0 {
+				return true
+			}
+			var rows []json.RawMessage
+			if json.Unmarshal(chunk, &rows) == nil {
+				if int64(len(rows)) > left {
+					rows = rows[:left]
+					chunk, _ = json.Marshal(rows)
+				}
+				sentRows += int64(len(rows))
+			}
+		}
 		enc.Encode(map[string]interface{}{"type": "chunk", "data": chunk, "seq": seq})
 		flusher.Flush()
 		seq++
+		return rowCap > 0 && sentRows >= rowCap
 	}
-readChunks:
+
+run:
 	for {
+		// Wait for meta or error. A retry after an empty write meta does not
+		// send a second one.
 		select {
-		case chunk := <-stream.ChunkCh:
-			writeChunk(chunk)
-		case progress := <-stream.ProgressCh:
-			enc.Encode(map[string]interface{}{"type": "progress", "progress": progress})
-			flusher.Flush()
-		case <-stream.Done():
-			break readChunks
+		case meta := <-stream.MetaCh:
+			if !metaSent {
+				metaSent = true
+				enc.Encode(map[string]interface{}{"type": "meta", "meta": meta})
+				flusher.Flush()
+			}
+		case err := <-stream.ErrorCh:
+			if handleError(err) {
+				continue run
+			}
+			return
 		case <-ctx.Done():
 			return
 		}
-	}
-	// The stream finished. Chunks sent before the end are still buffered.
-	for drained := false; !drained; {
-		select {
-		case chunk := <-stream.ChunkCh:
-			writeChunk(chunk)
-		default:
-			drained = true
-		}
-	}
 
-	// Read final done or error
-	select {
-	case donePayload := <-stream.DoneCh:
-		streamFinished = true
-		var done tunnel.StreamDone
-		json.Unmarshal(donePayload, &done)
-		enc.Encode(map[string]interface{}{
-			"type":       "done",
-			"statistics": done.Statistics,
-			"total_rows": done.TotalRows,
-			// The agent tags the ClickHouse query with this id, so the
-			// profile can be looked up in system.query_log by it.
-			"query_id": requestID,
-		})
-		flusher.Flush()
-		recordHistory("success", "", done.TotalRows)
-	case err := <-stream.ErrorCh:
-		streamFinished = true
-		enc.Encode(map[string]interface{}{"type": "error", "error": err.Error()})
-		flusher.Flush()
-		recordHistory("error", err.Error(), 0)
-	case <-ctx.Done():
-		return
+		// Read chunks until the stream finishes or the client disconnects. Progress
+		// snapshots are interleaved so a query that emits no rows until it finishes
+		// still reports rows read and throughput while it runs.
+		capped := false
+	readChunks:
+		for {
+			select {
+			case chunk := <-stream.ChunkCh:
+				if writeChunk(chunk) {
+					capped = true
+					break readChunks
+				}
+			case progress := <-stream.ProgressCh:
+				enc.Encode(map[string]interface{}{"type": "progress", "progress": progress})
+				flusher.Flush()
+			case <-stream.Done():
+				break readChunks
+			case <-ctx.Done():
+				return
+			}
+		}
+		if capped {
+			// The row cap was reached: stop the query and finish the result here.
+			h.Gateway.CancelStreamQuery(session.ConnectionID, requestID)
+			streamFinished = true
+			enc.Encode(map[string]interface{}{"type": "done", "statistics": nil, "total_rows": sentRows, "query_id": requestID})
+			flusher.Flush()
+			recordHistory("success", "", sentRows)
+			break run
+		}
+		// The stream finished. Chunks sent before the end are still buffered.
+		for drained := false; !drained && !capped; {
+			select {
+			case chunk := <-stream.ChunkCh:
+				capped = writeChunk(chunk)
+			default:
+				drained = true
+			}
+		}
+
+		// Read final done or error
+		select {
+		case donePayload := <-stream.DoneCh:
+			streamFinished = true
+			var done tunnel.StreamDone
+			json.Unmarshal(donePayload, &done)
+			totalRows := done.TotalRows
+			if rowCap > 0 {
+				totalRows = sentRows
+			}
+			enc.Encode(map[string]interface{}{
+				"type":       "done",
+				"statistics": done.Statistics,
+				"total_rows": totalRows,
+				// The agent tags the ClickHouse query with this id, so the
+				// profile can be looked up in system.query_log by it.
+				"query_id": requestID,
+			})
+			flusher.Flush()
+			recordHistory("success", "", totalRows)
+		case err := <-stream.ErrorCh:
+			if handleError(err) {
+				continue run
+			}
+		case <-ctx.Done():
+			return
+		}
+		break
 	}
 
 	// Audit log

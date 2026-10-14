@@ -145,7 +145,7 @@ func (c *CHClient) Execute(ctx context.Context, query, user, password string, se
 	finalQuery := query
 	if !isWrite && !hasFormat {
 		// Use a newline so a trailing -- line comment cannot swallow the clause
-		finalQuery = strings.TrimRight(query, "; \n\t") + "\nFORMAT JSON"
+		finalQuery = trimTrailingNoise(query) + "\nFORMAT JSON"
 	}
 
 	fullURL := c.baseURL + "/?" + params.Encode()
@@ -233,7 +233,7 @@ func (c *CHClient) ExecuteRaw(ctx context.Context, query, user, password, format
 		if format == "" {
 			format = "JSON"
 		}
-		finalQuery = strings.TrimRight(query, "; \n\t") + "\nFORMAT " + format
+		finalQuery = trimTrailingNoise(query) + "\nFORMAT " + format
 	}
 
 	params := url.Values{}
@@ -505,23 +505,33 @@ func (c *CHClient) ExecuteStreaming(
 	onChunk func(seq int, data json.RawMessage) error,
 	onProgress func(p QueryProgress),
 ) (*QuerySummary, int64, error) {
-	isWrite := isWriteQuery(query)
 	hasFormat := hasFormatClause(query)
+	probe := probeNone
+	if !hasFormat {
+		probe = metaProbeFor(query)
+	}
+	// A statement that is neither probed nor a known write runs once with a
+	// format that carries its own header (CHECK TABLE, an unknown statement).
+	headerInBody := probe == probeNone && !hasFormat && !isWriteQuery(query)
 
 	if chunkSize <= 0 {
 		chunkSize = 5000
 	}
 
-	// Get column metadata via a LIMIT 0 query with JSONCompact, or send empty meta for writes
-	if !isWrite && !hasFormat {
+	// Get column metadata via a LIMIT 0 query with JSONCompact. Only
+	// statements that certainly just read are probed: anything else would run
+	// twice, and the probe of a statement that writes (REPLACE TABLE ... AS
+	// SELECT, CREATE ... AS SELECT) would itself write.
+	switch {
+	case probe != probeNone:
 		metaResult, err := c.ExecuteRaw(ctx, buildMetaQuery(query), user, password, "JSONCompact", settings)
-		if err != nil && isCheapIntrospection(query) {
+		if err != nil && probe == probeIntrospect {
 			// Some statements (SHOW CREATE, DESCRIBE, EXISTS) reject a LIMIT clause.
 			// They are cheap, so read the header from the statement itself.
 			metaResult, err = c.ExecuteRaw(ctx, query, user, password, "JSONCompact", settings)
 		}
 		if err != nil {
-			return nil, 0, fmt.Errorf("metadata query failed: %w", err)
+			return nil, 0, metaProbeError(err, probe == probeWrap)
 		}
 		var compact struct {
 			Meta json.RawMessage `json:"meta"`
@@ -531,7 +541,7 @@ func (c *CHClient) ExecuteStreaming(
 				return nil, 0, err
 			}
 		}
-	} else {
+	case !headerInBody:
 		// Write queries: send empty meta so consumers always get exactly one meta message
 		if err := onMeta(json.RawMessage("[]")); err != nil {
 			return nil, 0, err
@@ -540,9 +550,10 @@ func (c *CHClient) ExecuteStreaming(
 
 	// Now execute the actual query with JSONCompactEachRow for streaming
 	finalQuery := query
-	if !isWrite && !hasFormat {
-		// Use a newline so trailing -- line comments don't swallow the FORMAT clause
-		finalQuery = strings.TrimRight(query, "; \n\t") + "\nFORMAT JSONCompactEachRow"
+	if probe != probeNone {
+		// Trailing comments and semicolons go first, so the clause is neither
+		// swallowed by a -- comment nor a second statement after a ';'.
+		finalQuery = trimTrailingNoise(query) + "\nFORMAT JSONCompactEachRow"
 	}
 
 	// Extract max_result_rows for precise client-side enforcement in the scanner loop.
@@ -555,6 +566,9 @@ func (c *CHClient) ExecuteStreaming(
 
 	params := url.Values{}
 	params.Set("default_format", "JSON")
+	if headerInBody {
+		params.Set("default_format", "JSONCompactEachRowWithNamesAndTypes")
+	}
 	params.Set("send_progress_in_http_headers", "0")
 	// Tagging the query lets us sample its progress from system.processes.
 	// ClickHouse reports progress as repeated HTTP header updates, which a Go
@@ -617,6 +631,8 @@ func (c *CHClient) ExecuteStreaming(
 	var batch []json.RawMessage
 	seq := 0
 	var totalRows int64
+	// With the header in the body, the first two lines are names and types.
+	var header [][]byte
 
 	for scanner.Scan() {
 		select {
@@ -627,6 +643,15 @@ func (c *CHClient) ExecuteStreaming(
 
 		line := scanner.Bytes()
 		if len(line) == 0 {
+			continue
+		}
+		if headerInBody && len(header) < 2 {
+			header = append(header, append([]byte(nil), line...))
+			if len(header) == 2 {
+				if err := onMeta(headerMeta(header[0], header[1])); err != nil {
+					return nil, 0, err
+				}
+			}
 			continue
 		}
 
@@ -654,6 +679,12 @@ func (c *CHClient) ExecuteStreaming(
 	if err := scanner.Err(); err != nil {
 		return nil, totalRows, fmt.Errorf("stream read error: %w", err)
 	}
+	if headerInBody && len(header) < 2 {
+		// The statement returned no result set.
+		if err := onMeta(json.RawMessage("[]")); err != nil {
+			return nil, totalRows, err
+		}
+	}
 
 	// Flush remaining rows
 	if len(batch) > 0 {
@@ -664,6 +695,21 @@ func (c *CHClient) ExecuteStreaming(
 	}
 
 	return summary, totalRows, nil
+}
+
+// headerMeta turns the names and types lines of JSONCompactEachRowWithNamesAndTypes
+// into the column list JSONCompact reports as meta.
+func headerMeta(names, types []byte) json.RawMessage {
+	var n, t []string
+	if json.Unmarshal(names, &n) != nil || json.Unmarshal(types, &t) != nil || len(n) != len(t) {
+		return json.RawMessage("[]")
+	}
+	meta := make([]ColumnMeta, len(n))
+	for i := range n {
+		meta[i] = ColumnMeta{Name: n[i], Type: t[i]}
+	}
+	out, _ := json.Marshal(meta)
+	return out
 }
 
 // Export chunking. Output is forwarded in exportChunkSize pieces, and the last
@@ -701,7 +747,7 @@ func (c *CHClient) ExecuteExport(
 		return 0, fmt.Errorf("the statement already has a FORMAT clause; remove it to export")
 	}
 	// A newline keeps a trailing -- comment from swallowing the clause.
-	finalQuery := strings.TrimRight(query, "; \n\t") + "\nFORMAT " + format
+	finalQuery := trimTrailingNoise(query) + "\nFORMAT " + format
 
 	params := url.Values{}
 	if isSafeQueryID(queryID) {
@@ -823,55 +869,38 @@ func (c *CHClient) TestConnection(ctx context.Context, user, password string) (s
 
 // Query patterns
 var (
-	writeQueryPattern = regexp.MustCompile(`(?i)^\s*(INSERT|DELETE|UPDATE|CREATE|DROP|UNDROP|ALTER|TRUNCATE|RENAME|EXCHANGE|ATTACH|DETACH|OPTIMIZE|GRANT|REVOKE|KILL|SYSTEM|SET|USE)\b`)
+	// writeQueryPattern matches statements that return no result set. BACKUP,
+	// RESTORE and CHECK do return one; ExecuteStreaming still never probes them.
+	writeQueryPattern = regexp.MustCompile(`(?i)^\s*(INSERT|DELETE|UPDATE|CREATE|REPLACE|DROP|UNDROP|ALTER|TRUNCATE|RENAME|EXCHANGE|MOVE|ATTACH|DETACH|OPTIMIZE|GRANT|REVOKE|KILL|SYSTEM|SET|USE)\b`)
 	// formatPattern matches a trailing FORMAT clause, optionally followed by a
 	// SETTINGS clause (ClickHouse accepts both orders).
 	formatPattern = regexp.MustCompile(`(?is)\bFORMAT\s+\w+(\s+SETTINGS\s+[^()]*)?$`)
-	// leadingNoiseRe matches leading whitespace, -- line comments and /* */
-	// block comments, so the statement kind is found however the query starts.
-	leadingNoiseRe = regexp.MustCompile(`(?s)^(?:\s+|--[^\n]*(?:\n|$)|/\*.*?\*/)*`)
-	// trailingNoiseRe matches trailing whitespace and semicolons.
-	trailingNoiseRe = regexp.MustCompile(`[\s;]+$`)
 	// trailingSettingsRe matches a trailing SETTINGS clause (no parentheses after it).
 	trailingSettingsRe = regexp.MustCompile(`(?is)\s+SETTINGS\s+[\w.]+\s*=[^()]*$`)
 )
-
-// stripLeadingComments removes leading whitespace and comments of both kinds.
-func stripLeadingComments(query string) string {
-	return leadingNoiseRe.ReplaceAllString(query, "")
-}
 
 // metaLimitRe matches an existing LIMIT clause, including negative limits/offsets
 // (LIMIT -10 means "all but the last 10 rows" since ClickHouse 25.x).
 var metaLimitRe = regexp.MustCompile(`(?i)\bLIMIT\s+-?\d+(\s*,\s*-?\d+)?(\s+OFFSET\s+-?\d+)?`)
 
-// metaWrapRe matches statement kinds that can safely live inside an outer
-// SELECT * FROM (...): SELECT, WITH, and parenthesized queries.
-// The caller passes the query with leading whitespace/comments already stripped.
-var metaWrapRe = regexp.MustCompile(`(?is)^\s*(?:SELECT|WITH)\b|^\s*\(`)
-
-// isWrappableForMeta reports whether buildMetaQuery wraps the query in a subquery.
-func isWrappableForMeta(query string) bool {
-	return metaWrapRe.MatchString(stripLeadingComments(strings.TrimRight(query, "; \n\t")))
-}
-
-// buildMetaQuery rewrites a query to return zero rows so column metadata can be
-// fetched cheaply before streaming the real result.
+// buildMetaQuery rewrites a probed query (see metaProbeFor) to return zero
+// rows so column metadata can be fetched cheaply before streaming the real
+// result.
 //
 // SELECT / WITH / parenthesized statements are wrapped in an outer subquery
 // (SELECT * FROM (<query>) LIMIT 0). Wrapping is immune to the whole tail of
 // textual cases a LIMIT rewrite keeps missing (LIMIT with an expression like
 // 10*2, WITH TIES, negative limits/offsets, odd whitespace and comment
 // placement, a trailing SETTINGS clause) and ClickHouse short-circuits the
-// outer LIMIT 0 to just the header anyway. Leading -- and /* */ comments are
-// skipped when detecting the statement kind.
+// outer LIMIT 0 to just the header anyway.
 //
-// Statements that cannot live inside a subquery (SHOW, DESCRIBE, INSERT, ...)
-// keep the textual rewrite path; LIMIT 0 goes before a trailing SETTINGS clause.
+// Introspection statements (SHOW, DESCRIBE, ...) cannot live inside a
+// subquery and keep the textual rewrite; LIMIT 0 goes before a trailing
+// SETTINGS clause.
 func buildMetaQuery(query string) string {
-	trimmed := strings.TrimRight(query, "; \n\t")
-	if isWrappableForMeta(trimmed) {
-		return "SELECT * FROM (\n" + trimmed + "\n) LIMIT 0"
+	trimmed := trimTrailingNoise(query)
+	if metaProbeFor(trimmed) == probeWrap {
+		return metaWrapPrefix + trimmed + "\n) LIMIT 0"
 	}
 	if metaLimitRe.MatchString(trimmed) {
 		return metaLimitRe.ReplaceAllString(trimmed, "LIMIT 0")
@@ -883,12 +912,10 @@ func buildMetaQuery(query string) string {
 	return trimmed + "\nLIMIT 0"
 }
 
-// cheapIntrospectionRe matches statements that only read metadata.
-var cheapIntrospectionRe = regexp.MustCompile(`(?i)^(SHOW|DESC|DESCRIBE|EXISTS)\b`)
-
-// isCheapIntrospection reports whether a statement is safe to run twice.
+// isCheapIntrospection reports whether a statement only reads metadata and
+// is safe to run twice.
 func isCheapIntrospection(query string) bool {
-	return cheapIntrospectionRe.MatchString(stripLeadingComments(query))
+	return metaProbeFor(query) == probeIntrospect
 }
 
 func isWriteQuery(query string) bool {
@@ -896,7 +923,7 @@ func isWriteQuery(query string) bool {
 }
 
 func hasFormatClause(query string) bool {
-	return formatPattern.MatchString(trailingNoiseRe.ReplaceAllString(query, ""))
+	return formatPattern.MatchString(trimTrailingNoise(query))
 }
 
 func truncate(s string, maxLen int) string {

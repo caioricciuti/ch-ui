@@ -21,6 +21,25 @@ export function isEditableTarget(target: EventTarget | null): boolean {
     target.isContentEditable
 }
 
+export type TabShortcut = 'close' | 'duplicate' | 'split' | 'rename'
+
+/**
+ * The tab bar action a key press asks for, or null. Option/Alt+letter and F2
+ * are left alone while typing: on macOS Option+S types "ß" and Option+W "∑".
+ * The ⌘⇧ forms cannot type anything, so they work everywhere.
+ */
+export function tabShortcut(e: Pick<KeyboardEvent, 'key' | 'code' | 'altKey' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'target'>): TabShortcut | null {
+  const mod = e.metaKey || e.ctrlKey
+  const typing = isEditableTarget(e.target)
+  const alt = e.altKey && !mod && !typing
+  // ⌘⇧W is kept for browsers that allow it; Chrome closes the window.
+  if ((alt && isKey(e, 'w')) || (mod && e.shiftKey && isKey(e, 'w'))) return 'close'
+  if ((alt && isKey(e, 'd')) || (mod && e.shiftKey && isKey(e, 'd'))) return 'duplicate'
+  if (alt && isKey(e, 's')) return 'split'
+  if (e.key === 'F2' && !typing) return 'rename'
+  return null
+}
+
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 
 /** Platform labels: ⌘ ⌥ ⇧ on macOS, Ctrl Alt Shift elsewhere. */

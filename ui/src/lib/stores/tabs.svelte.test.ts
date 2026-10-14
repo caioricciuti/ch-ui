@@ -79,3 +79,51 @@ describe('tabs per scope', () => {
     expect(localStorage.getItem(`ch-ui-tabs:${ws.scopeKey(bob)}`)).toBeNull()
   })
 })
+
+describe('running queries', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', memoryStorage())
+    vi.stubGlobal('sessionStorage', memoryStorage())
+  })
+
+  async function setup() {
+    const { ws, tabs: importTabs } = await load()
+    localStorage.setItem(`ch-ui-tabs:${ws.scopeKey(alice)}`, savedTabs('Alice query'))
+    ws.setWorkspaceScope(alice)
+    const tabs = await importTabs()
+    const { queryRuns } = await import('../editor/query-runs')
+    return { ws, tabs, queryRuns }
+  }
+
+  it('closing a tab stops its run', async () => {
+    const { tabs, queryRuns } = await setup()
+    const cancel = vi.fn()
+    const other = vi.fn()
+    queryRuns.start('t-Alice query', cancel, 'r1')
+    queryRuns.start('elsewhere', other, 'r2')
+    tabs.closeTab('t-Alice query')
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(other).not.toHaveBeenCalled()
+  })
+
+  it('closing a result stops the run filling it, not another one', async () => {
+    const { tabs, queryRuns } = await setup()
+    const cancel = vi.fn()
+    queryRuns.start('t-Alice query', cancel, 'r1')
+    tabs.closeTabResult('t-Alice query', 'r0')
+    expect(cancel).not.toHaveBeenCalled()
+    tabs.closeTabResult('t-Alice query', 'r1')
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it('switching connection stops every run', async () => {
+    const { ws, queryRuns } = await setup()
+    const a = vi.fn()
+    const b = vi.fn()
+    queryRuns.start('t-Alice query', a, 'r1')
+    queryRuns.start('t-other', b, 'r2')
+    ws.setWorkspaceScope({ user: 'alice', connectionId: 'conn-2' })
+    expect(a).toHaveBeenCalledOnce()
+    expect(b).toHaveBeenCalledOnce()
+  })
+})

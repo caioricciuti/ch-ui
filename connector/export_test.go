@@ -68,7 +68,7 @@ func TestExecuteExportForwardsAllBytes(t *testing.T) {
 	if chunks < 2 {
 		t.Fatalf("want several chunks, got %d", chunks)
 	}
-	if !strings.Contains(*got, "SELECT 1 -- note\nFORMAT CSVWithNames|") || !strings.Contains(*got, "readonly=1") || !strings.Contains(*got, "query_id=q-1") {
+	if !strings.Contains(*got, "SELECT 1\nFORMAT CSVWithNames|") || !strings.Contains(*got, "readonly=1") || !strings.Contains(*got, "query_id=q-1") {
 		t.Fatalf("unexpected request: %q", *got)
 	}
 }

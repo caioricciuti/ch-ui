@@ -56,6 +56,30 @@ describe('createRunRegistry', () => {
   })
 })
 
+describe('createRunRegistry owners', () => {
+  it('stopOwned stops only the run that fills that result', () => {
+    const runs = createRunRegistry()
+    const cancel = vi.fn()
+    const id = runs.start('tab-1', cancel, 'result-a')
+    runs.stopOwned('tab-1', 'result-b')
+    expect(cancel).not.toHaveBeenCalled()
+    runs.stopOwned('tab-1', 'result-a')
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(runs.isCurrent('tab-1', id)).toBe(false)
+  })
+
+  it('stopAll stops every tab', () => {
+    const runs = createRunRegistry()
+    const cancelA = vi.fn()
+    const cancelB = vi.fn()
+    runs.start('a', cancelA)
+    runs.start('b', cancelB)
+    runs.stopAll()
+    expect(cancelA).toHaveBeenCalledOnce()
+    expect(cancelB).toHaveBeenCalledOnce()
+  })
+})
+
 describe('createFrameBatcher', () => {
   it('flushes all pushed items once per frame', () => {
     const frames = manualFrames()

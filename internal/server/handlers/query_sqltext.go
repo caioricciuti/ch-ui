@@ -181,6 +181,18 @@ func stripLeadingSQLComments(sql string) string {
 	return sql[offset:]
 }
 
+// trimTrailingSQLNoise drops trailing whitespace, semicolons and comments.
+func trimTrailingSQLNoise(sql string) string {
+	end, offset := 0, 0
+	for _, t := range tokenizeSQL(sql) {
+		offset += len(t.text)
+		if t.kind != tokSpace && t.kind != tokComment && t.text != ";" {
+			end = offset
+		}
+	}
+	return sql[:end]
+}
+
 // firstSQLKeyword returns the upper-cased first word of the statement, after comments.
 func firstSQLKeyword(sql string) string {
 	for _, t := range tokenizeSQL(sql) {

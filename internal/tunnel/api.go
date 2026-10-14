@@ -61,9 +61,9 @@ func (g *Gateway) ExecuteQueryWithSettings(connectionID, sql, user, password str
 // parameters are always accepted, and the profile already blocks writes.
 func (g *Gateway) ExecuteQueryWithSettingsCtx(ctx context.Context, connectionID, sql, user, password string, settings map[string]string, timeout time.Duration) (*QueryResult, error) {
 	result, err := g.executeQuery(ctx, connectionID, sql, user, password, settings, timeout)
-	for attempt := 0; attempt < maxRefusedSettings && err != nil; attempt++ {
-		name := RefusedSetting(err)
-		if _, ok := settings[name]; !ok || name == "readonly" || strings.HasPrefix(name, "param_") || sqlMentionsSetting(sql, name) {
+	for attempt := 0; attempt < MaxRefusedSettings && err != nil; attempt++ {
+		name := DroppableRefusedSetting(err, sql, settings)
+		if name == "" {
 			break
 		}
 		settings = withoutSetting(settings, name)
@@ -71,6 +71,18 @@ func (g *Gateway) ExecuteQueryWithSettingsCtx(ctx context.Context, connectionID,
 		result, err = g.executeQuery(ctx, connectionID, sql, user, password, settings, timeout)
 	}
 	return result, err
+}
+
+// DroppableRefusedSetting returns the setting a readonly=1 profile refused in
+// err when it is one of ours and may be dropped for a retry, else "".
+// readonly itself and bind parameters are always accepted, and a setting the
+// statement names itself is the query's own change, not ours.
+func DroppableRefusedSetting(err error, sql string, settings map[string]string) string {
+	name := RefusedSetting(err)
+	if _, ok := settings[name]; !ok || name == "readonly" || strings.HasPrefix(name, "param_") || sqlMentionsSetting(sql, name) {
+		return ""
+	}
+	return name
 }
 
 // sqlMentionsSetting reports whether the statement itself names setting, for
@@ -100,8 +112,8 @@ func isIdentByte(s string, i int) bool {
 	return c == '_' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
 }
 
-// maxRefusedSettings bounds the retries for a read-only profile.
-const maxRefusedSettings = 8
+// MaxRefusedSettings bounds the retries for a read-only profile.
+const MaxRefusedSettings = 8
 
 var refusedSettingPattern = regexp.MustCompile(`Cannot modify '([A-Za-z0-9_]+)' setting in readonly mode`)
 

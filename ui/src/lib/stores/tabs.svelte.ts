@@ -21,6 +21,7 @@ import { createUUID } from '../utils/uuid'
 import { parseSavedParams } from '../utils/query-params'
 import { pushTabRouteForTab } from './router.svelte'
 import { onScopeChange, scoped } from './workspace-scope'
+import { stopAllRuns, stopRunForResult, stopRunsForTab } from '../editor/query-runs'
 
 // ── Tab types ────────────────────────────────────────────────────
 
@@ -381,6 +382,8 @@ let resultViews = $state<Map<string, ResultViewState>>(new Map())
  * stays in memory for the next.
  */
 export function rehydrateForScope(): void {
+  // Queries still running belong to the previous person or connection.
+  stopAllRuns()
   nextNum = 1
   const state = loadTabs()
   tabs = state.tabs.map(withBaseSql)
@@ -609,6 +612,8 @@ export function setActiveTabResult(tabId: string, resultId: string): void {
 }
 
 export function closeTabResult(tabId: string, resultId: string): void {
+  // Closing the result that is still streaming stops its query too.
+  stopRunForResult(tabId, resultId)
   const state = results.get(tabId)
   if (state) setTabResults(tabId, removeResult(state, resultId), true)
 }
@@ -818,7 +823,8 @@ export function closeTab(id: string): void {
     return { ...g, tabIds: newTabIds, activeTabId: newActiveId }
   })
 
-  // Remove tab data
+  // Remove tab data; a query still running in it is stopped.
+  stopRunsForTab(id)
   tabs = tabs.filter(t => t.id !== id)
   clearTabResult(id)
 

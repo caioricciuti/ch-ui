@@ -7,6 +7,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/performance"
 	"github.com/caioricciuti/ch-ui/internal/testutil"
+	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
 
 // A user whose ClickHouse profile is readonly=1 refuses every setting the Pro
@@ -45,6 +47,7 @@ func TestReadonlyProfileUserLive(t *testing.T) {
 		"CREATE USER " + user + " IDENTIFIED WITH plaintext_password BY '" + password + "' SETTINGS PROFILE '" + profile + "'",
 		"CREATE DATABASE " + database,
 		"CREATE TABLE " + database + ".events (id UInt64, body String) ENGINE = MergeTree ORDER BY id",
+		"INSERT INTO " + database + ".events SELECT number, toString(number) FROM numbers(10)",
 		"GRANT SELECT ON " + database + ".* TO " + user,
 	} {
 		if err := execute(sql); err != nil {
@@ -81,6 +84,48 @@ func TestReadonlyProfileUserLive(t *testing.T) {
 		}
 		if result == nil || len(result.Data) == 0 {
 			t.Fatal("empty result")
+		}
+	})
+
+	// The SQL workspace streams through /stream, which caps rows with
+	// max_result_rows; the agent here is the real connector.
+	f := newStreamFixture(t, user, password, func(msg tunnel.GatewayMessage) []tunnel.AgentMessage {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var out []tunnel.AgentMessage
+		_, total, err := client.ExecuteStreaming(ctx, msg.QueryID, msg.Query, msg.User, msg.Password, 2, msg.Settings,
+			func(meta json.RawMessage) error {
+				out = append(out, tunnel.AgentMessage{Type: "query_stream_start", Meta: meta})
+				return nil
+			},
+			func(seq int, data json.RawMessage) error {
+				out = append(out, tunnel.AgentMessage{Type: "query_stream_chunk", Seq: seq, Data: data})
+				return nil
+			}, nil)
+		if err != nil {
+			return append(out, tunnel.AgentMessage{Type: "query_stream_error", Error: err.Error()})
+		}
+		return append(out, tunnel.AgentMessage{Type: "query_stream_end", TotalRows: total})
+	})
+
+	t.Run("stream", func(t *testing.T) {
+		lines := f.post(t, `{"query":"SELECT id FROM `+database+`.events WHERE id >= {from:UInt64} ORDER BY id","maxResultRows":3,"params":{"from":"0"}}`)
+		rows := 0
+		for _, l := range lines {
+			if l.Type == "error" {
+				t.Fatal(l.Error)
+			}
+			rows += len(l.Data)
+		}
+		if rows != 3 || len(lines) == 0 || lines[len(lines)-1].Type != "done" || lines[len(lines)-1].TotalRows != 3 {
+			t.Fatalf("want 3 capped rows and done, got %d rows, %+v", rows, lines)
+		}
+	})
+
+	t.Run("stream write stays blocked", func(t *testing.T) {
+		lines := f.post(t, `{"query":"INSERT INTO `+database+`.events VALUES (99, 'x')"}`)
+		if len(lines) == 0 || lines[len(lines)-1].Type != "error" {
+			t.Fatalf("a readonly profile must still refuse writes, got %+v", lines)
 		}
 	})
 
