@@ -108,10 +108,16 @@ kubectl create secret generic ch-ui-license --from-file=license.json
 helm upgrade ch-ui ./deploy/helm/ch-ui --set license.existingSecret=ch-ui-license
 ```
 
-An environment-supplied license takes precedence over one activated in the UI.
-If the file is missing or the license is invalid, CH-UI logs a warning and
-starts normally with whatever license the database holds. Rotating the secret
-takes effect on the next restart.
+An environment-supplied license takes precedence over one activated in the UI,
+including when it has expired but is still inside the
+[grace period](#what-happens-at-expiry): the server then runs in read-only
+grace on that license rather than switching to the one in the database. The
+startup log names the license source and its state (active or grace).
+
+If the file is missing, or the license has a bad signature or is past its
+grace period, CH-UI logs a warning with the reason and starts with the license
+activated in the UI, or without a license when there is none. Replacing the
+secret takes effect on the next restart.
 
 ### What happens at expiry
 

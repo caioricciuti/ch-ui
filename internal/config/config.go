@@ -32,9 +32,13 @@ type Config struct {
 	DatabasePath string
 
 	// Security
-	AppSecretKey   string
-	SessionMaxAge  int // seconds, default 7 days
-	AllowedOrigins []string
+	AppSecretKey string
+	// AppSecretKeyPrevious is the key in use before a rotation. When set,
+	// decryption falls back to it and startup re-encrypts every stored
+	// secret with AppSecretKey (see database.RotateSecrets).
+	AppSecretKeyPrevious string
+	SessionMaxAge        int // seconds, default 7 days
+	AllowedOrigins       []string
 
 	// AllowLoginURL lets the login page take a ClickHouse URL instead of a
 	// saved connection. Off by default: the server makes the connection, so
@@ -103,6 +107,7 @@ type serverConfigFile struct {
 	ClickHouseURL             string   `yaml:"clickhouse_url"`
 	ConnectionName            string   `yaml:"connection_name"`
 	AppSecretKey              string   `yaml:"app_secret_key"`
+	AppSecretKeyPrevious      string   `yaml:"app_secret_key_previous"`
 	SessionMaxAge             int      `yaml:"session_max_age"`
 	AllowedOrigins            []string `yaml:"allowed_origins"`
 	AllowLoginURL             bool     `yaml:"allow_login_url"`
@@ -193,6 +198,9 @@ func Load(configPath string) *Config {
 	}
 	if v := os.Getenv("APP_SECRET_KEY"); v != "" {
 		cfg.AppSecretKey = trimQuotes(v)
+	}
+	if v := os.Getenv("APP_SECRET_KEY_PREVIOUS"); v != "" {
+		cfg.AppSecretKeyPrevious = trimQuotes(v)
 	}
 	if v := os.Getenv("SESSION_MAX_AGE"); v != "" {
 		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
@@ -348,6 +356,9 @@ func loadServerConfigFile(path string, cfg *Config) error {
 	}
 	if fc.AppSecretKey != "" {
 		cfg.AppSecretKey = fc.AppSecretKey
+	}
+	if fc.AppSecretKeyPrevious != "" {
+		cfg.AppSecretKeyPrevious = fc.AppSecretKeyPrevious
 	}
 	if fc.SessionMaxAge > 0 {
 		cfg.SessionMaxAge = fc.SessionMaxAge
@@ -518,6 +529,11 @@ port: 3488
 # Secret key for session encryption (CHANGE THIS in production)
 # app_secret_key: your-random-secret-here
 
+# Previous secret key, only while rotating app_secret_key. Stored secrets are
+# re-encrypted with app_secret_key on startup; remove this once the log says
+# rotation is complete.
+# app_secret_key_previous: your-old-secret
+
 # Session lifetime in seconds (default: 604800 = 7 days)
 # session_max_age: 604800
 
@@ -609,6 +625,41 @@ func LicenseFromEnv() (string, string) {
 		return lic, "CHUI_LICENSE"
 	}
 	return "", ""
+}
+
+// LicenseChoice is the license the server runs with and why.
+type LicenseChoice struct {
+	JSON   string
+	Source string // "CHUI_LICENSE", "CHUI_LICENSE_FILE (path)", "database" or ""
+	Info   *license.LicenseInfo
+	// EnvRejected explains why a license from the environment was not used:
+	// "invalid signature or format" or "expired past the grace window".
+	// Empty when no environment license was set or it was accepted.
+	EnvRejected string
+}
+
+// ChooseLicense picks the startup license. An environment license wins when
+// it verifies and is either active or inside its read-only grace window; the
+// database license (activated in the UI) is then ignored even if it is newer
+// or older. A rejected environment license falls back to the database one,
+// and the caller logs that loudly. validate is license.ValidateLicense in
+// production.
+func ChooseLicense(envJSON, envSource, dbJSON string, validate func(string) *license.LicenseInfo) LicenseChoice {
+	var rejected string
+	if envJSON != "" {
+		info := validate(envJSON)
+		if info.Valid || info.InGrace {
+			return LicenseChoice{JSON: envJSON, Source: envSource, Info: info}
+		}
+		rejected = "invalid signature or format"
+		if info.ExpiresAt != "" {
+			rejected = "expired past the grace window"
+		}
+	}
+	if dbJSON != "" {
+		return LicenseChoice{JSON: dbJSON, Source: "database", Info: validate(dbJSON), EnvRejected: rejected}
+	}
+	return LicenseChoice{Info: license.CommunityLicense(), EnvRejected: rejected}
 }
 
 // ProAccess validates the stored license once and returns the current Pro

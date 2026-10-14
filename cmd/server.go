@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
+	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/embedded"
 	"github.com/caioricciuti/ch-ui/internal/license"
@@ -236,6 +237,15 @@ func runServer(cmd *cobra.Command) error {
 		slog.Info("Loaded persisted app secret key",
 			"path", config.AppSecretKeyPath(cfg.DatabasePath))
 	}
+	rotating := cfg.AppSecretKeyPrevious != "" && cfg.AppSecretKeyPrevious != cfg.AppSecretKey
+	if cfg.AppSecretKeyPrevious != "" && !rotating {
+		slog.Warn("APP_SECRET_KEY_PREVIOUS equals APP_SECRET_KEY; nothing to rotate, you can remove APP_SECRET_KEY_PREVIOUS")
+	}
+	if rotating {
+		if err := crypto.SetPreviousKey(cfg.AppSecretKeyPrevious); err != nil {
+			return fmt.Errorf("failed to initialize previous app secret key: %w", err)
+		}
+	}
 
 	// Initialize database
 	db, err := database.Open(cfg.DatabasePath)
@@ -245,6 +255,10 @@ func runServer(cmd *cobra.Command) error {
 	defer db.Close()
 
 	slog.Info("Database initialized", "path", cfg.DatabasePath)
+
+	if rotating {
+		rotateStoredSecrets(db, cfg)
+	}
 
 	// Role overrides are keyed per SSO person since v2.13.2. An override on an
 	// SSO service account used to apply to every SSO person; now it only
@@ -261,22 +275,16 @@ func runServer(cmd *cobra.Command) error {
 	// License precedence: CHUI_LICENSE_FILE > CHUI_LICENSE > database. The
 	// environment path serves config-as-code deploys (Kubernetes Secrets,
 	// Terraform); the database path serves licenses activated in the UI. An
-	// invalid environment license is ignored with a warning so a bad secret
-	// never blocks startup.
-	if lic, src := config.LicenseFromEnv(); lic != "" {
-		if info := license.ValidateLicense(lic); info.Valid {
-			cfg.LicenseJSON = lic
-			slog.Info("License loaded", "source", src, "edition", info.Edition, "expires_at", info.ExpiresAt)
-		} else {
-			slog.Warn("Ignoring invalid or expired license from environment", "source", src)
-		}
+	// environment license in its grace window is kept (read-only Pro), and a
+	// rejected one never blocks startup.
+	envLicense, envSource := config.LicenseFromEnv()
+	dbLicense, err := db.GetSetting("license_json")
+	if err != nil {
+		slog.Warn("Could not read the license from the database", "error", err)
 	}
-	if cfg.LicenseJSON == "" {
-		if stored, err := db.GetSetting("license_json"); err == nil && stored != "" {
-			cfg.LicenseJSON = stored
-			slog.Info("License loaded from database")
-		}
-	}
+	choice := config.ChooseLicense(envLicense, envSource, dbLicense, license.ValidateLicense)
+	cfg.LicenseJSON = choice.JSON
+	logLicenseChoice(choice, dbLicense != "")
 
 	// Connector manager runs one in-process connector per direct connection.
 	agents := embedded.NewManager(db, cfg.Port)
@@ -540,4 +548,58 @@ func resolvePIDFile(pidFile string) string {
 		return pidFile
 	}
 	return abs
+}
+
+// logLicenseChoice says which license the server runs with and why, so an
+// operator never has to guess whether the environment or the UI license won.
+func logLicenseChoice(choice config.LicenseChoice, haveDBLicense bool) {
+	if choice.EnvRejected != "" {
+		if choice.Source == "database" {
+			slog.Warn("Ignoring license from environment; using the license activated in the UI instead",
+				"reason", choice.EnvRejected)
+		} else {
+			slog.Warn("Ignoring license from environment; running without a license", "reason", choice.EnvRejected)
+		}
+	}
+	if choice.JSON == "" {
+		return
+	}
+	info := choice.Info
+	switch {
+	case info.Valid:
+		slog.Info("License loaded", "source", choice.Source, "edition", info.Edition, "expires_at", info.ExpiresAt)
+	case info.InGrace:
+		slog.Warn("License loaded in read-only grace period; renew it before the grace window ends",
+			"source", choice.Source, "edition", info.Edition, "expires_at", info.ExpiresAt, "grace_until", info.GraceUntil)
+	default:
+		slog.Warn("License loaded but not valid; Pro features are disabled", "source", choice.Source)
+	}
+	if choice.Source != "database" && haveDBLicense {
+		slog.Info("A license activated in the UI is also stored; the environment license takes precedence")
+	}
+}
+
+// rotateStoredSecrets re-encrypts every stored secret written with
+// APP_SECRET_KEY_PREVIOUS so it reads with APP_SECRET_KEY alone. Values are
+// never logged, only counts per kind and the ids of unreadable secrets. A
+// failure leaves the database untouched; decryption still falls back to the
+// previous key, so startup continues.
+func rotateStoredSecrets(db *database.DB, cfg *config.Config) {
+	report, err := db.RotateSecrets(cfg.AppSecretKey, cfg.AppSecretKeyPrevious)
+	if err != nil {
+		slog.Error("Secret key rotation failed; nothing was changed, stored secrets still decrypt with APP_SECRET_KEY_PREVIOUS", "error", err)
+		return
+	}
+	rotated := 0
+	for _, kind := range report.Kinds() {
+		rotated += report.Rotated[kind]
+		slog.Info("Secret key rotation", "kind", kind,
+			"reencrypted", report.Rotated[kind], "already_current", report.Current[kind])
+	}
+	for _, u := range report.Unreadable {
+		slog.Warn("Stored secret decrypts with neither APP_SECRET_KEY nor APP_SECRET_KEY_PREVIOUS; left unchanged, re-enter it in the UI",
+			"kind", u.Kind, "id", u.ID)
+	}
+	slog.Info("Secret key rotation complete, you can remove APP_SECRET_KEY_PREVIOUS",
+		"reencrypted", rotated, "unreadable", len(report.Unreadable))
 }

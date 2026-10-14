@@ -111,3 +111,57 @@ func TestDecryptMalformed(t *testing.T) {
 		})
 	}
 }
+
+func TestDecryptFallsBackToPreviousKey(t *testing.T) {
+	t.Cleanup(func() { _ = SetPreviousKey("") })
+
+	old, err := Encrypt("rotated", "old-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decrypt(old, testSecret); err == nil {
+		t.Fatal("value under the old key decrypted without a previous key set")
+	}
+
+	if err := SetPreviousKey("old-secret"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Decrypt(old, testSecret)
+	if err != nil || got != "rotated" {
+		t.Fatalf("fallback decrypt = %q, %v; want %q", got, err, "rotated")
+	}
+
+	// The current key still wins for values it wrote.
+	cur, err := Encrypt("current", testSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Decrypt(cur, testSecret); err != nil || got != "current" {
+		t.Fatalf("current decrypt = %q, %v", got, err)
+	}
+
+	// A third key is still rejected.
+	other, err := Encrypt("x", "unrelated-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Decrypt(other, testSecret); err == nil {
+		t.Fatalf("unrelated key decrypted to %q", got)
+	}
+
+	// Key.Decrypt never falls back.
+	k, err := NewKey(testSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := k.Decrypt(old); err == nil {
+		t.Fatalf("Key.Decrypt fell back to the previous key: %q", got)
+	}
+
+	if err := SetPreviousKey(""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decrypt(old, testSecret); err == nil {
+		t.Fatal("cleared previous key still used")
+	}
+}
