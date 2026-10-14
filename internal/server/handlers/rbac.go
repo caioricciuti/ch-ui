@@ -52,6 +52,8 @@ func (h *RBACHandler) Routes() chi.Router {
 	r.With(middleware.RequirePro(h.Config)).Get("/who-can", h.WhoCan)
 	r.With(middleware.RequireProRead(h.Config)).Post("/plan", h.Plan)
 	r.With(middleware.RequirePro(h.Config)).Post("/apply", h.Apply)
+	r.With(middleware.RequirePro(h.Config)).Get("/export", h.Export)
+	r.With(middleware.RequireProRead(h.Config)).Post("/import/plan", h.ImportPlan)
 	return r
 }
 
