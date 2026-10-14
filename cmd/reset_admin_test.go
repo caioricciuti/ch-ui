@@ -10,7 +10,9 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/database"
 )
 
-// newResetAdminDB creates a migrated database file with the given roles and
+// newResetAdminDB creates a migrated database file with two saved
+// connections ("main", "second"), one created from the login page
+// ("from-login"), and the given roles on "main" (SSO roles are global), and
 // closes it, so runResetAdmin opens it the way the CLI does.
 func newResetAdminDB(t *testing.T, roles map[string]string) string {
 	t.Helper()
@@ -19,8 +21,19 @@ func newResetAdminDB(t *testing.T, roles map[string]string) string {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
+	ids := map[string]string{}
+	for _, name := range []string{"main", "second", "from-login"} {
+		id, err := db.CreateConnection(database.CreateConnectionParams{Name: name, TunnelToken: "cht_" + name, Type: database.ConnectionTypeTunnel})
+		if err != nil {
+			t.Fatalf("CreateConnection(%s): %v", name, err)
+		}
+		ids[name] = id
+	}
+	if err := db.SetSetting(database.SettingLoginURLConnectionIDs, `["`+ids["from-login"]+`"]`); err != nil {
+		t.Fatal(err)
+	}
 	for user, role := range roles {
-		if err := db.SetUserRole(user, role); err != nil {
+		if err := db.SetUserRole(user, ids["main"], role); err != nil {
 			t.Fatalf("SetUserRole(%s): %v", user, err)
 		}
 	}
@@ -40,9 +53,25 @@ func reopen(t *testing.T, path string) *database.DB {
 	return db
 }
 
-func roleOf(t *testing.T, db *database.DB, user string) string {
+// roleOf returns user's override on the named connection ("main" when
+// omitted).
+func roleOf(t *testing.T, db *database.DB, user string, connName ...string) string {
 	t.Helper()
-	role, err := db.GetUserRole(user)
+	name := "main"
+	if len(connName) > 0 {
+		name = connName[0]
+	}
+	conns, err := db.GetConnections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	connID := ""
+	for _, c := range conns {
+		if c.Name == name {
+			connID = c.ID
+		}
+	}
+	role, err := db.GetUserRole(user, connID)
 	if err != nil {
 		t.Fatalf("GetUserRole(%s): %v", user, err)
 	}
@@ -66,10 +95,10 @@ func lastResetAudit(t *testing.T, db *database.DB) *database.AuditLog {
 func TestResetAdminNoFlagRevokesAdminsKeepsOtherRoles(t *testing.T) {
 	path := newResetAdminDB(t, map[string]string{"alice": "admin", "sso:bob@example.com": "admin", "carol": "analyst"})
 	var out bytes.Buffer
-	if err := runResetAdmin(&out, path, ""); err != nil {
+	if err := runResetAdmin(&out, path, "", ""); err != nil {
 		t.Fatalf("runResetAdmin: %v", err)
 	}
-	if !strings.Contains(out.String(), "Removed CH-UI admin from: alice, sso:bob@example.com") {
+	if !strings.Contains(out.String(), "Removed CH-UI admin from: alice on main, sso:bob@example.com") {
 		t.Fatalf("unexpected output: %q", out.String())
 	}
 	db := reopen(t, path)
@@ -91,7 +120,7 @@ func TestResetAdminNoFlagRevokesAdminsKeepsOtherRoles(t *testing.T) {
 func TestResetAdminNoFlagWithoutAdmins(t *testing.T) {
 	path := newResetAdminDB(t, map[string]string{"carol": "viewer"})
 	var out bytes.Buffer
-	if err := runResetAdmin(&out, path, ""); err != nil {
+	if err := runResetAdmin(&out, path, "", ""); err != nil {
 		t.Fatalf("runResetAdmin: %v", err)
 	}
 	if !strings.HasPrefix(out.String(), "No CH-UI admin was assigned.") {
@@ -109,28 +138,71 @@ func TestResetAdminNoFlagWithoutAdmins(t *testing.T) {
 func TestResetAdminUserGrantsAdminLeavesOthers(t *testing.T) {
 	path := newResetAdminDB(t, map[string]string{"alice": "admin", "dave": "viewer"})
 	var out bytes.Buffer
-	if err := runResetAdmin(&out, path, "  dave  "); err != nil {
+	if err := runResetAdmin(&out, path, "  dave  ", ""); err != nil {
 		t.Fatalf("runResetAdmin: %v", err)
 	}
-	if out.String() != "dave is now a CH-UI admin.\n" {
+	if out.String() != "dave is now a CH-UI admin on: main, second\n" {
 		t.Fatalf("unexpected output: %q", out.String())
 	}
 	db := reopen(t, path)
-	if r := roleOf(t, db, "dave"); r != "admin" {
-		t.Fatalf("dave role = %q, want admin", r)
+	for _, conn := range []string{"main", "second"} {
+		if r := roleOf(t, db, "dave", conn); r != "admin" {
+			t.Fatalf("dave role on %s = %q, want admin", conn, r)
+		}
+	}
+	if r := roleOf(t, db, "dave", "from-login"); r != "" {
+		t.Fatalf("dave role on the login page connection = %q, want none", r)
 	}
 	if r := roleOf(t, db, "alice"); r != "admin" {
 		t.Fatalf("alice role = %q, want admin kept", r)
 	}
 	entry := lastResetAudit(t, db)
-	if entry == nil || entry.Details == nil || *entry.Details != "Granted admin to dave from the command line" {
+	if entry == nil || entry.Details == nil || !strings.HasPrefix(*entry.Details, "Granted admin to dave on connection ") {
 		t.Fatalf("missing or wrong audit entry: %+v", entry)
+	}
+}
+
+func TestResetAdminUserOnOneConnection(t *testing.T) {
+	path := newResetAdminDB(t, nil)
+	var out bytes.Buffer
+	if err := runResetAdmin(&out, path, "dave", "second"); err != nil {
+		t.Fatalf("runResetAdmin: %v", err)
+	}
+	db := reopen(t, path)
+	if r := roleOf(t, db, "dave", "second"); r != "admin" {
+		t.Fatalf("dave role on second = %q, want admin", r)
+	}
+	if r := roleOf(t, db, "dave", "main"); r != "" {
+		t.Fatalf("dave role on main = %q, want none", r)
+	}
+
+	err := runResetAdmin(&bytes.Buffer{}, path, "dave", "from-login")
+	if err == nil || !strings.Contains(err.Error(), "login page") {
+		t.Fatalf("login page connection: err = %v, want refusal", err)
+	}
+	if err := runResetAdmin(&bytes.Buffer{}, path, "dave", "nope"); err == nil {
+		t.Fatal("unknown connection accepted")
+	}
+}
+
+func TestResetAdminSSOUserIsGlobal(t *testing.T) {
+	path := newResetAdminDB(t, nil)
+	var out bytes.Buffer
+	if err := runResetAdmin(&out, path, "sso:erin@example.com", ""); err != nil {
+		t.Fatalf("runResetAdmin: %v", err)
+	}
+	if out.String() != "sso:erin@example.com is now a CH-UI admin.\n" {
+		t.Fatalf("unexpected output: %q", out.String())
+	}
+	db := reopen(t, path)
+	if r := roleOf(t, db, "sso:erin@example.com", "second"); r != "admin" {
+		t.Fatalf("erin role = %q, want admin", r)
 	}
 }
 
 func TestResetAdminMissingDatabaseIsNotCreated(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing.db")
-	err := runResetAdmin(&bytes.Buffer{}, path, "")
+	err := runResetAdmin(&bytes.Buffer{}, path, "", "")
 	if err == nil || !strings.Contains(err.Error(), "database not found") {
 		t.Fatalf("err = %v, want database not found", err)
 	}

@@ -177,11 +177,12 @@ func (db *DB) DeleteSession(token string) error {
 	return nil
 }
 
-// SetSessionsUserRole updates the cached app role for all sessions of the user
-// identified by a RoleKey: the sessions of one SSO person for "sso:<email>",
-// otherwise the password sessions of that ClickHouse user. A password user
-// never touches SSO sessions that share its ClickHouse account.
-func (db *DB) SetSessionsUserRole(roleKey, role string) error {
+// SetSessionsUserRole updates the cached app role for the sessions an
+// override on a RoleKey reaches: every session of one SSO person for
+// "sso:<email>", otherwise the password sessions of that ClickHouse user on
+// connectionID only. A password user never touches SSO sessions that share
+// its ClickHouse account.
+func (db *DB) SetSessionsUserRole(roleKey, connectionID, role string) error {
 	if role == "" {
 		role = "viewer"
 	}
@@ -189,7 +190,7 @@ func (db *DB) SetSessionsUserRole(roleKey, role string) error {
 	if subject, ok := strings.CutPrefix(roleKey, SSORoleKeyPrefix); ok {
 		_, err = db.conn.Exec("UPDATE sessions SET user_role = ? WHERE auth_subject = ?", role, subject)
 	} else {
-		_, err = db.conn.Exec("UPDATE sessions SET user_role = ? WHERE clickhouse_user = ? AND (auth_subject IS NULL OR auth_subject = '')", role, roleKey)
+		_, err = db.conn.Exec("UPDATE sessions SET user_role = ? WHERE clickhouse_user = ? AND connection_id = ? AND (auth_subject IS NULL OR auth_subject = '')", role, roleKey, connectionID)
 	}
 	if err != nil {
 		return fmt.Errorf("set sessions user role: %w", err)
@@ -197,8 +198,11 @@ func (db *DB) SetSessionsUserRole(roleKey, role string) error {
 	return nil
 }
 
-// GetUsers returns aggregated user data from sessions.
-func (db *DB) GetUsers() ([]SessionUser, error) {
+// GetUsers returns aggregated user data from sessions: every SSO person, and
+// the password users of connectionID (a ClickHouse user's role is per
+// connection, so other connections' password sessions do not belong here).
+// An empty connectionID returns the users of every connection.
+func (db *DB) GetUsers(connectionID string) ([]SessionUser, error) {
 	// One row per person: SSO sessions group by email, password sessions by
 	// ClickHouse user, so SSO people sharing a service account stay separate.
 	rows, err := db.conn.Query(`
@@ -211,9 +215,10 @@ func (db *DB) GetUsers() ([]SessionUser, error) {
 			MAX(created_at) as last_login,
 			COUNT(*) as session_count
 		FROM sessions
+		WHERE ? = '' OR COALESCE(auth_subject, '') != '' OR connection_id = ?
 		GROUP BY user_key
 		ORDER BY last_login DESC
-	`, SSORoleKeyPrefix)
+	`, SSORoleKeyPrefix, connectionID, connectionID)
 	if err != nil {
 		return nil, fmt.Errorf("get users: %w", err)
 	}

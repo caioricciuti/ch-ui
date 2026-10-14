@@ -191,6 +191,7 @@ person is gone.
 ```bash
 ch-ui reset-admin                 # remove every CH-UI admin
 ch-ui reset-admin --user alice    # make alice an admin, keep existing admins
+ch-ui reset-admin --user alice --connection prod   # only on the "prod" connection
 docker exec <container> ch-ui reset-admin
 ```
 
@@ -198,7 +199,9 @@ With no flags it removes every CH-UI admin assignment, and the next ClickHouse
 admin who signs in becomes the CH-UI admin, as on a fresh install. Other roles
 (analyst, viewer) are kept, and sessions of removed admins drop to viewer right
 away. With `--user`, use the ClickHouse username for a password login or
-`sso:<email>` for someone who signs in with SSO.
+`sso:<email>` for someone who signs in with SSO. A ClickHouse user's role is
+per connection: `--connection` (id or name) picks one, and without it the user
+becomes admin on every connection except those added from the login page.
 
 It is safe to run while the server is up. It opens the server's database
 directly, so run it on the server host (or with `docker exec`), and it refuses

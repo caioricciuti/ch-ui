@@ -15,6 +15,8 @@ Use this guide if the login screen appears but sign-in fails, local URL is wrong
 | `Login temporarily blocked` / `Too many login attempts` | Temporary lockout after repeated failed logins (3 per user or 5 per IP within 15 minutes) | Wait for the retry window shown (`3m`, then `5m`, then capped at `10m`); if URL was wrong, fix setup and restart before retry |
 | `No connections configured` | Embedded local connection not reachable/initialized | Use **Set up ClickHouse connection** with the setup code from the server log, or start CH-UI with explicit local URL and connection name |
 | `Your ClickHouse user has admin privileges, but CH-UI admin is already assigned to another user` | You signed in fine, as a viewer. The CH-UI admin role went to the first ClickHouse admin who signed in, and only a CH-UI admin can grant it | Ask that admin to grant you the role in **Admin > Users**. If nobody can, [recover the admin role](#recover-the-admin-role) from the server |
+| `Connections added from the login page cannot grant CH-UI admin` | You signed in with a ClickHouse URL. Such a connection never grants CH-UI admin, so you are an analyst there | Sign in on a saved connection to administer CH-UI |
+| `ClickHouse usernames starting with "sso:" cannot sign in to CH-UI with a password` | That prefix is how CH-UI names SSO people | Sign in with a different ClickHouse user |
 
 ## First-run setup from the login page
 
@@ -92,6 +94,8 @@ docker exec <container> ch-ui reset-admin
 - Other roles (analyst, viewer) are kept. Sessions of removed admins drop to
   viewer right away.
 - For someone who signs in with SSO, `--user` takes `sso:<email>`.
+- A ClickHouse user becomes admin on every connection except those added from
+  the login page. Add `--connection <id or name>` to pick one.
 - It is recorded in the audit log as `user_role.reset_admin`.
 
 All flags are in the [CLI reference](/docs/cli/#reset-admin).

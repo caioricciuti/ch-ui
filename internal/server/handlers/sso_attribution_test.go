@@ -141,11 +141,11 @@ func TestSetUserRoleAuditNamesSSOAdmin(t *testing.T) {
 
 	rows := auditByDetails(t, db, "user_role.set")
 	sa := ssoServiceAccount
-	row, ok := rows[`Set role for "target_a" to analyst`]
+	row, ok := rows[`Set role for "target_a" to analyst on connection "attr"`]
 	assertAuditRow(t, row, ok, "alice@example.com", &sa)
-	row, ok = rows[`Set role for "target_b" to analyst`]
+	row, ok = rows[`Set role for "target_b" to analyst on connection "attr"`]
 	assertAuditRow(t, row, ok, "bob@example.com", &sa)
-	row, ok = rows[`Set role for "target_c" to analyst`]
+	row, ok = rows[`Set role for "target_c" to analyst on connection "attr"`]
 	assertAuditRow(t, row, ok, "carol_ch", nil)
 }
 

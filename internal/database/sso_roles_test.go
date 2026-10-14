@@ -64,9 +64,9 @@ func TestRoleKey(t *testing.T) {
 }
 
 func TestGetUsersSeparatesSSOPeopleOnSharedAccount(t *testing.T) {
-	db, _ := setupSharedSSOAccount(t)
+	db, connID := setupSharedSSOAccount(t)
 
-	users, err := db.GetUsers()
+	users, err := db.GetUsers(connID)
 	if err != nil {
 		t.Fatalf("GetUsers: %v", err)
 	}
@@ -91,9 +91,9 @@ func TestGetUsersSeparatesSSOPeopleOnSharedAccount(t *testing.T) {
 }
 
 func TestSetSessionsUserRoleTouchesOnlyThatPerson(t *testing.T) {
-	db, _ := setupSharedSSOAccount(t)
+	db, connID := setupSharedSSOAccount(t)
 
-	if err := db.SetSessionsUserRole("sso:alice@example.com", "admin"); err != nil {
+	if err := db.SetSessionsUserRole("sso:alice@example.com", "", "admin"); err != nil {
 		t.Fatalf("SetSessionsUserRole alice: %v", err)
 	}
 	if got := sessionRole(t, db, "tok-alice"); got != "admin" {
@@ -107,7 +107,7 @@ func TestSetSessionsUserRoleTouchesOnlyThatPerson(t *testing.T) {
 	}
 
 	// A role on the shared account name reaches only password logins.
-	if err := db.SetSessionsUserRole("svc_sso", "admin"); err != nil {
+	if err := db.SetSessionsUserRole("svc_sso", connID, "admin"); err != nil {
 		t.Fatalf("SetSessionsUserRole svc_sso: %v", err)
 	}
 	if got := sessionRole(t, db, "tok-pw"); got != "admin" {
@@ -119,10 +119,10 @@ func TestSetSessionsUserRoleTouchesOnlyThatPerson(t *testing.T) {
 }
 
 func TestSSOServiceAccountRoleOverrides(t *testing.T) {
-	db, _ := setupSharedSSOAccount(t)
+	db, connID := setupSharedSSOAccount(t)
 
 	for key, role := range map[string]string{"svc_sso": "admin", "sso:alice@example.com": "analyst", "someone": "viewer"} {
-		if err := db.SetUserRole(key, role); err != nil {
+		if err := db.SetUserRole(key, connID, role); err != nil {
 			t.Fatalf("SetUserRole %s: %v", key, err)
 		}
 	}
@@ -130,7 +130,7 @@ func TestSSOServiceAccountRoleOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SSOServiceAccountRoleOverrides: %v", err)
 	}
-	if len(stale) != 1 || stale[0].Username != "svc_sso" || stale[0].Role != "admin" {
+	if len(stale) != 1 || stale[0].Username != "svc_sso" || stale[0].Role != "admin" || stale[0].ConnectionID != connID {
 		t.Fatalf("want only the svc_sso override, got %+v", stale)
 	}
 }

@@ -35,6 +35,10 @@ const (
 	MaxAttemptsPerUser = 3
 )
 
+// errReservedUsername refuses a password login whose username starts with
+// "sso:", the prefix CH-UI keys SSO people's roles on.
+const errReservedUsername = `ClickHouse usernames starting with "sso:" cannot sign in to CH-UI with a password. Use a different ClickHouse user.`
+
 // AuthHandler implements the authentication HTTP endpoints.
 type AuthHandler struct {
 	DB          *database.DB
@@ -431,6 +435,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Username is required")
 		return
 	}
+	// "sso:<email>" is how CH-UI names SSO people; a ClickHouse user named
+	// that way could pass for one.
+	if database.IsReservedRoleUsername(req.Username) {
+		writeError(w, http.StatusBadRequest, errReservedUsername)
+		return
+	}
 	req.ConnectionID = req.resolvedConnectionID()
 	req.ClickHouseURL = strings.TrimSpace(req.ClickHouseURL)
 	if req.ClickHouseURL != "" {
@@ -724,20 +734,9 @@ func (h *AuthHandler) Session(w http.ResponseWriter, r *http.Request) {
 		connName = tc.Name
 	}
 
-	authSubject := ""
-	if session.AuthSubject != nil {
-		authSubject = *session.AuthSubject
-	}
-	roleKey := database.RoleKey(session.ClickhouseUser, authSubject)
-
-	role := "viewer"
-	overrideRole, roleErr := h.DB.GetUserRole(roleKey)
+	role, roleErr := h.DB.SessionRole(session)
 	if roleErr != nil {
-		slog.Warn("Failed to resolve explicit role for session", "user", roleKey, "error", roleErr)
-	} else if overrideRole != "" {
-		role = overrideRole
-	} else if session.UserRole != nil {
-		role = *session.UserRole
+		slog.Warn("Failed to resolve explicit role for session", "user", session.ClickhouseUser, "connection", session.ConnectionID, "error", roleErr)
 	}
 
 	// For SSO sessions, show the person's identity (email) rather than the
@@ -1165,6 +1164,13 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to create session")
 		return
 	}
+	if viaSSO {
+		// Report the role the new session acts with: the person's override,
+		// capped on a connection created from the login page.
+		if s, err := h.DB.GetSession(token); err == nil && s != nil {
+			role, _ = h.DB.SessionRole(s)
+		}
+	}
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookie,
@@ -1267,34 +1273,47 @@ func (h *AuthHandler) detectClickHouseRole(connectionID, username, password stri
 // when the outcome is surprising (implicit admin ignored, degraded detection)
 // so the UI can tell the user instead of silently downgrading them.
 func (h *AuthHandler) resolveUserRole(connectionID, username, password, clientIP string) (string, string) {
-	manualRole, err := h.DB.GetUserRole(username)
-	if err == nil && manualRole != "" {
-		slog.Debug("Using manually assigned role", "user", username, "role", manualRole)
-		return manualRole, ""
-	}
+	// A connection created from the login page may point at a server the
+	// caller runs, so it never carries an override, never bootstraps the
+	// first admin, and never grants more than analyst.
+	loginURL, err := h.DB.IsLoginURLConnection(connectionID)
 	if err != nil {
-		slog.Warn("Failed to read manual role override", "user", username, "error", err)
+		slog.Warn("Failed to read login URL connections; treating connection as one", "connection", connectionID, "error", err)
+	}
+
+	if !loginURL {
+		manualRole, err := h.DB.GetUserRole(username, connectionID)
+		if err == nil && manualRole != "" {
+			slog.Debug("Using manually assigned role", "user", username, "connection", connectionID, "role", manualRole)
+			return manualRole, ""
+		}
+		if err != nil {
+			slog.Warn("Failed to read manual role override", "user", username, "connection", connectionID, "error", err)
+		}
 	}
 
 	detectedRole, degraded := h.detectClickHouseRole(connectionID, username, password)
 	if degraded {
 		return detectedRole, "Could not verify your ClickHouse privileges (connection error) — defaulting to viewer for this session. Log in again to retry."
 	}
+	if loginURL {
+		if detectedRole == "admin" {
+			slog.Info("Capping role on a connection created from the login page", "user", username, "connection", connectionID)
+			return database.CapLoginURLRole(detectedRole), "Connections added from the login page cannot grant CH-UI admin, so you are signed in as analyst. Ask an admin to sign in on a saved connection to manage CH-UI."
+		}
+		return detectedRole, ""
+	}
 	if detectedRole != "admin" {
 		return detectedRole, ""
 	}
 
-	adminCount, err := h.DB.CountUsersWithRole("admin")
+	bootstrapped, err := h.DB.BootstrapFirstAdmin(username, connectionID)
 	if err != nil {
-		slog.Warn("Failed to count admin overrides; denying implicit admin", "user", username, "error", err)
+		slog.Warn("Failed to bootstrap first admin role", "user", username, "error", err)
 		return "viewer", ""
 	}
 
-	if adminCount == 0 {
-		if err := h.DB.SetUserRole(username, "admin"); err != nil {
-			slog.Warn("Failed to bootstrap first admin role", "user", username, "error", err)
-			return "viewer", ""
-		}
+	if bootstrapped {
 
 		_ = h.DB.CreateAuditLog(database.AuditLogParams{
 			Action:       "user_role.bootstrap_admin",

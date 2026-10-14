@@ -14,6 +14,11 @@ CH-UI authenticates users with ClickHouse credentials against a connection.
 > `ch-ui reset-admin` on the server. See
 > [Recover the admin role](/docs/cant-login/#recover-the-admin-role).
 
+> **Roles are per connection:** a role override for a ClickHouse user applies
+> on the connection it was set for, not to the same username on other
+> connections. A role override for an SSO person applies on all connections.
+> ClickHouse usernames starting with `sso:` cannot sign in with a password.
+
 > **Single Sign-On:** CH-UI also supports OIDC SSO (Okta, Entra ID, Google,
 > Keycloak, …) alongside password login. See **[Single Sign-On](/docs/sso)**.
 
@@ -36,6 +41,10 @@ ClickHouse URL instead of picking a connection, and the server finds or
 creates a direct connection for that URL, then checks the credentials as
 above. The connection is kept, so it shows in the picker next time. When there
 are no connections at all, the login page opens straight in this mode.
+
+A connection added this way never grants the CH-UI `admin` role: users get at
+most `analyst` there, never receive a role override, and never become the first
+admin. Sign in on a saved connection to administer CH-UI.
 
 The CH-UI server makes that connection, not the browser, so turn it on only on
 trusted networks. Setup, limits and the risk are in
