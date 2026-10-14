@@ -89,6 +89,12 @@ func TestValidatePrivilegeAndSetting(t *testing.T) {
 	if err := ValidatePrivilege("SHOW TABLES", known); err != nil {
 		t.Fatal(err)
 	}
+	// ClickHouse has mixed-case privileges and digits in names.
+	for _, p := range []string{"dictGet", "S3"} {
+		if err := ValidatePrivilege(p, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, p := range []string{"SHOW  TABLES", "SELECT ", "select", "SELECT(a)", "ALTER UPDATE", ""} {
 		if ValidatePrivilege(p, known) == nil {
 			t.Errorf("accepted privilege %q", p)
