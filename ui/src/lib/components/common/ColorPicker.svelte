@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { DEFAULT_COLORS } from '../../utils/chart-transform'
+
   interface Props {
     value: string
     onchange: (color: string) => void
@@ -13,7 +15,10 @@
   let customHex = $state('')
   let openAbove = $state(false)
 
+  // The chart palette leads, split to the five-swatch grid of the rows below.
   const PALETTE: { label: string; colors: string[] }[] = [
+    { label: 'Chart',  colors: DEFAULT_COLORS.slice(0, 5) },
+    { label: '',       colors: DEFAULT_COLORS.slice(5) },
     { label: 'Red',    colors: ['#fca5a5', '#f87171', '#ef4444', '#dc2626', '#b91c1c'] },
     { label: 'Orange', colors: ['#fdba74', '#fb923c', '#f97316', '#ea580c', '#c2410c'] },
     { label: 'Yellow', colors: ['#fde68a', '#fbbf24', '#f59e0b', '#d97706', '#b45309'] },
@@ -29,7 +34,7 @@
       return
     }
     const rect = triggerEl.getBoundingClientRect()
-    openAbove = rect.bottom + 320 > window.innerHeight
+    openAbove = rect.bottom + 380 > window.innerHeight
     customHex = value
     open = true
   }

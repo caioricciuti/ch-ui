@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ComputedStat } from '../../utils/chart-transform'
+  import { DEFAULT_COLORS, type ComputedStat } from '../../utils/chart-transform'
   import { dashboardIsDark } from './dashboard-theme.svelte'
 
   interface Props {
@@ -108,7 +108,7 @@
         <path d={seg.path} stroke={seg.color} stroke-width={strokeW} fill="none" stroke-linecap="butt" />
       {/each}
       <!-- Needle dot -->
-      <circle cx={needleX} cy={needleY} r={dotR} fill={stat.color || '#f97316'} />
+      <circle cx={needleX} cy={needleY} r={dotR} fill={stat.color || DEFAULT_COLORS[0]} />
       <!-- Min/Max labels -->
       <text x={cx - radius} y={cy + strokeW / 2 + 14} text-anchor="middle" class="fill-fg-4" style="font-size: 10px">{minVal}</text>
       <text x={cx + radius} y={cy + strokeW / 2 + 14} text-anchor="middle" class="fill-fg-4" style="font-size: 10px">{maxVal}</text>

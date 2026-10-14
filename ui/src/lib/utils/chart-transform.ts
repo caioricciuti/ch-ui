@@ -6,16 +6,60 @@ export interface ColumnMeta {
   type: string
 }
 
+/**
+ * Categorical series palette, mirrored by --chart-1..8 in app.css. One set
+ * serves both themes: every color keeps at least 3:1 against the light
+ * (#ffffff, #f6f6f7) and dark (#0a0a0a, #000000) chart backgrounds, and the
+ * hues stay off the exact status colors. uPlot and canvas need real hex, so
+ * these are constants rather than var() strings.
+ */
 export const DEFAULT_COLORS = [
-  '#F97316', // orange
-  '#FB923C', // orange light
-  '#F59E0B', // amber
-  '#D97706', // amber deep
-  '#10B981', // emerald
-  '#84CC16', // lime
-  '#EF4444', // red
-  '#EC4899', // pink
+  '#ea580c', // orange, brand accent, first series
+  '#3b82f6', // blue
+  '#0d9488', // teal
+  '#8b5cf6', // violet
+  '#db2777', // pink
+  '#b38200', // gold
+  '#5c9a0b', // lime
+  '#71717a', // gray
 ]
+
+/** The old all-orange default; the panel editor saved it into every config it touched. */
+export const LEGACY_DEFAULT_COLORS = [
+  '#F97316', '#FB923C', '#F59E0B', '#D97706', '#10B981', '#84CC16', '#EF4444', '#EC4899',
+]
+
+function isLegacyDefault(colors: string[]): boolean {
+  return colors.length === LEGACY_DEFAULT_COLORS.length
+    && colors.every((c, i) => c?.toLowerCase() === LEGACY_DEFAULT_COLORS[i].toLowerCase())
+}
+
+function defaultColor(i: number): string {
+  return DEFAULT_COLORS[i % DEFAULT_COLORS.length]
+}
+
+/**
+ * Series colors for a panel. A saved config holds only the colors a user
+ * picked, with '' for series left on the default; the untouched legacy
+ * default counts as no picks.
+ */
+export function seriesColors(colors: string[] | undefined): string[] {
+  if (!colors?.length || isLegacyDefault(colors)) return DEFAULT_COLORS
+  const n = Math.max(colors.length, DEFAULT_COLORS.length)
+  return Array.from({ length: n }, (_, i) => colors[i] || defaultColor(i))
+}
+
+/**
+ * The saved colors after a user picks `color` for series `index`. Picking the
+ * default clears that slot; no picks at all saves nothing.
+ */
+export function setSeriesColor(colors: string[] | undefined, index: number, color: string): string[] | undefined {
+  const own = !colors || isLegacyDefault(colors) ? [] : [...colors]
+  while (own.length <= index) own.push('')
+  own[index] = color.toLowerCase() === defaultColor(index).toLowerCase() ? '' : color
+  while (own.length && !own[own.length - 1]) own.pop()
+  return own.length ? own : undefined
+}
 
 export interface ExtendedPreset {
   label: string

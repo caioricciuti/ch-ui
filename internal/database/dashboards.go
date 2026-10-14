@@ -695,7 +695,7 @@ WHERE type = 'QueryFinish'
   AND $__timestamp(event_time)
 GROUP BY ts
 ORDER BY ts`,
-			Config: `{"chartType":"timeseries","xColumn":"ts","yColumns":["queries"],"colors":["#F97316"],"legendPosition":"bottom"}`,
+			Config: `{"chartType":"timeseries","xColumn":"ts","yColumns":["queries"],"colors":["#ea580c"],"legendPosition":"bottom"}`,
 			X:      0, Y: 3, W: 4, H: 5,
 		},
 		{

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { DashboardVariable, PanelConfig, StatThreshold } from '../../types/api'
-  import { DEFAULT_COLORS, DEFAULT_HISTOGRAM_BUCKETS, MAX_HISTOGRAM_BUCKETS, isDateType, isNumericType, type ColumnMeta } from '../../utils/chart-transform'
+  import { seriesColors, setSeriesColor, DEFAULT_HISTOGRAM_BUCKETS, MAX_HISTOGRAM_BUCKETS, isDateType, isNumericType, type ColumnMeta } from '../../utils/chart-transform'
   import Combobox from '../common/Combobox.svelte'
   import type { ComboboxOption } from '../common/Combobox.svelte'
   import ColorPicker from '../common/ColorPicker.svelte'
@@ -90,7 +90,7 @@
 
   const xColumn = $derived(config.xColumn ?? '')
   const yColumns = $derived(config.yColumns ?? [])
-  const colors = $derived(config.colors ?? DEFAULT_COLORS)
+  const colors = $derived(seriesColors(config.colors))
   const thresholds = $derived<StatThreshold[]>(config.statThresholds ?? [])
   const isAxisChart = $derived(config.chartType === 'timeseries' || config.chartType === 'bar')
   const legendTypes: PanelConfig['chartType'][] = ['timeseries', 'bar', 'scatter']
@@ -132,9 +132,7 @@
   }
 
   function updateColor(index: number, color: string) {
-    const next = [...colors]
-    next[index] = color
-    set({ colors: next })
+    set({ colors: setSeriesColor(config.colors, index, color) })
   }
 
   function setThresholds(next: StatThreshold[]) {
@@ -474,7 +472,7 @@
         <div class="flex flex-col gap-1.5">
           {#each yColumns as yCol, i (yCol)}
             <div class="flex items-center gap-2">
-              <ColorPicker value={colors[i] ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length]} onchange={(c) => updateColor(i, c)} />
+              <ColorPicker value={colors[i % colors.length]} onchange={(c) => updateColor(i, c)} />
               <span class="text-xs text-fg-2 truncate">{yCol}</span>
             </div>
           {/each}
