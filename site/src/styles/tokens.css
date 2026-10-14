@@ -64,7 +64,7 @@
   src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
 }
 
-/* Controls shared by the forms (trial, checkout, newsletter) and the
+/* Controls shared by the forms (trial, checkout) and the
    landing pages. The solid button is the foreground colour on the canvas,
    not the accent: orange stays a small mark, as in the app. */
 .chui-btn {
