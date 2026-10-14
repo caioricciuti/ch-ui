@@ -1310,6 +1310,18 @@ Formatting:
 	if err := db.migrateDashboardsV2(); err != nil {
 		return err
 	}
+
+	if err := db.migrateAlertOpsV2(); err != nil {
+		return err
+	}
+
+	if err := db.migrateSavedQueriesV2(); err != nil {
+		return err
+	}
+
+	if err := db.migrateReportsV2(); err != nil {
+		return err
+	}
 	slog.Info("Database migrations completed", "schema_version", schemaVersion)
 	return nil
 }

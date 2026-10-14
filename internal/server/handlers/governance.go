@@ -123,6 +123,16 @@ func (h *GovernanceHandler) Routes() chi.Router {
 		ar.With(admin).Put("/rules/{id}", h.UpdateAlertRule)
 		ar.With(admin).Delete("/rules/{id}", h.DeleteAlertRule)
 		ar.Get("/events", h.ListAlertEvents)
+		// Silences are admin only; acknowledging an incident is open to
+		// writers (admin and analyst). Viewers read both.
+		ar.Get("/silences", h.ListAlertSilences)
+		ar.With(admin).Post("/silences", h.CreateAlertSilence)
+		ar.With(admin).Put("/silences/{id}", h.UpdateAlertSilence)
+		ar.With(admin).Post("/silences/{id}/expire", h.ExpireAlertSilence)
+		ar.Get("/firing", h.ListFiringIncidents)
+		writer := middleware.RequireWriter()
+		ar.With(writer).Post("/acks", h.CreateAlertAck)
+		ar.With(writer).Delete("/acks/{id}", h.DeleteAlertAck)
 	})
 
 	return r

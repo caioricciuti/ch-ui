@@ -59,6 +59,9 @@ var createSavedQuery = Tool{
 		if err != nil {
 			return nil, fmt.Errorf("create saved query: %w", err)
 		}
+		if _, err := tctx.DB.RecordSavedQueryVersion(id, tctx.Username, "Created by Brain"); err != nil {
+			return nil, fmt.Errorf("record version: %w", err)
+		}
 		return map[string]any{
 			"created":        true,
 			"saved_query_id": id,

@@ -218,9 +218,19 @@ func registerCatalogTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 	})
 }
 
-// savedQueryVisible reports whether a saved query belongs to the key's
-// connection or to no connection at all.
+// mcpViewer is how an MCP key looks at saved queries: shared ones plus the
+// ones this key created, never private or admin-only queries of people.
+func mcpViewer(ak *authedKey) database.SavedQueryViewer {
+	return database.SavedQueryViewer{Actor: mcpAuthor(ak)}
+}
+
+// savedQueryVisible reports whether a saved query is visible to the key
+// (shared, or created by this key) and belongs to the key's connection or
+// to no connection at all.
 func savedQueryVisible(sq *database.SavedQuery, ak *authedKey) bool {
+	if !database.SavedQueryVisibleTo(sq, mcpViewer(ak)) {
+		return false
+	}
 	return sq.ConnectionID == nil || *sq.ConnectionID == "" || *sq.ConnectionID == ak.key.ConnectionID
 }
 

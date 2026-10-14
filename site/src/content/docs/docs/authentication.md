@@ -5,6 +5,15 @@ description: Login model, session cookies, and admin authorization
 
 CH-UI authenticates users with ClickHouse credentials against a connection.
 
+> **Who becomes admin:** only the first ClickHouse admin to sign in becomes
+> the CH-UI admin. A ClickHouse user counts as admin when it can read
+> `system.users` (access management) or has grants like `ALL`, `CREATE` or
+> `DROP`. Every ClickHouse admin who signs in after that is a `viewer` in
+> CH-UI until a CH-UI admin grants the role in
+> [Admin > Users](/docs/admin#users). If no CH-UI admin can sign in, run
+> `ch-ui reset-admin` on the server. See
+> [Recover the admin role](/docs/cant-login/#recover-the-admin-role).
+
 > **Single Sign-On:** CH-UI also supports OIDC SSO (Okta, Entra ID, Google,
 > Keycloak, …) alongside password login. See **[Single Sign-On](/docs/sso)**.
 
@@ -109,8 +118,13 @@ connection with its status; offline ones cannot be picked.
 
 - **Password sessions:** the form is pre-filled with your ClickHouse user and
   **Use my current password** is ticked. Untick it to sign in to the other
-  connection as a different user. If the other connection refuses your
-  current password, the password field opens; that refusal does not count
+  connection as a different user. Your current password is only reused when
+  the other connection points at the same ClickHouse server (two direct
+  connections with the same host and port, or the same connection). For a
+  different server or any agent connection the password field opens with
+  **Different server, enter the password for &lt;user&gt;**; nothing is sent
+  to that connection until you type it. If the same server refuses your
+  current password, the password field opens too; neither case counts
   toward the login rate limit.
 - **SSO sessions:** nothing to type. The switch uses the target connection's
   SSO service account and keeps your email and role. Connections without a
@@ -130,8 +144,8 @@ curl -X POST http://localhost:3488/api/auth/switch-connection \
   -d '{"connection_id":"<id>"}'
 ```
 
-Leave out `username` and `password` to reuse the current ones; send both to
-sign in as someone else. The session cookie is replaced with a new token in
+Leave out `username` and `password` to reuse the current ones (same
+ClickHouse server only); send both to sign in as someone else. The session cookie is replaced with a new token in
 one step, so a failed switch leaves you signed in where you were.
 
 Statuses:
@@ -139,7 +153,10 @@ Statuses:
 - `400` missing or unknown connection, or the embedded connection that setup
   replaced (it is hidden from sign-in too)
 - `401` ClickHouse rejected the credentials. `needs_password: true` when it
-  was your current password; only typed passwords count toward the rate limit
+  was your current password; only typed passwords count toward the rate limit.
+  Also `needs_password: true` with `reason: "different_server"` when the
+  current password was left out but the target is another ClickHouse server
+  or an agent connection; the target is not contacted
 - `403` the `Origin` header is not CH-UI's own origin or an allowed origin
 - `409` `sso_not_configured` (SSO session, target has no service account),
   `sso_account_rejected` (ClickHouse refused that service account), or

@@ -17,6 +17,7 @@
   import { setSection } from '../lib/stores/nav.svelte'
   import { hasProReadAccess } from '../lib/stores/license.svelte'
   import { listWorkspaceSavedQueries } from '../lib/api/workspace'
+  import { runQuery } from '../lib/api/query'
   import { PAGE_ROUTES, ADMIN_ONLY_ROUTES, type PageRoute, type IconComponent } from '../lib/routes'
   import { prefetchPage } from '../lib/components/layout/pageLoaders'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
@@ -46,6 +47,9 @@
     title: string
     description: string
     sql: string
+    /** Cheap check run before opening; on failure the card shows `unavailable`. */
+    probe?: string
+    unavailable?: string
   }
 
   const session = $derived(getSession())
@@ -112,6 +116,9 @@ LIMIT 20`,
       id: 'slowest-queries',
       title: 'Slowest queries today',
       description: 'The last 24 hours of system.query_log',
+      probe: 'SELECT 1 FROM system.query_log LIMIT 0',
+      unavailable:
+        'Not available here: it needs read access to system.query_log, and query logging turned on in ClickHouse.',
       sql: `SELECT
     event_time,
     query_duration_ms,
@@ -133,6 +140,25 @@ LIMIT 20`,
     uptime() AS uptime_seconds`,
     },
   ]
+
+  // Starter id -> explanation shown when its probe failed.
+  let starterNotes = $state<Record<string, string>>({})
+  let probing = $state<string | null>(null)
+
+  async function openStarter(q: StarterQuery): Promise<void> {
+    if (q.probe) {
+      probing = q.id
+      try {
+        await runQuery({ query: q.probe })
+      } catch {
+        starterNotes = { ...starterNotes, [q.id]: q.unavailable ?? 'This query cannot run on this connection.' }
+        return
+      } finally {
+        probing = null
+      }
+    }
+    openQueryTab(q.sql)
+  }
 
   function openAdminSection(section: string): void {
     goTo('admin')
@@ -285,13 +311,17 @@ LIMIT 20`,
               {#each starters as q (q.id)}
                 <button
                   class="rounded-md border border-edge-subtle bg-canvas px-3.5 py-3 text-left transition-colors hover:border-edge-strong hover:bg-hover"
-                  onclick={() => openQueryTab(q.sql)}
+                  disabled={probing === q.id}
+                  onclick={() => openStarter(q)}
                 >
                   <p class="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
                     <SquareTerminal size={13} class="text-accent" />
                     {q.title}
                   </p>
                   <p class="mt-1 text-xs text-fg-3">{q.description}</p>
+                  {#if starterNotes[q.id]}
+                    <p class="mt-1.5 text-xs text-warning">{starterNotes[q.id]}</p>
+                  {/if}
                 </button>
               {/each}
             </div>

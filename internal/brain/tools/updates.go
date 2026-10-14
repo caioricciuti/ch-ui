@@ -48,12 +48,16 @@ var updateSavedQuery = Tool{
 		if in.ID == "" {
 			return nil, errors.New("id is required")
 		}
-		current, err := tctx.DB.GetSavedQueryByID(in.ID)
+		viewer := savedQueryViewer(tctx)
+		current, err := tctx.DB.GetSavedQueryVisibleTo(in.ID, viewer)
 		if err != nil {
 			return nil, fmt.Errorf("lookup saved query: %w", err)
 		}
 		if current == nil {
 			return nil, fmt.Errorf("saved query %s not found", in.ID)
+		}
+		if !database.CanEditSavedQuery(current, viewer) {
+			return nil, errors.New("only the owner or an admin can change this saved query")
 		}
 		name := in.Name
 		if name == "" {
@@ -76,12 +80,19 @@ var updateSavedQuery = Tool{
 			Description:  desc,
 			Query:        sql,
 			ConnectionID: connID,
+			Verified:     current.Verified,
 		}
 		if current.Parameters != nil {
 			params.Parameters = *current.Parameters
 		}
+		if err := tctx.DB.EnsureSavedQueryBaseline(in.ID); err != nil {
+			return nil, fmt.Errorf("record baseline version: %w", err)
+		}
 		if err := tctx.DB.UpdateSavedQuery(in.ID, params); err != nil {
 			return nil, fmt.Errorf("update saved query: %w", err)
+		}
+		if _, err := tctx.DB.RecordSavedQueryVersion(in.ID, tctx.Username, "Updated by Brain"); err != nil {
+			return nil, fmt.Errorf("record version: %w", err)
 		}
 		return map[string]any{
 			"updated":        true,

@@ -862,11 +862,64 @@ func (h *AuthHandler) sameOriginRequest(r *http.Request) bool {
 	return middleware.OriginAllowed(cfg, origin)
 }
 
+// clickHouseEndpoint returns the lower-cased host and port CH-UI dials for
+// a direct (or embedded) connection. ok is false for agent connections,
+// whose ClickHouse is whatever the remote agent points at, and for a URL
+// without a host.
+func clickHouseEndpoint(c *database.Connection) (host, port string, ok bool) {
+	if c == nil || c.Type != database.ConnectionTypeDirect {
+		return "", "", false
+	}
+	u, err := url.Parse(strings.TrimSpace(c.ClickHouseURL))
+	if err != nil || u.Hostname() == "" {
+		return "", "", false
+	}
+	port = u.Port()
+	if port == "" {
+		switch strings.ToLower(u.Scheme) {
+		case "http":
+			port = "8123"
+		case "https":
+			port = "8443"
+		default:
+			return "", "", false
+		}
+	}
+	return strings.ToLower(u.Hostname()), port, true
+}
+
+// sameClickHouseServer reports whether target reaches the same ClickHouse
+// server as the connection currentID, so the session's stored password may
+// be reused there. Only the same connection, or two direct connections with
+// the same host and port, qualify; an agent or an unknown endpoint never
+// does.
+func (h *AuthHandler) sameClickHouseServer(currentID string, target *database.Connection) bool {
+	if target == nil {
+		return false
+	}
+	if currentID != "" && currentID == target.ID {
+		return true
+	}
+	current, err := h.DB.GetConnectionByID(currentID)
+	if err != nil || current == nil {
+		return false
+	}
+	curHost, curPort, ok := clickHouseEndpoint(current)
+	if !ok {
+		return false
+	}
+	host, port, ok := clickHouseEndpoint(target)
+	return ok && host == curHost && port == curPort
+}
+
 // SwitchConnection moves the caller's session to another connection.
 //
 // Password sessions test a ClickHouse user and password on the target. An
 // empty password for the session's own ClickHouse user reuses the stored
-// one; when the target rejects it the answer is 401 with needs_password and
+// one, but only when the target is the same ClickHouse server (see
+// sameClickHouseServer); any other target gets 401 with needs_password and
+// reason different_server before anything is sent to it. When the target
+// rejects a reused password the answer is 401 with needs_password and
 // the attempt is not counted against the lockout (it was not a guess). SSO
 // sessions ignore the request credentials and use the target connection's
 // SSO service account, keeping the person's identity and role.
@@ -962,6 +1015,20 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 		}
 		password = req.Password
 		if password == "" && username == existingSession.ClickhouseUser {
+			// The stored password belongs to the current ClickHouse server.
+			// Another server (or an agent run by someone else) must never
+			// receive it: ask for that server's password instead, without
+			// testing anything or recording a failure against the target.
+			if !h.sameClickHouseServer(existingSession.ConnectionID, newConn) {
+				writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
+					"success":        false,
+					"error":          "Authentication failed",
+					"reason":         "different_server",
+					"message":        fmt.Sprintf("Different server, enter the password for %s.", username),
+					"needs_password": true,
+				})
+				return
+			}
 			stored, err := crypto.Decrypt(existingSession.EncryptedPassword, h.Config.AppSecretKey)
 			if err != nil {
 				writeJSON(w, http.StatusUnauthorized, map[string]interface{}{

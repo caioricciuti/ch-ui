@@ -5,8 +5,9 @@ export type AlertSeverity = 'info' | 'warn' | 'error' | 'critical'
 export type AlertEventType =
   | 'policy.violation' | 'schedule.failed' | 'schedule.slow' | 'telemetry.monitor'
   | 'health.replication_lag' | 'health.replica_readonly' | 'health.disk' | 'health.parts'
-  | 'health.mutation_stuck' | 'health.node_unreachable' | 'health.*'
+  | 'health.mutation_stuck' | 'health.node_unreachable' | 'health.connection_unreachable' | 'health.*'
   | 'sql.alert' | 'sql.*'
+  | 'report.failed' | 'report.disabled' | 'report.*'
   | '*'
 
 export interface AlertChannel {
@@ -47,6 +48,8 @@ export interface AlertRule {
   created_at: string
   updated_at: string
   channels: AlertRuleChannelBinding[]
+  /** null or empty = every connection. */
+  connection_ids?: string[] | null
 }
 
 export interface AlertEvent {
@@ -59,14 +62,80 @@ export interface AlertEvent {
   payload_json?: string | null
   fingerprint?: string | null
   source_ref?: string | null
+  /** 'new' | 'processed' | 'silenced' | 'acknowledged' */
   status: string
   created_at: string
   processed_at?: string | null
+  /** Silence or acknowledgement id that held this event back. */
+  suppressed_by?: string | null
+}
+
+// ── Silences and acknowledgements (/api/governance/alerts) ──
+
+export type SilenceStatus = 'active' | 'scheduled' | 'expired'
+
+export interface Silence {
+  id: string
+  reason: string
+  connection_id: string | null
+  event_type: string | null
+  /** One SQL alert id, or "health:<check_kind>". */
+  source_ref: string | null
+  node: string | null
+  starts_at: string
+  ends_at: string
+  created_by: string | null
+  created_at: string
+  expired_at: string | null
+  expired_by: string | null
+  status: SilenceStatus
+}
+
+export interface SilenceInput {
+  reason: string
+  connection_id: string | null
+  event_type: string | null
+  source_ref: string | null
+  node: string | null
+  /** RFC3339 UTC; the server defaults to now. */
+  starts_at?: string
+  duration_seconds?: number
+  ends_at?: string
+}
+
+export interface AlertAck {
+  id: string
+  alert_key: string
+  incident_id: string | null
+  event_id: string | null
+  connection_id: string | null
+  severity: string | null
+  comment: string | null
+  acked_by: string | null
+  created_at: string
+  expires_at: string | null
+}
+
+export interface FiringIncident {
+  source: 'health' | 'sql'
+  alert_key: string
+  incident_id: string
+  connection_id: string
+  check_kind: string | null
+  node: string | null
+  sql_alert_id: string | null
+  name: string
+  severity: string
+  since: string
+  /** null: there is no event to acknowledge. */
+  event_id: string | null
+  ack: AlertAck | null
 }
 
 // ── Health checks and SQL threshold alerts (/api/alerting) ──
 
-export type HealthCheckKind = 'replication_lag' | 'replica_readonly' | 'disk' | 'parts' | 'mutation_stuck' | 'node_unreachable'
+export type HealthCheckKind =
+  | 'replication_lag' | 'replica_readonly' | 'disk' | 'parts' | 'mutation_stuck' | 'node_unreachable' | 'connection_unreachable'
 export type HealthCheckUnit = 'seconds' | 'count' | 'percent' | 'down'
 export type AlertState = 'ok' | 'pending' | 'firing'
 
@@ -84,7 +153,7 @@ export interface HealthCheckSetting {
   /** Consecutive OKs before resolving (1-20). */
   resolve_evaluations: number
   unit: HealthCheckUnit
-  /** false for replica_readonly and node_unreachable */
+  /** false for replica_readonly, node_unreachable and connection_unreachable */
   supports_warn: boolean
   updated_at: string | null
 }
@@ -97,6 +166,7 @@ export type HealthCheckSettingInput = Pick<
 export interface HealthAlertState {
   connection_id: string
   check_kind: HealthCheckKind
+  /** "*" for connection-level checks. */
   node: string
   state: AlertState
   severity: 'warn' | 'critical' | null

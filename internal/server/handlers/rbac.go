@@ -48,6 +48,8 @@ func (h *RBACHandler) Routes() chi.Router {
 	r.Use(middleware.RequireAdmin(h.DB))
 	r.With(middleware.RequirePro(h.Config)).Get("/snapshot", h.Snapshot)
 	r.With(middleware.RequirePro(h.Config)).Get("/entity/{kind}/{name}", h.Entity)
+	r.With(middleware.RequirePro(h.Config)).Get("/effective", h.Effective)
+	r.With(middleware.RequirePro(h.Config)).Get("/who-can", h.WhoCan)
 	r.With(middleware.RequireProRead(h.Config)).Post("/plan", h.Plan)
 	r.With(middleware.RequirePro(h.Config)).Post("/apply", h.Apply)
 	return r
@@ -101,6 +103,68 @@ func (h *RBACHandler) Snapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "snapshot": snap})
+}
+
+func explainQueryFrom(r *http.Request) rbac.ExplainQuery {
+	q := r.URL.Query()
+	return rbac.ExplainQuery{
+		User: q.Get("user"), Database: q.Get("database"), Table: q.Get("table"),
+		Column: q.Get("column"), Privilege: q.Get("privilege"),
+	}
+}
+
+func writeExplainError(w http.ResponseWriter, err error) {
+	var verr *rbac.ValidationError
+	switch {
+	case errors.As(err, &verr):
+		writeError(w, http.StatusBadRequest, verr.Error())
+	case errors.Is(err, rbac.ErrUnknownUser):
+		writeError(w, http.StatusNotFound, "User not found")
+	default:
+		writeError(w, http.StatusBadGateway, err.Error())
+	}
+}
+
+// Effective handles GET /effective: what one user can do on an object and
+// why. Reads only, so nothing is audited.
+func (h *RBACHandler) Effective(w http.ResponseWriter, r *http.Request) {
+	q := explainQueryFrom(r)
+	if strings.TrimSpace(q.User) == "" {
+		writeError(w, http.StatusBadRequest, "user is required")
+		return
+	}
+	_, ex, ok := h.executor(w, r)
+	if !ok {
+		return
+	}
+	e, err := rbac.ExplainLive(r.Context(), ex, q)
+	if err != nil {
+		writeExplainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Success bool `json:"success"`
+		*rbac.Explanation
+	}{true, e})
+}
+
+// WhoCan handles GET /who-can: every user that can use a privilege on an
+// object. Reads only, so nothing is audited.
+func (h *RBACHandler) WhoCan(w http.ResponseWriter, r *http.Request) {
+	q := explainQueryFrom(r)
+	_, ex, ok := h.executor(w, r)
+	if !ok {
+		return
+	}
+	res, err := rbac.WhoCanLive(r.Context(), ex, q)
+	if err != nil {
+		writeExplainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Success bool `json:"success"`
+		*rbac.WhoCanResult
+	}{true, res})
 }
 
 // Entity handles GET /entity/{kind}/{name}: the SHOW CREATE text and, for

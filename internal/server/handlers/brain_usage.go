@@ -82,6 +82,28 @@ func budgetExceeded(db *database.DB, username string, s brainSettings) string {
 		formatTokenCount(s.DailyTokenBudget), formatTokenCount(used))
 }
 
+// Stop reasons the agent loop sets itself, next to the provider's "length"
+// and "refusal".
+const (
+	stopReasonToolLimit = "tool_limit"
+	stopReasonBudget    = "budget"
+)
+
+// turnOverBudget reports whether the tokens stored today plus what this
+// turn used so far reach the daily budget. Usage is stored when a turn
+// ends, so the stored sum never includes the running turn.
+func (h *BrainHandler) turnOverBudget(t brainTurn) bool {
+	if t.budget <= 0 || h.DB == nil || t.usage == nil {
+		return false
+	}
+	used, err := h.DB.BrainTokensUsedSince(t.username, startOfDayUTC(time.Now()))
+	if err != nil {
+		slog.Warn("Failed to check Brain token budget", "error", err)
+		return false
+	}
+	return used+t.usage.Tokens() >= t.budget
+}
+
 func formatTokenCount(n int) string {
 	s := strconv.Itoa(n)
 	var out []byte
@@ -121,6 +143,10 @@ func stopNote(reason string) string {
 		return "\n\n_The answer was cut off because it reached the output token limit. Ask me to continue for the rest._"
 	case "refusal":
 		return "\n\n_The model declined to answer this request._"
+	case stopReasonToolLimit:
+		return fmt.Sprintf("\n\n_Stopped after %d steps in one turn. Ask me to continue if there is more to do._", brainMaxIterations)
+	case stopReasonBudget:
+		return "\n\n_Stopped because your daily Brain budget is used up. It resets at 00:00 UTC; an admin can raise it in Admin > Brain._"
 	default:
 		return ""
 	}
@@ -174,8 +200,10 @@ func (h *BrainHandler) saveTurnUsage(t *brainTurn) {
 	}
 }
 
-// recordAskAIUsage stores one Ask AI request in the ledger.
-func (h *BrainHandler) recordAskAIUsage(username string, rt *database.BrainModelRuntime, u *braincore.ChatResult) {
+// recordQuickUsage stores one Ask AI or Fix with AI call in the ledger.
+// purpose is ask_ai, fix_sql, or ask_ai_repair / fix_sql_repair for a call
+// that repairs SQL ClickHouse rejected.
+func (h *BrainHandler) recordQuickUsage(username string, rt *database.BrainModelRuntime, purpose string, u *braincore.ChatResult) {
 	if h.DB == nil || rt == nil || u == nil || u.InputTokens+u.OutputTokens+u.CacheReadTokens+u.CacheWriteTokens == 0 {
 		return
 	}
@@ -183,13 +211,13 @@ func (h *BrainHandler) recordAskAIUsage(username string, rt *database.BrainModel
 		Username:         username,
 		Provider:         providerLabel(rt),
 		Model:            rt.ModelName,
-		Purpose:          "ask_ai",
+		Purpose:          purpose,
 		InputTokens:      u.InputTokens,
 		OutputTokens:     u.OutputTokens,
 		CacheReadTokens:  u.CacheReadTokens,
 		CacheWriteTokens: u.CacheWriteTokens,
 	}); err != nil {
-		slog.Warn("Failed to record Ask AI usage", "error", err)
+		slog.Warn("Failed to record quick Brain usage", "error", err)
 	}
 }
 

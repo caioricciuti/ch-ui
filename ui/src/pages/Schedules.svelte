@@ -19,7 +19,16 @@
   import Input from '../lib/components/common/Input.svelte'
   import Panel from '../lib/components/common/Panel.svelte'
   import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
+  import ReportsSection from '../lib/components/reports/ReportsSection.svelte'
+  import { getSection } from '../lib/stores/nav.svelte'
+  import { PAGE_SECTIONS } from '../lib/routes'
   import { Clock, Plus, Play, Trash2, ChevronDown, ChevronRight, FileText, ExternalLink, Pencil } from 'lucide-svelte'
+
+  // The sidebar drives the section through ?section=: query jobs (the
+  // default) or report delivery.
+  type Section = 'jobs' | 'reports'
+  const section = $derived<Section>(getSection() === 'reports' ? 'reports' : 'jobs')
+  const sectionLabel = $derived((PAGE_SECTIONS.schedules ?? []).find((s) => s.id === section)?.label ?? 'Query jobs')
 
   let schedules = $state<Schedule[]>([])
   let loading = $state(true)
@@ -292,17 +301,24 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Scheduled Queries" subtitle="Run saved queries on a cron, with run history.">
+  <PageHeader title="Schedules" subtitle={sectionLabel} docs={section === 'reports' ? 'https://ch-ui.com/docs/reports/' : undefined}>
     {#snippet meta()}
-      {#if !loading}<Badge>{schedules.length}</Badge>{/if}
+      {#if section === 'jobs' && !loading}<Badge>{schedules.length}</Badge>{/if}
     {/snippet}
     {#snippet actions()}
-      <Button size="sm" onclick={openCreateModal}>
-        <Plus size={14} /> Create Schedule
-      </Button>
+      {#if section === 'jobs'}
+        <Button size="sm" onclick={openCreateModal}>
+          <Plus size={14} /> Create Schedule
+        </Button>
+      {/if}
     {/snippet}
   </PageHeader>
 
+  {#if section === 'reports'}
+    <div class="min-h-0 flex-1">
+      <ReportsSection />
+    </div>
+  {:else}
   <PageBody width="md">
     {#if loading}
       <div class="flex items-center justify-center py-12"><Spinner /></div>
@@ -340,8 +356,8 @@
                   <Badge tone={badge.tone} dot>{badge.label}</Badge>
                   <span>Last: {formatDate(schedule.last_run_at)}</span>
                   <span>Next: {formatDate(schedule.next_run_at)}</span>
-                  {#if queryRef}
-                    <span class="text-fg-4">{queryRef.name}</span>
+                  {#if queryRef || schedule.saved_query_name}
+                    <span class="text-fg-4">{queryRef?.name ?? schedule.saved_query_name}</span>
                   {/if}
                 </div>
               </div>
@@ -422,6 +438,7 @@
       </div>
     {/if}
   </PageBody>
+  {/if}
 </div>
 
 <Sheet open={showModal} title={editingId ? 'Edit Schedule' : 'Create Schedule'} size="sm" onclose={() => showModal = false}>
@@ -528,6 +545,9 @@
         {#if saved}
           <p class="mb-2 text-[13px] text-fg">{saved.name}</p>
           <pre class="max-h-48 overflow-auto rounded-md border border-edge-subtle bg-surface p-2 font-mono text-xs text-fg-2">{saved.query}</pre>
+        {:else if selectedSchedule.saved_query_name}
+          <p class="text-[13px] text-fg">{selectedSchedule.saved_query_name}</p>
+          <p class="mt-1 text-xs text-fg-3">This query is private to its owner, so only its name is shown.</p>
         {:else}
           <p class="text-xs text-fg-3">Saved query metadata not available.</p>
         {/if}

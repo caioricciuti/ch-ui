@@ -29,7 +29,7 @@ const ROUTES = {
   telemetry: { label: 'Telemetry', path: '/telemetry', description: 'Logs, traces and metrics', icon: ScrollText },
   pipelines: { label: 'Pipelines', path: '/pipelines', description: 'Stream data into ClickHouse', icon: Workflow },
   models: { label: 'Models', path: '/models', description: 'SQL transformations in order', icon: Boxes },
-  schedules: { label: 'Schedules', path: '/schedules', description: 'Saved queries on a cron', icon: Clock, pro: true },
+  schedules: { label: 'Schedules', path: '/schedules', description: 'Query jobs and report delivery on a cron', icon: Clock, pro: true },
   brain: { label: 'Brain', path: '/brain', description: 'AI assistant for your data', icon: Brain },
   governance: { label: 'Governance', path: '/governance', description: 'Access, policies, audit', icon: Scale, pro: true },
   'cluster-health': { label: 'Cluster Health', path: '/cluster-health', description: 'Nodes, replication, parts', icon: HeartPulse, pro: true },
@@ -105,6 +105,12 @@ export interface PageSection {
 }
 
 export const PAGE_SECTIONS: Partial<Record<PageRoute, PageSection[]>> = {
+  'saved-queries': [
+    { id: 'all', label: 'All' },
+    { id: 'mine', label: 'Mine' },
+    { id: 'shared', label: 'Shared' },
+    { id: 'verified', label: 'Verified' },
+  ],
   'cluster-health': [
     { id: 'overview', label: 'Overview' },
     { id: 'replication', label: 'Replication' },
@@ -142,6 +148,10 @@ export const PAGE_SECTIONS: Partial<Record<PageRoute, PageSection[]>> = {
     { id: 'mcp', label: 'MCP Server' },
     { id: 'settings', label: 'Settings' },
   ],
+  schedules: [
+    { id: 'jobs', label: 'Query jobs' },
+    { id: 'reports', label: 'Report delivery' },
+  ],
   performance: [
     { id: 'regressions', label: 'Regressions' },
     { id: 'investigations', label: 'Investigations' },
@@ -152,9 +162,11 @@ export const PAGE_SECTIONS: Partial<Record<PageRoute, PageSection[]>> = {
     { id: 'queries', label: 'Query Audit' },
     { id: 'access', label: 'Access' },
     { id: 'rbac', label: 'Access control' },
+    { id: 'effective-access', label: 'Effective access' },
     { id: 'incidents', label: 'Incidents' },
     { id: 'policies', label: 'Policies' },
     { id: 'alerts', label: 'Alerts' },
+    { id: 'silences', label: 'Silences' },
     { id: 'health-alerts', label: 'Health checks' },
     { id: 'sql-alerts', label: 'SQL alerts' },
     { id: 'auditlog', label: 'Audit Log' },

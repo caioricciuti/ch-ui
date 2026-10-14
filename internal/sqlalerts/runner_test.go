@@ -197,10 +197,10 @@ func TestEvaluateFiresAndResolves(t *testing.T) {
 			firing = &evs[i]
 		}
 	}
-	if firing == nil || *firing.Fingerprint != Fingerprint(id, false) || firing.Severity != "critical" || !strings.Contains(firing.Title, "value 150 >= 100") {
+	if firing == nil || !strings.HasPrefix(*firing.Fingerprint, "sql:"+id+":firing:") || firing.Severity != "critical" || !strings.Contains(firing.Title, "value 150 >= 100") {
 		t.Fatalf("firing event %+v", firing)
 	}
-	if resolved == nil || *resolved.Fingerprint != Fingerprint(id, true) || !strings.Contains(*resolved.PayloadJSON, `"status":"resolved"`) {
+	if resolved == nil || !strings.HasPrefix(*resolved.Fingerprint, "sql:"+id+":resolved:") || !strings.Contains(*resolved.PayloadJSON, `"status":"resolved"`) {
 		t.Fatalf("resolved event %+v", resolved)
 	}
 	hist, err := db.ListAlertEvaluations(conn, "sql", id, 50)

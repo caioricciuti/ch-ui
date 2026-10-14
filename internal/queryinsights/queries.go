@@ -27,6 +27,9 @@ type Filters struct {
 	Search        string // case-insensitive substring of the query text
 	Table         string // only queries touching this table (has(tables, …))
 	MinDurationMS int    // only queries at least this slow
+	// ExcludeLogComments hides queries tagged with any of these log_comment
+	// values, on top of this package's own tag (Brain hides its own reads).
+	ExcludeLogComments []string
 }
 
 var allowedQueryKinds = map[string]bool{
@@ -68,6 +71,13 @@ func (f Filters) clauses() string {
 	}
 	if f.MinDurationMS > 0 {
 		fmt.Fprintf(&b, "\n  AND query_duration_ms >= %d", f.MinDurationMS)
+	}
+	if len(f.ExcludeLogComments) > 0 {
+		quoted := make([]string, 0, len(f.ExcludeLogComments))
+		for _, c := range f.ExcludeLogComments {
+			quoted = append(quoted, "'"+escapeString(c)+"'")
+		}
+		fmt.Fprintf(&b, "\n  AND log_comment NOT IN (%s)", strings.Join(quoted, ", "))
 	}
 	return b.String()
 }
@@ -205,6 +215,11 @@ func SlowQueriesQuery(cluster string, rng Range, f Filters) string {
 // MemoryQuery: heaviest patterns by peak memory.
 func MemoryQuery(cluster string, rng Range, f Filters) string {
 	return patternGroup(cluster, rng, f, "max_memory DESC")
+}
+
+// HeavyReadersQuery: patterns that read the most bytes.
+func HeavyReadersQuery(cluster string, rng Range, f Filters) string {
+	return patternGroup(cluster, rng, f, "read_bytes DESC")
 }
 
 // FrequentQuery: most-run patterns.

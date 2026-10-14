@@ -21,7 +21,7 @@ These event types are emitted automatically:
 | `schedule.failed` | `error` | A [scheduled query](/docs/schedules) run errors |
 | `schedule.slow` | `warn` | A scheduled run succeeds but takes ≥ 80% of its timeout (60 seconds when unset; minimum threshold 1 second) |
 | `telemetry.monitor` | monitor severity | A [telemetry monitor](/docs/telemetry#monitors-pro) goes from OK to firing. One event per transition, not one per evaluation |
-| `health.replication_lag`, `health.replica_readonly`, `health.disk`, `health.parts`, `health.mutation_stuck`, `health.node_unreachable` | `warn` or `critical` | A built-in [health check](#health-checks) fires, escalates from warn to critical, or resolves |
+| `health.replication_lag`, `health.replica_readonly`, `health.disk`, `health.parts`, `health.mutation_stuck`, `health.node_unreachable`, `health.connection_unreachable` | `warn` or `critical` | A built-in [health check](#health-checks) fires, escalates from warn to critical, or resolves |
 | `health.summary` | worst of the batch | More than 20 health check changes on one connection in one poll; the rest are folded into this one event |
 | `sql.alert` | alert severity (`warn` when disabled) | A [SQL alert](#sql-alerts) fires or resolves, or turns itself off after 5 failed runs |
 
@@ -119,6 +119,7 @@ Rules decide which events become email, and where it goes:
 | `subject_template` | built-in | Custom subject, supports `{{placeholders}}` |
 | `body_template` | built-in | Custom plain-text body, supports `{{placeholders}}` |
 | `channels[]` | None | One or more channel bindings, each with `channel_id`, `recipients` (email addresses; empty for webhook channels), and `is_active` |
+| `connection_ids` | all | Limit the rule to events of these connections. Empty or `null` means every connection. Events without a connection (most policy and some schedule events) only match rules without a connection list. Ids are checked on save; the rule sheet flags a connection that was deleted later |
 
 Available template variables: `{{event_type}}`, `{{severity}}`, `{{title}}`, `{{message}}`, `{{payload_json}}`, `{{channel_name}}`, `{{channel_type}}`, `{{created_at}}`, `{{event_id}}`, `{{rule_name}}`. Leave the templates empty for a sensible default (`[CH-UI][ERROR][schedule.failed] …` subject, plain-text body with the event details and payload). Templates shape email only; webhooks always send the event fields.
 
@@ -128,7 +129,7 @@ A good starter rule: `event_type: *`, `severity_min: error`, one channel, your o
 
 A background dispatcher ticks every **8 seconds**:
 
-1. **Materialize**: new events are matched against enabled rules (event type + severity floor); each matching active channel binding becomes a dispatch job (up to 100 events per tick). If a rule's channels cannot be read, the event stays new and is retried on the next tick; jobs already created for it are not created twice.
+1. **Materialize**: new events first go through [silences and acknowledgements](#silences-and-acknowledgements); the rest are matched against enabled rules (event type, severity floor and connection scope); each matching active channel binding becomes a dispatch job (up to 100 events per tick). If a rule's channels cannot be read, the event stays new and is retried on the next tick; jobs already created for it are not created twice.
 2. **Deliver**: due jobs are sent (up to 30 per tick).
 
 Reliability behavior:
@@ -137,15 +138,36 @@ Reliability behavior:
 - **Retries**: failed deliveries retry with exponential backoff: `10s × 2^(attempt−1)`, capped at 30 minutes, until `max_attempts` is reached, then the job is marked failed with its last error.
 - **Crash recovery**: a job is claimed with a 2 minute lease before it is sent. If CH-UI stops mid-delivery, the job is picked up again once the lease expires (counting as an attempt). An interrupted final attempt is marked failed, so it no longer holds back the same fingerprint during the cooldown.
 
+## Silences and acknowledgements
+
+Two ways to stop notifications for something you already know about, without touching rules:
+
+**Silences** (admin only) hold back every event their matchers select during a time window, for planned maintenance or a known noisy source. Create them under **Governance → Silences** with a reason, a start (default now) and a duration (1 h, 4 h, 24 h or custom). A silence has up to four matchers and every one that is set must match:
+
+| Matcher | Matches |
+| --- | --- |
+| Connection | Events of that connection |
+| Alert type | An event type or a prefix wildcard, as in rules (`health.*`, `sql.alert`, `schedule.failed`) |
+| Specific alert | One SQL alert (its id) or one health check (`health:<check>`, e.g. `health:disk`) |
+| Node | Health check events of one node |
+
+A silence needs at least one matcher. A held-back event gets the status **silenced** in the event history and creates no deliveries. The `[RESOLVED]` event of an incident whose firing was silenced is held back too, so nobody gets a resolve for a page they never saw. When a silence ends (its window runs out, or an admin uses **Expire early**), every incident it held back that is still firing has its latest held-back event delivered once. A silence only acts on events that are still new, never on ones already sent. Deleting a connection deletes its silences.
+
+**Acknowledgements** (admin and analyst) mute the rest of one incident. Firing rows in **Health checks** and **SQL alerts** have an **Acknowledge** action with an optional comment and expiry. Later firing and de-escalation events of that incident get the status **acknowledged** and are not delivered. The ack ends when the incident resolves (the `[RESOLVED]` event is still delivered), when it escalates above the acknowledged severity (that escalation is delivered), when it expires, or when someone removes it. Alerts that never resolve, like `schedule.failed`, get a 24 hour expiry unless you set one.
+
+Events carry `alert_key` (the alert: one check on one node, or one SQL alert) and `incident_id` (when the incident started) in their payload; acknowledgements are keyed on both. Silences and acks are stored and evaluated by the dispatcher, so without a Pro license nothing is held back or released until the license is back; their state is kept.
+
+Audit actions: `alerts.silence.created`, `.updated`, `.expired`, `alerts.incident.acknowledged`, `alerts.incident.unacknowledged`.
+
 ## Events history
 
-**Governance → Alerts → Events** shows the raw event stream: every alert-worthy thing that happened, whether or not a rule matched it. Each event records its type, severity, title, message, JSON payload, fingerprint, and processing status.
+**Governance → Alerts → Events** shows the raw event stream: every alert-worthy thing that happened, whether or not a rule matched it. Each event records its type, severity, title, message, JSON payload, fingerprint, and processing status (`new`, `processed`, `silenced` or `acknowledged`, with what held it back).
 
 `GET /api/governance/alerts/events` supports `limit` (default 100), `event_type`, and `status` filters. If an email never arrived, check here first: an event with no matching rule means a routing gap, no event at all means the trigger never fired.
 
 ## Health checks
 
-Six checks run on every [Cluster Health](/docs/cluster-health) poll, per connection and per node, using the numbers the poll already collected. They need Cluster Health background collection to be on for the connection; there are no extra queries in steady state. Open **Governance → Health checks** to see each check, its thresholds and which nodes are pending or firing.
+Six checks run on every [Cluster Health](/docs/cluster-health) poll, per connection and per node, using the numbers the poll already collected. They need Cluster Health background collection to be on for the connection; there are no extra queries in steady state. A seventh, **Connection unreachable**, watches the connection itself and also runs with collection off. Open **Governance → Health checks** to see each check, its thresholds and which nodes are pending or firing.
 
 | Check | Event type | Value per node | Default warn | Default critical |
 | --- | --- | --- | --- | --- |
@@ -155,6 +177,9 @@ Six checks run on every [Cluster Health](/docs/cluster-health) poll, per connect
 | Parts pressure | `health.parts` | most active parts in one partition, as a percent of `parts_to_throw_insert` | 50% | 80% |
 | Stuck mutation | `health.mutation_stuck` | age of the oldest unfinished mutation, seconds | 1800 s | 7200 s |
 | Node unreachable | `health.node_unreachable` | node defined in `system.clusters` that did not answer the fan-out | none | down |
+| Connection unreachable | `health.connection_unreachable` | the connection as a whole (shown as node **Connection**) | none | down |
+
+**Connection unreachable** is checked on each poll interval of the connection. A breach is the tunnel being offline, or a poll that returned no samples followed by a failed `SELECT 1` (10 second timeout). Samples coming back, or `SELECT 1` answering, is OK. With Cluster Health collection off the harvester only runs `SELECT 1`. Without a background account or session to run it with, the state is frozen and the reason is recorded in the evaluation history. Defaults: fire after 3 breaches, resolve after 2 OKs. Offline tunnels are not counted for 2 minutes after CH-UI starts, while agents reconnect. While the connection is down the node-level checks keep their state.
 
 A value breaches a level when it is above that threshold. Disk usage can also have a free-space floor: when the emptiest disk on a node has fewer free bytes than the floor, the check is critical whatever the percentage.
 
@@ -164,11 +189,11 @@ What does not count:
 
 - A metric that could not be collected on a node (a missing grant, a failed query) is **unknown**. It neither breaches nor recovers; the state stays where it was.
 - A node is only **down** after a real cluster fan-out. When the fan-out fails and Cluster Health falls back to the local node, the other nodes are unknown and keep their state.
-- While a connection's tunnel is offline nothing is evaluated, so nothing resolves falsely.
+- While a connection's tunnel is offline the node-level checks are not evaluated, so nothing resolves falsely; only Connection unreachable counts it.
 
-When a check starts firing, CH-UI runs one bounded drill-down query (top 5 rows of the replication, mutations, parts or disks view) and puts the top offenders in the event payload. Fingerprints are `health:<connection>:<check>:<node>:<severity>` for firing and `...:resolved` for the resolve, so the rule cooldown dedupes repeats without swallowing an escalation. One poll raises at most 20 events per connection; anything above that becomes one `health.summary` event.
+When a check starts firing, CH-UI runs one bounded drill-down query (top 5 rows of the replication, mutations, parts or disks view) and puts the top offenders in the event payload. Fingerprints are `health:<connection>:<check>:<node>:<severity>:<incident>` for firing and `...:resolved:<incident>` for the resolve, so the rule cooldown dedupes repeats without swallowing an escalation. One poll raises at most 20 events per connection; anything above that becomes one `health.summary` event.
 
-Admins edit thresholds per connection: enabled, warn, critical, the disk free-space floor, and the for / resolve evaluation counts (1 to 20). Read-only replicas and node unreachable have no warn level.
+Admins edit thresholds per connection: enabled, warn, critical, the disk free-space floor, and the for / resolve evaluation counts (1 to 20). Read-only replicas, node unreachable and connection unreachable have no warn level.
 
 ## SQL alerts
 
@@ -205,6 +230,12 @@ Health checks and SQL alerts keep an evaluation history: a row on every state ch
 | `GET` / `POST /api/governance/alerts/rules` | List / create rules (rules come back with their channel bindings) |
 | `PUT` / `DELETE /api/governance/alerts/rules/{id}` | Update / delete a rule |
 | `GET /api/governance/alerts/events` | Event history |
+| `GET` / `POST /api/governance/alerts/silences` | List / create silences (`POST` is admin only) |
+| `PUT /api/governance/alerts/silences/{id}` | Update a silence that has not ended (admin) |
+| `POST /api/governance/alerts/silences/{id}/expire` | End a silence now (admin) |
+| `GET /api/governance/alerts/firing` | Open health check and SQL alert incidents with their acknowledgement |
+| `POST /api/governance/alerts/acks` | Acknowledge the incident of an event: `{event_id, comment, expires_in}` (seconds; admin and analyst) |
+| `DELETE /api/governance/alerts/acks/{id}` | Remove an acknowledgement (admin and analyst) |
 | `GET` / `PUT /api/alerting/health/settings` | Health check thresholds of the session connection (`PUT` is admin only) |
 | `GET /api/alerting/health/state` | Pending and firing health check nodes |
 | `GET` / `POST /api/alerting/sql` | List / create SQL alerts (the list includes the `sql_alert` worker mode) |

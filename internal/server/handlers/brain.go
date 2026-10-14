@@ -71,6 +71,8 @@ func (h *BrainHandler) Routes(r chi.Router) {
 	r.Get("/models", h.ListModels)
 	r.Post("/generate-sql", h.GenerateSQL) // Pro: text-to-SQL grounded in live schema
 	r.Post("/generate-sql/stream", h.GenerateSQLStream)
+	r.Post("/fix-sql", h.FixSQL) // Pro: minimal fix for a query ClickHouse rejected
+	r.Post("/fix-sql/stream", h.FixSQLStream)
 	r.Get("/skills", h.GetSkill)
 	r.Get("/chats", h.ListChats)
 	r.Post("/chats", h.CreateChat)
@@ -761,6 +763,7 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		usage:              &braincore.ChatResult{},
 		usageSaved:         new(bool),
 		prices:             settings.Prices,
+		budget:             settings.DailyTokenBudget,
 	}
 	// Record what the turn used however it ends: done, error or stopped.
 	defer h.saveTurnUsage(&turn)
@@ -794,12 +797,14 @@ type brainTurn struct {
 	// usage sums the token counts of every provider call in the turn.
 	usage  *braincore.ChatResult
 	prices braincore.PriceTable
+	// budget is the person's daily token budget (0 means none).
+	budget int
 	// usageSaved is shared by every copy of the turn so usage is stored once.
 	usageSaved *bool
 }
 
 func (h *BrainHandler) streamMessageCommunity(r *http.Request, stream *sseStream, t brainTurn) {
-	systemPrompt := h.buildSystemPrompt(t.contexts, t.entities, false, true) + historyOmittedNote(t.omitted)
+	systemPrompt := h.buildSystemPrompt(t.contexts, t.entities, listViewer(t.session, false), false, true) + historyOmittedNote(t.omitted)
 	providerMessages := append([]braincore.Message{{Role: "system", Content: systemPrompt}}, toMessages(t.history)...)
 
 	var built strings.Builder
@@ -857,24 +862,10 @@ func (h *BrainHandler) finishTurn(r *http.Request, stream *sseStream, t brainTur
 		slog.Warn("Failed to update chat activity", "error", err)
 	}
 
-	chat := t.chat
-	title := chat.Title
-	if title == "New Chat" || strings.TrimSpace(title) == "" {
-		title = autoTitle(t.prompt)
-	}
-	streamCtxDB := ""
-	if chat.ContextDatabase != nil {
-		streamCtxDB = *chat.ContextDatabase
-	}
-	streamCtxTable := ""
-	if chat.ContextTable != nil {
-		streamCtxTable = *chat.ContextTable
-	}
-	streamCtxTables := ""
-	if chat.ContextTables != nil {
-		streamCtxTables = *chat.ContextTables
-	}
-	if err := h.DB.UpdateBrainChat(t.chatID, title, t.runtimeModel.ProviderID, t.runtimeModel.ModelID, chat.Archived, streamCtxDB, streamCtxTable, streamCtxTables); err != nil {
+	// Only the model and a first title belong to the turn. A rename,
+	// archive or context change made while it ran must survive, so the
+	// chat is not written back from the copy loaded at the start.
+	if err := h.DB.SetBrainChatTurnModel(t.chatID, t.runtimeModel.ProviderID, t.runtimeModel.ModelID, autoTitle(t.prompt)); err != nil {
 		slog.Warn("Failed to update chat title/model", "error", err)
 	}
 
@@ -952,7 +943,7 @@ func (h *BrainHandler) resolveRuntimeModel(chat *database.BrainChat, requestedMo
 	return rt, nil
 }
 
-func (h *BrainHandler) buildSystemPrompt(contexts []schemaContext, entities []entityContext, pro, canWrite bool) string {
+func (h *BrainHandler) buildSystemPrompt(contexts []schemaContext, entities []entityContext, viewer database.SavedQueryViewer, pro, canWrite bool) string {
 	skillPrompt := ""
 	skill, err := h.DB.GetActiveBrainSkill()
 	if err == nil && skill != nil {
@@ -970,12 +961,15 @@ func (h *BrainHandler) buildSystemPrompt(contexts []schemaContext, entities []en
 		prompt += buildMultiSchemaPrompt(contexts)
 	}
 	if len(entities) > 0 {
-		prompt += h.buildEntityContextPrompt(entities)
+		prompt += h.buildEntityContextPrompt(entities, viewer)
 	}
 	return prompt
 }
 
-func (h *BrainHandler) buildEntityContextPrompt(entities []entityContext) string {
+// buildEntityContextPrompt describes the entities attached to a chat. Saved
+// queries the person cannot see read as not found, so a private query never
+// reaches the model through a crafted entity id.
+func (h *BrainHandler) buildEntityContextPrompt(entities []entityContext, viewer database.SavedQueryViewer) string {
 	var sb strings.Builder
 	sb.WriteString("\n\nWorkspace entity context:\n")
 	for _, e := range entities {
@@ -1003,7 +997,7 @@ func (h *BrainHandler) buildEntityContextPrompt(entities []entityContext) string
 				}
 			}
 		case "saved_query":
-			sq, err := h.DB.GetSavedQueryByID(e.ID)
+			sq, err := h.DB.GetSavedQueryVisibleTo(e.ID, viewer)
 			if err != nil || sq == nil {
 				sb.WriteString(fmt.Sprintf("- Saved Query '%s' (id=%s): not found\n", e.Name, e.ID))
 				continue

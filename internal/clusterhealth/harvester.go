@@ -45,6 +45,10 @@ type Harvester struct {
 	// lastHistory remembers when each health check node last wrote an
 	// evaluation row, for the hourly steady-state sample.
 	lastHistory map[string]time.Time
+	// startedAt starts the grace window in which an offline tunnel is not
+	// counted against the connection check: agents reconnect after a
+	// restart.
+	startedAt time.Time
 }
 
 // NewHarvester creates a cluster-health Harvester. pro reports whether Pro
@@ -52,12 +56,13 @@ type Harvester struct {
 // ticks poll and prune nothing, and polling resumes once a license is active.
 func NewHarvester(store *Store, db *database.DB, gw *tunnel.Gateway, secret string, pro func() bool) *Harvester {
 	return &Harvester{
-		store:    store,
-		db:       db,
-		gateway:  gw,
-		secret:   secret,
-		pro:      pro,
-		lastPoll: make(map[string]time.Time),
+		store:     store,
+		db:        db,
+		gateway:   gw,
+		secret:    secret,
+		pro:       pro,
+		lastPoll:  make(map[string]time.Time),
+		startedAt: time.Now(),
 	}
 }
 
@@ -130,16 +135,26 @@ func (h *Harvester) tick() {
 			slog.Warn("Cluster health: failed to load settings", "connection", conn.ID, "error", err)
 			continue
 		}
-		if !settings.Enabled {
-			continue
-		}
-		if !h.gateway.IsTunnelOnline(conn.ID) {
-			continue
-		}
 		if !h.due(conn.ID, settings.PollIntervalSeconds, now) {
 			continue
 		}
-		h.pollConnection(conn.ID, settings, now)
+		// The connection check runs even with sampling off.
+		probe := h.connectionCheckEnabled(conn.ID)
+		if !settings.Enabled && !probe {
+			continue
+		}
+		if !h.gateway.IsTunnelOnline(conn.ID) {
+			if probe && now.Sub(h.startedAt) >= reachabilityGrace {
+				h.markPolled(conn.ID, now)
+				h.evaluateReachability(conn.ID, reachability{breach: true, detail: "tunnel offline"}, now)
+			}
+			continue
+		}
+		if settings.Enabled {
+			h.pollConnection(conn.ID, settings, now)
+		} else {
+			h.probeOnly(conn.ID, now)
+		}
 	}
 
 	if now.Sub(h.lastPrune) >= pruneInterval {
@@ -168,15 +183,20 @@ func (h *Harvester) markPolled(connID string, now time.Time) {
 }
 
 func (h *Harvester) pollConnection(connID string, settings Settings, now time.Time) {
+	probe := h.connectionCheckEnabled(connID)
 	creds, err := h.findCredentials(connID)
 	if err != nil {
 		slog.Debug("Cluster health: no credentials for connection", "connection", connID, "error", err)
+		if probe {
+			h.markPolled(connID, now)
+			h.evaluateReachability(connID, reachability{unknown: true, detail: "no credentials: " + err.Error()}, now)
+		}
 		return
 	}
 	h.markPolled(connID, now)
 
 	exec := ExecFunc(func(sql string) ([]map[string]interface{}, error) { return h.executeQuery(creds, sql) })
-	cluster := h.resolveCluster(exec)
+	cluster, clusterKnown := h.resolveCluster(exec)
 	capturedAt := now.UTC().Format(time.RFC3339)
 
 	col, err := CollectSamples(exec, cluster, settings.LongQueryThresholdSecs, capturedAt)
@@ -185,33 +205,50 @@ func (h *Harvester) pollConnection(connID string, settings Settings, now time.Ti
 		// nodes are not stored: their state is unknown, not down.
 		if c2, err2 := CollectSamples(exec, "", settings.LongQueryThresholdSecs, capturedAt); err2 == nil {
 			col, cluster = c2, ""
+			col.Complete = false
 		}
 	}
+	// Without knowing whether there is a cluster, a local-only collection
+	// says nothing about the other nodes.
+	membersKnown := clusterKnown && col.Complete
 	samples := col.Samples
 	if len(col.Errors) > 0 {
 		slog.Debug("Cluster health: some metrics failed", "connection", connID, "errors", col.Errors)
 	}
 	if len(samples) == 0 {
+		// Nothing came back: whether the connection answers at all decides
+		// the connection check.
+		if probe {
+			h.evaluateReachability(connID, h.selectOne(creds), now)
+		}
 		return
+	}
+	if probe {
+		h.evaluateReachability(connID, reachability{}, now)
 	}
 	if err := h.store.InsertSamples(connID, cluster, samples); err != nil {
 		slog.Warn("Cluster health: failed to store samples", "connection", connID, "error", err)
 	} else {
 		slog.Debug("Cluster health sampled", "connection", connID, "cluster", cluster, "nodes", len(samples))
 	}
-	h.evaluateHealthAlerts(connID, cluster, samples, exec, now)
+	h.evaluateHealthAlerts(connID, cluster, samples, membersKnown, exec, now)
 }
 
-func (h *Harvester) resolveCluster(exec ExecFunc) string {
+// resolveCluster returns the cluster the connection belongs to, "" for a
+// single node. ok is false when the lookup failed.
+func (h *Harvester) resolveCluster(exec ExecFunc) (name string, ok bool) {
 	rows, err := exec(ResolveClusterQuery)
-	if err != nil || len(rows) == 0 {
-		return ""
+	if err != nil {
+		return "", false
 	}
-	name, _ := rows[0]["cluster"].(string)
+	if len(rows) == 0 {
+		return "", true
+	}
+	name, _ = rows[0]["cluster"].(string)
 	if IsValidClusterName(name) {
-		return name
+		return name, true
 	}
-	return ""
+	return "", true
 }
 
 // pruneRetention deletes samples older than each connection's retention window.

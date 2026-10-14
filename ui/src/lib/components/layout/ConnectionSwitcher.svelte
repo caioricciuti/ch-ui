@@ -180,7 +180,7 @@
           Use my current password
         </label>
         {#if useCurrent}
-          <p class="text-xs text-fg-3">Signs in to {selected.connection.name} as {session?.user}.</p>
+          <p class="text-xs text-fg-3">Signs in to {selected.connection.name} as {session?.user}. A different ClickHouse server asks for its own password.</p>
         {:else}
           <FormField label="ClickHouse username" for="switch-user">
             <Input id="switch-user" size="sm" bind:value={username} autocomplete="username" required disabled={busy} />

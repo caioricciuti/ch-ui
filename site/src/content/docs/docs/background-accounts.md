@@ -3,7 +3,7 @@ title: Background Accounts
 description: Choose which ClickHouse account each unattended job uses, per connection
 ---
 
-Background accounts (added in v2.12.0) decide which ClickHouse account CH-UI uses when work runs with nobody in the loop: scheduled queries, model runs, pipeline sinks, governance sync, Cluster Health sampling, telemetry monitors, the performance regression monitor, weekly operations reports and SQL alerts.
+Background accounts (added in v2.12.0) decide which ClickHouse account CH-UI uses when work runs with nobody in the loop: scheduled queries, model runs, pipeline sinks, governance sync, Cluster Health sampling, telemetry monitors, the performance regression monitor, weekly operations reports, SQL alerts and scheduled report delivery.
 
 Before v2.12.0 every one of these borrowed the credentials of whichever person happened to be signed in to the connection. That meant jobs stopped when everyone signed out, and a job ran with the grants of a random human. Background accounts let an administrator give each worker its own ClickHouse user, keep the old behavior on purpose, or turn background execution off.
 
@@ -34,8 +34,9 @@ Each connection has one setting per worker. The modes are:
 | `performance` | Performance regression monitor | SELECT on `system.query_log` |
 | `operations.report` | Weekly operations reports | SELECT on `system.query_log`, `system.parts` and `system.clusters` |
 | `sql_alert` | SQL threshold alerts | SELECT on the tables your SQL alerts read. Every run uses `readonly=1` |
+| `report` | Scheduled report delivery | SELECT on the tables the reported saved queries and dashboard panels read. Every run uses `readonly=1` |
 
-The performance regression monitor, weekly operations reports and SQL alerts refuse `session` mode. They only run unattended with a dedicated account, and the UI does not offer the session option for them. See [Performance](/docs/performance), [Operations Reports](/docs/operations-reports) and [SQL alerts](/docs/alerts#sql-alerts).
+The performance regression monitor, weekly operations reports, SQL alerts and scheduled reports refuse `session` mode. They only run unattended with a dedicated account, and the UI does not offer the session option for them. See [Performance](/docs/performance), [Operations Reports](/docs/operations-reports), [SQL alerts](/docs/alerts#sql-alerts) and [Scheduled reports](/docs/reports).
 
 ## Configure an account
 
@@ -82,15 +83,16 @@ Clicking a run button is not background work, so most manual runs use your own s
 - **SQL alerts**: **Test run** and **Run now** use your own credentials, also when the `sql_alert` worker is disabled or not set up.
 - **Governance**: a manual sync uses your session.
 - **Weekly operations reports**: generating a report on demand uses your session.
+- **Scheduled reports**: the exception. **Send now** and **Preview** run with the `report` account, never your session, so what you preview is exactly what recipients get. Without a dedicated `report` account both fail.
 - **Models**: manual runs use the `model` worker's setting. If the `model` worker is disabled, manual model runs are blocked too.
 
 ## Shared jobs and delegation
 
 :::caution
-CH-UI is a shared workspace. The admin and analyst roles apply to the whole instance, not to one connection. Anyone with those roles who can create or edit a schedule, model, pipeline, telemetry monitor or SQL alert can make it run with the configured background account's grants, including jobs on other connections. Picking a connection is not a tenant boundary. Do not give a background account broader grants than every admin and analyst should be able to use.
+CH-UI is a shared workspace. The admin and analyst roles apply to the whole instance, not to one connection. Anyone with those roles who can create or edit a schedule, model, pipeline, telemetry monitor or SQL alert can make it run with the configured background account's grants, including jobs on other connections. The same holds for scheduled reports, which also send the result to the recipients the author picks. Picking a connection is not a tenant boundary. Do not give a background account broader grants than every admin and analyst should be able to use.
 :::
 
-Viewers cannot create, edit, delete or run schedules, models, pipelines, telemetry monitors or SQL alerts.
+Viewers cannot create, edit, delete or run schedules, models, pipelines, telemetry monitors, SQL alerts or scheduled reports.
 
 ## Audit trail
 

@@ -56,6 +56,28 @@ export async function createDashboard(input: {
   return res.dashboard
 }
 
+/**
+ * Adds a panel to a dashboard. Without layout_y the server places it below
+ * every existing panel.
+ */
+export async function createPanel(
+  dashboardId: string,
+  input: {
+    name: string
+    panel_type: string
+    query: string
+    config: string
+    connection_id?: string
+    layout_x?: number
+    layout_y?: number
+    layout_w?: number
+    layout_h?: number
+  },
+): Promise<Panel> {
+  const res = await apiPost<{ panel: Panel }>(`${BASE}/${dashboardId}/panels`, input)
+  return res.panel
+}
+
 export async function moveDashboard(id: string, folderId: string | null): Promise<void> {
   await apiPut(`${BASE}/${id}/move`, { folder_id: folderId ?? '' })
 }

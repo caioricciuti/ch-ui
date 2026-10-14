@@ -135,6 +135,12 @@ func SendWebhook(ctx context.Context, client *http.Client, cfg map[string]interf
 	if err != nil {
 		return "", err
 	}
+	return postWebhook(ctx, client, cfg, body)
+}
+
+// postWebhook POSTs an encoded body to the channel URL with the configured
+// secret header and signature.
+func postWebhook(ctx context.Context, client *http.Client, cfg map[string]interface{}, body []byte) (string, error) {
 	if client == nil {
 		client = webhookClient(cfgBool(cfg, WebhookCfgAllowPrivate))
 	}

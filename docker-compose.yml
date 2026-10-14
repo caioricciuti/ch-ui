@@ -3,6 +3,10 @@
 #   docker compose up -d
 #   open http://localhost:3488
 #
+# Sign in as ClickHouse user "admin" with password "change-me-admin-password"
+# (or whatever you set in CLICKHOUSE_ADMIN_USER / CLICKHOUSE_ADMIN_PASSWORD).
+# The first ClickHouse admin to sign in becomes the CH-UI admin.
+#
 # In production, set APP_SECRET_KEY to a strong random value (it encrypts stored
 # credentials) and terminate TLS at a proxy or via tls_cert_file/tls_key_file.
 services:
@@ -14,7 +18,7 @@ services:
       # Bound to localhost. Publish on all interfaces only behind TLS.
       - "127.0.0.1:3488:3488"
     environment:
-      # CHANGE THIS in production — encrypts API keys and session credentials.
+      # CHANGE THIS in production. It encrypts API keys and session credentials.
       APP_SECRET_KEY: ${APP_SECRET_KEY:-please-change-me-to-a-random-secret}
       CLICKHOUSE_URL: http://clickhouse:8123
       CONNECTION_NAME: Local ClickHouse
@@ -34,6 +38,13 @@ services:
     ports:
       - "127.0.0.1:8123:8123"
       - "127.0.0.1:9000:9000"
+    environment:
+      # The ClickHouse user you sign in to CH-UI with. Change the password
+      # before exposing this anywhere. Access management lets this user read
+      # system.users, so CH-UI recognizes it as an admin.
+      CLICKHOUSE_USER: ${CLICKHOUSE_ADMIN_USER:-admin}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD:-change-me-admin-password}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     ulimits:
       nofile:
         soft: 262144

@@ -14,8 +14,9 @@
   import Spinner from '../common/Spinner.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
 
-  // The Brain token ledger: chat turns and Ask AI requests summed per
-  // person and model for a period, with estimated cost where priced.
+  // The Brain token ledger: chat turns, Ask AI and Fix with AI requests and
+  // their SQL repairs, summed per person and model for a period, with
+  // estimated cost where priced.
 
   let days = $state('30')
   let loading = $state(false)
@@ -50,6 +51,7 @@
     { key: 'username', label: 'User', truncate: true },
     { key: 'model', label: 'Model', mono: true, truncate: true },
     { key: 'requests', label: 'Requests', align: 'right', width: '90px' },
+    { key: 'repairs', label: 'Repairs', align: 'right', width: '80px' },
     { key: 'input_tokens', label: 'Input', align: 'right', width: '80px', format: tokens },
     { key: 'output_tokens', label: 'Output', align: 'right', width: '80px', format: tokens },
     { key: 'cache_read_tokens', label: 'Cache read', align: 'right', width: '96px', format: tokens },
@@ -99,7 +101,7 @@
         {#if col.key === 'cost_usd' && row.cost_usd === null}
           <Badge>No price</Badge>
         {:else if col.key === 'requests'}
-          <span title={`${row.chat_turns} chat turn(s), ${row.ask_ai} Ask AI`}>{value}</span>
+          <span title={`${row.chat_turns} chat turn(s), ${row.ask_ai} Ask AI or Fix with AI, ${row.repairs} SQL repair(s)`}>{value}</span>
         {:else}
           {value}
         {/if}

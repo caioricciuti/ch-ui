@@ -112,25 +112,153 @@ export function isCategoricalColumn(meta: ColumnMeta[], column: string | undefin
   return !isDateType(xMeta.type) && !isNumericType(xMeta.type)
 }
 
+/** Default x for a saved panel without axes: the first date column, else the first column. */
+function defaultXColumn(meta: ColumnMeta[]): string | undefined {
+  return (meta.find(m => isDateType(m.type)) ?? meta[0])?.name
+}
+
+/** Default y: the numeric columns other than x (and the series column), at most 8. */
+function defaultYColumns(meta: ColumnMeta[], xColumn: string | undefined, exclude?: string): string[] {
+  return meta
+    .filter(m => m.name !== xColumn && m.name !== exclude && isNumericType(m.type))
+    .slice(0, 8)
+    .map(m => m.name)
+}
+
 /**
  * The x and y columns a chart plots. Saved columns are used when the result
  * still has them; otherwise x falls back to the first date column (else the
- * first column) and y to the numeric columns, as the panel editor picks them.
- * A panel saved without axes (from the API or an import) still draws.
+ * first column) and y to the numeric columns. Saved panels without axes
+ * (from the API or an import) keep drawing the way they always have; the
+ * text-column pick for new charts lives in suggestChart only.
  */
 export function resolveChartColumns(
   meta: ColumnMeta[],
-  config: Pick<PanelConfig, 'xColumn' | 'yColumns'>,
+  config: Pick<PanelConfig, 'xColumn' | 'yColumns' | 'seriesColumn'>,
 ): { xColumn: string | undefined; yColumns: string[] } {
   const names = new Set(meta.map(m => m.name))
   const xColumn = config.xColumn && names.has(config.xColumn)
     ? config.xColumn
-    : (meta.find(m => isDateType(m.type)) ?? meta[0])?.name
-  let yColumns = (config.yColumns ?? []).filter(c => names.has(c) && c !== xColumn)
-  if (yColumns.length === 0) {
-    yColumns = meta.filter(m => m.name !== xColumn && isNumericType(m.type)).slice(0, 8).map(m => m.name)
-  }
+    : defaultXColumn(meta)
+  const series = config.seriesColumn
+  let yColumns = [...new Set(config.yColumns ?? [])].filter(c => names.has(c) && c !== xColumn && c !== series)
+  if (yColumns.length === 0) yColumns = defaultYColumns(meta, xColumn, series)
   return { xColumn, yColumns }
+}
+
+/**
+ * The chart a result most likely wants:
+ * - one row with a single numeric column: a stat
+ * - a date column and numeric columns: a time series
+ * - a text column and numeric columns: a bar chart
+ * - several numeric columns only: a bar chart over the first one
+ * - anything else (no numeric column): a table
+ * Pie is never suggested; it is a choice, not a default.
+ */
+export function suggestChart(meta: ColumnMeta[], rowCount: number): PanelConfig {
+  const numeric = meta.filter(m => isNumericType(m.type))
+  if (numeric.length === 0) return { chartType: 'table' }
+  if (rowCount === 1 && numeric.length === 1) {
+    return { chartType: 'stat', statField: numeric[0].name }
+  }
+  const date = meta.find(m => isDateType(m.type))
+  if (date) {
+    const yColumns = defaultYColumns(meta, date.name)
+    if (yColumns.length > 0) return { chartType: 'timeseries', xColumn: date.name, yColumns }
+  }
+  const text = meta.find(m => !isNumericType(m.type) && !isDateType(m.type))
+  if (text) return { chartType: 'bar', xColumn: text.name, yColumns: defaultYColumns(meta, text.name) }
+  if (numeric.length >= 2) {
+    return { chartType: 'bar', xColumn: numeric[0].name, yColumns: defaultYColumns(meta, numeric[0].name) }
+  }
+  return { chartType: 'table' }
+}
+
+export interface PivotResult {
+  /** One row per distinct x value, in first-seen order. */
+  rows: Record<string, unknown>[]
+  /** The x column, then one Float64 column per series value. */
+  meta: ColumnMeta[]
+  /** The series columns, to plot as y. */
+  yColumns: string[]
+  /** Series values left out because there were more than the cap. */
+  dropped: number
+}
+
+function seriesLabel(raw: unknown): string {
+  if (raw == null || raw === '') return 'NULL'
+  return typeof raw === 'object' ? JSON.stringify(raw) : String(raw)
+}
+
+/**
+ * Turns long rows (x, series, y) into wide rows (x, one column per series
+ * value) so each series value becomes its own line or bar. The `max` series
+ * with the largest total |y| are kept; the rest are dropped and counted.
+ * An (x, series) pair that does not occur is null, a gap, never zero. Rows
+ * that repeat an (x, series) pair are summed. Numeric x values group by
+ * number, so "1" and 1 are the same point.
+ */
+export function pivotSeries(
+  rows: Record<string, unknown>[],
+  meta: ColumnMeta[],
+  x: string,
+  y: string,
+  series: string,
+  max = 10,
+): PivotResult {
+  const xMeta = meta.find(m => m.name === x)
+  const numericX = xMeta ? isNumericType(xMeta.type) : false
+  const keyOf = (raw: unknown): string => {
+    if (numericX) {
+      const n = toPlotNumber(raw)
+      if (n != null) return 'n:' + n
+    }
+    return 's:' + seriesLabel(raw)
+  }
+
+  const totals = new Map<string, number>()
+  const order: string[] = []
+  const points = new Map<string, { x: unknown; values: Map<string, number | null> }>()
+  for (const row of rows) {
+    const label = seriesLabel(row[series])
+    const value = toPlotNumber(row[y])
+    if (!totals.has(label)) {
+      totals.set(label, 0)
+      order.push(label)
+    }
+    if (value != null) totals.set(label, (totals.get(label) ?? 0) + Math.abs(value))
+    const key = keyOf(row[x])
+    let point = points.get(key)
+    if (!point) {
+      point = { x: row[x], values: new Map() }
+      points.set(key, point)
+    }
+    const prev = point.values.get(label)
+    point.values.set(label, value == null ? (prev ?? null) : (prev ?? 0) + value)
+  }
+
+  const kept = [...order]
+    .sort((a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0) || order.indexOf(a) - order.indexOf(b))
+    .slice(0, Math.max(0, max))
+  // Keep first-seen order on screen, so colors do not shuffle with the totals.
+  const keptSet = new Set(kept)
+  const labels = order.filter(l => keptSet.has(l))
+  const columnFor = new Map(labels.map(l => [l, l === x ? `${l} (series)` : l]))
+  const yColumns = labels.map(l => columnFor.get(l) ?? l)
+
+  const out: Record<string, unknown>[] = []
+  for (const point of points.values()) {
+    const row: Record<string, unknown> = { [x]: point.x }
+    for (const l of labels) row[columnFor.get(l) ?? l] = point.values.get(l) ?? null
+    out.push(row)
+  }
+
+  return {
+    rows: out,
+    meta: [xMeta ?? { name: x, type: 'String' }, ...yColumns.map(name => ({ name, type: 'Float64' }))],
+    yColumns,
+    dropped: order.length - labels.length,
+  }
 }
 
 /**

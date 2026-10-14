@@ -261,6 +261,9 @@ and the server's instructions tell the model to prefer verified queries over
 writing new SQL for the same question. Verification is a review mark, not a
 permission: unverified saved queries still run.
 
+A key only sees shared saved queries and the ones it saved itself; private and
+admin-only queries never reach an MCP client.
+
 Write tools create **drafts** tagged `mcp:<key name>`. Models and pipelines
 never run from MCP; you review them and press play in the UI. Every create is
 audit-logged.

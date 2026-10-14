@@ -24,19 +24,16 @@
   import Tooltip from '../lib/components/common/Tooltip.svelte'
   import PanelEditor from '../lib/components/dashboard/PanelEditor.svelte'
   import DashboardGrid, { type PanelResult } from '../lib/components/dashboard/DashboardGrid.svelte'
-  import VirtualTable from '../lib/components/table/VirtualTable.svelte'
   import type { ColumnMeta } from '../lib/types/query'
-  import StatPanel from '../lib/components/dashboard/StatPanel.svelte'
-  import ChartPanel from '../lib/components/dashboard/ChartPanel.svelte'
-  import MarkdownPanel from '../lib/components/dashboard/MarkdownPanel.svelte'
-  import GaugePanel from '../lib/components/dashboard/GaugePanel.svelte'
-  import PiePanel from '../lib/components/dashboard/PiePanel.svelte'
-  import { computeStat } from '../lib/utils/chart-transform'
+  import PanelRenderer from '../lib/components/dashboard/PanelRenderer.svelte'
   import TimeRangeSelector from '../lib/components/dashboard/TimeRangeSelector.svelte'
   import ShareDialog from '../lib/components/dashboard/ShareDialog.svelte'
   import DashboardSettings from '../lib/components/dashboard/DashboardSettings.svelte'
   import VariableBar from '../lib/components/dashboard/VariableBar.svelte'
-  import { Plus, RefreshCw, Share2, ChevronDown, ChevronRight, Star, Timer, Settings, Info, X, Pencil } from 'lucide-svelte'
+  import ReportEditor from '../lib/components/reports/ReportEditor.svelte'
+  import { fetchReports, type ReportChannel, type ReportInput, type ReportWorkerMode } from '../lib/api/reports'
+  import { isProActive } from '../lib/stores/license.svelte'
+  import { Plus, RefreshCw, Share2, ChevronDown, ChevronRight, Star, Timer, Settings, Info, X, Pencil, Mail } from 'lucide-svelte'
 
   interface Props {
     dashboardId?: string
@@ -126,6 +123,41 @@
 
   // Dashboard settings
   let settingsOpen = $state(false)
+
+  // Subscribe: a scheduled report of this dashboard (Pro), prefilled with
+  // the current range and variable values.
+  let subscribeOpen = $state(false)
+  let subscribePrefill = $state<Partial<ReportInput> | null>(null)
+  let subscribeChannels = $state<ReportChannel[]>([])
+  let subscribeModes = $state<Record<string, ReportWorkerMode>>({})
+  let subscribeDomains = $state<string[]>([])
+  let subscribeLoading = $state(false)
+  const canSubscribe = $derived(canWrite && isProActive())
+
+  async function openSubscribe() {
+    if (!currentDashboard || subscribeLoading) return
+    subscribeLoading = true
+    try {
+      const res = await fetchReports()
+      subscribeChannels = res.channels
+      subscribeModes = res.worker_modes
+      subscribeDomains = res.recipient_domains
+      const range = /^[1-9][0-9]{0,3}[mhdwM]$/.test(dashboardTimeRange) ? dashboardTimeRange : '24h'
+      subscribePrefill = {
+        name: currentDashboard.name,
+        source_type: 'dashboard',
+        dashboard_id: currentDashboard.id,
+        connection_id: session?.connectionId ?? '',
+        time_range: range,
+        variables: { ...variableValues },
+      }
+      subscribeOpen = true
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+    } finally {
+      subscribeLoading = false
+    }
+  }
 
   // Fullscreen panel view
   let fullscreenPanel = $state<Panel | null>(null)
@@ -497,11 +529,6 @@
     return () => document.removeEventListener('keydown', handler)
   })
 
-  /** VirtualTable takes positional rows; panel results are keyed by column name. */
-  function toRows(res: PanelResult): unknown[][] {
-    return res.data.map((row) => res.meta.map((col) => row[col.name]))
-  }
-
   function parsePanelConfig(configStr: string): import('../lib/types/api').PanelConfig {
     try {
       return JSON.parse(configStr || '{}')
@@ -575,6 +602,11 @@
             </Button>
             <Button size="sm" variant="outline" onclick={() => shareDialogOpen = true}>
               <Share2 size={14} /> Share
+            </Button>
+          {/if}
+          {#if canSubscribe}
+            <Button size="sm" variant="outline" loading={subscribeLoading} onclick={() => void openSubscribe()} title="Send a summary of this dashboard on a schedule">
+              <Mail size={14} /> Subscribe
             </Button>
           {/if}
           <!-- Refresh with auto-refresh picker -->
@@ -698,6 +730,17 @@
   oncancel={() => confirmOpen = false}
 />
 
+<ReportEditor
+  open={subscribeOpen}
+  report={null}
+  prefill={subscribePrefill}
+  channels={subscribeChannels}
+  workerModes={subscribeModes}
+  recipientDomains={subscribeDomains}
+  onclose={() => (subscribeOpen = false)}
+  onsaved={() => (subscribeOpen = false)}
+/>
+
 {#if currentDashboard}
   <ShareDialog
     open={shareDialogOpen}
@@ -727,6 +770,7 @@
 {#if fullscreenPanel}
   {@const fsResult = panelResults.get(fullscreenPanel.id)}
   {@const fsCfg = parsePanelConfig(fullscreenPanel.config)}
+  {@const fsIsTable = !['text', 'stat', 'gauge', 'pie', 'timeseries', 'bar'].includes(fullscreenPanel.panel_type)}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="fixed inset-0 z-[9999] bg-canvas flex flex-col"
@@ -741,28 +785,20 @@
     </div>
     <div class="flex-1 min-h-0 overflow-hidden {fullscreenPanel.panel_type === 'text' ? '' : 'p-4'}">
       {#if fullscreenPanel.panel_type === 'text'}
-        <MarkdownPanel content={fsCfg.content ?? ''} />
+        <PanelRenderer type="text" data={[]} meta={[]} config={fsCfg} />
       {:else if !fsResult || fsResult.loading}
         <div class="flex items-center justify-center h-full"><Spinner /></div>
       {:else if fsResult.error}
         <p class="p-4 text-[13px] text-danger">{fsResult.error}</p>
-      {:else if fullscreenPanel.panel_type === 'stat'}
-        <StatPanel stat={computeStat(fsResult.data, fsResult.meta, fsCfg)} />
-      {:else if fullscreenPanel.panel_type === 'gauge'}
-        <GaugePanel stat={computeStat(fsResult.data, fsResult.meta, fsCfg)} min={fsCfg.gaugeMin} max={fsCfg.gaugeMax} />
-      {:else if fullscreenPanel.panel_type === 'pie'}
-        <PiePanel data={fsResult.data} meta={fsResult.meta} config={fsCfg} />
-      {:else if fullscreenPanel.panel_type === 'timeseries' || fullscreenPanel.panel_type === 'bar'}
-        <ChartPanel data={fsResult.data} meta={fsResult.meta} config={fsCfg} />
+      {:else if fsIsTable && fsResult.meta.length === 0}
+        <p class="p-4 text-[13px] text-fg-3">No data</p>
+      {:else if fsIsTable}
+        <!-- Virtualized: a fullscreen table can hold every row of a large result. -->
+        <div class="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-edge-subtle">
+          <PanelRenderer type={fullscreenPanel.panel_type} data={fsResult.data} meta={fsResult.meta} config={fsCfg} table="virtual" />
+        </div>
       {:else}
-        {#if fsResult.meta.length > 0}
-          <!-- Virtualized: a fullscreen table can hold every row of a large result. -->
-          <div class="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-edge-subtle">
-            <VirtualTable meta={fsResult.meta} data={toRows(fsResult)} />
-          </div>
-        {:else}
-          <p class="p-4 text-[13px] text-fg-3">No data</p>
-        {/if}
+        <PanelRenderer type={fullscreenPanel.panel_type} data={fsResult.data} meta={fsResult.meta} config={fsCfg} />
       {/if}
     </div>
   </div>

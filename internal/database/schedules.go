@@ -15,21 +15,25 @@ import (
 
 // Schedule represents a scheduled query.
 type Schedule struct {
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	SavedQueryID string  `json:"saved_query_id"`
-	ConnectionID *string `json:"connection_id"`
-	Cron         string  `json:"cron"`
-	Timezone     string  `json:"timezone"`
-	Enabled      bool    `json:"enabled"`
-	TimeoutMs    int     `json:"timeout_ms"`
-	LastRunAt    *string `json:"last_run_at"`
-	NextRunAt    *string `json:"next_run_at"`
-	LastStatus   *string `json:"last_status"`
-	LastError    *string `json:"last_error"`
-	CreatedBy    *string `json:"created_by"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	SavedQueryID string `json:"saved_query_id"`
+	// SavedQueryName is filled in by the schedules list so a job keeps a
+	// readable label after its query becomes private; nothing else of the
+	// query is exposed there.
+	SavedQueryName string  `json:"saved_query_name,omitempty"`
+	ConnectionID   *string `json:"connection_id"`
+	Cron           string  `json:"cron"`
+	Timezone       string  `json:"timezone"`
+	Enabled        bool    `json:"enabled"`
+	TimeoutMs      int     `json:"timeout_ms"`
+	LastRunAt      *string `json:"last_run_at"`
+	NextRunAt      *string `json:"next_run_at"`
+	LastStatus     *string `json:"last_status"`
+	LastError      *string `json:"last_error"`
+	CreatedBy      *string `json:"created_by"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
 }
 
 // ScheduleRun represents a single execution of a scheduled query.

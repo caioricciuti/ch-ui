@@ -371,6 +371,7 @@ func (h *GovernanceHandler) CreateAlertRule(w http.ResponseWriter, r *http.Reque
 		SubjectTemplate string                    `json:"subject_template"`
 		BodyTemplate    string                    `json:"body_template"`
 		Channels        []alertRuleChannelPayload `json:"channels"`
+		ConnectionIDs   json.RawMessage           `json:"connection_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -411,6 +412,16 @@ func (h *GovernanceHandler) CreateAlertRule(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	rawConns, _, err := parseRuleConnectionIDs(body.ConnectionIDs)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	connectionIDs, err := h.validateConnectionIDs(rawConns)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	id, err := h.DB.CreateAlertRule(name, eventType, severityMin, enabled, cooldownSeconds, maxAttempts, body.SubjectTemplate, body.BodyTemplate, middleware.Actor(session))
 	if err != nil {
@@ -423,6 +434,12 @@ func (h *GovernanceHandler) CreateAlertRule(w http.ResponseWriter, r *http.Reque
 		_ = h.DB.DeleteAlertRule(id)
 		slog.Error("Failed to create alert rule channels", "rule", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create alert rule channels")
+		return
+	}
+	if err := h.DB.SetAlertRuleConnections(id, connectionIDs); err != nil {
+		_ = h.DB.DeleteAlertRule(id)
+		slog.Error("Failed to store alert rule connections", "rule", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to store alert rule connections")
 		return
 	}
 
@@ -465,6 +482,7 @@ func (h *GovernanceHandler) UpdateAlertRule(w http.ResponseWriter, r *http.Reque
 		SubjectTemplate *string                    `json:"subject_template"`
 		BodyTemplate    *string                    `json:"body_template"`
 		Channels        *[]alertRuleChannelPayload `json:"channels"`
+		ConnectionIDs   json.RawMessage            `json:"connection_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -511,10 +529,31 @@ func (h *GovernanceHandler) UpdateAlertRule(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	rawConns, connsSent, err := parseRuleConnectionIDs(body.ConnectionIDs)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var connectionIDs []string
+	if connsSent {
+		if connectionIDs, err = h.validateConnectionIDs(rawConns); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	if err := h.DB.UpdateAlertRule(id, name, eventType, severityMin, enabled, cooldownSeconds, maxAttempts, subjectTemplate, bodyTemplate); err != nil {
 		slog.Error("Failed to update alert rule", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to update alert rule")
 		return
+	}
+
+	if connsSent {
+		if err := h.DB.SetAlertRuleConnections(id, connectionIDs); err != nil {
+			slog.Error("Failed to store alert rule connections", "rule", id, "error", err)
+			writeError(w, http.StatusInternalServerError, "Failed to update alert rule connections")
+			return
+		}
 	}
 
 	if body.Channels != nil {
@@ -779,7 +818,7 @@ func isSupportedEventType(v string) bool {
 	case "*", "any", alerts.EventTypePolicyViolation, alerts.EventTypeScheduleFailed, alerts.EventTypeScheduleSlow, alerts.EventTypeTelemetryMonitor,
 		alerts.EventTypeHealthReplicationLag, alerts.EventTypeHealthReplicaReadonly, alerts.EventTypeHealthDisk,
 		alerts.EventTypeHealthParts, alerts.EventTypeHealthMutationStuck, alerts.EventTypeHealthNodeUnreachable,
-		alerts.EventTypeHealthSummary, alerts.EventTypeSQLAlert, "health.*", "sql.*":
+		alerts.EventTypeHealthConnectionUnreachable, alerts.EventTypeHealthSummary, alerts.EventTypeSQLAlert, "health.*", "sql.*":
 		return true
 	default:
 		return false

@@ -128,6 +128,20 @@ func applyOp(s *Snapshot, op Op) {
 		}
 		s.RoleGrants = rgs
 		delete(s.RoleProfiles, op.Name)
+		// ClickHouse also drops the role from default roles and TO lists.
+		for i := range s.Users {
+			s.Users[i].DefaultRoles = without(s.Users[i].DefaultRoles, op.Name)
+			s.Users[i].DefaultExcpt = without(s.Users[i].DefaultExcpt, op.Name)
+		}
+		for i := range s.RowPolicies {
+			s.RowPolicies[i].To = assigneesWithout(s.RowPolicies[i].To, op.Name)
+		}
+		for i := range s.Quotas {
+			s.Quotas[i].To = assigneesWithout(s.Quotas[i].To, op.Name)
+		}
+		for i := range s.SettingsProfiles {
+			s.SettingsProfiles[i].To = assigneesWithout(s.SettingsProfiles[i].To, op.Name)
+		}
 	case OpSetRoleProfile:
 		if op.Profile == "" {
 			delete(s.RoleProfiles, op.Name)
@@ -175,7 +189,7 @@ func applyOp(s *Snapshot, op Op) {
 	case OpSetDefaultRoles:
 		if u := s.user(op.Target.Name); u != nil {
 			u.DefaultAll = op.DefaultAll
-			u.DefaultExcpt = []string{}
+			u.DefaultExcpt = append([]string{}, op.DefaultExcept...)
 			u.DefaultRoles = append([]string{}, op.Roles...)
 		}
 	case OpCreateRowPolicy, OpAlterRowPolicy:
@@ -223,6 +237,21 @@ func applyOp(s *Snapshot, op Op) {
 		}
 		s.SettingsProfiles = out
 	}
+}
+
+// without returns a new list with name removed.
+func without(list []string, name string) []string {
+	out := make([]string, 0, len(list))
+	for _, n := range list {
+		if n != name {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func assigneesWithout(a Assignees, name string) Assignees {
+	return Assignees{All: a.All, Names: without(a.Names, name), Except: without(a.Except, name)}
 }
 
 func applyGrant(s *Snapshot, t Target, row GrantRow, grant, grantOptionOnly bool) {
@@ -296,11 +325,7 @@ func renderEntity(s *Snapshot, kind, name string) string {
 		if u == nil {
 			return ""
 		}
-		dr := Op{Kind: OpSetDefaultRoles, Target: &Target{Type: "user", Name: name}, DefaultAll: u.DefaultAll, Roles: u.DefaultRoles}
-		head = Render(dr, "", nil)
-		if u.DefaultAll && len(u.DefaultExcpt) > 0 {
-			head += " EXCEPT " + identList(u.DefaultExcpt)
-		}
+		head = Render(defaultRolesOp(u), "", nil)
 	case KindRowPolicy:
 		for _, p := range s.RowPolicies {
 			if p.FullName == name || policyFullName(p.RowPolicySpec) == name {

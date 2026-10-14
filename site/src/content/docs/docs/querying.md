@@ -159,6 +159,14 @@ Click a cell to focus it, then press **Enter** (or double-click the cell) to ope
 
 The **Export** menu has two parts. **Current rows** copies or downloads the rows loaded in the grid. They come as CSV, TSV, JSON, JSONCompact, JSONLines, Markdown, SQL `INSERT` and XML. CSV and TSV prefix text that starts with `=`, `+`, `-` or `@` with `'` so spreadsheets do not run it as a formula; numbers such as `-5` are left as they are. The SQL `INSERT` export quotes values by column type (a `String` column holding `01234` stays a string) and writes arrays, maps and tuples as ClickHouse literals.
 
+### Chart a result
+
+The **Chart** view in the result footer, after Insights, draws the result with the same charts dashboards use. It picks a type from the columns: one row with a single numeric column is a stat, a date or DateTime column with numeric columns is a time series, and a text column with numeric columns is a bar chart. A result with no numeric column has nothing to chart. The column on the right changes the type, the X column, the Y columns and a **Series** column, which splits the first Y column into one line or bar per value (up to 10). Settings are kept per query tab until the columns change.
+
+The chart follows the sorting and filters of the Data view and draws at most the first 10,000 rows.
+
+**Add to dashboard** saves the statement that produced the result, with the chart settings, as a panel on an existing dashboard or on a new one (pick a name and a folder). Choose the panel name and a half or full width; the panel goes below the existing panels. The panel runs the statement as written, without the editor's filters. Statements with `{name:Type}` bind parameters cannot be added, since dashboards have no bind parameters. Viewers do not see the button.
+
 ### Full result export
 
 **Full result (server)** in the Export menu runs the statement of the active result again on the server and downloads everything it returns, not just the loaded rows. The formats are ClickHouse's own output formats:
@@ -359,41 +367,87 @@ Data is inserted via `JSONEachRow` in **500-row batches** with a 90-second timeo
 
 ## Saved Queries
 
-Save, duplicate, update, and delete SQL snippets for reuse.
+Save SQL for reuse, organize it in folders, decide who can see it, and get back any earlier version.
 
-```bash
-# List
-GET /api/saved-queries
+### Who can see a saved query
 
-# Create
-POST /api/saved-queries
-{ "name": "Daily active users", "query": "SELECT count(DISTINCT user_id) ..." }
+Every saved query has an owner (the person who saved it) and a visibility:
 
-# Update (also used to rename: send just the name)
-PUT /api/saved-queries/{id}
-{ "name": "Updated name", "query": "..." }
+| Visibility | Who can see and run it |
+|---|---|
+| **Everyone** (`shared`, the default) | Every user of the instance |
+| **Only me** (`private`) | The owner |
+| **Admins** (`admins`) | Admins and the owner. Only admins can choose it |
 
-# Duplicate (optionally pass a name for the copy)
-POST /api/saved-queries/{id}/duplicate
-{ "name": "My copy" }   # optional; defaults to "<original> (copy)"
-
-# Delete
-DELETE /api/saved-queries/{id}
-```
-
-Opening a saved query in the editor links the tab to the saved query ID. Changes are tracked via a dirty flag. Rename a saved query from the **Saved Queries** list (right-click → **Rename**) or by sending `name` to the `PUT` endpoint.
+- Only the owner or an admin can edit, move, tag, delete, restore or change the visibility of a query. Viewers can read and run what they can see.
+- The **verified** mark can be changed by the owner or an admin.
+- Queries saved before owners and visibility existed are shared and have no owner. Any admin or analyst can still edit them, as before. Making one private makes you its owner.
+- A query you cannot see answers `404`, in the UI, the API, Brain and the MCP server alike.
+- Admins can pick **All owners** in the toolbar to see everyone's private queries, for example when someone leaves the team.
+- A schedule keeps running a query that became private. The schedules list then shows only its name.
+- **Duplicate** makes a private copy owned by you, in the same folder.
 
 ### The Saved Queries page
 
-**Explore → Saved Queries** lists your library like files in a folder: one search box, an **All / Verified** switch, and a table with sortable **Name** and **Updated** columns (click a header to flip the order). Updated shows relative time, with the full date on hover.
+**Explore → Saved Queries** has four sections in the sidebar: **All**, **Mine** (queries you own), **Shared** (visible to everyone) and **Verified**.
 
-- Click or double-click a row to open the query in the editor.
-- Hover a row for **Open** and a **⋯** menu; right-click opens the same menu.
-- The details sheet shows the SQL, description and dates, with the actions in its footer.
+- The folder tree on the left nests like a file browser. Selecting a folder lists it and everything below it. Folders are shared by everyone; any admin or analyst can create, rename and delete them.
+- Deleting a folder deletes its subfolders too. The queries inside move to the root; none are deleted.
+- The toolbar searches name, description, SQL and tags, and filters by tag.
+- The table shows **Name**, **Folder**, **Owner**, **Visibility** and **Updated**. Click a row to open the query in the editor. Drag a row onto a folder to move it.
+- Right-click a row (or use its menu) for **Open**, **Edit details** (name, description, folder, tags, visibility), **Move**, **Duplicate**, **History**, **Copy SQL** and **Delete**. Actions you are not allowed to take are disabled.
+
+The **Save query** form in the editor also asks for a folder and the visibility.
+
+### Version history
+
+Saving a change to the name, description, SQL, parameters or connection records a new version. Moving, tagging and visibility changes do not. A save that changes nothing records nothing, and each query keeps its latest 50 versions. Queries saved before history existed get their first version, the state before the change, the first time they are edited.
+
+**History** in the row menu lists the versions with who saved them and when, and previews the SQL of the selected one. **Restore** writes that version back and records it as a new version noted "Restored version N", so nothing is lost.
+
+### API
+
+```bash
+# List what you can see; scope=all|mine|shared|verified, folder=<id>|root, owners=all (admins)
+GET /api/saved-queries?scope=mine
+
+# Create (folder_id, tags and visibility are optional; visibility defaults to shared)
+POST /api/saved-queries
+{ "name": "Daily active users", "query": "SELECT count(DISTINCT user_id) ...",
+  "folder_id": "<folder id>", "tags": ["product"], "visibility": "private" }
+
+# Update any subset of the fields (also used to rename, move and re-tag)
+PUT /api/saved-queries/{id}
+{ "name": "Updated name", "folder_id": "", "visibility": "shared" }
+
+# Duplicate as your own private copy (optionally pass a name)
+POST /api/saved-queries/{id}/duplicate
+{ "name": "My copy" }
+
+# Delete
+DELETE /api/saved-queries/{id}
+
+# Folders
+GET    /api/saved-queries/folders
+POST   /api/saved-queries/folders          { "name": "Finance", "parent_id": "" }
+PUT    /api/saved-queries/folders/{id}     { "name": "Billing" }
+DELETE /api/saved-queries/folders/{id}
+
+# History
+GET  /api/saved-queries/{id}/versions
+GET  /api/saved-queries/{id}/versions/{n}
+POST /api/saved-queries/{id}/versions/{n}/restore
+```
+
+Each listed query carries `folder_id`, `tags`, `visibility`, `owner` and `can_edit` (whether you may change it). A sibling folder with the same name answers `409`. Moves, visibility changes and restores are written to the audit log as `saved_query.moved`, `saved_query.visibility_changed` and `saved_query.version_restored`.
+
+Opening a saved query in the editor links the tab to the saved query ID. Changes are tracked via a dirty flag.
 
 ### Verified queries
 
-Mark a saved query as **verified** once someone has checked that the SQL is correct. The flag shows in the list and filters it with the Verified switch. AI clients connected through the [MCP server](/docs/mcp) see it too, and are told to prefer a verified query over writing new SQL for the same question. Verification is a review mark, not a permission: unverified queries still run.
+Mark a saved query as **verified** once someone has checked that the SQL is correct. The list shows it, and the **Verified** section filters on it. AI clients connected through the [MCP server](/docs/mcp) see it too, and are told to prefer a verified query over writing new SQL for the same question. Verification is a review mark, not a permission: unverified queries still run.
+
+MCP keys only see shared queries and the queries the key saved itself. Brain sees what the person chatting sees.
 
 ```bash
 PUT /api/saved-queries/{id}

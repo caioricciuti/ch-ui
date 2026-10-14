@@ -6,6 +6,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +33,13 @@ const proPromptRead = "Read-only tools (auto-execute, no approval needed):\n" +
 	"  - describe_table(database, table): columns + sample + keys.\n" +
 	"  - run_query(sql, limit?): read-only SQL. You see at most 100 rows as CSV; the user sees the full result.\n" +
 	"  - get_insights(database, table): full table profile (row count, nulls, distincts, min/max).\n" +
+	"  Performance (read-only, local node only):\n" +
+	"  - analyze_query_log(view: slow|failed|heavy_readers|patterns|users, window?: 1h|6h|24h|7d, user?, table?, min_duration_ms?): top 20 from system.query_log.\n" +
+	"  - query_pattern(hash, window?): one pattern from analyze_query_log: latency, data read, selected parts/marks, users, an example query.\n" +
+	"  - explain_query(sql, mode?: indexes|pipeline|estimate|plan): EXPLAIN a single SELECT without running it.\n" +
+	"  - table_storage(database, table?): parts, partitions, compression, skew and the largest columns.\n" +
+	"  - merges_and_mutations(database?, table?): running merges and unfinished mutations, with stuck ones flagged.\n" +
+	"  - compare_query_estimates(original_sql, candidate_sql): rows, marks, parts and granules each would read, with deltas.\n" +
 	"  Existing artifacts:\n" +
 	"  - list_dashboards() / get_dashboard(id): dashboards (+ their panels).\n" +
 	"  - list_saved_queries(): saved queries.\n" +
@@ -87,7 +95,12 @@ const proPromptViewer = "This person has the viewer role: read-only access. You 
 
 const proPromptCommonRules = "- SQL: always reference real columns from describe_table results. Default LIMIT 100 for exploration. Show the final SQL in a fenced sql block.\n" +
 	"- If a tool errors with the same args twice, change the approach; don't retry identically. After 3 identical failures the server blocks the call.\n" +
-	"- Governance policies may block a query; when that happens, explain the block and do not try to work around it.\n\n"
+	"- Governance policies may block a query; when that happens, explain the block and do not try to work around it.\n" +
+	"- Performance questions (slow, expensive, failing queries; table layout; merges): start with analyze_query_log, table_storage or merges_and_mutations, " +
+	"then drill in with query_pattern. When a tool says available=false, relay its reason and hint. Say results are local-node only when a tool returns a scope note.\n" +
+	"- Optimize rule: when asked to optimize a query, call explain_query(mode indexes) on it, describe_table on the tables it reads, write a rewrite, " +
+	"then compare_query_estimates(original, rewrite). Show the SQL change as a diff and the before/after numbers. Say the estimates are data read, " +
+	"not latency. State any semantic change the rewrite makes (different rows, ordering, approximations); if there is none, say so.\n\n"
 
 // proBrainPrompt is the agent's system prompt. Viewers get no mention of
 // the tools that change the workspace.
@@ -139,6 +152,67 @@ func (h *BrainHandler) signalApproval(id string, decision approvalDecision) bool
 		return true
 	default:
 		return false
+	}
+}
+
+// brainMaxIterations caps the model calls in one agent turn.
+const brainMaxIterations = 20
+
+// brainApprovalTimeout is how long a write waits for the person.
+var brainApprovalTimeout = 5 * time.Minute
+
+// awaitApproval waits for the person's decision on a pending approval. The
+// approve and decline routes settle the row first and then signal; the
+// timeout and a stopped request settle it with the same conditional update
+// (status = 'pending'), so exactly one side wins. When the timeout or the
+// stop loses, the decision already stored is the one that counts.
+// abandoned is true when the request ended and the turn must stop.
+func (h *BrainHandler) awaitApproval(ctx context.Context, id string, ch chan approvalDecision) (decision approvalDecision, abandoned bool) {
+	defer h.deregisterApproval(id)
+	timer := time.NewTimer(brainApprovalTimeout)
+	defer timer.Stop()
+	select {
+	case decision = <-ch:
+		return decision, false
+	case <-timer.C:
+		if won, err := h.DB.MarkBrainApprovalDecided(id, "timeout", "system"); err != nil || won {
+			return approvalDecision{Approved: false, By: "system"}, false
+		}
+		return h.storedApprovalDecision(id), false
+	case <-ctx.Done():
+		// Also covers an approval stored just before the stop: the tool
+		// will not run, so the row must not say approved.
+		if err := h.DB.AbandonBrainApproval(id); err != nil {
+			slog.Warn("failed to mark approval abandoned", "approvalID", id, "error", err)
+		}
+		return approvalDecision{}, true
+	}
+}
+
+// storedApprovalDecision reads a decision another request already stored.
+func (h *BrainHandler) storedApprovalDecision(id string) approvalDecision {
+	a, err := h.DB.GetBrainApprovalByID(id)
+	if err != nil || a == nil {
+		return approvalDecision{Approved: false, By: "system"}
+	}
+	by := "system"
+	if a.DecidedBy != nil {
+		by = *a.DecidedBy
+	}
+	return approvalDecision{Approved: a.Status == "approved", By: by}
+}
+
+// iterationSeparator is what goes between the text of two agent steps so
+// they do not run together: a paragraph break, minus the newlines the
+// earlier text already ends with.
+func iterationSeparator(built string) string {
+	switch {
+	case built == "" || strings.HasSuffix(built, "\n\n"):
+		return ""
+	case strings.HasSuffix(built, "\n"):
+		return "\n"
+	default:
+		return "\n\n"
 	}
 }
 
@@ -272,6 +346,7 @@ func newBrainRegistry() *tools.Registry {
 	registry := tools.New()
 	tools.RegisterRead(registry)
 	tools.RegisterInsights(registry)
+	tools.RegisterDiagnostics(registry)
 	tools.RegisterAwareness(registry)
 	tools.RegisterWrite(registry)
 	tools.RegisterPanel(registry)
@@ -305,7 +380,7 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 	chatID, assistantMessageID := t.chatID, t.assistantMessageID
 	canWrite := isWriterRole(session.UserRole)
 
-	systemPrompt := h.buildSystemPrompt(t.contexts, t.entities, true, canWrite) + historyOmittedNote(t.omitted)
+	systemPrompt := h.buildSystemPrompt(t.contexts, t.entities, listViewer(t.session, false), true, canWrite) + historyOmittedNote(t.omitted)
 	chatMessages := append([]braincore.ChatMessage{{Role: "system", Content: systemPrompt}}, toChatMessages(t.history)...)
 
 	registry := newBrainRegistry()
@@ -350,7 +425,6 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 	}
 	toolDefs := registry.DefinitionsFor(canWrite)
 
-	const maxIterations = 20
 	const maxRetriesPerCall = 3
 	var built strings.Builder
 	var streamErr error
@@ -381,11 +455,26 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 		return b
 	}
 
-	for iter := 0; iter < maxIterations; iter++ {
+	for iter := 0; ; iter++ {
+		if iter >= brainMaxIterations {
+			stopReason = stopReasonToolLimit
+			break
+		}
+		// The budget is checked before the turn too; here it stops a long
+		// tool loop that runs past it.
+		if iter > 0 && h.turnOverBudget(t) {
+			stopReason = stopReasonBudget
+			break
+		}
 		compactTurn(chatMessages, brainTurnMaxChars)
+		needSep := built.Len() > 0
 		res, err := braincore.CallWithTools(t.provider, r.Context(), t.providerCfg, t.runtimeModel.ModelName, chatMessages, toolDefs, func(delta string) error {
 			if delta == "" {
 				return nil
+			}
+			if needSep {
+				needSep = false
+				delta = iterationSeparator(built.String()) + delta
 			}
 			built.WriteString(delta)
 			return stream.send(map[string]interface{}{"type": "delta", "delta": delta, "messageId": assistantMessageID})
@@ -462,30 +551,15 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 					"messageId":  assistantMessageID,
 				})
 
-				var decision approvalDecision
-				var decisionStatus string
-				select {
-				case decision = <-ch:
-					if decision.Approved {
-						decisionStatus = "approved"
-					} else {
-						decisionStatus = "declined"
-					}
-				case <-time.After(5 * time.Minute):
-					decision = approvalDecision{Approved: false, By: "system"}
-					decisionStatus = "timeout"
-				case <-r.Context().Done():
-					// Stopped while waiting: settle the approval, the card
-					// and the message so nothing stays pending.
-					h.deregisterApproval(approvalID)
-					_, _ = h.DB.MarkBrainApprovalDecided(approvalID, "abandoned", "system")
+				decision, abandoned := h.awaitApproval(r.Context(), approvalID, ch)
+				if abandoned {
+					// Stopped while waiting: settle the card and the message
+					// so nothing stays pending.
 					stopped, _ := json.Marshal(map[string]any{"declined": true, "message": "Stopped before approval."})
 					h.updateBrainToolCall(pendingRowID, string(stopped), "declined", "")
 					h.persistStopped(assistantMessageID, built.String())
 					return
 				}
-				h.deregisterApproval(approvalID)
-				_, _ = h.DB.MarkBrainApprovalDecided(approvalID, decisionStatus, decision.By)
 
 				if !decision.Approved {
 					declinedJSON, _ := json.Marshal(map[string]any{"declined": true, "message": "User declined this action. Acknowledge and ask if they'd like a different approach."})
@@ -533,8 +607,9 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 	}
 
 	if legacyFallback {
-		simplePrompt := h.buildSystemPrompt(t.contexts, t.entities, false, canWrite) + historyOmittedNote(t.omitted)
+		simplePrompt := h.buildSystemPrompt(t.contexts, t.entities, listViewer(t.session, false), false, canWrite) + historyOmittedNote(t.omitted)
 		legacyMsgs := []braincore.Message{{Role: "system", Content: simplePrompt}}
+		needSep := built.Len() > 0
 		for _, m := range chatMessages {
 			if m.Role != "user" && m.Role != "assistant" {
 				continue
@@ -547,6 +622,10 @@ func (h *BrainHandler) streamMessagePro(r *http.Request, stream *sseStream, t br
 		legacyRes, err := t.provider.StreamChat(r.Context(), t.providerCfg, t.runtimeModel.ModelName, legacyMsgs, func(delta string) error {
 			if delta == "" {
 				return nil
+			}
+			if needSep {
+				needSep = false
+				delta = iterationSeparator(built.String()) + delta
 			}
 			built.WriteString(delta)
 			return stream.send(map[string]interface{}{"type": "delta", "delta": delta, "messageId": assistantMessageID})
