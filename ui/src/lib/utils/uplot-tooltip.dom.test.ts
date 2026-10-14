@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import type uPlot from 'uplot'
-import { tooltipPlugin } from './uplot-tooltip'
+import { tipPosition, tooltipPlugin } from './uplot-tooltip'
 import { logsHistogramData } from '../components/telemetry/histogram'
 
 describe('histogram tooltip', () => {
@@ -29,9 +29,9 @@ describe('histogram tooltip', () => {
     }
     call('init')
     call('setCursor')
-    const values = () => [...over.querySelector('.chart-tip')!.children].slice(1).map((row) => row.textContent)
+    const values = () => [...document.querySelector('.chart-tip')!.children].slice(1).map((row) => row.textContent)
     expect(values()).toEqual(['WARN0', 'INFO37'])
-    expect((over.querySelector('.chart-tip')!.children[1].firstChild as HTMLElement).style.background).toBe('rgb(234, 179, 8)')
+    expect((document.querySelector('.chart-tip')!.children[1].firstChild as HTMLElement).style.background).toBe('rgb(234, 179, 8)')
     // The nearest-point cursor still points at the first bucket. The
     // containing-interval hook must determine both heading and values.
     dataIndex = 1
@@ -39,6 +39,20 @@ describe('histogram tooltip', () => {
     expect(values()).toEqual(['WARN1', 'INFO0'])
     dataIndex = null
     call('setCursor')
-    expect((over.querySelector('.chart-tip') as HTMLElement).style.display).toBe('none')
+    expect((document.querySelector('.chart-tip') as HTMLElement).style.display).toBe('none')
+  })
+})
+
+describe('tipPosition', () => {
+  it('sits above-right of the pointer and stays inside the window at every edge', () => {
+    Object.assign(window, { innerWidth: 800, innerHeight: 600 })
+    expect(tipPosition(100, 300, 120, 50)).toEqual({ left: 112, top: 238 })
+    // Right edge: flips to the left of the pointer.
+    expect(tipPosition(780, 300, 120, 50).left).toBe(648)
+    // Top edge: flips below the pointer.
+    expect(tipPosition(100, 20, 120, 50).top).toBe(32)
+    // Bottom edge of a short panel near the window bottom: still fully visible.
+    const p = tipPosition(100, 598, 120, 80)
+    expect(p.top + 80).toBeLessThanOrEqual(596)
   })
 })
