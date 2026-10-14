@@ -79,7 +79,8 @@ type Capture struct {
 }
 
 // Record stores c, or bumps the newest row when nothing changed. It returns
-// the row and whether it is new.
+// the row and whether it is new. A new row with drift raises an
+// access.drift alert event; see raiseDriftAlert.
 func Record(db *database.DB, c Capture) (*database.RBACSnapshot, bool, error) {
 	st := rbac.FromSnapshot(c.Snapshot)
 	body, err := EncodeState(st)
@@ -91,7 +92,9 @@ func Record(db *database.DB, c Capture) (*database.RBACSnapshot, bool, error) {
 		ConnectionID: c.ConnectionID, Hash: st.Hash(), Source: c.Source, Actor: c.Actor, CHUser: c.CHUser,
 		Host: c.Snapshot.Host, MultiNode: c.Snapshot.MultiNode, PlanHash: c.PlanHash, Complete: len(incomplete) == 0, Body: body,
 	}
+	baseline := ""
 	classify := func(hc database.RBACHistoryContext) (string, string, error) {
+		baseline = baselineHash(c, hc)
 		drift, sum, err := classify(c, st, in, hc)
 		if err != nil {
 			return "", "", err
@@ -103,7 +106,25 @@ func Record(db *database.DB, c Capture) (*database.RBACSnapshot, bool, error) {
 		}
 		return drift, string(b), nil
 	}
-	return db.RecordRBACSnapshot(in, classify)
+	row, created, err := db.RecordRBACSnapshot(in, classify)
+	if err == nil && created {
+		// After the commit, and never failing the recording.
+		raiseDriftAlert(db, row, baseline)
+	}
+	return row, created, err
+}
+
+// baselineHash is the hash of the state a new row is compared with: the
+// plan's starting state for an apply or revert, else the previous complete
+// row.
+func baselineHash(c Capture, hc database.RBACHistoryContext) string {
+	if (c.Source == SourceApply || c.Source == SourceRevert) && c.Pre != nil {
+		return rbac.FromSnapshot(c.Pre).Hash()
+	}
+	if hc.Previous != nil {
+		return hc.Previous.Hash
+	}
+	return ""
 }
 
 func classify(c Capture, st *rbac.State, in database.RBACSnapshotInput, hc database.RBACHistoryContext) (string, Summary, error) {

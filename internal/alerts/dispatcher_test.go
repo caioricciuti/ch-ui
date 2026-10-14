@@ -111,3 +111,23 @@ func TestMaterializeEventJobs_RuleToChannelDispatch(t *testing.T) {
 		t.Fatalf("expected all events processed, %d still new", len(pending))
 	}
 }
+
+func TestEventLink(t *testing.T) {
+	p := func(s string) *string { return &s }
+	cases := []struct {
+		app     string
+		payload *string
+		want    string
+	}{
+		{"https://c.example/", nil, "https://c.example/governance?section=alerts"},
+		{"https://c.example", p(`{"link_path":"/governance?section=access-history"}`), "https://c.example/governance?section=access-history"},
+		{"https://c.example", p(`{"link_path":"//evil.example/x"}`), "https://c.example/governance?section=alerts"},
+		{"https://c.example", p(`{"link_path":"https://evil.example"}`), "https://c.example/governance?section=alerts"},
+		{"", p(`{"link_path":"/x"}`), ""},
+	}
+	for _, c := range cases {
+		if got := EventLink(c.app, c.payload); got != c.want {
+			t.Errorf("EventLink(%q, %v) = %q, want %q", c.app, c.payload, got, c.want)
+		}
+	}
+}

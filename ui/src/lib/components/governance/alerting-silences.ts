@@ -26,6 +26,7 @@ export const EVENT_TYPE_OPTIONS: Option[] = [
   { value: 'report.failed', label: 'Report failed' },
   { value: 'report.disabled', label: 'Report disabled' },
   { value: 'report.*', label: 'All report events' },
+  { value: 'access.drift', label: 'Access changed outside CH-UI' },
   { value: '*', label: 'All events' },
 ]
 

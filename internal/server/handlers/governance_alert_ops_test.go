@@ -197,3 +197,9 @@ func TestAlertRuleConnectionIDs(t *testing.T) {
 		t.Fatalf("rules list: %s", rec.Body.String())
 	}
 }
+
+func TestSupportedEventTypeAccessDrift(t *testing.T) {
+	if !isSupportedEventType("access.drift") || isSupportedEventType("access.other") {
+		t.Fatal("access.drift must be selectable, unknown access types must not")
+	}
+}
