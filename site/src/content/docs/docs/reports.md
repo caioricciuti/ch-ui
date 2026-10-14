@@ -14,7 +14,7 @@ Available on Pro and Enterprise plans. Find reports under **Schedules → Report
 
 ## Create a report
 
-Click **New report** in the Report delivery section, or **Subscribe** in the header of a dashboard to start with that dashboard, its current time range and its variable values filled in.
+Click **New report** in the Report delivery section, **Subscribe** in the header of a dashboard to start with that dashboard, its current time range and its variable values filled in, or **Subscribe** in a saved query's menu to start with that query and its connection.
 
 | Field | What it does |
 |---|---|
