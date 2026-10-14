@@ -267,7 +267,7 @@
   {:else}
     <!-- Tab content -->
     {#if activeTab === 'data'}
-      <VirtualTable {meta} {data} sortColumn={sort?.column ?? ''} sortDir={sort?.dir ?? 'asc'} {onsort} {filters} {onfilterchange} />
+      <VirtualTable {meta} {data} {running} sortColumn={sort?.column ?? ''} sortDir={sort?.dir ?? 'asc'} {onsort} {filters} {onfilterchange} />
     {:else if activeTab === 'stats'}
       <StatsPanel stats={columnStats} />
     {:else if activeTab === 'insights'}

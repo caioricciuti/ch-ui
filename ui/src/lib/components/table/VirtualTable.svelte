@@ -26,9 +26,14 @@
     onsort?: (column: string) => void
     filters?: ColumnFilter[]
     onfilterchange?: (column: string, filter: ColumnFilter | null) => void
+    /**
+     * The query is still running. A streamed result gets its columns before
+     * its rows, so an empty table only means "no rows" once it has finished.
+     */
+    running?: boolean
   }
 
-  let { meta, data, sortColumn = '', sortDir = 'asc', onsort, filters = [], onfilterchange }: Props = $props()
+  let { meta, data, sortColumn = '', sortDir = 'asc', onsort, filters = [], onfilterchange, running = false }: Props = $props()
 
   let filterPopover = $state<{ column: string; x: number; y: number } | null>(null)
 
@@ -388,7 +393,11 @@
     {/if}
   </table>
 
-  {#if rowCount === 0 && meta.length > 0}
+  {#if rowCount === 0 && meta.length > 0 && running}
+    <div class="absolute inset-x-0 top-[35px] bottom-0 grid place-items-center p-6 pointer-events-none">
+      <p class="text-xs text-fg-3">Waiting for the first rows...</p>
+    </div>
+  {:else if rowCount === 0 && meta.length > 0}
     <div class="absolute inset-x-0 top-[35px] bottom-0 grid place-items-center p-6 pointer-events-none">
       <div class="max-w-md rounded-md border border-edge-subtle bg-surface px-6 py-5 text-center shadow-lg">
         <div class="mx-auto mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-fg-3">
