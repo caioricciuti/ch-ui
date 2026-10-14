@@ -770,7 +770,7 @@
 {#if fullscreenPanel}
   {@const fsResult = panelResults.get(fullscreenPanel.id)}
   {@const fsCfg = parsePanelConfig(fullscreenPanel.config)}
-  {@const fsIsTable = !['text', 'stat', 'gauge', 'pie', 'timeseries', 'bar'].includes(fullscreenPanel.panel_type)}
+  {@const fsIsTable = !['text', 'stat', 'gauge', 'pie', 'timeseries', 'bar', 'histogram', 'scatter', 'heatmap'].includes(fullscreenPanel.panel_type)}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="fixed inset-0 z-[9999] bg-canvas flex flex-col"

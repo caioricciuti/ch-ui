@@ -305,6 +305,351 @@ export function toUPlotData(
 }
 
 // ---------------------------------------------------------------------------
+// Stacked areas, histograms, scatter plots, heatmaps
+// ---------------------------------------------------------------------------
+
+/**
+ * Running totals of the y series, first series at the bottom, for a stacked
+ * area chart. A null stays null (a gap) and adds nothing to the series above
+ * it. Series indexes in `skip` (hidden ones) are passed through untouched and
+ * left out of the totals, so the visible stack closes up.
+ */
+export function stackSeries(data: uPlot.AlignedData, skip: ReadonlySet<number> = new Set()): uPlot.AlignedData {
+  const n = data[0].length
+  const totals = new Float64Array(n)
+  const out: uPlot.AlignedData[number][] = [data[0]]
+  for (let s = 1; s < data.length; s++) {
+    const src = data[s]
+    if (skip.has(s)) {
+      out.push(src)
+      continue
+    }
+    const stacked: (number | null)[] = new Array(n)
+    for (let i = 0; i < n; i++) {
+      const v = src[i]
+      if (v == null || !Number.isFinite(v)) {
+        stacked[i] = null
+        continue
+      }
+      totals[i] += v
+      stacked[i] = totals[i]
+    }
+    out.push(stacked)
+  }
+  return out as unknown as uPlot.AlignedData
+}
+
+export const DEFAULT_HISTOGRAM_BUCKETS = 30
+export const MAX_HISTOGRAM_BUCKETS = 200
+
+export interface Histogram {
+  /** Bucket bounds: bucket i covers [edges[i], edges[i + 1]); the last bucket also holds its upper bound. */
+  edges: number[]
+  counts: number[]
+  /** Rows left out: NULL, empty or not a number. */
+  skipped: number
+}
+
+/** The histogram column: the saved one when the result has it, else the first numeric column. */
+export function resolveHistogramColumn(meta: ColumnMeta[], config: Pick<PanelConfig, 'histogramColumn'>): string | undefined {
+  if (config.histogramColumn && meta.some(m => m.name === config.histogramColumn)) return config.histogramColumn
+  return meta.find(m => isNumericType(m.type))?.name
+}
+
+/**
+ * Equal-width buckets over the values of one column. The range runs from
+ * the smallest to the largest value; when every value is the same there is
+ * one bucket, one unit wide, centered on it.
+ */
+export function histogramBins(
+  rows: Record<string, unknown>[],
+  column: string,
+  buckets: number = DEFAULT_HISTOGRAM_BUCKETS,
+): Histogram {
+  const values: number[] = []
+  let skipped = 0
+  let min = Infinity
+  let max = -Infinity
+  for (const row of rows) {
+    const v = toPlotNumber(row[column])
+    if (v == null) {
+      skipped++
+      continue
+    }
+    values.push(v)
+    if (v < min) min = v
+    if (v > max) max = v
+  }
+  if (values.length === 0) return { edges: [], counts: [], skipped }
+  if (min === max) return { edges: [min - 0.5, max + 0.5], counts: [values.length], skipped }
+
+  const n = Math.min(MAX_HISTOGRAM_BUCKETS, Math.max(1, Math.round(Number.isFinite(buckets) ? buckets : DEFAULT_HISTOGRAM_BUCKETS)))
+  const width = (max - min) / n
+  const edges = Array.from({ length: n + 1 }, (_, i) => (i === n ? max : min + i * width))
+  const counts = new Array<number>(n).fill(0)
+  for (const v of values) {
+    counts[Math.min(n - 1, Math.floor((v - min) / width))]++
+  }
+  return { edges, counts, skipped }
+}
+
+export const MAX_SCATTER_POINTS = 10_000
+const MAX_SCATTER_SERIES = 10
+
+export interface ScatterData {
+  /** x, then one y series per group; a point belongs to exactly one group, the others hold null. */
+  data: uPlot.AlignedData
+  /** Series labels, one per y series. */
+  labels: string[]
+  /** Size column value per x index, or null without a size column. */
+  sizes: (number | null)[] | null
+  xColumn: string
+  yColumn: string
+  sizeColumn: string | undefined
+  xIsTime: boolean
+  /** Points with both coordinates, before the cap. */
+  total: number
+}
+
+/**
+ * Points for a scatter plot: x and y from two columns, an optional size
+ * column, and an optional series column that splits points into groups
+ * (at most 10; the rest share an "Other" group). Rows missing x or y are
+ * left out, and at most `max` points are kept, in result order. Points are
+ * sorted by x, as uPlot needs.
+ */
+export function toScatterData(
+  rows: Record<string, unknown>[],
+  meta: ColumnMeta[],
+  config: Pick<PanelConfig, 'scatterX' | 'scatterY' | 'scatterSize' | 'scatterSeries'>,
+  max: number = MAX_SCATTER_POINTS,
+): ScatterData | null {
+  const names = new Set(meta.map(m => m.name))
+  const plottable = meta.filter(m => isNumericType(m.type) || isDateType(m.type))
+  const xColumn = config.scatterX && names.has(config.scatterX)
+    ? config.scatterX
+    : (plottable.find(m => isNumericType(m.type)) ?? plottable[0])?.name
+  const yColumn = config.scatterY && names.has(config.scatterY) && config.scatterY !== xColumn
+    ? config.scatterY
+    : meta.find(m => m.name !== xColumn && isNumericType(m.type))?.name
+  if (!xColumn || !yColumn) return null
+  const sizeColumn = config.scatterSize && names.has(config.scatterSize) ? config.scatterSize : undefined
+  const seriesColumn = config.scatterSeries && names.has(config.scatterSeries) ? config.scatterSeries : undefined
+  const xMeta = meta.find(m => m.name === xColumn)
+  const xIsTime = xMeta ? isDateType(xMeta.type) : false
+
+  const OTHER = 'Other'
+  const groups: string[] = []
+  const groupIndex = new Map<string, number>()
+  const points: { x: number; y: number; size: number | null; group: number }[] = []
+  let total = 0
+  for (const row of rows) {
+    let x: number | null
+    if (xIsTime) {
+      const ms = parseTimeValue(row[xColumn])
+      x = ms == null ? null : ms / 1000
+    } else x = toPlotNumber(row[xColumn])
+    const y = toPlotNumber(row[yColumn])
+    if (x == null || y == null) continue
+    total++
+    if (points.length >= max) continue
+    let group = 0
+    if (seriesColumn) {
+      let label = seriesLabel(row[seriesColumn])
+      if (!groupIndex.has(label) && groups.length >= MAX_SCATTER_SERIES) label = OTHER
+      let idx = groupIndex.get(label)
+      if (idx == null) {
+        idx = groups.length
+        groups.push(label)
+        groupIndex.set(label, idx)
+      }
+      group = idx
+    }
+    points.push({ x, y, size: sizeColumn ? toPlotNumber(row[sizeColumn]) : null, group })
+  }
+  if (!seriesColumn) groups.push(yColumn)
+  points.sort((a, b) => a.x - b.x)
+
+  const xs = new Float64Array(points.length)
+  const ys = groups.map(() => new Array<number | null>(points.length).fill(null))
+  for (let i = 0; i < points.length; i++) {
+    xs[i] = points[i].x
+    ys[points[i].group][i] = points[i].y
+  }
+  return {
+    data: [xs, ...ys] as uPlot.AlignedData,
+    labels: groups,
+    sizes: sizeColumn ? points.map(p => p.size) : null,
+    xColumn,
+    yColumn,
+    sizeColumn,
+    xIsTime,
+    total,
+  }
+}
+
+export const MAX_HEATMAP_CELLS = 200
+
+export interface HeatmapMatrix {
+  /** Column labels; a merged column reads "first to last". */
+  x: string[]
+  /** Row labels, in the same form. */
+  y: string[]
+  /** Cell values by [row][column]; null where no row landed. */
+  values: (number | null)[][]
+  min: number
+  max: number
+  xColumn: string
+  yColumn: string
+  /** The summed column; undefined when cells count rows. */
+  valueColumn: string | undefined
+  /** Rows run upwards (numbers and dates), as on a chart axis, instead of top down. */
+  yAscending: boolean
+  /** Neighbouring values were merged to stay within the cell cap. */
+  merged: boolean
+}
+
+interface HeatmapAxis {
+  labels: string[]
+  /** Bucket of each raw value key. */
+  bucketOf: Map<string, number>
+  ordered: boolean
+  merged: boolean
+}
+
+function axisLabel(raw: unknown, chType: string): string {
+  if (isDateType(chType)) {
+    const ms = parseTimeValue(raw)
+    if (ms != null) {
+      const d = new Date(ms)
+      return /^(Nullable\()?Date(32)?\)?$/.test(chType) ? d.toLocaleDateString() : d.toLocaleString()
+    }
+  }
+  return seriesLabel(raw)
+}
+
+/**
+ * The distinct values of one heatmap axis: numbers and dates in ascending
+ * order, anything else in first-seen order (the query's ORDER BY). Beyond
+ * `max` values, runs of neighbours share one bucket.
+ */
+function heatmapAxis(rows: Record<string, unknown>[], column: string, chType: string, max: number): HeatmapAxis {
+  const numeric = isNumericType(chType)
+  const time = isDateType(chType)
+  const ordered = numeric || time
+  const seen = new Map<string, { sort: number; label: string; first: number }>()
+  for (const row of rows) {
+    const raw = row[column]
+    const key = heatmapKey(raw, numeric, time)
+    if (seen.has(key)) continue
+    let sort = seen.size
+    if (numeric) sort = toPlotNumber(raw) ?? Infinity
+    else if (time) sort = parseTimeValue(raw) ?? Infinity
+    seen.set(key, { sort, label: axisLabel(raw, chType), first: seen.size })
+  }
+  const keys = [...seen.keys()]
+  if (ordered) {
+    keys.sort((a, b) => {
+      const ea = seen.get(a)!
+      const eb = seen.get(b)!
+      return ea.sort - eb.sort || ea.first - eb.first
+    })
+  }
+  const per = Math.max(1, Math.ceil(keys.length / Math.max(1, max)))
+  const bucketOf = new Map<string, number>()
+  const labels: string[] = []
+  for (let start = 0; start < keys.length; start += per) {
+    const end = Math.min(keys.length, start + per) - 1
+    const first = seen.get(keys[start])!.label
+    labels.push(end === start ? first : `${first} to ${seen.get(keys[end])!.label}`)
+    for (let i = start; i <= end; i++) bucketOf.set(keys[i], labels.length - 1)
+  }
+  return { labels, bucketOf, ordered, merged: per > 1 }
+}
+
+function heatmapKey(raw: unknown, numeric: boolean, time: boolean): string {
+  if (numeric) {
+    const n = toPlotNumber(raw)
+    if (n != null) return 'n:' + n
+  } else if (time) {
+    const t = parseTimeValue(raw)
+    if (t != null) return 't:' + t
+  }
+  return 's:' + seriesLabel(raw)
+}
+
+/**
+ * The cells of a heatmap: one column per x value, one row per y value, each
+ * cell the sum of the value column over its rows (or the row count when no
+ * numeric value column is set or found). Each axis keeps at most `cap`
+ * buckets; beyond that, neighbouring values are merged and their cells
+ * summed.
+ */
+export function heatmapMatrix(
+  rows: Record<string, unknown>[],
+  meta: ColumnMeta[],
+  config: Pick<PanelConfig, 'heatmapX' | 'heatmapY' | 'heatmapValue'>,
+  cap: number = MAX_HEATMAP_CELLS,
+): HeatmapMatrix | null {
+  const has = (c: string | undefined): c is string => !!c && meta.some(m => m.name === c)
+  const xColumn = has(config.heatmapX)
+    ? config.heatmapX
+    : (meta.find(m => isDateType(m.type)) ?? meta.find(m => !isNumericType(m.type)) ?? meta[0])?.name
+  const yColumn = has(config.heatmapY) && config.heatmapY !== xColumn
+    ? config.heatmapY
+    : (meta.find(m => m.name !== xColumn && !isNumericType(m.type)) ?? meta.find(m => m.name !== xColumn))?.name
+  if (!xColumn || !yColumn) return null
+  const valueColumn = has(config.heatmapValue) && config.heatmapValue !== xColumn && config.heatmapValue !== yColumn
+    ? config.heatmapValue
+    : meta.find(m => m.name !== xColumn && m.name !== yColumn && isNumericType(m.type))?.name
+
+  const typeOf = (c: string) => meta.find(m => m.name === c)?.type ?? 'String'
+  const xType = typeOf(xColumn)
+  const yType = typeOf(yColumn)
+  const xAxis = heatmapAxis(rows, xColumn, xType, cap)
+  const yAxis = heatmapAxis(rows, yColumn, yType, cap)
+  const values = yAxis.labels.map(() => new Array<number | null>(xAxis.labels.length).fill(null))
+  const xNum = isNumericType(xType)
+  const xTime = isDateType(xType)
+  const yNum = isNumericType(yType)
+  const yTime = isDateType(yType)
+  for (const row of rows) {
+    const xi = xAxis.bucketOf.get(heatmapKey(row[xColumn], xNum, xTime))
+    const yi = yAxis.bucketOf.get(heatmapKey(row[yColumn], yNum, yTime))
+    if (xi == null || yi == null) continue
+    const v = valueColumn ? toPlotNumber(row[valueColumn]) : 1
+    if (v == null) continue
+    values[yi][xi] = (values[yi][xi] ?? 0) + v
+  }
+
+  let min = Infinity
+  let max = -Infinity
+  for (const line of values) {
+    for (const v of line) {
+      if (v == null) continue
+      if (v < min) min = v
+      if (v > max) max = v
+    }
+  }
+  if (min === Infinity) {
+    min = 0
+    max = 0
+  }
+  return {
+    x: xAxis.labels,
+    y: yAxis.labels,
+    values,
+    min,
+    max: max,
+    xColumn,
+    yColumn,
+    valueColumn,
+    yAscending: yAxis.ordered,
+    merged: xAxis.merged || yAxis.merged,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Stat panel: computation, formatting, thresholds
 // ---------------------------------------------------------------------------
 
