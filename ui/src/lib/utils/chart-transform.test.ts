@@ -303,8 +303,8 @@ describe('stackSeries', () => {
     const out = stackSeries(data)
     expect(Array.from(out[0])).toEqual([1, 2, 3])
     expect(out[1]).toEqual([1, 2, 3])
-    expect(out[2]).toEqual([11, null, 33])
-    // A null adds nothing to the series above it.
+    // A null stacks as 0: the band stays closed and adds nothing above it.
+    expect(out[2]).toEqual([11, 2, 33])
     expect(out[3]).toEqual([111, 202, 333])
   })
 

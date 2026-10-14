@@ -326,12 +326,10 @@ export function stackSeries(data: uPlot.AlignedData, skip: ReadonlySet<number> =
     }
     const stacked: (number | null)[] = new Array(n)
     for (let i = 0; i < n; i++) {
+      // A missing value stacks as 0, so a series with gaps (a pivot where a
+      // series has no row at that time) still draws a closed band.
       const v = src[i]
-      if (v == null || !Number.isFinite(v)) {
-        stacked[i] = null
-        continue
-      }
-      totals[i] += v
+      if (v != null && Number.isFinite(v)) totals[i] += v
       stacked[i] = totals[i]
     }
     out.push(stacked)
