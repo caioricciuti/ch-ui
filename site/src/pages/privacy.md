@@ -24,7 +24,7 @@ The controller is **Caio Ricciuti**, a sole trader established in Spain, who ope
 - **Trials.** We store your email address, the name you give (optional), and the trial license issued to you. To keep trials to one per person we also store a normalized form of your address and check that its domain can receive email and is not a disposable-email service.
 - **Purchases.** Payment is handled by **Stripe**, which collects your payment and billing details; we never see or store your full card number. From Stripe we receive your name, email address, and Stripe customer and subscription identifiers. We store those together with the licenses issued to you, their dates and status.
 - **The license file.** Your name (or, if you give none, your email address) is written into the signed license file, which is how CH-UI shows who a license belongs to.
-- **Email.** License files, renewals and billing-portal links are sent through **Resend**. We also get a short notification email about trials, purchases, renewals, cancellations, refunds and disputes.
+- **Email.** License files, renewals and billing-portal links are sent from our own mail server, on the Hetzner server in Finland that runs the license service. We also get a short notification email about trials, purchases, renewals, cancellations, refunds and disputes.
 - **Server logs.** The license server records each request: IP address, user agent, requested URL and time. Request traces (IP address, user agent, path) are deleted automatically after 30 days; access logs are rotated out by size. We use them to keep the service secure and working. Legal basis: our legitimate interest in running a secure service (Art. 6(1)(f)).
 - **Abuse protection.** Requests are rate-limited by IP address, held in memory for up to an hour and never stored.
 - **Legal bases.** Issuing, delivering and renewing your license: performance of our contract with you, or steps you asked for before one (Art. 6(1)(b)). Keeping purchase records: our legal obligations under tax and accounting law (Art. 6(1)(c)). One-trial-per-person checks, rate limits and payment alerts: our legitimate interest in preventing abuse and fraud (Art. 6(1)(f)).
@@ -42,11 +42,10 @@ The controller is **Caio Ricciuti**, a sole trader established in Spain, who ope
 We do not sell your data or use it for advertising. These providers process it on our behalf, each only for its function:
 
 - **Cloudflare**: serves this website from its network and answers DNS for the domain.
-- **Hetzner Online**: hosting of the license service, the analytics and their logs, on servers in Helsinki, Finland (EU).
+- **Hetzner Online**: hosting of the license service, our mail server, the analytics and their logs, on servers in Helsinki, Finland (EU).
 - **Stripe**: payment processing, subscriptions and the billing portal.
-- **Resend**: email delivery (license emails, owner notifications).
 
-Cloudflare, Stripe and Resend may process data in the United States. For those transfers we rely on the EU-US Data Privacy Framework or on the European Commission's Standard Contractual Clauses, as provided in each provider's data processing terms.
+Cloudflare and Stripe may process data in the United States. For those transfers we rely on the EU-US Data Privacy Framework or on the European Commission's Standard Contractual Clauses, as provided in each provider's data processing terms.
 
 ## Self-hosted CH-UI
 
