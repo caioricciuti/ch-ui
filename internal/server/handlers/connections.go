@@ -48,12 +48,21 @@ func validateClickHouseURL(raw string) (string, error) {
 	return strings.TrimRight(raw, "/"), nil
 }
 
-// connectionResponse extends Connection with live status information.
+// connectionResponse is a connection as any signed-in user sees it, with live
+// status. Fields are listed explicitly: the tunnel token lets its holder
+// replace the agent, so it is only returned by the admin token endpoints.
 type connectionResponse struct {
-	database.Connection
-	Online   bool       `json:"online"`
-	LastSeen *time.Time `json:"last_seen,omitempty"`
-	HostInfo any        `json:"host_info,omitempty"`
+	ID            string     `json:"id"`
+	Name          string     `json:"name"`
+	IsEmbedded    bool       `json:"is_embedded"`
+	Type          string     `json:"type"`
+	ClickHouseURL string     `json:"clickhouse_url,omitempty"`
+	Status        string     `json:"status"`
+	LastSeenAt    *string    `json:"last_seen_at"`
+	CreatedAt     string     `json:"created_at"`
+	Online        bool       `json:"online"`
+	LastSeen      *time.Time `json:"last_seen,omitempty"`
+	HostInfo      any        `json:"host_info,omitempty"`
 }
 
 // List returns all connections.
@@ -223,13 +232,13 @@ func (h *ConnectionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if connType == database.ConnectionTypeDirect {
 		startDirectConnector(h.Agents, *conn)
 		writeJSON(w, http.StatusCreated, map[string]interface{}{
-			"connection": conn,
+			"connection": h.buildConnectionResponse(*conn),
 		})
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"connection":         conn,
+		"connection":         h.buildConnectionResponse(*conn),
 		"tunnel_token":       token,
 		"setup_instructions": getSetupInstructions(h.Config, token),
 	})
@@ -359,6 +368,10 @@ func (h *ConnectionsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to delete connection")
 		return
 	}
+	details := fmt.Sprintf("Deleted connection %q", conn.Name)
+	if h.Gateway.DisconnectConnection(id) {
+		details += "; live agent disconnected"
+	}
 
 	session := middleware.GetSession(r)
 	var username, chUser *string
@@ -370,7 +383,7 @@ func (h *ConnectionsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		Username:       username,
 		ClickhouseUser: chUser,
 		ConnectionID:   strPtr(id),
-		Details:        strPtr(fmt.Sprintf("Deleted connection %q", conn.Name)),
+		Details:        strPtr(details),
 		IPAddress:      strPtr(getClientIP(r)),
 	})
 
@@ -522,6 +535,15 @@ func (h *ConnectionsHandler) RegenerateToken(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, "Failed to regenerate token")
 		return
 	}
+	details := fmt.Sprintf("Regenerated token for connection %q", conn.Name)
+	if h.Gateway.DisconnectConnection(id) {
+		details += "; live agent disconnected"
+	}
+	if conn.Type == database.ConnectionTypeDirect {
+		// The in-process connector holds the old token; restart it with the new one.
+		conn.TunnelToken = newToken
+		startDirectConnector(h.Agents, *conn)
+	}
 
 	session := middleware.GetSession(r)
 	var username, chUser *string
@@ -533,14 +555,14 @@ func (h *ConnectionsHandler) RegenerateToken(w http.ResponseWriter, r *http.Requ
 		Username:       username,
 		ClickhouseUser: chUser,
 		ConnectionID:   strPtr(id),
-		Details:        strPtr(fmt.Sprintf("Regenerated token for connection %q", conn.Name)),
+		Details:        strPtr(details),
 		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"tunnel_token":       newToken,
 		"setup_instructions": getSetupInstructions(h.Config, newToken),
-		"message":            "Token regenerated successfully. The previous token is now invalid.",
+		"message":            "Token regenerated successfully. The previous token is now invalid and any agent using it was disconnected.",
 	})
 }
 
@@ -601,7 +623,14 @@ func startDirectConnector(agents *embedded.Manager, conn database.Connection) {
 // buildConnectionResponse enriches a Connection with live status from the gateway.
 func (h *ConnectionsHandler) buildConnectionResponse(c database.Connection) connectionResponse {
 	resp := connectionResponse{
-		Connection: c,
+		ID:            c.ID,
+		Name:          c.Name,
+		IsEmbedded:    c.IsEmbedded,
+		Type:          c.Type,
+		ClickHouseURL: c.ClickHouseURL,
+		Status:        c.Status,
+		LastSeenAt:    c.LastSeenAt,
+		CreatedAt:     c.CreatedAt,
 	}
 
 	online, lastSeen := h.Gateway.GetTunnelStatus(c.ID)

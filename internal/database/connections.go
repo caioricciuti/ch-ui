@@ -20,9 +20,10 @@ const (
 
 // Connection represents a connection record (direct or tunnel).
 type Connection struct {
-	ID            string  `json:"id"`
-	Name          string  `json:"name"`
-	TunnelToken   string  `json:"tunnel_token"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Never serialized: only the admin token endpoints return it, explicitly.
+	TunnelToken   string  `json:"-"`
 	IsEmbedded    bool    `json:"is_embedded"`
 	Type          string  `json:"type"`
 	ClickHouseURL string  `json:"clickhouse_url,omitempty"`

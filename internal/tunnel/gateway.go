@@ -398,6 +398,16 @@ func (g *Gateway) handleAuth(conn *websocket.Conn, token string, takeover bool, 
 		return ""
 	}
 
+	// The token may have been regenerated, or the connection deleted, between
+	// the lookup above and publishing. DisconnectConnection runs after that
+	// change, so either it finds this tunnel or this check sees the change.
+	current, err := g.db.GetConnectionByTokenCtx(authCtx, token)
+	if err != nil || current == nil || current.ID != tc.ID {
+		slog.Warn("Tunnel auth revoked during handshake", "name", tc.Name, "connection_id", tc.ID, "error", err)
+		g.closeTunnel(tunnel, errTokenRevoked)
+		return ""
+	}
+
 	g.db.UpdateConnectionStatus(tc.ID, "connected")
 
 	slog.Info("Tunnel agent authenticated", "name", tc.Name, "connection_id", tc.ID)
@@ -697,18 +707,55 @@ func (g *Gateway) handleStreamError(connID string, msg *AgentMessage) {
 	pending.finish()
 }
 
-func (g *Gateway) handleDisconnect(connID string, ws *websocket.Conn) {
+// errTokenRevoked fails requests in flight on a tunnel whose token was
+// regenerated or whose connection was deleted.
+var errTokenRevoked = errors.New("tunnel agent disconnected: its token was revoked")
+
+// DisconnectConnection closes the live agent tunnel of a connection, if any,
+// and fails its pending requests. Call it after regenerating the token or
+// deleting the connection: tokens are checked only at connect time, so an
+// agent already attached would otherwise keep serving. Reports whether an
+// agent was connected.
+func (g *Gateway) DisconnectConnection(connID string) bool {
 	val, ok := g.tunnels.Load(connID)
 	if !ok {
-		return
+		return false
+	}
+	return g.closeTunnel(val.(*ConnectedTunnel), errTokenRevoked)
+}
+
+// closeTunnel unpublishes t, failing its pending requests with reason, then
+// tells the agent why and closes its socket. Unpublishing first keeps the read
+// loop's own disconnect from racing ahead with a generic error. Reports
+// whether t was still the published tunnel for its connection.
+func (g *Gateway) closeTunnel(t *ConnectedTunnel, reason error) bool {
+	removed := g.disconnect(t.ConnectionID, t.WS, reason)
+	t.mu.Lock()
+	_ = t.WS.WriteControl(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Token revoked"), time.Now().Add(time.Second))
+	_ = t.WS.Close()
+	t.mu.Unlock()
+	return removed
+}
+
+func (g *Gateway) handleDisconnect(connID string, ws *websocket.Conn) {
+	g.disconnect(connID, ws, errors.New("tunnel disconnected"))
+}
+
+// disconnect unpublishes the tunnel for connID when ws is still its socket (or
+// ws is nil) and fails every pending request with reason.
+func (g *Gateway) disconnect(connID string, ws *websocket.Conn, reason error) bool {
+	val, ok := g.tunnels.Load(connID)
+	if !ok {
+		return false
 	}
 	t := val.(*ConnectedTunnel)
 	if ws != nil && t.WS != ws {
 		// A newer connection already replaced this one.
-		return
+		return false
 	}
 	if !g.tunnels.CompareAndDelete(connID, t) {
-		return
+		return false
 	}
 
 	// Reject all pending requests. LoadAndDelete makes this path the only one
@@ -721,12 +768,12 @@ func (g *Gateway) handleDisconnect(connID string, ws *websocket.Conn) {
 		switch p := value.(type) {
 		case *PendingRequest:
 			select {
-			case p.ErrorCh <- errors.New("tunnel disconnected"):
+			case p.ErrorCh <- reason:
 			default:
 			}
 		case *PendingStreamRequest:
 			select {
-			case p.ErrorCh <- errors.New("tunnel disconnected"):
+			case p.ErrorCh <- reason:
 			default:
 			}
 			p.finish()
@@ -742,6 +789,7 @@ func (g *Gateway) handleDisconnect(connID string, ws *websocket.Conn) {
 		Action:       "tunnel.disconnected",
 		ConnectionID: strPtr(connID),
 	})
+	return true
 }
 
 func strPtr(s string) *string { return &s }
