@@ -3,11 +3,11 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/models"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
@@ -15,7 +15,7 @@ import (
 // Pipelines select models by name: a rename must carry the selector along,
 // and a delete must show up as a selector error on the pipeline.
 func TestModelRenameAndDeleteKeepPipelinesHonest(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "models.db"))
+	db, err := dbtest.Open(t, "models.db")
 	if err != nil {
 		t.Fatal(err)
 	}

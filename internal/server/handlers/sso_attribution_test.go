@@ -9,7 +9,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
@@ -29,7 +29,7 @@ import (
 
 func attributionFixture(t *testing.T) (*database.DB, string) {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "attribution.db"))
+	db, err := dbtest.Open(t, "attribution.db")
 	if err != nil {
 		t.Fatal(err)
 	}

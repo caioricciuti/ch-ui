@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/mcpserver"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
@@ -26,7 +26,7 @@ import (
 // routes, and the MCP endpoint, so the whole flow runs in-process.
 func oauthRig(t *testing.T) (*chi.Mux, *database.DB, string) {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "oauth.db"))
+	db, err := dbtest.Open(t, "oauth.db")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

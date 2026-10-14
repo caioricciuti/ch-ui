@@ -7,14 +7,14 @@ package incidenttimeline
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 func TestLocalTimelineConnectionIsolationAndPressure(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "timeline.db"))
+	db, err := dbtest.Open(t, "timeline.db")
 	if err != nil {
 		t.Fatal(err)
 	}

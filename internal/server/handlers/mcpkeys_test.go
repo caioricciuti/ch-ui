@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,13 +11,14 @@ import (
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
 // Creating, rotating and revoking an MCP key are audited and attributed to
 // the person (SSO email), not the shared ClickHouse service account.
 func TestMCPKeyLifecycleIsAuditedByActor(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "mcpkeys.db"))
+	db, err := dbtest.Open(t, "mcpkeys.db")
 	if err != nil {
 		t.Fatal(err)
 	}

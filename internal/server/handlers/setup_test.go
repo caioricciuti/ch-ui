@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
@@ -18,7 +18,7 @@ import (
 // move, and the code in display form.
 func setupFixture(t *testing.T) (*SetupHandler, *database.DB, *time.Time, string) {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "setup.db"))
+	db, err := dbtest.Open(t, "setup.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +459,7 @@ func TestCloseSetupOnAdminLogin(t *testing.T) {
 
 func TestSetupStart(t *testing.T) {
 	t.Run("admin exists closes setup", func(t *testing.T) {
-		db, err := database.Open(filepath.Join(t.TempDir(), "start.db"))
+		db, err := dbtest.Open(t, "start.db")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -488,7 +488,7 @@ func TestSetupStart(t *testing.T) {
 		}
 	})
 	t.Run("fresh install issues a code", func(t *testing.T) {
-		db, err := database.Open(filepath.Join(t.TempDir(), "fresh.db"))
+		db, err := dbtest.Open(t, "fresh.db")
 		if err != nil {
 			t.Fatal(err)
 		}

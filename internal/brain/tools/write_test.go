@@ -7,14 +7,14 @@ package tools
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 func TestCreateModelValidates(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "brain.db"))
+	db, err := dbtest.Open(t, "brain.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestCreateModelValidates(t *testing.T) {
 }
 
 func TestUpdateModelRenameRewritesPipelines(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "brain.db"))
+	db, err := dbtest.Open(t, "brain.db")
 	if err != nil {
 		t.Fatal(err)
 	}

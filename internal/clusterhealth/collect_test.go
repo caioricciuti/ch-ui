@@ -7,11 +7,11 @@ package clusterhealth
 
 import (
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 // fakeExec answers the aggregate queries for two reachable nodes of a
@@ -86,7 +86,7 @@ func TestFlagMissingNodesAfterFallbackIsNotDown(t *testing.T) {
 }
 
 func TestStoreKeepsUnknownAndDown(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "ch.db"))
+	db, err := dbtest.Open(t, "ch.db")
 	if err != nil {
 		t.Fatal(err)
 	}

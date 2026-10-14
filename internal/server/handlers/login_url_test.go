@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/testutil"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
@@ -19,7 +19,7 @@ import (
 
 func loginURLFixture(t *testing.T, allow bool) (*AuthHandler, *database.DB) {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "login-url.db"))
+	db, err := dbtest.Open(t, "login-url.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestLoginURLCap(t *testing.T) {
 // TestLoginURLFullLoginAtCap signs in through Login with a URL that matches a
 // saved connection while the cap is full, using a fake agent for the tunnel.
 func TestLoginURLFullLoginAtCap(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "login-url-full.db"))
+	db, err := dbtest.Open(t, "login-url-full.db")
 	if err != nil {
 		t.Fatal(err)
 	}
