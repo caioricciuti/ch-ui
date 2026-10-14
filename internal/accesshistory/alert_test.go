@@ -157,3 +157,57 @@ func TestDriftAlertFailureKeepsRecording(t *testing.T) {
 		t.Fatalf("recording must not fail with alerts broken: row=%+v created=%v err=%v", row, created, err)
 	}
 }
+
+// On a multi-node cluster a role kept in local storage exists on one node
+// only. Reading the other node shows the state from before the drift, but
+// that is a different view, not a revert: the incident stays open until
+// the node the drift was seen on is back at that state. (Found against a
+// real 2-node cluster.)
+func TestDriftAlertNotResolvedByHostChange(t *testing.T) {
+	db, err := dbtest.Open(t, "drift-host.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	conn, err := db.CreateConnection(database.CreateConnectionParams{Name: "c2", TunnelToken: "c2-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := rbac.Entity{Name: "only_on_n1", Storage: "local_directory"}
+	sync := func(s *rbac.Snapshot) *database.RBACSnapshot {
+		row, _ := record(t, db, Capture{ConnectionID: conn, Source: SourceSync, Actor: "governance sync", CHUser: "gov", Snapshot: s})
+		return row
+	}
+	status := func() []string {
+		var out []string
+		for _, ev := range driftEvents(t, db) {
+			out = append(out, eventPayload(t, ev)["status"].(string))
+		}
+		return out
+	}
+
+	sync(snap("n1"))
+	if row := sync(snap("n1", local)); row.Drift != DriftOutside {
+		t.Fatalf("local role on n1: %+v", row)
+	}
+	if got := status(); len(got) != 1 || got[0] != "firing" {
+		t.Fatalf("after drift: %v", got)
+	}
+	// n2 lacks the local role: host changed, no drift, and no resolve.
+	if row := sync(snap("n2")); row.Drift != DriftNone {
+		t.Fatalf("read from n2: %+v", row)
+	}
+	if got := status(); len(got) != 1 {
+		t.Fatalf("a read from another node must not resolve: %v", got)
+	}
+	// Back on n1, still drifted: nothing new.
+	sync(snap("n1", local))
+	if got := status(); len(got) != 1 {
+		t.Fatalf("back on n1: %v", got)
+	}
+	// The role is dropped on n1: now it resolves.
+	sync(snap("n1"))
+	if got := status(); len(got) != 2 || got[1] != "resolved" {
+		t.Fatalf("after the revert on n1: %v", got)
+	}
+}
