@@ -7,9 +7,12 @@
   /** Side-by-side before and after of one entity, line by line. */
   interface Props {
     diff: RbacDiff
+    /** Column headings; the plan review keeps SqlDiff's Current and Proposed. */
+    beforeLabel?: string
+    afterLabel?: string
   }
 
-  let { diff }: Props = $props()
+  let { diff, beforeLabel, afterLabel }: Props = $props()
 
   const status = $derived(!diff.current ? 'new' : !diff.proposed ? 'removed' : 'changed')
   const kindLabel: Record<string, string> = {
@@ -23,5 +26,5 @@
     <span class="truncate text-[13px] font-medium text-fg">{diff.entity}</span>
     <Badge tone={status === 'new' ? 'success' : status === 'removed' ? 'danger' : 'info'}>{status}</Badge>
   </header>
-  <SqlDiff before={diff.current} after={diff.proposed} />
+  <SqlDiff before={diff.current} after={diff.proposed} {beforeLabel} {afterLabel} />
 </section>

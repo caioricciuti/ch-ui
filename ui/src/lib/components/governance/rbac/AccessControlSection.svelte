@@ -3,9 +3,11 @@
   import { onMount } from 'svelte'
   import { Download, Plus, RefreshCw, Search, Upload } from 'lucide-svelte'
   import type { RbacApplyResponse, RbacExportFormat, RbacOp, RbacRowPolicy, RbacQuota, RbacSettingsProfile, RbacSnapshot, RbacTarget } from '../../../types/rbac'
-  import { exportRbac, fetchRbacSnapshot } from '../../../api/rbac'
+  import { exportRbac, fetchRbacHistory, fetchRbacSnapshot } from '../../../api/rbac'
   import { hasProReadAccess } from '../../../stores/license.svelte'
   import { downloadBlob } from '../../../utils/export'
+  import { setSection } from '../../../stores/nav.svelte'
+  import { takeStagedRevert } from './history'
   import { success as toastSuccess, error as toastError } from '../../../stores/toast.svelte'
   import { assigneesLabel, membersOf } from './changes'
   import Select from '../../common/Select.svelte'
@@ -38,6 +40,9 @@
   let kind = $state<Kind>('roles')
   let search = $state('')
   let pending = $state<RbacOp[]>([])
+  // The access history row a staged revert goes back to.
+  let revertOf = $state('')
+  let outsideChanges = $state(0)
 
   let principal = $state<{ open: boolean; target: RbacTarget | null }>({ open: false, target: null })
   let policySheet = $state<{ open: boolean; policy: RbacRowPolicy | null }>({ open: false, policy: null })
@@ -52,7 +57,17 @@
 
   onMount(() => {
     const wanted = new URLSearchParams(window.location.search).get('user')
+    const staged = takeStagedRevert()
+    fetchRbacHistory({ driftOnly: true, limit: 1 })
+      .then((p) => (outsideChanges = p.outside_last_30d))
+      .catch(() => (outsideChanges = 0))
     void load().then(() => {
+      if (staged) {
+        pending = staged.ops
+        revertOf = staged.revertOf
+        reviewOpen = true
+        return
+      }
       if (wanted && snapshot?.users?.some((u) => u.name === wanted)) {
         kind = 'users'
         sheetSeq++
@@ -226,6 +241,7 @@
 
   function unstage(index: number) {
     pending = pending.filter((_, i) => i !== index)
+    if (pending.length === 0) revertOf = ''
   }
 
   function storageOf(t: RbacTarget | null): string {
@@ -241,6 +257,7 @@
 
   function applied(res: RbacApplyResponse) {
     pending = []
+    revertOf = ''
     if (res.failed > 0) toastError(`${res.failed} statement failed; later ones were skipped`)
     else toastSuccess(`Applied ${res.results.length} statement${res.results.length === 1 ? '' : 's'}`)
     void load()
@@ -248,6 +265,7 @@
 
   function rollback(ops: RbacOp[]) {
     pending = ops
+    revertOf = ''
   }
 
   // ── Access as code ────────────────────────────────────────────────
@@ -296,6 +314,11 @@
     {/if}
     {#if snapshot?.errors?.length}
       <Badge tone="warning" title={snapshot.errors.join('\n')}>Partial data</Badge>
+    {/if}
+    {#if outsideChanges > 0}
+      <button type="button" class="rounded-sm" title="Changes made outside CH-UI in the last 30 days" onclick={() => setSection('access-history')}>
+        <Badge tone="warning">{outsideChanges} outside change{outsideChanges === 1 ? '' : 's'}</Badge>
+      </button>
     {/if}
     <div class="flex-1"></div>
     <div class="relative">
@@ -438,4 +461,5 @@
   onclose={() => (reviewOpen = false)}
   onapplied={applied}
   onrollback={rollback}
+  {revertOf}
 />
