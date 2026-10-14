@@ -1330,6 +1330,10 @@ Formatting:
 	if err := db.migrateUserRolesV2(); err != nil {
 		return err
 	}
+
+	if err := db.migrateSchedulesZonedNextRun(); err != nil {
+		return err
+	}
 	slog.Info("Database migrations completed", "schema_version", schemaVersion)
 	return nil
 }
