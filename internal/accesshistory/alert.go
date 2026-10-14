@@ -44,7 +44,7 @@ func DriftSeverity(drift string) string {
 // openDrift is the open incident of a connection, read from its newest
 // event.
 type openDrift struct {
-	incident, baseline, hash, severity string
+	incident, baseline, hash, severity, host string
 }
 
 func latestOpenDrift(db *database.DB, connectionID string) (*openDrift, error) {
@@ -58,19 +58,30 @@ func latestOpenDrift(db *database.DB, connectionID string) (*openDrift, error) {
 		BaselineHash     string `json:"baseline_hash"`
 		Hash             string `json:"hash"`
 		IncidentSeverity string `json:"incident_severity"`
+		Host             string `json:"host"`
 	}
 	if err := json.Unmarshal([]byte(*ev.PayloadJSON), &p); err != nil || p.Status != "firing" {
 		return nil, nil
 	}
-	return &openDrift{incident: p.IncidentID, baseline: p.BaselineHash, hash: p.Hash, severity: p.IncidentSeverity}, nil
+	return &openDrift{incident: p.IncidentID, baseline: p.BaselineHash, hash: p.Hash, severity: p.IncidentSeverity, host: p.Host}, nil
 }
 
 // raiseDriftAlert writes the alert event a new history row calls for, after
 // the row is committed. A row with outside or mixed drift fires, unless the
 // open incident already fired on the same state; a complete row back at the
-// state before the incident resolves it. baseline is the hash of the state
+// state before the incident resolves it, but only when read from the host
+// the drift was last seen on: on a multi-node cluster another node can lack
+// a drifted entity kept in local storage, and reading it there is not a
+// revert. baseline is the hash of the state
 // the row was compared with. Failures are logged, never returned: the row
 // is already stored.
+// sameHost reports whether two reads came from the same node. An empty host
+// (a single-node connection, or a row stored before hosts were recorded)
+// matches anything.
+func sameHost(a, b string) bool {
+	return a == "" || b == "" || a == b
+}
+
 func raiseDriftAlert(db *database.DB, row *database.RBACSnapshot, baseline string) {
 	open, err := latestOpenDrift(db, row.ConnectionID)
 	if err != nil {
@@ -80,7 +91,7 @@ func raiseDriftAlert(db *database.DB, row *database.RBACSnapshot, baseline strin
 	var title, message, fp, sev string
 	var payload map[string]interface{}
 	switch {
-	case open != nil && row.Complete && open.baseline != "" && row.Hash == open.baseline:
+	case open != nil && row.Complete && open.baseline != "" && row.Hash == open.baseline && sameHost(open.host, row.Host):
 		title, message, payload = resolvedDriftContent(db, row, open)
 		fp = "access:" + row.ConnectionID + ":resolved:" + open.incident
 		sev = open.severity
