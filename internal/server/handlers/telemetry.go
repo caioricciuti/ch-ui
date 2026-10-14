@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -120,16 +121,34 @@ type chCreds struct {
 	connID, user, password string
 }
 
+var (
+	errTelemetryNoSession = errors.New("not authenticated")
+	errTelemetryDecrypt   = errors.New("failed to decrypt credentials")
+)
+
 func (h *TelemetryHandler) creds(r *http.Request) (chCreds, *middleware.SessionInfo, error) {
 	session := middleware.GetSession(r)
 	if session == nil {
-		return chCreds{}, nil, fmt.Errorf("not authenticated")
+		return chCreds{}, nil, errTelemetryNoSession
 	}
 	password, err := crypto.Decrypt(session.EncryptedPassword, h.Config.AppSecretKey)
 	if err != nil {
-		return chCreds{}, nil, fmt.Errorf("failed to decrypt credentials")
+		slog.Error("Failed to decrypt password", "error", err)
+		return chCreds{}, nil, errTelemetryDecrypt
 	}
 	return chCreds{connID: session.ConnectionID, user: session.ClickhouseUser, password: password}, session, nil
+}
+
+// writeCredsError answers a failed creds call. Only a missing session is a
+// 401: the client treats 401 as an expired session and redirects to login,
+// and the login page sends a signed-in user straight back, so a 401 for a
+// stored password the server cannot decrypt (app secret changed) loops forever.
+func writeCredsError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errTelemetryNoSession) {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+	writeError(w, http.StatusInternalServerError, "Failed to decrypt credentials")
 }
 
 func (h *TelemetryHandler) exec(c chCreds, sqlText string, timeout time.Duration) ([]map[string]interface{}, error) {
@@ -301,7 +320,7 @@ func writeVerification(w http.ResponseWriter, missing []string, kind telemetry.K
 func (h *TelemetryHandler) CreateSource(w http.ResponseWriter, r *http.Request) {
 	c, session, err := h.creds(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeCredsError(w, err)
 		return
 	}
 	src, err := decodeSource(r)
@@ -339,7 +358,7 @@ func (h *TelemetryHandler) CreateSource(w http.ResponseWriter, r *http.Request) 
 func (h *TelemetryHandler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 	c, session, err := h.creds(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeCredsError(w, err)
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -410,7 +429,7 @@ func (h *TelemetryHandler) DeleteSource(w http.ResponseWriter, r *http.Request) 
 func (h *TelemetryHandler) DetectSources(w http.ResponseWriter, r *http.Request) {
 	c, _, err := h.creds(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeCredsError(w, err)
 		return
 	}
 	rows, err := h.exec(c, `SELECT database, name FROM system.tables WHERE database NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema') AND (name LIKE 'otel%' OR name LIKE '%logs%' OR name LIKE '%traces%' OR name LIKE '%spans%' OR name LIKE '%metrics%') ORDER BY database, name`, telemetryMetaTimeout)
@@ -522,7 +541,7 @@ func trimMissing(src *telemetry.Source, cols map[string]string) {
 func (h *TelemetryHandler) TestSource(w http.ResponseWriter, r *http.Request) {
 	c, session, err := h.creds(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeCredsError(w, err)
 		return
 	}
 	src := h.loadSource(w, chi.URLParam(r, "id"), session.ConnectionID)
@@ -610,7 +629,7 @@ func (r logsRequest) params() telemetry.LogsParams {
 func (h *TelemetryHandler) logsSetup(w http.ResponseWriter, r *http.Request, requireRange bool) (chCreds, *telemetry.Source, map[string]string, logsRequest, bool) {
 	c, session, err := h.creds(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeCredsError(w, err)
 		return chCreds{}, nil, nil, logsRequest{}, false
 	}
 	var body logsRequest
@@ -996,7 +1015,7 @@ const traceHintAround = time.Hour
 func (h *TelemetryHandler) LogsByTrace(w http.ResponseWriter, r *http.Request) {
 	c, session, err := h.creds(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeCredsError(w, err)
 		return
 	}
 	traceID := chi.URLParam(r, "traceId")

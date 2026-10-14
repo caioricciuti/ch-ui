@@ -378,10 +378,18 @@ func (t privTree) covers(granted, asked string) bool {
 		// (ALTER covers ALTER UPDATE).
 		return strings.HasPrefix(a, g+" ")
 	}
-	for _, anc := range t.ancestors(a) {
-		if anc == g {
+	// Walk up the parents without allocating; this runs in hot loops. The
+	// bound stops a malformed cycle.
+	cur := a
+	for i := 0; i < len(t.parents); i++ {
+		parent, ok := t.parents[cur]
+		if !ok || parent == "" {
+			return false
+		}
+		if parent == g {
 			return true
 		}
+		cur = parent
 	}
 	return false
 }

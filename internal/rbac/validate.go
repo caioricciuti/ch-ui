@@ -30,7 +30,7 @@ var QuotaUnits = []string{"second", "minute", "hour", "day", "week", "month", "q
 var Writabilities = []string{"", "CONST", "WRITABLE", "CHANGEABLE_IN_READONLY"}
 
 var (
-	privilegeRe = regexp.MustCompile(`^[A-Z][A-Z ]*$`)
+	privilegeRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9 ]*$`)
 	settingRe   = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 	numericRe   = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?$`)
 )

@@ -19,7 +19,7 @@ import (
 func (h *TelemetryHandler) ServiceMap(w http.ResponseWriter, r *http.Request) {
 	c, session, err := h.creds(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeCredsError(w, err)
 		return
 	}
 	var body struct {
