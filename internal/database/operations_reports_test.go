@@ -7,18 +7,14 @@ package database
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"testing"
 	"time"
 )
 
 func reportTestDB(t *testing.T) *DB {
 	t.Helper()
-	db, err := Open(filepath.Join(t.TempDir(), "reports.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := openMigrated(t, "reports.db")
+	var err error
 	for _, id := range []string{"report-a", "report-b"} {
 		if _, err = db.conn.Exec(`INSERT INTO connections(id,name,tunnel_token) VALUES(?,?,?)`, id, id, id); err != nil {
 			t.Fatal(err)
