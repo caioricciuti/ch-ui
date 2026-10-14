@@ -724,7 +724,7 @@ func (h *DashboardsHandler) CreatePanel(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusInternalServerError, "Failed to create panel")
 			return
 		}
-		y = nextPanelRow(existing)
+		y = dashboards.NextPanelRow(existing)
 	}
 	if body.LayoutW != nil {
 		w2 = *body.LayoutW
@@ -732,7 +732,7 @@ func (h *DashboardsHandler) CreatePanel(w http.ResponseWriter, r *http.Request) 
 	if body.LayoutH != nil {
 		h2 = *body.LayoutH
 	}
-	if msg := validateLayout(x, y, w2, h2); msg != "" {
+	if msg := dashboards.ValidateLayout(x, y, w2, h2); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -887,7 +887,7 @@ func (h *DashboardsHandler) UpdatePanel(w http.ResponseWriter, r *http.Request) 
 	// Only a request that moves or resizes the panel is held to the layout
 	// bounds, so a panel saved before validation existed can still be renamed.
 	if body.LayoutX != nil || body.LayoutY != nil || body.LayoutW != nil || body.LayoutH != nil {
-		if msg := validateLayout(x, y, pw, ph); msg != "" {
+		if msg := dashboards.ValidateLayout(x, y, pw, ph); msg != "" {
 			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
@@ -961,14 +961,6 @@ func (h *DashboardsHandler) DeletePanel(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
-// Grid bounds, matching ui/src/lib/utils/grid-layout.ts: 12 columns, and a
-// generous cap on rows so a typo cannot push a panel out of reach.
-const (
-	gridCols    = 12
-	gridMaxRow  = 10000
-	gridMaxRows = 100 // tallest panel, in rows
-)
-
 var panelTypes = map[string]bool{
 	"table": true, "stat": true, "gauge": true, "timeseries": true,
 	"bar": true, "pie": true, "text": true,
@@ -978,37 +970,6 @@ var panelTypes = map[string]bool{
 const invalidPanelTypeMessage = "panel_type must be one of table, stat, gauge, timeseries, bar, pie, text, histogram, scatter, heatmap"
 
 func validPanelType(t string) bool { return panelTypes[t] }
-
-// nextPanelRow is the first grid row below every panel: max(y+h), 0 when
-// there are none, capped so the result still passes validateLayout.
-func nextPanelRow(panels []database.Panel) int {
-	row := 0
-	for _, p := range panels {
-		if bottom := p.LayoutY + p.LayoutH; bottom > row {
-			row = bottom
-		}
-	}
-	if row > gridMaxRow {
-		row = gridMaxRow
-	}
-	return row
-}
-
-// validateLayout returns an error message when a panel does not fit the grid,
-// or "" when it does.
-func validateLayout(x, y, w, h int) string {
-	switch {
-	case w < 1 || w > gridCols:
-		return fmt.Sprintf("layout_w must be between 1 and %d", gridCols)
-	case x < 0 || x+w > gridCols:
-		return fmt.Sprintf("layout_x must be at least 0 and layout_x + layout_w at most %d", gridCols)
-	case h < 1 || h > gridMaxRows:
-		return fmt.Sprintf("layout_h must be between 1 and %d", gridMaxRows)
-	case y < 0 || y > gridMaxRow:
-		return fmt.Sprintf("layout_y must be between 0 and %d", gridMaxRow)
-	}
-	return ""
-}
 
 // maxImportPanels bounds one import, so a pasted file cannot create an
 // unbounded number of rows.
@@ -1097,7 +1058,7 @@ func (p importPanel) validate(index int) (validImportPanel, error) {
 	if p.LayoutH != nil {
 		out.h = *p.LayoutH
 	}
-	if msg := validateLayout(out.x, out.y, out.w, out.h); msg != "" {
+	if msg := dashboards.ValidateLayout(out.x, out.y, out.w, out.h); msg != "" {
 		return out, fmt.Errorf("%s: %s", where, msg)
 	}
 	return out, nil
@@ -1706,8 +1667,31 @@ func (h *DashboardsHandler) resolvePublicShare(w http.ResponseWriter, r *http.Re
 	return share
 }
 
-// GetPublicDashboard returns a dashboard and its panels via a share token.
-// Panel SQL is left out: viewers run panels by ID, never by query text.
+// publicDashboard is the part of a dashboard a share link shows. Owner,
+// folder, tags and connection stay on the server.
+type publicDashboard struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Description *string `json:"description"`
+	UpdatedAt   string  `json:"updated_at"`
+}
+
+// publicPanel is a panel as a share link draws it: no SQL and no connection.
+type publicPanel struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	PanelType   string `json:"panel_type"`
+	Config      string `json:"config"`
+	LayoutX     int    `json:"layout_x"`
+	LayoutY     int    `json:"layout_y"`
+	LayoutW     int    `json:"layout_w"`
+	LayoutH     int    `json:"layout_h"`
+}
+
+// GetPublicDashboard returns a dashboard and its panels via a share token,
+// with only what the shared page draws. Panel SQL is left out: viewers run
+// panels by ID, never by query text.
 func (h *DashboardsHandler) GetPublicDashboard(w http.ResponseWriter, r *http.Request) {
 	share := h.resolvePublicShare(w, r)
 	if share == nil {
@@ -1726,17 +1710,21 @@ func (h *DashboardsHandler) GetPublicDashboard(w http.ResponseWriter, r *http.Re
 	}
 	// Share links never see panel SQL, SQL link templates or links to other
 	// dashboards.
-	for i := range panels {
-		panels[i].Query = ""
-		panels[i].Config = dashboards.PublicPanelConfig(panels[i].Config)
+	public := make([]publicPanel, 0, len(panels))
+	for _, p := range panels {
+		public = append(public, publicPanel{
+			ID: p.ID, Name: p.Name, Description: p.Description, PanelType: p.PanelType,
+			Config:  dashboards.PublicPanelConfig(p.Config),
+			LayoutX: p.LayoutX, LayoutY: p.LayoutY, LayoutW: p.LayoutW, LayoutH: p.LayoutH,
+		})
 	}
 	// Constants are left out; ExecutePublicQuery substitutes them from the
 	// stored definition.
 	vars := dashboards.PublicList(h.loadVariables(share.DashboardID))
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"dashboard": dashboard,
-		"panels":    panels,
+		"dashboard": publicDashboard{ID: dashboard.ID, Name: dashboard.Name, Description: dashboard.Description, UpdatedAt: dashboard.UpdatedAt},
+		"panels":    public,
 		"variables": vars,
 	})
 }
@@ -1856,7 +1844,9 @@ func (h *DashboardsHandler) runPublicPanel(r *http.Request, share *database.Dash
 	// on the same result.
 	result, qErr := h.Gateway.ExecuteQueryWithSettings(share.ConnectionID, query, share.ClickhouseUser, password, publicQuerySettings, 35*time.Second)
 	if qErr != nil {
-		return errorPayload(http.StatusBadGateway, qErr.Error())
+		// ClickHouse errors can quote the SQL, which a share link never sees.
+		slog.Warn("Public panel query failed", "error", qErr, "dashboard", share.DashboardID)
+		return errorPayload(http.StatusBadGateway, publicPanelError)
 	}
 
 	payload, err := json.Marshal(map[string]interface{}{
@@ -1877,6 +1867,10 @@ func (h *DashboardsHandler) guardrailsEnabled() bool {
 	}
 	return h.Config == nil || h.Config.IsPro()
 }
+
+// publicPanelError is what a share link viewer sees when a panel query
+// fails; the ClickHouse error is logged instead.
+const publicPanelError = "This panel failed to load"
 
 func errorPayload(status int, message string) (int, []byte) {
 	payload, _ := json.Marshal(map[string]interface{}{"success": false, "error": message})

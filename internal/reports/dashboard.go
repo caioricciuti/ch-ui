@@ -26,11 +26,16 @@ const pieSlices = 10
 // heatmapCells is how many of the largest cells a heatmap panel lists.
 const heatmapCells = 5
 
+// maxSeries is how many series a split chart keeps, the largest by total, as
+// the chart on screen does (pivotSeries in ui/src/lib/utils/chart-transform.ts).
+const maxSeries = 10
+
 // panelConfig is the part of a panel's stored config a summary reads.
 type panelConfig struct {
 	ChartType       string   `json:"chartType"`
 	XColumn         string   `json:"xColumn"`
 	YColumns        []string `json:"yColumns"`
+	SeriesColumn    string   `json:"seriesColumn"`
 	StatField       string   `json:"statField"`
 	StatCalculation string   `json:"statCalculation"`
 	StatUnit        string   `json:"statUnit"`
@@ -117,7 +122,7 @@ func RenderPanel(p database.Panel, t Table) string {
 		if x < 0 {
 			x = 0
 		}
-		series := seriesOf(t, x, cfg.YColumns)
+		series, dropped := seriesOf(t, x, cfg.YColumns, cfg.SeriesColumn)
 		if len(series) == 0 {
 			b.WriteString("  No numeric series.\n")
 			break
@@ -132,6 +137,9 @@ func RenderPanel(p database.Panel, t Table) string {
 				maxV = math.Max(maxV, v)
 			}
 			fmt.Fprintf(&b, "  %s: last %s, min %s, max %s\n", s.name, formatNumber(s.values[len(s.values)-1]), formatNumber(minV), formatNumber(maxV))
+		}
+		if dropped > 0 {
+			fmt.Fprintf(&b, "  ... %d smaller series left out\n", dropped)
 		}
 	case "pie":
 		label := t.columnIndex(cfg.PieLabelColumn)
@@ -322,25 +330,37 @@ type series struct {
 	values []float64
 }
 
-// seriesOf returns the numeric series of a chart: the configured y columns
-// or every numeric column but x. In long form (x, one label column, one
-// value) each label is a series.
-func seriesOf(t Table, x int, yColumns []string) []series {
+// seriesOf returns the numeric series of a chart, each in x order (see
+// plotOrder), so "last" is the latest point and not the last row the query
+// happened to return. The series are the configured y columns, else every
+// numeric column but x. With a series column, as on screen, the first y
+// column is split into one series per value of that column. Without one, long
+// form (x, one label column, one value) is split by the label. A split keeps
+// the maxSeries largest series and also returns how many it left out.
+func seriesOf(t Table, x int, yColumns []string, seriesColumn string) ([]series, int) {
+	split := t.columnIndex(seriesColumn)
+	if split == x {
+		split = -1
+	}
 	var ys []int
 	for _, name := range yColumns {
-		if i := t.columnIndex(name); i >= 0 && i != x {
+		if i := t.columnIndex(name); i >= 0 && i != x && i != split {
 			ys = append(ys, i)
 		}
 	}
 	if len(ys) == 0 {
 		for i := range t.Columns {
-			if i != x && t.numericColumn(i) {
+			if i != x && i != split && t.numericColumn(i) {
 				ys = append(ys, i)
 			}
 		}
 	}
 	if len(ys) == 0 {
-		return nil
+		return nil, 0
+	}
+	rows := plotOrder(t, x)
+	if split >= 0 {
+		return pivot(rows, x, ys[0], split)
 	}
 	var labels []int
 	for i := range t.Columns {
@@ -349,33 +369,119 @@ func seriesOf(t Table, x int, yColumns []string) []series {
 		}
 	}
 	if len(ys) == 1 && len(labels) == 1 && len(yColumns) == 0 {
-		order := []string{}
-		byName := map[string]*series{}
-		for _, row := range t.Rows {
-			v, err := strconv.ParseFloat(cell(row, ys[0]), 64)
-			if err != nil {
-				continue
-			}
-			name := cell(row, labels[0])
-			s, ok := byName[name]
-			if !ok {
-				s = &series{name: name}
-				byName[name] = s
-				order = append(order, name)
-			}
-			s.values = append(s.values, v)
-		}
-		out := make([]series, 0, len(order))
-		for _, n := range order {
-			out = append(out, *byName[n])
-		}
-		return out
+		return pivot(rows, x, ys[0], labels[0])
 	}
 	out := make([]series, 0, len(ys))
 	for _, i := range ys {
-		out = append(out, series{name: t.Columns[i], values: columnValues(t, i)})
+		out = append(out, series{name: t.Columns[i], values: columnValues(Table{Rows: rows}, i)})
+	}
+	return out, 0
+}
+
+// pivot splits column y into one series per value of column split, like
+// pivotSeries on screen: rows that repeat an (x, series) pair are summed, an
+// empty label is NULL, and the maxSeries series with the largest total |y|
+// are kept, in first-seen order. rows must be in x order already.
+func pivot(rows [][]string, x, y, split int) ([]series, int) {
+	var order []string
+	byName := map[string]*series{}
+	totals := map[string]float64{}
+	at := map[string]map[string]int{}
+	for _, row := range rows {
+		name := cell(row, split)
+		if name == "" {
+			name = "NULL"
+		}
+		s, ok := byName[name]
+		if !ok {
+			s = &series{name: name}
+			byName[name] = s
+			at[name] = map[string]int{}
+			order = append(order, name)
+		}
+		v, err := strconv.ParseFloat(cell(row, y), 64)
+		if err != nil || math.IsNaN(v) {
+			continue
+		}
+		totals[name] += math.Abs(v)
+		key := cell(row, x)
+		if i, seen := at[name][key]; seen {
+			s.values[i] += v
+			continue
+		}
+		at[name][key] = len(s.values)
+		s.values = append(s.values, v)
+	}
+	ranked := append([]string(nil), order...)
+	sort.SliceStable(ranked, func(i, j int) bool { return totals[ranked[i]] > totals[ranked[j]] })
+	if len(ranked) > maxSeries {
+		ranked = ranked[:maxSeries]
+	}
+	keep := map[string]bool{}
+	for _, n := range ranked {
+		keep[n] = true
+	}
+	out := make([]series, 0, len(ranked))
+	for _, n := range order {
+		if keep[n] {
+			out = append(out, *byName[n])
+		}
+	}
+	return out, len(order) - len(out)
+}
+
+// plotOrder returns the rows in the order a chart plots them: sorted by x
+// when x holds times or numbers, leaving out rows whose x cannot be read, as
+// the chart does; in query order when x is a category.
+func plotOrder(t Table, x int) [][]string {
+	if x < 0 || x >= len(t.Columns) {
+		return t.Rows
+	}
+	var key func(string) (float64, bool)
+	switch {
+	case t.timeColumn(x):
+		key = timeKey
+	case t.numericColumn(x):
+		key = numberKey
+	default:
+		return t.Rows
+	}
+	type keyed struct {
+		k   float64
+		row []string
+	}
+	list := make([]keyed, 0, len(t.Rows))
+	for _, row := range t.Rows {
+		if k, ok := key(cell(row, x)); ok {
+			list = append(list, keyed{k, row})
+		}
+	}
+	sort.SliceStable(list, func(i, j int) bool { return list[i].k < list[j].k })
+	out := make([][]string, len(list))
+	for i, r := range list {
+		out[i] = r.row
 	}
 	return out
+}
+
+func numberKey(s string) (float64, bool) {
+	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	return v, err == nil && !math.IsNaN(v)
+}
+
+// timeKey reads a Date or DateTime cell (ISO, as report queries ask for, or
+// ClickHouse's plain text form) or an epoch number as microseconds.
+func timeKey(s string) (float64, bool) {
+	s = strings.TrimSpace(s)
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.999999999", "2006-01-02 15:04:05.999999999", "2006-01-02"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return float64(t.UnixMicro()), true
+		}
+	}
+	if v, ok := numberKey(s); ok {
+		return v * 1e6, true
+	}
+	return 0, false
 }
 
 // median of sorted values.

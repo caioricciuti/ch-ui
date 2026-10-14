@@ -19,6 +19,12 @@ import (
 // and that substitutes as seconds.
 const VarTypeInterval = "interval"
 
+// VarTypeSubquery marks a variable whose single value is a SELECT built on
+// the server (never from a request): "All" of a query variable with more
+// options than can be listed. It substitutes as is, and only inside IN (...),
+// the one place a subquery means the same as a list of values.
+const VarTypeSubquery = "subquery"
+
 // varNamePattern is a valid variable name. Names starting with "__" are
 // reserved for the built-in macros ($__timeFilter, $__interval, ...).
 var varNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -144,6 +150,14 @@ func SubstituteVars(query string, vars map[string][]string, types map[string]str
 				i++
 				continue
 			}
+			if types[name] == VarTypeSubquery {
+				if format != "" || len(values) != 1 || !inListContext(b.String(), query[end:]) {
+					return "", fmt.Errorf("variable %s: All covers more values than can be listed, so it only works as column IN ($%s)", name, name)
+				}
+				b.WriteString(values[0])
+				i = end
+				continue
+			}
 			out, err := formatVar(name, format, types[name], values)
 			if err != nil {
 				return "", err
@@ -156,6 +170,25 @@ func SubstituteVars(query string, vars map[string][]string, types map[string]str
 		}
 	}
 	return b.String(), nil
+}
+
+// inListContext reports whether a reference sits alone inside IN ( ... ):
+// before is the SQL written so far, after the SQL that follows the reference.
+func inListContext(before, after string) bool {
+	before = strings.TrimRight(before, " \t\r\n")
+	if !strings.HasSuffix(before, "(") {
+		return false
+	}
+	before = strings.TrimRight(before[:len(before)-1], " \t\r\n")
+	if len(before) < 2 || !strings.EqualFold(before[len(before)-2:], "IN") {
+		return false
+	}
+	if len(before) > 2 {
+		if c := before[len(before)-3]; c == '_' || isAlnum(c) {
+			return false
+		}
+	}
+	return strings.HasPrefix(strings.TrimLeft(after, " \t\r\n"), ")")
 }
 
 // skipQuoted returns the index just past the quoted token starting at i. A

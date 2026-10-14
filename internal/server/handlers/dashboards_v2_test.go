@@ -251,3 +251,19 @@ func TestVariableOptionsPreviewNeedsWriter(t *testing.T) {
 		}
 	}
 }
+
+func TestParseOptionsReturnsValueColumn(t *testing.T) {
+	opts, col, err := parseOptions(json.RawMessage(`[{"name":"host"},{"name":"label"}]`), json.RawMessage(`[{"host":"a","label":"A"},{"host":"a","label":"A"},{"host":"b","label":""}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if col != "host" || len(opts) != 2 || opts[0].Label != "A" || opts[1].Label != "b" {
+		t.Fatalf("col %q opts %+v", col, opts)
+	}
+	// The cached share-link payload carries the All subquery; decoding keeps it
+	// on the server side.
+	opts, all, err := decodeOptionsPayload(http.StatusOK, []byte(`{"success":true,"options":[{"value":"a","label":"a"}],"all":"SELECT 1"}`))
+	if err != nil || len(opts) != 1 || all != "SELECT 1" {
+		t.Fatalf("decode: %v %v %q", err, opts, all)
+	}
+}

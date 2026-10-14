@@ -134,9 +134,29 @@ func ValidatePanelLinks(config string) error {
 	return nil
 }
 
+// clickToken is one ${...} token of a link template.
+var clickToken = regexp.MustCompile(`\$\{([^{}]*)\}`)
+
+// clickOnly reports whether every token of a template comes from the clicked
+// point (${__value}, ${__field}, ${__series}, ${__row.<column>}): values the
+// viewer already sees in the panel, never another variable's.
+func clickOnly(template string) bool {
+	for _, m := range clickToken.FindAllStringSubmatch(template, -1) {
+		switch name := m[1]; {
+		case name == "__value", name == "__field", name == "__series":
+		case strings.HasPrefix(name, "__row.") && len(name) > len("__row."):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // PublicPanelConfig returns a panel config as a share link viewer may see
-// it: only setVariable and url links, with only the fields those use. SQL
-// templates and links to other dashboards stay on the server.
+// it: only setVariable and url links, with only the fields those use. A
+// setVariable template is kept when it uses only tokens of the clicked point
+// (see clickOnly). SQL templates and links to other dashboards stay on the
+// server.
 func PublicPanelConfig(config string) string {
 	raw, obj := panelLinks(config)
 	if raw == nil {
@@ -148,7 +168,11 @@ func PublicPanelConfig(config string) string {
 	for _, l := range links {
 		switch l.Kind {
 		case LinkSetVariable:
-			kept = append(kept, PanelLink{Kind: l.Kind, Label: l.Label, Variable: l.Variable})
+			pl := PanelLink{Kind: l.Kind, Label: l.Label, Variable: l.Variable}
+			if clickOnly(l.Template) {
+				pl.Template = l.Template
+			}
+			kept = append(kept, pl)
 		case LinkURL:
 			kept = append(kept, PanelLink{Kind: l.Kind, Label: l.Label, Template: l.Template})
 		}

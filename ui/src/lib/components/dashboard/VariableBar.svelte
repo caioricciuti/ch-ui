@@ -298,7 +298,7 @@
                   {/each}
                 </div>
                 {#if st?.truncated}
-                  <p class="border-t border-edge-subtle px-2.5 py-1.5 text-xs text-fg-3">List cut at the first {st.options.length} values</p>
+                  <p class="border-t border-edge-subtle px-2.5 py-1.5 text-xs text-fg-3">List cut at the first {st.options.length} values{v.include_all ? '. All still covers every value' : ''}</p>
                 {/if}
               </div>
             {/if}

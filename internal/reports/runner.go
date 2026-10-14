@@ -535,29 +535,23 @@ func (r *Runner) buildDashboard(ctx context.Context, s *database.ReportSubscript
 // defaults), expands its macros for the fixed range and runs it.
 func (r *Runner) runPanel(ctx context.Context, s *database.ReportSubscription, creds Credentials, p database.Panel, vars []dashboards.Variable, tr *queryproc.TimeRange, used map[string][]string) (Table, error) {
 	defs := dashboards.Needed(vars, p.Query)
-	types := map[string]string{}
-	for _, v := range defs {
-		if v.Type == dashboards.TypeInterval {
-			types[v.Name] = dashboards.TypeInterval
-		}
-	}
-	run := func(v dashboards.Variable, parents map[string][]string) ([]dashboards.Option, error) {
-		processed := queryproc.ProcessQueryVariables(queryproc.ProcessorOptions{Query: v.Query, TimeRange: tr, MaxDataPoints: 1000, Vars: parents, VarTypes: types})
+	run := func(v dashboards.Variable, parents map[string][]string, parentTypes map[string]string) ([]dashboards.Option, string, error) {
+		processed := queryproc.ProcessQueryVariables(queryproc.ProcessorOptions{Query: v.Query, TimeRange: tr, MaxDataPoints: 1000, Vars: parents, VarTypes: parentTypes})
 		if len(processed.Errors) > 0 {
-			return nil, fmt.Errorf("variable %s: %s", v.Name, strings.Join(processed.Errors, "; "))
+			return nil, "", fmt.Errorf("variable %s: %s", v.Name, strings.Join(processed.Errors, "; "))
 		}
 		sql := strings.TrimSpace(processed.Query)
 		if err := r.checkGuardrails(s.ConnectionID, creds.User, sql); err != nil {
-			return nil, fmt.Errorf("variable %s: %w", v.Name, err)
+			return nil, "", fmt.Errorf("variable %s: %w", v.Name, err)
 		}
 		res, err := r.exec.ExecuteQueryWithSettingsCtx(ctx, s.ConnectionID, sql, creds.User, creds.Password,
 			querySettings(s.TimeoutSeconds, dashboards.MaxOptions, 8<<20), time.Duration(s.TimeoutSeconds)*time.Second+queryGrace)
 		if err != nil {
-			return nil, fmt.Errorf("variable %s: %w", v.Name, err)
+			return nil, "", fmt.Errorf("variable %s: %w", v.Name, err)
 		}
 		t, err := ParseResult(res, dashboards.MaxOptions)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		out := make([]dashboards.Option, 0, len(t.Rows))
 		for _, row := range t.Rows {
@@ -565,13 +559,21 @@ func (r *Runner) runPanel(ctx context.Context, s *database.ReportSubscription, c
 				out = append(out, dashboards.Option{Value: row[0], Label: row[0]})
 			}
 		}
-		return out, nil
+		// At the cap the list may be cut: "All" becomes a subquery instead.
+		all := ""
+		if len(out) >= dashboards.MaxOptions && len(t.Columns) > 0 {
+			all = dashboards.AllSubquery(sql, t.Columns[0])
+		}
+		return out, all, nil
 	}
 	values, varTypes, err := dashboards.Resolve(defs, s.Variables, false, run)
 	if err != nil {
 		return Table{}, err
 	}
 	for k, v := range values {
+		if varTypes[k] == queryproc.VarTypeSubquery {
+			v = []string{"All"}
+		}
 		used[k] = v
 	}
 	processed := queryproc.ProcessQueryVariables(queryproc.ProcessorOptions{

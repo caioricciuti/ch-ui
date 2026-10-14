@@ -8,8 +8,11 @@ import (
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
+	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
+	"github.com/caioricciuti/ch-ui/internal/testutil"
+	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
 
 type publicFixture struct {
@@ -160,5 +163,73 @@ func TestPublicQuerySettingsAreReadOnly(t *testing.T) {
 		if publicQuerySettings[key] == "" {
 			t.Fatalf("public queries must set %s", key)
 		}
+	}
+}
+
+// A share link gets only what the shared page draws, and a failing query
+// answers with a generic message: ClickHouse errors can quote the SQL.
+func TestPublicDashboardPayloadAndErrorsStayPrivate(t *testing.T) {
+	db, conn := testutil.WorkerDB(t)
+	agent := testutil.NewAgent(t, db, "worker-token", func(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
+		return &tunnel.AgentMessage{Type: "query_error", Error: "Code: 47. Unknown identifier in scope " + msg.SQL}
+	})
+	const secret = "test-secret"
+	enc, err := crypto.Encrypt("pw", secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dash, err := db.CreateDashboard("Shared", "", "owner@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	panelID, err := db.CreatePanel(dash, "Rows", "", "table", "SELECT secret_column FROM private_table", conn, "{}", 0, 0, 4, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetDashboardVariables(dash, `[{"name":"host","type":"query","query":"SELECT host FROM hidden_hosts"}]`); err != nil {
+		t.Fatal(err)
+	}
+	share, err := db.CreateDashboardShare(dash, "viewer", "public", "", conn, "default", enc, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := (&DashboardsHandler{DB: db, Gateway: agent.Gateway, Config: &config.Config{AppSecretKey: secret}}).PublicRoutes()
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/"+share.Token, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	for _, leak := range []string{"owner@example.com", `"created_by"`, `"folder_id"`, `"tags"`, `"connection_id"`, conn, `"query":`, "hidden_hosts"} {
+		if strings.Contains(rec.Body.String(), leak) {
+			t.Fatalf("public dashboard sends %s: %s", leak, rec.Body.String())
+		}
+	}
+	var resp struct {
+		Dashboard struct {
+			Name string `json:"name"`
+		} `json:"dashboard"`
+		Panels []struct {
+			ID        string `json:"id"`
+			PanelType string `json:"panel_type"`
+			LayoutW   int    `json:"layout_w"`
+		} `json:"panels"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Dashboard.Name != "Shared" || len(resp.Panels) != 1 || resp.Panels[0].ID != panelID || resp.Panels[0].PanelType != "table" || resp.Panels[0].LayoutW != 4 {
+		t.Fatalf("public dashboard lost what the page needs: %s", rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/"+share.Token+"/query", strings.NewReader(`{"panel_id":"`+panelID+`"}`)))
+	if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), publicPanelError) || strings.Contains(rec.Body.String(), "private_table") {
+		t.Fatalf("panel error: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/"+share.Token+"/variables/host/options", strings.NewReader(`{}`)))
+	if rec.Code != http.StatusBadGateway || strings.Contains(rec.Body.String(), "hidden_hosts") || !strings.Contains(rec.Body.String(), "failed to load") {
+		t.Fatalf("options error: %d %s", rec.Code, rec.Body.String())
 	}
 }

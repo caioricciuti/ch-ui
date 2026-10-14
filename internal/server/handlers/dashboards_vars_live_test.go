@@ -196,6 +196,52 @@ func TestDashboardVariablesLive(t *testing.T) {
 		}
 	})
 
+	t.Run("All past the options cap covers every value", func(t *testing.T) {
+		many := dbName + ".many"
+		exec("CREATE TABLE " + many + " (name String) ENGINE = MergeTree ORDER BY name")
+		exec("INSERT INTO " + many + " SELECT toString(number) FROM numbers(1500)")
+		rec := do(http.MethodPost, "/", `{"name":"many"}`)
+		var created struct {
+			Dashboard struct {
+				ID string `json:"id"`
+			} `json:"dashboard"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &created)
+		id := created.Dashboard.ID
+		vars := []dashboards.Variable{{Name: "name", Type: dashboards.TypeQuery, Query: "SELECT name FROM " + many + " ORDER BY name;", Multi: true, IncludeAll: true}}
+		raw, _ := json.Marshal(map[string]interface{}{"variables": vars})
+		if rec := do(http.MethodPut, "/"+id+"/variables", string(raw)); rec.Code != http.StatusOK {
+			t.Fatalf("save variables: %d %s", rec.Code, rec.Body.String())
+		}
+		query := "SELECT count() AS c FROM " + many + " WHERE name IN (${name})"
+		all := map[string][]string{"name": {dashboards.AllValue}}
+		if got := count(t, query, all, id); got != "1500" {
+			t.Fatalf("All: got %s, want 1500", got)
+		}
+		body, _ := json.Marshal(map[string]interface{}{"query": "SELECT count() AS c FROM " + many + " WHERE name = ${name}", "variables": all, "dashboard_id": id})
+		if rec := do(http.MethodPost, "/query", string(body)); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "IN ($name)") {
+			t.Fatalf("All outside IN must be refused: %d %s", rec.Code, rec.Body.String())
+		}
+
+		share, err := db.CreateDashboardShare(id, "viewer", "public", "", conn, user, enc, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		panelBody, _ := json.Marshal(map[string]interface{}{"name": "n", "panel_type": "stat", "query": query})
+		rec = do(http.MethodPost, "/"+id+"/panels", string(panelBody))
+		var p struct {
+			Panel struct {
+				ID string `json:"id"`
+			} `json:"panel"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &p)
+		pub := httptest.NewRecorder()
+		h.PublicRoutes().ServeHTTP(pub, httptest.NewRequest(http.MethodPost, "/"+share.Token+"/query", strings.NewReader(`{"panel_id":"`+p.Panel.ID+`","variables":{"name":["$__all"]}}`)))
+		if pub.Code != http.StatusOK || !(strings.Contains(pub.Body.String(), `"c":"1500"`) || strings.Contains(pub.Body.String(), `"c":1500}`)) {
+			t.Fatalf("public All: %d %s", pub.Code, pub.Body.String())
+		}
+	})
+
 	t.Run("docs examples execute", func(t *testing.T) {
 		rangeBody := map[string]string{"type": "relative", "from": "1h", "to": "now"}
 		run := func(query string, vars map[string][]string, dashID string) {

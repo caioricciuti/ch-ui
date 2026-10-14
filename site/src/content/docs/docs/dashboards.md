@@ -226,7 +226,7 @@ Variables are the controls in the bar under the dashboard header. A panel query 
 | Type | Values come from |
 |---|---|
 | `query` | A SQL query: the first column is the value, an optional second column the label shown. At most 1,000 rows. |
-| `custom` | A comma separated list, for example `prod,staging,dev` |
+| `custom` | A comma separated list, for example `prod,staging,dev`. At most 1,000 values. |
 | `text` | A free text input |
 | `constant` | A fixed value, not shown in the bar (useful for a database name used by many panels) |
 | `interval` | A comma separated list of durations, for example `1m,5m,1h`. Substituted as a number of seconds. |
@@ -252,6 +252,7 @@ Values are always quoted by the server as ClickHouse string literals; the browse
 - `${name:raw}` is not supported, on purpose: no value is ever put into SQL unquoted.
 - Variables inside comments, quoted identifiers and `$$heredoc$$` strings are left alone. Names are word bounded: `$db` does not touch `$db_name`. Names starting with `__` are reserved for the time macros.
 - Variables are substituted after the time macros, so a query variable can use `$__timeFilter` too.
+- **All with more than 1,000 options.** The option list stops at 1,000 rows, but All never stops there. When a query variable returns 1,000 options or more, All is substituted as a subquery over the variable's own query (with its time macros and parent variables already filled in), so `host IN (${host})` becomes `host IN (SELECT host FROM (...))` and covers every value. That form only means the same thing inside `IN (...)`, so with such a selection the variable must be used exactly as `column IN ($name)`; anywhere else (`= $name`, `${name:number}`, inside a function) the panel fails with an error that says so, instead of quietly filtering to the first 1,000 values. The same applies on share links and in report summaries.
 
 ### Examples
 
@@ -336,7 +337,7 @@ Templates take these tokens:
 
 | Token | Replaced with |
 |---|---|
-| `${__value}` | The clicked value. A time is written as an ISO instant |
+| `${__value}` | The clicked value, as ClickHouse returned it: a `Date` stays `2026-01-01` in every time zone, a `DateTime` is the UTC instant panels receive (`2026-01-01T10:00:00Z`) |
 | `${__field}` | The column of the clicked value |
 | `${__series}` | The series of the clicked point; empty when the panel has none |
 | `${__row.<column>}` | Another column of the clicked row, such as `${__row.host}` |

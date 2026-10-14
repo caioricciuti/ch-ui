@@ -219,8 +219,9 @@ type chCredentials struct {
 // runOptionsQuery expands the macros and the parent variables in an options
 // query, applies the governance guardrails and runs it read only, capped at
 // MaxOptions rows. The first column is the value, the second (if any) the
-// label.
-func (h *DashboardsHandler) runOptionsQuery(ctx context.Context, creds chCredentials, endpoint string, v dashboards.Variable, parents map[string][]string, parentTypes map[string]string, timeRange *queryproc.TimeRange) ([]dashboards.Option, error) {
+// label. When the cap is reached, all is the SELECT "All" expands to (see
+// dashboards.AllSubquery).
+func (h *DashboardsHandler) runOptionsQuery(ctx context.Context, creds chCredentials, endpoint string, v dashboards.Variable, parents map[string][]string, parentTypes map[string]string, timeRange *queryproc.TimeRange) ([]dashboards.Option, string, error) {
 	if parents == nil {
 		parents = map[string][]string{}
 	}
@@ -232,48 +233,57 @@ func (h *DashboardsHandler) runOptionsQuery(ctx context.Context, creds chCredent
 		VarTypes:      parentTypes,
 	})
 	if len(processed.Errors) > 0 {
-		return nil, &statusError{http.StatusBadRequest, fmt.Sprintf("variable %s: %s", v.Name, strings.Join(processed.Errors, "; "))}
+		return nil, "", &statusError{http.StatusBadRequest, fmt.Sprintf("variable %s: %s", v.Name, strings.Join(processed.Errors, "; "))}
 	}
 	query := strings.TrimSpace(processed.Query)
 	if h.guardrailsEnabled() {
 		decision, err := h.Guardrails.EvaluateQuery(creds.connectionID, creds.user, query, endpoint)
 		if err != nil {
 			slog.Error("Guardrail evaluation failed for variable options", "error", err)
-			return nil, &statusError{http.StatusInternalServerError, "Failed to evaluate governance guardrails"}
+			return nil, "", &statusError{http.StatusInternalServerError, "Failed to evaluate governance guardrails"}
 		}
 		if !decision.Allowed {
-			return nil, &statusError{http.StatusForbidden, fmt.Sprintf("variable %s: query blocked by governance policy", v.Name)}
+			return nil, "", &statusError{http.StatusForbidden, fmt.Sprintf("variable %s: query blocked by governance policy", v.Name)}
 		}
 	}
 	if h.Gateway == nil || h.Config == nil {
-		return nil, &statusError{http.StatusServiceUnavailable, "No ClickHouse connection available"}
+		return nil, "", &statusError{http.StatusServiceUnavailable, "No ClickHouse connection available"}
 	}
 	password, err := crypto.Decrypt(creds.encryptedPassword, h.Config.AppSecretKey)
 	if err != nil {
 		slog.Error("Failed to decrypt credentials for variable options", "error", err)
-		return nil, &statusError{http.StatusInternalServerError, "Failed to decrypt credentials"}
+		return nil, "", &statusError{http.StatusInternalServerError, "Failed to decrypt credentials"}
 	}
 	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(ctx, creds.connectionID, query, creds.user, password, optionsQuerySettings(), 35*time.Second)
 	if err != nil {
-		return nil, &statusError{http.StatusBadGateway, fmt.Sprintf("variable %s: %v", v.Name, err)}
+		return nil, "", &statusError{http.StatusBadGateway, fmt.Sprintf("variable %s: %v", v.Name, err)}
 	}
-	return parseOptions(result.Meta, result.Data)
+	opts, valueColumn, err := parseOptions(result.Meta, result.Data)
+	if err != nil {
+		return nil, "", err
+	}
+	all := ""
+	if len(opts) >= dashboards.MaxOptions && valueColumn != "" {
+		all = dashboards.AllSubquery(query, valueColumn)
+	}
+	return opts, all, nil
 }
 
 // parseOptions turns a FORMAT JSON result into options: the first column is
-// the value, an optional second column the label. Duplicates are dropped.
-func parseOptions(metaRaw, dataRaw json.RawMessage) ([]dashboards.Option, error) {
+// the value, an optional second column the label. Duplicates are dropped. It
+// also returns the name of the value column.
+func parseOptions(metaRaw, dataRaw json.RawMessage) ([]dashboards.Option, string, error) {
 	var meta []struct {
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(metaRaw, &meta); err != nil || len(meta) == 0 {
-		return []dashboards.Option{}, nil
+		return []dashboards.Option{}, "", nil
 	}
 	var rows []map[string]json.RawMessage
 	dec := json.NewDecoder(bytes.NewReader(dataRaw))
 	dec.UseNumber()
 	if err := dec.Decode(&rows); err != nil {
-		return nil, &statusError{http.StatusBadGateway, "Unexpected options query result"}
+		return nil, "", &statusError{http.StatusBadGateway, "Unexpected options query result"}
 	}
 	out := make([]dashboards.Option, 0, len(rows))
 	seen := map[string]bool{}
@@ -291,7 +301,7 @@ func parseOptions(metaRaw, dataRaw json.RawMessage) ([]dashboards.Option, error)
 		}
 		out = append(out, dashboards.Option{Value: value, Label: label})
 	}
-	return out, nil
+	return out, meta[0].Name, nil
 }
 
 // jsonText renders one JSON value as text: strings unquoted, null empty,
@@ -318,17 +328,6 @@ func shareCredentials(s *database.DashboardShare) chCredentials {
 	return chCredentials{connectionID: s.ConnectionID, user: s.ClickhouseUser, encryptedPassword: s.EncryptedPassword}
 }
 
-// typesOf returns the interval variables among vars.
-func typesOf(vars []dashboards.Variable) map[string]string {
-	t := map[string]string{}
-	for _, v := range vars {
-		if v.Type == dashboards.TypeInterval {
-			t[v.Name] = dashboards.TypeInterval
-		}
-	}
-	return t
-}
-
 // sessionVariableValues resolves the variable values for an authenticated
 // panel query. Without a dashboard the values are used as given, always
 // quoted. With one, defaults fill what is missing and "All" expands.
@@ -343,9 +342,8 @@ func (h *DashboardsHandler) sessionVariableValues(r *http.Request, session *midd
 	// Only what this query uses is resolved, so options queries run only
 	// when a panel needs them.
 	defs := dashboards.Needed(all, query)
-	types := typesOf(defs)
-	run := func(v dashboards.Variable, parents map[string][]string) ([]dashboards.Option, error) {
-		return h.runOptionsQuery(r.Context(), sessionCredentials(session), r.URL.Path, v, parents, types, timeRange)
+	run := func(v dashboards.Variable, parents map[string][]string, parentTypes map[string]string) ([]dashboards.Option, string, error) {
+		return h.runOptionsQuery(r.Context(), sessionCredentials(session), r.URL.Path, v, parents, parentTypes, timeRange)
 	}
 	values, types, err := dashboards.Resolve(defs, requested, false, run)
 	if err != nil {
@@ -356,14 +354,21 @@ func (h *DashboardsHandler) sessionVariableValues(r *http.Request, session *midd
 
 // publicOptions returns the options of a variable for a share link, from
 // cache when possible. A miss counts against the viewer's query budget.
-func (h *DashboardsHandler) publicOptions(r *http.Request, share *database.DashboardShare, v dashboards.Variable, parents map[string][]string, types map[string]string, timeRange *queryproc.TimeRange, rangeKey string) ([]dashboards.Option, error) {
+//
+// The cached payload never leaves the server whole: it holds the "All"
+// subquery, which carries the options query a share link must not see.
+func (h *DashboardsHandler) publicOptions(r *http.Request, share *database.DashboardShare, v dashboards.Variable, parents map[string][]string, parentTypes map[string]string, timeRange *queryproc.TimeRange, rangeKey string) ([]dashboards.Option, string, error) {
 	if v.Type != dashboards.TypeQuery {
-		return v.StaticOptions(), nil
+		return v.StaticOptions(), "", nil
 	}
 	// Only the parents the query references can change its result.
 	used := map[string][]string{}
+	usedTypes := map[string]string{}
 	for _, name := range queryproc.ReferencedVars(v.Query, keys(parents)) {
 		used[name] = parents[name]
+		if t := parentTypes[name]; t != "" {
+			usedTypes[name] = t
+		}
 	}
 	if !queryproc.HasTimeVariables(v.Query) {
 		rangeKey = "none"
@@ -376,33 +381,39 @@ func (h *DashboardsHandler) publicOptions(r *http.Request, share *database.Dashb
 	}
 	_, limiter := h.publicState()
 	if !limiter.allow(share.Token + "|" + middleware.ClientIP(r)) {
-		return nil, &statusError{http.StatusTooManyRequests, "Rate limit exceeded. Please slow down."}
+		return nil, "", &statusError{http.StatusTooManyRequests, "Rate limit exceeded. Please slow down."}
 	}
 	status, payload := cache.do(key, func() (int, []byte) {
-		opts, err := h.runOptionsQuery(context.Background(), shareCredentials(share), r.URL.Path, v, used, types, timeRange)
+		opts, all, err := h.runOptionsQuery(context.Background(), shareCredentials(share), r.URL.Path, v, used, usedTypes, timeRange)
 		if err != nil {
 			se := asStatusError(err)
+			if se.status == http.StatusBadGateway {
+				// A ClickHouse error can quote the options query.
+				slog.Warn("Public variable options query failed", "error", se.msg, "dashboard", share.DashboardID)
+				return errorPayload(se.status, fmt.Sprintf("The options of %s failed to load", v.Name))
+			}
 			return errorPayload(se.status, se.msg)
 		}
-		b, _ := json.Marshal(map[string]interface{}{"success": true, "options": opts})
+		b, _ := json.Marshal(map[string]interface{}{"success": true, "options": opts, "all": all})
 		return http.StatusOK, b
 	})
 	return decodeOptionsPayload(status, payload)
 }
 
-func decodeOptionsPayload(status int, payload []byte) ([]dashboards.Option, error) {
+func decodeOptionsPayload(status int, payload []byte) ([]dashboards.Option, string, error) {
 	var body struct {
 		Options []dashboards.Option `json:"options"`
+		All     string              `json:"all"`
 		Error   string              `json:"error"`
 	}
 	_ = json.Unmarshal(payload, &body)
 	if status != http.StatusOK {
-		return nil, &statusError{status, body.Error}
+		return nil, "", &statusError{status, body.Error}
 	}
 	if body.Options == nil {
 		body.Options = []dashboards.Option{}
 	}
-	return body.Options, nil
+	return body.Options, body.All, nil
 }
 
 // publicVariableValues resolves variable values for a share link: every
@@ -413,13 +424,12 @@ func (h *DashboardsHandler) publicVariableValues(r *http.Request, share *databas
 	if len(defs) == 0 {
 		return nil, nil, nil
 	}
-	types := typesOf(defs)
 	rangeKey := "none"
 	if timeRange != nil {
 		rangeKey = timeRange.Type + "|" + timeRange.From + "|" + timeRange.To
 	}
-	run := func(v dashboards.Variable, parents map[string][]string) ([]dashboards.Option, error) {
-		return h.publicOptions(r, share, v, parents, types, timeRange, rangeKey)
+	run := func(v dashboards.Variable, parents map[string][]string, parentTypes map[string]string) ([]dashboards.Option, string, error) {
+		return h.publicOptions(r, share, v, parents, parentTypes, timeRange, rangeKey)
 	}
 	values, types, err := dashboards.Resolve(defs, requested, true, run)
 	if err != nil {
@@ -488,17 +498,16 @@ func (h *DashboardsHandler) VariableOptions(w http.ResponseWriter, r *http.Reque
 	}
 
 	parentDefs := dashboards.Before(defs, name)
-	types := typesOf(defs)
-	run := func(pv dashboards.Variable, parents map[string][]string) ([]dashboards.Option, error) {
-		return h.runOptionsQuery(r.Context(), sessionCredentials(session), r.URL.Path, pv, parents, types, body.TimeRange)
+	run := func(pv dashboards.Variable, parents map[string][]string, parentTypes map[string]string) ([]dashboards.Option, string, error) {
+		return h.runOptionsQuery(r.Context(), sessionCredentials(session), r.URL.Path, pv, parents, parentTypes, body.TimeRange)
 	}
-	parents, _, err := dashboards.Resolve(parentDefs, body.Variables, false, run)
+	parents, parentTypes, err := dashboards.Resolve(parentDefs, body.Variables, false, run)
 	if err != nil {
 		se := asStatusError(err)
 		writeError(w, se.status, se.msg)
 		return
 	}
-	opts, err := dashboards.Options(v, parents, run)
+	opts, err := dashboards.Options(v, parents, parentTypes, run)
 	if err != nil {
 		se := asStatusError(err)
 		writeError(w, se.status, se.msg)
@@ -528,17 +537,16 @@ func (h *DashboardsHandler) PublicVariableOptions(w http.ResponseWriter, r *http
 		return
 	}
 	timeRange, rangeKey := snapPublicTimeRange(body.TimeRange, time.Now())
-	types := typesOf(defs)
-	run := func(pv dashboards.Variable, parents map[string][]string) ([]dashboards.Option, error) {
-		return h.publicOptions(r, share, pv, parents, types, timeRange, rangeKey)
+	run := func(pv dashboards.Variable, parents map[string][]string, parentTypes map[string]string) ([]dashboards.Option, string, error) {
+		return h.publicOptions(r, share, pv, parents, parentTypes, timeRange, rangeKey)
 	}
-	parents, _, err := dashboards.Resolve(dashboards.Before(defs, name), body.Variables, true, run)
+	parents, parentTypes, err := dashboards.Resolve(dashboards.Before(defs, name), body.Variables, true, run)
 	if err != nil {
 		se := asStatusError(err)
 		writeError(w, se.status, se.msg)
 		return
 	}
-	opts, err := dashboards.Options(v, parents, run)
+	opts, err := dashboards.Options(v, parents, parentTypes, run)
 	if err != nil {
 		se := asStatusError(err)
 		writeError(w, se.status, se.msg)

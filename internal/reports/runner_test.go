@@ -9,6 +9,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +19,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/alerts"
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
+	"github.com/caioricciuti/ch-ui/internal/dashboards"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/governance"
 	"github.com/caioricciuti/ch-ui/internal/mail"
@@ -373,5 +376,37 @@ func TestSavedQueryParamsNeedDefaults(t *testing.T) {
 	q := &database.SavedQuery{Query: "SELECT {a:UInt8}, {b:String}, '{c:String}'", Parameters: &params}
 	if _, err := SavedQueryParams(q); err == nil || !strings.Contains(err.Error(), "b") || strings.Contains(err.Error(), "c") {
 		t.Fatalf("want missing b only, got %v", err)
+	}
+}
+
+// "All" of a query variable whose options reach the cap runs as a subquery
+// over the options query, never as the first MaxOptions values, and the
+// summary names it All.
+func TestRunPanelAllPastTheOptionsCap(t *testing.T) {
+	f := newFixture(t, "service_account")
+	rows := make([]string, dashboards.MaxOptions)
+	for i := range rows {
+		rows[i] = fmt.Sprintf(`{"host":"h%d"}`, i)
+	}
+	f.exec.result = &tunnel.QueryResult{
+		Meta: json.RawMessage(`[{"name":"host","type":"String"}]`),
+		Data: json.RawMessage("[" + strings.Join(rows, ",") + "]"),
+	}
+	vars := []dashboards.Variable{{Name: "host", Type: dashboards.TypeQuery, Query: "SELECT host FROM logs", Multi: true, IncludeAll: true}}
+	s := *f.sub
+	s.Variables = map[string][]string{"host": {dashboards.AllValue}}
+	p := database.Panel{Query: "SELECT count() AS n FROM logs WHERE host IN ($host)"}
+	used := map[string][]string{}
+	if _, err := f.runner.runPanel(context.Background(), &s, Credentials{User: "reporter"}, p, vars, nil, used); err != nil {
+		t.Fatal(err)
+	}
+	if f.exec.count() != 2 {
+		t.Fatalf("want the options query and the panel query, got %v", f.exec.calls)
+	}
+	if want := "WHERE host IN (SELECT `host` FROM (\nSELECT host FROM logs\n))"; !strings.Contains(f.exec.calls[1], want) {
+		t.Fatalf("panel query %q\nwant it to contain %q", f.exec.calls[1], want)
+	}
+	if !reflect.DeepEqual(used["host"], []string{"All"}) {
+		t.Fatalf("summary values %v", used["host"])
 	}
 }

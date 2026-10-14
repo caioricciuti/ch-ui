@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caioricciuti/ch-ui/internal/dashboards"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/queryproc"
@@ -164,8 +165,8 @@ func TestCreatePanelWithoutLayoutYAppendsBelow(t *testing.T) {
 }
 
 func TestNextPanelRowOnEmptyDashboard(t *testing.T) {
-	if got := nextPanelRow(nil); got != 0 {
-		t.Fatalf("nextPanelRow(nil) = %d, want 0", got)
+	if got := dashboards.NextPanelRow(nil); got != 0 {
+		t.Fatalf("dashboards.NextPanelRow(nil) = %d, want 0", got)
 	}
 }
 

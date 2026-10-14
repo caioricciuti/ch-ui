@@ -11,6 +11,10 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/caioricciuti/ch-ui/internal/dashboards"
+	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 )
 
 func TestPanelTypeEnumMatchesSupportedTypes(t *testing.T) {
@@ -128,5 +132,65 @@ func TestPanelConfigForNewTypes(t *testing.T) {
 		if got := panelConfigFor(c.in); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: got %v, want %v", c.in.PanelType, got, c.want)
 		}
+	}
+}
+
+// add_dashboard_panel keeps panels inside the grid the REST routes enforce,
+// places them below existing panels and records a dashboard version.
+func TestAddDashboardPanelLayoutAndVersions(t *testing.T) {
+	db, err := dbtest.Open(t, "brain.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	dash, err := db.CreateDashboard("ops", "", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreatePanel(dash, "first", "", "text", "", "", `{}`, 0, 0, 12, 5); err != nil {
+		t.Fatal(err)
+	}
+	tctx := Context{DB: db, Username: "alice", WorkspaceURL: "http://localhost"}
+	add := func(args map[string]any) database.Panel {
+		t.Helper()
+		args["dashboard_id"], args["panel_type"], args["content"] = dash, "text", "note"
+		raw, _ := json.Marshal(args)
+		out, err := addDashboardPanel.Handler(tctx, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := db.GetPanelByID(out.(map[string]any)["panel_id"].(string))
+		if err != nil || p == nil {
+			t.Fatalf("panel not saved: %v", err)
+		}
+		return *p
+	}
+
+	p := add(map[string]any{"name": "default"})
+	if p.LayoutX != 0 || p.LayoutY != 5 || p.LayoutW != 6 || p.LayoutH != 4 {
+		t.Fatalf("default placement %d,%d %dx%d", p.LayoutX, p.LayoutY, p.LayoutW, p.LayoutH)
+	}
+	p = add(map[string]any{"name": "wide", "layout_x": 10, "layout_w": 6, "layout_h": 500, "layout_y": 99999})
+	if p.LayoutX != 6 || p.LayoutW != 6 || p.LayoutH != dashboards.GridMaxRows || p.LayoutY != dashboards.GridMaxRow {
+		t.Fatalf("clamped %d,%d %dx%d", p.LayoutX, p.LayoutY, p.LayoutW, p.LayoutH)
+	}
+	if msg := dashboards.ValidateLayout(p.LayoutX, p.LayoutY, p.LayoutW, p.LayoutH); msg != "" {
+		t.Fatal(msg)
+	}
+	p = add(map[string]any{"name": "negative", "layout_x": -3, "layout_w": 0, "layout_h": -1, "layout_y": -2})
+	if p.LayoutX != 0 || p.LayoutY != 0 || p.LayoutW != 1 || p.LayoutH != 1 {
+		t.Fatalf("clamped up %d,%d %dx%d", p.LayoutX, p.LayoutY, p.LayoutW, p.LayoutH)
+	}
+
+	versions, err := db.ListDashboardVersions(dash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A baseline from before the first change, then one version per panel.
+	if len(versions) != 4 {
+		t.Fatalf("want 4 versions, got %d", len(versions))
+	}
+	if newest := versions[0]; newest.PanelCount != 4 || newest.CreatedBy == nil || *newest.CreatedBy != "alice" {
+		t.Fatalf("newest version %+v", newest)
 	}
 }
