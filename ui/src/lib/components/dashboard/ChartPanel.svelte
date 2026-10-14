@@ -137,11 +137,11 @@
       hi = Math.max(hi, v)
     }
     const radius = (i: number): number => {
-      if (!sizes) return 3
+      if (!sizes) return 2.5
       const v = sizes[i]
       if (v == null) return 2
-      if (hi === lo) return 5
-      return 2 + 10 * Math.sqrt((v - lo) / (hi - lo))
+      if (hi === lo) return 3
+      return 1.5 + 5.5 * Math.sqrt((v - lo) / (hi - lo))
     }
     return (u, sidx, i0, i1) => {
       const fill = new Path2D()
@@ -353,12 +353,15 @@
         stroke: color,
         width: 2,
         show: !hiddenSeries.has(yColumns[i]),
-        spanGaps: false,
+        // A pivoted series has no row where another series has one; join
+        // across those holes instead of drawing nothing.
+        spanGaps: pivot != null,
       }
 
       if (histogram) {
         s.fill = color + '80'
         s.paths = groupedBarPaths(0, 1)
+        s.points = { show: false }
       } else if (scatter) {
         s.fill = color + '66'
         s.width = 1
@@ -367,6 +370,7 @@
       } else if (isBar) {
         s.fill = color + '80'
         s.paths = config.barMode === 'stacked' ? stackedBarPaths() : groupedBarPaths(i, yColumns.length)
+        s.points = { show: false }
       } else {
         s.fill = color + (config.fill === 'area' ? '4D' : '1A')
       }
