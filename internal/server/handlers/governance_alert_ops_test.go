@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caioricciuti/ch-ui/internal/accesshistory"
+	"github.com/caioricciuti/ch-ui/internal/alerts"
 	"github.com/caioricciuti/ch-ui/internal/database"
 )
 
@@ -225,5 +227,80 @@ func TestRuleEditorEventTypesAreSupported(t *testing.T) {
 		if !isSupportedEventType(v[1]) {
 			t.Errorf("the rule editor offers %q but saving a rule with it is refused", v[1])
 		}
+	}
+}
+
+// Access drift incidents are listed for admins only, only admins
+// acknowledge them, and a resolved incident leaves the list. What the ack
+// holds back is covered by TestDriftAckSuppressesUntilResolve.
+func TestDriftIncidentAck(t *testing.T) {
+	db, _, connA, _, router := newGovernanceRoleRouter(t)
+	c := connA
+	key := accesshistory.DriftAlertKey(connA)
+	incident := "2026-10-13T10:00:00Z"
+	clock := time.Date(2026, 10, 13, 10, 0, 0, 0, time.UTC)
+	driftEvent := func(status, hash string) string {
+		t.Helper()
+		payload := map[string]interface{}{"alert_key": key, "status": status, "incident_id": incident, "incident_severity": "warn",
+			"connection_name": "prod", "drift": accesshistory.DriftOutside, "added": 2, "removed": 1, "changed": 0,
+			"link_path": accesshistory.DriftLinkPath}
+		id, err := db.CreateAlertEvent(&c, alerts.EventTypeAccessDrift, "warn", "Access changed outside CH-UI on prod", "m",
+			payload, "access:"+connA+":"+status+":"+hash, accesshistory.DriftSourceRef)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Events are ordered by created_at (seconds): keep them apart.
+		clock = clock.Add(time.Second)
+		if _, err := db.Conn().Exec(`UPDATE alert_events SET created_at = ? WHERE id = ?`, clock.Format(time.RFC3339), id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	first := driftEvent("firing", "h1")
+
+	var firing struct {
+		Incidents []firingIncident `json:"incidents"`
+	}
+	rec := serveAs(router, "analyst", connA, http.MethodGet, "/alerts/firing", "")
+	if strings.Contains(rec.Body.String(), `"drift"`) {
+		t.Fatalf("analyst sees drift: %s", rec.Body.String())
+	}
+	rec = serveAs(router, "admin", connA, http.MethodGet, "/alerts/firing", "")
+	_ = json.Unmarshal(rec.Body.Bytes(), &firing)
+	if len(firing.Incidents) != 1 {
+		t.Fatalf("admin firing: %s", rec.Body.String())
+	}
+	inc := firing.Incidents[0]
+	if inc.Source != "drift" || inc.Since != incident || inc.Severity != "warn" || inc.EventID == nil || *inc.EventID != first ||
+		inc.Summary == nil || *inc.Summary != "Outside change: 2 added, 1 removed, 0 changed" ||
+		inc.LinkPath == nil || *inc.LinkPath != accesshistory.DriftLinkPath || inc.Ack != nil {
+		t.Fatalf("drift incident: %s", rec.Body.String())
+	}
+
+	body := `{"event_id":"` + first + `"}`
+	if rec := serveAs(router, "analyst", connA, http.MethodPost, "/alerts/acks", body); rec.Code != http.StatusForbidden {
+		t.Fatalf("analyst ack on drift: %d", rec.Code)
+	}
+	rec = serveAs(router, "admin", connA, http.MethodPost, "/alerts/acks", body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("admin ack: %d %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	if rec := serveAs(router, "analyst", connA, http.MethodDelete, "/alerts/acks/"+created.ID, ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("analyst unack on drift: %d", rec.Code)
+	}
+	rec = serveAs(router, "admin", connA, http.MethodGet, "/alerts/firing", "")
+	_ = json.Unmarshal(rec.Body.Bytes(), &firing)
+	if len(firing.Incidents) != 1 || firing.Incidents[0].Ack == nil || firing.Incidents[0].Ack.ID != created.ID {
+		t.Fatalf("firing after ack: %s", rec.Body.String())
+	}
+
+	driftEvent("resolved", incident)
+	rec = serveAs(router, "admin", connA, http.MethodGet, "/alerts/firing", "")
+	if strings.Contains(rec.Body.String(), `"drift"`) {
+		t.Fatalf("resolved drift still listed: %s", rec.Body.String())
 	}
 }

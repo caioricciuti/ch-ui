@@ -263,11 +263,12 @@ func (d *Dispatcher) processDueJobs() {
 			continue
 		}
 
+		link := EventLink(d.appURL(), job.EventPayloadJSON)
 		subject := renderTemplate(coalesce(job.RuleSubjectTemplate,
 			fmt.Sprintf("[CH-UI][%s][%s] %s", strings.ToUpper(job.EventSeverity), job.EventType, job.EventTitle)),
-			job,
+			job, link,
 		)
-		body := renderTemplate(coalesce(job.RuleBodyTemplate, defaultBody(job)), job)
+		body := renderTemplate(coalesce(job.RuleBodyTemplate, defaultBody(job, link)), job, link)
 
 		var providerMessageID string
 		if channelNeedsNoRecipients(job.ChannelType) {
@@ -459,7 +460,10 @@ func parseRecipients(raw string) []string {
 	return out
 }
 
-func defaultBody(job database.AlertDispatchJobWithDetails) string {
+// defaultBody is the plain-text email body when the rule sets no template.
+// link is the CH-UI page of the event; without an app URL it is "" and the
+// line is left out rather than printed as a relative path.
+func defaultBody(job database.AlertDispatchJobWithDetails, link string) string {
 	var b strings.Builder
 	b.WriteString("CH-UI Alert\n\n")
 	b.WriteString("Type: " + job.EventType + "\n")
@@ -467,6 +471,9 @@ func defaultBody(job database.AlertDispatchJobWithDetails) string {
 	b.WriteString("Title: " + job.EventTitle + "\n")
 	b.WriteString("Message: " + job.EventMessage + "\n")
 	b.WriteString("Channel: " + job.ChannelName + " (" + job.ChannelType + ")\n")
+	if link != "" {
+		b.WriteString("Open in CH-UI: " + link + "\n")
+	}
 	if job.EventPayloadJSON != nil && strings.TrimSpace(*job.EventPayloadJSON) != "" {
 		b.WriteString("\nPayload:\n")
 		b.WriteString(*job.EventPayloadJSON)
@@ -474,7 +481,7 @@ func defaultBody(job database.AlertDispatchJobWithDetails) string {
 	return b.String()
 }
 
-func renderTemplate(tpl string, job database.AlertDispatchJobWithDetails) string {
+func renderTemplate(tpl string, job database.AlertDispatchJobWithDetails, link string) string {
 	out := tpl
 	repl := map[string]string{
 		"{{event_type}}":   job.EventType,
@@ -487,6 +494,7 @@ func renderTemplate(tpl string, job database.AlertDispatchJobWithDetails) string
 		"{{created_at}}":   job.CreatedAt,
 		"{{event_id}}":     job.EventID,
 		"{{rule_name}}":    job.RuleName,
+		"{{link}}":         link,
 	}
 	for key, val := range repl {
 		out = strings.ReplaceAll(out, key, val)
