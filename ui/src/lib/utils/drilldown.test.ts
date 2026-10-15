@@ -69,9 +69,10 @@ describe('interpolate', () => {
     expect(interpolate('${__value:raw}', ctx, 'text')).toBe("o'brien\\db")
   })
 
-  it('time values are ISO instants', () => {
+  it('time values pass as the result holds them, epoch seconds as ISO instants', () => {
     const t = buildClickContext({ ts: '2026-10-14T10:00:00Z' }, 'ts', '', meta)
-    const iso = '2026-10-14T10:00:00.000Z'
+    const iso = '2026-10-14T10:00:00Z'
+    expect(t.timeMs).toBe(Date.UTC(2026, 9, 14, 10))
     expect(interpolate('${__value}', t, 'text')).toBe(iso)
     expect(interpolate('${__value}', t, 'sql')).toBe(`'${iso}'`)
     const epoch = buildClickContext({ ts: 1_760_436_000 }, 'ts', '', meta)
@@ -112,6 +113,19 @@ describe('resolveLink', () => {
       .toEqual({ kind: 'setVariable', variable: 'host', value: "o'brien\\db" })
     expect(resolveLink({ kind: 'setVariable', variable: 'host', template: '${__series}' }, ctx, env))
       .toEqual({ kind: 'setVariable', variable: 'host', value: 'hits' })
+  })
+
+  it('setVariable passes a time as the panel returned it', () => {
+    const cols = [
+      { name: 'ts', type: "DateTime('Europe/Madrid')" },
+      { name: 'ms', type: 'DateTime64(3)' },
+      { name: 'day', type: 'Date' },
+    ]
+    const r = { ts: '2026-01-01T09:00:00Z', ms: '2026-01-01T09:00:00.120Z', day: '2026-01-01' }
+    const value = (field: string) => resolveLink({ kind: 'setVariable', variable: 'v' }, buildClickContext(r, field, '', cols), env)
+    expect(value('ts')).toEqual({ kind: 'setVariable', variable: 'v', value: '2026-01-01T09:00:00Z' })
+    expect(value('ms')).toEqual({ kind: 'setVariable', variable: 'v', value: '2026-01-01T09:00:00.120Z' })
+    expect(value('day')).toEqual({ kind: 'setVariable', variable: 'v', value: '2026-01-01' })
   })
 
   it('dashboard: params, carried variables and the range', () => {

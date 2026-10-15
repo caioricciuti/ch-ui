@@ -26,9 +26,8 @@ export interface PanelClick {
 }
 
 /**
- * The context of a click. A time column's value becomes an instant (an ISO
- * string in ${__value}); window is the bucket around it, when the panel
- * knows one.
+ * The context of a click. timeMs is a time column's value as an instant;
+ * window is the bucket around it, when the panel knows one.
  */
 export function buildClickContext(
   row: Record<string, unknown>,
@@ -73,9 +72,14 @@ function encodeOne(v: unknown, encoder: LinkEncoder): string {
   return encoder === 'url' ? encodeURIComponent(text) : text
 }
 
-/** The clicked value as written into a link: a time as an ISO instant. */
+/**
+ * The clicked value as written into a link. A time is passed as the result
+ * holds it: panel queries return a DateTime as an ISO instant and a Date as
+ * its calendar day, which the server matches to a variable's options. Only a
+ * time given as epoch seconds becomes an ISO instant.
+ */
 function clickedValue(ctx: ClickContext): unknown {
-  return ctx.timeMs != null ? new Date(ctx.timeMs).toISOString() : ctx.value
+  return ctx.timeMs != null && typeof ctx.value === 'number' ? new Date(ctx.timeMs).toISOString() : ctx.value
 }
 
 const TOKEN = /\$\{([^{}]+)\}/g
