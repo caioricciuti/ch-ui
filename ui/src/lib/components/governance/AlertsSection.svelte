@@ -41,7 +41,7 @@
   let unacking = $state<string | null>(null)
 
   const driftColumns: DataColumn<Row>[] = [
-    { key: 'name', label: 'Connection', width: '220px', truncate: true },
+    { key: 'name', label: 'Incident', width: '220px', truncate: true },
     { key: 'severity', label: 'Severity', width: '110px' },
     { key: 'since', label: 'First seen', mono: true, width: '170px', format: (v) => formatDate(v) },
     { key: 'summary', label: 'Latest change', truncate: true },
