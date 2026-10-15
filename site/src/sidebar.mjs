@@ -21,6 +21,7 @@ export const sidebar = [
       "docs/connections",
       "docs/ingestion",
       "docs/querying",
+      "docs/lineage",
       "docs/dashboards",
       "docs/models",
       "docs/pipelines",
