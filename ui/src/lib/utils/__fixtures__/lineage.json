@@ -1,0 +1,297 @@
+{
+  "nodes": [
+    {
+      "id": "external:url('https://api.acme.io/fx.csv')",
+      "database": "",
+      "name": "url('https://api.acme.io/fx.csv')",
+      "kind": "external",
+      "engine": "",
+      "rows": null,
+      "bytes": null,
+      "refresh": null,
+      "external": "url('https://api.acme.io/fx.csv')"
+    },
+    {
+      "id": "shop.orders_s3",
+      "database": "shop",
+      "name": "orders_s3",
+      "kind": "external",
+      "engine": "S3",
+      "rows": null,
+      "bytes": null,
+      "refresh": null,
+      "external": "s3://acme-landing/orders/*.parquet"
+    },
+    {
+      "id": "shop.orders_buffer",
+      "database": "shop",
+      "name": "orders_buffer",
+      "kind": "buffer",
+      "engine": "Buffer",
+      "rows": 120,
+      "bytes": 8192,
+      "refresh": null
+    },
+    {
+      "id": "shop.orders_raw",
+      "database": "shop",
+      "name": "orders_raw",
+      "kind": "table",
+      "engine": "MergeTree",
+      "rows": 48210331,
+      "bytes": 2147483648,
+      "refresh": null
+    },
+    {
+      "id": "shop.orders_mv",
+      "database": "shop",
+      "name": "orders_mv",
+      "kind": "mv",
+      "engine": "MaterializedView",
+      "rows": null,
+      "bytes": null,
+      "refresh": null
+    },
+    {
+      "id": "shop.legacy_orders",
+      "database": "shop",
+      "name": "legacy_orders",
+      "kind": "missing",
+      "engine": "",
+      "rows": null,
+      "bytes": null,
+      "refresh": null
+    },
+    {
+      "id": "shop.orders",
+      "database": "shop",
+      "name": "orders",
+      "kind": "table",
+      "engine": "ReplicatedMergeTree",
+      "rows": "48000000",
+      "bytes": 1610612736,
+      "refresh": null
+    },
+    {
+      "id": "shop.orders_dist",
+      "database": "shop",
+      "name": "orders_dist",
+      "kind": "distributed",
+      "engine": "Distributed",
+      "rows": null,
+      "bytes": null,
+      "refresh": null
+    },
+    {
+      "id": "shop.customers",
+      "database": "shop",
+      "name": "customers",
+      "kind": "table",
+      "engine": "ReplacingMergeTree",
+      "rows": 91000,
+      "bytes": 5242880,
+      "refresh": null
+    },
+    {
+      "id": "shop.customers_dict",
+      "database": "shop",
+      "name": "customers_dict",
+      "kind": "dictionary",
+      "engine": "Dictionary",
+      "rows": 91000,
+      "bytes": 7340032,
+      "refresh": null
+    },
+    {
+      "id": "analytics.daily_revenue_rmv",
+      "database": "analytics",
+      "name": "daily_revenue_rmv",
+      "kind": "refreshable_mv",
+      "engine": "MaterializedView",
+      "rows": null,
+      "bytes": null,
+      "refresh": {
+        "status": "Scheduled",
+        "last_success": "2026-10-15T06:00:00Z",
+        "next": "2026-10-16T06:00:00Z"
+      }
+    },
+    {
+      "id": "analytics.daily_revenue",
+      "database": "analytics",
+      "name": "daily_revenue",
+      "kind": "table",
+      "engine": "MergeTree",
+      "rows": 3650,
+      "bytes": 131072,
+      "refresh": null
+    },
+    {
+      "id": "analytics.revenue_view",
+      "database": "analytics",
+      "name": "revenue_view",
+      "kind": "view",
+      "engine": "View",
+      "rows": null,
+      "bytes": null,
+      "refresh": null
+    },
+    {
+      "id": "analytics.events_2025",
+      "database": "analytics",
+      "name": "events_2025",
+      "kind": "table",
+      "engine": "MergeTree",
+      "rows": 900000000,
+      "bytes": 85899345920,
+      "refresh": null
+    },
+    {
+      "id": "analytics.events_2026",
+      "database": "analytics",
+      "name": "events_2026",
+      "kind": "table",
+      "engine": "MergeTree",
+      "rows": 700000000,
+      "bytes": 64424509440,
+      "refresh": null
+    },
+    {
+      "id": "analytics.all_events",
+      "database": "analytics",
+      "name": "all_events",
+      "kind": "merge",
+      "engine": "Merge",
+      "rows": null,
+      "bytes": null,
+      "refresh": null
+    },
+    {
+      "id": "secret.payments",
+      "database": "secret",
+      "name": "payments",
+      "kind": "hidden",
+      "engine": "",
+      "rows": null,
+      "bytes": null,
+      "refresh": null
+    },
+    {
+      "id": "analytics.weekly_rmv",
+      "database": "analytics",
+      "name": "weekly_rmv",
+      "kind": "refreshable_mv",
+      "engine": "MaterializedView",
+      "rows": null,
+      "bytes": null,
+      "refresh": {
+        "status": "Disabled",
+        "last_success": "",
+        "next": ""
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "shop.orders_s3",
+      "to": "shop.orders_raw",
+      "kind": "sources",
+      "confidence": "parsed"
+    },
+    {
+      "from": "shop.orders_buffer",
+      "to": "shop.orders_raw",
+      "kind": "routes",
+      "confidence": "system"
+    },
+    {
+      "from": "shop.orders_raw",
+      "to": "shop.orders_mv",
+      "kind": "triggers",
+      "confidence": "system"
+    },
+    {
+      "from": "shop.legacy_orders",
+      "to": "shop.orders_mv",
+      "kind": "reads",
+      "confidence": "parsed"
+    },
+    {
+      "from": "shop.orders_mv",
+      "to": "shop.orders",
+      "kind": "writes",
+      "confidence": "system"
+    },
+    {
+      "from": "shop.orders",
+      "to": "shop.orders_dist",
+      "kind": "routes",
+      "confidence": "system"
+    },
+    {
+      "from": "shop.customers",
+      "to": "shop.customers_dict",
+      "kind": "sources",
+      "confidence": "system"
+    },
+    {
+      "from": "shop.customers_dict",
+      "to": "shop.orders_mv",
+      "kind": "reads",
+      "confidence": "parsed"
+    },
+    {
+      "from": "shop.orders",
+      "to": "analytics.daily_revenue_rmv",
+      "kind": "reads",
+      "confidence": "system"
+    },
+    {
+      "from": "analytics.daily_revenue_rmv",
+      "to": "analytics.daily_revenue",
+      "kind": "writes",
+      "confidence": "system"
+    },
+    {
+      "from": "analytics.daily_revenue",
+      "to": "analytics.revenue_view",
+      "kind": "reads",
+      "confidence": "parsed"
+    },
+    {
+      "from": "secret.payments",
+      "to": "analytics.revenue_view",
+      "kind": "reads",
+      "confidence": "parsed"
+    },
+    {
+      "from": "analytics.events_2025",
+      "to": "analytics.all_events",
+      "kind": "routes",
+      "confidence": "system"
+    },
+    {
+      "from": "analytics.events_2026",
+      "to": "analytics.all_events",
+      "kind": "routes",
+      "confidence": "system"
+    },
+    {
+      "from": "external:url('https://api.acme.io/fx.csv')",
+      "to": "analytics.daily_revenue_rmv",
+      "kind": "reads",
+      "confidence": "parsed"
+    }
+  ],
+  "meta": {
+    "host": "ch-node-1",
+    "multi_node": true,
+    "generated_at": "2026-10-15T09:30:00Z",
+    "cached": false,
+    "node_count": 18,
+    "warnings": [
+      "Could not parse the definition of analytics.revenue_view",
+      "1 object is not visible to you"
+    ]
+  }
+}

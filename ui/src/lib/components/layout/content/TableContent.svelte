@@ -25,8 +25,12 @@
 
   let { tab }: Props = $props()
 
-  type SubTab = 'overview' | 'schema' | 'data'
+  type SubTab = 'overview' | 'schema' | 'data' | 'lineage'
   let activeSubTab = $state<SubTab>('overview')
+  // The lineage view (and xyflow with it) loads on first open, then stays
+  // mounted so switching views does not refetch the graph.
+  let lineageOpened = $state(false)
+  let lineageView = $state<Promise<typeof import('../../lineage/TableLineage.svelte')> | null>(null)
 
   // Overview data
   let tableInfo = $state<Record<string, unknown>>({})
@@ -277,12 +281,17 @@
   function switchTab(t: SubTab) {
     activeSubTab = t
     if (t === 'schema') loadSchema()
+    if (t === 'lineage' && !lineageOpened) {
+      lineageOpened = true
+      lineageView = import('../../lineage/TableLineage.svelte')
+    }
   }
 
   const subTabs: { id: SubTab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'schema', label: 'Schema' },
     { id: 'data', label: 'Data Sample' },
+    { id: 'lineage', label: 'Lineage' },
   ]
 
   // Metric cards
@@ -454,6 +463,19 @@
 
     {:else if activeSubTab === 'data'}
       <DataPreview database={tab.database} table={tab.table} />
+    {/if}
+    {#if lineageView}
+      <div class="h-full" class:hidden={activeSubTab !== 'lineage'}>
+        {#await lineageView}
+          <div class="flex h-full items-center justify-center"><Spinner /></div>
+        {:then view}
+          <view.default database={tab.database} table={tab.table} />
+        {:catch e}
+          <div class="p-4">
+            <div class="rounded-md bg-danger-soft p-3 text-[13px] text-fg">{e instanceof Error ? e.message : String(e)}</div>
+          </div>
+        {/await}
+      </div>
     {/if}
   </div>
 </div>
