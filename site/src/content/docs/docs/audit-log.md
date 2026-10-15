@@ -71,7 +71,8 @@ ClickHouse query activity and metadata changes inside a connection.
   [Governance → Access control](/docs/rbac) (`rbac.apply`, with the number of
   changes, the cluster and the plan hash), and one row per statement that ran
   (`rbac.statement.applied` or `rbac.statement.failed`, with the SQL truncated
-  to 2 KB and the error on failure). The actor is the person; `ch_user` is the
+  to 2 KB and the error on failure; a new user's password hash and salt
+  appear as `'***'`). The actor is the person; `ch_user` is the
   ClickHouse account the statements ran as
 - **Access as code and history**: an access file exported (`rbac.exported`),
   an import previewed (`rbac.import.planned`), and a revert built from

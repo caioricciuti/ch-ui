@@ -16,6 +16,12 @@ func Inverse(op Op, snap *Snapshot) []Op {
 	switch op.Kind {
 	case OpCreateRole:
 		return []Op{{Kind: OpDropRole, Name: op.Name}}
+	case OpCreateUser:
+		return []Op{{Kind: OpDropUser, Name: op.Name}}
+	case OpDropUser:
+		// CH-UI never holds a user's password, so a dropped user cannot be
+		// recreated.
+		return nil
 	case OpDropRole:
 		return dropRoleInverse(op.Name, snap)
 	case OpSetRoleProfile:

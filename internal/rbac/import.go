@@ -22,8 +22,9 @@ var ImportKinds = []string{"roles", "users", "grants", "role_grants", "row_polic
 
 // ExportState is the state of s an access file carries: everything but the
 // entities stored in users.xml, which no import could change. excluded
-// names those, as "role xml_role". Users carry only default roles, so no
-// password or authentication setting is ever part of it.
+// names those, as "role xml_role". Users carry only default roles; their
+// authentication type and hosts come separately from ExportLogins, and no
+// password, hash or salt is ever part of either.
 func ExportState(s *Snapshot) (st *State, excluded []string) {
 	full := FromSnapshot(s)
 	readOnly := func(kind, name string) bool { return s.storageOf(kind, name) == "users_xml" }
@@ -79,14 +80,27 @@ func ExportState(s *Snapshot) (st *State, excluded []string) {
 	return st, excluded
 }
 
+// ExportLogins returns the authentication type and hosts of the users st
+// lists, so an import can preselect them when it creates a user.
+func ExportLogins(s *Snapshot, st *State) map[string]UserLogin {
+	out := map[string]UserLogin{}
+	for _, u := range st.Users {
+		if l, ok := s.UserLogins[u.Name]; ok && (l.Auth != "" || len(l.Hosts) > 0) {
+			out[u.Name] = l
+		}
+	}
+	return out
+}
+
 // ExportHeader is the comment at the top of an exported file, one line per
 // element, without comment markers.
 func ExportHeader(src FileSource, excluded []string) string {
 	lines := []string{
 		"CH-UI access export (chui_access " + fmt.Sprint(FileVersion) + ").",
-		"Import it in Governance > Access control > Import. Import never creates users,",
-		"and anything this file does not list is left alone unless prune is turned on.",
-		"Passwords and authentication settings are never exported.",
+		"Import it in Governance > Access control > Import. Import creates a listed user",
+		"only when you tick it, and anything this file does not list is left alone unless",
+		"prune is turned on. Each user's authentication type and hosts are included;",
+		"passwords, hashes and salts are never exported.",
 	}
 	var from []string
 	if src.Connection != "" {
@@ -168,6 +182,11 @@ type Rename struct {
 type ImportOpts struct {
 	Prune  Prune
 	Rename Rename
+	// Logins are the file's user login hints, by name in the file.
+	Logins map[string]UserLogin
+	// CreateUsers names new users (after renames) the plan creates. Each
+	// must be one of the plan's NewUsers.
+	CreateUsers []string
 	// Kinds limits the import to these ImportKinds; empty is all.
 	Kinds []string
 	// Databases are the databases on the target. Nil skips the check.
@@ -181,6 +200,10 @@ type ImportPlan struct {
 	Summary map[string]int `json:"summary"`
 	OverCap bool           `json:"over_cap"`
 	Message string         `json:"message,omitempty"`
+	// NewUsers are the users the file lists that the target lacks, with
+	// the file's login hints. The create_user ops for those in CreateUsers
+	// carry no authentication; the client adds it before planning.
+	NewUsers []NewUser `json:"new_users"`
 }
 
 // PlanImport returns the ops that make cur match the file's state, after
@@ -205,6 +228,29 @@ func PlanImport(cur *Snapshot, st *State, opts ImportOpts) (*ImportPlan, error) 
 	var skips []Skip
 	st, skips = dropMissingDatabases(st, opts.Databases, skips)
 	st, skips = limitKinds(cur, st, include, skips)
+	logins := map[string]UserLogin{}
+	for name, l := range opts.Logins {
+		if to, ok := opts.Rename.Principals[name]; ok {
+			name = to
+		}
+		logins[name] = l
+	}
+	newUsers := []NewUser{}
+	isNew := map[string]bool{}
+	for _, u := range st.Users {
+		if cur.user(u.Name) == nil {
+			isNew[u.Name] = true
+			l := logins[u.Name]
+			newUsers = append(newUsers, NewUser{Name: u.Name, Auth: l.Auth, Hosts: l.Hosts})
+		}
+	}
+	create := map[string]bool{}
+	for _, name := range opts.CreateUsers {
+		if !isNew[name] {
+			return nil, fmt.Errorf("user %q is not a new user of this file", name)
+		}
+		create[name] = true
+	}
 	prune := opts.Prune
 	prune.Roles = prune.Roles && include["roles"]
 	prune.Grants = prune.Grants && include["grants"]
@@ -213,8 +259,8 @@ func PlanImport(cur *Snapshot, st *State, opts ImportOpts) (*ImportPlan, error) 
 	prune.Quotas = prune.Quotas && include["quotas"]
 	prune.Profiles = prune.Profiles && include["profiles"]
 
-	ops, skipped := Reconcile(cur, st, ReconcileOpts{Prune: prune})
-	plan := &ImportPlan{Ops: ops, Skipped: append(skips, skipped...), Summary: map[string]int{}}
+	ops, skipped := Reconcile(cur, st, ReconcileOpts{Prune: prune, CreateUsers: create})
+	plan := &ImportPlan{Ops: ops, Skipped: append(skips, skipped...), Summary: map[string]int{}, NewUsers: newUsers}
 	if plan.Skipped == nil {
 		plan.Skipped = []Skip{}
 	}
@@ -222,17 +268,21 @@ func PlanImport(cur *Snapshot, st *State, opts ImportOpts) (*ImportPlan, error) 
 		plan.Summary[k] = 0
 	}
 	for _, op := range ops {
+		if op.Kind == OpCreateUser {
+			plan.Summary["new_users"]++
+			continue
+		}
 		plan.Summary[OpSection(op.Kind)]++
 	}
 	if len(ops) > MaxImportOps {
 		plan.OverCap = true
 		var parts []string
-		for _, k := range ImportKinds {
+		for _, k := range append(append([]string{}, ImportKinds...), "new_users") {
 			if n := plan.Summary[k]; n > 0 {
 				parts = append(parts, fmt.Sprintf("%s %d", k, n))
 			}
 		}
-		plan.Message = fmt.Sprintf("The import needs %d changes; one plan holds at most %d. Import fewer kinds at a time (%s).", len(ops), MaxImportOps, strings.Join(parts, ", "))
+		plan.Message = fmt.Sprintf("The import needs %d changes; one plan holds at most %d. Import in batches: fewer kinds or fewer new users at a time (%s).", len(ops), MaxImportOps, strings.Join(parts, ", "))
 	}
 	return plan, nil
 }
@@ -246,7 +296,7 @@ func OpSection(kind string) string {
 		return "grants"
 	case OpGrantRole, OpRevokeRole:
 		return "role_grants"
-	case OpSetDefaultRoles:
+	case OpSetDefaultRoles, OpCreateUser, OpDropUser:
 		return "users"
 	case OpCreateRowPolicy, OpAlterRowPolicy, OpDropRowPolicy:
 		return "row_policies"
@@ -480,9 +530,16 @@ func limitKinds(cur *Snapshot, st *State, include map[string]bool, skips []Skip)
 }
 
 // ValidateImportOps checks ops against the live catalog, naming the file
-// entry an invalid op came from.
+// entry an invalid op came from. A create_user has no authentication yet,
+// so only its name is checked here; /plan checks the rest.
 func ValidateImportOps(ops []Op, cat Catalog) error {
 	for _, op := range ops {
+		if op.Kind == OpCreateUser && op.Auth == nil {
+			if err := ValidateName("user", op.Name); err != nil {
+				return fmt.Errorf("%s: %w", opEntry(op), err)
+			}
+			continue
+		}
 		if err := validateOp(op, cat); err != nil {
 			return fmt.Errorf("%s: %w", opEntry(op), err)
 		}
@@ -499,6 +556,8 @@ func opEntry(op Op) string {
 		return fmt.Sprintf("role_grants of %s %s", op.Target.Type, op.Target.Name)
 	case OpSetDefaultRoles:
 		return "users." + op.Target.Name
+	case OpCreateUser, OpDropUser:
+		return "users." + op.Name
 	case OpCreateRowPolicy, OpAlterRowPolicy, OpDropRowPolicy:
 		return "row policy " + policyFullName(*op.RowPolicy)
 	case OpCreateQuota, OpAlterQuota:

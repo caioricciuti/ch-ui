@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 import { describe, expect, it } from 'vitest'
 import { lineDiff } from '../../../utils/lineDiff'
-import { assigneesLabel, describeOp, dropConfirmName, grantObject, revokeOpFor, splitList } from './changes'
+import { ackKey, allAcknowledged, assigneesLabel, describeOp, dropConfirmName, grantObject, revokeOpFor, splitList } from './changes'
 import { effectBadge, explainPath, objectName, queryFromSearch, searchWithQuery, verdictLabel, verdictTone } from './explain'
 
 describe('lineDiff', () => {
@@ -72,5 +72,18 @@ describe('effective access helpers', () => {
     expect(effectBadge('filters')).toEqual({ label: 'Filters rows', tone: 'info' })
     expect(objectName({ database: 'd', table: 't', column: 'c' })).toBe('d.t(c)')
     expect(objectName({ database: '', table: '', column: '' })).toBe('*.*')
+  })
+})
+
+describe('acknowledgements', () => {
+  const drop = (name: string) => ({ code: 'drop_user', severity: 'ack', message: `Dropping user "${name}" cannot be undone.` })
+
+  it('needs one tick per warning, even when two share a code', () => {
+    const warnings = [drop('ann'), drop('bob'), { code: 'self_revoke', severity: 'block', message: 'x' }]
+    expect(ackKey(warnings[0])).not.toBe(ackKey(warnings[1]))
+    expect(allAcknowledged(warnings, {})).toBe(false)
+    expect(allAcknowledged(warnings, { [ackKey(warnings[0])]: true })).toBe(false)
+    expect(allAcknowledged(warnings, { [ackKey(warnings[0])]: true, [ackKey(warnings[1])]: true })).toBe(true)
+    expect(allAcknowledged([], {})).toBe(true)
   })
 })

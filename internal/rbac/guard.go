@@ -25,6 +25,12 @@ const (
 	CodeOnClusterReplicated = "on_cluster_replicated"
 	CodeSelfRoleChange      = "self_role_change"
 	CodeSelfQuota           = "self_quota"
+	CodeUserExists          = "user_exists"
+	CodeNoPassword          = "no_password"
+	CodeMissingProfile      = "missing_profile"
+	CodeSelfDropUser        = "self_drop_user"
+	CodeDropServiceAccount  = "drop_service_account"
+	CodeDropUser            = "drop_user"
 )
 
 // GuardContext carries facts the snapshot does not hold.
@@ -246,6 +252,18 @@ func (g *guard) readOnlyStorage(kind, name string) {
 	}
 }
 
+// hostsText says where a user may connect from.
+func hostsText(hosts []HostSpec) string {
+	if len(hosts) == 0 || hosts[0].Kind == HostAny {
+		return "any host"
+	}
+	parts := make([]string, len(hosts))
+	for i, h := range hosts {
+		parts[i] = FormatHost(h)
+	}
+	return "hosts " + strings.Join(parts, ", ")
+}
+
 func kindLabel(kind string) string {
 	switch kind {
 	case KindRole:
@@ -299,6 +317,33 @@ func Guard(ops []Op, snap *Snapshot, cluster string, ctx GuardContext) []Warning
 
 	for _, op := range ops {
 		switch op.Kind {
+		case OpCreateUser:
+			if snap.user(op.Name) != nil {
+				g.add(CodeUserExists, SeverityBlock, "User %q already exists. Import never replaces a user; rename it or leave it out.", op.Name)
+			}
+			if snap.NoWritableUserStorage() {
+				g.add(CodeReadOnlyStorage, SeverityBlock, "This server keeps users only in read-only storage (%s), so CH-UI cannot create users. Add a local_directory or replicated user directory first.", strings.Join(snap.UserStorages, ", "))
+			}
+			if contains(snap.UserStorages, "replicated") {
+				replicated = true
+			}
+			if op.Profile != "" && after.profile(op.Profile) == nil {
+				g.add(CodeMissingProfile, SeverityBlock, "Settings profile %q for new user %q does not exist.", op.Profile, op.Name)
+			}
+			if op.Auth != nil && op.Auth.Method == AuthNoPassword {
+				g.add(CodeNoPassword, SeverityAck, "User %q will sign in without a password from %s.", op.Name, hostsText(op.Hosts))
+			}
+		case OpDropUser:
+			g.readOnlyStorage(KindUser, op.Name)
+			noteStorage(KindUser, op.Name)
+			switch {
+			case g.selfUser != "" && op.Name == g.selfUser:
+				g.add(CodeSelfDropUser, SeverityBlock, "User %q is the one you are signed in with. It cannot be dropped from here.", op.Name)
+			case ctx.ServiceAccounts[op.Name] != "":
+				g.add(CodeDropServiceAccount, SeverityBlock, "User %q is used by CH-UI unattended (%s). Change that first, then drop it.", op.Name, ctx.ServiceAccounts[op.Name])
+			default:
+				g.add(CodeDropUser, SeverityAck, "Dropping user %q cannot be undone: CH-UI never keeps passwords, so a rollback cannot recreate it.", op.Name)
+			}
 		case OpDropRole:
 			g.readOnlyStorage(KindRole, op.Name)
 			noteStorage(KindRole, op.Name)

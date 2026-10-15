@@ -83,6 +83,19 @@ describe('importPlanFrom', () => {
     expect(() => importPlanFrom({ ops: 'DROP ROLE x' })).toThrow(/no changes/)
     expect(() => importPlanFrom({ ops: [{ kind: 'raw_sql', sql: 'DROP TABLE t' }] })).toThrow(/does not know/)
     expect(() => importPlanFrom({ ops: [null] })).toThrow(/does not know/)
+    // Import never drops users.
+    expect(() => importPlanFrom({ ops: [{ kind: 'drop_user', name: 'x' }] })).toThrow(/does not know/)
+  })
+
+  it('reads the new users and asks for the ticked ones', () => {
+    const plan = importPlanFrom({
+      ops: [{ kind: 'create_user', name: 'ann' }],
+      new_users: [{ name: 'ann', auth: 'ldap', hosts: [{ kind: 'local' }, { kind: 'bogus' }] }, { name: '' }, 'x'],
+    })
+    expect(plan.new_users).toEqual([{ name: 'ann', auth: 'ldap', hosts: [{ kind: 'local' }] }])
+    const built = buildImportRequest('chui_access: 1', allKinds(), noPrune(), [], [], ['ann'])
+    expect(built.request?.create_users).toEqual(['ann'])
+    expect(buildImportRequest('chui_access: 1', allKinds(), noPrune(), [], []).request?.create_users).toBeUndefined()
   })
 })
 

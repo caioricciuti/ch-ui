@@ -36,6 +36,9 @@ type FileSource struct {
 type AccessFile struct {
 	Source FileSource
 	State  *State
+	// Logins are the users' authentication types and hosts, by user name:
+	// hints for creating a user the target lacks. Never a secret.
+	Logins map[string]UserLogin
 }
 
 // FileError is a problem in an access file at Path (roles.analyst.profile,
@@ -59,10 +62,10 @@ func (e *FileError) Error() string {
 
 // ── Writing ─────────────────────────────────────────────────────────
 
-// MarshalFileYAML writes st as an access file. header becomes the comment
-// at the top of the document.
-func MarshalFileYAML(st *State, src FileSource, header string) ([]byte, error) {
-	doc := &yaml.Node{Kind: yaml.DocumentNode, HeadComment: header, Content: []*yaml.Node{fileNode(st, src)}}
+// MarshalFileYAML writes st as an access file, with the login hints of its
+// users. header becomes the comment at the top of the document.
+func MarshalFileYAML(st *State, logins map[string]UserLogin, src FileSource, header string) ([]byte, error) {
+	doc := &yaml.Node{Kind: yaml.DocumentNode, HeadComment: header, Content: []*yaml.Node{fileNode(st, logins, src)}}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
@@ -77,9 +80,9 @@ func MarshalFileYAML(st *State, src FileSource, header string) ([]byte, error) {
 
 // MarshalFileJSON writes st as an access file in JSON, the same schema as
 // the YAML form.
-func MarshalFileJSON(st *State, src FileSource) ([]byte, error) {
+func MarshalFileJSON(st *State, logins map[string]UserLogin, src FileSource) ([]byte, error) {
 	var buf bytes.Buffer
-	if err := writeJSONNode(&buf, fileNode(st, src)); err != nil {
+	if err := writeJSONNode(&buf, fileNode(st, logins, src)); err != nil {
 		return nil, err
 	}
 	var out bytes.Buffer
@@ -90,7 +93,7 @@ func MarshalFileJSON(st *State, src FileSource) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func fileNode(st *State, src FileSource) *yaml.Node {
+func fileNode(st *State, logins map[string]UserLogin, src FileSource) *yaml.Node {
 	st = st.Canonical()
 	root := ymap(false)
 	root.Content = append(root.Content, ystr("chui_access"), yint(FileVersion))
@@ -145,6 +148,16 @@ func fileNode(st *State, src FileSource) *yaml.Node {
 				e.Content = append(e.Content, ystr("default_roles"), ystr("none"))
 			default:
 				e.Content = append(e.Content, ystr("default_roles"), ystrs(true, u.DefaultRoles))
+			}
+			if l, ok := logins[u.Name]; ok {
+				addStr(e, "auth", l.Auth)
+				if len(l.Hosts) > 0 {
+					hosts := make([]string, len(l.Hosts))
+					for i, h := range l.Hosts {
+						hosts[i] = FormatHost(h)
+					}
+					e.Content = append(e.Content, ystr("hosts"), ystrs(true, hosts))
+				}
 			}
 			m.Content = append(m.Content, ystr(u.Name), e)
 		}
@@ -767,7 +780,7 @@ func (p *fileParser) file(root *yaml.Node) (*AccessFile, error) {
 	case ver != FileVersion:
 		return nil, ferr("chui_access", v, "version %d is not supported (expected %d)", ver, FileVersion)
 	}
-	out := &AccessFile{State: &State{Version: StateVersion}}
+	out := &AccessFile{State: &State{Version: StateVersion}, Logins: map[string]UserLogin{}}
 	if n, ok := f["source"]; ok {
 		if out.Source, err = p.source(n); err != nil {
 			return nil, err
@@ -778,7 +791,7 @@ func (p *fileParser) file(root *yaml.Node) (*AccessFile, error) {
 	if err := p.rolesSection(f["roles"], out.State); err != nil {
 		return nil, err
 	}
-	if err := p.usersSection(f["users"], out.State); err != nil {
+	if err := p.usersSection(f["users"], out); err != nil {
 		return nil, err
 	}
 	if err := p.grantsSection(f["grants"], out.State); err != nil {
@@ -868,7 +881,8 @@ func (p *fileParser) rolesSection(n *yaml.Node, st *State) error {
 	return nil
 }
 
-func (p *fileParser) usersSection(n *yaml.Node, st *State) error {
+func (p *fileParser) usersSection(n *yaml.Node, out *AccessFile) error {
+	st := out.State
 	list, err := mapping(n, "users")
 	if err != nil {
 		return err
@@ -878,9 +892,41 @@ func (p *fileParser) usersSection(n *yaml.Node, st *State) error {
 		if err := ValidateName("user", e.key); err != nil {
 			return &FileError{Path: path, Line: e.line, Msg: err.Error()}
 		}
-		f, err := fields(e.node, path, "default_roles", "except")
+		f, err := fields(e.node, path, "default_roles", "except", "auth", "hosts")
 		if err != nil {
 			return err
+		}
+		var login UserLogin
+		if v, ok := f["auth"]; ok && !isNull(v) {
+			if login.Auth, err = scalar(v, path+".auth"); err != nil {
+				return err
+			}
+			if !authTypRe.MatchString(login.Auth) {
+				return ferr(path+".auth", v, "%q is not an authentication type", login.Auth)
+			}
+		}
+		if v, ok := f["hosts"]; ok && !isNull(v) {
+			items, err := sequence(v, path+".hosts")
+			if err != nil {
+				return err
+			}
+			for i, c := range items {
+				hs, err := scalar(c, index(path+".hosts", i))
+				if err != nil {
+					return err
+				}
+				h, err := ParseHost(hs)
+				if err != nil {
+					return ferr(index(path+".hosts", i), c, "%s", err.Error())
+				}
+				login.Hosts = append(login.Hosts, h)
+			}
+			if err := ValidateHosts(login.Hosts); err != nil {
+				return ferr(path+".hosts", v, "%s", err.Error())
+			}
+		}
+		if login.Auth != "" || len(login.Hosts) > 0 {
+			out.Logins[e.key] = login
 		}
 		u := StateUser{Name: e.key}
 		v, ok := f["default_roles"]

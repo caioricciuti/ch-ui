@@ -144,9 +144,13 @@ func Apply(ctx context.Context, ex Executor, plan *Plan, onResult func(Result)) 
 		if plan.Cluster != "" {
 			settings = clusterSettings
 		}
-		rows, err := ex.Query(ctx, s.SQL, settings)
+		run := s.SQL
+		if s.execSQL != "" {
+			run = s.execSQL
+		}
+		rows, err := ex.Query(ctx, run, settings)
 		if err != nil {
-			r.Status, r.Error = StatusFailed, shortError(err)
+			r.Status, r.Error = StatusFailed, scrub(shortError(err), s.secrets)
 			if IsAlreadyExists(err) {
 				r.Code = "already_exists"
 			}
@@ -154,6 +158,9 @@ func Apply(ctx context.Context, ex Executor, plan *Plan, onResult func(Result)) 
 			r.Status = StatusApplied
 			if plan.Cluster != "" {
 				r.Hosts = hostResults(rows)
+				for i := range r.Hosts {
+					r.Hosts[i].Error = scrub(r.Hosts[i].Error, s.secrets)
+				}
 				for _, h := range r.Hosts {
 					// A host that did not finish leaves the outcome unknown,
 					// so it stops the run like a failure.
@@ -162,6 +169,7 @@ func Apply(ctx context.Context, ex Executor, plan *Plan, onResult func(Result)) 
 						if r.Error == "" {
 							r.Error = h.Host + ": " + h.Error
 						}
+						r.Error = scrub(r.Error, s.secrets)
 					}
 				}
 			}

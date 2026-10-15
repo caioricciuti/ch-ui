@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 /** Pure helpers for the access control change set: labels, lookups, summaries. */
 import type { RbacAssignees, RbacGrantRow, RbacOp, RbacSnapshot, RbacTarget } from '../../../types/rbac'
+import { authLabel } from './newUsers'
 
 export function grantObject(database?: string, table?: string): string {
   if (!database || database === '*') return '*.*'
@@ -58,12 +59,26 @@ export function describeOp(op: RbacOp): string {
       return `Change settings profile ${op.settings_profile?.name ?? ''}`
     case 'drop_settings_profile':
       return `Drop settings profile ${op.name}`
+    case 'create_user':
+      return `Create user ${op.name}${op.auth ? ` (${authLabel(op.auth.method)})` : ''}${op.profile ? ` with profile ${op.profile}` : ''}`
+    case 'drop_user':
+      return `Drop user ${op.name}`
   }
+}
+
+/** One checkbox per ack warning: two warnings with the same code (two dropped users) are ticked separately. */
+export function ackKey(w: { code: string; message: string }): string {
+  return `${w.code}\u0000${w.message}`
+}
+
+/** Whether every ack warning has its own tick. */
+export function allAcknowledged(warnings: { code: string; severity: string; message: string }[], acked: Record<string, boolean>): boolean {
+  return warnings.filter((w) => w.severity === 'ack').every((w) => acked[ackKey(w)])
 }
 
 /** The name a person must type to confirm a drop, or null when op is not a drop. */
 export function dropConfirmName(op: RbacOp): string | null {
-  if (op.kind === 'drop_role' || op.kind === 'drop_quota' || op.kind === 'drop_settings_profile') return op.name ?? ''
+  if (op.kind === 'drop_role' || op.kind === 'drop_user' || op.kind === 'drop_quota' || op.kind === 'drop_settings_profile') return op.name ?? ''
   if (op.kind === 'drop_row_policy') return op.row_policy?.name ?? ''
   return null
 }
@@ -76,7 +91,12 @@ export function sameTarget(a: RbacTarget | undefined, b: RbacTarget): boolean {
 export function opsForTarget(ops: RbacOp[], t: RbacTarget): Array<{ op: RbacOp; index: number }> {
   return ops
     .map((op, index) => ({ op, index }))
-    .filter(({ op }) => sameTarget(op.target, t) || (t.type === 'role' && (op.kind === 'create_role' || op.kind === 'drop_role' || op.kind === 'set_role_profile') && op.name === t.name))
+    .filter(
+      ({ op }) =>
+        sameTarget(op.target, t) ||
+        (t.type === 'role' && (op.kind === 'create_role' || op.kind === 'drop_role' || op.kind === 'set_role_profile') && op.name === t.name) ||
+        (t.type === 'user' && (op.kind === 'create_user' || op.kind === 'drop_user') && op.name === t.name),
+    )
 }
 
 export function grantsOf(snap: RbacSnapshot | null, t: RbacTarget): RbacGrantRow[] {

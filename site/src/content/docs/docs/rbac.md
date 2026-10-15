@@ -31,8 +31,10 @@ grants (risky grants, the access matrix) stays under
 | Quotas | Create, change, drop. Key (`KEYED BY`), intervals with limits, and who it applies to |
 | Settings profiles | Create, change, drop. Settings with a value, `MIN` / `MAX`, `CONST` / `WRITABLE` / `CHANGEABLE_IN_READONLY`, inherited profiles, and who it applies to |
 
-Not covered: creating users, passwords and authentication (use
-[Admin → Users](/docs/admin#clickhouse-user-management)), renaming entities,
+Users are created only through [Import](#create-users-on-import), and dropped
+only by **Prepare rollback** right after the apply that created them. Changing a user's password or
+authentication stays in
+[Admin → Users](/docs/admin#clickhouse-user-management). Not covered: renaming entities,
 LDAP / Kerberos / other external user directories, masking policies, and
 applying one change set to several connections.
 
@@ -87,10 +89,10 @@ for a name that already exists fails with "already exists"; CH-UI never uses
 **Prepare rollback** stages the inverse of every applied statement as a new
 change set and opens a fresh review. Nothing is rolled back automatically.
 
-Statements always run in this order: create settings profiles, quotas, roles;
-change roles, quotas and profiles; grant privileges; grant roles; create or
-change row policies; default roles; revokes; then drop row policies, quotas,
-roles and profiles.
+Statements always run in this order: create settings profiles, quotas, roles,
+users; change roles, quotas and profiles; grant privileges; grant roles; create
+or change row policies; default roles; revokes; then drop row policies, quotas,
+users, roles and profiles.
 
 ### How grants are previewed
 
@@ -121,6 +123,11 @@ The server checks every plan, and again at apply time.
 | Dropping a role you hold | Blocked |
 | A restrictive row policy, or a profile with `readonly` set, that would apply to you | Blocked |
 | Changing an entity stored in `users.xml` | Blocked |
+| Creating a user that already exists, or with a settings profile that does not exist | Blocked |
+| Creating a user when the server keeps users only in read-only storage (`users.xml`) | Blocked |
+| Dropping your own user, or a user CH-UI runs unattended | Blocked |
+| Dropping any other user (it cannot be recreated: CH-UI never keeps passwords) | Needs acknowledgement |
+| Creating a user with no password | Needs acknowledgement |
 | Revoking what lets a user read `system.users` (CH-UI uses that to detect ClickHouse admins at sign-in) | Needs acknowledgement |
 | Changing a user CH-UI runs unattended: a [background account](/docs/background-accounts), an [MCP key](/docs/mcp) account, or the [SSO](/docs/sso) service account | Needs acknowledgement |
 | A new row policy, which can hide rows from users it does not mention (depending on ClickHouse's `users_without_row_policies_can_read_rows`) | Needs acknowledgement |
@@ -206,10 +213,12 @@ privileges, role grants, row policies, quotas and settings profiles.
 | JSON (importable) | The same schema as the YAML |
 | SQL (read only) | The statements that would create it, for reading. It cannot be imported |
 
-The file is named `chui-access-<connection>-<date>.<ext>`. Passwords and
-authentication settings are never exported: a user entry carries only its
-default roles. Entities defined in `users.xml` are left out and listed in the
-comment at the top of the file, as are any parts that could not be read.
+The file is named `chui-access-<connection>-<date>.<ext>`. Passwords, hashes
+and salts are never exported: a user entry carries its default roles, and as
+hints for creating it elsewhere, its authentication type (`auth`) and the hosts
+it may connect from (`hosts`). Entities defined in `users.xml` are left out and
+listed in the comment at the top of the file, as are any parts that could not
+be read.
 
 ```yaml
 chui_access: 1
@@ -218,8 +227,8 @@ roles:
   analyst: {profile: readonly_p}
   auditor:
 users:
-  alice: {default_roles: all, except: [auditor]}
-  bob: {default_roles: [analyst]}
+  alice: {default_roles: all, except: [auditor], auth: sha256_password, hosts: [any]}
+  bob: {default_roles: [analyst], auth: ldap, hosts: [local, ip 10.0.0.0/8]}
 grants:
   analyst:
     - {access: [SELECT], on: "analytics.*"}
@@ -251,6 +260,10 @@ settings_profiles:
   backticks.
 - `default_roles` and `to` take `all`, `none` or a list; `except` goes with
   `all`.
+- `hosts` entries are `any`, `local`, or `ip`, `name`, `regexp` or `like`
+  followed by a value. `auth` is the ClickHouse authentication type
+  (`sha256_password`, `ldap`, ...). Both are optional and only used when a
+  user is created.
 - A key under `grants` or `role_grants` must be listed under `roles` or
   `users`. Otherwise write it as `role:name` or `user:name`.
 - Quota intervals are a number and a unit (`second` to `year`), with limits
@@ -278,14 +291,54 @@ settings_profiles:
 changes nothing. It shows the number of changes per part and a **Skipped**
 list with a reason for each entry it leaves out:
 
-- Users are never created. A user in the file that does not exist here is
-  skipped.
+- A user in the file that does not exist here is skipped unless you tick it
+  under **New users** (below).
 - Grants and row policies on a database that does not exist here are skipped.
 - Anything the editor cannot express, and anything in `users.xml`.
 
 Privileges and settings that this server does not know are refused, with the
 entry named. One plan holds at most 200 changes; a bigger import says so and
-lists the counts per part, so you can import fewer parts at a time.
+lists the counts per part, so you can import in batches: fewer parts, or fewer
+new users, at a time. Each new user counts as one change.
+
+### Create users on import
+
+After a preview, **New users** lists the users the file has and this
+connection lacks. Tick the ones to create and **Preview** again: their
+privileges, role grants and default roles from the file are planned with
+them, right after the `CREATE USER`. Pruning never drops users.
+
+Each ticked user gets a sign-in, preselected from the file's `auth`, plus
+hosts (from the file's `hosts`; empty means any host) and an optional
+settings profile. **Defaults for ticked users** sets the sign-in, hosts and
+profile of every ticked user at once; each user can still be changed after.
+
+| Sign-in | What is sent to the server |
+|---|---|
+| Generate a password (default) | Your browser generates a random password and salt and sends only `sha256(password + salt)` and the salt (`IDENTIFIED WITH sha256_hash BY ... SALT ...`) |
+| Paste a sha256, double SHA-1 or bcrypt hash | The hash you paste (and an optional salt for sha256) |
+| LDAP server, Kerberos, SSL certificate | The server name, realm or certificate common name |
+| No password | Nothing; the review asks you to acknowledge it |
+
+A plaintext password never reaches CH-UI's server. The hash and salt are
+secrets too: the review, the results, the audit log, access history and the
+server logs show them as `'***'`, and only the statement sent to ClickHouse
+carries them. Users are always created with a plain `CREATE USER`, never
+`IF NOT EXISTS` or `OR REPLACE`, so an existing user is never replaced.
+`ON CLUSTER` follows the cluster chosen in the review.
+
+After the apply, **New user passwords** shows each generated password once,
+with a copy button, for the users whose `CREATE USER` succeeded. CH-UI never
+stores them; closing the review forgets them.
+
+**Prepare rollback** drops the users the apply created. A user dropped this
+way cannot be brought back by another rollback. A revert from access history
+never drops or recreates users.
+
+Users created through CH-UI are recorded as part of the apply, so they do not
+raise a drift alert.
+
+### Stage
 
 **Stage N changes** puts the changes into the normal review (replacing any
 pending changes), where the safety checks, acknowledgements, typed drop
@@ -349,8 +402,10 @@ snapshot, with every kind pruned, and opens them in Access control's review.
 Nothing runs until you apply, and the apply is recorded as a **Revert** row.
 Some differences cannot be reverted and are listed before you stage:
 
-- Users: CH-UI never creates or drops them, so a user deleted since the
-  snapshot stays deleted.
+- Users: a revert never drops or recreates them. Users created since the
+  snapshot are listed here (CH-UI does not record who created a user, so it
+  leaves dropping them to you), and users deleted since stay deleted, since
+  CH-UI never keeps passwords.
 - Entities defined in `users.xml`.
 - A role's settings profile, when the role has settings set on itself that
   changing the profile would remove.
@@ -452,9 +507,13 @@ GET  /api/rbac/export?format=yaml
 POST /api/rbac/import/plan
 {"file": "chui_access: 1\n...", "prune": {"grants": true},
  "rename": {"principals": {"alice": "alice_eu"}, "databases": {"sales": "sales_eu"}},
- "kinds": ["roles", "grants"]}
+ "kinds": ["roles", "grants"], "create_users": ["carol"]}
 # -> {"ops": [...], "skipped": [{"kind", "name", "reason"}], "summary": {"grants": 3, ...},
-#     "over_cap": false, "message": "", "source": {"connection", "host", "exported_at"}}
+#     "over_cap": false, "message": "", "source": {"connection", "host", "exported_at"},
+#     "new_users": [{"name": "carol", "auth": "ldap", "hosts": [{"kind": "local"}]}]}
+# A create_user op from an import has no "auth" yet; add it before /plan:
+# {"kind": "create_user", "name": "carol", "auth": {"method": "sha256_hash", "hash": "<64 hex>", "salt": "<salt>"},
+#  "hosts": [{"kind": "ip", "value": "10.0.0.0/8"}], "profile": "readonly_p"}
 
 # Access history, newest first: drift=only for drift rows, limit (default 50,
 # max 200) and cursor (next_cursor of the previous page); also outside_last_30d
@@ -483,7 +542,11 @@ Operation kinds: `create_role`, `drop_role`, `set_role_profile`,
 `grant_privilege`, `revoke_privilege`, `grant_role`, `revoke_role`,
 `set_default_roles`, `create_row_policy`, `alter_row_policy`,
 `drop_row_policy`, `create_quota`, `alter_quota`, `drop_quota`,
-`create_settings_profile`, `alter_settings_profile`, `drop_settings_profile`.
+`create_settings_profile`, `alter_settings_profile`, `drop_settings_profile`,
+`create_user`, `drop_user`. A `create_user` `auth.method` is `sha256_hash`,
+`double_sha1_hash`, `bcrypt_hash` (with `hash`, and `salt` for sha256),
+`ldap` (`server`), `kerberos` (optional `realm`), `ssl_certificate` (`cn`) or
+`no_password`; there is no plaintext password method.
 The server never accepts SQL text: it validates names, checks privilege and
 setting names against `system.privileges` and `system.settings`, quotes every
 identifier, and renders each statement itself.

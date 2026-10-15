@@ -1,11 +1,13 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
   import { untrack } from 'svelte'
+  import { Copy } from 'lucide-svelte'
   import type { RbacApplyResponse, RbacOp, RbacPlan, RbacSnapshot } from '../../../types/rbac'
   import { applyRbac, fetchClusterNames, planRbac } from '../../../api/rbac'
   import { ApiError } from '../../../api/client'
   import { isProActive } from '../../../stores/license.svelte'
-  import { describeOp, dropConfirmName, hasReplicatedStorage } from './changes'
+  import { ackKey, allAcknowledged, describeOp, dropConfirmName, hasReplicatedStorage } from './changes'
+  import { success as toastSuccess, error as toastError } from '../../../stores/toast.svelte'
   import Sheet from '../../common/Sheet.svelte'
   import Button from '../../common/Button.svelte'
   import Badge from '../../common/Badge.svelte'
@@ -31,9 +33,11 @@
     onrollback: (ops: RbacOp[]) => void
     /** The access history row this change set reverts to, if any. */
     revertOf?: string
+    /** Generated passwords of new users, shown once for those created. */
+    passwords?: Record<string, string>
   }
 
-  let { open, ops, snapshot, onunstage, onclose, onapplied, onrollback, revertOf = '' }: Props = $props()
+  let { open, ops, snapshot, onunstage, onclose, onapplied, onrollback, revertOf = '', passwords = {} }: Props = $props()
 
   let clusters = $state<string[]>([])
   let cluster = $state('')
@@ -41,11 +45,15 @@
   let plan = $state<RbacPlan | null>(null)
   let planning = $state(false)
   let planError = $state('')
+  // Ticked warnings, one per warning (code and message): several warnings
+  // can share a code, such as one drop_user per user.
   let acked = $state<Record<string, boolean>>({})
   let typed = $state<Record<number, string>>({})
   let applying = $state(false)
   let applyError = $state('')
   let result = $state<RbacApplyResponse | null>(null)
+  // Passwords of the users this apply created, for the one-time view.
+  let revealed = $state<{ name: string; password: string }[]>([])
   let request = 0
 
   const replicated = $derived(hasReplicatedStorage(snapshot))
@@ -56,6 +64,7 @@
     if (!open) return
     untrack(() => {
       result = null
+      revealed = []
       applyError = ''
       fetchClusterNames()
         .then((c) => {
@@ -101,7 +110,7 @@
   const ackCodes = $derived([...new Set(acks.map((w) => w.code))])
   const drops = $derived(ops.map((op, index) => ({ index, name: dropConfirmName(op) })).filter((d) => d.name !== null))
   const ready = $derived(
-    !!plan && !planning && blocks.length === 0 && ackCodes.every((c) => acked[c]) && drops.every((d) => (typed[d.index] ?? '') === d.name),
+    !!plan && !planning && blocks.length === 0 && allAcknowledged(acks, acked) && drops.every((d) => (typed[d.index] ?? '') === d.name),
   )
 
   async function apply() {
@@ -110,6 +119,12 @@
     applyError = ''
     try {
       const res = await applyRbac(ops, effectiveCluster, plan.plan_hash, ackCodes, revertOf)
+      // A statement's seq is its op index plus one.
+      revealed = res.results
+        .filter((r) => r.status === 'applied')
+        .map((r) => ops[r.seq - 1])
+        .filter((op) => op?.kind === 'create_user' && !!op.name && !!passwords[op.name])
+        .map((op) => ({ name: op.name!, password: passwords[op.name!] }))
       result = res
       onapplied(res)
     } catch (err: unknown) {
@@ -120,10 +135,20 @@
     }
   }
 
+  async function copyPassword(name: string, password: string) {
+    try {
+      await navigator.clipboard.writeText(password)
+      toastSuccess(`Password of ${name} copied`)
+    } catch {
+      toastError('Clipboard unavailable')
+    }
+  }
+
   function prepareRollback() {
     if (!result) return
     const rb = result.rollback_ops
     result = null
+    revealed = []
     acked = {}
     typed = {}
     onrollback(rb)
@@ -145,6 +170,23 @@
 >
   {#if result}
     <div class="space-y-3">
+      {#if revealed.length}
+        <section class="space-y-2">
+          <h3 class="text-[13px] font-semibold text-fg">New user passwords</h3>
+          <div class="rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-xs text-fg">
+            Shown once. Copy each password now and hand it over securely; CH-UI never stored it and cannot show it again.
+          </div>
+          {#each revealed as p (p.name)}
+            <div class="flex items-center gap-2">
+              <span class="w-48 shrink-0 truncate font-mono text-xs text-fg-2" title={p.name}>{p.name}</span>
+              <pre class="min-w-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-surface-2 px-3 py-1.5 font-mono text-xs text-fg">{p.password}</pre>
+              <Button size="sm" variant="outline" icon aria-label={`Copy the password of ${p.name}`} title="Copy" onclick={() => void copyPassword(p.name, p.password)}>
+                <Copy size={13} />
+              </Button>
+            </div>
+          {/each}
+        </section>
+      {/if}
       {#each result.results as r (r.seq)}
         <div class="rounded-lg border border-edge-subtle bg-surface px-3 py-2">
           <div class="flex items-start gap-2">
@@ -212,16 +254,16 @@
                 <span class="font-medium">Blocked.</span> {w.message}
               </div>
             {/each}
-            {#each acks as w (w.code + w.message)}
+            {#each acks as w, i (ackKey(w))}
               <div class="flex items-start gap-2 rounded-md bg-warning-soft px-3 py-2 text-[13px] text-fg">
                 <input
-                  id={`ack-${w.code}-${w.message.length}`}
+                  id={`ack-${i}`}
                   type="checkbox"
                   class="ds-checkbox mt-0.5"
-                  checked={!!acked[w.code]}
-                  onchange={(e) => (acked = { ...acked, [w.code]: e.currentTarget.checked })}
+                  checked={!!acked[ackKey(w)]}
+                  onchange={(e) => (acked = { ...acked, [ackKey(w)]: e.currentTarget.checked })}
                 />
-                <label for={`ack-${w.code}-${w.message.length}`}>{w.message}</label>
+                <label for={`ack-${i}`}>{w.message}</label>
               </div>
             {/each}
           </section>

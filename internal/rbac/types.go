@@ -29,6 +29,8 @@ const (
 	OpCreateSettingsProfile = "create_settings_profile"
 	OpAlterSettingsProfile  = "alter_settings_profile"
 	OpDropSettingsProfile   = "drop_settings_profile"
+	OpCreateUser            = "create_user"
+	OpDropUser              = "drop_user"
 )
 
 // Entity kinds, used for diffs and the entity endpoint.
@@ -110,12 +112,18 @@ type ProfileSpec struct {
 type Op struct {
 	Kind string `json:"kind"`
 
-	// Name is the role, quota or settings profile name for role, quota and
-	// profile ops.
+	// Name is the role, user, quota or settings profile name for role,
+	// user, quota and profile ops.
 	Name string `json:"name,omitempty"`
 	// Profile is the settings profile attached to a role (create_role,
-	// set_role_profile). Empty in set_role_profile clears it.
+	// set_role_profile) or a new user (create_user). Empty in
+	// set_role_profile clears it.
 	Profile string `json:"profile,omitempty"`
+
+	// Auth and Hosts describe a new user (create_user). Auth may carry a
+	// password hash; see users.go for how it is kept out of sight.
+	Auth  *UserAuth  `json:"auth,omitempty"`
+	Hosts []HostSpec `json:"hosts,omitempty"`
 
 	// Grants and default roles.
 	Target      *Target  `json:"target,omitempty"`
@@ -137,7 +145,8 @@ type Op struct {
 	SettingsProfile *ProfileSpec   `json:"settings_profile,omitempty"`
 }
 
-// Statement is one rendered DDL statement of a plan.
+// Statement is one rendered DDL statement of a plan. SQL is what is shown,
+// hashed and audited; for a create_user it has the hash and salt masked.
 type Statement struct {
 	Seq        int    `json:"seq"`
 	SQL        string `json:"sql"`
@@ -146,6 +155,11 @@ type Statement struct {
 	// Inverse holds the operations that undo this statement, used to build
 	// rollback_ops after apply.
 	Inverse []Op `json:"-"`
+	// execSQL, when set, is the statement Apply runs instead of SQL: the
+	// create_user with its secrets. secrets are scrubbed from errors. Both
+	// are unexported so they never leave the process.
+	execSQL string
+	secrets []string
 }
 
 // Diff is the before and after of one entity touched by a plan.

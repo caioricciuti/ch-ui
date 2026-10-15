@@ -151,6 +151,12 @@ type Snapshot struct {
 	// MultiNode is true when system.clusters has a cluster of more than
 	// one node, so entities not stored in replicated storage are local.
 	MultiNode bool `json:"multi_node,omitempty"`
+	// UserLogins maps a user to its authentication type and hosts, never a
+	// secret. Nil when system.users could not be read for them.
+	UserLogins map[string]UserLogin `json:"user_logins,omitempty"`
+	// UserStorages are the types of system.user_directories in precedence
+	// order, empty when unknown.
+	UserStorages []string `json:"user_storages,omitempty"`
 }
 
 // ProfileElement is one settings element attached directly to a user or a
@@ -271,6 +277,7 @@ func ReadSnapshot(ctx context.Context, ex Executor) (*Snapshot, error) {
 		}
 	}
 	readExplainerFacts(ctx, ex, s)
+	readUserLogins(ctx, ex, s)
 	return s, nil
 }
 

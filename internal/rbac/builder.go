@@ -173,7 +173,8 @@ func quotaIntervals(q QuotaSpec, current *QuotaSpec) string {
 }
 
 // Render builds the SQL of one op. current is the entity as it is now, used
-// by ALTER QUOTA to clear removed limits; it may be nil.
+// by ALTER QUOTA to clear removed limits; it may be nil. A create_user comes
+// out with its hash and salt masked; only Compose builds the real one.
 func Render(op Op, cluster string, snap *Snapshot) string {
 	on := clusterhealth.OnCluster(cluster)
 	switch op.Kind {
@@ -267,6 +268,10 @@ func Render(op Op, cluster string, snap *Snapshot) string {
 		return "ALTER SETTINGS PROFILE " + quoteIdent(p.Name) + on + els + toClause(p.To)
 	case OpDropSettingsProfile:
 		return "DROP SETTINGS PROFILE IF EXISTS " + quoteIdent(op.Name) + on
+	case OpCreateUser:
+		return renderCreateUser(op, on, false)
+	case OpDropUser:
+		return "DROP USER IF EXISTS " + quoteIdent(op.Name) + on
 	}
 	return ""
 }
@@ -278,8 +283,8 @@ func Compose(ops []Op, snap *Snapshot, cat Catalog, cluster string, ctx GuardCon
 	if len(ops) == 0 {
 		return nil, fmt.Errorf("no changes to plan")
 	}
-	if len(ops) > 200 {
-		return nil, fmt.Errorf("too many changes in one plan (max 200)")
+	if len(ops) > MaxImportOps {
+		return nil, fmt.Errorf("too many changes in one plan (%d, max %d); import or apply them in batches", len(ops), MaxImportOps)
 	}
 	if cluster != "" && !clusterhealth.IsValidClusterName(cluster) {
 		return nil, fmt.Errorf("invalid cluster name")
@@ -305,9 +310,12 @@ func Compose(ops []Op, snap *Snapshot, cat Catalog, cluster string, ctx GuardCon
 		for _, o := range inv {
 			invSQL = append(invSQL, Render(o, cluster, state))
 		}
-		plan.Statements = append(plan.Statements, Statement{
-			Seq: i + 1, SQL: sql, OpIndex: i, Inverse: inv, InverseSQL: strings.Join(invSQL, ";\n"),
-		})
+		st := Statement{Seq: i + 1, SQL: sql, OpIndex: i, Inverse: inv, InverseSQL: strings.Join(invSQL, ";\n")}
+		if op.Kind == OpCreateUser {
+			st.execSQL = renderCreateUser(op, clusterhealth.OnCluster(cluster), true)
+			st.secrets = opSecrets(op)
+		}
+		plan.Statements = append(plan.Statements, st)
 	}
 	plan.Diffs = Diffs(ops, snap)
 	plan.Warnings = Guard(ops, snap, cluster, ctx)
@@ -315,13 +323,20 @@ func Compose(ops []Op, snap *Snapshot, cat Catalog, cluster string, ctx GuardCon
 	return plan, nil
 }
 
-// checkOrder refuses a plan that uses a role or settings profile before the
-// change that creates it, since statements run in staged order.
+// checkOrder refuses a plan that uses a role, user or settings profile
+// before the change that creates it, since statements run in staged order,
+// and a plan that creates the same user twice.
 func checkOrder(ops []Op, snap *Snapshot) error {
-	createdRole, createdProfile := map[string]int{}, map[string]int{}
+	createdRole, createdProfile, createdUser := map[string]int{}, map[string]int{}, map[string]int{}
 	for i, op := range ops {
 		if _, ok := createdRole[op.Name]; !ok && op.Kind == OpCreateRole {
 			createdRole[op.Name] = i
+		}
+		if op.Kind == OpCreateUser {
+			if j, ok := createdUser[op.Name]; ok {
+				return fmt.Errorf("changes %d and %d both create user %q", j+1, i+1, op.Name)
+			}
+			createdUser[op.Name] = i
 		}
 		if op.Kind == OpCreateSettingsProfile {
 			if _, ok := createdProfile[op.SettingsProfile.Name]; !ok {
@@ -330,15 +345,17 @@ func checkOrder(ops []Op, snap *Snapshot) error {
 		}
 	}
 	for i, op := range ops {
-		var roles, profiles []string
+		var roles, profiles, users []string
 		switch op.Kind {
-		case OpCreateRole:
+		case OpCreateRole, OpCreateUser:
 			profiles = []string{op.Profile}
 		case OpSetRoleProfile:
 			roles, profiles = []string{op.Name}, []string{op.Profile}
 		case OpGrantPrivilege, OpRevokePrivilege, OpGrantRole, OpRevokeRole, OpSetDefaultRoles:
 			if op.Target.Type == "role" {
 				roles = append(roles, op.Target.Name)
+			} else {
+				users = append(users, op.Target.Name)
 			}
 			roles = append(append(roles, op.Roles...), op.DefaultExcept...)
 		case OpCreateRowPolicy, OpAlterRowPolicy:
@@ -348,6 +365,16 @@ func checkOrder(ops []Op, snap *Snapshot) error {
 		case OpCreateSettingsProfile, OpAlterSettingsProfile:
 			roles = append(append(roles, op.SettingsProfile.To.Names...), op.SettingsProfile.To.Except...)
 			profiles = op.SettingsProfile.Inherit
+		}
+		switch op.Kind {
+		case OpCreateRowPolicy, OpAlterRowPolicy, OpCreateQuota, OpAlterQuota, OpCreateSettingsProfile, OpAlterSettingsProfile:
+			// TO clauses name roles and users alike.
+			users = append(users, roles...)
+		}
+		for _, u := range users {
+			if j, ok := createdUser[u]; ok && j > i && snap.user(u) == nil {
+				return fmt.Errorf("change %d uses user %q before change %d creates it; stage the create first", i+1, u, j+1)
+			}
 		}
 		for _, r := range roles {
 			if j, ok := createdRole[r]; ok && j > i && snap.role(r) == nil {
