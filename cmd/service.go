@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/caioricciuti/ch-ui/connector/config"
 	"github.com/caioricciuti/ch-ui/connector/service"
@@ -15,7 +17,20 @@ import (
 var serviceCmd = &cobra.Command{
 	Use:   "service",
 	Short: "Manage CH-UI as a system service",
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		if runtime.GOOS == "windows" {
+			return errWindowsService
+		}
+		return nil
+	},
 }
+
+// errWindowsService explains what to do instead: the service manager only
+// knows launchd and systemd.
+var errWindowsService = errors.New(`ch-ui service is not supported on Windows yet.
+Run the connector in a terminal with: ch-ui connect --key <token> --url <server-url>
+To start it at sign-in, create a scheduled task, for example:
+  schtasks /Create /SC ONLOGON /TN ch-ui-connect /TR "C:\path\to\ch-ui.exe connect --key <token> --url <server-url>"`)
 
 // ── service install ─────────────────────────────────────────────────────────
 

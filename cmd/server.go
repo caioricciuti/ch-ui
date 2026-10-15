@@ -197,6 +197,13 @@ func runServer(cmd *cobra.Command) error {
 	// Without it, always serve the embedded frontend (production mode).
 	cfg.DevMode = devMode
 
+	return serveConfig(cfg, nil)
+}
+
+// serveConfig runs the server with a loaded configuration until it stops or
+// the process gets SIGINT/SIGTERM. A nil listener binds cfg.Port on every
+// interface; `ch-ui desktop` passes a loopback listener instead.
+func serveConfig(cfg *config.Config, ln net.Listener) error {
 	// Setup structured logging
 	logLevel := slog.LevelInfo
 	if cfg.DevMode {
@@ -304,6 +311,10 @@ func runServer(cmd *cobra.Command) error {
 
 	errCh := make(chan error, 1)
 	go func() {
+		if ln != nil {
+			errCh <- srv.Serve(ln)
+			return
+		}
 		errCh <- srv.Start()
 	}()
 
@@ -411,7 +422,7 @@ func stopServer(pidFile string, timeout time.Duration) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("failed to locate process %d: %w", pid, err)
 	}
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
+	if err := terminateProcess(proc); err != nil {
 		if !processExists(pid) {
 			_ = os.Remove(pidFile)
 			return false, nil
@@ -504,28 +515,6 @@ func cleanupServerPIDFile(pidFile string, expectedPID int) {
 	if pid == expectedPID {
 		_ = os.Remove(pidFile)
 	}
-}
-
-func processExists(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = proc.Signal(syscall.Signal(0))
-	if err == nil {
-		return true
-	}
-	if errors.Is(err, syscall.EPERM) {
-		return true
-	}
-	var sysErr *os.SyscallError
-	if errors.As(err, &sysErr) && errors.Is(sysErr.Err, syscall.EPERM) {
-		return true
-	}
-	return false
 }
 
 func isTCPPortOpen(addr string) bool {

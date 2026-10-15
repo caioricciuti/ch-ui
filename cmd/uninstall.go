@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/caioricciuti/ch-ui/connector/service"
@@ -182,7 +181,7 @@ func stopDetachedConnectProcess(pidFile string) error {
 	if err != nil {
 		return fmt.Errorf("locate connect process %d: %w", pid, err)
 	}
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
+	if err := terminateProcess(proc); err != nil {
 		return fmt.Errorf("stop connect process %d: %w", pid, err)
 	}
 

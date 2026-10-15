@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -452,8 +453,19 @@ func (s *Server) setupRoutes() {
 	slog.Info("Routes configured")
 }
 
-// Start starts the HTTP server.
+// Start starts the HTTP server on the configured port, all interfaces.
 func (s *Server) Start() error {
+	return s.serve(nil)
+}
+
+// Serve starts the HTTP server on a listener the caller already bound.
+// `ch-ui desktop` uses it to serve on a loopback address only.
+func (s *Server) Serve(ln net.Listener) error {
+	s.http.Addr = ln.Addr().String()
+	return s.serve(ln)
+}
+
+func (s *Server) serve(ln net.Listener) error {
 	s.db.StartCleanupJobs()
 	s.db.StartRetentionJob()
 	s.scheduler.Start()
@@ -482,11 +494,17 @@ func (s *Server) Start() error {
 
 	if s.cfg.TLSEnabled() {
 		slog.Info("Server listening with native TLS", "addr", s.http.Addr)
+		if ln != nil {
+			return s.http.ServeTLS(ln, s.cfg.TLSCertFile, s.cfg.TLSKeyFile)
+		}
 		return s.http.ListenAndServeTLS(s.cfg.TLSCertFile, s.cfg.TLSKeyFile)
 	}
 
 	s.warnIfInsecure()
 	slog.Info("Server listening", "addr", s.http.Addr)
+	if ln != nil {
+		return s.http.Serve(ln)
+	}
 	return s.http.ListenAndServe()
 }
 

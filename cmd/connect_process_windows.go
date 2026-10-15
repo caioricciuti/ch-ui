@@ -3,5 +3,5 @@
 package cmd
 
 func isProcessRunning(pid int) bool {
-	return pid > 0
+	return processExists(pid)
 }

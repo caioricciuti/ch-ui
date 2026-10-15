@@ -32,10 +32,29 @@ chmod +x ch-ui
 sudo install -m 755 ch-ui /usr/local/bin/ch-ui
 ```
 
+On Windows, download the `.exe` in PowerShell:
+
+```powershell
+# Windows (x64)
+Invoke-WebRequest -OutFile ch-ui.exe https://github.com/caioricciuti/ch-ui/releases/latest/download/ch-ui-windows-amd64.exe
+
+# Windows (ARM)
+Invoke-WebRequest -OutFile ch-ui.exe https://github.com/caioricciuti/ch-ui/releases/latest/download/ch-ui-windows-arm64.exe
+```
+
+The Windows binary is not code signed, so SmartScreen may warn the first time you run it. Check it against `checksums.txt` from the same release first:
+
+```powershell
+Get-FileHash ch-ui.exe -Algorithm SHA256
+```
+
+The hash must match the `ch-ui-windows-amd64.exe` (or `arm64`) line in `checksums.txt`. Run it from a terminal as `.\ch-ui.exe desktop`, see [Desktop](#desktop-personal-use) below.
+
 Supported platforms:
 
 - Linux: `amd64`, `arm64`
 - macOS: `amd64`, `arm64`
+- Windows: `amd64`, `arm64`. `ch-ui service` is not available on Windows yet; see [Desktop](#desktop-personal-use) and [CLI](/docs/cli/#service).
 
 ## Verify Install
 
@@ -56,6 +75,29 @@ ch-ui server --port 3488
 Open `http://localhost:3488`.
 
 If CH-UI cannot reach ClickHouse on the first run, use the setup code printed in the server log to point it at the right URL from the login page. Find it with `docker logs <container> 2>&1 | grep setup_code` (Docker), `journalctl -u ch-ui-server | grep setup_code` (systemd) or `kubectl logs deploy/<release>-ch-ui | grep setup_code` (Helm). With `ch-ui server --detach` the log goes to `ch-ui-server.log` in the directory you started it from: `grep setup_code ./ch-ui-server.log`. See [First-run setup from the login page](/docs/cant-login/#first-run-setup-from-the-login-page).
+
+## Desktop (personal use)
+
+To run CH-UI just for yourself on your own computer, use `ch-ui desktop`:
+
+```bash
+ch-ui desktop
+```
+
+It differs from `ch-ui server` in three ways:
+
+- It listens on `127.0.0.1` only, so nobody else on your network can reach it. It refuses any address that is not loopback.
+- It keeps the database and the app secret key in your user data folder, not in the folder you started it from:
+  - macOS: `~/Library/Application Support/ch-ui`
+  - Windows: `%AppData%\ch-ui`
+  - Linux: `~/.config/ch-ui` (or `$XDG_CONFIG_HOME/ch-ui`)
+- It uses port 3488 when it is free and any free port otherwise, prints the URL, and opens your browser. Run it again while it is running and it only opens the browser.
+
+The folder is created readable by you only, and the secret key file is owner-only (`0600`) on macOS and Linux. On Windows, `%AppData%` is already private to your account and the files inherit that.
+
+Flags: `--no-browser`, `--port` (fails if that port is taken), `--host` (`127.0.0.1`, `::1` or `localhost`), `--clickhouse-url`, `--connection-name`. `DATABASE_PATH` and `APP_SECRET_KEY` work as they do for `ch-ui server`. Stop it with Ctrl+C.
+
+To share CH-UI with a team, use `ch-ui server` behind TLS instead. See [Deployment](/docs/deployment).
 
 ## Quick Start (Docker Compose)
 
@@ -130,6 +172,8 @@ Available binaries:
 - `ch-ui-linux-arm64`
 - `ch-ui-darwin-amd64`
 - `ch-ui-darwin-arm64`
+- `ch-ui-windows-amd64.exe`
+- `ch-ui-windows-arm64.exe`
 
 ```bash
 curl -L -o ch-ui https://github.com/caioricciuti/ch-ui/releases/latest/download/ch-ui-linux-amd64

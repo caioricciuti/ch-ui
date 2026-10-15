@@ -20,6 +20,8 @@ func init() {
 }
 
 func Execute() {
+	removeReplacedBinary()
+
 	if len(os.Args) == 1 {
 		rootCmd.SetArgs([]string{"server"})
 	}

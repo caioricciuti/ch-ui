@@ -34,6 +34,7 @@ ch-ui connect --url wss://ch-ui.yourcompany.com/connect --key cht_xxx --clickhou
 ```bash
 ch-ui              # start server (default)
 ch-ui server       # run CH-UI web app/API/gateway
+ch-ui desktop      # run CH-UI for yourself on 127.0.0.1 and open the browser
 ch-ui connect      # run connector agent next to ClickHouse
 ch-ui tunnel       # create/manage tunnel keys on server host
 ch-ui service      # install connector as OS service
@@ -78,6 +79,45 @@ ch-ui server restart
 | `--dev` | Development mode (frontend proxy) | `false` |
 | `--allow-login-url` | Allow sign-in with a ClickHouse URL typed on the login page. The server connects to it, so trusted networks only. See [Configuration](/docs/configuration/#sign-in-with-a-clickhouse-url) | `false` |
 | `--trusted-proxies` | Comma-separated IPs or CIDRs of reverse proxies whose `X-Forwarded-For` is trusted; `none` trusts no proxy. See [Configuration](/docs/configuration/#behind-a-reverse-proxy) | loopback, private and link-local ranges |
+
+## `desktop`
+
+Run CH-UI as a personal app on this computer. It serves the same app as
+`ch-ui server`, with these differences:
+
+- It listens on `127.0.0.1` only and refuses any non-loopback address.
+- The database and app secret key live in your user data folder
+  (`~/Library/Application Support/ch-ui` on macOS, `%AppData%\ch-ui` on
+  Windows, `~/.config/ch-ui` or `$XDG_CONFIG_HOME/ch-ui` on Linux), created
+  readable by you only. `DATABASE_PATH` and `APP_SECRET_KEY` override them.
+- Port 3488 is used when free, otherwise any free port. The URL is printed and
+  opened in your default browser.
+- If a desktop instance is already running (`desktop.pid` and `desktop.addr`
+  in the data folder), it opens the browser to that one and exits.
+- Native TLS and trusted proxies are off: the connection never leaves the
+  computer, and no proxy sits in front of it.
+
+```bash
+ch-ui desktop
+ch-ui desktop --no-browser
+ch-ui desktop --clickhouse-url http://127.0.0.1:8123
+```
+
+Stop it with Ctrl+C. Other settings from the config file and environment
+(ClickHouse URL, session length, and so on) apply as for `ch-ui server`; the
+port, listen address, database location and app URL are always set by
+`desktop`.
+
+### Flags
+
+| Flag | Description | Default |
+|---|---|---|
+| `--no-browser` | Print the URL without opening a browser | `false` |
+| `--port, -p` | Port to listen on. When given explicitly, a busy port is an error instead of falling back to a free one | `3488` |
+| `--host` | Loopback address to listen on: `127.0.0.1`, `::1` or `localhost` | `127.0.0.1` |
+| `--config, -c` | Path to config file | none |
+| `--clickhouse-url` | Local ClickHouse HTTP URL for the embedded connection | `http://localhost:8123` |
+| `--connection-name` | Display name for the embedded local connection | `Local ClickHouse` |
 
 ## `connect`
 
@@ -138,6 +178,13 @@ ch-ui tunnel delete <connection-id>
 ## `service`
 
 Install and manage the connector as an OS service (systemd / launchd).
+
+Not available on Windows yet. There, run `ch-ui connect` in a terminal, or
+start it at sign-in with a scheduled task:
+
+```powershell
+schtasks /Create /SC ONLOGON /TN ch-ui-connect /TR "C:\path\to\ch-ui.exe connect --key cht_xxx --url wss://ch-ui.yourcompany.com/connect"
+```
 
 ```bash
 ch-ui service install --key cht_xxx --url wss://ch-ui.yourcompany.com/connect --clickhouse-url http://127.0.0.1:8123
@@ -229,6 +276,11 @@ If a server is running (found through its PID file), `update` stops it and
 starts the new version in the background. On Linux it reuses the running
 server's arguments; elsewhere it starts `ch-ui server --pid-file <file>`. Pass
 `--restart-server=false` to skip that and restart it yourself.
+
+On Windows a running `.exe` cannot be overwritten, so `update` renames it to
+`ch-ui.exe.old` first and writes the new one in its place. The `.old` file is
+removed the next time `ch-ui` starts. A running `ch-ui desktop` keeps the old
+version until you restart it.
 
 ```bash
 ch-ui update
