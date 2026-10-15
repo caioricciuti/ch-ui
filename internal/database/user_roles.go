@@ -284,6 +284,48 @@ func (db *DB) SessionRole(s *Session) (string, error) {
 	return role, err
 }
 
+// ActorRole returns the app role of a person outside a request, such as the
+// author of a scheduled report: their override, else the role cached on
+// their newest session, else viewer. actor is what a session acts as (the
+// SSO email or the ClickHouse user); connectionID is where the work runs.
+// On a connection created from the login page the result is capped by
+// CapLoginURLRole. On error it returns viewer.
+func (db *DB) ActorRole(actor, connectionID string) (string, error) {
+	if actor == "" {
+		return "viewer", nil
+	}
+	role, err := db.GetUserRole(SSORoleKeyPrefix+actor, connectionID)
+	if err != nil {
+		return "viewer", err
+	}
+	if role == "" && !IsReservedRoleUsername(actor) {
+		if role, err = db.GetUserRole(actor, connectionID); err != nil {
+			return "viewer", err
+		}
+	}
+	if role == "" {
+		var cached sql.NullString
+		err := db.conn.QueryRow(`SELECT user_role FROM sessions
+			WHERE auth_subject = ? OR (COALESCE(auth_subject, '') = '' AND clickhouse_user = ? AND connection_id = ?)
+			ORDER BY created_at DESC LIMIT 1`, actor, actor, connectionID).Scan(&cached)
+		if err != nil && err != sql.ErrNoRows {
+			return "viewer", fmt.Errorf("get cached role: %w", err)
+		}
+		role = cached.String
+	}
+	if role == "" {
+		role = "viewer"
+	}
+	loginURL, err := db.IsLoginURLConnection(connectionID)
+	if err != nil {
+		return "viewer", err
+	}
+	if loginURL {
+		role = CapLoginURLRole(role)
+	}
+	return role, nil
+}
+
 // OAuthKeyRole returns the app role an OAuth MCP token acts with, resolved
 // the way a session's is: the person's override on the key's connection,
 // else the role cached on their newest live session there, else the role

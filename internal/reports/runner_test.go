@@ -410,3 +410,76 @@ func TestRunPanelAllPastTheOptionsCap(t *testing.T) {
 		t.Fatalf("summary values %v", used["host"])
 	}
 }
+
+// A report built on a shared query stops when the owner makes it private:
+// the author can no longer open it, so nothing runs or sends, the delivery
+// says why, and the failure counts toward the auto-disable.
+func TestRunRefusesSavedQueryHiddenFromAuthor(t *testing.T) {
+	f := newFixture(t, "service_account")
+	if _, err := f.db.Conn().Exec(`UPDATE report_subscriptions SET created_by = 'bob' WHERE id = ?`, f.sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Conn().Exec(`UPDATE saved_queries SET created_by = 'alice', visibility = ? WHERE id = ?`, database.SavedQueryShared, *f.sub.SavedQueryID); err != nil {
+		t.Fatal(err)
+	}
+	sub := func() *database.ReportSubscription {
+		s, err := f.db.GetReportSubscription(f.sub.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+
+	if _, err := f.runner.SendNow(context.Background(), sub()); err != nil {
+		t.Fatalf("shared query: %v", err)
+	}
+	if f.exec.count() != 1 {
+		t.Fatalf("shared query ran %d times", f.exec.count())
+	}
+
+	if err := f.db.SetSavedQueryVisibility(*f.sub.SavedQueryID, database.SavedQueryPrivate, ""); err != nil {
+		t.Fatal(err)
+	}
+	d, err := f.runner.SendNow(context.Background(), sub())
+	if !errors.Is(err, ErrSavedQueryHidden) {
+		t.Fatalf("private query: err %v", err)
+	}
+	if f.exec.count() != 1 || len(f.send.sent) != 1 {
+		t.Fatalf("a hidden query must not run or send: %d queries, %d sends", f.exec.count(), len(f.send.sent))
+	}
+	if d.Status != "failed" || d.Error == nil || !strings.Contains(*d.Error, "no longer visible to the report's author") {
+		t.Fatalf("delivery %+v", d)
+	}
+	if s := sub(); s.ConsecutiveFailures != 1 || !s.Enabled {
+		t.Fatalf("counts toward the auto-disable: failures=%d enabled=%v", s.ConsecutiveFailures, s.Enabled)
+	}
+	events, err := f.db.ListAlertEvents(10, alerts.EventTypeReportFailed, "")
+	if err != nil || len(events) != 1 {
+		t.Fatalf("failure events %+v %v", events, err)
+	}
+
+	// An admin author may still open other people's private queries.
+	if err := f.db.SetUserRole("bob", f.conn, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.runner.SendNow(context.Background(), sub()); err != nil {
+		t.Fatalf("admin author: %v", err)
+	}
+	if f.exec.count() != 2 {
+		t.Fatalf("admin author ran %d queries", f.exec.count())
+	}
+
+	// Losing the role hides it again; the owner as author always sees it.
+	if err := f.db.SetUserRole("bob", f.conn, "analyst"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.runner.Preview(context.Background(), sub()); !errors.Is(err, ErrSavedQueryHidden) {
+		t.Fatalf("demoted author preview: %v", err)
+	}
+	if _, err := f.db.Conn().Exec(`UPDATE report_subscriptions SET created_by = 'alice' WHERE id = ?`, f.sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.runner.SendNow(context.Background(), sub()); err != nil {
+		t.Fatalf("owner author: %v", err)
+	}
+}

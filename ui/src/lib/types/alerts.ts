@@ -118,7 +118,8 @@ export interface AlertAck {
 }
 
 export interface FiringIncident {
-  source: 'health' | 'sql'
+  /** 'drift' rows (access drift, one per connection) are listed for admins only. */
+  source: 'health' | 'sql' | 'drift'
   alert_key: string
   incident_id: string
   connection_id: string
@@ -131,6 +132,10 @@ export interface FiringIncident {
   /** null: there is no event to acknowledge. */
   event_id: string | null
   ack: AlertAck | null
+  /** Access drift only: the latest change, when it was seen, and the page to review it on. */
+  summary?: string
+  last_seen?: string
+  link_path?: string
 }
 
 // ── Health checks and SQL threshold alerts (/api/alerting) ──

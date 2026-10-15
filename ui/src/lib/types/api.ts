@@ -74,6 +74,8 @@ export interface SavedQuery {
   can_edit: boolean
   created_at: string
   updated_at: string
+  /** Latest recorded version; 0 before any. Saving from the editor sends it back. */
+  version: number
 }
 
 /** Saved query folders share the dashboard folder shape. */
@@ -139,6 +141,8 @@ export interface DashboardVariable {
 export interface DashboardVariableOption {
   value: string
   label: string
+  /** The value as a UTC ISO instant, when it is a date and time. */
+  instant?: string
 }
 
 /** One saved state of a dashboard (snapshot only on the single-version endpoint). */

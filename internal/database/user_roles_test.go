@@ -59,3 +59,40 @@ func TestRevokeAllAdmins(t *testing.T) {
 		t.Fatalf("second RevokeAllAdmins = %v, %v", revoked, err)
 	}
 }
+
+func TestActorRole(t *testing.T) {
+	db := openTestDB(t)
+	connID, err := db.CreateConnection(CreateConnectionParams{Name: "actor-role", TunnelToken: "cht_actor_role", Type: ConnectionTypeTunnel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expires := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	for _, p := range []CreateSessionParams{
+		{ConnectionID: connID, ClickhouseUser: "ana", EncryptedPassword: "enc", Token: "tok-ana", ExpiresAt: expires, UserRole: "analyst"},
+		{ConnectionID: connID, ClickhouseUser: "sso_svc", EncryptedPassword: "enc", Token: "tok-sso", ExpiresAt: expires, UserRole: "admin", AuthSubject: "eve@example.com"},
+	} {
+		if _, err := db.CreateSession(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(actor, want string) {
+		t.Helper()
+		got, err := db.ActorRole(actor, connID)
+		if err != nil || got != want {
+			t.Fatalf("ActorRole(%q) = %q, %v; want %q", actor, got, err, want)
+		}
+	}
+	check("ana", "analyst")           // cached on the session
+	check("eve@example.com", "admin") // SSO person, by email
+	check("sso_svc", "viewer")        // the service account is not the person
+	check("nobody", "viewer")         // never signed in
+	check("", "viewer")
+	if err := db.SetUserRole("ana", connID, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetUserRole("sso:eve@example.com", "", "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	check("ana", "admin") // the override wins
+	check("eve@example.com", "viewer")
+}

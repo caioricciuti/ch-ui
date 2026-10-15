@@ -77,6 +77,9 @@ type Variable struct {
 type Option struct {
 	Value string `json:"value"`
 	Label string `json:"label"`
+	// Instant is the value as a UTC ISO instant when it is a date and time,
+	// so a value clicked in a panel (an instant) finds its option.
+	Instant string `json:"instant,omitempty"`
 }
 
 // ParseVariables decodes and validates a JSON array of variables. Empty

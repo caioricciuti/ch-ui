@@ -1,29 +1,51 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import type { AlertEvent } from '../../types/alerts'
-  import { adminListAlertEvents } from '../../api/alerts'
-  import { eventTypeLabel as eventLabel } from './alerting-silences'
+  import type { AlertEvent, FiringIncident } from '../../types/alerts'
+  import { adminListAlertEvents, createAck, deleteAck, listFiring } from '../../api/alerts'
+  import { ACK_EXPIRY_OPTIONS, ackTitle, eventTypeLabel as eventLabel } from './alerting-silences'
   import { severityTone, statusTone } from './alerting-admin'
-  import { error as toastError } from '../../stores/toast.svelte'
+  import { getSession } from '../../stores/session.svelte'
+  import { setSection } from '../../stores/nav.svelte'
+  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import { formatDate } from '../../utils/format'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
+  import FormField from '../common/FormField.svelte'
+  import Panel from '../common/Panel.svelte'
   import Select from '../common/Select.svelte'
   import Sheet from '../common/Sheet.svelte'
   import Spinner from '../common/Spinner.svelte'
+  import Textarea from '../common/Textarea.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import { RefreshCw } from 'lucide-svelte'
 
   // Alerts: the events CH-UI fired, newest first. Rules and channels have
-  // their own sections (alert-rules, alert-channels).
+  // their own sections (alert-rules, alert-channels). Admins also see the
+  // open access drift incidents above the events, and acknowledge them
+  // there (only admins can, server enforced).
   type Row = Record<string, unknown>
   const asRows = <T,>(rows: T[]): Row[] => rows as unknown as Row[]
+  const isAdmin = $derived(getSession()?.role === 'admin')
 
   let loading = $state(true)
   let events = $state<AlertEvent[]>([])
   let eventLimit = $state('50')
   let selectedEvent = $state<AlertEvent | null>(null)
+
+  let drift = $state<FiringIncident[]>([])
+  let ackTarget = $state<FiringIncident | null>(null)
+  let ackComment = $state('')
+  let ackExpiry = $state('')
+  let ackSaving = $state(false)
+  let unacking = $state<string | null>(null)
+
+  const driftColumns: DataColumn<Row>[] = [
+    { key: 'name', label: 'Incident', width: '220px', truncate: true },
+    { key: 'severity', label: 'Severity', width: '110px' },
+    { key: 'since', label: 'First seen', mono: true, width: '170px', format: (v) => formatDate(v) },
+    { key: 'summary', label: 'Latest change', truncate: true },
+  ]
 
   const limitOptions = ['25', '50', '100', '200'].map((v) => ({ value: v, label: `${v} events` }))
 
@@ -45,7 +67,60 @@
     }
   }
 
-  onMount(loadEvents)
+  // Drift rows only add to the events; a failure here keeps the list visible.
+  async function loadDrift() {
+    if (!isAdmin) return
+    try {
+      drift = (await listFiring()).filter((inc) => inc.source === 'drift')
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  function refresh() {
+    void loadEvents()
+    void loadDrift()
+  }
+
+  function openAck(inc: FiringIncident) {
+    ackTarget = inc
+    ackComment = ''
+    ackExpiry = ''
+  }
+
+  async function submitAck() {
+    if (!ackTarget?.event_id || ackSaving) return
+    ackSaving = true
+    try {
+      await createAck({
+        event_id: ackTarget.event_id,
+        comment: ackComment.trim() || undefined,
+        expires_in: ackExpiry ? Number(ackExpiry) : undefined,
+      })
+      toastSuccess('Access drift acknowledged')
+      ackTarget = null
+      await loadDrift()
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+    } finally {
+      ackSaving = false
+    }
+  }
+
+  async function unacknowledge(ackId: string) {
+    unacking = ackId
+    try {
+      await deleteAck(ackId)
+      toastSuccess('Acknowledgement removed')
+      await loadDrift()
+    } catch (e: unknown) {
+      toastError(e instanceof Error ? e.message : String(e))
+    } finally {
+      unacking = null
+    }
+  }
+
+  onMount(refresh)
 
   function prettyPayload(raw: string | null | undefined): string {
     if (!raw) return ''
@@ -61,10 +136,44 @@
   <div class="flex h-10 shrink-0 items-center gap-2 px-5">
     <div class="flex-1"></div>
     <Select size="sm" class="w-32" options={limitOptions} bind:value={eventLimit} onchange={() => void loadEvents()} />
-    <Button icon variant="ghost" size="sm" aria-label="Refresh events" title="Refresh" onclick={() => void loadEvents()}>
+    <Button icon variant="ghost" size="sm" aria-label="Refresh events" title="Refresh" onclick={refresh}>
       <RefreshCw size={14} />
     </Button>
   </div>
+
+  {#if isAdmin && drift.length > 0}
+    <div class="shrink-0 px-5 pb-3">
+      <Panel title="Open access drift" description="Access changed outside CH-UI. Acknowledging stops further notifications until the incident resolves, escalates or the acknowledgement expires." padding="none">
+        <DataTable columns={driftColumns} rows={asRows(drift)} rowKey={(r) => String(r.alert_key)} framed={false}>
+          {#snippet cell(row, col, value)}
+            {#if col.key === 'name'}
+              {@const ack = (row as unknown as FiringIncident).ack}
+              <span class="inline-flex items-center gap-1">
+                {value}
+                {#if ack}<Badge tone="info" title={ackTitle(ack)}>Acknowledged</Badge>{/if}
+              </span>
+            {:else if col.key === 'severity'}
+              <Badge tone={severityTone(String(value))}>{value}</Badge>
+            {:else if col.key === 'summary'}
+              <span title={row.last_seen ? `Last seen ${formatDate(String(row.last_seen))}` : undefined}>{value}</span>
+            {:else}
+              {value}
+            {/if}
+          {/snippet}
+          {#snippet actions(row)}
+            {@const inc = row as unknown as FiringIncident}
+            <Button size="xs" variant="ghost" onclick={() => setSection('access-history')}>Access history</Button>
+            {#if inc.ack}
+              {@const ackId = inc.ack.id}
+              <Button size="xs" variant="ghost" loading={unacking === ackId} onclick={() => void unacknowledge(ackId)}>Unacknowledge</Button>
+            {:else if inc.event_id}
+              <Button size="xs" variant="ghost" onclick={() => openAck(inc)}>Acknowledge</Button>
+            {/if}
+          {/snippet}
+        </DataTable>
+      </Panel>
+    </div>
+  {/if}
 
   <div class="min-h-0 flex-1 px-5 pb-4">
     {#if loading}
@@ -123,4 +232,26 @@
       {/if}
     </div>
   {/if}
+</Sheet>
+
+<!-- Acknowledge an access drift incident -->
+<Sheet open={ackTarget !== null} title="Acknowledge access drift" description="Admins only." size="md" onclose={() => { if (!ackSaving) ackTarget = null }}>
+  {#if ackTarget}
+    <form id="drift-ack-form" class="space-y-4" onsubmit={(e) => { e.preventDefault(); void submitAck() }}>
+      <p class="text-[13px] text-fg-2">
+        Acknowledge {ackTarget.name}. Notifications for further drift on this connection stop until the access state is back
+        where it was, the drift escalates, or the acknowledgement expires.
+      </p>
+      <FormField label="Comment" for="drift-ack-comment" hint="Optional. Shown to admins who see this incident.">
+        <Textarea id="drift-ack-comment" rows={3} placeholder="Expected change, ticket OPS-123" bind:value={ackComment} />
+      </FormField>
+      <FormField label="Expires" for="drift-ack-expiry">
+        <Select id="drift-ack-expiry" options={ACK_EXPIRY_OPTIONS} bind:value={ackExpiry} />
+      </FormField>
+    </form>
+  {/if}
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" disabled={ackSaving} onclick={() => (ackTarget = null)}>Cancel</Button>
+    <Button size="sm" type="submit" form="drift-ack-form" loading={ackSaving}>Acknowledge</Button>
+  {/snippet}
 </Sheet>

@@ -19,7 +19,7 @@
   import VariableBar from '../lib/components/dashboard/VariableBar.svelte'
   import { fetchPublicVariableOptions } from '../lib/api/dashboards'
   import {
-    initialVariableValues, readVariablesFromSearch, reconcileValues, writeVariablesToUrl,
+    canonicalValue, initialVariableValues, readVariablesFromSearch, reconcileValues, writeVariablesToUrl,
     type VariableValues,
   } from '../lib/utils/dashboard-variables'
   import {
@@ -273,17 +273,22 @@
       toastError('This filter is not available on shared dashboards')
       return
     }
+    // A clicked DateTime is an instant: it stands for the option with that
+    // instant.
+    let value = action.value
     try {
       const { options, truncated } = await loadVariableOptions(v.name, variableValues)
-      if (!truncated && !options.some(o => o.value === action.value)) {
-        toastError(`${action.value || 'An empty value'} is not one of the options of ${v.label?.trim() || v.name}`)
+      const match = canonicalValue(value, options)
+      if (match != null) value = match
+      else if (!truncated) {
+        toastError(`${value || 'An empty value'} is not one of the options of ${v.label?.trim() || v.name}`)
         return
       }
     } catch (e: unknown) {
       toastError(e instanceof Error ? e.message : String(e))
       return
     }
-    handleVariableValuesChange({ ...variableValues, [v.name]: [action.value] })
+    handleVariableValuesChange({ ...variableValues, [v.name]: [value] })
   }
 
   function parsePanelConfig(configStr: string): PanelConfig {

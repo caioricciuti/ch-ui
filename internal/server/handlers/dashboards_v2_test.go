@@ -266,4 +266,15 @@ func TestParseOptionsReturnsValueColumn(t *testing.T) {
 	if err != nil || len(opts) != 1 || all != "SELECT 1" {
 		t.Fatalf("decode: %v %v %q", err, opts, all)
 	}
+	// The instant of a DateTime option survives the share-link cache.
+	opts, _, err = decodeOptionsPayload(http.StatusOK, []byte(`{"success":true,"options":[{"value":"2026-01-01 10:00:00","label":"x","instant":"2026-01-01T09:00:00Z"}]}`))
+	if err != nil || len(opts) != 1 || opts[0].Instant != "2026-01-01T09:00:00Z" {
+		t.Fatalf("decode instant: %v %+v", err, opts)
+	}
+	if got := optionsValueType(json.RawMessage(`[{"name":"ts","type":"DateTime64(3, 'Europe/Madrid')"},{"name":"l","type":"String"}]`)); got != "DateTime64(3, 'Europe/Madrid')" {
+		t.Fatalf("value type %q", got)
+	}
+	if got := optionsValueType(json.RawMessage(`[]`)); got != "" {
+		t.Fatalf("value type of no columns %q", got)
+	}
 }

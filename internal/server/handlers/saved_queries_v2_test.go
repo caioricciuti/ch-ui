@@ -283,3 +283,99 @@ func TestSavedQueryFolderDeleteMovesQueriesToRoot(t *testing.T) {
 		t.Fatal("query should be at the root")
 	}
 }
+
+func decodeSavedQuery(t *testing.T, rec *httptest.ResponseRecorder) database.SavedQuery {
+	t.Helper()
+	var q database.SavedQuery
+	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil {
+		t.Fatalf("decode %s: %v", rec.Body.String(), err)
+	}
+	return q
+}
+
+// An editor that loaded version N saves with if_version N; a save or a
+// restore in between makes it 409 with the current state, never overwrite.
+func TestSavedQueryUpdateIfVersionConflicts(t *testing.T) {
+	f := newSQFixture(t)
+	id := f.create(t, "alice", database.SavedQueryShared)
+
+	loaded := decodeSavedQuery(t, f.as(t, "alice", "analyst", http.MethodGet, "/"+id, ""))
+	if loaded.Version != 0 {
+		t.Fatalf("a query without history is version 0, got %d", loaded.Version)
+	}
+
+	// Another editor saves first.
+	rec := f.as(t, "alice", "analyst", http.MethodPut, "/"+id, `{"query":"SELECT 2","if_version":0}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first save: %d %s", rec.Code, rec.Body.String())
+	}
+	saved := decodeSavedQuery(t, rec)
+	if saved.Version <= loaded.Version {
+		t.Fatalf("a content save must bump the version: %d -> %d", loaded.Version, saved.Version)
+	}
+
+	// The stale editor is refused and told what is stored now.
+	rec = f.as(t, "alice", "analyst", http.MethodPut, "/"+id, `{"query":"SELECT 3","if_version":0}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("stale save: status %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	var conflict struct {
+		Code       string              `json:"code"`
+		SavedQuery database.SavedQuery `json:"saved_query"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &conflict); err != nil {
+		t.Fatal(err)
+	}
+	if conflict.Code != "saved_query_conflict" || conflict.SavedQuery.Query != "SELECT 2" || conflict.SavedQuery.Version != saved.Version {
+		t.Fatalf("conflict body %+v", conflict)
+	}
+	if q, _ := f.db.GetSavedQueryByID(id); q.Query != "SELECT 2" {
+		t.Fatalf("a refused save changed the query to %q", q.Query)
+	}
+
+	// Overwrite: the editor retries with the version it was shown.
+	rec = f.as(t, "alice", "analyst", http.MethodPut, "/"+id, fmt.Sprintf(`{"query":"SELECT 3","if_version":%d}`, saved.Version))
+	if rec.Code != http.StatusOK || decodeSavedQuery(t, rec).Query != "SELECT 3" {
+		t.Fatalf("overwrite: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Without if_version (details form, older clients) nothing is checked.
+	if rec := f.as(t, "alice", "analyst", http.MethodPut, "/"+id, `{"name":"Renamed"}`); rec.Code != http.StatusOK {
+		t.Fatalf("unconditional update: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Restoring a version records a new one, so an editor still holding the
+// version from before the restore conflicts instead of undoing it.
+func TestSavedQueryRestoreBumpsVersion(t *testing.T) {
+	f := newSQFixture(t)
+	id := f.create(t, "alice", database.SavedQueryShared)
+	rec := f.as(t, "alice", "analyst", http.MethodPut, "/"+id, `{"query":"SELECT 2","if_version":0}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save: %d %s", rec.Code, rec.Body.String())
+	}
+	before := decodeSavedQuery(t, rec).Version
+
+	rec = f.as(t, "alice", "analyst", http.MethodPost, "/"+id+"/versions/1/restore", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("restore: %d %s", rec.Code, rec.Body.String())
+	}
+	var restored struct {
+		SavedQuery database.SavedQuery `json:"saved_query"`
+		Version    int                 `json:"version"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.Version <= before || restored.SavedQuery.Version != restored.Version || restored.SavedQuery.Query != "SELECT 1" {
+		t.Fatalf("restore did not bump the version: before %d, after %+v", before, restored)
+	}
+
+	rec = f.as(t, "alice", "analyst", http.MethodPut, "/"+id, fmt.Sprintf(`{"query":"SELECT 9","if_version":%d}`, before))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("save over a restore: status %d, want 409", rec.Code)
+	}
+	if q, _ := f.db.GetSavedQueryByID(id); q.Query != "SELECT 1" {
+		t.Fatalf("the restore was overwritten: %q", q.Query)
+	}
+}
