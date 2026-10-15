@@ -11,7 +11,7 @@
     type DashboardDetail,
   } from '../lib/api/dashboards'
   import {
-    initialVariableValues, readVariablesFromUrl, reconcileValues, writeVariablesToUrl,
+    canonicalValue, initialVariableValues, isInstant, readVariablesFromUrl, reconcileValues, writeVariablesToUrl,
     type VariableValues,
   } from '../lib/utils/dashboard-variables'
   import DashboardBrowser from '../lib/components/dashboard/DashboardBrowser.svelte'
@@ -556,13 +556,26 @@
       range: dashboardRangeToUrlParams(dashboardTimeRange || '1h'),
     })
     switch (action.kind) {
-      case 'setVariable':
-        if (!dashboardVariables.some((v) => v.name === action.variable)) {
+      case 'setVariable': {
+        const v = dashboardVariables.find((x) => x.name === action.variable)
+        if (!v) {
           toastError(`This dashboard has no variable ${action.variable}`)
           return
         }
-        handleVariableValuesChange({ ...variableValues, [action.variable]: [action.value] })
+        // A clicked DateTime is an instant: take the option it stands for,
+        // so the bar and the address show the option. The server maps it
+        // the same way when the options fail to load here.
+        let value = action.value
+        if (v.type === 'query' && isInstant(value)) {
+          try {
+            value = canonicalValue(value, (await loadVariableOptions(v.name, variableValues)).options) ?? value
+          } catch {
+            // keep the instant
+          }
+        }
+        handleVariableValuesChange({ ...variableValues, [v.name]: [value] })
         return
+      }
       case 'dashboard':
         try {
           await apiGet(`/api/dashboards/${encodeURIComponent(action.dashboardId)}`)

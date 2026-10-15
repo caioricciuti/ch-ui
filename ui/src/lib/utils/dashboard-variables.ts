@@ -108,9 +108,43 @@ export function fallbackValue(v: DashboardVariable, options: DashboardVariableOp
   return options.length > 0 ? [options[0].value] : []
 }
 
+const INSTANT = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:?\d{2})$/i
+
+/**
+ * An ISO instant as a key to compare by: UTC, fractional digits without
+ * trailing zeros (DateTime64 keeps up to nine). Null for anything else.
+ */
+function instantKey(s: string): string | null {
+  const m = INSTANT.exec(s)
+  if (!m) return null
+  const frac = (m[3] ?? '').replace(/0+$/, '')
+  const tail = (frac ? '.' + frac : '') + 'Z'
+  if (m[4].toUpperCase() === 'Z') return `${m[1]}T${m[2]}${tail}`
+  const whole = Date.parse(`${m[1]}T${m[2]}${m[4]}`)
+  return Number.isNaN(whole) ? null : new Date(whole).toISOString().slice(0, 19) + tail
+}
+
+/** Whether a value is an ISO instant: a date and time clicked in a panel. */
+export function isInstant(value: string): boolean {
+  return instantKey(value) != null
+}
+
+/**
+ * The option a value stands for: the value itself, or the option of a
+ * DateTime variable whose instant it is (panels return a DateTime as an ISO
+ * instant, its options are ClickHouse text). Null when it is neither.
+ */
+export function canonicalValue(value: string, options: DashboardVariableOption[]): string | null {
+  if (options.some((o) => o.value === value)) return value
+  const key = instantKey(value)
+  if (key == null) return null
+  return options.find((o) => o.instant != null && instantKey(o.instant) === key)?.value ?? null
+}
+
 /**
  * The selection to keep once the options of a variable are known: the
- * current values that are still options, else the fallback. A truncated or
+ * current values that are still options (an instant as its option), else
+ * the fallback. A truncated or
  * empty list cannot prove a value wrong, so the values are kept then.
  */
 export function resolveSelection(
@@ -122,8 +156,7 @@ export function resolveSelection(
   if (current && current.length > 0) {
     if (current.includes(ALL) && v.include_all) return [ALL]
     if (truncated || options.length === 0) return current
-    const known = new Set(options.map((o) => o.value))
-    const kept = current.filter((c) => known.has(c))
+    const kept = [...new Set(current.map((c) => canonicalValue(c, options)).filter((c) => c != null))]
     if (kept.length > 0) return v.multi ? kept : kept.slice(0, 1)
   }
   return fallbackValue(v, options)

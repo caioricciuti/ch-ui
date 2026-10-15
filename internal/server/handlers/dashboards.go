@@ -40,6 +40,11 @@ type DashboardsHandler struct {
 	// optionsCache holds variable options for share links.
 	optionsOnce  sync.Once
 	optionsCache *publicQueryCache
+
+	// tzCache holds the session time zone of each connection and user, for
+	// the options of DateTime variables.
+	tzMu    sync.Mutex
+	tzCache map[string]cachedTimezone
 }
 
 // Routes returns a chi.Router with all dashboard and panel routes mounted.

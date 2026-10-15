@@ -139,6 +139,8 @@ export interface DashboardVariable {
 export interface DashboardVariableOption {
   value: string
   label: string
+  /** The value as a UTC ISO instant, when it is a date and time. */
+  instant?: string
 }
 
 /** One saved state of a dashboard (snapshot only on the single-version endpoint). */

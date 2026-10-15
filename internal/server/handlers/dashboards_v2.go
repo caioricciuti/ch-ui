@@ -262,6 +262,9 @@ func (h *DashboardsHandler) runOptionsQuery(ctx context.Context, creds chCredent
 	if err != nil {
 		return nil, "", err
 	}
+	if tz, ok := dashboards.DateTimeZone(optionsValueType(result.Meta)); ok {
+		h.setOptionInstants(ctx, creds, password, tz, opts)
+	}
 	all := ""
 	if len(opts) >= dashboards.MaxOptions && valueColumn != "" {
 		all = dashboards.AllSubquery(query, valueColumn)
@@ -302,6 +305,77 @@ func parseOptions(metaRaw, dataRaw json.RawMessage) ([]dashboards.Option, string
 		out = append(out, dashboards.Option{Value: value, Label: label})
 	}
 	return out, meta[0].Name, nil
+}
+
+// optionsValueType is the ClickHouse type of the value column of an options
+// query result, empty when the result has no columns.
+func optionsValueType(metaRaw json.RawMessage) string {
+	var meta []struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(metaRaw, &meta); err != nil || len(meta) == 0 {
+		return ""
+	}
+	return meta[0].Type
+}
+
+// setOptionInstants gives the options of a DateTime value column their UTC
+// instant, reading each value in tz, or in the session time zone of creds
+// when the column names none. Without a known zone the options keep no
+// instant: they still match exactly, only clicked instants do not map.
+func (h *DashboardsHandler) setOptionInstants(ctx context.Context, creds chCredentials, password, tz string, opts []dashboards.Option) {
+	if tz == "" {
+		tz = h.sessionTimezone(ctx, creds, password)
+	}
+	if tz == "" {
+		return
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		slog.Debug("Unknown time zone for variable options", "timezone", tz, "error", err)
+		return
+	}
+	dashboards.SetInstants(opts, loc)
+}
+
+// sessionTimezoneTTL is how long the session time zone of a ClickHouse user
+// is reused.
+const sessionTimezoneTTL = 10 * time.Minute
+
+type cachedTimezone struct {
+	tz string
+	at time.Time
+}
+
+// sessionTimezone returns the time zone ClickHouse reads and writes a
+// DateTime without one in, for the user of creds (their profile's
+// session_timezone, else the server's). Empty when it cannot be read.
+func (h *DashboardsHandler) sessionTimezone(ctx context.Context, creds chCredentials, password string) string {
+	key := creds.connectionID + "\x00" + creds.user
+	h.tzMu.Lock()
+	c, ok := h.tzCache[key]
+	h.tzMu.Unlock()
+	if ok && time.Since(c.at) < sessionTimezoneTTL {
+		return c.tz
+	}
+	settings := map[string]string{"readonly": "1", "max_execution_time": "10", "log_comment": "ch-ui:dashboard-variable"}
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(ctx, creds.connectionID, "SELECT timezone() AS tz", creds.user, password, settings, 15*time.Second)
+	if err != nil || result == nil {
+		slog.Debug("Failed to read the ClickHouse session time zone", "error", err)
+		return ""
+	}
+	var rows []map[string]json.RawMessage
+	if json.Unmarshal(result.Data, &rows) != nil || len(rows) == 0 {
+		return ""
+	}
+	tz := jsonText(rows[0]["tz"])
+	h.tzMu.Lock()
+	if h.tzCache == nil {
+		h.tzCache = map[string]cachedTimezone{}
+	}
+	h.tzCache[key] = cachedTimezone{tz: tz, at: time.Now()}
+	h.tzMu.Unlock()
+	return tz
 }
 
 // jsonText renders one JSON value as text: strings unquoted, null empty,

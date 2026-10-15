@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { DashboardVariable } from '../types/api'
 import {
+  canonicalValue,
   dependsOn,
   fallbackValue,
   initialVariableValues,
+  isInstant,
   isValidVariableName,
   parseOptionList,
   readVariablesFromSearch,
@@ -51,6 +53,30 @@ describe('selection', () => {
   it('keeps values that are still options', () => {
     expect(resolveSelection(table, ['a', 'z'], opts('a', 'b'))).toEqual(['a'])
     expect(resolveSelection(table, ['$__all'], opts('a'))).toEqual(['$__all'])
+  })
+
+  it('takes a clicked DateTime instant as the option with that instant', () => {
+    // Options of DateTime('Europe/Madrid') and DateTime64(3) columns, as the server sends them.
+    const times = [
+      { value: '2026-01-01 10:00:00', label: '2026-01-01 10:00:00', instant: '2026-01-01T09:00:00Z' },
+      { value: '2026-01-01 10:00:00.120', label: '2026-01-01 10:00:00.120', instant: '2026-01-01T09:00:00.12Z' },
+      { value: '2026-01-01 10:00:00.123', label: '2026-01-01 10:00:00.123', instant: '2026-01-01T09:00:00.123Z' },
+    ]
+    expect(canonicalValue('2026-01-01T09:00:00Z', times)).toBe('2026-01-01 10:00:00')
+    expect(canonicalValue('2026-01-01T09:00:00.000Z', times)).toBe('2026-01-01 10:00:00')
+    expect(canonicalValue('2026-01-01T10:00:00+01:00', times)).toBe('2026-01-01 10:00:00')
+    expect(canonicalValue('2026-01-01T09:00:00.120Z', times)).toBe('2026-01-01 10:00:00.120')
+    expect(canonicalValue('2026-01-01T09:00:00.123000Z', times)).toBe('2026-01-01 10:00:00.123')
+    expect(canonicalValue('2026-01-01 10:00:00', times)).toBe('2026-01-01 10:00:00')
+    expect(canonicalValue('2026-01-01T09:00:00.124Z', times)).toBeNull()
+    expect(canonicalValue('2026-01-01 09:00:00', times)).toBeNull()
+    expect(canonicalValue('2026-01-01T09:00:00Z', opts('a'))).toBeNull()
+    const ts: DashboardVariable = { name: 'ts', type: 'query', query: 'SELECT DISTINCT ts FROM t', multi: true }
+    expect(resolveSelection(ts, ['2026-01-01T09:00:00Z', '2026-01-01 10:00:00', '2026-01-01T09:00:00.123Z'], times))
+      .toEqual(['2026-01-01 10:00:00', '2026-01-01 10:00:00.123'])
+    expect(isInstant('2026-01-01T09:00:00Z')).toBe(true)
+    expect(isInstant('2026-01-01')).toBe(false)
+    expect(isInstant('2026-01-01 09:00:00')).toBe(false)
   })
 
   it('falls back like the server: default, then All for multi, then the first option', () => {

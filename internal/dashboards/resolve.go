@@ -61,7 +61,8 @@ func quoteIdent(name string) string {
 // strict is for share links: a value must be one of the variable's options
 // (re-run here, with the sharer's credentials), and a text variable can only
 // be its default. Otherwise any value is accepted; it is quoted when it is
-// substituted anyway.
+// substituted anyway. In both modes an ISO instant that is the Instant of an
+// option becomes that option's value.
 //
 // It returns the values by name and the type of every interval variable and
 // every "All" subquery.
@@ -139,6 +140,19 @@ func Resolve(vars []Variable, requested map[string][]string, strict bool, run Op
 		}
 		if !v.Multi {
 			chosen = firstOnly(chosen)
+		}
+		// A date and time clicked in a panel arrives as an ISO instant, which
+		// is not a valid literal for a DateTime column: it becomes the option
+		// with that instant. Without its options, a non-strict value is used
+		// as given.
+		if v.Type == TypeQuery && anyInstant(chosen) {
+			o, err := loadOpts()
+			if err != nil && strict {
+				return nil, nil, err
+			}
+			if err == nil {
+				chosen = canonicalValues(chosen, o)
+			}
 		}
 		if strict {
 			o, err := loadOpts()
