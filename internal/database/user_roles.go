@@ -284,6 +284,65 @@ func (db *DB) SessionRole(s *Session) (string, error) {
 	return role, err
 }
 
+// OAuthKeyRole returns the app role an OAuth MCP token acts with, resolved
+// the way a session's is: the person's override on the key's connection,
+// else the role cached on their newest live session there, else the role
+// recorded when the token was issued, else viewer; capped on a connection
+// created from the login page. Admin-created keys have no person behind them
+// and return "". On error it returns viewer.
+func (db *DB) OAuthKeyRole(k *MCPKey) (string, error) {
+	role, _, err := db.OAuthKeyRoleKnown(k)
+	return role, err
+}
+
+// OAuthKeyRoleKnown is OAuthKeyRole plus whether anything decided the role:
+// an override, a live session or the issue-time role. When nothing did, the
+// role is viewer only until the person signs in again.
+func (db *DB) OAuthKeyRoleKnown(k *MCPKey) (string, bool, error) {
+	if k.Kind != "oauth" {
+		return "", false, nil
+	}
+	subject := k.oauthAuthSubject()
+	key := RoleKey(k.CHUser, subject)
+	base, err := db.LiveSessionRole(key, k.ConnectionID)
+	if err != nil {
+		return "viewer", false, err
+	}
+	if base == "" {
+		base = k.GrantRole
+	}
+	known := base != ""
+	if !known {
+		override, err := db.GetUserRole(key, k.ConnectionID)
+		if err != nil {
+			return "viewer", false, err
+		}
+		known = override != ""
+	}
+	s := &Session{ConnectionID: k.ConnectionID, ClickhouseUser: k.CHUser, UserRole: &base}
+	if subject != "" {
+		s.AuthSubject = &subject
+	}
+	role, err := db.SessionRole(s)
+	return role, known && err == nil, err
+}
+
+// ClearOAuthGrantRoles forgets the issue-time role on the OAuth tokens a
+// RoleKey granted (every connection for an SSO person, connectionID for a
+// ClickHouse user), so they follow the person's next sign-in instead.
+func (db *DB) ClearOAuthGrantRoles(roleKey, connectionID string) error {
+	var err error
+	if subject, ok := strings.CutPrefix(roleKey, SSORoleKeyPrefix); ok {
+		_, err = db.conn.Exec("UPDATE mcp_keys SET grant_role = '' WHERE kind = 'oauth' AND subject = ? AND subject != ch_user", subject)
+	} else {
+		_, err = db.conn.Exec("UPDATE mcp_keys SET grant_role = '' WHERE kind = 'oauth' AND subject = ? AND ch_user = ? AND connection_id = ?", roleKey, roleKey, connectionID)
+	}
+	if err != nil {
+		return fmt.Errorf("clear oauth grant roles: %w", err)
+	}
+	return nil
+}
+
 // RevokeAllAdmins removes every explicit admin assignment and drops the cached
 // admin role from those people's sessions, so they fall back to viewer until
 // they sign in again. The next ClickHouse admin who signs in then becomes the

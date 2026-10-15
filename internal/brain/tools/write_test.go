@@ -121,3 +121,62 @@ func TestUpdateModelRenameRewritesPipelines(t *testing.T) {
 		t.Fatalf("the rename must rewrite the pipeline selector, got %+v", p)
 	}
 }
+
+// delete_model only deletes a model on the chat's connection, and never one
+// GitHub manages, like update_model and the REST endpoint.
+func TestDeleteModelChecksConnectionAndSource(t *testing.T) {
+	db, err := dbtest.Open(t, "brain-delete.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	conn, err := db.CreateConnection(database.CreateConnectionParams{Name: "c", TunnelToken: "c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := db.CreateConnection(database.CreateConnectionParams{Name: "o", TunnelToken: "o"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := db.CreateModel(other, "theirs", "", "default", "view", "SELECT 1 AS id", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	synced, err := db.CreateModel(conn, "synced", "", "default", "view", "SELECT 1 AS id", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetModelSource(synced, "github"); err != nil {
+		t.Fatal(err)
+	}
+	mine, err := db.CreateModel(conn, "mine", "", "default", "view", "SELECT 1 AS id", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tctx := Context{ConnectionID: conn, DB: db}
+	del := func(id string) error {
+		_, err := deleteModel.Handler(tctx, json.RawMessage(`{"id":"`+id+`"}`))
+		return err
+	}
+
+	if err := del(foreign); err == nil || err.Error() != "model "+foreign+" not found" {
+		t.Errorf("model on another connection: got %v", err)
+	}
+	if err := del(synced); err == nil || err.Error() != "this model is managed by GitHub; remove it from the repository and sync again" {
+		t.Errorf("GitHub model: got %v", err)
+	}
+	if err := del("missing"); err == nil || err.Error() != "model missing not found" {
+		t.Errorf("unknown id: got %v", err)
+	}
+	for _, id := range []string{foreign, synced} {
+		if m, _ := db.GetModelByID(id); m == nil {
+			t.Errorf("refused delete still removed %s", id)
+		}
+	}
+	if err := del(mine); err != nil {
+		t.Fatalf("own model: %v", err)
+	}
+	if m, _ := db.GetModelByID(mine); m != nil {
+		t.Error("own model not deleted")
+	}
+}

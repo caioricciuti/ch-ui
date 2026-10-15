@@ -90,6 +90,16 @@ var deleteModel = Tool{
 		if err != nil {
 			return nil, err
 		}
+		current, err := tctx.DB.GetModelByID(id)
+		if err != nil {
+			return nil, fmt.Errorf("lookup model: %w", err)
+		}
+		if current == nil || current.ConnectionID != tctx.ConnectionID {
+			return nil, fmt.Errorf("model %s not found", id)
+		}
+		if current.Source == "github" {
+			return nil, errors.New("this model is managed by GitHub; remove it from the repository and sync again")
+		}
 		if err := tctx.DB.DeleteModel(id); err != nil {
 			return nil, fmt.Errorf("delete model: %w", err)
 		}

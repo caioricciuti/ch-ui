@@ -1118,6 +1118,9 @@ func (db *DB) runMigrations() error {
 	if err := db.ensureColumn("mcp_keys", "client_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	if err := db.ensureColumn("mcp_keys", "grant_role", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := db.ensureColumn("saved_queries", "verified", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}

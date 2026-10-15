@@ -184,11 +184,13 @@ var harmlessSystemTables = map[string]bool{
 // which the lexical analysis cannot resolve.
 var dataByNameFuncRe = regexp.MustCompile(`(?i)^(dict\w*|joinget\w*|hascolumnintable|getsubcolumn)$`)
 
-// noTableKeywordFuncs take FROM / IN / FOR as argument syntax, not as a
-// table position: extract(YEAR FROM ts), position(x IN y), trim(BOTH ' ' FROM s).
-var noTableKeywordFuncs = map[string]bool{
+// fromSyntaxFuncs take FROM as argument syntax, not as a table position:
+// extract(YEAR FROM ts), substring(s FROM 1 FOR 2), trim(BOTH ' ' FROM s).
+// FROM is not an operator, so skipping it can never hide a table; IN is an
+// operator in these calls like anywhere else.
+var fromSyntaxFuncs = map[string]bool{
 	"extract": true, "substring": true, "substr": true, "trim": true, "ltrim": true,
-	"rtrim": true, "position": true, "locate": true, "overlay": true,
+	"rtrim": true, "overlay": true,
 }
 
 // clause keywords that end a FROM list at the same nesting level.
@@ -199,10 +201,29 @@ var clauseWords = map[string]bool{
 }
 
 type scope struct {
-	parent  *scope
-	clause  string          // last clause keyword seen at this level
-	ctes    map[string]bool // WITH name AS (subquery) defined at this level
-	special bool            // inside extract(...) and friends
+	parent *scope
+	clause string          // last clause keyword seen at this level
+	ctes   map[string]bool // WITH name AS (subquery) defined at this level
+	// fn is the lower-cased function whose argument list this level is,
+	// when FROM or IN can be argument syntax there (fromSyntaxFuncs, and
+	// position); "" otherwise.
+	fn string
+	// args is set after a comma or the separator IN at this level: later
+	// INs in position(...) are operators.
+	args bool
+}
+
+// argSyntax reports whether the keyword kw at this level is function
+// argument syntax rather than a table position.
+func (s *scope) argSyntax(kw string) bool {
+	switch kw {
+	case "FROM":
+		return fromSyntaxFuncs[s.fn]
+	case "IN":
+		// position(needle IN haystack): only the first IN, before any comma.
+		return s.fn == "position" && !s.args
+	}
+	return false
 }
 
 func (s *scope) isCTE(name string) bool {
@@ -335,15 +356,19 @@ func referencedTables(sql string, params map[string]string) ([]tableRef, error) 
 		case tkPunct:
 			switch t.text {
 			case "(":
-				special := at(i-1).kind == tkWord && noTableKeywordFuncs[strings.ToLower(at(i-1).text)]
-				cur = &scope{parent: cur, special: special}
+				fn := ""
+				if p := strings.ToLower(at(i - 1).text); at(i-1).kind == tkWord && (fromSyntaxFuncs[p] || p == "position") {
+					fn = p
+				}
+				cur = &scope{parent: cur, fn: fn}
 			case ")":
 				if cur.parent == nil {
 					return nil, errUnclear{"unbalanced parentheses"}
 				}
 				cur = cur.parent
 			case ",":
-				if !cur.special && cur.inFromList() {
+				cur.args = true
+				if cur.fn == "" && cur.inFromList() {
 					next, err := tableAt(i+1, false)
 					if err != nil {
 						return nil, err
@@ -386,6 +411,9 @@ func referencedTables(sql string, params map[string]string) ([]tableRef, error) 
 			continue
 		}
 		up := strings.ToUpper(t.text)
+		if up == "SELECT" {
+			cur.fn = "" // a statement here is not function argument syntax
+		}
 		switch up {
 		case "AS":
 			next := at(i + 1)
@@ -409,7 +437,7 @@ func referencedTables(sql string, params map[string]string) ([]tableRef, error) 
 				cur.clause = "WITH"
 			}
 		case "FROM":
-			if cur.special {
+			if cur.argSyntax("FROM") {
 				continue
 			}
 			// a IS [NOT] DISTINCT FROM b is a comparison.
@@ -434,7 +462,8 @@ func referencedTables(sql string, params map[string]string) ([]tableRef, error) 
 			}
 			i = next
 		case "IN":
-			if cur.special {
+			if cur.argSyntax("IN") {
+				cur.args = true
 				continue
 			}
 			next, err := tableAt(i+1, true)

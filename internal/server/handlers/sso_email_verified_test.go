@@ -39,6 +39,9 @@ type fakeIdP struct {
 	extra  map[string]interface{}
 	nonce  string
 	client string
+	// discoveryDown makes discovery fail, as when the IdP is unreachable
+	// during a reload.
+	discoveryDown bool
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -50,6 +53,13 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 	idp := &fakeIdP{key: key, client: "ch-ui"}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		idp.mu.Lock()
+		down := idp.discoveryDown
+		idp.mu.Unlock()
+		if down {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		base := idp.srv.URL
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"issuer":                                base,

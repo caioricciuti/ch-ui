@@ -76,6 +76,8 @@ func TestRunReadQueryEnforcesAllowedDatabases(t *testing.T) {
 		{"SELECT * FROM analytics.events, hr.salaries", `"hr"`},
 		{"SELECT * FROM analytics.events WHERE id IN (SELECT id FROM hr.salaries)", `"hr"`},
 		{"SELECT * FROM analytics.events WHERE id IN hr.salaries", `"hr"`},
+		{"SELECT position('a', 'b', 1 IN hr.salaries)", `"hr"`},
+		{"SELECT extract(YEAR FROM ts), trim(BOTH ' ' FROM s), position(s IN 'x') FROM analytics.events WHERE substring(s, 1 IN hr.salaries)", `"hr"`},
 		{"WITH x AS (SELECT * FROM hr.salaries) SELECT * FROM x", `"hr"`},
 		{"SELECT (SELECT max(salary) FROM hr.salaries) AS m", `"hr"`},
 		{"SELECT * FROM analytics.events UNION ALL SELECT * FROM hr.salaries", `"hr"`},

@@ -37,6 +37,14 @@ func oauthRig(t *testing.T) (*chi.Mux, *database.DB, string) {
 	}
 	cfg := &config.Config{AppSecretKey: "oauth-test-secret", AppURL: "https://chui.example"}
 	enc, _ := crypto.Encrypt("chpass", cfg.AppSecretKey)
+	// The stored session behind the fake one below: token issue reads the
+	// person's role from it.
+	if _, err := db.CreateSession(database.CreateSessionParams{
+		ConnectionID: connID, ClickhouseUser: "alice", EncryptedPassword: enc, Token: "oauth-rig-session",
+		ExpiresAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339), UserRole: "analyst", AuthSubject: "alice@example.com",
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
 
 	h := &OAuthHandler{DB: db, Config: cfg}
 	r := chi.NewRouter()
@@ -383,5 +391,150 @@ func TestClaimRefreshTokenOnlyOnce(t *testing.T) {
 	}
 	if ok, err := h.claimRefreshToken("th-claim", "client-claim"); err != nil || ok {
 		t.Fatalf("second claim must lose: ok=%v err=%v", ok, err)
+	}
+}
+
+// oauthWriteGrant runs DCR, authorize, consent and the code exchange for
+// "read write" and returns the token response and the client id.
+func oauthWriteGrant(t *testing.T, r http.Handler) (access, refresh, clientID string) {
+	t.Helper()
+	rec := do(t, r, "POST", "/oauth/register", `{"client_name":"Claude","redirect_uris":["https://claude.ai/cb"]}`, false)
+	var reg struct {
+		ClientID string `json:"client_id"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &reg)
+	verifier := "a-very-long-verifier-string-with-enough-entropy-1234567890"
+	sum := sha256.Sum256([]byte(verifier))
+	q := url.Values{
+		"response_type": {"code"}, "client_id": {reg.ClientID}, "redirect_uri": {"https://claude.ai/cb"},
+		"code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "code_challenge_method": {"S256"}, "scope": {"read write"},
+	}
+	rec = do(t, r, "GET", "/oauth/authorize?"+q.Encode(), "", false)
+	loc, _ := url.Parse(rec.Header().Get("Location"))
+	rec = do(t, r, "POST", "/api/oauth/consent/"+loc.Query().Get("request")+"/approve", "", false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("approve: %d %s", rec.Code, rec.Body.String())
+	}
+	var appr struct {
+		RedirectURL string `json:"redirect_url"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &appr)
+	cb, _ := url.Parse(appr.RedirectURL)
+	form := url.Values{"grant_type": {"authorization_code"}, "code": {cb.Query().Get("code")}, "code_verifier": {verifier}, "client_id": {reg.ClientID}}
+	rec = do(t, r, "POST", "/oauth/token", form.Encode(), true)
+	var tok struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		Scope        string `json:"scope"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &tok)
+	if rec.Code != http.StatusOK || tok.Scope != "read write" {
+		t.Fatalf("token: %d %s", rec.Code, rec.Body.String())
+	}
+	return tok.AccessToken, tok.RefreshToken, reg.ClientID
+}
+
+func mcpToolList(t *testing.T, r http.Handler, access string) string {
+	t.Helper()
+	req := httptest.NewRequest("POST", "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Authorization", "Bearer "+access)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tools/list: %d %s", rec.Code, rec.Body.String())
+	}
+	return rec.Body.String()
+}
+
+// A person demoted after granting write scope loses the write tools on the
+// next MCP request, and a refresh drops write scope for good.
+func TestOAuthWriteScopeFollowsRole(t *testing.T) {
+	r, db, _ := oauthRig(t)
+	access, refresh, clientID := oauthWriteGrant(t, r)
+	if !strings.Contains(mcpToolList(t, r, access), `"save_query"`) {
+		t.Fatal("analyst with write scope should see save_query")
+	}
+
+	if err := db.SetUserRole("sso:alice@example.com", "", "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(mcpToolList(t, r, access), `"save_query"`) {
+		t.Fatal("demoted person must not see write tools on the live access token")
+	}
+
+	rf := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refresh}, "client_id": {clientID}}
+	rec := do(t, r, "POST", "/oauth/token", rf.Encode(), true)
+	var tok struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		Scope        string `json:"scope"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &tok)
+	if rec.Code != http.StatusOK || tok.Scope != "read" {
+		t.Fatalf("refresh after demotion: want 200 with scope read, got %d %s", rec.Code, rec.Body.String())
+	}
+	k, err := db.GetMCPKeyByHash(mcpserver.HashKey(tok.AccessToken))
+	if err != nil || k == nil || k.Scopes != "read" {
+		t.Fatalf("refreshed key: %+v %v", k, err)
+	}
+
+	// Restoring the role does not bring write back on this grant: the
+	// person has to consent again.
+	if err := db.DeleteUserRole("sso:alice@example.com", ""); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(mcpToolList(t, r, tok.AccessToken), `"save_query"`) {
+		t.Fatal("downgraded grant must stay read-only")
+	}
+	rf.Set("refresh_token", tok.RefreshToken)
+	rec = do(t, r, "POST", "/oauth/token", rf.Encode(), true)
+	if !strings.Contains(rec.Body.String(), `"scope":"read"`) {
+		t.Fatalf("second refresh: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Write scope survives the person's sign-out: the role recorded when the
+// token was issued stands in until an admin changes it. With the role
+// unknown the token is read-only, and a refresh keeps the scope so the
+// next sign-in brings write back.
+func TestOAuthWriteScopeWithoutLiveSession(t *testing.T) {
+	r, db, connID := oauthRig(t)
+	access, refresh, clientID := oauthWriteGrant(t, r)
+	if err := db.DeleteSession("oauth-rig-session"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(mcpToolList(t, r, access), `"save_query"`) {
+		t.Fatal("issue-time analyst role should keep write tools without a live session")
+	}
+	if err := db.ClearOAuthGrantRoles("sso:alice@example.com", connID); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(mcpToolList(t, r, access), `"save_query"`) {
+		t.Fatal("cleared grant role with no live session must be read-only")
+	}
+
+	rf := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refresh}, "client_id": {clientID}}
+	rec := do(t, r, "POST", "/oauth/token", rf.Encode(), true)
+	var tok struct {
+		AccessToken string `json:"access_token"`
+		Scope       string `json:"scope"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &tok)
+	if rec.Code != http.StatusOK || tok.Scope != "read write" {
+		t.Fatalf("refresh with an unknown role should keep the scope: %d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(mcpToolList(t, r, tok.AccessToken), `"save_query"`) {
+		t.Fatal("unknown role must stay read-only after refresh")
+	}
+	if _, err := db.CreateSession(database.CreateSessionParams{
+		ConnectionID: connID, ClickhouseUser: "alice", EncryptedPassword: "enc", Token: "signed-in-again",
+		ExpiresAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339), UserRole: "analyst", AuthSubject: "alice@example.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(mcpToolList(t, r, tok.AccessToken), `"save_query"`) {
+		t.Fatal("signing in again as analyst should bring the write tools back")
 	}
 }
