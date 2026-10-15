@@ -7,7 +7,7 @@
  */
 import {
   Bookmark, Brain, LayoutDashboard, ScrollText, Workflow, Boxes, Clock,
-  Scale, HeartPulse, Gauge, Coins, Shield, KeyRound,
+  Scale, HeartPulse, Gauge, Coins, Shield, KeyRound, GitFork,
 } from 'lucide-svelte'
 
 /** Any lucide-svelte icon; they all share this component type. */
@@ -31,6 +31,7 @@ const ROUTES = {
   models: { label: 'Models', path: '/models', description: 'SQL transformations in order', icon: Boxes },
   schedules: { label: 'Schedules', path: '/schedules', description: 'Query jobs and report delivery on a cron', icon: Clock, pro: true },
   brain: { label: 'Brain', path: '/brain', description: 'AI assistant for your data', icon: Brain },
+  lineage: { label: 'Lineage', path: '/lineage', description: 'How data flows between tables', icon: GitFork },
   governance: { label: 'Governance', path: '/governance', description: 'Access, policies, audit', icon: Scale, pro: true },
   'cluster-health': { label: 'Cluster Health', path: '/cluster-health', description: 'Nodes, replication, parts', icon: HeartPulse, pro: true },
   'query-insights': { label: 'Query Insights', path: '/query-insights', description: 'Latency and failures', icon: Gauge, pro: true },
@@ -78,7 +79,7 @@ export interface NavGroup {
 
 export const NAV_GROUPS: NavGroup[] = [
   { id: 'query', label: 'Query', routes: [] },
-  { id: 'explore', label: 'Explore', routes: ['saved-queries', 'brain'] },
+  { id: 'explore', label: 'Explore', routes: ['saved-queries', 'lineage', 'brain'] },
   { id: 'visualize', label: 'Visualize', routes: ['dashboards', 'telemetry'] },
   { id: 'build', label: 'Build', routes: ['models', 'pipelines', 'schedules', 'schema-compare'] },
   { id: 'operate', label: 'Operate', routes: ['fleet', 'cluster-health', 'performance', 'query-insights', 'incident-timeline', 'cost-center', 'operations-reports', 'governance'] },

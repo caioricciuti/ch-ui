@@ -5,7 +5,7 @@ vi.mock('svelte-sonner', () => ({ toast: { warning: () => undefined } }))
 // routes.ts pulls in lucide-svelte components; the section list is what
 // matters here, so stub the icons.
 vi.mock('lucide-svelte', () => {
-  const names = ['Bookmark', 'Brain', 'LayoutDashboard', 'ScrollText', 'Workflow', 'Boxes', 'Clock', 'Scale', 'HeartPulse', 'Gauge', 'Coins', 'Shield', 'KeyRound']
+  const names = ['Bookmark', 'Brain', 'LayoutDashboard', 'ScrollText', 'Workflow', 'Boxes', 'Clock', 'Scale', 'HeartPulse', 'Gauge', 'Coins', 'Shield', 'KeyRound', 'GitFork']
   return Object.fromEntries(names.map((n) => [n, {}]))
 })
 

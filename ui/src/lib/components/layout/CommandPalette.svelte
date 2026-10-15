@@ -54,6 +54,7 @@
     dashboards: 'charts panels metrics dash',
     schedules: 'cron runs scheduled jobs',
     brain: 'ai assistant chat agent llm',
+    lineage: 'dependencies upstream downstream materialized views graph',
     pipelines: 'ingest etl streams',
     models: 'dbt models materialize',
     governance: 'access policies rules audit',

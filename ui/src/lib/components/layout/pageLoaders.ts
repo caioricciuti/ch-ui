@@ -22,6 +22,7 @@ const LOADERS: Record<PlainRoute, () => Promise<{ default: PlainPageComponent }>
   models: () => import('../../../pages/Models.svelte'),
   schedules: () => import('../../../pages/Schedules.svelte'),
   brain: () => import('../../../pages/Brain.svelte'),
+  lineage: () => import('../../../pages/Lineage.svelte'),
   governance: () => import('../../../pages/Governance.svelte'),
   'cluster-health': () => import('../../../pages/ClusterHealth.svelte'),
   'query-insights': () => import('../../../pages/QueryInsights.svelte'),
