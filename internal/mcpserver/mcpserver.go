@@ -19,6 +19,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -51,6 +52,14 @@ type Deps struct {
 type authedKey struct {
 	key        *database.MCPKey
 	chPassword string
+	// roleReadOnly is set when the person behind an OAuth token no longer
+	// holds a CH-UI role that may write, whatever scope they granted.
+	roleReadOnly bool
+}
+
+// canWrite reports whether the write tools are available to this request.
+func (ak *authedKey) canWrite() bool {
+	return ak.key.Scopes == "read_write" && !ak.roleReadOnly
 }
 
 type ctxKeyType struct{}
@@ -146,7 +155,19 @@ func authMiddleware(deps Deps, next http.Handler) http.Handler {
 		}
 		touchKey(deps, k.ID)
 
-		ctx := context.WithValue(r.Context(), ctxKey, &authedKey{key: k, chPassword: password})
+		ak := &authedKey{key: k, chPassword: password}
+		if k.Kind == "oauth" && k.Scopes == "read_write" {
+			// Write scope was granted at consent; the person's role is
+			// checked again on every request so a demotion takes effect at
+			// once, not when the token is refreshed.
+			role, err := deps.DB.OAuthKeyRole(k)
+			if err != nil {
+				slog.Warn("mcp: resolve oauth token role failed; serving read-only", "key_id", k.ID, "error", err)
+			}
+			ak.roleReadOnly = role != "admin" && role != "analyst"
+		}
+
+		ctx := context.WithValue(r.Context(), ctxKey, ak)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -306,7 +327,7 @@ func buildServer(deps Deps, ak *authedKey) *mcp.Server {
 	registerFreeTools(srv, deps, ak)
 	registerCatalogTools(srv, deps, ak)
 	registerListTools(srv, deps, ak)
-	if ak.key.Scopes == "read_write" {
+	if ak.canWrite() {
 		registerWriteTools(srv, deps, ak)
 	}
 	if deps.Config != nil && deps.Config.IsPro() {

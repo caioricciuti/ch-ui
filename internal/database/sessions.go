@@ -198,6 +198,55 @@ func (db *DB) SetSessionsUserRole(roleKey, connectionID, role string) error {
 	return nil
 }
 
+// identitySessionsWhere is the WHERE clause (and its arguments) matching
+// the sessions a RoleKey owns, as SetSessionsUserRole describes them.
+func identitySessionsWhere(roleKey, connectionID string) (string, []any) {
+	if subject, ok := strings.CutPrefix(roleKey, SSORoleKeyPrefix); ok {
+		return "auth_subject = ?", []any{subject}
+	}
+	return "clickhouse_user = ? AND connection_id = ? AND (auth_subject IS NULL OR auth_subject = '')", []any{roleKey, connectionID}
+}
+
+// DeleteSessionsForRoleKey signs out the sessions a RoleKey owns (same
+// matching as SetSessionsUserRole) and returns how many were removed. Used
+// when a role can no longer be derived from what the session cached, so the
+// person signs in again and gets the role login computes.
+func (db *DB) DeleteSessionsForRoleKey(roleKey, connectionID string) (int64, error) {
+	where, args := identitySessionsWhere(roleKey, connectionID)
+	res, err := db.conn.Exec("DELETE FROM sessions WHERE "+where, args...)
+	if err != nil {
+		return 0, fmt.Errorf("delete sessions for role key: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("delete sessions for role key: %w", err)
+	}
+	return n, nil
+}
+
+// LiveSessionRole returns the role cached on the newest unexpired session a
+// RoleKey owns on connectionID, or "" when there is none.
+func (db *DB) LiveSessionRole(roleKey, connectionID string) (string, error) {
+	where, args := identitySessionsWhere(roleKey, connectionID)
+	if IsSSORoleKey(roleKey) {
+		where += " AND connection_id = ?"
+		args = append(args, connectionID)
+	}
+	args = append(args, time.Now().UTC().Format(time.RFC3339))
+	var role sql.NullString
+	err := db.conn.QueryRow(
+		"SELECT user_role FROM sessions WHERE "+where+" AND expires_at > ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+		args...,
+	).Scan(&role)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("live session role: %w", err)
+	}
+	return role.String, nil
+}
+
 // GetUsers returns aggregated user data from sessions: every SSO person, and
 // the password users of connectionID (a ClickHouse user's role is per
 // connection, so other connections' password sessions do not belong here).

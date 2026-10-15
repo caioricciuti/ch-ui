@@ -586,7 +586,8 @@ func (h *OAuthHandler) tokenFromCode(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "PKCE verification failed")
 		return
 	}
-	h.issueTokens(w, c.ClientID, c.ClientName, c.Scope, c.ConnectionID, c.CHUser, c.CHPasswordEnc, c.Subject)
+	// No issue-time role yet: the consenting session supplies it.
+	h.issueTokens(w, c.ClientID, c.ClientName, c.Scope, c.ConnectionID, c.CHUser, c.CHPasswordEnc, c.Subject, "")
 }
 
 func (h *OAuthHandler) tokenFromRefresh(w http.ResponseWriter, r *http.Request) {
@@ -631,7 +632,7 @@ func (h *OAuthHandler) tokenFromRefresh(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.DB.RevokeMCPKey(old.ID)
-	h.issueTokens(w, old.ClientID, old.Name, t.Scope, old.ConnectionID, old.CHUser, old.CHPasswordEnc, old.Subject)
+	h.issueTokens(w, old.ClientID, old.Name, t.Scope, old.ConnectionID, old.CHUser, old.CHPasswordEnc, old.Subject, old.GrantRole)
 }
 
 // claimRefreshToken revokes a live refresh token and reports whether this
@@ -653,8 +654,24 @@ func (h *OAuthHandler) claimRefreshToken(tokenHash, clientID string) (bool, erro
 }
 
 // issueTokens mints an access token (an mcp_keys row of kind oauth) and a
-// refresh token, and writes the RFC 6749 token response.
-func (h *OAuthHandler) issueTokens(w http.ResponseWriter, clientID, clientName, scope, connectionID, chUser, chPasswordEnc, subject string) {
+// refresh token, and writes the RFC 6749 token response. The person's role
+// is resolved again first (grantRole is the role recorded on the previous
+// token, "" on the first exchange): write scope that their role no longer
+// allows is dropped from the new tokens for good. While nothing is known
+// about their role (no override, session or recorded role) the scope is
+// kept, and /mcp serves the token read-only until they sign in again.
+func (h *OAuthHandler) issueTokens(w http.ResponseWriter, clientID, clientName, scope, connectionID, chUser, chPasswordEnc, subject, grantRole string) {
+	role, known, err := h.DB.OAuthKeyRoleKnown(&database.MCPKey{Kind: "oauth", ConnectionID: connectionID, CHUser: chUser, Subject: subject, GrantRole: grantRole})
+	if err != nil {
+		slog.Warn("oauth: resolve role failed; issuing read scope", "subject", subject, "error", err)
+	}
+	if !known {
+		role = ""
+	}
+	if strings.Contains(scope, scopeWrite) && (known || err != nil) && role != "admin" && role != "analyst" {
+		slog.Info("oauth: write scope dropped, role no longer allows it", "subject", subject, "role", role, "client_id", clientID)
+		scope = scopeRead
+	}
 	plaintext, hash, prefix := mcpserver.GenerateKey()
 	exp := time.Now().UTC().Add(accessTokenTTL).Format(time.RFC3339)
 	scopes := "read"
@@ -669,7 +686,7 @@ func (h *OAuthHandler) issueTokens(w http.ResponseWriter, clientID, clientName, 
 		Name: name, KeyHash: hash, KeyPrefix: prefix, ConnectionID: connectionID,
 		CHUser: chUser, CHPasswordEnc: chPasswordEnc, Scopes: scopes,
 		CreatedBy: "oauth:" + subject, ExpiresAt: &exp,
-		Kind: "oauth", Subject: subject, ClientID: clientID,
+		Kind: "oauth", Subject: subject, ClientID: clientID, GrantRole: role,
 	})
 	if err != nil {
 		slog.Error("oauth: create access token failed", "error", err)

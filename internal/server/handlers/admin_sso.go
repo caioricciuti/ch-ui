@@ -219,7 +219,7 @@ func (h *AdminHandler) UpdateSSOSettings(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "Failed to load SSO settings")
 		return
 	}
-	if reloadErr != nil {
+	if reloadErr != nil && resp.ReloadError == "" {
 		resp.ReloadError = reloadErr.Error()
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -247,6 +247,24 @@ func (h *AdminHandler) applySSOSettings(ctx context.Context) error {
 }
 
 func (h *AdminHandler) buildSSOSettingsResponse() (ssoSettingsResponse, error) {
+	resp, err := h.ssoSettingsView()
+	if err != nil {
+		return resp, err
+	}
+	// Keep a failed reload visible after the save that caused it, until a
+	// later save or restart loads the provider.
+	if h.OIDCManager != nil {
+		if p, _, curErr := h.OIDCManager.Current(); p == nil || curErr != nil {
+			resp.Active = false
+		}
+		if reloadErr := h.OIDCManager.LastError(); reloadErr != nil {
+			resp.ReloadError = reloadErr.Error()
+		}
+	}
+	return resp, nil
+}
+
+func (h *AdminHandler) ssoSettingsView() (ssoSettingsResponse, error) {
 	active := h.OIDCManager != nil && h.OIDCManager.Active()
 
 	if h.Config.OIDCEnabled() {

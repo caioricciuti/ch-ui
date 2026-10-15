@@ -40,6 +40,13 @@ func TestReferencedTables(t *testing.T) {
 		{"WITH hr.s AS x SELECT * FROM x", nil, []tableRef{{"hr", "s"}, {"", "x"}}},
 		{"WITH 1 AS one SELECT one FROM a.t", nil, []tableRef{{"a", "t"}}},
 		{"SELECT extract(YEAR FROM ts), position(s IN 'x'), trim(BOTH ' ' FROM s) FROM a.t", nil, []tableRef{{"a", "t"}}},
+		// Only position's own IN separator and the FROM of extract / trim /
+		// substring syntax are argument syntax; any other IN reads a table.
+		{"SELECT position('a', 'b', 1 IN hr.s)", nil, []tableRef{{"hr", "s"}}},
+		{"SELECT position(1 IN hr.s IN hr.u)", nil, []tableRef{{"hr", "u"}}},
+		{"SELECT position(s IN 'x'), locate(1 IN hr.s)", nil, []tableRef{{"hr", "s"}}},
+		{"SELECT extract(x, 1 IN hr.s), substring(s FROM 1 FOR 2), trim(LEADING 'a' FROM 1 IN hr.u)", nil, []tableRef{{"hr", "s"}, {"hr", "u"}}},
+		{"SELECT extract(YEAR FROM (SELECT max(d) FROM hr.s))", nil, []tableRef{{"hr", "s"}}},
 		{"SELECT a IS NOT DISTINCT FROM b FROM a.t", nil, []tableRef{{"a", "t"}}},
 		{"SELECT * FROM a.t ARRAY JOIN arr AS x, arr2 AS y", nil, []tableRef{{"a", "t"}}},
 		{"SELECT format('{}', x) FROM a.t, hr.s", nil, []tableRef{{"a", "t"}, {"hr", "s"}}},

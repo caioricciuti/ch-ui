@@ -41,6 +41,10 @@ type MCPKey struct {
 	Kind     string `json:"kind"`
 	Subject  string `json:"subject"`
 	ClientID string `json:"client_id"`
+	// GrantRole is the CH-UI role the person held when an OAuth token was
+	// issued. It stands in for their role only while they have no live
+	// session on the key's connection; see OAuthKeyRole.
+	GrantRole string `json:"-"`
 }
 
 // Expired reports whether the key's expiry, if any, has passed.
@@ -53,6 +57,15 @@ func (k *MCPKey) Expired(now time.Time) bool {
 		return true // unparseable expiry fails closed
 	}
 	return !now.Before(t)
+}
+
+// oauthAuthSubject is the SSO email behind an OAuth token, or "" when the
+// grant came from a password login (Subject is then the ClickHouse user).
+func (k *MCPKey) oauthAuthSubject() string {
+	if k.Subject != "" && k.Subject != k.CHUser {
+		return k.Subject
+	}
+	return ""
 }
 
 // CreateMCPKeyParams is the input of CreateMCPKey.
@@ -70,6 +83,7 @@ type CreateMCPKeyParams struct {
 	Kind             string  // "" or "api" (default), or "oauth"
 	Subject          string
 	ClientID         string
+	GrantRole        string // oauth only: see MCPKey.GrantRole
 }
 
 func (db *DB) CreateMCPKey(p CreateMCPKeyParams) (*MCPKey, error) {
@@ -95,11 +109,12 @@ func (db *DB) CreateMCPKey(p CreateMCPKeyParams) (*MCPKey, error) {
 		Kind:             p.Kind,
 		Subject:          p.Subject,
 		ClientID:         p.ClientID,
+		GrantRole:        p.GrantRole,
 	}
 	_, err := db.conn.Exec(
-		`INSERT INTO mcp_keys (id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, scopes, allowed_databases, created_by, created_at, expires_at, kind, subject, client_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		k.ID, k.Name, k.KeyHash, k.KeyPrefix, k.ConnectionID, k.CHUser, k.CHPasswordEnc, k.Scopes, k.AllowedDatabases, k.CreatedBy, k.CreatedAt, k.ExpiresAt, k.Kind, k.Subject, k.ClientID,
+		`INSERT INTO mcp_keys (id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, scopes, allowed_databases, created_by, created_at, expires_at, kind, subject, client_id, grant_role)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		k.ID, k.Name, k.KeyHash, k.KeyPrefix, k.ConnectionID, k.CHUser, k.CHPasswordEnc, k.Scopes, k.AllowedDatabases, k.CreatedBy, k.CreatedAt, k.ExpiresAt, k.Kind, k.Subject, k.ClientID, k.GrantRole,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create mcp key: %w", err)
@@ -142,11 +157,12 @@ func (db *DB) RotateMCPKey(id, newHash, newPrefix, rotatedBy string) (*MCPKey, e
 		Kind:             old.Kind,
 		Subject:          old.Subject,
 		ClientID:         old.ClientID,
+		GrantRole:        old.GrantRole,
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO mcp_keys (id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, scopes, allowed_databases, created_by, created_at, expires_at, kind, subject, client_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		k.ID, k.Name, k.KeyHash, k.KeyPrefix, k.ConnectionID, k.CHUser, k.CHPasswordEnc, k.Scopes, k.AllowedDatabases, k.CreatedBy, k.CreatedAt, k.ExpiresAt, k.Kind, k.Subject, k.ClientID,
+		`INSERT INTO mcp_keys (id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, scopes, allowed_databases, created_by, created_at, expires_at, kind, subject, client_id, grant_role)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		k.ID, k.Name, k.KeyHash, k.KeyPrefix, k.ConnectionID, k.CHUser, k.CHPasswordEnc, k.Scopes, k.AllowedDatabases, k.CreatedBy, k.CreatedAt, k.ExpiresAt, k.Kind, k.Subject, k.ClientID, k.GrantRole,
 	); err != nil {
 		return nil, fmt.Errorf("rotate mcp key: insert: %w", err)
 	}
@@ -162,7 +178,7 @@ func (db *DB) RotateMCPKey(id, newHash, newPrefix, rotatedBy string) (*MCPKey, e
 // GetMCPKeyByID returns a key by id regardless of revocation, or nil.
 func (db *DB) GetMCPKeyByID(id string) (*MCPKey, error) {
 	row := db.conn.QueryRow(
-		`SELECT id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, scopes, allowed_databases, created_by, created_at, expires_at, last_used_at, revoked_at, kind, subject, client_id
+		`SELECT id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, scopes, allowed_databases, created_by, created_at, expires_at, last_used_at, revoked_at, kind, subject, client_id, grant_role
 		 FROM mcp_keys WHERE id = ?`, id,
 	)
 	return scanMCPKey(row)
@@ -172,7 +188,7 @@ func (db *DB) GetMCPKeyByID(id string) (*MCPKey, error) {
 // nil when no such key exists.
 func (db *DB) GetMCPKeyByHash(keyHash string) (*MCPKey, error) {
 	row := db.conn.QueryRow(
-		`SELECT id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, scopes, allowed_databases, created_by, created_at, expires_at, last_used_at, revoked_at, kind, subject, client_id
+		`SELECT id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, scopes, allowed_databases, created_by, created_at, expires_at, last_used_at, revoked_at, kind, subject, client_id, grant_role
 		 FROM mcp_keys WHERE key_hash = ? AND revoked_at IS NULL`, keyHash,
 	)
 	return scanMCPKey(row)
@@ -180,7 +196,7 @@ func (db *DB) GetMCPKeyByHash(keyHash string) (*MCPKey, error) {
 
 func (db *DB) ListMCPKeys() ([]*MCPKey, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, scopes, allowed_databases, created_by, created_at, expires_at, last_used_at, revoked_at, kind, subject, client_id
+		`SELECT id, name, key_hash, key_prefix, connection_id, ch_user, ch_password_enc, scopes, allowed_databases, created_by, created_at, expires_at, last_used_at, revoked_at, kind, subject, client_id, grant_role
 		 FROM mcp_keys ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -229,7 +245,7 @@ type rowScanner interface{ Scan(dest ...any) error }
 func scanMCPKey(row rowScanner) (*MCPKey, error) {
 	var k MCPKey
 	err := row.Scan(&k.ID, &k.Name, &k.KeyHash, &k.KeyPrefix, &k.ConnectionID,
-		&k.CHUser, &k.CHPasswordEnc, &k.Scopes, &k.AllowedDatabases, &k.CreatedBy, &k.CreatedAt, &k.ExpiresAt, &k.LastUsedAt, &k.RevokedAt, &k.Kind, &k.Subject, &k.ClientID)
+		&k.CHUser, &k.CHPasswordEnc, &k.Scopes, &k.AllowedDatabases, &k.CreatedBy, &k.CreatedAt, &k.ExpiresAt, &k.LastUsedAt, &k.RevokedAt, &k.Kind, &k.Subject, &k.ClientID, &k.GrantRole)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil

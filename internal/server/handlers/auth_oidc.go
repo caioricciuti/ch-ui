@@ -29,13 +29,21 @@ const (
 	oidcFlowMaxAge     = 10 * time.Minute
 )
 
-// oidcProvider returns the currently active OIDC provider, or nil when SSO is
-// not configured (neither env nor admin/DB config) or discovery failed.
-func (h *AuthHandler) oidcProvider() *oidc.Provider {
+// oidcCurrent returns the OIDC provider to sign in with and the latest saved
+// settings, whose access rules apply even if they could not be reloaded. On
+// refusal it returns the message for the login page and the logged error.
+func (h *AuthHandler) oidcCurrent() (*oidc.Provider, oidc.Settings, string, error) {
 	if h.OIDC == nil {
-		return nil
+		return nil, oidc.Settings{}, "SSO is not configured", fmt.Errorf("no active OIDC provider")
 	}
-	return h.OIDC.Provider()
+	provider, settings, err := h.OIDC.Current()
+	if err != nil {
+		return nil, settings, "SSO is unavailable: its settings changed and the identity provider could not be loaded; ask an admin to check Admin > SSO", err
+	}
+	if provider == nil {
+		return nil, settings, "SSO is not configured", fmt.Errorf("no active OIDC provider")
+	}
+	return provider, settings, "", nil
 }
 
 // OIDCLogin starts the SSO flow: generate state + nonce + PKCE code verifier,
@@ -44,9 +52,9 @@ func (h *AuthHandler) oidcProvider() *oidc.Provider {
 //
 // GET /api/auth/oidc/login
 func (h *AuthHandler) OIDCLogin(w http.ResponseWriter, r *http.Request) {
-	provider := h.oidcProvider()
+	provider, _, userMsg, err := h.oidcCurrent()
 	if provider == nil {
-		h.oidcFail(w, r, "SSO is not configured", fmt.Errorf("no active OIDC provider"))
+		h.oidcFail(w, r, userMsg, err)
 		return
 	}
 
@@ -79,12 +87,13 @@ func (h *AuthHandler) OIDCLogin(w http.ResponseWriter, r *http.Request) {
 //
 // GET /api/auth/oidc/callback
 func (h *AuthHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
-	provider := h.oidcProvider()
+	// The latest saved settings decide who may sign in and with which role,
+	// not the ones the loaded provider was built from.
+	provider, settings, userMsg, err := h.oidcCurrent()
 	if provider == nil {
-		h.oidcFail(w, r, "SSO is not configured", fmt.Errorf("no active OIDC provider"))
+		h.oidcFail(w, r, userMsg, err)
 		return
 	}
-	settings := provider.Settings()
 
 	q := r.URL.Query()
 	if errParam := q.Get("error"); errParam != "" {

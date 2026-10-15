@@ -384,8 +384,17 @@ func (h *AdminHandler) DeleteUserRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to delete user role")
 		return
 	}
-	if err := h.DB.SetSessionsUserRole(username, connectionID, "viewer"); err != nil {
-		slog.Warn("Failed to refresh active session roles after role override removal", "error", err, "user", username)
+	// Without the override the role is whatever sign-in derives (SSO group
+	// mapping, ClickHouse privileges, the login-page cap), and the sessions'
+	// cached role may be the override itself. Sign those sessions out so the
+	// next sign-in computes it, and make the person's OAuth MCP tokens
+	// follow that sign-in instead of the role they were issued with.
+	ended, err := h.DB.DeleteSessionsForRoleKey(username, connectionID)
+	if err != nil {
+		slog.Warn("Failed to end sessions after role override removal", "error", err, "user", username)
+	}
+	if err := h.DB.ClearOAuthGrantRoles(username, connectionID); err != nil {
+		slog.Warn("Failed to reset OAuth token roles after role override removal", "error", err, "user", username)
 	}
 
 	var actorName, chUser *string
@@ -397,14 +406,15 @@ func (h *AdminHandler) DeleteUserRole(w http.ResponseWriter, r *http.Request) {
 		Username:       actorName,
 		ClickhouseUser: chUser,
 		ConnectionID:   nonEmptyPtr(connectionID),
-		Details:        strPtr(fmt.Sprintf("Removed role override for %q %s", username, h.roleScopeLabel(connectionID))),
+		Details:        strPtr(fmt.Sprintf("Removed role override for %q %s; %d session(s) signed out", username, h.roleScopeLabel(connectionID), ended)),
 		IPAddress:      strPtr(getClientIP(r)),
 	})
 
-	writeJSON(w, http.StatusOK, map[string]string{
-		"message":       "User role override removed",
-		"username":      username,
-		"connection_id": connectionID,
+	writeJSON(w, http.StatusOK, map[string]any{
+		"message":        "User role override removed. Their role is worked out again at their next sign-in.",
+		"username":       username,
+		"connection_id":  connectionID,
+		"sessions_ended": ended,
 	})
 }
 

@@ -49,6 +49,28 @@ func (s Settings) Complete() bool {
 		strings.TrimSpace(s.RedirectURL) != ""
 }
 
+// SameProvider reports whether s and o build the same Provider: every field
+// New reads, including whether any group mapping asks for the groups scope.
+// Access rules (allowed domains, which groups map to which role, accepting
+// unverified email) are not part of it.
+func (s Settings) SameProvider(o Settings) bool {
+	hasGroups := func(x Settings) bool {
+		return len(x.AdminGroups) > 0 || len(x.AnalystGroups) > 0 || len(x.ViewerGroups) > 0
+	}
+	groupsClaim := func(x Settings) string {
+		if c := strings.TrimSpace(x.GroupsClaim); c != "" {
+			return c
+		}
+		return "groups"
+	}
+	return strings.TrimSpace(s.IssuerURL) == strings.TrimSpace(o.IssuerURL) &&
+		s.ClientID == o.ClientID &&
+		s.ClientSecret == o.ClientSecret &&
+		s.RedirectURL == o.RedirectURL &&
+		groupsClaim(s) == groupsClaim(o) &&
+		hasGroups(s) == hasGroups(o)
+}
+
 // SettingsFromConfig builds Settings from the environment/YAML server config.
 // Enabled mirrors config.OIDCEnabled(): all required fields present.
 func SettingsFromConfig(cfg *config.Config) Settings {
