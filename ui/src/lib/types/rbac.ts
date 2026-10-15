@@ -19,6 +19,8 @@ export type RbacOpKind =
   | 'create_settings_profile'
   | 'alter_settings_profile'
   | 'drop_settings_profile'
+  | 'create_user'
+  | 'drop_user'
 
 export type RbacEntityKind = 'role' | 'user' | 'row_policy' | 'quota' | 'settings_profile'
 
@@ -71,10 +73,32 @@ export interface RbacProfileSpec {
   to: RbacAssignees
 }
 
+/** Sign-in methods a new user can get. The server never receives a password, only hashes. */
+export type RbacAuthMethod = 'sha256_hash' | 'double_sha1_hash' | 'bcrypt_hash' | 'ldap' | 'kerberos' | 'ssl_certificate' | 'no_password'
+
+export interface RbacUserAuth {
+  method: RbacAuthMethod
+  hash?: string
+  salt?: string
+  server?: string
+  realm?: string
+  cn?: string
+}
+
+export type RbacHostKind = 'any' | 'local' | 'ip' | 'name' | 'regexp' | 'like'
+
+export interface RbacHostSpec {
+  kind: RbacHostKind
+  value?: string
+}
+
 export interface RbacOp {
   kind: RbacOpKind
   name?: string
   profile?: string
+  /** create_user only. */
+  auth?: RbacUserAuth
+  hosts?: RbacHostSpec[]
   target?: RbacTarget
   access?: string[]
   database?: string
@@ -470,6 +494,16 @@ export interface RbacImportRequest {
   prune: RbacPrune
   rename: RbacRename
   kinds?: RbacImportKind[]
+  /** New users of the file to create; their sign-in is added before review. */
+  create_users?: string[]
+}
+
+/** A user the file lists that this connection lacks, with the file's sign-in hints. */
+export interface RbacNewUser {
+  name: string
+  /** ClickHouse auth type on the source (sha256_password, ldap, ...). */
+  auth?: string
+  hosts?: RbacHostSpec[]
 }
 
 export interface RbacSkip {
@@ -491,6 +525,7 @@ export interface RbacImportPlan {
   over_cap: boolean
   message?: string
   source?: RbacFileSource
+  new_users: RbacNewUser[]
 }
 
 export type RbacExportFormat = 'yaml' | 'json' | 'sql'

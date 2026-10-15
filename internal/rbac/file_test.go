@@ -18,11 +18,11 @@ import (
 func roundTrip(t *testing.T, label string, st *State) {
 	t.Helper()
 	src := FileSource{Connection: "prod", Host: "ch-1", ExportedAt: "2026-10-14T10:00:00Z"}
-	y, err := MarshalFileYAML(st, src, "header line\nsecond line")
+	y, err := MarshalFileYAML(st, nil, src, "header line\nsecond line")
 	if err != nil {
 		t.Fatalf("%s: yaml: %v", label, err)
 	}
-	j, err := MarshalFileJSON(st, src)
+	j, err := MarshalFileJSON(st, nil, src)
 	if err != nil {
 		t.Fatalf("%s: json: %v", label, err)
 	}
@@ -151,7 +151,7 @@ func TestFileExample(t *testing.T) {
 		t.Fatalf("source = %+v", f.Source)
 	}
 	// JSON input reads the same.
-	j, _ := MarshalFileJSON(f.State, f.Source)
+	j, _ := MarshalFileJSON(f.State, f.Logins, f.Source)
 	g, err := ParseFile(j)
 	if err != nil || !reflect.DeepEqual(g.State, want) {
 		t.Fatalf("json: %v\n%s", err, j)
@@ -169,7 +169,7 @@ func TestFileStrictErrors(t *testing.T) {
 		{"unknown top key", "chui_access: 1\npasswords: {}\n", "passwords: unknown key"},
 		{"unknown role key", "chui_access: 1\nroles:\n  a: {profile: p, password: x}\n", "roles.a.password: unknown key"},
 		{"both profile forms", "chui_access: 1\nroles:\n  a: {profile: p, profiles: [q]}\n", "roles.a: use profile or profiles"},
-		{"unknown user key", "chui_access: 1\nusers:\n  u: {default_roles: all, auth: sha256}\n", "users.u.auth: unknown key"},
+		{"unknown user key", "chui_access: 1\nusers:\n  u: {default_roles: all, password: sha256}\n", "users.u.password: unknown key"},
 		{"user without defaults", "chui_access: 1\nusers:\n  u: {}\n", "users.u.default_roles: missing"},
 		{"bad default roles", "chui_access: 1\nusers:\n  u: {default_roles: some}\n", "users.u.default_roles: must be all, none or a list"},
 		{"except without all", "chui_access: 1\nusers:\n  u: {default_roles: [r], except: [x]}\n", "users.u.except: except needs default_roles: all"},
@@ -220,9 +220,9 @@ func TestImportOwnExportIsNoOp(t *testing.T) {
 			var b []byte
 			var err error
 			if format == "yaml" {
-				b, err = MarshalFileYAML(st, FileSource{}, ExportHeader(FileSource{}, nil))
+				b, err = MarshalFileYAML(st, nil, FileSource{}, ExportHeader(FileSource{}, nil))
 			} else {
-				b, err = MarshalFileJSON(st, FileSource{})
+				b, err = MarshalFileJSON(st, nil, FileSource{})
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -261,12 +261,12 @@ func TestExportLeavesOutUsersXML(t *testing.T) {
 		}
 	}
 	header := ExportHeader(FileSource{Connection: "prod", Host: "ch-1"}, excluded)
-	y, err := MarshalFileYAML(st, FileSource{Connection: "prod"}, header)
+	y, err := MarshalFileYAML(st, nil, FileSource{Connection: "prod"}, header)
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(y)
-	for _, want := range []string{"# Left out because they live in users.xml", "#   user default", "# Passwords and authentication settings are never exported."} {
+	for _, want := range []string{"# Left out because they live in users.xml", "#   user default", "# passwords, hashes and salts are never exported."} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("header lacks %q:\n%s", want, text)
 		}
@@ -354,7 +354,7 @@ func TestImportRenameAndDatabases(t *testing.T) {
 	for _, s := range plan.Skipped {
 		reasons[s.Kind+" "+s.Name] = s.Reason
 	}
-	if !strings.Contains(reasons["role stg_analyst"], `database "gone"`) || !strings.Contains(reasons["row_policy old ON gone.events"], "does not exist") || reasons["user nobody"] != "user not found" {
+	if !strings.Contains(reasons["role stg_analyst"], `database "gone"`) || !strings.Contains(reasons["row_policy old ON gone.events"], "does not exist") || !strings.HasPrefix(reasons["user nobody"], "user not found") {
 		t.Errorf("skipped = %+v", plan.Skipped)
 	}
 	// Partial revokes on a missing database stay: they only narrow access.
@@ -453,7 +453,7 @@ func TestImportOverCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !plan.OverCap || len(plan.Ops) != MaxImportOps+5 || !strings.Contains(plan.Message, "Import fewer kinds") || !strings.Contains(plan.Message, "roles 205") {
+	if !plan.OverCap || len(plan.Ops) != MaxImportOps+5 || !strings.Contains(plan.Message, "Import in batches") || !strings.Contains(plan.Message, "roles 205") {
 		t.Fatalf("over cap = %v %q", plan.OverCap, plan.Message)
 	}
 }

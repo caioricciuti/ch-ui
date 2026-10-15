@@ -40,6 +40,9 @@
   let kind = $state<Kind>('roles')
   let search = $state('')
   let pending = $state<RbacOp[]>([])
+  // Generated passwords of users a staged import creates, by user. Kept in
+  // memory only, shown once after the apply, then forgotten.
+  let passwords = $state<Record<string, string>>({})
   // The access history row a staged revert goes back to.
   let revertOf = $state('')
   let outsideChanges = $state(0)
@@ -266,6 +269,12 @@
   function rollback(ops: RbacOp[]) {
     pending = ops
     revertOf = ''
+    passwords = {}
+  }
+
+  function closeReview() {
+    reviewOpen = false
+    if (pending.length === 0) passwords = {}
   }
 
   // ── Access as code ────────────────────────────────────────────────
@@ -295,8 +304,9 @@
     exportMenu = { x: r.left, y: r.bottom + 4 }
   }
 
-  function stageImport(ops: RbacOp[]) {
+  function stageImport(ops: RbacOp[], generated: Record<string, string>) {
     pending = ops
+    passwords = generated
     importOpen = false
     reviewOpen = true
   }
@@ -451,14 +461,21 @@
 
 <ContextMenu open={!!exportMenu} x={exportMenu?.x ?? 0} y={exportMenu?.y ?? 0} items={exportItems} onclose={() => (exportMenu = null)} />
 
-<ImportSheet open={importOpen} pendingCount={pending.length} onstage={stageImport} onclose={() => (importOpen = false)} />
+<ImportSheet
+  open={importOpen}
+  pendingCount={pending.length}
+  profileNames={(snapshot?.settings_profiles ?? []).map((p) => p.name)}
+  onstage={stageImport}
+  onclose={() => (importOpen = false)}
+/>
 
 <ReviewSheet
   open={reviewOpen}
   ops={pending}
   {snapshot}
+  {passwords}
   onunstage={unstage}
-  onclose={() => (reviewOpen = false)}
+  onclose={closeReview}
   onapplied={applied}
   onrollback={rollback}
   {revertOf}

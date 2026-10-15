@@ -71,15 +71,16 @@ func (h *RBACHandler) Export(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	st, excluded := rbac.ExportState(snap)
+	logins := rbac.ExportLogins(snap, st)
 	src := rbac.FileSource{Connection: h.connectionName(session.ConnectionID), Host: snap.Host, ExportedAt: now.UTC().Format(time.RFC3339), Incomplete: snap.Errors}
 	header := rbac.ExportHeader(src, excluded)
 	var body []byte
 	contentType := "application/yaml; charset=utf-8"
 	switch format {
 	case "yaml":
-		body, err = rbac.MarshalFileYAML(st, src, header)
+		body, err = rbac.MarshalFileYAML(st, logins, src, header)
 	case "json":
-		body, err = rbac.MarshalFileJSON(st, src)
+		body, err = rbac.MarshalFileJSON(st, logins, src)
 		contentType = "application/json; charset=utf-8"
 	case "sql":
 		body = []byte(rbac.ExportSQL(snap, st, header))
@@ -105,6 +106,9 @@ type rbacImportRequest struct {
 	Prune  rbac.Prune  `json:"prune"`
 	Rename rbac.Rename `json:"rename"`
 	Kinds  []string    `json:"kinds"`
+	// CreateUsers names the new users of the file to create. Their
+	// authentication is added by the client after this plan, never here.
+	CreateUsers []string `json:"create_users"`
 }
 
 // ImportPlan handles POST /import/plan: parse an access file and return the
@@ -147,7 +151,7 @@ func (h *RBACHandler) ImportPlan(w http.ResponseWriter, r *http.Request) {
 	} else {
 		notes = append(notes, rbac.Skip{Kind: "database", Reason: "system.databases could not be read, so databases were not checked"})
 	}
-	plan, err := rbac.PlanImport(snap, file.State, rbac.ImportOpts{Prune: req.Prune, Rename: req.Rename, Kinds: req.Kinds, Databases: dbs})
+	plan, err := rbac.PlanImport(snap, file.State, rbac.ImportOpts{Prune: req.Prune, Rename: req.Rename, Kinds: req.Kinds, Databases: dbs, Logins: file.Logins, CreateUsers: req.CreateUsers})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -167,9 +171,10 @@ func (h *RBACHandler) ImportPlan(w http.ResponseWriter, r *http.Request) {
 	h.auditAccess(r, session, "rbac.import.planned", map[string]any{
 		"source_connection": file.Source.Connection, "ops": len(plan.Ops), "skipped": len(plan.Skipped),
 		"over_cap": plan.OverCap, "summary": plan.Summary, "kinds": req.Kinds, "prune": req.Prune,
+		"new_users": len(plan.NewUsers), "create_users": len(req.CreateUsers),
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true, "ops": plan.Ops, "skipped": plan.Skipped, "summary": plan.Summary,
-		"over_cap": plan.OverCap, "message": plan.Message, "source": file.Source,
+		"over_cap": plan.OverCap, "message": plan.Message, "source": file.Source, "new_users": plan.NewUsers,
 	})
 }

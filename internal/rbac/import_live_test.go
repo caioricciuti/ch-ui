@@ -106,7 +106,7 @@ func TestImportLive(t *testing.T) {
 	}
 
 	st, _ := ExportState(read())
-	file, err := MarshalFileYAML(st, FileSource{Connection: "live"}, ExportHeader(FileSource{}, nil))
+	file, err := MarshalFileYAML(st, nil, FileSource{Connection: "live"}, ExportHeader(FileSource{}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}

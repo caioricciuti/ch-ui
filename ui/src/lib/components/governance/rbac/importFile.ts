@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
-import type { RbacImportKind, RbacImportPlan, RbacImportRequest, RbacOp, RbacOpKind, RbacPrune, RbacPruneKind, RbacSkip } from '../../../types/rbac'
+import type { RbacImportKind, RbacImportPlan, RbacImportRequest, RbacNewUser, RbacOp, RbacOpKind, RbacPrune, RbacPruneKind, RbacSkip } from '../../../types/rbac'
+import { hostsFrom } from './newUsers'
 
 /** The parts of an access file, in file order, and whether they can prune. */
 export const IMPORT_KINDS: { kind: RbacImportKind; label: string; prunable: boolean }[] = [
@@ -42,6 +43,7 @@ export function buildImportRequest(
   prune: Record<RbacPruneKind, boolean>,
   principals: RenameRow[],
   databases: RenameRow[],
+  createUsers: string[] = [],
 ): { request: RbacImportRequest | null; error: string } {
   if (!file.trim()) return { request: null, error: 'Choose a file or paste its contents.' }
   const kinds = IMPORT_KINDS.map((k) => k.kind).filter((k) => include[k])
@@ -58,13 +60,14 @@ export function buildImportRequest(
   if (Object.keys(p.map).length) request.rename.principals = p.map
   if (Object.keys(d.map).length) request.rename.databases = d.map
   if (kinds.length < IMPORT_KINDS.length) request.kinds = kinds
+  if (createUsers.length) request.create_users = [...createUsers]
   return { request, error: '' }
 }
 
 const OP_KINDS: ReadonlySet<string> = new Set<RbacOpKind>([
   'create_role', 'drop_role', 'set_role_profile', 'grant_privilege', 'revoke_privilege', 'grant_role', 'revoke_role',
   'set_default_roles', 'create_row_policy', 'alter_row_policy', 'drop_row_policy', 'create_quota', 'alter_quota',
-  'drop_quota', 'create_settings_profile', 'alter_settings_profile', 'drop_settings_profile',
+  'drop_quota', 'create_settings_profile', 'alter_settings_profile', 'drop_settings_profile', 'create_user',
 ])
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -100,6 +103,12 @@ export function importPlanFrom(body: unknown): RbacImportPlan {
         exported_at: typeof body.source.exported_at === 'string' ? body.source.exported_at : undefined,
       }
     : undefined
+  const newUsers: RbacNewUser[] = Array.isArray(body.new_users)
+    ? body.new_users
+        .filter(isRecord)
+        .filter((u) => typeof u.name === 'string' && u.name !== '')
+        .map((u) => ({ name: String(u.name), auth: typeof u.auth === 'string' ? u.auth : undefined, hosts: hostsFrom(u.hosts) }))
+    : []
   return {
     ops,
     skipped,
@@ -107,7 +116,13 @@ export function importPlanFrom(body: unknown): RbacImportPlan {
     over_cap: body.over_cap === true,
     message: typeof body.message === 'string' ? body.message : undefined,
     source,
+    new_users: newUsers,
   }
+}
+
+/** The users an import plan creates. */
+export function newUserCount(plan: Pick<RbacImportPlan, 'ops'>): number {
+  return plan.ops.filter((op) => op.kind === 'create_user').length
 }
 
 /** Non-zero change counts per part, in file order. */

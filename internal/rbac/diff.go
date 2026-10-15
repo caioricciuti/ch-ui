@@ -34,9 +34,19 @@ func Diffs(ops []Op, snap *Snapshot) []Diff {
 			add(r[0], r[1])
 		}
 	}
+	// A user the plan creates leads with its CREATE USER, secrets masked.
+	created := map[string]string{}
+	for _, op := range ops {
+		if op.Kind == OpCreateUser {
+			created[op.Name] = Render(op, "", nil)
+		}
+	}
 	out := []Diff{}
 	for _, r := range refs {
 		cur, next := renderEntity(snap, r.kind, r.name), renderEntity(after, r.kind, r.name)
+		if create, ok := created[r.name]; ok && r.kind == KindUser && next != "" {
+			next = create + ";\n" + next
+		}
 		out = append(out, Diff{Kind: r.kind, Entity: r.name, Current: cur, Proposed: next})
 	}
 	return out
@@ -47,6 +57,8 @@ func touched(op Op) [][2]string {
 	switch op.Kind {
 	case OpCreateRole, OpDropRole, OpSetRoleProfile:
 		return [][2]string{{KindRole, op.Name}}
+	case OpCreateUser, OpDropUser:
+		return [][2]string{{KindUser, op.Name}}
 	case OpGrantPrivilege, OpRevokePrivilege, OpGrantRole, OpRevokeRole, OpSetDefaultRoles:
 		if op.Target == nil {
 			return nil
@@ -100,6 +112,41 @@ func normDB(s string) string {
 // applyOp mutates s the way ClickHouse would, closely enough for a diff.
 func applyOp(s *Snapshot, op Op) {
 	switch op.Kind {
+	case OpCreateUser:
+		// A new user has DEFAULT ROLE ALL until told otherwise.
+		s.Users = append(s.Users, UserEntity{Name: op.Name, Storage: "local_directory", DefaultAll: true, DefaultRoles: []string{}, DefaultExcpt: []string{}})
+	case OpDropUser:
+		users := s.Users[:0]
+		for _, u := range s.Users {
+			if u.Name != op.Name {
+				users = append(users, u)
+			}
+		}
+		s.Users = users
+		grants := s.Grants[:0]
+		for _, g := range s.Grants {
+			if g.UserName != op.Name {
+				grants = append(grants, g)
+			}
+		}
+		s.Grants = grants
+		rgs := s.RoleGrants[:0]
+		for _, g := range s.RoleGrants {
+			if g.UserName != op.Name {
+				rgs = append(rgs, g)
+			}
+		}
+		s.RoleGrants = rgs
+		// ClickHouse also drops the user from TO lists.
+		for i := range s.RowPolicies {
+			s.RowPolicies[i].To = assigneesWithout(s.RowPolicies[i].To, op.Name)
+		}
+		for i := range s.Quotas {
+			s.Quotas[i].To = assigneesWithout(s.Quotas[i].To, op.Name)
+		}
+		for i := range s.SettingsProfiles {
+			s.SettingsProfiles[i].To = assigneesWithout(s.SettingsProfiles[i].To, op.Name)
+		}
 	case OpCreateRole:
 		s.Roles = append(s.Roles, Entity{Name: op.Name, Storage: "local_directory"})
 		if op.Profile != "" {

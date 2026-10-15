@@ -722,7 +722,7 @@ func TestReconcileMissingUser(t *testing.T) {
 	if len(ops) != 0 {
 		t.Fatalf("ops for a missing user:\n%s", renderOps(ops))
 	}
-	if len(skipped) != 1 || skipped[0] != (Skip{Kind: KindUser, Name: "ghost", Reason: "user not found"}) {
+	if len(skipped) != 1 || skipped[0].Name != "ghost" || !strings.HasPrefix(skipped[0].Reason, "user not found") {
 		t.Fatalf("skipped = %+v", skipped)
 	}
 }

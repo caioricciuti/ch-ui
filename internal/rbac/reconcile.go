@@ -32,6 +32,14 @@ func PruneAll() Prune {
 // ReconcileOpts tunes Reconcile.
 type ReconcileOpts struct {
 	Prune Prune `json:"prune" yaml:"prune"`
+	// CreateUsers names desired users the server lacks that the plan
+	// creates. Their create_user ops carry no authentication; the caller
+	// adds it. Other missing users are skipped.
+	CreateUsers map[string]bool `json:"-" yaml:"-"`
+	// Revert words the skips for a revert from access history: users the
+	// desired state leaves out are listed, never dropped, and missing users
+	// cannot be recreated.
+	Revert bool `json:"-" yaml:"-"`
 }
 
 // Skip is a difference Reconcile cannot or may not change.
@@ -44,16 +52,17 @@ type Skip struct {
 const readOnlyReason = "defined in users.xml, which is read-only"
 
 // Reconcile returns the ops that make current look like desired, in an
-// order Compose accepts: settings profiles, roles, role profiles, grants,
-// role grants, default roles, row policies, quotas and profile changes,
-// then revokes, then drops. Users are never created or dropped, and
-// entities stored in users.xml are never changed; those differences, and
-// any the op model cannot express, come back as skipped.
+// order Compose accepts: settings profiles, roles, users, role profiles,
+// grants, role grants, default roles, row policies, quotas and profile
+// changes, then revokes, then drops. Users are created only when named in
+// CreateUsers and never dropped, and entities stored in
+// users.xml are never changed; those differences, and any the op model
+// cannot express, come back as skipped.
 func Reconcile(current *Snapshot, desired *State, opts ReconcileOpts) (ops []Op, skipped []Skip) {
 	if desired.Version > StateVersion {
 		return []Op{}, []Skip{{Kind: "state", Reason: fmt.Sprintf("state version %d is newer than this server reads (%d)", desired.Version, StateVersion)}}
 	}
-	r := &reconciler{cur: current, want: desired.CanonicalWith(current), prune: opts.Prune, seen: map[Skip]bool{}}
+	r := &reconciler{cur: current, want: desired.CanonicalWith(current), prune: opts.Prune, opts: opts, seen: map[Skip]bool{}}
 	r.index()
 	r.planProfiles()
 	r.planRoles()
@@ -65,7 +74,7 @@ func Reconcile(current *Snapshot, desired *State, opts ReconcileOpts) (ops []Op,
 
 	ops = []Op{}
 	for _, phase := range [][]Op{
-		r.createProfiles, r.createRoles, r.roleProfiles, r.grants, r.addRoleGrants, r.defaults,
+		r.createProfiles, r.createRoles, r.createUsers, r.roleProfiles, r.grants, r.addRoleGrants, r.defaults,
 		r.alterProfiles, r.alterPolicies, r.alterQuotas, r.revokes,
 		r.dropPolicies, r.dropQuotas, r.dropRoles, r.dropProfiles,
 	} {
@@ -81,6 +90,7 @@ type reconciler struct {
 	cur   *Snapshot
 	want  *State
 	prune Prune
+	opts  ReconcileOpts
 	skips []Skip
 	seen  map[Skip]bool
 
@@ -92,14 +102,16 @@ type reconciler struct {
 	managed     map[Target]bool
 	dropRole    map[string]bool
 	dropProfile map[string]bool
+	// newUser are the users the plan creates.
+	newUser map[string]bool
 	// badProfile are desired profiles that cannot be applied.
 	badProfile map[string]bool
 	// granted maps a managed user to the roles it holds after the plan.
 	granted map[string]map[string]bool
 
-	createProfiles, createRoles, roleProfiles, grants, addRoleGrants, defaults []Op
-	alterProfiles, alterPolicies, alterQuotas, revokes                         []Op
-	dropPolicies, dropQuotas, dropRoles, dropProfiles                          []Op
+	createProfiles, createRoles, createUsers, roleProfiles, grants, addRoleGrants, defaults []Op
+	alterProfiles, alterPolicies, alterQuotas, revokes                                      []Op
+	dropPolicies, dropQuotas, dropRoles, dropProfiles                                       []Op
 }
 
 func (r *reconciler) skip(kind, name, format string, args ...any) {
@@ -127,11 +139,16 @@ func (r *reconciler) finalProfile(name string) bool {
 	return r.cur.profile(name) != nil && !r.dropProfile[name]
 }
 
+// finalUser reports whether a user exists once the plan has run.
+func (r *reconciler) finalUser(name string) bool {
+	return r.newUser[name] || r.cur.user(name) != nil
+}
+
 // missingAssignee returns the first name of a TO clause that is neither a
 // role nor a user once the plan has run, or "".
 func (r *reconciler) missingAssignee(a Assignees) string {
 	for _, n := range append(append([]string{}, a.Names...), a.Except...) {
-		if !r.finalRole(n) && r.cur.user(n) == nil {
+		if !r.finalRole(n) && !r.finalUser(n) {
 			return n
 		}
 	}
@@ -142,6 +159,7 @@ func (r *reconciler) index() {
 	r.wantRoles, r.wantUsers, r.wantProfiles = map[string]StateRole{}, map[string]StateUser{}, map[string]ProfileSpec{}
 	r.managed, r.dropRole, r.dropProfile, r.badProfile = map[Target]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
 	r.granted = map[string]map[string]bool{}
+	r.newUser = map[string]bool{}
 	for _, role := range r.want.Roles {
 		r.wantRoles[role.Name] = role
 		r.managed[Target{Type: "role", Name: role.Name}] = true
@@ -149,7 +167,16 @@ func (r *reconciler) index() {
 	for _, u := range r.want.Users {
 		r.wantUsers[u.Name] = u
 		if r.cur.user(u.Name) == nil {
-			r.skip(KindUser, u.Name, "user not found")
+			switch {
+			case r.opts.CreateUsers[u.Name]:
+				r.newUser[u.Name] = true
+				r.createUsers = append(r.createUsers, Op{Kind: OpCreateUser, Name: u.Name})
+				r.managed[Target{Type: "user", Name: u.Name}] = true
+			case r.opts.Revert:
+				r.skip(KindUser, u.Name, "user no longer exists; a revert cannot recreate it because CH-UI never keeps passwords")
+			default:
+				r.skip(KindUser, u.Name, "user not found; tick it under New users to create it")
+			}
 			continue
 		}
 		r.managed[Target{Type: "user", Name: u.Name}] = true
@@ -177,9 +204,16 @@ func (r *reconciler) index() {
 		}
 		r.dropProfile[p.Name] = true
 	}
+	if r.opts.Revert {
+		for _, u := range r.cur.Users {
+			if _, ok := r.wantUsers[u.Name]; !ok {
+				r.skip(KindUser, u.Name, "created since this snapshot; CH-UI does not drop users on revert, drop it yourself if wanted")
+			}
+		}
+	}
 	if r.prune.Grants || r.prune.RoleGrants {
 		for _, u := range r.cur.Users {
-			if _, ok := r.wantUsers[u.Name]; ok {
+			if _, ok := r.wantUsers[u.Name]; ok || r.opts.Revert {
 				continue
 			}
 			t := Target{Type: "user", Name: u.Name}
@@ -737,6 +771,10 @@ func (r *reconciler) planDefaultRoles() {
 			continue
 		}
 		cur := r.cur.user(u.Name)
+		if cur == nil {
+			// Created by this plan, with DEFAULT ROLE ALL.
+			cur = &UserEntity{Name: u.Name, DefaultAll: true}
+		}
 		have := canonUser(StateUser{Name: cur.Name, DefaultAll: cur.DefaultAll, DefaultRoles: cur.DefaultRoles, DefaultExcept: cur.DefaultExcpt})
 		if reflect.DeepEqual(have, u) {
 			continue

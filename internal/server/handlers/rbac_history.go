@@ -83,7 +83,8 @@ func (h *RBACHandler) recordApply(ctx context.Context, session *middleware.Sessi
 		source = accesshistory.SourceRevert
 	}
 	h.recordHistory(session, accesshistory.Capture{
-		Source: source, Snapshot: post, Pre: pre, Applied: rbac.AppliedOps(req.Ops, results), PlanHash: plan.PlanHash, RevertOf: req.RevertOf,
+		// History never holds a password hash or salt.
+		Source: source, Snapshot: post, Pre: pre, Applied: rbac.RedactOps(rbac.AppliedOps(req.Ops, results)), PlanHash: plan.PlanHash, RevertOf: req.RevertOf,
 	})
 }
 

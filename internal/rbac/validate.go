@@ -388,6 +388,10 @@ func validateOp(op Op, cat Catalog) error {
 		return validateAssignees(p.To)
 	case OpDropSettingsProfile:
 		return ValidateName("settings profile", op.Name)
+	case OpCreateUser:
+		return validateCreateUser(op)
+	case OpDropUser:
+		return ValidateName("user", op.Name)
 	default:
 		return fmt.Errorf("unknown operation %q", op.Kind)
 	}

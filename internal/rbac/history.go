@@ -679,13 +679,14 @@ type RevertPlan struct {
 
 // PlanRevert reconciles live to target with every kind pruned. With only
 // set, just those entities are reverted and everything else is left as it
-// is live.
+// is live. Users are never dropped or recreated: CH-UI does not know who
+// created a user, and it never stores passwords. Both come back as skipped.
 func PlanRevert(live *Snapshot, target *State, only map[string]bool) RevertPlan {
 	desired := target
 	if len(only) > 0 {
 		desired = MergeState(FromSnapshot(live), target.CanonicalWith(live), only)
 	}
-	ops, skipped := Reconcile(live, desired, ReconcileOpts{Prune: PruneAll()})
+	ops, skipped := Reconcile(live, desired, ReconcileOpts{Prune: PruneAll(), Revert: true})
 	after := Simulate(live, ops)
 	return RevertPlan{Ops: ops, Skipped: skipped, Remaining: DiffStates(FromSnapshot(after), desired.CanonicalWith(after)).Changes}
 }
