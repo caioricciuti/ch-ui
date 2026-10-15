@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.24.0] - 2026-10-15
+
+Bug fixes from a full audit of the workspace, dashboards, alerting, schedules and secrets, with a few behaviour changes listed below.
+
+### Upgrade notes
+
+- **Cron day rules follow standard cron.** Schedules, reports and model pipelines that restrict both day of month and day of week now run when either matches, so they may run more often (`0 9 1 * 1` now runs on the 1st and on every Monday). Day of week `7` is Sunday, so `5-7` now includes Sunday (#324).
+- **Scheduled queries run in their own timezone.** Before, they ran in UTC whatever timezone was set. Their next run is recomputed once on upgrade; an unknown timezone is refused when saving (#324).
+- **Run now on someone else's SQL alert is a dry run.** It shows the result without recording state or raising events; the creator and admins still record (#325).
+- **Variable "All" with 1,000 or more options** now works only as `column IN ($v)` and fails with a clear message elsewhere; custom lists over 1,000 values are refused on save (#327).
+- **Weekly operations reports accept only email channels** (#325).
+
+### Added
+
+- **`APP_SECRET_KEY_PREVIOUS`**: rotate the app secret key safely. Stored secrets decrypt with the previous key as a fallback, and on startup every stored secret is re-encrypted with the current key (#323).
+
+### Fixed
+
+- **SQL workspace** (#326):
+  - Users whose ClickHouse profile is `readonly=1` can run queries; CH-UI enforces the row limit when ClickHouse refuses the setting.
+  - The column preview no longer runs statements that change data (for example `REPLACE TABLE`, or `CREATE ... AS SELECT` after a `#` comment); only read-only queries are probed and everything else runs exactly once.
+  - Closing a query tab, closing a running result, or switching connection cancels the running query.
+  - "Go to error" lands on the right character; `SELECT 1; -- note` runs; Sample works with a trailing comment; String parameters accept an empty value; Option+W/D/S no longer fire while typing.
+- **Dashboards** (#327):
+  - Selecting All on a variable with 1,000 or more options covers every value instead of the first 1,000.
+  - Report summaries split charts by their Series column, and "last" is the latest point on the x axis.
+  - Stat and gauge panels no longer count NULL or empty values as 0.
+  - Drilldown passes the clicked value as returned, so a Date no longer shifts a day east of UTC.
+  - Brain keeps the panels it adds inside the grid and records dashboard versions.
+- **Alerting** (#325):
+  - Turning Cluster Health sampling or a check off resolves its open incidents and clears their acks.
+  - Queued deliveries are cancelled when their rule, channel or binding is turned off, or a silence covers them.
+  - Editing an alert rule with an invalid channel no longer saves part of the edit.
+- **Schedules** (#324): cron day of week 7 is Sunday; both day fields use the standard "either" rule; scheduled queries run in their own timezone.
+- **License** (#323): a license from `CHUI_LICENSE` or `CHUI_LICENSE_FILE` in its grace period is kept on restart (read-only Pro); the startup log names the active license.
+
+### Security
+
+- Share links no longer receive the dashboard owner, folder, tags or panel connection ids, and show a generic error instead of ClickHouse error text (#327).
+- Non-admins no longer see policy violation and access drift events in the alert events list (#325).
+- The governance access API refuses to drop the signed-in admin's own ClickHouse login or a login CH-UI uses unattended, unless forced (#325).
+
 ## [2.23.1] - 2026-10-15
 
 Security release. Every install should upgrade.
