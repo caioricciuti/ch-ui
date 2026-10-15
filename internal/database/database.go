@@ -53,7 +53,13 @@ func Open(path string) (*DB, error) {
 	// PRAGMA incremental_vacuum. It only takes effect on newly created
 	// databases (or after a full VACUUM); on existing databases it is a no-op.
 	// It must be set before the first table is created, hence in the DSN.
-	dsn := fmt.Sprintf("%s?_pragma=auto_vacuum(INCREMENTAL)&_pragma=foreign_keys(1)&_pragma=journal_mode(wal)&_pragma=busy_timeout(5000)", path)
+	//
+	// _txlock=immediate makes every transaction take the write lock at BEGIN.
+	// A deferred transaction that reads and then writes cannot be upgraded
+	// once another connection has committed a write in WAL mode: SQLite fails
+	// it with SQLITE_BUSY at once and busy_timeout does not apply. Taking the
+	// lock up front makes it wait its turn instead.
+	dsn := fmt.Sprintf("%s?_pragma=auto_vacuum(INCREMENTAL)&_pragma=foreign_keys(1)&_pragma=journal_mode(wal)&_pragma=busy_timeout(5000)&_txlock=immediate", path)
 	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
