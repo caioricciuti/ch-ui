@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.26.0] - 2026-10-15
+
+Security and bug fixes from the audit follow-up, creating users on import, Windows binaries and a personal `ch-ui desktop` mode.
+
+### Upgrade notes
+
+- **Existing MCP OAuth tokens** are read-only until the person signs in to CH-UI again, unless they have a live session. Tokens now follow the person's current role (#335).
+- **Removing a role override** signs that person's affected sessions out, so their role is worked out again at the next sign-in. An admin who removes their own override is signed out (#335).
+- **Access files exported by this version** can include `auth` and `hosts` under users; older CH-UI versions refuse those keys (#338).
+- **Acknowledging access drift** now requires an admin (#332).
+- **Windows support is new**: the binaries are built and tested on Linux and macOS, not yet on Windows itself, and are not code signed (#337).
+
+### Added
+
+- **Create users on import**: access control import can create the users an access file lists that the connection lacks. Each gets a generated password (hashed in the browser), a pasted sha256, double SHA-1 or bcrypt hash, LDAP, Kerberos, an SSL certificate, or no password, plus hosts and an optional settings profile. Generated passwords are shown once after the apply, with copy buttons. Prepare rollback drops the users that apply created; reverting from access history never drops or recreates users (#338).
+  - Access exports include each user's authentication type and allowed hosts so an import preselects them. Hashes and salts are never exported.
+  - Review checks: an existing user, a missing settings profile or read-only user storage blocks the plan; a user without a password needs an acknowledgement.
+- **Windows binaries**: `ch-ui-windows-amd64.exe` and `ch-ui-windows-arm64.exe` in every release, listed in the signed checksums.txt. On Windows, `ch-ui update` replaces the running .exe, PID checks work, `ch-ui server --detach` starts without a console, the connector keeps its files in `%AppData%\ch-ui\connect`, and `ch-ui service` says it is not supported yet (#337).
+- **`ch-ui desktop`** runs CH-UI for yourself on this computer: it listens on 127.0.0.1 only, keeps the database and secret key in your user data folder (owner-only), uses port 3488 or any free port and opens your browser. Running it again opens the instance already running. On Windows, `ch-ui.exe` with no arguments (a double-click) starts it; `ch-ui.exe server` runs a server. macOS and Linux are unchanged (#337).
+- **Alert emails** include an "Open in CH-UI" link to the page the alert is about, and custom templates can use `{{link}}` (#332).
+- **Open access drift incidents** appear in Governance › Alerts for admins and can be acknowledged there (#332).
+
+### Changed
+
+- `ch-ui uninstall` stops a running `ch-ui desktop` and keeps its data folder, printing where it is and how to delete it (#337).
+- The 200-change cap message in access control says to import or apply in batches (#338).
+
+### Fixed
+
+- **Dashboards**: clicking a DateTime value with a "Filter by" link selects the matching variable option and filters the other panels, also on share links (#333).
+- **SQL workspace** (#334):
+  - Saving a query no longer silently overwrites a newer save or a version restore of the same saved query; the editor offers to overwrite, open the newer version in a new tab, or cancel.
+  - The inline profile of an earlier run no longer appears under a newer run.
+  - Sorting or filtering a truncated result while Run All is running no longer stops the remaining statements.
+- **Reports** stop sending a saved query their author can no longer open, for example after the owner made it private. The run is recorded as failed with the reason and counts toward the automatic disable (#334).
+- **Roles**: removing a role override no longer forces "viewer" on the person's open sessions (#335).
+- **Admin › SSO** keeps showing a failed provider reload after the page is reloaded (#335).
+- **Access control review**: several warnings of the same kind, such as dropping two users, each need their own tick (#338).
+- **Version indicator** notices a new release within an hour, also in tabs that stay open (#336).
+
+### Security
+
+- MCP OAuth tokens follow the person's current CH-UI role: a demoted person loses the write tools on the next MCP request, and refreshing drops write scope for good (#335).
+- The MCP database allow-list checks `IN` inside function arguments such as `position(..., 1 IN otherdb.t)` (#335).
+- SSO sign-in always applies the latest saved allowed domains, group mapping and email verification setting, even when reloading the provider failed. If the identity provider itself changed and could not be loaded, SSO sign-in is refused instead of using the old one (#335).
+- Brain's delete_model refuses models on other connections and GitHub-managed models (#335).
+- A new user's password hash and salt appear only in the statement sent to ClickHouse; the review, results, plan hash, audit log, access history and server logs show '***', and ClickHouse errors that quote the statement are scrubbed. CH-UI's server never receives a plaintext password (#338).
+
 ## [2.25.0] - 2026-10-15
 
 ### Added
