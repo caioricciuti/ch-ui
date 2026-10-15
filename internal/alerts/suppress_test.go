@@ -399,3 +399,55 @@ func TestAlertKeyFromFingerprint(t *testing.T) {
 		}
 	}
 }
+
+// drift writes an access drift event the way access history does.
+func (f *suppressFixture) drift(incident, status, severity, hash string, extra map[string]interface{}) string {
+	f.t.Helper()
+	payload := map[string]interface{}{
+		"connection_id": f.connA, "alert_key": "access:" + f.connA, "status": status, "incident_id": incident,
+		"incident_severity": severity, "hash": hash, "link_path": "/governance?section=access-history",
+	}
+	for k, v := range extra {
+		payload[k] = v
+	}
+	c := f.connA
+	id, err := f.db.CreateAlertEvent(&c, EventTypeAccessDrift, severity, "drift "+status, "m", payload,
+		"access:"+f.connA+":"+status+":"+hash, "access:drift")
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	f.bump(id)
+	return id
+}
+
+// An ack on a drift incident holds back further drift of that incident; an
+// escalation to a mixed apply goes out and ends it, and so does the resolve.
+func TestDriftAckSuppressesUntilResolve(t *testing.T) {
+	f := newSuppressFixture(t)
+	key := "access:" + f.connA
+	fire := f.drift("i1", "firing", SeverityWarn, "h1", nil)
+	f.d.materializeEventJobs()
+	f.expect(fire, "processed", "", true)
+	a := f.ack(key, "i1", SeverityWarn)
+
+	more := f.drift("i1", "firing", SeverityWarn, "h2", nil)
+	f.d.materializeEventJobs()
+	f.expect(more, database.AlertEventAcknowledged, "ack:"+a.ID, false)
+
+	res := f.drift("i1", "resolved", SeverityWarn, "h0", nil)
+	f.d.materializeEventJobs()
+	f.expect(res, "processed", "", true)
+	if r := f.ackState(a.ID); r != "resolved" {
+		t.Fatalf("ack cleared as %q, want resolved", r)
+	}
+
+	f.drift("i2", "firing", SeverityWarn, "h3", nil)
+	f.d.materializeEventJobs()
+	b := f.ack(key, "i2", SeverityWarn)
+	esc := f.drift("i2", "firing", SeverityError, "h4", map[string]interface{}{"escalated": true})
+	f.d.materializeEventJobs()
+	f.expect(esc, "processed", "", true)
+	if r := f.ackState(b.ID); r != "escalated" {
+		t.Fatalf("ack cleared as %q, want escalated", r)
+	}
+}

@@ -124,7 +124,8 @@ func (h *GovernanceHandler) Routes() chi.Router {
 		ar.With(admin).Delete("/rules/{id}", h.DeleteAlertRule)
 		ar.Get("/events", h.ListAlertEvents)
 		// Silences are admin only; acknowledging an incident is open to
-		// writers (admin and analyst). Viewers read both.
+		// writers (admin and analyst), access drift to admins only. Viewers
+		// read both.
 		ar.Get("/silences", h.ListAlertSilences)
 		ar.With(admin).Post("/silences", h.CreateAlertSilence)
 		ar.With(admin).Put("/silences/{id}", h.UpdateAlertSilence)

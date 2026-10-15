@@ -116,7 +116,7 @@ export async function expireSilence(id: string): Promise<void> {
   await apiPost(`${BASE}/silences/${encodeURIComponent(id)}/expire`)
 }
 
-/** Open incidents across health checks and SQL alerts, with their ack. */
+/** Open incidents across health checks, SQL alerts and (admins only) access drift, with their ack. */
 export async function listFiring(): Promise<FiringIncident[]> {
   const res = await apiGet<{ incidents?: FiringIncident[] }>(`${BASE}/firing`)
   return res.incidents ?? []

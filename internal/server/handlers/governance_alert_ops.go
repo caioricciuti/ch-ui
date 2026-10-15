@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/caioricciuti/ch-ui/internal/accesshistory"
 	"github.com/caioricciuti/ch-ui/internal/alerts"
 	"github.com/caioricciuti/ch-ui/internal/clusterhealth"
 	"github.com/caioricciuti/ch-ui/internal/database"
@@ -302,10 +303,69 @@ type firingIncident struct {
 	Since        string             `json:"since"`
 	EventID      *string            `json:"event_id"`
 	Ack          *database.AlertAck `json:"ack"`
+	// Access drift only: the latest change of the incident, when it was
+	// seen, and the page to review it on.
+	Summary  *string `json:"summary,omitempty"`
+	LastSeen *string `json:"last_seen,omitempty"`
+	LinkPath *string `json:"link_path,omitempty"`
+}
+
+// isAdminSession reports whether the request comes from a CH-UI admin.
+func isAdminSession(r *http.Request) bool {
+	s := middleware.GetSession(r)
+	return s != nil && s.UserRole == "admin"
+}
+
+// isDriftAlertKey reports whether an alert key names an access drift alert.
+func isDriftAlertKey(key string) bool {
+	return strings.HasPrefix(key, accesshistory.DriftAlertKey(""))
+}
+
+// openDriftIncident returns the open access drift incident of a connection
+// from its newest drift event, or nil when there is none.
+func (h *GovernanceHandler) openDriftIncident(connectionID string) (*firingIncident, error) {
+	key := accesshistory.DriftAlertKey(connectionID)
+	ev, err := h.DB.LatestAlertEventFor(accesshistory.DriftSourceRef, key)
+	if err != nil || ev == nil || ev.PayloadJSON == nil {
+		return nil, err
+	}
+	var p struct {
+		Status           string `json:"status"`
+		IncidentID       string `json:"incident_id"`
+		IncidentSeverity string `json:"incident_severity"`
+		ConnectionName   string `json:"connection_name"`
+		Drift            string `json:"drift"`
+		Added            int    `json:"added"`
+		Removed          int    `json:"removed"`
+		Changed          int    `json:"changed"`
+	}
+	if json.Unmarshal([]byte(*ev.PayloadJSON), &p) != nil || p.Status != "firing" {
+		return nil, nil
+	}
+	name := p.ConnectionName
+	if name == "" {
+		name = connectionID
+	}
+	sev := p.IncidentSeverity
+	if sev == "" {
+		sev = ev.Severity
+	}
+	what := "Outside change"
+	if p.Drift == accesshistory.DriftMixed {
+		what = "Unexplained changes during an apply"
+	}
+	summary := fmt.Sprintf("%s: %d added, %d removed, %d changed", what, p.Added, p.Removed, p.Changed)
+	evID, seen, link := ev.ID, ev.CreatedAt, accesshistory.DriftLinkPath
+	return &firingIncident{
+		Source: "drift", AlertKey: key, IncidentID: p.IncidentID, ConnectionID: connectionID,
+		Name: "Access drift on " + name, Severity: sev, Since: p.IncidentID, EventID: &evID,
+		Summary: &summary, LastSeen: &seen, LinkPath: &link,
+	}, nil
 }
 
 // ListFiringIncidents returns the open incidents of health checks and SQL
-// alerts across connections, with the ack that covers each.
+// alerts across connections, with the ack that covers each. Admins also get
+// the open access drift incidents, one per connection.
 func (h *GovernanceHandler) ListFiringIncidents(w http.ResponseWriter, r *http.Request) {
 	acks, err := h.DB.ListOpenAlertAcks()
 	if err != nil {
@@ -376,12 +436,34 @@ func (h *GovernanceHandler) ListFiringIncidents(w http.ResponseWriter, r *http.R
 		}
 		out = append(out, item)
 	}
+
+	// Drift names other users and what they were granted; like the drift
+	// events, only admins see it.
+	if isAdminSession(r) {
+		conns, err := h.DB.GetConnections()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to load connections")
+			return
+		}
+		for _, c := range conns {
+			inc, err := h.openDriftIncident(c.ID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "Failed to load access drift incidents")
+				return
+			}
+			if inc != nil {
+				inc.Ack = ackFor(inc.AlertKey, inc.IncidentID)
+				out = append(out, *inc)
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"incidents": out})
 }
 
 // CreateAlertAck acknowledges the incident an event belongs to. Later
 // firing and de-escalation events of that incident are held back until it
 // resolves, escalates above the acknowledged severity, or the ack expires.
+// Access drift is acknowledged by admins only.
 func (h *GovernanceHandler) CreateAlertAck(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
@@ -413,6 +495,10 @@ func (h *GovernanceHandler) CreateAlertAck(w http.ResponseWriter, r *http.Reques
 	}
 	if ev == nil {
 		writeError(w, http.StatusNotFound, "Alert event not found")
+		return
+	}
+	if ev.EventType == alerts.EventTypeAccessDrift && session.UserRole != "admin" {
+		writeError(w, http.StatusForbidden, "Only admins can acknowledge access drift")
 		return
 	}
 	id := alerts.IdentifyEvent(*ev)
@@ -473,6 +559,10 @@ func (h *GovernanceHandler) DeleteAlertAck(w http.ResponseWriter, r *http.Reques
 	}
 	if a == nil || a.ClearedAt != nil {
 		writeError(w, http.StatusNotFound, "No open acknowledgement with this id")
+		return
+	}
+	if isDriftAlertKey(a.AlertKey) && session.UserRole != "admin" {
+		writeError(w, http.StatusForbidden, "Only admins can remove an access drift acknowledgement")
 		return
 	}
 	actor := middleware.Actor(session)
