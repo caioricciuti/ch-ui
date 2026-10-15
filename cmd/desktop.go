@@ -131,7 +131,11 @@ func runDesktop(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("CH-UI desktop is running at %s\n", cfg.AppURL)
 	fmt.Printf("Data folder: %s\n", stateDir)
-	fmt.Println("Press Ctrl+C to stop.")
+	if startedWithoutArgs {
+		fmt.Println("Close this window to stop CH-UI.")
+	} else {
+		fmt.Println("Press Ctrl+C to stop.")
+	}
 	// The listener is already bound, so the browser's request waits in the
 	// accept queue until the server is ready.
 	if !desktopNoBrowser {

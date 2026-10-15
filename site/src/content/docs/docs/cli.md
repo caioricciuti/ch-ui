@@ -32,7 +32,7 @@ ch-ui connect --url wss://ch-ui.yourcompany.com/connect --key cht_xxx --clickhou
 ## Top-Level Commands
 
 ```bash
-ch-ui              # start server (default)
+ch-ui              # start server (default; ch-ui desktop on Windows)
 ch-ui server       # run CH-UI web app/API/gateway
 ch-ui desktop      # run CH-UI for yourself on 127.0.0.1 and open the browser
 ch-ui connect      # run connector agent next to ClickHouse
@@ -102,6 +102,12 @@ ch-ui desktop
 ch-ui desktop --no-browser
 ch-ui desktop --clickhouse-url http://127.0.0.1:8123
 ```
+
+On Windows, running `ch-ui.exe` with no arguments (for example a double-click
+in Explorer) starts `desktop`. The console window shows the URL; close it to
+stop CH-UI. If startup fails, the window shows the error and waits for Enter.
+Use `ch-ui.exe server` to run a server instead. On macOS and Linux, no
+arguments still means `server`.
 
 Stop it with Ctrl+C. Other settings from the config file and environment
 (ClickHouse URL, session length, and so on) apply as for `ch-ui server`; the

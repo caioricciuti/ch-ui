@@ -3,7 +3,9 @@ package cmd
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -19,17 +21,45 @@ func init() {
 	loadEnvFile(".env")
 }
 
+// startedWithoutArgs is true when ch-ui ran with no arguments on Windows,
+// usually a double-click in Explorer: the console window closes as soon as
+// the process exits, so errors wait for Enter and desktop says to close the
+// window instead of pressing Ctrl+C.
+var startedWithoutArgs bool
+
 func Execute() {
 	removeReplacedBinary()
 
 	if len(os.Args) == 1 {
-		rootCmd.SetArgs([]string{"server"})
+		command := noArgsCommand(runtime.GOOS)
+		startedWithoutArgs = command == "desktop"
+		rootCmd.SetArgs([]string{command})
 	}
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		if startedWithoutArgs {
+			waitForEnter(os.Stdin, os.Stderr)
+		}
 		os.Exit(1)
 	}
+}
+
+// noArgsCommand is the command ch-ui runs without arguments: the personal
+// desktop mode on Windows, where a double-click is the common start, and
+// the server everywhere else.
+func noArgsCommand(goos string) string {
+	if goos == "windows" {
+		return "desktop"
+	}
+	return "server"
+}
+
+// waitForEnter keeps a double-clicked console window open until the user
+// has read the error.
+func waitForEnter(in io.Reader, out io.Writer) {
+	fmt.Fprint(out, "Press Enter to close this window.")
+	_, _ = bufio.NewReader(in).ReadString('\n')
 }
 
 // loadEnvFile reads a .env file and sets environment variables.

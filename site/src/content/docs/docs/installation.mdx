@@ -48,7 +48,7 @@ The Windows binary is not code signed, so SmartScreen may warn the first time yo
 Get-FileHash ch-ui.exe -Algorithm SHA256
 ```
 
-The hash must match the `ch-ui-windows-amd64.exe` (or `arm64`) line in `checksums.txt`. Run it from a terminal as `.\ch-ui.exe desktop`, see [Desktop](#desktop-personal-use) below.
+The hash must match the `ch-ui-windows-amd64.exe` (or `arm64`) line in `checksums.txt`. Then double-click `ch-ui.exe`, or run `.\ch-ui.exe` in a terminal: with no arguments on Windows it starts [Desktop](#desktop-personal-use) mode and opens your browser. Close its console window to stop it. To run a server for a team instead, use `.\ch-ui.exe server`.
 
 Supported platforms:
 
@@ -95,7 +95,7 @@ It differs from `ch-ui server` in three ways:
 
 The folder is created readable by you only, and the secret key file is owner-only (`0600`) on macOS and Linux. On Windows, `%AppData%` is already private to your account and the files inherit that.
 
-Flags: `--no-browser`, `--port` (fails if that port is taken), `--host` (`127.0.0.1`, `::1` or `localhost`), `--clickhouse-url`, `--connection-name`. `DATABASE_PATH` and `APP_SECRET_KEY` work as they do for `ch-ui server`. Stop it with Ctrl+C.
+Flags: `--no-browser`, `--port` (fails if that port is taken), `--host` (`127.0.0.1`, `::1` or `localhost`), `--clickhouse-url`, `--connection-name`. `DATABASE_PATH` and `APP_SECRET_KEY` work as they do for `ch-ui server`. Stop it with Ctrl+C. On Windows, `ch-ui.exe` with no arguments (a double-click) runs `desktop`; close the console window to stop it.
 
 To share CH-UI with a team, use `ch-ui server` behind TLS instead. See [Deployment](/docs/deployment).
 
