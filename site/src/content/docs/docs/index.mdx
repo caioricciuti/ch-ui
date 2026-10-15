@@ -51,6 +51,15 @@ ch-ui
 # UI on http://localhost:3488
 ```
 
+On Windows, download `ch-ui-windows-amd64.exe` (or `ch-ui-windows-arm64.exe`) in PowerShell and run it as a personal app:
+
+```powershell
+Invoke-WebRequest -OutFile ch-ui.exe https://github.com/caioricciuti/ch-ui/releases/latest/download/ch-ui-windows-amd64.exe
+.\ch-ui.exe desktop
+```
+
+Binaries are published for Linux, macOS and Windows on `amd64` and `arm64`. See [Installation](/docs/installation) for every platform and for [`ch-ui desktop`](/docs/installation/#desktop-personal-use).
+
 Self-hosted CH-UI stores its state in a local **SQLite** database (`ch-ui.db`), so there is no external database to run. The [installation guide](/docs/installation) covers configuration. If first-run login fails, see [Can't login?](/docs/cant-login).
 
 ## Architecture

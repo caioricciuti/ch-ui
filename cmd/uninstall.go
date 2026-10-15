@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/caioricciuti/ch-ui/connector/service"
@@ -29,7 +28,13 @@ type uninstallPlan struct {
 	databasePath     string
 	serverPIDFiles   []string
 	connectorPIDFile string
-	cleanupPaths     []string
+	connectorDir     string
+	binaryPath       string // empty where no service binary is installed (Windows)
+	// desktopDataDir is the `ch-ui desktop` folder. Uninstall stops a running
+	// desktop instance but never deletes this folder: it holds the user's own
+	// database and secret key.
+	desktopDataDir string
+	cleanupPaths   []string
 }
 
 var uninstallCmd = &cobra.Command{
@@ -57,6 +62,9 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	fmt.Println("CH-UI uninstall (best effort)")
 	fmt.Printf("Server config: %s\n", plan.serverConfigPath)
 	fmt.Printf("Database:      %s\n", plan.databasePath)
+	if plan.desktopDataDir != "" {
+		fmt.Printf("Desktop data:  %s (kept)\n", plan.desktopDataDir)
+	}
 
 	if uninstallPrintOnly {
 		printManualUninstallCommands(plan)
@@ -64,6 +72,12 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	}
 
 	var failures []string
+
+	if plan.desktopDataDir != "" {
+		if err := stopDesktopInstance(plan.desktopDataDir); err != nil {
+			failures = append(failures, err.Error())
+		}
+	}
 
 	if err := stopDetachedConnectProcess(plan.connectorPIDFile); err != nil {
 		failures = append(failures, err.Error())
@@ -129,8 +143,14 @@ func buildUninstallPlan() uninstallPlan {
 	pidFiles := append([]string{"ch-ui-server.pid", "/var/lib/ch-ui/run/ch-ui-server.pid"}, uninstallPIDFiles...)
 	pidFiles = uniqueNonEmpty(pidFiles)
 
+	binaryPath := service.BinaryPath
+	if runtime.GOOS == "windows" {
+		binaryPath = ""
+	}
+	desktopDir, _ := desktopDataDir(runtime.GOOS, os.Getenv)
+
 	cleanupPaths := []string{
-		service.BinaryPath,
+		binaryPath,
 		service.GetConfigDir(),
 		serverConfigPath,
 		cfg.DatabasePath,
@@ -153,15 +173,89 @@ func buildUninstallPlan() uninstallPlan {
 		)
 	}
 
-	cleanupPaths = uniqueNonEmpty(cleanupPaths)
+	cleanupPaths = keepDesktopData(uniqueNonEmpty(cleanupPaths), desktopDir, service.GetConfigDir())
 
 	return uninstallPlan{
 		serverConfigPath: serverConfigPath,
 		databasePath:     cfg.DatabasePath,
 		serverPIDFiles:   pidFiles,
 		connectorPIDFile: filepath.Join(service.GetConfigDir(), "ch-ui.pid"),
+		connectorDir:     service.GetConfigDir(),
+		binaryPath:       binaryPath,
+		desktopDataDir:   desktopDir,
 		cleanupPaths:     cleanupPaths,
 	}
+}
+
+// keepDesktopData drops every cleanup path that is the desktop data folder,
+// lies inside it, or contains it, so no step can remove it by accident. The
+// connector folder may sit inside it (Windows: %AppData%\ch-ui\connect) and
+// is still removed.
+func keepDesktopData(paths []string, desktopDir, connectorDir string) []string {
+	if desktopDir == "" {
+		return paths
+	}
+	desk, err := filepath.Abs(desktopDir)
+	if err != nil {
+		return paths
+	}
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		abs, err := filepath.Abs(p)
+		if err == nil && pathWithin(desk, abs) {
+			continue // the folder itself or a parent of it
+		}
+		if err == nil && pathWithin(abs, desk) && filepath.Clean(p) != filepath.Clean(connectorDir) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// pathWithin reports whether path is dir or inside it.
+func pathWithin(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// stopDesktopInstance stops a running `ch-ui desktop` that keeps its state
+// in dir. Its data stays.
+func stopDesktopInstance(dir string) error {
+	pidPath := filepath.Join(dir, desktopPIDName)
+	addrPath := filepath.Join(dir, desktopAddrName)
+	pid, err := readServerPIDFile(pidPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		removeDesktopState(pidPath, addrPath)
+		return nil
+	}
+	if !processExists(pid) {
+		removeDesktopState(pidPath, addrPath)
+		return nil
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("locate desktop process %d: %w", pid, err)
+	}
+	if err := terminateProcess(proc); err != nil {
+		return fmt.Errorf("stop desktop process %d: %w", pid, err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if !processExists(pid) {
+			removeDesktopState(pidPath, addrPath)
+			fmt.Printf("Stopped ch-ui desktop (PID %d)\n", pid)
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("timeout waiting for ch-ui desktop process %d to stop", pid)
 }
 
 func stopDetachedConnectProcess(pidFile string) error {
@@ -182,7 +276,7 @@ func stopDetachedConnectProcess(pidFile string) error {
 	if err != nil {
 		return fmt.Errorf("locate connect process %d: %w", pid, err)
 	}
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
+	if err := terminateProcess(proc); err != nil {
 		return fmt.Errorf("stop connect process %d: %w", pid, err)
 	}
 
@@ -317,24 +411,38 @@ func printManualUninstallCommands(plan uninstallPlan) {
 	fmt.Println()
 	fmt.Println("Manual cleanup commands (run if anything remains):")
 
-	for _, cmd := range manualUninstallCommands(plan) {
+	for _, cmd := range manualUninstallCommands(runtime.GOOS, plan) {
 		fmt.Printf("  %s\n", cmd)
+	}
+
+	if plan.desktopDataDir != "" {
+		fmt.Println()
+		fmt.Println("Your ch-ui desktop data was kept (database and secret key):")
+		fmt.Printf("  %s\n", plan.desktopDataDir)
+		fmt.Println("To delete it too, remove that folder yourself:")
+		fmt.Printf("  %s\n", removeDirCommand(runtime.GOOS, plan.desktopDataDir))
 	}
 
 	fmt.Println()
 	fmt.Println("Optional verification:")
 	fmt.Println("  ch-ui version")
-	fmt.Println("  ch-ui service status")
+	if runtime.GOOS != "windows" {
+		fmt.Println("  ch-ui service status")
+	}
 	fmt.Println("  ch-ui server status")
 }
 
-func manualUninstallCommands(plan uninstallPlan) []string {
+func manualUninstallCommands(goos string, plan uninstallPlan) []string {
+	if goos == "windows" {
+		return manualWindowsUninstallCommands(plan)
+	}
+
 	commands := []string{}
 
 	quotedConfig := shellQuote(plan.serverConfigPath)
 	quotedDB := shellQuote(plan.databasePath)
 
-	switch runtime.GOOS {
+	switch goos {
 	case "darwin":
 		home, _ := os.UserHomeDir()
 		launchAgent := filepath.Join(home, "Library", "LaunchAgents", service.ServiceLabel+".plist")
@@ -343,9 +451,9 @@ func manualUninstallCommands(plan uninstallPlan) []string {
 		commands = append(commands,
 			"launchctl unload "+shellQuote(launchAgent)+" 2>/dev/null || true",
 			"rm -f "+shellQuote(launchAgent),
-			"rm -rf "+shellQuote(service.GetConfigDir()),
+			"rm -rf "+shellQuote(plan.connectorDir),
 			"rm -rf "+shellQuote(logDir),
-			"rm -f "+shellQuote(service.BinaryPath),
+			"rm -f "+shellQuote(plan.binaryPath),
 			"rm -f "+quotedConfig,
 			"rm -f "+quotedDB,
 		)
@@ -358,8 +466,8 @@ func manualUninstallCommands(plan uninstallPlan) []string {
 			"sudo systemctl disable ch-ui-server 2>/dev/null || true",
 			"sudo rm -f /etc/systemd/system/ch-ui-server.service",
 			"sudo systemctl daemon-reload",
-			"sudo rm -rf "+shellQuote(service.GetConfigDir()),
-			"sudo rm -f "+shellQuote(service.BinaryPath),
+			"sudo rm -rf "+shellQuote(plan.connectorDir),
+			"sudo rm -f "+shellQuote(plan.binaryPath),
 			"sudo rm -f "+quotedConfig,
 			"sudo rm -f "+quotedDB,
 		)
@@ -377,6 +485,34 @@ func manualUninstallCommands(plan uninstallPlan) []string {
 	)
 
 	return commands
+}
+
+// manualWindowsUninstallCommands are PowerShell commands. Windows has no
+// service, systemd or sudo step: ch-ui service is not supported there.
+func manualWindowsUninstallCommands(plan uninstallPlan) []string {
+	commands := []string{
+		removeDirCommand("windows", plan.connectorDir),
+	}
+	files := []string{plan.serverConfigPath, plan.databasePath}
+	files = append(files, plan.serverPIDFiles...)
+	files = append(files, "ch-ui-server.log")
+	for _, f := range uniqueNonEmpty(files) {
+		commands = append(commands, "Remove-Item -Force -ErrorAction SilentlyContinue "+psQuote(f))
+	}
+	return commands
+}
+
+// removeDirCommand is the shell command that deletes dir recursively.
+func removeDirCommand(goos, dir string) string {
+	if goos == "windows" {
+		return "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue " + psQuote(dir)
+	}
+	return "rm -rf " + shellQuote(dir)
+}
+
+// psQuote quotes s as a PowerShell single-quoted string.
+func psQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 func shellQuote(s string) string {

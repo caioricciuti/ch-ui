@@ -84,7 +84,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Check write permissions
 	dir := filepath.Dir(currentBin)
 	if err := checkWritable(dir); err != nil {
-		return fmt.Errorf("cannot write to %s: %w (try running with sudo)", dir, err)
+		return fmt.Errorf("cannot write to %s: %w (%s)", dir, err, elevationHint)
 	}
 
 	fmt.Printf("Current version: %s\n", version.Version)
@@ -105,7 +105,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("New version available: %s → %s\n", version.Version, latestTag)
 
 	// Find the right asset for this platform
-	assetName := fmt.Sprintf("ch-ui-%s-%s", runtime.GOOS, runtime.GOARCH)
+	assetName := releaseAssetName(runtime.GOOS, runtime.GOARCH)
 	var assetURL string
 	var checksumsURL string
 	for _, a := range release.Assets {
@@ -161,7 +161,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Atomic replace
-	if err := os.Rename(tmpPath, currentBin); err != nil {
+	if err := replaceBinary(tmpPath, currentBin); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("failed to replace binary: %w", err)
 	}
@@ -196,6 +196,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println("Update complete and running the new version.")
 	return nil
+}
+
+// releaseAssetName is the binary name a release publishes for a platform.
+func releaseAssetName(goos, goarch string) string {
+	name := fmt.Sprintf("ch-ui-%s-%s", goos, goarch)
+	if goos == "windows" {
+		name += ".exe"
+	}
+	return name
 }
 
 func detectServerRestartArgs(pid int, pidFile string) []string {

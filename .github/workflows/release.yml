@@ -101,6 +101,14 @@ jobs:
             go build -trimpath -ldflags "${LDFLAGS}" \
             -o dist/ch-ui-darwin-arm64 .
 
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+            go build -trimpath -ldflags "${LDFLAGS}" \
+            -o dist/ch-ui-windows-amd64.exe .
+
+          CGO_ENABLED=0 GOOS=windows GOARCH=arm64 \
+            go build -trimpath -ldflags "${LDFLAGS}" \
+            -o dist/ch-ui-windows-arm64.exe .
+
       - name: Alpine smoke test
         shell: bash
         run: |
@@ -183,6 +191,13 @@ jobs:
 
           If you don't want a global install, run it as \`./ch-ui\`.
 
+          ## Windows
+
+          Download \`ch-ui-windows-amd64.exe\` (or \`ch-ui-windows-arm64.exe\` on ARM),
+          rename it to \`ch-ui.exe\`, and run \`ch-ui.exe desktop\` in a terminal. The
+          binary is not code signed, so SmartScreen may warn the first time; check
+          the checksum below before you run it.
+
           ## Verify checksum
 
           \`\`\`bash
@@ -205,6 +220,8 @@ jobs:
             dist/ch-ui-linux-arm64 \
             dist/ch-ui-darwin-amd64 \
             dist/ch-ui-darwin-arm64 \
+            dist/ch-ui-windows-amd64.exe \
+            dist/ch-ui-windows-arm64.exe \
             dist/checksums.txt \
             dist/checksums.txt.sig \
             dist/checksums.txt.pem \

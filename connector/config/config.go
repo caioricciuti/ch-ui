@@ -55,12 +55,33 @@ type configFile struct {
 
 // DefaultConfigPath returns the platform-specific default config path
 func DefaultConfigPath() string {
-	switch runtime.GOOS {
+	return filepath.Join(DefaultConfigDir(), "config.yaml")
+}
+
+// DefaultConfigDir returns the platform-specific folder for the connector's
+// config file, PID lock and detached log.
+func DefaultConfigDir() string {
+	return configDirFor(runtime.GOOS, os.UserHomeDir, os.UserConfigDir)
+}
+
+// configDirFor resolves DefaultConfigDir with the lookups injected, so each
+// OS can be tested from any OS. Windows has no /etc for a non-admin user, so
+// the connector lives in its own subfolder of %AppData%\ch-ui; that keeps
+// it apart from the `ch-ui desktop` data in the same folder, which
+// uninstall must never remove along with the connector files.
+func configDirFor(goos string, home, userConfig func() (string, error)) string {
+	switch goos {
 	case "darwin":
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, ".config", "ch-ui", "config.yaml")
+		h, _ := home()
+		return filepath.Join(h, ".config", "ch-ui")
+	case "windows":
+		if dir, err := userConfig(); err == nil && dir != "" {
+			return filepath.Join(dir, "ch-ui", "connect")
+		}
+		h, _ := home()
+		return filepath.Join(h, "AppData", "Roaming", "ch-ui", "connect")
 	default: // linux and others
-		return "/etc/ch-ui/config.yaml"
+		return "/etc/ch-ui"
 	}
 }
 
@@ -195,6 +216,7 @@ func GenerateTemplate() string {
 # This file can be placed at:
 #   - Linux: /etc/ch-ui/config.yaml
 #   - macOS: ~/.config/ch-ui/config.yaml
+#   - Windows: %AppData%\ch-ui\connect\config.yaml
 #
 # All settings can also be specified via environment variables or CLI flags.
 # Priority: CLI flags > Environment variables > Config file

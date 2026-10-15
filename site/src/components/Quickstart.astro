@@ -29,6 +29,19 @@ const snippets: Snippet[] = [
   binary("linux-arm", "Linux ARM", "ch-ui-linux-arm64"),
   binary("macos", "macOS", "ch-ui-darwin-arm64"),
   {
+    id: "windows",
+    label: "Windows",
+    // PowerShell; the backtick continues the line. On Windows the personal
+    // mode is the way in: loopback only, data in %AppData%\ch-ui.
+    lines: [
+      "$ Invoke-WebRequest -OutFile ch-ui.exe `",
+      `    ${RELEASE}/ch-ui-windows-amd64.exe`,
+      "$ .\\ch-ui.exe desktop",
+      "> CH-UI desktop is running at http://127.0.0.1:3488",
+    ],
+    clipboard: `Invoke-WebRequest -OutFile ch-ui.exe ${RELEASE}/ch-ui-windows-amd64.exe\n.\\ch-ui.exe desktop`,
+  },
+  {
     id: "docker",
     label: "Docker",
     // No -d: the first run prints the setup code, and the log is where to
