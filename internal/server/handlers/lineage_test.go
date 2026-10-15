@@ -31,6 +31,10 @@ const lineageTablesFixture = `[
 type lineageFake struct {
 	mu   sync.Mutex
 	fail map[string]string
+	// before, when set, answers a message first; nil falls through to the
+	// usual fake. One agent per test: a second gateway on the same database
+	// outlives the test and races the temp dir cleanup.
+	before func(tunnel.GatewayMessage) *tunnel.AgentMessage
 }
 
 func (f *lineageFake) setFail(fail map[string]string) {
@@ -42,6 +46,11 @@ func (f *lineageFake) setFail(fail map[string]string) {
 func (f *lineageFake) respond(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.before != nil {
+		if r := f.before(msg); r != nil {
+			return r
+		}
+	}
 	result := func(data string) *tunnel.AgentMessage {
 		return &tunnel.AgentMessage{Type: "query_result", Data: json.RawMessage(data)}
 	}
@@ -312,8 +321,8 @@ func TestLineageOlderServerWithoutAsSelect(t *testing.T) {
 	e := newLineageEnv(t)
 	var mu sync.Mutex
 	var tablesSQL []string
-	base := e.fake.respond
-	agent := testutil.NewAgent(t, e.h.DB, "worker-token", func(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
+	e.fake.mu.Lock()
+	e.fake.before = func(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
 		if strings.Contains(msg.SQL, "FROM system.tables") {
 			mu.Lock()
 			tablesSQL = append(tablesSQL, msg.SQL)
@@ -322,10 +331,12 @@ func TestLineageOlderServerWithoutAsSelect(t *testing.T) {
 				return &tunnel.AgentMessage{Type: "query_error", Error: "Code: 47. DB::Exception: Missing columns: 'as_select' while processing query"}
 			}
 		}
-		return base(msg)
-	})
-	e.h.Gateway = agent.Gateway
+		return nil
+	}
+	e.fake.mu.Unlock()
 	g := e.graph("/api/lineage", "alice")
+	mu.Lock()
+	defer mu.Unlock()
 	if len(tablesSQL) != 2 || !strings.Contains(tablesSQL[1], "'' AS as_select") {
 		t.Fatalf("no fallback: %q", tablesSQL)
 	}
