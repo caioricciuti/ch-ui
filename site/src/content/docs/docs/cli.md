@@ -302,6 +302,11 @@ Best-effort local uninstall: stops services and processes, removes local CH-UI
 files, and prints manual cleanup commands for anything that still needs a
 privileged shell.
 
+It stops a running `ch-ui desktop` but keeps its data folder (your database
+and secret key). It prints where that folder is and the command to delete it,
+should you want to. On Windows the cleanup commands are PowerShell, and there
+is no service or sudo step.
+
 ```bash
 ch-ui uninstall
 ch-ui uninstall --print-only

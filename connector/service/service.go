@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/caioricciuti/ch-ui/connector/config"
 )
 
 const (
@@ -184,22 +186,10 @@ func fileExists(path string) bool {
 
 // GetConfigPath returns the appropriate config path based on platform
 func GetConfigPath() string {
-	switch runtime.GOOS {
-	case "darwin":
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, ".config", "ch-ui", "config.yaml")
-	default:
-		return SystemConfigPath
-	}
+	return config.DefaultConfigPath()
 }
 
 // GetConfigDir returns the appropriate config directory based on platform
 func GetConfigDir() string {
-	switch runtime.GOOS {
-	case "darwin":
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, ".config", "ch-ui")
-	default:
-		return SystemConfigDir
-	}
+	return config.DefaultConfigDir()
 }
