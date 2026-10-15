@@ -47,6 +47,10 @@ type SavedQuery struct {
 	CanEdit   bool   `json:"can_edit"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+	// Version is the latest recorded version (0 before any). Every content
+	// change and every restore records one, so an editor that loaded
+	// version N can tell whether it is still saving over N.
+	Version int `json:"version"`
 }
 
 // SavedQueryViewer is who is looking at saved queries: the person (or MCP
@@ -141,7 +145,8 @@ type UpdateSavedQueryParams struct {
 }
 
 const savedQueryColumns = `id, name, description, query, parameters, connection_id, created_by, verified,
-	folder_id, COALESCE(tags, '[]'), COALESCE(visibility, 'shared'), created_at, updated_at`
+	folder_id, COALESCE(tags, '[]'), COALESCE(visibility, 'shared'), created_at, updated_at,
+	COALESCE((SELECT MAX(v.version) FROM saved_query_versions v WHERE v.saved_query_id = saved_queries.id), 0)`
 
 func scanSavedQuery(row interface {
 	Scan(dest ...interface{}) error
@@ -150,7 +155,7 @@ func scanSavedQuery(row interface {
 	var desc, params, connID, createdBy, folderID sql.NullString
 	var tags string
 	if err := row.Scan(&q.ID, &q.Name, &desc, &q.Query, &params, &connID, &createdBy, &q.Verified,
-		&folderID, &tags, &q.Visibility, &q.CreatedAt, &q.UpdatedAt); err != nil {
+		&folderID, &tags, &q.Visibility, &q.CreatedAt, &q.UpdatedAt, &q.Version); err != nil {
 		return nil, err
 	}
 	q.Description = nullStringToPtr(desc)

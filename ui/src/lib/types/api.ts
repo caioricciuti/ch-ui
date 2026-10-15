@@ -74,6 +74,8 @@ export interface SavedQuery {
   can_edit: boolean
   created_at: string
   updated_at: string
+  /** Latest recorded version; 0 before any. Saving from the editor sends it back. */
+  version: number
 }
 
 /** Saved query folders share the dashboard folder shape. */

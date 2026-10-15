@@ -80,6 +80,92 @@ describe('createRunRegistry owners', () => {
   })
 })
 
+describe('createRunRegistry side runs', () => {
+  it('a side run (re-sorting one result) leaves the tab run alone', () => {
+    const runs = createRunRegistry()
+    const cancelMain = vi.fn()
+    const main = runs.start('tab-1', cancelMain, 'statement-2')
+    const side = runs.startSide('tab-1', 'statement-1', () => {})
+    expect(cancelMain).not.toHaveBeenCalled()
+    expect(runs.isCurrent('tab-1', main)).toBe(true)
+    expect(runs.isCurrent('tab-1', side)).toBe(true)
+    // The next statement of the Run All does not stop the re-sort either.
+    runs.start('tab-1', () => {}, 'statement-3')
+    expect(cancelMain).toHaveBeenCalledOnce()
+    expect(runs.isCurrent('tab-1', side)).toBe(true)
+  })
+
+  it('a side run supersedes only an earlier run filling the same result', () => {
+    const runs = createRunRegistry()
+    const cancelFirst = vi.fn()
+    const cancelOther = vi.fn()
+    const first = runs.startSide('tab-1', 'r1', cancelFirst)
+    runs.startSide('tab-1', 'r2', cancelOther)
+    const second = runs.startSide('tab-1', 'r1', () => {})
+    expect(cancelFirst).toHaveBeenCalledOnce()
+    expect(cancelOther).not.toHaveBeenCalled()
+    expect(runs.isCurrent('tab-1', first)).toBe(false)
+    expect(runs.isCurrent('tab-1', second)).toBe(true)
+  })
+
+  it('a tab run filling a result stops that result\'s side run', () => {
+    const runs = createRunRegistry()
+    const cancelSide = vi.fn()
+    runs.startSide('tab-1', 'r1', cancelSide)
+    runs.start('tab-1', () => {}, 'r1')
+    expect(cancelSide).toHaveBeenCalledOnce()
+  })
+
+  it('stop, stopOwned and stopAll reach side runs', () => {
+    const runs = createRunRegistry()
+    const a = vi.fn()
+    const b = vi.fn()
+    const c = vi.fn()
+    const d = vi.fn()
+    runs.start('tab-1', a, 'r1')
+    runs.startSide('tab-1', 'r2', b)
+    runs.startSide('tab-1', 'r3', c)
+    runs.stopOwned('tab-1', 'r2')
+    expect(b).toHaveBeenCalledOnce()
+    expect(a).not.toHaveBeenCalled()
+    runs.stop('tab-1') // Cancel stops everything the tab runs
+    expect(a).toHaveBeenCalledOnce()
+    expect(c).toHaveBeenCalledOnce()
+    runs.startSide('tab-2', 'r4', d)
+    runs.stopAll()
+    expect(d).toHaveBeenCalledOnce()
+  })
+
+  it('a Run All finishes every statement while a result is re-sorted', async () => {
+    const runs = createRunRegistry()
+    const gates: Array<() => void> = []
+    // One statement: claims the tab run, waits, reports whether it still owns it.
+    const runStatement = async (owner: string) => {
+      const id = runs.start('tab-1', () => {}, owner)
+      await new Promise<void>((resolve) => gates.push(resolve))
+      return runs.isCurrent('tab-1', id) ? 'ok' : 'stopped'
+    }
+    const outcomes: string[] = []
+    const runAll = (async () => {
+      for (const owner of ['s1', 's2', 's3']) {
+        const outcome = await runStatement(owner)
+        outcomes.push(outcome)
+        if (outcome !== 'ok') return
+      }
+    })()
+    await Promise.resolve()
+    gates.shift()!() // s1 done
+    await new Promise((r) => setTimeout(r))
+    // While s2 runs, the user sorts the truncated s1 result (server re-query).
+    runs.startSide('tab-1', 's1', () => {})
+    gates.shift()!() // s2 done
+    await new Promise((r) => setTimeout(r))
+    gates.shift()!() // s3 done
+    await runAll
+    expect(outcomes).toEqual(['ok', 'ok', 'ok'])
+  })
+})
+
 describe('createFrameBatcher', () => {
   it('flushes all pushed items once per frame', () => {
     const frames = manualFrames()

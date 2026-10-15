@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 
@@ -150,7 +151,14 @@ type savedQueryBody struct {
 	FolderID     *string           `json:"folder_id"`
 	Tags         *[]string         `json:"tags"`
 	Visibility   *string           `json:"visibility"`
+	// IfVersion is the version the editor loaded. When set, the update is
+	// refused with 409 if the query has been saved or restored since.
+	IfVersion *int `json:"if_version"`
 }
+
+// savedQueryWrites serialises content writes (update, restore), so the
+// version check and the write it guards cannot interleave with another save.
+var savedQueryWrites sync.Mutex
 
 // Create creates a new saved query owned by the caller and records it as
 // version 1.
@@ -246,6 +254,8 @@ func (h *SavedQueriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "Not authenticated")
 		return
 	}
+	savedQueryWrites.Lock()
+	defer savedQueryWrites.Unlock()
 	existing := h.loadSavedQuery(w, r, session, true)
 	if existing == nil {
 		return
@@ -257,6 +267,16 @@ func (h *SavedQueriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var body savedQueryBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if body.IfVersion != nil && *body.IfVersion != existing.Version {
+		// Someone saved or restored it since the editor loaded it. The
+		// current state goes back so the editor can offer what to do.
+		writeJSON(w, http.StatusConflict, map[string]interface{}{
+			"error":       "This saved query changed since you opened it",
+			"code":        "saved_query_conflict",
+			"saved_query": existing,
+		})
 		return
 	}
 
