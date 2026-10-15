@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.25.0] - 2026-10-15
+
+### Added
+
+- **Data lineage**: see how data flows between tables, materialized views, views, dictionaries and external sources (Kafka, S3, URL, MySQL and table functions).
+  - **Explore › Lineage**: pick databases, search for a table to focus on, choose 1 to 4 hops and filter by kind. Other databases collapse into one box each.
+  - **Lineage view on every table page**, next to Overview, Schema and Data Sample, with "Open in Lineage".
+  - Click a node for its engine, size, refresh status and definition, with Focus here, Open in editor and Open table.
+  - Solid edges come from ClickHouse's own dependency columns; dashed edges are parsed from view and MV definitions and labelled "parsed". Inner tables fold into their materialized view; objects you cannot see or that no longer exist are marked.
+  - Built to stay fast: nothing runs until you open it, it reads system tables once with your own ClickHouse account and caches the result for 30 seconds, never reads `query_log`, and asks you to narrow the view above 400 objects.
+  - Free in every edition, for every role. API: `GET /api/lineage`, `GET /api/lineage/node` (#329, #330, Discussion #105).
+
 ## [2.24.0] - 2026-10-15
 
 Bug fixes from a full audit of the workspace, dashboards, alerting, schedules and secrets, with a few behaviour changes listed below.
