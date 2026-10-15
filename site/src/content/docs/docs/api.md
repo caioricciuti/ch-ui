@@ -148,6 +148,15 @@ only their own entries.
 | `DELETE` | `/api/query-history/{id}` | Delete one entry |
 | `DELETE` | `/api/query-history` | Clear your history on the current connection |
 
+### Lineage
+
+Any signed-in role, every edition. Read with your ClickHouse account; see [Data Lineage](/docs/lineage) for the graph shape and edge directions.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/lineage` | Lineage graph: `nodes`, `edges` and `meta` (`?databases=a,b` limits it to those databases and their direct neighbours in any database, including views that read them; `?refresh=1` skips the 30 s cache). No definitions in this response |
+| `GET` | `/api/lineage/node` | One object with its `engine_full` and `ddl` (`?id=db.name`, or `?database=&name=` when the database name has a dot); `404` when not visible |
+
 ### Connections
 
 | Method | Path | Purpose |

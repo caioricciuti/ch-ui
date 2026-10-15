@@ -302,6 +302,11 @@ func (s *Server) setupRoutes() {
 			queryHistoryHandler := &handlers.QueryHistoryHandler{DB: db, Config: cfg}
 			protected.Route("/query-history", queryHistoryHandler.Routes)
 
+			// Data lineage (community): read on request with the session's
+			// ClickHouse account, cached 30 s, no background work.
+			lineageHandler := &handlers.LineageHandler{DB: db, Gateway: gw, Config: cfg}
+			protected.Route("/lineage", lineageHandler.Routes)
+
 			// ── Community features ─────────────────────────────────────
 			// Dashboards
 			dashboardsHandler := &handlers.DashboardsHandler{DB: db, Gateway: gw, Config: cfg, Guardrails: s.guardrails}
