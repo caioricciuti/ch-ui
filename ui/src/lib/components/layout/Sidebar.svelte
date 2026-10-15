@@ -11,7 +11,7 @@
   import { ALT, MOD, combo } from '../../utils/shortcuts'
   import { openCommandPalette } from '../../stores/command-palette.svelte'
   import { loadLicense } from '../../stores/license.svelte'
-  import { checkForUpdate, hasUpdate, getLatestVersion } from '../../stores/update-check.svelte'
+  import { CACHE_TTL, checkForUpdate, hasUpdate, getLatestVersion } from '../../stores/update-check.svelte'
   import { fetchNodeInfo, fetchClusterInfo } from '../../api/query'
   import {
     Compass, LayoutDashboard, Hammer, Activity, Settings, SquareTerminal,
@@ -113,6 +113,17 @@
     void loadLicense()
     if (session?.appVersion) void checkForUpdate(session.appVersion)
     if (session) void loadNodeAndClusterInfo()
+    // A tab can stay open for days: check again when it comes back into view
+    // and every hour; the cache keeps this to one request per hour.
+    const recheck = () => {
+      if (document.visibilityState === 'visible' && session?.appVersion) void checkForUpdate(session.appVersion)
+    }
+    document.addEventListener('visibilitychange', recheck)
+    const timer = setInterval(recheck, CACHE_TTL)
+    return () => {
+      document.removeEventListener('visibilitychange', recheck)
+      clearInterval(timer)
+    }
   })
 
 </script>

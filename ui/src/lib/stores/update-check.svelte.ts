@@ -1,5 +1,7 @@
 const CACHE_KEY = 'chui_latest_version'
-const CACHE_TTL = 6 * 60 * 60 * 1000 // 6 hours
+// One hour: short enough that a new release shows up the same day, long
+// enough to stay far under GitHub's 60 unauthenticated requests per hour.
+export const CACHE_TTL = 60 * 60 * 1000
 
 let latestVersion = $state<string | null>(null)
 
