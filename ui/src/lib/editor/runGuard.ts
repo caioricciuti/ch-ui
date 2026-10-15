@@ -6,46 +6,88 @@
 export interface RunRegistry {
   /**
    * Stop the current run for key (if any) and register a new one. Returns its
-   * id. owner names what the run fills (a result id), see stopOwned.
+   * id. owner names what the run fills (a result id), see stopOwned. Side
+   * runs of the key keep going, except one filling the same owner.
    */
   start(key: string, cancel: () => void, owner?: string): number
-  /** Stop the current run for key: calls its cancel and forgets it. */
+  /**
+   * Register a side run that fills one existing result (owner), next to the
+   * key's run instead of replacing it: re-sorting a result must not stop a
+   * Run All. It supersedes only an earlier run filling the same owner.
+   */
+  startSide(key: string, owner: string, cancel: () => void): number
+  /** Stop every run for key, side runs included: calls their cancel and forgets them. */
   stop(key: string): void
-  /** Stop the current run for key only when owner started it. */
+  /** Stop the runs for key that fill owner. */
   stopOwned(key: string, owner: string): void
   /** Stop every run. */
   stopAll(): void
-  /** True while id is the latest run registered for key. */
+  /** True while id is a live run registered for key. */
   isCurrent(key: string, id: number): boolean
+}
+
+interface Run {
+  id: number
+  cancel: () => void
+  owner?: string
 }
 
 export function createRunRegistry(): RunRegistry {
   let seq = 0
-  const runs = new Map<string, { id: number; cancel: () => void; owner?: string }>()
+  const runs = new Map<string, Run>()
+  const sides = new Map<string, Map<string, Run>>()
 
-  function stop(key: string): void {
+  function stopMain(key: string): void {
     const run = runs.get(key)
     if (!run) return
     runs.delete(key)
     run.cancel()
   }
 
+  function stopSide(key: string, owner: string): void {
+    const forKey = sides.get(key)
+    const run = forKey?.get(owner)
+    if (!forKey || !run) return
+    forKey.delete(owner)
+    if (forKey.size === 0) sides.delete(key)
+    run.cancel()
+  }
+
+  function stopOwned(key: string, owner: string): void {
+    if (runs.get(key)?.owner === owner) stopMain(key)
+    stopSide(key, owner)
+  }
+
+  function stop(key: string): void {
+    stopMain(key)
+    for (const owner of [...(sides.get(key)?.keys() ?? [])]) stopSide(key, owner)
+  }
+
   return {
     start(key, cancel, owner) {
-      stop(key)
+      stopMain(key)
+      if (owner !== undefined) stopSide(key, owner)
       const id = ++seq
       runs.set(key, { id, cancel, owner })
       return id
     },
-    stop,
-    stopOwned(key, owner) {
-      if (runs.get(key)?.owner === owner) stop(key)
+    startSide(key, owner, cancel) {
+      stopOwned(key, owner)
+      const id = ++seq
+      let forKey = sides.get(key)
+      if (!forKey) sides.set(key, (forKey = new Map()))
+      forKey.set(owner, { id, cancel, owner })
+      return id
     },
+    stop,
+    stopOwned,
     stopAll() {
-      for (const key of [...runs.keys()]) stop(key)
+      for (const key of new Set([...runs.keys(), ...sides.keys()])) stop(key)
     },
     isCurrent(key, id) {
-      return runs.get(key)?.id === id
+      if (runs.get(key)?.id === id) return true
+      for (const run of sides.get(key)?.values() ?? []) if (run.id === id) return true
+      return false
     },
   }
 }

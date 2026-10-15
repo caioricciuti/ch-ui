@@ -434,6 +434,31 @@ func (r *Runner) checkGuardrails(connectionID, user, sql string) error {
 	return nil
 }
 
+// ErrSavedQueryHidden fails a run whose author can no longer open the saved
+// query: its owner made it private, or the author lost the role that let
+// them see it. Nothing runs or sends; the failure counts toward the
+// auto-disable like any other.
+var ErrSavedQueryHidden = errors.New("the saved query is no longer visible to the report's author")
+
+// checkAuthorAccess applies the saved query visibility rule to the report's
+// author at run time, as the report form did when the report was saved: the
+// report account must not keep sending a query its author cannot open.
+func (r *Runner) checkAuthorAccess(s *database.ReportSubscription, q *database.SavedQuery) error {
+	author := ""
+	if s.CreatedBy != nil {
+		author = *s.CreatedBy
+	}
+	role, err := r.db.ActorRole(author, s.ConnectionID)
+	if err != nil {
+		return fmt.Errorf("check the author's access to the saved query: %w", err)
+	}
+	viewer := database.SavedQueryViewer{Actor: author, Role: role, AllOwners: role == "admin"}
+	if !database.SavedQueryVisibleTo(q, viewer) {
+		return ErrSavedQueryHidden
+	}
+	return nil
+}
+
 func (r *Runner) buildQuery(ctx context.Context, s *database.ReportSubscription, creds Credentials) (*Snapshot, error) {
 	if s.SavedQueryID == nil {
 		return nil, fmt.Errorf("no saved query")
@@ -444,6 +469,9 @@ func (r *Runner) buildQuery(ctx context.Context, s *database.ReportSubscription,
 	}
 	if q == nil {
 		return nil, fmt.Errorf("the saved query was deleted")
+	}
+	if err := r.checkAuthorAccess(s, q); err != nil {
+		return nil, err
 	}
 	sql, err := ValidateSQL(q.Query)
 	if err != nil {

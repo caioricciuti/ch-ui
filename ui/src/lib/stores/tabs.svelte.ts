@@ -38,6 +38,11 @@ export interface QueryTab extends TabBase {
   sql: string
   dirty: boolean
   savedQueryId?: string
+  /**
+   * The linked saved query's version this tab was loaded from or last saved
+   * as. Saving sends it so a newer save or restore is not overwritten.
+   */
+  savedVersion?: number
   baseSql?: string
   /** Values typed for {name:Type} query parameters; kept per tab across switches. */
   paramValues?: Record<string, string>
@@ -250,6 +255,7 @@ let nextNum = 1
 interface CreateQueryTabOptions {
   name?: string
   savedQueryId?: string
+  savedVersion?: number
   baseSql?: string
   savedParams?: Record<string, string>
 }
@@ -264,6 +270,7 @@ function createQueryTab(sql = '', options: CreateQueryTabOptions = {}): QueryTab
     sql,
     dirty: false,
     savedQueryId: options.savedQueryId,
+    savedVersion: options.savedVersion,
     baseSql: options.baseSql ?? sql,
     paramValues: options.savedParams ? { ...options.savedParams } : {},
     savedParams: options.savedParams,
@@ -528,6 +535,8 @@ function setTabResults(tabId: string, next: TabResults, persist = false): void {
   if (prev) {
     const kept = new Set(next.results.map((r) => r.id))
     const gone = prev.results.filter((r) => !kept.has(r.id))
+    // A query still filling a result that left the list has nowhere to go.
+    for (const r of gone) if (r.running) stopRunForResult(tabId, r.id)
     if (gone.length > 0) {
       const views = new Map(resultViews)
       for (const r of gone) views.delete(r.id)
@@ -711,10 +720,16 @@ interface SavedQueryTabInput {
   query: string
   /** Stored parameter defaults, as the API returns them (JSON object string). */
   parameters?: string | null
+  /** The saved query's latest version (see QueryTab.savedVersion). */
+  version?: number
 }
 
-export function openSavedQueryTab(savedQuery: SavedQueryTabInput, targetGroupId?: string): void {
-  const existing = tabs.find(
+/**
+ * Opens a saved query, reusing the tab already linked to it unless newTab is
+ * set (a save conflict opens the stored version next to the edited one).
+ */
+export function openSavedQueryTab(savedQuery: SavedQueryTabInput, targetGroupId?: string, opts: { newTab?: boolean } = {}): void {
+  const existing = opts.newTab ? undefined : tabs.find(
     (tab) => tab.type === 'query' && (tab as QueryTab).savedQueryId === savedQuery.id,
   ) as QueryTab | undefined
   const savedParams = parseSavedParams(savedQuery.parameters)
@@ -727,6 +742,7 @@ export function openSavedQueryTab(savedQuery: SavedQueryTabInput, targetGroupId?
         name: savedQuery.name,
         sql: savedQuery.query,
         baseSql: savedQuery.query,
+        savedVersion: savedQuery.version,
         dirty: false,
         // Values typed in this tab win; stored defaults fill the gaps.
         paramValues: { ...savedParams, ...nonEmpty(tab.paramValues) },
@@ -740,6 +756,7 @@ export function openSavedQueryTab(savedQuery: SavedQueryTabInput, targetGroupId?
   const tab = createQueryTab(savedQuery.query, {
     name: savedQuery.name,
     savedQueryId: savedQuery.id,
+    savedVersion: savedQuery.version,
     baseSql: savedQuery.query,
     savedParams,
   })
@@ -907,7 +924,7 @@ export function renameSavedQueryTabs(savedQueryId: string, name: string): void {
 
 export function markQueryTabSaved(
   id: string,
-  options: { savedQueryId?: string; name?: string; baseSql?: string; savedParams?: Record<string, string> } = {},
+  options: { savedQueryId?: string; savedVersion?: number; name?: string; baseSql?: string; savedParams?: Record<string, string> } = {},
 ): void {
   tabs = tabs.map((tab) => {
     if (tab.id !== id || tab.type !== 'query') return tab
@@ -917,6 +934,7 @@ export function markQueryTabSaved(
       ...tab,
       name,
       savedQueryId: options.savedQueryId ?? tab.savedQueryId,
+      savedVersion: options.savedVersion ?? tab.savedVersion,
       baseSql,
       dirty: false,
       savedParams: options.savedParams ?? tab.savedParams,

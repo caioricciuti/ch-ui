@@ -57,7 +57,9 @@
   import { parseCHError, byteToCharOffset } from '../../../utils/ch-error'
   import { isProActive, loadLicense } from '../../../stores/license.svelte'
   import { getSession } from '../../../stores/session.svelte'
-  import { openQueryTab } from '../../../stores/tabs.svelte'
+  import { openQueryTab, openSavedQueryTab } from '../../../stores/tabs.svelte'
+  import { createInlineProfileLoader, EMPTY_PROFILE, type InlineProfileState } from '../../../editor/inline-profile'
+  import { linkedSaveBody, savedQueryConflict } from '../../../editor/saved-query-save'
   import { onMount, untrack } from 'svelte'
   import { Lock, X } from 'lucide-svelte'
   import Button from '../../common/Button.svelte'
@@ -66,6 +68,7 @@
   import ParamsPopover from '../../editor/ParamsPopover.svelte'
   import ResultPanel from '../../editor/ResultPanel.svelte'
   import Sheet from '../../common/Sheet.svelte'
+  import Modal from '../../common/Modal.svelte'
   import FormField from '../../common/FormField.svelte'
   import Input from '../../common/Input.svelte'
   import Select from '../../common/Select.svelte'
@@ -109,12 +112,9 @@
   let planLoading = $state(false)
   let planError = $state<string | null>(null)
 
-  // Inline profile state
-  let profile = $state<Record<string, unknown> | null>(null)
-  let profileAvailable = $state(false)
-  let profileReason = $state<string | null>(null)
-  let profileLoading = $state(false)
-  let profileError = $state<string | null>(null)
+  // Inline profile of the latest run; a late answer for an earlier run is dropped.
+  let profileState = $state<InlineProfileState>(EMPTY_PROFILE)
+  const profiles = createInlineProfileLoader(fetchQueryProfile, (next) => (profileState = next))
 
   // Sampling mode from last sample action
   let samplingMode = $state<string | null>(null)
@@ -308,23 +308,29 @@
 
   type RunOutcome = 'ok' | 'error' | 'stopped'
 
-  /** Claims a result tab for a run; the run's own id is the result id. */
-  function claimRun(resultId: string, onStop: () => void = () => {}): number {
+  /**
+   * Claims a result tab for a run; the run's own id is the result id. A run
+   * supersedes the tab's in-flight run (even one started before a remount);
+   * a side run (a re-query of one existing result) supersedes only an
+   * earlier run filling that result, so a Run All keeps going. The
+   * superseded result stops spinning and says why. The run started last
+   * owns the stream telemetry and the inline profile.
+   */
+  function claimRun(resultId: string, onStop: () => void = () => {}, side = false): number {
     const tabId = tab.id
-    // Supersedes any in-flight run for this tab (even one started before a
-    // remount). The superseded result stops spinning and says why.
-    return tabRuns.start(
-      tabId,
-      () => {
-        onStop()
-        const r = getTabResults(tabId).results.find((x) => x.id === resultId)
-        if (r?.running) setTabResult(tabId, resultId, { running: false, error: 'Query cancelled' })
-      },
-      resultId,
-    )
+    const cancel = () => {
+      onStop()
+      const r = getTabResults(tabId).results.find((x) => x.id === resultId)
+      if (r?.running) setTabResult(tabId, resultId, { running: false, error: 'Query cancelled' })
+    }
+    const runId = side ? tabRuns.startSide(tabId, resultId, cancel) : tabRuns.start(tabId, cancel, resultId)
+    lastRunResultId = resultId
+    profiles.reset()
+    samplingMode = null
+    return runId
   }
 
-  async function runStreamingQuery(query: string, params: Record<string, string> | undefined, opts: { baseRun?: boolean; resultId: string }): Promise<RunOutcome> {
+  async function runStreamingQuery(query: string, params: Record<string, string> | undefined, opts: { baseRun?: boolean; resultId: string; side?: boolean }): Promise<RunOutcome> {
     let outcome: RunOutcome = 'stopped'
     const resultId = opts.resultId
     const maxResultRows = getMaxResultRows()
@@ -338,21 +344,17 @@
     const runId = claimRun(resultId, () => {
       abortController.abort()
       rows.close()
-    })
-    lastRunResultId = resultId
+    }, opts.side)
     const live = () => tabRuns.isCurrent(tab.id, runId)
+    // A side run can overlap a Run All; telemetry belongs to the run started last.
+    const ownsTelemetry = () => lastRunResultId === resultId
 
-    // Reset telemetry and inline profile for this run
+    // Reset telemetry for this run
     streamRows = 0
     streamChunks = 0
     streamStartedAt = Date.now()
     streamLastChunkAt = null
     streamProgress = null
-    profile = null
-    profileAvailable = false
-    profileReason = null
-    profileError = null
-    samplingMode = null
 
     setResultView(resultId, { executedSql: query })
     setTabResult(tab.id, resultId, { running: true, error: null, meta: [], data: [], stats: null, elapsedMs: 0, rowsDropped: false })
@@ -368,6 +370,7 @@
         (chunk, seq) => {
           if (!live()) return
           rows.push(chunk)
+          if (!ownsTelemetry()) return
           streamRows = rows.items.length
           streamChunks = seq + 1
           streamLastChunkAt = Date.now()
@@ -377,8 +380,10 @@
           outcome = 'ok'
           // Final flush
           rows.close()
-          streamRows = totalRows || rows.items.length
-          streamLastChunkAt = Date.now()
+          if (ownsTelemetry()) {
+            streamRows = totalRows || rows.items.length
+            streamLastChunkAt = Date.now()
+          }
           setTabResult(tab.id, resultId, {
             data: rows.items,
             stats: stats ?? null,
@@ -392,20 +397,21 @@
             const effectiveLimit = Math.min(maxResultRows, BACKEND_MAX_ROWS)
             setResultView(resultId, { truncated: rows.items.length >= effectiveLimit })
           }
-          // The profile is looked up by query_id; without one there is nothing to find.
-          if (queryId) void loadInlineProfile(queryId, query)
+          // The profile is looked up by query_id; without one there is nothing
+          // to find. A run started since owns the profile panel.
+          if (queryId && ownsTelemetry()) void profiles.load(queryId, query)
         },
         (error) => {
           if (!live()) return
           outcome = 'error'
           rows.close()
-          streamLastChunkAt = Date.now()
+          if (ownsTelemetry()) streamLastChunkAt = Date.now()
           setTabResult(tab.id, resultId, { error, running: false, elapsedMs: Math.round(performance.now() - startTime) })
         },
         abortController.signal,
         params,
         (progress) => {
-          if (!live()) return
+          if (!live() || !ownsTelemetry()) return
           streamProgress = progress
         },
       )
@@ -413,7 +419,7 @@
       // AbortError is expected on cancel; a superseded run owns nothing.
       if (!live() || (e instanceof Error && e.name === 'AbortError')) return 'stopped'
       rows.close()
-      streamLastChunkAt = Date.now()
+      if (ownsTelemetry()) streamLastChunkAt = Date.now()
       setTabResult(tab.id, resultId, { error: errorMessage(e), running: false })
       return 'error'
     }
@@ -549,8 +555,9 @@
         ? buildWrappedQuery(view.baseSql, filters, sort, result.meta, getMaxResultRows())
         : `/* ch-ui:result-filter */ ${view.baseSql}`
       // Re-running the base query replaces the in-memory data under the
-      // current limit, so truncation must be recomputed for it.
-      void runStreamingQuery(sql, view.baseParams, { baseRun: !hasView, resultId: result.id })
+      // current limit, so truncation must be recomputed for it. It runs
+      // beside the tab's run: sorting one result must not stop a Run All.
+      void runStreamingQuery(sql, view.baseParams, { baseRun: !hasView, resultId: result.id, side: true })
     } else {
       setResultView(result.id, { sort, filters, serverApplied: false })
     }
@@ -774,18 +781,11 @@
     const picked = runnableWithParams()
     if (!picked) return
 
-    profile = null
-    profileAvailable = false
-    profileReason = null
-    profileError = null
-    samplingMode = null
-
     // Explain takes over the active result like a run does, so a stream still
     // in flight is stopped and a newer run makes this response stale.
     // No sql: an EXPLAIN result has no statement to export or re-run as is.
     const resultId = newResult('', picked.from, picked.params, 'replace', taggedLabel('EXPLAIN', picked.from))
     const runId = claimRun(resultId)
-    lastRunResultId = resultId
     resetResultView(resultId)
 
     try {
@@ -833,9 +833,7 @@
 
     const resultId = newResult('', picked.from, picked.params, 'replace', taggedLabel('SAMPLE', picked.from))
     const runId = claimRun(resultId)
-    lastRunResultId = resultId
     resetResultView(resultId)
-    samplingMode = null
 
     try {
       const res = await runSampleQuery({ query: picked.sql, per_shard: perShard, shard_by: '_shard_num', params: picked.params })
@@ -862,24 +860,6 @@
     }
   }
 
-  async function loadInlineProfile(queryId: string, executedQuery: string) {
-    profileLoading = true
-    profileError = null
-    profileReason = null
-    try {
-      const res = await fetchQueryProfile(queryId, executedQuery)
-      profileAvailable = !!res.available
-      profile = res.profile ?? null
-      profileReason = res.reason ?? null
-    } catch (e) {
-      profileAvailable = false
-      profile = null
-      profileError = errorMessage(e)
-    } finally {
-      profileLoading = false
-    }
-  }
-
   // Default param values to persist with a saved query. An empty field keeps
   // the stored default instead of erasing it.
   function paramDefaultsFor(sql: string): Record<string, string> {
@@ -887,7 +867,7 @@
   }
 
   function handleSaveClick() {
-    if (saving || showSaveModal) return
+    if (saving || showSaveModal || saveConflict) return
     if (tab.savedQueryId) {
       void saveLinkedSavedQuery()
       return
@@ -901,21 +881,40 @@
     listSavedQueryFolders().then((f) => (saveFolders = f)).catch(() => (saveFolders = []))
   }
 
-  async function saveLinkedSavedQuery() {
+  // The stored saved query when a save found it changed since this tab
+  // loaded it; the conflict dialog is open while set.
+  let saveConflict = $state<SavedQuery | null>(null)
+
+  /**
+   * Saves the editor over its linked saved query, only if it is still the
+   * version this tab loaded (or, from the conflict dialog, the version shown
+   * there). A newer one opens the conflict dialog instead of overwriting it.
+   */
+  async function saveLinkedSavedQuery(overVersion?: number) {
     const sql = editorComponent?.getValue() ?? tab.sql
-    if (!sql.trim() || !tab.savedQueryId) return
+    if (!sql.trim() || !tab.savedQueryId || saving) return
 
     saving = true
     try {
       const parameters = paramDefaultsFor(sql)
-      await apiPut(`/api/saved-queries/${tab.savedQueryId}`, { query: sql, parameters })
-      markQueryTabSaved(tab.id, { baseSql: sql, savedParams: parameters })
+      const updated = await apiPut<SavedQuery>(`/api/saved-queries/${tab.savedQueryId}`, linkedSaveBody(sql, parameters, overVersion ?? tab.savedVersion))
+      markQueryTabSaved(tab.id, { baseSql: sql, savedParams: parameters, savedVersion: updated?.version })
+      saveConflict = null
       toastSuccess('Saved query updated')
     } catch (e) {
-      toastError(errorMessage(e))
+      const current = savedQueryConflict(e)
+      if (current) saveConflict = current
+      else toastError(errorMessage(e))
     } finally {
       saving = false
     }
+  }
+
+  function openNewerVersion() {
+    const current = saveConflict
+    if (!current) return
+    saveConflict = null
+    openSavedQueryTab({ ...current, name: `${current.name} (latest)` }, undefined, { newTab: true })
   }
 
   async function handleSaveConfirm() {
@@ -939,6 +938,7 @@
       if (created?.id) {
         markQueryTabSaved(tab.id, {
           savedQueryId: created.id,
+          savedVersion: created.version,
           name: created.name,
           baseSql: sql,
           savedParams: parameters,
@@ -1123,11 +1123,11 @@
       planError={planError}
       onLoadPlan={handleLoadPlan}
       onSample={handleSample}
-      profile={showsLastRun ? profile : null}
-      profileAvailable={showsLastRun && profileAvailable}
-      profileReason={showsLastRun ? profileReason : null}
-      profileLoading={showsLastRun && profileLoading}
-      profileError={showsLastRun ? profileError : null}
+      profile={showsLastRun ? profileState.profile : null}
+      profileAvailable={showsLastRun && profileState.available}
+      profileReason={showsLastRun ? profileState.reason : null}
+      profileLoading={showsLastRun && profileState.loading}
+      profileError={showsLastRun ? profileState.error : null}
       samplingMode={showsLastRun ? samplingMode : null}
       {estimate}
       onexportfull={canExportFull ? (format) => void handleExportFull(format) : undefined}
@@ -1195,6 +1195,26 @@
 <Sheet open={showHistorySheet} title="Query History" size="md" onclose={() => (showHistorySheet = false)}>
   <QueryHistoryPanel onopen={handleHistoryOpen} oninsert={handleHistoryInsert} />
 </Sheet>
+
+<!-- Save conflict: the linked saved query changed since this tab loaded it -->
+<Modal
+  open={saveConflict !== null}
+  title="This saved query changed"
+  size="md"
+  onclose={() => (saveConflict = null)}
+>
+  {#if saveConflict}
+    <p class="text-[13px] leading-relaxed text-fg-2">
+      <strong class="text-fg">{saveConflict.name}</strong> was saved or restored as version {saveConflict.version} since you opened it.
+      Overwrite replaces it with your edits; version {saveConflict.version} stays in its history.
+    </p>
+  {/if}
+  {#snippet footer()}
+    <Button size="sm" variant="outline" onclick={() => (saveConflict = null)} disabled={saving}>Cancel</Button>
+    <Button size="sm" variant="outline" onclick={openNewerVersion} disabled={saving}>Open the newer version in a new tab</Button>
+    <Button size="sm" loading={saving} onclick={() => saveConflict && void saveLinkedSavedQuery(saveConflict.version)}>Overwrite</Button>
+  {/snippet}
+</Modal>
 
 <!-- Save query -->
 <Sheet

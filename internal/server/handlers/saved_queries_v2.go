@@ -351,12 +351,16 @@ func (h *SavedQueriesHandler) GetVersion(w http.ResponseWriter, r *http.Request)
 }
 
 // RestoreVersion writes a version back and records "Restored version N".
+// That new version makes editors still holding the old one conflict on
+// their next save instead of overwriting the restore.
 func (h *SavedQueriesHandler) RestoreVersion(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
 		writeError(w, http.StatusUnauthorized, "Not authenticated")
 		return
 	}
+	savedQueryWrites.Lock()
+	defer savedQueryWrites.Unlock()
 	q := h.loadSavedQuery(w, r, session, true)
 	if q == nil {
 		return
