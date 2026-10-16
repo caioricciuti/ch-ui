@@ -5,11 +5,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/caioricciuti/ch-ui/internal/ingest/spool"
 )
 
 func TestHandleWebhookToken(t *testing.T) {
 	const id = "pipe-token-test"
-	recv := &webhookReceiver{authToken: "s3cret-token", incoming: make(chan Record, 10)}
+	recv := &webhookReceiver{authToken: "s3cret-token", hub: testHub(t, t.TempDir(), spool.Options{SyncMode: spool.SyncNone})}
 	webhookRegistry.Store(id, recv)
 	defer webhookRegistry.Delete(id)
 
@@ -51,7 +53,7 @@ func TestWebhookTokenMatchesNeverAcceptsEmpty(t *testing.T) {
 
 func TestHandleWebhookWithoutTokenStaysOpen(t *testing.T) {
 	const id = "pipe-open-test"
-	webhookRegistry.Store(id, &webhookReceiver{incoming: make(chan Record, 10)})
+	webhookRegistry.Store(id, &webhookReceiver{hub: testHub(t, t.TempDir(), spool.Options{SyncMode: spool.SyncNone})})
 	defer webhookRegistry.Delete(id)
 	req := httptest.NewRequest(http.MethodPost, "/api/pipelines/webhook/"+id, strings.NewReader(`{"a":1}`))
 	rec := httptest.NewRecorder()

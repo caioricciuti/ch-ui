@@ -27,8 +27,10 @@
 
   interface Props {
     sources: TelemetrySource[]
+    /** Opens the Send data here sheet. */
+    onsenddata?: () => void
   }
-  let { sources }: Props = $props()
+  let { sources, onsenddata }: Props = $props()
 
   const traceSources = $derived(sources.filter((s) => s.kind === 'traces' && s.enabled))
 
@@ -234,6 +236,7 @@
     title="No traces source yet"
     description="Point CH-UI at the ClickHouse table your OpenTelemetry collector writes spans into. Detection finds the exporter's otel_traces table automatically."
     primary={{ label: 'Configure sources', onclick: () => setSection('sources') }}
+    secondary={onsenddata ? { label: 'Send data here', onclick: onsenddata } : undefined}
   />
 {:else if traceId}
   <TraceView {sourceId} {traceId} startHint={traceTs} onback={closeTrace} onfilter={addFilter} />

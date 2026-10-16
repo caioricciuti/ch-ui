@@ -46,6 +46,9 @@ type Runner struct {
 	pipelines map[string]*RunningPipeline
 	stopping  bool
 
+	// hub is the ingest spool the push sources drain; nil without one.
+	hub *Hub
+
 	// Connector factories; tests replace them.
 	newSource func(nodeType string) (SourceConnector, error)
 	newSink   func() SinkConnector
@@ -63,6 +66,21 @@ func NewRunner(db *database.DB, gw *tunnel.Gateway, cfg *config.Config) *Runner 
 	r.newSink = func() SinkConnector { return NewClickHouseSink(r.gateway, r.db, r.cfg.AppSecretKey) }
 	return r
 }
+
+// SetHub gives the runner the ingest spool. Call it before Start.
+func (r *Runner) SetHub(h *Hub) { r.hub = h }
+
+// Hub returns the ingest hub, or nil.
+func (r *Runner) Hub() *Hub {
+	if r == nil {
+		return nil
+	}
+	return r.hub
+}
+
+// DropSpool deletes a pipeline's spooled data. Called when the pipeline is
+// deleted; stopping a pipeline keeps it.
+func (r *Runner) DropSpool(pipelineID string) error { return r.Hub().DropStream(pipelineID) }
 
 // Start resumes any pipelines that were in "running" status: after a crash
 // and after a graceful shutdown, which leaves their status untouched.
@@ -226,6 +244,18 @@ func (r *Runner) prepare(pipelineID string) (SourceConnector, SinkConnector, Con
 		return nil, nil, none, none, fmt.Errorf("load checkpoints: %w", err)
 	}
 	sourceCfg.Checkpoints = checkpoints
+	sourceCfg.Hub = r.hub
+	delete(sinkCfg.Fields, sinkOTelSignal)
+	delete(sinkCfg.Fields, sinkOTelTTLDays)
+	if sourceCfg.NodeType == "source_ingest" {
+		// The sink creates OpenTelemetry tables for logs and traces and
+		// ignores columns a newer exporter layout may add.
+		switch signal := IngestSignal(sourceCfg.Fields); signal {
+		case SignalLogs, SignalTraces:
+			sinkCfg.Fields[sinkOTelSignal] = signal
+			sinkCfg.Fields[sinkOTelTTLDays] = intField(sourceCfg.Fields, "ttl_days", 0)
+		}
+	}
 
 	source, err := r.newSource(sourceCfg.NodeType)
 	if err != nil {
@@ -512,7 +542,7 @@ func (r *Runner) finalize(rp *RunningPipeline, runErr error) {
 
 func isSourceType(nodeType string) bool {
 	switch nodeType {
-	case "source_kafka", "source_webhook", "source_database", "source_s3":
+	case "source_kafka", "source_webhook", "source_database", "source_s3", "source_ingest":
 		return true
 	}
 	return false

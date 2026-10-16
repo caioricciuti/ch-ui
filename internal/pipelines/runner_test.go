@@ -13,6 +13,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
+	"github.com/caioricciuti/ch-ui/internal/ingest/spool"
 )
 
 // fakeSink records batches; fail makes the first n writes fail.
@@ -97,9 +98,10 @@ func webhookPipeline(t *testing.T, db *database.DB, conn, name string) string {
 	return id
 }
 
-func newTestRunner(db *database.DB, cfg *config.Config, sink SinkConnector) *Runner {
+func newTestRunner(t *testing.T, db *database.DB, cfg *config.Config, sink SinkConnector) *Runner {
 	r := NewRunner(db, nil, cfg)
 	r.newSink = func() SinkConnector { return sink }
+	r.SetHub(testHub(t, filepath.Join(filepath.Dir(cfg.DatabasePath), "ingest-spool"), spool.Options{}))
 	return r
 }
 
@@ -137,7 +139,7 @@ func TestRunnerShutdownKeepsRunningAndResumes(t *testing.T) {
 	a := webhookPipeline(t, db, conn, "a")
 	b := webhookPipeline(t, db, conn, "b")
 
-	r1 := newTestRunner(db, cfg, &fakeSink{})
+	r1 := newTestRunner(t, db, cfg, &fakeSink{})
 	for _, id := range []string{a, b} {
 		if err := r1.StartPipeline(id); err != nil {
 			t.Fatal(err)
@@ -163,7 +165,7 @@ func TestRunnerShutdownKeepsRunningAndResumes(t *testing.T) {
 		t.Fatalf("start after Stop: %v, want errShuttingDown", err)
 	}
 
-	r2 := newTestRunner(db, cfg, &fakeSink{})
+	r2 := newTestRunner(t, db, cfg, &fakeSink{})
 	r2.Start()
 	waitFor(t, "both pipelines resumed", func() bool { return r2.isRunning(a) && r2.isRunning(b) })
 	r2.Stop()
@@ -172,7 +174,7 @@ func TestRunnerShutdownKeepsRunningAndResumes(t *testing.T) {
 func TestRunnerUserStopSetsStopped(t *testing.T) {
 	db, conn, cfg := testRunnerDB(t)
 	id := webhookPipeline(t, db, conn, "a")
-	r := newTestRunner(db, cfg, &fakeSink{})
+	r := newTestRunner(t, db, cfg, &fakeSink{})
 	if err := r.StartPipeline(id); err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +195,7 @@ func TestRunnerConcurrentStartLaunchesOnce(t *testing.T) {
 	db, conn, cfg := testRunnerDB(t)
 	id := webhookPipeline(t, db, conn, "a")
 	var starts atomic.Int32
-	r := newTestRunner(db, cfg, &fakeSink{})
+	r := newTestRunner(t, db, cfg, &fakeSink{})
 	r.newSource = func(string) (SourceConnector, error) {
 		return &funcSource{fn: func(ctx context.Context, _ chan<- Batch) error {
 			starts.Add(1)
@@ -230,7 +232,7 @@ func TestRunnerRetriesFailedWriteAndAcksAfterSuccess(t *testing.T) {
 	db, conn, cfg := testRunnerDB(t)
 	id := webhookPipeline(t, db, conn, "a")
 	sink := &fakeSink{fail: 4}
-	r := newTestRunner(db, cfg, sink)
+	r := newTestRunner(t, db, cfg, sink)
 
 	var acks atomic.Int32
 	sent := make(chan int, 10)
@@ -274,7 +276,7 @@ func TestRunnerReportsPersistentFailureWithoutAck(t *testing.T) {
 	db, conn, cfg := testRunnerDB(t)
 	id := webhookPipeline(t, db, conn, "a")
 	sink := &fakeSink{fail: 1 << 30}
-	r := newTestRunner(db, cfg, sink)
+	r := newTestRunner(t, db, cfg, sink)
 	var acks atomic.Int32
 	r.newSource = func(string) (SourceConnector, error) {
 		return &funcSource{fn: func(ctx context.Context, out chan<- Batch) error {
@@ -304,7 +306,7 @@ func TestRunnerReportsPersistentFailureWithoutAck(t *testing.T) {
 func TestRunnerSourcePanicFailsOnlyThatPipeline(t *testing.T) {
 	db, conn, cfg := testRunnerDB(t)
 	id := webhookPipeline(t, db, conn, "a")
-	r := newTestRunner(db, cfg, &fakeSink{})
+	r := newTestRunner(t, db, cfg, &fakeSink{})
 	r.newSource = func(string) (SourceConnector, error) {
 		return &funcSource{fn: func(context.Context, chan<- Batch) error { panic("boom") }}, nil
 	}

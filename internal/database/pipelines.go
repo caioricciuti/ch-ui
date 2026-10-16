@@ -535,3 +535,22 @@ func scanPipeline(rows *sql.Rows) (Pipeline, error) {
 	p.LastError = nullStringToPtr(lastErr)
 	return p, nil
 }
+
+// PipelineSourceNodes returns the source node of every pipeline, keyed by
+// pipeline id, in one query (the list page shows each pipeline's source).
+func (db *DB) PipelineSourceNodes() (map[string]PipelineNode, error) {
+	rows, err := db.conn.Query(`SELECT pipeline_id, node_type, config_encrypted FROM pipeline_nodes WHERE node_type LIKE 'source\_%' ESCAPE '\'`)
+	if err != nil {
+		return nil, fmt.Errorf("get pipeline source nodes: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]PipelineNode{}
+	for rows.Next() {
+		var n PipelineNode
+		if err := rows.Scan(&n.PipelineID, &n.NodeType, &n.ConfigEncrypted); err != nil {
+			return nil, fmt.Errorf("scan pipeline source node: %w", err)
+		}
+		out[n.PipelineID] = n
+	}
+	return out, rows.Err()
+}

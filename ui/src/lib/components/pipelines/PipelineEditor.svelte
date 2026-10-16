@@ -10,6 +10,10 @@
   import PipelineRunsSheet from './PipelineRunsSheet.svelte'
   import PipelineTestSheet from './PipelineTestSheet.svelte'
   import NodeConfigPanel from './NodeConfigPanel.svelte'
+  import IngestKeysSheet from '../ingest/IngestKeysSheet.svelte'
+  import SendDataSheet from '../ingest/SendDataSheet.svelte'
+  import { listIngestKeys } from '../../api/ingest'
+  import { isIngestSignal, withOtelSinkDefaults } from '../../types/ingest'
   import Spinner from '../common/Spinner.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import { Info } from 'lucide-svelte'
@@ -45,6 +49,28 @@
   const selectedNode = $derived(selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) : null)
   const isRunning = $derived(pipeline?.status === 'running' || pipeline?.status === 'starting')
   const dirty = $derived(!loading && pipeline !== null && snapshot() !== savedSnapshot)
+
+  const ingestNode = $derived(nodes.find((n) => n.data.node_type === 'source_ingest') ?? null)
+  const ingestSignal = $derived.by(() => {
+    if (!ingestNode) return null
+    const sig = ((ingestNode.data.config || {}) as Record<string, unknown>)['signal']
+    return isIngestSignal(sig) ? sig : 'logs'
+  })
+  let showKeys = $state(false)
+  let showSendData = $state(false)
+  let sendSecret = $state<string | undefined>(undefined)
+  let activeKeys = $state<number | null>(null)
+  let keysRequested = false
+
+  // Count keys once an ingest source is on the canvas; the keys sheet keeps it current.
+  $effect(() => {
+    if (ingestNode && !keysRequested) {
+      keysRequested = true
+      listIngestKeys(pipelineId)
+        .then((res) => { activeKeys = (res.keys ?? []).filter((k) => !k.revoked_at).length })
+        .catch(() => { activeKeys = null })
+    }
+  })
 
   onMount(() => {
     void loadPipeline()
@@ -275,6 +301,28 @@
       animated: true,
     }
     edges = [...edges, newEdge]
+    applyOtelSinkDefaults()
+  }
+
+  /**
+   * Logs and traces land in otel_logs / otel_traces so Telemetry's Detect
+   * sources finds them. Only an empty or defaulted sink table is changed.
+   */
+  function applyOtelSinkDefaults() {
+    const source = nodes.find((n) => n.data.node_type === 'source_ingest')
+    if (!source) return
+    const signal = ((source.data.config || {}) as Record<string, unknown>)['signal']
+    const sinkIds = new Set(edges.filter((e) => e.source === source.id).map((e) => e.target))
+    let touchedOpenPanel = false
+    nodes = nodes.map((n) => {
+      if (!sinkIds.has(n.id) || n.data.node_type !== 'sink_clickhouse') return n
+      const config = withOtelSinkDefaults((n.data.config || {}) as Record<string, unknown>, signal)
+      if (!config) return n
+      if (n.id === selectedNodeId) touchedOpenPanel = true
+      return { ...n, data: { ...n.data, config } }
+    })
+    // The open sink panel holds a copy of its config; remount it to show the change.
+    if (touchedOpenPanel) panelVersion++
   }
 
   function handleNodeClick(nodeId: string) {
@@ -286,6 +334,9 @@
   }
 
   function handleNodeConfigUpdate(nodeId: string, config: Record<string, unknown>, label: string) {
+    const before = nodes.find((n) => n.id === nodeId)
+    const signalChanged = before?.data.node_type === 'source_ingest' &&
+      ((before.data.config || {}) as Record<string, unknown>)['signal'] !== config['signal']
     nodes = nodes.map((n) => {
       if (n.id !== nodeId) return n
       return {
@@ -297,6 +348,7 @@
         },
       }
     })
+    if (signalChanged) applyOtelSinkDefaults()
   }
 </script>
 
@@ -354,6 +406,10 @@
             onUpdate={handleNodeConfigUpdate}
             onClose={() => { selectedNodeId = null }}
             onInferSchema={handleInferSchema}
+            sourceSignal={ingestSignal}
+            {activeKeys}
+            onManageKeys={() => { showKeys = true }}
+            onSendData={() => { sendSecret = undefined; showSendData = true }}
           />
         {/key}
       {/if}
@@ -363,6 +419,7 @@
       {pipelineId}
       status={pipeline.status as PipelineStatus}
       lastError={pipeline.last_error}
+      ingest={!!ingestNode}
       onStatus={handleStatus}
     />
   {:else}
@@ -372,7 +429,23 @@
   {/if}
 </div>
 
-<PipelineRunsSheet open={showRuns} {pipelineId} running={isRunning} onclose={() => { showRuns = false }} />
+<PipelineRunsSheet open={showRuns} {pipelineId} running={isRunning} ingest={!!ingestNode} onclose={() => { showRuns = false }} />
+
+<IngestKeysSheet
+  open={showKeys}
+  {pipelineId}
+  onclose={() => { showKeys = false }}
+  onchange={(n) => { activeKeys = n }}
+  onsetup={(secret) => { showKeys = false; sendSecret = secret; showSendData = true }}
+/>
+
+<SendDataSheet
+  open={showSendData}
+  {pipelineId}
+  secret={sendSecret}
+  signal={ingestSignal ?? undefined}
+  onclose={() => { showSendData = false }}
+/>
 
 <PipelineTestSheet
   open={showTest}

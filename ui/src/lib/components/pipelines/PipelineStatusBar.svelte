@@ -6,6 +6,7 @@
   import { openQueryTab } from '../../stores/tabs.svelte'
   import { goWorkspace } from '../../stores/router.svelte'
   import { quoteIdent } from '../../types/pipelines'
+  import IngestStats from '../ingest/IngestStats.svelte'
   import { Activity, Rows3, HardDrive, AlertTriangle, Timer, Clock, Inbox } from 'lucide-svelte'
 
   interface Props {
@@ -13,10 +14,12 @@
     status: PipelineStatus
     /** Last error stored on the pipeline (also set while a running pipeline retries). */
     lastError: string | null
+    /** The source is an ingest receiver: show its live rate, spool and rejections. */
+    ingest?: boolean
     onStatus?: (info: PipelineStatusInfo) => void
   }
 
-  let { pipelineId, status, lastError, onStatus }: Props = $props()
+  let { pipelineId, status, lastError, ingest = false, onStatus }: Props = $props()
 
   let rowsIngested = $state(0)
   let bytesIngested = $state(0)
@@ -103,6 +106,10 @@
         <Clock size={12} />
         {lastBatchAt ? `last batch ${formatRelativeTime(lastBatchAt)}` : 'no batch yet'}
       </span>
+    {/if}
+
+    {#if ingest && isRunning}
+      <IngestStats {pipelineId} compact />
     {/if}
 
     {#if errorsCount > 0}

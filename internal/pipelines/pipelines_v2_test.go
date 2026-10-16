@@ -140,7 +140,7 @@ func TestRunnerIsolatesBadRowsIntoDeadLetters(t *testing.T) {
 	db, conn, cfg := testRunnerDB(t)
 	id := webhookPipeline(t, db, conn, "a")
 	sink := &rowSink{}
-	r := newTestRunner(db, cfg, sink)
+	r := newTestRunner(t, db, cfg, sink)
 	var acks atomic.Int32
 	r.newSource = func(string) (SourceConnector, error) {
 		return &funcSource{fn: func(ctx context.Context, out chan<- Batch) error {
@@ -241,7 +241,7 @@ func TestDeadLetterCanBeTurnedOff(t *testing.T) {
 	db, conn, cfg := testRunnerDB(t)
 	id := graphPipeline(t, db, conn, "source_webhook", map[string]interface{}{}, map[string]interface{}{"database": "default", "table": "t", "dead_letter": false})
 	sink := &rowSink{}
-	r := newTestRunner(db, cfg, sink)
+	r := newTestRunner(t, db, cfg, sink)
 	r.newSource = func(string) (SourceConnector, error) {
 		return &funcSource{fn: func(ctx context.Context, out chan<- Batch) error {
 			select {
@@ -309,7 +309,7 @@ func TestDatabaseSourceResumesFromCheckpoint(t *testing.T) {
 	run := func(want int) []string {
 		t.Helper()
 		sink := &rowSink{}
-		r := newTestRunner(db, cfg, sink)
+		r := newTestRunner(t, db, cfg, sink)
 		if err := r.StartPipeline(id); err != nil {
 			t.Fatal(err)
 		}
@@ -428,7 +428,7 @@ func TestS3SourceResumesFromCheckpoint(t *testing.T) {
 	run := func(want int) []string {
 		t.Helper()
 		sink := &rowSink{}
-		r := newTestRunner(db, cfg, sink)
+		r := newTestRunner(t, db, cfg, sink)
 		r.newSource = func(string) (SourceConnector, error) {
 			return &S3Source{newClient: func(ConnectorConfig) (s3API, error) { return fake, nil }}, nil
 		}
@@ -571,7 +571,7 @@ func TestRunnerTestPipelineSamplesWithoutCheckpoint(t *testing.T) {
 	db, conn, cfg := testRunnerDB(t)
 	path, _ := sqliteEvents(t, 30)
 	id := graphPipeline(t, db, conn, "source_database", sqliteSourceConfig(path), map[string]interface{}{"database": "default", "table": "t"})
-	r := newTestRunner(db, cfg, &rowSink{})
+	r := newTestRunner(t, db, cfg, &rowSink{})
 	res, err := r.TestPipeline(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
@@ -603,7 +603,7 @@ func TestWebhookSampleReturnsRecentRecords(t *testing.T) {
 	if err != nil || len(res.Records) != 0 || !strings.Contains(res.Note, "/api/pipelines/webhook/nope") {
 		t.Fatalf("stopped webhook sample: %+v %v", res, err)
 	}
-	recv := &webhookReceiver{incoming: make(chan Record, 10)}
+	recv := &webhookReceiver{}
 	webhookRegistry.Store("wh-sample", recv)
 	defer webhookRegistry.Delete("wh-sample")
 	for i := 0; i < 30; i++ {

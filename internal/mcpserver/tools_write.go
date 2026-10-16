@@ -11,6 +11,7 @@ import (
 
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/models"
+	"github.com/caioricciuti/ch-ui/internal/pipelines"
 )
 
 // Write tools create CH-UI entities (saved queries, dashboards, models,
@@ -77,7 +78,7 @@ type createModelArgs struct {
 type createPipelineArgs struct {
 	Name           string         `json:"name" jsonschema:"pipeline name"`
 	Description    string         `json:"description,omitempty" jsonschema:"optional description"`
-	SourceType     string         `json:"source_type" jsonschema:"source connector: source_kafka, source_webhook, source_database, or source_s3"`
+	SourceType     string         `json:"source_type" jsonschema:"source connector: source_kafka, source_webhook, source_database, source_s3, or source_ingest (OTLP logs/traces or JSON events pushed to /ingest/v1/<signal>; source_config.signal is logs, traces or events)"`
 	SourceConfig   map[string]any `json:"source_config,omitempty" jsonschema:"connector-specific source settings (brokers/topic for kafka, bucket/prefix for s3, ...); can be completed later in the UI"`
 	TargetDatabase string         `json:"target_database" jsonschema:"ClickHouse database the sink writes to"`
 	TargetTable    string         `json:"target_table" jsonschema:"ClickHouse table the sink writes to"`
@@ -88,6 +89,7 @@ var pipelineSourceTypes = map[string]bool{
 	"source_webhook":  true,
 	"source_database": true,
 	"source_s3":       true,
+	"source_ingest":   true,
 }
 
 func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
@@ -251,14 +253,21 @@ func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Name:        "create_pipeline",
 		Title:       title,
 		Annotations: ann,
-		Description: "Create a CH-UI data pipeline as a draft: one source (kafka, webhook, database, or s3) wired to a ClickHouse sink table. Source settings can be completed in the UI; the pipeline never starts from here.",
+		Description: "Create a CH-UI data pipeline as a draft: one source (kafka, webhook, database, s3, or ingest) wired to a ClickHouse sink table. Source settings can be completed in the UI; the pipeline never starts from here.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createPipelineArgs) (*mcp.CallToolResult, any, error) {
 		name := strings.TrimSpace(args.Name)
 		if name == "" {
 			return errResult("name is required"), nil, nil
 		}
 		if !pipelineSourceTypes[args.SourceType] {
-			return errResult("source_type must be one of: source_kafka, source_webhook, source_database, source_s3"), nil, nil
+			return errResult("source_type must be one of: source_kafka, source_webhook, source_database, source_s3, source_ingest"), nil, nil
+		}
+		// An ingest config, when given, gets the check the runner makes on
+		// start; an empty one is completed in the UI like other sources.
+		if args.SourceType == "source_ingest" && len(args.SourceConfig) > 0 {
+			if err := (&pipelines.IngestSource{}).Validate(pipelines.ConnectorConfig{NodeType: args.SourceType, Fields: args.SourceConfig}); err != nil {
+				return errResult("source_ingest: %v", err), nil, nil
+			}
 		}
 		targetDB := strings.TrimSpace(args.TargetDatabase)
 		targetTable := strings.TrimSpace(args.TargetTable)
@@ -285,12 +294,14 @@ func registerWriteTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		sinkJSON, _ := json.Marshal(map[string]any{"database": targetDB, "table": targetTable})
 
 		sourceLabel := strings.TrimPrefix(args.SourceType, "source_")
+		// Node and edge ids are primary keys across all pipelines.
+		sourceID, sinkID := pipelineID+"-source-1", pipelineID+"-sink-1"
 		nodes := []database.PipelineNode{
-			{ID: "source-1", NodeType: args.SourceType, Label: sourceLabel + " source", PositionX: 80, PositionY: 160, ConfigEncrypted: string(sourceJSON)},
-			{ID: "sink-1", NodeType: "sink_clickhouse", Label: fmt.Sprintf("%s.%s", targetDB, targetTable), PositionX: 480, PositionY: 160, ConfigEncrypted: string(sinkJSON)},
+			{ID: sourceID, NodeType: args.SourceType, Label: sourceLabel + " source", PositionX: 80, PositionY: 160, ConfigEncrypted: string(sourceJSON)},
+			{ID: sinkID, NodeType: "sink_clickhouse", Label: fmt.Sprintf("%s.%s", targetDB, targetTable), PositionX: 480, PositionY: 160, ConfigEncrypted: string(sinkJSON)},
 		}
 		edges := []database.PipelineEdge{
-			{ID: "edge-1", SourceNodeID: "source-1", TargetNodeID: "sink-1"},
+			{ID: pipelineID + "-edge-1", SourceNodeID: sourceID, TargetNodeID: sinkID},
 		}
 		if err := deps.DB.SavePipelineGraph(pipelineID, nodes, edges, `{"x":0,"y":0,"zoom":1}`); err != nil {
 			return errResult("pipeline %q created, but saving its graph failed: %v", name, err), nil, nil

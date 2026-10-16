@@ -24,8 +24,10 @@
 
   interface Props {
     sources: TelemetrySource[]
+    /** Opens the Send data here sheet. */
+    onsenddata?: () => void
   }
-  let { sources }: Props = $props()
+  let { sources, onsenddata }: Props = $props()
 
   const logSources = $derived(sources.filter((s) => s.kind === 'logs' && s.enabled))
 
@@ -429,6 +431,7 @@
     title="No logs source yet"
     description="Point CH-UI at the ClickHouse table your OpenTelemetry collector writes logs into. Detection finds the exporter's otel_logs table automatically."
     primary={{ label: 'Configure sources', onclick: () => setSection('sources') }}
+    secondary={onsenddata ? { label: 'Send data here', onclick: onsenddata } : undefined}
   />
 {:else}
   <div class="flex h-10 shrink-0 items-center gap-2 border-b border-edge-subtle px-5">

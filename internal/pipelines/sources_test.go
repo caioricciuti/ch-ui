@@ -9,8 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/IBM/sarama"
+
+	"github.com/caioricciuti/ch-ui/internal/ingest/spool"
 )
 
 func TestKafkaNonJSONMessageInsertsValidJSON(t *testing.T) {
@@ -59,28 +62,30 @@ func TestParseWebhookBody(t *testing.T) {
 	}
 }
 
-// A request that does not fit is refused whole: nothing is queued.
+// A request is spooled whole or refused whole: with the spool full the
+// second request gets 503 and nothing of it is stored.
 func TestHandleWebhookAllOrNothing(t *testing.T) {
 	const id = "pipe-capacity-test"
-	recv := &webhookReceiver{incoming: make(chan Record, 3)}
-	webhookRegistry.Store(id, recv)
+	hub := testHub(t, t.TempDir(), spool.Options{MaxBytes: 100, SyncMode: spool.SyncNone})
+	webhookRegistry.Store(id, &webhookReceiver{hub: hub})
 	defer webhookRegistry.Delete(id)
-	post := func(body string) int {
+	post := func(body string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		HandleWebhook(rec, httptest.NewRequest(http.MethodPost, "/api/pipelines/webhook/"+id, strings.NewReader(body)))
-		return rec.Code
+		return rec
 	}
-	if got := post(`[{"a":1},{"a":2}]`); got != http.StatusOK {
-		t.Fatalf("first: %d", got)
+	if got := post(`[{"a":1},{"a":2}]`); got.Code != http.StatusOK || got.Body.String() != `{"accepted":2}` {
+		t.Fatalf("first: %d %s", got.Code, got.Body)
 	}
-	if got := post(`[{"a":3},{"a":4}]`); got != http.StatusTooManyRequests {
-		t.Fatalf("second: %d, want 429", got)
+	got := post(`[{"a":3},{"a":4},{"a":5},{"a":6},{"a":7},{"a":8},{"a":9}]`)
+	if got.Code != http.StatusServiceUnavailable || got.Header().Get("Retry-After") == "" {
+		t.Fatalf("second: %d, want 503 with Retry-After", got.Code)
 	}
-	if len(recv.incoming) != 2 {
-		t.Fatalf("queued %d records, want 2 (no partial accept)", len(recv.incoming))
+	if st := hub.SpoolStats(id); st.Records != 1 {
+		t.Fatalf("spooled %d records, want 1 (no partial accept)", st.Records)
 	}
-	if got := post(`[{"a":1},{"a":2},{"a":3},{"a":4}]`); got != http.StatusRequestEntityTooLarge {
-		t.Fatalf("oversized: %d, want 413", got)
+	if v := hub.View(id, time.Now()); v.Received.Records != 2 || v.Rejected.SpoolFull != 1 {
+		t.Fatalf("stats: %+v", v)
 	}
 }
 

@@ -55,6 +55,12 @@ func (h *PipelinesHandler) Routes() chi.Router {
 		r.Get("/runs", h.ListRuns)
 		r.Get("/checkpoints", h.ListCheckpoints)
 		r.Get("/runs/{runId}/logs", h.GetRunLogs)
+
+		// Push sources: ingest keys and live counters
+		r.With(writer).Get("/ingest-keys", h.ListIngestKeys)
+		r.With(writer).Post("/ingest-keys", h.CreateIngestKey)
+		r.With(writer).Delete("/ingest-keys/{keyId}", h.RevokeIngestKey)
+		r.Get("/ingest-stats", h.GetIngestStats)
 	})
 
 	return r
@@ -75,10 +81,15 @@ func (h *PipelinesHandler) ListPipelines(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	pipelines := []database.Pipeline{}
+	sources, err := h.DB.PipelineSourceNodes()
+	if err != nil {
+		slog.Warn("Failed to load pipeline sources for the list", "error", err)
+		sources = nil
+	}
+	pipelines := []pipelineListItem{}
 	for _, p := range all {
 		if p.ConnectionID == session.ConnectionID {
-			pipelines = append(pipelines, p)
+			pipelines = append(pipelines, newPipelineListItem(p, sources[p.ID]))
 		}
 	}
 
@@ -243,6 +254,10 @@ func (h *PipelinesHandler) DeletePipeline(w http.ResponseWriter, r *http.Request
 		slog.Error("Failed to delete pipeline", "error", err, "id", id)
 		writeError(w, http.StatusInternalServerError, "Failed to delete pipeline")
 		return
+	}
+	// Data still spooled for it has nowhere to go now.
+	if err := h.Runner.DropSpool(id); err != nil {
+		slog.Warn("Failed to drop the pipeline's ingest spool", "error", err, "id", id)
 	}
 
 	h.DB.CreateAuditLog(database.AuditLogParams{

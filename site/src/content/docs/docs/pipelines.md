@@ -32,8 +32,7 @@ Configuration:
 | Field | Description |
 |---|---|
 | Require Authentication | Toggle to enable Bearer token auth. On by default for new webhook nodes; existing pipelines keep their setting |
-| Batch Size | Records per batch before flushing (default: 100, minimum 1) |
-| Batch Timeout (ms) | Max wait before flushing partial batch (default: 2000, minimum 100) |
+| Batch Size, Batch Timeout (ms) | Kept for older configs and still validated (minimum 1 and 100), but no longer used: the spool decides the batches (see below) |
 
 When authentication is enabled, a Bearer token is generated in the browser. Copy it before you save: the token is stored encrypted and is not shown again. **Generate new token** replaces it, after which senders need the new value. Include it in requests:
 
@@ -46,11 +45,30 @@ curl -X POST http://your-ch-ui:3488/api/pipelines/webhook/{pipeline-id} \
 
 Send the token in the `Authorization` header. A `?token={token}` query parameter is still accepted so existing senders keep working, but avoid it: query strings end up in reverse proxy and access logs, which leaks the token to anyone who can read them.
 
-Accepted formats: a JSON object (pretty-printed is fine), a JSON array of objects, or newline-delimited JSON (NDJSON, one object per line). The whole body is tried as JSON first, then as NDJSON.
+Accepted formats: a JSON object (pretty-printed is fine), a JSON array of objects, or newline-delimited JSON (NDJSON, one object per line). The whole body is tried as JSON first, then as NDJSON. A body is at most 10 MB (`413` above).
 
-A request is accepted whole or not at all. When the pipeline's buffer (1000 records) has no room for every record in the request, nothing is queued and CH-UI answers `429 Too Many Requests` with `Retry-After: 1`; retry the same request. A single request with more than 1000 records gets `413`.
+A request is accepted whole or not at all, and a `200` means it is on disk: the webhook writes every request to the [ingest spool](/docs/ingest#durability) before it answers, and the pipeline writes the spool to ClickHouse. A ClickHouse outage or a CH-UI restart loses nothing that was acknowledged; the records wait in the spool and are written when the pipeline runs again, with a deduplication token that stays the same across retries. When the spool is full, or CH-UI is shutting down, the webhook answers `503 Service Unavailable` with `Retry-After`; retry the same request.
 
-A `200` response means the records are queued, not yet written. If ClickHouse is down the pipeline retries the write and the buffer fills, so senders start getting `429`. Records still in the buffer when CH-UI stops are lost: webhook delivery is at-most-once for that window. Senders that need stronger guarantees should write to Kafka and use the Kafka source.
+For OpenTelemetry data, or to authenticate senders with revocable keys instead of one token per pipeline, use the [Ingest](#ingest) source.
+
+### Ingest
+
+Receive OpenTelemetry logs or traces (OTLP over HTTP, protobuf or JSON) or JSON events from shippers such as the OpenTelemetry Collector, OTel SDKs, Vector and Fluent Bit. Shippers authenticate with per-pipeline ingest keys and send to:
+
+```
+POST /ingest/v1/logs
+POST /ingest/v1/traces
+POST /ingest/v1/events
+```
+
+| Field | Description |
+|---|---|
+| Signal | `logs`, `traces` or `events` |
+| TTL days | Applied when the sink creates a logs or traces table (`0` keeps data forever) |
+| Rate limit (requests/s) | Per key (`0` means 200) |
+| Daily quota (MB) | Per pipeline, decompressed bytes per UTC day (`0` means unlimited) |
+
+With **Create Table If Not Exists** on the sink, logs and traces tables are created in the OpenTelemetry exporter's layout, so [Telemetry](/docs/telemetry) reads them as they are. Requests are spooled on disk before they are answered, like the webhook. Keys, endpoints, responses, limits and shipper configs are on the [Ingest](/docs/ingest) page.
 
 ### Kafka
 
@@ -184,7 +202,7 @@ Retries and restarts can therefore send rows twice. Positions are saved right af
 - `Replicated*MergeTree` tables (and ClickHouse Cloud) deduplicate inserts by default.
 - Plain `MergeTree` tables need the setting, for example `ALTER TABLE events MODIFY SETTING non_replicated_deduplication_window = 1000`.
 
-The webhook source has no replayable position: see [Webhook](#webhook). A database source without a watermark column sends no token.
+Webhook and ingest sources insert one spool segment per batch with a token made of the spool's instance id, the pipeline and the segment number, so a segment written again after a crash is dropped too. Tables the sink creates for ingest logs and traces get the deduplication window automatically. A database source without a watermark column sends no token.
 
 ### Positions and reset
 
@@ -195,9 +213,9 @@ After each batch is written, and before the source is told so, the runner saves 
 | Database (with watermark column) | The watermark of the last written row | Polls continue after it |
 | S3 | Processed files with their ETag, per bucket and prefix | New and rewritten files only |
 | Kafka | Next offset per partition, for display | Resumes from the consumer group's committed offsets |
-| Webhook | Nothing | No position to resume |
+| Webhook, Ingest | Nothing in the database: unwritten data waits in the ingest spool on disk | Writes what is left in the spool |
 
-**Runs > Saved position** lists them. **Reset position** (analysts and admins, with confirmation, only while the pipeline is stopped) clears them, so the next run reads the source from the beginning. Rows already in ClickHouse are sent again unless the table deduplicates them. Reset does not move Kafka offsets: to re-read a topic, set a new consumer group.
+**Runs > Saved position** lists them. Deleting a webhook or ingest pipeline also deletes whatever it still had in the spool. **Reset position** (analysts and admins, with confirmation, only while the pipeline is stopped) clears them, so the next run reads the source from the beginning. Rows already in ClickHouse are sent again unless the table deduplicates them. Reset does not move Kafka offsets: to re-read a topic, set a new consumer group.
 
 ### Secrets
 
@@ -230,6 +248,7 @@ Changes to a running pipeline are saved but take effect only after you stop it a
 | S3 | The first records of the next file to process under the prefix (or the first file when all are processed) |
 | Kafka | The latest messages of each partition, read without a consumer group, so no offset is committed |
 | Webhook | The last 20 records received while the pipeline runs; when stopped, instructions instead |
+| Ingest | Nothing to read; instructions instead (the editor's live counters show what arrives) |
 
 The sink checks run with the pipeline's background account: the target database exists, the table exists or can be created (`CHECK GRANT CREATE TABLE`), INSERT is granted (`CHECK GRANT INSERT`), and the dead-letter table can be created and written. When the sample has records, the test also shows the schema ClickHouse infers from it (see [Auto Table Creation](#auto-table-creation)).
 

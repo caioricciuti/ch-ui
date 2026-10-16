@@ -20,9 +20,16 @@ import (
 const (
 	DefaultExportMaxBytes int64 = 1 << 30 // 1 GiB
 	DefaultExportMaxRows  int64 = 10_000_000
+
+	DefaultIngestSpoolMaxBytes int64 = 2 << 30 // 2 GiB
 )
 
 type Config struct {
+	// appURLDerived and tunnelURLDerived mark AppURL and TunnelURL as
+	// defaults built from Port, so SetPort can rebuild them.
+	appURLDerived    bool
+	tunnelURLDerived bool
+
 	// Server
 	Port    int
 	DevMode bool
@@ -70,6 +77,15 @@ type Config struct {
 	ExportMaxBytes int64
 	ExportMaxRows  int64
 
+	// Ingest (/ingest receivers and the webhook source). IngestSpoolMaxBytes
+	// caps the on-disk spool in <data dir>/ingest-spool; 0 means
+	// DefaultIngestSpoolMaxBytes. IngestAddr, when set (for example ":4318"),
+	// serves the receivers on a listener of their own as well; with
+	// IngestOnlySeparate the main port stops serving them.
+	IngestSpoolMaxBytes int64
+	IngestAddr          string
+	IngestOnlySeparate  bool
+
 	// Embedded agent
 	ClickHouseURL  string // default http://localhost:8123
 	ConnectionName string // default Local ClickHouse
@@ -115,6 +131,9 @@ type serverConfigFile struct {
 	TunnelURL                 string   `yaml:"tunnel_url"`
 	ExportMaxBytes            int64    `yaml:"export_max_bytes"`
 	ExportMaxRows             int64    `yaml:"export_max_rows"`
+	IngestSpoolMaxBytes       int64    `yaml:"ingest_spool_max_bytes"`
+	IngestAddr                string   `yaml:"ingest_addr"`
+	IngestOnlySeparate        bool     `yaml:"ingest_only_separate"`
 	TLSCertFile               string   `yaml:"tls_cert_file"`
 	TLSKeyFile                string   `yaml:"tls_key_file"`
 	AuditWebhookURL           string   `yaml:"audit_webhook_url"`
@@ -234,6 +253,17 @@ func Load(configPath string) *Config {
 			cfg.ExportMaxRows = n
 		}
 	}
+	if v := os.Getenv("INGEST_SPOOL_MAX_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil && n > 0 {
+			cfg.IngestSpoolMaxBytes = n
+		}
+	}
+	if v := os.Getenv("INGEST_ADDR"); v != "" {
+		cfg.IngestAddr = strings.TrimSpace(trimQuotes(v))
+	}
+	if v := os.Getenv("INGEST_ONLY_SEPARATE"); v != "" {
+		cfg.IngestOnlySeparate = parseEnvBool(v)
+	}
 	if v := os.Getenv("TLS_CERT_FILE"); v != "" {
 		cfg.TLSCertFile = trimQuotes(v)
 	}
@@ -283,9 +313,11 @@ func Load(configPath string) *Config {
 	// Derive defaults for computed fields
 	if cfg.AppURL == "" {
 		cfg.AppURL = "http://localhost:" + strconv.Itoa(cfg.Port)
+		cfg.appURLDerived = true
 	}
 	if cfg.TunnelURL == "" {
 		cfg.TunnelURL = "ws://127.0.0.1:" + strconv.Itoa(cfg.Port) + "/connect"
+		cfg.tunnelURLDerived = true
 	}
 
 	// Production-safe default. The server command overrides this with its
@@ -375,6 +407,15 @@ func loadServerConfigFile(path string, cfg *Config) error {
 	if fc.ExportMaxRows > 0 {
 		cfg.ExportMaxRows = fc.ExportMaxRows
 	}
+	if fc.IngestSpoolMaxBytes > 0 {
+		cfg.IngestSpoolMaxBytes = fc.IngestSpoolMaxBytes
+	}
+	if fc.IngestAddr != "" {
+		cfg.IngestAddr = strings.TrimSpace(fc.IngestAddr)
+	}
+	if fc.IngestOnlySeparate {
+		cfg.IngestOnlySeparate = true
+	}
 	if fc.TrustedProxies != nil {
 		cfg.TrustedProxies = fc.TrustedProxies
 	}
@@ -428,6 +469,19 @@ func loadServerConfigFile(path string, cfg *Config) error {
 	}
 
 	return nil
+}
+
+// IngestSpoolBytes is the ingest spool cap, IngestSpoolMaxBytes or the default.
+func (c *Config) IngestSpoolBytes() int64 {
+	if c.IngestSpoolMaxBytes > 0 {
+		return c.IngestSpoolMaxBytes
+	}
+	return DefaultIngestSpoolMaxBytes
+}
+
+// IngestDir is where the ingest spool lives: ingest-spool next to the database.
+func (c *Config) IngestDir() string {
+	return filepath.Join(filepath.Dir(c.DatabasePath), "ingest-spool")
 }
 
 // OIDCEnabled reports whether OIDC SSO is fully configured.
@@ -741,4 +795,17 @@ func (c *Config) ExportLimits() (maxBytes, maxRows int64) {
 		maxRows = c.ExportMaxRows
 	}
 	return maxBytes, maxRows
+}
+
+// SetPort changes the listening port after Load, as the --port flag does.
+// AppURL and TunnelURL follow it when they were derived from the port
+// rather than set explicitly.
+func (c *Config) SetPort(port int) {
+	c.Port = port
+	if c.appURLDerived {
+		c.AppURL = "http://localhost:" + strconv.Itoa(port)
+	}
+	if c.tunnelURLDerived {
+		c.TunnelURL = "ws://127.0.0.1:" + strconv.Itoa(port) + "/connect"
+	}
 }
