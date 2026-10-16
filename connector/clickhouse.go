@@ -131,7 +131,7 @@ func (c *CHClient) doWithRetry(req *http.Request, client *http.Client) (*http.Re
 func (c *CHClient) Execute(ctx context.Context, query, user, password string, settings map[string]string) (*QueryResult, error) {
 	// Determine if this is a read or write query
 	isWrite := isWriteQuery(query)
-	hasFormat := hasFormatClause(query)
+	hasFormat := hasFormatClause(query) || rejectsFormat(query)
 
 	// Build URL with parameters
 	params := url.Values{}
@@ -226,7 +226,7 @@ func (c *CHClient) Execute(ctx context.Context, query, user, password string, se
 // The format parameter controls the FORMAT clause appended to read queries (e.g. "JSONCompact").
 func (c *CHClient) ExecuteRaw(ctx context.Context, query, user, password, format string, settings map[string]string) (json.RawMessage, error) {
 	isWrite := isWriteQuery(query)
-	hasFormat := hasFormatClause(query)
+	hasFormat := hasFormatClause(query) || rejectsFormat(query)
 
 	finalQuery := query
 	if !isWrite && !hasFormat {
@@ -238,6 +238,9 @@ func (c *CHClient) ExecuteRaw(ctx context.Context, query, user, password, format
 
 	params := url.Values{}
 	params.Set("default_format", "JSON")
+	if rejectsFormat(query) && format != "" {
+		params.Set("default_format", format)
+	}
 	// Forward query settings and bind parameters (e.g. param_<name>) as URL params.
 	for k, v := range settings {
 		params.Set(k, v)
@@ -875,6 +878,8 @@ var (
 	// formatPattern matches a trailing FORMAT clause, optionally followed by a
 	// SETTINGS clause (ClickHouse accepts both orders).
 	formatPattern = regexp.MustCompile(`(?is)\bFORMAT\s+\w+(\s+SETTINGS\s+[^()]*)?$`)
+	// noFormatPattern matches statements that take no FORMAT clause.
+	noFormatPattern = regexp.MustCompile(`(?i)^\s*CHECK\s+GRANT\b`)
 	// trailingSettingsRe matches a trailing SETTINGS clause (no parentheses after it).
 	trailingSettingsRe = regexp.MustCompile(`(?is)\s+SETTINGS\s+[\w.]+\s*=[^()]*$`)
 )
@@ -924,6 +929,12 @@ func isWriteQuery(query string) bool {
 
 func hasFormatClause(query string) bool {
 	return formatPattern.MatchString(trimTrailingNoise(query))
+}
+
+// rejectsFormat reports statements ClickHouse refuses a FORMAT clause on,
+// such as CHECK GRANT. They still return rows, shaped by default_format.
+func rejectsFormat(query string) bool {
+	return noFormatPattern.MatchString(stripLeadingComments(query))
 }
 
 func truncate(s string, maxLen int) string {

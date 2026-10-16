@@ -125,11 +125,10 @@ func (s *ClickHouseSink) Check(ctx context.Context, cfg ConnectorConfig) []SinkC
 		}
 		return len(rows) > 0 && firstNumber(rows[0]) > 0, nil
 	}
-	// CHECK GRANT takes no FORMAT clause, but the agent appends FORMAT JSON
-	// to statements without one. A trailing comment that ends in "FORMAT
-	// JSON" stops that; the HTTP default_format (JSON) shapes the result.
+	// CHECK GRANT takes no FORMAT clause; the agent leaves it off and the
+	// HTTP default_format (JSON) shapes the result.
 	grant := func(privilege, tbl string) (bool, error) {
-		return exists(fmt.Sprintf("CHECK GRANT %s ON %s.%s -- FORMAT JSON", privilege, quoteIdent(db), quoteIdent(tbl)), nil)
+		return exists(fmt.Sprintf("CHECK GRANT %s ON %s.%s", privilege, quoteIdent(db), quoteIdent(tbl)), nil)
 	}
 
 	dbOK, err := exists("SELECT count() AS n FROM system.databases WHERE name = {db:String}", map[string]string{"param_db": db})
