@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"regexp"
 	"sort"
 	"strconv"
@@ -56,7 +57,13 @@ const (
 var diagWindows = map[string]bool{"1h": true, "6h": true, "24h": true, "7d": true}
 
 // diagExcludedComments hides CH-UI's own introspection from the numbers.
-var diagExcludedComments = []string{LogComment, queryinsights.LogComment}
+// Brain's own queries are left out of its query_log diagnostics: the
+// introspection tag of Query Insights exactly, and every Brain query by the
+// prefix of its JSON tag.
+var (
+	diagExcludedComments        = []string{queryinsights.LogComment}
+	diagExcludedCommentPrefixes = []string{tunnel.LogCommentPrefix("brain")}
+)
 
 const queryLogEmptyNote = "No matching queries in system.query_log for this window. Queries are logged only when log_queries=1 for the user (the default), and the log is flushed every few seconds (flush_interval_milliseconds, 7.5 s by default), so the latest queries may not show yet."
 
@@ -243,6 +250,7 @@ func analyzeQueryLogSQL(view string, rng queryinsights.Range, f queryinsights.Fi
 		return "", fmt.Errorf("view must be one of slow, failed, heavy_readers, patterns, users; got %q", view)
 	}
 	f.ExcludeLogComments = diagExcludedComments
+	f.ExcludeLogCommentPrefixes = diagExcludedCommentPrefixes
 	return plainTopN(build("", rng, f), diagTopN), nil
 }
 
@@ -325,7 +333,8 @@ func patternWhere(rng queryinsights.Range, hash string) string {
   AND is_initial_query = 1
   AND type = 'QueryFinish'
   AND normalized_query_hash = %s
-  AND log_comment NOT IN (%s)`, rng.Interval, rng.Interval, hash, strings.Join(quoted, ", "))
+  AND log_comment NOT IN (%s)
+  AND NOT startsWith(log_comment, '%s')`, rng.Interval, rng.Interval, hash, strings.Join(quoted, ", "), sqlEscape(tunnel.LogCommentPrefix("brain")))
 }
 
 func queryPatternSQL(rng queryinsights.Range, hash string) (summary, users string) {

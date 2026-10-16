@@ -6,6 +6,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -81,7 +82,7 @@ func (h *CostsHandler) session(w http.ResponseWriter, r *http.Request) (chSessio
 
 func (h *CostsHandler) exec(cs chSession, sql string, timeout time.Duration) ([]map[string]interface{}, error) {
 	settings := map[string]string{"log_comment": costs.LogComment}
-	result, err := h.Gateway.ExecuteQueryWithSettings(cs.connID, sql, cs.user, cs.password, settings, timeout)
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(context.Background(), cs.connID, sql, cs.user, cs.password, settings, timeout)
 	if err != nil {
 		return nil, err
 	}

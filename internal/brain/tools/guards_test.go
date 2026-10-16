@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"strings"
 	"testing"
 	"time"
@@ -102,8 +103,8 @@ func TestRunQueryRecordsHistoryAndTag(t *testing.T) {
 	if len(recorded) != 1 || recorded[0] != "SELECT 1 LIMIT 100|success|1" {
 		t.Errorf("recorded %v", recorded)
 	}
-	if rec.last(t).Settings["log_comment"] != LogComment {
-		t.Error("Brain queries should carry the ch-ui:brain log_comment")
+	if lc := rec.last(t).Settings["log_comment"]; !strings.HasPrefix(lc, tunnel.LogCommentPrefix("brain")) {
+		t.Errorf("Brain queries should carry the brain query tag, got %q", lc)
 	}
 }
 

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	braincore "github.com/caioricciuti/ch-ui/internal/brain"
-	"github.com/caioricciuti/ch-ui/internal/brain/tools"
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
@@ -567,7 +566,6 @@ func (h *BrainHandler) RunQueryArtifact(w http.ResponseWriter, r *http.Request) 
 		"max_result_rows":      strconv.Itoa(brainArtifactMaxRows),
 		"max_result_bytes":     strconv.Itoa(brainArtifactMaxBytes),
 		"result_overflow_mode": "break",
-		"log_comment":          tools.LogComment,
 	}
 	record := h.queryRecorder(session)
 	start := time.Now()

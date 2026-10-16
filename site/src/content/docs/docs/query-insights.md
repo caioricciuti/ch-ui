@@ -52,6 +52,40 @@ A typical investigation: *p95 spiked* → open **Users** → funnel the heavy us
 - CH-UI tags its own introspection queries with a `log_comment` and excludes exactly those. Third-party tools that also read `query_log` (Grafana, scripts) still count toward your real workload numbers.
 - Only *initial* queries are counted (`is_initial_query = 1`), so distributed sub-queries don't inflate the numbers.
 
+### Query tags
+
+Every query CH-UI runs on someone's behalf carries a small JSON tag in the
+`log_comment` setting, so `system.query_log` can be split by person and by
+workspace object even when ClickHouse sees a shared account (an SSO service
+account, a background account, a public dashboard share):
+
+```json
+{"chui":"editor","person":"ana@example.com","object":"saved_query:3f1…"}
+```
+
+- `chui` is the feature: `editor`, `saved_query`, `dashboard`,
+  `public_dashboard`, `brain`, `mcp`, `schedule`, `sql_alert`, `report`,
+  `model`, `pipeline`, and the API area (`admin`, `telemetry`, `governance`…)
+  for everything else.
+- `person` is the SSO email, or the ClickHouse user for password logins; for
+  background jobs it is the job's owner, for MCP the person behind the token.
+- `object` points at the workspace object when there is one: `dash:<id>`,
+  `saved_query:<id>`, `chat:<id>`, `schedule:<id>`, `alert:<id>`,
+  `report:<id>`, `model_run:<id>`, `mcp_key:<id>`.
+
+CH-UI's own introspection (this page, Cost Center, Performance, Cluster
+Health, the governance harvester, Incident Timeline) keeps a plain
+`ch-ui:<feature>` tag instead and is excluded from the numbers. A user whose
+ClickHouse profile is `readonly=1` cannot change settings, so their queries
+run untagged. To split a shared account by person in your own queries:
+
+```sql
+SELECT JSONExtractString(log_comment, 'person') AS person, count()
+FROM system.query_log
+WHERE type = 'QueryFinish' AND startsWith(log_comment, '{"chui":')
+GROUP BY person
+```
+
 ## Requirements
 
 - A **Pro** license: the page and the `/api/query-insights/*` endpoints return `402` on the free edition.

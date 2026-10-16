@@ -7,6 +7,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"regexp"
 	"strconv"
 	"strings"
@@ -30,8 +31,6 @@ const (
 	// maxResultBytes caps the serialized rows returned to the client; MCP
 	// results land in an LLM context window, not a data pipeline.
 	maxResultBytes = 200 * 1024
-
-	logComment = "ch-ui:mcp"
 
 	maxHistoryQueryLen = 16 * 1024
 )
@@ -268,11 +267,11 @@ func runCHFull(ctx context.Context, deps Deps, ak *authedKey, sql string, extra 
 	settings := map[string]string{
 		"readonly":             "1",
 		"result_overflow_mode": "break",
-		"log_comment":          logComment,
 	}
 	for k, v := range extra {
 		settings[k] = v
 	}
+	ctx = tunnel.WithTag(ctx, ak.queryTag())
 	result, err := deps.Gateway.ExecuteQueryWithSettingsCtx(ctx, ak.key.ConnectionID, sql, ak.key.CHUser, ak.chPassword, settings, timeout)
 	if err != nil {
 		return nil, err

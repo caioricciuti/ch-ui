@@ -382,16 +382,28 @@ func (r *Runner) Build(ctx context.Context, s *database.ReportSubscription, cred
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(s.TimeoutSeconds)*time.Second+queryGrace)
 	defer cancel()
+	ctx = tunnel.WithTag(ctx, QueryTag(s))
 	if s.SourceType == SourceDashboard {
 		return r.buildDashboard(ctx, s, creds)
 	}
 	return r.buildQuery(ctx, s, creds)
 }
 
+// QueryTag names a report's queries in system.query_log: the report and
+// the person who created it, since the report account is shared.
+func QueryTag(s *database.ReportSubscription) tunnel.QueryTag {
+	tag := tunnel.QueryTag{Surface: "report"}
+	if s.CreatedBy != nil {
+		tag.Person = *s.CreatedBy
+	}
+	return tag.WithObject("report", s.ID)
+}
+
 // querySettings are sent with every report query. readonly=1 refuses
 // writes and setting changes inside the SQL. A user whose profile is already
 // read only refuses the other settings; the gateway then drops them, and the
-// LIMIT wrap still bounds the result.
+// LIMIT wrap still bounds the result. The log_comment comes from the query
+// tag on the context (see QueryTag).
 func querySettings(timeoutSeconds, maxRows, maxBytes int) map[string]string {
 	return map[string]string{
 		"readonly":             "1",
@@ -399,7 +411,6 @@ func querySettings(timeoutSeconds, maxRows, maxBytes int) map[string]string {
 		"max_result_rows":      strconv.Itoa(maxRows),
 		"max_result_bytes":     strconv.Itoa(maxBytes),
 		"result_overflow_mode": "break",
-		"log_comment":          LogComment,
 	}
 }
 

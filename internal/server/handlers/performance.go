@@ -59,7 +59,7 @@ func (h *PerformanceHandler) executor(w http.ResponseWriter, r *http.Request) (p
 		return nil, false
 	}
 	return func(sql string) ([]map[string]interface{}, error) {
-		result, err := h.Gateway.ExecuteQueryWithSettings(cs.connID, sql, cs.user, cs.password,
+		result, err := h.Gateway.ExecuteQueryWithSettingsCtx(r.Context(), cs.connID, sql, cs.user, cs.password,
 			map[string]string{"log_comment": performance.LogComment, "readonly": "1", "max_execution_time": "25", "max_memory_usage": "536870912", "max_threads": "2"}, 30*time.Second)
 		if err != nil {
 			return nil, err

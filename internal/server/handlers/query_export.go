@@ -170,6 +170,7 @@ func (h *QueryHandler) ExportQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	settings = tunnel.TagSettings(ctx, settings)
 
 	// A user whose ClickHouse profile is readonly=1 may not change any other
 	// setting. As for Run, a refused setting of ours is dropped and the export

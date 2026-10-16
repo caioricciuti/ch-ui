@@ -43,4 +43,19 @@ func TestBackgroundAccountExecution(t *testing.T) {
 	if statuses["success"] != 2 || statuses["error"] != 1 {
 		t.Fatalf("statuses: %v", statuses)
 	}
+	// Every query carries the schedule and its owner for system.query_log.
+	wantTag := tunnel.QueryTag{Surface: "schedule", Person: "admin"}.WithObject("schedule", id).LogComment()
+	queries := 0
+	for _, msg := range agent.Messages() {
+		if msg.Type != "query" {
+			continue
+		}
+		queries++
+		if msg.Settings["log_comment"] != wantTag {
+			t.Fatalf("log_comment %q, want %q", msg.Settings["log_comment"], wantTag)
+		}
+	}
+	if queries == 0 {
+		t.Fatal("no query sent")
+	}
 }

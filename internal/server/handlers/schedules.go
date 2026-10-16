@@ -468,7 +468,7 @@ func (h *SchedulesHandler) ManualRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := scheduler.RunNow(h.DB, h.Gateway, schedule, savedQuery.Query, connectionID, session.ClickhouseUser, password)
+	res := scheduler.RunNow(r.Context(), h.DB, h.Gateway, schedule, savedQuery.Query, connectionID, session.ClickhouseUser, password)
 	runID, status, elapsed := res.RunID, res.Status, res.ElapsedMs
 
 	h.DB.CreateAuditLog(database.AuditLogParams{

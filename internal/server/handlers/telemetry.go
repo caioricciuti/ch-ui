@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -118,6 +119,7 @@ func (h *TelemetryHandler) Routes() chi.Router {
 // ── Query plumbing ─────────────────────────────────────────────────
 
 type chCreds struct {
+	ctx                    context.Context
 	connID, user, password string
 }
 
@@ -136,7 +138,7 @@ func (h *TelemetryHandler) creds(r *http.Request) (chCreds, *middleware.SessionI
 		slog.Error("Failed to decrypt password", "error", err)
 		return chCreds{}, nil, errTelemetryDecrypt
 	}
-	return chCreds{connID: session.ConnectionID, user: session.ClickhouseUser, password: password}, session, nil
+	return chCreds{ctx: r.Context(), connID: session.ConnectionID, user: session.ClickhouseUser, password: password}, session, nil
 }
 
 // writeCredsError answers a failed creds call. Only a missing session is a
@@ -152,7 +154,7 @@ func writeCredsError(w http.ResponseWriter, err error) {
 }
 
 func (h *TelemetryHandler) exec(c chCreds, sqlText string, timeout time.Duration) ([]map[string]interface{}, error) {
-	result, err := h.Gateway.ExecuteQuery(c.connID, sqlText, c.user, c.password, timeout)
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(c.ctx, c.connID, sqlText, c.user, c.password, nil, timeout)
 	if err != nil {
 		return nil, err
 	}
