@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/caioricciuti/ch-ui/internal/telemetry"
@@ -9,30 +8,6 @@ import (
 
 // The Gateway is a concrete type, so the handler is exercised through its
 // pure helpers here; the SQL builders are covered in internal/telemetry.
-
-func TestShapeLogRowsParsesMapColumns(t *testing.T) {
-	raw := `[{"timestamp":"2026-09-10T12:51:10.225Z","timestamp_ns":"1757508670225000000","severity":"INFO","severity_number":9,
-	  "service":"api","body":"hi","trace_id":"t","span_id":"s","resource":{"host.name":"a"},"scope":"{\"k\":\"v\"}","attributes":{"n":5},
-	  "scope_name":"otel","event_name":""}]`
-	rows := decodeRows(json.RawMessage(raw))
-	out := shapeLogRows(rows)
-	if len(out) != 1 {
-		t.Fatalf("expected 1 row, got %d", len(out))
-	}
-	row := out[0]
-	if row["severity_number"] != int64(9) {
-		t.Errorf("severity_number: %v", row["severity_number"])
-	}
-	if row["resource"].(map[string]string)["host.name"] != "a" {
-		t.Errorf("resource map not parsed: %v", row["resource"])
-	}
-	if row["scope"].(map[string]string)["k"] != "v" {
-		t.Errorf("scope string-json not parsed: %v", row["scope"])
-	}
-	if row["attributes"].(map[string]string)["n"] != "5" {
-		t.Errorf("numeric attribute not stringified: %v", row["attributes"])
-	}
-}
 
 func TestMissingColumnsAndTrim(t *testing.T) {
 	m := telemetry.DefaultLogsMapping()
@@ -59,23 +34,6 @@ func TestLogsRequestParams(t *testing.T) {
 	p := r.params()
 	if p.From != "a" || p.To != "b" || p.Q != "x" || len(p.Severity) != 1 || len(p.Services) != 1 {
 		t.Errorf("params not copied: %+v", p)
-	}
-}
-
-func TestStringMapFlattensJSONColumns(t *testing.T) {
-	got := stringMap(map[string]interface{}{
-		"http":   map[string]interface{}{"method": "GET", "status_code": json.Number("500")},
-		"plain":  "v",
-		"nested": map[string]interface{}{"a": map[string]interface{}{"b": "c"}},
-	})
-	want := map[string]string{"http.method": "GET", "http.status_code": "500", "plain": "v", "nested.a.b": "c"}
-	for k, v := range want {
-		if got[k] != v {
-			t.Errorf("%s: got %q want %q (all: %v)", k, got[k], v, got)
-		}
-	}
-	if len(got) != len(want) {
-		t.Errorf("extra keys: %v", got)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/ingest/spool"
 	"github.com/caioricciuti/ch-ui/internal/testutil"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
@@ -317,4 +318,20 @@ func postWebhook(id, body string) (int, string) {
 	rec := httptest.NewRecorder()
 	HandleWebhook(rec, httptest.NewRequest(http.MethodPost, "/api/pipelines/webhook/"+id, strings.NewReader(body)))
 	return rec.Code, rec.Body.String()
+}
+
+func TestPushSignal(t *testing.T) {
+	for _, tc := range []struct {
+		node database.PipelineNode
+		want string
+	}{
+		{database.PipelineNode{NodeType: "source_ingest", ConfigEncrypted: `{"signal":"traces"}`}, "traces"},
+		{database.PipelineNode{NodeType: "source_ingest", ConfigEncrypted: `not json`}, ""},
+		{database.PipelineNode{NodeType: "source_webhook"}, "webhook"},
+		{database.PipelineNode{NodeType: "source_kafka", ConfigEncrypted: `{"signal":"logs"}`}, ""},
+	} {
+		if got := PushSignal(tc.node); got != tc.want {
+			t.Errorf("%s %s: got %q, want %q", tc.node.NodeType, tc.node.ConfigEncrypted, got, tc.want)
+		}
+	}
 }

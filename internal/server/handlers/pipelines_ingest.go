@@ -170,14 +170,8 @@ func (h *PipelinesHandler) pushSignal(pipelineID string) string {
 		return ""
 	}
 	for _, n := range nodes {
-		switch n.NodeType {
-		case "source_webhook":
-			return "webhook"
-		case "source_ingest":
-			var cfg map[string]interface{}
-			if json.Unmarshal([]byte(n.ConfigEncrypted), &cfg) == nil {
-				return pipelines.IngestSignal(cfg)
-			}
+		if signal := pipelines.PushSignal(n); signal != "" {
+			return signal
 		}
 	}
 	return ""

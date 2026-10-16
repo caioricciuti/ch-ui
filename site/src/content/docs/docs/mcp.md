@@ -194,7 +194,10 @@ An MCP key binds three things:
   layer on top of ClickHouse grants, not a replacement for them. The Pro
   tools `query_insights_top` and `costs_summary` read `system.query_log`
   across every database, query text included, so a key with an allowlist
-  gets a clear refusal from them instead of data. `cluster_health` is
+  gets a clear refusal from them instead of data. The telemetry tools refuse
+  a source whose database is not allowed, `ingest_status` and
+  `list_monitors` leave out pipelines and monitors on such databases, and
+  `table_lineage` drops nodes in them. `cluster_health` is
   refused the same way: it aggregates system tables across all databases.
 
 Keys are bearer tokens with a `chm_` prefix. Only a SHA-256 hash is stored.
@@ -247,6 +250,10 @@ a saved query can be any statement); none of them is idempotent.
 | `run_select` | Read-only SQL (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN). `max_rows` (default 100, max 2000), `format` json or csv, `max_bytes` budget |
 | `run_saved_query` | Runs a saved query by `id` or `name`, with `params` for its bind parameters. Reports whether the query is **verified** |
 | `explain_query` | `EXPLAIN indexes = 1` plan for a SELECT |
+| `telemetry_sources` | The OpenTelemetry logs, traces and metrics sources configured on this connection, with their database and tables. Gives the `source_id` the telemetry tools take |
+| `search_logs` | Log lines of a logs source in a time range (`since`, default `1h`, or `from` / `to`), newest first, with the Logs page search language plus `severity` and `services` filters. `limit` (default 50, max 500), `cursor` |
+| `ingest_status` | Push pipelines (OTLP, Elasticsearch, Splunk HEC, webhook) on this connection: signal, status, target tables, last error, and since the server started the requests received, rejected by reason, rows written and spool backlog. Never returns ingest keys |
+| `table_lineage` | Upstream and downstream of a table from ClickHouse metadata: tables, materialized views, views, dictionaries and external sources, with edge kinds. `direction` (`upstream`, `downstream`, `both`), `depth` (default 3, max 10) |
 | `list_saved_queries` / `list_dashboards` / `list_models` / `list_pipelines` | What already exists on this connection, paginated (`page_size`, `cursor`) |
 | `query_history` | Queries this MCP client already ran on the connection, newest first. An API key sees only its own; an OAuth sign-in sees the person's MCP queries across refreshed tokens. Never editor history. `range` (default 7d), `status` ok or error, `limit` (default 50, max 500) |
 | `save_query` (write scope) | Saves a query to the shared library |
@@ -261,6 +268,12 @@ a saved query can be any statement); none of them is idempotent.
 | `run_saved_report_now` (actions, Pro) | Runs one of your own reports on this connection and delivers it to its channels. OAuth sign-ins only: reports belong to people, so API keys are refused. Also refused for keys with a database allowlist |
 | `query_insights_top` (Pro) | Top query patterns by p95 latency, memory or frequency. Refused for keys with a database allowlist |
 | `costs_summary` (Pro) | Cost Center spend summary with your configured rates. Refused for keys with a database allowlist |
+| `search_traces` (Pro) | Traces of a traces source in a time range: root span and service, duration, span and error counts. Filters `service`, `operation`, `min_duration_ms`, `errors_only` and a search. `limit` (default 50, max 500), `cursor` |
+| `get_trace` (Pro) | One trace by id: summary, spans in tree order (`max_spans`, default 200, max 500) and up to 50 correlated log lines |
+| `service_map` (Pro) | Services and the calls between them over a time range, with spans, errors and p50/p95 latency |
+| `list_metrics` (Pro) | Metrics in a metrics source over a time range: name, type, unit, services and series |
+| `query_metrics` (Pro) | Bucketed series of one metric with an aggregation (avg, sum, min, max, last, count, rate, p50/p95/p99), split by up to 2 attributes |
+| `list_monitors` (Pro) | Telemetry monitors on this connection with threshold, window and current state (ok or firing, last value, last error) |
 | `firing_alerts` (Pro) | Incidents open right now on the key's connection: firing health checks, firing SQL alerts, failing ingest pipelines, with severity, start time and acknowledgement |
 | `list_alerts` (Pro) | Health check thresholds with the nodes pending or firing, and the SQL alerts with state, last value and last run |
 | `alert_events` (Pro) | Alert events on the connection, newest first. `range` 1h, 6h, 24h (default), 7d or 30d; `limit` (default 50, max 500) |

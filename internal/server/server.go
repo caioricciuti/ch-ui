@@ -273,6 +273,7 @@ func (s *Server) setupRoutes() {
 		ModelRunner:    s.modelRunner,
 		PipelineRunner: s.pipelineRunner,
 		ReportRunner:   s.reportRunner,
+		IngestHub:      s.ingestHub,
 	}))
 
 	// ── OAuth 2.1 authorization server for /mcp ─────────────────────────

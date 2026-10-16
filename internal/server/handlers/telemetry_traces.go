@@ -78,49 +78,6 @@ func (h *TelemetryHandler) tracesSetup(w http.ResponseWriter, r *http.Request) (
 	return c, src, cols, body, true
 }
 
-func spanFloat(v interface{}) float64 {
-	switch t := v.(type) {
-	case float64:
-		return t
-	case json.Number:
-		f, _ := t.Float64()
-		return f
-	case int64:
-		return float64(t)
-	case int:
-		return float64(t)
-	case string:
-		f, _ := json.Number(t).Float64()
-		return f
-	default:
-		return 0
-	}
-}
-
-func stringSlice(v interface{}) []string {
-	arr, ok := v.([]interface{})
-	if !ok {
-		return nil
-	}
-	out := make([]string, 0, len(arr))
-	for _, x := range arr {
-		out = append(out, str(x))
-	}
-	return out
-}
-
-func mapSlice(v interface{}) []map[string]string {
-	arr, ok := v.([]interface{})
-	if !ok {
-		return nil
-	}
-	out := make([]map[string]string, 0, len(arr))
-	for _, x := range arr {
-		out = append(out, stringMap(x))
-	}
-	return out
-}
-
 // SearchTraces returns one row per trace with keyset paging.
 func (h *TelemetryHandler) SearchTraces(w http.ResponseWriter, r *http.Request) {
 	c, src, cols, body, ok := h.tracesSetup(w, r)
@@ -158,30 +115,9 @@ func (h *TelemetryHandler) SearchTraces(w http.ResponseWriter, r *http.Request) 
 	var next interface{}
 	if len(rows) > limit {
 		rows = rows[:limit]
-		last := rows[len(rows)-1]
-		next = telemetry.EncodeCursor(telemetry.Cursor{TimestampNs: str(last["start_ns"]), TraceID: str(last["trace_id"])})
+		next = telemetry.TraceCursor(rows[len(rows)-1])
 	}
-	traces := make([]map[string]interface{}, 0, len(rows))
-	for _, row := range rows {
-		startNs := toInt64(row["start_ns"])
-		endNs := toInt64(row["end_ns"])
-		services := stringSlice(row["services"])
-		if services == nil {
-			services = []string{}
-		}
-		traces = append(traces, map[string]interface{}{
-			"trace_id":     str(row["trace_id"]),
-			"root_span":    str(row["root_span"]),
-			"root_service": str(row["root_service"]),
-			"start":        str(row["start"]),
-			"start_ns":     str(row["start_ns"]),
-			"duration_ms":  float64(endNs-startNs) / 1e6,
-			"span_count":   toInt64(row["span_count"]),
-			"error_count":  toInt64(row["error_count"]),
-			"services":     services,
-			"status":       str(row["status"]),
-		})
-	}
+	traces := telemetry.ShapeTraceRows(rows)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":     true,
 		"traces":      traces,
@@ -214,8 +150,8 @@ func (h *TelemetryHandler) TracesHistogram(w http.ResponseWriter, r *http.Reques
 			"t":      str(row["t"]),
 			"count":  toInt64(row["c"]),
 			"errors": toInt64(row["errors"]),
-			"p50_ms": spanFloat(row["p50"]),
-			"p95_ms": spanFloat(row["p95"]),
+			"p50_ms": telemetry.Float(row["p50"]),
+			"p95_ms": telemetry.Float(row["p95"]),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "bucket_seconds": bucket, "buckets": buckets})
@@ -242,10 +178,6 @@ func (h *TelemetryHandler) TracesFacets(w http.ResponseWriter, r *http.Request) 
 	}))
 }
 
-// traceIndexMargin pads the window read from the exporter's trace-id
-// index, which stores whole seconds.
-const traceIndexMargin = time.Minute
-
 // traceWindow bounds a trace lookup. The exporter's <table>_trace_id_ts
 // index gives the trace's real start and end; without it the UI's time
 // hint (the trace row's start, the log line's time) bounds it to an hour
@@ -253,12 +185,11 @@ const traceIndexMargin = time.Minute
 func (h *TelemetryHandler) traceWindow(c chCreds, src *telemetry.Source, traceID string, r *http.Request) *telemetry.TimeWindow {
 	if telemetry.ValidIdent(telemetry.TraceIDTsTable(src)) {
 		if rows, err := h.exec(c, telemetry.TraceIDTsLookupSQL(src), telemetryMetaTimeout); err == nil && len(rows) > 0 {
-			if b, err := h.exec(c, telemetry.TraceBoundsSQL(src, traceID), telemetryMetaTimeout); err == nil && len(b) > 0 && toInt64(b[0]["n"]) > 0 {
-				start := time.Unix(toInt64(b[0]["s"]), 0)
-				end := time.Unix(toInt64(b[0]["e"]), 0)
-				return &telemetry.TimeWindow{FromNs: start.Add(-traceIndexMargin).UnixNano(), ToNs: end.Add(traceIndexMargin).UnixNano()}
-			} else if err != nil {
+			b, err := h.exec(c, telemetry.TraceBoundsSQL(src, traceID), telemetryMetaTimeout)
+			if err != nil {
 				slog.Warn("Telemetry trace index lookup failed", "error", err)
+			} else if win := telemetry.TraceBoundsWindow(b); win != nil {
+				return win
 			}
 		}
 	}
@@ -268,22 +199,11 @@ func (h *TelemetryHandler) traceWindow(c chCreds, src *telemetry.Source, traceID
 // correlatedLogsSource picks the logs source for a traces source: the
 // configured correlation, else the first enabled logs source.
 func (h *TelemetryHandler) correlatedLogsSource(src *telemetry.Source) *telemetry.Source {
-	if src.CorrelatedLogs != "" {
-		if logs, err := h.DB.GetTelemetrySource(src.CorrelatedLogs); err == nil && logs != nil &&
-			logs.ConnectionID == src.ConnectionID && logs.Kind == telemetry.KindLogs && logs.Logs != nil {
-			return logs
-		}
-	}
 	all, err := h.DB.ListTelemetrySources(src.ConnectionID)
 	if err != nil {
 		return nil
 	}
-	for i := range all {
-		if all[i].Kind == telemetry.KindLogs && all[i].Enabled && all[i].Logs != nil {
-			return &all[i]
-		}
-	}
-	return nil
+	return telemetry.CorrelatedLogsSource(src, all)
 }
 
 // GetTrace returns every span of a trace as a pre-ordered tree, a service
@@ -313,87 +233,16 @@ func (h *TelemetryHandler) GetTrace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Trace not found")
 		return
 	}
-	spans := make([]telemetry.Span, 0, len(rows))
-	for _, row := range rows {
-		spans = append(spans, telemetry.Span{
-			SpanID:        str(row["span_id"]),
-			ParentSpanID:  str(row["parent_span_id"]),
-			Name:          str(row["name"]),
-			Kind:          str(row["kind"]),
-			Service:       str(row["service"]),
-			Start:         str(row["start"]),
-			StartNs:       str(row["start_ns"]),
-			DurationMs:    spanFloat(row["duration_ms"]),
-			Status:        str(row["status"]),
-			StatusMessage: str(row["status_message"]),
-			Attributes:    stringMap(row["attributes"]),
-			Resource:      stringMap(row["resource"]),
-			Events:        telemetry.ZipEvents(stringSlice(row["ev_time"]), stringSlice(row["ev_name"]), mapSlice(row["ev_attrs"])),
-			Links:         telemetry.ZipLinks(stringSlice(row["lk_trace"]), stringSlice(row["lk_span"]), mapSlice(row["lk_attrs"])),
-		})
-	}
-	spans = telemetry.BuildSpanTree(spans)
-
-	// Trace summary: earliest start to latest end, services in first-seen order.
-	var startNs, endNs int64
-	errors := 0
-	type svcAgg struct {
-		spans, errors int
-		duration      float64
-	}
-	svcOrder := []string{}
-	svcs := map[string]*svcAgg{}
-	for _, s := range spans {
-		st := toInt64(s.StartNs)
-		en := st + int64(s.DurationMs*1e6)
-		if startNs == 0 || st < startNs {
-			startNs = st
-		}
-		if en > endNs {
-			endNs = en
-		}
-		a := svcs[s.Service]
-		if a == nil {
-			a = &svcAgg{}
-			svcs[s.Service] = a
-			svcOrder = append(svcOrder, s.Service)
-		}
-		a.spans++
-		a.duration += s.DurationMs
-		if telemetry.IsErrorStatus(s.Status) {
-			a.errors++
-			errors++
-		}
-	}
-	services := make([]map[string]interface{}, 0, len(svcOrder))
-	for _, name := range svcOrder {
-		a := svcs[name]
-		services = append(services, map[string]interface{}{
-			"name": name, "spans": a.spans, "errors": a.errors, "duration_ms": a.duration,
-		})
-	}
-	start := ""
-	if len(spans) > 0 {
-		start = spans[0].Start
-		for _, s := range spans {
-			if toInt64(s.StartNs) == startNs {
-				start = s.Start
-				break
-			}
-		}
-	}
+	spans := telemetry.BuildSpanTree(telemetry.SpansFromRows(rows))
+	summary := telemetry.SummarizeTrace(traceID, spans)
 
 	logs := []map[string]interface{}{}
 	if logsSrc := h.correlatedLogsSource(src); logsSrc != nil {
 		// The spans give the trace's real extent; its log lines sit inside
 		// it, give or take clock skew between services.
-		var win *telemetry.TimeWindow
-		if startNs > 0 && endNs >= startNs {
-			win = &telemetry.TimeWindow{FromNs: startNs - int64(traceIndexMargin), ToNs: endNs + int64(traceIndexMargin)}
-		}
-		if sqlText, err := telemetry.ByTraceSQL(logsSrc, traceID, win); err == nil {
+		if sqlText, err := telemetry.ByTraceSQL(logsSrc, traceID, summary.LogsWindow()); err == nil {
 			if lrows, err := h.exec(c, sqlText, telemetrySearchTimeout); err == nil {
-				logs = shapeLogRows(lrows)
+				logs = telemetry.ShapeLogRows(lrows)
 			} else {
 				slog.Warn("Telemetry trace logs failed", "error", err)
 			}
@@ -402,15 +251,8 @@ func (h *TelemetryHandler) GetTrace(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
-		"trace": map[string]interface{}{
-			"trace_id":    traceID,
-			"start":       start,
-			"duration_ms": float64(endNs-startNs) / 1e6,
-			"span_count":  len(spans),
-			"error_count": errors,
-			"services":    services,
-		},
-		"spans": spans,
-		"logs":  logs,
+		"trace":   summary,
+		"spans":   spans,
+		"logs":    logs,
 	})
 }
