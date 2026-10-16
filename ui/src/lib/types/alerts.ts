@@ -9,6 +9,8 @@ export type AlertEventType =
   | 'sql.alert' | 'sql.*'
   | 'report.failed' | 'report.disabled' | 'report.*'
   | 'access.drift'
+  | 'ingest.stalled' | 'ingest.spool_backlog' | 'ingest.rejecting' | 'ingest.auth_failures' | 'ingest.*'
+  | 'pipeline.sink_failing' | 'pipeline.*'
   | '*'
 
 export interface AlertChannel {
@@ -118,8 +120,8 @@ export interface AlertAck {
 }
 
 export interface FiringIncident {
-  /** 'drift' rows (access drift, one per connection) are listed for admins only. */
-  source: 'health' | 'sql' | 'drift'
+  /** 'drift' rows (access drift, one per connection) are listed for admins only; 'ingest' rows are pipeline incidents. */
+  source: 'health' | 'sql' | 'drift' | 'ingest'
   alert_key: string
   incident_id: string
   connection_id: string
@@ -132,10 +134,13 @@ export interface FiringIncident {
   /** null: there is no event to acknowledge. */
   event_id: string | null
   ack: AlertAck | null
-  /** Access drift only: the latest change, when it was seen, and the page to review it on. */
+  /** Access drift and ingest: the latest event, when it was seen, and the page to review it on. */
   summary?: string
   last_seen?: string
   link_path?: string
+  /** Ingest and pipeline incidents only. */
+  pipeline_id?: string
+  event_type?: string
 }
 
 // ── Health checks and SQL threshold alerts (/api/alerting) ──

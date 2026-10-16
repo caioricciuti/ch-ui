@@ -303,11 +303,14 @@ type firingIncident struct {
 	Since        string             `json:"since"`
 	EventID      *string            `json:"event_id"`
 	Ack          *database.AlertAck `json:"ack"`
-	// Access drift only: the latest change of the incident, when it was
-	// seen, and the page to review it on.
+	// Access drift and ingest: the latest event of the incident, when it
+	// was seen, and the page to review it on.
 	Summary  *string `json:"summary,omitempty"`
 	LastSeen *string `json:"last_seen,omitempty"`
 	LinkPath *string `json:"link_path,omitempty"`
+	// Ingest and pipeline incidents only.
+	PipelineID *string `json:"pipeline_id,omitempty"`
+	EventType  *string `json:"event_type,omitempty"`
 }
 
 // isAdminSession reports whether the request comes from a CH-UI admin.
@@ -363,8 +366,38 @@ func (h *GovernanceHandler) openDriftIncident(connectionID string) (*firingIncid
 	}, nil
 }
 
-// ListFiringIncidents returns the open incidents of health checks and SQL
-// alerts across connections, with the ack that covers each. Admins also get
+// pipelineIncidentScan is how many recent events per ingest or pipeline
+// type the firing view reads to find the open incidents.
+const pipelineIncidentScan = 500
+
+// pipelineFiringIncident renders an open ingest or pipeline incident.
+func pipelineFiringIncident(inc alerts.OpenIncident, ack *database.AlertAck) firingIncident {
+	str := func(k string) string { s, _ := inc.Payload[k].(string); return s }
+	conn := ""
+	if inc.Event.ConnectionID != nil {
+		conn = *inc.Event.ConnectionID
+	}
+	evID, seen, summary := inc.Event.ID, inc.Event.CreatedAt, inc.Event.Message
+	item := firingIncident{
+		Source: "ingest", AlertKey: inc.AlertKey, IncidentID: inc.IncidentID, ConnectionID: conn,
+		Name: inc.Event.Title, Severity: inc.Severity, Since: inc.IncidentID, EventID: &evID, Ack: ack,
+		Summary: &summary, LastSeen: &seen,
+	}
+	if p := str("pipeline_id"); p != "" {
+		item.PipelineID = &p
+	}
+	if link := str("link_path"); strings.HasPrefix(link, "/") {
+		item.LinkPath = &link
+	}
+	if t := inc.Event.EventType; t != "" {
+		item.EventType = &t
+	}
+	return item
+}
+
+// ListFiringIncidents returns the open incidents of health checks, SQL
+// alerts and pipelines (ingest stalls, spool backlog, rejections, failing
+// sinks) across connections, with the ack that covers each. Admins also get
 // the open access drift incidents, one per connection.
 func (h *GovernanceHandler) ListFiringIncidents(w http.ResponseWriter, r *http.Request) {
 	acks, err := h.DB.ListOpenAlertAcks()
@@ -435,6 +468,17 @@ func (h *GovernanceHandler) ListFiringIncidents(w http.ResponseWriter, r *http.R
 			item.EventID = &evID
 		}
 		out = append(out, item)
+	}
+
+	// Ingest and pipeline incidents, readable by anyone who can read the
+	// pipelines, like the pipeline's live counters.
+	open, err := alerts.OpenIncidents(h.DB, alerts.PipelineEventTypes, pipelineIncidentScan)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to load ingest incidents")
+		return
+	}
+	for _, inc := range open {
+		out = append(out, pipelineFiringIncident(inc, ackFor(inc.AlertKey, inc.IncidentID)))
 	}
 
 	// Drift names other users and what they were granted; like the drift

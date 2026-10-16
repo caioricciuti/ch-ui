@@ -7,6 +7,7 @@
   import { severityTone, statusTone } from './alerting-admin'
   import { getSession } from '../../stores/session.svelte'
   import { setSection } from '../../stores/nav.svelte'
+  import { navigate } from '../../stores/router.svelte'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import { formatDate } from '../../utils/format'
   import Button from '../common/Button.svelte'
@@ -21,12 +22,15 @@
   import { RefreshCw } from 'lucide-svelte'
 
   // Alerts: the events CH-UI fired, newest first. Rules and channels have
-  // their own sections (alert-rules, alert-channels). Admins also see the
-  // open access drift incidents above the events, and acknowledge them
-  // there (only admins can, server enforced).
+  // their own sections (alert-rules, alert-channels). Open pipeline
+  // incidents (ingest stalls, spool backlog, rejections, failing sinks) are
+  // listed above the events for everyone; writers acknowledge them. Admins
+  // also see the open access drift incidents, and acknowledge them there
+  // (only admins can, server enforced).
   type Row = Record<string, unknown>
   const asRows = <T,>(rows: T[]): Row[] => rows as unknown as Row[]
   const isAdmin = $derived(getSession()?.role === 'admin')
+  const canAck = $derived(getSession()?.role === 'admin' || getSession()?.role === 'analyst')
 
   let loading = $state(true)
   let events = $state<AlertEvent[]>([])
@@ -34,6 +38,7 @@
   let selectedEvent = $state<AlertEvent | null>(null)
 
   let drift = $state<FiringIncident[]>([])
+  let ingest = $state<FiringIncident[]>([])
   let ackTarget = $state<FiringIncident | null>(null)
   let ackComment = $state('')
   let ackExpiry = $state('')
@@ -45,6 +50,13 @@
     { key: 'severity', label: 'Severity', width: '110px' },
     { key: 'since', label: 'First seen', mono: true, width: '170px', format: (v) => formatDate(v) },
     { key: 'summary', label: 'Latest change', truncate: true },
+  ]
+
+  const ingestColumns: DataColumn<Row>[] = [
+    { key: 'name', label: 'Incident', width: '260px', truncate: true },
+    { key: 'severity', label: 'Severity', width: '110px' },
+    { key: 'since', label: 'Since', mono: true, width: '170px', format: (v) => formatDate(v) },
+    { key: 'summary', label: 'Details', truncate: true },
   ]
 
   const limitOptions = ['25', '50', '100', '200'].map((v) => ({ value: v, label: `${v} events` }))
@@ -67,11 +79,12 @@
     }
   }
 
-  // Drift rows only add to the events; a failure here keeps the list visible.
+  // Incident rows only add to the events; a failure here keeps the list visible.
   async function loadDrift() {
-    if (!isAdmin) return
     try {
-      drift = (await listFiring()).filter((inc) => inc.source === 'drift')
+      const open = await listFiring()
+      drift = isAdmin ? open.filter((inc) => inc.source === 'drift') : []
+      ingest = open.filter((inc) => inc.source === 'ingest')
     } catch (e: unknown) {
       toastError(e instanceof Error ? e.message : String(e))
     }
@@ -97,7 +110,7 @@
         comment: ackComment.trim() || undefined,
         expires_in: ackExpiry ? Number(ackExpiry) : undefined,
       })
-      toastSuccess('Access drift acknowledged')
+      toastSuccess(ackTarget.source === 'drift' ? 'Access drift acknowledged' : 'Incident acknowledged')
       ackTarget = null
       await loadDrift()
     } catch (e: unknown) {
@@ -175,6 +188,45 @@
     </div>
   {/if}
 
+  {#if ingest.length > 0}
+    <div class="shrink-0 px-5 pb-3">
+      <Panel title="Open pipeline incidents" description="Ingest stalls, spool backlog, rejected requests and failing sinks. Each resolves on its own once the pipeline recovers or stops." padding="none">
+        <DataTable columns={ingestColumns} rows={asRows(ingest)} rowKey={(r) => String(r.alert_key)} framed={false}>
+          {#snippet cell(row, col, value)}
+            {#if col.key === 'name'}
+              {@const ack = (row as unknown as FiringIncident).ack}
+              <span class="inline-flex items-center gap-1">
+                {value}
+                {#if ack}<Badge tone="info" title={ackTitle(ack)}>Acknowledged</Badge>{/if}
+              </span>
+            {:else if col.key === 'severity'}
+              <Badge tone={severityTone(String(value))}>{value}</Badge>
+            {:else if col.key === 'summary'}
+              <span title={String(value ?? '')}>{value}</span>
+            {:else}
+              {value}
+            {/if}
+          {/snippet}
+          {#snippet actions(row)}
+            {@const inc = row as unknown as FiringIncident}
+            {#if inc.link_path}
+              {@const link = inc.link_path}
+              <Button size="xs" variant="ghost" onclick={() => navigate(link)}>Open pipeline</Button>
+            {/if}
+            {#if canAck}
+              {#if inc.ack}
+                {@const ackId = inc.ack.id}
+                <Button size="xs" variant="ghost" loading={unacking === ackId} onclick={() => void unacknowledge(ackId)}>Unacknowledge</Button>
+              {:else if inc.event_id}
+                <Button size="xs" variant="ghost" onclick={() => openAck(inc)}>Acknowledge</Button>
+              {/if}
+            {/if}
+          {/snippet}
+        </DataTable>
+      </Panel>
+    </div>
+  {/if}
+
   <div class="min-h-0 flex-1 px-5 pb-4">
     {#if loading}
       <div class="flex h-full items-center justify-center"><Spinner /></div>
@@ -234,15 +286,20 @@
   {/if}
 </Sheet>
 
-<!-- Acknowledge an access drift incident -->
-<Sheet open={ackTarget !== null} title="Acknowledge access drift" description="Admins only." size="md" onclose={() => { if (!ackSaving) ackTarget = null }}>
+<!-- Acknowledge an access drift or pipeline incident -->
+<Sheet open={ackTarget !== null} title={ackTarget?.source === 'drift' ? 'Acknowledge access drift' : 'Acknowledge incident'} description={ackTarget?.source === 'drift' ? 'Admins only.' : ''} size="md" onclose={() => { if (!ackSaving) ackTarget = null }}>
   {#if ackTarget}
     <form id="drift-ack-form" class="space-y-4" onsubmit={(e) => { e.preventDefault(); void submitAck() }}>
       <p class="text-[13px] text-fg-2">
-        Acknowledge {ackTarget.name}. Notifications for further drift on this connection stop until the access state is back
-        where it was, the drift escalates, or the acknowledgement expires.
+        {#if ackTarget.source === 'drift'}
+          Acknowledge {ackTarget.name}. Notifications for further drift on this connection stop until the access state is back
+          where it was, the drift escalates, or the acknowledgement expires.
+        {:else}
+          Acknowledge {ackTarget.name}. Further notifications for this incident stop until it resolves, escalates, or the
+          acknowledgement expires.
+        {/if}
       </p>
-      <FormField label="Comment" for="drift-ack-comment" hint="Optional. Shown to admins who see this incident.">
+      <FormField label="Comment" for="drift-ack-comment" hint="Optional. Shown to everyone who sees this incident.">
         <Textarea id="drift-ack-comment" rows={3} placeholder="Expected change, ticket OPS-123" bind:value={ackComment} />
       </FormField>
       <FormField label="Expires" for="drift-ack-expiry">

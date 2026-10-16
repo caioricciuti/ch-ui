@@ -151,6 +151,7 @@ func TestEmailBodyLinksToEvent(t *testing.T) {
 		{EventTypeScheduleFailed, map[string]interface{}{"schedule": "nightly"}, "Open in CH-UI: https://chui.example.com/governance?section=alerts\n"},
 		{EventTypeAccessDrift, map[string]interface{}{"link_path": "/governance?section=access-history"}, "Open in CH-UI: https://chui.example.com/governance?section=access-history\n"},
 		{EventTypeSQLAlert, map[string]interface{}{"link_path": "//evil.example/x"}, "Open in CH-UI: https://chui.example.com/governance?section=alerts\n"},
+		{EventTypeIngestStalled, map[string]interface{}{"link_path": PipelineLinkPath("p1")}, "Open in CH-UI: https://chui.example.com/pipelines/p1\n"},
 	}
 	for channelType := range emailFakes {
 		for _, c := range cases {

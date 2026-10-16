@@ -35,7 +35,7 @@ func (s *IngestSource) Validate(cfg ConnectorConfig) error {
 	default:
 		return fmt.Errorf("signal must be logs, traces or events")
 	}
-	for _, f := range []string{"ttl_days", "rate_limit_rps", "daily_quota_mb"} {
+	for _, f := range []string{"ttl_days", "rate_limit_rps", "daily_quota_mb", "stall_after_minutes"} {
 		if err := checkMin(cfg.Fields, f, 0, f); err != nil {
 			return err
 		}

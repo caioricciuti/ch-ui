@@ -33,6 +33,9 @@ func (w *WebhookSource) Validate(cfg ConnectorConfig) error {
 	if boolField(cfg.Fields, "auth_enabled", false) && stringField(cfg.Fields, "auth_token", "") == "" {
 		return fmt.Errorf("authentication is enabled but no token is set; regenerate the token")
 	}
+	if err := checkMin(cfg.Fields, "stall_after_minutes", 0, "stall_after_minutes"); err != nil {
+		return err
+	}
 	return validateCommon(cfg.Fields)
 }
 

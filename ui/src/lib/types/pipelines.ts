@@ -177,6 +177,8 @@ export const SINK_NODE_TYPES: { type: NodeType; label: string; description: stri
   { type: 'sink_clickhouse', label: 'ClickHouse', description: 'Insert into ClickHouse table' },
 ]
 
+const STALL_HELP = 'Raise an ingest.stalled alert when a pipeline that received data gets nothing for this many minutes. 0 turns it off.'
+
 export const CONNECTOR_FIELDS: Record<NodeType, ConnectorFieldDef[]> = {
   source_kafka: [
     { key: 'brokers', label: 'Brokers', type: 'text', placeholder: 'broker1:9092,broker2:9092', required: true, help: 'Comma-separated list of Kafka broker addresses' },
@@ -199,6 +201,7 @@ export const CONNECTOR_FIELDS: Record<NodeType, ConnectorFieldDef[]> = {
     { key: 'auth_enabled', label: 'Require Authentication', type: 'toggle', default: false, help: 'When enabled, a Bearer token is generated. Include it in the Authorization header of requests. On by default for new webhook nodes.' },
     { key: 'batch_size', label: 'Batch Size', type: 'number', default: 100, min: 1 },
     { key: 'batch_timeout_ms', label: 'Batch Timeout (ms)', type: 'number', default: 2000, min: 100 },
+    { key: 'stall_after_minutes', label: 'Stall Alert (minutes)', type: 'number', default: 15, min: 0, help: STALL_HELP },
   ],
   source_database: [
     { key: 'db_type', label: 'Database Type', type: 'select', required: true, options: [
@@ -236,6 +239,7 @@ export const CONNECTOR_FIELDS: Record<NodeType, ConnectorFieldDef[]> = {
     { key: 'ttl_days', label: 'TTL (days)', type: 'number', default: 30, min: 0, help: 'Applied when the sink creates the table. 0 keeps data forever.' },
     { key: 'rate_limit_rps', label: 'Rate Limit (requests/s)', type: 'number', default: 0, min: 0, help: 'Per key. 0 uses the default of 200 requests per second.' },
     { key: 'daily_quota_mb', label: 'Daily Quota (MB)', type: 'number', default: 0, min: 0, help: 'Decompressed request bytes per day, reset at 00:00 UTC. 0 is unlimited.' },
+    { key: 'stall_after_minutes', label: 'Stall Alert (minutes)', type: 'number', default: 15, min: 0, help: STALL_HELP },
   ],
   // Transforms have their own typed panels (components/pipelines/transforms).
   transform_parse: [],
