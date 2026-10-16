@@ -11,15 +11,15 @@
   import PipelineTestSheet from './PipelineTestSheet.svelte'
   import NodeConfigPanel from './NodeConfigPanel.svelte'
   import TransformPanel from './transforms/TransformPanel.svelte'
-  import { chainFromSource, transformsUpTo } from './transforms/graph'
-  import { clearNodeError, clearTransformCounters, setNodeError, setTransformCounters } from './transforms/counters.svelte'
+  import { isRouteNode, layoutBranches, otelDefaultSink, outputsOf, sinksFromSource, staleRouteEdges, storedViewport, transformsUpTo } from './transforms/graph'
+  import { clearNodeError, clearTransformCounters, setNodeError, setSinkCounters, setTransformCounters } from './transforms/counters.svelte'
   import { resetPastedSample } from './transforms/sample.svelte'
   import { ApiError } from '../../api/client'
   import { isTransformType, type TransformNodeType } from '../../types/transforms'
   import IngestKeysSheet from '../ingest/IngestKeysSheet.svelte'
   import SendDataSheet from '../ingest/SendDataSheet.svelte'
   import { listIngestKeys } from '../../api/ingest'
-  import { isIngestSignal, withOtelSinkDefaults } from '../../types/ingest'
+  import { isIngestSignal, usesOtelLayout, withOtelSinkDefaults } from '../../types/ingest'
   import Spinner from '../common/Spinner.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import { Info } from 'lucide-svelte'
@@ -65,9 +65,10 @@
   /** The selected transform's chain up to itself, for its preview. */
   const selectedChain = $derived.by(() => {
     if (!selectedNode || !isTransformType(selectedNode.data.node_type)) return null
-    const { chain, error } = transformsUpTo(nodes, edges, selectedNode.id)
+    const { chain, branch, error } = transformsUpTo(nodes, edges, selectedNode.id)
     return {
       note: error,
+      branch,
       nodes: chain.map((n) => ({
         id: n.id,
         node_type: n.data.node_type as TransformNodeType,
@@ -75,6 +76,17 @@
         config: (n.data.config || {}) as Record<string, unknown>,
       })),
     }
+  })
+  /** For a selected route node: the label of the node each connected output feeds. */
+  const selectedOutputs = $derived.by(() => {
+    if (!selectedNode || !isRouteNode(selectedNode)) return {}
+    const out: Record<string, string> = {}
+    for (const e of edges) {
+      if (e.source !== selectedNode.id || !e.sourceHandle) continue
+      const t = nodes.find((n) => n.id === e.target)
+      out[e.sourceHandle] = String(t?.data.label ?? e.target)
+    }
+    return out
   })
   // Polling stops with the run; drop the last counters with it.
   $effect(() => {
@@ -299,9 +311,10 @@
 
   /** Applies an inferred schema to the sink node from the test sheet. */
   function applySchemaToSink(schema: InferredSchema) {
-    const sink = nodes.find((n) => n.data.node_type === 'sink_clickhouse')
+    const sinks = nodes.filter((n) => n.data.node_type === 'sink_clickhouse')
+    const sink = sinks.length === 1 ? sinks[0] : sinks.find((n) => n.id === selectedNodeId)
     if (!sink) {
-      toastError('Add a ClickHouse sink first')
+      toastError(sinks.length ? 'Select the sink to apply the columns to, then apply again' : 'Add a ClickHouse sink first')
       return
     }
     const config = {
@@ -328,8 +341,10 @@
 
   function handleStatus(info: PipelineStatusInfo) {
     // Per transform counters show on the nodes only while the pipeline runs.
-    if (info.status === 'running' || info.status === 'starting') setTransformCounters(info.transforms)
-    else clearTransformCounters()
+    if (info.status === 'running' || info.status === 'starting') {
+      setTransformCounters(info.transforms)
+      setSinkCounters(info.sinks)
+    } else clearTransformCounters()
     if (!pipeline) return
     if (info.status !== pipeline.status || info.last_error !== pipeline.last_error) {
       pipeline = { ...pipeline, status: info.status, last_error: info.last_error }
@@ -346,6 +361,9 @@
       animated: true,
     }
     edges = [...edges, newEdge]
+    // A new branch off the route: stack the branches so none overlap.
+    const from = nodes.find((n) => n.id === newEdge.source)
+    if (isRouteNode(from)) nodes = layoutBranches(nodes, edges, newEdge.source)
     applyOtelSinkDefaults()
   }
 
@@ -357,13 +375,15 @@
     const source = nodes.find((n) => n.data.node_type === 'source_ingest')
     if (!source) return
     const signal = ((source.data.config || {}) as Record<string, unknown>)['signal']
-    // The sink at the end of the chain, past any transforms.
-    const chain = chainFromSource(nodes, edges)
-    const last = chain.length > 1 ? chain[chain.length - 1] : null
-    const sinkIds = new Set(last && chain[0].id === source.id ? [last.id] : [])
+    const target = otelTable(signal)
+    // One sink reached from the ingest source gets the table: with routes, the
+    // first branch's (or the one already holding it); the others stay for the
+    // user to name. otelDefaultSink walks from the first source on the canvas.
+    const firstSource = nodes.find((n) => String(n.data.node_type).startsWith('source_'))
+    const sinkId = target && firstSource?.id === source.id ? otelDefaultSink(nodes, edges, target) : null
     let touchedOpenPanel = false
     nodes = nodes.map((n) => {
-      if (!sinkIds.has(n.id) || n.data.node_type !== 'sink_clickhouse') return n
+      if (n.id !== sinkId || n.data.node_type !== 'sink_clickhouse') return n
       const config = withOtelSinkDefaults((n.data.config || {}) as Record<string, unknown>, signal)
       if (!config) return n
       if (n.id === selectedNodeId) touchedOpenPanel = true
@@ -372,6 +392,27 @@
     // The open sink panel holds a copy of its config; remount it to show the change.
     if (touchedOpenPanel) panelVersion++
   }
+
+  /** The OTel table an ingest signal defaults its sink to, or '' for none. */
+  function otelTable(signal: unknown): string {
+    const t = withOtelSinkDefaults({}, signal)?.table
+    return typeof t === 'string' ? t : ''
+  }
+
+  /** For the selected sink of a routed OTel pipeline that did not get the default table: how to name its own. */
+  const sinkTableHint = $derived.by(() => {
+    if (!selectedNode || selectedNode.data.node_type !== 'sink_clickhouse' || !ingestNode) return ''
+    const target = otelTable(ingestSignal)
+    if (!target || !usesOtelLayout(ingestSignal)) return ''
+    const sinks = sinksFromSource(nodes, edges)
+    if (sinks.length < 2 || !sinks.some((n) => n.id === selectedNode.id)) return ''
+    if (otelDefaultSink(nodes, edges, target) === selectedNode.id) return ''
+    const { branch } = transformsUpTo(nodes, edges, selectedNode.id)
+    const route = nodes.find((n) => isRouteNode(n))
+    const label = route ? (outputsOf(route).find((o) => o.handle === branch)?.label ?? branch) : branch
+    const suffix = label.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'branch'
+    return `Name the table for this route, e.g. ${target}_${suffix}; Telemetry Detect sources finds any table in the OTel layout.`
+  })
 
   function handleNodeClick(nodeId: string) {
     selectedNodeId = nodeId
@@ -396,6 +437,11 @@
         },
       }
     })
+    // A removed route (or unmatched turned off) takes its output's edge with it; the panel confirmed it.
+    if (isRouteNode(before)) {
+      const stale = new Set(staleRouteEdges(nodes, edges).map((e) => e.id))
+      if (stale.size) edges = edges.filter((e) => !stale.has(e.id))
+    }
     if (signalChanged) applyOtelSinkDefaults()
   }
 </script>
@@ -440,6 +486,7 @@
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
         signal={ingestSignal}
+        viewport={storedViewport(pipeline.config)}
       />
 
       {#if selectedNode}
@@ -456,6 +503,8 @@
               signal={ingestSignal}
               chain={selectedChain.nodes}
               chainNote={selectedChain.note}
+              branch={selectedChain.branch}
+              connected={selectedOutputs}
               onUpdate={handleNodeConfigUpdate}
               onClose={() => { selectedNodeId = null }}
             />
@@ -470,6 +519,7 @@
               onClose={() => { selectedNodeId = null }}
               onInferSchema={handleInferSchema}
               sourceSignal={ingestSignal}
+              tableHint={sinkTableHint}
               {activeKeys}
               onManageKeys={() => { showKeys = true }}
               onSendData={() => { sendSecret = undefined; showSendData = true }}

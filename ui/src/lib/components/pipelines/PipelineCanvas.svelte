@@ -13,10 +13,12 @@
   import SourceNode from './nodes/SourceNode.svelte'
   import SinkNode from './nodes/SinkNode.svelte'
   import TransformNode from './nodes/TransformNode.svelte'
-  import { SOURCE_NODE_TYPES, SINK_NODE_TYPES, newNodeConfig, type NodeType } from '../../types/pipelines'
-  import { TRANSFORM_NODE_TYPES, isTransformType } from '../../types/transforms'
-  import { bridgeDeleted, connectionProblem, insertIntoEdge, makeRoom } from './transforms/graph'
-  import { Radio, Webhook, Database, HardDrive, Inbox, Braces, ArrowLeftRight, Funnel, Percent, EyeOff } from 'lucide-svelte'
+  import RouteNode from './nodes/RouteNode.svelte'
+  import PipelineFit from './PipelineFit.svelte'
+  import { MAX_SINKS, SOURCE_NODE_TYPES, SINK_NODE_TYPES, newNodeConfig, type NodeType } from '../../types/pipelines'
+  import { MAX_TRANSFORMS, TRANSFORM_NODE_TYPES, isTransformType, readRoute } from '../../types/transforms'
+  import { bridgeDeleted, connectionProblem, insertIntoEdge, isRouteNode, layoutBranches, makeRoom, CANVAS_MIN_ZOOM, type StoredViewport } from './transforms/graph'
+  import { Radio, Webhook, Database, HardDrive, Inbox, Braces, ArrowLeftRight, Funnel, Percent, EyeOff, Split } from 'lucide-svelte'
   import { getTheme } from '../../stores/theme.svelte'
   import { isProActive } from '../../stores/license.svelte'
   import { error as toastError } from '../../stores/toast.svelte'
@@ -32,9 +34,11 @@
     onPaneClick: () => void
     /** Signal of the ingest source, if any, for new transform defaults. */
     signal?: string | null
+    /** The pipeline's saved viewport; without one the canvas fits the graph. */
+    viewport?: StoredViewport | null
   }
 
-  let { pipelineId, nodes, edges, onNodesChange, onEdgesChange, onConnect, onNodeClick, onPaneClick, signal = null }: Props = $props()
+  let { pipelineId, nodes, edges, onNodesChange, onEdgesChange, onConnect, onNodeClick, onPaneClick, signal = null, viewport = null }: Props = $props()
 
   const transformNode = TransformNode as unknown as NodeTypes[string]
 
@@ -49,6 +53,7 @@
     transform_filter: transformNode,
     transform_sample: transformNode,
     transform_redact: transformNode,
+    transform_route: RouteNode as unknown as NodeTypes[string],
     sink_clickhouse: SinkNode as unknown as NodeTypes[string],
   }
 
@@ -92,7 +97,7 @@
   }
 
   function refuseConnection(connection: Connection): Connection | false {
-    const problem = connectionProblem(nodes, edges, connection.source, connection.target)
+    const problem = connectionProblem(nodes, edges, connection.source, connection.target, connection.sourceHandle)
     if (problem) {
       toastError(problem)
       return false
@@ -118,6 +123,18 @@
     e.preventDefault()
     const type = e.dataTransfer?.getData('application/pipeline-node') as NodeType
     if (!type) return
+    if (type === 'transform_route' && nodes.some((n) => isRouteNode(n))) {
+      toastError('A pipeline has one Route node; add routes to the one on the canvas')
+      return
+    }
+    if (isTransformType(type) && type !== 'transform_route' && nodes.filter((n) => isTransformType(n.data.node_type) && !isRouteNode(n)).length >= MAX_TRANSFORMS) {
+      toastError(`A pipeline has at most ${MAX_TRANSFORMS} transform nodes`)
+      return
+    }
+    if (type.startsWith('sink_') && nodes.filter((n) => String(n.data.node_type).startsWith('sink_')).length >= MAX_SINKS) {
+      toastError(`A pipeline has at most ${MAX_SINKS} sinks`)
+      return
+    }
 
     // Find the SvelteFlow container and its viewport element
     const wrapper = e.currentTarget as HTMLElement
@@ -159,9 +176,13 @@
     // A transform dropped onto an edge goes into the chain there.
     const edgeId = isTransformType(type) ? edgeAt(e.clientX, e.clientY) : null
     if (edgeId) {
-      const nextEdges = insertIntoEdge(edges, edgeId, newNode.id, () => newId('edge')) as Edge[]
+      // A route takes the rest of the chain on its first route's output.
+      const route = type === 'transform_route' ? readRoute(newNode.data.config as Record<string, unknown>) : null
+      const nextEdges = insertIntoEdge(edges, edgeId, newNode.id, () => newId('edge'), route?.routes[0]?.id) as Edge[]
       // Line the chain up after the insert so no node lands on another.
-      onNodesChange(makeRoom([...nodes, newNode], nextEdges, newNode.id))
+      let placed = makeRoom([...nodes, newNode], nextEdges, newNode.id)
+      if (route) placed = layoutBranches(placed, nextEdges, newNode.id)
+      onNodesChange(placed)
       onEdgesChange(nextEdges)
       return
     }
@@ -175,6 +196,7 @@
     transform_filter: Funnel,
     transform_sample: Percent,
     transform_redact: EyeOff,
+    transform_route: Split,
   }
 
   const sourceIcons: Record<string, typeof Radio> = {
@@ -267,7 +289,8 @@
       {nodes}
       {edges}
       {nodeTypes}
-      fitView
+      minZoom={CANVAS_MIN_ZOOM}
+      initialViewport={viewport ?? undefined}
       colorMode={getTheme()}
       proOptions={{ hideAttribution: true }}
       onbeforeconnect={refuseConnection}
@@ -309,6 +332,7 @@
       <Controls />
       <Background gap={16} />
       <MiniMap />
+      <PipelineFit enabled={!viewport} />
     </SvelteFlow>
   </div>
 </div>

@@ -6,11 +6,14 @@ import {
   isProTransform,
   isTransformType,
   mapPathHint,
+  nextRouteId,
   proTransformMessage,
   readFilter,
   readMap,
   readRedact,
+  readRoute,
   readSample,
+  routeOutputs,
   regexGroupNames,
   regexProblem,
   transformProblems,
@@ -19,9 +22,9 @@ import {
 import { CONNECTOR_FIELDS, newNodeConfig } from './pipelines'
 
 describe('transform node types', () => {
-  it('lists the five transforms, sample and redact as Pro', () => {
-    expect(TRANSFORM_NODE_TYPES.map((t) => t.type)).toEqual(['transform_parse', 'transform_map', 'transform_filter', 'transform_sample', 'transform_redact'])
-    expect(TRANSFORM_NODE_TYPES.filter((t) => t.pro).map((t) => t.type)).toEqual(['transform_sample', 'transform_redact'])
+  it('lists the six transforms, sample, redact and route as Pro', () => {
+    expect(TRANSFORM_NODE_TYPES.map((t) => t.type)).toEqual(['transform_parse', 'transform_map', 'transform_filter', 'transform_sample', 'transform_redact', 'transform_route'])
+    expect(TRANSFORM_NODE_TYPES.filter((t) => t.pro).map((t) => t.type)).toEqual(['transform_sample', 'transform_redact', 'transform_route'])
     expect(isProTransform('transform_parse')).toBe(false)
     expect(isTransformType('source_kafka')).toBe(false)
     expect(isTransformType('transform_map')).toBe(true)
@@ -30,6 +33,7 @@ describe('transform node types', () => {
   it('uses the server messages for Pro nodes', () => {
     expect(proTransformMessage('transform_sample')).toBe('Sampling needs CH-UI Pro')
     expect(proTransformMessage('transform_redact')).toBe('Redaction needs CH-UI Pro')
+    expect(proTransformMessage('transform_route')).toBe('Routing needs CH-UI Pro')
   })
 
   it('has no generic connector fields', () => {
@@ -167,5 +171,57 @@ describe('reading stored configs', () => {
     const base = readRedact({ kinds: ['email', 'custom'] })
     expect(withCustomKind(base).kinds).toEqual(['email'])
     expect(withCustomKind({ ...base, custom: [{ name: 'order', pattern: 'ORD-\\d+' }] }).kinds).toEqual(['email', 'custom'])
+  })
+})
+
+describe('route config', () => {
+  it('reads a stored config tolerantly', () => {
+    expect(readRoute({})).toEqual({ mode: 'first', routes: [], unmatched: 'drop' })
+    expect(readRoute({ mode: 'all', unmatched: 'output', routes: [{ id: 'r1', name: 'errors', match: 'any', rules: [{ field: 'level', op: 'eq', value: 'error' }] }, 'junk'] })).toEqual({
+      mode: 'all',
+      unmatched: 'output',
+      routes: [{ id: 'r1', name: 'errors', match: 'any', rules: [{ field: 'level', op: 'eq', value: 'error' }] }],
+    })
+  })
+
+  it('lists outputs per route, then unmatched when it is an output', () => {
+    const c = readRoute({ routes: [{ id: 'r1', name: 'errors' }, { id: 'r2', name: ' ' }], unmatched: 'output' })
+    expect(routeOutputs(c)).toEqual([{ handle: 'r1', label: 'errors' }, { handle: 'r2', label: 'r2' }, { handle: 'unmatched', label: 'unmatched' }])
+    expect(routeOutputs({ ...c, unmatched: 'drop' }).map((o) => o.handle)).toEqual(['r1', 'r2'])
+  })
+
+  it('hands out the first free id', () => {
+    expect(nextRouteId([])).toBe('r1')
+    expect(nextRouteId([{ id: 'r1' }, { id: 'r3' }])).toBe('r2')
+  })
+
+  it('names bad routes', () => {
+    // Zero routes and unnamed routes save: every record is unmatched, the handle shows the id.
+    expect(transformProblems('transform_route', { routes: [] })).toEqual([])
+    const p = transformProblems('transform_route', {
+      routes: [
+        { id: 'r1', name: 'a', rules: [{ field: '', op: 'eq', value: '' }] },
+        { id: 'r1', name: 'a' },
+        { id: 'Bad Id', name: '' },
+        { id: 'unmatched', name: 'x' },
+      ],
+    })
+    expect(p).toEqual([
+      'Route a rule 1: Enter a field',
+      'Route a: another route has this name',
+      'Route a: duplicate id "r1"',
+      'Route 3: invalid id "Bad Id"',
+      'Route x: invalid id "unmatched"',
+    ])
+    const many = Array.from({ length: 17 }, (_, i) => ({ id: `r${i + 1}`, name: `n${i}` }))
+    expect(transformProblems('transform_route', { routes: many })).toEqual(['At most 16 routes'])
+  })
+
+  it('defaults to an errors route for logs and an unmatched output', () => {
+    expect(defaultTransformConfig('transform_route', 'logs')).toEqual({
+      mode: 'first',
+      routes: [{ id: 'r1', name: 'errors', match: 'any', rules: [{ field: 'SeverityText', op: 'eq', value: 'ERROR' }] }],
+      unmatched: 'output',
+    })
   })
 })

@@ -14,6 +14,9 @@
 
   let { rules, match, onchange, fieldHint = 'SeverityText' }: Props = $props()
 
+  // inputClass carries w-full; a fixed width must replace it, not sit beside it.
+  const opSelectClass = `${inputClass.replace('w-full ', '')} w-36 shrink-0`
+
   function update(i: number, patch: Partial<Rule>) {
     onchange(rules.map((r, j) => (j === i ? { ...r, ...patch } : r)), match)
   }
@@ -62,9 +65,9 @@
           <X size={13} />
         </button>
       </div>
-      <div class="flex items-center gap-1">
+      <div class="flex flex-wrap items-center gap-1">
         <select
-          class="{inputClass} w-36 shrink-0"
+          class={opSelectClass}
           value={rule.op}
           aria-label="Rule {i + 1} operator"
           onchange={(e) => setOp(i, e.currentTarget.value as RuleOp)}
@@ -75,7 +78,7 @@
         </select>
         {#if opNeedsValue(rule.op)}
           <input
-            class={monoInputClass}
+            class="{monoInputClass} min-w-24 flex-1 basis-24"
             value={rule.value}
             placeholder={valuePlaceholder(rule.op)}
             aria-label="Rule {i + 1} value"

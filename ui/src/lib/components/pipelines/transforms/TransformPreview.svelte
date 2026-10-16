@@ -3,8 +3,8 @@
   import { RefreshCw, AlertTriangle, ClipboardPaste } from 'lucide-svelte'
   import { previewTransforms } from '../../../api/pipelines'
   import { ApiError } from '../../../api/client'
-  import { PREVIEW_MAX_RECORDS, type PreviewNode, type PreviewResponse, type TransformNodeType } from '../../../types/transforms'
-  import { buildRows, parseSampleRecords, stepInput, valueText, type PreviewRow } from './preview'
+  import { PREVIEW_MAX_RECORDS, readRoute, routeOutputs, UNMATCHED_HANDLE, type PreviewNode, type PreviewResponse, type TransformNodeType } from '../../../types/transforms'
+  import { buildRouteRows, buildRows, flatten, parseSampleRecords, routeTotals, stepInput, valueText, type PreviewRow, type RouteRow } from './preview'
   import Badge from '../../common/Badge.svelte'
   import Button from '../../common/Button.svelte'
   import Spinner from '../../common/Spinner.svelte'
@@ -24,9 +24,11 @@
     chainNote?: string
     /** Problems in this chain's configs; the preview waits until they are fixed. */
     blocked?: string
+    /** Past a route: the route output whose records reach this node. */
+    branch?: string
   }
 
-  let { pipelineId, nodeId, nodeType, chain, labels = {}, chainNote = '', blocked = '' }: Props = $props()
+  let { pipelineId, nodeId, nodeType, chain, labels = {}, chainNote = '', blocked = '', branch = '' }: Props = $props()
 
   let loading = $state(false)
   let error = $state('')
@@ -43,7 +45,17 @@
   const keptCount = $derived(rows.filter((r) => !r.dropped).length)
   const droppedCount = $derived(rows.length - keptCount)
   const errors = $derived(step?.errors ?? [])
-  const chainKey = $derived(JSON.stringify(chain))
+  const chainKey = $derived(JSON.stringify([chain, branch]))
+
+  const isRoute = $derived(nodeType === 'transform_route')
+  /** The route node in the chain (this node, or the one this branch hangs off). */
+  const routeNode = $derived(chain.find((n) => n.node_type === 'transform_route') ?? null)
+  const route = $derived(routeNode ? readRoute(routeNode.config) : null)
+  const outputs = $derived(route ? routeOutputs(route) : [])
+  const outputLabel = $derived(Object.fromEntries(outputs.map((o) => [o.handle, o.label])))
+  const branchLabel = $derived(branch ? (outputLabel[branch] ?? branch) : '')
+  const routeRows = $derived<RouteRow[]>(isRoute && step ? buildRouteRows(input, step, outputs.map((o) => o.handle)) : [])
+  const totals = $derived(routeTotals(routeRows))
 
   async function run() {
     if (blocked) return
@@ -58,7 +70,7 @@
     loading = true
     error = ''
     try {
-      const res = await previewTransforms(pipelineId, { nodes: chain, records })
+      const res = await previewTransforms(pipelineId, { nodes: chain, records, ...(branch ? { branch } : {}) })
       if (my !== seq) return
       result = res
       if (!records) pastedSample.noLive = false
@@ -123,6 +135,10 @@
     <p class="text-[12px] text-fg-3">{chainNote}</p>
   {/if}
 
+  {#if branchLabel && routeNode}
+    <p class="text-[12px] text-fg-3">Branch of {labels[routeNode.id] ?? 'the route'}: only records sent to "{branchLabel}" reach this node.</p>
+  {/if}
+
   {#if blocked}
     <p class="rounded-md bg-warning-soft px-2.5 py-2 text-[12px] text-warning">Fix the config first: {blocked}</p>
   {/if}
@@ -151,13 +167,61 @@
     </div>
   {/if}
 
-  {#if result && step}
+  {#if result && step && isRoute}
+    <div class="flex flex-wrap items-center gap-1.5 text-[12px] tabular-nums text-fg-3">
+      <span>{routeRows.length} in</span>
+      {#each outputs.filter((o) => o.handle !== UNMATCHED_HANDLE) as o (o.handle)}
+        <Badge tone="info">{o.label} {totals.perHandle[o.handle] ?? 0}</Badge>
+      {/each}
+      {#if totals.unmatched}
+        <Badge tone={route?.unmatched === 'output' ? 'neutral' : 'warning'}>{totals.unmatched} unmatched{route?.unmatched === 'output' ? '' : ', dropped'}</Badge>
+      {/if}
+      {#if droppedEarlier > 0}<span>{droppedEarlier} dropped by earlier steps</span>{/if}
+      <label class="ds-checkbox-label ml-auto text-[12px]">
+        <input type="checkbox" class="ds-checkbox ds-checkbox-sm" bind:checked={showUnchanged} />
+        Fields
+      </label>
+    </div>
+
+    {#if routeRows.length === 0}
+      <EmptyState size="compact" title="No records reach this step" description={droppedEarlier ? 'Earlier steps dropped every record.' : 'The sample is empty.'} />
+    {:else}
+      <div class="space-y-2">
+        {#each routeRows as row (row.index)}
+          <div class="rounded-md border border-edge-subtle {row.unmatched && route?.unmatched !== 'output' ? 'bg-surface-2' : 'bg-surface'}">
+            <div class="flex flex-wrap items-center gap-1.5 px-2.5 py-1 text-[11px] text-fg-3 {showUnchanged ? 'border-b border-edge-subtle' : ''}">
+              <span class="tabular-nums">Record {row.index + 1}</span>
+              {#if row.unmatched}
+                <Badge tone={route?.unmatched === 'output' ? 'neutral' : 'warning'}>{route?.unmatched === 'output' ? 'Unmatched output' : 'Unmatched, dropped'}</Badge>
+              {:else}
+                {#each row.handles as h (h)}
+                  <Badge tone="info">{outputLabel[h] ?? h}</Badge>
+                {/each}
+              {/if}
+            </div>
+            {#if showUnchanged}
+              <table class="w-full table-fixed text-[12px]">
+                <tbody>
+                  {#each Object.entries(flatten(row.record)) as [path, v] (path)}
+                    <tr class="align-top">
+                      <td class="w-2/5 truncate px-2.5 py-0.5 font-mono text-fg-3" title={path}>{path}</td>
+                      <td class="break-all px-2.5 py-0.5 font-mono text-fg-3">{valueText(v)}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
+  {:else if result && step}
     <div class="flex flex-wrap items-center gap-1.5 text-[12px] tabular-nums text-fg-3">
       <span>{rows.length} in</span>
       <span>{keptCount} out</span>
       {#if droppedCount}<Badge tone="warning">{droppedCount} dropped</Badge>{/if}
       {#if errors.length}<Badge tone="danger">{errors.length} parse {errors.length === 1 ? 'error' : 'errors'}</Badge>{/if}
-      {#if droppedEarlier > 0}<span>{droppedEarlier} dropped by earlier steps</span>{/if}
+      {#if droppedEarlier > 0}<span>{droppedEarlier} {branch ? 'on other branches or dropped earlier' : 'dropped by earlier steps'}</span>{/if}
       <label class="ds-checkbox-label ml-auto text-[12px]">
         <input type="checkbox" class="ds-checkbox ds-checkbox-sm" bind:checked={showUnchanged} />
         Unchanged fields
@@ -173,7 +237,7 @@
     {/if}
 
     {#if rows.length === 0}
-      <EmptyState size="compact" title="No records reach this step" description={droppedEarlier ? 'Earlier steps dropped every record.' : 'The sample is empty.'} />
+      <EmptyState size="compact" title="No records reach this step" description={branch && droppedEarlier ? `No record in the sample is sent to "${branchLabel}".` : droppedEarlier ? 'Earlier steps dropped every record.' : 'The sample is empty.'} />
     {:else}
       <div class="space-y-2">
         {#each rows as row (row.index)}

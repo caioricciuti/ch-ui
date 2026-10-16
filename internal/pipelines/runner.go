@@ -35,12 +35,19 @@ type RunningPipeline struct {
 	StartedAt  time.Time
 	Done       chan struct{}
 
-	// specs and chain are the transform nodes in chain order; chain is
-	// empty for a source -> sink pipeline. sample keeps the last rows that
-	// entered the chain for the editor's preview.
+	// specs are the transform and route nodes, shared chain first, for the
+	// Pro checks. chain is the shared chain (empty for a source -> sink
+	// pipeline); route, when set, splits its output between the sinks, each
+	// with its own branch chain. sample keeps the last rows that entered the
+	// chain for the editor's preview.
 	specs  []transform.NodeSpec
 	chain  *transform.Chain
+	route  *transform.Route
+	sinks  []*sinkPath
 	sample recordRing
+
+	// writeHealth reports sink write failures of every sink.
+	writeHealth *Health
 
 	// userStopped is set by an explicit StopPipeline; shutdown by Runner.Stop.
 	// They decide the status written when the run ends.
@@ -209,7 +216,7 @@ func (r *Runner) StartPipeline(pipelineID string) error {
 	if err := transform.RequirePro(p.specs, !transform.NeedsPro(p.specs) || r.proAllowed()); err != nil {
 		return err
 	}
-	rp.specs, rp.chain = p.specs, p.chain
+	rp.specs, rp.chain, rp.route, rp.sinks = p.specs, p.chain, p.route, p.sinks
 
 	runID, err := r.db.CreatePipelineRun(pipelineID, "running")
 	if err != nil {
@@ -220,28 +227,36 @@ func (r *Runner) StartPipeline(pipelineID string) error {
 	r.db.UpdatePipelineStatus(pipelineID, "running", "")
 
 	launched = true
-	go r.runPipeline(ctx, rp, p.source, p.sink, p.sourceCfg, p.sinkCfg)
+	go r.runPipeline(ctx, rp, p.source, p.sourceCfg)
 
+	transforms := p.chain.Len()
+	for _, sp := range p.sinks {
+		transforms += sp.chain.Len()
+	}
 	msg := "Pipeline started"
-	if n := p.chain.Len(); n > 0 {
-		msg = fmt.Sprintf("Pipeline started with %d transform nodes", n)
+	if transforms > 0 {
+		msg = fmt.Sprintf("Pipeline started with %d transform nodes", transforms)
+	}
+	if len(p.sinks) > 1 {
+		msg += fmt.Sprintf(", routing to %d sinks", len(p.sinks))
 	}
 	r.db.CreatePipelineRunLog(runID, "info", msg)
-	slog.Info("Pipeline started", "pipeline", pipelineID, "source", p.sourceCfg.NodeType, "transforms", p.chain.Len(), "run", runID)
+	slog.Info("Pipeline started", "pipeline", pipelineID, "source", p.sourceCfg.NodeType, "transforms", transforms, "sinks", len(p.sinks), "run", runID)
 	return nil
 }
 
 // preparedPipeline is a validated pipeline ready to run.
 type preparedPipeline struct {
-	source             SourceConnector
-	sink               SinkConnector
-	sourceCfg, sinkCfg ConnectorConfig
-	specs              []transform.NodeSpec
-	chain              *transform.Chain
+	source    SourceConnector
+	sourceCfg ConnectorConfig
+	specs     []transform.NodeSpec
+	chain     *transform.Chain
+	route     *transform.Route
+	sinks     []*sinkPath
 }
 
 // prepare loads, decrypts and validates a pipeline's graph and compiles its
-// transform chain.
+// transform chains and route.
 func (r *Runner) prepare(pipelineID string) (*preparedPipeline, error) {
 	pipeline, err := r.db.GetPipelineByID(pipelineID)
 	if err != nil || pipeline == nil {
@@ -253,22 +268,15 @@ func (r *Runner) prepare(pipelineID string) (*preparedPipeline, error) {
 		return nil, fmt.Errorf("load pipeline graph: %w", err)
 	}
 
-	sourceNode, sinkNode, chainNodes, err := ResolveChain(nodes, edges)
+	g, err := ResolveGraph(nodes, edges)
 	if err != nil {
 		return nil, err
 	}
 
-	sourceCfg, err := r.parseNodeConfig(sourceNode)
+	sourceCfg, err := r.parseNodeConfig(g.Source)
 	if err != nil {
 		return nil, fmt.Errorf("parse source config: %w", err)
 	}
-	sinkCfg, err := r.parseNodeConfig(sinkNode)
-	if err != nil {
-		return nil, fmt.Errorf("parse sink config: %w", err)
-	}
-
-	// Inject runtime fields into configs
-	sinkCfg.Fields["connection_id"] = pipeline.ConnectionID
 	sourceCfg.Fields["pipeline_id"] = pipelineID
 	checkpoints, err := r.db.PipelineCheckpointMap(pipelineID)
 	if err != nil {
@@ -276,44 +284,91 @@ func (r *Runner) prepare(pipelineID string) (*preparedPipeline, error) {
 	}
 	sourceCfg.Checkpoints = checkpoints
 	sourceCfg.Hub = r.hub
-	delete(sinkCfg.Fields, sinkOTelSignal)
-	delete(sinkCfg.Fields, sinkOTelTTLDays)
-	if sourceCfg.NodeType == "source_ingest" {
-		// The sink creates OpenTelemetry tables for logs and traces and
-		// ignores columns a newer exporter layout may add.
-		switch signal := IngestSignal(sourceCfg.Fields); signal {
-		case SignalLogs, SignalTraces:
-			sinkCfg.Fields[sinkOTelSignal] = signal
-			sinkCfg.Fields[sinkOTelTTLDays] = intField(sourceCfg.Fields, "ttl_days", 0)
-		}
-	}
 
 	source, err := r.newSource(sourceCfg.NodeType)
 	if err != nil {
 		return nil, fmt.Errorf("create source connector: %w", err)
 	}
-	sink := r.newSink()
-
 	if err := source.Validate(sourceCfg); err != nil {
-		return nil, fmt.Errorf("validate source config: %w", err)
-	}
-	if err := sink.Validate(sinkCfg); err != nil {
-		return nil, fmt.Errorf("validate sink config: %w", err)
+		return nil, graphErr(g.Source, "%v", err)
 	}
 	if IsSQLiteSource(sourceCfg.NodeType, sourceCfg.Fields) {
 		if err := CheckSQLitePath(stringField(sourceCfg.Fields, "connection_string", ""), r.dataDir()); err != nil {
-			return nil, err
+			return nil, graphErr(g.Source, "%v", err)
 		}
 	}
-	specs, err := transformSpecs(chainNodes)
+
+	opts := TransformOptions(sourceCfg.NodeType, sourceCfg.Fields)
+	p := &preparedPipeline{source: source, sourceCfg: sourceCfg}
+	shared, err := transformSpecs(g.Shared)
 	if err != nil {
 		return nil, err
 	}
-	chain, err := transform.Compile(specs, TransformOptions(sourceCfg.NodeType, sourceCfg.Fields))
-	if err != nil {
+	if p.chain, err = transform.Compile(shared, opts); err != nil {
 		return nil, err
 	}
-	return &preparedPipeline{source: source, sink: sink, sourceCfg: sourceCfg, sinkCfg: sinkCfg, specs: specs, chain: chain}, nil
+	p.specs = shared
+	if g.Route != nil {
+		spec, err := transformSpecs([]database.PipelineNode{*g.Route})
+		if err != nil {
+			return nil, err
+		}
+		if p.route, err = transform.CompileRoute(spec[0], opts); err != nil {
+			return nil, err
+		}
+		if !g.UnmatchedConnected {
+			p.route.DropUnmatched()
+		}
+		p.specs = append(p.specs, spec...)
+	}
+	outputs := map[string]int{}
+	if p.route != nil {
+		for i, h := range p.route.Handles() {
+			outputs[h] = i
+		}
+	}
+
+	for _, b := range g.Branches {
+		sinkCfg, err := r.parseNodeConfig(b.Sink)
+		if err != nil {
+			return nil, fmt.Errorf("parse sink config: %w", err)
+		}
+		// Inject runtime fields into the config
+		sinkCfg.Fields["connection_id"] = pipeline.ConnectionID
+		delete(sinkCfg.Fields, sinkOTelSignal)
+		delete(sinkCfg.Fields, sinkOTelTTLDays)
+		if sourceCfg.NodeType == "source_ingest" {
+			// The sink creates OpenTelemetry tables for logs and traces and
+			// ignores columns a newer exporter layout may add.
+			switch signal := IngestSignal(sourceCfg.Fields); signal {
+			case SignalLogs, SignalTraces:
+				sinkCfg.Fields[sinkOTelSignal] = signal
+				sinkCfg.Fields[sinkOTelTTLDays] = intField(sourceCfg.Fields, "ttl_days", 0)
+			}
+		}
+		sink := r.newSink()
+		if err := sink.Validate(sinkCfg); err != nil {
+			return nil, graphErr(b.Sink, "%v", err)
+		}
+		specs, err := transformSpecs(b.Chain)
+		if err != nil {
+			return nil, err
+		}
+		chain, err := transform.Compile(specs, opts)
+		if err != nil {
+			return nil, err
+		}
+		p.specs = append(p.specs, specs...)
+		p.sinks = append(p.sinks, &sinkPath{
+			nodeID: b.Sink.ID,
+			name:   sinkName(b.Sink, sinkCfg),
+			output: outputs[b.Handle],
+			chain:  chain,
+			sink:   sink,
+			cfg:    sinkCfg,
+		})
+	}
+	return p, nil
 }
 
 func (r *Runner) dataDir() string {
@@ -383,7 +438,7 @@ func (r *Runner) newHealth(rp *RunningPipeline) *Health {
 }
 
 // runPipeline is the main execution loop for a single pipeline.
-func (r *Runner) runPipeline(ctx context.Context, rp *RunningPipeline, source SourceConnector, sink SinkConnector, sourceCfg, sinkCfg ConnectorConfig) {
+func (r *Runner) runPipeline(ctx context.Context, rp *RunningPipeline, source SourceConnector, sourceCfg ConnectorConfig) {
 	defer func() {
 		if p := recover(); p != nil {
 			slog.Error("Pipeline finalize panicked", "pipeline", rp.PipelineID, "panic", p)
@@ -395,15 +450,18 @@ func (r *Runner) runPipeline(ctx context.Context, rp *RunningPipeline, source So
 	}()
 
 	sourceCfg.Health = r.newHealth(rp)
-	sinkCfg.Health = r.newHealth(rp)
-	runErr := r.execute(ctx, rp, source, sink, sourceCfg, sinkCfg)
+	rp.writeHealth = r.newHealth(rp)
+	for _, sp := range rp.sinks {
+		sp.cfg.Health = rp.writeHealth
+	}
+	runErr := r.execute(ctx, rp, source, sourceCfg)
 	r.finalize(rp, runErr)
 }
 
 // execute runs the source and writes its batches until the source ends or ctx
 // is cancelled. A panic in the pipeline is returned as an error so it fails
 // this pipeline only.
-func (r *Runner) execute(ctx context.Context, rp *RunningPipeline, source SourceConnector, sink SinkConnector, sourceCfg, sinkCfg ConnectorConfig) (runErr error) {
+func (r *Runner) execute(ctx context.Context, rp *RunningPipeline, source SourceConnector, sourceCfg ConnectorConfig) (runErr error) {
 	defer func() {
 		if p := recover(); p != nil {
 			slog.Error("Pipeline panicked", "pipeline", rp.PipelineID, "panic", p, "stack", string(debug.Stack()))
@@ -450,7 +508,7 @@ loop:
 				}
 			}
 			rp.sample.add(batch.Records)
-			r.writeWithRetry(ctx, rp, sink, sinkCfg, applyChain(rp.chain, batch))
+			r.writeWithRetry(ctx, rp, batch, rp.sinkBatches(batch))
 		}
 	}
 
@@ -470,70 +528,131 @@ loop:
 	}
 }
 
-// writeWithRetry writes one batch, retrying with exponential backoff until it
-// succeeds or ctx is cancelled. The batch is acked only after a successful
-// write; an unacked batch is re-read by the source on its next run.
+// sinkAttempt is one sink's progress on a batch. It survives retries, so a
+// sink that took its rows is not written again while another sink is
+// retried, and rows already isolated are not split again.
+type sinkAttempt struct {
+	done      bool
+	iso       *isolation
+	rows, dlq int
+}
+
+// writeWithRetry writes one source batch to every sink (parts holds each
+// sink's rows, see sinkBatches), retrying with exponential backoff until
+// every sink succeeded or ctx is cancelled. The batch is acked only after
+// every sink wrote its rows; an unacked batch is re-read by the source on
+// its next run, with the same dedup tokens, so a sink that already had its
+// rows drops the replay. A sink with no rows in the batch does no insert.
 //
-// When ClickHouse refuses the batch because of its data (a parse or type
-// error, see IsDataError) and the sink has a dead-letter table, the batch is
-// split to isolate the bad rows: good rows are inserted, bad rows go to the
-// dead-letter table, and the batch counts as written.
-func (r *Runner) writeWithRetry(ctx context.Context, rp *RunningPipeline, sink SinkConnector, cfg ConnectorConfig, batch Batch) {
+// When ClickHouse refuses a sink's rows because of their data (a parse or
+// type error, see IsDataError) and the sink has a dead-letter table, the
+// rows are split to isolate the bad ones: good rows are inserted, bad rows
+// go to that sink's dead-letter table, and the sink counts as written.
+func (r *Runner) writeWithRetry(ctx context.Context, rp *RunningPipeline, batch Batch, parts []Batch) {
 	backoff := minBackoff
-	dls, canDLQ := sink.(DeadLetterSink)
-	canDLQ = canDLQ && boolField(cfg.Fields, "dead_letter", true)
-	var iso *isolation
+	states := make([]sinkAttempt, len(rp.sinks))
 	for attempt := 1; ; attempt++ {
-		rows, dlq, err := 0, 0, error(nil)
-		if iso == nil {
-			rows, err = sink.WriteBatch(ctx, cfg, batch)
-			if err != nil && canDLQ && len(batch.Records) > 0 && IsDataError(err) && ctx.Err() == nil {
-				iso = newIsolation(len(batch.Records), err)
-				r.db.CreatePipelineRunLog(rp.RunID, "warn", fmt.Sprintf("ClickHouse refused a batch of %d rows because of its data; isolating the bad rows: %s", len(batch.Records), shortError(err)))
+		var failed error
+		var failedSink *sinkPath
+		for i, sp := range rp.sinks {
+			st := &states[i]
+			if st.done {
+				continue
 			}
+			if len(parts[i].Records) == 0 {
+				st.done = true
+				continue
+			}
+			if err := r.writeSink(ctx, rp, sp, st, parts[i]); err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				sp.stats.errors.Add(1)
+				rp.Metrics.ErrorsCount.Add(1)
+				if failed == nil {
+					failed, failedSink = err, sp
+				}
+				continue
+			}
+			st.done = true
 		}
-		if iso != nil {
-			err = iso.run(ctx, sink, dls, cfg, rp.PipelineID, batch)
-			rows, dlq = iso.rows, iso.dlq
-		}
-		if err == nil {
+		if failed == nil {
 			r.saveCheckpoint(rp, batch)
 			if batch.Ack != nil {
 				batch.Ack()
 			}
-			cfg.Health.OK()
-			if len(batch.Records) == 0 {
-				return // a checkpoint-only batch (e.g. an S3 file without records)
-			}
-			rp.Metrics.RowsIngested.Add(int64(rows))
-			rp.Metrics.BatchesSent.Add(1)
-			rp.Metrics.LastBatchAt.Store(time.Now())
-			for _, rec := range batch.Records {
-				rp.Metrics.BytesIngested.Add(int64(len(rec.RawJSON)))
-			}
-			if dlq > 0 {
-				rp.Metrics.DLQRows.Add(int64(dlq))
-				r.db.AddPipelineDLQRows(rp.PipelineID, int64(dlq))
-				dbName, table := dls.DeadLetterTable(cfg)
-				r.db.CreatePipelineRunLog(rp.RunID, "warn", fmt.Sprintf("%d of %d rows were refused and written to %s.%s", dlq, len(batch.Records), dbName, table))
-			}
-			if attempt > 1 {
-				r.db.CreatePipelineRunLog(rp.RunID, "info", fmt.Sprintf("Batch written after %d attempts", attempt))
-			}
+			rp.writeHealth.OK()
+			r.recordWrite(rp, parts, states, attempt)
 			return
 		}
-		if ctx.Err() != nil {
-			return
+		where, msg := "ClickHouse write", fmt.Sprintf("Write batch failed, retrying (source paused): %v", failed)
+		if len(rp.sinks) > 1 {
+			where = "ClickHouse write to " + failedSink.name
+			msg = fmt.Sprintf("Write to %s failed, retrying the batch (source paused): %v", failedSink.name, failed)
 		}
-		rp.Metrics.ErrorsCount.Add(1)
-		cfg.Health.Fail("ClickHouse write", err)
+		rp.writeHealth.Fail(where, failed)
 		if attempt == 1 {
-			r.db.CreatePipelineRunLog(rp.RunID, "error", fmt.Sprintf("Write batch failed, retrying (source paused): %v", err))
+			r.db.CreatePipelineRunLog(rp.RunID, "error", msg)
 		}
 		if !sleepCtx(ctx, backoff) {
 			return
 		}
 		backoff = nextBackoff(backoff)
+	}
+}
+
+// writeSink makes one attempt at writing a sink's rows.
+func (r *Runner) writeSink(ctx context.Context, rp *RunningPipeline, sp *sinkPath, st *sinkAttempt, batch Batch) error {
+	dls, canDLQ := sp.sink.(DeadLetterSink)
+	canDLQ = canDLQ && boolField(sp.cfg.Fields, "dead_letter", true)
+	if st.iso == nil {
+		rows, err := sp.sink.WriteBatch(ctx, sp.cfg, batch)
+		if err == nil {
+			st.rows = rows
+			return nil
+		}
+		if !canDLQ || !IsDataError(err) || ctx.Err() != nil {
+			return err
+		}
+		st.iso = newIsolation(len(batch.Records), err)
+		r.db.CreatePipelineRunLog(rp.RunID, "warn", fmt.Sprintf("ClickHouse refused a batch of %d rows because of its data; isolating the bad rows: %s", len(batch.Records), shortError(err)))
+	}
+	err := st.iso.run(ctx, sp.sink, dls, sp.cfg, rp.PipelineID, batch)
+	st.rows, st.dlq = st.iso.rows, st.iso.dlq
+	return err
+}
+
+// recordWrite counts a written batch per sink and for the pipeline.
+func (r *Runner) recordWrite(rp *RunningPipeline, parts []Batch, states []sinkAttempt, attempt int) {
+	now := time.Now()
+	wrote := false
+	for i, sp := range rp.sinks {
+		part, st := parts[i], states[i]
+		if len(part.Records) == 0 {
+			continue // a checkpoint-only batch (e.g. an S3 file without records)
+		}
+		wrote = true
+		sp.stats.rows.Add(int64(st.rows))
+		sp.stats.batches.Add(1)
+		sp.stats.lastWrite.Store(now)
+		rp.Metrics.RowsIngested.Add(int64(st.rows))
+		rp.Metrics.BatchesSent.Add(1)
+		for _, rec := range part.Records {
+			rp.Metrics.BytesIngested.Add(int64(len(rec.RawJSON)))
+		}
+		if st.dlq > 0 {
+			rp.Metrics.DLQRows.Add(int64(st.dlq))
+			r.db.AddPipelineDLQRows(rp.PipelineID, int64(st.dlq))
+			dbName, table := sp.sink.(DeadLetterSink).DeadLetterTable(sp.cfg)
+			r.db.CreatePipelineRunLog(rp.RunID, "warn", fmt.Sprintf("%d of %d rows were refused and written to %s.%s", st.dlq, len(part.Records), dbName, table))
+		}
+	}
+	if !wrote {
+		return
+	}
+	rp.Metrics.LastBatchAt.Store(now)
+	if attempt > 1 {
+		r.db.CreatePipelineRunLog(rp.RunID, "info", fmt.Sprintf("Batch written after %d attempts", attempt))
 	}
 }
 
@@ -600,32 +719,6 @@ func isSourceType(nodeType string) bool {
 		return true
 	}
 	return false
-}
-
-// FindSourceAndSink returns the single source and sink node of a graph.
-func FindSourceAndSink(nodes []database.PipelineNode) (*database.PipelineNode, *database.PipelineNode, error) {
-	var sourceNode, sinkNode *database.PipelineNode
-	for i := range nodes {
-		switch {
-		case isSourceType(nodes[i].NodeType):
-			if sourceNode != nil {
-				return nil, nil, fmt.Errorf("pipeline has multiple source nodes")
-			}
-			sourceNode = &nodes[i]
-		case nodes[i].NodeType == "sink_clickhouse":
-			if sinkNode != nil {
-				return nil, nil, fmt.Errorf("pipeline has multiple sink nodes")
-			}
-			sinkNode = &nodes[i]
-		}
-	}
-	if sourceNode == nil {
-		return nil, nil, fmt.Errorf("pipeline has no source node")
-	}
-	if sinkNode == nil {
-		return nil, nil, fmt.Errorf("pipeline has no sink node")
-	}
-	return sourceNode, sinkNode, nil
 }
 
 // parseNodeConfig unmarshals a node's stored config and decrypts its secrets.

@@ -80,6 +80,8 @@ func DeadLetterDDL(db, table string) string {
 
 // SinkCheck is one result of checking a sink before running it.
 type SinkCheck struct {
+	// NodeID names the sink when a pipeline has several.
+	NodeID string `json:"node_id,omitempty"`
 	Name   string `json:"name"`
 	Status string `json:"status"` // ok, warn or fail
 	Detail string `json:"detail"`

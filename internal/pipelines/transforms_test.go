@@ -63,7 +63,7 @@ func jsonCfg(s string) map[string]interface{} {
 	return m
 }
 
-func TestResolveChain(t *testing.T) {
+func TestResolveGraphLinear(t *testing.T) {
 	n := func(id, typ string) database.PipelineNode {
 		return database.PipelineNode{ID: id, NodeType: typ, Label: strings.ToUpper(id)}
 	}
@@ -83,21 +83,21 @@ func TestResolveChain(t *testing.T) {
 		{name: "duplicate edge counts once", nodes: []database.PipelineNode{src, snk}, edges: []database.PipelineEdge{e("s", "k"), e("s", "k")}, chain: []string{}},
 		{name: "two transforms in edge order", nodes: []database.PipelineNode{b, snk, a, src}, edges: []database.PipelineEdge{e("b", "k"), e("s", "a"), e("a", "b")}, chain: []string{"a", "b"}},
 		{name: "edge to a deleted node is ignored", nodes: []database.PipelineNode{src, snk}, edges: []database.PipelineEdge{e("s", "k"), e("s", "gone")}, chain: []string{}},
-		{name: "not connected", nodes: []database.PipelineNode{src, snk}, err: "source node is not connected to sink node"},
-		{name: "dangling transform", nodes: []database.PipelineNode{src, a, snk}, edges: []database.PipelineEdge{e("s", "k")}, err: `node "A" is not connected between the source and the sink`},
-		{name: "chain stops early", nodes: []database.PipelineNode{src, a, snk}, edges: []database.PipelineEdge{e("s", "a")}, err: `node "A" is not connected to anything downstream`},
-		{name: "branch", nodes: []database.PipelineNode{src, a, b, snk}, edges: []database.PipelineEdge{e("s", "a"), e("s", "b"), e("a", "k"), e("b", "k")}, err: `node "S" has more than one outgoing connection`},
-		{name: "merge", nodes: []database.PipelineNode{src, a, b, snk}, edges: []database.PipelineEdge{e("s", "a"), e("a", "k"), e("b", "k")}, err: `node "K" has more than one incoming connection`},
+		{name: "not connected", nodes: []database.PipelineNode{src, snk}, err: "S: not connected to a sink"},
+		{name: "dangling transform", nodes: []database.PipelineNode{src, a, snk}, edges: []database.PipelineEdge{e("s", "k")}, err: "A: not connected between the source and a sink"},
+		{name: "chain stops early", nodes: []database.PipelineNode{src, a, snk}, edges: []database.PipelineEdge{e("s", "a")}, err: "A: not connected to anything downstream"},
+		{name: "branch", nodes: []database.PipelineNode{src, a, b, snk}, edges: []database.PipelineEdge{e("s", "a"), e("s", "b"), e("a", "k"), e("b", "k")}, err: "S: more than one outgoing connection; only a Route node can branch"},
+		{name: "merge", nodes: []database.PipelineNode{src, a, b, snk}, edges: []database.PipelineEdge{e("s", "a"), e("a", "k"), e("b", "k")}, err: "K: more than one incoming connection"},
 		{name: "cycle", nodes: []database.PipelineNode{src, a, b, snk}, edges: []database.PipelineEdge{e("s", "a"), e("a", "b"), e("b", "a")}, err: `more than one incoming`},
-		{name: "self loop", nodes: []database.PipelineNode{src, a, snk}, edges: []database.PipelineEdge{e("s", "a"), e("a", "a")}, err: `node "A" has more than one incoming connection`},
-		{name: "into source", nodes: []database.PipelineNode{src, a, snk}, edges: []database.PipelineEdge{e("a", "s")}, err: `the source "S" cannot have incoming connections`},
-		{name: "out of sink", nodes: []database.PipelineNode{src, a, snk}, edges: []database.PipelineEdge{e("k", "a")}, err: `the sink "K" cannot have outgoing connections`},
-		{name: "unknown node type", nodes: []database.PipelineNode{src, n("x", "transform_route"), snk}, err: `node "X" has an unknown type "transform_route"`},
-		{name: "two sinks", nodes: []database.PipelineNode{src, snk, n("k2", "sink_clickhouse")}, err: "multiple sink"},
+		{name: "self loop", nodes: []database.PipelineNode{src, a, snk}, edges: []database.PipelineEdge{e("s", "a"), e("a", "a")}, err: "A: more than one incoming connection"},
+		{name: "into source", nodes: []database.PipelineNode{src, a, snk}, edges: []database.PipelineEdge{e("a", "s")}, err: "S: a source cannot have incoming connections"},
+		{name: "out of sink", nodes: []database.PipelineNode{src, a, snk}, edges: []database.PipelineEdge{e("k", "a")}, err: "K: a sink cannot have outgoing connections"},
+		{name: "unknown node type", nodes: []database.PipelineNode{src, n("x", "transform_join"), snk}, err: `X: unknown node type "transform_join"`},
+		{name: "two sinks", nodes: []database.PipelineNode{src, snk, n("k2", "sink_clickhouse")}, err: "K2: a pipeline with more than one sink needs a Route node"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, _, chain, err := ResolveChain(c.nodes, c.edges)
+			g, err := ResolveGraph(c.nodes, c.edges)
 			if c.err != "" {
 				if err == nil || !strings.Contains(err.Error(), c.err) {
 					t.Fatalf("err = %v, want %q", err, c.err)
@@ -107,8 +107,11 @@ func TestResolveChain(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if g.Route != nil || len(g.Branches) != 1 || g.Branches[0].Sink.ID != "k" || len(g.Branches[0].Chain) != 0 {
+				t.Fatalf("linear graph resolved as %+v", g)
+			}
 			got := []string{}
-			for _, n := range chain {
+			for _, n := range g.Shared {
 				got = append(got, n.ID)
 			}
 			if strings.Join(got, ",") != strings.Join(c.chain, ",") {

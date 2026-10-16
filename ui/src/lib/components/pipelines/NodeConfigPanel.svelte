@@ -4,6 +4,7 @@
   import { X, HelpCircle, Copy, Check, Shield, RefreshCw } from 'lucide-svelte'
   import SinkSchemaEditor from './SinkSchemaEditor.svelte'
   import { signalHint, usesOtelLayout } from '../../types/ingest'
+  import { clearNodeError, getNodeError } from './transforms/counters.svelte'
 
   interface Props {
     nodeId: string
@@ -17,13 +18,15 @@
     onInferSchema?: () => Promise<InferredSchema | null>
     /** Signal of the pipeline's ingest source, if it has one (for the sink hint). */
     sourceSignal?: string | null
+    /** Sinks: shown under an empty table name (a routed sink that did not get the OTel default). */
+    tableHint?: string
     /** Active ingest keys of this pipeline; null while unknown. */
     activeKeys?: number | null
     onManageKeys?: () => void
     onSendData?: () => void
   }
 
-  let { nodeId, nodeType, label, config, pipelineId, onUpdate, onClose, onInferSchema, sourceSignal = null, activeKeys = null, onManageKeys, onSendData }: Props = $props()
+  let { nodeId, nodeType, label, config, pipelineId, onUpdate, onClose, onInferSchema, sourceSignal = null, tableHint = '', activeKeys = null, onManageKeys, onSendData }: Props = $props()
 
 
   let copied = $state(false)
@@ -53,7 +56,10 @@
     }
   })
 
+  const nodeError = $derived(getNodeError(nodeId))
+
   function handleChange(key: string, value: unknown) {
+    clearNodeError(nodeId)
     localConfig = { ...localConfig, [key]: value }
     onUpdate(nodeId, localConfig, localLabel)
   }
@@ -136,6 +142,9 @@
 
   <!-- Form -->
   <div class="flex-1 overflow-auto p-3 space-y-3">
+    {#if nodeError}
+      <p class="rounded-md bg-danger-soft px-2.5 py-2 text-[12px] text-danger break-words">{nodeError}</p>
+    {/if}
     <!-- Label -->
     <div>
       <label for="node-label-input" class="block text-[11px] font-medium text-fg-3 uppercase tracking-wider mb-1">
@@ -184,6 +193,9 @@
             onfocus={(e) => { if (getFieldValue(field) === SECRET_MASK) (e.target as HTMLInputElement).select() }}
             class={inputClass}
           />
+          {#if field.key === 'table' && tableHint && !String(localConfig['table'] ?? '').trim()}
+            <p class="mt-1 text-[11px] text-fg-4">{tableHint}</p>
+          {/if}
           {#if field.type === 'password' && getFieldValue(field) === SECRET_MASK}
             <p class="mt-1 text-[11px] text-fg-4">Stored encrypted. Leave as is to keep it, or type a new value.</p>
           {/if}

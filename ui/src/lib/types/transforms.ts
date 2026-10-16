@@ -7,6 +7,7 @@ export type TransformNodeType =
   | 'transform_filter'
   | 'transform_sample'
   | 'transform_redact'
+  | 'transform_route'
 
 export const TRANSFORM_NODE_TYPES: { type: TransformNodeType; label: string; description: string; pro: boolean }[] = [
   { type: 'transform_parse', label: 'Parse', description: 'JSON, logfmt, regex, access logs, syslog', pro: false },
@@ -14,7 +15,11 @@ export const TRANSFORM_NODE_TYPES: { type: TransformNodeType; label: string; des
   { type: 'transform_filter', label: 'Filter', description: 'Keep or drop records by rules', pro: false },
   { type: 'transform_sample', label: 'Sample', description: 'Keep a share of records', pro: true },
   { type: 'transform_redact', label: 'Redact', description: 'Mask emails, IPs, tokens, cards', pro: true },
+  { type: 'transform_route', label: 'Route', description: 'Send records to several sinks', pro: true },
 ]
+
+/** Most transform nodes one pipeline may have, the Route node not counted. */
+export const MAX_TRANSFORMS = 20
 
 export function isTransformType(t: unknown): t is TransformNodeType {
   return TRANSFORM_NODE_TYPES.some((m) => m.type === t)
@@ -26,7 +31,12 @@ export function isProTransform(t: unknown): boolean {
 
 /** The server's message when a Pro transform runs without Pro. */
 export function proTransformMessage(t: TransformNodeType): string {
-  return t === 'transform_sample' ? 'Sampling needs CH-UI Pro' : t === 'transform_redact' ? 'Redaction needs CH-UI Pro' : ''
+  switch (t) {
+    case 'transform_sample': return 'Sampling needs CH-UI Pro'
+    case 'transform_redact': return 'Redaction needs CH-UI Pro'
+    case 'transform_route': return 'Routing needs CH-UI Pro'
+    default: return ''
+  }
 }
 
 export function transformLabel(t: TransformNodeType): string {
@@ -107,6 +117,44 @@ export interface RedactConfig {
   custom: CustomPattern[]
   fields: string[]
   replacement: string
+}
+
+export type RouteMode = 'first' | 'all'
+
+export interface RouteDef {
+  /** Stable id, the edge's source handle. */
+  id: string
+  name: string
+  match: MatchMode
+  rules: Rule[]
+}
+
+export interface RouteConfig {
+  mode: RouteMode
+  routes: RouteDef[]
+  /** Records matching no route: dropped, or sent on through the unmatched output. */
+  unmatched: 'drop' | 'output'
+}
+
+/** Source handle of the route node's unmatched output. */
+export const UNMATCHED_HANDLE = 'unmatched'
+export const ROUTE_MAX = 16
+export const ROUTE_NAME_MAX = 100
+export const ROUTE_ID_PATTERN = /^[a-z0-9_-]{1,32}$/
+
+/** The first free id of the form r1, r2, ... */
+export function nextRouteId(routes: { id: string }[]): string {
+  const used = new Set(routes.map((r) => r.id))
+  let n = 1
+  while (used.has(`r${n}`) || `r${n}` === UNMATCHED_HANDLE) n++
+  return `r${n}`
+}
+
+/** The outputs of a route node, in handle order: one per route, then unmatched when it is an output. */
+export function routeOutputs(c: RouteConfig): { handle: string; label: string }[] {
+  const out = c.routes.map((r) => ({ handle: r.id, label: r.name.trim() || r.id }))
+  if (c.unmatched === 'output') out.push({ handle: UNMATCHED_HANDLE, label: 'unmatched' })
+  return out
 }
 
 // ---- Option lists for the panels ----
@@ -203,6 +251,14 @@ export function defaultTransformConfig(type: TransformNodeType, signal?: string 
       const c: RedactConfig = { kinds: ['email', 'credit_card', 'jwt', 'bearer_token', 'aws_key'], custom: [], fields: [], replacement: DEFAULT_REPLACEMENT }
       return { ...c }
     }
+    case 'transform_route': {
+      const c: RouteConfig = {
+        mode: 'first',
+        routes: [{ id: 'r1', name: 'errors', match: 'any', rules: isOtelLogs(signal) ? [{ field: 'SeverityText', op: 'eq', value: 'ERROR' }] : [] }],
+        unmatched: 'output',
+      }
+      return { ...c }
+    }
   }
 }
 
@@ -288,6 +344,19 @@ export function readRedact(c: Record<string, unknown>): RedactConfig {
     custom: records(c.custom).map((r) => ({ name: str(r.name), pattern: str(r.pattern) })),
     fields: strings(c.fields),
     replacement: typeof c.replacement === 'string' ? c.replacement : DEFAULT_REPLACEMENT,
+  }
+}
+
+export function readRoute(c: Record<string, unknown>): RouteConfig {
+  return {
+    mode: oneOf(c.mode, ['first', 'all'] as const, 'first'),
+    routes: records(c.routes).map((r) => ({
+      id: str(r.id),
+      name: str(r.name),
+      match: oneOf(r.match, ['all', 'any'] as const, 'all'),
+      rules: readRules(r.rules),
+    })),
+    unmatched: oneOf(c.unmatched, ['drop', 'output'] as const, 'drop'),
   }
 }
 
@@ -426,6 +495,23 @@ export function transformProblems(type: TransformNodeType, config: Record<string
       })
       break
     }
+    case 'transform_route': {
+      const c = readRoute(config)
+      if (c.routes.length > ROUTE_MAX) out.push(`At most ${ROUTE_MAX} routes`)
+      const ids = new Set<string>()
+      const names = new Set<string>()
+      c.routes.forEach((r, i) => {
+        const n = r.name.trim() ? `Route ${r.name.trim()}` : `Route ${i + 1}`
+        if (r.name.length > ROUTE_NAME_MAX) out.push(`${n}: name is longer than ${ROUTE_NAME_MAX} characters`)
+        else if (names.has(r.name.trim())) out.push(`${n}: another route has this name`)
+        if (r.name.trim()) names.add(r.name.trim())
+        if (!ROUTE_ID_PATTERN.test(r.id) || r.id === UNMATCHED_HANDLE) out.push(`${n}: invalid id "${r.id}"`)
+        else if (ids.has(r.id)) out.push(`${n}: duplicate id "${r.id}"`)
+        ids.add(r.id)
+        out.push(...ruleProblems(r.rules, n))
+      })
+      break
+    }
   }
   return out
 }
@@ -444,6 +530,10 @@ export interface TransformCounters {
   out: number
   dropped: number
   errors: number
+  /** Route nodes: records sent through each output, unmatched included when it is an output. */
+  outputs?: { handle: string; out: number }[] | null
+  /** Route nodes: records that matched no route and were dropped. */
+  unmatched_dropped?: number
 }
 
 // ---- Preview API ----
@@ -457,6 +547,8 @@ export interface PreviewNode {
 export interface PreviewRequest {
   nodes: PreviewNode[]
   records?: Record<string, unknown>[]
+  /** Previewing a node after the route: the route output (handle) whose records go on. */
+  branch?: string
 }
 
 export interface PreviewError {
@@ -473,6 +565,10 @@ export interface PreviewStep {
   kept?: number[] | null
   /** Dropped records by index into this step's input, with the reason. */
   drops?: { index: number; reason: string }[] | null
+  /** Route step: input indexes sent through each output. */
+  routes?: { handle: string; kept: number[] }[] | null
+  /** Route step: input indexes that matched no route. */
+  unmatched?: number[] | null
 }
 
 export interface PreviewResponse {
