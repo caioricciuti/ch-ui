@@ -445,6 +445,15 @@ func AlertKey(id string) string {
 	return "sql:" + id
 }
 
+// View presents an alert: a failing alert reads as "error" whatever its
+// incident state, which is kept for when it runs again.
+func View(a database.SQLAlert) database.SQLAlert {
+	if a.ErrorCount > 0 {
+		a.State = "error"
+	}
+	return a
+}
+
 // incidentID names the incident of a firing or resolve: a firing starts one
 // at its own time; a resolve closes the one the last firing started.
 func incidentID(db *database.DB, id string, resolved bool, now time.Time) string {

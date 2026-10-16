@@ -511,6 +511,33 @@ func (db *DB) ListAlertEventsExcept(limit int, eventType, status string, exclude
 		where = append(where, "event_type != ?")
 		args = append(args, t)
 	}
+	return db.queryAlertEvents(where, args, limit)
+}
+
+// ListConnectionAlertEvents returns the newest events of one connection
+// created at or after since (RFC 3339 UTC, "" for no bound), without the
+// events of the excluded types. Events with no connection are left out.
+func (db *DB) ListConnectionAlertEvents(connectionID, since string, exclude []string, limit int) ([]AlertEvent, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	where := []string{"connection_id = ?"}
+	args := []interface{}{connectionID}
+	if since != "" {
+		where = append(where, "created_at >= ?")
+		args = append(args, since)
+	}
+	for _, t := range exclude {
+		where = append(where, "event_type != ?")
+		args = append(args, t)
+	}
+	return db.queryAlertEvents(where, args, limit)
+}
+
+func (db *DB) queryAlertEvents(where []string, args []interface{}, limit int) ([]AlertEvent, error) {
 	args = append(args, limit)
 
 	query := fmt.Sprintf(

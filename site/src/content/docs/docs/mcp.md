@@ -11,9 +11,8 @@ trail. No ClickHouse credentials on laptops, no extra process: it is the same
 `ch-ui` binary, serving streamable HTTP at `/mcp`.
 
 :::note
-The MCP server is part of the open-source core. Two tools,
-`query_insights_top` and `costs_summary`, only appear when a Pro license is
-active.
+The MCP server is part of the open-source core. The tools marked (Pro) in
+the [tool list](#tools) only appear when a Pro license is active.
 :::
 
 There are two ways to authenticate:
@@ -191,7 +190,8 @@ An MCP key binds three things:
   layer on top of ClickHouse grants, not a replacement for them. The Pro
   tools `query_insights_top` and `costs_summary` read `system.query_log`
   across every database, query text included, so a key with an allowlist
-  gets a clear refusal from them instead of data.
+  gets a clear refusal from them instead of data. `cluster_health` is
+  refused the same way: it aggregates system tables across all databases.
 
 Keys are bearer tokens with a `chm_` prefix. Only a SHA-256 hash is stored.
 There is no unauthenticated mode. Each key is limited to 120 requests per
@@ -231,15 +231,30 @@ the write-scope tools are `readOnlyHint: false, destructiveHint: false`
 | `run_saved_query` | Runs a saved query by `id` or `name`, with `params` for its bind parameters. Reports whether the query is **verified** |
 | `explain_query` | `EXPLAIN indexes = 1` plan for a SELECT |
 | `list_saved_queries` / `list_dashboards` / `list_models` / `list_pipelines` | What already exists on this connection, paginated (`page_size`, `cursor`) |
+| `query_history` | Queries this MCP client already ran on the connection, newest first. An API key sees only its own; an OAuth sign-in sees the person's MCP queries across refreshed tokens. Never editor history. `range` (default 7d), `status` ok or error, `limit` (default 50, max 500) |
 | `save_query` (write scope) | Saves a query to the shared library |
 | `create_dashboard` (write scope) | Dashboard with SQL panels, laid out automatically |
 | `create_model` (write scope) | Draft SQL model (view or table, `$ref()` supported) |
 | `create_pipeline` (write scope) | Draft pipeline: a Kafka, webhook, database or S3 source wired to a ClickHouse sink |
 | `query_insights_top` (Pro) | Top query patterns by p95 latency, memory or frequency. Refused for keys with a database allowlist |
 | `costs_summary` (Pro) | Cost Center spend summary with your configured rates. Refused for keys with a database allowlist |
+| `firing_alerts` (Pro) | Incidents open right now on the key's connection: firing health checks, firing SQL alerts, failing ingest pipelines, with severity, start time and acknowledgement |
+| `list_alerts` (Pro) | Health check thresholds with the nodes pending or firing, and the SQL alerts with state, last value and last run |
+| `alert_events` (Pro) | Alert events on the connection, newest first. `range` 1h, 6h, 24h (default), 7d or 30d; `limit` (default 50, max 500) |
+| `list_schedules` (Pro) | Scheduled query jobs that run on the connection, with last status and next run |
+| `list_reports` (Pro) | Your scheduled reports on the connection, with channels and last delivery status. OAuth sign-in only: reports belong to people, so an API key gets an empty list. No recipients |
+| `cluster_health` (Pro) | Live per-node replication, merges, mutations, parts pressure, long queries and disk usage. Refused for keys with a database allowlist |
 
 Paginated tools return `next_cursor` when more items exist; pass it back as
 `cursor`. Cursors are opaque.
+
+The operations tools show what a non-admin sees in the UI, for the key's
+connection only. Admin-only views (incident timeline, governance incidents,
+access drift, operations reports, audit log) are not exposed, nor are channel
+secrets or report recipients. For a key with a database allowlist, SQL alerts
+are listed only when their SQL reads tables inside the allowlist (written as
+`database.table`), alert events are limited to health checks and those SQL
+alerts, ingest incidents are left out, and job and report errors are omitted.
 
 `run_select` returns the rows, the column list with ClickHouse types, and the
 server's `rows_read` / `bytes_read`. With `format: csv` the rows come as an
