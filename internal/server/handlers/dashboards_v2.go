@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"io"
 	"log/slog"
 	"net/http"
@@ -46,7 +47,6 @@ func optionsQuerySettings() map[string]string {
 		"max_result_rows":      strconv.Itoa(dashboards.MaxOptions),
 		"result_overflow_mode": "break",
 		"max_execution_time":   "30",
-		"log_comment":          "ch-ui:dashboard-variable",
 	}
 }
 
@@ -358,7 +358,7 @@ func (h *DashboardsHandler) sessionTimezone(ctx context.Context, creds chCredent
 	if ok && time.Since(c.at) < sessionTimezoneTTL {
 		return c.tz
 	}
-	settings := map[string]string{"readonly": "1", "max_execution_time": "10", "log_comment": "ch-ui:dashboard-variable"}
+	settings := map[string]string{"readonly": "1", "max_execution_time": "10"}
 	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(ctx, creds.connectionID, "SELECT timezone() AS tz", creds.user, password, settings, 15*time.Second)
 	if err != nil || result == nil {
 		slog.Debug("Failed to read the ClickHouse session time zone", "error", err)
@@ -417,7 +417,7 @@ func (h *DashboardsHandler) sessionVariableValues(r *http.Request, session *midd
 	// when a panel needs them.
 	defs := dashboards.Needed(all, query)
 	run := func(v dashboards.Variable, parents map[string][]string, parentTypes map[string]string) ([]dashboards.Option, string, error) {
-		return h.runOptionsQuery(r.Context(), sessionCredentials(session), r.URL.Path, v, parents, parentTypes, timeRange)
+		return h.runOptionsQuery(tunnel.WithObjectTag(r.Context(), "dash", dashboardID), sessionCredentials(session), r.URL.Path, v, parents, parentTypes, timeRange)
 	}
 	values, types, err := dashboards.Resolve(defs, requested, false, run)
 	if err != nil {
@@ -458,7 +458,7 @@ func (h *DashboardsHandler) publicOptions(r *http.Request, share *database.Dashb
 		return nil, "", &statusError{http.StatusTooManyRequests, "Rate limit exceeded. Please slow down."}
 	}
 	status, payload := cache.do(key, func() (int, []byte) {
-		opts, all, err := h.runOptionsQuery(context.Background(), shareCredentials(share), r.URL.Path, v, used, usedTypes, timeRange)
+		opts, all, err := h.runOptionsQuery(publicShareContext(share), shareCredentials(share), r.URL.Path, v, used, usedTypes, timeRange)
 		if err != nil {
 			se := asStatusError(err)
 			if se.status == http.StatusBadGateway {

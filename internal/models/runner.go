@@ -1,6 +1,7 @@
 package models
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -303,12 +304,20 @@ func (r *Runner) execute(connectionID string, opts RunOptions, dag *DepGraph, id
 		}
 	}
 
+	// Tag every query of the run for system.query_log: the run and, when a
+	// person started it, who. The scheduler is not a person.
+	tag := tunnel.QueryTag{Surface: "model"}.WithObject("model_run", runID)
+	if opts.TriggeredBy != SchedulerTrigger {
+		tag.Person = opts.TriggeredBy
+	}
+	ctx := tunnel.WithTag(context.Background(), tag)
+
 	// Execute in topological order
 	exec := func(sql string) (*tunnel.QueryResult, error) {
-		return r.gateway.ExecuteQuery(connectionID, sql, user, password, 5*time.Minute)
+		return r.gateway.ExecuteQueryWithSettingsCtx(ctx, connectionID, sql, user, password, nil, 5*time.Minute)
 	}
 	readOnly := func(sql string) (*tunnel.QueryResult, error) {
-		return r.gateway.ExecuteQueryWithSettings(connectionID, sql, user, password, testSettings, 3*time.Minute)
+		return r.gateway.ExecuteQueryWithSettingsCtx(ctx, connectionID, sql, user, password, testSettings, 3*time.Minute)
 	}
 	failed := make(map[string]bool)
 	var succeeded, failedCount, skipped int

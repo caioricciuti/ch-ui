@@ -216,8 +216,9 @@ you, read-only, with no approval and for every role, viewers included:
 
 Every diagnostic statement carries its own `LIMIT` and, for `system.query_log`,
 its own time window, so it stays bounded even for users whose ClickHouse profile
-is read only (CH-UI's caps are dropped for them). CH-UI's own queries
-(`log_comment` `ch-ui:brain` and `ch-ui:query-insights`) are left out of the
+is read only (CH-UI's caps are dropped for them). Brain's own queries (the
+`brain` [query tag](/docs/query-insights#query-tags)) and Query Insights'
+introspection (`log_comment` `ch-ui:query-insights`) are left out of the
 numbers. When `system.query_log` is missing or not granted, Brain says so and
 suggests `GRANT SELECT ON system.query_log TO <user>`. The tools read the
 connected node only; on a cluster, Brain says the results are local-node only.
@@ -241,7 +242,7 @@ Tools that change the workspace need the **admin** or **analyst** role, the same
 
 ### Governance guardrails
 
-Every query Brain runs (`run_query`, `describe_table` and its sample, `get_insights`, telemetry tools, panel validation, and query result artifacts) goes through the same [governance policies](/docs/governance) as the SQL editor. A blocked query does not run; the model is told which policy blocked it. Queries you or Brain run land in your query history with source `brain`, and in `system.query_log` with `log_comment = 'ch-ui:brain'`.
+Every query Brain runs (`run_query`, `describe_table` and its sample, `get_insights`, telemetry tools, panel validation, and query result artifacts) goes through the same [governance policies](/docs/governance) as the SQL editor. A blocked query does not run; the model is told which policy blocked it. Queries you or Brain run land in your query history with source `brain`, and in `system.query_log` with the `brain` [query tag](/docs/query-insights#query-tags) naming you and the chat, for example `{"chui":"brain","person":"ana@example.com","object":"chat:8f2…"}`.
 
 ### Approval workflow
 

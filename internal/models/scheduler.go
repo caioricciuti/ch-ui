@@ -10,6 +10,9 @@ import (
 
 const modelTickInterval = 30 * time.Second
 
+// SchedulerTrigger is the TriggeredBy of runs the scheduler starts.
+const SchedulerTrigger = "scheduler"
+
 // InterruptedRunMessage is the error recorded on runs that were still running
 // when the process stopped.
 const InterruptedRunMessage = "interrupted by restart"
@@ -92,7 +95,7 @@ func (s *Scheduler) tick() {
 		// Run returns an error (a *RunFailedError, with the run recorded)
 		// when any model failed or was skipped, so a run with failures is
 		// never recorded as a success here.
-		runID, runErr := s.runner.Run(p.ConnectionID, RunOptions{Selector: p.Selector, PipelineID: p.ID, TriggeredBy: "scheduler"})
+		runID, runErr := s.runner.Run(p.ConnectionID, RunOptions{Selector: p.Selector, PipelineID: p.ID, TriggeredBy: SchedulerTrigger})
 		if runErr != nil {
 			status = "error"
 			runError = runErr.Error()

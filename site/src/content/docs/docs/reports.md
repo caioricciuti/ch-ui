@@ -61,7 +61,7 @@ CSV cells that start with `=`, `+`, `-` or `@` get a leading apostrophe so sprea
 
 ## How runs work
 
-- Every query runs with `readonly=1`, `max_execution_time`, `max_result_rows` and `max_result_bytes` with `result_overflow_mode=break`, and `log_comment=ch-ui:report`, so report queries are easy to find in `system.query_log`. Governance guardrails are evaluated first, as for SQL alerts; a blocked query fails the run.
+- Every query runs with `readonly=1`, `max_execution_time`, `max_result_rows` and `max_result_bytes` with `result_overflow_mode=break`, and the `report` [query tag](/docs/query-insights#query-tags) in `log_comment` (`{"chui":"report","person":"<creator>","object":"report:<id>"}`), so report queries are easy to find in `system.query_log`. Governance guardrails are evaluated first, as for SQL alerts; a blocked query fails the run.
 - At most 3 report runs execute at once, scheduled and manual together. **Send now** answers `429` when all are busy.
 - A run renders one snapshot. Each channel is sent that snapshot; a failed send is retried up to 5 times (after 1, 5, 15 and 30 minutes) from the same snapshot, never by running the query again.
 - If the query fails, nothing is sent, the run is recorded as failed and a `report.failed` alert event goes through your alert rules (fingerprint `report:<id>:error`). The next attempt is the next slot.

@@ -157,8 +157,8 @@ func (h *GovernanceHandler) getCredentials(r *http.Request) (*governance.CHCrede
 	}, nil
 }
 
-func (h *GovernanceHandler) executeClickHouseSQL(creds *governance.CHCredentials, sql string) error {
-	_, err := h.Gateway.ExecuteQuery(creds.ConnectionID, sql, creds.User, creds.Password, 30*time.Second)
+func (h *GovernanceHandler) executeClickHouseSQL(ctx context.Context, creds *governance.CHCredentials, sql string) error {
+	_, err := h.Gateway.ExecuteQueryWithSettingsCtx(ctx, creds.ConnectionID, sql, creds.User, creds.Password, nil, 30*time.Second)
 	if err != nil {
 		return fmt.Errorf("execute clickhouse query: %w", err)
 	}
@@ -477,7 +477,7 @@ func (h *GovernanceHandler) UpdateTableComment(w http.ResponseWriter, r *http.Re
 		safe.Identifier(tableName),
 		safe.Literal(body.Comment),
 	)
-	if err := h.executeClickHouseSQL(creds, sql); err != nil {
+	if err := h.executeClickHouseSQL(r.Context(), creds, sql); err != nil {
 		slog.Error("Failed to update table comment", "connection", session.ConnectionID, "db", dbName, "table", tableName, "error", err)
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -531,7 +531,7 @@ func (h *GovernanceHandler) UpdateColumnComment(w http.ResponseWriter, r *http.R
 		safe.Identifier(columnName),
 		safe.Literal(body.Comment),
 	)
-	if err := h.executeClickHouseSQL(creds, sql); err != nil {
+	if err := h.executeClickHouseSQL(r.Context(), creds, sql); err != nil {
 		slog.Error("Failed to update column comment", "connection", session.ConnectionID, "db", dbName, "table", tableName, "column", columnName, "error", err)
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -1060,7 +1060,7 @@ func (h *GovernanceHandler) CreateChUser(w http.ResponseWriter, r *http.Request)
 
 	// Plain CREATE USER (if_not_exists is ignored): an existing account must
 	// not silently receive the requested roles.
-	if err := h.executeClickHouseSQL(creds, buildCreateChUserSQL(name, authType, body.Password)); err != nil {
+	if err := h.executeClickHouseSQL(r.Context(), creds, buildCreateChUserSQL(name, authType, body.Password)); err != nil {
 		if isAccessEntityExistsError(err) {
 			writeError(w, http.StatusConflict, fmt.Sprintf("ClickHouse user %q already exists", name))
 			return
@@ -1078,7 +1078,7 @@ func (h *GovernanceHandler) CreateChUser(w http.ResponseWriter, r *http.Request)
 	}
 	if len(escapedRoles) > 0 {
 		grantSQL := "GRANT " + strings.Join(escapedRoles, ", ") + " TO " + safe.Identifier(name)
-		if err := h.executeClickHouseSQL(creds, grantSQL); err != nil {
+		if err := h.executeClickHouseSQL(r.Context(), creds, grantSQL); err != nil {
 			slog.Error("ClickHouse user created but role grant failed", "connection", session.ConnectionID, "name", name, "error", err)
 			writeError(w, http.StatusBadGateway, fmt.Sprintf("user created but failed to grant roles: %v", err))
 			return
@@ -1090,7 +1090,7 @@ func (h *GovernanceHandler) CreateChUser(w http.ResponseWriter, r *http.Request)
 			defaultRoleClause = strings.Join(escapedRoles, ", ")
 		}
 		alterSQL := "ALTER USER " + safe.Identifier(name) + " DEFAULT ROLE " + defaultRoleClause
-		if err := h.executeClickHouseSQL(creds, alterSQL); err != nil {
+		if err := h.executeClickHouseSQL(r.Context(), creds, alterSQL); err != nil {
 			slog.Error("ClickHouse user created but default role assignment failed", "connection", session.ConnectionID, "name", name, "error", err)
 			writeError(w, http.StatusBadGateway, fmt.Sprintf("user created but failed to set default role: %v", err))
 			return
@@ -1152,7 +1152,7 @@ func (h *GovernanceHandler) DeleteChUser(w http.ResponseWriter, r *http.Request)
 	}
 	sql += safe.Identifier(name)
 
-	if err := h.executeClickHouseSQL(creds, sql); err != nil {
+	if err := h.executeClickHouseSQL(r.Context(), creds, sql); err != nil {
 		slog.Error("Failed to delete ClickHouse user", "connection", session.ConnectionID, "name", name, "error", err)
 		writeError(w, http.StatusBadGateway, err.Error())
 		return

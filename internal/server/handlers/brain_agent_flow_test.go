@@ -410,8 +410,8 @@ func TestBrainToolResultCappedForModel(t *testing.T) {
 	if len(hist) != 1 || hist[0].Source != "brain" {
 		t.Errorf("want one brain history entry, got %+v", hist)
 	}
-	if s := rg.agent.Messages(); len(s) == 0 || s[len(s)-1].Settings["log_comment"] != "ch-ui:brain" {
-		t.Error("Brain queries should carry log_comment ch-ui:brain")
+	if s := rg.agent.Messages(); len(s) == 0 || !strings.HasPrefix(s[len(s)-1].Settings["log_comment"], `{"chui":"brain","person":"alice","object":"chat:`) {
+		t.Errorf("Brain queries should carry the brain tag with the person and chat, got %q", s[len(s)-1].Settings["log_comment"])
 	}
 }
 

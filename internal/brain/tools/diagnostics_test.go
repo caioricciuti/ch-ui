@@ -67,7 +67,7 @@ var (
 	formatClause = regexp.MustCompile(`(?i)\bFORMAT\s+\w+`)
 	eventDateRE  = regexp.MustCompile(`event_date >= toDate\(now\(\) - INTERVAL \d+ (HOUR|DAY)\)`)
 	eventTimeRE  = regexp.MustCompile(`event_time >= now\(\) - INTERVAL \d+ (HOUR|DAY)`)
-	excludeBrain = "log_comment NOT IN ('ch-ui:brain', 'ch-ui:query-insights')"
+	excludeBrain = "log_comment NOT IN ('ch-ui:query-insights')\n  AND NOT startsWith(log_comment, '{\"chui\":\"brain\"')"
 )
 
 func assertDiagShape(t *testing.T, name, sql string, queryLog bool) {

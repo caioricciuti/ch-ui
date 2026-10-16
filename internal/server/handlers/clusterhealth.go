@@ -6,6 +6,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -106,7 +107,7 @@ func (h *ClusterHealthHandler) execWith(cs chSession, sql string, extra map[stri
 	for k, v := range extra {
 		settings[k] = v
 	}
-	result, err := h.Gateway.ExecuteQueryWithSettings(cs.connID, sql, cs.user, cs.password, settings, clusterHealthQueryTimeout)
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(context.Background(), cs.connID, sql, cs.user, cs.password, settings, clusterHealthQueryTimeout)
 	if err != nil {
 		return nil, err
 	}

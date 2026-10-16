@@ -23,9 +23,6 @@ import (
 )
 
 const (
-	// LogComment tags every SQL alert query in system.query_log.
-	LogComment = "ch-ui:sql-alert"
-
 	// RowLimit is the LIMIT every alert query is wrapped in. Rows mode
 	// counts at most this many rows.
 	RowLimit = 101
@@ -101,7 +98,8 @@ func WrapSQL(sql string) string {
 // QuerySettings are sent with every alert query. readonly=1 refuses writes
 // and any setting change inside the SQL. A user whose profile is already
 // read only refuses the other settings; the gateway then drops them, and
-// the LIMIT wrap still bounds the result.
+// the LIMIT wrap still bounds the result. The log_comment comes from the
+// query tag on the context (see QueryTag).
 func QuerySettings(timeoutSeconds int) map[string]string {
 	return map[string]string{
 		"readonly":           "1",
@@ -109,7 +107,6 @@ func QuerySettings(timeoutSeconds int) map[string]string {
 		"max_memory_usage":   strconv.Itoa(maxMemoryUsage),
 		"max_threads":        strconv.Itoa(maxThreads),
 		"max_result_bytes":   strconv.Itoa(maxResultBytes),
-		"log_comment":        LogComment,
 	}
 }
 

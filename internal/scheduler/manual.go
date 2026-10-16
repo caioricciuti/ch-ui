@@ -6,6 +6,7 @@
 package scheduler
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -27,7 +28,9 @@ type ManualResult struct {
 // and records it like a scheduled run: a run row, the schedule's last
 // status and its next run. The caller picks the connection and the
 // credentials (the person or MCP key asking) and writes its own audit row.
-func RunNow(db *database.DB, gw *tunnel.Gateway, schedule *database.Schedule, query, connectionID, user, password string) ManualResult {
+// ctx carries the caller's query tag, refined with the schedule, and its
+// cancellation.
+func RunNow(ctx context.Context, db *database.DB, gw *tunnel.Gateway, schedule *database.Schedule, query, connectionID, user, password string) ManualResult {
 	timeout := time.Duration(schedule.TimeoutMs) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 60 * time.Second
@@ -39,7 +42,8 @@ func RunNow(db *database.DB, gw *tunnel.Gateway, schedule *database.Schedule, qu
 	}
 
 	start := time.Now()
-	result, execErr := gw.ExecuteQuery(connectionID, query, user, password, timeout)
+	ctx = tunnel.WithObjectTag(ctx, "schedule", schedule.ID)
+	result, execErr := gw.ExecuteQueryWithSettingsCtx(ctx, connectionID, query, user, password, nil, timeout)
 	out := ManualResult{RunID: runID, Status: "success", ElapsedMs: time.Since(start).Milliseconds()}
 	if execErr != nil {
 		out.Status = "error"

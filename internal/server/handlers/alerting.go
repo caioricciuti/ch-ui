@@ -420,7 +420,7 @@ func (h *AlertingHandler) TestSQLAlert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	res, err := h.runner().Run(session.ConnectionID, c, in.SQL, mode, comparator, in.Threshold, timeout)
+	res, err := h.runner().Run(r.Context(), session.ConnectionID, c, in.SQL, mode, comparator, in.Threshold, timeout)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -458,7 +458,8 @@ func (h *AlertingHandler) RunSQLAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !canRecordRun(session, existing) {
-		res, err := h.runner().Run(existing.ConnectionID, c, existing.SQL, existing.Mode, existing.Comparator, existing.Threshold, existing.TimeoutSeconds)
+		ctx := tunnel.WithObjectTag(r.Context(), "alert", existing.ID)
+		res, err := h.runner().Run(ctx, existing.ConnectionID, c, existing.SQL, existing.Mode, existing.Comparator, existing.Threshold, existing.TimeoutSeconds)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, err.Error())
 			return

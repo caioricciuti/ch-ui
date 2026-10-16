@@ -33,6 +33,7 @@ func (s *ClickHouseSink) WriteDeadLetters(ctx context.Context, cfg ConnectorConf
 		return fmt.Errorf("find credentials: %w", err)
 	}
 	db, table := s.DeadLetterTable(cfg)
+	ctx = queryCtx(ctx, pipelineID)
 
 	s.tableMu.Lock()
 	if !s.dlqCreated {
@@ -106,6 +107,7 @@ func (s *ClickHouseSink) Check(ctx context.Context, cfg ConnectorConfig) []SinkC
 		who = "the pipeline account"
 	}
 	checks := []SinkCheck{{Name: "Credentials", Status: "ok", Detail: "Writes run as " + who}}
+	ctx = queryCtx(ctx, pipelineIDOf(cfg))
 
 	run := func(sql string, params map[string]string) ([]map[string]interface{}, error) {
 		res, err := s.gateway.ExecuteQueryWithSettingsCtx(ctx, connectionID, sql, user, password, params, checkTimeout)

@@ -6,6 +6,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -83,7 +84,7 @@ func (h *QueryInsightsHandler) session(w http.ResponseWriter, r *http.Request) (
 // can exclude exactly our own introspection queries from the numbers.
 func (h *QueryInsightsHandler) exec(cs chSession, sql string, timeout time.Duration) ([]map[string]interface{}, error) {
 	settings := map[string]string{"log_comment": queryinsights.LogComment}
-	result, err := h.Gateway.ExecuteQueryWithSettings(cs.connID, sql, cs.user, cs.password, settings, timeout)
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(context.Background(), cs.connID, sql, cs.user, cs.password, settings, timeout)
 	if err != nil {
 		return nil, err
 	}
