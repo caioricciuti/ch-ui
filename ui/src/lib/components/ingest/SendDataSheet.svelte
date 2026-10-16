@@ -11,7 +11,7 @@
   import IngestSecret from './IngestSecret.svelte'
   import { listPipelines } from '../../api/pipelines'
   import { createIngestKey, getIngestInfo } from '../../api/ingest'
-  import { buildSnippet, isIngestSignal, shippersFor, snippetFile, usesOtelLayout, KEY_PLACEHOLDER, type IngestSignal, type Shipper } from '../../types/ingest'
+  import { buildSnippet, isIngestSignal, shipperApisFor, shippersFor, snippetFile, usesOtelLayout, KEY_PLACEHOLDER, type IngestSignal, type Shipper, type ShipperApi } from '../../types/ingest'
   import type { PipelineStatus } from '../../types/pipelines'
   import { pushPipelineList } from '../../stores/router.svelte'
   import { getSession } from '../../stores/session.svelte'
@@ -41,8 +41,11 @@
   let loading = $state(false)
   let error = $state('')
   let baseUrl = $state('')
+  let esUrl = $state('')
+  let hecUrl = $state('')
   let pipelines = $state<IngestPipeline[]>([])
   let selectedId = $state('')
+  let api = $state<ShipperApi>('native')
   let shipper = $state<Shipper>('collector')
   /** Keys created in this sheet, per pipeline; never stored anywhere else. */
   let secrets = $state<Record<string, { name: string; secret: string }>>({})
@@ -52,10 +55,11 @@
 
   const canWrite = $derived((getSession()?.role ?? 'viewer') !== 'viewer')
   const selected = $derived(pipelines.find((p) => p.id === selectedId) ?? null)
-  const shippers = $derived(selected ? shippersFor(selected.signal) : [])
+  const apis = $derived(selected ? shipperApisFor(selected.signal) : [])
+  const shippers = $derived(selected ? shippersFor(selected.signal, api) : [])
   const created = $derived(selected ? secrets[selected.id] ?? null : null)
   const snippet = $derived(
-    selected && baseUrl ? buildSnippet({ baseUrl, signal: selected.signal, shipper, key: created?.secret }) : '',
+    selected && baseUrl ? buildSnippet({ baseUrl, esUrl, hecUrl, signal: selected.signal, shipper, key: created?.secret }) : '',
   )
   const pipelineOptions = $derived(pipelines.map((p) => ({ value: p.id, label: `${p.name} (${p.signal})` })))
 
@@ -63,7 +67,10 @@
     if (open) void load()
   })
 
-  // Keep the shipper valid for the selected signal.
+  // Keep the API and the shipper valid for the selected signal.
+  $effect(() => {
+    if (apis.length && !apis.some((a) => a.id === api)) api = apis[0].id
+  })
   $effect(() => {
     if (shippers.length && !shippers.some((s) => s.id === shipper)) shipper = shippers[0].id
   })
@@ -74,6 +81,8 @@
     try {
       const [info, list] = await Promise.all([getIngestInfo(), listPipelines()])
       baseUrl = info.base_url
+      esUrl = info.es_url ?? ''
+      hecUrl = info.hec_url ?? ''
       pipelines = (list.pipelines ?? [])
         .filter((p) => p.source_type === 'source_ingest')
         .map((p) => ({ id: p.id, name: p.name, status: p.status, signal: isIngestSignal(p.signal) ? p.signal : 'logs' }))
@@ -160,7 +169,15 @@
       </div>
 
       <div class="space-y-2">
+        {#if apis.length > 1}
+          <Tabs variant="segmented" size="sm" items={apis} value={api} onchange={(id) => (api = id as ShipperApi)} />
+        {/if}
         <Tabs variant="segmented" size="sm" items={shippers} value={shipper} onchange={(id) => (shipper = id as Shipper)} />
+        {#if api === 'elasticsearch'}
+          <p class="text-xs text-fg-3">CH-UI answers the Elasticsearch bulk API and the calls shippers make at startup. Keep template and ILM setup off; update and delete actions are refused.</p>
+        {:else if api === 'splunk'}
+          <p class="text-xs text-fg-3">The key is the HEC token. Fluent Bit's splunk output and Docker's splunk driver need the separate ingest port, which serves HEC at the root.</p>
+        {/if}
         <div class="relative">
           <p class="mb-1 font-mono text-[11px] text-fg-4">{snippetFile(shipper)}</p>
           <pre class="overflow-x-auto whitespace-pre rounded-md bg-surface-2 p-3 pr-10 font-mono text-xs leading-relaxed text-fg-2">{snippet}</pre>

@@ -41,6 +41,10 @@ export interface IngestStats {
 
 export interface IngestInfo {
   base_url: string
+  /** Host for Elasticsearch outputs: base_url plus /es. */
+  es_url?: string
+  /** Splunk HEC collector URL: base_url plus /services/collector. */
+  hec_url?: string
   signals: IngestSignal[]
   separate_listener: boolean
 }
@@ -84,7 +88,22 @@ export function formatAge(ms: number): string {
 
 // ── Shipper snippets ─────────────────────────────────────────
 
-export type Shipper = 'collector' | 'sdk' | 'vector' | 'fluentbit' | 'curl'
+export type Shipper =
+  | 'collector'
+  | 'sdk'
+  | 'vector'
+  | 'fluentbit'
+  | 'curl'
+  | 'filebeat'
+  | 'logstash'
+  | 'fluentbit-es'
+  | 'vector-es'
+  | 'vector-hec'
+  | 'otel-hec'
+  | 'curl-hec'
+
+/** The API a shipper speaks: CH-UI's own (OTLP, events), Elasticsearch bulk or Splunk HEC. */
+export type ShipperApi = 'native' | 'elasticsearch' | 'splunk'
 
 export const KEY_PLACEHOLDER = '<YOUR_KEY>'
 
@@ -94,12 +113,44 @@ const SHIPPER_LABELS: Record<Shipper, string> = {
   vector: 'Vector',
   fluentbit: 'Fluent Bit',
   curl: 'curl',
+  filebeat: 'Filebeat',
+  logstash: 'Logstash',
+  'fluentbit-es': 'Fluent Bit',
+  'vector-es': 'Vector',
+  'vector-hec': 'Vector',
+  'otel-hec': 'OpenTelemetry Collector',
+  'curl-hec': 'curl',
 }
 
-/** Shippers that can send a signal. Vector has no reliable OTLP encoder, so it only sends events. */
-export function shippersFor(signal: IngestSignal): { id: Shipper; label: string }[] {
-  const ids: Shipper[] = signal === 'events' ? ['vector', 'fluentbit', 'curl'] : ['collector', 'sdk', 'fluentbit', 'curl']
+const API_LABELS: Record<ShipperApi, string> = {
+  native: 'OTLP and JSON',
+  elasticsearch: 'Elasticsearch',
+  splunk: 'Splunk HEC',
+}
+
+/** Shippers that can send a signal, on CH-UI's own endpoints. Vector has no reliable OTLP encoder, so it only sends events. */
+export function shippersFor(signal: IngestSignal, api: ShipperApi = 'native'): { id: Shipper; label: string }[] {
+  let ids: Shipper[]
+  if (api === 'elasticsearch') ids = signal === 'traces' ? [] : ['filebeat', 'logstash', 'fluentbit-es', 'vector-es']
+  else if (api === 'splunk') ids = signal === 'traces' ? [] : ['vector-hec', 'otel-hec', 'curl-hec']
+  else ids = signal === 'events' ? ['vector', 'fluentbit', 'curl'] : ['collector', 'sdk', 'fluentbit', 'curl']
   return ids.map((id) => ({ id, label: SHIPPER_LABELS[id] }))
+}
+
+/** APIs a signal can be sent over. Traces only go over OTLP. */
+export function shipperApisFor(signal: IngestSignal): { id: ShipperApi; label: string }[] {
+  const ids: ShipperApi[] = signal === 'traces' ? ['native'] : ['native', 'elasticsearch', 'splunk']
+  return ids.map((id) => ({ id, label: API_LABELS[id] }))
+}
+
+/** Elasticsearch output host: the ingest base plus /es. */
+export function esEndpoint(base: string): string {
+  return `${normalizeBaseUrl(base)}/es`
+}
+
+/** Splunk HEC collector URL: the ingest base plus /services/collector. */
+export function hecEndpoint(base: string): string {
+  return `${normalizeBaseUrl(base)}/services/collector`
 }
 
 /** Base URL without a trailing slash. */
@@ -244,10 +295,136 @@ function curl(base: string, signal: IngestSignal, key: string, now: Date): strin
   return lines.join('\n')
 }
 
-/** A ready-to-paste config for one shipper. The key falls back to the placeholder. */
-export function buildSnippet(opts: { baseUrl: string; signal: IngestSignal; shipper: Shipper; key?: string; now?: Date }): string {
+function filebeat(base: string, key: string): string {
+  const { host, port, tls, path } = hostParts(base)
+  return [
+    'output.elasticsearch:',
+    `  hosts: ["${host}:${port}"]`,
+    `  protocol: ${tls ? 'https' : 'http'}`,
+    `  path: ${path}/es`,
+    '  username: chui',
+    `  password: ${key}`,
+    `  # or: api_key: "chui:${key}"`,
+    '',
+    'setup.ilm.enabled: false',
+    'setup.template.enabled: false',
+    '',
+  ].join('\n')
+}
+
+function logstash(base: string, key: string): string {
+  const { host, port, tls, path } = hostParts(base)
+  return [
+    'output {',
+    '  elasticsearch {',
+    `    hosts => ["${tls ? 'https' : 'http'}://${host}:${port}${path}/es"]`,
+    '    user => "chui"',
+    `    password => "${key}"`,
+    '    ilm_enabled => false',
+    '    manage_template => false',
+    '    data_stream => false',
+    '    index => "logstash-%{+yyyy.MM.dd}"',
+    '  }',
+    '}',
+    '',
+  ].join('\n')
+}
+
+function fluentbitES(base: string, key: string): string {
+  const { host, port, tls, path } = hostParts(base)
+  const kv = (k: string, v: string | number) => `    ${k.padEnd(19)}${v}`
+  return [
+    '[OUTPUT]',
+    kv('Name', 'es'),
+    kv('Match', '*'),
+    kv('Host', host),
+    kv('Port', port),
+    kv('Tls', tls ? 'On' : 'Off'),
+    kv('Path', `${path}/es`),
+    kv('HTTP_User', 'chui'),
+    kv('HTTP_Passwd', key),
+    kv('Suppress_Type_Name', 'On'),
+    kv('Logstash_Format', 'On'),
+    '',
+  ].join('\n')
+}
+
+function tomlString(s: string): string {
+  return JSON.stringify(s)
+}
+
+function vectorES(esUrl: string, key: string): string {
+  return [
+    '[sinks.chui]',
+    'type = "elasticsearch"',
+    'inputs = ["app"]',
+    `endpoints = [${tomlString(esUrl)}]`,
+    'api_version = "v8"',
+    'mode = "bulk"',
+    'compression = "gzip"',
+    'auth.strategy = "basic"',
+    'auth.user = "chui"',
+    `auth.password = ${tomlString(key)}`,
+    '',
+  ].join('\n')
+}
+
+function vectorHEC(base: string, key: string): string {
+  return [
+    '[sinks.chui]',
+    'type = "splunk_hec_logs"',
+    'inputs = ["app"]',
+    `endpoint = ${tomlString(normalizeBaseUrl(base))}`,
+    `default_token = ${tomlString(key)}`,
+    'encoding.codec = "json"',
+    'compression = "gzip"',
+    'acknowledgements.indexer_acknowledgements_enabled = false',
+    '',
+  ].join('\n')
+}
+
+function otelHEC(hecUrl: string, key: string): string {
+  return [
+    'exporters:',
+    '  splunk_hec:',
+    `    endpoint: ${hecUrl}`,
+    `    token: ${key}`,
+    '',
+  ].join('\n')
+}
+
+function curlHEC(hecUrl: string, key: string): string {
+  const body =
+    '{"time": 1792152000.25, "host": "web-1", "sourcetype": "app", "event": "user signed in", "fields": {"env": "prod"}}' +
+    '{"event": {"message": "payment failed", "level": "error"}}'
+  return [
+    `curl ${shellQuote(hecUrl)} \\`,
+    `  -H ${shellQuote(`Authorization: Splunk ${key}`)} \\`,
+    `  -d ${shellQuote(body)}`,
+    '',
+  ].join('\n')
+}
+
+/** A ready-to-paste config for one shipper. The key falls back to the placeholder; esUrl and hecUrl default from baseUrl. */
+export function buildSnippet(opts: { baseUrl: string; esUrl?: string; hecUrl?: string; signal: IngestSignal; shipper: Shipper; key?: string; now?: Date }): string {
   const key = opts.key?.trim() || KEY_PLACEHOLDER
+  const esUrl = opts.esUrl ? normalizeBaseUrl(opts.esUrl) : esEndpoint(opts.baseUrl)
+  const hecUrl = opts.hecUrl ? normalizeBaseUrl(opts.hecUrl) : hecEndpoint(opts.baseUrl)
   switch (opts.shipper) {
+    case 'filebeat':
+      return filebeat(opts.baseUrl, key)
+    case 'logstash':
+      return logstash(opts.baseUrl, key)
+    case 'fluentbit-es':
+      return fluentbitES(opts.baseUrl, key)
+    case 'vector-es':
+      return vectorES(esUrl, key)
+    case 'vector-hec':
+      return vectorHEC(opts.baseUrl, key)
+    case 'otel-hec':
+      return otelHEC(hecUrl, key)
+    case 'curl-hec':
+      return curlHEC(hecUrl, key)
     case 'collector':
       return collector(opts.baseUrl, opts.signal, key)
     case 'sdk':
@@ -273,7 +450,19 @@ export function snippetFile(shipper: Shipper): string {
     case 'fluentbit':
       return 'fluent-bit.conf'
     case 'curl':
+    case 'curl-hec':
       return 'shell'
+    case 'filebeat':
+      return 'filebeat.yml'
+    case 'logstash':
+      return 'logstash.conf'
+    case 'fluentbit-es':
+      return 'fluent-bit.conf'
+    case 'vector-es':
+    case 'vector-hec':
+      return 'vector.toml'
+    case 'otel-hec':
+      return 'otel-collector.yaml'
   }
 }
 
