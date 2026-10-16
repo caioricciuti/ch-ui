@@ -25,7 +25,7 @@ Open Source includes the full workspace, running on your own infrastructure:
 - [Sink table layouts](/docs/pipelines#table-layouts): custom from data, wide events, OpenTelemetry logs and traces
 - Brain AI chat (bring your own key), with skills and artifacts
 - Telemetry logs, sources, and saved searches
-- The MCP server for AI clients (tools, write tools, OAuth, API keys)
+- The MCP server for AI clients (read tools, write tools, lifecycle actions, OAuth, API keys)
 - The admin panel: users, roles, ClickHouse users, connections (including multiple connections), tunnel agents, Brain providers and skills, retention. These need the admin role, not Pro.
 - The command palette (actions, tables, tabs) and the tunnel connector
 
@@ -46,7 +46,7 @@ The **Pro License** unlocks the full Pro module set on top of the Open Source co
 - **[Weekly operations reports](/docs/operations-reports)**: saved weekly summaries, optionally emailed through your alert channels
 - **[Telemetry depth](/docs/telemetry)**: traces with waterfalls, the metrics explorer, the service map, and monitors that raise alerts (logs stay in the open-source core)
 - **[Pipeline Sample, Redact and Route](/docs/pipelines#pro-nodes)**: deterministic sampling, redaction of emails, IPs, card numbers, tokens and custom patterns, and routing one pipeline to up to 8 tables by rules
-- **[MCP Pro tools](/docs/mcp#tools)**: `query_insights_top` and `costs_summary` for AI clients (the MCP server itself is in the core)
+- **[MCP Pro tools](/docs/mcp#tools)**: operations (alerts, alert events, schedules, reports, cluster health, `query_insights_top`, `costs_summary`), telemetry traces, metrics, service map and monitors, and the `run_schedule_now` and `run_saved_report_now` actions for AI clients (the MCP server itself is in the core)
 - **[Governance](/docs/governance)**: catalog, access matrix, query audit, incidents, policies, guardrails (query blocking in the editor and MCP), and the audit log viewer
 - **[Alerts](/docs/alerts)**: channels (SMTP, Resend, Brevo, webhooks), rules, and delivery
 - **[Scheduled query jobs](/docs/schedules)**: cron-driven query runs with run history and timezones, plus the parameterized saved-query Run API (model and pipeline schedules stay in the open-source core)
@@ -165,7 +165,7 @@ grace or after, unlocks Pro right away, no reload needed.
 | Ingest endpoints, Parse, Map fields and Filter transforms, sink table layouts | Included | Included |
 | Pipeline Sample, Redact and Route | Not included | **Included** |
 | Telemetry logs, sources, saved searches | Included | Included |
-| MCP server | Included | Included, plus `query_insights_top` and `costs_summary` |
+| MCP server | Included | Included, plus the operations, traces and metrics tools and the schedule and report actions |
 | Admin panel, multiple connections (admin role) | Included | Included |
 | Brain (AI chat) | BYO key | BYO key |
 | Ask AI (text-to-SQL) + Brain agentic tools | Not included | **Included** (BYO key) |

@@ -189,9 +189,11 @@ Everything below is included in the free Community edition under Apache 2.0.
 ### MCP Server
 
 - Embedded [Model Context Protocol](https://modelcontextprotocol.io) server at `/mcp` (streamable HTTP), in the same binary
-- Connect Claude Code, claude.ai, or Cursor with a revocable `chm_` key; read-only tools for schema browsing, SELECT queries, and query plans
-- Server-side enforcement (`readonly`, row/time caps) + every AI query recorded in query history and the audit log
-- Pro: Query Insights and Cost Center exposed as structured tools
+- Connect Claude Code, claude.ai, ChatGPT, Cursor or VS Code with OAuth sign-in or a revocable `chm_` key
+- Read tools by default: schema browsing, SELECT queries, saved queries, query plans, telemetry logs, lineage, model and pipeline status
+- Opt-in permissions: write (saved queries, dashboards, draft models and pipelines) and lifecycle actions (run models, start and stop pipelines), each confirmed in the client when it supports prompts
+- Server-side enforcement (`readonly`, row/time caps, database allowlist) + every AI call recorded in the audit log
+- Pro: alerts, schedules, reports, cluster health, Query Insights, Cost Center, traces and metrics tools, and running schedules and reports now
 - Docs: [ch-ui.com/docs/mcp](https://ch-ui.com/docs/mcp)
 
 ### Other
@@ -229,7 +231,7 @@ Almost everything is free. Pro adds production operations, governance and schedu
 | Tunnel (remote ClickHouse) | **Yes** | Yes |
 | Query parameters in the editor (`{name:Type}` bind params) | **Yes** | Yes |
 | Telemetry Logs, Sources, saved searches | **Yes** | Yes |
-| MCP server (tools, write tools, OAuth, API keys) | **Yes** | Yes |
+| MCP server (read tools, write tools, lifecycle actions, OAuth, API keys) | **Yes** | Yes |
 | Pipeline Sample, Redact and Route (up to 8 sinks per pipeline) | - | **Yes** |
 | Scheduled query jobs + cron + history + parameterized saved-query runs | - | **Yes** |
 | Scheduled reports (saved query results and dashboard summaries to email, Slack, Teams, webhooks) | - | **Yes** |
@@ -253,7 +255,7 @@ Almost everything is free. Pro adds production operations, governance and schedu
 | GitHub sync for models | - | **Yes** |
 | SSO (OIDC) with per-person roles and attribution | - | **Yes** |
 | Audit forwarding to a SIEM (webhook, file, stdout) | - | **Yes** |
-| MCP Pro tools (`query_insights_top`, `costs_summary`) | - | **Yes** |
+| MCP Pro tools (operations, Query Insights, Cost Center, traces and metrics, schedule and report actions) | - | **Yes** |
 | Command palette Pro search (entity search, scope prefixes) | - | **Yes** |
 
 See: [ch-ui.com/docs/license](https://ch-ui.com/docs/license)
