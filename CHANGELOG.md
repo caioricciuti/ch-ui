@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.0] - 2026-10-16
+
+CH-UI receives logs, traces and events itself: ingest endpoints for OpenTelemetry, Elasticsearch bulk and Splunk HEC, a durable spool, pipeline transforms and routing, table layouts and ingest alerts.
+
+### Upgrade notes
+
+- **Webhook pipelines are durable.** A 200 means the request is on disk. A full spool answers 503 with Retry-After (was 429), the 1,000-records-per-request limit is gone, and Batch Size and Batch Timeout no longer apply (#342).
+- **An `ingest-spool` folder appears next to `ch-ui.db`**, holding requests until ClickHouse has them (2 GiB cap by default, `INGEST_SPOOL_MAX_BYTES`). Include it in backups if you use ingest or webhook pipelines (#342).
+- **Tables the ClickHouse sink creates** get `non_replicated_deduplication_window = 1000` and parse ISO 8601 date-times with zones (`date_time_input_format=best_effort`), so rows with such dates that used to go to the dead-letter table now insert. Sinks writing to existing tables are unchanged (#346, #349).
+- **Starting a pipeline with an invalid graph or node settings** returns 400 naming the node (was 500), and unknown node types are refused at start (#345, #346).
+- **The sink's grant check** needs the updated agent; older agents keep showing "Could not verify" (#343).
+- Schema version 2026.10.16 adds the `ingest_keys` table (#342).
+
+### Added
+
+- **Ingest**: CH-UI receives OpenTelemetry logs and traces (OTLP over HTTP, protobuf or JSON, gzip) and JSON events at `/ingest/v1/logs`, `/ingest/v1/traces` and `/ingest/v1/events`, as a new **Ingest** pipeline source (#342).
+  - Ingest keys per pipeline: shown once, stored hashed, revocable and audited, accepted as `Authorization: Bearer`, `Splunk`, Basic (key as the password) or ApiKey, never from the URL. Per-key rate limit and per-pipeline daily quota (#342, #344).
+  - Every request is fsynced to an on-disk spool before it is acknowledged, then inserted with a deduplication token, so restarts and ClickHouse outages lose nothing and replays are not stored twice (#342).
+  - Logs and traces tables are created in the OpenTelemetry layout Telemetry reads, with retention. Live counters in the pipeline editor (#342).
+  - `--ingest-addr` / `INGEST_ADDR` serves the receivers on their own port; `INGEST_ONLY_SEPARATE`, `INGEST_SPOOL_MAX_BYTES` (#342).
+- **Elasticsearch bulk API** at `/ingest/es`: Filebeat, Logstash, Fluent Bit and Vector Elasticsearch outputs send to CH-UI by changing the host; `index` and `create` are stored, `update` and `delete` are refused per item, and the startup handshake is answered. **Splunk HTTP Event Collector** at `/ingest/services/collector` (event, raw, health) with HEC response codes. Documents and events sent with a logs key are mapped to the `otel_logs` layout (#344).
+- **Send data here** in Telemetry: ready configs for the OpenTelemetry Collector, OTel SDKs, Fluent Bit, Vector, Filebeat, Logstash, HEC clients and curl, with the URL and key filled in (#342, #344).
+- **Pipeline transforms**: Parse (JSON, logfmt, regex, nginx/Apache, syslog), Map fields (copy, rename, set, drop, severity and timestamp from a field) and Filter between a pipeline's source and sink, for every source. Sample (deterministic, keyed, always-keep rules) and Redact (emails, IPs, card numbers, JWTs, bearer tokens, AWS keys, custom patterns) need Pro. Live before/after preview and per-node counters (#345).
+- **Pipeline routing (Pro)**: a Route node sends records to up to 8 ClickHouse sinks by rules, first match or every match, with an optional output for unmatched records. Each branch can have its own transforms, table and dead-letter table; a batch is acknowledged only after every sink took its rows, each sink with its own dedup token (#346).
+- **Table layouts** for the ClickHouse sink: Custom from data, Wide events (typed timestamp, service, level, message and trace_id columns plus a JSON or Map attributes column, field mapping, retention, optional raw record), OpenTelemetry logs and traces. **Add columns for new fields** adds a column with `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, recorded in the run and audit logs (#349).
+- **Ingest alerts**: `ingest.stalled` (no data for a per-pipeline threshold, default 15 minutes), `ingest.spool_backlog`, `ingest.rejecting`, `ingest.auth_failures` and `pipeline.sink_failing` reach every alert channel through rules; each opens one incident linked to the pipeline and resolves on its own; open pipeline incidents show in Governance > Alerts (#348).
+- Brain's configure_pipeline and the MCP create_pipeline tool can create Ingest pipelines (#342).
+
+### Changed
+
+- Custom table inference reads up to 100 records after the transforms and infers Int64, Float64, Bool, DateTime64(3), Array, JSON, LowCardinality and Nullable types (#349).
+- Saving a pipeline checks transform settings, and starting it checks the graph, naming the node at fault; the editor marks it (#345, #346).
+- The pipeline editor notices a pipeline started or stopped elsewhere within 10 seconds; pipelines created outside the editor open fitted to the view (#345, #346).
+- Notifications appear at the bottom right (#346).
+- The pipeline list API includes each pipeline's source type and, for ingest pipelines, its signal (#342).
+- The website, docs and README cover ingest, transforms, routing, table layouts, Windows and `ch-ui desktop` (#347, #350).
+
+### Fixed
+
+- Rare "database is locked" errors when two parts of CH-UI wrote to its database at the same moment (#341).
+- Pipeline sink checks verify the INSERT and CREATE TABLE grants again instead of always saying "Could not verify" (#343).
+- `ch-ui server --port` without `APP_URL` kept the app and tunnel URLs on port 3488 (#342).
+- Pipeline runs and test results showed empty Started, Finished, Rows, Bytes and Errors columns (#342).
+- Filter, sample and route rules hid their value box (#346).
+- Creating a second pipeline with the MCP create_pipeline tool failed with a duplicate node id (#342).
+
 ## [2.26.0] - 2026-10-15
 
 Security and bug fixes from the audit follow-up, creating users on import, Windows binaries and a personal `ch-ui desktop` mode.
