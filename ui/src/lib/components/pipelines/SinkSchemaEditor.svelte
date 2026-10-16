@@ -15,7 +15,7 @@
     onColumns: (columns: SchemaColumn[]) => void
     /** Applies an inferred schema: columns plus suggested keys. */
     onApply: (schema: InferredSchema) => void
-    /** Saves, samples the source and asks ClickHouse for types. */
+    /** Saves, samples the source and infers the column types. */
     onInfer?: () => Promise<InferredSchema | null>
   }
 
@@ -49,7 +49,7 @@
   <div class="flex items-center justify-between gap-2">
     <p class="text-[11px] font-medium uppercase tracking-wider text-fg-3">Columns</p>
     {#if onInfer}
-      <Button size="sm" variant="outline" onclick={infer} loading={inferring} title="Save, read a sample from the source and let ClickHouse infer the types">
+      <Button size="sm" variant="outline" onclick={infer} loading={inferring} title="Save, read up to 100 records from the source and infer the column types">
         <Sparkles size={12} /> Infer from source
       </Button>
     {/if}
@@ -57,8 +57,8 @@
 
   {#if columns.length === 0}
     <p class="text-[12px] text-fg-3">
-      No columns defined. The table is created from the first batch with basic types (String, Float64, UInt8).
-      Infer from source to get real ClickHouse types.
+      No columns defined. The table is created from the first batch, with types inferred from up to 100 records.
+      Infer from source to review and edit the types first.
     </p>
   {:else}
     <div class="space-y-1">

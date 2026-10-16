@@ -223,6 +223,10 @@ func (r *Runner) StartPipeline(pipelineID string) error {
 		return fmt.Errorf("create pipeline run: %w", err)
 	}
 	rp.RunID = runID
+	for _, sp := range rp.sinks {
+		sp.cfg.Fields[sinkRunID] = runID
+		sp.cfg.Fields[sinkPipelineID] = pipelineID
+	}
 
 	r.db.UpdatePipelineStatus(pipelineID, "running", "")
 
@@ -335,11 +339,13 @@ func (r *Runner) prepare(pipelineID string) (*preparedPipeline, error) {
 		}
 		// Inject runtime fields into the config
 		sinkCfg.Fields["connection_id"] = pipeline.ConnectionID
-		delete(sinkCfg.Fields, sinkOTelSignal)
-		delete(sinkCfg.Fields, sinkOTelTTLDays)
+		for _, k := range []string{sinkOTelSignal, sinkOTelTTLDays, sinkRunID, sinkPipelineID} {
+			delete(sinkCfg.Fields, k)
+		}
 		if sourceCfg.NodeType == "source_ingest" {
-			// The sink creates OpenTelemetry tables for logs and traces and
-			// ignores columns a newer exporter layout may add.
+			// A sink without a table layout creates OpenTelemetry tables
+			// for logs and traces and ignores columns a newer exporter
+			// layout may add.
 			switch signal := IngestSignal(sourceCfg.Fields); signal {
 			case SignalLogs, SignalTraces:
 				sinkCfg.Fields[sinkOTelSignal] = signal

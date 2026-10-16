@@ -302,11 +302,12 @@
       toastError(res.source_error)
       return null
     }
-    if (!res.schema) {
+    const schema = (selectedNodeId && res.schemas?.[selectedNodeId]) || res.schema
+    if (!schema) {
       toastError(res.schema_error || 'The source returned no sample records to infer from')
       return null
     }
-    return res.schema
+    return schema
   }
 
   /** Applies an inferred schema to the sink node from the test sheet. */
@@ -317,8 +318,11 @@
       toastError(sinks.length ? 'Select the sink to apply the columns to, then apply again' : 'Add a ClickHouse sink first')
       return
     }
+    // With several sinks each has its own schema, from the rows its branch writes.
+    schema = testResult?.schemas?.[sink.id] ?? schema
     const config = {
       ...((sink.data.config || {}) as Record<string, unknown>),
+      preset: 'custom',
       create_table: true,
       create_table_columns: schema.columns,
       create_table_order_by: schema.order_by,

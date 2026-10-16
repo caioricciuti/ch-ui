@@ -122,7 +122,7 @@
             {/if}
           </div>
           {#if result.schema_error}
-            <p class="text-[13px] text-warning">ClickHouse could not infer a schema: {result.schema_error}</p>
+            <p class="text-[13px] text-warning">Could not infer a schema: {result.schema_error}</p>
           {:else if result.schema}
             <DataTable columns={schemaColumns} rows={schemaRows} rowKey={(r) => r.name} />
             <p class="text-[13px] text-fg-3">

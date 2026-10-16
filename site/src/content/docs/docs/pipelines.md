@@ -69,7 +69,7 @@ POST /ingest/v1/events
 | Rate limit (requests/s) | Per key (`0` means 200) |
 | Daily quota (MB) | Per pipeline, decompressed bytes per UTC day (`0` means unlimited) |
 
-With **Create Table If Not Exists** on the sink, logs and traces tables are created in the OpenTelemetry exporter's layout, so [Telemetry](/docs/telemetry) reads them as they are. Requests are spooled on disk before they are answered, like the webhook. Keys, endpoints, responses, limits and shipper configs are on the [Ingest](/docs/ingest) page.
+With **Create Table If Not Exists** on the sink, logs and traces tables are created in the OpenTelemetry exporter's layout, so [Telemetry](/docs/telemetry) reads them as they are; pick another [table layout](#table-layouts) on the sink to change that. Requests are spooled on disk before they are answered, like the webhook. Keys, endpoints, responses, limits and shipper configs are on the [Ingest](/docs/ingest) page.
 
 ### Kafka
 
@@ -264,32 +264,102 @@ The sink writes batches to a ClickHouse table using `INSERT FORMAT JSONEachRow` 
 |---|---|
 | Target Database | ClickHouse database name (default: `default`) |
 | Target Table | Table name |
-| Create Table If Not Exists | Auto-create the table before the first INSERT, from saved columns or the first batch (see [Auto Table Creation](#auto-table-creation)) |
-| Table Engine | `MergeTree`, `ReplacingMergeTree`, `SummingMergeTree` or `AggregatingMergeTree` (also their `Replicated` forms), without arguments |
-| ORDER BY | One ClickHouse expression (default: `tuple()`) |
-| PARTITION BY | Optional, one ClickHouse expression |
+| Create Table If Not Exists | Auto-create the table before the first INSERT, in the chosen **Table layout** (see [Table layouts](#table-layouts)) |
+| Table Engine | `MergeTree`, `ReplacingMergeTree`, `SummingMergeTree` or `AggregatingMergeTree` (also their `Replicated` forms), without arguments. Used by the custom and wide events layouts |
+| ORDER BY | Custom layout only. One ClickHouse expression (default: `tuple()`) |
+| PARTITION BY | Custom layout only. Optional, one ClickHouse expression |
 | Dead-letter Table | On by default. Rows ClickHouse refuses go to `<table>_dlq` (see [Dead-letter table](#dead-letter-table)) |
 | Max Error Ratio | Optional, 0 to 1 (default 0, off). Sent as `input_format_allow_errors_ratio`: ClickHouse skips up to this share of unparsable rows per INSERT. Skipped rows are dropped, not dead-lettered |
+| Table layout | **Custom from data** (default), **Wide events**, **OpenTelemetry logs** or **OpenTelemetry traces**. See [Table layouts](#table-layouts) |
+| Field mapping | Wide events only. The record fields read for each column, see [Wide events](#wide-events) |
+| Keep raw record | Wide events only. Also stores each original record in a `raw String CODEC(ZSTD(3))` column. Off by default |
+| TTL (days) | Wide events and OpenTelemetry layouts. Applied when the sink creates the table; `0` keeps data forever. An ingest `logs` or `traces` source sets the TTL of its OpenTelemetry table itself |
+| Add columns for new fields | Off by default. See [New fields](#new-fields) |
 
 ORDER BY and PARTITION BY must be a single expression: semicolons, comments and clause keywords such as `SETTINGS` or `AS` are refused. Database, table and column names are quoted, so any name works.
 
+### Table layouts
+
+The **Table layout** decides what table **Create Table If Not Exists** creates, and for wide events how each record is written. Layouts are free in every edition.
+
+| Layout | Table |
+|---|---|
+| Custom from data | One column per top-level field, typed from a sample of the data (see [Auto Table Creation](#auto-table-creation)) |
+| Wide events | `timestamp`, `service`, `level`, `message`, `trace_id` and `attributes`, for JSON events and logs from a webhook, Kafka or the ingest `events` signal (see [Wide events](#wide-events)) |
+| OpenTelemetry logs | The `otel_logs` layout of the OpenTelemetry ClickHouse exporter, which [Telemetry](/docs/telemetry) reads |
+| OpenTelemetry traces | The `otel_traces` layout, plus `<table>_trace_id_ts` and the materialized view that fills it |
+
+A sink saved before layouts existed has none and keeps working as before: it is **Custom from data**, except behind an [Ingest](#ingest) source with the `logs` or `traces` signal, where it is the matching OpenTelemetry layout. The OpenTelemetry layouts ignore fields the table does not have (`input_format_skip_unknown_fields=1`).
+
+### Wide events
+
+One table that fits most JSON events and logs, sorted for the usual "this service, this level, this time range" query:
+
+```sql
+CREATE TABLE IF NOT EXISTS `db`.`events` (
+  `timestamp` DateTime64(3) CODEC(Delta, ZSTD(1)),
+  `service` LowCardinality(String),
+  `level` LowCardinality(String),
+  `message` String CODEC(ZSTD(1)),
+  `trace_id` String,
+  `attributes` JSON,
+  INDEX idx_message `message` TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4,
+  INDEX idx_trace_id `trace_id` TYPE bloom_filter(0.001) GRANULARITY 1
+) ENGINE = MergeTree
+PARTITION BY toDate(`timestamp`)
+ORDER BY (`service`, `level`, `timestamp`)
+TTL toDateTime(`timestamp`) + toIntervalDay(30)
+SETTINGS non_replicated_deduplication_window = 1000, ttl_only_drop_parts = 1
+```
+
+`attributes` is the `JSON` type on ClickHouse 25.3 and later (the sink checks `SELECT version()` before creating the table). On older servers it is `Map(LowCardinality(String), String) CODEC(ZSTD(1))`, with nested fields flattened to dotted keys (`http.status`) and every value stored as text. The TTL line and `ttl_only_drop_parts` appear only with a TTL; a `Replicated` or `Shared` engine gets no deduplication window because it deduplicates on its own.
+
+Each record is mapped when it is written. For each column the sink looks for the first of these fields that has a usable value, and removes it from the record:
+
+| Column | Fields looked up (default) | Value |
+|---|---|---|
+| `timestamp` | `@timestamp`, `timestamp`, `time`, `ts`, `Timestamp` | ISO 8601 / RFC 3339 text, or a Unix epoch in seconds, milliseconds, microseconds or nanoseconds (as a number or numeric text). No usable value: the time of the insert |
+| `service` | `service.name`, `service`, `host.name`, `app`, `ServiceName` | text |
+| `level` | `level`, `log.level`, `severity`, `levelname`, `SeverityText` | lowercased to `trace`, `debug`, `info`, `warn`, `error` or `fatal` (`WARNING` is `warn`, `critical` is `fatal`); pino numbers (10 to 60) and OpenTelemetry severity numbers (1 to 24) are mapped too. Other text is kept lowercased |
+| `message` | `message`, `msg`, `log`, `event`, `Body` | text |
+| `trace_id` | `trace_id`, `traceId`, `trace.id`, `TraceId` | text |
+
+A dotted name matches a key with dots in it or a nested field, so `service.name` reads `{"service":{"name":"api"}}` and leaves the rest of `service` in attributes. A field with the wrong kind of value (an object in `message`, say) is skipped and stays in attributes. Everything not used for a column goes into `attributes`. **Field mapping** in the sink panel replaces the list for a column with your own comma-separated field names; an empty box keeps the defaults. The capitalised names are the fields of an ingest `logs` source, so a wide events sink behind one also works.
+
+### New fields
+
+A custom table is created from the first batch and then stays as it is: fields the table does not have are dropped on insert (ClickHouse's default `input_format_skip_unknown_fields`).
+
+With **Add columns for new fields** on, before each INSERT the sink compares the batch's top-level fields with the table's columns and runs `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for each new one, typed from the batch with the same rules as [Auto Table Creation](#auto-table-creation). Existing columns are never changed or dropped, even when a field's type changes. Each added column is written to the run log and to the audit log (`pipeline.column_added`). This also works for a table you created yourself, so only turn it on when the pipeline account may alter the table.
+
+A wide events table puts new fields in `attributes`, so it never needs new columns for them. With the option on it only adds layout columns the table lacks, such as `raw` after **Keep raw record** is turned on for an existing table.
+
 ### Auto Table Creation
 
-When **Create Table If Not Exists** is enabled, the sink panel shows a **Columns** section. **Infer from source** saves the pipeline, reads a sample from the source (as [Test](#test-a-pipeline) does) and asks ClickHouse for the types with `DESC format(JSONEachRow, '<sample>')`, run read-only with your session credentials. Top-level `Nullable` is dropped (missing and null values get the column default on insert). It also suggests:
+With the custom layout and **Create Table If Not Exists** enabled, the sink panel shows a **Columns** section. **Infer from source** saves the pipeline, reads up to 100 records from the source (as [Test](#test-a-pipeline) does; for a running webhook or ingest pipeline, the last records it received), runs them through the transforms on the way to that sink, and infers a type per top-level field:
 
-- **ORDER BY**: the first date or time column (preferring names like `ts`, `created_at`, `*_time`) and the first id-like column (`id`, `*_id`, `uuid`), or `tuple()` when there is neither.
+| Values in the sample | ClickHouse type |
+|---|---|
+| integers that fit 64 bits | `Int64` |
+| numbers with a fraction (or integers mixed with them) | `Float64` |
+| integers too large for `Int64` | `String` |
+| `true` / `false` | `Bool` |
+| ISO 8601 / RFC 3339 date-times such as `2025-10-16T10:30:00Z` | `DateTime64(3)` |
+| other text | `String`, or `LowCardinality(String)` when the sample has at least 20 records and at most 10% of the values are distinct |
+| arrays of one scalar type | `Array(Int64)`, `Array(Float64)`, `Array(Bool)` or `Array(String)` |
+| other arrays | `String` (the array's JSON text) |
+| objects | `JSON` on ClickHouse 25.3 and later; before that `Map(String, String)` when every value is text, else `String` (the object's JSON text) |
+| more than one of the above | `String` |
+| only `null` | `Nullable(String)` |
+
+`Nullable(...)` is added only when a field has both values and nulls; a missing field gets the column default. Inference also suggests:
+
+- **ORDER BY**: the first date or time column (preferring names like `ts`, `created_at`, `*_time`) and the first id-like column (`id`, `*_id`, `uuid`), skipping `Nullable` ones, or `tuple()` when there is neither.
 - **PARTITION BY**: `toYYYYMM(<time column>)` when there is a date or time column.
 
 Each column's type can be edited, columns can be removed, and a DDL preview shows the exact `CREATE TABLE`. The columns are stored in the sink config and used when the table is created. Each type must be a single ClickHouse type such as `DateTime64(3)` or `Array(String)`; anything that would add a `DEFAULT`, `CODEC` or another column is refused. **Test** offers the same inferred schema with **Create table with these columns**.
 
-Without saved columns the sink falls back to inspecting the first incoming batch:
-
-| JSON type | ClickHouse type |
-|---|---|
-| string | `String` |
-| number | `Float64` |
-| boolean | `UInt8` |
-| null | `Nullable(String)` |
+Without saved columns the sink infers the columns the same way from the first 100 records of the first batch. Inserts into a table the sink creates parse date-times with `date_time_input_format=best_effort`, so ISO 8601 text with a zone lands in `DateTime64` columns.
 
 The table is created before the first INSERT. If creating it fails, the next attempt tries again.
 
@@ -377,7 +447,7 @@ Changes to a running pipeline are saved but take effect only after you stop it a
 | Webhook | The last 20 records received while the pipeline runs; when stopped, instructions instead |
 | Ingest | Nothing to read; instructions instead (the editor's live counters show what arrives) |
 
-The sink checks run with the pipeline's background account: the target database exists, the table exists or can be created (`CHECK GRANT CREATE TABLE`), INSERT is granted (`CHECK GRANT INSERT`), and the dead-letter table can be created and written. When the sample has records, the test also shows the schema ClickHouse infers from it (see [Auto Table Creation](#auto-table-creation)).
+The sink checks run with the pipeline's background account: the target database exists, the table exists or can be created (`CHECK GRANT CREATE TABLE`), INSERT is granted (`CHECK GRANT INSERT`), and the dead-letter table can be created and written. When the sample has records, the test also shows the schema inferred from it (see [Auto Table Creation](#auto-table-creation)).
 
 ## Pipeline Lifecycle
 

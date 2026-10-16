@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CONNECTOR_FIELDS, createTableDDL, generateToken, newNodeConfig, quoteIdent, schemaColumnsOf } from './pipelines'
+import { CONNECTOR_FIELDS, createTableDDL, generateToken, newNodeConfig, quoteIdent, schemaColumnsOf, sinkFieldHidden, sinkPresetOf, wideEventsDDL } from './pipelines'
 
 describe('newNodeConfig', () => {
   it('turns webhook auth on with a fresh token', () => {
@@ -70,6 +70,51 @@ describe('createTableDDL', () => {
       expect(createTableDDL({ database: 'd', table: 't', columns: [{ name: 'a', type: 'String' }], engine })).not.toContain('SETTINGS')
     }
     expect(createTableDDL({ database: 'd', table: 't', columns: [{ name: 'a', type: 'String' }], engine: 'ReplacingMergeTree()' })).toContain('SETTINGS non_replicated_deduplication_window = 1000')
+  })
+})
+
+describe('table presets', () => {
+  it('builds the wide events statement the sink runs', () => {
+    // Same text as TestWideEventsDDL on the server.
+    expect(wideEventsDDL({ database: 'logs', table: 'events' })).toBe(
+      'CREATE TABLE IF NOT EXISTS `logs`.`events` (\n' +
+        '  `timestamp` DateTime64(3) CODEC(Delta, ZSTD(1)),\n' +
+        '  `service` LowCardinality(String),\n' +
+        '  `level` LowCardinality(String),\n' +
+        '  `message` String CODEC(ZSTD(1)),\n' +
+        '  `trace_id` String,\n' +
+        '  `attributes` JSON,\n' +
+        '  INDEX idx_message `message` TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4,\n' +
+        '  INDEX idx_trace_id `trace_id` TYPE bloom_filter(0.001) GRANULARITY 1\n' +
+        ') ENGINE = MergeTree\n' +
+        'PARTITION BY toDate(`timestamp`)\n' +
+        'ORDER BY (`service`, `level`, `timestamp`)\n' +
+        'SETTINGS non_replicated_deduplication_window = 1000',
+    )
+  })
+
+  it('adds raw, TTL and the map fallback', () => {
+    const ddl = wideEventsDDL({ database: 'd', table: 't', engine: 'ReplicatedMergeTree', jsonType: false, keepRaw: true, ttlDays: 14 })
+    expect(ddl).toContain('`attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),\n  `raw` String CODEC(ZSTD(3)),\n')
+    expect(ddl).toContain('TTL toDateTime(`timestamp`) + toIntervalDay(14)\nSETTINGS ttl_only_drop_parts = 1')
+    expect(ddl).not.toContain('non_replicated_deduplication_window')
+  })
+
+  it('resolves the layout like the server', () => {
+    expect(sinkPresetOf({})).toBe('custom')
+    expect(sinkPresetOf({}, 'logs')).toBe('otel_logs')
+    expect(sinkPresetOf({}, 'traces')).toBe('otel_traces')
+    expect(sinkPresetOf({}, 'events')).toBe('custom')
+    expect(sinkPresetOf({ preset: 'wide_events' }, 'logs')).toBe('wide_events')
+    expect(sinkPresetOf({ preset: 'bogus' })).toBe('custom')
+  })
+
+  it('hides the fields a layout sets itself', () => {
+    expect(sinkFieldHidden('create_table_order_by', 'custom')).toBe(false)
+    expect(sinkFieldHidden('create_table_order_by', 'wide_events')).toBe(true)
+    expect(sinkFieldHidden('create_table_engine', 'wide_events')).toBe(false)
+    expect(sinkFieldHidden('create_table_engine', 'otel_logs')).toBe(true)
+    expect(sinkFieldHidden('table', 'otel_traces')).toBe(false)
   })
 })
 
