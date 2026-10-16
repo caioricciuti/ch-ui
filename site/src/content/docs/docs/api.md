@@ -66,6 +66,9 @@ These skip the session cookie and authenticate with their own secret.
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/pipelines/webhook/{id}` | Webhook source endpoint for a pipeline |
+| `POST` | `/ingest/v1/logs`, `/ingest/v1/traces`, `/ingest/v1/events` | OTLP/HTTP and JSON event receivers, with an ingest key (`chi_...`). See [Ingest](/docs/ingest) |
+| `POST` | `/ingest/es/_bulk` | Elasticsearch bulk API receiver, with the startup calls shippers make. See [Elasticsearch bulk API](/docs/ingest#elasticsearch-bulk-api) |
+| `POST` | `/ingest/services/collector` | Splunk HEC receiver. See [Splunk HTTP Event Collector](/docs/ingest#splunk-http-event-collector) |
 | `POST` | `/api/github/webhook/{connectionId}` | GitHub push webhook for model sync, checked against the webhook secret (**Pro**) |
 
 ### MCP and OAuth
@@ -323,9 +326,20 @@ and the provider supports tools.
 | `GET` | `/api/pipelines/{id}/status` | Get pipeline status + metrics |
 | `GET` | `/api/pipelines/{id}/runs` | List runs (`?limit=&offset=`) |
 | `GET` | `/api/pipelines/{id}/runs/{runId}/logs` | Logs of one run |
+| `POST` | `/api/pipelines/{id}/test` | Test the source and check the sink |
+| `POST` | `/api/pipelines/{id}/preview-transforms` | Before and after records for a transform chain (see [Preview](/docs/pipelines#preview)) |
+| `POST` | `/api/pipelines/{id}/reset-position` | Reset the source position |
+| `GET` | `/api/pipelines/{id}/checkpoints` | Saved source positions |
+| `GET` | `/api/pipelines/{id}/ingest-keys` | List the pipeline's ingest keys (prefix only) |
+| `POST` | `/api/pipelines/{id}/ingest-keys` | Create an ingest key; the full key is in this response only |
+| `DELETE` | `/api/pipelines/{id}/ingest-keys/{keyId}` | Revoke an ingest key |
+| `GET` | `/api/pipelines/{id}/ingest-stats` | Live ingest counters |
+| `GET` | `/api/ingest/info` | Base URL shippers should use (any signed-in user) |
 
-Creating, editing, deleting, starting and stopping need the admin or analyst
-role. The webhook source endpoint is listed under [Webhooks](#webhooks).
+Creating, editing, deleting, starting and stopping, test, preview, reset and
+ingest keys need the admin or analyst role. Starting or previewing a pipeline
+with a Sample, Redact or Route node needs **Pro**. The webhook source endpoint
+and the ingest receivers are listed under [Webhooks](#webhooks).
 
 ### Admin
 

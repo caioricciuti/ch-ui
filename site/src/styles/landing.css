@@ -677,6 +677,23 @@ a.kicker:hover {
   transform: rotate(45deg);
 }
 
+/* Names as text, not logos: a mono line of the tools a section works with. */
+.cell > .label {
+  margin: 0 0 0.75rem;
+  font-size: 0.72rem;
+}
+.marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--chui-font-mono);
+  font-size: 0.8125rem;
+  color: var(--chui-fg-2);
+}
+
 /* The comparison table on /vs/*. */
 .compare {
   width: 100%;

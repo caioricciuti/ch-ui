@@ -3,8 +3,9 @@ title: Telemetry
 description: Search OpenTelemetry logs, traces and metrics stored in ClickHouse, with a service map and monitors that raise alerts. Nothing copied, every screen is SQL against your tables
 ---
 
-CH-UI turns the OpenTelemetry data your collector already writes to ClickHouse
-into a search and analysis surface: logs, traces with waterfalls, a metrics
+CH-UI turns the OpenTelemetry data in ClickHouse into a search and analysis
+surface, whether your collector writes it there or you
+[send it to CH-UI](#send-data-here): logs, traces with waterfalls, a metrics
 explorer, a service map, and monitors that raise alerts. Nothing is copied or
 indexed elsewhere. Every screen runs SQL against your tables, through the same
 connection and credentials as the query editor.
