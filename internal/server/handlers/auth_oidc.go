@@ -6,8 +6,10 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -21,6 +23,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/oidc"
+	"github.com/caioricciuti/ch-ui/internal/ssoidentity"
 )
 
 const (
@@ -132,7 +135,8 @@ func (h *AuthHandler) OIDCLogin(w http.ResponseWriter, r *http.Request) {
 
 // OIDCCallback completes the SSO flow: validate state, exchange the code
 // (with the PKCE verifier), verify the ID token, map the person to a role and
-// to the connection's service account, and create a CH-UI session.
+// to a ClickHouse account (the connection's service account in shared mode,
+// their own provisioned user in per-person mode), and create a CH-UI session.
 //
 // GET /api/auth/oidc/callback
 func (h *AuthHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
@@ -196,30 +200,33 @@ func (h *AuthHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve the target connection and its ClickHouse service account.
+	// Resolve the target connection and the ClickHouse account the session
+	// queries with: the shared service account, or the person's own user.
 	connID, err := h.oidcConnectionID(settings)
 	if err != nil {
 		h.oidcFail(w, r, "no connection configured for SSO", err)
 		return
 	}
-	saUser, saEncryptedPw, err := h.DB.GetConnectionSSOAccount(connID)
-	if err != nil || saUser == "" || saEncryptedPw == "" {
-		h.oidcFail(w, r, "SSO is not finished being set up (no ClickHouse service account on the connection)", fmt.Errorf("missing sso service account for %s", connID))
-		return
-	}
 
 	role := oidcRole(settings, claims.Groups)
+
+	chUser, chEncryptedPw, identityID, userMsg, err := h.ssoSessionCredentials(r.Context(), connID, getClientIP(r), claims, email)
+	if err != nil {
+		h.oidcFail(w, r, userMsg, err)
+		return
+	}
 
 	token := uuid.NewString()
 	expiresAt := time.Now().UTC().Add(h.sessionDuration()).Format(time.RFC3339)
 	if _, err := h.DB.CreateSession(database.CreateSessionParams{
 		ConnectionID:      connID,
-		ClickhouseUser:    saUser,
-		EncryptedPassword: saEncryptedPw,
+		ClickhouseUser:    chUser,
+		EncryptedPassword: chEncryptedPw,
 		Token:             token,
 		ExpiresAt:         expiresAt,
 		UserRole:          role,
 		AuthSubject:       email,
+		SSOIdentityID:     identityID,
 	}); err != nil {
 		h.oidcFail(w, r, "could not create session", err)
 		return
@@ -239,13 +246,96 @@ func (h *AuthHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		Action:       "user.login",
 		Username:     strPtr(email),
 		ConnectionID: strPtr(connID),
-		Details:      strPtr(fmt.Sprintf("SSO login via OIDC (role: %s, ch_account: %s)", role, saUser)),
+		Details:      strPtr(fmt.Sprintf("SSO login via OIDC (role: %s, ch_account: %s)", role, chUser)),
 		IPAddress:    strPtr(getClientIP(r)),
 	})
 	slog.Info("SSO login", "user", email, "role", role, "connection", connID)
 	closeSetupOnAdminLogin(h.DB, h.Setup, role, email, getClientIP(r))
 
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// ssoSessionCredentials resolves the ClickHouse account an SSO session on
+// connID queries with, after the ID token verified. The person is recorded
+// as an identity in both modes, so the session can carry their identity id.
+// In shared mode that account is the connection's SSO service account; in
+// per-person mode the provisioner creates or re-syncs the person's own user
+// and a failure refuses the sign-in (never the shared account instead). On
+// refusal userMsg is the message for the login page.
+func (h *AuthHandler) ssoSessionCredentials(ctx context.Context, connID, clientIP string, claims *oidc.Claims, email string) (chUser, encryptedPassword, identityID, userMsg string, err error) {
+	ident, err := h.DB.UpsertSSOIdentity(claims.Issuer, claims.Subject, email, claims.Name, claims.Groups)
+	if err != nil {
+		return "", "", "", "could not create session", err
+	}
+	identityID = ident.ID
+
+	cfg, err := h.DB.GetSSOIdentityConfig(connID)
+	if err != nil {
+		return "", "", "", "could not read the connection's SSO settings", err
+	}
+	if !cfg.PerPerson() {
+		saUser, saEncryptedPw, err := h.DB.GetConnectionSSOAccount(connID)
+		if err != nil || saUser == "" || saEncryptedPw == "" {
+			if err == nil {
+				err = fmt.Errorf("missing sso service account for %s", connID)
+			}
+			return "", "", "", "SSO is not finished being set up (no ClickHouse service account on the connection)", err
+		}
+		return saUser, saEncryptedPw, identityID, "", nil
+	}
+
+	var res *ssoidentity.Result
+	if h.Provisioner == nil {
+		err = errors.New("no SSO provisioner configured")
+	} else {
+		res, err = h.Provisioner.SignIn(ctx, connID, ssoidentity.Person{
+			Issuer:  claims.Issuer,
+			Subject: claims.Subject,
+			Email:   email,
+			Name:    claims.Name,
+			Groups:  claims.Groups,
+		})
+	}
+	if err != nil {
+		connName := connID
+		if conn, cerr := h.DB.GetConnectionByID(connID); cerr == nil && conn != nil {
+			connName = conn.Name
+		}
+		_, _, userMsg = ssoProvisionError(err, connName)
+		// The login page only says provisioning failed; the audit log
+		// carries the real error for the admin. It names users, roles and
+		// connections, never a password.
+		_ = h.DB.CreateAuditLog(database.AuditLogParams{
+			Action:       "user.login_failed",
+			Username:     strPtr(email),
+			ConnectionID: strPtr(connID),
+			Details:      strPtr(fmt.Sprintf("SSO user provisioning failed on %s: %s", connName, err.Error())),
+			IPAddress:    strPtr(clientIP),
+		})
+		return "", "", "", userMsg, err
+	}
+	return res.CHUser, res.EncryptedPassword, identityID, "", nil
+}
+
+// ssoProvisionError maps a provisioner error to what the person is told:
+// the HTTP status and error code a connection switch answers with, and the
+// message shown on the login page or in the switcher. connName names the
+// target connection in that message. The message never carries the raw
+// error; the audit log does.
+func ssoProvisionError(err error, connName string) (status int, code, message string) {
+	var noRoles *ssoidentity.NoRolesError
+	var exists *ssoidentity.UserExistsError
+	switch {
+	case errors.As(err, &noRoles):
+		return http.StatusConflict, "sso_no_roles",
+			fmt.Sprintf("Your groups don't give you access to %s. Ask an admin to map one of them in Admin > Connections > SSO.", connName)
+	case errors.As(err, &exists):
+		return http.StatusConflict, "sso_user_exists",
+			fmt.Sprintf("A ClickHouse user named %s already exists and was not created by CH-UI. An admin must remove or rename it before you can sign in.", exists.CHUser)
+	default:
+		return http.StatusBadGateway, "sso_provisioning_failed",
+			fmt.Sprintf("SSO user provisioning failed on %s; an admin can see the error in the audit log.", connName)
+	}
 }
 
 // oidcRole maps the person's IdP groups to a CH-UI role. Users in none of the

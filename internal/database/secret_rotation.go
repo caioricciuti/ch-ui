@@ -23,6 +23,7 @@ var encryptedColumns = []struct {
 	{"dashboard share password", "dashboard_shares", "id", "encrypted_password"},
 	{"background account password", "background_credentials", "connection_id || '/' || worker", "encrypted_password"},
 	{"connection sso service account password", "connections", "id", "sso_ch_password_encrypted"},
+	{"sso person password", "sso_clickhouse_users", "identity_id || '/' || connection_id", "encrypted_password"},
 	{"brain provider api key", "brain_providers", "id", "encrypted_api_key"},
 	{"alert channel config", "alert_channels", "id", "config_encrypted"},
 }

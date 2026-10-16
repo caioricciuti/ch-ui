@@ -23,7 +23,11 @@ type Session struct {
 	// it differs from ClickhouseUser. Empty for password logins, where the
 	// ClickHouse user is the identity.
 	AuthSubject *string `json:"auth_subject,omitempty"`
-	CreatedAt   string  `json:"created_at"`
+	// SSOIdentityID is the sso_identities row behind an SSO session in
+	// per-person mode, so a connection switch can provision the person on
+	// the target connection. Empty for password logins and shared mode.
+	SSOIdentityID *string `json:"sso_identity_id,omitempty"`
+	CreatedAt     string  `json:"created_at"`
 }
 
 // CreateSessionParams holds parameters for creating a session.
@@ -35,6 +39,7 @@ type CreateSessionParams struct {
 	ExpiresAt         string
 	UserRole          string // defaults to "viewer" if empty
 	AuthSubject       string // OIDC identity; empty for password logins
+	SSOIdentityID     string // sso_identities id in per-person mode; else empty
 }
 
 // SessionUser represents an aggregated user from sessions.
@@ -56,17 +61,17 @@ type SessionUser struct {
 // GetSession retrieves a session by token. Deletes and returns nil if expired.
 func (db *DB) GetSession(token string) (*Session, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, connection_id, clickhouse_user, encrypted_password, token, expires_at, user_role, auth_subject, created_at FROM sessions WHERE token = ?",
+		"SELECT id, connection_id, clickhouse_user, encrypted_password, token, expires_at, user_role, auth_subject, sso_identity_id, created_at FROM sessions WHERE token = ?",
 		token,
 	)
 
 	var s Session
-	var userRole, authSubject sql.NullString
+	var userRole, authSubject, identityID sql.NullString
 
 	err := row.Scan(
 		&s.ID, &s.ConnectionID,
 		&s.ClickhouseUser, &s.EncryptedPassword, &s.Token,
-		&s.ExpiresAt, &userRole, &authSubject, &s.CreatedAt,
+		&s.ExpiresAt, &userRole, &authSubject, &identityID, &s.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -77,6 +82,7 @@ func (db *DB) GetSession(token string) (*Session, error) {
 
 	s.UserRole = nullStringToPtr(userRole)
 	s.AuthSubject = nullStringToPtr(authSubject)
+	s.SSOIdentityID = nullStringToPtr(identityID)
 
 	// Check if session has expired
 	expiresAt, err := time.Parse(time.RFC3339, s.ExpiresAt)
@@ -150,17 +156,20 @@ func insertSession(ex sessionExecer, params CreateSessionParams) (string, error)
 		userRole = "viewer"
 	}
 
-	var authSubject any
+	var authSubject, identityID any
 	if params.AuthSubject != "" {
 		authSubject = params.AuthSubject
 	}
+	if params.SSOIdentityID != "" {
+		identityID = params.SSOIdentityID
+	}
 
 	_, err := ex.Exec(
-		`INSERT INTO sessions (id, connection_id, clickhouse_user, encrypted_password, token, expires_at, user_role, auth_subject)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO sessions (id, connection_id, clickhouse_user, encrypted_password, token, expires_at, user_role, auth_subject, sso_identity_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, params.ConnectionID,
 		params.ClickhouseUser, params.EncryptedPassword,
-		params.Token, params.ExpiresAt, userRole, authSubject,
+		params.Token, params.ExpiresAt, userRole, authSubject, identityID,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create session: %w", err)

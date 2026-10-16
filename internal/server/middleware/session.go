@@ -62,6 +62,10 @@ func Session(db *database.DB, _ *tunnel.Gateway) func(http.Handler) http.Handler
 			if session.AuthSubject != nil {
 				authSubject = *session.AuthSubject
 			}
+			identityID := ""
+			if session.SSOIdentityID != nil {
+				identityID = *session.SSOIdentityID
+			}
 			// SSO people share one ClickHouse account, so overrides are looked
 			// up per person, never by the shared account name. A ClickHouse
 			// user's override counts only on the connection it was set for.
@@ -77,6 +81,7 @@ func Session(db *database.DB, _ *tunnel.Gateway) func(http.Handler) http.Handler
 				EncryptedPassword: session.EncryptedPassword,
 				UserRole:          role,
 				AuthSubject:       authSubject,
+				SSOIdentityID:     identityID,
 			}
 
 			ctx := SetSession(r.Context(), info)

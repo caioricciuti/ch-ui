@@ -27,6 +27,9 @@ type Provider struct {
 
 // Claims is the subset of ID-token claims CH-UI uses.
 type Claims struct {
+	// Issuer and Subject identify the person at the IdP: together they are
+	// stable across email changes, which is why identities are keyed by them.
+	Issuer  string
 	Subject string
 	Email   string
 	// EmailVerified is the email_verified claim. EmailVerifiedPresent reports
@@ -105,7 +108,9 @@ func (p *Provider) Exchange(ctx context.Context, code, expectedNonce, verifier s
 		return nil, fmt.Errorf("parse claims: %w", err)
 	}
 
-	return claimsFromRaw(idToken.Subject, raw, p.groupsClaim), nil
+	c := claimsFromRaw(idToken.Subject, raw, p.groupsClaim)
+	c.Issuer = idToken.Issuer
+	return c, nil
 }
 
 // claimsFromRaw extracts the claims CH-UI uses from a verified ID token's

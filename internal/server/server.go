@@ -31,6 +31,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/server/handlers"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/sqlalerts"
+	"github.com/caioricciuti/ch-ui/internal/ssoidentity"
 	"github.com/caioricciuti/ch-ui/internal/telemetry/monitor"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"github.com/go-chi/chi/v5"
@@ -60,6 +61,7 @@ type Server struct {
 	alerts             *alerts.Dispatcher
 	auditFwd           *audit.Forwarder
 	oidcManager        *oidc.Manager
+	ssoProvisioner     *ssoidentity.Provisioner
 	agents             *embedded.Manager
 	router             chi.Router
 	http               *http.Server
@@ -162,6 +164,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 		alerts:             alertDispatcher,
 		auditFwd:           auditFwd,
 		oidcManager:        oidcManager,
+		ssoProvisioner:     &ssoidentity.Provisioner{DB: db, Gateway: gw, Secret: cfg.AppSecretKey},
 		agents:             agents,
 		router:             r,
 		frontendFS:         frontendFS,
@@ -320,6 +323,7 @@ func (s *Server) setupRoutes() {
 			OIDC:        s.oidcManager,
 			Setup:       setupHandler,
 			Agents:      s.agents,
+			Provisioner: s.ssoProvisioner,
 		}
 		api.Route("/auth", authHandler.Routes)
 
@@ -367,6 +371,8 @@ func (s *Server) setupRoutes() {
 					ar.Get("/{id}/token", connectionsHandler.GetToken)
 					ar.Post("/{id}/regenerate-token", connectionsHandler.RegenerateToken)
 					ar.Put("/{id}/sso-account", connectionsHandler.SetSSOAccount)
+					ar.Get("/{id}/sso-identity", connectionsHandler.GetSSOIdentity)
+					ar.Put("/{id}/sso-identity", connectionsHandler.SetSSOIdentity)
 				})
 			})
 
