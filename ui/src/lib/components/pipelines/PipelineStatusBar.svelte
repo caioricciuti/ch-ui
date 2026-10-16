@@ -29,26 +29,29 @@
   let dlqRows = $state(0)
   let dlqDatabase = $state('')
   let dlqTable = $state('')
-  let pollTimer: ReturnType<typeof setInterval> | null = null
 
   const isRunning = $derived(status === 'running' || status === 'starting')
 
   onMount(() => {
     // Once, so a stopped pipeline still shows its dead-letter count.
     if (!isRunning) void fetchStatus()
-    return () => {
-      if (pollTimer) clearInterval(pollTimer)
+    // Back on the tab: catch up at once instead of waiting for the next tick.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void fetchStatus()
     }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   })
 
+  // Every 5 s while running. Otherwise every 10 s while the tab is visible, so a
+  // start or stop made elsewhere (API, Brain, MCP, another tab) shows up.
   $effect(() => {
-    if (isRunning && !pollTimer) {
-      fetchStatus()
-      pollTimer = setInterval(fetchStatus, 5000)
-    } else if (!isRunning && pollTimer) {
-      clearInterval(pollTimer)
-      pollTimer = null
-    }
+    const running = isRunning
+    if (running) void fetchStatus()
+    const timer = setInterval(() => {
+      if (running || document.visibilityState === 'visible') void fetchStatus()
+    }, running ? 5000 : 10000)
+    return () => clearInterval(timer)
   })
 
   async function fetchStatus() {

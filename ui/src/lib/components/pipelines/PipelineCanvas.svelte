@@ -12,9 +12,14 @@
   import '@xyflow/svelte/dist/style.css'
   import SourceNode from './nodes/SourceNode.svelte'
   import SinkNode from './nodes/SinkNode.svelte'
+  import TransformNode from './nodes/TransformNode.svelte'
   import { SOURCE_NODE_TYPES, SINK_NODE_TYPES, newNodeConfig, type NodeType } from '../../types/pipelines'
-  import { Radio, Webhook, Database, HardDrive, Inbox } from 'lucide-svelte'
+  import { TRANSFORM_NODE_TYPES, isTransformType } from '../../types/transforms'
+  import { bridgeDeleted, connectionProblem, insertIntoEdge, makeRoom } from './transforms/graph'
+  import { Radio, Webhook, Database, HardDrive, Inbox, Braces, ArrowLeftRight, Funnel, Percent, EyeOff } from 'lucide-svelte'
   import { getTheme } from '../../stores/theme.svelte'
+  import { isProActive } from '../../stores/license.svelte'
+  import { error as toastError } from '../../stores/toast.svelte'
 
   interface Props {
     pipelineId: string
@@ -25,9 +30,13 @@
     onConnect: (connection: Connection) => void
     onNodeClick: (nodeId: string) => void
     onPaneClick: () => void
+    /** Signal of the ingest source, if any, for new transform defaults. */
+    signal?: string | null
   }
 
-  let { pipelineId, nodes, edges, onNodesChange, onEdgesChange, onConnect, onNodeClick, onPaneClick }: Props = $props()
+  let { pipelineId, nodes, edges, onNodesChange, onEdgesChange, onConnect, onNodeClick, onPaneClick, signal = null }: Props = $props()
+
+  const transformNode = TransformNode as unknown as NodeTypes[string]
 
   const nodeTypes: NodeTypes = {
     source_kafka: SourceNode as unknown as NodeTypes[string],
@@ -35,7 +44,60 @@
     source_database: SourceNode as unknown as NodeTypes[string],
     source_s3: SourceNode as unknown as NodeTypes[string],
     source_ingest: SourceNode as unknown as NodeTypes[string],
+    transform_parse: transformNode,
+    transform_map: transformNode,
+    transform_filter: transformNode,
+    transform_sample: transformNode,
+    transform_redact: transformNode,
     sink_clickhouse: SinkNode as unknown as NodeTypes[string],
+  }
+
+  let idSeq = 0
+  /** Unique ids for nodes and edges made in this session. */
+  function newId(prefix: string): string {
+    idSeq++
+    return `${prefix}-${Date.now()}-${idSeq}`
+  }
+
+  /** The edge under a screen point (the wide invisible hit path counts). */
+  function edgeAt(x: number, y: number): string | null {
+    for (const el of document.elementsFromPoint(x, y)) {
+      const g = el.closest('.svelte-flow__edge')
+      const id = g?.getAttribute('data-id')
+      if (id) return id
+    }
+    return null
+  }
+
+  /**
+   * The node under the last pointerdown. A click that starts on a node can
+   * reach the pane instead (the node re-renders between down and up, so the
+   * click lands on their common ancestor); it still means "open this node".
+   */
+  let pressedNode: { id: string; at: number } | null = null
+
+  function onPointerDownCapture(e: PointerEvent) {
+    const id = (e.target as Element | null)?.closest('.svelte-flow__node')?.getAttribute('data-id')
+    pressedNode = id ? { id, at: Date.now() } : null
+  }
+
+  function handlePaneClick() {
+    const pressed = pressedNode
+    pressedNode = null
+    if (pressed && Date.now() - pressed.at < 1000 && nodes.some((n) => n.id === pressed.id)) {
+      onNodeClick(pressed.id)
+      return
+    }
+    onPaneClick()
+  }
+
+  function refuseConnection(connection: Connection): Connection | false {
+    const problem = connectionProblem(nodes, edges, connection.source, connection.target)
+    if (problem) {
+      toastError(problem)
+      return false
+    }
+    return connection
   }
 
   function onDragStart(e: DragEvent, type: NodeType) {
@@ -79,22 +141,40 @@
       y: (e.clientY - rect.top - ty) / zoom,
     }
 
-    const allTypes = [...SOURCE_NODE_TYPES, ...SINK_NODE_TYPES]
+    const allTypes = [...SOURCE_NODE_TYPES, ...TRANSFORM_NODE_TYPES, ...SINK_NODE_TYPES]
     const meta = allTypes.find((t) => t.type === type)
     const label = meta?.label || type
 
     const newNode: Node = {
-      id: `node-${Date.now()}`,
+      id: newId('node'),
       type,
       position,
       data: {
         label,
         node_type: type,
-        config: newNodeConfig(type, pipelineId),
+        config: newNodeConfig(type, pipelineId, signal),
       },
     }
 
+    // A transform dropped onto an edge goes into the chain there.
+    const edgeId = isTransformType(type) ? edgeAt(e.clientX, e.clientY) : null
+    if (edgeId) {
+      const nextEdges = insertIntoEdge(edges, edgeId, newNode.id, () => newId('edge')) as Edge[]
+      // Line the chain up after the insert so no node lands on another.
+      onNodesChange(makeRoom([...nodes, newNode], nextEdges, newNode.id))
+      onEdgesChange(nextEdges)
+      return
+    }
+
     onNodesChange([...nodes, newNode])
+  }
+
+  const transformIcons: Record<string, typeof Radio> = {
+    transform_parse: Braces,
+    transform_map: ArrowLeftRight,
+    transform_filter: Funnel,
+    transform_sample: Percent,
+    transform_redact: EyeOff,
   }
 
   const sourceIcons: Record<string, typeof Radio> = {
@@ -130,6 +210,32 @@
     {/each}
 
     <p class="text-[10px] font-semibold text-fg-3 uppercase tracking-wider mt-3 mb-2 px-1">
+      Transforms
+    </p>
+    {#each TRANSFORM_NODE_TYPES as transform}
+      {@const Icon = transformIcons[transform.type] || Braces}
+      <div
+        class="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-lg border border-edge-subtle bg-surface cursor-grab hover:border-edge-strong transition-colors text-xs"
+        draggable="true"
+        ondragstart={(e: DragEvent) => onDragStart(e, transform.type)}
+        role="button"
+        tabindex={0}
+        title="Drag onto the canvas, or onto an edge to insert it into the chain"
+      >
+        <Icon size={14} class="text-fg-3 shrink-0" />
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-1 font-medium text-fg-2 text-xs">
+            {transform.label}
+            {#if transform.pro && !isProActive()}
+              <span class="ml-auto rounded-sm bg-surface-2 px-1 text-[9px] font-semibold uppercase tracking-wider text-fg-4">Pro</span>
+            {/if}
+          </div>
+          <div class="text-[9px] text-fg-4 truncate">{transform.description}</div>
+        </div>
+      </div>
+    {/each}
+
+    <p class="text-[10px] font-semibold text-fg-3 uppercase tracking-wider mt-3 mb-2 px-1">
       Sinks
     </p>
     {#each SINK_NODE_TYPES as sink}
@@ -154,6 +260,7 @@
     class="flex-1 min-h-0"
     ondragover={onDragOver}
     ondrop={onDrop}
+    onpointerdowncapture={onPointerDownCapture}
     role="presentation"
   >
     <SvelteFlow
@@ -163,11 +270,13 @@
       fitView
       colorMode={getTheme()}
       proOptions={{ hideAttribution: true }}
+      onbeforeconnect={refuseConnection}
       onconnect={onConnect}
       onnodeclick={({ node }) => {
         if (node?.id) onNodeClick(node.id)
       }}
-      onpaneclick={() => onPaneClick()}
+      onpaneclick={handlePaneClick}
+      deleteKey={['Delete', 'Backspace']}
       onnodedragstop={({ nodes: draggedNodes }) => {
         // Update node positions after drag
         let updated = [...nodes]
@@ -180,14 +289,20 @@
         onNodesChange(updated)
       }}
       ondelete={({ nodes: deletedNodes, edges: deletedEdges }) => {
+        let nextEdges = edges
+        if (deletedEdges.length > 0) {
+          const deleteIds = new Set(deletedEdges.map((e) => e.id))
+          // Edges removed with a node are rejoined below; drop only the others here.
+          const nodeIds = new Set(deletedNodes.map((n) => n.id))
+          nextEdges = nextEdges.filter((e) => !deleteIds.has(e.id) || nodeIds.has(e.source) || nodeIds.has(e.target))
+        }
         if (deletedNodes.length > 0) {
           const deleteIds = new Set(deletedNodes.map((n) => n.id))
           onNodesChange(nodes.filter((n) => !deleteIds.has(n.id)))
+          // Removing a transform from the middle keeps the chain connected.
+          nextEdges = bridgeDeleted(nextEdges, deleteIds, () => newId('edge')) as Edge[]
         }
-        if (deletedEdges.length > 0) {
-          const deleteIds = new Set(deletedEdges.map((e) => e.id))
-          onEdgesChange(edges.filter((e) => !deleteIds.has(e.id)))
-        }
+        if (nextEdges !== edges) onEdgesChange(nextEdges)
       }}
       defaultEdgeOptions={{ animated: true, style: 'stroke: #f97316; stroke-width: 2;' }}
     >

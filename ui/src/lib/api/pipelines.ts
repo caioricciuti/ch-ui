@@ -1,5 +1,6 @@
 import { apiGet, apiPost, apiPut, apiDel } from './client'
 import type { Pipeline, PipelineCheckpoint, PipelineGraph, PipelineRun, PipelineRunLog, PipelineStatusInfo, PipelineTestResult } from '../types/pipelines'
+import type { PreviewRequest, PreviewResponse } from '../types/transforms'
 
 const BASE = '/api/pipelines'
 
@@ -59,4 +60,13 @@ export function resetPosition(id: string) {
 
 export function listCheckpoints(id: string) {
   return apiGet<{ checkpoints: PipelineCheckpoint[] }>(`${BASE}/${id}/checkpoints`)
+}
+
+/**
+ * Runs the given transform chain (unsaved configs, in chain order) on sample
+ * records. Without records the server uses recent live records or the source
+ * sample, else answers 400. Writes nothing.
+ */
+export function previewTransforms(id: string, req: PreviewRequest) {
+  return apiPost<PreviewResponse>(`${BASE}/${id}/preview-transforms`, req)
 }

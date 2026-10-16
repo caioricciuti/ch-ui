@@ -14,12 +14,17 @@ import (
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/pipelines/transform"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
 
 // sourceStopTimeout bounds how long a pipeline waits for its source to return
 // after cancellation before it reports itself done.
 const sourceStopTimeout = 20 * time.Second
+
+// proRecheck is how often a running pipeline with a Pro transform checks
+// the license again.
+var proRecheck = time.Minute
 
 // RunningPipeline is the runtime state of a single active pipeline.
 type RunningPipeline struct {
@@ -29,6 +34,13 @@ type RunningPipeline struct {
 	Metrics    *Metrics
 	StartedAt  time.Time
 	Done       chan struct{}
+
+	// specs and chain are the transform nodes in chain order; chain is
+	// empty for a source -> sink pipeline. sample keeps the last rows that
+	// entered the chain for the editor's preview.
+	specs  []transform.NodeSpec
+	chain  *transform.Chain
+	sample recordRing
 
 	// userStopped is set by an explicit StopPipeline; shutdown by Runner.Stop.
 	// They decide the status written when the run ends.
@@ -52,6 +64,9 @@ type Runner struct {
 	// Connector factories; tests replace them.
 	newSource func(nodeType string) (SourceConnector, error)
 	newSink   func() SinkConnector
+	// proAccess reports the license state for Pro transforms; tests
+	// replace it.
+	proAccess func() config.ProAccess
 }
 
 // NewRunner creates a new pipeline runner.
@@ -64,8 +79,18 @@ func NewRunner(db *database.DB, gw *tunnel.Gateway, cfg *config.Config) *Runner 
 		newSource: NewSource,
 	}
 	r.newSink = func() SinkConnector { return NewClickHouseSink(r.gateway, r.db, r.cfg.AppSecretKey) }
+	r.proAccess = func() config.ProAccess {
+		if r.cfg == nil {
+			return config.ProNone
+		}
+		return r.cfg.ProAccess()
+	}
 	return r
 }
+
+// proAllowed reports whether Pro transforms may run: an active license or
+// the read-only grace window, as for the other background Pro workers.
+func (r *Runner) proAllowed() bool { return r.proAccess() != config.ProNone }
 
 // SetHub gives the runner the ingest spool. Call it before Start.
 func (r *Runner) SetHub(h *Hub) { r.hub = h }
@@ -177,10 +202,14 @@ func (r *Runner) StartPipeline(pipelineID string) error {
 		}
 	}()
 
-	source, sink, sourceCfg, sinkCfg, err := r.prepare(pipelineID)
+	p, err := r.prepare(pipelineID)
 	if err != nil {
 		return err
 	}
+	if err := transform.RequirePro(p.specs, !transform.NeedsPro(p.specs) || r.proAllowed()); err != nil {
+		return err
+	}
+	rp.specs, rp.chain = p.specs, p.chain
 
 	runID, err := r.db.CreatePipelineRun(pipelineID, "running")
 	if err != nil {
@@ -191,49 +220,51 @@ func (r *Runner) StartPipeline(pipelineID string) error {
 	r.db.UpdatePipelineStatus(pipelineID, "running", "")
 
 	launched = true
-	go r.runPipeline(ctx, rp, source, sink, sourceCfg, sinkCfg)
+	go r.runPipeline(ctx, rp, p.source, p.sink, p.sourceCfg, p.sinkCfg)
 
-	r.db.CreatePipelineRunLog(runID, "info", "Pipeline started")
-	slog.Info("Pipeline started", "pipeline", pipelineID, "source", sourceCfg.NodeType, "run", runID)
+	msg := "Pipeline started"
+	if n := p.chain.Len(); n > 0 {
+		msg = fmt.Sprintf("Pipeline started with %d transform nodes", n)
+	}
+	r.db.CreatePipelineRunLog(runID, "info", msg)
+	slog.Info("Pipeline started", "pipeline", pipelineID, "source", p.sourceCfg.NodeType, "transforms", p.chain.Len(), "run", runID)
 	return nil
 }
 
-// prepare loads, decrypts and validates a pipeline's graph.
-func (r *Runner) prepare(pipelineID string) (SourceConnector, SinkConnector, ConnectorConfig, ConnectorConfig, error) {
-	var none ConnectorConfig
+// preparedPipeline is a validated pipeline ready to run.
+type preparedPipeline struct {
+	source             SourceConnector
+	sink               SinkConnector
+	sourceCfg, sinkCfg ConnectorConfig
+	specs              []transform.NodeSpec
+	chain              *transform.Chain
+}
+
+// prepare loads, decrypts and validates a pipeline's graph and compiles its
+// transform chain.
+func (r *Runner) prepare(pipelineID string) (*preparedPipeline, error) {
 	pipeline, err := r.db.GetPipelineByID(pipelineID)
 	if err != nil || pipeline == nil {
-		return nil, nil, none, none, fmt.Errorf("pipeline not found: %s", pipelineID)
+		return nil, fmt.Errorf("pipeline not found: %s", pipelineID)
 	}
 
 	nodes, edges, err := r.db.GetPipelineGraph(pipelineID)
 	if err != nil {
-		return nil, nil, none, none, fmt.Errorf("load pipeline graph: %w", err)
+		return nil, fmt.Errorf("load pipeline graph: %w", err)
 	}
 
-	sourceNode, sinkNode, err := FindSourceAndSink(nodes)
+	sourceNode, sinkNode, chainNodes, err := ResolveChain(nodes, edges)
 	if err != nil {
-		return nil, nil, none, none, err
-	}
-
-	connected := false
-	for _, e := range edges {
-		if e.SourceNodeID == sourceNode.ID && e.TargetNodeID == sinkNode.ID {
-			connected = true
-			break
-		}
-	}
-	if !connected {
-		return nil, nil, none, none, fmt.Errorf("source node is not connected to sink node")
+		return nil, err
 	}
 
 	sourceCfg, err := r.parseNodeConfig(sourceNode)
 	if err != nil {
-		return nil, nil, none, none, fmt.Errorf("parse source config: %w", err)
+		return nil, fmt.Errorf("parse source config: %w", err)
 	}
 	sinkCfg, err := r.parseNodeConfig(sinkNode)
 	if err != nil {
-		return nil, nil, none, none, fmt.Errorf("parse sink config: %w", err)
+		return nil, fmt.Errorf("parse sink config: %w", err)
 	}
 
 	// Inject runtime fields into configs
@@ -241,7 +272,7 @@ func (r *Runner) prepare(pipelineID string) (SourceConnector, SinkConnector, Con
 	sourceCfg.Fields["pipeline_id"] = pipelineID
 	checkpoints, err := r.db.PipelineCheckpointMap(pipelineID)
 	if err != nil {
-		return nil, nil, none, none, fmt.Errorf("load checkpoints: %w", err)
+		return nil, fmt.Errorf("load checkpoints: %w", err)
 	}
 	sourceCfg.Checkpoints = checkpoints
 	sourceCfg.Hub = r.hub
@@ -259,22 +290,30 @@ func (r *Runner) prepare(pipelineID string) (SourceConnector, SinkConnector, Con
 
 	source, err := r.newSource(sourceCfg.NodeType)
 	if err != nil {
-		return nil, nil, none, none, fmt.Errorf("create source connector: %w", err)
+		return nil, fmt.Errorf("create source connector: %w", err)
 	}
 	sink := r.newSink()
 
 	if err := source.Validate(sourceCfg); err != nil {
-		return nil, nil, none, none, fmt.Errorf("validate source config: %w", err)
+		return nil, fmt.Errorf("validate source config: %w", err)
 	}
 	if err := sink.Validate(sinkCfg); err != nil {
-		return nil, nil, none, none, fmt.Errorf("validate sink config: %w", err)
+		return nil, fmt.Errorf("validate sink config: %w", err)
 	}
 	if IsSQLiteSource(sourceCfg.NodeType, sourceCfg.Fields) {
 		if err := CheckSQLitePath(stringField(sourceCfg.Fields, "connection_string", ""), r.dataDir()); err != nil {
-			return nil, nil, none, none, err
+			return nil, err
 		}
 	}
-	return source, sink, sourceCfg, sinkCfg, nil
+	specs, err := transformSpecs(chainNodes)
+	if err != nil {
+		return nil, err
+	}
+	chain, err := transform.Compile(specs, TransformOptions(sourceCfg.NodeType, sourceCfg.Fields))
+	if err != nil {
+		return nil, err
+	}
+	return &preparedPipeline{source: source, sink: sink, sourceCfg: sourceCfg, sinkCfg: sinkCfg, specs: specs, chain: chain}, nil
 }
 
 func (r *Runner) dataDir() string {
@@ -376,6 +415,9 @@ func (r *Runner) execute(ctx context.Context, rp *RunningPipeline, source Source
 	// send, which is the backpressure that stops it reading further.
 	batchCh := make(chan Batch, 1)
 	srcDone := make(chan error, 1)
+	needsPro := transform.NeedsPro(rp.specs)
+	proChecked := time.Now()
+	var loopErr error
 
 	go func() {
 		var srcErr error
@@ -399,7 +441,16 @@ loop:
 			if !ok {
 				break loop
 			}
-			r.writeWithRetry(ctx, rp, sink, sinkCfg, batch)
+			if needsPro && time.Since(proChecked) >= proRecheck {
+				proChecked = time.Now()
+				if err := transform.RequirePro(rp.specs, r.proAllowed()); err != nil {
+					// The batch is not acked, so it is read again later.
+					loopErr = err
+					break loop
+				}
+			}
+			rp.sample.add(batch.Records)
+			r.writeWithRetry(ctx, rp, sink, sinkCfg, applyChain(rp.chain, batch))
 		}
 	}
 
@@ -409,10 +460,13 @@ loop:
 	rp.Cancel()
 	select {
 	case err := <-srcDone:
+		if loopErr != nil {
+			return loopErr
+		}
 		return err
 	case <-time.After(sourceStopTimeout):
 		slog.Warn("Pipeline source did not stop in time", "pipeline", rp.PipelineID)
-		return nil
+		return loopErr
 	}
 }
 

@@ -12,8 +12,9 @@ No external dependencies. Connectors compile into the CH-UI binary.
 Each pipeline has:
 
 - **One source node** (where data comes from)
+- **Zero or more transform nodes** that parse, reshape, filter, sample or redact records on the way (see [Transforms](#transforms))
 - **One sink node** (ClickHouse table)
-- **An edge** connecting them
+- **Edges** connecting them in a single chain: source, transforms in order, sink
 
 Pipelines run as background goroutines inside the CH-UI server process. A pipeline that is running when CH-UI stops (a crash or a normal shutdown) keeps its `running` status and is started again on the next boot. Only **Stop** in the UI sets it to `stopped`.
 
@@ -133,6 +134,103 @@ Read files from S3-compatible storage (AWS S3, MinIO, etc.).
 
 A file counts as processed only after all its rows are written. The processed files (key and ETag) are saved per bucket and prefix, so a restart reads only new files and files whose ETag changed (rewritten objects). The saved list keeps the 2000 lexically largest keys; older keys are folded into a "processed up to key K" marker, and any key that sorts at or below K counts as processed. Prefixes whose keys grow over time (dates, sequence numbers) are not affected; a new file whose key sorts below K is skipped.
 
+## Transforms
+
+Transform nodes sit between the source and the sink and run, in chain order, on every batch before it is written. They work with every source. Drag one from the **Transforms** section of the palette, or drop it onto an existing edge to insert it there.
+
+| Node | What it does | Edition |
+|---|---|---|
+| Parse | Parses a text field (JSON, logfmt, regex, nginx or Apache access logs, syslog) into fields | Free |
+| Map fields | Copies, renames, sets and drops fields; sets severity and timestamp from a field | Free |
+| Filter | Keeps or drops records that match rules | Free |
+| Sample | Keeps a deterministic share of records | Pro |
+| Redact | Replaces emails, IP addresses, card numbers, tokens and custom patterns | Pro |
+
+The graph must be one straight line: one source, one sink, and every transform with exactly one connection in and one out. Branches, merges, cycles and unconnected nodes are refused when the pipeline starts, with the node's label in the message. A pipeline can have up to 20 transform nodes.
+
+Transform configs are checked when the graph is saved (paths, regular expressions, formats, operators, limits), and a node with a bad config is named in the error. A running pipeline keeps the chain it started with; stop and run it again to apply changes.
+
+### Records and field paths
+
+A record is the JSON object of one row. Paths name fields in it:
+
+- `status` is a top-level field, `http.request.method` a nested object path.
+- `attrs['user.id']` (or `attrs["user.id"]`) is a key that contains dots.
+- On an ingest pipeline with the `logs` or `traces` signal, the map columns `LogAttributes`, `ResourceAttributes`, `ScopeAttributes` and `SpanAttributes` hold flat keys, so `LogAttributes.http.method` is the key `http.method`. `LogAttributes['k']` works too. Values written into these columns are turned into strings: numbers in their shortest form, booleans as `true`/`false`, objects and arrays as JSON.
+
+Numbers keep every digit through a chain (a 20-digit id stays exact). Transforms for webhook and ingest sources run when the spool is written to ClickHouse, so data that waited in the spool is processed with the chain of the current run.
+
+### Parse
+
+| Field | Description |
+|---|---|
+| Field | The text field to parse. On a logs pipeline it defaults to `Body` |
+| Format | `json`, `logfmt`, `regex`, `nginx`, `apache` or `syslog` |
+| Pattern | For `regex`: a Go (RE2) regular expression with named groups, e.g. `(?P<ip>\S+) (?P<status>\d{3})`. Each named group becomes a field |
+| Target | Where the parsed fields go: an object path, or empty for the top level of the record. On a logs pipeline a node saved without a target writes to `LogAttributes` |
+| Prefix | Added to every parsed field name |
+| On error | `keep` (default) passes the record on unchanged, `drop` drops it. Either way it counts as an error |
+| Remove source | Delete the parsed field after a successful parse |
+
+- `logfmt` reads `key=value` pairs separated by spaces; values may be double-quoted with escapes, a bare key is `"true"`. A line without any `key=value` pair is a parse error.
+- `nginx` and `apache` read the combined log format (and the common format without referer and user agent) into `client_ip`, `ident`, `remote_user`, `time_local`, `request`, `method`, `path`, `protocol`, `status`, `body_bytes_sent`, `http_referer` and `http_user_agent`. `-` values are left out.
+- `syslog` reads RFC 5424 and RFC 3164 messages into `priority`, `facility`, `severity` (keyword: `emerg`, `alert`, `crit`, `err`, `warning`, `notice`, `info`, `debug`), `timestamp`, `hostname`, `app_name`, `proc_id`, `msg_id`, `structured_data` (raw) and `message`.
+- Parsed values are strings, except with `json`, which keeps types. Fields longer than 1 MB fail to parse.
+
+### Map fields
+
+Runs, in this order: **copy**, **rename**, **set**, **severity from**, **timestamp from**, **drop**. A missing source field is skipped.
+
+- **Severity from** maps a level word (case-insensitive) to OpenTelemetry severity: `trace` 1, `debug` 5, `info`/`notice` 9, `warn`/`warning` 13, `error`/`err` 17, `fatal`/`critical`/`crit`/`alert`/`emerg`/`panic` 21. On a logs pipeline it sets `SeverityText` (`TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL`) and `SeverityNumber`; on other pipelines it sets a `severity` field with the text. Unknown words leave the record as it is.
+- **Timestamp from** reads a field as `rfc3339`, `unix` (seconds, decimals allowed), `unix_ms`, `unix_ns`, or `layout:<Go layout>` (for example `layout:02/Jan/2006:15:04:05 -0700`). On a logs or traces pipeline it sets `Timestamp`; on other pipelines a `timestamp` field in RFC 3339 (UTC). A layout without a time zone is read as UTC; a layout without a year gives year 0, so include one. A value that does not parse counts as an error and leaves the record as it is.
+
+### Filter
+
+| Field | Description |
+|---|---|
+| Mode | `keep`: only matching records pass. `drop`: matching records are dropped |
+| Match | `all` rules or `any` rule |
+| Rules | Field, operator, value |
+
+Operators: `eq`, `ne`, `contains`, `not_contains`, `matches` (RE2), `gt`, `gte`, `lt`, `lte`, `exists`, `missing`, `in` (value is a JSON array such as `["ERROR","FATAL"]`). `eq`, `ne`, `in` and the comparisons compare as numbers when both sides are numbers, else as text. A missing field matches only `ne`, `not_contains` and `missing`. A filter without rules lets everything through. Up to 50 rules.
+
+### Sample (Pro)
+
+| Field | Description |
+|---|---|
+| Keep percent | 0 to 100, in steps of 0.01 |
+| Always keep | Optional rules (same shape as Filter); matching records always pass, for example errors |
+| Key | Optional field to sample on, such as `TraceId`, so all records of a trace are kept or dropped together |
+
+Sampling is deterministic, never random: a record passes when the FNV-1a 64 hash of its key value (or of the whole record as canonical JSON, when there is no key or it is empty) modulo 10000 is below keep percent times 100. The same record always gets the same answer, so a retried or replayed batch gives the same rows.
+
+### Redact (Pro)
+
+| Field | Description |
+|---|---|
+| Kinds | `email`, `ipv4`, `ipv6`, `credit_card`, `jwt`, `bearer_token`, `aws_key`, `custom` |
+| Custom | Named RE2 patterns (up to 20), e.g. name `order id`, pattern `ORD-\d+` |
+| Fields | Paths to redact. Empty means every string in the record, including map values and arrays |
+| Replacement | Default `[REDACTED:{kind}]`; `{kind}` is replaced with the kind or the custom pattern's name |
+
+`credit_card` only replaces 13 to 19 digit numbers (spaces and dashes allowed) that pass the Luhn check, so order numbers and timestamps are left alone. `bearer_token` keeps the word `Bearer` and replaces the token. Redaction runs in the order tokens, AWS keys, emails, card numbers, IPv6, IPv4, custom. Original values are never logged or shown in errors.
+
+### Preview
+
+Each transform node has a **Preview** tab that shows the records before and after the chain up to that node: changed fields highlighted, dropped records struck out with the reason, parse errors per record. It uses the node configs in the editor, saved or not. The records come from, in order: records you paste (JSON objects, one per line, up to 100), the last 20 records that entered the chain of the running pipeline, or the source's [test sample](#test-a-pipeline). The API is `POST /api/pipelines/{id}/preview-transforms` (analysts and admins) with `{"nodes":[{"id","node_type","config"}, ...], "records":[...]}`, at most 1 MB. Each step in the response has the node's `output`, `kept` (each output record's index in the step's input), `drops` (`index` and `reason`) and `errors` (`index` and `message`).
+
+### Counters
+
+While a pipeline runs, each transform node shows how many records came in, went out, were dropped, and failed to parse, since the run started. They are in `GET /api/pipelines/{id}/status` as `transforms: [{"node_id","in","out","dropped","errors"}]`.
+
+### Pro nodes
+
+Sample and Redact need CH-UI Pro to run or preview. A graph with them saves on any edition, so a license change never deletes a config, but starting or previewing them without Pro fails with `402 Payment Required` and the message `Sampling needs CH-UI Pro` (or `Redaction needs CH-UI Pro`), with `node_id` naming the node; the run log names the node by its label, and a running pipeline that loses its license (past the grace period) stops with that error at the next batch (the license is checked again once a minute). The read-only grace period after a license expires keeps them running.
+
+### Duplicates and replays
+
+Retries and replays send the same rows with the same deduplication token because every transform is deterministic: nothing reads the clock or a random source. If you change the chain while a spooled segment was inserted but not yet acknowledged (a crash in between), the replay under the new chain carries the old token and ClickHouse keeps the first version.
+
 ## ClickHouse Sink
 
 The sink writes batches to a ClickHouse table using `INSERT FORMAT JSONEachRow` through the tunnel gateway. It runs with the connection's `pipeline` [background account](/docs/background-accounts), fetched again for every batch, so the account needs INSERT on the target (and CREATE TABLE if the sink creates it).
@@ -229,7 +327,7 @@ Pipelines belong to a connection and run with that connection's credentials, so 
 2. Click **New Pipeline** and give it a name. It is created on the connection you are signed in to
 3. Drag a **source** node onto the canvas from the left panel
 4. Drag the **ClickHouse** sink node onto the canvas
-5. Connect them by dragging from the source's output handle to the sink's input handle
+5. Connect them by dragging from the source's output handle to the sink's input handle. To add [transforms](#transforms), drop them onto the edge
 6. Click each node to configure it in the right panel
 7. Click **Test** to preview the source and check the sink (see below)
 8. Click **Save**, then **Run** (Run saves first and does not start if the save fails)
