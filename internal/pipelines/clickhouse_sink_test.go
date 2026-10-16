@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -100,5 +101,62 @@ func TestSinkRetriesTableCreationAndSendsDedupToken(t *testing.T) {
 	}
 	if !strings.HasPrefix(insert, "INSERT INTO `d\\`b`.`t` FORMAT JSONEachRow\n{\"v\":1}\n") {
 		t.Fatalf("insert not escaped/compacted: %q", insert)
+	}
+}
+
+// Plain MergeTree tables the sink creates keep a dedup window, so a
+// replayed batch is dropped by its token; an insert without a token turns
+// deduplication off so identical batches are kept. Replicated engines and
+// existing tables are left as they are.
+func TestSinkCreatedTablesDeduplicateByToken(t *testing.T) {
+	db, conn := testutil.WorkerDB(t)
+	var mu sync.Mutex
+	inserts := map[string]map[string]string{}
+	agent := testutil.NewAgent(t, db, "worker-token", func(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
+		if strings.HasPrefix(msg.SQL, "INSERT") {
+			mu.Lock()
+			inserts[strings.SplitN(msg.SQL, " ", 4)[2]] = msg.Settings
+			mu.Unlock()
+		}
+		return &tunnel.AgentMessage{Type: "query_result", Data: json.RawMessage(`[]`)}
+	})
+	pipelineAccount(t, db, conn)
+	write := func(table, engine string, create bool, token string) {
+		t.Helper()
+		sink := NewClickHouseSink(agent.Gateway, db, "test-secret")
+		cfg := ConnectorConfig{Fields: map[string]interface{}{"connection_id": conn, "database": "d", "table": table, "create_table": create, "create_table_engine": engine}}
+		if _, err := sink.WriteBatch(context.Background(), cfg, Batch{Records: []Record{{Data: map[string]interface{}{"v": float64(1)}, RawJSON: []byte(`{"v":1}`)}}, DedupToken: token}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("plain", "", true, "tok")
+	write("notoken", "MergeTree", true, "")
+	write("repl", "ReplicatedMergeTree", true, "")
+	write("existing", "", false, "")
+
+	creates := map[string]string{}
+	for _, m := range agent.Messages() {
+		if strings.HasPrefix(m.SQL, "CREATE TABLE") {
+			creates[strings.SplitN(m.SQL, " ", 7)[5]] = m.SQL
+		}
+	}
+	if c := creates["`d`.`plain`"]; !strings.HasSuffix(c, "ORDER BY tuple()\nSETTINGS non_replicated_deduplication_window = 1000") {
+		t.Fatalf("plain MergeTree create:\n%s", c)
+	}
+	if c := creates["`d`.`repl`"]; c == "" || strings.Contains(c, "SETTINGS") {
+		t.Fatalf("replicated create:\n%s", c)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if s := inserts["`d`.`plain`"]; s["insert_deduplication_token"] != "tok" || s["insert_deduplicate"] != "" {
+		t.Fatalf("insert with a token: %v", s)
+	}
+	if s := inserts["`d`.`notoken`"]; s["insert_deduplicate"] != "0" {
+		t.Fatalf("insert without a token: %v", s)
+	}
+	for _, table := range []string{"`d`.`repl`", "`d`.`existing`"} {
+		if s := inserts[table]; s["insert_deduplicate"] != "" {
+			t.Fatalf("%s: %v", table, s)
+		}
 	}
 }

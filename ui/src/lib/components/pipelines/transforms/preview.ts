@@ -1,6 +1,6 @@
 // Pure helpers for the transform preview: sample parsing, record alignment and field diffs.
 
-import { PREVIEW_MAX_RECORDS, type PreviewResponse, type PreviewStep, type TransformNodeType } from '../../../types/transforms'
+import { PREVIEW_MAX_RECORDS, UNMATCHED_HANDLE, type PreviewResponse, type PreviewStep, type TransformNodeType } from '../../../types/transforms'
 
 type Rec = Record<string, unknown>
 
@@ -175,4 +175,49 @@ export function valueText(v: unknown): string {
   if (v === null) return 'null'
   if (typeof v === 'string') return v
   return JSON.stringify(v)
+}
+
+export interface RouteRow {
+  /** Index in the route step's input. */
+  index: number
+  /** Output handles the record went to, in output order. */
+  handles: string[]
+  /** It matched no route. */
+  unmatched: boolean
+  record: Rec
+}
+
+/**
+ * One row per record entering a route step: the outputs it went to, or
+ * unmatched. Records missing from every output and from the unmatched list
+ * count as unmatched too.
+ */
+export function buildRouteRows(input: Rec[], step: PreviewStep, order: string[]): RouteRow[] {
+  const rank = (h: string) => {
+    const i = order.indexOf(h)
+    return i < 0 ? order.length : i
+  }
+  const to = new Map<number, string[]>()
+  for (const r of step.routes ?? []) {
+    for (const i of r.kept ?? []) {
+      const list = to.get(i) ?? []
+      if (!list.includes(r.handle)) list.push(r.handle)
+      to.set(i, list)
+    }
+  }
+  return input.map((record, index) => {
+    const handles = (to.get(index) ?? []).filter((h) => h !== UNMATCHED_HANDLE).sort((a, b) => rank(a) - rank(b))
+    return { index, handles, unmatched: handles.length === 0, record }
+  })
+}
+
+/** Records per output (and unmatched) in a route preview. */
+export function routeTotals(rows: RouteRow[]): { perHandle: Record<string, number>; unmatched: number } {
+  const perHandle: Record<string, number> = {}
+  let unmatched = 0
+  for (const r of rows) {
+    if (r.unmatched) unmatched++
+    for (const h of r.handles) perHandle[h] = (perHandle[h] ?? 0) + 1
+  }
+  return { perHandle, unmatched }
 }

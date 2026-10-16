@@ -100,7 +100,9 @@ the source and the sink. On a `logs` pipeline, Parse writes into
 `LogAttributes` by default and Map fields' **severity from** sets
 `SeverityText` and `SeverityNumber`. Transforms run when the spool is written
 to ClickHouse, so data that waited in the spool gets the chain of the current
-run.
+run. A [Route node](/docs/pipelines#route-pro) (Pro) writes one stream to
+several tables, for example `ERROR` logs to their own table and the rest to
+another; each sink creates its own exporter table.
 
 ## Durability
 

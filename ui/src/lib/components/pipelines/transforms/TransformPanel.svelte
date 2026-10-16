@@ -10,6 +10,7 @@
   import FilterConfig from './FilterConfig.svelte'
   import SampleConfig from './SampleConfig.svelte'
   import RedactConfig from './RedactConfig.svelte'
+  import RouteConfig from './RouteConfig.svelte'
   import TransformPreview from './TransformPreview.svelte'
   import { inputClass, labelClass } from './ui'
 
@@ -25,11 +26,15 @@
     chain: (PreviewNode & { label: string })[]
     /** Why the chain is not complete, shown in the preview. */
     chainNote?: string
+    /** Past a route: the route output this node's branch hangs off. */
+    branch?: string
+    /** Route nodes: label of the node each connected output feeds, by handle. */
+    connected?: Record<string, string>
     onUpdate: (nodeId: string, config: Record<string, unknown>, label: string) => void
     onClose: () => void
   }
 
-  let { nodeId, nodeType, label, config, pipelineId, signal = null, chain, chainNote = '', onUpdate, onClose }: Props = $props()
+  let { nodeId, nodeType, label, config, pipelineId, signal = null, chain, chainNote = '', branch = '', connected = {}, onUpdate, onClose }: Props = $props()
 
   // Copied once on mount; the editor remounts this panel per node ({#key}).
   let localLabel = $state(untrack(() => label))
@@ -114,6 +119,8 @@
           <SampleConfig config={localConfig} {signal} onchange={setConfig} />
         {:else if nodeType === 'transform_redact'}
           <RedactConfig config={localConfig} onchange={setConfig} />
+        {:else if nodeType === 'transform_route'}
+          <RouteConfig config={localConfig} {signal} {connected} onchange={setConfig} />
         {/if}
       </div>
 
@@ -125,7 +132,7 @@
         </ul>
       {/if}
     {:else}
-      <TransformPreview {pipelineId} {nodeId} {nodeType} chain={previewChain} {labels} {chainNote} {blocked} />
+      <TransformPreview {pipelineId} {nodeId} {nodeType} chain={previewChain} {labels} {chainNote} {blocked} {branch} />
     {/if}
   </div>
 </div>

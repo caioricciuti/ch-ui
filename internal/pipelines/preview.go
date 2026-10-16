@@ -51,7 +51,7 @@ func (r *Runner) TestPipeline(ctx context.Context, pipelineID string) (*TestResu
 	if err != nil {
 		return nil, err
 	}
-	source, sink, sourceCfg, sinkCfg := p.source, p.sink, p.sourceCfg, p.sinkCfg
+	source, sourceCfg := p.source, p.sourceCfg
 	res := &TestResult{SourceType: sourceCfg.NodeType, Records: []map[string]interface{}{}, SinkChecks: []SinkCheck{}}
 
 	if s, ok := source.(Sampler); ok {
@@ -70,10 +70,22 @@ func (r *Runner) TestPipeline(ctx context.Context, pipelineID string) (*TestResu
 		res.Note = "This source cannot be previewed."
 	}
 
-	if c, ok := sink.(SinkChecker); ok {
+	// With several sinks every check carries its sink's node id and name.
+	for _, sp := range p.sinks {
+		c, ok := sp.sink.(SinkChecker)
+		if !ok {
+			continue
+		}
 		cctx, cancel := context.WithTimeout(ctx, sampleTimeout)
-		res.SinkChecks = c.Check(cctx, sinkCfg)
+		checks := c.Check(cctx, sp.cfg)
 		cancel()
+		if len(p.sinks) > 1 {
+			for i := range checks {
+				checks[i].NodeID = sp.nodeID
+				checks[i].Name = sp.name + ": " + checks[i].Name
+			}
+		}
+		res.SinkChecks = append(res.SinkChecks, checks...)
 	}
 	return res, nil
 }

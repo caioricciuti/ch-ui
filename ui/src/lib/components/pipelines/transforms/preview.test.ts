@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { alignOutputs, buildRows, diffRecords, flatten, parseSampleRecords, stepInput, valueText } from './preview'
+import { alignOutputs, buildRouteRows, buildRows, diffRecords, flatten, parseSampleRecords, routeTotals, stepInput, valueText } from './preview'
 
 describe('parseSampleRecords', () => {
   it('reads one object per line, skipping blank lines', () => {
@@ -115,5 +115,36 @@ describe('valueText', () => {
     expect(valueText(null)).toBe('null')
     expect(valueText(undefined)).toBe('')
     expect(valueText({ a: 1 })).toBe('{"a":1}')
+  })
+})
+
+describe('route preview', () => {
+  const input = [{ a: 1 }, { a: 2 }, { a: 3 }, { a: 4 }]
+
+  it('maps each record to its outputs in output order, the rest unmatched', () => {
+    const rows = buildRouteRows(input, {
+      node_id: 'r',
+      output: [],
+      dropped: 0,
+      routes: [{ handle: 'r2', kept: [0, 2] }, { handle: 'r1', kept: [0, 1] }],
+      unmatched: [3],
+    }, ['r1', 'r2', 'unmatched'])
+    expect(rows.map((r) => [r.index, r.handles, r.unmatched])).toEqual([
+      [0, ['r1', 'r2'], false],
+      [1, ['r1'], false],
+      [2, ['r2'], false],
+      [3, [], true],
+    ])
+    expect(routeTotals(rows)).toEqual({ perHandle: { r1: 2, r2: 2 }, unmatched: 1 })
+  })
+
+  it('counts records missing from every output as unmatched', () => {
+    const rows = buildRouteRows(input, { node_id: 'r', output: [], dropped: 0, routes: [{ handle: 'r1', kept: [1] }] }, ['r1'])
+    expect(rows.filter((r) => r.unmatched).map((r) => r.index)).toEqual([0, 2, 3])
+  })
+
+  it('does not list the unmatched output as a route', () => {
+    const rows = buildRouteRows(input.slice(0, 1), { node_id: 'r', output: [], dropped: 0, routes: [{ handle: 'unmatched', kept: [0] }] }, ['r1', 'unmatched'])
+    expect(rows[0]).toMatchObject({ handles: [], unmatched: true })
   })
 })

@@ -68,6 +68,8 @@ func ProFeature(nodeType string) string {
 		return "Sampling"
 	case TypeRedact:
 		return "Redaction"
+	case TypeRoute:
+		return "Routing"
 	}
 	return ""
 }
@@ -157,6 +159,8 @@ type Counters struct {
 	Out     int64  `json:"out"`
 	Dropped int64  `json:"dropped"`
 	Errors  int64  `json:"errors"`
+	// RouteCounters is set for a route node only.
+	*RouteCounters
 }
 
 type node struct {
@@ -190,8 +194,12 @@ func Compile(specs []NodeSpec, opts Options) (*Chain, error) {
 	return c, nil
 }
 
-// Validate checks one node's config.
+// Validate checks one node's config, a chain node's or a route's.
 func Validate(spec NodeSpec, opts Options) error {
+	if IsRoute(spec.Type) {
+		_, err := CompileRoute(spec, opts)
+		return err
+	}
 	_, err := compileNode(spec, opts)
 	return err
 }
@@ -294,6 +302,8 @@ type Step struct {
 	// Drops lists the dropped input indexes with the reason, so the editor
 	// can strike them out.
 	Drops []StepDrop `json:"drops"`
+	// RouteResult is set for a route step only.
+	*RouteResult
 }
 
 // StepDrop is a record a step dropped, by its index in the step's input.

@@ -380,8 +380,15 @@ func (h *PipelinesHandler) StartPipeline(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.Runner.StartPipeline(id); err != nil {
-		if errors.Is(err, transform.ErrNeedsPro) {
+		var ne *transform.NodeError
+		var ge *pipelines.GraphError
+		switch {
+		case errors.Is(err, transform.ErrNeedsPro):
 			writeNodeError(w, http.StatusPaymentRequired, err)
+			return
+		case errors.As(err, &ne), errors.As(err, &ge):
+			// A graph or node config the user must fix.
+			writeNodeError(w, http.StatusBadRequest, err)
 			return
 		}
 		slog.Error("Failed to start pipeline", "error", err, "id", id)
@@ -460,6 +467,9 @@ func (h *PipelinesHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		if counters := h.Runner.TransformCounters(id); counters != nil {
 			resp["transforms"] = counters
+		}
+		if sinks := h.Runner.SinkStatuses(id); sinks != nil {
+			resp["sinks"] = sinks
 		}
 	}
 

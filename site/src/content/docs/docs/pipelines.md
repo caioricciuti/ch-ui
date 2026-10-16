@@ -145,8 +145,9 @@ Transform nodes sit between the source and the sink and run, in chain order, on 
 | Filter | Keeps or drops records that match rules | Free |
 | Sample | Keeps a deterministic share of records | Pro |
 | Redact | Replaces emails, IP addresses, card numbers, tokens and custom patterns | Pro |
+| Route | Sends records to different sinks by rules | Pro |
 
-The graph must be one straight line: one source, one sink, and every transform with exactly one connection in and one out. Branches, merges, cycles and unconnected nodes are refused when the pipeline starts, with the node's label in the message. A pipeline can have up to 20 transform nodes.
+Without a [Route](#route-pro) node the graph must be one straight line: one source, one sink, and every transform with exactly one connection in and one out. With a Route node the line ends at the route, and each of its outputs leads through its own transforms to its own sink (see [Route](#route-pro)). Branches anywhere else, merges, cycles and unconnected nodes are refused when the pipeline starts, with the node's label in the message. A pipeline can have up to 20 transform nodes in total.
 
 Transform configs are checked when the graph is saved (paths, regular expressions, formats, operators, limits), and a node with a bad config is named in the error. A running pipeline keeps the chain it started with; stop and run it again to apply changes.
 
@@ -215,17 +216,41 @@ Sampling is deterministic, never random: a record passes when the FNV-1a 64 hash
 
 `credit_card` only replaces 13 to 19 digit numbers (spaces and dashes allowed) that pass the Luhn check, so order numbers and timestamps are left alone. `bearer_token` keeps the word `Bearer` and replaces the token. Redaction runs in the order tokens, AWS keys, emails, card numbers, IPv6, IPv4, custom. Original values are never logged or shown in errors.
 
+### Route (Pro)
+
+A Route node sends each record to one or more sinks, so one source can fill several tables: errors to one table and everything else to another, or one table per team.
+
+| Field | Description |
+|---|---|
+| Mode | `first`: a record goes to the first route that matches. `all`: to every route that matches, so a record can be written to several tables |
+| Routes | Up to 16, in order. Each has an id (`a-z`, `0-9`, `_`, `-`, up to 32 characters, unique in the node), a name, and rules with `all` or `any` match, the same rules as [Filter](#filter). A route without rules matches every record |
+| Unmatched | `drop` (default): records that match no route are dropped and counted. `output`: they get their own output, which can lead to a sink too |
+
+Each route is an output of the node, labelled with its name. Connect every route to a sink, directly or through transforms that only that branch runs. The `unmatched` output may stay unconnected; its records are then dropped and counted. The shape is checked when the pipeline starts:
+
+- at most one Route node, and no Route node inside a branch;
+- at most 8 sinks per pipeline, each fed by exactly one route output;
+- every route connected; a route left unconnected saves, but the pipeline does not start and the message names the route.
+
+A graph problem found at start (a shape problem like these, or a node config that does not validate) is refused with `400 Bad Request`, a message that starts with the node's label, and `node_id` naming the node, so the editor marks it.
+
+The chain before the route runs once per batch, the route splits its output, and each branch runs on its share. Routing is deterministic, so a retried or replayed batch splits the same way. Each sink creates its own table (with the OpenTelemetry layout on an ingest logs or traces pipeline) and has its own [dead-letter table](#dead-letter-table). A sink that gets no rows from a batch does not insert. How a routed batch is retried is under [Delivery and duplicates](#delivery-and-duplicates).
+
 ### Preview
 
 Each transform node has a **Preview** tab that shows the records before and after the chain up to that node: changed fields highlighted, dropped records struck out with the reason, parse errors per record. It uses the node configs in the editor, saved or not. The records come from, in order: records you paste (JSON objects, one per line, up to 100), the last 20 records that entered the chain of the running pipeline, or the source's [test sample](#test-a-pipeline). The API is `POST /api/pipelines/{id}/preview-transforms` (analysts and admins) with `{"nodes":[{"id","node_type","config"}, ...], "records":[...]}`, at most 1 MB. Each step in the response has the node's `output`, `kept` (each output record's index in the step's input), `drops` (`index` and `reason`) and `errors` (`index` and `message`).
 
+`nodes` may contain a Route node. Its step also has `routes` (`[{"handle","kept"}]`, the input indexes each route got, plus `unmatched` when unmatched records have an output) and `unmatched` (the indexes that matched no route). To preview a node in a branch, send the nodes before the route, the route, and that branch's nodes up to the node, with `"branch":"<route id>"` (or `"unmatched"`): the route step then passes only that branch's records on. The Route node's own Preview tab shows, per record, the route or routes it goes to and the unmatched ones.
+
 ### Counters
 
-While a pipeline runs, each transform node shows how many records came in, went out, were dropped, and failed to parse, since the run started. They are in `GET /api/pipelines/{id}/status` as `transforms: [{"node_id","in","out","dropped","errors"}]`.
+While a pipeline runs, each transform node shows how many records came in, went out, were dropped, and failed to parse, since the run started. They are in `GET /api/pipelines/{id}/status` as `transforms: [{"node_id","in","out","dropped","errors"}]`, the shared chain first, then the route and each branch. A Route node's entry also has `outputs: [{"handle","out"}]`, records sent per route, and `unmatched_dropped`; its `out` is the sum of the outputs (in `all` mode a record sent to two routes counts twice) and `dropped` equals `unmatched_dropped`.
+
+Every sink has its own totals in `sinks: [{"node_id","rows","batches","last_write_at","errors"}]`. The pipeline totals (`rows_ingested`, `batches_sent`, `errors_count`) are the sums over the sinks.
 
 ### Pro nodes
 
-Sample and Redact need CH-UI Pro to run or preview. A graph with them saves on any edition, so a license change never deletes a config, but starting or previewing them without Pro fails with `402 Payment Required` and the message `Sampling needs CH-UI Pro` (or `Redaction needs CH-UI Pro`), with `node_id` naming the node; the run log names the node by its label, and a running pipeline that loses its license (past the grace period) stops with that error at the next batch (the license is checked again once a minute). The read-only grace period after a license expires keeps them running.
+Sample, Redact and Route need CH-UI Pro to run or preview. A graph with them saves on any edition, so a license change never deletes a config, but starting or previewing them without Pro fails with `402 Payment Required` and the message `Sampling needs CH-UI Pro` (or `Redaction needs CH-UI Pro`, `Routing needs CH-UI Pro`), with `node_id` naming the node; the run log names the node by its label, and a running pipeline that loses its license (past the grace period) stops with that error at the next batch (the license is checked again once a minute). The read-only grace period after a license expires keeps them running.
 
 ### Duplicates and replays
 
@@ -300,7 +325,11 @@ Retries and restarts can therefore send rows twice. Positions are saved right af
 - `Replicated*MergeTree` tables (and ClickHouse Cloud) deduplicate inserts by default.
 - Plain `MergeTree` tables need the setting, for example `ALTER TABLE events MODIFY SETTING non_replicated_deduplication_window = 1000`.
 
-Webhook and ingest sources insert one spool segment per batch with a token made of the spool's instance id, the pipeline and the segment number, so a segment written again after a crash is dropped too. Tables the sink creates for ingest logs and traces get the deduplication window automatically. A database source without a watermark column sends no token.
+Webhook and ingest sources insert one spool segment per batch with a token made of the spool's instance id, the pipeline and the segment number, so a segment written again after a crash is dropped too. A database source without a watermark column sends no token.
+
+Tables the sink creates get the deduplication window automatically (`SETTINGS non_replicated_deduplication_window = 1000`): the OpenTelemetry tables of ingest logs and traces, and tables created with a plain (not `Replicated` or `Shared`) engine. For such a table an insert without a token is sent with `insert_deduplicate = 0`, so identical batches from a source without positions are all kept. Tables created by earlier versions keep their settings; add the window with the `ALTER TABLE` above.
+
+With a [Route](#route-pro) node every sink gets its own token, `<batch token>:<sink node id>`, and the batch is acknowledged (spool segment deleted, offsets committed, watermark or S3 position saved) only after every sink took its rows. When one sink fails, the whole batch is retried with backoff and the source pauses; sinks that already took their rows are not written again in that run, and when the batch is replayed after a restart they drop it by token.
 
 ### Positions and reset
 

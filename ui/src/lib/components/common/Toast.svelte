@@ -3,13 +3,13 @@
 </script>
 
 <Toaster
-  position="top-right"
+  position="bottom-right"
   richColors={true}
   closeButton={true}
   visibleToasts={5}
   expand={true}
   duration={4400}
-  offset={{ top: 60, right: 16 }}
+  offset={{ bottom: 48, right: 16 }}
   mobileOffset={12}
   gap={8}
   containerAriaLabel="CH-UI notifications"

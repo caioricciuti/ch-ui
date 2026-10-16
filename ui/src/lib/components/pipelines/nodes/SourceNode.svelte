@@ -1,8 +1,10 @@
 <script lang="ts">
   import { Handle, Position } from '@xyflow/svelte'
   import { Radio, Webhook, Database, HardDrive, Inbox } from 'lucide-svelte'
+  import { getNodeError } from '../transforms/counters.svelte'
 
   interface Props {
+    id: string
     data: {
       label: string
       node_type: string
@@ -10,7 +12,7 @@
     }
   }
 
-  let { data }: Props = $props()
+  let { id, data }: Props = $props()
 
   const iconMap: Record<string, typeof Radio> = {
     source_kafka: Radio,
@@ -39,9 +41,10 @@
   const Icon = $derived(iconMap[data.node_type] || Radio)
   const borderColor = $derived(colorMap[data.node_type] || 'border-edge')
   const bgColor = $derived(bgMap[data.node_type] || 'bg-surface')
+  const nodeError = $derived(getNodeError(id))
 </script>
 
-<div class="rounded-lg border-2 {borderColor} {bgColor} shadow-sm min-w-[160px]">
+<div class="rounded-lg border-2 {nodeError ? 'border-danger' : borderColor} {bgColor} shadow-sm min-w-[160px] max-w-[240px]" title={nodeError || undefined}>
   <div class="flex items-center gap-2 px-3 py-2">
     <Icon size={16} class="text-fg-2 shrink-0" />
     <div class="min-w-0">
@@ -49,5 +52,8 @@
       <div class="text-[10px] text-fg-3">{data.node_type === 'source_ingest' ? `ingest ${String(data.config?.signal ?? 'logs')}` : data.node_type.replace('source_', '')}</div>
     </div>
   </div>
+  {#if nodeError}
+    <div class="truncate border-t border-edge-subtle px-3 py-1 text-[10px] text-danger">{nodeError}</div>
+  {/if}
   <Handle type="source" position={Position.Right} class="!bg-accent !w-3 !h-3 !border-2 !border-canvas" />
 </div>

@@ -30,6 +30,8 @@ type previewTransformsResponse struct {
 // PreviewTransforms runs the nodes in the request (unsaved configs, in chain
 // order) on the request's records, or on the last records a running
 // pipeline saw, or on a sample read from its source. Nothing is written.
+// The nodes may hold a route; nodes after it are one branch's, named by
+// branch (a route output handle), and see only that output's records.
 func (h *PipelinesHandler) PreviewTransforms(w http.ResponseWriter, r *http.Request) {
 	pipeline, session := h.pipelineForSession(w, r)
 	if pipeline == nil {
@@ -47,6 +49,7 @@ func (h *PipelinesHandler) PreviewTransforms(w http.ResponseWriter, r *http.Requ
 	var req struct {
 		Nodes   []transform.NodeSpec `json:"nodes"`
 		Records []map[string]any     `json:"records"`
+		Branch  string               `json:"branch"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
@@ -77,7 +80,7 @@ func (h *PipelinesHandler) PreviewTransforms(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, "Failed to load the pipeline")
 		return
 	}
-	chain, err := transform.Compile(req.Nodes, opts)
+	plan, err := transform.CompilePreview(req.Nodes, req.Branch, opts)
 	if err != nil {
 		writeNodeError(w, http.StatusBadRequest, err)
 		return
@@ -102,7 +105,7 @@ func (h *PipelinesHandler) PreviewTransforms(w http.ResponseWriter, r *http.Requ
 	if len(records) > maxPreviewRecords {
 		records = records[:maxPreviewRecords]
 	}
-	writeJSON(w, http.StatusOK, previewTransformsResponse{Input: records, Steps: chain.Preview(records)})
+	writeJSON(w, http.StatusOK, previewTransformsResponse{Input: records, Steps: plan.Preview(records)})
 }
 
 // proAllowed reports whether Pro transforms may be previewed: an active
@@ -111,23 +114,28 @@ func (h *PipelinesHandler) proAllowed() bool {
 	return h.Config != nil && h.Config.ProAccess() != config.ProNone
 }
 
-// writeNodeError writes an error and, for a node error, the node's id. A
-// Pro refusal carries only "Sampling needs CH-UI Pro"; node_id names the
-// node.
+// writeNodeError writes an error and, for a node error or a graph error
+// found at start, the node's id. A
+// Pro refusal carries only "Sampling needs CH-UI Pro" (or Redaction,
+// Routing); node_id names the node.
 func writeNodeError(w http.ResponseWriter, status int, err error) {
 	resp := map[string]any{"success": false, "error": err.Error()}
 	var ne *transform.NodeError
-	if errors.As(err, &ne) {
+	var ge *pipelines.GraphError
+	switch {
+	case errors.As(err, &ne):
 		resp["node_id"] = ne.NodeID
 		if ne.Pro {
 			resp["error"] = ne.Msg
 		}
+	case errors.As(err, &ge) && ge.NodeID != "":
+		resp["node_id"] = ge.NodeID
 	}
 	writeJSON(w, status, resp)
 }
 
-// validateTransformNodes checks the config of every transform node of a
-// graph being saved. Pro nodes save on any edition, so a downgrade keeps the
+// validateTransformNodes checks the config of every transform and route
+// node of a graph being saved; the graph's shape is checked at start. Pro nodes save on any edition, so a downgrade keeps the
 // config; starting the pipeline needs Pro.
 func validateTransformNodes(nodes []graphNode) error {
 	var sourceType string
@@ -140,7 +148,7 @@ func validateTransformNodes(nodes []graphNode) error {
 	}
 	opts := pipelines.TransformOptions(sourceType, sourceCfg)
 	for _, n := range nodes {
-		if !transform.IsTransform(n.NodeType) {
+		if !transform.IsTransform(n.NodeType) && !transform.IsRoute(n.NodeType) {
 			continue
 		}
 		if err := transform.Validate(transform.NodeSpec{ID: n.ID, Type: n.NodeType, Label: n.Label, Config: n.Config}, opts); err != nil {

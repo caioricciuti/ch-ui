@@ -89,7 +89,20 @@ export interface PipelineStatusInfo {
   dlq_table?: string
   /** Per transform node counters since start, while running. */
   transforms?: TransformCounters[] | null
+  /** Per sink counters; the totals above are their sums. */
+  sinks?: SinkCounters[] | null
 }
+
+export interface SinkCounters {
+  node_id: string
+  rows: number
+  batches: number
+  last_write_at?: string | null
+  errors: number
+}
+
+/** Most sinks one pipeline may have. */
+export const MAX_SINKS = 8
 
 /** A source position saved after a written batch. */
 export interface PipelineCheckpoint {
@@ -99,6 +112,8 @@ export interface PipelineCheckpoint {
 }
 
 export interface SinkCheck {
+  /** Set when the pipeline has several sinks; the name then starts with the sink label. */
+  node_id?: string
   name: string
   status: 'ok' | 'warn' | 'fail'
   detail: string
@@ -228,6 +243,7 @@ export const CONNECTOR_FIELDS: Record<NodeType, ConnectorFieldDef[]> = {
   transform_filter: [],
   transform_sample: [],
   transform_redact: [],
+  transform_route: [],
   sink_clickhouse: [
     { key: 'database', label: 'Target Database', type: 'text', required: true, default: 'default' },
     { key: 'table', label: 'Target Table', type: 'text', required: true },
@@ -267,6 +283,9 @@ export function newNodeConfig(type: NodeType, pipelineId: string, signal?: strin
   }
 }
 
+/** Deduplication window the sink sets on tables it creates with a non-replicated engine. */
+export const DEDUP_WINDOW = 1000
+
 /** Backtick-quotes a ClickHouse identifier, as the server does. */
 export function quoteIdent(name: string): string {
   return '`' + name.replace(/\\/g, '\\\\').replace(/`/g, '\\`') + '`'
@@ -282,9 +301,12 @@ export function createTableDDL(opts: {
   partitionBy?: string
 }): string {
   const cols = opts.columns.map((c) => `  ${quoteIdent(c.name)} ${c.type}`).join(',\n')
-  let ddl = `CREATE TABLE IF NOT EXISTS ${quoteIdent(opts.database || 'default')}.${quoteIdent(opts.table || 'table')} (\n${cols}\n) ENGINE = ${(opts.engine || 'MergeTree').replace(/\(\)$/, '')}`
+  const engine = (opts.engine || 'MergeTree').replace(/\(\)$/, '')
+  let ddl = `CREATE TABLE IF NOT EXISTS ${quoteIdent(opts.database || 'default')}.${quoteIdent(opts.table || 'table')} (\n${cols}\n) ENGINE = ${engine}`
   if (opts.partitionBy?.trim()) ddl += `\nPARTITION BY ${opts.partitionBy.trim()}`
   ddl += `\nORDER BY ${opts.orderBy?.trim() || 'tuple()'}`
+  // Replicated and Shared engines deduplicate inserts on their own; the others need a window for the sink's dedup tokens.
+  if (!engine.startsWith('Replicated') && !engine.startsWith('Shared')) ddl += `\nSETTINGS non_replicated_deduplication_window = ${DEDUP_WINDOW}`
   return ddl
 }
 

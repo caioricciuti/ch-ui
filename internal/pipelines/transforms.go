@@ -16,87 +16,6 @@ import (
 // pipeline keeps for the editor's preview.
 const sampleRingSize = 20
 
-// ResolveChain checks that a graph is one linear chain, source -> zero or
-// more transforms -> sink, and returns its nodes in order. Errors name the
-// node by its label.
-func ResolveChain(nodes []database.PipelineNode, edges []database.PipelineEdge) (*database.PipelineNode, *database.PipelineNode, []database.PipelineNode, error) {
-	sourceNode, sinkNode, err := FindSourceAndSink(nodes)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	byID := make(map[string]*database.PipelineNode, len(nodes))
-	for i := range nodes {
-		n := &nodes[i]
-		if n != sourceNode && n != sinkNode && !transform.IsTransform(n.NodeType) {
-			return nil, nil, nil, fmt.Errorf("node %s has an unknown type %q", nodeName(n), n.NodeType)
-		}
-		byID[n.ID] = n
-	}
-
-	// One outgoing edge per node except the sink, one incoming per node
-	// except the source. Duplicate edges count once.
-	next := map[string]string{}
-	inDeg := map[string]int{}
-	seen := map[[2]string]bool{}
-	for _, e := range edges {
-		from, to := byID[e.SourceNodeID], byID[e.TargetNodeID]
-		if from == nil || to == nil {
-			continue // an edge to a deleted node
-		}
-		key := [2]string{from.ID, to.ID}
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		if from == sinkNode {
-			return nil, nil, nil, fmt.Errorf("the sink %s cannot have outgoing connections", nodeName(sinkNode))
-		}
-		if to == sourceNode {
-			return nil, nil, nil, fmt.Errorf("the source %s cannot have incoming connections", nodeName(sourceNode))
-		}
-		if _, dup := next[from.ID]; dup {
-			return nil, nil, nil, fmt.Errorf("node %s has more than one outgoing connection; branches are not supported", nodeName(from))
-		}
-		next[from.ID] = to.ID
-		inDeg[to.ID]++
-		if inDeg[to.ID] > 1 {
-			return nil, nil, nil, fmt.Errorf("node %s has more than one incoming connection", nodeName(to))
-		}
-	}
-
-	var chain []database.PipelineNode
-	visited := map[string]bool{sourceNode.ID: true}
-	cur := sourceNode.ID
-	for {
-		to, ok := next[cur]
-		if !ok {
-			if len(chain) == 0 {
-				return nil, nil, nil, fmt.Errorf("source node is not connected to sink node")
-			}
-			last := chain[len(chain)-1]
-			return nil, nil, nil, fmt.Errorf("node %s is not connected to anything downstream", nodeName(&last))
-		}
-		if visited[to] {
-			return nil, nil, nil, fmt.Errorf("node %s is part of a cycle", nodeName(byID[to]))
-		}
-		visited[to] = true
-		if to == sinkNode.ID {
-			break
-		}
-		chain = append(chain, *byID[to])
-		cur = to
-	}
-	for i := range nodes {
-		if !visited[nodes[i].ID] {
-			return nil, nil, nil, fmt.Errorf("node %s is not connected between the source and the sink", nodeName(&nodes[i]))
-		}
-	}
-	if len(chain) > transform.MaxNodes {
-		return nil, nil, nil, fmt.Errorf("a pipeline can have at most %d transform nodes", transform.MaxNodes)
-	}
-	return sourceNode, sinkNode, chain, nil
-}
-
 // IsSourceType reports whether nodeType is a source connector.
 func IsSourceType(nodeType string) bool { return isSourceType(nodeType) }
 
@@ -127,7 +46,7 @@ func transformSpecs(nodes []database.PipelineNode) ([]transform.NodeSpec, error)
 		var cfg map[string]any
 		if n.ConfigEncrypted != "" {
 			if err := json.Unmarshal([]byte(n.ConfigEncrypted), &cfg); err != nil {
-				return nil, fmt.Errorf("node %s: unreadable config: %w", nodeName(&n), err)
+				return nil, graphErr(&n, "unreadable config: %v", err)
 			}
 		}
 		specs = append(specs, transform.NodeSpec{ID: n.ID, Type: n.NodeType, Label: n.Label, Config: cfg})
@@ -261,14 +180,22 @@ func (r *recordRing) records() []map[string]any {
 	return out
 }
 
-// TransformCounters returns the per-node counters of a running pipeline, or
-// nil when it is not running.
+// TransformCounters returns the per-node counters of a running pipeline:
+// the shared chain, the route, then each branch in sink order. It is nil
+// when the pipeline is not running.
 func (r *Runner) TransformCounters(pipelineID string) []transform.Counters {
 	rp := r.running(pipelineID)
 	if rp == nil {
 		return nil
 	}
-	return rp.chain.Counters()
+	out := rp.chain.Counters()
+	if rp.route != nil {
+		out = append(out, rp.route.Counters())
+	}
+	for _, sp := range rp.sinks {
+		out = append(out, sp.chain.Counters()...)
+	}
+	return out
 }
 
 // RecentRecords returns the last rows that entered a running pipeline's

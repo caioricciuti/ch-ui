@@ -43,10 +43,30 @@ const (
 	sinkOTelTTLDays = "_otel_ttl_days"
 )
 
-// otelDedupWindow is set on the OpenTelemetry tables the sink creates, so a
-// replayed spool segment (same insert_deduplication_token) is dropped on a
-// plain MergeTree too. Replicated tables deduplicate without it.
-const otelDedupWindow = 1000
+// dedupWindow is set on the tables the sink creates (OpenTelemetry tables,
+// and plain MergeTree engines of create_table), so a replayed batch (same
+// insert_deduplication_token) is dropped on a plain MergeTree too. This is
+// what lets a routed pipeline retry a whole batch while the sinks that
+// already took it drop the replay. Replicated and Shared tables deduplicate
+// without it.
+const dedupWindow = 1000
+
+// dedupsWithoutToken reports whether the sink's auto-created table keeps
+// a deduplication window, so an insert without a token must turn
+// deduplication off or identical batches (a database source without a
+// watermark re-reading the same rows) would be dropped as duplicates.
+func dedupsWithoutToken(fields map[string]interface{}) bool {
+	if !boolField(fields, "create_table", false) || stringField(fields, sinkOTelSignal, "") != "" {
+		return false
+	}
+	engine, err := tableEngine(stringField(fields, "create_table_engine", ""))
+	return err == nil && !replicatedEngine(engine)
+}
+
+// replicatedEngine reports whether an engine deduplicates inserts on its own.
+func replicatedEngine(engine string) bool {
+	return strings.HasPrefix(engine, "Replicated") || strings.HasPrefix(engine, "Shared")
+}
 
 // NewClickHouseSink creates a new ClickHouse sink connector.
 func NewClickHouseSink(gw *tunnel.Gateway, db *database.DB, secretKey string) *ClickHouseSink {
@@ -170,6 +190,8 @@ func (s *ClickHouseSink) WriteBatch(ctx context.Context, cfg ConnectorConfig, ba
 	settings := map[string]string{}
 	if batch.DedupToken != "" {
 		settings["insert_deduplication_token"] = batch.DedupToken
+	} else if dedupsWithoutToken(cfg.Fields) {
+		settings["insert_deduplicate"] = "0"
 	}
 	if ratio, _ := errorRatio(cfg.Fields); ratio > 0 {
 		settings["input_format_allow_errors_ratio"] = strconv.FormatFloat(ratio, 'f', -1, 64)
@@ -247,6 +269,9 @@ func (s *ClickHouseSink) ensureTable(ctx context.Context, cfg ConnectorConfig, b
 		ddl += "\nPARTITION BY " + partitionBy
 	}
 	ddl += "\nORDER BY " + orderBy
+	if !replicatedEngine(engine) {
+		ddl += fmt.Sprintf("\nSETTINGS non_replicated_deduplication_window = %d", dedupWindow)
+	}
 
 	connectionID, _ := cfg.Fields["connection_id"].(string)
 	if connectionID == "" {
@@ -283,7 +308,7 @@ func (s *ClickHouseSink) ensureOTelTable(ctx context.Context, cfg ConnectorConfi
 	// The spans and lookup tables end in a SETTINGS clause; extend it.
 	for i, stmt := range stmts {
 		if !strings.HasPrefix(stmt, "CREATE MATERIALIZED VIEW") {
-			stmts[i] = stmt + fmt.Sprintf(", non_replicated_deduplication_window = %d", otelDedupWindow)
+			stmts[i] = stmt + fmt.Sprintf(", non_replicated_deduplication_window = %d", dedupWindow)
 		}
 	}
 	connectionID := stringField(cfg.Fields, "connection_id", "")
