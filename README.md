@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>The open-source ClickHouse management platform.</strong><br/>
-  SQL editor, dashboards, AI copilot, data pipelines, models, and admin — all in one binary. Free.
+  SQL editor, dashboards, AI copilot, data pipelines and ingest, telemetry, models, and admin, all in one binary. Free.
 </p>
 
 <p align="center">
@@ -27,16 +27,19 @@
 
 ## Why CH-UI?
 
-Most ClickHouse tools give you a query box and call it a day. CH-UI gives you a full workspace — and almost everything is **free and open source**.
+Most ClickHouse tools give you a query box and call it a day. CH-UI gives you a full workspace, and almost everything is **free and open source**.
 
 Download one binary. Run it. Get:
 
 - A multi-tab **SQL editor** with formatting, profiling, and streaming results
 - **Dashboards** with a drag-and-drop panel builder and multiple chart types
-- **Brain** — an AI assistant that understands your schema (OpenAI, Ollama, or any compatible provider)
-- **Data pipelines** — visual builder for Webhook, S3, Kafka, and DB sources into ClickHouse
-- **Models** — dbt-style SQL transformations with dependency graphs and scheduling
-- **Admin panel** — user management, connection management, provider configuration
+- **Brain**: an AI assistant that understands your schema (Anthropic, OpenAI, Ollama, or any OpenAI-compatible provider)
+- **Data pipelines**: visual builder for Webhook, Ingest, S3, Kafka, and DB sources into ClickHouse, with Parse, Map fields and Filter transforms
+- **Ingest**: CH-UI receives OpenTelemetry logs and traces, JSON events, Elasticsearch bulk requests and Splunk HEC events itself, spools them on disk and writes them to ClickHouse
+- **Telemetry**: search OpenTelemetry logs in ClickHouse, whether your collector writes them or CH-UI received them (traces, metrics and the service map with Pro)
+- **Models**: dbt-style SQL transformations with dependency graphs and scheduling
+- **Data lineage**: how data flows between tables, materialized views, views and dictionaries
+- **Admin panel**: user management, connection management, provider configuration
 - **Saved queries**, **schema explorer**, **connection management**, and more
 
 No Docker requirement. No external dependencies. No signup.
@@ -71,11 +74,11 @@ Everything below is included in the free Community edition under Apache 2.0.
 - Multi-tab interface with persistent state
 - CodeMirror 6 with SQL syntax highlighting and autocomplete
 - Query formatting and beautification
-- Streaming results via SSE — no timeout on long queries
-- **Live query progress** — elapsed time, percent complete, rows/bytes read and
+- Streaming results via SSE, no timeout on long queries
+- **Live query progress**: elapsed time, percent complete, rows/bytes read and
   read throughput while the query is still running (needs `SELECT` on
   `system.processes`)
-- **Query cost estimation** — see estimated rows and parts to scan before running (like BigQuery's dry run)
+- **Query cost estimation**: see estimated rows and parts to scan before running (like BigQuery's dry run)
 - Query profiling (pulls from `system.query_log`) with estimate vs actual accuracy comparison
 - Query plan analysis (EXPLAIN with parsed tree view)
 - Configurable max result rows and query timeout
@@ -92,7 +95,8 @@ Everything below is included in the free Community edition under Apache 2.0.
 
 - Create unlimited dashboards
 - Drag-and-drop panel builder
-- Multiple chart types (line, bar, scatter, area, and more via uplot)
+- Panel types: table, stat, gauge, time series (line, area, stacked), bar, pie, histogram, scatter, heatmap and Markdown text
+- Drilldown links: click a value to filter the dashboard, open another dashboard, open a filled-in query, or open a URL
 - Time range selector with presets (1h, 24h, 7d, 30d, custom)
 - Timezone support
 - Auto-refresh control
@@ -102,20 +106,45 @@ Everything below is included in the free Community edition under Apache 2.0.
 
 - Chat with your data using natural language
 - Multi-chat support with full history persistence
-- **Provider support:** OpenAI, OpenAI-compatible APIs (Groq, Together, etc.), Ollama (local LLMs)
+- **Provider support:** Anthropic, OpenAI, OpenAI-compatible APIs (Azure, OpenRouter, Groq, Together, vLLM, etc.), Ollama (local LLMs)
 - Admin-controlled model and provider activation
 - Schema-aware context: type `@` to mention tables, dashboards, pipelines, models or saved queries in a message
-- SQL artifact generation — run generated queries directly from chat
+- SQL artifact generation: run generated queries directly from chat
 - Brain skills (configurable system prompts/instructions)
+- Global token budgets (per person, per role and dollar budgets are Pro)
 
 ### Data Pipelines
 
 - Visual pipeline canvas (drag-and-drop with XyFlow)
-- **Source connectors:** Webhook (inbound HTTP), Database (SQL query), S3, Kafka (with SCRAM auth)
-- **Sink:** ClickHouse (native insert with configurable batch size)
+- **Source connectors:** Webhook (inbound HTTP), Ingest (OTLP, JSON events, Elasticsearch bulk, Splunk HEC), Database (SQL query), S3, Kafka (with SCRAM auth)
+- **Transforms:** Parse (JSON, logfmt, regex, nginx/Apache access logs, syslog), Map fields and Filter are free; Sample, Redact and Route (up to 8 sinks per pipeline) are Pro
+- **Preview** on every transform node: records before and after the chain, dropped records with the reason, parse errors
+- **Sink:** ClickHouse, with a dead-letter table for refused rows
+- **Table layouts** for auto-created tables: Custom from data, Wide events (`timestamp`, `service`, `level`, `message`, `trace_id`, `attributes`), OpenTelemetry logs, OpenTelemetry traces
+- **Durable webhook:** every request is written to an on-disk spool before the `200`, so a ClickHouse outage or a restart loses nothing that was acknowledged
 - Pipeline start/stop controls
 - Run history, metrics, and error tracking
-- Real-time monitoring (rows ingested, bytes, batches, errors)
+- Real-time monitoring (rows ingested, bytes, batches, errors, per-node counters)
+- Docs: [ch-ui.com/docs/pipelines](https://ch-ui.com/docs/pipelines)
+
+### Ingest
+
+- Receivers built into the binary: `POST /ingest/v1/logs` and `/ingest/v1/traces` (OTLP over HTTP, protobuf or JSON), `/ingest/v1/events` (JSON object, array or NDJSON), `/ingest/es` (Elasticsearch bulk API) and `/ingest/services/collector` (Splunk HEC)
+- Works with the OpenTelemetry Collector, OTel SDKs, Vector, Fluent Bit, Filebeat, Logstash, Splunk HEC clients and plain `curl`
+- Per-pipeline ingest keys (`chi_...`), stored hashed, shown once, revocable; per-key rate limit and per-pipeline daily quota
+- Requests are fsynced to a spool in `<data dir>/ingest-spool` before they are answered, then written to ClickHouse with a stable deduplication token
+- Logs and traces land in the OpenTelemetry exporter's table layout, so Telemetry reads them with no extra setup
+- **Send data here** panel in the pipeline editor fills in shipper configs with your URL and key
+- Optional separate listener (`--ingest-addr :4318`) for shipper traffic
+- Docs: [ch-ui.com/docs/ingest](https://ch-ui.com/docs/ingest/)
+
+### Telemetry
+
+- Logs explorer over OpenTelemetry data in ClickHouse: search syntax, histograms, facets, surrounding context, logs by trace
+- Sources: detect the exporter's tables or map your own; saved searches
+- Nothing copied or indexed elsewhere, every screen is SQL against your tables
+- Pro: Traces, Metrics, Service map and Monitors
+- Docs: [ch-ui.com/docs/telemetry](https://ch-ui.com/docs/telemetry)
 
 ### Models (SQL Transformations)
 
@@ -125,6 +154,13 @@ Everything below is included in the free Community edition under Apache 2.0.
 - Run history and results tracking
 - Table engine configuration per model
 - Run manually or on a cron schedule (model and pipeline schedules are free)
+
+### Data Lineage
+
+- See how data flows between tables, materialized views, views, dictionaries and external sources (Kafka, S3, URL, MySQL and table functions)
+- **Explore › Lineage** with database picker, focus search, 1 to 4 hops and kind filters; a Lineage view on every table page
+- Read on demand with your own ClickHouse account from system tables, cached for 30 seconds, never reads `query_log`
+- Docs: [ch-ui.com/docs/lineage](https://ch-ui.com/docs/lineage)
 
 ### Saved Queries
 
@@ -148,7 +184,7 @@ Everything below is included in the free Community edition under Apache 2.0.
 - Secure WebSocket tunnel for remote ClickHouse access
 - Token-based agent authentication
 - Connection health monitoring
-- Install connector as OS service (`ch-ui service install`)
+- Install connector as OS service (`ch-ui service install`, Linux and macOS)
 
 ### MCP Server
 
@@ -165,6 +201,8 @@ Everything below is included in the free Community edition under Apache 2.0.
 - Security headers (CSP, X-Frame-Options, etc.)
 - Health check endpoint (`/health`)
 - Self-update (`ch-ui update`)
+- Personal desktop mode (`ch-ui desktop`): loopback only, data in your user folder, opens the browser
+- Binaries for Linux, macOS and Windows (amd64 and arm64)
 - Shell completion generation
 
 ---
@@ -179,17 +217,26 @@ Almost everything is free. Pro adds production operations, governance and schedu
 | Saved queries | **Yes** | Yes |
 | Dashboards + panel builder | **Yes** | Yes |
 | Brain (AI chat, multi-provider; Ask AI and agentic tools are Pro) | **Yes** | Yes |
-| Data pipelines (Webhook, S3, Kafka, DB) | **Yes** | Yes |
+| Data pipelines (Webhook, Ingest, S3, Kafka, DB) | **Yes** | Yes |
+| Ingest receivers (OTLP logs and traces, JSON events, Elasticsearch bulk, Splunk HEC), ingest keys, durable spool | **Yes** | Yes |
+| Pipeline transforms Parse, Map fields, Filter, with preview | **Yes** | Yes |
+| Table layouts (Custom, Wide events, OpenTelemetry logs and traces) | **Yes** | Yes |
 | Models (SQL transformations, DAG, cron schedules) | **Yes** | Yes |
 | Admin panel + user management | **Yes** | Yes |
 | Multi-connection management | **Yes** | Yes |
+| Data lineage | **Yes** | Yes |
+| Desktop mode (`ch-ui desktop`) and Linux, macOS, Windows binaries | **Yes** | Yes |
 | Tunnel (remote ClickHouse) | **Yes** | Yes |
 | Query parameters in the editor (`{name:Type}` bind params) | **Yes** | Yes |
 | Telemetry Logs, Sources, saved searches | **Yes** | Yes |
 | MCP server (tools, write tools, OAuth, API keys) | **Yes** | Yes |
+| Pipeline Sample, Redact and Route (up to 8 sinks per pipeline) | - | **Yes** |
 | Scheduled query jobs + cron + history + parameterized saved-query runs | - | **Yes** |
+| Scheduled reports (saved query results and dashboard summaries to email, Slack, Teams, webhooks) | - | **Yes** |
 | Governance (metadata catalog, access matrix, policies, incidents, query audit, audit log viewer) | - | **Yes** |
 | Policies + incidents + violations | - | **Yes** |
+| ClickHouse access control editor, access history and drift | - | **Yes** |
+| Access as code (export/import roles, grants, policies, quotas, profiles; create users on import) | - | **Yes** |
 | Guardrails (query blocking in the editor and MCP) | - | **Yes** |
 | Cluster Health (replication, Keeper, merges/mutations, parts pressure, long queries) | - | **Yes** |
 | Query Insights | - | **Yes** |
@@ -199,9 +246,10 @@ Almost everything is free. Pro adds production operations, governance and schedu
 | Incident timeline + deployment annotations | - | **Yes** |
 | Schema comparison + downloadable SQL review plans | - | **Yes** |
 | Weekly operations reports + configured email delivery | - | **Yes** |
-| Alerting (SMTP, Resend, Brevo) | - | **Yes** |
+| Alerting (SMTP, Resend, Brevo, Slack, Teams, webhooks), incl. ingest and pipeline alerts | - | **Yes** |
 | Telemetry Traces, Metrics, Service map, Monitors | - | **Yes** |
 | Ask AI (text-to-SQL in the editor) + Brain agentic tools | - | **Yes** |
+| Brain budgets per person and per role, dollar limits | - | **Yes** |
 | GitHub sync for models | - | **Yes** |
 | SSO (OIDC) with per-person roles and attribution | - | **Yes** |
 | Audit forwarding to a SIEM (webhook, file, stdout) | - | **Yes** |
@@ -209,6 +257,9 @@ Almost everything is free. Pro adds production operations, governance and schedu
 | Command palette Pro search (entity search, scope prefixes) | - | **Yes** |
 
 See: [ch-ui.com/docs/license](https://ch-ui.com/docs/license)
+
+Pipelines with Sample, Redact or Route nodes save on any edition; running or
+previewing them without Pro fails with `402` and names the node.
 
 For the performance, fleet, schema comparison and weekly report workflows, see
 [ch-ui.com/docs/performance](https://ch-ui.com/docs/performance).
@@ -243,7 +294,20 @@ curl -L -o ch-ui https://github.com/caioricciuti/ch-ui/releases/latest/download/
 chmod +x ch-ui
 ```
 
-Optional — verify checksum:
+Windows (PowerShell):
+```powershell
+# x64
+Invoke-WebRequest -OutFile ch-ui.exe https://github.com/caioricciuti/ch-ui/releases/latest/download/ch-ui-windows-amd64.exe
+
+# ARM
+Invoke-WebRequest -OutFile ch-ui.exe https://github.com/caioricciuti/ch-ui/releases/latest/download/ch-ui-windows-arm64.exe
+```
+
+The Windows binary is not code signed, so SmartScreen may warn the first time
+you run it. Compare `Get-FileHash ch-ui.exe -Algorithm SHA256` with the
+matching line in `checksums.txt`.
+
+Optional: verify checksum (Linux, macOS):
 ```bash
 curl -L -o checksums.txt https://github.com/caioricciuti/ch-ui/releases/latest/download/checksums.txt
 sha256sum -c checksums.txt --ignore-missing
@@ -259,6 +323,23 @@ ch-ui
 Or just `./ch-ui` from the download folder.
 
 Open `http://localhost:3488` and log in with your ClickHouse credentials.
+
+On Windows, double-click `ch-ui.exe` (or run `.\ch-ui.exe`): with no arguments
+it starts desktop mode and opens your browser. Close its console window to stop
+it. Run `.\ch-ui.exe server` for a team server.
+
+### Just for yourself: desktop mode
+
+```bash
+ch-ui desktop
+```
+
+Listens on `127.0.0.1` only, keeps the database and secret key in your user
+data folder (`~/Library/Application Support/ch-ui` on macOS,
+`%AppData%\ch-ui` on Windows, `$XDG_CONFIG_HOME/ch-ui` or `~/.config/ch-ui` on
+Linux), uses port 3488 or any free port, and opens your browser.
+Running it again opens the instance already running. See
+[ch-ui.com/docs/installation](https://ch-ui.com/docs/installation#desktop-personal-use).
 
 ---
 
@@ -279,14 +360,16 @@ docker run --rm \
 
 ## Architecture
 
-CH-UI ships as a single binary with two operating modes:
-- **`server`** — web app + API + WebSocket tunnel gateway (default)
-- **`connect`** — lightweight agent that exposes local ClickHouse over secure WebSocket
+CH-UI ships as a single binary with three operating modes:
+- **`server`**: web app + API + WebSocket tunnel gateway + ingest receivers (default on Linux and macOS)
+- **`desktop`**: the same app for one person, on `127.0.0.1` only (default on Windows)
+- **`connect`**: lightweight agent that exposes local ClickHouse over secure WebSocket
 
 ```mermaid
 flowchart LR
     U["Browser"] --> S["CH-UI Server\n(UI + API + Gateway)"]
-    S <--> DB["SQLite\n(state, settings, chats, dashboards)"]
+    SH["Shippers\n(OTel, Vector, Fluent Bit, ...)"] -->|"/ingest"| S
+    S <--> DB["SQLite + ingest spool\n(state, settings, chats, dashboards)"]
     A["ch-ui connect\n(Agent)"] <--> S
     A --> CH["ClickHouse"]
 ```
@@ -337,7 +420,8 @@ For full hardening guide: [ch-ui.com/docs/deployment](https://ch-ui.com/docs/dep
 ### Quick start commands
 
 ```bash
-ch-ui                     # Start server (local ClickHouse)
+ch-ui                        # Start server (local ClickHouse); desktop mode on Windows
+ch-ui desktop                # Run for yourself on 127.0.0.1 and open the browser
 ch-ui server start --detach  # Start in background
 ch-ui server status          # Check if running
 ch-ui server stop            # Stop server
@@ -347,17 +431,18 @@ ch-ui server stop            # Stop server
 
 | Command | Description |
 |---|---|
-| `ch-ui` / `ch-ui server` | Start web app + API + gateway |
+| `ch-ui` / `ch-ui server` | Start web app + API + gateway + ingest receivers (`ch-ui` alone runs `desktop` on Windows) |
+| `ch-ui desktop` | Run CH-UI for yourself on this computer, loopback only, and open the browser |
 | `ch-ui connect` | Start tunnel agent next to ClickHouse |
 | `ch-ui tunnel create/list/show/rotate/delete` | Manage tunnel keys (server host) |
 | `ch-ui server start/stop/status/restart` | Run the server in the background and manage it through its PID file |
-| `ch-ui service install/start/stop/restart/status/logs/uninstall` | Manage connector as OS service |
+| `ch-ui service install/start/stop/restart/status/logs/uninstall` | Manage connector as OS service (Linux and macOS; not supported on Windows yet) |
 | `ch-ui backup [file]` | Consistent snapshot of the SQLite database |
-| `ch-ui reset-admin [--user <name>]` | Recover the CH-UI admin role when no admin can sign in |
-| `ch-ui update` | Update to latest release |
+| `ch-ui reset-admin [--user <name>] [--connection <id-or-name>]` | Recover the CH-UI admin role when no admin can sign in |
+| `ch-ui update` | Update to latest release (restarts a running server; `--pid-file`, `--stop-timeout`, `--restart-server`) |
 | `ch-ui version` | Print version |
-| `ch-ui completion bash/zsh/fish` | Generate shell completions |
-| `ch-ui uninstall` | Remove CH-UI from system |
+| `ch-ui completion bash/zsh/fish/powershell` | Generate shell completions |
+| `ch-ui uninstall` | Remove CH-UI from system (stops a running `desktop`, keeps its data folder; `--print-only` to preview) |
 
 ### Server flags
 
@@ -371,8 +456,26 @@ ch-ui server stop            # Stop server
 | `--dev` | - | Development mode (proxy to Vite) |
 | `--allow-login-url` | off | Let the login page sign in with a typed ClickHouse URL. The server makes the connection, so enable only on trusted networks |
 | `--trusted-proxies` | loopback, private and link-local ranges | Comma-separated IPs or CIDRs of reverse proxies whose X-Forwarded-For is trusted; `none` trusts no proxy |
+| `--ingest-addr` | off | Also serve the `/ingest` receivers (and `/v1` OTLP aliases) on this address, e.g. `:4318` |
 | `--pid-file` | `ch-ui-server.pid` | Path to server PID file |
 | `--stop-timeout` | `10s` | Graceful stop timeout |
+
+`ch-ui server restart` runs in the background by default (`--detach=false` to
+stay in the foreground).
+
+### Desktop flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--port, -p` | `3488` | Port; if the default is taken, any free port is used. An explicit port fails when taken |
+| `--host` | `127.0.0.1` | Loopback address (`127.0.0.1`, `::1` or `localhost`) |
+| `--no-browser` | - | Do not open the browser |
+| `--clickhouse-url` | `http://localhost:8123` | Local ClickHouse URL |
+| `--connection-name` | `Local ClickHouse` | Display name for local connection |
+| `--config, -c` | - | Path to `server.yaml` |
+
+`DATABASE_PATH` and `APP_SECRET_KEY` override the database and key as they do
+for `ch-ui server`.
 
 ### Connect flags
 
@@ -393,10 +496,10 @@ CH-UI works without config files. You only need them for production defaults or 
 
 ### Config file locations
 
-| File | macOS | Linux |
-|---|---|---|
-| `server.yaml` | `~/.config/ch-ui/server.yaml` | `/etc/ch-ui/server.yaml` |
-| `config.yaml` | `~/.config/ch-ui/config.yaml` | `/etc/ch-ui/config.yaml` |
+| File | macOS | Linux | Windows |
+|---|---|---|---|
+| `server.yaml` | `~/.config/ch-ui/server.yaml` | `/etc/ch-ui/server.yaml` | pass `--config` |
+| `config.yaml` | `~/.config/ch-ui/config.yaml` | `/etc/ch-ui/config.yaml` | `%AppData%\ch-ui\connect\config.yaml` |
 
 **Priority:** CLI flags > environment variables > config file > built-in defaults
 
@@ -421,14 +524,20 @@ allowed_origins:
 | `clickhouse_url` | `CLICKHOUSE_URL` | `http://localhost:8123` | Embedded local connection target |
 | `connection_name` | `CONNECTION_NAME` | `Local ClickHouse` | Display name for local connection |
 | `app_secret_key` | `APP_SECRET_KEY` | auto-generated | Encrypts sessions and stored credentials. When not set, a random key is generated and persisted to `.app_secret_key` next to the database |
+| `app_secret_key_previous` | `APP_SECRET_KEY_PREVIOUS` | empty | The key in use before a rotation. Stored secrets decrypt with it as a fallback, and startup re-encrypts them with the current key |
 | `allowed_origins` | `ALLOWED_ORIGINS` | empty | CORS allowlist (comma-separated in env) |
 | `tunnel_url` | `TUNNEL_URL` | derived from port | Tunnel endpoint advertised to agents |
 | `session_max_age` | `SESSION_MAX_AGE` | `604800` (7 days) | Session lifetime in seconds |
 | `allow_login_url` | `ALLOW_LOGIN_URL` | `false` | Same as `--allow-login-url` |
 | `trusted_proxies` | `TRUSTED_PROXIES` | loopback, private and link-local ranges | Same as `--trusted-proxies` (list in YAML, comma-separated in env) |
 | `tls_cert_file` / `tls_key_file` | `TLS_CERT_FILE` / `TLS_KEY_FILE` | empty | Set both to serve HTTPS directly; otherwise put a TLS-terminating proxy in front |
+| `export_max_bytes` / `export_max_rows` | `EXPORT_MAX_BYTES` / `EXPORT_MAX_ROWS` | 1 GiB / 10,000,000 | Caps on one full result export |
+| `ingest_addr` | `INGEST_ADDR` | off | Same as `--ingest-addr` |
+| `ingest_only_separate` | `INGEST_ONLY_SEPARATE` | `false` | With `ingest_addr` set, stop serving `/ingest` on the main port |
+| `ingest_spool_max_bytes` | `INGEST_SPOOL_MAX_BYTES` | 2 GiB | Cap on the on-disk ingest spool (`<data dir>/ingest-spool`), shared by ingest and webhook pipelines. When full, the receivers answer `503` |
+| `oidc_accept_unverified_email` | `OIDC_ACCEPT_UNVERIFIED_EMAIL` | `false` | Accept SSO ID tokens without an `email_verified` claim (some identity providers, such as Microsoft Entra ID, never send it). An explicit `false` claim is always refused |
 
-Audit forwarding (`audit_*`), SSO (`oidc_*`) and the Pro license (`CHUI_LICENSE`, `CHUI_LICENSE_FILE`) have their own keys. The full list is in [ch-ui.com/docs/configuration](https://ch-ui.com/docs/configuration).
+Audit forwarding (`audit_*`), the rest of SSO (`oidc_*`) and the Pro license (`CHUI_LICENSE`, `CHUI_LICENSE_FILE`) have their own keys. The full list is in [ch-ui.com/docs/configuration](https://ch-ui.com/docs/configuration).
 
 ### Connector config
 
@@ -473,6 +582,7 @@ that keeps ClickHouse fully private. See
 - [ ] Configure `ALLOWED_ORIGINS`
 - [ ] Put CH-UI behind a TLS reverse proxy (Nginx example: [`ch-ui.conf`](ch-ui.conf))
 - [ ] Ensure WebSocket upgrade support for `/connect`
+- [ ] If shippers send data to CH-UI, consider a separate ingest port (`INGEST_ADDR=:4318`, `INGEST_ONLY_SEPARATE=true`) and size `INGEST_SPOOL_MAX_BYTES` for the disk
 - [ ] Back up the SQLite database regularly with `ch-ui backup`, and keep `APP_SECRET_KEY` safe
 - [ ] Run connector as OS service on remote hosts
 
@@ -504,9 +614,9 @@ ch-ui server stop     # Stop the old process
 
 ### Can't log in
 
-- **Authentication failed** — wrong ClickHouse credentials
-- **Connection unavailable** — wrong URL or connector offline
-- **Too many attempts** — wait for retry window; fix URL first if needed
+- **Authentication failed**: wrong ClickHouse credentials
+- **Connection unavailable**: wrong URL or connector offline
+- **Too many attempts**: wait for retry window; fix URL first if needed
 
 Click **Can't login?** on the login page for guided recovery, or restart with:
 ```bash
@@ -563,7 +673,7 @@ Useful targets: `make build` | `make test` | `make vet` | `make clean` | `make r
 ch-ui update
 ```
 
-Downloads the latest release for your OS/arch, verifies checksum, and replaces the binary.
+Downloads the latest release for your OS/arch, verifies checksum, and replaces the binary (on Windows, the running `.exe` too). A running server is restarted. Back up first with `ch-ui backup`; see [ch-ui.com/docs/upgrade](https://ch-ui.com/docs/upgrade).
 
 ---
 
@@ -571,8 +681,8 @@ Downloads the latest release for your OS/arch, verifies checksum, and replaces t
 
 CH-UI is dual-licensed:
 
-- **Community core** — [Apache 2.0](LICENSE.md). Free to use, modify, and distribute.
-- **Pro features** — [Business Source License 1.1](LICENSE.BSL) (`LICENSE.BSL`). Source-available; production use requires a valid CH-UI Pro license; converts to Apache 2.0 on the Change Date. Every Pro source file carries an `SPDX-License-Identifier: BUSL-1.1` header; see [`LICENSING.md`](LICENSING.md) for the authoritative scope.
+- **Community core**: [Apache 2.0](LICENSE.md). Free to use, modify, and distribute.
+- **Pro features**: [Business Source License 1.1](LICENSE.BSL) (`LICENSE.BSL`). Source-available; production use requires a valid CH-UI Pro license; converts to Apache 2.0 on the Change Date. Every Pro source file carries an `SPDX-License-Identifier: BUSL-1.1` header; see [`LICENSING.md`](LICENSING.md) for the authoritative scope.
 - Licensing details: [ch-ui.com/docs/license](https://ch-ui.com/docs/license)
 - Terms: [ch-ui.com/terms](https://ch-ui.com/terms)
 - Privacy: [ch-ui.com/privacy](https://ch-ui.com/privacy)

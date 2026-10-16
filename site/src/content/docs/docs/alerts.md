@@ -3,7 +3,7 @@ title: Alerts
 description: "Alerting for governance, scheduled jobs, cluster health checks and SQL threshold alerts: SMTP, Resend, Brevo and webhook (generic JSON, Slack, Teams) channels, rules with severity thresholds and cooldowns, delivery retries, and an event history"
 ---
 
-Alerts turn governance, scheduler, telemetry, cluster health and SQL alert events into notifications: a policy blocks a query, a scheduled job fails or runs slow, a telemetry monitor starts firing, a replica falls behind, a query you wrote crosses a threshold, and the right people hear about it through your own SMTP server, a transactional provider, or a webhook into Slack, Teams or your own endpoint.
+Alerts turn governance, scheduler, telemetry, cluster health, SQL alert and ingest events into notifications: a policy blocks a query, a scheduled job fails or runs slow, a telemetry monitor starts firing, a replica falls behind, a query you wrote crosses a threshold, a shipper stops sending to an ingest pipeline, and the right people hear about it through your own SMTP server, a transactional provider, or a webhook into Slack, Teams or your own endpoint.
 
 Alerts are a Pro feature. Manage them in Governance: **Alerts** lists the events that fired, **Alert rules** decides which events are delivered, **Alert channels** holds the delivery settings. The API lives at `/api/governance/alerts/*` (returns `402` on the free edition, and the background dispatcher only runs with a Pro license).
 
@@ -28,7 +28,7 @@ These event types are emitted automatically:
 | `ingest.stalled` | `warn` | A running [ingest](/docs/ingest) or webhook pipeline that received data before got nothing for its stall threshold (15 minutes by default), or data arrives again (resolves). See [Ingest and pipeline alerts](#ingest-and-pipeline-alerts) |
 | `ingest.spool_backlog` | `warn`, `critical` for a full spool | A pipeline's oldest spooled data is older than 5 minutes, or the whole spool is above 80% of its cap (`critical` above 95%), or it drains (resolves) |
 | `ingest.rejecting` | `warn`, `error` at 50% | A pipeline rejected more than 10% of its requests in the last 5 minutes for quota, rate limit, size, malformed data or a full spool, or the rate drops (resolves) |
-| `ingest.auth_failures` | `info` | A pipeline refused 300 or more requests with a missing or wrong key in the last 5 minutes, or the rate drops (resolves) |
+| `ingest.auth_failures` | `info` | A pipeline refused 300 or more requests with one of its revoked ingest keys (for a webhook pipeline, a missing or wrong token) in the last 5 minutes, or the rate drops (resolves) |
 | `pipeline.sink_failing` | `error` | A running pipeline (any source) failed to write to ClickHouse 3 times in a row and keeps retrying, or a write succeeds again (resolves) |
 
 So yes, **schedules alert out of the box**: every failed run emits a `schedule.failed` event with the schedule name, run ID, elapsed time, and error in the payload. You only need a rule and a channel to receive it.
@@ -181,7 +181,7 @@ The pipeline runner checks its running pipelines every 30 seconds from in-memory
 | `ingest.spool_backlog` (pipeline) | The oldest data in the pipeline's spool is 5 minutes old: the sink is behind or failing | After two checks in a row below 5 minutes |
 | `ingest.spool_backlog` (spool) | The whole spool is above 80% of its cap (`warn`), escalating to `critical` above 95%. One instance-wide incident without a connection, so only rules without a connection scope get it | After two checks in a row below 80% |
 | `ingest.rejecting` | More than 10% of the pipeline's requests in the last 5 minutes were rejected for quota, rate limit, too large, malformed or spool full, out of at least 20 requests. `error` from 50% | After two checks in a row at or below 10% |
-| `ingest.auth_failures` | 300 or more requests with a missing or wrong key in the last 5 minutes (about one a second). Kept apart from `ingest.rejecting` so scanners do not page anyone | After two checks in a row below that |
+| `ingest.auth_failures` | 300 or more requests in the last 5 minutes (about one a second) with a revoked ingest key of the pipeline, or, on a webhook pipeline, with a missing or wrong token. A key CH-UI does not know names no pipeline, so it is refused without being counted. Kept apart from `ingest.rejecting` so scanners do not page anyone | After two checks in a row below that |
 | `pipeline.sink_failing` | A running pipeline's ClickHouse write failed 3 times in a row (the source is paused while it retries), with the last error in the message | After the next successful write |
 
 Each alert is one incident per pipeline (`alert_key` `pipeline:<pipeline id>:<kind>`, the spool one `ingest:spool`) that fires once, escalates if its severity rises, and resolves once; it is not repeated every check. Events carry the pipeline name and id, the numbers (quiet time, spool bytes and age, rejected and total requests, the error), `since`, and `link_path` `/pipelines/<id>`, so email, webhook, Slack and Teams links open the pipeline. The `source_ref` is `pipeline:<pipeline id>` (`ingest:spool` for the spool), so a silence can pick one pipeline. An open incident of a pipeline that stops or is deleted resolves with "no longer running".
