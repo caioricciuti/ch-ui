@@ -1,9 +1,10 @@
 <script lang="ts">
   import { untrack } from 'svelte'
-  import { CONNECTOR_FIELDS, SECRET_MASK, generateToken, schemaColumnsOf, type NodeType, type ConnectorFieldDef, type InferredSchema, type SchemaColumn } from '../../types/pipelines'
+  import { CONNECTOR_FIELDS, SECRET_MASK, generateToken, schemaColumnsOf, sinkFieldHidden, sinkPresetOf, type NodeType, type ConnectorFieldDef, type InferredSchema, type SchemaColumn } from '../../types/pipelines'
   import { X, HelpCircle, Copy, Check, Shield, RefreshCw } from 'lucide-svelte'
   import SinkSchemaEditor from './SinkSchemaEditor.svelte'
-  import { signalHint, usesOtelLayout } from '../../types/ingest'
+  import SinkTableLayout from './SinkTableLayout.svelte'
+  import { signalHint } from '../../types/ingest'
   import { clearNodeError, getNodeError } from './transforms/counters.svelte'
 
   interface Props {
@@ -38,9 +39,11 @@
   let localLabel = $state(untrack(() => label))
   let localConfig = $state<Record<string, unknown>>(untrack(() => ({ ...config })))
 
+  const isSink = $derived(nodeType === 'sink_clickhouse')
+  const sinkPreset = $derived(sinkPresetOf(localConfig, sourceSignal))
   const fields = $derived(CONNECTOR_FIELDS[nodeType] || [])
+  const visibleFields = $derived(isSink ? fields.filter((f) => !sinkFieldHidden(f.key, sinkPreset)) : fields)
   const tokenHidden = $derived(localConfig['auth_token'] === SECRET_MASK)
-  const otelSink = $derived(nodeType === 'sink_clickhouse' && !!localConfig['create_table'] && usesOtelLayout(sourceSignal))
 
   // Initialize defaults for fields that don't have a value
   $effect(() => {
@@ -165,7 +168,7 @@
       </p>
     </div>
 
-    {#each fields as field (field.key)}
+    {#each visibleFields as field (field.key)}
       {@const inputId = `node-field-${field.key}`}
       <div>
         <label for={inputId} class="flex items-center gap-1 text-[11px] font-medium text-fg-3 uppercase tracking-wider mb-1">
@@ -356,11 +359,10 @@
       </div>
     {/if}
 
-    {#if otelSink}
-      <p class="rounded-md bg-info-soft px-2.5 py-2 text-[12px] text-info">
-        The table is created in the OpenTelemetry {sourceSignal === 'traces' ? 'otel_traces' : 'otel_logs'} layout that Telemetry reads, with the source's TTL. Engine, ORDER BY and PARTITION BY here are not used.
-      </p>
-    {:else if nodeType === 'sink_clickhouse' && localConfig['create_table']}
+    {#if isSink}
+      <SinkTableLayout config={localConfig} preset={sinkPreset} {sourceSignal} onChange={handleChange} />
+    {/if}
+    {#if isSink && sinkPreset === 'custom' && localConfig['create_table']}
       <SinkSchemaEditor
         columns={schemaColumns}
         database={String(localConfig['database'] ?? 'default')}

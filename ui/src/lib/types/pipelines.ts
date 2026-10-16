@@ -128,6 +128,8 @@ export interface InferredSchema {
   columns: SchemaColumn[]
   order_by: string
   partition_by: string
+  /** Whether the server has the JSON type (ClickHouse 25.3 and later). */
+  json_type?: boolean
 }
 
 export interface PipelineTestResult {
@@ -136,7 +138,10 @@ export interface PipelineTestResult {
   note: string
   source_error?: string
   sink_checks: SinkCheck[]
+  /** Inferred from the rows the first sink would write. */
   schema?: InferredSchema
+  /** Per sink node id, from the rows that sink would write. */
+  schemas?: Record<string, InferredSchema>
   schema_error?: string
 }
 
@@ -295,6 +300,73 @@ export function quoteIdent(name: string): string {
   return '`' + name.replace(/\\/g, '\\\\').replace(/`/g, '\\`') + '`'
 }
 
+/** Table layouts of the ClickHouse sink (the sink's `preset`). */
+export type SinkPreset = 'custom' | 'wide_events' | 'otel_logs' | 'otel_traces'
+
+export const SINK_PRESETS: { value: SinkPreset; label: string; hint: string }[] = [
+  { value: 'custom', label: 'Custom from data', hint: 'One column per field, typed from a sample of the data. Edit the columns before the table is created.' },
+  { value: 'wide_events', label: 'Wide events', hint: 'timestamp, service, level, message and trace_id columns; every other field goes into attributes.' },
+  { value: 'otel_logs', label: 'OpenTelemetry logs', hint: 'The otel_logs layout of the OpenTelemetry ClickHouse exporter, read by Telemetry.' },
+  { value: 'otel_traces', label: 'OpenTelemetry traces', hint: 'The otel_traces layout plus its trace id lookup table, read by Telemetry.' },
+]
+
+/** The sink's table layout: its preset, else OpenTelemetry for an ingest logs or traces source, else custom (as the server decides). */
+export function sinkPresetOf(config: Record<string, unknown>, sourceSignal?: string | null): SinkPreset {
+  const p = config['preset']
+  if (p === 'custom' || p === 'wide_events' || p === 'otel_logs' || p === 'otel_traces') return p
+  if (sourceSignal === 'logs') return 'otel_logs'
+  if (sourceSignal === 'traces') return 'otel_traces'
+  return 'custom'
+}
+
+/** Sink fields that do not apply to a table layout. */
+export function sinkFieldHidden(key: string, preset: SinkPreset): boolean {
+  if (preset === 'custom') return false
+  if (key === 'create_table_order_by' || key === 'create_table_partition_by') return true
+  return key === 'create_table_engine' && preset !== 'wide_events'
+}
+
+/** Wide events roles: the column and the record fields looked up for it, first match wins. Mirrors the server. */
+export const WIDE_ROLES: { role: string; label: string; defaults: string[] }[] = [
+  { role: 'timestamp', label: 'Timestamp', defaults: ['@timestamp', 'timestamp', 'time', 'ts', 'Timestamp'] },
+  { role: 'service', label: 'Service', defaults: ['service.name', 'service', 'host.name', 'app', 'ServiceName'] },
+  { role: 'level', label: 'Level', defaults: ['level', 'log.level', 'severity', 'levelname', 'SeverityText'] },
+  { role: 'message', label: 'Message', defaults: ['message', 'msg', 'log', 'event', 'Body'] },
+  { role: 'trace_id', label: 'Trace ID', defaults: ['trace_id', 'traceId', 'trace.id', 'TraceId'] },
+]
+
+/** The wide events table the sink creates. jsonType false is the layout for servers before 25.3. */
+export function wideEventsDDL(opts: { database: string; table: string; engine?: string; jsonType?: boolean; keepRaw?: boolean; ttlDays?: number }): string {
+  const engine = (opts.engine || 'MergeTree').replace(/\(\)$/, '')
+  const lines = [
+    '`timestamp` DateTime64(3) CODEC(Delta, ZSTD(1))',
+    '`service` LowCardinality(String)',
+    '`level` LowCardinality(String)',
+    '`message` String CODEC(ZSTD(1))',
+    '`trace_id` String',
+    opts.jsonType === false ? '`attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1))' : '`attributes` JSON',
+  ]
+  if (opts.keepRaw) lines.push('`raw` String CODEC(ZSTD(3))')
+  lines.push(
+    'INDEX idx_message `message` TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4',
+    'INDEX idx_trace_id `trace_id` TYPE bloom_filter(0.001) GRANULARITY 1',
+  )
+  let ddl = `CREATE TABLE IF NOT EXISTS ${quoteIdent(opts.database || 'default')}.${quoteIdent(opts.table || 'table')} (\n  ${lines.join(',\n  ')}\n) ENGINE = ${engine}`
+  ddl += '\nPARTITION BY toDate(`timestamp`)\nORDER BY (`service`, `level`, `timestamp`)'
+  const ttl = opts.ttlDays && opts.ttlDays > 0 ? Math.floor(opts.ttlDays) : 0
+  if (ttl) ddl += `\nTTL toDateTime(\`timestamp\`) + toIntervalDay(${ttl})`
+  const settings: string[] = []
+  if (!replicatedEngine(engine)) settings.push(`non_replicated_deduplication_window = ${DEDUP_WINDOW}`)
+  if (ttl) settings.push('ttl_only_drop_parts = 1')
+  if (settings.length) ddl += `\nSETTINGS ${settings.join(', ')}`
+  return ddl
+}
+
+/** Replicated and Shared engines deduplicate inserts on their own; the others need a window for the sink's dedup tokens. */
+function replicatedEngine(engine: string): boolean {
+  return engine.startsWith('Replicated') || engine.startsWith('Shared')
+}
+
 /** The CREATE TABLE the sink runs for a saved column list. */
 export function createTableDDL(opts: {
   database: string
@@ -309,8 +381,7 @@ export function createTableDDL(opts: {
   let ddl = `CREATE TABLE IF NOT EXISTS ${quoteIdent(opts.database || 'default')}.${quoteIdent(opts.table || 'table')} (\n${cols}\n) ENGINE = ${engine}`
   if (opts.partitionBy?.trim()) ddl += `\nPARTITION BY ${opts.partitionBy.trim()}`
   ddl += `\nORDER BY ${opts.orderBy?.trim() || 'tuple()'}`
-  // Replicated and Shared engines deduplicate inserts on their own; the others need a window for the sink's dedup tokens.
-  if (!engine.startsWith('Replicated') && !engine.startsWith('Shared')) ddl += `\nSETTINGS non_replicated_deduplication_window = ${DEDUP_WINDOW}`
+  if (!replicatedEngine(engine)) ddl += `\nSETTINGS non_replicated_deduplication_window = ${DEDUP_WINDOW}`
   return ddl
 }
 

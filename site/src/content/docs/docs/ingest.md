@@ -33,7 +33,11 @@ Ingest is part of the open-source core: an ingest source is a
 With **Create Table If Not Exists** on the sink, the first batch creates the
 table: for `logs` and `traces` the exporter's schema (with the source's
 **TTL days** applied), for `events` a table inferred like any other pipeline
-(see [Auto Table Creation](/docs/pipelines#auto-table-creation)). Name logs
+(see [Auto Table Creation](/docs/pipelines#auto-table-creation)). For JSON
+events and logs the sink's **Wide events** layout is often the better fit:
+typed `timestamp`, `service`, `level`, `message` and `trace_id` columns and
+everything else in one `attributes` column (see
+[Table layouts](/docs/pipelines#table-layouts)). Name logs
 and traces tables so that Telemetry's **Detect sources** finds them: names
 starting with `otel` or containing `logs` or `traces`, such as `otel_logs`
 and `otel_traces`.

@@ -12,8 +12,8 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/pipelines/transform"
 )
 
-// sampleRingSize is how many records entering the transform chain a running
-// pipeline keeps for the editor's preview.
+// sampleRingSize is how many of the records entering the transform chain a
+// running pipeline shows in the editor's preview.
 const sampleRingSize = 20
 
 // IsSourceType reports whether nodeType is a source connector.
@@ -141,14 +141,16 @@ func decodeRecord(rec Record) map[string]any {
 	return map[string]any{}
 }
 
-// recordRing keeps the last sampleRingSize rows that entered the chain.
+// recordRing keeps the last InferSampleLimit rows that entered the chain:
+// the editor's preview shows the last sampleRingSize, schema inference
+// reads them all.
 type recordRing struct {
 	mu   sync.Mutex
 	rows [][]byte
 }
 
 func (r *recordRing) add(records []Record) {
-	if over := len(records) - sampleRingSize; over > 0 {
+	if over := len(records) - InferSampleLimit; over > 0 {
 		records = records[over:]
 	}
 	rows := make([][]byte, 0, len(records))
@@ -164,14 +166,24 @@ func (r *recordRing) add(records []Record) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.rows = append(r.rows, rows...)
-	if over := len(r.rows) - sampleRingSize; over > 0 {
+	if over := len(r.rows) - InferSampleLimit; over > 0 {
 		r.rows = append([][]byte(nil), r.rows[over:]...)
 	}
 }
 
-func (r *recordRing) records() []map[string]any {
+// records returns the last sampleRingSize rows, oldest first.
+func (r *recordRing) records() []map[string]any { return r.last(sampleRingSize) }
+
+// all returns every kept row, oldest first.
+func (r *recordRing) all() []map[string]any { return r.last(InferSampleLimit) }
+
+func (r *recordRing) last(n int) []map[string]any {
 	r.mu.Lock()
-	rows := append([][]byte(nil), r.rows...)
+	rows := r.rows
+	if over := len(rows) - n; over > 0 {
+		rows = rows[over:]
+	}
+	rows = append([][]byte(nil), rows...)
 	r.mu.Unlock()
 	out := make([]map[string]any, 0, len(rows))
 	for _, raw := range rows {

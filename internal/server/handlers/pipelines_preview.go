@@ -14,12 +14,14 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 )
 
-// pipelineTestResponse is a test result plus the schema ClickHouse infers
-// from the sample.
+// pipelineTestResponse is a test result plus the schema inferred from the
+// rows each sink would write: Schema for the first sink, Schemas by sink
+// node id.
 type pipelineTestResponse struct {
 	*pipelines.TestResult
-	Schema      *pipelines.InferredSchema `json:"schema,omitempty"`
-	SchemaError string                    `json:"schema_error,omitempty"`
+	Schema      *pipelines.InferredSchema            `json:"schema,omitempty"`
+	Schemas     map[string]*pipelines.InferredSchema `json:"schemas,omitempty"`
+	SchemaError string                               `json:"schema_error,omitempty"`
 }
 
 // TestPipeline reads a sample from the saved pipeline's source, checks its
@@ -42,15 +44,33 @@ func (h *PipelinesHandler) TestPipeline(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	resp := pipelineTestResponse{TestResult: res}
-	if len(res.Records) > 0 {
+	hasRows := false
+	for _, rows := range res.SinkRecords {
+		hasRows = hasRows || len(rows) > 0
+	}
+	if hasRows {
 		password, err := crypto.Decrypt(session.EncryptedPassword, h.secretKey())
 		if err != nil {
 			resp.SchemaError = "Could not read your session credentials"
-		} else if schema, err := pipelines.InferSchema(ctx, h.Gateway, session.ConnectionID, session.ClickhouseUser, password, res.Records); err != nil {
+		} else if jsonType, err := pipelines.ServerJSONType(ctx, h.Gateway, session.ConnectionID, session.ClickhouseUser, password); err != nil {
 			resp.SchemaError = err.Error()
 		} else {
-			resp.Schema = schema
+			resp.Schemas = map[string]*pipelines.InferredSchema{}
+			for _, id := range res.SinkOrder {
+				if rows := res.SinkRecords[id]; len(rows) > 0 {
+					s := pipelines.InferSchemaFrom(rows, jsonType)
+					resp.Schemas[id] = &s
+					if resp.Schema == nil {
+						resp.Schema = &s
+					}
+				}
+			}
+			if resp.Schema == nil {
+				resp.SchemaError = "The transforms kept no sample rows to infer a schema from"
+			}
 		}
+	} else if len(res.Records) > 0 {
+		resp.SchemaError = "The transforms kept no sample rows to infer a schema from"
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

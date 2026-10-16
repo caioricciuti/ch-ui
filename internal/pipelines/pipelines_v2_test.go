@@ -495,33 +495,20 @@ func TestValidateColumnType(t *testing.T) {
 	}
 }
 
-func TestSchemaFromDescribeSuggestsKeys(t *testing.T) {
-	s := SchemaFromDescribe([]map[string]interface{}{
-		{"name": "user_id", "type": "Nullable(Int64)"},
-		{"name": "payload", "type": "Nullable(String)"},
-		{"name": "created_at", "type": "Nullable(DateTime64(9))"},
-		{"name": "tags", "type": "Array(Nullable(String))"},
+func TestSuggestKeys(t *testing.T) {
+	order, part := suggestKeys([]SchemaColumn{
+		{Name: "user_id", Type: "Int64"},
+		{Name: "payload", Type: "String"},
+		{Name: "created_at", Type: "DateTime64(9)"},
+		{Name: "tags", Type: "Array(String)"},
 	})
-	if s.Columns[0].Type != "Int64" || s.Columns[2].Type != "DateTime64(9)" || s.Columns[3].Type != "Array(Nullable(String))" {
-		t.Fatalf("types: %+v", s.Columns)
+	if order != "(`created_at`, `user_id`)" || part != "toYYYYMM(`created_at`)" {
+		t.Fatalf("keys: %q %q", order, part)
 	}
-	if s.OrderBy != "(`created_at`, `user_id`)" || s.PartitionBy != "toYYYYMM(`created_at`)" {
-		t.Fatalf("keys: %q %q", s.OrderBy, s.PartitionBy)
-	}
-	none := SchemaFromDescribe([]map[string]interface{}{{"name": "x", "type": "Nullable(String)"}})
-	if none.OrderBy != "tuple()" || none.PartitionBy != "" {
-		t.Fatalf("no keys: %+v", none)
-	}
-}
-
-func TestDescribeFormatQueryEscapes(t *testing.T) {
-	q, err := describeFormatQuery([]map[string]interface{}{{"a": `it's \ "x"`}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := `DESC format(JSONEachRow, '{"a":"it\'s \\\\ \\"x\\""}` + "\n')"
-	if q != want {
-		t.Fatalf("got  %s\nwant %s", q, want)
+	// Nullable columns cannot be keys.
+	order, part = suggestKeys([]SchemaColumn{{Name: "id", Type: "Nullable(Int64)"}, {Name: "ts", Type: "Nullable(DateTime64(3))"}, {Name: "x", Type: "String"}})
+	if order != "tuple()" || part != "" {
+		t.Fatalf("nullable keys: %q %q", order, part)
 	}
 }
 
@@ -578,6 +565,10 @@ func TestRunnerTestPipelineSamplesWithoutCheckpoint(t *testing.T) {
 	}
 	if res.SourceError != "" || len(res.Records) != SampleLimit {
 		t.Fatalf("sample: %d records, error %q", len(res.Records), res.SourceError)
+	}
+	// Schema inference gets the whole sample, up to InferSampleLimit.
+	if len(res.SinkOrder) != 1 || len(res.SinkRecords[res.SinkOrder[0]]) != 30 {
+		t.Fatalf("sink sample: %v, %d rows", res.SinkOrder, len(res.SinkRecords[res.SinkOrder[0]]))
 	}
 	if cps, _ := db.PipelineCheckpointMap(id); len(cps) != 0 {
 		t.Fatalf("test saved a checkpoint: %v", cps)

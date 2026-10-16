@@ -13,12 +13,15 @@ type SchemaColumn struct {
 	Type string `json:"type"`
 }
 
-// InferredSchema is ClickHouse's reading of sample records plus suggested
-// table keys.
+// InferredSchema is the column types inferred from sample records plus
+// suggested table keys.
 type InferredSchema struct {
 	Columns     []SchemaColumn `json:"columns"`
 	OrderBy     string         `json:"order_by"`
 	PartitionBy string         `json:"partition_by"`
+	// JSONType says whether the server has the JSON type (25.3 and later),
+	// which objects and the wide events attributes use.
+	JSONType bool `json:"json_type"`
 }
 
 // maxSchemaColumns bounds a saved column list.
@@ -133,7 +136,7 @@ func closesAtEnd(s string) bool {
 }
 
 // schemaColumns reads and validates create_table_columns from a sink config.
-// Missing or empty means "infer from the first record".
+// Missing or empty means "infer from the first batch".
 func schemaColumns(fields map[string]interface{}) ([]SchemaColumn, error) {
 	v, ok := fields["create_table_columns"]
 	if !ok || v == nil {
@@ -168,46 +171,6 @@ func schemaColumns(fields map[string]interface{}) ([]SchemaColumn, error) {
 	return cols, nil
 }
 
-// describeFormatQuery builds DESC format(JSONEachRow, '<ndjson>') for sample
-// records. The data is a quoted string literal with \ and ' escaped.
-func describeFormatQuery(records []map[string]interface{}) (string, error) {
-	var sb strings.Builder
-	for _, rec := range records {
-		b, err := json.Marshal(rec)
-		if err != nil {
-			return "", err
-		}
-		sb.Write(b)
-		sb.WriteByte('\n')
-	}
-	esc := strings.NewReplacer(`\`, `\\`, `'`, `\'`)
-	return "DESC format(JSONEachRow, '" + esc.Replace(sb.String()) + "')", nil
-}
-
-// SchemaFromDescribe turns DESC rows ({name, type, ...}) into columns with
-// suggested keys. Top-level Nullable is dropped: missing and null values
-// get the column default on insert, and keys cannot be Nullable.
-func SchemaFromDescribe(rows []map[string]interface{}) InferredSchema {
-	out := InferredSchema{Columns: []SchemaColumn{}}
-	for _, r := range rows {
-		name, _ := r["name"].(string)
-		typ, _ := r["type"].(string)
-		if name == "" || typ == "" {
-			continue
-		}
-		out.Columns = append(out.Columns, SchemaColumn{Name: name, Type: stripNullable(typ)})
-	}
-	out.OrderBy, out.PartitionBy = suggestKeys(out.Columns)
-	return out
-}
-
-func stripNullable(t string) string {
-	if strings.HasPrefix(t, "Nullable(") && strings.HasSuffix(t, ")") {
-		return t[len("Nullable(") : len(t)-1]
-	}
-	return t
-}
-
 var (
 	timeName = regexp.MustCompile(`(?i)^(ts|time|timestamp|date|datetime|event_time|event_date|created|created_at|updated_at|inserted_at|occurred_at|_timestamp)$|(_at|_time|_ts|_date)$`)
 	idName   = regexp.MustCompile(`(?i)^(id|uuid|key)$|(_id|_uuid|_key)$`)
@@ -215,12 +178,16 @@ var (
 
 // suggestKeys proposes ORDER BY (a timestamp-like and an id-like column) and
 // PARTITION BY toYYYYMM(<timestamp>) when a date or time column exists.
+// Nullable columns cannot be keys and are skipped.
 func suggestKeys(cols []SchemaColumn) (orderBy, partitionBy string) {
 	// The first date or time column, preferring one whose name looks like
 	// a timestamp, and the first id-like scalar column.
 	var ts, id string
 	namedTS := false
 	for _, c := range cols {
+		if strings.Contains(c.Type, "Nullable(") {
+			continue
+		}
 		if strings.HasPrefix(c.Type, "Date") && (ts == "" || !namedTS && timeName.MatchString(c.Name)) {
 			ts, namedTS = c.Name, timeName.MatchString(c.Name)
 		}

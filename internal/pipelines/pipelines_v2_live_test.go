@@ -118,7 +118,7 @@ func TestLiveDeadLetterIsolation(t *testing.T) {
 	}
 }
 
-// ClickHouse infers real types from sample records with DESC format.
+// Inferred types from sample records create a valid table on the server.
 func TestLiveInferSchema(t *testing.T) {
 	env := newLiveEnv(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -134,7 +134,7 @@ func TestLiveInferSchema(t *testing.T) {
 	for _, c := range s.Columns {
 		types[c.Name] = c.Type
 	}
-	if types["event_id"] != "Int64" || !strings.HasPrefix(types["created_at"], "DateTime") || types["name"] != "String" || types["score"] != "Float64" || !strings.HasPrefix(types["tags"], "Array(") {
+	if types["event_id"] != "Int64" || types["created_at"] != "DateTime64(3)" || types["name"] != "Nullable(String)" || types["score"] != "Float64" || types["tags"] != "Array(String)" {
 		t.Fatalf("types: %v", types)
 	}
 	if s.OrderBy != "(`created_at`, `event_id`)" || s.PartitionBy != "toYYYYMM(`created_at`)" {
