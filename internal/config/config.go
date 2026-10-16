@@ -113,6 +113,13 @@ type Config struct {
 	// OIDCAcceptUnverifiedEmail accepts ID tokens with no email_verified claim
 	// (IdPs that never send it). An explicit false is always refused.
 	OIDCAcceptUnverifiedEmail bool
+	// OIDCSSOOnly turns off ClickHouse username/password sign-in while SSO
+	// is up, so people can only sign in through the identity provider.
+	OIDCSSOOnly bool
+
+	// AllowPasswordLogin is the break-glass switch (CHUI_ALLOW_PASSWORD_LOGIN):
+	// password sign-in stays available whatever the SSO-only setting says.
+	AllowPasswordLogin bool
 }
 
 // serverConfigFile is the YAML structure for the server config file.
@@ -149,6 +156,7 @@ type serverConfigFile struct {
 	OIDCAdminGroups           []string `yaml:"oidc_admin_groups"`
 	OIDCAnalystGroups         []string `yaml:"oidc_analyst_groups"`
 	OIDCAcceptUnverifiedEmail bool     `yaml:"oidc_accept_unverified_email"`
+	OIDCSSOOnly               bool     `yaml:"oidc_sso_only"`
 }
 
 // DefaultServerConfigPath returns the platform-specific default config path.
@@ -309,6 +317,12 @@ func Load(configPath string) *Config {
 	if v := os.Getenv("OIDC_ACCEPT_UNVERIFIED_EMAIL"); v != "" {
 		cfg.OIDCAcceptUnverifiedEmail = parseEnvBool(v)
 	}
+	if v := os.Getenv("OIDC_SSO_ONLY"); v != "" {
+		cfg.OIDCSSOOnly = parseEnvBool(v)
+	}
+	if v := os.Getenv("CHUI_ALLOW_PASSWORD_LOGIN"); v != "" {
+		cfg.AllowPasswordLogin = parseEnvBool(v)
+	}
 
 	// Derive defaults for computed fields
 	if cfg.AppURL == "" {
@@ -466,6 +480,9 @@ func loadServerConfigFile(path string, cfg *Config) error {
 	}
 	if fc.OIDCAcceptUnverifiedEmail {
 		cfg.OIDCAcceptUnverifiedEmail = true
+	}
+	if fc.OIDCSSOOnly {
+		cfg.OIDCSSOOnly = true
 	}
 
 	return nil
@@ -639,6 +656,8 @@ port: 3488
 # oidc_admin_groups: [ch-ui-admins]       # IdP groups mapped to the admin role
 # oidc_analyst_groups: [data-analysts]    # IdP groups mapped to the analyst role
 # oidc_accept_unverified_email: false     # accept tokens without email_verified (e.g. Entra ID)
+# oidc_sso_only: false                    # turn off password sign-in while SSO is up
+#                                         # (break-glass: env CHUI_ALLOW_PASSWORD_LOGIN=true)
 `
 }
 

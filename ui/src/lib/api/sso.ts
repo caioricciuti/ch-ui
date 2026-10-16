@@ -17,6 +17,8 @@ export interface SSOConfigView {
   allowed_domains: string[]
   /** Accept ID tokens with no email_verified claim. An explicit false is always refused. */
   accept_unverified_email: boolean
+  /** Turn off password sign-in while SSO is up. */
+  sso_only: boolean
 }
 
 export interface SSOSettings {
@@ -27,6 +29,14 @@ export interface SSOSettings {
   config: SSOConfigView
   /** Set when a save persisted but the provider could not be re-initialized. */
   reload_error?: string
+  /** OIDC_SSO_ONLY / oidc_sso_only turns SSO only on from the server config; the toggle is locked. */
+  sso_only_forced: boolean
+  /** Password sign-in is off right now (SSO only set, provider loaded, no break-glass). */
+  sso_only_enforced: boolean
+  /** CHUI_ALLOW_PASSWORD_LOGIN keeps password sign-in on whatever SSO only says. */
+  break_glass: boolean
+  /** The caller signed in through SSO, which turning SSO only on requires. */
+  via_sso: boolean
 }
 
 /** PUT body. Leave client_secret blank to keep the stored secret. */
@@ -41,6 +51,7 @@ export interface SSOUpdateRequest {
   viewer_groups: string[]
   allowed_domains: string[]
   accept_unverified_email: boolean
+  sso_only: boolean
 }
 
 export function fetchSSOSettings() {

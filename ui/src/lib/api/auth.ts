@@ -27,6 +27,8 @@ export interface AuthConfig {
   password_login: boolean
   oidc_enabled: boolean
   oidc_login_url?: string
+  /** Password sign-in is off: SSO is the only way in. */
+  sso_only?: boolean
   /** First-run setup is accepting a setup code (no admin has signed in yet). */
   setup_open?: boolean
   /** The login page may take a ClickHouse URL instead of a saved connection. */

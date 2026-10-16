@@ -37,7 +37,10 @@ type Settings struct {
 	// email_verified claim at all (IdPs that never send it). An explicit
 	// email_verified=false is always refused.
 	AcceptUnverifiedEmail bool
-	Source                string // SourceEnv or SourceDB
+	// SSOOnly turns off ClickHouse username/password sign-in while this
+	// provider is loaded (see Manager.SSOOnly).
+	SSOOnly bool
+	Source  string // SourceEnv or SourceDB
 }
 
 // Complete reports whether the settings carry everything needed to run the
@@ -86,13 +89,15 @@ func SettingsFromConfig(cfg *config.Config) Settings {
 		AdminGroups:           cfg.OIDCAdminGroups,
 		AnalystGroups:         cfg.OIDCAnalystGroups,
 		AcceptUnverifiedEmail: cfg.OIDCAcceptUnverifiedEmail,
+		SSOOnly:               cfg.OIDCSSOOnly,
 		Source:                SourceEnv,
 	}
 }
 
 // Resolve picks the effective SSO settings. Precedence: environment/YAML
 // config always wins when it is fully set; the database (admin UI) config
-// applies only when no env config exists. Returns false when SSO is not
+// applies only when no env config exists. The one exception is SSO-only: an
+// env/YAML true forces it on over the database config as well. Returns false when SSO is not
 // configured (or incompletely configured) by either source.
 func Resolve(env, db Settings) (Settings, bool) {
 	if env.Enabled && env.Complete() {
@@ -101,6 +106,9 @@ func Resolve(env, db Settings) (Settings, bool) {
 	}
 	if db.Enabled && db.Complete() {
 		db.Source = SourceDB
+		// OIDC_SSO_ONLY=true forces SSO-only on top of the admin config; unset
+		// or false leaves the stored value in charge.
+		db.SSOOnly = db.SSOOnly || env.SSOOnly
 		return db, true
 	}
 	return Settings{}, false

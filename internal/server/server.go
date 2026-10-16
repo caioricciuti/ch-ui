@@ -101,9 +101,16 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 		cancel()
 		if err != nil {
 			slog.Error("OIDC SSO disabled — provider discovery failed", "issuer", settings.IssuerURL, "source", settings.Source, "error", err)
+			if settings.SSOOnly {
+				slog.Warn("SSO only is set but SSO could not be loaded; password sign-in stays available until it loads")
+			}
 		} else {
-			slog.Info("OIDC SSO enabled", "issuer", settings.IssuerURL, "source", settings.Source)
+			slog.Info("OIDC SSO enabled", "issuer", settings.IssuerURL, "source", settings.Source, "sso_only", settings.SSOOnly)
 		}
+	}
+	handlers.RevokePasswordSessions(db, cfg, oidcManager, "system", "")
+	if cfg.AllowPasswordLogin {
+		slog.Warn("CHUI_ALLOW_PASSWORD_LOGIN is set: password sign-in is allowed even if SSO only is turned on. Unset it once you can sign in again.")
 	}
 
 	// Wire audit forwarding (SIEM) if any sink is configured. This is a Pro

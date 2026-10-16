@@ -70,3 +70,39 @@ func TestManagerCurrentAfterFailedReload(t *testing.T) {
 		t.Fatalf("after Disable: %v %v %v", p, err, m.LastError())
 	}
 }
+
+func TestManagerSSOOnlyNeedsLoadedProvider(t *testing.T) {
+	loaded := Settings{Enabled: true, IssuerURL: "http://127.0.0.1:1", ClientID: "c", ClientSecret: "s", RedirectURL: "https://app/cb", SSOOnly: true}
+	m := NewManager()
+	if c, e := m.SSOOnly(); c || e {
+		t.Fatalf("empty manager: configured=%v enforced=%v", c, e)
+	}
+
+	// Startup with an unreachable IdP: configured, never enforced.
+	if err := m.Reload(context.Background(), loaded); err == nil {
+		t.Fatal("reload against an unreachable issuer should fail")
+	}
+	if c, e := m.SSOOnly(); !c || e {
+		t.Fatalf("failed load: configured=%v enforced=%v, want true false", c, e)
+	}
+
+	m.provider, m.settings, m.err = &Provider{settings: loaded}, loaded, nil
+	if c, e := m.SSOOnly(); !c || !e {
+		t.Fatalf("loaded: configured=%v enforced=%v, want true true", c, e)
+	}
+
+	// A new provider that failed to load is not enforced either.
+	moved := loaded
+	moved.ClientID = "c2"
+	if err := m.Reload(context.Background(), moved); err == nil {
+		t.Fatal("reload against an unreachable issuer should fail")
+	}
+	if _, e := m.SSOOnly(); e {
+		t.Fatal("SSO-only must not be enforced while the saved provider is not loaded")
+	}
+
+	m.Disable()
+	if c, e := m.SSOOnly(); c || e {
+		t.Fatalf("disabled: configured=%v enforced=%v", c, e)
+	}
+}

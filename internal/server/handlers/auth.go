@@ -98,8 +98,10 @@ func (h *AuthHandler) Routes(r chi.Router) {
 // GET /api/auth/config
 func (h *AuthHandler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	oidcEnabled := h.OIDC != nil && h.OIDC.Active() && h.Config != nil && h.Config.ProAccess() != config.ProNone
+	ssoOnly := h.passwordLoginBlocked()
 	resp := map[string]interface{}{
-		"password_login":    true,
+		"password_login":    !ssoOnly,
+		"sso_only":          ssoOnly,
 		"oidc_enabled":      oidcEnabled,
 		"setup_open":        h.Setup.Open(),
 		"login_url_allowed": h.loginURLAllowed(),
@@ -424,6 +426,11 @@ func (h *AuthHandler) auditLoginFailure(username string, conn *database.Connecti
 // ---------- POST /login ----------
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	if h.passwordLoginBlocked() {
+		writeError(w, http.StatusForbidden, errSSOOnly)
+		return
+	}
+
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -921,7 +928,8 @@ func (h *AuthHandler) sameClickHouseServer(currentID string, target *database.Co
 // rejects a reused password the answer is 401 with needs_password and
 // the attempt is not counted against the lockout (it was not a guess). SSO
 // sessions ignore the request credentials and use the target connection's
-// SSO service account, keeping the person's identity and role.
+// SSO service account, keeping the person's identity and role. While
+// SSO-only sign-in is in force, password sessions get 403.
 //
 // The old session is replaced in one transaction (a fresh token, so session
 // fixation protection holds); a session that changed under the request is a
@@ -982,6 +990,12 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := middleware.Actor(info)
 	viaSSO := info.AuthSubject != ""
+	// A password session (one from before SSO-only, or break-glass since
+	// turned off) cannot sign in to another connection with a password.
+	if !viaSSO && h.passwordLoginBlocked() {
+		writeError(w, http.StatusForbidden, errSSOOnly)
+		return
+	}
 
 	var username, password, encryptedPwd string
 	reused := false

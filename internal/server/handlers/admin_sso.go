@@ -58,6 +58,7 @@ func LoadDBSSOSettings(db *database.DB, cfg *config.Config) (oidc.Settings, erro
 		AnalystGroups:         stored.AnalystGroups,
 		ViewerGroups:          stored.ViewerGroups,
 		AcceptUnverifiedEmail: stored.AcceptUnverifiedEmail,
+		SSOOnly:               stored.SSOOnly,
 		Source:                oidc.SourceDB,
 	}, nil
 }
@@ -89,6 +90,7 @@ type ssoConfigView struct {
 	ViewerGroups          []string `json:"viewer_groups"`
 	AllowedDomains        []string `json:"allowed_domains"`
 	AcceptUnverifiedEmail bool     `json:"accept_unverified_email"`
+	SSOOnly               bool     `json:"sso_only"`
 }
 
 // ssoSettingsResponse is the shape returned by GET/PUT /api/admin/sso.
@@ -103,6 +105,18 @@ type ssoSettingsResponse struct {
 	// ReloadError carries the discovery error when a save persisted fine but
 	// the provider could not be (re)initialized from the new settings.
 	ReloadError string `json:"reload_error,omitempty"`
+	// SSOOnlyForced is true when OIDC_SSO_ONLY / oidc_sso_only turns SSO-only
+	// on from the server config; the UI shows the toggle on and locked.
+	SSOOnlyForced bool `json:"sso_only_forced"`
+	// SSOOnlyEnforced reports whether password sign-in is off right now: SSO
+	// only is set, the provider is loaded and break-glass is off.
+	SSOOnlyEnforced bool `json:"sso_only_enforced"`
+	// BreakGlass is true when CHUI_ALLOW_PASSWORD_LOGIN keeps password
+	// sign-in on whatever the SSO-only setting says.
+	BreakGlass bool `json:"break_glass"`
+	// ViaSSO is true when the caller signed in through SSO, which turning
+	// SSO-only on requires.
+	ViaSSO bool `json:"via_sso"`
 }
 
 // ssoUpdateRequest is the PUT /api/admin/sso body. ClientSecret is optional:
@@ -118,7 +132,13 @@ type ssoUpdateRequest struct {
 	ViewerGroups          []string `json:"viewer_groups"`
 	AllowedDomains        []string `json:"allowed_domains"`
 	AcceptUnverifiedEmail bool     `json:"accept_unverified_email"`
+	SSOOnly               bool     `json:"sso_only"`
 }
+
+// errSSOOnlyNeedsSSOSession refuses turning SSO-only on from a password
+// session, so nobody locks password sign-in out without having proven that
+// SSO sign-in works.
+const errSSOOnlyNeedsSSOSession = "Sign in with SSO first to prove it works, then turn on SSO only."
 
 // GetSSOSettings returns the current SSO configuration (secret redacted).
 //
@@ -128,7 +148,7 @@ func (h *AdminHandler) GetSSOSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusPaymentRequired, "Pro license required")
 		return
 	}
-	resp, err := h.buildSSOSettingsResponse()
+	resp, err := h.buildSSOSettingsResponse(r)
 	if err != nil {
 		slog.Error("Failed to load SSO config", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to load SSO settings")
@@ -176,6 +196,16 @@ func (h *AdminHandler) UpdateSSOSettings(w http.ResponseWriter, r *http.Request)
 		ViewerGroups:          cleanList(req.ViewerGroups),
 		AllowedDomains:        cleanList(req.AllowedDomains),
 		AcceptUnverifiedEmail: req.AcceptUnverifiedEmail,
+		SSOOnly:               req.SSOOnly,
+	}
+	if h.Config.OIDCSSOOnly {
+		// Forced on by the server config: the stored value is not the admin
+		// page's to change.
+		next.SSOOnly = current.SSOOnly
+	}
+	if next.SSOOnly && !current.SSOOnly && !sessionViaSSO(r) {
+		writeError(w, http.StatusBadRequest, errSSOOnlyNeedsSSOSession)
+		return
 	}
 	if secret := strings.TrimSpace(req.ClientSecret); secret != "" {
 		enc, err := crypto.Encrypt(secret, h.Config.AppSecretKey)
@@ -212,8 +242,9 @@ func (h *AdminHandler) UpdateSSOSettings(w http.ResponseWriter, r *http.Request)
 	// Apply immediately: re-init the provider from the new settings (or drop
 	// it when SSO was disabled). No server restart needed.
 	reloadErr := h.applySSOSettings(r.Context())
+	RevokePasswordSessions(h.DB, h.Config, h.OIDCManager, actor, getClientIP(r))
 
-	resp, err := h.buildSSOSettingsResponse()
+	resp, err := h.buildSSOSettingsResponse(r)
 	if err != nil {
 		slog.Error("Failed to load SSO config", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to load SSO settings")
@@ -240,16 +271,25 @@ func (h *AdminHandler) applySSOSettings(ctx context.Context) error {
 	defer cancel()
 	if err := h.OIDCManager.Reload(rctx, settings); err != nil {
 		slog.Error("SSO provider reload failed", "issuer", settings.IssuerURL, "error", err)
+		if settings.SSOOnly {
+			slog.Warn("SSO only is set but SSO could not be loaded; password sign-in stays available until it loads")
+		}
 		return err
 	}
 	slog.Info("SSO provider reloaded", "issuer", settings.IssuerURL, "source", settings.Source)
 	return nil
 }
 
-func (h *AdminHandler) buildSSOSettingsResponse() (ssoSettingsResponse, error) {
+func (h *AdminHandler) buildSSOSettingsResponse(r *http.Request) (ssoSettingsResponse, error) {
 	resp, err := h.ssoSettingsView()
 	if err != nil {
 		return resp, err
+	}
+	resp.BreakGlass = h.Config.AllowPasswordLogin
+	resp.SSOOnlyForced = h.Config.OIDCSSOOnly
+	resp.ViaSSO = sessionViaSSO(r)
+	if h.OIDCManager != nil && !resp.BreakGlass {
+		_, resp.SSOOnlyEnforced = h.OIDCManager.SSOOnly()
 	}
 	// Keep a failed reload visible after the save that caused it, until a
 	// later save or restart loads the provider.
@@ -283,6 +323,7 @@ func (h *AdminHandler) ssoSettingsView() (ssoSettingsResponse, error) {
 				ViewerGroups:          []string{},
 				AllowedDomains:        emptyIfNil(h.Config.OIDCAllowedDomains),
 				AcceptUnverifiedEmail: h.Config.OIDCAcceptUnverifiedEmail,
+				SSOOnly:               h.Config.OIDCSSOOnly,
 			},
 		}, nil
 	}
@@ -306,8 +347,15 @@ func (h *AdminHandler) ssoSettingsView() (ssoSettingsResponse, error) {
 			ViewerGroups:          emptyIfNil(stored.ViewerGroups),
 			AllowedDomains:        emptyIfNil(stored.AllowedDomains),
 			AcceptUnverifiedEmail: stored.AcceptUnverifiedEmail,
+			SSOOnly:               stored.SSOOnly || h.Config.OIDCSSOOnly,
 		},
 	}, nil
+}
+
+// sessionViaSSO reports whether the caller's session came from SSO sign-in.
+func sessionViaSSO(r *http.Request) bool {
+	s := middleware.GetSession(r)
+	return s != nil && s.AuthSubject != ""
 }
 
 // cleanList trims entries and drops empties.

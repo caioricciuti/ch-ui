@@ -93,6 +93,18 @@ func (m *Manager) Reload(ctx context.Context, s Settings) error {
 	return nil
 }
 
+// SSOOnly reports whether the latest saved settings ask for SSO-only sign-in
+// (configured) and whether it is in force (enforced): only while the provider
+// those settings name is loaded, so a provider that failed to load never
+// locks password sign-in out.
+func (m *Manager) SSOOnly() (configured, enforced bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	configured = m.settings.SSOOnly
+	enforced = configured && m.provider != nil && m.settings.SameProvider(m.provider.settings)
+	return configured, enforced
+}
+
 // Disable deactivates SSO by dropping the active provider.
 func (m *Manager) Disable() {
 	m.mu.Lock()

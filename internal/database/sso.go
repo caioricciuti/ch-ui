@@ -33,6 +33,9 @@ type SSOConfig struct {
 	// AcceptUnverifiedEmail accepts ID tokens that carry no email_verified
 	// claim. Absent in configs saved before it existed, so it defaults off.
 	AcceptUnverifiedEmail bool `json:"accept_unverified_email"`
+	// SSOOnly turns off password sign-in while SSO is up. Absent in configs
+	// saved before it existed, so it defaults off.
+	SSOOnly bool `json:"sso_only"`
 }
 
 // Validate rejects configs that could never complete an OIDC flow. Only

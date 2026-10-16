@@ -211,12 +211,15 @@ oidc_groups_claim: groups
 oidc_admin_groups: [ch-ui-admins]
 oidc_analyst_groups: [data-analysts]
 oidc_connection_id: <connection-id>
+oidc_sso_only: false
 ```
 
 `oidc_groups_claim` is the ID-token claim that holds group memberships
 (default `groups`). `oidc_connection_id` picks the connection SSO sessions use;
 when unset, CH-UI uses the embedded connection, or the first connection if there
-is no embedded one. SSO login is Pro.
+is no embedded one. `oidc_sso_only` turns off password sign-in while SSO is
+up, also when SSO is configured in the Admin page, and signs out password
+sessions; see [SSO only](/docs/sso#sso-only). SSO login is Pro.
 
 Full setup in [Single Sign-On](/docs/sso).
 
@@ -242,6 +245,9 @@ Full setup in [Single Sign-On](/docs/sso).
 | `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_REDIRECT_URL` | OIDC SSO |
 | `OIDC_CONNECTION_ID` | Connection SSO sessions use (default: the embedded connection, else the first) |
 | `OIDC_ALLOWED_DOMAINS` / `OIDC_ADMIN_GROUPS` / `OIDC_ANALYST_GROUPS` / `OIDC_GROUPS_CLAIM` | OIDC mapping |
+| `OIDC_ACCEPT_UNVERIFIED_EMAIL` | Accept ID tokens without an `email_verified` claim |
+| `OIDC_SSO_ONLY` | Turn off ClickHouse username/password sign-in while SSO is up, also over SSO configured in the Admin page. Unset or `false` leaves the Admin page setting in charge. See [SSO only](/docs/sso#sso-only) |
+| `CHUI_ALLOW_PASSWORD_LOGIN` | Break-glass: allow password sign-in even with SSO only on. Unset it once SSO works again |
 | `CHUI_LICENSE_FILE` | Path to a Pro license JSON file (e.g. a mounted Kubernetes Secret) |
 | `CHUI_LICENSE` | Pro license JSON inline (file takes precedence) |
 | `EXPORT_MAX_ROWS` / `EXPORT_MAX_BYTES` | Caps for one full result export (defaults `10000000` rows, `1073741824` bytes) |

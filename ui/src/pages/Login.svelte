@@ -51,6 +51,8 @@
   let loginURL = $state("");
 
   let ssoEnabled = $state(false);
+  // SSO only: password sign-in is off, so the page shows only the SSO button.
+  let ssoOnly = $state(false);
   let ssoLoginUrl = $state("/api/auth/oidc/login");
   let ssoError = $state<string | null>(null);
 
@@ -136,6 +138,7 @@
 
   function applyAuthConfig(cfg: AuthConfig) {
     ssoEnabled = cfg.oidc_enabled;
+    ssoOnly = cfg.oidc_enabled && cfg.sso_only === true;
     if (cfg.oidc_login_url) ssoLoginUrl = cfg.oidc_login_url;
     setupOpen = cfg.setup_open === true;
     loginUrlAllowed = cfg.login_url_allowed === true;
@@ -324,6 +327,22 @@
   );
 </script>
 
+{#snippet ssoSignIn()}
+  {#if ssoError}
+    <div class="rounded-md bg-danger-soft px-3 py-2 text-[12px] text-danger">{ssoError}</div>
+  {/if}
+  <button
+    type="button"
+    class="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md text-[14px] {ssoOnly
+      ? 'bg-accent font-semibold text-accent-fg transition-[filter] hover:brightness-110 active:brightness-95'
+      : 'border border-edge bg-surface font-medium text-fg transition-colors hover:bg-hover'}"
+    onclick={() => (window.location.href = ssoLoginUrl)}
+  >
+    <ShieldCheck size={15} />
+    Sign in with SSO
+  </button>
+{/snippet}
+
 {#snippet setupCodeHelp()}
   <span class="mt-3 block text-[12px] text-fg-3">
     Find the setup code in the server log:
@@ -356,7 +375,7 @@
       <div class="flex items-start justify-between gap-4">
         <div>
           <h1 class="text-[26px] font-semibold tracking-[-0.02em]">Sign in</h1>
-          <p class="mt-1 text-[14px] text-fg-3">Connect to your ClickHouse instance</p>
+          <p class="mt-1 text-[14px] text-fg-3">{ssoOnly ? "Sign in through your identity provider" : "Connect to your ClickHouse instance"}</p>
         </div>
         <button
           type="button"
@@ -368,15 +387,22 @@
         </button>
       </div>
 
-      <p class="mt-6 inline-flex items-center gap-1.5 text-[12px] text-fg-3">
-        <ShieldCheck size={13} class="text-success" />
-        Credentials are sent straight to your ClickHouse server.
-      </p>
+      {#if !ssoOnly}
+        <p class="mt-6 inline-flex items-center gap-1.5 text-[12px] text-fg-3">
+          <ShieldCheck size={13} class="text-success" />
+          Credentials are sent straight to your ClickHouse server.
+        </p>
+      {/if}
 
       {#if loadingConnections}
         <div class="mt-10 flex items-center gap-3 text-[13px] text-fg-3">
           <Spinner size="sm" />
           Discovering connections…
+        </div>
+      {:else if ssoOnly}
+        <div class="mt-8 space-y-3">
+          {@render ssoSignIn()}
+          <p class="text-[12px] text-fg-3">Password sign-in is turned off on this server.</p>
         </div>
       {:else if connections.length === 0 && !loginUrlAllowed}
         <div class="mt-10">
@@ -548,17 +574,7 @@
               or
               <span class="h-px flex-1 bg-edge"></span>
             </div>
-            {#if ssoError}
-              <div class="rounded-md bg-danger-soft px-3 py-2 text-[12px] text-danger">{ssoError}</div>
-            {/if}
-            <button
-              type="button"
-              class="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-edge bg-surface text-[14px] font-medium text-fg transition-colors hover:bg-hover"
-              onclick={() => (window.location.href = ssoLoginUrl)}
-            >
-              <ShieldCheck size={15} />
-              Sign in with SSO
-            </button>
+            {@render ssoSignIn()}
           {/if}
         </form>
       {/if}
@@ -570,6 +586,19 @@
         onclose={() => (showSetupSheet = false)}
       >
         <div class="space-y-5 text-[13px]">
+          {#if ssoOnly}
+            <div class="space-y-2 rounded-md border border-edge bg-surface-2 p-4">
+              <p class="font-medium text-fg">This server uses SSO only</p>
+              <p class="text-fg-2">
+                Password sign-in is turned off. Sign in with SSO, or ask a CH-UI admin to check your access in the identity provider.
+              </p>
+              <p class="text-fg-2">
+                If SSO itself is broken, a server operator can set
+                <code class="rounded bg-surface px-1 py-0.5 font-mono text-[12px]">CHUI_ALLOW_PASSWORD_LOGIN=true</code>
+                and restart CH-UI. Password sign-in then works again until it is unset.
+              </p>
+            </div>
+          {/if}
           {#if loginUrlAllowed || setupOpen}
             <div class="space-y-3 rounded-md border border-edge bg-surface-2 p-4">
               <p class="font-medium text-fg">Fix it from here, no restart</p>

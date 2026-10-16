@@ -177,6 +177,21 @@ func (db *DB) DeleteSession(token string) error {
 	return nil
 }
 
+// DeletePasswordSessions signs out every session that did not come from SSO
+// (no auth_subject) and returns how many were removed. Used when SSO-only
+// sign-in comes into force.
+func (db *DB) DeletePasswordSessions() (int64, error) {
+	res, err := db.conn.Exec("DELETE FROM sessions WHERE auth_subject IS NULL OR auth_subject = ''")
+	if err != nil {
+		return 0, fmt.Errorf("delete password sessions: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("delete password sessions: %w", err)
+	}
+	return n, nil
+}
+
 // SetSessionsUserRole updates the cached app role for the sessions an
 // override on a RoleKey reaches: every session of one SSO person for
 // "sso:<email>", otherwise the password sessions of that ClickHouse user on
