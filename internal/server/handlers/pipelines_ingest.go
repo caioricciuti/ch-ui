@@ -188,10 +188,15 @@ type IngestHandler struct {
 	Config *config.Config
 }
 
-// Info tells the UI where shippers send data.
+// Info tells the UI where shippers send data: base_url for OTLP and events
+// (shippers append /v1/<signal>), es_url as an Elasticsearch output's host,
+// hec_url as the Splunk HEC collector URL.
 func (h *IngestHandler) Info(w http.ResponseWriter, r *http.Request) {
+	base := IngestBaseURL(h.Config, r)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"base_url":          IngestBaseURL(h.Config, r),
+		"base_url":          base,
+		"es_url":            base + "/es",
+		"hec_url":           base + "/services/collector",
 		"signals":           []string{pipelines.SignalLogs, pipelines.SignalTraces, pipelines.SignalEvents},
 		"separate_listener": h.Config.IngestAddr != "",
 	})

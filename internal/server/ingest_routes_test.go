@@ -62,6 +62,31 @@ func TestIngestRoutes(t *testing.T) {
 			}
 		}
 	}
+	// The Elasticsearch bulk API and Splunk HEC, on both ports.
+	for _, p := range []string{"/ingest/es/_bulk", "/ingest/es/logs/_bulk", "/ingest/services/collector", "/ingest/services/collector/event", "/ingest/services/collector/raw"} {
+		if got := post(s.router, p); got != http.StatusUnauthorized {
+			t.Errorf("main %s: %d, want 401", p, got)
+		}
+		for _, lp := range []string{p, strings.TrimPrefix(p, "/ingest")} {
+			if got := post(s.ingestHTTP.Handler, lp); got != http.StatusUnauthorized {
+				t.Errorf("listener %s: %d, want 401", lp, got)
+			}
+		}
+	}
+	for _, h := range []http.Handler{s.router, s.ingestHTTP.Handler} {
+		req := httptest.NewRequest(http.MethodGet, "/ingest/es/", nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized || rec.Header().Get("X-Elastic-Product") != "Elasticsearch" {
+			t.Errorf("GET /ingest/es/: %d %v", rec.Code, rec.Header())
+		}
+		req = httptest.NewRequest(http.MethodGet, "/ingest/services/collector/health", nil)
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("HEC health: %d", rec.Code)
+		}
+	}
 	if got := post(s.ingestHTTP.Handler, "/api/auth/login"); got != http.StatusNotFound {
 		t.Errorf("the ingest listener serves the API: %d", got)
 	}
@@ -79,11 +104,13 @@ func TestIngestRoutes(t *testing.T) {
 		BaseURL          string   `json:"base_url"`
 		Signals          []string `json:"signals"`
 		SeparateListener bool     `json:"separate_listener"`
+		ESURL            string   `json:"es_url"`
+		HECURL           string   `json:"hec_url"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil || rec.Code != 200 {
 		t.Fatalf("info: %d %s", rec.Code, rec.Body)
 	}
-	if info.BaseURL != "https://ch.example.com:4318/ingest" || len(info.Signals) != 3 || !info.SeparateListener {
+	if info.BaseURL != "https://ch.example.com:4318/ingest" || len(info.Signals) != 3 || !info.SeparateListener || info.ESURL != "https://ch.example.com:4318/ingest/es" || info.HECURL != "https://ch.example.com:4318/ingest/services/collector" {
 		t.Fatalf("info: %+v", info)
 	}
 	s.ingestHub.Close()

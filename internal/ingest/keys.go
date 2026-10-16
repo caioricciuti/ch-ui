@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
+	"encoding/base64"
 	"encoding/hex"
 	"net/http"
 	"strings"
@@ -59,14 +60,45 @@ func wellFormed(s string) bool {
 	return true
 }
 
-// presentedKey reads the key from Authorization: Bearer or
-// X-CHUI-Ingest-Key. The query string is never consulted: URLs end up in
-// proxy and access logs.
+// presentedKey reads the key from the Authorization header or
+// X-CHUI-Ingest-Key. Authorization takes the schemes the shippers send:
+//
+//   - Bearer <key> (OTLP exporters, curl)
+//   - Splunk <key> (Splunk HEC clients)
+//   - Basic base64(<any user>:<key>) (Elasticsearch and HEC clients)
+//   - ApiKey base64(<any id>:<key>), or ApiKey <key> (Elasticsearch clients)
+//
+// The query string is never consulted: URLs end up in proxy and access logs.
 func presentedKey(r *http.Request) string {
 	if h := strings.TrimSpace(r.Header.Get("Authorization")); h != "" {
-		if len(h) > 7 && strings.EqualFold(h[:7], "bearer ") {
-			return strings.TrimSpace(h[7:])
+		scheme, cred, _ := strings.Cut(h, " ")
+		cred = strings.TrimSpace(cred)
+		switch strings.ToLower(scheme) {
+		case "bearer", "splunk":
+			return cred
+		case "basic":
+			return credentialSecret(cred, false)
+		case "apikey":
+			return credentialSecret(cred, true)
 		}
 	}
 	return strings.TrimSpace(r.Header.Get("X-CHUI-Ingest-Key"))
+}
+
+// credentialSecret returns the part after the colon of a base64
+// "<id>:<secret>" credential. With raw, a credential that already is a key
+// is returned as is.
+func credentialSecret(cred string, raw bool) string {
+	if raw && strings.HasPrefix(cred, KeyPrefix) {
+		return cred
+	}
+	dec, err := base64.StdEncoding.DecodeString(cred)
+	if err != nil {
+		return ""
+	}
+	_, secret, ok := strings.Cut(string(dec), ":")
+	if !ok {
+		return ""
+	}
+	return secret
 }

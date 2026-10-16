@@ -37,7 +37,8 @@ const (
 	codeUnauthenticated   int32 = 16
 )
 
-// Receiver serves the /ingest/v1 endpoints.
+// Receiver serves the /ingest endpoints: OTLP and events under /v1, the
+// Elasticsearch bulk API and the Splunk HTTP Event Collector.
 type Receiver struct {
 	DB  *database.DB
 	Hub *pipelines.Hub
@@ -58,13 +59,17 @@ func NewReceiver(db *database.DB, hub *pipelines.Hub) *Receiver {
 	return &Receiver{DB: db, Hub: hub, now: time.Now, lim: newLimiter(), touched: map[string]time.Time{}}
 }
 
-// Routes registers POST /v1/logs, /v1/traces and /v1/events on r. Mount it
-// at /ingest, and on the separate listener also at the root so a bare host
-// works as OTEL_EXPORTER_OTLP_ENDPOINT.
+// Routes registers POST /v1/logs, /v1/traces and /v1/events, the
+// Elasticsearch bulk API under /es and the Splunk HEC endpoints under
+// /services/collector on r. Mount it at /ingest, and on the separate
+// listener also at the root so a bare host works as
+// OTEL_EXPORTER_OTLP_ENDPOINT and as a HEC URL.
 func (rv *Receiver) Routes(r chi.Router) {
 	r.Post("/v1/logs", rv.handler(pipelines.SignalLogs))
 	r.Post("/v1/traces", rv.handler(pipelines.SignalTraces))
 	r.Post("/v1/events", rv.handler(pipelines.SignalEvents))
+	r.Route("/es", rv.esRoutes)
+	rv.hecRoutes(r)
 }
 
 func (rv *Receiver) maxBody() int64 {
@@ -95,62 +100,99 @@ func (p reply) fail(status int, code int32, msg string) {
 	_ = json.NewEncoder(p.w).Encode(map[string]string{"error": msg})
 }
 
-func (p reply) retryAfter(d time.Duration) {
-	p.w.Header().Set("Retry-After", strconv.Itoa(max(int(d.Seconds()+0.5), 1)))
-}
-
-func (rv *Receiver) handler(signal string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		rv.serve(w, r, signal)
+// reject writes a rejection with the gRPC code that matches its kind.
+func (p reply) reject(rj *rejection) {
+	if rj.retry > 0 {
+		setRetryAfter(p.w, rj.retry)
 	}
+	code := codeInvalidArgument
+	switch rj.kind {
+	case rejectAuth:
+		code = codeUnauthenticated
+	case rejectUnavailable:
+		code = codeUnavailable
+	case rejectSignal:
+		code = codeNotFound
+	case rejectBusy:
+		code = codeResourceExhausted
+	}
+	p.fail(rj.status, code, rj.msg)
 }
 
-func (rv *Receiver) serve(w http.ResponseWriter, r *http.Request, signal string) {
-	now := rv.now()
-	ct := r.Header.Get("Content-Type")
-	rep := reply{w: w, otlp: signal != pipelines.SignalEvents, contentType: ct}
+func setRetryAfter(w http.ResponseWriter, d time.Duration) {
+	w.Header().Set("Retry-After", strconv.Itoa(max(int(d.Seconds()+0.5), 1)))
+}
 
+// rejectKind classifies a refused request. Every receiver API writes it in
+// its own error format.
+type rejectKind int
+
+const (
+	rejectAuth        rejectKind = iota // no key, unknown or revoked
+	rejectUnavailable                   // pipeline stopped, spool full or failing
+	rejectSignal                        // the key's pipeline takes another signal
+	rejectBusy                          // rate limit or daily quota
+	rejectInvalid                       // malformed, unsupported or too large
+)
+
+// rejection is a refused request: the HTTP status, its kind, a message safe
+// to show the client, and a Retry-After when retry > 0.
+type rejection struct {
+	status int
+	kind   rejectKind
+	msg    string
+	retry  time.Duration
+}
+
+const msgBadKey = "missing or invalid ingest key"
+
+// admitted is a request that passed every check before decoding.
+type admitted struct {
+	key   *database.IngestKey
+	ep    *pipelines.IngestEndpoint
+	stats *pipelines.IngestStats
+	body  []byte
+	now   time.Time
+}
+
+// admit runs the checks every receiver shares, in this order: the key, the
+// pipeline running, accepts (the signal), the rate limit, the quota, ctOK
+// (the Content-Type), the body read and the quota charge. Rejections are
+// counted in the pipeline's stats where they can be attributed.
+func (rv *Receiver) admit(w http.ResponseWriter, r *http.Request, accepts func(signal string) *rejection, ctOK bool) (*admitted, *rejection) {
+	now := rv.now()
 	key := rv.authenticate(r)
 	if key == nil {
-		rep.fail(http.StatusUnauthorized, codeUnauthenticated, "missing or invalid ingest key")
-		return
+		return nil, &rejection{status: http.StatusUnauthorized, kind: rejectAuth, msg: msgBadKey}
 	}
 	stats := rv.Hub.Stats(key.PipelineID)
 	if key.RevokedAt != nil {
 		stats.RejectedAuth.Add(1)
-		rep.fail(http.StatusUnauthorized, codeUnauthenticated, "missing or invalid ingest key")
-		return
+		return nil, &rejection{status: http.StatusUnauthorized, kind: rejectAuth, msg: msgBadKey}
 	}
 	ep := rv.Hub.Endpoint(key.PipelineID)
 	if ep == nil {
 		// Stopped (or not started yet): ask the shipper to retry, it keeps
 		// its data. Spooled data waits for the next start.
-		rep.retryAfter(30 * time.Second)
-		rep.fail(http.StatusServiceUnavailable, codeUnavailable, "the pipeline for this key is not running")
-		return
+		return nil, &rejection{status: http.StatusServiceUnavailable, kind: rejectUnavailable, msg: "the pipeline for this key is not running", retry: 30 * time.Second}
 	}
-	if ep.Signal != signal {
-		rep.fail(http.StatusNotFound, codeNotFound, "this key does not accept "+signal)
-		return
+	if rj := accepts(ep.Signal); rj != nil {
+		return nil, rj
 	}
 	rv.touch(key, now)
 
 	if !rv.lim.allow(key.ID, ep.RateLimitRPS, now) {
 		stats.RejectedRateLimit.Add(1)
-		rep.retryAfter(time.Second)
-		rep.fail(http.StatusTooManyRequests, codeResourceExhausted, "rate limit exceeded")
-		return
+		return nil, &rejection{status: http.StatusTooManyRequests, kind: rejectBusy, msg: "rate limit exceeded", retry: time.Second}
 	}
+	quotaGone := &rejection{status: http.StatusTooManyRequests, kind: rejectBusy, msg: "daily quota exhausted, resets at 00:00 UTC", retry: untilMidnightUTC(now)}
 	if !rv.lim.quotaLeft(ep.PipelineID, ep.DailyQuotaBytes, now) {
 		stats.RejectedQuota.Add(1)
-		rep.retryAfter(untilMidnightUTC(now))
-		rep.fail(http.StatusTooManyRequests, codeResourceExhausted, "daily quota exhausted, resets at 00:00 UTC")
-		return
+		return nil, quotaGone
 	}
-	if !acceptedContentType(signal, ct) {
+	if !ctOK {
 		stats.RejectedMalformed.Add(1)
-		rep.fail(http.StatusUnsupportedMediaType, codeInvalidArgument, "unsupported content type")
-		return
+		return nil, &rejection{status: http.StatusUnsupportedMediaType, kind: rejectInvalid, msg: "unsupported content type"}
 	}
 
 	body, status, msg := rv.readBody(w, r)
@@ -161,39 +203,69 @@ func (rv *Receiver) serve(w http.ResponseWriter, r *http.Request, signal string)
 		default:
 			stats.RejectedMalformed.Add(1)
 		}
-		rep.fail(status, codeInvalidArgument, msg)
-		return
+		return nil, &rejection{status: status, kind: rejectInvalid, msg: msg}
 	}
 	if !rv.lim.charge(ep.PipelineID, ep.DailyQuotaBytes, int64(len(body)), now) {
 		stats.RejectedQuota.Add(1)
-		rep.retryAfter(untilMidnightUTC(now))
-		rep.fail(http.StatusTooManyRequests, codeResourceExhausted, "daily quota exhausted, resets at 00:00 UTC")
-		return
+		return nil, quotaGone
 	}
+	return &admitted{key: key, ep: ep, stats: stats, body: body, now: now}, nil
+}
 
-	block, n, err := rv.encode(signal, body, ct, now)
-	if err != nil {
-		if errors.Is(err, otlp.ErrTooManyRecords) {
-			stats.RejectedTooLarge.Add(1)
-			rep.fail(http.StatusRequestEntityTooLarge, codeInvalidArgument, err.Error())
-			return
+// decodeFailed counts and classifies an error from decoding a body.
+func decodeFailed(stats *pipelines.IngestStats, err error) *rejection {
+	if errors.Is(err, otlp.ErrTooManyRecords) {
+		stats.RejectedTooLarge.Add(1)
+		return &rejection{status: http.StatusRequestEntityTooLarge, kind: rejectInvalid, msg: err.Error()}
+	}
+	stats.RejectedMalformed.Add(1)
+	return &rejection{status: http.StatusBadRequest, kind: rejectInvalid, msg: err.Error()}
+}
+
+// store appends the block of n rows to the pipeline's spool and counts the
+// request as accepted. A request with no rows is counted and not spooled.
+func (rv *Receiver) store(in *admitted, block []byte, n int) *rejection {
+	if n > 0 {
+		if status, msg := pipelines.SpoolAppendStatus(rv.Hub.Append(in.ep.PipelineID, block), in.stats); status != http.StatusOK {
+			if status == http.StatusServiceUnavailable {
+				return &rejection{status: status, kind: rejectUnavailable, msg: msg, retry: 5 * time.Second}
+			}
+			return &rejection{status: status, kind: rejectInvalid, msg: msg}
 		}
-		stats.RejectedMalformed.Add(1)
-		rep.fail(http.StatusBadRequest, codeInvalidArgument, err.Error())
+	}
+	in.stats.Accepted(int64(n), int64(len(in.body)), in.now)
+	return nil
+}
+
+func (rv *Receiver) handler(signal string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rv.serve(w, r, signal)
+	}
+}
+
+func (rv *Receiver) serve(w http.ResponseWriter, r *http.Request, signal string) {
+	ct := r.Header.Get("Content-Type")
+	rep := reply{w: w, otlp: signal != pipelines.SignalEvents, contentType: ct}
+	accepts := func(got string) *rejection {
+		if got != signal {
+			return &rejection{status: http.StatusNotFound, kind: rejectSignal, msg: "this key does not accept " + signal}
+		}
+		return nil
+	}
+	in, rj := rv.admit(w, r, accepts, acceptedContentType(signal, ct))
+	if rj != nil {
+		rep.reject(rj)
 		return
 	}
-	if n > 0 {
-		if status, msg := pipelines.SpoolAppendStatus(rv.Hub.Append(ep.PipelineID, block), stats); status != http.StatusOK {
-			if status == http.StatusServiceUnavailable {
-				rep.retryAfter(5 * time.Second)
-				rep.fail(status, codeUnavailable, msg)
-			} else {
-				rep.fail(status, codeInvalidArgument, msg)
-			}
-			return
-		}
+	block, n, err := rv.encode(signal, in.body, ct, in.now)
+	if err != nil {
+		rep.reject(decodeFailed(in.stats, err))
+		return
 	}
-	stats.Accepted(int64(n), int64(len(body)), now)
+	if rj := rv.store(in, block, n); rj != nil {
+		rep.reject(rj)
+		return
+	}
 
 	if !rep.otlp {
 		w.Header().Set("Content-Type", "application/json")

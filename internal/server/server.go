@@ -205,9 +205,10 @@ func openIngestHub(cfg *config.Config) *pipelines.Hub {
 // OTLP protobuf body grows when written as JSONEachRow.
 const ingestMaxRecordBytes = 256 << 20
 
-// ingestRouter serves only the receivers, for --ingest-addr: /ingest/v1/*
-// and the same endpoints at /v1/*, so a bare host:port works as
-// OTEL_EXPORTER_OTLP_ENDPOINT.
+// ingestRouter serves only the receivers, for --ingest-addr: /ingest/*
+// (OTLP and events under v1, the Elasticsearch bulk API under es, Splunk
+// HEC under services/collector) and the same endpoints at the root, so a
+// bare host:port works as OTEL_EXPORTER_OTLP_ENDPOINT and as a HEC URL.
 func (s *Server) ingestRouter() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { KEY_PLACEHOLDER, buildSnippet, withOtelSinkDefaults, formatAge, formatRate, rejectedEntries, shippersFor, signalEndpoint, usesOtelLayout } from './ingest'
+import { KEY_PLACEHOLDER, buildSnippet, esEndpoint, hecEndpoint, shipperApisFor, snippetFile, withOtelSinkDefaults, formatAge, formatRate, rejectedEntries, shippersFor, signalEndpoint, usesOtelLayout } from './ingest'
 
 const BASE = 'https://chui.example.com/ingest/'
 const KEY = 'chi_abcdef0123456789'
@@ -88,6 +88,98 @@ describe('buildSnippet', () => {
   it('shell-quotes a key that contains a single quote', () => {
     const s = buildSnippet({ baseUrl: BASE, signal: 'events', shipper: 'curl', key: "a'b" })
     expect(s).toContain(`-H 'Authorization: Bearer a'\\''b'`)
+  })
+})
+
+describe('Elasticsearch and Splunk HEC shippers', () => {
+  it('offers them for logs and events, never for traces', () => {
+    expect(shipperApisFor('logs').map((a) => a.id)).toEqual(['native', 'elasticsearch', 'splunk'])
+    expect(shipperApisFor('events').map((a) => a.id)).toEqual(['native', 'elasticsearch', 'splunk'])
+    expect(shipperApisFor('traces').map((a) => a.id)).toEqual(['native'])
+    expect(shippersFor('logs', 'elasticsearch').map((s) => s.id)).toEqual(['filebeat', 'logstash', 'fluentbit-es', 'vector-es'])
+    expect(shippersFor('events', 'splunk').map((s) => s.id)).toEqual(['vector-hec', 'otel-hec', 'curl-hec'])
+    expect(shippersFor('traces', 'elasticsearch')).toEqual([])
+  })
+
+  it('derives the es and hec urls from the base url', () => {
+    expect(esEndpoint(BASE)).toBe('https://chui.example.com/ingest/es')
+    expect(hecEndpoint(BASE)).toBe('https://chui.example.com/ingest/services/collector')
+  })
+
+  it('builds Filebeat with host, protocol, path, the key as password and setup off', () => {
+    const s = buildSnippet({ baseUrl: BASE, signal: 'logs', shipper: 'filebeat', key: KEY })
+    expect(s).toBe(
+      [
+        'output.elasticsearch:',
+        '  hosts: ["chui.example.com:443"]',
+        '  protocol: https',
+        '  path: /ingest/es',
+        '  username: chui',
+        `  password: ${KEY}`,
+        `  # or: api_key: "chui:${KEY}"`,
+        '',
+        'setup.ilm.enabled: false',
+        'setup.template.enabled: false',
+        '',
+      ].join('\n'),
+    )
+    expect(snippetFile('filebeat')).toBe('filebeat.yml')
+    const plain = buildSnippet({ baseUrl: 'http://10.0.0.5:8080/ingest', signal: 'events', shipper: 'filebeat' })
+    expect(plain).toContain('  hosts: ["10.0.0.5:8080"]\n  protocol: http\n')
+    expect(plain).toContain(`password: ${KEY_PLACEHOLDER}`)
+  })
+
+  it('builds Logstash with ILM, templates and data streams off', () => {
+    const s = buildSnippet({ baseUrl: BASE, signal: 'logs', shipper: 'logstash', key: KEY })
+    expect(s).toContain('hosts => ["https://chui.example.com:443/ingest/es"]')
+    expect(s).toContain(`password => "${KEY}"`)
+    for (const line of ['user => "chui"', 'ilm_enabled => false', 'manage_template => false', 'data_stream => false', 'index => "logstash-%{+yyyy.MM.dd}"']) {
+      expect(s).toContain(line)
+    }
+  })
+
+  it('builds the Fluent Bit es output with the path and suppressed type name', () => {
+    const s = buildSnippet({ baseUrl: BASE, signal: 'logs', shipper: 'fluentbit-es', key: KEY })
+    expect(s).toContain('    Name               es\n')
+    expect(s).toMatch(/Host\s+chui\.example\.com\n/)
+    expect(s).toMatch(/Port\s+443\n/)
+    expect(s).toMatch(/Tls\s+On\n/)
+    expect(s).toMatch(/Path\s+\/ingest\/es\n/)
+    expect(s).toMatch(/HTTP_User\s+chui\n/)
+    expect(s).toMatch(new RegExp(`HTTP_Passwd\\s+${KEY}\\n`))
+    expect(s).toContain('    Suppress_Type_Name On\n')
+    expect(s).toMatch(/Logstash_Format\s+On\n/)
+  })
+
+  it('builds the Vector elasticsearch sink with v8, bulk and basic auth', () => {
+    const s = buildSnippet({ baseUrl: BASE, signal: 'events', shipper: 'vector-es', key: KEY })
+    expect(s).toContain('type = "elasticsearch"')
+    expect(s).toContain('endpoints = ["https://chui.example.com/ingest/es"]')
+    expect(s).toContain('api_version = "v8"\nmode = "bulk"')
+    expect(s).toContain('auth.strategy = "basic"')
+    expect(s).toContain(`auth.password = "${KEY}"`)
+    // The server's es_url wins over the derived one.
+    expect(buildSnippet({ baseUrl: BASE, esUrl: 'https://other:4318/ingest/es/', signal: 'logs', shipper: 'vector-es' })).toContain('endpoints = ["https://other:4318/ingest/es"]')
+  })
+
+  it('builds the HEC snippets with the token', () => {
+    const vec = buildSnippet({ baseUrl: BASE, signal: 'logs', shipper: 'vector-hec', key: KEY })
+    expect(vec).toContain('type = "splunk_hec_logs"')
+    expect(vec).toContain('endpoint = "https://chui.example.com/ingest"')
+    expect(vec).toContain(`default_token = "${KEY}"`)
+    expect(vec).toContain('acknowledgements.indexer_acknowledgements_enabled = false')
+
+    const otel = buildSnippet({ baseUrl: BASE, signal: 'logs', shipper: 'otel-hec', key: KEY })
+    expect(otel).toBe(`exporters:\n  splunk_hec:\n    endpoint: https://chui.example.com/ingest/services/collector\n    token: ${KEY}\n`)
+
+    const curl = buildSnippet({ baseUrl: BASE, hecUrl: 'https://chui.example.com/ingest/services/collector', signal: 'events', shipper: 'curl-hec', key: KEY })
+    expect(curl).toContain("curl 'https://chui.example.com/ingest/services/collector'")
+    expect(curl).toContain(`-H 'Authorization: Splunk ${KEY}'`)
+    // Two concatenated HEC events.
+    const body = curl.slice(curl.indexOf("-d '") + 4, curl.lastIndexOf("'"))
+    const [first, second] = body.split('}{').map((part, i, all) => (i === 0 ? part + '}' : i === all.length - 1 ? '{' + part : `{${part}}`))
+    expect(JSON.parse(first).event).toBe('user signed in')
+    expect(JSON.parse(second).event.level).toBe('error')
   })
 })
 

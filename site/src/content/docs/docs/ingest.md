@@ -1,11 +1,11 @@
 ---
 title: Ingest
-description: Send OpenTelemetry logs and traces, or JSON events, straight to CH-UI. It spools them on disk and writes them to ClickHouse
+description: Send OpenTelemetry logs and traces, JSON events, Elasticsearch bulk requests or Splunk HEC events straight to CH-UI. It spools them on disk and writes them to ClickHouse
 ---
 
 CH-UI can receive data itself. Shippers (the OpenTelemetry Collector, an OTel
-SDK, Vector, Fluent Bit, or plain `curl`) send to CH-UI over HTTP with an
-ingest key, CH-UI writes each request to an on-disk spool before it answers,
+SDK, Vector, Fluent Bit, Filebeat, Logstash, Splunk HEC clients, or plain
+`curl`) send to CH-UI over HTTP with an ingest key, CH-UI writes each request to an on-disk spool before it answers,
 and a pipeline drains the spool into a ClickHouse table. Logs and traces land
 in the OpenTelemetry exporter's table layout, so [Telemetry](/docs/telemetry)
 reads them with no extra setup.
@@ -19,7 +19,10 @@ Ingest is part of the open-source core: an ingest source is a
 2. Pick the source's signal: `logs`, `traces` or `events`.
 3. Create an ingest key for the pipeline and copy it. It is shown once.
 4. Run the pipeline.
-5. Point your shipper at `https://<your CH-UI>/ingest/v1/<signal>` with the key.
+5. Point your shipper at `https://<your CH-UI>/ingest/v1/<signal>` with the key,
+   or, for a shipper that speaks Elasticsearch or Splunk HEC, at
+   [`/ingest/es`](#elasticsearch-bulk-api) or
+   [`/ingest/services/collector`](#splunk-http-event-collector).
 
 | Signal | Endpoint | Body | Table layout |
 |---|---|---|---|
@@ -57,12 +60,21 @@ and revoking keys is recorded in the [audit log](/docs/audit-log)
 (`ingest_key.created`, `ingest_key.revoked`), never with the key itself.
 Deleting a pipeline deletes its keys.
 
-Send the key in a header, either one works:
+Send the key in a header. Every endpoint reads all of these, so each shipper
+can use the form it has a setting for:
 
 ```
 Authorization: Bearer chi_...
 X-CHUI-Ingest-Key: chi_...
+Authorization: Splunk chi_...
+Authorization: Basic base64(<any user>:chi_...)
+Authorization: ApiKey base64(<any id>:chi_...)
+Authorization: ApiKey chi_...
 ```
+
+`Basic` is a username and password setting with any username and the key as
+the password. `ApiKey` is an Elasticsearch API key setting: the key alone, or
+`<anything>:chi_...` in the shippers that take an `id:api_key` pair.
 
 Keys in the query string are ignored: URLs end up in proxy and access logs.
 
@@ -228,13 +240,246 @@ curl -X POST https://ch-ui.example.com/ingest/v1/events \
   --data-binary $'{"event":"signup","plan":"pro"}\n{"event":"login","user":42}\n'
 ```
 
+## Elasticsearch bulk API
+
+Shippers with an Elasticsearch output (Filebeat, Logstash, Fluent Bit, Vector)
+can send to CH-UI by changing the host to `https://<your CH-UI>/ingest/es`.
+CH-UI answers the Elasticsearch bulk API and the calls these shippers make at
+startup. It is not Elasticsearch: there is no search, no index, no mapping.
+The documents go to the key's pipeline like any other ingest request.
+
+The key's pipeline must have the `logs` or `events` signal. A `traces` key is
+refused with `400`: send traces as OTLP to `/ingest/v1/traces`.
+
+| Endpoint | What CH-UI does |
+|---|---|
+| `POST` or `PUT /_bulk`, `/{index}/_bulk` | Takes NDJSON action and document line pairs. `index` and `create` are stored; `update` and `delete` are refused per item (status `400`, `errors: true`), never dropped silently |
+| `GET /`, `HEAD /` | Cluster info: version `8.19.0`, `build_flavor: default`, `tagline: "You Know, for Search"` |
+| `GET /_license`, `GET /_xpack` | An active basic license. `_xpack` reports ILM as unavailable |
+| `GET /_cluster/health` | `green` (Vector's health check) |
+| `GET /_nodes`, `/_nodes/*` | No nodes. Keep sniffing off, which is every shipper's default |
+| `GET`, `HEAD`, `PUT /_index_template/*`, `/_template/*`, `/_ilm/policy/*`, `/_data_stream/*` | Answered as existing, `PUT` is acknowledged. Nothing is stored: the table layout comes from the pipeline |
+
+Every response carries `X-Elastic-Product: Elasticsearch`, which the 7.14+
+clients check. All of these need a valid key; the startup calls work while
+the pipeline is stopped, `_bulk` answers `503` until it runs.
+
+The bulk response has the Elasticsearch shape: `took`, `errors`, and one
+item per action in order, `{"create": {"_index": ..., "_id": ..., "status":
+201, "result": "created"}}`, with an `_id` generated when the action has
+none. A document line that is not a JSON object fails its own item
+(`document_parsing_exception`); a broken action line fails the whole request
+with `400`, as in Elasticsearch. The `filter_path` forms the clients send
+(`errors,items.*.error,items.*.status` and the like) are applied. The
+stored items of a request are fsynced to the spool before the response, the
+same as every ingest endpoint; a request that fails as a whole stores
+nothing.
+
+Request errors use the Elasticsearch error body
+(`{"error": {"root_cause": [...], "type": ..., "reason": ...}, "status": N}`)
+with the statuses of [Responses](#responses), except that a traces key is
+`400`. `429` and `503` come with `Retry-After`, and the shippers retry them.
+
+### Filebeat
+
+Filebeat 8 with templates and ILM setup off (CH-UI has neither):
+
+```yaml
+output.elasticsearch:
+  hosts: ["ch-ui.example.com:443"]
+  protocol: https
+  path: /ingest/es
+  username: chui
+  password: chi_...
+  # or: api_key: "chui:chi_..."
+
+setup.ilm.enabled: false
+setup.template.enabled: false
+```
+
+Filebeat writes to its default `filebeat-<version>` data stream with
+`create` actions; the index name ends up in the `es.index` attribute.
+CH-UI reports version 8.19.0. If a 9.x Filebeat or Elastic Agent refuses
+the cluster as too old, set `output.elasticsearch.allow_older_versions: true`.
+
+### Logstash
+
+```ruby
+output {
+  elasticsearch {
+    hosts => ["https://ch-ui.example.com:443/ingest/es"]
+    user => "chui"
+    password => "chi_..."
+    ilm_enabled => false
+    manage_template => false
+    data_stream => false
+    index => "logstash-%{+yyyy.MM.dd}"
+  }
+}
+```
+
+### Fluent Bit
+
+```ini
+[OUTPUT]
+    Name               es
+    Match              *
+    Host               ch-ui.example.com
+    Port               443
+    Tls                On
+    Path               /ingest/es
+    HTTP_User          chui
+    HTTP_Passwd        chi_...
+    Suppress_Type_Name On
+    Logstash_Format    On
+```
+
+Fluent Bit makes no startup calls. Without `Suppress_Type_Name` it sends a
+`_type`, which CH-UI ignores.
+
+### Vector
+
+```toml
+[sinks.chui]
+type = "elasticsearch"
+inputs = ["app"]
+endpoints = ["https://ch-ui.example.com/ingest/es"]
+api_version = "v8"
+mode = "bulk"
+compression = "gzip"
+auth.strategy = "basic"
+auth.user = "chui"
+auth.password = "chi_..."
+```
+
+`api_version = "v8"` skips version detection. Vector's health check calls
+`/_cluster/health`, which CH-UI answers.
+
+## Splunk HTTP Event Collector
+
+Clients of the Splunk HTTP Event Collector (HEC) send to
+`https://<your CH-UI>/ingest/services/collector` with the key as the token,
+`Authorization: Splunk chi_...`. As with the Elasticsearch API, the key's
+pipeline must have the `logs` or `events` signal.
+
+| Endpoint | Body |
+|---|---|
+| `POST /services/collector`, `/services/collector/event` (and `/1.0`) | Event objects, back to back or one per line: `time` (epoch seconds, fractions allowed), `host`, `source`, `sourcetype`, `index`, `event` (a string or an object, required), `fields` (an object) |
+| `POST /services/collector/raw` (and `/1.0`) | Lines of text, one event per line. `host`, `source`, `sourcetype`, `index` and `time` come from the query string |
+| `GET /services/collector/health` (and `/1.0`) | `{"text":"HEC is healthy","code":17}`. With a token it also checks the token (`403`, code 4) and that the pipeline runs (`503`, code 18) |
+
+A request is stored whole or not at all: one bad event fails the request and
+nothing of it is spooled. Responses use the HEC format:
+
+| Status | Body | When |
+|---|---|---|
+| `200` | `{"text":"Success","code":0}` | The events are on disk in the spool |
+| `401` | code `2` Token is required, code `3` Invalid authorization | No key, or an `Authorization` scheme CH-UI does not read |
+| `403` | code `4` Invalid token | An unknown or revoked key |
+| `400` | code `5` No data | The body has no events |
+| `400` | code `6` Invalid data format, with `invalid-event-number` | Broken JSON, a value that is not an object, a bad `time`, a traces key |
+| `400` | code `12` Event field is required, code `13` Event field cannot be blank, code `15` Error in handling indexed fields | The event at `invalid-event-number` (counted from 0) |
+| `413` | code `6` | Over 32 MB after decompression, or over 100,000 events |
+| `503` | code `9` Server is busy, with `Retry-After` | The pipeline is stopped, the rate limit or quota is reached, or the spool is full |
+
+Indexer acknowledgement is not offered: a `200` already means the data is
+durable. Turn it off in shippers that ask for it.
+
+### Vector
+
+```toml
+[sinks.chui]
+type = "splunk_hec_logs"
+inputs = ["app"]
+endpoint = "https://ch-ui.example.com/ingest"
+default_token = "chi_..."
+encoding.codec = "json"
+compression = "gzip"
+acknowledgements.indexer_acknowledgements_enabled = false
+```
+
+Vector adds `/services/collector/event` to `endpoint` (or `/raw` with
+`endpoint_target = "raw"`).
+
+### OpenTelemetry Collector
+
+```yaml
+exporters:
+  splunk_hec:
+    endpoint: https://ch-ui.example.com/ingest/services/collector
+    token: chi_...
+```
+
+For a Collector the [OTLP endpoints](#opentelemetry-collector) are the better
+fit; this is for pipelines that already export HEC.
+
+### Fluent Bit and Docker
+
+Fluent Bit's `splunk` output and Docker's `splunk` logging driver always post
+to `/services/collector/...` at the root of the host, without a path prefix.
+Point them at the [separate ingest port](#a-separate-port), which serves HEC at
+the root:
+
+```ini
+[OUTPUT]
+    Name          splunk
+    Match         *
+    Host          ch-ui.example.com
+    Port          4318
+    TLS           On
+    Splunk_Token  chi_...
+```
+
+```bash
+docker run --log-driver=splunk \
+  --log-opt splunk-url=https://ch-ui.example.com:4318 \
+  --log-opt splunk-token=chi_... \
+  --log-opt splunk-format=json \
+  my-image
+```
+
+The Splunk universal forwarder speaks its own protocol, not HEC, and cannot
+send here.
+
+### curl
+
+```bash
+curl https://ch-ui.example.com/ingest/services/collector \
+  -H "Authorization: Splunk chi_..." \
+  -d '{"time": 1792152000.25, "host": "web-1", "sourcetype": "app", "event": "user signed in", "fields": {"env": "prod"}}{"event": {"message": "payment failed", "level": "error"}}'
+```
+
+## How documents become logs
+
+For a `logs` key, each Elasticsearch document and each HEC event becomes one
+row of the `otel_logs` layout, so Telemetry searches it like OTLP logs:
+
+| Column | From |
+|---|---|
+| `Timestamp` | `@timestamp`, `timestamp` or `time`, an ISO 8601 string or an epoch number (seconds, milliseconds, microseconds or nanoseconds). HEC's own `time` wins. Otherwise the receive time |
+| `Body` | `message`, `log` or `event`, the first present: a string as it is, anything else as JSON. A document with none of them has the JSON of its remaining fields as the body |
+| `SeverityText`, `SeverityNumber` | `level`, `log.level` or `severity`; the number follows OTLP (`info` 9, `warn` 13, `error` 17, and so on) |
+| `ServiceName` | `service.name`, `service`, `host.name` or `host` |
+| `ResourceAttributes` | The `host`, `agent`, `cloud`, `kubernetes`, `container` and `service` fields, flattened with dots. A plain `host` string, and HEC's `host`, become `host.name` |
+| `LogAttributes` | Every other field, flattened with dots, values as strings (arrays as JSON). Plus `es.index` for Elasticsearch, and for HEC the `fields` and `splunk.source`, `splunk.sourcetype`, `splunk.index` |
+
+ECS fields nested as objects (`{"log": {"level": "warn"}}`) and written with
+dots (`"log.level": "warn"`) are read the same way. The limits of OTLP
+requests apply: 128 attributes per map, 16 KB per value, 1 MB per body.
+
+For an `events` key the document is stored as it is, one JSON object per row.
+A HEC event object is stored with `time`, `host`, `source`, `sourcetype`,
+`index` and the `fields` merged in where the event has no such key; a string
+event becomes `{"event": "..."}` with the same fields.
+
 ## A separate port
 
 `--ingest-addr` (or `INGEST_ADDR`, `ingest_addr` in the config file) serves
 the receivers on a listener of their own, for example `:4318`, the usual
-OTLP/HTTP port. It serves only `/ingest/v1/*`, the same endpoints at `/v1/*`
-(so a bare `https://host:4318` works as `OTEL_EXPORTER_OTLP_ENDPOINT`), and
-`/health`. It uses the same TLS certificate as the main port when native TLS
+OTLP/HTTP port. It serves only `/ingest/*` (OTLP, events, the Elasticsearch
+bulk API and Splunk HEC), the same endpoints at the root (`/v1/*`, `/es`,
+`/services/collector`, so a bare `https://host:4318` works as
+`OTEL_EXPORTER_OTLP_ENDPOINT` and as a HEC URL), and `/health`. It uses the same TLS certificate as the main port when native TLS
 is on.
 
 The main port keeps serving `/ingest/*` too, unless
