@@ -69,6 +69,37 @@ columns instead of `Map` columns (`json: true` in the exporter config).
 CH-UI supports both; Sources shows a `JSON attrs` badge when it detects the
 JSON layout.
 
+## Send data here
+
+No collector writing to ClickHouse yet? CH-UI can receive OTLP itself. Create
+a [pipeline](/docs/pipelines) with an **Ingest** source (signal `logs` or
+`traces`) and a ClickHouse sink with **Create Table If Not Exists** on, name
+the table `otel_logs` or `otel_traces`, create an ingest key and run it. Then
+send OTLP over HTTP to CH-UI:
+
+```yaml
+exporters:
+  otlphttp/chui-logs:
+    endpoint: https://ch-ui.example.com/ingest
+    headers:
+      Authorization: "Bearer ${env:CHUI_LOGS_KEY}"
+```
+
+or, from an OTel SDK:
+
+```bash
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://ch-ui.example.com/ingest/v1/logs
+export OTEL_EXPORTER_OTLP_LOGS_HEADERS="Authorization=Bearer%20chi_..."
+```
+
+CH-UI spools each request on disk before it answers and writes it to the
+exporter's table layout (traces include the `<table>_trace_id_ts` lookup), so
+**Detect sources** below finds the tables and every Telemetry screen works on
+them. Each key serves one pipeline and one signal: logs and traces need a
+pipeline and a key each. Keys, limits, the separate `:4318` listener and
+configs for Vector and Fluent Bit are on the [Ingest](/docs/ingest) page.
+
 ## Sources
 
 A source tells CH-UI which table holds a signal and which column plays which

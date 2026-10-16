@@ -13,7 +13,7 @@
   import SourceNode from './nodes/SourceNode.svelte'
   import SinkNode from './nodes/SinkNode.svelte'
   import { SOURCE_NODE_TYPES, SINK_NODE_TYPES, newNodeConfig, type NodeType } from '../../types/pipelines'
-  import { Radio, Webhook, Database, HardDrive } from 'lucide-svelte'
+  import { Radio, Webhook, Database, HardDrive, Inbox } from 'lucide-svelte'
   import { getTheme } from '../../stores/theme.svelte'
 
   interface Props {
@@ -34,6 +34,7 @@
     source_webhook: SourceNode as unknown as NodeTypes[string],
     source_database: SourceNode as unknown as NodeTypes[string],
     source_s3: SourceNode as unknown as NodeTypes[string],
+    source_ingest: SourceNode as unknown as NodeTypes[string],
     sink_clickhouse: SinkNode as unknown as NodeTypes[string],
   }
 
@@ -101,6 +102,7 @@
     source_webhook: Webhook,
     source_database: Database,
     source_s3: HardDrive,
+    source_ingest: Inbox,
   }
 </script>
 
@@ -217,7 +219,7 @@
     height: 10px;
   }
 
-  /* Controls — dark mode */
+  /* Controls: dark mode */
   :global(.svelte-flow.dark .svelte-flow__controls) {
     background: #1a1a1a;
     border: 1px solid #333;
@@ -236,20 +238,20 @@
     color: #f97316;
   }
 
-  /* Controls — light mode */
+  /* Controls: light mode */
   :global(.svelte-flow .svelte-flow__controls) {
     border-radius: 8px;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
   }
 
-  /* MiniMap — dark mode */
+  /* MiniMap: dark mode */
   :global(.svelte-flow.dark .svelte-flow__minimap) {
     background: #141414;
     border: 1px solid #333;
     border-radius: 8px;
   }
 
-  /* MiniMap — light mode */
+  /* MiniMap: light mode */
   :global(.svelte-flow .svelte-flow__minimap) {
     border-radius: 8px;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);

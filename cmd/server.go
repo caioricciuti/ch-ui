@@ -36,6 +36,7 @@ var (
 	serverConnectionName string
 	serverAllowLoginURL  bool
 	serverTrustedProxies string
+	serverIngestAddr     string
 	serverDetach         bool
 	serverConfig         string
 	serverPIDFile        string
@@ -139,6 +140,7 @@ func init() {
 	pf.StringVar(&serverConnectionName, "connection-name", "", "Display name for the embedded local connection")
 	pf.BoolVar(&serverAllowLoginURL, "allow-login-url", false, "Allow signing in with a ClickHouse URL typed on the login page (the server connects to it; trusted networks only)")
 	pf.StringVar(&serverTrustedProxies, "trusted-proxies", "", "Comma-separated IPs or CIDRs of reverse proxies whose X-Forwarded-For is trusted (default: loopback, private and link-local ranges; \"none\" trusts no proxy)")
+	pf.StringVar(&serverIngestAddr, "ingest-addr", "", "Also serve the /ingest receivers (and /v1 OTLP aliases) on this address, e.g. :4318")
 	pf.StringVarP(&serverConfig, "config", "c", "", "Path to config file")
 	pf.StringVar(&serverPIDFile, "pid-file", "ch-ui-server.pid", "Path to server PID file")
 	pf.DurationVar(&serverStopTimeout, "stop-timeout", 10*time.Second, "Graceful stop timeout")
@@ -179,7 +181,7 @@ func runServer(cmd *cobra.Command) error {
 
 	// Override with flags if provided
 	if cmd.Flags().Changed("port") {
-		cfg.Port = serverPort
+		cfg.SetPort(serverPort)
 	}
 	if cmd.Flags().Changed("clickhouse-url") {
 		cfg.ClickHouseURL = strings.TrimSpace(serverClickHouse)
@@ -192,6 +194,9 @@ func runServer(cmd *cobra.Command) error {
 	}
 	if cmd.Flags().Changed("trusted-proxies") {
 		cfg.TrustedProxies = config.ParseTrustedProxies(serverTrustedProxies)
+	}
+	if cmd.Flags().Changed("ingest-addr") {
+		cfg.IngestAddr = strings.TrimSpace(serverIngestAddr)
 	}
 	// --dev flag is the authority for dev mode in the server command.
 	// Without it, always serve the embedded frontend (production mode).
@@ -353,6 +358,9 @@ func buildServerStartArgs(cmd *cobra.Command) []string {
 	}
 	if cmd.Flags().Changed("trusted-proxies") {
 		args = append(args, "--trusted-proxies", serverTrustedProxies)
+	}
+	if cmd.Flags().Changed("ingest-addr") {
+		args = append(args, "--ingest-addr", serverIngestAddr)
 	}
 	// Always include absolute PID file path so the child process and
 	// future update/restart commands can reliably locate the PID file

@@ -3,6 +3,7 @@
   import { CONNECTOR_FIELDS, SECRET_MASK, generateToken, schemaColumnsOf, type NodeType, type ConnectorFieldDef, type InferredSchema, type SchemaColumn } from '../../types/pipelines'
   import { X, HelpCircle, Copy, Check, Shield, RefreshCw } from 'lucide-svelte'
   import SinkSchemaEditor from './SinkSchemaEditor.svelte'
+  import { signalHint, usesOtelLayout } from '../../types/ingest'
 
   interface Props {
     nodeId: string
@@ -14,9 +15,16 @@
     onClose: () => void
     /** Saves, samples the source and returns ClickHouse's inferred schema. */
     onInferSchema?: () => Promise<InferredSchema | null>
+    /** Signal of the pipeline's ingest source, if it has one (for the sink hint). */
+    sourceSignal?: string | null
+    /** Active ingest keys of this pipeline; null while unknown. */
+    activeKeys?: number | null
+    onManageKeys?: () => void
+    onSendData?: () => void
   }
 
-  let { nodeId, nodeType, label, config, pipelineId, onUpdate, onClose, onInferSchema }: Props = $props()
+  let { nodeId, nodeType, label, config, pipelineId, onUpdate, onClose, onInferSchema, sourceSignal = null, activeKeys = null, onManageKeys, onSendData }: Props = $props()
+
 
   let copied = $state(false)
   let copiedToken = $state(false)
@@ -29,6 +37,7 @@
 
   const fields = $derived(CONNECTOR_FIELDS[nodeType] || [])
   const tokenHidden = $derived(localConfig['auth_token'] === SECRET_MASK)
+  const otelSink = $derived(nodeType === 'sink_clickhouse' && !!localConfig['create_table'] && usesOtelLayout(sourceSignal))
 
   // Initialize defaults for fields that don't have a value
   $effect(() => {
@@ -204,6 +213,9 @@
               <option value={opt.value}>{opt.label}</option>
             {/each}
           </select>
+          {#if nodeType === 'source_ingest' && field.key === 'signal'}
+            <p class="mt-1 text-[11px] text-fg-4">{signalHint(getFieldValue(field))}</p>
+          {/if}
         {:else if field.type === 'textarea'}
           <textarea
             id={inputId}
@@ -315,7 +327,28 @@
       </div>
     {/each}
 
-    {#if nodeType === 'sink_clickhouse' && localConfig['create_table']}
+    {#if nodeType === 'source_ingest'}
+      <div class="space-y-2 border-t border-edge-subtle pt-3">
+        <p class="text-[11px] font-medium text-fg-3 uppercase tracking-wider">Ingest keys</p>
+        <p class="text-[12px] text-fg-3">
+          {activeKeys === null ? 'Shippers authenticate with a key of this pipeline.' : activeKeys === 1 ? '1 active key.' : `${activeKeys} active keys.`}
+        </p>
+        <div class="flex flex-wrap gap-1.5">
+          {#if onManageKeys}
+            <button class="inline-flex items-center rounded-md border border-edge px-2 py-1 text-[12px] text-fg-2 hover:bg-hover" onclick={onManageKeys}>Manage keys</button>
+          {/if}
+          {#if onSendData}
+            <button class="inline-flex items-center rounded-md border border-edge px-2 py-1 text-[12px] text-fg-2 hover:bg-hover" onclick={onSendData}>Send data here</button>
+          {/if}
+        </div>
+      </div>
+    {/if}
+
+    {#if otelSink}
+      <p class="rounded-md bg-info-soft px-2.5 py-2 text-[12px] text-info">
+        The table is created in the OpenTelemetry {sourceSignal === 'traces' ? 'otel_traces' : 'otel_logs'} layout that Telemetry reads, with the source's TTL. Engine, ORDER BY and PARTITION BY here are not used.
+      </p>
+    {:else if nodeType === 'sink_clickhouse' && localConfig['create_table']}
       <SinkSchemaEditor
         columns={schemaColumns}
         database={String(localConfig['database'] ?? 'default')}

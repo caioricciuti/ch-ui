@@ -108,7 +108,7 @@
               <Badge tone={tone(row.status)}>{value}</Badge>
             {:else if col.key === 'detail'}
               <span class="break-words text-[13px] text-fg-2">{value}</span>
-            {/if}
+            {:else}{value}{/if}
           {/snippet}
         </DataTable>
       </section>

@@ -51,6 +51,9 @@ type ConnectorConfig struct {
 	// Checkpoints are the positions saved by earlier runs, by key. Set by
 	// the runner at start; nil means none.
 	Checkpoints map[string]string `json:"-"`
+	// Hub, set by the runner, is the ingest spool the push sources (webhook,
+	// ingest) drain. It may be nil.
+	Hub *Hub `json:"-"`
 }
 
 // SourceConnector is the interface all source connectors implement.

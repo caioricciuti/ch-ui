@@ -8,6 +8,7 @@
   import EmptyState from '../common/EmptyState.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
+  import IngestStats from '../ingest/IngestStats.svelte'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import type { PipelineCheckpoint } from '../../types/pipelines'
   import { ArrowLeft, RefreshCw, AlertTriangle, RotateCcw } from 'lucide-svelte'
@@ -17,10 +18,12 @@
     pipelineId: string
     /** The pipeline is running; its position cannot be reset. */
     running: boolean
+    /** The source is an ingest receiver: show its live stats while running. */
+    ingest?: boolean
     onclose: () => void
   }
 
-  let { open, pipelineId, running, onclose }: Props = $props()
+  let { open, pipelineId, running, ingest = false, onclose }: Props = $props()
 
   type PositionRow = { source_key: string; position: string; updated_at: string }
   let positions = $state<PositionRow[]>([])
@@ -219,10 +222,14 @@
             <Badge tone={row.level === 'error' ? 'danger' : row.level === 'warn' ? 'warning' : 'neutral'}>{value}</Badge>
           {:else if col.key === 'message'}
             <span class="whitespace-pre-wrap break-words font-mono text-[12px] text-fg-2">{value}</span>
-          {/if}
+          {:else}{value}{/if}
         {/snippet}
       </DataTable>
     {:else}
+      {#if ingest && running}
+        <IngestStats {pipelineId} />
+      {/if}
+      {#if !ingest}
       <section class="space-y-2">
         <div class="flex items-center justify-between gap-2">
           <h3 class="text-[13px] font-semibold text-fg">Saved position</h3>
@@ -236,6 +243,7 @@
           <DataTable columns={positionColumns} rows={positions} rowKey={(r) => r.source_key} />
         {/if}
       </section>
+      {/if}
 
       <h3 class="pt-2 text-[13px] font-semibold text-fg">Runs</h3>
       <DataTable
@@ -250,7 +258,7 @@
         {#snippet cell(row, col, value)}
           {#if col.key === 'status'}
             <Badge tone={statusTone(row.status)}>{value}</Badge>
-          {/if}
+          {:else}{value}{/if}
         {/snippet}
       </DataTable>
     {/if}

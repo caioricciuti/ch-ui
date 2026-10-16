@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/ingest/otlp"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
 
@@ -32,6 +33,20 @@ type ClickHouseSink struct {
 
 // insertTimeout bounds one INSERT or CREATE TABLE through the gateway.
 const insertTimeout = 60 * time.Second
+
+// Runtime sink fields the runner sets for an ingest pipeline with a logs or
+// traces signal (never taken from a saved config): the table is created in
+// the OpenTelemetry exporter layout with this TTL, and inserts skip unknown
+// fields.
+const (
+	sinkOTelSignal  = "_otel_signal"
+	sinkOTelTTLDays = "_otel_ttl_days"
+)
+
+// otelDedupWindow is set on the OpenTelemetry tables the sink creates, so a
+// replayed spool segment (same insert_deduplication_token) is dropped on a
+// plain MergeTree too. Replicated tables deduplicate without it.
+const otelDedupWindow = 1000
 
 // NewClickHouseSink creates a new ClickHouse sink connector.
 func NewClickHouseSink(gw *tunnel.Gateway, db *database.DB, secretKey string) *ClickHouseSink {
@@ -159,6 +174,9 @@ func (s *ClickHouseSink) WriteBatch(ctx context.Context, cfg ConnectorConfig, ba
 	if ratio, _ := errorRatio(cfg.Fields); ratio > 0 {
 		settings["input_format_allow_errors_ratio"] = strconv.FormatFloat(ratio, 'f', -1, 64)
 	}
+	if stringField(cfg.Fields, sinkOTelSignal, "") != "" {
+		settings["input_format_skip_unknown_fields"] = "1"
+	}
 	_, execErr := s.gateway.ExecuteQueryWithSettingsCtx(ctx, connectionID, query, user, password, settings, insertTimeout)
 	if execErr != nil {
 		return 0, fmt.Errorf("execute insert: %w", execErr)
@@ -176,6 +194,9 @@ func (s *ClickHouseSink) ensureTable(ctx context.Context, cfg ConnectorConfig, b
 
 	if table == "" {
 		return fmt.Errorf("table name is required for auto-creation")
+	}
+	if signal := stringField(cfg.Fields, sinkOTelSignal, ""); signal != "" {
+		return s.ensureOTelTable(ctx, cfg, signal, db, table)
 	}
 	engine, err := tableEngine(stringField(cfg.Fields, "create_table_engine", ""))
 	if err != nil {
@@ -243,6 +264,42 @@ func (s *ClickHouseSink) ensureTable(ctx context.Context, cfg ConnectorConfig, b
 	}
 
 	slog.Info("Auto-created ClickHouse table", "database", db, "table", table, "engine", engine, "columns", len(cols))
+	return nil
+}
+
+// ensureOTelTable creates the exporter's logs table, or its traces table
+// with the trace id lookup and the view that fills it.
+func (s *ClickHouseSink) ensureOTelTable(ctx context.Context, cfg ConnectorConfig, signal, db, table string) error {
+	ttl := intField(cfg.Fields, sinkOTelTTLDays, 0)
+	var stmts []string
+	switch signal {
+	case SignalLogs:
+		stmts = []string{otlp.LogsTableDDL(db, table, ttl, "")}
+	case SignalTraces:
+		stmts = otlp.TracesTableDDL(db, table, ttl, "")
+	default:
+		return fmt.Errorf("unknown OpenTelemetry signal %q", signal)
+	}
+	// The spans and lookup tables end in a SETTINGS clause; extend it.
+	for i, stmt := range stmts {
+		if !strings.HasPrefix(stmt, "CREATE MATERIALIZED VIEW") {
+			stmts[i] = stmt + fmt.Sprintf(", non_replicated_deduplication_window = %d", otelDedupWindow)
+		}
+	}
+	connectionID := stringField(cfg.Fields, "connection_id", "")
+	if connectionID == "" {
+		return fmt.Errorf("no connection_id in sink config")
+	}
+	user, password, err := s.findCredentials(connectionID)
+	if err != nil {
+		return fmt.Errorf("find credentials: %w", err)
+	}
+	for _, stmt := range stmts {
+		if _, err := s.gateway.ExecuteQueryWithSettingsCtx(ctx, connectionID, stmt, user, password, nil, insertTimeout); err != nil {
+			return fmt.Errorf("execute CREATE: %w", err)
+		}
+	}
+	slog.Info("Auto-created OpenTelemetry table", "database", db, "table", table, "signal", signal, "ttl_days", ttl)
 	return nil
 }
 

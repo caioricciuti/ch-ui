@@ -14,6 +14,10 @@ describe('newNodeConfig', () => {
     expect(newNodeConfig('source_kafka', 'abc')).toEqual({ consumer_group: 'ch-ui-abc' })
   })
 
+  it('starts an ingest source on logs with the contract defaults', () => {
+    expect(newNodeConfig('source_ingest', 'abc')).toEqual({ signal: 'logs', ttl_days: 30, rate_limit_rps: 0, daily_quota_mb: 0 })
+  })
+
   it('leaves other nodes empty', () => {
     expect(newNodeConfig('sink_clickhouse', 'abc')).toEqual({})
   })

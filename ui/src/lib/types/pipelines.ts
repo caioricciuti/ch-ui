@@ -5,6 +5,7 @@ export type NodeType =
   | 'source_webhook'
   | 'source_database'
   | 'source_s3'
+  | 'source_ingest'
   | 'sink_clickhouse'
 
 export interface Pipeline {
@@ -20,6 +21,10 @@ export interface Pipeline {
   last_error: string | null
   created_at: string
   updated_at: string
+  /** Node type of the pipeline's source, in list responses. */
+  source_type?: NodeType | null
+  /** Signal of an ingest source, in list responses. */
+  signal?: string | null
 }
 
 export interface PipelineNode {
@@ -145,6 +150,7 @@ export const SOURCE_NODE_TYPES: { type: NodeType; label: string; description: st
   { type: 'source_webhook', label: 'Webhook', description: 'Receive HTTP POST events' },
   { type: 'source_database', label: 'Database', description: 'Poll from PostgreSQL, MySQL, or SQLite' },
   { type: 'source_s3', label: 'S3', description: 'Read files from S3-compatible storage' },
+  { type: 'source_ingest', label: 'Ingest (OTLP, JSON)', description: 'Receive OTLP logs, traces or JSON events' },
 ]
 
 export const SINK_NODE_TYPES: { type: NodeType; label: string; description: string }[] = [
@@ -201,6 +207,16 @@ export const CONNECTOR_FIELDS: Record<NodeType, ConnectorFieldDef[]> = {
     { key: 'poll_interval', label: 'Poll Interval (seconds)', type: 'number', default: 300, min: 1, help: 'Seconds between each poll' },
     { key: 'batch_size', label: 'Batch Size', type: 'number', default: 1000, min: 1 },
   ],
+  source_ingest: [
+    { key: 'signal', label: 'Signal', type: 'select', required: true, options: [
+      { value: 'logs', label: 'Logs (OTLP)' },
+      { value: 'traces', label: 'Traces (OTLP)' },
+      { value: 'events', label: 'Events (JSON)' },
+    ], default: 'logs' },
+    { key: 'ttl_days', label: 'TTL (days)', type: 'number', default: 30, min: 0, help: 'Applied when the sink creates the table. 0 keeps data forever.' },
+    { key: 'rate_limit_rps', label: 'Rate Limit (requests/s)', type: 'number', default: 0, min: 0, help: 'Per key. 0 uses the default of 200 requests per second.' },
+    { key: 'daily_quota_mb', label: 'Daily Quota (MB)', type: 'number', default: 0, min: 0, help: 'Decompressed request bytes per day, reset at 00:00 UTC. 0 is unlimited.' },
+  ],
   sink_clickhouse: [
     { key: 'database', label: 'Target Database', type: 'text', required: true, default: 'default' },
     { key: 'table', label: 'Target Table', type: 'text', required: true },
@@ -232,6 +248,8 @@ export function newNodeConfig(type: NodeType, pipelineId: string): Record<string
       return { auth_enabled: true, auth_token: generateToken() }
     case 'source_kafka':
       return { consumer_group: `ch-ui-${pipelineId}` }
+    case 'source_ingest':
+      return { signal: 'logs', ttl_days: 30, rate_limit_rps: 0, daily_quota_mb: 0 }
     default:
       return {}
   }

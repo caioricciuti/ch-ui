@@ -18,6 +18,8 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/embedded"
 	ghclient "github.com/caioricciuti/ch-ui/internal/github"
 	"github.com/caioricciuti/ch-ui/internal/governance"
+	"github.com/caioricciuti/ch-ui/internal/ingest"
+	"github.com/caioricciuti/ch-ui/internal/ingest/spool"
 	"github.com/caioricciuti/ch-ui/internal/mcpserver"
 	"github.com/caioricciuti/ch-ui/internal/models"
 	"github.com/caioricciuti/ch-ui/internal/oidc"
@@ -41,6 +43,9 @@ type Server struct {
 	gateway            *tunnel.Gateway
 	scheduler          *scheduler.Runner
 	pipelineRunner     *pipelines.Runner
+	ingestHub          *pipelines.Hub
+	ingestReceiver     *ingest.Receiver
+	ingestHTTP         *http.Server
 	modelRunner        *models.Runner
 	modelScheduler     *models.Scheduler
 	govSyncer          *governance.Syncer
@@ -71,6 +76,8 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 	// window) and resume on activation, without a restart.
 	sched := scheduler.NewRunner(db, gw, cfg.AppSecretKey, config.NewProGate("Scheduled query jobs", cfg.ProAccess).Allow)
 	pipeRunner := pipelines.NewRunner(db, gw, cfg)
+	ingestHub := openIngestHub(cfg)
+	pipeRunner.SetHub(ingestHub)
 	modelRunner := models.NewRunner(db, gw, cfg.AppSecretKey)
 	modelScheduler := models.NewScheduler(db, modelRunner)
 
@@ -132,6 +139,8 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 		gateway:            gw,
 		scheduler:          sched,
 		pipelineRunner:     pipeRunner,
+		ingestHub:          ingestHub,
+		ingestReceiver:     ingest.NewReceiver(db, ingestHub),
 		modelRunner:        modelRunner,
 		modelScheduler:     modelScheduler,
 		govSyncer:          govSyncer,
@@ -160,8 +169,60 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 		WriteTimeout: 5 * time.Minute, // Long for streaming SSE/queries
 		IdleTimeout:  120 * time.Second,
 	}
+	if cfg.IngestAddr != "" {
+		s.ingestHTTP = &http.Server{
+			Addr:         cfg.IngestAddr,
+			Handler:      s.ingestRouter(),
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: time.Minute,
+			IdleTimeout:  120 * time.Second,
+		}
+	}
 
 	return s
+}
+
+// openIngestHub opens the ingest spool in <data dir>/ingest-spool. When it
+// cannot be opened the server still starts; webhook and ingest pipelines
+// then refuse to start and the receivers answer 503.
+func openIngestHub(cfg *config.Config) *pipelines.Hub {
+	if cfg.DatabasePath == "" {
+		// No data directory (tests): run without a spool.
+		return pipelines.NewHub(nil)
+	}
+	dir := cfg.IngestDir()
+	sp, err := spool.Open(dir, spool.Options{MaxBytes: cfg.IngestSpoolBytes(), MaxRecordBytes: ingestMaxRecordBytes})
+	if err != nil {
+		slog.Error("Ingest spool could not be opened; webhook and ingest pipelines are disabled", "dir", dir, "error", err)
+		return pipelines.NewHub(nil)
+	}
+	st := sp.TotalStats()
+	slog.Info("Ingest spool ready", "dir", dir, "max_bytes", cfg.IngestSpoolBytes(), "pending_bytes", st.Bytes, "pending_segments", st.Segments)
+	return pipelines.NewHub(sp)
+}
+
+// ingestMaxRecordBytes bounds one spooled request after encoding. A 32 MB
+// OTLP protobuf body grows when written as JSONEachRow.
+const ingestMaxRecordBytes = 256 << 20
+
+// ingestRouter serves only the receivers, for --ingest-addr: /ingest/v1/*
+// and the same endpoints at /v1/*, so a bare host:port works as
+// OTEL_EXPORTER_OTLP_ENDPOINT.
+func (s *Server) ingestRouter() http.Handler {
+	r := chi.NewRouter()
+	r.Use(middleware.Recoverer)
+	trustedProxies, err := s.cfg.TrustedProxyPrefixes()
+	if err != nil {
+		trustedProxies = nil
+	}
+	r.Use(middleware.RealIP(trustedProxies))
+	r.Use(middleware.Metrics)
+	r.Use(middleware.Logger)
+	r.Use(middleware.BodyLimit(ingest.MaxBodyBytes))
+	r.Get("/health", (&handlers.HealthHandler{}).Health)
+	r.Route("/ingest", s.ingestReceiver.Routes)
+	s.ingestReceiver.Routes(r)
+	return r
 }
 
 func (s *Server) setupRoutes() {
@@ -225,6 +286,11 @@ func (s *Server) setupRoutes() {
 	// ── Webhook endpoints (no session — uses token auth) ──
 	r.Post("/api/pipelines/webhook/{id}", pipelines.HandleWebhook)
 	r.Post("/api/github/webhook/{connectionId}", handlers.GitHubWebhookHandler(db, cfg, s.githubSyncer))
+
+	// ── Ingest receivers (no session — ingest key auth) ──
+	if !(cfg.IngestOnlySeparate && cfg.IngestAddr != "") {
+		r.Route("/ingest", s.ingestReceiver.Routes)
+	}
 
 	// ── API routes ─────────────────────────────────────────────────────
 	r.Route("/api", func(api chi.Router) {
@@ -320,6 +386,8 @@ func (s *Server) setupRoutes() {
 			// Pipelines
 			pipelinesHandler := &handlers.PipelinesHandler{DB: db, Gateway: gw, Config: cfg, Runner: s.pipelineRunner}
 			protected.Mount("/pipelines", pipelinesHandler.Routes())
+			ingestHandler := &handlers.IngestHandler{Config: cfg}
+			protected.Get("/ingest/info", ingestHandler.Info)
 
 			// Models (dbt-like SQL transformations)
 			modelsHandler := &handlers.ModelsHandler{DB: db, Gateway: gw, Config: cfg, Runner: s.modelRunner}
@@ -492,6 +560,10 @@ func (s *Server) serve(ln net.Listener) error {
 		}
 	}
 
+	if s.ingestHTTP != nil {
+		go s.serveIngest()
+	}
+
 	if s.cfg.TLSEnabled() {
 		slog.Info("Server listening with native TLS", "addr", s.http.Addr)
 		if ln != nil {
@@ -506,6 +578,22 @@ func (s *Server) serve(ln net.Listener) error {
 		return s.http.Serve(ln)
 	}
 	return s.http.ListenAndServe()
+}
+
+// serveIngest runs the separate ingest listener. A failure to bind is logged;
+// the main server keeps running.
+func (s *Server) serveIngest() {
+	var err error
+	if s.cfg.TLSEnabled() {
+		slog.Info("Ingest listener with native TLS", "addr", s.ingestHTTP.Addr)
+		err = s.ingestHTTP.ListenAndServeTLS(s.cfg.TLSCertFile, s.cfg.TLSKeyFile)
+	} else {
+		slog.Info("Ingest listener", "addr", s.ingestHTTP.Addr)
+		err = s.ingestHTTP.ListenAndServe()
+	}
+	if err != nil && err != http.ErrServerClosed {
+		slog.Error("Ingest listener stopped", "addr", s.ingestHTTP.Addr, "error", err)
+	}
 }
 
 // warnIfInsecure logs a prominent warning when the server is about to serve
@@ -553,6 +641,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	slog.Info("Graceful shutdown initiated")
 	s.scheduler.Stop()
 	s.pipelineRunner.Stop()
+	// After the pipelines: their drainers hold claimed segments until they
+	// stop. Appends in flight finish first; later ones get 503.
+	if err := s.ingestHub.Close(); err != nil {
+		slog.Warn("Ingest spool close reported errors", "error", err)
+	}
 	s.modelScheduler.Stop()
 	s.govSyncer.Stop()
 	s.chHarvester.Stop()
@@ -564,5 +657,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.alerts.Stop()
 	s.gateway.Stop()
 	s.auditFwd.Close()
+	if s.ingestHTTP != nil {
+		if err := s.ingestHTTP.Shutdown(ctx); err != nil {
+			slog.Warn("Ingest listener shutdown", "error", err)
+		}
+	}
 	return s.http.Shutdown(ctx)
 }

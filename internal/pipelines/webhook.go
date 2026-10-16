@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,17 +13,22 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/caioricciuti/ch-ui/internal/ingest/spool"
 )
 
-// WebhookSource receives data via HTTP POST requests.
-// When started, it registers itself in a global registry so that an
-// external HTTP handler can route incoming requests to the right pipeline.
+// WebhookSource receives data via HTTP POST requests. Accepted requests are
+// written to the ingest spool before the sender gets its 200, and the source
+// drains the spool, so a crash or a ClickHouse outage loses nothing that was
+// acknowledged.
 type WebhookSource struct{}
 
 func (w *WebhookSource) Type() string { return "source_webhook" }
 
 // Validate checks webhook configuration. auth_token is optional: without it
 // the webhook accepts every request. New webhook nodes get one by default.
+// batch_size and batch_timeout_ms are still validated for old configs; the
+// spool now decides the batches (one sealed segment per insert).
 func (w *WebhookSource) Validate(cfg ConnectorConfig) error {
 	if boolField(cfg.Fields, "auth_enabled", false) && stringField(cfg.Fields, "auth_token", "") == "" {
 		return fmt.Errorf("authentication is enabled but no token is set; regenerate the token")
@@ -30,60 +36,24 @@ func (w *WebhookSource) Validate(cfg ConnectorConfig) error {
 	return validateCommon(cfg.Fields)
 }
 
-// Start blocks until the context is cancelled, forwarding received batches to out.
+// Start registers the pipeline's endpoint and drains its spool stream until
+// the context is cancelled.
 func (w *WebhookSource) Start(ctx context.Context, cfg ConnectorConfig, out chan<- Batch) error {
+	if !cfg.Hub.Available() {
+		return ErrNoSpool
+	}
 	pipelineID, _ := cfg.Fields["pipeline_id"].(string)
 	authToken, _ := cfg.Fields["auth_token"].(string)
-	batchSize := max(intField(cfg.Fields, "batch_size", 100), 1)
-	batchTimeoutMs := max(intField(cfg.Fields, "batch_timeout_ms", 2000), 100)
 
-	// Create a receiver for this pipeline
-	recv := &webhookReceiver{
-		authToken: authToken,
-		incoming:  make(chan Record, 1000),
-	}
-
-	// Register in global registry
+	recv := &webhookReceiver{authToken: authToken, hub: cfg.Hub}
 	webhookRegistry.Store(pipelineID, recv)
 	defer webhookRegistry.Delete(pipelineID)
+	ep := &IngestEndpoint{PipelineID: pipelineID, Signal: "webhook"}
+	cfg.Hub.Register(ep)
+	defer cfg.Hub.Unregister(ep)
 
 	slog.Info("Webhook source started", "pipeline", pipelineID)
-
-	// Batch accumulation loop
-	var buf []Record
-	ticker := time.NewTicker(time.Duration(batchTimeoutMs) * time.Millisecond)
-	defer ticker.Stop()
-
-	flush := func() {
-		if len(buf) == 0 {
-			return
-		}
-		batch := Batch{
-			Records:  buf,
-			SourceTS: time.Now(),
-		}
-		select {
-		case out <- batch:
-		case <-ctx.Done():
-			return
-		}
-		buf = nil
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			flush()
-			return nil
-		case rec := <-recv.incoming:
-			buf = append(buf, rec)
-			if len(buf) >= batchSize {
-				flush()
-			}
-		case <-ticker.C:
-			flush()
-		}
-	}
+	return drainSpool(ctx, cfg, out, true)
 }
 
 // ── Webhook HTTP integration ───────────────────────────────────────
@@ -91,14 +61,10 @@ func (w *WebhookSource) Start(ctx context.Context, cfg ConnectorConfig, out chan
 // webhookRegistry maps pipeline IDs to active webhook receivers.
 var webhookRegistry sync.Map
 
-// webhookReceiver holds the channel for a single pipeline's webhook endpoint.
+// webhookReceiver is a running webhook pipeline's endpoint.
 type webhookReceiver struct {
 	authToken string
-	incoming  chan Record
-	// enqueueMu makes the capacity check and the enqueue of one request
-	// atomic with respect to other requests, so a request is accepted whole
-	// or not at all.
-	enqueueMu sync.Mutex
+	hub       *Hub
 
 	// recent keeps the last webhookRecentMax accepted records for Test.
 	recentMu sync.Mutex
@@ -109,7 +75,13 @@ type webhookReceiver struct {
 // for the Test preview.
 const webhookRecentMax = 20
 
+// webhookMaxBody bounds one webhook request body.
+const webhookMaxBody = 10 << 20
+
 func (r *webhookReceiver) remember(records []Record) {
+	if over := len(records) - webhookRecentMax; over > 0 {
+		records = records[over:]
+	}
 	r.recentMu.Lock()
 	defer r.recentMu.Unlock()
 	r.recent = append(r.recent, records...)
@@ -147,24 +119,11 @@ func (w *WebhookSource) Sample(_ context.Context, cfg ConnectorConfig, limit int
 	return SampleResult{Records: out, Note: note}, nil
 }
 
-// enqueue adds all records or none. It reports false when the buffer lacks
-// room for the whole request.
-func (r *webhookReceiver) enqueue(records []Record) bool {
-	r.enqueueMu.Lock()
-	defer r.enqueueMu.Unlock()
-	if cap(r.incoming)-len(r.incoming) < len(records) {
-		return false
-	}
-	// Only the batching loop removes from the channel, so the room checked
-	// above cannot shrink: these sends never block.
-	for _, rec := range records {
-		r.incoming <- rec
-	}
-	return true
-}
-
 // HandleWebhook is an HTTP handler that routes incoming webhook POSTs to the
 // correct running pipeline. Mount at: POST /api/pipelines/webhook/{pipelineID}
+//
+// The request is accepted whole or not at all: 200 means every record is in
+// the spool on disk.
 func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	// Extract pipeline ID from URL path (last segment)
 	parts := strings.Split(strings.TrimRight(r.URL.Path, "/"), "/")
@@ -180,43 +139,65 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	recv := val.(*webhookReceiver)
+	stats := recv.hub.Stats(pipelineID)
 
 	// Authenticate (skip if no auth token configured)
 	if recv.authToken != "" && !webhookTokenMatches(r, recv.authToken) {
+		stats.RejectedAuth.Add(1)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	// Read body
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024)) // 10MB limit
+	body, err := io.ReadAll(io.LimitReader(r.Body, webhookMaxBody+1))
 	if err != nil {
 		http.Error(w, "failed to read body", http.StatusBadRequest)
+		return
+	}
+	if len(body) > webhookMaxBody {
+		stats.RejectedTooLarge.Add(1)
+		http.Error(w, "request body too large (max 10 MB)", http.StatusRequestEntityTooLarge)
 		return
 	}
 
 	contentType := r.Header.Get("Content-Type")
 	records, parseErr := parseWebhookBody(body, contentType)
 	if parseErr != nil {
+		stats.RejectedMalformed.Add(1)
 		http.Error(w, fmt.Sprintf("parse error: %v", parseErr), http.StatusBadRequest)
 		return
 	}
 
-	if len(records) > cap(recv.incoming) {
-		http.Error(w, fmt.Sprintf("too many records in one request (max %d)", cap(recv.incoming)), http.StatusRequestEntityTooLarge)
+	if status, msg := SpoolAppendStatus(recv.hub.Append(pipelineID, encodeRows(records)), stats); status != http.StatusOK {
+		if status == http.StatusServiceUnavailable {
+			w.Header().Set("Retry-After", "5")
+		}
+		http.Error(w, msg, status)
 		return
 	}
-	// All or nothing: a partial accept followed by 429 would make the sender
-	// retry records that were already queued.
-	if !recv.enqueue(records) {
-		w.Header().Set("Retry-After", "1")
-		http.Error(w, "pipeline buffer full, try again later", http.StatusTooManyRequests)
-		return
-	}
+	stats.Accepted(int64(len(records)), int64(len(body)), time.Now())
 	recv.remember(records)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, `{"accepted":%d}`, len(records))
+}
+
+// SpoolAppendStatus maps the result of Hub.Append onto an HTTP status and a
+// message, counting the rejection. 200 means the data is durable.
+func SpoolAppendStatus(err error, stats *IngestStats) (int, string) {
+	switch {
+	case err == nil:
+		return http.StatusOK, ""
+	case errors.Is(err, spool.ErrFull):
+		stats.RejectedSpoolFull.Add(1)
+		return http.StatusServiceUnavailable, "ingest spool is full, try again later"
+	case errors.Is(err, spool.ErrTooLarge):
+		stats.RejectedTooLarge.Add(1)
+		return http.StatusRequestEntityTooLarge, "request too large"
+	default:
+		slog.Warn("Ingest spool append failed", "error", err)
+		return http.StatusServiceUnavailable, "ingest is unavailable, try again later"
+	}
 }
 
 // webhookTokenMatches reports whether the request carries the pipeline's
@@ -232,6 +213,17 @@ func webhookTokenMatches(r *http.Request, want string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(token), []byte(want)) == 1
+}
+
+// EventsBlock parses an events body (a JSON object, an array of objects or
+// NDJSON, as the webhook takes) into a JSONEachRow block for the spool, and
+// returns the number of rows.
+func EventsBlock(body []byte) ([]byte, int, error) {
+	records, err := parseWebhookBody(body, "")
+	if err != nil {
+		return nil, 0, err
+	}
+	return encodeRows(records), len(records), nil
 }
 
 // parseWebhookBody parses a JSON object, a JSON array of objects, or

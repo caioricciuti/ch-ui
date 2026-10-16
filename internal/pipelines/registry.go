@@ -13,6 +13,8 @@ func NewSource(nodeType string) (SourceConnector, error) {
 		return &DatabaseSource{}, nil
 	case "source_s3":
 		return &S3Source{}, nil
+	case "source_ingest":
+		return &IngestSource{}, nil
 	default:
 		return nil, fmt.Errorf("unknown source type: %s", nodeType)
 	}

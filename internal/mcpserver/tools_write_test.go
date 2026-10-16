@@ -174,4 +174,19 @@ func TestCreatePipelineTool(t *testing.T) {
 	if !strings.Contains(res, "isError") {
 		t.Errorf("unknown source type should be rejected: %s", res)
 	}
+
+	// ingest source: a valid signal is accepted, a bad one refused
+	res = callTool(t, h, writeKey, "create_pipeline",
+		`{"name":"otel-logs","source_type":"source_ingest","source_config":{"signal":"logs","ttl_days":30},"target_database":"default","target_table":"otel_logs"}`)
+	if strings.Contains(res, "isError") {
+		t.Fatalf("ingest pipeline rejected: %s", res)
+	}
+	res = callTool(t, h, writeKey, "create_pipeline",
+		`{"name":"bad-ingest","source_type":"source_ingest","source_config":{"signal":"metrics"},"target_database":"default","target_table":"t"}`)
+	if !strings.Contains(res, "isError") || !strings.Contains(res, "signal") {
+		t.Errorf("ingest source with a bad signal should be rejected: %s", res)
+	}
+	if all, _ := deps.DB.GetPipelines(); len(all) != 2 {
+		t.Errorf("pipelines after the ingest cases: %d, want 2", len(all))
+	}
 }

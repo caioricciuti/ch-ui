@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/pipelines"
 	"github.com/google/uuid"
 )
 
@@ -27,6 +28,7 @@ var allowedSourceTypes = map[string]bool{
 	"source_webhook":  true,
 	"source_database": true,
 	"source_s3":       true,
+	"source_ingest":   true,
 }
 var allowedSinkTypes = map[string]bool{
 	"sink_clickhouse": true,
@@ -96,6 +98,7 @@ Source node_type and config keys (REQUIRED for each):
 - source_kafka: { brokers: string, topic: string, consumer_group: string, sasl_mechanism?, sasl_username?, sasl_password?, use_tls?: bool, batch_size?, batch_timeout_ms? }
 - source_database: { db_type: "postgres"|"mysql"|"sqlite", connection_string: string, query: string, poll_interval?, watermark_column?, batch_size? }
 - source_s3: { endpoint?, region?, bucket: string, prefix?, access_key: string, secret_key: string, format: "json"|"ndjson"|"csv", poll_interval?, batch_size? }
+- source_ingest: { signal: "logs"|"traces"|"events", ttl_days?: number, rate_limit_rps?: number, daily_quota_mb?: number }. Shippers push OTLP or JSON to /ingest/v1/<signal> with an ingest key the user creates in the pipeline editor. For logs/traces use table otel_logs/otel_traces with create_table: true
 
 Sink node_type and config keys:
 - sink_clickhouse: { database: string, table: string, create_table?: bool, create_table_engine?, create_table_order_by? }
@@ -111,7 +114,7 @@ After configuring, propose start_pipeline in the same turn.`,
 				"type":     "object",
 				"required": []string{"node_type", "config"},
 				"properties": map[string]any{
-					"node_type": map[string]any{"type": "string", "enum": []string{"source_webhook", "source_kafka", "source_database", "source_s3"}},
+					"node_type": map[string]any{"type": "string", "enum": []string{"source_webhook", "source_kafka", "source_database", "source_s3", "source_ingest"}},
 					"label":     map[string]any{"type": "string"},
 					"config":    map[string]any{"type": "object"},
 				},
@@ -149,7 +152,7 @@ After configuring, propose start_pipeline in the same turn.`,
 			return nil, errors.New("pipeline_id is required")
 		}
 		if !allowedSourceTypes[in.Source.NodeType] {
-			return nil, fmt.Errorf("invalid source node_type: %s. Allowed: source_webhook, source_kafka, source_database, source_s3", in.Source.NodeType)
+			return nil, fmt.Errorf("invalid source node_type: %s. Allowed: source_webhook, source_kafka, source_database, source_s3, source_ingest", in.Source.NodeType)
 		}
 		if !allowedSinkTypes[in.Sink.NodeType] {
 			return nil, fmt.Errorf("invalid sink node_type: %s. Allowed: sink_clickhouse", in.Sink.NodeType)
@@ -159,6 +162,9 @@ After configuring, propose start_pipeline in the same turn.`,
 		}
 		if missing := missingFields(in.Sink.NodeType, in.Sink.Config); len(missing) > 0 {
 			return nil, fmt.Errorf("sink missing required config: %s", strings.Join(missing, ", "))
+		}
+		if err := validateIngestSource(in.Source.NodeType, in.Source.Config); err != nil {
+			return nil, err
 		}
 
 		if _, err := tctx.DB.GetPipelineByID(in.PipelineID); err != nil {
@@ -320,7 +326,21 @@ var requiredFields = map[string][]string{
 	"source_webhook":  {},
 	"source_database": {"db_type", "connection_string", "query"},
 	"source_s3":       {"bucket", "access_key", "secret_key", "format"},
+	"source_ingest":   {"signal"},
 	"sink_clickhouse": {"database", "table"},
+}
+
+// validateIngestSource applies the check the runner makes before it starts
+// an ingest pipeline (signal, non-negative limits), so a bad config is
+// refused here instead of on start.
+func validateIngestSource(nodeType string, config map[string]interface{}) error {
+	if nodeType != "source_ingest" {
+		return nil
+	}
+	if err := (&pipelines.IngestSource{}).Validate(pipelines.ConnectorConfig{NodeType: nodeType, Fields: config}); err != nil {
+		return fmt.Errorf("source_ingest: %w", err)
+	}
+	return nil
 }
 
 func missingFields(nodeType string, config map[string]interface{}) []string {

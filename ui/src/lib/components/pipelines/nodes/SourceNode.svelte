@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Handle, Position } from '@xyflow/svelte'
-  import { Radio, Webhook, Database, HardDrive } from 'lucide-svelte'
+  import { Radio, Webhook, Database, HardDrive, Inbox } from 'lucide-svelte'
 
   interface Props {
     data: {
@@ -17,6 +17,7 @@
     source_webhook: Webhook,
     source_database: Database,
     source_s3: HardDrive,
+    source_ingest: Inbox,
   }
 
   const colorMap: Record<string, string> = {
@@ -24,6 +25,7 @@
     source_webhook: 'border-info/60',
     source_database: 'border-success/60',
     source_s3: 'border-warning/60',
+    source_ingest: 'border-info/60',
   }
 
   const bgMap: Record<string, string> = {
@@ -31,6 +33,7 @@
     source_webhook: 'bg-info-soft',
     source_database: 'bg-success-soft',
     source_s3: 'bg-warning-soft',
+    source_ingest: 'bg-info-soft',
   }
 
   const Icon = $derived(iconMap[data.node_type] || Radio)
@@ -43,7 +46,7 @@
     <Icon size={16} class="text-fg-2 shrink-0" />
     <div class="min-w-0">
       <div class="text-xs font-medium text-fg truncate">{data.label}</div>
-      <div class="text-[10px] text-fg-3">{data.node_type.replace('source_', '')}</div>
+      <div class="text-[10px] text-fg-3">{data.node_type === 'source_ingest' ? `ingest ${String(data.config?.signal ?? 'logs')}` : data.node_type.replace('source_', '')}</div>
     </div>
   </div>
   <Handle type="source" position={Position.Right} class="!bg-accent !w-3 !h-3 !border-2 !border-canvas" />
