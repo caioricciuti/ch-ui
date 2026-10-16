@@ -164,21 +164,15 @@ func (h *TelemetryHandler) exec(c chCreds, sqlText string, timeout time.Duration
 
 // describe returns name -> type for a table.
 func (h *TelemetryHandler) describe(c chCreds, db, table string) (map[string]string, error) {
-	if !telemetry.ValidIdent(db) || !telemetry.ValidIdent(table) {
-		return nil, fmt.Errorf("invalid table name")
-	}
-	rows, err := h.exec(c, fmt.Sprintf("DESCRIBE TABLE %s.%s", telemetry.Quote(db), telemetry.Quote(table)), telemetryMetaTimeout)
+	sqlText, err := telemetry.DescribeSQL(db, table)
 	if err != nil {
 		return nil, err
 	}
-	cols := make(map[string]string, len(rows))
-	for _, row := range rows {
-		name, _ := row["name"].(string)
-		typ, _ := row["type"].(string)
-		if name != "" {
-			cols[name] = typ
-		}
+	rows, err := h.exec(c, sqlText, telemetryMetaTimeout)
+	if err != nil {
+		return nil, err
 	}
+	cols := telemetry.ColumnTypes(rows)
 	if len(cols) == 0 {
 		return nil, fmt.Errorf("table %s.%s has no columns or does not exist", db, table)
 	}
@@ -661,75 +655,8 @@ func (h *TelemetryHandler) logsSetup(w http.ResponseWriter, r *http.Request, req
 	return c, src, cols, body, true
 }
 
-// shapeLogRows normalizes gateway rows into the contract row shape.
-func shapeLogRows(rows []map[string]interface{}) []map[string]interface{} {
-	out := make([]map[string]interface{}, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, map[string]interface{}{
-			"timestamp":       str(row["timestamp"]),
-			"timestamp_ns":    str(row["timestamp_ns"]),
-			"severity":        str(row["severity"]),
-			"severity_number": toInt64(row["severity_number"]),
-			"service":         str(row["service"]),
-			"body":            str(row["body"]),
-			"trace_id":        str(row["trace_id"]),
-			"span_id":         str(row["span_id"]),
-			"resource":        stringMap(row["resource"]),
-			"scope":           stringMap(row["scope"]),
-			"attributes":      stringMap(row["attributes"]),
-			"scope_name":      str(row["scope_name"]),
-			"event_name":      str(row["event_name"]),
-			"row_id":          str(row["row_id"]),
-		})
-	}
-	return out
-}
-
-func str(v interface{}) string {
-	switch t := v.(type) {
-	case nil:
-		return ""
-	case string:
-		return t
-	case json.Number:
-		return t.String()
-	case float64:
-		return fmt.Sprintf("%.0f", t)
-	default:
-		return fmt.Sprintf("%v", t)
-	}
-}
-
-// stringMap accepts a JSON object (Map column or the exporter's JSON
-// column) or a JSON string of one. Nested objects, which is how a JSON
-// column stores dotted OTel keys, are flattened back to dotted keys.
-func stringMap(v interface{}) map[string]string {
-	out := map[string]string{}
-	switch t := v.(type) {
-	case map[string]interface{}:
-		flattenInto(out, "", t)
-	case string:
-		var m map[string]interface{}
-		if json.Unmarshal([]byte(t), &m) == nil {
-			flattenInto(out, "", m)
-		}
-	}
-	return out
-}
-
-func flattenInto(out map[string]string, prefix string, m map[string]interface{}) {
-	for k, val := range m {
-		key := k
-		if prefix != "" {
-			key = prefix + "." + k
-		}
-		if nested, ok := val.(map[string]interface{}); ok {
-			flattenInto(out, key, nested)
-			continue
-		}
-		out[key] = str(val)
-	}
-}
+// str reads a gateway cell as a string; see internal/telemetry/rows.go.
+func str(v interface{}) string { return telemetry.Str(v) }
 
 // SearchLogs runs the explorer query with keyset paging.
 func (h *TelemetryHandler) SearchLogs(w http.ResponseWriter, r *http.Request) {
@@ -768,28 +695,22 @@ func (h *TelemetryHandler) SearchLogs(w http.ResponseWriter, r *http.Request) {
 	var next, head, tail interface{}
 	if len(rows) > limit {
 		rows = rows[:limit]
-		next = logCursor(rows[len(rows)-1])
+		next = telemetry.LogCursor(rows[len(rows)-1])
 	}
 	// head and tail let live tail ask for only the rows past the newest
 	// one it has (order asc from the head of a desc page).
 	if len(rows) > 0 {
-		head = logCursor(rows[0])
-		tail = logCursor(rows[len(rows)-1])
+		head = telemetry.LogCursor(rows[0])
+		tail = telemetry.LogCursor(rows[len(rows)-1])
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":     true,
-		"rows":        shapeLogRows(rows),
+		"rows":        telemetry.ShapeLogRows(rows),
 		"next_cursor": next,
 		"head_cursor": head,
 		"tail_cursor": tail,
 		"took_ms":     time.Since(started).Milliseconds(),
 	})
-}
-
-// logCursor is the keyset position of one search row.
-func logCursor(row map[string]interface{}) string {
-	return telemetry.EncodeCursor(telemetry.Cursor{TimestampNs: str(row["timestamp_ns"]), TraceID: str(row["trace_id"]),
-		SpanID: str(row["span_id"]), RowHash: str(row["row_id"])})
 }
 
 // facetResult collects facet answers: the sample flag, the largest sample
@@ -973,7 +894,7 @@ func (h *TelemetryHandler) LogsContext(w http.ResponseWriter, r *http.Request) {
 	rows := append(beforeRows, afterRows...)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":      true,
-		"rows":         shapeLogRows(rows),
+		"rows":         telemetry.ShapeLogRows(rows),
 		"anchor_index": len(beforeRows) + anchorOffset(afterRows, ts, body.RowID),
 	})
 }
@@ -1041,5 +962,5 @@ func (h *TelemetryHandler) LogsByTrace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "rows": shapeLogRows(rows)})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "rows": telemetry.ShapeLogRows(rows)})
 }

@@ -7,12 +7,9 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"log/slog"
-	"math"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -66,17 +63,7 @@ func (h *TelemetryHandler) MetricsCatalog(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	metrics := make([]map[string]interface{}, 0, len(rows))
-	for _, row := range rows {
-		metrics = append(metrics, map[string]interface{}{
-			"name":        str(row["name"]),
-			"type":        str(row["type"]),
-			"unit":        str(row["unit"]),
-			"description": str(row["description"]),
-			"services":    toInt64(row["services"]),
-			"series":      toInt64(row["series"]),
-		})
-	}
+	metrics := telemetry.ShapeCatalogRows(rows)
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "metrics": metrics})
 }
 
@@ -91,18 +78,6 @@ type metricsQueryRequest struct {
 	Q             string   `json:"q"`
 	BucketSeconds int      `json:"bucket_seconds"`
 	LimitSeries   int      `json:"limit_series"`
-}
-
-// metricSeries is one output series being assembled.
-type metricSeries struct {
-	labels map[string]string
-	name   string
-	values map[int64]float64 // bucket -> value (nil = gap)
-	count  int64             // rows contributing (for ranking)
-	// histogram quantile points per raw series
-	hist []telemetry.HistPoint
-	// rate accumulators
-	rate []telemetry.RatePoint
 }
 
 // MetricsQuery returns bucketed series for one metric.
@@ -149,144 +124,22 @@ func (h *TelemetryHandler) MetricsQuery(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	if agg == "rate" {
-		for _, row := range rows {
-			if toInt64(row["cum"]) == 0 {
-				writeError(w, http.StatusBadRequest, fmt.Sprintf("rate needs a cumulative monotonic counter; %s has delta or non-monotonic points. Use sum (delta) or avg / last (non-monotonic) instead.", body.Metric))
-				return
-			}
-		}
-	}
-	// max_result_rows cuts the answer silently; rate and quantiles read one
-	// row per raw series and bucket, so a busy metric can hit it.
-	rowsTruncated := telemetry.ResultCapped(len(rows))
-
-	// Group rows into series keyed by their labels.
-	seriesByKey := map[string]*metricSeries{}
-	var order []string
-	unit := ""
-	quantile := 0.0
-	switch agg {
-	case "p50":
-		quantile = 0.5
-	case "p95":
-		quantile = 0.95
-	case "p99":
-		quantile = 0.99
-	}
-	for _, row := range rows {
-		labels := map[string]string{}
-		parts := make([]string, 0, len(body.GroupBy))
-		for i, k := range body.GroupBy {
-			v := str(row[fmt.Sprintf("g%d", i)])
-			labels[k] = v
-			parts = append(parts, v)
-		}
-		key := strings.Join(parts, "\x00")
-		s, ok := seriesByKey[key]
-		if !ok {
-			name := strings.Join(parts, " · ")
-			if name == "" {
-				name = body.Metric
-			}
-			s = &metricSeries{labels: labels, name: name, values: map[int64]float64{}}
-			seriesByKey[key] = s
-			order = append(order, key)
-		}
-		if unit == "" {
-			unit = str(row["unit"])
-		}
-		t := toInt64(row["t"])
-		s.count += toInt64(row["n"])
-		switch {
-		case agg == "rate":
-			s.rate = append(s.rate, telemetry.RatePoint{T: t, SID: str(row["sid"]), Max: toFloat(row["v"])})
-		case quantile > 0:
-			s.hist = append(s.hist, telemetry.HistPoint{
-				T: t, SID: str(row["sid"]), Cumulative: toInt64(row["cum"]) == 1,
-				Sum: floatSlice(row["counts_sum"]), First: floatSlice(row["counts_first"]), Last: floatSlice(row["counts_last"]),
-				Bounds: floatSlice(row["bounds"]),
-			})
-		default:
-			if v, ok := numeric(row["v"]); ok {
-				s.values[t] = v
-			}
-		}
-	}
-
-	// Finish rate and quantile series.
-	for _, s := range seriesByKey {
-		if agg == "rate" {
-			for t, v := range telemetry.ComputeRate(s.rate, bucket) {
-				s.values[t] = v
-			}
-		}
-		if quantile > 0 {
-			counts, bounds := telemetry.HistogramIncrease(s.hist)
-			for t, c := range counts {
-				if v := telemetry.HistogramQuantile(bounds[t], c, quantile); !math.IsNaN(v) {
-					s.values[t] = v
-				}
-			}
-		}
-	}
-
-	// Rank by contributing rows, cap, keep a stable order.
-	sort.SliceStable(order, func(i, j int) bool { return seriesByKey[order[i]].count > seriesByKey[order[j]].count })
-	truncated := false
-	if len(order) > limitSeries {
-		order = order[:limitSeries]
-		truncated = true
-	}
-
-	axis := telemetry.FillAxis(body.From, body.To, bucket)
-	out := make([]map[string]interface{}, 0, len(order))
-	for _, key := range order {
-		s := seriesByKey[key]
-		points := make([][2]interface{}, 0, len(axis))
-		var last, min, max, sum interface{}
-		n := 0.0
-		minV, maxV, sumV := math.Inf(1), math.Inf(-1), 0.0
-		for _, t := range axis {
-			if v, ok := s.values[t]; ok {
-				points = append(points, [2]interface{}{t, v})
-				last = v
-				if v < minV {
-					minV = v
-				}
-				if v > maxV {
-					maxV = v
-				}
-				sumV += v
-				n++
-			} else {
-				points = append(points, [2]interface{}{t, nil})
-			}
-		}
-		if n > 0 {
-			min, max, sum = minV, maxV, sumV/n
-		}
-		out = append(out, map[string]interface{}{
-			"labels": s.labels,
-			"name":   s.name,
-			"points": points,
-			"last":   last,
-			"min":    min,
-			"max":    max,
-			"avg":    sum,
-		})
+	res, err := telemetry.BuildSeries(rows, params)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	resp := map[string]interface{}{
 		"success":        true,
-		"bucket_seconds": bucket,
-		"unit":           unit,
-		"series":         out,
+		"bucket_seconds": res.BucketSeconds,
+		"unit":           res.Unit,
+		"series":         res.Series,
 		"took_ms":        time.Since(started).Milliseconds(),
 	}
-	if truncated {
+	if res.Truncated {
 		resp["truncated"] = true
 	}
-	if rowsTruncated {
+	if res.RowsTruncated {
 		resp["rows_truncated"] = true
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -349,47 +202,5 @@ func (h *TelemetryHandler) MetricsAttributes(w http.ResponseWriter, r *http.Requ
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-// numeric reads a gateway cell as float64; false for nil/NaN/non-numbers.
-func numeric(v interface{}) (float64, bool) {
-	switch t := v.(type) {
-	case nil:
-		return 0, false
-	case float64:
-		if math.IsNaN(t) || math.IsInf(t, 0) {
-			return 0, false
-		}
-		return t, true
-	case json.Number:
-		f, err := t.Float64()
-		return f, err == nil
-	case string:
-		f, err := strconv.ParseFloat(t, 64)
-		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
-			return 0, false
-		}
-		return f, true
-	case int64:
-		return float64(t), true
-	case int:
-		return float64(t), true
-	}
-	return 0, false
-}
-
-func toFloat(v interface{}) float64 {
-	f, _ := numeric(v)
-	return f
-}
-
-// floatSlice reads an Array column (numbers or numeric strings).
-func floatSlice(v interface{}) []float64 {
-	arr, ok := v.([]interface{})
-	if !ok {
-		return nil
-	}
-	out := make([]float64, len(arr))
-	for i, x := range arr {
-		out[i] = toFloat(x)
-	}
-	return out
-}
+// toFloat reads a gateway cell as float64; 0 for nil/NaN/non-numbers.
+func toFloat(v interface{}) float64 { return telemetry.Float(v) }

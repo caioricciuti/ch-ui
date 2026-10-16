@@ -2,8 +2,11 @@ package pipelines
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+
+	"github.com/caioricciuti/ch-ui/internal/database"
 )
 
 // Ingest signals a source_ingest node accepts.
@@ -26,6 +29,21 @@ func (s *IngestSource) Type() string { return "source_ingest" }
 // IngestSignal returns a source_ingest config's signal.
 func IngestSignal(fields map[string]interface{}) string {
 	return stringField(fields, "signal", "")
+}
+
+// PushSignal is what a pushed-to source node receives: the signal of a
+// source_ingest node, "webhook" for a source_webhook node, "" for any other.
+func PushSignal(n database.PipelineNode) string {
+	switch n.NodeType {
+	case "source_webhook":
+		return "webhook"
+	case "source_ingest":
+		var cfg map[string]interface{}
+		if json.Unmarshal([]byte(n.ConfigEncrypted), &cfg) == nil {
+			return IngestSignal(cfg)
+		}
+	}
+	return ""
 }
 
 // Validate checks the signal and the limits.

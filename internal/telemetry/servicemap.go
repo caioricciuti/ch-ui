@@ -148,3 +148,36 @@ ORDER BY calls DESC
 		scaled("count()", rate), scaled("countIf(c.is_error)", rate),
 	), nil
 }
+
+// ShapeServiceMap turns ServiceMapNodesSQL and ServiceMapEdgesSQL rows into
+// the service map contract: nodes per service, edges per caller and callee.
+func ShapeServiceMap(nodeRows, edgeRows []map[string]interface{}) (nodes, edges []map[string]interface{}) {
+	nodes = make([]map[string]interface{}, 0, len(nodeRows))
+	for _, row := range nodeRows {
+		nodes = append(nodes, map[string]interface{}{
+			"service": Str(row["service"]),
+			"spans":   Int64(row["spans"]),
+			"errors":  Int64(row["errors"]),
+			"p50_ms":  roundMs(row["p50_ms"]),
+			"p95_ms":  roundMs(row["p95_ms"]),
+		})
+	}
+	edges = make([]map[string]interface{}, 0, len(edgeRows))
+	for _, row := range edgeRows {
+		edges = append(edges, map[string]interface{}{
+			"from":   Str(row["from_service"]),
+			"to":     Str(row["to_service"]),
+			"calls":  Int64(row["calls"]),
+			"errors": Int64(row["errors"]),
+			"p50_ms": roundMs(row["p50_ms"]),
+			"p95_ms": roundMs(row["p95_ms"]),
+		})
+	}
+	return nodes, edges
+}
+
+// roundMs reads a millisecond cell with one decimal; NaN and absent are 0.
+func roundMs(v interface{}) float64 {
+	f := Float(v)
+	return float64(int64(f*10+0.5)) / 10
+}

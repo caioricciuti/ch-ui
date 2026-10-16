@@ -270,6 +270,7 @@ func (s *Server) setupRoutes() {
 		Gateway:    gw,
 		Config:     cfg,
 		Guardrails: s.guardrails,
+		IngestHub:  s.ingestHub,
 	}))
 
 	// ── OAuth 2.1 authorization server for /mcp ─────────────────────────

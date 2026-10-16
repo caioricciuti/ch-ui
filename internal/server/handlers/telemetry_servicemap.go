@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	"github.com/caioricciuti/ch-ui/internal/telemetry"
 )
@@ -88,27 +87,7 @@ func (h *TelemetryHandler) ServiceMap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nodes := make([]map[string]interface{}, 0, len(nodeRows))
-	for _, row := range nodeRows {
-		nodes = append(nodes, map[string]interface{}{
-			"service": str(row["service"]),
-			"spans":   toInt64(row["spans"]),
-			"errors":  toInt64(row["errors"]),
-			"p50_ms":  roundMs(row["p50_ms"]),
-			"p95_ms":  roundMs(row["p95_ms"]),
-		})
-	}
-	edges := make([]map[string]interface{}, 0, len(edgeRows))
-	for _, row := range edgeRows {
-		edges = append(edges, map[string]interface{}{
-			"from":   str(row["from_service"]),
-			"to":     str(row["to_service"]),
-			"calls":  toInt64(row["calls"]),
-			"errors": toInt64(row["errors"]),
-			"p50_ms": roundMs(row["p50_ms"]),
-			"p95_ms": roundMs(row["p95_ms"]),
-		})
-	}
+	nodes, edges := telemetry.ShapeServiceMap(nodeRows, edgeRows)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":     true,
@@ -118,26 +97,4 @@ func (h *TelemetryHandler) ServiceMap(w http.ResponseWriter, r *http.Request) {
 		"sample_rate": rate,
 		"total_spans": spans,
 	})
-}
-
-// roundMs turns a gateway numeric (float64, json.Number or string) into a
-// millisecond value with one decimal; NaN/absent become 0.
-func roundMs(v interface{}) float64 {
-	var f float64
-	switch t := v.(type) {
-	case float64:
-		f = t
-	case json.Number:
-		f, _ = t.Float64()
-	case string:
-		f, _ = strconv.ParseFloat(t, 64)
-	case int64:
-		f = float64(t)
-	case int:
-		f = float64(t)
-	}
-	if f != f { // NaN
-		return 0
-	}
-	return float64(int64(f*10+0.5)) / 10
 }

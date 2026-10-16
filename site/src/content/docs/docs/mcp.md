@@ -11,9 +11,9 @@ trail. No ClickHouse credentials on laptops, no extra process: it is the same
 `ch-ui` binary, serving streamable HTTP at `/mcp`.
 
 :::note
-The MCP server is part of the open-source core. Two tools,
-`query_insights_top` and `costs_summary`, only appear when a Pro license is
-active.
+The MCP server is part of the open-source core. The tools marked Pro below
+(Query Insights, Cost Center, traces, metrics, the service map and telemetry
+monitors) only appear when a Pro license is active.
 :::
 
 There are two ways to authenticate:
@@ -191,7 +191,10 @@ An MCP key binds three things:
   layer on top of ClickHouse grants, not a replacement for them. The Pro
   tools `query_insights_top` and `costs_summary` read `system.query_log`
   across every database, query text included, so a key with an allowlist
-  gets a clear refusal from them instead of data.
+  gets a clear refusal from them instead of data. The telemetry tools refuse
+  a source whose database is not allowed, `ingest_status` and
+  `list_monitors` leave out pipelines and monitors on such databases, and
+  `table_lineage` drops nodes in them.
 
 Keys are bearer tokens with a `chm_` prefix. Only a SHA-256 hash is stored.
 There is no unauthenticated mode. Each key is limited to 120 requests per
@@ -230,6 +233,10 @@ the write-scope tools are `readOnlyHint: false, destructiveHint: false`
 | `run_select` | Read-only SQL (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN). `max_rows` (default 100, max 2000), `format` json or csv, `max_bytes` budget |
 | `run_saved_query` | Runs a saved query by `id` or `name`, with `params` for its bind parameters. Reports whether the query is **verified** |
 | `explain_query` | `EXPLAIN indexes = 1` plan for a SELECT |
+| `telemetry_sources` | The OpenTelemetry logs, traces and metrics sources configured on this connection, with their database and tables. Gives the `source_id` the telemetry tools take |
+| `search_logs` | Log lines of a logs source in a time range (`since`, default `1h`, or `from` / `to`), newest first, with the Logs page search language plus `severity` and `services` filters. `limit` (default 50, max 500), `cursor` |
+| `ingest_status` | Push pipelines (OTLP, Elasticsearch, Splunk HEC, webhook) on this connection: signal, status, target tables, last error, and since the server started the requests received, rejected by reason, rows written and spool backlog. Never returns ingest keys |
+| `table_lineage` | Upstream and downstream of a table from ClickHouse metadata: tables, materialized views, views, dictionaries and external sources, with edge kinds. `direction` (`upstream`, `downstream`, `both`), `depth` (default 3, max 10) |
 | `list_saved_queries` / `list_dashboards` / `list_models` / `list_pipelines` | What already exists on this connection, paginated (`page_size`, `cursor`) |
 | `save_query` (write scope) | Saves a query to the shared library |
 | `create_dashboard` (write scope) | Dashboard with SQL panels, laid out automatically |
@@ -237,6 +244,12 @@ the write-scope tools are `readOnlyHint: false, destructiveHint: false`
 | `create_pipeline` (write scope) | Draft pipeline: a Kafka, webhook, database or S3 source wired to a ClickHouse sink |
 | `query_insights_top` (Pro) | Top query patterns by p95 latency, memory or frequency. Refused for keys with a database allowlist |
 | `costs_summary` (Pro) | Cost Center spend summary with your configured rates. Refused for keys with a database allowlist |
+| `search_traces` (Pro) | Traces of a traces source in a time range: root span and service, duration, span and error counts. Filters `service`, `operation`, `min_duration_ms`, `errors_only` and a search. `limit` (default 50, max 500), `cursor` |
+| `get_trace` (Pro) | One trace by id: summary, spans in tree order (`max_spans`, default 200, max 500) and up to 50 correlated log lines |
+| `service_map` (Pro) | Services and the calls between them over a time range, with spans, errors and p50/p95 latency |
+| `list_metrics` (Pro) | Metrics in a metrics source over a time range: name, type, unit, services and series |
+| `query_metrics` (Pro) | Bucketed series of one metric with an aggregation (avg, sum, min, max, last, count, rate, p50/p95/p99), split by up to 2 attributes |
+| `list_monitors` (Pro) | Telemetry monitors on this connection with threshold, window and current state (ok or firing, last value, last error) |
 
 Paginated tools return `next_cursor` when more items exist; pass it back as
 `cursor`. Cursors are opaque.

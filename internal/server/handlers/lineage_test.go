@@ -386,26 +386,3 @@ func TestLineageNode(t *testing.T) {
 		t.Fatalf("database and name params: %+v", msgs)
 	}
 }
-
-func TestLineageTablesSQL(t *testing.T) {
-	all := lineageTablesSQL(false, false, true)
-	if strings.Contains(all, "{databases") || !strings.Contains(all, "as_select AS as_select") {
-		t.Fatalf("unfiltered: %s", all)
-	}
-	wide := lineageTablesSQL(true, false, true)
-	// Definitions of views, MVs and dictionaries are read in every database,
-	// so readers outside the selection still link to it.
-	if strings.Contains(wide, "AND has(") || !strings.Contains(wide, "as_select AS as_select") ||
-		!strings.Contains(wide, "if(engine IN ('View', 'MaterializedView', 'Dictionary'), create_table_query, '') AS ddl") {
-		t.Fatalf("filtered: %s", wide)
-	}
-	strict := lineageTablesSQL(true, true, false)
-	if !strings.Contains(strict, "AND has({databases:Array(String)}, database)") || !strings.Contains(strict, "'' AS as_select") {
-		t.Fatalf("strict: %s", strict)
-	}
-	for _, sql := range []string{all, wide, strict} {
-		if !strings.Contains(sql, "LIMIT 50001") || strings.Contains(sql, "query_log") {
-			t.Fatalf("unbounded: %s", sql)
-		}
-	}
-}
