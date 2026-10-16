@@ -20,6 +20,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/cronexpr"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/scheduler"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
@@ -467,43 +468,8 @@ func (h *SchedulesHandler) ManualRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	timeout := time.Duration(schedule.TimeoutMs) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 60 * time.Second
-	}
-
-	// Create a run record
-	runID, err := h.DB.CreateScheduleRun(id, "running")
-	if err != nil {
-		slog.Error("Failed to create schedule run", "error", err, "schedule", id)
-	}
-
-	// Execute query
-	start := time.Now()
-	result, execErr := h.Gateway.ExecuteQuery(connectionID, savedQuery.Query, session.ClickhouseUser, password, timeout)
-	elapsed := time.Since(start).Milliseconds()
-
-	status := "success"
-	var runErr string
-	rowCount := 0
-	if execErr != nil {
-		status = "error"
-		runErr = execErr.Error()
-	} else if result != nil {
-		rowCount = countRows(result.Data)
-	}
-
-	// Update run record
-	if runID != "" {
-		h.DB.UpdateScheduleRun(runID, status, rowCount, int(elapsed), runErr)
-	}
-
-	// Update schedule status
-	var nextRun *time.Time
-	if schedule.Enabled {
-		nextRun = cronexpr.ComputeNextRunInZone(schedule.Cron, schedule.Timezone, time.Now().UTC())
-	}
-	h.DB.UpdateScheduleStatus(id, status, runErr, nextRun)
+	res := scheduler.RunNow(h.DB, h.Gateway, schedule, savedQuery.Query, connectionID, session.ClickhouseUser, password)
+	runID, status, elapsed := res.RunID, res.Status, res.ElapsedMs
 
 	h.DB.CreateAuditLog(database.AuditLogParams{
 		Action:         "schedule.manual_run",
@@ -512,12 +478,12 @@ func (h *SchedulesHandler) ManualRun(w http.ResponseWriter, r *http.Request) {
 		Details:        strPtr(fmt.Sprintf("status=%s elapsed=%dms", status, elapsed)),
 	})
 
-	if execErr != nil {
+	if res.Status == "error" {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"success": false,
 			"run_id":  runID,
 			"status":  "error",
-			"error":   execErr.Error(),
+			"error":   res.Error,
 			"elapsed": elapsed,
 		})
 		return

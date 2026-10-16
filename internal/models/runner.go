@@ -43,6 +43,21 @@ type RunOptions struct {
 	// PipelineID is recorded on the run when a named pipeline started it.
 	PipelineID  string
 	TriggeredBy string
+	// Credentials, when set, run the build as this ClickHouse user instead
+	// of the connection's model background account. MCP keys run models
+	// with their own credentials, so their grants are the boundary.
+	Credentials *Credentials
+	// Check, when set, vets every selected model before anything is
+	// recorded or sent to ClickHouse; an error refuses the whole run.
+	// resolvedSQL is the model's SELECT with $ref() and $this resolved, or
+	// "" when it does not resolve (the run then fails that model anyway).
+	Check func(m database.Model, resolvedSQL string) error
+}
+
+// Credentials is a ClickHouse user a run executes as.
+type Credentials struct {
+	User     string
+	Password string
 }
 
 // Model run scopes for RunModel.
@@ -65,6 +80,17 @@ func (r *Runner) RunSingle(connectionID, modelID, triggeredBy string) (string, e
 // RunModel runs one model with its upstream or downstream models (scope);
 // fullRefresh rebuilds that model (not the others) from scratch.
 func (r *Runner) RunModel(connectionID, modelID, scope string, fullRefresh bool, triggeredBy string) (string, error) {
+	opts := RunOptions{TriggeredBy: triggeredBy}
+	if fullRefresh {
+		opts.FullRefresh = map[string]bool{modelID: true}
+	}
+	return r.RunModelWith(connectionID, modelID, scope, opts)
+}
+
+// RunModelWith is RunModel with the rest of the run options (credentials,
+// checks, full refresh) given by the caller; opts.Selector is replaced by
+// the one scope picks.
+func (r *Runner) RunModelWith(connectionID, modelID, scope string, opts RunOptions) (string, error) {
 	m, err := r.db.GetModelByID(modelID)
 	if err != nil {
 		return "", fmt.Errorf("load model: %w", err)
@@ -82,10 +108,7 @@ func (r *Runner) RunModel(connectionID, modelID, scope string, fullRefresh bool,
 	default:
 		return "", fmt.Errorf("scope must be upstream, downstream or only (got %q)", scope)
 	}
-	opts := RunOptions{Selector: selector, TriggeredBy: triggeredBy}
-	if fullRefresh {
-		opts.FullRefresh = map[string]bool{m.ID: true}
-	}
+	opts.Selector = selector
 	return r.Run(connectionID, opts)
 }
 
@@ -135,13 +158,30 @@ func (r *Runner) Run(connectionID string, opts RunOptions) (string, error) {
 	if len(dag.Order) == 0 {
 		return "", fmt.Errorf("the selector picks no models")
 	}
+	if opts.Check != nil {
+		for _, id := range dag.Order {
+			m := idToModel[id]
+			resolved, err := ResolveModelSQL(m.SQLBody, modelTargets, m.TargetDatabase, m.Name)
+			if err != nil {
+				resolved = ""
+			}
+			if err := opts.Check(m, resolved); err != nil {
+				return "", err
+			}
+		}
+	}
 
 	if !r.gateway.IsTunnelOnline(connectionID) {
 		return "", fmt.Errorf("tunnel not connected")
 	}
-	user, password, err := r.findCredentials(connectionID)
-	if err != nil {
-		return "", fmt.Errorf("no credentials: %w", err)
+	var user, password string
+	if opts.Credentials != nil {
+		user, password = opts.Credentials.User, opts.Credentials.Password
+	} else {
+		user, password, err = r.findCredentials(connectionID)
+		if err != nil {
+			return "", fmt.Errorf("no credentials: %w", err)
+		}
 	}
 
 	return r.execute(connectionID, opts, dag, idToModel, modelTargets, user, password)

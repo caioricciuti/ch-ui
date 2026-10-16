@@ -52,7 +52,8 @@ type createMCPKeyRequest struct {
 	ConnectionID     string `json:"connection_id"`
 	CHUser           string `json:"ch_user"`
 	CHPassword       string `json:"ch_password"`
-	Scopes           string `json:"scopes"` // "read" (default) or "read_write"
+	Scopes           string `json:"scopes"`        // "read" (default) or "read_write"
+	AllowActions     bool   `json:"allow_actions"` // lifecycle action tools; requires read_write
 	AllowedDatabases string `json:"allowed_databases"`
 	ExpiresInDays    int    `json:"expires_in_days"` // 0 = never
 }
@@ -93,6 +94,10 @@ func (h *MCPKeysHandler) create(w http.ResponseWriter, r *http.Request) {
 	if scopes != "read_write" {
 		scopes = "read"
 	}
+	if req.AllowActions && scopes != "read_write" {
+		writeError(w, http.StatusBadRequest, "allow_actions requires scopes read_write")
+		return
+	}
 	if req.ExpiresInDays < 0 || req.ExpiresInDays > maxKeyLifetimeDays {
 		writeError(w, http.StatusBadRequest, "expires_in_days must be between 0 (never) and 3650")
 		return
@@ -104,7 +109,7 @@ func (h *MCPKeysHandler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	key, err := h.DB.CreateMCPKey(database.CreateMCPKeyParams{
 		Name: req.Name, KeyHash: hash, KeyPrefix: prefix, ConnectionID: req.ConnectionID,
-		CHUser: req.CHUser, CHPasswordEnc: encrypted, Scopes: scopes,
+		CHUser: req.CHUser, CHPasswordEnc: encrypted, Scopes: scopes, AllowActions: req.AllowActions,
 		AllowedDatabases: req.AllowedDatabases, CreatedBy: createdBy, ExpiresAt: expiresAt,
 	})
 	if err != nil {
@@ -113,7 +118,7 @@ func (h *MCPKeysHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.auditKey(r, "mcp.key.created", key.ID, fmt.Sprintf("key=%s name=%q prefix=%s connection=%s ch_user=%s scopes=%s allowed_databases=%q", key.ID, key.Name, prefix, req.ConnectionID, req.CHUser, scopes, req.AllowedDatabases), req.ConnectionID)
+	h.auditKey(r, "mcp.key.created", key.ID, fmt.Sprintf("key=%s name=%q prefix=%s connection=%s ch_user=%s scopes=%s allow_actions=%t allowed_databases=%q", key.ID, key.Name, prefix, req.ConnectionID, req.CHUser, scopes, key.AllowActions, req.AllowedDatabases), req.ConnectionID)
 
 	// The plaintext key is returned exactly once, at creation.
 	writeJSON(w, http.StatusCreated, map[string]any{

@@ -3,7 +3,7 @@
   import { getOAuthConsent, approveOAuthConsent, denyOAuthConsent, type OAuthConsentInfo } from '../lib/api/oauth'
   import Spinner from '../lib/components/common/Spinner.svelte'
   import Button from '../lib/components/common/Button.svelte'
-  import { ShieldCheck, Database, Eye, PencilLine } from 'lucide-svelte'
+  import { ShieldCheck, Database, Eye, PencilLine, Play } from 'lucide-svelte'
   
   interface Props {
     requestId: string
@@ -17,6 +17,7 @@
   const scopeText: Record<string, { label: string; detail: string }> = {
     read: { label: 'Read', detail: 'Browse schemas and run read-only queries as you, with your ClickHouse grants and CH-UI guardrails.' },
     write: { label: 'Create drafts', detail: 'Save queries and create draft dashboards, models and pipelines in CH-UI. Nothing runs against ClickHouse.' },
+    actions: { label: 'Run actions', detail: 'Run existing models as you, start and stop pipelines, and on Pro run scheduled jobs and send reports now. These change data in ClickHouse; the client asks you before each one when it can.' },
   }
 
   onMount(async () => {
@@ -73,7 +74,7 @@
         {#each info.scopes as s}
           {@const t = scopeText[s] ?? { label: s, detail: '' }}
           <li class="flex items-start gap-2.5 text-xs">
-            {#if s === 'write'}<PencilLine size={14} class="mt-0.5 shrink-0 text-accent" />{:else}<Eye size={14} class="mt-0.5 shrink-0 text-accent" />{/if}
+            {#if s === 'write'}<PencilLine size={14} class="mt-0.5 shrink-0 text-accent" />{:else if s === 'actions'}<Play size={14} class="mt-0.5 shrink-0 text-accent" />{:else}<Eye size={14} class="mt-0.5 shrink-0 text-accent" />{/if}
             <div>
               <div class="font-medium text-fg">{t.label}</div>
               <div class="mt-0.5 leading-relaxed text-fg-3">{t.detail}</div>

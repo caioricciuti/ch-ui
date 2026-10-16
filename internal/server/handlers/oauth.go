@@ -54,9 +54,12 @@ const (
 
 	scopeRead  = "read"
 	scopeWrite = "write"
+	// scopeActions adds lifecycle actions (run models, start and stop
+	// pipelines, run schedules and reports now) on top of write.
+	scopeActions = "actions"
 )
 
-var supportedScopes = []string{scopeRead, scopeWrite}
+var supportedScopes = []string{scopeRead, scopeWrite, scopeActions}
 
 // ---- metadata ----
 
@@ -397,7 +400,8 @@ func (h *OAuthHandler) Authorize(w http.ResponseWriter, r *http.Request) {
 }
 
 // normalizeScope validates the requested scopes and returns them as a
-// canonical space-separated string. Empty means read.
+// canonical space-separated string. Empty means read. actions is only valid
+// together with write.
 func normalizeScope(raw string) (string, error) {
 	if strings.TrimSpace(raw) == "" {
 		return scopeRead, nil
@@ -405,17 +409,28 @@ func normalizeScope(raw string) (string, error) {
 	seen := map[string]bool{}
 	for _, s := range strings.Fields(raw) {
 		switch s {
-		case scopeRead, scopeWrite:
+		case scopeRead, scopeWrite, scopeActions:
 			seen[s] = true
 		default:
-			return "", fmt.Errorf("unknown scope %q; supported: read, write", s)
+			return "", fmt.Errorf("unknown scope %q; supported: read, write, actions", s)
 		}
+	}
+	if seen[scopeActions] && !seen[scopeWrite] {
+		return "", fmt.Errorf("scope actions requires write")
 	}
 	out := []string{scopeRead}
 	if seen[scopeWrite] {
 		out = append(out, scopeWrite)
 	}
+	if seen[scopeActions] {
+		out = append(out, scopeActions)
+	}
 	return strings.Join(out, " "), nil
+}
+
+// hasScope reports whether the space-separated scope string grants s.
+func hasScope(scope, s string) bool {
+	return containsExact(strings.Fields(scope), s)
 }
 
 func containsExact(list []string, v string) bool {
@@ -678,13 +693,15 @@ func (h *OAuthHandler) issueTokens(w http.ResponseWriter, clientID, clientName, 
 	if strings.Contains(scope, scopeWrite) {
 		scopes = "read_write"
 	}
+	// Dropping write above drops actions with it: scope is then just read.
+	allowActions := scopes == "read_write" && hasScope(scope, scopeActions)
 	name := clientName
 	if !strings.Contains(name, subject) {
 		name = clientName + " (" + subject + ")"
 	}
 	key, err := h.DB.CreateMCPKey(database.CreateMCPKeyParams{
 		Name: name, KeyHash: hash, KeyPrefix: prefix, ConnectionID: connectionID,
-		CHUser: chUser, CHPasswordEnc: chPasswordEnc, Scopes: scopes,
+		CHUser: chUser, CHPasswordEnc: chPasswordEnc, Scopes: scopes, AllowActions: allowActions,
 		CreatedBy: "oauth:" + subject, ExpiresAt: &exp,
 		Kind: "oauth", Subject: subject, ClientID: clientID, GrantRole: role,
 	})

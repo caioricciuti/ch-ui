@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -441,39 +440,7 @@ func (h *PipelinesHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	if pipeline == nil {
 		return
 	}
-	id := pipeline.ID
-
-	resp := map[string]interface{}{
-		"pipeline_id": pipeline.ID,
-		"status":      pipeline.Status,
-		"last_error":  pipeline.LastError,
-	}
-	if n, err := h.DB.GetPipelineDLQRows(id); err == nil {
-		resp["dlq_rows"] = n
-	}
-	if db, table := h.dlqTarget(id); table != "" {
-		resp["dlq_database"] = db
-		resp["dlq_table"] = table
-	}
-
-	// Add live metrics if pipeline is running
-	if metrics := h.Runner.GetRunningMetrics(id); metrics != nil {
-		resp["rows_ingested"] = metrics.RowsIngested.Load()
-		resp["bytes_ingested"] = metrics.BytesIngested.Load()
-		resp["batches_sent"] = metrics.BatchesSent.Load()
-		resp["errors_count"] = metrics.ErrorsCount.Load()
-		if t, ok := metrics.LastBatchAt.Load().(time.Time); ok && !t.IsZero() {
-			resp["last_batch_at"] = t.UTC().Format(time.RFC3339)
-		}
-		if counters := h.Runner.TransformCounters(id); counters != nil {
-			resp["transforms"] = counters
-		}
-		if sinks := h.Runner.SinkStatuses(id); sinks != nil {
-			resp["sinks"] = sinks
-		}
-	}
-
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, h.Runner.Status(pipeline))
 }
 
 // ListRuns returns execution runs for a pipeline.

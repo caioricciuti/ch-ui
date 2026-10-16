@@ -50,6 +50,7 @@
     chUser: '',
     chPassword: '',
     scopes: 'read' as 'read' | 'read_write',
+    allowActions: false,
     allowedDatabases: '',
     expiresInDays: 90,
   })
@@ -192,6 +193,7 @@
       chUser: '',
       chPassword: '',
       scopes: 'read',
+      allowActions: false,
       allowedDatabases: '',
       expiresInDays: 90,
     }
@@ -210,6 +212,7 @@
         ch_user: form.chUser.trim(),
         ch_password: form.chPassword,
         scopes: form.scopes,
+        allow_actions: form.scopes === 'read_write' && form.allowActions,
         allowed_databases: form.allowedDatabases.trim(),
         expires_in_days: form.expiresInDays,
       })
@@ -372,11 +375,14 @@
               </div>
             </div>
           {:else if col.key === 'scopes'}
-            {#if row.scopes === 'read_write'}
-              <Badge tone="brand">read + write</Badge>
-            {:else}
-              <Badge>read</Badge>
-            {/if}
+            <div class="flex items-center gap-1">
+              {#if row.scopes === 'read_write'}
+                <Badge tone="brand">read + write</Badge>
+                {#if row.allow_actions}<Badge tone="warning">actions</Badge>{/if}
+              {:else}
+                <Badge>read</Badge>
+              {/if}
+            </div>
           {:else if col.key === 'allowed_databases'}
             {#if row.allowed_databases}
               <span class="font-mono text-xs text-fg-2">{row.allowed_databases}</span>
@@ -485,6 +491,15 @@
           />
         </FormField>
       </div>
+      {#if form.scopes === 'read_write'}
+        <div class="space-y-1">
+          <label class="ds-checkbox-label">
+            <input type="checkbox" class="ds-checkbox" bind:checked={form.allowActions} />
+            Allow lifecycle actions
+          </label>
+          <p class="text-xs text-fg-4">Run existing models as this ClickHouse user, start and stop pipelines, and on Pro run scheduled jobs and send reports now. These run against ClickHouse; each one asks for confirmation in clients that support it and is audited.</p>
+        </div>
+      {/if}
       <FormField label="Allowed databases" for="mcp-key-dbs" controlWidth="full" hint="Comma-separated. Empty = all databases the user can see.">
         <Input id="mcp-key-dbs" mono bind:value={form.allowedDatabases} placeholder="analytics, logs" />
       </FormField>

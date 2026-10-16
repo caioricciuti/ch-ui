@@ -7,6 +7,8 @@ export interface MCPKey {
   connection_id: string
   ch_user: string
   scopes: 'read' | 'read_write'
+  /** Lifecycle actions (run models, start/stop pipelines, run schedules and reports now). Only with read_write. */
+  allow_actions: boolean
   allowed_databases: string
   created_by: string
   created_at: string
@@ -32,6 +34,8 @@ export interface CreateMCPKeyRequest {
   ch_user: string
   ch_password: string
   scopes: 'read' | 'read_write'
+  /** Requires scopes 'read_write'. */
+  allow_actions?: boolean
   allowed_databases: string
   /** Days until the key expires; 0 or omitted = never. */
   expires_in_days?: number
