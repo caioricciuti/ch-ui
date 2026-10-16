@@ -133,31 +133,3 @@ func (h *PipelinesHandler) sqliteAllowed(w http.ResponseWriter, pipelineID strin
 	}
 	return true
 }
-
-// dlqTarget returns the database and dead-letter table of the pipeline's
-// sink, or empty strings when it has none.
-func (h *PipelinesHandler) dlqTarget(pipelineID string) (string, string) {
-	nodes, _, err := h.DB.GetPipelineGraph(pipelineID)
-	if err != nil {
-		return "", ""
-	}
-	for _, n := range nodes {
-		if n.NodeType != "sink_clickhouse" {
-			continue
-		}
-		var cfg map[string]interface{}
-		if json.Unmarshal([]byte(n.ConfigEncrypted), &cfg) != nil {
-			return "", ""
-		}
-		db, _ := cfg["database"].(string)
-		table, _ := cfg["table"].(string)
-		if db == "" {
-			db = "default"
-		}
-		if table == "" {
-			return "", ""
-		}
-		return db, table + "_dlq"
-	}
-	return "", ""
-}

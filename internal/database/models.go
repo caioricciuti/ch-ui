@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -477,21 +478,50 @@ func (db *DB) GetModelRunResults(runID string) ([]ModelRunResult, error) {
 
 	var results []ModelRunResult
 	for rows.Next() {
-		var r ModelRunResult
-		var resolvedSQL, errStr, started, finished, details sql.NullString
-		if err := rows.Scan(&r.ID, &r.RunID, &r.ModelID, &r.ModelName, &r.Status,
-			&resolvedSQL, &r.ElapsedMs, &errStr, &started, &finished, &r.CreatedAt,
-			&r.TestsPassed, &r.TestsFailed, &details); err != nil {
-			return nil, fmt.Errorf("scan model run result: %w", err)
+		r, err := scanModelRunResult(rows)
+		if err != nil {
+			return nil, err
 		}
-		r.ResolvedSQL = nullStringToPtr(resolvedSQL)
-		r.Error = nullStringToPtr(errStr)
-		r.StartedAt = nullStringToPtr(started)
-		r.FinishedAt = nullStringToPtr(finished)
-		r.TestDetails = nullStringToPtr(details)
 		results = append(results, r)
 	}
 	return results, rows.Err()
+}
+
+// GetLatestModelRunResult returns the model's most recent per-run result,
+// or nil when it never ran.
+func (db *DB) GetLatestModelRunResult(modelID string) (*ModelRunResult, error) {
+	row := db.conn.QueryRow(
+		`SELECT id, run_id, model_id, model_name, status, resolved_sql, elapsed_ms,
+		        error, started_at, finished_at, created_at, tests_passed, tests_failed, test_details
+		 FROM model_run_results WHERE model_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, modelID,
+	)
+	r, err := scanModelRunResult(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+func scanModelRunResult(row rowScanner) (ModelRunResult, error) {
+	var r ModelRunResult
+	var resolvedSQL, errStr, started, finished, details sql.NullString
+	if err := row.Scan(&r.ID, &r.RunID, &r.ModelID, &r.ModelName, &r.Status,
+		&resolvedSQL, &r.ElapsedMs, &errStr, &started, &finished, &r.CreatedAt,
+		&r.TestsPassed, &r.TestsFailed, &details); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return r, err
+		}
+		return r, fmt.Errorf("scan model run result: %w", err)
+	}
+	r.ResolvedSQL = nullStringToPtr(resolvedSQL)
+	r.Error = nullStringToPtr(errStr)
+	r.StartedAt = nullStringToPtr(started)
+	r.FinishedAt = nullStringToPtr(finished)
+	r.TestDetails = nullStringToPtr(details)
+	return r, nil
 }
 
 // HasRunningModelRun checks if there's an active run for a connection.
