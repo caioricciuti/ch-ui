@@ -172,15 +172,6 @@ type sqlAlertInput struct {
 	Enabled            bool    `json:"enabled"`
 }
 
-// sqlAlertView presents an alert: a failing alert reads as "error" whatever
-// its incident state, which is kept for when it runs again.
-func sqlAlertView(a database.SQLAlert) database.SQLAlert {
-	if a.ErrorCount > 0 {
-		a.State = "error"
-	}
-	return a
-}
-
 func (h *AlertingHandler) runner() *sqlalerts.Runner {
 	var guard sqlalerts.Guardrails
 	if h.Guardrails != nil {
@@ -279,7 +270,7 @@ func (h *AlertingHandler) ListSQLAlerts(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	for i := range list {
-		list[i] = sqlAlertView(list[i])
+		list[i] = sqlalerts.View(list[i])
 	}
 	mode := "session"
 	if account, err := h.DB.GetBackgroundCredential(session.ConnectionID, sqlalerts.Worker); err == nil {
@@ -312,7 +303,7 @@ func (h *AlertingHandler) CreateSQLAlert(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "Failed to load SQL alert")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]interface{}{"success": true, "alert": sqlAlertView(*saved)})
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"success": true, "alert": sqlalerts.View(*saved)})
 }
 
 // UpdateSQLAlert replaces a SQL alert's definition. Changing the query or
@@ -365,7 +356,7 @@ func (h *AlertingHandler) UpdateSQLAlert(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, "SQL alert not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "alert": sqlAlertView(*saved)})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "alert": sqlalerts.View(*saved)})
 }
 
 // DeleteSQLAlert removes a SQL alert.
@@ -477,7 +468,7 @@ func (h *AlertingHandler) RunSQLAlert(w http.ResponseWriter, r *http.Request) {
 			reason = "only its creator or an admin can record a run"
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"success": true, "value": res.Value, "firing": res.Firing, "alert": sqlAlertView(*existing),
+			"success": true, "value": res.Value, "firing": res.Firing, "alert": sqlalerts.View(*existing),
 			"recorded": false, "reason": reason,
 		})
 		return
@@ -490,7 +481,7 @@ func (h *AlertingHandler) RunSQLAlert(w http.ResponseWriter, r *http.Request) {
 	saved, _ := h.DB.GetSQLAlert(existing.ID)
 	var view interface{}
 	if saved != nil {
-		view = sqlAlertView(*saved)
+		view = sqlalerts.View(*saved)
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "value": out.Value, "firing": out.Firing, "alert": view, "recorded": true})
 }

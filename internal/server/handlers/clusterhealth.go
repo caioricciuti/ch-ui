@@ -127,15 +127,8 @@ func (h *ClusterHealthHandler) resolveCluster(r *http.Request, cs chSession) str
 		}
 		return "" // invalid override → degrade to single node rather than error
 	}
-	rows, err := h.exec(cs, clusterhealth.ResolveClusterQuery)
-	if err != nil || len(rows) == 0 {
-		return ""
-	}
-	name, _ := rows[0]["cluster"].(string)
-	if clusterhealth.IsValidClusterName(name) {
-		return name
-	}
-	return ""
+	name, _ := clusterhealth.ResolveCluster(func(sql string) ([]map[string]interface{}, error) { return h.exec(cs, sql) })
+	return name
 }
 
 // liveHandler builds a drill-down endpoint for a fanned-out query. softFail marks
@@ -225,16 +218,7 @@ func (h *ClusterHealthHandler) GetSummary(w http.ResponseWriter, r *http.Request
 	exec := clusterhealth.ExecFunc(func(sql string) ([]map[string]interface{}, error) { return h.exec(cs, sql) })
 	capturedAt := time.Now().UTC().Format(time.RFC3339)
 
-	col, err := clusterhealth.CollectSamples(exec, cluster, threshold, capturedAt)
-	degraded := false
-	if err != nil && cluster != "" {
-		// The fan-out failed outright; retry scoped to the local node and list
-		// the other nodes as unknown (not down: we could not ask them).
-		if c2, err2 := clusterhealth.CollectSamples(exec, "", threshold, capturedAt); err2 == nil {
-			c2.Samples = clusterhealth.FlagMissingNodes(exec, cluster, c2.Samples, capturedAt, false)
-			col, degraded = c2, true
-		}
-	}
+	col, degraded, _ := clusterhealth.LiveSummary(exec, cluster, threshold, capturedAt)
 	errs := col.Errors
 	if errs == nil {
 		errs = map[string]string{}

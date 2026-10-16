@@ -36,6 +36,10 @@ const (
 	EventTypeAccessDrift      = "access.drift"
 )
 
+// AdminOnlyEventTypes name other users and what they ran or were granted;
+// only admins read events of these types.
+var AdminOnlyEventTypes = []string{EventTypePolicyViolation, EventTypeAccessDrift}
+
 const (
 	SeverityInfo     = "info"
 	SeverityWarn     = "warn"

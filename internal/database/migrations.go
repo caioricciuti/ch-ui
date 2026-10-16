@@ -1198,6 +1198,14 @@ func (db *DB) runMigrations() error {
 	if err := db.ensureColumn("query_history", "source", "TEXT NOT NULL DEFAULT 'editor'"); err != nil {
 		return err
 	}
+	// The MCP key that ran a query, so a key reads back only its own
+	// history. NULL for editor queries and MCP rows written before this.
+	if err := db.ensureColumn("query_history", "mcp_key_id", "TEXT"); err != nil {
+		return err
+	}
+	if _, err := db.conn.Exec(`CREATE INDEX IF NOT EXISTS idx_qh_mcp_key ON query_history(mcp_key_id, created_at DESC)`); err != nil {
+		return fmt.Errorf("create idx_qh_mcp_key: %w", err)
+	}
 	// MCP key scopes: 'read' (default) or 'read_write' (create tools enabled).
 	// Covers dev databases created before the column joined the table DDL.
 	if err := db.ensureColumn("mcp_keys", "scopes", "TEXT NOT NULL DEFAULT 'read'"); err != nil {

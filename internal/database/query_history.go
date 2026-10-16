@@ -40,6 +40,8 @@ type CreateQueryHistoryParams struct {
 	RowsReturned int64
 	// Source is where the query came from: "editor" (default) or "mcp".
 	Source string
+	// MCPKeyID is the MCP key that ran it; empty for every other source.
+	MCPKeyID string
 }
 
 // SharedSSOHistoryActor marks history rows written before history was kept
@@ -67,8 +69,8 @@ func (db *DB) CreateQueryHistoryEntry(params CreateQueryHistoryParams) error {
 		source = "editor"
 	}
 	_, err := db.conn.Exec(
-		`INSERT INTO query_history (id, connection_id, clickhouse_user, actor, query_text, status, error_message, elapsed_ms, rows_returned, source, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
+		`INSERT INTO query_history (id, connection_id, clickhouse_user, actor, query_text, status, error_message, elapsed_ms, rows_returned, source, mcp_key_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
 		id,
 		nilIfEmpty(params.ConnectionID),
 		params.User,
@@ -79,6 +81,7 @@ func (db *DB) CreateQueryHistoryEntry(params CreateQueryHistoryParams) error {
 		params.ElapsedMS,
 		params.RowsReturned,
 		source,
+		nilIfEmpty(params.MCPKeyID),
 	)
 	if err != nil {
 		return fmt.Errorf("create query history entry: %w", err)
@@ -144,7 +147,10 @@ func (db *DB) GetQueryHistory(actor, connectionID, search, status string, limit,
 		return nil, fmt.Errorf("get query history: %w", err)
 	}
 	defer rows.Close()
+	return scanQueryHistory(rows)
+}
 
+func scanQueryHistory(rows *sql.Rows) ([]QueryHistoryEntry, error) {
 	var entries []QueryHistoryEntry
 	for rows.Next() {
 		var e QueryHistoryEntry
@@ -169,6 +175,58 @@ func (db *DB) GetQueryHistory(actor, connectionID, search, status string, limit,
 		return nil, fmt.Errorf("iterate query history rows: %w", err)
 	}
 	return entries, nil
+}
+
+// MCPHistoryFilter selects the MCP queries one MCP client may read back:
+// those of one key (KeyID), or of one person across their OAuth tokens
+// (Actor). Exactly one of KeyID and Actor is set.
+type MCPHistoryFilter struct {
+	ConnectionID string
+	KeyID        string
+	Actor        string
+	// Since is a UTC "2006-01-02 15:04:05" lower bound; "" for none.
+	Since string
+	// Status is "success" or "error"; "" for both.
+	Status string
+	Limit  int
+}
+
+// ListMCPQueryHistory returns MCP queries on one connection, newest first.
+// It refuses a filter that names neither a key nor a person.
+func (db *DB) ListMCPQueryHistory(f MCPHistoryFilter) ([]QueryHistoryEntry, error) {
+	if (f.KeyID == "") == (f.Actor == "") || f.ConnectionID == "" {
+		return nil, fmt.Errorf("list mcp query history: give a connection and exactly one of key or actor")
+	}
+	if f.Limit <= 0 || f.Limit > 500 {
+		f.Limit = 50
+	}
+	where := []string{"source = 'mcp'", "connection_id = ?"}
+	args := []any{f.ConnectionID}
+	if f.KeyID != "" {
+		where = append(where, "mcp_key_id = ?")
+		args = append(args, f.KeyID)
+	} else {
+		where = append(where, "actor = ?")
+		args = append(args, f.Actor)
+	}
+	if f.Since != "" {
+		where = append(where, "created_at >= ?")
+		args = append(args, f.Since)
+	}
+	if f.Status == "success" || f.Status == "error" {
+		where = append(where, "status = ?")
+		args = append(args, f.Status)
+	}
+	args = append(args, f.Limit)
+	rows, err := db.conn.Query(fmt.Sprintf(
+		`SELECT id, connection_id, clickhouse_user, query_text, status, error_message, elapsed_ms, rows_returned, source, created_at
+		 FROM query_history WHERE %s
+		 ORDER BY created_at DESC, id DESC LIMIT ?`, strings.Join(where, " AND ")), args...)
+	if err != nil {
+		return nil, fmt.Errorf("list mcp query history: %w", err)
+	}
+	defer rows.Close()
+	return scanQueryHistory(rows)
 }
 
 // DeleteQueryHistoryEntry deletes one entry if it belongs to the actor on the
