@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 
+	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/oidc"
 )
@@ -28,6 +29,54 @@ const (
 	oidcVerifierCookie = "chui_oidc_pkce"
 	oidcFlowMaxAge     = 10 * time.Minute
 )
+
+// errSSOOnly answers a ClickHouse username/password sign-in while SSO-only
+// sign-in is in force.
+const errSSOOnly = "Password sign-in is turned off on this server. Sign in with SSO."
+
+// ssoOnlyEnforced reports whether SSO-only sign-in is in force: the saved
+// SSO settings ask for it, their provider is loaded, SSO is licensed, and the
+// break-glass switch (CHUI_ALLOW_PASSWORD_LOGIN) is off. When SSO is down for
+// any reason, password sign-in stays available.
+func ssoOnlyEnforced(cfg *config.Config, mgr *oidc.Manager) bool {
+	if mgr == nil || cfg == nil || cfg.AllowPasswordLogin {
+		return false
+	}
+	if cfg.ProAccess() == config.ProNone {
+		return false
+	}
+	_, enforced := mgr.SSOOnly()
+	return enforced
+}
+
+func (h *AuthHandler) passwordLoginBlocked() bool {
+	return ssoOnlyEnforced(h.Config, h.OIDC)
+}
+
+// RevokePasswordSessions signs out every session that did not come from SSO
+// when SSO-only sign-in is in force, so password sessions end at once rather
+// than at expiry. Called at startup and after each SSO settings save; it does
+// nothing while SSO-only is not enforced.
+func RevokePasswordSessions(db *database.DB, cfg *config.Config, mgr *oidc.Manager, actor, ip string) {
+	if !ssoOnlyEnforced(cfg, mgr) {
+		return
+	}
+	n, err := db.DeletePasswordSessions()
+	if err != nil {
+		slog.Error("SSO only: could not sign out password sessions", "error", err)
+		return
+	}
+	if n == 0 {
+		return
+	}
+	slog.Info("SSO only: signed out password sessions", "count", n)
+	_ = db.CreateAuditLog(database.AuditLogParams{
+		Action:    "sso.password_sessions_revoked",
+		Username:  strPtr(actor),
+		Details:   strPtr(fmt.Sprintf("SSO only is in force: signed out %d password session(s)", n)),
+		IPAddress: strPtr(ip),
+	})
+}
 
 // oidcCurrent returns the OIDC provider to sign in with and the latest saved
 // settings, whose access rules apply even if they could not be reloaded. On

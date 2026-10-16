@@ -16,7 +16,7 @@ OIDC authenticates the **person**. CH-UI never receives a ClickHouse password
 from your IdP, so queries run through a **per-connection ClickHouse service
 account** that you configure. The person's identity (email) drives their CH-UI
 role and is recorded in the audit trail. Password login keeps working alongside
-SSO.
+SSO unless you turn on [SSO only](#sso-only).
 
 ```
 Person ── OIDC ──▶ CH-UI    (identity, role, audit are per person)
@@ -57,6 +57,7 @@ OIDC_GROUPS_CLAIM=groups             # ID-token claim holding group memberships
 OIDC_ADMIN_GROUPS=ch-ui-admins       # IdP groups → admin role (comma-separated)
 OIDC_ANALYST_GROUPS=data-analysts    # IdP groups → analyst role
 OIDC_ACCEPT_UNVERIFIED_EMAIL=false   # accept tokens without email_verified (see Verified email)
+OIDC_SSO_ONLY=false                  # turn off password sign-in (see SSO only)
 ```
 
 If `OIDC_CONNECTION_ID` is empty, SSO sessions use the embedded connection. If
@@ -187,6 +188,54 @@ IdP itself controls which addresses its users can have. An explicit
 Each refusal is written to the audit log as `user.login_failed` with the
 reason.
 
+## SSO only
+
+SSO only turns off ClickHouse username/password sign-in, so people can only get
+in through your IdP. Turn it on with **SSO only** in
+**Admin → Settings → Configure SSO**, or with `OIDC_SSO_ONLY=true`
+(`oidc_sso_only: true` in `server.yaml`).
+
+`OIDC_SSO_ONLY=true` turns it on even when SSO itself is configured in the
+Admin page: the **SSO only** toggle then shows on and locked, marked as set by
+`OIDC_SSO_ONLY`. With `OIDC_SSO_ONLY` unset or `false`, the Admin page setting
+is in charge. When SSO is configured through env/YAML, the Admin page is
+read-only anyway.
+
+While it is in force:
+
+- The login page shows only **Sign in with SSO**. `GET /api/auth/config`
+  reports `sso_only: true` and `password_login: false`.
+- `POST /api/auth/login` answers `403` "Password sign-in is turned off on this
+  server. Sign in with SSO."
+- Every session that signed in with a password is signed out when SSO only
+  comes into force: on the Admin page save that turns it on, and at startup
+  when it is on. The audit log records `sso.password_sessions_revoked` with
+  the count. SSO sessions, including the admin who turned it on, stay signed
+  in.
+- `POST /api/auth/switch-connection` answers `403` for a password session, and
+  SSO sessions switch as usual.
+
+Not affected: MCP API keys, ingest keys, first-run setup and health checks.
+MCP OAuth consent signs in through the normal login page, so it uses SSO too.
+
+### Lockout protection
+
+- **Prove it first.** The Admin page only lets you turn SSO only on from a
+  session that signed in with SSO. From a password session the toggle is
+  disabled and the API answers `400` "Sign in with SSO first to prove it
+  works". Turning it off is always allowed.
+- **SSO down means passwords back.** SSO only applies only while the provider
+  is loaded. If discovery fails at startup or after a save, password sign-in
+  stays available and the server logs a warning.
+- **Break-glass.** Set `CHUI_ALLOW_PASSWORD_LOGIN=true` and restart to allow
+  password sign-in whatever the SSO only setting says. The server logs a
+  warning at startup and the Admin SSO page shows that break-glass is active.
+  Sign in as a ClickHouse admin, fix or turn off SSO only, then unset the
+  variable and restart.
+
+SSO only needs a Pro license, like SSO itself. Without one, password sign-in is
+available.
+
 ## Security
 
 - The login flow uses a `state` parameter (CSRF protection), a `nonce`
@@ -204,7 +253,7 @@ reason.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/auth/config` | Reports `oidc_enabled` and the SSO login URL (unauthenticated) |
+| `GET` | `/api/auth/config` | Reports `oidc_enabled`, `sso_only` and the SSO login URL (unauthenticated) |
 | `GET` | `/api/auth/oidc/login` | Starts the SSO flow (redirects to the IdP) |
 | `GET` | `/api/auth/oidc/callback` | IdP redirect target; creates the session |
 | `POST` | `/api/auth/switch-connection` | Move the SSO session to another connection with its service account |

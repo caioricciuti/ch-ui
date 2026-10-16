@@ -87,3 +87,36 @@ func TestResolveDisabledOrIncompleteDB(t *testing.T) {
 		t.Fatal("no config at all must not resolve")
 	}
 }
+
+// SSO-only follows the same precedence as the rest of the SSO config: env
+// wins entirely, including an env that leaves it off over a DB that sets it.
+func TestResolveSSOOnlyFollowsPrecedence(t *testing.T) {
+	db := dbSettings()
+	db.SSOOnly = true
+	if got, _ := Resolve(envSettings(), db); got.SSOOnly {
+		t.Fatal("env config without SSO-only must win over the DB setting")
+	}
+	env := SettingsFromConfig(&config.Config{
+		OIDCIssuerURL:    "https://idp.example.com",
+		OIDCClientID:     "env-client",
+		OIDCClientSecret: "env-secret",
+		OIDCRedirectURL:  "https://ch-ui.example.com/api/auth/oidc/callback",
+		OIDCSSOOnly:      true,
+	})
+	if got, _ := Resolve(env, dbSettings()); !got.SSOOnly {
+		t.Fatal("env SSO-only lost")
+	}
+	if got, _ := Resolve(SettingsFromConfig(&config.Config{}), db); !got.SSOOnly {
+		t.Fatal("DB SSO-only lost when env is unset")
+	}
+}
+
+// OIDC_SSO_ONLY=true forces SSO-only on over the admin (DB) config, even when
+// the rest of the env SSO config is unset.
+func TestResolveEnvSSOOnlyForcesDB(t *testing.T) {
+	env := SettingsFromConfig(&config.Config{OIDCSSOOnly: true})
+	got, ok := Resolve(env, dbSettings())
+	if !ok || got.Source != SourceDB || !got.SSOOnly {
+		t.Fatalf("env SSO-only must force the DB config on: %+v", got)
+	}
+}

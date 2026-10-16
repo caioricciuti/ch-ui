@@ -536,6 +536,7 @@ allowed_origins:
 | `ingest_only_separate` | `INGEST_ONLY_SEPARATE` | `false` | With `ingest_addr` set, stop serving `/ingest` on the main port |
 | `ingest_spool_max_bytes` | `INGEST_SPOOL_MAX_BYTES` | 2 GiB | Cap on the on-disk ingest spool (`<data dir>/ingest-spool`), shared by ingest and webhook pipelines. When full, the receivers answer `503` |
 | `oidc_accept_unverified_email` | `OIDC_ACCEPT_UNVERIFIED_EMAIL` | `false` | Accept SSO ID tokens without an `email_verified` claim (some identity providers, such as Microsoft Entra ID, never send it). An explicit `false` claim is always refused |
+| `oidc_sso_only` | `OIDC_SSO_ONLY` | `false` | Turn off ClickHouse username/password sign-in while SSO is up, also over SSO configured in the Admin page. Break-glass: `CHUI_ALLOW_PASSWORD_LOGIN=true` (env only) allows it again |
 
 Audit forwarding (`audit_*`), the rest of SSO (`oidc_*`) and the Pro license (`CHUI_LICENSE`, `CHUI_LICENSE_FILE`) have their own keys. The full list is in [ch-ui.com/docs/configuration](https://ch-ui.com/docs/configuration).
 

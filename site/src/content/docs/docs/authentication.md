@@ -20,7 +20,8 @@ CH-UI authenticates users with ClickHouse credentials against a connection.
 > ClickHouse usernames starting with `sso:` cannot sign in with a password.
 
 > **Single Sign-On:** CH-UI also supports OIDC SSO (Okta, Entra ID, Google,
-> Keycloak, …) alongside password login. See **[Single Sign-On](/docs/sso)**.
+> Keycloak, …) alongside password login, or instead of it with
+> [SSO only](/docs/sso#sso-only). See **[Single Sign-On](/docs/sso)**.
 
 ## ClickHouse Credentials
 
@@ -71,8 +72,11 @@ are available so the login page can render the right options:
 
 ```bash
 curl http://localhost:3488/api/auth/config
-# { "password_login": true, "oidc_enabled": true, "setup_open": false, "login_url_allowed": false, "oidc_login_url": "/api/auth/oidc/login" }
+# { "password_login": true, "sso_only": false, "oidc_enabled": true, "setup_open": false, "login_url_allowed": false, "oidc_login_url": "/api/auth/oidc/login" }
 ```
+
+`sso_only` is `true` (and `password_login` `false`) while [SSO only](/docs/sso#sso-only)
+is in force; the login page then shows only **Sign in with SSO**.
 
 `setup_open` is `true` while [first-run setup](/docs/cant-login/#first-run-setup-from-the-login-page)
 accepts a setup code, which is what shows **Set up ClickHouse connection** on

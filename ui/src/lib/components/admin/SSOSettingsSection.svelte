@@ -14,7 +14,7 @@
   import Sheet from '../common/Sheet.svelte'
   import Spinner from '../common/Spinner.svelte'
   import EmptyState from '../common/EmptyState.svelte'
-  import { KeyRound, Copy, Pencil } from 'lucide-svelte'
+  import { KeyRound, Copy, Pencil, AlertTriangle } from 'lucide-svelte'
 
   // Admin > Settings > Single sign-on: wires an OIDC provider to CH-UI
   // roles. Shows the current state and edits through a Sheet.
@@ -36,11 +36,24 @@
     viewer_groups: '',
     allowed_domains: '',
     accept_unverified_email: false,
+    sso_only: false,
   })
 
   const ssoConfigured = $derived(!!sso && sso.config.issuer_url.trim().length > 0)
   const ssoGated = $derived(ssoProRequired || !isProActive())
   const ssoCanEdit = $derived(!!sso && !sso.env_managed && !ssoGated)
+  // Turning SSO only on needs an SSO session, so nobody locks password
+  // sign-in out without having proven SSO sign-in works. Turning it off is
+  // always allowed.
+  const ssoOnlyForced = $derived(!!sso && sso.sso_only_forced)
+  const ssoOnlyLocked = $derived(!!sso && (sso.sso_only_forced || (!sso.via_sso && !sso.config.sso_only)))
+  const passwordSignIn = $derived.by(() => {
+    if (!sso) return ''
+    if (sso.break_glass) return 'On (CHUI_ALLOW_PASSWORD_LOGIN overrides SSO only)'
+    if (sso.sso_only_enforced) return 'Off, SSO only'
+    if (sso.config.sso_only) return 'On, because SSO is not serving sign-ins. SSO only applies once it is.'
+    return 'On, alongside SSO'
+  })
 
   function splitCsv(value: string): string[] {
     return value
@@ -61,6 +74,7 @@
       viewer_groups: next.config.viewer_groups.join(', '),
       allowed_domains: next.config.allowed_domains.join(', '),
       accept_unverified_email: next.config.accept_unverified_email,
+      sso_only: next.config.sso_only,
     }
     ssoSecret = ''
   }
@@ -104,6 +118,7 @@
         viewer_groups: splitCsv(ssoForm.viewer_groups),
         allowed_domains: splitCsv(ssoForm.allowed_domains),
         accept_unverified_email: ssoForm.accept_unverified_email,
+        sso_only: ssoForm.sso_only,
       })
       applySSOSettings(next)
       ssoSheetOpen = false
@@ -192,6 +207,12 @@
     </Panel>
   {:else if sso}
     <div class="space-y-3">
+      {#if sso.break_glass}
+        <div class="flex items-center gap-2 rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-[13px] text-fg">
+          <AlertTriangle size={14} class="shrink-0 text-warning" />
+          <span>Break-glass is active: CHUI_ALLOW_PASSWORD_LOGIN is set, so password sign-in works even with SSO only on. Unset it and restart once SSO works again.</span>
+        </div>
+      {/if}
       {#if sso.env_managed}
         <Panel variant="muted" padding="sm">
           <p class="text-xs text-fg-3">
@@ -247,6 +268,12 @@
               </dd>
             </div>
           {/each}
+          <div class="flex items-center gap-4 px-4 py-2.5">
+            <dt class="w-40 shrink-0 text-fg-3">Password sign-in</dt>
+            <dd class="min-w-0 flex-1 text-xs text-fg-2">
+              {passwordSignIn}{#if ssoOnlyForced}<span class="text-fg-4"> (SSO only set by OIDC_SSO_ONLY)</span>{/if}
+            </dd>
+          </div>
           <div class="flex items-center gap-4 px-4 py-2.5">
             <dt class="w-40 shrink-0 text-fg-3">Unverified emails</dt>
             <dd class="min-w-0 flex-1 text-xs text-fg-2">
@@ -327,6 +354,19 @@
           <input type="checkbox" class="ds-checkbox" bind:checked={ssoForm.enabled} />
           Enable sign-in through the identity provider
         </label>
+        <div class="space-y-1">
+          <label class="ds-checkbox-label {ssoOnlyLocked ? 'opacity-60' : ''}">
+            <input type="checkbox" class="ds-checkbox" disabled={ssoOnlyLocked} bind:checked={ssoForm.sso_only} />
+            SSO only: turn off ClickHouse username and password sign-in
+          </label>
+          {#if ssoOnlyForced}
+            <p class="text-xs text-fg-4">Set by OIDC_SSO_ONLY in the server config. Unset it and restart to manage it here.</p>
+          {:else if ssoOnlyLocked}
+            <p class="text-xs text-fg-4">Sign in with SSO first to prove it works, then turn this on. You are signed in with a ClickHouse password.</p>
+          {:else}
+            <p class="text-xs text-fg-4">The login page shows only Sign in with SSO, and everyone signed in with a password is signed out on save. If SSO stops loading, password sign-in comes back on its own. To get in when SSO is broken, set CHUI_ALLOW_PASSWORD_LOGIN=true on the server and restart.</p>
+          {/if}
+        </div>
       </div>
     </div>
     {#snippet footer()}

@@ -17,6 +17,7 @@ Use this guide if the login screen appears but sign-in fails, local URL is wrong
 | `Your ClickHouse user has admin privileges, but CH-UI admin is already assigned to another user` | You signed in fine, as a viewer. The CH-UI admin role went to the first ClickHouse admin who signed in, and only a CH-UI admin can grant it | Ask that admin to grant you the role in **Admin > Users**. If nobody can, [recover the admin role](#recover-the-admin-role) from the server |
 | `Connections added from the login page cannot grant CH-UI admin` | You signed in with a ClickHouse URL. Such a connection never grants CH-UI admin, so you are an analyst there | Sign in on a saved connection to administer CH-UI |
 | `ClickHouse usernames starting with "sso:" cannot sign in to CH-UI with a password` | That prefix is how CH-UI names SSO people | Sign in with a different ClickHouse user |
+| Only **Sign in with SSO** on the login page, or `Password sign-in is turned off on this server` | [SSO only](/docs/sso#sso-only) is on | Sign in with SSO. If SSO itself is broken, set `CHUI_ALLOW_PASSWORD_LOGIN=true` on the server and restart, sign in with a ClickHouse password, fix SSO, then unset it |
 
 ## First-run setup from the login page
 
