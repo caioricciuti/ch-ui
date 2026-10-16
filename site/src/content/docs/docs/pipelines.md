@@ -13,8 +13,8 @@ Each pipeline has:
 
 - **One source node** (where data comes from)
 - **Zero or more transform nodes** that parse, reshape, filter, sample or redact records on the way (see [Transforms](#transforms))
-- **One sink node** (ClickHouse table)
-- **Edges** connecting them in a single chain: source, transforms in order, sink
+- **One sink node** (ClickHouse table), or up to 8 behind a [Route](#route-pro) node (Pro)
+- **Edges** connecting them in a single chain: source, transforms in order, sink. A Route node splits the chain into one branch per sink
 
 Pipelines run as background goroutines inside the CH-UI server process. A pipeline that is running when CH-UI stops (a crash or a normal shutdown) keeps its `running` status and is started again on the next boot. Only **Stop** in the UI sets it to `stopped`.
 
@@ -34,6 +34,7 @@ Configuration:
 |---|---|
 | Require Authentication | Toggle to enable Bearer token auth. On by default for new webhook nodes; existing pipelines keep their setting |
 | Batch Size, Batch Timeout (ms) | Kept for older configs and still validated (minimum 1 and 100), but no longer used: the spool decides the batches (see below) |
+| Stall Alert (minutes) | Raise an [`ingest.stalled`](/docs/alerts#ingest-and-pipeline-alerts) alert when the pipeline received data before and then gets nothing for this long. Default 15, `0` turns it off |
 
 When authentication is enabled, a Bearer token is generated in the browser. Copy it before you save: the token is stored encrypted and is not shown again. **Generate new token** replaces it, after which senders need the new value. Include it in requests:
 
@@ -54,20 +55,23 @@ For OpenTelemetry data, or to authenticate senders with revocable keys instead o
 
 ### Ingest
 
-Receive OpenTelemetry logs or traces (OTLP over HTTP, protobuf or JSON) or JSON events from shippers such as the OpenTelemetry Collector, OTel SDKs, Vector and Fluent Bit. Shippers authenticate with per-pipeline ingest keys and send to:
+Receive OpenTelemetry logs or traces (OTLP over HTTP, protobuf or JSON), JSON events, Elasticsearch bulk requests or Splunk HEC events from shippers such as the OpenTelemetry Collector, OTel SDKs, Vector, Fluent Bit, Filebeat and Logstash. Shippers authenticate with per-pipeline ingest keys and send to:
 
 ```
 POST /ingest/v1/logs
 POST /ingest/v1/traces
 POST /ingest/v1/events
+POST /ingest/es/_bulk                (logs and events keys)
+POST /ingest/services/collector      (logs and events keys)
 ```
 
 | Field | Description |
 |---|---|
 | Signal | `logs`, `traces` or `events` |
-| TTL days | Applied when the sink creates a logs or traces table (`0` keeps data forever) |
+| TTL days | Applied when the sink creates a logs or traces table in an OpenTelemetry layout. New sources start at 30, `0` keeps data forever |
 | Rate limit (requests/s) | Per key (`0` means 200) |
 | Daily quota (MB) | Per pipeline, decompressed bytes per UTC day (`0` means unlimited) |
+| Stall Alert (minutes) | Raise an [`ingest.stalled`](/docs/alerts#ingest-and-pipeline-alerts) alert when the pipeline received data before and then gets nothing for this long. Default 15, `0` turns it off |
 
 With **Create Table If Not Exists** on the sink, logs and traces tables are created in the OpenTelemetry exporter's layout, so [Telemetry](/docs/telemetry) reads them as they are; pick another [table layout](#table-layouts) on the sink to change that. Requests are spooled on disk before they are answered, like the webhook. Keys, endpoints, responses, limits and shipper configs are on the [Ingest](/docs/ingest) page.
 

@@ -79,6 +79,7 @@ ch-ui server restart
 | `--dev` | Development mode (frontend proxy) | `false` |
 | `--allow-login-url` | Allow sign-in with a ClickHouse URL typed on the login page. The server connects to it, so trusted networks only. See [Configuration](/docs/configuration/#sign-in-with-a-clickhouse-url) | `false` |
 | `--trusted-proxies` | Comma-separated IPs or CIDRs of reverse proxies whose `X-Forwarded-For` is trusted; `none` trusts no proxy. See [Configuration](/docs/configuration/#behind-a-reverse-proxy) | loopback, private and link-local ranges |
+| `--ingest-addr` | Also serve the ingest receivers on this address, for example `:4318`. See [Ingest](/docs/ingest/#a-separate-port) | off |
 
 ## `desktop`
 

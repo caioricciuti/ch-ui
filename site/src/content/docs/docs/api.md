@@ -67,8 +67,8 @@ These skip the session cookie and authenticate with their own secret.
 |---|---|---|
 | `POST` | `/api/pipelines/webhook/{id}` | Webhook source endpoint for a pipeline |
 | `POST` | `/ingest/v1/logs`, `/ingest/v1/traces`, `/ingest/v1/events` | OTLP/HTTP and JSON event receivers, with an ingest key (`chi_...`). See [Ingest](/docs/ingest) |
-| `POST` | `/ingest/es/_bulk` | Elasticsearch bulk API receiver, with the startup calls shippers make. See [Elasticsearch bulk API](/docs/ingest#elasticsearch-bulk-api) |
-| `POST` | `/ingest/services/collector` | Splunk HEC receiver. See [Splunk HTTP Event Collector](/docs/ingest#splunk-http-event-collector) |
+| `POST`, `PUT` | `/ingest/es/_bulk`, `/ingest/es/{index}/_bulk` | Elasticsearch bulk API receiver, with the startup calls shippers make. See [Elasticsearch bulk API](/docs/ingest#elasticsearch-bulk-api) |
+| `POST` | `/ingest/services/collector`, `/ingest/services/collector/event`, `/ingest/services/collector/raw` | Splunk HEC receiver, plus `GET /ingest/services/collector/health`. See [Splunk HTTP Event Collector](/docs/ingest#splunk-http-event-collector) |
 | `POST` | `/api/github/webhook/{connectionId}` | GitHub push webhook for model sync, checked against the webhook secret (**Pro**) |
 
 ### MCP and OAuth
@@ -334,7 +334,7 @@ and the provider supports tools.
 | `POST` | `/api/pipelines/{id}/ingest-keys` | Create an ingest key; the full key is in this response only |
 | `DELETE` | `/api/pipelines/{id}/ingest-keys/{keyId}` | Revoke an ingest key |
 | `GET` | `/api/pipelines/{id}/ingest-stats` | Live ingest counters |
-| `GET` | `/api/ingest/info` | Base URL shippers should use (any signed-in user) |
+| `GET` | `/api/ingest/info` | URLs shippers should use, `base_url`, `es_url` and `hec_url` (any signed-in user) |
 
 Creating, editing, deleting, starting and stopping, test, preview, reset and
 ingest keys need the admin or analyst role. Starting or previewing a pipeline

@@ -22,6 +22,7 @@ Open Source includes the full workspace, running on your own infrastructure:
 - Pipelines, and models including cron schedules for models and pipelines
 - [Ingest](/docs/ingest): OTLP logs and traces, JSON events, the Elasticsearch bulk API and Splunk HEC, with ingest keys and the on-disk spool
 - Pipeline transforms: Parse, Map fields and Filter, with the live preview
+- [Sink table layouts](/docs/pipelines#table-layouts): custom from data, wide events, OpenTelemetry logs and traces
 - Brain AI chat (bring your own key), with skills and artifacts
 - Telemetry logs, sources, and saved searches
 - The MCP server for AI clients (tools, write tools, OAuth, API keys)
@@ -161,7 +162,7 @@ grace or after, unlocks Pro right away, no reload needed.
 | Setup | Run the binary (SQLite) | Run the binary + upload license |
 | SQL editor, query parameters, saved queries, dashboards | Included | Included |
 | Pipelines, models, model and pipeline schedules | Included | Included |
-| Ingest endpoints, Parse, Map fields and Filter transforms | Included | Included |
+| Ingest endpoints, Parse, Map fields and Filter transforms, sink table layouts | Included | Included |
 | Pipeline Sample, Redact and Route | Not included | **Included** |
 | Telemetry logs, sources, saved searches | Included | Included |
 | MCP server | Included | Included, plus `query_insights_top` and `costs_summary` |

@@ -98,8 +98,10 @@ CH-UI spools each request on disk before it answers and writes it to the
 exporter's table layout (traces include the `<table>_trace_id_ts` lookup), so
 **Detect sources** below finds the tables and every Telemetry screen works on
 them. Each key serves one pipeline and one signal: logs and traces need a
-pipeline and a key each. Keys, limits, the separate `:4318` listener and
-configs for Vector and Fluent Bit are on the [Ingest](/docs/ingest) page.
+pipeline and a key each. Logs sent with the Elasticsearch bulk API or Splunk
+HEC to a `logs` key land in the same `otel_logs` layout. Keys, limits, the
+separate `:4318` listener and configs for Vector, Fluent Bit, Filebeat,
+Logstash and HEC clients are on the [Ingest](/docs/ingest) page.
 
 ## Sources
 

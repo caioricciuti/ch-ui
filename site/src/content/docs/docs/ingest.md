@@ -47,7 +47,7 @@ and `otel_traces`.
 | Field | Description |
 |---|---|
 | Signal | `logs`, `traces` or `events`. A key only works on its pipeline's endpoint |
-| TTL days | Used when the sink creates a logs or traces table. `0` keeps data forever. Rows already older than the TTL are dropped by ClickHouse on insert |
+| TTL days | Used when the sink creates a logs or traces table in an OpenTelemetry layout. New sources start at 30, `0` keeps data forever. Rows already older than the TTL are dropped by ClickHouse on insert |
 | Rate limit (requests/s) | Per key. `0` means 200 |
 | Daily quota (MB) | Per pipeline, counted on the decompressed request bodies, resets at 00:00 UTC. `0` means unlimited |
 | Stall alert (minutes) | Raise `ingest.stalled` when the pipeline received data before and then gets nothing for this long. Default 15, `0` turns it off. Webhook sources have it too |
@@ -56,7 +56,7 @@ The rate limit and quota are kept in memory, so a restart refills them.
 
 ## Alerts
 
-Ingest problems become [alert events](/docs/alerts#ingest-and-pipeline-alerts), so a rule on `ingest.*` sends them to email, Slack, Teams or a webhook: `ingest.stalled` (no data for the stall threshold), `ingest.spool_backlog` (spooled data older than 5 minutes, or the spool above 80% of its cap), `ingest.rejecting` (more than 10% of requests rejected in 5 minutes, not counting wrong keys), `ingest.auth_failures` (many wrong keys) and `pipeline.sink_failing` (ClickHouse writes keep failing). Each opens one incident, links to the pipeline, and resolves on its own.
+Ingest problems become [alert events](/docs/alerts#ingest-and-pipeline-alerts), so a rule on `ingest.*` sends them to email, Slack, Teams or a webhook: `ingest.stalled` (no data for the stall threshold), `ingest.spool_backlog` (spooled data older than 5 minutes, or the spool above 80% of its cap), `ingest.rejecting` (more than 10% of requests rejected in 5 minutes, not counting key failures), `ingest.auth_failures` (300 or more requests with a revoked key in 5 minutes) and `pipeline.sink_failing` (ClickHouse writes keep failing). Each opens one incident, links to the pipeline, and resolves on its own. Rules, channels and delivery are part of [Alerts](/docs/alerts), which is Pro.
 
 ## Ingest keys
 
@@ -95,7 +95,7 @@ Keys in the query string are ignored: URLs end up in proxy and access logs.
 | `400` | The body does not decode (bad OTLP, bad JSON, broken gzip) | Fix the sender; retrying sends the same bad data |
 | `401` | No key, an unknown key or a revoked key | Check the key |
 | `404` | The key belongs to a pipeline with another signal | Use the endpoint of the key's signal |
-| `413` | Over 32 MB after decompression, or over 100,000 records | Send smaller batches |
+| `413` | Over 32 MB after decompression, or, on the OTLP endpoints, over 100,000 log records or spans | Send smaller batches |
 | `415` | A content type or `Content-Encoding` CH-UI does not read | OTLP needs `application/x-protobuf` or `application/json`; events need `application/json`, `application/x-ndjson` or `text/plain` (NDJSON); only `gzip` compression |
 | `429` | Over the key's rate limit (`Retry-After: 1`) or the pipeline's daily quota (`Retry-After` until midnight UTC) | Retry later |
 | `503` | The pipeline is stopped, or the spool is full (`Retry-After`) | Retry later; nothing was stored |
@@ -277,7 +277,7 @@ refused with `400`: send traces as OTLP to `/ingest/v1/traces`.
 | `GET /_license`, `GET /_xpack` | An active basic license. `_xpack` reports ILM as unavailable |
 | `GET /_cluster/health` | `green` (Vector's health check) |
 | `GET /_nodes`, `/_nodes/*` | No nodes. Keep sniffing off, which is every shipper's default |
-| `GET`, `HEAD`, `PUT /_index_template/*`, `/_template/*`, `/_ilm/policy/*`, `/_data_stream/*` | Answered as existing, `PUT` is acknowledged. Nothing is stored: the table layout comes from the pipeline |
+| `GET`, `HEAD`, `PUT`, `POST /_index_template/*`, `/_template/*`, `/_ilm/policy/*`, `/_data_stream/*` | Answered as existing, `PUT` and `POST` are acknowledged. Nothing is stored: the table layout comes from the pipeline |
 
 Every response carries `X-Elastic-Product: Elasticsearch`, which the 7.14+
 clients check. All of these need a valid key; the startup calls work while
@@ -399,6 +399,7 @@ nothing of it is spooled. Responses use the HEC format:
 | `400` | code `6` Invalid data format, with `invalid-event-number` | Broken JSON, a value that is not an object, a bad `time`, a traces key |
 | `400` | code `12` Event field is required, code `13` Event field cannot be blank, code `15` Error in handling indexed fields | The event at `invalid-event-number` (counted from 0) |
 | `413` | code `6` | Over 32 MB after decompression, or over 100,000 events |
+| `415` | code `6` | A `Content-Encoding` other than `gzip` |
 | `503` | code `9` Server is busy, with `Retry-After` | The pipeline is stopped, the rate limit or quota is reached, or the spool is full |
 
 Indexer acknowledgement is not offered: a `200` already means the data is
@@ -503,11 +504,13 @@ is on.
 
 The main port keeps serving `/ingest/*` too, unless
 `INGEST_ONLY_SEPARATE=true` (`ingest_only_separate: true`), which keeps
-shipper traffic off the port users sign in on.
-
-`GET /api/ingest/info` (any signed-in user) returns the base URL shippers
-should use: `APP_URL` plus `/ingest`, with the ingest listener's port when
+shipper traffic off the port users sign in on. It only applies when
 `--ingest-addr` is set.
+
+`GET /api/ingest/info` (any signed-in user) returns the URLs shippers
+should use: `base_url` is `APP_URL` plus `/ingest`, with the ingest
+listener's port when `--ingest-addr` is set, and `es_url` and `hec_url` are
+that URL plus `/es` and `/services/collector`.
 
 | Setting | Env | Default |
 |---|---|---|
