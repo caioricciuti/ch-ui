@@ -267,13 +267,21 @@ func registerOpsTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Name:        "list_reports",
 		Title:       title,
 		Annotations: ann,
-		Description: "List the scheduled report deliveries on this connection created by the person behind this key: source, cron, format, channels, last delivery status and next run. Recipients are not included.",
+		Description: "List your own scheduled report deliveries on this connection (OAuth sign-in only): source, cron, format, channels, last delivery status and next run. Recipients are not included.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args pageArgs) (*mcp.CallToolResult, any, error) {
+		// Reports belong to people. An API key stands for no one, so it
+		// sees none rather than those of whoever shares its ClickHouse user.
+		actor := strings.TrimSpace(ak.key.Subject)
+		if actor == "" {
+			return jsonResult(map[string]any{
+				"reports": []map[string]any{},
+				"note":    "reports belong to people; this is an API key, so none are listed. Sign in with OAuth to see yours.",
+			}), nil, nil
+		}
 		all, err := deps.DB.ListReportSubscriptions(false)
 		if err != nil {
 			return errResult("failed to list reports: %v", err), nil, nil
 		}
-		actor := ak.actor()
 		restricted := allowedDBs(ak.key) != nil
 		items := []map[string]any{}
 		for _, s := range all {

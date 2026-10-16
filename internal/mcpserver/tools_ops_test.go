@@ -363,7 +363,8 @@ func TestListSchedulesByEffectiveConnection(t *testing.T) {
 
 func TestListReportsOnlyOwnOnConnection(t *testing.T) {
 	o := newOpsFixture(t, "")
-	mine, other := "default", "bob@example.com"
+	o.ak.key.Subject, o.ak.key.Kind = "alice@example.com", "oauth"
+	mine, other := "alice@example.com", "bob@example.com"
 	for _, r := range []struct {
 		name, conn string
 		by         *string
@@ -389,6 +390,24 @@ func TestListReportsOnlyOwnOnConnection(t *testing.T) {
 	}
 	if strings.Contains(resultText(o.call(t, "list_reports", nil)), "recipients") {
 		t.Errorf("report recipients must not be returned")
+	}
+
+	// An API key whose ClickHouse user created a report still sees none.
+	chUser := o.ak.key.CHUser
+	if _, err := o.deps.DB.CreateReportSubscription(database.ReportSubscription{
+		Name: "ch user's", SourceType: "saved_query", ConnectionID: o.conn, Cron: "0 8 * * *", Timezone: "UTC",
+		Enabled: true, Format: "csv", CreatedBy: &chUser,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	o.ak.key.Subject, o.ak.key.Kind = "", "api"
+	var api struct {
+		Reports []map[string]any `json:"reports"`
+		Note    string           `json:"note"`
+	}
+	o.decode(t, "list_reports", nil, &api)
+	if len(api.Reports) != 0 || !strings.Contains(api.Note, "OAuth") {
+		t.Errorf("API key: want no reports and an OAuth note, got %+v", api)
 	}
 }
 

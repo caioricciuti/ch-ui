@@ -231,6 +231,7 @@ the write-scope tools are `readOnlyHint: false, destructiveHint: false`
 | `run_saved_query` | Runs a saved query by `id` or `name`, with `params` for its bind parameters. Reports whether the query is **verified** |
 | `explain_query` | `EXPLAIN indexes = 1` plan for a SELECT |
 | `list_saved_queries` / `list_dashboards` / `list_models` / `list_pipelines` | What already exists on this connection, paginated (`page_size`, `cursor`) |
+| `query_history` | Queries this MCP client already ran on the connection, newest first. An API key sees only its own; an OAuth sign-in sees the person's MCP queries across refreshed tokens. Never editor history. `range` (default 7d), `status` ok or error, `limit` (default 50, max 500) |
 | `save_query` (write scope) | Saves a query to the shared library |
 | `create_dashboard` (write scope) | Dashboard with SQL panels, laid out automatically |
 | `create_model` (write scope) | Draft SQL model (view or table, `$ref()` supported) |
@@ -241,7 +242,7 @@ the write-scope tools are `readOnlyHint: false, destructiveHint: false`
 | `list_alerts` (Pro) | Health check thresholds with the nodes pending or firing, and the SQL alerts with state, last value and last run |
 | `alert_events` (Pro) | Alert events on the connection, newest first. `range` 1h, 6h, 24h (default), 7d or 30d; `limit` (default 50, max 500) |
 | `list_schedules` (Pro) | Scheduled query jobs that run on the connection, with last status and next run |
-| `list_reports` (Pro) | Scheduled reports on the connection created by the person behind the key, with channels and last delivery status. No recipients |
+| `list_reports` (Pro) | Your scheduled reports on the connection, with channels and last delivery status. OAuth sign-in only: reports belong to people, so an API key gets an empty list. No recipients |
 | `cluster_health` (Pro) | Live per-node replication, merges, mutations, parts pressure, long queries and disk usage. Refused for keys with a database allowlist |
 
 Paginated tools return `next_cursor` when more items exist; pass it back as
