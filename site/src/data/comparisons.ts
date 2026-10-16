@@ -106,7 +106,7 @@ const tabixComparison: ComparisonData = {
     {
       aspect: 'AI',
       competitor: 'None.',
-      chui: 'Brain AI chat, bring-your-own-key, your provider, your data path; in-editor Ask AI and agentic tools are Pro. Plus an embedded MCP server, so Claude, ChatGPT or Cursor query through CH-UI with read-only guardrails and an audit trail.',
+      chui: 'Brain AI chat, bring-your-own-key, your provider, your data path; in-editor Ask AI and agentic tools are Pro. Plus an embedded MCP server, so Claude, ChatGPT or Cursor query through CH-UI with read-only queries by default, opt-in write and action permissions, and an audit trail.',
     },
     {
       aspect: 'Auth & governance',

@@ -29,8 +29,11 @@ ClickHouse query activity and metadata changes inside a connection.
 - **Role changes**: a user's CH-UI role is changed by an admin
 - **License events**: a Pro license is applied, renewed, or removed
 - **MCP activity**: every query an AI client runs (`mcp.query.execute`),
-  every other tool call (`mcp.tool.call`), and every OAuth approval
-  (`mcp.oauth.consent`). See [MCP Server](/docs/mcp).
+  every other tool call (`mcp.tool.call`), every confirmation prompt the
+  user declined (`mcp.write.declined`), and every OAuth approval
+  (`mcp.oauth.consent`). Drafts and lifecycle actions an AI client makes
+  are logged with the same actions as in the UI (`model.run`,
+  `pipeline.started`, ...). See [MCP Server](/docs/mcp).
 - **Dashboards**: created, updated, deleted, shared, moved
   (`dashboard.moved`), and folder changes (`dashboard.folder.created`,
   `dashboard.folder.updated`, `dashboard.folder.deleted`)
