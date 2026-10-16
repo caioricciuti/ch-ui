@@ -37,12 +37,12 @@ const features = [
     title: "Governance and alerts",
     href: "/docs/governance/",
     pro: true,
-    body: "Catalog, query guardrails, incidents, access matrix and audit logs, plus alert channels and rules with email delivery.",
+    body: "Catalog, query guardrails, incidents, access matrix and audit logs, access control as code that can create users on import, plus alert channels and rules with email delivery.",
   },
   {
     title: "Telemetry",
     href: "/docs/telemetry/",
-    body: "Search the OpenTelemetry logs already in your ClickHouse. With Pro: trace waterfalls, a metrics explorer, a service map, and monitors that raise alerts.",
+    body: "Search the OpenTelemetry logs in your ClickHouse, written by your collector or sent straight to CH-UI. With Pro: trace waterfalls, a metrics explorer, a service map, and monitors that raise alerts.",
   },
   {
     title: "MCP server",
@@ -58,7 +58,7 @@ const features = [
   {
     title: "Pipelines",
     href: "/docs/pipelines/",
-    body: "A visual builder to ingest data from Kafka, webhooks, databases and S3 into ClickHouse.",
+    body: "A visual builder from Kafka, webhooks, databases, S3 and the ingest endpoints into ClickHouse, with parse, map and filter steps on the way. With Pro: sample, redact and route to several tables.",
   },
   {
     title: "Models",
@@ -77,6 +77,29 @@ const features = [
   },
 ];
 
+// The ingest story, one cell each: in, kept, shaped, read. Grounded in the
+// Ingest and Pipelines docs pages.
+const ingest = [
+  {
+    title: "Point your shippers here",
+    body: "OTLP over HTTP for logs and traces, JSON events, the Elasticsearch bulk API and Splunk HEC. Change the host and key in the config you have; Send data here fills in the snippet.",
+  },
+  {
+    title: "On disk before it says yes",
+    body: "A 200 means the request is fsynced to a local spool. If ClickHouse is down, the data waits and retries. Dedup tokens keep a replayed batch from landing twice.",
+  },
+  {
+    title: "Shaped on the way",
+    body: "Parse JSON, logfmt, regex, nginx, Apache or syslog, map fields and filter, with a before and after preview. With Pro: sample, redact, and route one stream to up to 8 tables.",
+  },
+  {
+    title: "Straight into Telemetry",
+    body: "Logs and traces land in the OpenTelemetry exporter's table layout, so Telemetry searches them with no extra setup. Events go to a table of their own.",
+  },
+];
+
+const shippers = ["OpenTelemetry", "Filebeat", "Logstash", "Fluent Bit", "Vector", "Splunk HEC", "curl"];
+
 // Rendered on the page and serialized as FAQPage structured data. Answers
 // are grounded in the docs index, pricing and license pages.
 const faq: FaqItem[] = [
@@ -88,12 +111,17 @@ const faq: FaqItem[] = [
   {
     question: "Is CH-UI really free?",
     answer:
-      "Yes. The core is open source under Apache-2.0 and free forever, with unlimited users: SQL editor with query history and query parameters, saved queries, dashboards with shareable links, pipelines, models with cron schedules, telemetry logs, Brain AI chat (bring your own AI key), the MCP server for AI clients, the admin panel with multiple connections, and the tunnel connector. Only the Pro modules require a paid license.",
+      "Yes. The core is open source under Apache-2.0 and free forever, with unlimited users: SQL editor with query history and query parameters, saved queries, dashboards with shareable links, pipelines with parse, map and filter steps, the ingest endpoints for logs, traces and events, models with cron schedules, telemetry logs, Brain AI chat (bring your own AI key), the MCP server for AI clients, the admin panel with multiple connections, and the tunnel connector. Only the Pro modules require a paid license.",
   },
   {
     question: "What does Pro add?",
     answer:
-      "A Pro license ($1,199/year per instance, flat, never per seat) unlocks Query Insights, Cluster Health, Cost Center, Performance, Governance, Alerts, scheduled query jobs, fleet overview, schema comparison, weekly reports, telemetry traces, metrics, service map and monitors, Ask AI and Brain agentic tools, GitHub sync for models, SSO/OIDC, audit forwarding to your SIEM, and priority support. You can try everything free for 30 days, no card required.",
+      "A Pro license ($1,199/year per instance, flat, never per seat) unlocks Query Insights, Cluster Health, Cost Center, Performance, Governance, Alerts, scheduled query jobs, fleet overview, schema comparison, weekly reports, telemetry traces, metrics, service map and monitors, pipeline sampling, redaction and routing, Ask AI and Brain agentic tools, GitHub sync for models, SSO/OIDC, audit forwarding to your SIEM, and priority support. You can try everything free for 30 days, no card required.",
+  },
+  {
+    question: "Can CH-UI receive logs and traces?",
+    answer:
+      "Yes. Point the OpenTelemetry Collector or an OTel SDK (OTLP over HTTP), Filebeat, Logstash, Fluent Bit or Vector (Elasticsearch bulk API), or any Splunk HEC client at CH-UI with an ingest key. Each request is written to an on-disk spool before CH-UI answers, then a pipeline writes it to ClickHouse in the OpenTelemetry table layout that Telemetry reads. Ingest is part of the free core; sampling, redaction and routing to several tables are Pro.",
   },
   {
     question: "Where does my data live?",
@@ -103,7 +131,7 @@ const faq: FaqItem[] = [
   {
     question: "What do I need to run it?",
     answer:
-      "One binary (or Docker) and a ClickHouse instance to connect to. No external database. Download the release, run ch-ui, and the UI is on localhost:3488. If ClickHouse lives on another host, run the lightweight ch-ui connect connector next to it with outbound-only traffic.",
+      "One binary (or Docker) and a ClickHouse instance to connect to. No external database. Download the release, run ch-ui, and the UI is on localhost:3488. If ClickHouse lives on another host, run the lightweight ch-ui connect connector next to it with outbound-only traffic. Binaries ship for Linux, macOS and Windows; ch-ui desktop runs a personal copy on your own computer, listening on 127.0.0.1 only.",
   },
   {
     question: "How is CH-UI licensed?",
@@ -127,7 +155,7 @@ const jsonLd = {
       name: "CH-UI",
       url: site,
       applicationCategory: "DeveloperApplication",
-      operatingSystem: "Linux, macOS, Docker",
+      operatingSystem: "Linux, macOS, Windows, Docker",
       offers: [
         { "@type": "Offer", name: "Open Source", price: "0", priceCurrency: "USD" },
         {
@@ -212,6 +240,34 @@ const jsonLd = {
     </div>
   </section>
 
+  <section class="section" id="ingest">
+    <div class="container two-col">
+      <header class="section-head">
+        <p class="label">Ingest</p>
+        <h2>Send it here. Read it in Telemetry.</h2>
+        <p>
+          CH-UI receives logs, traces and events over HTTP, keeps them on disk, and writes them to ClickHouse. Part of
+          the free core.
+        </p>
+        <p><a class="link" href="/docs/ingest/">Ingest docs →</a></p>
+      </header>
+      <div class="frame">
+        {ingest.map((c) => (
+          <div class="cell">
+            <h3>{c.title}</h3>
+            <p>{c.body}</p>
+          </div>
+        ))}
+        <div class="cell wide">
+          <p class="label">Works with</p>
+          <ul class="marks">
+            {shippers.map((s) => <li>{s}</li>)}
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="section" id="architecture">
     <div class="container two-col">
       <header class="section-head">
@@ -239,8 +295,8 @@ const jsonLd = {
           <div>
             <h3>Open Source <small>Free, Apache-2.0</small></h3>
             <p>
-              Editor, dashboards, pipelines, models, Brain chat, query history, telemetry logs and the MCP server.
-              Unlimited users, forever.
+              Editor, dashboards, pipelines, ingest, models, Brain chat, query history, telemetry logs and the MCP
+              server. Unlimited users, forever.
             </p>
           </div>
           <a class="chui-btn" href="/docs/installation/" data-cta="pro_section_self_host">Self-host</a>
@@ -250,7 +306,7 @@ const jsonLd = {
             <h3>Pro <small>$1,199 per instance, per year</small></h3>
             <p>
               Query Insights, Cluster Health, Cost Center, Governance, Alerts, SSO, scheduled query jobs, traces and
-              metrics, Ask AI, audit forwarding and GitHub sync. Flat, never per seat, activated with a key, no
+              metrics, pipeline sampling, redaction and routing, Ask AI, audit forwarding and GitHub sync. Flat, never per seat, activated with a key, no
               call-home.
             </p>
           </div>

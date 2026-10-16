@@ -12,7 +12,7 @@ Stop stitching together a SQL client, a BI tool, an audit tool, and a pile of cr
 ## Get started in minutes
 
 - **Self-hosted, open source**: the core (Apache-2.0) on your own box, free forever. **[Self-hosting guide →](/docs/installation)**
-- **Pro license**: a flat $1,199/year license unlocks Governance, Cluster Health, Query Insights, Cost Center, performance investigations, scheduled query jobs, Alerts, telemetry traces and metrics, Ask AI and Brain agentic tools, GitHub sync, audit forwarding, and SSO on your own hardware. **[See pricing →](/docs/pricing)**
+- **Pro license**: a flat $1,199/year license unlocks Governance, Cluster Health, Query Insights, Cost Center, performance investigations, scheduled query jobs, Alerts, telemetry traces and metrics, pipeline sampling, redaction and routing, Ask AI and Brain agentic tools, GitHub sync, audit forwarding, and SSO on your own hardware. **[See pricing →](/docs/pricing)**
 
 ## Why teams choose CH-UI
 
@@ -27,15 +27,16 @@ Stop stitching together a SQL client, a BI tool, an audit tool, and a pile of cr
 
 - **SQL editor & explorer**: autocomplete, result views, schema browser, saved queries.
 - **Dashboards**: drag-and-drop panels (charts, stats, tables) with shareable public links, organized in nested folders with tags and stars.
-- **Telemetry**: search OpenTelemetry logs in ClickHouse; with Pro, traces with waterfalls, metrics, a service map and monitors.
+- **Telemetry**: search OpenTelemetry logs in ClickHouse, written by your collector or [sent to CH-UI](/docs/ingest); with Pro, traces with waterfalls, metrics, a service map and monitors.
 - **MCP server**: connect Claude, ChatGPT, Cursor or VS Code to your ClickHouse through CH-UI's auth, guardrails and audit trail.
-- **Pipelines**: visual ingestion from Kafka, webhooks, databases, and S3.
+- **Pipelines**: visual ingestion from Kafka, webhooks, databases, and S3, with parse, map and filter steps and a live before/after preview. Sample, redact and routing to several tables are Pro.
+- **Ingest**: point the OpenTelemetry Collector, an OTel SDK, Filebeat, Logstash, Fluent Bit, Vector or a Splunk HEC client at CH-UI. Requests are spooled on disk before the answer and written to ClickHouse in the layout Telemetry reads. See [Ingest](/docs/ingest).
 - **Models**: versioned SQL transformations with DAG execution and cron scheduling. GitHub sync for models is Pro.
 - **Schedules** (Pro): recurring queries with run history and alerting.
-- **Governance** (Pro): metadata sync, access matrix, policies, incidents, query audit.
+- **Governance** (Pro): metadata sync, access matrix, policies, incidents, query audit, and an [access control editor](/docs/rbac) with access as code that can create users on import.
 - **Brain (AI copilot)**: schema-aware chat with custom skills and living artifacts (re-runnable charts, reports, queries), BYO provider.
 - **Operate** (Pro): fleet overview, Cluster Health, performance regressions and investigations, Query Insights, incident timeline, Cost Center and weekly reports. Schema comparison sits under Build.
-- **Alerts** (Pro): email notifications for governance, schedule and telemetry monitor events.
+- **Alerts** (Pro): email and webhook notifications for governance, schedules, cluster health checks, SQL threshold alerts, access drift and telemetry monitors, with a link back to the page in CH-UI.
 
 See **[Pricing](/docs/pricing)** for what's included in the free core and the Pro license.
 
@@ -82,4 +83,6 @@ You only need the connector when the server cannot reach ClickHouse. If it can, 
   <LinkCard title="Governance" href="/docs/governance" description="Catalog, access, policies, incidents, audit" />
   <LinkCard title="MCP Server" href="/docs/mcp" description="Connect AI clients to your ClickHouse" />
   <LinkCard title="Telemetry" href="/docs/telemetry" description="OpenTelemetry logs, traces and metrics" />
+  <LinkCard title="Ingest" href="/docs/ingest" description="Send logs, traces and events to CH-UI" />
+  <LinkCard title="Pipelines" href="/docs/pipelines" description="Sources, transforms, routing and sinks" />
 </CardGrid>

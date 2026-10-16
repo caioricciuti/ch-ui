@@ -101,7 +101,7 @@ const tabixComparison: ComparisonData = {
     {
       aspect: 'Ingestion & modeling',
       competitor: 'None, query-only.',
-      chui: 'Pipelines (Kafka, S3, webhooks, databases) and dbt-style SQL models with scheduling, plus GitHub sync (Pro).',
+      chui: 'Pipelines (Kafka, S3, webhooks, databases, and OTLP, Elasticsearch bulk and Splunk HEC ingest) and dbt-style SQL models with scheduling, plus GitHub sync (Pro).',
     },
     {
       aspect: 'AI',
@@ -204,7 +204,7 @@ const dbeaverComparison: ComparisonData = {
       aspect: 'Ingestion & modeling',
       competitor:
         'Strong data transfer/import-export tooling between databases and files, a real DBeaver strength.',
-      chui: 'Continuous pipelines (Kafka, S3, webhooks, databases) plus dbt-style models with schedules, plus GitHub sync (Pro).',
+      chui: 'Continuous pipelines (Kafka, S3, webhooks, databases, and OTLP, Elasticsearch bulk and Splunk HEC ingest) plus dbt-style models with schedules, plus GitHub sync (Pro).',
     },
     {
       aspect: 'AI',
@@ -306,7 +306,7 @@ const metabaseComparison: ComparisonData = {
       aspect: 'Ingestion & modeling',
       competitor:
         'Models/semantic layer for BI curation; no data ingestion, so data must already be in the warehouse.',
-      chui: 'Pipelines (Kafka, S3, webhooks, databases) and dbt-style SQL models with schedules, plus GitHub sync (Pro).',
+      chui: 'Pipelines (Kafka, S3, webhooks, databases, and OTLP, Elasticsearch bulk and Splunk HEC ingest) and dbt-style SQL models with schedules, plus GitHub sync (Pro).',
     },
     {
       aspect: 'AI',
@@ -415,7 +415,7 @@ const grafanaComparison: ComparisonData = {
     {
       aspect: 'Ingestion & modeling',
       competitor: 'None. Grafana visualizes, it does not load or transform data.',
-      chui: 'Pipelines (Kafka, S3, webhooks, databases) and dbt-style models with schedules, plus GitHub sync (Pro).',
+      chui: 'Pipelines (Kafka, S3, webhooks, databases, and OTLP, Elasticsearch bulk and Splunk HEC ingest) and dbt-style models with schedules, plus GitHub sync (Pro).',
     },
     {
       aspect: 'Governance & audit',

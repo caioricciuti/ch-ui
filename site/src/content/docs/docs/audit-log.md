@@ -59,6 +59,9 @@ ClickHouse query activity and metadata changes inside a connection.
   at most: `schedule.credential_borrow`, `model.credential_borrow`,
   `pipeline.credential_borrow`, `governance.credential_borrow`,
   `cluster_health.credential_borrow`, `telemetry.monitor.credential_borrow`
+- **Ingest keys**: a key created or revoked for an [ingest](/docs/ingest)
+  pipeline (`ingest_key.created`, `ingest_key.revoked`), with the pipeline,
+  the key's name and its first 8 characters, never the key itself
 - **Incident timeline annotations** (v2.13.0+): a deployment annotation added
   or removed (`incident.annotation.created`, `incident.annotation.deleted`). See
   [Incident Timeline](/docs/incident-timeline)

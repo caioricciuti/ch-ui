@@ -20,6 +20,8 @@ Open Source includes the full workspace, running on your own infrastructure:
 - Database explorer and saved queries (create, edit, share, duplicate)
 - Dashboards, public dashboards, and dashboard folders
 - Pipelines, and models including cron schedules for models and pipelines
+- [Ingest](/docs/ingest): OTLP logs and traces, JSON events, the Elasticsearch bulk API and Splunk HEC, with ingest keys and the on-disk spool
+- Pipeline transforms: Parse, Map fields and Filter, with the live preview
 - Brain AI chat (bring your own key), with skills and artifacts
 - Telemetry logs, sources, and saved searches
 - The MCP server for AI clients (tools, write tools, OAuth, API keys)
@@ -42,9 +44,10 @@ The **Pro License** unlocks the full Pro module set on top of the Open Source co
 - **[Incident timeline](/docs/incident-timeline)**: query failures, latency, merges, mutations, health and deployment annotations on one timeline
 - **[Weekly operations reports](/docs/operations-reports)**: saved weekly summaries, optionally emailed through your alert channels
 - **[Telemetry depth](/docs/telemetry)**: traces with waterfalls, the metrics explorer, the service map, and monitors that raise alerts (logs stay in the open-source core)
+- **[Pipeline Sample, Redact and Route](/docs/pipelines#pro-nodes)**: deterministic sampling, redaction of emails, IPs, card numbers, tokens and custom patterns, and routing one pipeline to up to 8 tables by rules
 - **[MCP Pro tools](/docs/mcp#tools)**: `query_insights_top` and `costs_summary` for AI clients (the MCP server itself is in the core)
 - **[Governance](/docs/governance)**: catalog, access matrix, query audit, incidents, policies, guardrails (query blocking in the editor and MCP), and the audit log viewer
-- **[Alerts](/docs/alerts)**: channels (SMTP, Resend, Brevo), rules, and delivery
+- **[Alerts](/docs/alerts)**: channels (SMTP, Resend, Brevo, webhooks), rules, and delivery
 - **[Scheduled query jobs](/docs/schedules)**: cron-driven query runs with run history and timezones, plus the parameterized saved-query Run API (model and pipeline schedules stay in the open-source core)
 - **[Ask AI and Brain agentic tools](/docs/brain)**: text-to-SQL in the editor grounded in your live schema, and the tool-calling agent loop (still bring-your-own AI key)
 - **[GitHub sync](/docs/github)**: keep models in version control
@@ -158,6 +161,8 @@ grace or after, unlocks Pro right away, no reload needed.
 | Setup | Run the binary (SQLite) | Run the binary + upload license |
 | SQL editor, query parameters, saved queries, dashboards | Included | Included |
 | Pipelines, models, model and pipeline schedules | Included | Included |
+| Ingest endpoints, Parse, Map fields and Filter transforms | Included | Included |
+| Pipeline Sample, Redact and Route | Not included | **Included** |
 | Telemetry logs, sources, saved searches | Included | Included |
 | MCP server | Included | Included, plus `query_insights_top` and `costs_summary` |
 | Admin panel, multiple connections (admin role) | Included | Included |
@@ -204,13 +209,14 @@ The server enforces the split, not the UI. A Pro route called without a license 
 - **Guardrails**: query policies are only enforced with a license; without one, queries run unchecked
 - **SSO**: reading or saving the SSO settings returns `402`. The OIDC login and callback also return `402` without a license, but keep working during grace so people can still sign in
 - **GitHub sync**: saving, removing, testing and syncing the integration, and the push webhook, return `402`
+- **Pipeline Sample, Redact and Route**: starting or previewing a pipeline with one of these nodes returns `402`; a graph with them still saves. Running pipelines keep them during grace
 - **Governance background sync**: turning it on in Governance, Settings returns `402` without a license (allowed during grace); turning it off always works
 
 Nothing in the free tier is limited by count: no caps on users, connections, dashboards or queries.
 
 ## FAQ
 
-**Do I need a license file?** Only for the Pro modules: Query Insights, Cluster Health, Cost Center, Performance, fleet overview, schema comparison, weekly reports, incident timeline, Governance, Alerts, scheduled query jobs and parameterized saved-query runs, telemetry traces, metrics, service map and monitors, Ask AI and Brain agentic tools, GitHub sync, SSO, audit forwarding, the MCP Pro tools, and command palette Pro search. The Open Source tier is fully unlocked otherwise: Apache-2.0, no key, no activation. That includes query parameters, model schedules, multiple connections, and the admin panel.
+**Do I need a license file?** Only for the Pro modules: Query Insights, Cluster Health, Cost Center, Performance, fleet overview, schema comparison, weekly reports, incident timeline, Governance, Alerts, scheduled query jobs and parameterized saved-query runs, telemetry traces, metrics, service map and monitors, pipeline Sample, Redact and Route, Ask AI and Brain agentic tools, GitHub sync, SSO, audit forwarding, the MCP Pro tools, and command palette Pro search. The Open Source tier is fully unlocked otherwise: Apache-2.0, no key, no activation. That includes query parameters, model schedules, multiple connections, and the admin panel.
 
 **Is there a separate Enterprise edition?** No. A license with the `enterprise` edition unlocks the same features as a Pro license. Enterprise differs in commercial terms (multiple instances, invoicing, custom terms), not in features.
 

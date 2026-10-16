@@ -74,6 +74,9 @@ key name shows up in the log.
 | `allow_login_url` | `true` | `false` | Lets the login page take a ClickHouse URL instead of a saved connection. Trusted networks only, see [Sign in with a ClickHouse URL](#sign-in-with-a-clickhouse-url) |
 | `export_max_rows` | `5000000` | `10000000` | Most rows one full result export may return (Export, Full result) |
 | `export_max_bytes` | `536870912` | `1073741824` (1 GiB) | Most bytes one full result export may return |
+| `ingest_addr` | `:4318` | off | A second listener that serves only the [ingest](/docs/ingest#a-separate-port) receivers |
+| `ingest_only_separate` | `true` | `false` | With `ingest_addr` set, stop serving `/ingest/*` on the main port |
+| `ingest_spool_max_bytes` | `4294967296` | `2147483648` (2 GiB) | Cap of the on-disk [ingest spool](/docs/ingest#durability) across all pipelines |
 | `trusted_proxies` | `["10.0.0.0/8", "192.168.1.20"]` | loopback, private and link-local ranges | Reverse proxies whose `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto` and `X-Forwarded-Host` headers are believed. `[]` trusts none. See [Behind a reverse proxy](#behind-a-reverse-proxy) |
 
 `clickhouse_url` and `connection_name` are applied to the embedded connection
@@ -233,6 +236,7 @@ Full setup in [Single Sign-On](/docs/sso).
 | `ALLOW_LOGIN_URL` | Sign in with a ClickHouse URL on the login page (`true`, `1` or `yes`; default off). Trusted networks only |
 | `TRUSTED_PROXIES` | Comma-separated IPs or CIDRs of reverse proxies whose forwarding headers are believed; `none` trusts no proxy. Default: loopback, private and link-local ranges |
 | `TUNNEL_URL` | Override gateway URL |
+| `INGEST_ADDR` / `INGEST_ONLY_SEPARATE` / `INGEST_SPOOL_MAX_BYTES` | Separate ingest listener (flag `--ingest-addr`), keep ingest off the main port, spool cap. See [Ingest](/docs/ingest#a-separate-port) |
 | `TLS_CERT_FILE` / `TLS_KEY_FILE` | PEM cert/key for native TLS |
 | `AUDIT_FORWARD_STDOUT` / `AUDIT_LOG_FILE` / `AUDIT_WEBHOOK_URL` | Audit forwarding sinks |
 | `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_REDIRECT_URL` | OIDC SSO |

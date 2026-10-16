@@ -5,7 +5,7 @@ import { getCollection } from "astro:content";
 import { sidebar } from "../sidebar.mjs";
 
 const INTRO =
-  "CH-UI is the open-source control plane for ClickHouse: SQL editor, dashboards, pipelines, query analytics, cluster monitoring, governance, and an AI copilot, self-hosted as a single binary. The core is Apache-2.0; Pro features unlock with a flat $1,199/year per-instance license activated offline.";
+  "CH-UI is the open-source control plane for ClickHouse: SQL editor, dashboards, pipelines, ingest of logs, traces and events, query analytics, cluster monitoring, governance, and an AI copilot, self-hosted as a single binary. The core is Apache-2.0; Pro features unlock with a flat $1,199/year per-instance license activated offline.";
 
 export const GET: APIRoute = async ({ site }) => {
   const pages = new Map((await getCollection("docs")).map((entry) => [entry.id, entry.data]));
