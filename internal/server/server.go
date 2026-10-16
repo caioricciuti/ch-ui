@@ -266,11 +266,14 @@ func (s *Server) setupRoutes() {
 
 	// ── Embedded MCP server (streamable HTTP; chm_ bearer keys) ──────────
 	r.Handle("/mcp", mcpserver.Handler(mcpserver.Deps{
-		DB:         db,
-		Gateway:    gw,
-		Config:     cfg,
-		Guardrails: s.guardrails,
-		IngestHub:  s.ingestHub,
+		DB:             db,
+		Gateway:        gw,
+		Config:         cfg,
+		Guardrails:     s.guardrails,
+		ModelRunner:    s.modelRunner,
+		PipelineRunner: s.pipelineRunner,
+		ReportRunner:   s.reportRunner,
+		IngestHub:      s.ingestHub,
 	}))
 
 	// ── OAuth 2.1 authorization server for /mcp ─────────────────────────

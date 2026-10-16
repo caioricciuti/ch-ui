@@ -51,7 +51,11 @@ What the person approving needs to know:
   their name (`mcp.oauth.consent`, then the usual `mcp.query.execute` and
   `mcp.tool.call` rows).
 - Scope `read` is the default. Scope `write` (draft creation in CH-UI) is only
-  granted to the admin and analyst roles.
+  granted to the admin and analyst roles. Scope `actions` (run models, start
+  and stop pipelines, run schedules and reports now) is only valid together
+  with `write`, is listed separately on the consent screen, and is checked
+  against the person's role on every request like `write`: a demotion removes
+  both at once.
 - Access tokens last one hour and are refreshed silently by the client for up
   to 30 days of use. Each refresh token works once: of two requests racing
   with the same token, one gets new tokens and the other `invalid_grant`.
@@ -167,8 +171,8 @@ The admin page for the server shows:
   Claude Code, Cursor, VS Code and a generic client.
 - One table of **API keys** and one of **OAuth grants**, with search and a
   toggle to show revoked entries. Rotate or revoke from the row.
-- **New key**: pick the connection, ClickHouse user, scope, database allowlist
-  and expiry. After you create the key, the form turns into a one-time reveal
+- **New key**: pick the connection, ClickHouse user, scope, the lifecycle
+  actions opt-in (read + write keys only), database allowlist and expiry. After you create the key, the form turns into a one-time reveal
   with the snippets already filled in.
 
 ## What a key is
@@ -216,12 +220,25 @@ tools that create CH-UI entities (saved queries, dashboards, draft models and
 pipelines) in CH-UI's own store. It never lets the AI write ClickHouse data,
 and a read key never even sees the write tools.
 
+A read + write key can also be given **lifecycle actions**, a separate
+opt-in that is off by default (and off for every key created before it
+existed). It adds tools that run existing work now: `run_model`,
+`start_pipeline`, `stop_pipeline`, and on Pro `run_schedule_now` and
+`run_saved_report_now`. Models and scheduled jobs run with the key's own
+ClickHouse user and its grants, without `readonly = 1` for the build itself
+but with the usual time limits; if that user lacks a grant the run fails with
+a message saying so. Pipelines and reports run with their own stored
+credentials, as they do from the UI. The key list shows an `actions` badge on
+keys that have it.
+
 ## Tools
 
 Every tool carries a title and the MCP annotations clients use to decide
 whether to ask you before calling it: read tools are `readOnlyHint: true`,
 the write-scope tools are `readOnlyHint: false, destructiveHint: false`
-(they only ever add drafts).
+(they only ever add drafts). Of the action tools, `run_model` and
+`run_schedule_now` are `destructiveHint: true` (a build can replace a table,
+a saved query can be any statement); none of them is idempotent.
 
 | Tool | What it does |
 |---|---|
@@ -243,6 +260,12 @@ the write-scope tools are `readOnlyHint: false, destructiveHint: false`
 | `create_dashboard` (write scope) | Dashboard with SQL panels, laid out automatically |
 | `create_model` (write scope) | Draft SQL model (view or table, `$ref()` supported) |
 | `create_pipeline` (write scope) | Draft pipeline: a Kafka, webhook, database or S3 source wired to a ClickHouse sink |
+| `get_model_run` | A model run by `run_id` with per-model status, timing, test results and errors, or a model's current status and latest result by `model` |
+| `pipeline_status` | A pipeline's status, last error, dead-letter rows, live throughput while running, and recent runs (`runs`, default 5, max 50). Refused when its sink writes outside the allowlist |
+| `run_model` (actions) | Builds a model now as the key's ClickHouse user. A view is replaced; a table model (or any model with `full_refresh`) is rebuilt and swapped in, and the previous table and its rows are dropped. Only objects the model created are replaced. `scope` only (default), upstream or downstream; `full_refresh`. Refused when any selected model builds into, or reads from, a database outside the allowlist |
+| `start_pipeline` / `stop_pipeline` (actions) | Starts or stops a pipeline on this connection. Pipelines with a SQLite source can only be started by an admin from the UI |
+| `run_schedule_now` (actions, Pro) | Runs a scheduled job's saved query once, now, as the key's ClickHouse user. Refused for keys with a database allowlist |
+| `run_saved_report_now` (actions, Pro) | Runs one of your own reports on this connection and delivers it to its channels. OAuth sign-ins only: reports belong to people, so API keys are refused. Also refused for keys with a database allowlist |
 | `query_insights_top` (Pro) | Top query patterns by p95 latency, memory or frequency. Refused for keys with a database allowlist |
 | `costs_summary` (Pro) | Cost Center spend summary with your configured rates. Refused for keys with a database allowlist |
 | `search_traces` (Pro) | Traces of a traces source in a time range: root span and service, duration, span and error counts. Filters `service`, `operation`, `min_duration_ms`, `errors_only` and a search. `limit` (default 50, max 500), `cursor` |
@@ -359,6 +382,12 @@ the user confirms; a decline returns a plain "nothing was written" result
 and is audited as `mcp.write.declined`. Clients on older protocol versions,
 or without elicitation support, get no prompt and the write runs as before,
 so the `read_write` scope on the key remains the control there.
+
+Action tools go through the same confirmation with a prompt that names what
+runs, for example `Run model "daily" (view in analytics) in ClickHouse now as
+user "mcp_runner"?`, and every action is audited (`model.run`,
+`pipeline.started`, `pipeline.stopped`, `schedule.manual_run`,
+`report.sent_manual`) under the key.
 
 ## Behind a reverse proxy
 

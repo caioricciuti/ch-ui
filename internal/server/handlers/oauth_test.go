@@ -18,6 +18,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/database/dbtest"
 	"github.com/caioricciuti/ch-ui/internal/mcpserver"
+	"github.com/caioricciuti/ch-ui/internal/models"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
@@ -69,7 +70,8 @@ func oauthRig(t *testing.T) (*chi.Mux, *database.DB, string) {
 		})
 		h.ConsentRoutes(cr)
 	})
-	r.Handle("/mcp", mcpserver.Handler(mcpserver.Deps{DB: db, Gateway: tunnel.NewGateway(db), Config: cfg}))
+	gw := tunnel.NewGateway(db)
+	r.Handle("/mcp", mcpserver.Handler(mcpserver.Deps{DB: db, Gateway: gw, Config: cfg, ModelRunner: models.NewRunner(db, gw, cfg.AppSecretKey)}))
 	return r, db, connID
 }
 
@@ -257,6 +259,12 @@ func TestOAuthAuthorizeRejections(t *testing.T) {
 	if !strings.Contains(rec.Header().Get("Location"), "error=invalid_scope") {
 		t.Errorf("unknown scope: %s", rec.Header().Get("Location"))
 	}
+	// actions without write
+	q.Set("scope", "read actions")
+	rec = do(t, r, "GET", "/oauth/authorize?"+q.Encode(), "", false)
+	if !strings.Contains(rec.Header().Get("Location"), "error=invalid_scope") {
+		t.Errorf("actions without write: %s", rec.Header().Get("Location"))
+	}
 	// DCR rejects non-loopback http and confidential clients
 	if rec := do(t, r, "POST", "/oauth/register", `{"redirect_uris":["http://app.example/cb"]}`, false); rec.Code != http.StatusBadRequest {
 		t.Errorf("http redirect: want 400, got %d", rec.Code)
@@ -398,6 +406,12 @@ func TestClaimRefreshTokenOnlyOnce(t *testing.T) {
 // "read write" and returns the token response and the client id.
 func oauthWriteGrant(t *testing.T, r http.Handler) (access, refresh, clientID string) {
 	t.Helper()
+	return oauthGrant(t, r, "read write")
+}
+
+// oauthGrant is oauthWriteGrant for any scope the consent accepts.
+func oauthGrant(t *testing.T, r http.Handler, scope string) (access, refresh, clientID string) {
+	t.Helper()
 	rec := do(t, r, "POST", "/oauth/register", `{"client_name":"Claude","redirect_uris":["https://claude.ai/cb"]}`, false)
 	var reg struct {
 		ClientID string `json:"client_id"`
@@ -407,7 +421,7 @@ func oauthWriteGrant(t *testing.T, r http.Handler) (access, refresh, clientID st
 	sum := sha256.Sum256([]byte(verifier))
 	q := url.Values{
 		"response_type": {"code"}, "client_id": {reg.ClientID}, "redirect_uri": {"https://claude.ai/cb"},
-		"code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "code_challenge_method": {"S256"}, "scope": {"read write"},
+		"code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "code_challenge_method": {"S256"}, "scope": {scope},
 	}
 	rec = do(t, r, "GET", "/oauth/authorize?"+q.Encode(), "", false)
 	loc, _ := url.Parse(rec.Header().Get("Location"))
@@ -428,7 +442,7 @@ func oauthWriteGrant(t *testing.T, r http.Handler) (access, refresh, clientID st
 		Scope        string `json:"scope"`
 	}
 	json.Unmarshal(rec.Body.Bytes(), &tok)
-	if rec.Code != http.StatusOK || tok.Scope != "read write" {
+	if rec.Code != http.StatusOK || tok.Scope != scope {
 		t.Fatalf("token: %d %s", rec.Code, rec.Body.String())
 	}
 	return tok.AccessToken, tok.RefreshToken, reg.ClientID
@@ -536,5 +550,45 @@ func TestOAuthWriteScopeWithoutLiveSession(t *testing.T) {
 	}
 	if !strings.Contains(mcpToolList(t, r, tok.AccessToken), `"save_query"`) {
 		t.Fatal("signing in again as analyst should bring the write tools back")
+	}
+}
+
+// The actions scope adds the lifecycle tools on top of write. The consent
+// screen lists it, and a demotion takes it away with write on the live
+// token and for good on refresh.
+func TestOAuthActionsScopeFollowsRole(t *testing.T) {
+	r, db, _ := oauthRig(t)
+	plain, _, _ := oauthWriteGrant(t, r)
+	if strings.Contains(mcpToolList(t, r, plain), `"run_model"`) {
+		t.Fatal("write scope alone must not bring run_model")
+	}
+
+	access, refresh, clientID := oauthGrant(t, r, "read write actions")
+	k, err := db.GetMCPKeyByHash(mcpserver.HashKey(access))
+	if err != nil || k == nil || k.Scopes != "read_write" || !k.AllowActions {
+		t.Fatalf("actions grant key: %+v %v", k, err)
+	}
+	if !strings.Contains(mcpToolList(t, r, access), `"run_model"`) {
+		t.Fatal("analyst with actions scope should see run_model")
+	}
+
+	if err := db.SetUserRole("sso:alice@example.com", "", "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(mcpToolList(t, r, access), `"run_model"`) {
+		t.Fatal("demoted person must lose the action tools on the live token")
+	}
+	rf := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refresh}, "client_id": {clientID}}
+	rec := do(t, r, "POST", "/oauth/token", rf.Encode(), true)
+	var tok struct {
+		AccessToken string `json:"access_token"`
+		Scope       string `json:"scope"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &tok)
+	if rec.Code != http.StatusOK || tok.Scope != "read" {
+		t.Fatalf("refresh after demotion: %d %s", rec.Code, rec.Body.String())
+	}
+	if k, _ := db.GetMCPKeyByHash(mcpserver.HashKey(tok.AccessToken)); k == nil || k.AllowActions {
+		t.Fatalf("refreshed key must not carry actions: %+v", k)
 	}
 }
