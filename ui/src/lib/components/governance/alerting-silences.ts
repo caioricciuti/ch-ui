@@ -5,6 +5,7 @@ import { HEALTH_CHECK_LABELS, nodeLabel, type BadgeTone } from './alerting-forma
 export interface Option {
   value: string
   label: string
+  description?: string
 }
 
 /** Event types a rule or a silence can match. */
@@ -27,11 +28,23 @@ export const EVENT_TYPE_OPTIONS: Option[] = [
   { value: 'report.disabled', label: 'Report disabled' },
   { value: 'report.*', label: 'All report events' },
   { value: 'access.drift', label: 'Access changed outside CH-UI' },
+  { value: 'ingest.stalled', label: 'Ingest stalled', description: 'A running ingest or webhook pipeline that received data before got nothing for its stall threshold (15 minutes by default). Resolves when data arrives.' },
+  { value: 'ingest.spool_backlog', label: 'Ingest spool backlog', description: "A pipeline's spooled data is older than 5 minutes, or the whole spool is above 80% of its cap (critical above 95%). Resolves when it drains." },
+  { value: 'ingest.rejecting', label: 'Ingest rejecting requests', description: 'A pipeline rejected more than 10% of requests in 5 minutes for quota, rate limit, size, malformed data or a full spool. Wrong keys are not counted.' },
+  { value: 'ingest.auth_failures', label: 'Ingest auth failures', description: 'Info: a pipeline refused more than 300 requests with a missing or wrong key in 5 minutes.' },
+  { value: 'ingest.*', label: 'All ingest events' },
+  { value: 'pipeline.sink_failing', label: 'Pipeline sink failing', description: 'A running pipeline cannot write to ClickHouse and keeps retrying. Resolves after a write succeeds.' },
+  { value: 'pipeline.*', label: 'All pipeline events' },
   { value: '*', label: 'All events' },
 ]
 
 export function eventTypeLabel(v: string): string {
   return EVENT_TYPE_OPTIONS.find((o) => o.value === v)?.label ?? v
+}
+
+/** What an event type means, for the rule editor; '' when it needs no words. */
+export function eventTypeDescription(v: string): string {
+  return EVENT_TYPE_OPTIONS.find((o) => o.value === v)?.description ?? ''
 }
 
 export const SILENCE_DURATION_OPTIONS: Option[] = [

@@ -25,6 +25,11 @@ These event types are emitted automatically:
 | `health.summary` | worst of the batch | More than 20 health check changes on one connection in one poll; the rest are folded into this one event |
 | `sql.alert` | alert severity (`warn` when disabled) | A [SQL alert](#sql-alerts) fires or resolves, or turns itself off after 5 failed runs |
 | `access.drift` | `warn` (outside change) or `error` (mixed apply) | [Access history](/docs/rbac#access-history) records a new snapshot with drift, or the access state returns to where it was before the drift (resolves). See [Access drift](#access-drift) |
+| `ingest.stalled` | `warn` | A running [ingest](/docs/ingest) or webhook pipeline that received data before got nothing for its stall threshold (15 minutes by default), or data arrives again (resolves). See [Ingest and pipeline alerts](#ingest-and-pipeline-alerts) |
+| `ingest.spool_backlog` | `warn`, `critical` for a full spool | A pipeline's oldest spooled data is older than 5 minutes, or the whole spool is above 80% of its cap (`critical` above 95%), or it drains (resolves) |
+| `ingest.rejecting` | `warn`, `error` at 50% | A pipeline rejected more than 10% of its requests in the last 5 minutes for quota, rate limit, size, malformed data or a full spool, or the rate drops (resolves) |
+| `ingest.auth_failures` | `info` | A pipeline refused 300 or more requests with a missing or wrong key in the last 5 minutes, or the rate drops (resolves) |
+| `pipeline.sink_failing` | `error` | A running pipeline (any source) failed to write to ClickHouse 3 times in a row and keeps retrying, or a write succeeds again (resolves) |
 
 So yes, **schedules alert out of the box**: every failed run emits a `schedule.failed` event with the schedule name, run ID, elapsed time, and error in the payload. You only need a rule and a channel to receive it.
 
@@ -95,7 +100,7 @@ The generic body:
 }
 ```
 
-`link` points at the alert events page (Access history for `access.drift`) and is built from `APP_URL`.
+`link` points at the alert events page (Access history for `access.drift`, the pipeline for `ingest.*` and `pipeline.*`) and is built from `APP_URL`.
 
 Outbound protection: by default CH-UI refuses a webhook URL whose host is, or resolves to, a loopback, private, link-local or multicast address. The check runs on the address actually dialed, so a hostname that later resolves somewhere internal is still refused. Redirects are not followed, proxies from the environment are not used, and each request times out after 15 seconds. A non-2xx response counts as a failed attempt and is retried like any other delivery. Only admins can create or edit channels, so turning on `allow_private_network` (for an internal Mattermost, say) is an admin decision.
 
@@ -112,7 +117,7 @@ Rules decide which events become email, and where it goes:
 | Field | Default | Description |
 | --- | --- | --- |
 | Name | None | Rule identifier (required) |
-| `event_type` | None | Any event type above, a prefix wildcard (`health.*` for every health check, `sql.*` for every SQL alert), or `*` (everything, `any` also accepted) |
+| `event_type` | None | Any event type above, a prefix wildcard (`health.*` for every health check, `sql.*` for every SQL alert, `ingest.*` for every ingest alert, `pipeline.*`), or `*` (everything, `any` also accepted) |
 | `severity_min` | None | Only match events at or above this severity |
 | `enabled` | `true` | Toggle |
 | `cooldown_seconds` | `300` | Deduplication window: the same event fingerprint won't be re-sent to the same channel within this window |
@@ -122,7 +127,7 @@ Rules decide which events become email, and where it goes:
 | `channels[]` | None | One or more channel bindings, each with `channel_id`, `recipients` (email addresses; empty for webhook channels), and `is_active` |
 | `connection_ids` | all | Limit the rule to events of these connections. Empty or `null` means every connection. Events without a connection (most policy and some schedule events) only match rules without a connection list. Ids are checked on save; the rule sheet flags a connection that was deleted later |
 
-Available template variables: `{{event_type}}`, `{{severity}}`, `{{title}}`, `{{message}}`, `{{payload_json}}`, `{{channel_name}}`, `{{channel_type}}`, `{{created_at}}`, `{{event_id}}`, `{{rule_name}}`, `{{link}}`. `{{link}}` is the CH-UI page the event is about (Access history for `access.drift`, the alert events page otherwise), built from `APP_URL` like the webhook `link`; it is empty when no app URL is set. Leave the templates empty for a sensible default (`[CH-UI][ERROR][schedule.failed] …` subject, plain-text body with the event details, an `Open in CH-UI: <url>` line when an app URL is set, and the payload). Templates shape email only; webhooks always send the event fields.
+Available template variables: `{{event_type}}`, `{{severity}}`, `{{title}}`, `{{message}}`, `{{payload_json}}`, `{{channel_name}}`, `{{channel_type}}`, `{{created_at}}`, `{{event_id}}`, `{{rule_name}}`, `{{link}}`. `{{link}}` is the CH-UI page the event is about (Access history for `access.drift`, the pipeline for `ingest.*` and `pipeline.*`, the alert events page otherwise), built from `APP_URL` like the webhook `link`; it is empty when no app URL is set. Leave the templates empty for a sensible default (`[CH-UI][ERROR][schedule.failed] …` subject, plain-text body with the event details, an `Open in CH-UI: <url>` line when an app URL is set, and the payload). Templates shape email only; webhooks always send the event fields.
 
 A good starter rule: `event_type: *`, `severity_min: error`, one channel, your on-call address. Widen from there.
 
@@ -165,6 +170,25 @@ Audit actions: `alerts.silence.created`, `.updated`, `.expired`, `alerts.inciden
 When [Access history](/docs/rbac#access-history) stores a new snapshot marked **Outside change** or **Mixed**, an `access.drift` event is raised for that connection. A seen-again snapshot never raises one. The payload carries the connection name, the source (`view`, `sync`, `manual`, `apply`, `revert`), the actor, the ClickHouse user, the `added` / `removed` / `changed` counts, up to 20 changed entities (for a mixed apply, the ones its operations do not explain) with `entities_total`, and the snapshot `hash`.
 
 One incident covers the drift on a connection (`alert_key` `access:<connection id>`). Further drift while it is open is another firing event of the same incident; a mixed apply after an outside change escalates it to `error`. A snapshot of the same drifted state (another ClickHouse user reading it, say) does not fire again. The incident resolves when a complete snapshot shows the state from before the first drift again, for example after **Revert to this state**. Leaving the change in place keeps the incident open. To stop hearing about further drift on that connection, add a [silence](#silences-and-acknowledgements) for the connection and alert type `access.drift`, or acknowledge the incident. Admins see each open drift incident at the top of **Governance → Alerts** (one row per connection: severity, first seen, latest change, a link to Access history) with an **Acknowledge** action; the same rows come back from `GET /api/governance/alerts/firing` with `source` `drift`. Only admins acknowledge drift or remove a drift acknowledgement (others get 403), and non-admins do not see drift incidents at all. The ack holds back further drift of that incident until it resolves, escalates to a mixed apply, or expires. The fingerprint is `access:<connection id>:drift:<hash>`, so the cooldown holds back the same state, not a new one.
+
+## Ingest and pipeline alerts
+
+The pipeline runner checks its running pipelines every 30 seconds from in-memory counters (the same ones as the [live counters](/docs/ingest#live-counters)) and the spool. It runs no ClickHouse queries, and does nothing while no pipeline runs.
+
+| Alert | Fires | Resolves |
+| --- | --- | --- |
+| `ingest.stalled` | A running `source_ingest` or `source_webhook` pipeline that received data before (in this process, or rows written by an earlier run) has had no request for **Stall alert (minutes)** in its source settings. Default 15, `0` turns it off | On the next request, when the pipeline stops, or when the setting is turned off |
+| `ingest.spool_backlog` (pipeline) | The oldest data in the pipeline's spool is 5 minutes old: the sink is behind or failing | After two checks in a row below 5 minutes |
+| `ingest.spool_backlog` (spool) | The whole spool is above 80% of its cap (`warn`), escalating to `critical` above 95%. One instance-wide incident without a connection, so only rules without a connection scope get it | After two checks in a row below 80% |
+| `ingest.rejecting` | More than 10% of the pipeline's requests in the last 5 minutes were rejected for quota, rate limit, too large, malformed or spool full, out of at least 20 requests. `error` from 50% | After two checks in a row at or below 10% |
+| `ingest.auth_failures` | 300 or more requests with a missing or wrong key in the last 5 minutes (about one a second). Kept apart from `ingest.rejecting` so scanners do not page anyone | After two checks in a row below that |
+| `pipeline.sink_failing` | A running pipeline's ClickHouse write failed 3 times in a row (the source is paused while it retries), with the last error in the message | After the next successful write |
+
+Each alert is one incident per pipeline (`alert_key` `pipeline:<pipeline id>:<kind>`, the spool one `ingest:spool`) that fires once, escalates if its severity rises, and resolves once; it is not repeated every check. Events carry the pipeline name and id, the numbers (quiet time, spool bytes and age, rejected and total requests, the error), `since`, and `link_path` `/pipelines/<id>`, so email, webhook, Slack and Teams links open the pipeline. The `source_ref` is `pipeline:<pipeline id>` (`ingest:spool` for the spool), so a silence can pick one pipeline. An open incident of a pipeline that stops or is deleted resolves with "no longer running".
+
+A restart does not reopen or flood: the runner reads the incidents left open, keeps a stall open until data arrives, and gives pipelines 2 minutes to resume before it resolves incidents of pipelines that did not. Rates restart from the next check.
+
+Open pipeline incidents are listed for every role at the top of **Governance → Alerts** with an **Open pipeline** link, and admins and analysts acknowledge them there; `GET /api/governance/alerts/firing` returns them with `source` `ingest`.
 
 ## Events history
 
@@ -240,7 +264,7 @@ Health checks and SQL alerts keep an evaluation history: a row on every state ch
 | `GET` / `POST /api/governance/alerts/silences` | List / create silences (`POST` is admin only) |
 | `PUT /api/governance/alerts/silences/{id}` | Update a silence that has not ended (admin) |
 | `POST /api/governance/alerts/silences/{id}/expire` | End a silence now (admin) |
-| `GET /api/governance/alerts/firing` | Open health check and SQL alert incidents, and for admins open access drift incidents, with their acknowledgement |
+| `GET /api/governance/alerts/firing` | Open health check, SQL alert and pipeline incidents, and for admins open access drift incidents, with their acknowledgement |
 | `POST /api/governance/alerts/acks` | Acknowledge the incident of an event: `{event_id, comment, expires_in}` (seconds; admin and analyst, `access.drift` admin only) |
 | `DELETE /api/governance/alerts/acks/{id}` | Remove an acknowledgement (admin and analyst, access drift admin only) |
 | `GET` / `PUT /api/alerting/health/settings` | Health check thresholds of the session connection (`PUT` is admin only) |

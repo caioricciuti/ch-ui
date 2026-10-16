@@ -46,8 +46,13 @@ and `otel_traces`.
 | TTL days | Used when the sink creates a logs or traces table. `0` keeps data forever. Rows already older than the TTL are dropped by ClickHouse on insert |
 | Rate limit (requests/s) | Per key. `0` means 200 |
 | Daily quota (MB) | Per pipeline, counted on the decompressed request bodies, resets at 00:00 UTC. `0` means unlimited |
+| Stall alert (minutes) | Raise `ingest.stalled` when the pipeline received data before and then gets nothing for this long. Default 15, `0` turns it off. Webhook sources have it too |
 
 The rate limit and quota are kept in memory, so a restart refills them.
+
+## Alerts
+
+Ingest problems become [alert events](/docs/alerts#ingest-and-pipeline-alerts), so a rule on `ingest.*` sends them to email, Slack, Teams or a webhook: `ingest.stalled` (no data for the stall threshold), `ingest.spool_backlog` (spooled data older than 5 minutes, or the spool above 80% of its cap), `ingest.rejecting` (more than 10% of requests rejected in 5 minutes, not counting wrong keys), `ingest.auth_failures` (many wrong keys) and `pipeline.sink_failing` (ClickHouse writes keep failing). Each opens one incident, links to the pipeline, and resolves on its own.
 
 ## Ingest keys
 

@@ -118,6 +118,14 @@ func (h *Hub) DropStream(pipelineID string) error {
 	return h.sp.DropStream(pipelineID)
 }
 
+// SpoolTotal reports the unacked data of every stream.
+func (h *Hub) SpoolTotal() spool.Stats {
+	if !h.Available() {
+		return spool.Stats{}
+	}
+	return h.sp.TotalStats()
+}
+
 // Close closes the spool. Call it after the runner stopped.
 func (h *Hub) Close() error {
 	if !h.Available() {
@@ -142,6 +150,7 @@ type IngestStats struct {
 	WrittenRows    atomic.Int64
 	WrittenBatches atomic.Int64
 	lastWriteNs    atomic.Int64
+	lastAcceptNs   atomic.Int64
 
 	rateMu sync.Mutex
 	rate   [rateWindow]rateBucket
@@ -160,6 +169,7 @@ func (s *IngestStats) Accepted(records, bytes int64, now time.Time) {
 	s.Requests.Add(1)
 	s.Records.Add(records)
 	s.Bytes.Add(bytes)
+	s.lastAcceptNs.Store(now.UnixNano())
 	sec := now.Unix()
 	s.rateMu.Lock()
 	b := &s.rate[sec%rateWindow]
@@ -169,6 +179,22 @@ func (s *IngestStats) Accepted(records, bytes int64, now time.Time) {
 	b.records += records
 	b.bytes += bytes
 	s.rateMu.Unlock()
+}
+
+// LastAccepted is when a request was last spooled, zero before the first
+// one since process start.
+func (s *IngestStats) LastAccepted() time.Time {
+	if ns := s.lastAcceptNs.Load(); ns > 0 {
+		return time.Unix(0, ns)
+	}
+	return time.Time{}
+}
+
+// RejectedOther sums the rejections other than auth: quota, rate limit,
+// too large, malformed and spool full.
+func (s *IngestStats) RejectedOther() int64 {
+	return s.RejectedRateLimit.Load() + s.RejectedQuota.Load() + s.RejectedTooLarge.Load() +
+		s.RejectedMalformed.Load() + s.RejectedSpoolFull.Load()
 }
 
 // Written counts one batch inserted into ClickHouse.

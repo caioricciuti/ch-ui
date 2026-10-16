@@ -49,6 +49,12 @@ type RunningPipeline struct {
 	// writeHealth reports sink write failures of every sink.
 	writeHealth *Health
 
+	// watch is what the ingest alert watcher needs to know about the run;
+	// watchReady is set once the run's health exists, and orders the
+	// fields before it for the watcher.
+	watch      runWatch
+	watchReady atomic.Bool
+
 	// userStopped is set by an explicit StopPipeline; shutdown by Runner.Stop.
 	// They decide the status written when the run ends.
 	userStopped atomic.Bool
@@ -74,6 +80,10 @@ type Runner struct {
 	// proAccess reports the license state for Pro transforms; tests
 	// replace it.
 	proAccess func() config.ProAccess
+
+	// alerts turns the running pipelines' counters into alert events.
+	alerts     *ingestWatch
+	alertsStop chan struct{}
 }
 
 // NewRunner creates a new pipeline runner.
@@ -85,6 +95,7 @@ func NewRunner(db *database.DB, gw *tunnel.Gateway, cfg *config.Config) *Runner 
 		pipelines: make(map[string]*RunningPipeline),
 		newSource: NewSource,
 	}
+	r.alerts = newIngestWatch(r)
 	r.newSink = func() SinkConnector { return NewClickHouseSink(r.gateway, r.db, r.cfg.AppSecretKey) }
 	r.proAccess = func() config.ProAccess {
 		if r.cfg == nil {
@@ -117,6 +128,7 @@ func (r *Runner) DropSpool(pipelineID string) error { return r.Hub().DropStream(
 // Start resumes any pipelines that were in "running" status: after a crash
 // and after a graceful shutdown, which leaves their status untouched.
 func (r *Runner) Start() {
+	r.startAlerts()
 	go func() {
 		pipelines, err := r.db.GetPipelinesByStatus("running")
 		if err != nil {
@@ -148,6 +160,10 @@ var errShuttingDown = errors.New("pipeline runner is shutting down")
 func (r *Runner) Stop() {
 	r.mu.Lock()
 	r.stopping = true
+	if r.alertsStop != nil {
+		close(r.alertsStop)
+		r.alertsStop = nil
+	}
 	running := make([]*RunningPipeline, 0, len(r.pipelines))
 	for _, rp := range r.pipelines {
 		running = append(running, rp)
@@ -217,6 +233,7 @@ func (r *Runner) StartPipeline(pipelineID string) error {
 		return err
 	}
 	rp.specs, rp.chain, rp.route, rp.sinks = p.specs, p.chain, p.route, p.sinks
+	rp.watch = newRunWatch(p)
 
 	runID, err := r.db.CreatePipelineRun(pipelineID, "running")
 	if err != nil {
@@ -247,6 +264,7 @@ func (r *Runner) StartPipeline(pipelineID string) error {
 
 // preparedPipeline is a validated pipeline ready to run.
 type preparedPipeline struct {
+	pipeline  *database.Pipeline
 	source    SourceConnector
 	sourceCfg ConnectorConfig
 	specs     []transform.NodeSpec
@@ -299,7 +317,7 @@ func (r *Runner) prepare(pipelineID string) (*preparedPipeline, error) {
 	}
 
 	opts := TransformOptions(sourceCfg.NodeType, sourceCfg.Fields)
-	p := &preparedPipeline{source: source, sourceCfg: sourceCfg}
+	p := &preparedPipeline{pipeline: pipeline, source: source, sourceCfg: sourceCfg}
 	shared, err := transformSpecs(g.Shared)
 	if err != nil {
 		return nil, err
@@ -454,6 +472,7 @@ func (r *Runner) runPipeline(ctx context.Context, rp *RunningPipeline, source So
 	for _, sp := range rp.sinks {
 		sp.cfg.Health = rp.writeHealth
 	}
+	rp.watchReady.Store(true)
 	runErr := r.execute(ctx, rp, source, sourceCfg)
 	r.finalize(rp, runErr)
 }

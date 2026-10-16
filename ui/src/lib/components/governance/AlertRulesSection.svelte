@@ -10,7 +10,7 @@
   } from '../../api/alerts'
   import { listConnections } from '../../api/auth'
   import type { Connection } from '../../types/api'
-  import { EVENT_TYPE_OPTIONS as eventTypeOptions, eventTypeLabel as eventLabel } from './alerting-silences'
+  import { EVENT_TYPE_OPTIONS as eventTypeOptions, eventTypeDescription, eventTypeLabel as eventLabel } from './alerting-silences'
   import { isWebhook, severityTone } from './alerting-admin'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import Button from '../common/Button.svelte'
@@ -289,7 +289,7 @@
       <Input id="rule-name" placeholder="Critical policy violations" bind:value={ruleForm.name} required />
     </FormField>
     <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-      <FormField label="Event" for="rule-event">
+      <FormField label="Event" for="rule-event" hint={eventTypeDescription(ruleForm.event_type) || undefined}>
         <Select id="rule-event" options={eventTypeOptions} bind:value={ruleForm.event_type} />
       </FormField>
       <FormField label="Minimum severity" for="rule-sev" hint="Events below this are ignored.">
