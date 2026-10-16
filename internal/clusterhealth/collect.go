@@ -178,6 +178,22 @@ func CollectSamples(exec ExecFunc, cluster string, longQueryThreshold int, captu
 	return out, fanOutErr
 }
 
+// LiveSummary collects the per-node rollup behind the cluster health page.
+// When the fan-out fails outright it retries on the local node and lists
+// the other nodes as unknown (not down: they could not be asked); degraded
+// reports that fallback. err is the fan-out failure CollectSamples
+// returned when the fallback did not help either.
+func LiveSummary(exec ExecFunc, cluster string, longQueryThreshold int, capturedAt string) (col Collection, degraded bool, err error) {
+	col, err = CollectSamples(exec, cluster, longQueryThreshold, capturedAt)
+	if err != nil && cluster != "" {
+		if c2, err2 := CollectSamples(exec, "", longQueryThreshold, capturedAt); err2 == nil {
+			c2.Samples = FlagMissingNodes(exec, cluster, c2.Samples, capturedAt, false)
+			return c2, true, nil
+		}
+	}
+	return col, false, err
+}
+
 // FlagMissingNodes compares the nodes that answered against the cluster's
 // definition in system.clusters and appends a sample for every node that did
 // not answer, with all metrics unknown. down=true marks them Down (the

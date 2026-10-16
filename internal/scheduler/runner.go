@@ -291,12 +291,7 @@ func (r *Runner) runSchedule(schedule database.Schedule) {
 		return
 	}
 
-	// Determine connection ID
-	if schedule.ConnectionID != nil && *schedule.ConnectionID != "" {
-		connectionID = *schedule.ConnectionID
-	} else if savedQuery.ConnectionID != nil && *savedQuery.ConnectionID != "" {
-		connectionID = *savedQuery.ConnectionID
-	}
+	connectionID = ConnectionFor(&schedule, savedQuery)
 
 	if connectionID == "" {
 		status = "error"
@@ -333,6 +328,18 @@ func (r *Runner) runSchedule(schedule database.Schedule) {
 	}
 
 	rowCount = countRows(result)
+}
+
+// ConnectionFor returns the connection a job runs on: its own, else its
+// saved query's. "" when neither names one; savedQuery may be nil.
+func ConnectionFor(schedule *database.Schedule, savedQuery *database.SavedQuery) string {
+	if schedule.ConnectionID != nil && *schedule.ConnectionID != "" {
+		return *schedule.ConnectionID
+	}
+	if savedQuery != nil && savedQuery.ConnectionID != nil && *savedQuery.ConnectionID != "" {
+		return *savedQuery.ConnectionID
+	}
+	return ""
 }
 
 func nullableConnectionID(connectionID string) *string {

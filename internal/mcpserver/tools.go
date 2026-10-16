@@ -330,6 +330,7 @@ func recordQuery(deps Deps, ak *authedKey, sql, status, errMsg string, elapsed t
 			ElapsedMS:    elapsed.Milliseconds(),
 			RowsReturned: rows,
 			Source:       "mcp",
+			MCPKeyID:     ak.key.ID,
 		})
 		user := ak.actor()
 		chUser := ak.key.CHUser

@@ -286,7 +286,7 @@ func BaseURL(r *http.Request, cfg *config.Config) string {
 // serverInstructions is sent to the client at initialize/discover time. It is
 // the one place to tell the model how to work with this server well; keep it
 // short, clients prepend it to the system prompt.
-const serverInstructions = `CH-UI exposes one ClickHouse connection. Work schema-first: search_catalog finds tables, columns, saved queries and dashboards by name or comment; then describe_table (sorting key, sample rows, size) before writing SQL, and use the sorting key in WHERE clauses to avoid full scans. Prefer run_saved_query when a verified saved query answers the question. Call estimate_query before querying a large table and pass max_bytes to run_select when the scan is big. run_select is read-only, capped at 100 rows by default (max_rows up to 2000) and 60 seconds; aggregate or add LIMIT rather than paging through raw rows. Use explain_query before running an expensive query on a large table. ClickHouse SQL specifics: use toDate/toStartOfHour for time bucketing, uniq()/uniqExact() for distinct counts, and backticks for identifiers; there is no implicit type coercion between String and numbers. Unless this key has the actions permission, tools with readOnlyHint=false only create drafts in CH-UI (saved queries, dashboards, models, pipelines); nothing they create runs against ClickHouse until a human reviews it in the UI. With it, action tools (run_model, start_pipeline, stop_pipeline, run_schedule_now, run_saved_report_now) run existing work now: name the exact target to the user before calling one.`
+const serverInstructions = `CH-UI exposes one ClickHouse connection. Work schema-first: search_catalog finds tables, columns, saved queries and dashboards by name or comment; then describe_table (sorting key, sample rows, size) before writing SQL, and use the sorting key in WHERE clauses to avoid full scans. Prefer run_saved_query when a verified saved query answers the question. Call estimate_query before querying a large table and pass max_bytes to run_select when the scan is big. run_select is read-only, capped at 100 rows by default (max_rows up to 2000) and 60 seconds; aggregate or add LIMIT rather than paging through raw rows. Use explain_query before running an expensive query on a large table. ClickHouse SQL specifics: use toDate/toStartOfHour for time bucketing, uniq()/uniqExact() for distinct counts, and backticks for identifiers; there is no implicit type coercion between String and numbers. Unless this key has the actions permission, tools with readOnlyHint=false only create drafts in CH-UI (saved queries, dashboards, models, pipelines); nothing they create runs against ClickHouse until a human reviews it in the UI. With it, action tools (run_model, start_pipeline, stop_pipeline, run_schedule_now, run_saved_report_now) run existing work now: name the exact target to the user before calling one. query_history shows the queries this client already ran, so check it before repeating one. To check operational state, call firing_alerts first, then alert_events for history and cluster_health for live node metrics.`
 
 // auditToolCalls writes one audit row per tools/call so every tool, not just
 // run_select, is attributable to a key. run_select keeps its own richer
@@ -337,6 +337,7 @@ func buildServer(deps Deps, ak *authedKey) *mcp.Server {
 	registerCatalogTools(srv, deps, ak)
 	registerListTools(srv, deps, ak)
 	registerActionStatusTools(srv, deps, ak)
+	registerHistoryTools(srv, deps, ak)
 	if ak.canWrite() {
 		registerWriteTools(srv, deps, ak)
 	}
@@ -345,6 +346,7 @@ func buildServer(deps Deps, ak *authedKey) *mcp.Server {
 	}
 	if deps.Config != nil && deps.Config.IsPro() {
 		registerProTools(srv, deps, ak)
+		registerOpsTools(srv, deps, ak)
 	}
 	return srv
 }

@@ -611,9 +611,6 @@ func (h *GovernanceHandler) DeleteAlertRule(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
-// adminOnlyAlertEventTypes are left out of the event list for non-admins.
-var adminOnlyAlertEventTypes = []string{alerts.EventTypePolicyViolation, alerts.EventTypeAccessDrift}
-
 func (h *GovernanceHandler) ListAlertEvents(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
@@ -628,7 +625,7 @@ func (h *GovernanceHandler) ListAlertEvents(w http.ResponseWriter, r *http.Reque
 	// read them.
 	var exclude []string
 	if session := middleware.GetSession(r); session == nil || session.UserRole != "admin" {
-		exclude = adminOnlyAlertEventTypes
+		exclude = alerts.AdminOnlyEventTypes
 	}
 	events, err := h.DB.ListAlertEventsExcept(limit, eventType, status, exclude)
 	if err != nil {
