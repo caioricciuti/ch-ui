@@ -6,6 +6,7 @@
 package scheduler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -320,7 +321,10 @@ func (r *Runner) runSchedule(schedule database.Schedule) {
 		timeout = 60 * time.Second
 	}
 
-	result, execErr := r.gateway.ExecuteQuery(connectionID, savedQuery.Query, user, password, timeout)
+	// Tag the run for system.query_log: the schedule and the person who
+	// owns it, since the connection's account may be shared.
+	ctx := tunnel.WithTag(context.Background(), tunnel.QueryTag{Surface: "schedule", Person: derefString(schedule.CreatedBy)}.WithObject("schedule", schedule.ID))
+	result, execErr := r.gateway.ExecuteQueryWithSettingsCtx(ctx, connectionID, savedQuery.Query, user, password, nil, timeout)
 	if execErr != nil {
 		status = "error"
 		runError = execErr.Error()
@@ -340,6 +344,13 @@ func ConnectionFor(schedule *database.Schedule, savedQuery *database.SavedQuery)
 		return *savedQuery.ConnectionID
 	}
 	return ""
+}
+
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func nullableConnectionID(connectionID string) *string {

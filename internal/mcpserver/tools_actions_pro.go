@@ -104,7 +104,7 @@ func registerProActionTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		if res := confirmWrite(deps, ak, req, msg); res != nil {
 			return res, nil, nil
 		}
-		out := scheduler.RunNow(deps.DB, deps.Gateway, &s, query.Query, ak.key.ConnectionID, ak.key.CHUser, ak.chPassword)
+		out := scheduler.RunNow(ctx, deps.DB, deps.Gateway, &s, query.Query, ak.key.ConnectionID, ak.key.CHUser, ak.chPassword)
 		audit(deps, ak, "schedule.manual_run", fmt.Sprintf("mcp key: %s, schedule: %s, status=%s elapsed=%dms", ak.key.Name, s.Name, out.Status, out.ElapsedMs))
 		res := map[string]any{"run_id": out.RunID, "schedule": s.Name, "status": out.Status, "rows": out.Rows, "elapsed_ms": out.ElapsedMs}
 		if out.Status == "error" {

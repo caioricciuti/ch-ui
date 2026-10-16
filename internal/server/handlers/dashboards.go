@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"container/list"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -1313,7 +1314,7 @@ func (h *DashboardsHandler) ExecutePanelQuery(w http.ResponseWriter, r *http.Req
 	}
 
 	start := time.Now()
-	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(r.Context(), session.ConnectionID, query, session.ClickhouseUser, password, panelQuerySettings(), timeout)
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(tunnel.WithObjectTag(r.Context(), "dash", body.DashboardID), session.ConnectionID, query, session.ClickhouseUser, password, panelQuerySettings(), timeout)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -1635,7 +1636,16 @@ var publicQuerySettings = map[string]string{
 	"max_result_bytes":        "33554432",
 	"result_overflow_mode":    "break",
 	"date_time_output_format": "iso",
-	"log_comment":             "ch-ui:public-dashboard",
+}
+
+// publicShareContext is the query context for a public dashboard share: not
+// the viewer's request, and tagged with the person who created the share.
+func publicShareContext(share *database.DashboardShare) context.Context {
+	owner := ""
+	if share.CreatedBy != nil {
+		owner = *share.CreatedBy
+	}
+	return tunnel.WithTag(context.Background(), tunnel.QueryTag{Surface: "public_dashboard", Person: owner}.WithObject("dash", share.DashboardID))
 }
 
 // resolvePublicShare loads the share behind the URL token and checks expiry
@@ -1846,8 +1856,9 @@ func (h *DashboardsHandler) runPublicPanel(r *http.Request, share *database.Dash
 	}
 
 	// Not bound to this request's context: concurrent viewers may be waiting
-	// on the same result.
-	result, qErr := h.Gateway.ExecuteQueryWithSettings(share.ConnectionID, query, share.ClickhouseUser, password, publicQuerySettings, 35*time.Second)
+	// on the same result. Tagged with the share's owner and dashboard, since
+	// the viewer is anonymous.
+	result, qErr := h.Gateway.ExecuteQueryWithSettingsCtx(publicShareContext(share), share.ConnectionID, query, share.ClickhouseUser, password, publicQuerySettings, 35*time.Second)
 	if qErr != nil {
 		// ClickHouse errors can quote the SQL, which a share link never sees.
 		slog.Warn("Public panel query failed", "error", qErr, "dashboard", share.DashboardID)

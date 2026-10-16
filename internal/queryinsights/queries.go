@@ -30,6 +30,9 @@ type Filters struct {
 	// ExcludeLogComments hides queries tagged with any of these log_comment
 	// values, on top of this package's own tag (Brain hides its own reads).
 	ExcludeLogComments []string
+	// ExcludeLogCommentPrefixes hides queries whose log_comment starts with
+	// any of these, for the JSON tags (tunnel.LogCommentPrefix).
+	ExcludeLogCommentPrefixes []string
 }
 
 var allowedQueryKinds = map[string]bool{
@@ -78,6 +81,9 @@ func (f Filters) clauses() string {
 			quoted = append(quoted, "'"+escapeString(c)+"'")
 		}
 		fmt.Fprintf(&b, "\n  AND log_comment NOT IN (%s)", strings.Join(quoted, ", "))
+	}
+	for _, p := range f.ExcludeLogCommentPrefixes {
+		fmt.Fprintf(&b, "\n  AND NOT startsWith(log_comment, '%s')", escapeString(p))
 	}
 	return b.String()
 }

@@ -6,6 +6,7 @@
 package sqlalerts
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -47,7 +48,7 @@ type Credentials struct {
 
 // Executor runs SQL on a connection; satisfied by *tunnel.Gateway.
 type Executor interface {
-	ExecuteQueryWithSettings(connectionID, sql, user, password string, settings map[string]string, timeout time.Duration) (*tunnel.QueryResult, error)
+	ExecuteQueryWithSettingsCtx(ctx context.Context, connectionID, sql, user, password string, settings map[string]string, timeout time.Duration) (*tunnel.QueryResult, error)
 	IsTunnelOnline(connectionID string) bool
 }
 
@@ -257,7 +258,9 @@ type TestResult struct {
 
 // Run executes an alert query once: guardrails, the wrapped SQL with the
 // fixed settings, then extraction and the comparison. Nothing is stored.
-func (r *Runner) Run(connectionID string, c Credentials, sql, mode, comparator string, threshold float64, timeoutSeconds int) (TestResult, error) {
+// ctx carries the query tag written to system.query_log and any
+// cancellation the caller has.
+func (r *Runner) Run(ctx context.Context, connectionID string, c Credentials, sql, mode, comparator string, threshold float64, timeoutSeconds int) (TestResult, error) {
 	start := time.Now()
 	var out TestResult
 	clean, err := ValidateSQL(sql)
@@ -281,7 +284,7 @@ func (r *Runner) Run(connectionID string, c Credentials, sql, mode, comparator s
 		}
 	}
 	timeout := time.Duration(timeoutSeconds) * time.Second
-	res, err := r.exec.ExecuteQueryWithSettings(connectionID, WrapSQL(clean), c.User, c.Password, QuerySettings(timeoutSeconds), timeout+queryGrace)
+	res, err := r.exec.ExecuteQueryWithSettingsCtx(ctx, connectionID, WrapSQL(clean), c.User, c.Password, QuerySettings(timeoutSeconds), timeout+queryGrace)
 	out.DurationMs = time.Since(start).Milliseconds()
 	if err != nil {
 		return out, fmt.Errorf("query failed: %w", err)
@@ -295,6 +298,16 @@ func (r *Runner) Run(connectionID string, c Credentials, sql, mode, comparator s
 	out.Value = &v
 	out.Firing = monitor.Compare(comparator, v, threshold)
 	return out, nil
+}
+
+// QueryTag names an alert's queries in system.query_log: the alert and the
+// person who created it, since the sql_alert account is shared.
+func QueryTag(a *database.SQLAlert) tunnel.QueryTag {
+	tag := tunnel.QueryTag{Surface: "sql_alert"}
+	if a.CreatedBy != nil {
+		tag.Person = *a.CreatedBy
+	}
+	return tag.WithObject("alert", a.ID)
 }
 
 // Outcome is the result of Evaluate.
@@ -311,7 +324,8 @@ type Outcome struct {
 // was in flight, the outcome is dropped and no event is raised.
 func (r *Runner) Evaluate(a *database.SQLAlert, c Credentials) (Outcome, error) {
 	now := time.Now()
-	res, runErr := r.Run(a.ConnectionID, c, a.SQL, a.Mode, a.Comparator, a.Threshold, a.TimeoutSeconds)
+	ctx := tunnel.WithTag(context.Background(), QueryTag(a))
+	res, runErr := r.Run(ctx, a.ConnectionID, c, a.SQL, a.Mode, a.Comparator, a.Threshold, a.TimeoutSeconds)
 	out := Outcome{TestResult: res, State: a.State}
 	if runErr != nil {
 		msg := runErr.Error()

@@ -536,9 +536,11 @@ already covers them. Two things matter:
 
 ## Notes and troubleshooting
 
-- MCP queries carry `log_comment = 'ch-ui:mcp'`, so you can slice them in
-  `system.query_log`. They show up in [Query Insights](/docs/query-insights)
-  like any other workload.
+- MCP queries carry the `mcp` [query tag](/docs/query-insights#query-tags) in
+  `log_comment`, naming the person behind an OAuth token (or the admin who
+  created an API key) and the key: `{"chui":"mcp","person":"ana@example.com","object":"mcp_key:…"}`.
+  They show up in [Query Insights](/docs/query-insights) like any other
+  workload.
 - The connection's agent must be online; tools return a clear "offline" error
   otherwise.
 - Pro tools appear only when a Pro license is active.

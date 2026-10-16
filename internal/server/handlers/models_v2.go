@@ -129,11 +129,11 @@ func (h *ModelsHandler) Preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sql := models.PreviewSQL(resolved, previewRowLimit)
-	res, err := h.Gateway.ExecuteQueryWithSettings(session.ConnectionID, sql, session.ClickhouseUser, password, map[string]string{
-		"readonly":                                "1",
-		"max_execution_time":                      "30",
-		"max_result_rows":                         fmt.Sprint(previewRowLimit),
-		"result_overflow_mode":                    "break",
+	res, err := h.Gateway.ExecuteQueryWithSettingsCtx(r.Context(), session.ConnectionID, sql, session.ClickhouseUser, password, map[string]string{
+		"readonly":             "1",
+		"max_execution_time":   "30",
+		"max_result_rows":      fmt.Sprint(previewRowLimit),
+		"result_overflow_mode": "break",
 		"output_format_json_quote_64bit_integers": "0",
 	}, 35*time.Second)
 	if err != nil {

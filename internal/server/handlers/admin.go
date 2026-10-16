@@ -208,11 +208,13 @@ func (h *AdminHandler) fetchCurrentClickHouseUsers(r *http.Request) (map[string]
 		return nil, fmt.Errorf("decrypt credentials: %w", err)
 	}
 
-	result, err := h.Gateway.ExecuteQuery(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		"SELECT name FROM system.users ORDER BY name FORMAT JSON",
 		session.ClickhouseUser,
 		password,
+		nil,
 		20*time.Second,
 	)
 	if err != nil {
@@ -572,11 +574,13 @@ func (h *AdminHandler) GetClickHouseUsers(w http.ResponseWriter, r *http.Request
 
 	query := "SELECT name, storage, auth_type, host_ip, host_names, default_roles_all, default_roles_list, default_roles_except FROM system.users ORDER BY name FORMAT JSON"
 
-	result, err := h.Gateway.ExecuteQuery(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		query,
 		session.ClickhouseUser,
 		password,
+		nil,
 		30*time.Second,
 	)
 	if err != nil {
@@ -661,7 +665,7 @@ func (h *AdminHandler) CreateClickHouseUser(w http.ResponseWriter, r *http.Reque
 	shownCreateSQL := maskChUserPassword(createSQLStr, body.Password)
 	executedCommands := []string{shownCreateSQL}
 
-	if _, err := h.Gateway.ExecuteQuery(session.ConnectionID, createSQLStr, session.ClickhouseUser, password, 30*time.Second); err != nil {
+	if _, err := h.Gateway.ExecuteQueryWithSettingsCtx(r.Context(), session.ConnectionID, createSQLStr, session.ClickhouseUser, password, nil, 30*time.Second); err != nil {
 		if isAccessEntityExistsError(err) {
 			writeError(w, http.StatusConflict, fmt.Sprintf("ClickHouse user %q already exists", name))
 			return
@@ -681,7 +685,7 @@ func (h *AdminHandler) CreateClickHouseUser(w http.ResponseWriter, r *http.Reque
 	if len(escapedRoles) > 0 {
 		grantSQL := "GRANT " + strings.Join(escapedRoles, ", ") + " TO " + safe.Identifier(name)
 		executedCommands = append(executedCommands, grantSQL)
-		if _, err := h.Gateway.ExecuteQuery(session.ConnectionID, grantSQL, session.ClickhouseUser, password, 30*time.Second); err != nil {
+		if _, err := h.Gateway.ExecuteQueryWithSettingsCtx(r.Context(), session.ConnectionID, grantSQL, session.ClickhouseUser, password, nil, 30*time.Second); err != nil {
 			slog.Warn("ClickHouse user created but role grant failed", "error", err, "connection", session.ConnectionID, "name", name)
 			writeError(w, http.StatusBadGateway, fmt.Sprintf("user created but failed to grant roles: %v\n\nCommand:\n%s", err, grantSQL))
 			return
@@ -695,7 +699,7 @@ func (h *AdminHandler) CreateClickHouseUser(w http.ResponseWriter, r *http.Reque
 		}
 		alterSQL := "ALTER USER " + safe.Identifier(name) + " DEFAULT ROLE " + defaultRoleClause
 		executedCommands = append(executedCommands, alterSQL)
-		if _, err := h.Gateway.ExecuteQuery(session.ConnectionID, alterSQL, session.ClickhouseUser, password, 30*time.Second); err != nil {
+		if _, err := h.Gateway.ExecuteQueryWithSettingsCtx(r.Context(), session.ConnectionID, alterSQL, session.ClickhouseUser, password, nil, 30*time.Second); err != nil {
 			slog.Warn("ClickHouse user created but default role assignment failed", "error", err, "connection", session.ConnectionID, "name", name)
 			writeError(w, http.StatusBadGateway, fmt.Sprintf("user created but failed to set default role: %v\n\nCommand:\n%s", err, alterSQL))
 			return
@@ -780,7 +784,7 @@ func (h *AdminHandler) UpdateClickHouseUserPassword(w http.ResponseWriter, r *ht
 	b.WriteString(buildClickHouseAlterAuthClause(authType, body.Password))
 	shownSQL := maskChUserPassword(b.String(), body.Password)
 
-	if _, err := h.Gateway.ExecuteQuery(session.ConnectionID, b.String(), session.ClickhouseUser, password, 30*time.Second); err != nil {
+	if _, err := h.Gateway.ExecuteQueryWithSettingsCtx(r.Context(), session.ConnectionID, b.String(), session.ClickhouseUser, password, nil, 30*time.Second); err != nil {
 		errText := maskChUserPassword(err.Error(), body.Password)
 		slog.Warn("Failed to update ClickHouse user password", "error", errText, "connection", session.ConnectionID, "name", username)
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("%s\n\nCommand:\n%s", errText, shownSQL))
@@ -901,7 +905,7 @@ func (h *AdminHandler) DeleteClickHouseUser(w http.ResponseWriter, r *http.Reque
 	}
 	sql += safe.Identifier(username)
 
-	if _, err := h.Gateway.ExecuteQuery(session.ConnectionID, sql, session.ClickhouseUser, password, 30*time.Second); err != nil {
+	if _, err := h.Gateway.ExecuteQueryWithSettingsCtx(r.Context(), session.ConnectionID, sql, session.ClickhouseUser, password, nil, 30*time.Second); err != nil {
 		slog.Warn("Failed to delete ClickHouse user", "error", err, "connection", session.ConnectionID, "name", username)
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("%s\n\nCommand:\n%s", err.Error(), sql))
 		return

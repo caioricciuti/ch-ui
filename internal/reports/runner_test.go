@@ -34,16 +34,19 @@ type fakeExec struct {
 	calls    []string
 	settings []map[string]string
 	users    []string
+	tags     []tunnel.QueryTag // the query tag on each call's context
 	result   *tunnel.QueryResult
 	err      error
 }
 
-func (f *fakeExec) ExecuteQueryWithSettingsCtx(_ context.Context, _, sql, user, _ string, settings map[string]string, _ time.Duration) (*tunnel.QueryResult, error) {
+func (f *fakeExec) ExecuteQueryWithSettingsCtx(ctx context.Context, _, sql, user, _ string, settings map[string]string, _ time.Duration) (*tunnel.QueryResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	tag, _ := tunnel.TagFrom(ctx)
 	f.calls = append(f.calls, sql)
 	f.settings = append(f.settings, settings)
 	f.users = append(f.users, user)
+	f.tags = append(f.tags, tag)
 	return f.result, f.err
 }
 
@@ -210,10 +213,16 @@ func TestTickFollowsLicenseAndSkipsMissedSlots(t *testing.T) {
 		t.Fatalf("active run: %d queries, %d sends", f.exec.count(), len(f.send.sent))
 	}
 	settings := f.exec.settings[0]
-	for k, v := range map[string]string{"readonly": "1", "result_overflow_mode": "break", "log_comment": LogComment, "param_x": "1", "max_result_rows": "1001", "max_execution_time": "60"} {
+	for k, v := range map[string]string{"readonly": "1", "result_overflow_mode": "break", "param_x": "1", "max_result_rows": "1001", "max_execution_time": "60"} {
 		if settings[k] != v {
 			t.Errorf("setting %s = %q, want %q", k, settings[k], v)
 		}
+	}
+	if _, set := settings["log_comment"]; set {
+		t.Errorf("log_comment set in settings %v; the query tag on the context carries it", settings)
+	}
+	if want := (tunnel.QueryTag{Surface: "report", Object: "report:" + f.sub.ID}); f.exec.tags[0] != want {
+		t.Errorf("query tag %+v, want %+v", f.exec.tags[0], want)
 	}
 	if !strings.Contains(f.exec.calls[0], "LIMIT 1001") || f.exec.users[0] != "reporter" {
 		t.Fatalf("query %q as %q", f.exec.calls[0], f.exec.users[0])

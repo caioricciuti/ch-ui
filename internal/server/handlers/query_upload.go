@@ -3,6 +3,7 @@ package handlers
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -181,11 +182,13 @@ func (h *QueryHandler) IngestUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		createTableSQL = sql
 
-		if _, err := h.Gateway.ExecuteQuery(
+		if _, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+			r.Context(),
 			session.ConnectionID,
 			sql,
 			session.ClickhouseUser,
 			password,
+			nil,
 			45*time.Second,
 		); err != nil {
 			writeError(w, http.StatusBadGateway, fmt.Sprintf("%s\n\nCreate table command:\n%s", err.Error(), truncateUploadCommand(sql, 3000)))
@@ -194,7 +197,7 @@ func (h *QueryHandler) IngestUpload(w http.ResponseWriter, r *http.Request) {
 		createdTable = true
 	}
 
-	insertColumns, err := h.resolveInsertColumns(session, password, dbName, tableName, columns, createTable)
+	insertColumns, err := h.resolveInsertColumns(r.Context(), session, password, dbName, tableName, columns, createTable)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -204,7 +207,7 @@ func (h *QueryHandler) IngestUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rowsInserted, insertPreviewSQL, err := h.insertJSONEachRowBatches(session, password, dbName, tableName, insertColumns, dataset.Rows)
+	rowsInserted, insertPreviewSQL, err := h.insertJSONEachRowBatches(r.Context(), session, password, dbName, tableName, insertColumns, dataset.Rows)
 	if err != nil {
 		message := err.Error()
 		if insertPreviewSQL != "" {
@@ -970,6 +973,7 @@ func buildCreateTableSQL(req createTableRequest) (string, error) {
 }
 
 func (h *QueryHandler) resolveInsertColumns(
+	ctx context.Context,
 	session *middleware.SessionInfo,
 	password string,
 	databaseName string,
@@ -996,11 +1000,13 @@ func (h *QueryHandler) resolveInsertColumns(
 		return cols, nil
 	}
 
-	result, err := h.Gateway.ExecuteQuery(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		ctx,
 		session.ConnectionID,
 		fmt.Sprintf("DESCRIBE TABLE %s.%s", safe.Identifier(databaseName), safe.Identifier(tableName)),
 		session.ClickhouseUser,
 		password,
+		nil,
 		20*time.Second,
 	)
 	if err != nil {
@@ -1073,6 +1079,7 @@ func (h *QueryHandler) resolveInsertColumns(
 }
 
 func (h *QueryHandler) insertJSONEachRowBatches(
+	ctx context.Context,
 	session *middleware.SessionInfo,
 	password string,
 	databaseName string,
@@ -1103,11 +1110,13 @@ func (h *QueryHandler) insertJSONEachRowBatches(
 			insertPreview = query
 		}
 
-		if _, err := h.Gateway.ExecuteQuery(
+		if _, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+			ctx,
 			session.ConnectionID,
 			query,
 			session.ClickhouseUser,
 			password,
+			nil,
 			90*time.Second,
 		); err != nil {
 			return inserted, insertPreview, fmt.Errorf("insert failed after %d rows: %s", inserted, humanizeUploadInsertError(err.Error()))

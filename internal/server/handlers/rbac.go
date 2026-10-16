@@ -66,8 +66,8 @@ type sessionExecutor struct {
 	user, pass string
 }
 
-func (e sessionExecutor) Query(_ context.Context, sql string, settings map[string]string) ([]map[string]any, error) {
-	res, err := e.gw.ExecuteQueryWithSettings(e.connID, sql, e.user, e.pass, settings, rbacQueryTimeout)
+func (e sessionExecutor) Query(ctx context.Context, sql string, settings map[string]string) ([]map[string]any, error) {
+	res, err := e.gw.ExecuteQueryWithSettingsCtx(ctx, e.connID, sql, e.user, e.pass, settings, rbacQueryTimeout)
 	if err != nil {
 		return nil, err
 	}

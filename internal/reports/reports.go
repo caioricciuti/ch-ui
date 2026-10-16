@@ -29,8 +29,6 @@ const (
 	Worker = "report"
 	// GuardrailEndpoint names report queries to the governance guardrails.
 	GuardrailEndpoint = "report"
-	// LogComment tags every report query in system.query_log.
-	LogComment = "ch-ui:report"
 
 	SourceSavedQuery = "saved_query"
 	SourceDashboard  = "dashboard"

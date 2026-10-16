@@ -137,8 +137,9 @@ func TestBackgroundAccountExecution(t *testing.T) {
 	if err != nil || a.State != alerts.StateOK || a.LastValue == nil || *a.LastValue != 1 || a.ErrorCount != 0 {
 		t.Fatalf("alert result: %+v %v", a, err)
 	}
+	wantTag := tunnel.QueryTag{Surface: "sql_alert"}.WithObject("alert", id).LogComment()
 	for _, msg := range agent.Messages() {
-		if msg.Type == "query" && (msg.Settings["readonly"] != "1" || msg.Settings["log_comment"] != LogComment || !strings.HasSuffix(msg.SQL, ") LIMIT 101")) {
+		if msg.Type == "query" && (msg.Settings["readonly"] != "1" || msg.Settings["log_comment"] != wantTag || !strings.HasSuffix(msg.SQL, ") LIMIT 101")) {
 			t.Fatalf("query not bounded: %q %v", msg.SQL, msg.Settings)
 		}
 	}
@@ -262,11 +263,11 @@ func TestLiveRun(t *testing.T) {
 	}
 	c := Credentials{User: user, Password: os.Getenv("CHUI_TEST_CLICKHOUSE_PASSWORD")}
 
-	res, err := r.Run(conn, c, "SELECT count() AS parts FROM system.parts", "value", "gte", 0, 10)
+	res, err := r.Run(context.Background(), conn, c, "SELECT count() AS parts FROM system.parts", "value", "gte", 0, 10)
 	if err != nil || res.Value == nil || !res.Firing || res.Rows != 1 {
 		t.Fatalf("count over system.parts: %+v %v", res, err)
 	}
-	res, err = r.Run(conn, c, "SELECT number FROM system.numbers LIMIT 500", "rows", "gt", 100, 10)
+	res, err = r.Run(context.Background(), conn, c, "SELECT number FROM system.numbers LIMIT 500", "rows", "gt", 100, 10)
 	if err != nil || res.Rows != RowLimit || !res.Firing || len(res.Preview) != PreviewRows {
 		t.Fatalf("rows capped at %d: %+v %v", RowLimit, res, err)
 	}
@@ -280,12 +281,12 @@ func TestLiveRun(t *testing.T) {
 	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "readonly") {
 		t.Fatalf("ALTER under readonly=1: %v", err)
 	}
-	if _, err := r.Run(conn, c, "ALTER TABLE default."+table+" DELETE WHERE 1", "value", "gt", 0, 10); err == nil {
+	if _, err := r.Run(context.Background(), conn, c, "ALTER TABLE default."+table+" DELETE WHERE 1", "value", "gt", 0, 10); err == nil {
 		t.Fatal("ALTER passed validation")
 	}
 
 	start := time.Now()
-	_, err = r.Run(conn, c, "SELECT sleep(3) AS s", "value", "gt", 0, 1)
+	_, err = r.Run(context.Background(), conn, c, "SELECT sleep(3) AS s", "value", "gt", 0, 1)
 	if err == nil {
 		t.Fatal("sleep(3) with a 1 s timeout succeeded")
 	}

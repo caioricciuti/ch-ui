@@ -318,7 +318,8 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 
 	// Execute query via tunnel, forwarding any bind parameters.
 	start := time.Now()
-	result, err := h.Gateway.ExecuteQueryWithSettings(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		query,
 		session.ClickhouseUser,
@@ -425,7 +426,8 @@ func (h *QueryHandler) formatWithClickHouse(r *http.Request, query string) (stri
 	settings := buildParamSettings(params)
 	settings["log_queries"] = "0"
 
-	result, err := h.Gateway.ExecuteQueryWithSettings(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		"SELECT "+strings.Join(cols, ", "),
 		session.ClickhouseUser,
@@ -505,7 +507,8 @@ func (h *QueryHandler) ExplainQuery(w http.ResponseWriter, r *http.Request) {
 		explainSQL = "EXPLAIN " + query
 	}
 
-	result, err := h.Gateway.ExecuteQueryWithSettings(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		explainSQL,
 		session.ClickhouseUser,
@@ -573,7 +576,8 @@ func (h *QueryHandler) QueryPlan(w http.ResponseWriter, r *http.Request) {
 
 	var lastErr error
 	for _, candidate := range candidates {
-		result, execErr := h.Gateway.ExecuteQueryWithSettings(
+		result, execErr := h.Gateway.ExecuteQueryWithSettingsCtx(
+			r.Context(),
 			session.ConnectionID,
 			candidate.sql,
 			session.ClickhouseUser,
@@ -644,7 +648,8 @@ func (h *QueryHandler) EstimateQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.Gateway.ExecuteQueryWithSettings(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		"EXPLAIN ESTIMATE "+stripTrailingSemicolon(query),
 		session.ClickhouseUser,
@@ -798,7 +803,8 @@ func (h *QueryHandler) SampleQuery(w http.ResponseWriter, r *http.Request) {
 
 	paramSettings := buildParamSettings(req.Params)
 	start := time.Now()
-	result, runErr := h.Gateway.ExecuteQueryWithSettings(
+	result, runErr := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		perShardSQL,
 		session.ClickhouseUser,
@@ -820,7 +826,8 @@ func (h *QueryHandler) SampleQuery(w http.ResponseWriter, r *http.Request) {
 		)
 
 		start = time.Now()
-		result, runErr = h.Gateway.ExecuteQueryWithSettings(
+		result, runErr = h.Gateway.ExecuteQueryWithSettingsCtx(
+			r.Context(),
 			session.ConnectionID,
 			fallbackSQL,
 			session.ClickhouseUser,
@@ -1011,6 +1018,8 @@ func (h *QueryHandler) StreamQuery(w http.ResponseWriter, r *http.Request) {
 	for k, v := range buildParamSettings(req.Params) {
 		settings[k] = v
 	}
+
+	settings = tunnel.TagSettings(r.Context(), settings)
 
 	var (
 		requestID string
@@ -1310,7 +1319,8 @@ func (h *QueryHandler) ExplorerData(w http.ResponseWriter, r *http.Request) {
 	countSQL := fmt.Sprintf("SELECT count() FROM %s.%s", safe.Identifier(req.Database), safe.Identifier(req.Table))
 
 	// Execute data query (JSONCompact — positional arrays, smaller payload)
-	dataRaw, err := h.Gateway.ExecuteQueryWithFormat(
+	dataRaw, err := h.Gateway.ExecuteQueryWithFormatCtx(
+		r.Context(),
 		session.ConnectionID, dataSQL, session.ClickhouseUser, password, "JSONCompact", 30*time.Second,
 	)
 	if err != nil {
@@ -1319,7 +1329,8 @@ func (h *QueryHandler) ExplorerData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Execute count query
-	countRaw, err := h.Gateway.ExecuteQueryWithFormat(
+	countRaw, err := h.Gateway.ExecuteQueryWithFormatCtx(
+		r.Context(),
 		session.ConnectionID, countSQL, session.ClickhouseUser, password, "JSONCompact", 30*time.Second,
 	)
 	if err != nil {
@@ -1380,11 +1391,13 @@ func (h *QueryHandler) ListDatabases(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.Gateway.ExecuteQuery(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		"SHOW DATABASES",
 		session.ClickhouseUser,
 		password,
+		nil,
 		30*time.Second,
 	)
 	if err != nil {
@@ -1424,11 +1437,13 @@ func (h *QueryHandler) ListTables(w http.ResponseWriter, r *http.Request) {
 
 	query := fmt.Sprintf("SELECT name, engine FROM system.tables WHERE database = '%s' ORDER BY name", safe.Literal(db))
 
-	result, err := h.Gateway.ExecuteQuery(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		query,
 		session.ClickhouseUser,
 		password,
+		nil,
 		30*time.Second,
 	)
 	if err != nil {
@@ -1486,11 +1501,13 @@ func (h *QueryHandler) ListColumns(w http.ResponseWriter, r *http.Request) {
 
 	query := fmt.Sprintf("DESCRIBE TABLE %s.%s", safe.Identifier(dbName), safe.Identifier(table))
 
-	result, err := h.Gateway.ExecuteQuery(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		query,
 		session.ClickhouseUser,
 		password,
+		nil,
 		30*time.Second,
 	)
 	if err != nil {
@@ -1521,21 +1538,25 @@ func (h *QueryHandler) ListDataTypes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.Gateway.ExecuteQuery(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		"SELECT name FROM system.data_type_families WHERE is_parametric = 0 ORDER BY name",
 		session.ClickhouseUser,
 		password,
+		nil,
 		15*time.Second,
 	)
 	if err != nil {
 		// Fallback for older ClickHouse versions where is_parametric might not exist.
 		slog.Warn("Failed to list non-parametric data types; trying fallback query", "error", err, "connection", session.ConnectionID)
-		result, err = h.Gateway.ExecuteQuery(
+		result, err = h.Gateway.ExecuteQueryWithSettingsCtx(
+			r.Context(),
 			session.ConnectionID,
 			"SELECT name FROM system.data_type_families ORDER BY name",
 			session.ClickhouseUser,
 			password,
+			nil,
 			15*time.Second,
 		)
 		if err != nil {
@@ -1585,11 +1606,13 @@ func (h *QueryHandler) ListClusters(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.Gateway.ExecuteQuery(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		"SELECT DISTINCT cluster FROM system.clusters WHERE cluster != '' ORDER BY cluster",
 		session.ClickhouseUser,
 		password,
+		nil,
 		15*time.Second,
 	)
 	if err != nil {
@@ -1636,11 +1659,13 @@ FROM system.clusters
 WHERE cluster != ''
 ORDER BY cluster, shard_num, replica_num`
 
-	result, err := h.Gateway.ExecuteQuery(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		clusterQuery,
 		session.ClickhouseUser,
 		password,
+		nil,
 		15*time.Second,
 	)
 	if err != nil {
@@ -1736,11 +1761,13 @@ func (h *QueryHandler) GetNodeInfo(w http.ResponseWriter, r *http.Request) {
   uptime() AS uptime_seconds,
   currentDatabase() AS current_database`
 
-	result, err := h.Gateway.ExecuteQuery(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		nodeQuery,
 		session.ClickhouseUser,
 		password,
+		nil,
 		10*time.Second,
 	)
 	if err != nil {
@@ -1821,11 +1848,13 @@ func (h *QueryHandler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 	sqlBuilder.WriteString(engine)
 
 	sql := sqlBuilder.String()
-	if _, err := h.Gateway.ExecuteQuery(
+	if _, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		sql,
 		session.ClickhouseUser,
 		password,
+		nil,
 		45*time.Second,
 	); err != nil {
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("%s\n\nCommand:\n%s", err.Error(), sql))
@@ -1899,11 +1928,13 @@ func (h *QueryHandler) DropDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sql := sqlBuilder.String()
-	if _, err := h.Gateway.ExecuteQuery(
+	if _, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		sql,
 		session.ClickhouseUser,
 		password,
+		nil,
 		45*time.Second,
 	); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
@@ -2087,11 +2118,13 @@ func (h *QueryHandler) CreateTable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sql := sqlBuilder.String()
-	if _, err := h.Gateway.ExecuteQuery(
+	if _, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		sql,
 		session.ClickhouseUser,
 		password,
+		nil,
 		45*time.Second,
 	); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
@@ -2175,11 +2208,13 @@ func (h *QueryHandler) DropTable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sql := sqlBuilder.String()
-	if _, err := h.Gateway.ExecuteQuery(
+	if _, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		sql,
 		session.ClickhouseUser,
 		password,
+		nil,
 		45*time.Second,
 	); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
@@ -2245,11 +2280,13 @@ func (h *QueryHandler) ListCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch functions
-	fnResult, err := h.Gateway.ExecuteQuery(
+	fnResult, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		"SELECT name FROM system.functions",
 		session.ClickhouseUser,
 		password,
+		nil,
 		15*time.Second,
 	)
 
@@ -2259,11 +2296,13 @@ func (h *QueryHandler) ListCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch keywords
-	kwResult, err := h.Gateway.ExecuteQuery(
+	kwResult, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		r.Context(),
 		session.ConnectionID,
 		"SELECT keyword FROM system.keywords",
 		session.ClickhouseUser,
 		password,
+		nil,
 		15*time.Second,
 	)
 

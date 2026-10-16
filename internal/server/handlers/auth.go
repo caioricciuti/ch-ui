@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1245,10 +1246,12 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 // (tunnel offline, timeout) rather than the user's actual grants.
 func (h *AuthHandler) detectClickHouseRole(connectionID, username, password string) (role string, degraded bool) {
 	var err error
-	_, err = h.Gateway.ExecuteQuery(
+	_, err = h.Gateway.ExecuteQueryWithSettingsCtx(
+		context.Background(),
 		connectionID,
 		"SELECT 1 FROM system.users LIMIT 1",
 		username, password,
+		nil,
 		10*time.Second,
 	)
 	if err == nil {
@@ -1263,10 +1266,12 @@ func (h *AuthHandler) detectClickHouseRole(connectionID, username, password stri
 		return "viewer", true
 	}
 
-	result, err := h.Gateway.ExecuteQuery(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		context.Background(),
 		connectionID,
 		fmt.Sprintf("SELECT access_type FROM system.grants WHERE user_name = '%s'", escapeSingleQuotes(username)),
 		username, password,
+		nil,
 		10*time.Second,
 	)
 	if err != nil {

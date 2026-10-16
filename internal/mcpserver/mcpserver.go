@@ -67,6 +67,16 @@ type authedKey struct {
 	roleReadOnly bool
 }
 
+// queryTag is what this key's queries carry in log_comment: the person behind
+// an OAuth token, else the admin who created the API key, and the key itself.
+func (ak *authedKey) queryTag() tunnel.QueryTag {
+	person := ak.key.Subject
+	if person == "" {
+		person = ak.key.CreatedBy
+	}
+	return tunnel.QueryTag{Surface: "mcp", Person: person}.WithObject("mcp_key", ak.key.ID)
+}
+
 // canWrite reports whether the write tools are available to this request.
 func (ak *authedKey) canWrite() bool {
 	return ak.key.Scopes == "read_write" && !ak.roleReadOnly

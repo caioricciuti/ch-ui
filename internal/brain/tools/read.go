@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"regexp"
 	"strconv"
 	"strings"
@@ -249,9 +250,6 @@ func isReadOnly(sql string) bool {
 	return readOnlyRE.MatchString(sql)
 }
 
-// LogComment tags every Brain query in system.query_log.
-const LogComment = "ch-ui:brain"
-
 const (
 	// metaMaxRows caps Brain's own catalog lookups (system.tables etc.).
 	metaMaxRows = 10000
@@ -270,7 +268,6 @@ func readOnlySettings(maxRows int, timeout time.Duration) map[string]string {
 		"max_result_rows":      strconv.Itoa(maxRows),
 		"max_result_bytes":     strconv.Itoa(maxResultBytes),
 		"result_overflow_mode": "break",
-		"log_comment":          LogComment,
 	}
 }
 
@@ -288,12 +285,15 @@ func hasSettingsClause(sql string) bool {
 	return settingsClauseRE.MatchString(literalOrComment.ReplaceAllString(sql, " "))
 }
 
-// context returns the tool call's context, or Background when unset.
+// context returns the tool call's context, or Background when unset, tagged
+// so every Brain query lands in system.query_log as Brain's, for the person
+// chatting and the chat it came from.
 func (c Context) context() context.Context {
-	if c.Ctx != nil {
-		return c.Ctx
+	ctx := c.Ctx
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return context.Background()
+	return tunnel.WithTag(ctx, tunnel.QueryTag{Surface: "brain", Person: c.Username}.WithObject("chat", c.ChatID))
 }
 
 var (

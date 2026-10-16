@@ -496,7 +496,9 @@ func TestSinkWithoutPresetKeepsBehaviour(t *testing.T) {
 	if got := pa.sqls; len(got) != 1 || got[0] != "INSERT INTO `d`.`plain` FORMAT JSONEachRow\n{\"a\":1}\n" {
 		t.Fatalf("statements: %q", got)
 	}
-	if s := pa.inserts[0].Settings; len(s) != 1 || s["insert_deduplication_token"] != "tok" {
+	// The query tag is the only addition: a sink outside a run has no
+	// pipeline to point at.
+	if s := pa.inserts[0].Settings; len(s) != 2 || s["insert_deduplication_token"] != "tok" || s["log_comment"] != (tunnel.QueryTag{Surface: "pipeline"}).LogComment() {
 		t.Fatalf("settings: %v", s)
 	}
 

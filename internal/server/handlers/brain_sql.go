@@ -730,7 +730,6 @@ func (h *BrainHandler) buildSchemaContext(ctx context.Context, connID, chUser, c
 		res, err := h.Gateway.ExecuteQueryWithSettingsCtx(ctx, connID, sql, chUser, chPassword, map[string]string{
 			"readonly": "1", "max_execution_time": strconv.Itoa(int(timeout.Seconds())),
 			"max_result_rows": strconv.Itoa(maxRows), "result_overflow_mode": "break",
-			"log_comment": tools.LogComment,
 		}, timeout)
 		if err != nil || res == nil {
 			return nil

@@ -170,6 +170,7 @@ func (s *ClickHouseSink) WriteBatch(ctx context.Context, cfg ConnectorConfig, ba
 		return 0, fmt.Errorf("find credentials: %w", err)
 	}
 	t := sinkTarget{s: s, cfg: cfg, conn: connectionID, user: user, password: password, db: db, table: table}
+	ctx = queryCtx(ctx, pipelineIDOf(cfg))
 
 	preset := sinkPreset(cfg.Fields)
 	evolve := boolField(cfg.Fields, "add_new_columns", false) && !otelPreset(preset)
@@ -289,6 +290,23 @@ type sinkTarget struct {
 
 func (t sinkTarget) exec(ctx context.Context, sql string, settings map[string]string) (*tunnel.QueryResult, error) {
 	return t.s.gateway.ExecuteQueryWithSettingsCtx(ctx, t.conn, sql, t.user, t.password, settings, insertTimeout)
+}
+
+// pipelineIDOf is the id of the pipeline a sink config belongs to, set by
+// the runner at start; "" for a config outside a run (validation, checks).
+func pipelineIDOf(cfg ConnectorConfig) string {
+	return stringField(cfg.Fields, sinkPipelineID, "")
+}
+
+// queryCtx tags the sink's queries for system.query_log. A context the
+// caller already tagged (a person checking a sink from the UI) keeps its
+// surface and person and gains the pipeline as its object; a background
+// run is tagged as the pipeline's own work.
+func queryCtx(ctx context.Context, pipelineID string) context.Context {
+	if _, ok := tunnel.TagFrom(ctx); ok {
+		return tunnel.WithObjectTag(ctx, "pipeline", pipelineID)
+	}
+	return tunnel.WithTag(ctx, tunnel.QueryTag{Surface: "pipeline"}.WithObject("pipeline", pipelineID))
 }
 
 // jsonType reports whether the server has the JSON type, asking once per

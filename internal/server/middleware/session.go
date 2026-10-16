@@ -80,6 +80,10 @@ func Session(db *database.DB, _ *tunnel.Gateway) func(http.Handler) http.Handler
 			}
 
 			ctx := SetSession(r.Context(), info)
+			// Every query this request runs is tagged with the feature and the
+			// person, so system.query_log can tell people apart even when
+			// ClickHouse sees a shared account.
+			ctx = tunnel.WithTag(ctx, QueryTagFor(r.URL.Path, info))
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

@@ -60,6 +60,7 @@ func (g *Gateway) ExecuteQueryWithSettings(connectionID, sql, user, password str
 // the setting is dropped and the query retried: readonly=1 itself and bind
 // parameters are always accepted, and the profile already blocks writes.
 func (g *Gateway) ExecuteQueryWithSettingsCtx(ctx context.Context, connectionID, sql, user, password string, settings map[string]string, timeout time.Duration) (*QueryResult, error) {
+	settings = TagSettings(ctx, settings)
 	result, err := g.executeQuery(ctx, connectionID, sql, user, password, settings, timeout)
 	for attempt := 0; attempt < MaxRefusedSettings && err != nil; attempt++ {
 		name := DroppableRefusedSetting(err, sql, settings)
@@ -203,6 +204,12 @@ func (t *ConnectedTunnel) sendCancel(requestID string) {
 // The format parameter (e.g. "JSONCompact") is passed to the agent, which appends FORMAT <format> to the query.
 // Returns the raw ClickHouse response as-is (no intermediate parse/reserialize).
 func (g *Gateway) ExecuteQueryWithFormat(connectionID, sql, user, password, format string, timeout time.Duration) (json.RawMessage, error) {
+	return g.ExecuteQueryWithFormatCtx(context.Background(), connectionID, sql, user, password, format, timeout)
+}
+
+// ExecuteQueryWithFormatCtx is ExecuteQueryWithFormat carrying the context's
+// query tag (see WithTag) to ClickHouse as log_comment.
+func (g *Gateway) ExecuteQueryWithFormatCtx(ctx context.Context, connectionID, sql, user, password, format string, timeout time.Duration) (json.RawMessage, error) {
 	val, ok := g.tunnels.Load(connectionID)
 	if !ok {
 		return nil, errors.New("tunnel not connected")
@@ -226,6 +233,7 @@ func (g *Gateway) ExecuteQueryWithFormat(connectionID, sql, user, password, form
 		User:     user,
 		Password: password,
 		Format:   format,
+		Settings: TagSettings(ctx, nil),
 	}
 
 	err := t.sendJSON(msg)
@@ -258,6 +266,10 @@ func (g *Gateway) ExecuteQueryWithFormat(connectionID, sql, user, password, form
 // chunks still buffered, then reads stream.DoneCh or stream.ErrorCh.
 // Call CleanupStream when done to release resources; it also unblocks the
 // tunnel if the caller stopped reading early.
+//
+// Settings are sent as given: a caller that wants the context's query tag in
+// log_comment merges it with TagSettings first, so its readonly=1 retry can
+// drop the tag like any other setting.
 func (g *Gateway) ExecuteStreamQuery(connectionID, sql, user, password string, settings map[string]string) (requestID string, stream *PendingStreamRequest, err error) {
 	val, ok := g.tunnels.Load(connectionID)
 	if !ok {
@@ -299,6 +311,7 @@ var ErrExportUnsupported = errors.New("this connection's agent does not support 
 // stream.ChunkCh is a JSON string holding base64 bytes (decode with
 // DecodeExportChunk), DoneCh carries a StreamDone with the byte count. Call
 // CleanupStream when finished and CancelStreamQuery to stop it early.
+// Settings are sent as given; see ExecuteStreamQuery about the query tag.
 func (g *Gateway) ExecuteExportQuery(connectionID, sql, user, password, format string, settings map[string]string) (requestID string, stream *PendingStreamRequest, err error) {
 	val, ok := g.tunnels.Load(connectionID)
 	if !ok {

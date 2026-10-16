@@ -7,6 +7,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -79,7 +80,8 @@ func (h *SavedQueriesHandler) Run(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	result, err := h.Gateway.ExecuteQueryWithSettings(
+	result, err := h.Gateway.ExecuteQueryWithSettingsCtx(
+		tunnel.WithObjectTag(r.Context(), "saved_query", id),
 		session.ConnectionID,
 		query,
 		session.ClickhouseUser,
