@@ -15,10 +15,9 @@ import (
 
 	"github.com/caioricciuti/ch-ui/internal/accesshistory"
 	"github.com/caioricciuti/ch-ui/internal/alerts"
-	"github.com/caioricciuti/ch-ui/internal/clusterhealth"
+	"github.com/caioricciuti/ch-ui/internal/alerts/firing"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
-	"github.com/caioricciuti/ch-ui/internal/sqlalerts"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -290,28 +289,8 @@ func (h *GovernanceHandler) ExpireAlertSilence(w http.ResponseWriter, r *http.Re
 
 // ── Open incidents and acknowledgements ──────────────────────────────────────
 
-type firingIncident struct {
-	Source       string             `json:"source"`
-	AlertKey     string             `json:"alert_key"`
-	IncidentID   string             `json:"incident_id"`
-	ConnectionID string             `json:"connection_id"`
-	CheckKind    *string            `json:"check_kind"`
-	Node         *string            `json:"node"`
-	SQLAlertID   *string            `json:"sql_alert_id"`
-	Name         string             `json:"name"`
-	Severity     string             `json:"severity"`
-	Since        string             `json:"since"`
-	EventID      *string            `json:"event_id"`
-	Ack          *database.AlertAck `json:"ack"`
-	// Access drift and ingest: the latest event of the incident, when it
-	// was seen, and the page to review it on.
-	Summary  *string `json:"summary,omitempty"`
-	LastSeen *string `json:"last_seen,omitempty"`
-	LinkPath *string `json:"link_path,omitempty"`
-	// Ingest and pipeline incidents only.
-	PipelineID *string `json:"pipeline_id,omitempty"`
-	EventType  *string `json:"event_type,omitempty"`
-}
+// firingIncident is one open incident of the firing view.
+type firingIncident = firing.Incident
 
 // isAdminSession reports whether the request comes from a CH-UI admin.
 func isAdminSession(r *http.Request) bool {
@@ -366,119 +345,21 @@ func (h *GovernanceHandler) openDriftIncident(connectionID string) (*firingIncid
 	}, nil
 }
 
-// pipelineIncidentScan is how many recent events per ingest or pipeline
-// type the firing view reads to find the open incidents.
-const pipelineIncidentScan = 500
-
-// pipelineFiringIncident renders an open ingest or pipeline incident.
-func pipelineFiringIncident(inc alerts.OpenIncident, ack *database.AlertAck) firingIncident {
-	str := func(k string) string { s, _ := inc.Payload[k].(string); return s }
-	conn := ""
-	if inc.Event.ConnectionID != nil {
-		conn = *inc.Event.ConnectionID
-	}
-	evID, seen, summary := inc.Event.ID, inc.Event.CreatedAt, inc.Event.Message
-	item := firingIncident{
-		Source: "ingest", AlertKey: inc.AlertKey, IncidentID: inc.IncidentID, ConnectionID: conn,
-		Name: inc.Event.Title, Severity: inc.Severity, Since: inc.IncidentID, EventID: &evID, Ack: ack,
-		Summary: &summary, LastSeen: &seen,
-	}
-	if p := str("pipeline_id"); p != "" {
-		item.PipelineID = &p
-	}
-	if link := str("link_path"); strings.HasPrefix(link, "/") {
-		item.LinkPath = &link
-	}
-	if t := inc.Event.EventType; t != "" {
-		item.EventType = &t
-	}
-	return item
-}
-
 // ListFiringIncidents returns the open incidents of health checks, SQL
 // alerts and pipelines (ingest stalls, spool backlog, rejections, failing
 // sinks) across connections, with the ack that covers each. Admins also get
 // the open access drift incidents, one per connection.
 func (h *GovernanceHandler) ListFiringIncidents(w http.ResponseWriter, r *http.Request) {
-	acks, err := h.DB.ListOpenAlertAcks()
+	acks, err := firing.LoadAcks(h.DB)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to load acknowledgements")
 		return
 	}
-	ackByKey := map[string]database.AlertAck{}
-	for _, a := range acks {
-		ackByKey[a.AlertKey] = a
-	}
-	ackFor := func(key, incident string) *database.AlertAck {
-		a, ok := ackByKey[key]
-		if !ok {
-			return nil
-		}
-		if a.IncidentID != nil && *a.IncidentID != "" && incident != "" && *a.IncidentID != incident {
-			return nil
-		}
-		return &a
-	}
-	out := []firingIncident{}
-
-	states, err := h.DB.ListFiringHealthStates()
+	out, err := firing.Open(h.DB, acks, "")
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to load health check state")
+		slog.Error("Failed to load open incidents", "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to load open incidents")
 		return
-	}
-	for _, st := range states {
-		check, ok := clusterhealth.LookupHealthCheck(st.CheckKind)
-		if !ok {
-			continue
-		}
-		kind, node := st.CheckKind, st.Node
-		key := clusterhealth.HealthAlertKey(st.ConnectionID, st.CheckKind, st.Node)
-		inc := ""
-		if st.Since != nil {
-			inc = *st.Since
-		}
-		sev := alerts.SeverityCritical
-		if st.Severity != nil && *st.Severity != "" {
-			sev = *st.Severity
-		}
-		out = append(out, firingIncident{
-			Source: "health", AlertKey: key, IncidentID: inc, ConnectionID: st.ConnectionID, CheckKind: &kind, Node: &node,
-			Name: check.Label, Severity: sev, Since: inc, EventID: st.LastEventID, Ack: ackFor(key, inc),
-		})
-	}
-
-	list, err := h.DB.ListSQLAlerts("")
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to load SQL alerts")
-		return
-	}
-	for _, a := range list {
-		if a.State != alerts.StateFiring {
-			continue
-		}
-		id := a.ID
-		key := sqlalerts.AlertKey(a.ID)
-		inc, _ := h.DB.LatestAlertIncidentID(a.ID, key)
-		item := firingIncident{
-			Source: "sql", AlertKey: key, IncidentID: inc, ConnectionID: a.ConnectionID, SQLAlertID: &id,
-			Name: a.Name, Severity: a.Severity, Since: inc, Ack: ackFor(key, inc),
-		}
-		if ev, err := h.DB.LatestAlertEventFor(a.ID, key); err == nil && ev != nil {
-			evID := ev.ID
-			item.EventID = &evID
-		}
-		out = append(out, item)
-	}
-
-	// Ingest and pipeline incidents, readable by anyone who can read the
-	// pipelines, like the pipeline's live counters.
-	open, err := alerts.OpenIncidents(h.DB, alerts.PipelineEventTypes, pipelineIncidentScan)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to load ingest incidents")
-		return
-	}
-	for _, inc := range open {
-		out = append(out, pipelineFiringIncident(inc, ackFor(inc.AlertKey, inc.IncidentID)))
 	}
 
 	// Drift names other users and what they were granted; like the drift
@@ -496,7 +377,7 @@ func (h *GovernanceHandler) ListFiringIncidents(w http.ResponseWriter, r *http.R
 				return
 			}
 			if inc != nil {
-				inc.Ack = ackFor(inc.AlertKey, inc.IncidentID)
+				inc.Ack = acks.For(inc.AlertKey, inc.IncidentID)
 				out = append(out, *inc)
 			}
 		}

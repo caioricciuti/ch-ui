@@ -201,7 +201,7 @@ func (h *Harvester) pollConnection(connID string, settings Settings, now time.Ti
 	h.markPolled(connID, now)
 
 	exec := ExecFunc(func(sql string) ([]map[string]interface{}, error) { return h.executeQuery(creds, sql) })
-	cluster, clusterKnown := h.resolveCluster(exec)
+	cluster, clusterKnown := ResolveCluster(exec)
 	capturedAt := now.UTC().Format(time.RFC3339)
 
 	col, err := CollectSamples(exec, cluster, settings.LongQueryThresholdSecs, capturedAt)
@@ -239,9 +239,9 @@ func (h *Harvester) pollConnection(connID string, settings Settings, now time.Ti
 	h.evaluateHealthAlerts(connID, cluster, samples, membersKnown, exec, now)
 }
 
-// resolveCluster returns the cluster the connection belongs to, "" for a
+// ResolveCluster returns the cluster the connection belongs to, "" for a
 // single node. ok is false when the lookup failed.
-func (h *Harvester) resolveCluster(exec ExecFunc) (name string, ok bool) {
+func ResolveCluster(exec ExecFunc) (name string, ok bool) {
 	rows, err := exec(ResolveClusterQuery)
 	if err != nil {
 		return "", false
