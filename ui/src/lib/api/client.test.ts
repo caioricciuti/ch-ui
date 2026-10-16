@@ -91,6 +91,15 @@ describe('request connection guard', () => {
     expect(warning).not.toHaveBeenCalled()
   })
 
+  it('a 402 keeps the message and the body', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ error: 'Sampling needs CH-UI Pro', node_id: 'n1' }, 402)))
+    const err = (await apiGet('/x').catch((e: unknown) => e)) as ApiError
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err.status).toBe(402)
+    expect(err.message).toBe('Sampling needs CH-UI Pro')
+    expect(err.body).toEqual({ error: 'Sampling needs CH-UI Pro', node_id: 'n1' })
+  })
+
   it('a 429 carries retryAfter from the body or the Retry-After header', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ success: false, error: 'Too many', retryAfter: 42 }, 429)))
     expect(((await apiGet('/x').catch((e: unknown) => e)) as ApiError).retryAfter).toBe(42)

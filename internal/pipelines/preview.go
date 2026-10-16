@@ -47,10 +47,11 @@ type TestResult struct {
 // its source within sampleTimeout, and checks its sink. Nothing is written
 // and no source position moves. A config that does not validate is an error.
 func (r *Runner) TestPipeline(ctx context.Context, pipelineID string) (*TestResult, error) {
-	source, sink, sourceCfg, sinkCfg, err := r.prepare(pipelineID)
+	p, err := r.prepare(pipelineID)
 	if err != nil {
 		return nil, err
 	}
+	source, sink, sourceCfg, sinkCfg := p.source, p.sink, p.sourceCfg, p.sinkCfg
 	res := &TestResult{SourceType: sourceCfg.NodeType, Records: []map[string]interface{}{}, SinkChecks: []SinkCheck{}}
 
 	if s, ok := source.(Sampler); ok {

@@ -94,6 +94,14 @@ Keys in the query string are ignored: URLs end up in proxy and access logs.
 OTLP errors come as a `google.rpc.Status` in the request's encoding, which is
 what OTLP exporters expect. Error bodies never say which pipelines exist.
 
+To parse log bodies, set severity, drop noise, sample or redact before the
+rows are written, add [transform nodes](/docs/pipelines#transforms) between
+the source and the sink. On a `logs` pipeline, Parse writes into
+`LogAttributes` by default and Map fields' **severity from** sets
+`SeverityText` and `SeverityNumber`. Transforms run when the spool is written
+to ClickHouse, so data that waited in the spool gets the chain of the current
+run.
+
 ## Durability
 
 A `200` means the request is fsynced to the spool in

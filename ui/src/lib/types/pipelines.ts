@@ -1,3 +1,5 @@
+import { defaultTransformConfig, isTransformType, type TransformCounters, type TransformNodeType } from './transforms'
+
 export type PipelineStatus = 'draft' | 'stopped' | 'starting' | 'running' | 'error' | 'stopping'
 
 export type NodeType =
@@ -6,6 +8,7 @@ export type NodeType =
   | 'source_database'
   | 'source_s3'
   | 'source_ingest'
+  | TransformNodeType
   | 'sink_clickhouse'
 
 export interface Pipeline {
@@ -84,6 +87,8 @@ export interface PipelineStatusInfo {
   dlq_rows?: number
   dlq_database?: string
   dlq_table?: string
+  /** Per transform node counters since start, while running. */
+  transforms?: TransformCounters[] | null
 }
 
 /** A source position saved after a written batch. */
@@ -217,6 +222,12 @@ export const CONNECTOR_FIELDS: Record<NodeType, ConnectorFieldDef[]> = {
     { key: 'rate_limit_rps', label: 'Rate Limit (requests/s)', type: 'number', default: 0, min: 0, help: 'Per key. 0 uses the default of 200 requests per second.' },
     { key: 'daily_quota_mb', label: 'Daily Quota (MB)', type: 'number', default: 0, min: 0, help: 'Decompressed request bytes per day, reset at 00:00 UTC. 0 is unlimited.' },
   ],
+  // Transforms have their own typed panels (components/pipelines/transforms).
+  transform_parse: [],
+  transform_map: [],
+  transform_filter: [],
+  transform_sample: [],
+  transform_redact: [],
   sink_clickhouse: [
     { key: 'database', label: 'Target Database', type: 'text', required: true, default: 'default' },
     { key: 'table', label: 'Target Table', type: 'text', required: true },
@@ -241,8 +252,9 @@ export function generateToken(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** Starting config for a node dropped on the canvas. */
-export function newNodeConfig(type: NodeType, pipelineId: string): Record<string, unknown> {
+/** Starting config for a node dropped on the canvas. signal is the ingest source's, if any. */
+export function newNodeConfig(type: NodeType, pipelineId: string, signal?: string | null): Record<string, unknown> {
+  if (isTransformType(type)) return defaultTransformConfig(type, signal)
   switch (type) {
     case 'source_webhook':
       return { auth_enabled: true, auth_token: generateToken() }

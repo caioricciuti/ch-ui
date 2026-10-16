@@ -10,6 +10,12 @@
   import PipelineRunsSheet from './PipelineRunsSheet.svelte'
   import PipelineTestSheet from './PipelineTestSheet.svelte'
   import NodeConfigPanel from './NodeConfigPanel.svelte'
+  import TransformPanel from './transforms/TransformPanel.svelte'
+  import { chainFromSource, transformsUpTo } from './transforms/graph'
+  import { clearNodeError, clearTransformCounters, setNodeError, setTransformCounters } from './transforms/counters.svelte'
+  import { resetPastedSample } from './transforms/sample.svelte'
+  import { ApiError } from '../../api/client'
+  import { isTransformType, type TransformNodeType } from '../../types/transforms'
   import IngestKeysSheet from '../ingest/IngestKeysSheet.svelte'
   import SendDataSheet from '../ingest/SendDataSheet.svelte'
   import { listIngestKeys } from '../../api/ingest'
@@ -56,6 +62,24 @@
     const sig = ((ingestNode.data.config || {}) as Record<string, unknown>)['signal']
     return isIngestSignal(sig) ? sig : 'logs'
   })
+  /** The selected transform's chain up to itself, for its preview. */
+  const selectedChain = $derived.by(() => {
+    if (!selectedNode || !isTransformType(selectedNode.data.node_type)) return null
+    const { chain, error } = transformsUpTo(nodes, edges, selectedNode.id)
+    return {
+      note: error,
+      nodes: chain.map((n) => ({
+        id: n.id,
+        node_type: n.data.node_type as TransformNodeType,
+        label: String(n.data.label ?? n.id),
+        config: (n.data.config || {}) as Record<string, unknown>,
+      })),
+    }
+  })
+  // Polling stops with the run; drop the last counters with it.
+  $effect(() => {
+    if (!isRunning) clearTransformCounters()
+  })
   let showKeys = $state(false)
   let showSendData = $state(false)
   let sendSecret = $state<string | undefined>(undefined)
@@ -78,7 +102,12 @@
       if (dirty) e.preventDefault()
     }
     window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
+    return () => {
+      window.removeEventListener('beforeunload', warn)
+      clearTransformCounters()
+      clearNodeError()
+      resetPastedSample()
+    }
   })
 
   function errorText(e: unknown, fallback: string): string {
@@ -170,13 +199,25 @@
       const payload = graphPayload()
       await api.saveGraph(pipelineId, payload)
       savedSnapshot = JSON.stringify(payload)
+      clearNodeError()
       toastSuccess(isRunning ? 'Pipeline saved. Changes apply after a restart.' : 'Pipeline saved')
       return true
     } catch (e: unknown) {
       toastError(errorText(e, 'Failed to save pipeline'))
+      markNodeError(e)
       return false
     } finally {
       saving = false
+    }
+  }
+
+  /** An error naming a node (bad transform config, a Pro node without Pro): mark that node and open it. */
+  function markNodeError(e: unknown) {
+    const body = e instanceof ApiError ? e.body : null
+    const nodeId = body && typeof body === 'object' ? (body as Record<string, unknown>).node_id : null
+    if (typeof nodeId === 'string' && nodes.some((n) => n.id === nodeId)) {
+      setNodeError(nodeId, errorText(e, 'Invalid config'))
+      selectedNodeId = nodeId
     }
   }
 
@@ -191,6 +232,7 @@
       await refreshPipeline()
     } catch (e: unknown) {
       toastError(errorText(e, 'Failed to start pipeline'))
+      markNodeError(e)
       await refreshPipeline()
     } finally {
       pending = false
@@ -285,6 +327,9 @@
   }
 
   function handleStatus(info: PipelineStatusInfo) {
+    // Per transform counters show on the nodes only while the pipeline runs.
+    if (info.status === 'running' || info.status === 'starting') setTransformCounters(info.transforms)
+    else clearTransformCounters()
     if (!pipeline) return
     if (info.status !== pipeline.status || info.last_error !== pipeline.last_error) {
       pipeline = { ...pipeline, status: info.status, last_error: info.last_error }
@@ -312,7 +357,10 @@
     const source = nodes.find((n) => n.data.node_type === 'source_ingest')
     if (!source) return
     const signal = ((source.data.config || {}) as Record<string, unknown>)['signal']
-    const sinkIds = new Set(edges.filter((e) => e.source === source.id).map((e) => e.target))
+    // The sink at the end of the chain, past any transforms.
+    const chain = chainFromSource(nodes, edges)
+    const last = chain.length > 1 ? chain[chain.length - 1] : null
+    const sinkIds = new Set(last && chain[0].id === source.id ? [last.id] : [])
     let touchedOpenPanel = false
     nodes = nodes.map((n) => {
       if (!sinkIds.has(n.id) || n.data.node_type !== 'sink_clickhouse') return n
@@ -391,26 +439,42 @@
         onConnect={handleConnect}
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
+        signal={ingestSignal}
       />
 
       {#if selectedNode}
         <!-- Keyed: the panel copies label/config into local state on mount,
              so switching nodes must remount it or edits land on the old node. -->
         {#key `${selectedNode.id}:${panelVersion}`}
-          <NodeConfigPanel
-            nodeId={selectedNode.id}
-            nodeType={selectedNode.data.node_type as NodeType}
-            label={selectedNode.data.label as string}
-            config={(selectedNode.data.config || {}) as Record<string, unknown>}
-            {pipelineId}
-            onUpdate={handleNodeConfigUpdate}
-            onClose={() => { selectedNodeId = null }}
-            onInferSchema={handleInferSchema}
-            sourceSignal={ingestSignal}
-            {activeKeys}
-            onManageKeys={() => { showKeys = true }}
-            onSendData={() => { sendSecret = undefined; showSendData = true }}
-          />
+          {#if selectedChain}
+            <TransformPanel
+              nodeId={selectedNode.id}
+              nodeType={selectedNode.data.node_type as TransformNodeType}
+              label={selectedNode.data.label as string}
+              config={(selectedNode.data.config || {}) as Record<string, unknown>}
+              {pipelineId}
+              signal={ingestSignal}
+              chain={selectedChain.nodes}
+              chainNote={selectedChain.note}
+              onUpdate={handleNodeConfigUpdate}
+              onClose={() => { selectedNodeId = null }}
+            />
+          {:else}
+            <NodeConfigPanel
+              nodeId={selectedNode.id}
+              nodeType={selectedNode.data.node_type as NodeType}
+              label={selectedNode.data.label as string}
+              config={(selectedNode.data.config || {}) as Record<string, unknown>}
+              {pipelineId}
+              onUpdate={handleNodeConfigUpdate}
+              onClose={() => { selectedNodeId = null }}
+              onInferSchema={handleInferSchema}
+              sourceSignal={ingestSignal}
+              {activeKeys}
+              onManageKeys={() => { showKeys = true }}
+              onSendData={() => { sendSecret = undefined; showSendData = true }}
+            />
+          {/if}
         {/key}
       {/if}
     </div>

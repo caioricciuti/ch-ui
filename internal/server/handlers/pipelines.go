@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/pipelines"
+	"github.com/caioricciuti/ch-ui/internal/pipelines/transform"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
@@ -48,6 +50,7 @@ func (h *PipelinesHandler) Routes() chi.Router {
 		r.With(writer).Post("/start", h.StartPipeline)
 		r.With(writer).Post("/stop", h.StopPipeline)
 		r.With(writer).Post("/test", h.TestPipeline)
+		r.With(writer).Post("/preview-transforms", h.PreviewTransforms)
 		r.With(writer).Post("/reset-position", h.ResetPosition)
 
 		// Status & monitoring
@@ -288,6 +291,11 @@ func (h *PipelinesHandler) SaveGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := validateTransformNodes(body.Nodes); err != nil {
+		writeNodeError(w, http.StatusBadRequest, err)
+		return
+	}
+
 	// Stored configs, so secrets sent back masked keep their value.
 	prev := map[string]map[string]interface{}{}
 	if oldNodes, _, err := h.DB.GetPipelineGraph(id); err == nil {
@@ -372,6 +380,10 @@ func (h *PipelinesHandler) StartPipeline(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.Runner.StartPipeline(id); err != nil {
+		if errors.Is(err, transform.ErrNeedsPro) {
+			writeNodeError(w, http.StatusPaymentRequired, err)
+			return
+		}
 		slog.Error("Failed to start pipeline", "error", err, "id", id)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -445,6 +457,9 @@ func (h *PipelinesHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		resp["errors_count"] = metrics.ErrorsCount.Load()
 		if t, ok := metrics.LastBatchAt.Load().(time.Time); ok && !t.IsZero() {
 			resp["last_batch_at"] = t.UTC().Format(time.RFC3339)
+		}
+		if counters := h.Runner.TransformCounters(id); counters != nil {
+			resp["transforms"] = counters
 		}
 	}
 

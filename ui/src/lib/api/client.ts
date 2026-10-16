@@ -137,7 +137,8 @@ async function request<T = unknown>(
   }
 
   if (res.status === 402) {
-    throw new ApiError(buildErrorMessage(res.status, body) || 'Pro license required', res.status)
+    // Body kept: Pro errors may name the part that needs Pro (e.g. a pipeline node_id).
+    throw new ApiError(buildErrorMessage(res.status, body) || 'Pro license required', res.status, body)
   }
 
   if (!res.ok || (isRecord(body) && body.success === false)) {
