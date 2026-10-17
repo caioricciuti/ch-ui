@@ -9,6 +9,7 @@
   import { buildLineageSearch, databaseOf, MAX_HOPS, MIN_HOPS, parseLineageSearch } from '../lib/utils/lineage-url'
   import { LINEAGE_NODE_KINDS, type LineageGraph as Graph, type LineageNodeKind } from '../lib/types/lineage'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
+  import { docsURL } from '../lib/routes'
   import Button from '../lib/components/common/Button.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
   import Select from '../lib/components/common/Select.svelte'
@@ -194,7 +195,7 @@
 {/snippet}
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Lineage" subtitle="How data flows between tables" meta={headerMeta} />
+  <PageHeader title="Lineage" subtitle="How data flows between tables" meta={headerMeta} docs={docsURL('lineage')} />
 
   <div class="flex h-10 shrink-0 items-center gap-2 border-b border-edge-subtle px-5">
     <CheckMenu label={databaseLabel} options={databaseOptions} selected={databases} searchable onapply={setDatabases} />

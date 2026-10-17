@@ -12,7 +12,7 @@
   import PageBody from '../lib/components/common/PageBody.svelte'
   import { getSection, setSection } from '../lib/stores/nav.svelte'
   import { getSession } from '../lib/stores/session.svelte'
-  import { PAGE_SECTIONS } from '../lib/routes'
+  import { PAGE_SECTIONS, docsURL } from '../lib/routes'
   import { Shield } from 'lucide-svelte'
 
   // Sections come from the context panel via ?section=; each section is a
@@ -53,7 +53,7 @@
   </div>
 {:else}
   <div class="flex h-full min-h-0 flex-col">
-    <PageHeader title="Admin" subtitle={adminTabs.find((t) => t.id === activeTab)?.label} />
+    <PageHeader title="Admin" subtitle={adminTabs.find((t) => t.id === activeTab)?.label} docs={docsURL('admin', activeTab)} />
 
     {#key activeTab}
       {#if activeTab === 'overview'}

@@ -15,7 +15,7 @@
     meta?: Snippet
     /** Filters, range switches and the primary action, right-aligned. */
     actions?: Snippet
-    /** ch-ui.com docs page for this screen, shown as a Docs link after the actions. */
+    /** ch-ui.com docs URL for this screen (see `docsURL` in routes.ts), shown as a pill next to the badges. */
     docs?: string
     class?: string
   }
@@ -28,22 +28,23 @@
     <h1 class="shrink-0 text-[15px] font-semibold tracking-[-0.01em] text-fg">{title}</h1>
     {#if subtitle && subtitle !== title}<span class="truncate text-[13px] text-fg-3">{subtitle}</span>{/if}
   </div>
-  {#if meta}
-    <div class="flex shrink-0 items-center gap-1.5">{@render meta()}</div>
-  {/if}
-  {#if actions || docs}
-    <div class="ml-auto flex shrink-0 items-center gap-2">
-      {#if actions}{@render actions()}{/if}
+  {#if meta || docs}
+    <div class="flex shrink-0 items-center gap-1.5">
+      {#if meta}{@render meta()}{/if}
       {#if docs}
         <a
-          class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
+          class="ds-badge border border-edge bg-transparent transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
           href={docs}
           target="_blank"
           rel="noreferrer"
+          title="Open the docs for this page"
         >
-          Docs <ExternalLink size={12} />
+          Docs <ExternalLink size={11} />
         </a>
       {/if}
     </div>
+  {/if}
+  {#if actions}
+    <div class="ml-auto flex shrink-0 items-center gap-2">{@render actions()}</div>
   {/if}
 </header>

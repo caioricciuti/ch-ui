@@ -3,6 +3,7 @@
   import { onMount } from 'svelte'
   import { RefreshCw, Plus, AlertTriangle } from 'lucide-svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
+  import { docsURL } from '../lib/routes'
   import PageBody from '../lib/components/common/PageBody.svelte'
   import Panel from '../lib/components/common/Panel.svelte'
   import Button from '../lib/components/common/Button.svelte'
@@ -124,7 +125,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Incident timeline" subtitle="Events around an incident" docs="https://ch-ui.com/docs/incident-timeline/">
+  <PageHeader title="Incident timeline" subtitle="Events around an incident" docs={docsURL('incident-timeline')}>
     {#snippet actions()}
       <TimeRangeSelector value={range} onchange={(value) => { range = value; void load() }} />
       <Button variant="ghost" icon title="Refresh" aria-label="Refresh timeline" disabled={!isAdmin || loading} onclick={() => load()}><RefreshCw size={14} class={loading ? 'animate-spin' : ''} /></Button>

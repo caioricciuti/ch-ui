@@ -20,6 +20,7 @@
 	import HelpTip from '../lib/components/common/HelpTip.svelte';
 	import MiniTrendChart from '../lib/components/common/MiniTrendChart.svelte';
 	import PageHeader from '../lib/components/common/PageHeader.svelte';
+	import { docsURL } from '../lib/routes'
 	import PageBody from '../lib/components/common/PageBody.svelte';
 	import Button from '../lib/components/common/Button.svelte';
 	import Badge from '../lib/components/common/Badge.svelte';
@@ -512,7 +513,7 @@
 		</div>
 	{/if}
 
-	<PageHeader title="Governance" subtitle={activeTabLabel}>
+	<PageHeader title="Governance" subtitle={activeTabLabel} docs={docsURL('governance', activeTab)}>
 		{#snippet actions()}
 			<Button size="sm" variant="outline" loading={syncing} onclick={handleSyncNow}>Sync now</Button>
 		{/snippet}

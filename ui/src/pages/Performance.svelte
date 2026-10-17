@@ -10,7 +10,7 @@
   } from '../lib/api/performance'
   import { getSession } from '../lib/stores/session.svelte'
   import { getSection, setSection } from '../lib/stores/nav.svelte'
-  import { PAGE_SECTIONS } from '../lib/routes'
+  import { PAGE_SECTIONS, docsURL } from '../lib/routes'
   import { formatBytes, formatNumber, formatElapsed } from '../lib/utils/format'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
   import PageBody from '../lib/components/common/PageBody.svelte'
@@ -200,7 +200,7 @@
 {/snippet}
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Performance" subtitle={sectionLabel} docs="https://ch-ui.com/docs/performance/">
+  <PageHeader title="Performance" subtitle={sectionLabel} docs={docsURL('performance', section)}>
     {#snippet actions()}
       <Button variant="ghost" size="sm" disabled={loading || busy} onclick={() => load()}><RefreshCw size={14} class={loading ? 'animate-spin' : ''} /> Refresh</Button>
     {/snippet}

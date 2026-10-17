@@ -7,7 +7,7 @@
   import { openQueryTab, openSavedQueryTab, renameSavedQueryTabs } from '../lib/stores/tabs.svelte'
   import { getSection } from '../lib/stores/nav.svelte'
   import { getSession } from '../lib/stores/session.svelte'
-  import { PAGE_SECTIONS } from '../lib/routes'
+  import { PAGE_SECTIONS, docsURL } from '../lib/routes'
   import { formatDate, formatRelativeTime } from '../lib/utils/format'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import Button from '../lib/components/common/Button.svelte'
@@ -401,7 +401,7 @@
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') { menu = null; folderMenu = null } }} />
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Saved Queries" subtitle={sectionLabel} docs="https://ch-ui.com/docs/querying/#saved-queries">
+  <PageHeader title="Saved Queries" subtitle={sectionLabel} docs={docsURL('saved-queries', scope)}>
     {#snippet meta()}
       {#if !loading}<Badge>{queries.length}</Badge>{/if}
     {/snippet}

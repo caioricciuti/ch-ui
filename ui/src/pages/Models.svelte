@@ -9,6 +9,7 @@
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
   import ContextMenu from '../lib/components/common/ContextMenu.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
+  import { docsURL } from '../lib/routes'
   import Button from '../lib/components/common/Button.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
@@ -557,7 +558,7 @@
 {/snippet}
 
 <div class="flex h-full min-h-0 flex-col overflow-hidden">
-  <PageHeader title="Models" subtitle="SQL transformations that run in dependency order">
+  <PageHeader title="Models" subtitle="SQL transformations that run in dependency order" docs={docsURL('models')}>
     {#snippet meta()}
       {#if !loading}
         <Badge tone="neutral">{models.length} model{models.length !== 1 ? 's' : ''}</Badge>

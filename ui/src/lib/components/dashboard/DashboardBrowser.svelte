@@ -10,6 +10,7 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import { formatDate, formatRelativeTime } from '../../utils/format'
   import PageHeader from '../common/PageHeader.svelte'
+  import { docsURL } from '../../routes'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
   import Input from '../common/Input.svelte'
@@ -441,7 +442,7 @@
 
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Dashboards" subtitle="Panels over saved queries, organized in folders.">
+  <PageHeader title="Dashboards" subtitle="Panels over saved queries, organized in folders." docs={docsURL('dashboards')}>
     {#snippet meta()}
       {#if !loading}<Badge>{dashboards.length}</Badge>{/if}
     {/snippet}

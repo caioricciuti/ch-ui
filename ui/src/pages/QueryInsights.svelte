@@ -5,7 +5,7 @@
   import { fetchInsights } from '../lib/api/queryInsights'
   import { openQueryTab } from '../lib/stores/tabs.svelte'
   import { getSection } from '../lib/stores/nav.svelte'
-  import { PAGE_SECTIONS } from '../lib/routes'
+  import { PAGE_SECTIONS, docsURL } from '../lib/routes'
   import { formatNumber, formatBytes, formatElapsed } from '../lib/utils/format'
   import TrendChart from '../lib/components/common/TrendChart.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
@@ -300,7 +300,7 @@
 {/snippet}
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Query Insights" subtitle={sectionLabel} meta={headerMeta}>
+  <PageHeader title="Query Insights" subtitle={sectionLabel} meta={headerMeta} docs={docsURL('query-insights', section)}>
     {#snippet actions()}
       <Tabs variant="segmented" size="sm" items={rangeItems} value={range} onchange={(id) => setRange(id as InsightsRange)} />
       <Button icon variant="ghost" size="sm" aria-label="Refresh" title="Refresh" onclick={() => loadAll()}>

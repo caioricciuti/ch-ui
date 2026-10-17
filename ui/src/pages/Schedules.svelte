@@ -21,7 +21,7 @@
   import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
   import ReportsSection from '../lib/components/reports/ReportsSection.svelte'
   import { getSection } from '../lib/stores/nav.svelte'
-  import { PAGE_SECTIONS } from '../lib/routes'
+  import { PAGE_SECTIONS, docsURL } from '../lib/routes'
   import { Clock, Plus, Play, Trash2, ChevronDown, ChevronRight, FileText, ExternalLink, Pencil } from 'lucide-svelte'
 
   // The sidebar drives the section through ?section=: query jobs (the
@@ -301,7 +301,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Schedules" subtitle={sectionLabel} docs={section === 'reports' ? 'https://ch-ui.com/docs/reports/' : undefined}>
+  <PageHeader title="Schedules" subtitle={sectionLabel} docs={docsURL('schedules', section)}>
     {#snippet meta()}
       {#if section === 'jobs' && !loading}<Badge>{schedules.length}</Badge>{/if}
     {/snippet}

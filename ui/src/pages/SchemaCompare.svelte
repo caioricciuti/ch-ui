@@ -5,6 +5,7 @@
   import { compareSchemas, fetchSchemaConnections, type SchemaComparison, type SchemaConnection, type SchemaEndpoint } from '../lib/api/schemaCompare'
   import { getSession } from '../lib/stores/session.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
+  import { docsURL } from '../lib/routes'
   import PageBody from '../lib/components/common/PageBody.svelte'
   import Button from '../lib/components/common/Button.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
@@ -57,7 +58,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Schema comparison" subtitle="Compare environments and review changes" docs="https://ch-ui.com/docs/schema-compare/">
+  <PageHeader title="Schema comparison" subtitle="Compare environments and review changes" docs={docsURL('schema-compare')}>
     {#snippet actions()}{#if comparison}<Button size="sm" variant="outline" onclick={download}><Download size={13} /> Download review SQL</Button>{/if}{/snippet}
   </PageHeader>
   {#if loading}<div class="flex flex-1 items-center justify-center"><Spinner /></div>
