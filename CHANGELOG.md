@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.28.1] - 2026-10-17
+
+OAuth sign-in from Claude Code and other native MCP clients works, and every page in the app links to its docs.
+
+### Added
+
+- **Docs pill in every page header** that opens the matching ch-ui.com page, and per section where one exists (Governance Access control opens RBAC, Schedules Reports opens Reports, Telemetry Sources opens Ingest, Admin MCP opens MCP). Home gets the same pill and a **CH-UI Docs** card under Resources (#367).
+- **Dashboard panels can start from a saved query**: a picker above the panel's SQL editor copies the query in, fills the empty name and description, and runs the preview (#368).
+
+### Changed
+
+- The SQL editor shows a hint while it is empty, with the run shortcut, in the query workspace and in the panel builder. **Save** in the editor toolbar has a label instead of a bare icon. Home says Welcome instead of Welcome back on a first run (#368).
+
+### Fixed
+
+- **OAuth sign-in from Claude Code and other native MCP clients.** They register a loopback redirect such as `http://localhost/callback` and then listen on a random port; the authorization endpoint compared the two exactly and refused with `redirect_uri is not registered for this client`. Loopback http redirects now match on scheme, host and path with any port, as RFC 8252 requires; every other redirect stays an exact match (#369).
+- **OAuth consent for read-only people.** Claude Code always asks for `read write actions`, and the consent endpoint refused anyone whose CH-UI role is not admin or analyst. Consent now grants what the role allows (read for a viewer), the tokens carry that scope, the audit row records what was requested, and the consent page marks the rest as not granted (#370).
+
 ## [2.28.0] - 2026-10-17
 
 Every SSO person can now be their own ClickHouse user, every query CH-UI runs is tagged with the person and object behind it, and Cost Center, Query Insights and the governance query log attribute work to people instead of shared accounts. MCP covers the whole product, and SSO only mode turns off password sign-in.
