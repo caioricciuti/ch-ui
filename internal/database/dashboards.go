@@ -355,9 +355,14 @@ type DashboardShare struct {
 	ConnectionID      string   `json:"-"`
 	ClickhouseUser    string   `json:"-"`
 	EncryptedPassword string   `json:"-"`
-	ExpiresAt         *string  `json:"expires_at"`
-	CreatedBy         *string  `json:"created_by"`
-	CreatedAt         string   `json:"created_at"`
+	// SSOIdentityID references the per-person ClickHouse user of the SSO
+	// person who created the share. When set, EncryptedPassword is empty and
+	// the live sso_clickhouse_users row supplies the credentials, so the
+	// share survives password rotation and dies with the user.
+	SSOIdentityID string  `json:"-"`
+	ExpiresAt     *string `json:"expires_at"`
+	CreatedBy     *string `json:"created_by"`
+	CreatedAt     string  `json:"created_at"`
 }
 
 func (s *DashboardShare) parseEmails() {
@@ -367,31 +372,48 @@ func (s *DashboardShare) parseEmails() {
 	}
 }
 
+// CreateDashboardShareParams is the input of CreateDashboardShare.
+type CreateDashboardShareParams struct {
+	DashboardID    string
+	AccessLevel    string
+	Visibility     string // "" means public
+	CreatedBy      string
+	ConnectionID   string
+	ClickhouseUser string
+	// EncryptedPassword is the creator's ClickHouse password, encrypted with
+	// the app secret key. Leave it empty and set SSOIdentityID for an SSO
+	// person with a per-person user: the share then resolves the live
+	// password at query time.
+	EncryptedPassword string
+	SSOIdentityID     string
+	AllowedEmails     []string
+	ExpiresAt         *string
+}
+
 // CreateDashboardShare creates a share link and returns the share record.
-func (db *DB) CreateDashboardShare(dashboardID, accessLevel, visibility, createdBy, connectionID, clickhouseUser, encryptedPassword string, allowedEmails []string, expiresAt *string) (*DashboardShare, error) {
+func (db *DB) CreateDashboardShare(p CreateDashboardShareParams) (*DashboardShare, error) {
 	id := uuid.NewString()
 	token := uuid.NewString()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	if visibility == "" {
-		visibility = "public"
+	if p.Visibility == "" {
+		p.Visibility = "public"
 	}
 
 	var creator interface{}
-	if createdBy != "" {
-		creator = createdBy
+	if p.CreatedBy != "" {
+		creator = p.CreatedBy
 	}
-
 	emailsJSON := "[]"
-	if len(allowedEmails) > 0 {
-		raw, _ := json.Marshal(allowedEmails)
+	if len(p.AllowedEmails) > 0 {
+		raw, _ := json.Marshal(p.AllowedEmails)
 		emailsJSON = string(raw)
 	}
 
 	_, err := db.conn.Exec(
-		`INSERT INTO dashboard_shares (id, dashboard_id, token, access_level, visibility, allowed_emails, connection_id, clickhouse_user, encrypted_password, expires_at, created_by, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, dashboardID, token, accessLevel, visibility, emailsJSON, connectionID, clickhouseUser, encryptedPassword, expiresAt, creator, now,
+		`INSERT INTO dashboard_shares (id, dashboard_id, token, access_level, visibility, allowed_emails, connection_id, clickhouse_user, encrypted_password, sso_identity_id, expires_at, created_by, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, p.DashboardID, token, p.AccessLevel, p.Visibility, emailsJSON, p.ConnectionID, p.ClickhouseUser, p.EncryptedPassword, nullIfEmpty(p.SSOIdentityID), p.ExpiresAt, creator, now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create dashboard share: %w", err)
@@ -399,16 +421,17 @@ func (db *DB) CreateDashboardShare(dashboardID, accessLevel, visibility, created
 
 	return &DashboardShare{
 		ID:                id,
-		DashboardID:       dashboardID,
+		DashboardID:       p.DashboardID,
 		Token:             token,
-		AccessLevel:       accessLevel,
-		Visibility:        visibility,
-		AllowedEmails:     allowedEmails,
-		ConnectionID:      connectionID,
-		ClickhouseUser:    clickhouseUser,
-		EncryptedPassword: encryptedPassword,
-		ExpiresAt:         expiresAt,
-		CreatedBy:         &createdBy,
+		AccessLevel:       p.AccessLevel,
+		Visibility:        p.Visibility,
+		AllowedEmails:     p.AllowedEmails,
+		ConnectionID:      p.ConnectionID,
+		ClickhouseUser:    p.ClickhouseUser,
+		EncryptedPassword: p.EncryptedPassword,
+		SSOIdentityID:     p.SSOIdentityID,
+		ExpiresAt:         p.ExpiresAt,
+		CreatedBy:         &p.CreatedBy,
 		CreatedAt:         now,
 	}, nil
 }
@@ -442,13 +465,13 @@ func (db *DB) GetDashboardSharesByDashboard(dashboardID string) ([]DashboardShar
 // GetDashboardShareByToken retrieves a share by its public token.
 func (db *DB) GetDashboardShareByToken(token string) (*DashboardShare, error) {
 	row := db.conn.QueryRow(
-		`SELECT id, dashboard_id, token, access_level, visibility, allowed_emails, connection_id, clickhouse_user, encrypted_password, expires_at, created_by, created_at
+		`SELECT id, dashboard_id, token, access_level, visibility, allowed_emails, connection_id, clickhouse_user, encrypted_password, COALESCE(sso_identity_id, ''), expires_at, created_by, created_at
 		 FROM dashboard_shares WHERE token = ?`, token,
 	)
 
 	var s DashboardShare
 	var expiresAt, createdBy sql.NullString
-	err := row.Scan(&s.ID, &s.DashboardID, &s.Token, &s.AccessLevel, &s.Visibility, &s.AllowedEmailsJSON, &s.ConnectionID, &s.ClickhouseUser, &s.EncryptedPassword, &expiresAt, &createdBy, &s.CreatedAt)
+	err := row.Scan(&s.ID, &s.DashboardID, &s.Token, &s.AccessLevel, &s.Visibility, &s.AllowedEmailsJSON, &s.ConnectionID, &s.ClickhouseUser, &s.EncryptedPassword, &s.SSOIdentityID, &expiresAt, &createdBy, &s.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -464,13 +487,13 @@ func (db *DB) GetDashboardShareByToken(token string) (*DashboardShare, error) {
 // GetDashboardShareByID retrieves a share by ID with credentials.
 func (db *DB) GetDashboardShareByID(id string) (*DashboardShare, error) {
 	row := db.conn.QueryRow(
-		`SELECT id, dashboard_id, token, access_level, visibility, allowed_emails, connection_id, clickhouse_user, encrypted_password, expires_at, created_by, created_at
+		`SELECT id, dashboard_id, token, access_level, visibility, allowed_emails, connection_id, clickhouse_user, encrypted_password, COALESCE(sso_identity_id, ''), expires_at, created_by, created_at
 		 FROM dashboard_shares WHERE id = ?`, id,
 	)
 
 	var s DashboardShare
 	var expiresAt, createdBy sql.NullString
-	err := row.Scan(&s.ID, &s.DashboardID, &s.Token, &s.AccessLevel, &s.Visibility, &s.AllowedEmailsJSON, &s.ConnectionID, &s.ClickhouseUser, &s.EncryptedPassword, &expiresAt, &createdBy, &s.CreatedAt)
+	err := row.Scan(&s.ID, &s.DashboardID, &s.Token, &s.AccessLevel, &s.Visibility, &s.AllowedEmailsJSON, &s.ConnectionID, &s.ClickhouseUser, &s.EncryptedPassword, &s.SSOIdentityID, &expiresAt, &createdBy, &s.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

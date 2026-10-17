@@ -160,7 +160,23 @@ func authMiddleware(deps Deps, next http.Handler) http.Handler {
 			}
 			return
 		}
-		password, err := crypto.Decrypt(k.CHPasswordEnc, deps.Config.AppSecretKey)
+		enc := k.CHPasswordEnc
+		if k.SSOIdentityID != "" {
+			// An OAuth token of an SSO person with a per-person ClickHouse
+			// user holds no password: the live row supplies the current one,
+			// and a locked or dropped user ends the token.
+			u, err := deps.DB.GetSSOClickHouseUser(k.SSOIdentityID, k.ConnectionID)
+			if err != nil {
+				http.Error(w, `{"error":"failed to resolve token credentials"}`, http.StatusInternalServerError)
+				return
+			}
+			if u == nil || u.Locked() {
+				unauthorized(w, prm, "the person behind this token no longer has access")
+				return
+			}
+			k.CHUser, enc = u.CHUser, u.EncryptedPassword
+		}
+		password, err := crypto.Decrypt(enc, deps.Config.AppSecretKey)
 		if err != nil {
 			http.Error(w, `{"error":"failed to decrypt key credentials"}`, http.StatusInternalServerError)
 			return

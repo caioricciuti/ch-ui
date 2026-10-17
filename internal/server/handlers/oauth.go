@@ -497,6 +497,21 @@ func (h *OAuthHandler) consentApprove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "Your role is read-only in CH-UI, so you cannot grant write scope")
 		return
 	}
+	// An SSO person with a per-person ClickHouse user grants a reference to
+	// that user, never a copy of its password: the password rotates at every
+	// sign-in, and the tokens must stop working when the user is removed.
+	chUser, chPasswordEnc, identityID := sess.ClickhouseUser, sess.EncryptedPassword, ""
+	if sess.SSOIdentityID != "" {
+		u, err := h.DB.GetSSOClickHouseUser(sess.SSOIdentityID, sess.ConnectionID)
+		if err != nil {
+			slog.Error("oauth: resolve per-person user failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "Could not issue authorization code")
+			return
+		}
+		if u != nil {
+			chUser, chPasswordEnc, identityID = u.CHUser, "", sess.SSOIdentityID
+		}
+	}
 	code := oauthRandomToken()
 	if err := h.DB.CreateOAuthCode(&database.OAuthCode{
 		CodeHash:      hashToken(code),
@@ -506,8 +521,9 @@ func (h *OAuthHandler) consentApprove(w http.ResponseWriter, r *http.Request) {
 		Scope:         req.Scope,
 		CodeChallenge: req.CodeChallenge,
 		ConnectionID:  sess.ConnectionID,
-		CHUser:        sess.ClickhouseUser,
-		CHPasswordEnc: sess.EncryptedPassword,
+		CHUser:        chUser,
+		CHPasswordEnc: chPasswordEnc,
+		SSOIdentityID: identityID,
 		Subject:       middleware.Actor(sess),
 		ExpiresAt:     time.Now().UTC().Add(oauthCodeTTL).Format(time.RFC3339),
 	}); err != nil {
@@ -602,7 +618,7 @@ func (h *OAuthHandler) tokenFromCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// No issue-time role yet: the consenting session supplies it.
-	h.issueTokens(w, c.ClientID, c.ClientName, c.Scope, c.ConnectionID, c.CHUser, c.CHPasswordEnc, c.Subject, "")
+	h.issueTokens(w, c.ClientID, c.ClientName, c.Scope, c.ConnectionID, c.CHUser, c.CHPasswordEnc, c.SSOIdentityID, c.Subject, "")
 }
 
 func (h *OAuthHandler) tokenFromRefresh(w http.ResponseWriter, r *http.Request) {
@@ -631,6 +647,21 @@ func (h *OAuthHandler) tokenFromRefresh(w http.ResponseWriter, r *http.Request) 
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "the grant behind this refresh token was revoked")
 		return
 	}
+	if old.SSOIdentityID != "" {
+		// The grant references a per-person ClickHouse user; once that user
+		// is locked or dropped the whole grant ends, refresh token included.
+		u, err := h.DB.GetSSOClickHouseUser(old.SSOIdentityID, old.ConnectionID)
+		if err != nil {
+			oauthError(w, http.StatusInternalServerError, "server_error", "person lookup failed")
+			return
+		}
+		if u == nil || u.Locked() {
+			h.DB.RevokeOAuthRefreshToken(t.TokenHash)
+			h.DB.RevokeMCPKey(old.ID)
+			oauthError(w, http.StatusBadRequest, "invalid_grant", "the person behind this token no longer has access")
+			return
+		}
+	}
 	// Rotate: the old refresh token and access token die together. The
 	// claim is one conditional UPDATE, so of two concurrent requests with
 	// the same refresh token exactly one wins; the other is refused like a
@@ -647,7 +678,7 @@ func (h *OAuthHandler) tokenFromRefresh(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.DB.RevokeMCPKey(old.ID)
-	h.issueTokens(w, old.ClientID, old.Name, t.Scope, old.ConnectionID, old.CHUser, old.CHPasswordEnc, old.Subject, old.GrantRole)
+	h.issueTokens(w, old.ClientID, old.Name, t.Scope, old.ConnectionID, old.CHUser, old.CHPasswordEnc, old.SSOIdentityID, old.Subject, old.GrantRole)
 }
 
 // claimRefreshToken revokes a live refresh token and reports whether this
@@ -675,7 +706,9 @@ func (h *OAuthHandler) claimRefreshToken(tokenHash, clientID string) (bool, erro
 // allows is dropped from the new tokens for good. While nothing is known
 // about their role (no override, session or recorded role) the scope is
 // kept, and /mcp serves the token read-only until they sign in again.
-func (h *OAuthHandler) issueTokens(w http.ResponseWriter, clientID, clientName, scope, connectionID, chUser, chPasswordEnc, subject, grantRole string) {
+// ssoIdentityID, when set, references the person's per-person ClickHouse
+// user and chPasswordEnc is empty; see database.MCPKey.SSOIdentityID.
+func (h *OAuthHandler) issueTokens(w http.ResponseWriter, clientID, clientName, scope, connectionID, chUser, chPasswordEnc, ssoIdentityID, subject, grantRole string) {
 	role, known, err := h.DB.OAuthKeyRoleKnown(&database.MCPKey{Kind: "oauth", ConnectionID: connectionID, CHUser: chUser, Subject: subject, GrantRole: grantRole})
 	if err != nil {
 		slog.Warn("oauth: resolve role failed; issuing read scope", "subject", subject, "error", err)
@@ -701,7 +734,7 @@ func (h *OAuthHandler) issueTokens(w http.ResponseWriter, clientID, clientName, 
 	}
 	key, err := h.DB.CreateMCPKey(database.CreateMCPKeyParams{
 		Name: name, KeyHash: hash, KeyPrefix: prefix, ConnectionID: connectionID,
-		CHUser: chUser, CHPasswordEnc: chPasswordEnc, Scopes: scopes, AllowActions: allowActions,
+		CHUser: chUser, CHPasswordEnc: chPasswordEnc, SSOIdentityID: ssoIdentityID, Scopes: scopes, AllowActions: allowActions,
 		CreatedBy: "oauth:" + subject, ExpiresAt: &exp,
 		Kind: "oauth", Subject: subject, ClientID: clientID, GrantRole: role,
 	})

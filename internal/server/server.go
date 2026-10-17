@@ -62,6 +62,7 @@ type Server struct {
 	auditFwd           *audit.Forwarder
 	oidcManager        *oidc.Manager
 	ssoProvisioner     *ssoidentity.Provisioner
+	ssoSweeper         *ssoidentity.Sweeper
 	agents             *embedded.Manager
 	router             chi.Router
 	http               *http.Server
@@ -97,6 +98,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 	// than refusing to start. The manager lets the admin SSO settings endpoint
 	// re-initialize the provider at runtime without a restart.
 	oidcManager := oidc.NewManager()
+	ssoProvisioner := &ssoidentity.Provisioner{DB: db, Gateway: gw, Secret: cfg.AppSecretKey}
 	if settings, ok := handlers.ResolveOIDCSettings(cfg, db); ok {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		err := oidcManager.Reload(ctx, settings)
@@ -164,7 +166,8 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 		alerts:             alertDispatcher,
 		auditFwd:           auditFwd,
 		oidcManager:        oidcManager,
-		ssoProvisioner:     &ssoidentity.Provisioner{DB: db, Gateway: gw, Secret: cfg.AppSecretKey},
+		ssoProvisioner:     ssoProvisioner,
+		ssoSweeper:         ssoidentity.NewSweeper(db, ssoProvisioner, config.NewProGate("Per-person SSO user sweep", cfg.ProAccess).Allow),
 		agents:             agents,
 		router:             r,
 		frontendFS:         frontendFS,
@@ -571,6 +574,9 @@ func (s *Server) serve(ln net.Listener) error {
 	s.operationsReports.Start()
 	s.reportRunner.Start()
 	s.alerts.Start()
+	// Locks and drops per-person SSO users that stopped signing in; the
+	// ticks skip while no Pro license is active.
+	s.ssoSweeper.Start()
 
 	if s.cfg.IsPro() {
 		if n, err := s.db.SweepStaleBrainApprovals(10 * time.Minute); err == nil && n > 0 {
@@ -673,6 +679,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.operationsReports.Stop()
 	s.reportRunner.Stop()
 	s.alerts.Stop()
+	s.ssoSweeper.Stop()
 	s.gateway.Stop()
 	s.auditFwd.Close()
 	if s.ingestHTTP != nil {

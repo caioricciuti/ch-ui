@@ -57,12 +57,12 @@ func newPublicFixture(t *testing.T) publicFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	share, err := db.CreateDashboardShare(shared, "viewer", "public", "", connID, "default", "x", nil, nil)
+	share, err := db.CreateDashboardShare(database.CreateDashboardShareParams{DashboardID: shared, AccessLevel: "viewer", Visibility: "public", ConnectionID: connID, ClickhouseUser: "default", EncryptedPassword: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	badExpiry := "not-a-date"
-	expired, err := db.CreateDashboardShare(shared, "viewer", "public", "", connID, "default", "x", nil, &badExpiry)
+	expired, err := db.CreateDashboardShare(database.CreateDashboardShareParams{DashboardID: shared, AccessLevel: "viewer", Visibility: "public", ConnectionID: connID, ClickhouseUser: "default", EncryptedPassword: "x", ExpiresAt: &badExpiry})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestPublicDashboardPayloadAndErrorsStayPrivate(t *testing.T) {
 	if err := db.SetDashboardVariables(dash, `[{"name":"host","type":"query","query":"SELECT host FROM hidden_hosts"}]`); err != nil {
 		t.Fatal(err)
 	}
-	share, err := db.CreateDashboardShare(dash, "viewer", "public", "", conn, "default", enc, nil, nil)
+	share, err := db.CreateDashboardShare(database.CreateDashboardShareParams{DashboardID: dash, AccessLevel: "viewer", Visibility: "public", ConnectionID: conn, ClickhouseUser: "default", EncryptedPassword: enc})
 	if err != nil {
 		t.Fatal(err)
 	}

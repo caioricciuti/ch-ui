@@ -27,6 +27,17 @@ import (
 // routes, and the MCP endpoint, so the whole flow runs in-process.
 func oauthRig(t *testing.T) (*chi.Mux, *database.DB, string) {
 	t.Helper()
+	return oauthRigWithSession(t, func(connID, enc string) *middleware.SessionInfo {
+		return &middleware.SessionInfo{
+			ID: "s1", ConnectionID: connID, ClickhouseUser: "alice", EncryptedPassword: enc, UserRole: "analyst", AuthSubject: "alice@example.com",
+		}
+	})
+}
+
+// oauthRigWithSession is oauthRig with the consenting session built by
+// session, from the connection id and the encrypted password "chpass".
+func oauthRigWithSession(t *testing.T, session func(connID, enc string) *middleware.SessionInfo) (*chi.Mux, *database.DB, string) {
+	t.Helper()
 	db, err := dbtest.Open(t, "oauth.db")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
@@ -62,9 +73,7 @@ func oauthRig(t *testing.T) (*chi.Mux, *database.DB, string) {
 	r.Route("/api/oauth/consent", func(cr chi.Router) {
 		cr.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				ctx := middleware.SetSession(req.Context(), &middleware.SessionInfo{
-					ID: "s1", ConnectionID: connID, ClickhouseUser: "alice", EncryptedPassword: enc, UserRole: "analyst", AuthSubject: "alice@example.com",
-				})
+				ctx := middleware.SetSession(req.Context(), session(connID, enc))
 				next.ServeHTTP(w, req.WithContext(ctx))
 			})
 		})

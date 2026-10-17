@@ -16,7 +16,7 @@ import (
 func TestListSharesGatesTokens(t *testing.T) {
 	f := newDashFixture(t)
 	creator := "alice"
-	share, err := f.db.CreateDashboardShare(f.dashID, "viewer", "public", creator, "conn-1", "alice", "x", nil, nil)
+	share, err := f.db.CreateDashboardShare(database.CreateDashboardShareParams{DashboardID: f.dashID, AccessLevel: "viewer", Visibility: "public", CreatedBy: creator, ConnectionID: "conn-1", ClickhouseUser: "alice", EncryptedPassword: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
