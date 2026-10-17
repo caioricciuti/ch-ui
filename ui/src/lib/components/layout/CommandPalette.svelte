@@ -431,7 +431,7 @@
           placeholder={scopeChip
             ? `Search ${scopeChip.label.toLowerCase()}…`
             : pro ? 'Search anything · try ? for help' : 'Search actions, tables, tabs...'}
-          class="w-full bg-transparent text-sm text-fg placeholder:text-fg-4 outline-none"
+          class="w-full bg-transparent text-fg placeholder:text-fg-4 outline-none"
         />
         <span class="text-[10px] text-fg-4 px-2 py-1 rounded border border-edge shrink-0">ESC</span>
       </div>
@@ -439,7 +439,7 @@
       <!-- Results -->
       <div class="max-h-[60vh] overflow-y-auto p-1.5">
         {#if grouped.length === 0}
-          <div class="px-3 py-10 text-center text-sm text-fg-3">
+          <div class="px-3 py-10 text-center text-fg-3">
             <Search size={20} class="mx-auto mb-2 text-fg-4" />
             No match for "{parsed.term || query}"
             {#if pro}
@@ -468,7 +468,7 @@
               >
                 <item.icon size={15} class={active ? 'text-accent' : 'text-fg-3'} />
                 <span class="flex-1 min-w-0">
-                  <span class="block text-sm font-medium truncate">
+                  <span class="block font-medium truncate">
                     {#each highlight(item.label, parsed.term) as h, i (i)}
                       <span class={h.on ? 'text-accent font-semibold' : ''}>{h.ch}</span>
                     {/each}
@@ -500,7 +500,7 @@
             >
               <item.icon size={15} class={idx === selectedIdx ? 'text-accent' : 'text-fg-3'} />
               <span class="flex-1 min-w-0">
-                <span class="block text-sm font-medium truncate">{item.label}</span>
+                <span class="block font-medium truncate">{item.label}</span>
                 {#if item.sub}
                   <span class="block text-[11px] text-fg-3 truncate">{item.sub}</span>
                 {/if}

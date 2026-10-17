@@ -287,7 +287,7 @@
   <div class="flex items-center justify-between px-4 py-3 border-b border-edge-subtle">
     <div class="flex items-center gap-2">
       <PanelsTopLeft size={16} class="text-accent" />
-      <h2 class="text-sm font-semibold text-fg">
+      <h2 class="text-[15px] font-semibold text-fg">
         {panel?.id ? 'Edit Panel' : 'New Panel'}
       </h2>
     </div>
@@ -312,7 +312,7 @@
           <!-- Editor -->
           <div class="flex-1 flex flex-col min-w-0 border-r border-edge-subtle">
             <textarea
-              class="flex-1 w-full font-mono text-sm bg-transparent text-fg resize-none p-4 focus:outline-none"
+              class="flex-1 w-full font-mono bg-transparent text-fg resize-none p-4 focus:outline-none"
               bind:value={content}
               placeholder="# My Panel&#10;&#10;Write **markdown** here...&#10;&#10;- Lists&#10;- Links: [example](https://example.com)&#10;- `code` and more"
               spellcheck="false"
@@ -361,7 +361,7 @@
               <p class="text-[13px] text-danger bg-danger-soft rounded-md p-3">{queryError}</p>
             </div>
           {:else if queryData.length === 0 && queryMeta.length === 0}
-            <div class="flex items-center justify-center h-full text-fg-4 text-sm">
+            <div class="flex items-center justify-center h-full text-fg-4">
               Run a query to see results
             </div>
           {:else}
@@ -380,7 +380,7 @@
           <input
             id="panel-name"
             type="text"
-            class="w-full text-sm bg-transparent border border-edge rounded px-3 py-2 text-fg"
+            class="w-full bg-transparent border border-edge rounded px-3 py-2 text-fg"
             placeholder="My Panel"
             bind:value={name}
           />
@@ -392,7 +392,7 @@
           <input
             id="panel-description"
             type="text"
-            class="w-full text-sm bg-transparent border border-edge rounded px-3 py-2 text-fg"
+            class="w-full bg-transparent border border-edge rounded px-3 py-2 text-fg"
             placeholder="Optional description"
             bind:value={description}
           />

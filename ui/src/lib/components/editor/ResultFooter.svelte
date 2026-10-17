@@ -97,7 +97,7 @@
   const tabClass = (id: Tab) =>
     `flex items-center gap-1 px-2 py-1 text-xs font-medium transition-colors ${
       activeTab === id
-        ? 'text-ch-orange border-b-2 border-ch-orange'
+        ? 'text-accent border-b-2 border-accent'
         : 'text-fg-3 hover:text-fg border-b-2 border-transparent'
     }`
 
@@ -186,7 +186,7 @@
       <span>{formatNumber(rowCount)} rows</span>
     {/if}
     {#if serverApplied}
-      <span class="flex items-center gap-1 text-ch-orange" title="Filters/ordering were applied by re-running the query on the server">
+      <span class="flex items-center gap-1 text-accent" title="Filters/ordering were applied by re-running the query on the server">
         <CloudCog size={12} />
         server-filtered
       </span>

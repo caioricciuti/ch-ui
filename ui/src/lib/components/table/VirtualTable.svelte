@@ -335,7 +335,7 @@
   role="grid"
   aria-label="Results grid"
 >
-  <table class="text-sm border-collapse table-fixed" style="width:{tableWidth}px;min-width:{tableWidth}px">
+  <table class="border-collapse table-fixed" style="width:{tableWidth}px;min-width:{tableWidth}px">
     <colgroup>
       <col style="width:{ROW_NUMBER_WIDTH}px;min-width:{ROW_NUMBER_WIDTH}px;max-width:{ROW_NUMBER_WIDTH}px" />
       {#each effectiveWidths as width}
@@ -403,7 +403,7 @@
         <div class="mx-auto mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-fg-3">
           <SearchX size={18} />
         </div>
-        <p class="text-sm font-semibold text-fg">No rows returned</p>
+        <p class="font-semibold text-fg">No rows returned</p>
         <p class="mt-1 text-xs text-fg-3">
           {#if filters.length > 0}
             No rows match the active filters.

@@ -245,7 +245,7 @@
           <Textarea id="dashboard-description" rows={3} placeholder="Optional description" bind:value={generalDescription} />
         </FormField>
         <div class="mt-4 rounded-lg border border-edge-subtle p-4">
-          <h3 class="text-sm font-medium text-fg mb-1">Duplicate Dashboard</h3>
+          <h3 class="text-[13px] font-medium text-fg mb-1">Duplicate Dashboard</h3>
           <p class="text-xs text-fg-3 mb-3">Copy this dashboard with its panels and variables into the same folder, with the same tags.</p>
           <Button size="sm" variant="secondary" loading={duplicating} onclick={handleDuplicate}>
             <Copy size={13} /> Duplicate dashboard
@@ -254,7 +254,7 @@
 
         <!-- Danger zone -->
         <div class="mt-4 rounded-lg border border-danger/40 p-4">
-          <h3 class="text-sm font-medium text-danger mb-1">Danger Zone</h3>
+          <h3 class="text-[13px] font-medium text-danger mb-1">Danger Zone</h3>
           <p class="text-xs text-fg-3 mb-3">Permanently delete this dashboard and all its panels. This action cannot be undone.</p>
           <Button size="sm" variant="danger" onclick={ondelete}>
             <Trash2 size={13} /> Delete Dashboard
@@ -288,13 +288,13 @@
       <div class="flex flex-col gap-6">
         <!-- Export -->
         <div class="rounded-lg border border-edge-subtle p-4">
-          <h3 class="text-sm font-medium text-fg mb-1">Export Dashboard</h3>
+          <h3 class="text-[13px] font-medium text-fg mb-1">Export Dashboard</h3>
           <p class="text-xs text-fg-3">Download the full dashboard configuration, including all panels and variables, as a JSON file, or copy it to the clipboard. Both actions are below.</p>
         </div>
 
         <!-- Import -->
         <div class="rounded-lg border border-edge-subtle p-4">
-          <h3 class="text-sm font-medium text-fg mb-1">Import Dashboard</h3>
+          <h3 class="text-[13px] font-medium text-fg mb-1">Import Dashboard</h3>
           <p class="text-xs text-fg-3 mb-3">Upload a dashboard JSON file. This replaces all current panels, and the variables when the file has a "variables" field.</p>
           <div class="flex items-center gap-2">
             <Button size="sm" variant="secondary" loading={importing} onclick={triggerImport}>
@@ -313,7 +313,7 @@
 
         <!-- Info -->
         <div class="rounded-lg bg-surface border border-edge-subtle p-4">
-          <h3 class="text-sm font-medium text-fg mb-2">JSON Format</h3>
+          <h3 class="text-[13px] font-medium text-fg mb-2">JSON Format</h3>
           <pre class="text-[11px] text-fg-3 font-mono leading-relaxed">{"{"}
   "version": 1,
   "dashboard": {"{"} "name": "...", "description": "..." {"}"},

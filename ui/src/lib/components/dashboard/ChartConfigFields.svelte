@@ -217,7 +217,7 @@
         <input
           id="stat-prefix-{uid}"
           type="text"
-          class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
+          class="w-full bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
           placeholder="$"
           value={config.statPrefix ?? ''}
           oninput={(e) => set({ statPrefix: e.currentTarget.value })}
@@ -228,7 +228,7 @@
         <input
           id="stat-suffix-{uid}"
           type="text"
-          class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
+          class="w-full bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
           placeholder="%"
           value={config.statSuffix ?? ''}
           oninput={(e) => set({ statSuffix: e.currentTarget.value })}
@@ -241,7 +241,7 @@
           type="number"
           min="0"
           max="10"
-          class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
+          class="w-full bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
           placeholder="Auto"
           value={config.statDecimals ?? ''}
           oninput={(e) => {
@@ -297,7 +297,7 @@
                     next[i] = { ...next[i], value: Number(e.currentTarget.value) }
                     setThresholds(next)
                   }}
-                  class="flex-1 text-sm bg-transparent border border-edge rounded px-2 py-1 text-fg"
+                  class="flex-1 bg-transparent border border-edge rounded px-2 py-1 text-fg"
                 />
               {/if}
               {#if thresholds.length > 1}
@@ -323,7 +323,7 @@
           <input
             id="gauge-min-{uid}"
             type="number"
-            class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
+            class="w-full bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
             value={config.gaugeMin ?? 0}
             oninput={(e) => set({ gaugeMin: Number(e.currentTarget.value) })}
           />
@@ -333,7 +333,7 @@
           <input
             id="gauge-max-{uid}"
             type="number"
-            class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
+            class="w-full bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
             value={config.gaugeMax ?? 100}
             oninput={(e) => set({ gaugeMax: Number(e.currentTarget.value) })}
           />
@@ -502,7 +502,7 @@
       type="number"
       min="1"
       max={MAX_HISTOGRAM_BUCKETS}
-      class="w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
+      class="w-full bg-transparent border border-edge rounded px-2 py-1.5 text-fg"
       placeholder={String(DEFAULT_HISTOGRAM_BUCKETS)}
       value={config.histogramBuckets ?? ''}
       oninput={(e) => {

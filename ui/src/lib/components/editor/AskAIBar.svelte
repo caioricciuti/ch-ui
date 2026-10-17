@@ -94,7 +94,7 @@
 </script>
 
 <div class="flex items-center gap-2 px-3 py-2">
-  <Sparkles size={15} class="text-ch-orange shrink-0" />
+  <Sparkles size={15} class="text-accent shrink-0" />
   <input
     class="ds-input-sm flex-1"
     placeholder="Describe the query in plain English, for example: top 10 users by orders last month"

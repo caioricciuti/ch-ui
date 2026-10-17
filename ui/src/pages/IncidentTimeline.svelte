@@ -144,7 +144,7 @@
             <button class="rounded-md border px-3 py-1.5 text-xs {sources.includes(source) ? 'border-accent text-accent bg-accent-soft' : 'border-edge text-fg-3'}" aria-pressed={sources.includes(source)} onclick={() => toggleSource(source)}>{sourceLabels[source]}</button>
           {/each}
         </div>
-        {#if error}<div role="alert" class="rounded-md border border-danger/30 bg-danger-soft p-3 text-sm text-danger">{error}</div>{/if}
+        {#if error}<div role="alert" class="rounded-md border border-danger/30 bg-danger-soft p-3 text-danger">{error}</div>{/if}
         {#if loading && !result}<div class="flex justify-center p-10"><Spinner /></div>{/if}
         {#if result}
           <Panel title="Source coverage" description="Missing or retained data limits what this window can show." padding="sm">
@@ -203,5 +203,5 @@
       {#if related.resolution_note}<Panel title="Resolution">{related.resolution_note}</Panel>{/if}
       {#each comments as comment}<Panel padding="sm"><p class="whitespace-pre-wrap">{comment.comment_text}</p><p class="mt-2 text-xs text-fg-4">{comment.created_by ?? 'Unknown'} · {formatFull(comment.created_at)}</p></Panel>{/each}
     </div>
-  {:else}<p class="text-sm text-fg-3">Could not load the incident.</p>{/if}
+  {:else}<p class="text-fg-3">Could not load the incident.</p>{/if}
 </Sheet>

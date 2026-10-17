@@ -128,7 +128,7 @@
             type="button"
             class="absolute top-1/2 -translate-y-1/2 {isRightAligned(col.type) ? 'left-1' : 'right-3'} p-0.5 rounded transition-opacity
               {active
-                ? 'text-ch-orange opacity-100'
+                ? 'text-accent opacity-100'
                 : 'text-fg-4 opacity-0 group-hover:opacity-100 hover:text-fg'}"
             onclick={(e) => handleFilterClick(e, col.name)}
             onmousedown={(e) => e.stopPropagation()}
@@ -143,7 +143,7 @@
         {#if onresize}
           <button
             type="button"
-            class="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize opacity-0 group-hover:opacity-100 hover:bg-ch-orange/35 active:bg-ch-orange/45 transition-opacity"
+            class="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize opacity-0 group-hover:opacity-100 hover:bg-accent/35 active:bg-accent/45 transition-opacity"
             onmousedown={(e) => handleMouseDown(e, i)}
             ondblclick={(e) => handleFitColumn(e, i)}
             onclick={(e) => e.stopPropagation()}

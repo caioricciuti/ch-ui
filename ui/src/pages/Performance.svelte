@@ -305,7 +305,7 @@
               {#each detail.events as event (event.id)}
                 <div class="py-3 first:pt-0 last:pb-0">
                   <div class="flex flex-wrap items-center gap-2"><Badge tone="neutral">{event.kind === 'baseline' ? 'Baseline captured' : event.kind === 'comparison' ? 'Comparison captured' : 'Updated'}</Badge><span class="text-xs text-fg-3">{event.actor} · {date(event.created_at)}</span></div>
-                  {#if event.note}<p class="mt-2 whitespace-pre-wrap text-sm text-fg-2">{event.note}</p>{/if}
+                  {#if event.note}<p class="mt-2 whitespace-pre-wrap text-fg-2">{event.note}</p>{/if}
                   {#if event.kind === 'update'}{@const update = event.payload as {title:string;owner:string;status:string}}<p class="mt-2 text-xs text-fg-3">{update.title} · {update.status} · Owner: {update.owner || 'Unassigned'}</p>{/if}
                   {#if event.kind === 'comparison'}{@const comparison = event.payload as Comparison}<details class="mt-2"><summary class="cursor-pointer text-xs text-fg-3">View results · {formatNumber(comparison.current.metrics.runs)} successful queries</summary><div class="mt-2">{@render changesTable(comparison.changes, comparison.sufficient)}</div></details>{/if}
                 </div>
