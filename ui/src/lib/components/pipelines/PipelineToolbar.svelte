@@ -2,7 +2,8 @@
   import type { PipelineStatus } from '../../types/pipelines'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
-  import { ArrowLeft, Save, Play, Square, History, FlaskConical } from 'lucide-svelte'
+  import PageHeader from '../common/PageHeader.svelte'
+  import { Save, Play, Square, History, FlaskConical } from 'lucide-svelte'
 
   interface Props {
     pipelineName: string
@@ -35,20 +36,18 @@
   )
 </script>
 
-<header class="flex h-12 shrink-0 items-center gap-3 border-b border-edge-subtle px-5">
-  <Button icon size="sm" variant="ghost" class="-ml-2" onclick={onBack} title="Back to pipelines" aria-label="Back to pipelines">
-    <ArrowLeft size={15} />
-  </Button>
-  <div class="flex min-w-0 items-baseline gap-3">
-    <span class="shrink-0 text-[13px] text-fg-3">Pipelines</span>
-    <h1 class="truncate text-[15px] font-semibold tracking-[-0.01em] text-fg">{pipelineName}</h1>
-  </div>
-  <Badge {tone} dot={status === 'running'}>{status === 'running' && retrying ? 'running, retrying' : status}</Badge>
-  {#if dirty}
-    <span class="text-[13px] text-fg-3">Unsaved changes</span>
-  {/if}
-
-  <div class="ml-auto flex shrink-0 items-center gap-2">
+<PageHeader
+  title={pipelineName}
+  back={{ label: 'Back to pipelines', onclick: onBack }}
+  crumbs={[{ label: 'Pipelines', onclick: onBack }]}
+>
+  {#snippet meta()}
+    <Badge {tone} dot={status === 'running'}>{status === 'running' && retrying ? 'running, retrying' : status}</Badge>
+    {#if dirty}
+      <span class="text-[13px] text-fg-3">Unsaved changes</span>
+    {/if}
+  {/snippet}
+  {#snippet actions()}
     <Button size="sm" variant="ghost" onclick={onRuns} title="Runs and logs">
       <History size={13} /> Runs
     </Button>
@@ -67,5 +66,5 @@
         <Play size={13} /> Run
       </Button>
     {/if}
-  </div>
-</header>
+  {/snippet}
+</PageHeader>
