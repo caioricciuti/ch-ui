@@ -74,9 +74,9 @@ func ResolveGraph(nodes []database.PipelineNode, edges []database.PipelineEdge) 
 	sinks := len(sinkNodes)
 	switch {
 	case source == nil:
-		return nil, graphErr(nil, "pipeline has no source node")
+		return nil, graphErr(nil, "Add a source first: drag Kafka, Webhook, Database, S3 or Ingest from the palette onto the canvas")
 	case sinks == 0:
-		return nil, graphErr(nil, "pipeline has no sink node")
+		return nil, graphErr(nil, "Add a ClickHouse sink: drag it from the palette and connect the source to it")
 	case sinks > MaxSinks:
 		return nil, graphErr(sinkNodes[MaxSinks], "a pipeline can have at most %d sinks", MaxSinks)
 	case sinks > 1 && route == nil:

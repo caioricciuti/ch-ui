@@ -292,7 +292,6 @@
       {:else}
         <Badge tone="neutral">Community</Badge>
       {/if}
-      <Badge tone="brand" class="uppercase">{license?.edition || 'community'}</Badge>
     {/snippet}
   </PageHeader>
 

@@ -149,7 +149,7 @@ func TestPipelineRoutingAPI(t *testing.T) {
 		t.Fatalf("save without sink: %d %s", rec.Code, rec.Body)
 	}
 	rec = as(http.MethodPost, "/"+id+"/start", "")
-	if decodeErr(rec); rec.Code != http.StatusBadRequest || e.NodeID != "" || e.Error != "pipeline has no sink node" || strings.Contains(rec.Body.String(), "node_id") {
+	if decodeErr(rec); rec.Code != http.StatusBadRequest || e.NodeID != "" || !strings.HasPrefix(e.Error, "Add a ClickHouse sink") || strings.Contains(rec.Body.String(), "node_id") {
 		t.Fatalf("start without a sink: %d %s", rec.Code, rec.Body)
 	}
 	if rec := as(http.MethodPut, "/"+id+"/graph", graph(routeCfg)); rec.Code != http.StatusOK {

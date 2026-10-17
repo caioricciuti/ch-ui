@@ -170,7 +170,7 @@
   <button
     class="inline-flex items-center gap-1.5 text-xs bg-transparent border border-edge rounded px-2 py-1 text-fg-2 hover:border-edge-strong transition-colors"
     onclick={() => open = !open}
-    title="Select dashboard time range"
+    title="Select time range"
   >
     <Clock3 size={12} class="text-accent" />
     <span class="max-w-[220px] truncate">{label}</span>

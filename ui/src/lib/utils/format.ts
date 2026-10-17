@@ -46,10 +46,21 @@ export function formatDuration(ms: number): string {
   return formatElapsed(ms / 1000)
 }
 
+// SQLite's CURRENT_TIMESTAMP and ClickHouse's DateTime both print as
+// "2026-10-17 20:26:45" with no zone. The app store writes UTC, so a bare
+// value is read as UTC; parsing it as local time showed every "last login"
+// and "created" one UTC offset off. RFC 3339 values are left to Date.
+const BARE_UTC = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?$/
+
 function toDate(value: unknown): Date | null {
   if (value === null || value === undefined || value === '') return null
   if (value instanceof Date) return value
-  return new Date(typeof value === 'number' ? value : String(value))
+  if (typeof value === 'number') return new Date(value)
+  const text = String(value)
+  const m = BARE_UTC.exec(text)
+  if (!m) return new Date(text)
+  const ms = m[7] ? Number((m[7] + '00').slice(0, 3)) : 0
+  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], m[6] ? +m[6] : 0, ms))
 }
 
 /** Format a timestamp as a local date + time string. Empty values render as an em dash. */

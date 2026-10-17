@@ -205,14 +205,15 @@
   }
 
   /** Saves the graph; reports whether it was saved. */
-  async function handleSave(): Promise<boolean> {
+  /** `quiet` skips the saved toast when a start or test follows and reports its own outcome. */
+  async function handleSave(opts: { quiet?: boolean } = {}): Promise<boolean> {
     saving = true
     try {
       const payload = graphPayload()
       await api.saveGraph(pipelineId, payload)
       savedSnapshot = JSON.stringify(payload)
       clearNodeError()
-      toastSuccess(isRunning ? 'Pipeline saved. Changes apply after a restart.' : 'Pipeline saved')
+      if (!opts.quiet) toastSuccess(isRunning ? 'Pipeline saved. Changes apply after a restart.' : 'Pipeline saved')
       return true
     } catch (e: unknown) {
       toastError(errorText(e, 'Failed to save pipeline'))
@@ -238,7 +239,7 @@
     pending = true
     try {
       // Save first; never start a pipeline whose save failed.
-      if (!(await handleSave())) return
+      if (!(await handleSave({ quiet: true }))) return
       await api.startPipeline(pipelineId)
       toastSuccess('Pipeline started')
       await refreshPipeline()
@@ -271,7 +272,7 @@
     testing = true
     testError = ''
     try {
-      if (dirty && !(await handleSave())) {
+      if (dirty && !(await handleSave({ quiet: true }))) {
         testError = 'Save failed; fix the pipeline and test again.'
         return null
       }
