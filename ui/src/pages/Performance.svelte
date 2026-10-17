@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
-  import { RefreshCw, TrendingUp, Search, ArrowLeft, ClipboardList, AlertTriangle } from 'lucide-svelte'
+  import { RefreshCw, Search, ArrowLeft, AlertTriangle } from 'lucide-svelte'
   import {
     fetchRegressions, fetchInvestigations, fetchInvestigation, createInvestigation, updateInvestigation,
     compareInvestigation, fetchPerformanceMonitor, setPerformanceMonitor,
@@ -12,7 +12,7 @@
   import { getSection, setSection } from '../lib/stores/nav.svelte'
   import { goTo } from '../lib/stores/router.svelte'
   import { PAGE_SECTIONS, docsURL } from '../lib/routes'
-  import { formatBytes, formatNumber, formatElapsed } from '../lib/utils/format'
+  import { formatBytes, formatNumber, formatElapsed, formatDate } from '../lib/utils/format'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
   import PageBody from '../lib/components/common/PageBody.svelte'
   import Button from '../lib/components/common/Button.svelte'
@@ -42,7 +42,6 @@
   let error = $state('')
   let search = $state('')
   let allPatterns = $state(false)
-  let patternLimit = $state(50)
   let selected = $state<Pattern | null>(null)
   let title = $state('')
   let owner = $state('')
@@ -69,6 +68,34 @@
   const windowLabel = (w: Window) => `${date(w.start)} → ${date(w.end)}`
   const metricValue = (metric: keyof Metrics, value: number) => metric.includes('bytes') ? formatBytes(value) : ms(value)
   const delta = (c: Change) => c.percent === null ? 'No percentage baseline' : `${c.percent > 0 ? '+' : ''}${c.percent.toFixed(1)}%`
+
+  type PatternRow = Record<string, unknown> & Pattern & { pattern: string; db: string; current_p95: number; baseline_p95: number; change: number | null; runs: number; memory: number }
+  type InvestigationRow = Record<string, unknown> & Investigation & { pattern: string; owner_label: string }
+  const p95Change = (p: Pattern) => p.changes.find((c) => c.metric === 'p95_ms')
+  const patternRows = $derived<PatternRow[]>(visiblePatterns.map((p) => ({
+    ...p, pattern: p.sample_query.replace(/\s+/g, ' ').trim(), db: p.database || 'default',
+    current_p95: p.current.p95_ms, baseline_p95: p.baseline.p95_ms, change: p95Change(p)?.percent ?? null, runs: p.current.runs, memory: p.current.mean_memory_bytes,
+  })))
+  const investigationRows = $derived<InvestigationRow[]>(filteredInvestigations.map((i) => ({ ...i, pattern: `${i.database || 'default'} · ${i.query_hash}`, owner_label: i.owner || 'Unassigned' })))
+  const statusLabel = (p: Pattern) => p.status === 'insufficient_data' ? 'Insufficient data' : p.status === 'regressed' ? 'Regression' : 'Stable'
+  const patternColumns: DataColumn<PatternRow>[] = [
+    { key: 'status', label: 'Status', width: '130px', format: (_, r) => statusLabel(r) },
+    { key: 'pattern', label: 'Pattern', mono: true, truncate: true },
+    { key: 'db', label: 'Database', mono: true, width: '140px' },
+    { key: 'current_p95', label: 'Current p95', align: 'right', mono: true, width: '110px', format: (v) => ms(Number(v)) },
+    { key: 'baseline_p95', label: 'Baseline p95', align: 'right', mono: true, width: '110px', format: (v) => ms(Number(v)) },
+    { key: 'change', label: 'Change', align: 'right', width: '120px', sortValue: (r) => r.change ?? Number.NEGATIVE_INFINITY, format: (_, r) => { const c = p95Change(r); return r.status === 'insufficient_data' ? 'Insufficient data' : c ? delta(c) : '' } },
+    { key: 'runs', label: 'Executions', align: 'right', mono: true, width: '110px', format: (v) => formatNumber(Number(v)) },
+    { key: 'memory', label: 'Memory / query', align: 'right', mono: true, width: '130px', format: (v) => formatBytes(Number(v)) },
+  ]
+  const investigationColumns: DataColumn<InvestigationRow>[] = [
+    { key: 'title', label: 'Title', truncate: true },
+    { key: 'pattern', label: 'Pattern', mono: true, truncate: true },
+    { key: 'status', label: 'Status', width: '120px' },
+    { key: 'owner_label', label: 'Owner', width: '180px' },
+    { key: 'created_at', label: 'Opened', width: '180px', format: formatDate },
+    { key: 'updated_at', label: 'Updated', width: '180px', format: formatDate },
+  ]
 
   // A handful of fixed metrics in a set order: no sorting.
   const changeColumns: DataColumn<Record<string, unknown>>[] = [
@@ -210,11 +237,10 @@
       <Button variant="ghost" size="sm" disabled={loading || busy} onclick={() => load()}><RefreshCw size={14} class={loading ? 'animate-spin' : ''} /> Refresh</Button>
     {/snippet}
   </PageHeader>
-  <PageBody width="lg">
-    <div class="space-y-4">
-      {#if error}<EmptyState size="compact" icon={AlertTriangle} title="Request failed" description={error} />{/if}
-
-      {#if selected || detail}
+  {#if selected || detail}
+    <PageBody width="lg">
+      <div class="space-y-4">
+        {#if error}<EmptyState size="compact" icon={AlertTriangle} title="Request failed" description={error} />{/if}
         <Button variant="ghost" size="sm" disabled={busy} onclick={() => { selected = null; detail = null; detailSequence++ }}><ArrowLeft size={14} /> Back</Button>
         <Panel title={selected ? 'Capture a performance baseline' : detail?.investigation.title} description="Saved measurements and notes are shared with users of this connection.">
           <pre class="mb-4 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-surface-2 p-3 text-xs text-fg-3">{selected?.sample_query ?? detail?.investigation.sample_query}</pre>
@@ -230,7 +256,8 @@
             <div class="mt-4"><label for="performance-note" class="mb-1 block text-xs text-fg-3">{selected ? 'Initial notes' : 'Add a note or record a change'}</label><Textarea id="performance-note" bind:value={note} disabled={busy} placeholder="What changed, when it was deployed, and what you expect to improve" /></div>
             {#if detail}<div class="mt-4"><label for="performance-replacement" class="mb-1 block text-xs text-fg-3">Compare against (choose a replacement if the SQL changed)</label><Select id="performance-replacement" options={replacementOptions} bind:value={replacement} disabled={busy} /><p class="mt-1 text-xs text-fg-4">Replacement choices come from the latest {range} scan. Compare equivalent workloads and wait a full baseline window after your deployment so the comparison excludes pre-change workload.</p></div>{/if}
             <div class="mt-4 flex flex-wrap items-center gap-3">
-              <Button disabled={busy || !title.trim()} onclick={save}>{selected ? 'Capture baseline' : 'Save update'}</Button>
+              <Button disabled={busy || !title.trim() || (!!selected && selected.current.runs < 10)} onclick={save}>{selected ? 'Capture baseline' : 'Save update'}</Button>
+              {#if selected && selected.current.runs < 10}<span class="text-xs text-fg-3">At least 10 successful queries in the current window are needed to capture a baseline.</span>{/if}
               {#if detail}<Button variant="secondary" disabled={busy || !comparisonReady || !!note.trim()} onclick={compare}>Capture comparison</Button>{/if}
               {#if detail && !comparisonReady}<span class="text-xs text-fg-3">Full comparison available {new Date(comparisonReadyAt).toLocaleString()}</span>{/if}
               {#if detail && note.trim()}<span class="text-xs text-fg-3">Save your note before capturing a comparison.</span>{/if}
@@ -264,46 +291,87 @@
             </div>
           </Panel>
         {/if}
-      {:else if section === 'regressions'}
-        <div class="flex flex-wrap items-end gap-3">
-          <div><label for="performance-range" class="mb-1 block text-xs text-fg-3">Compare each window</label><Select id="performance-range" class="w-36" value={range} options={rangeOptions} onchange={v => { range = v as PerformanceRange; void load() }} disabled={loading} /></div>
-          <label class="ds-checkbox-label h-8"><input type="checkbox" class="ds-checkbox ds-checkbox-sm" bind:checked={allPatterns} /> All observed patterns</label>
-          <div class="ml-auto flex items-center gap-2"><Search size={14} class="text-fg-4" /><Input type="search" bind:value={search} placeholder="Find a pattern or database" /></div>
+      </div>
+    </PageBody>
+  {:else if section === 'regressions'}
+    <div class="flex h-10 shrink-0 items-center gap-3 border-b border-edge-subtle px-4">
+      <label for="performance-range" class="text-xs text-fg-3">Compare each window</label>
+      <Select id="performance-range" size="sm" class="w-32" value={range} options={rangeOptions} onchange={v => { range = v as PerformanceRange; void load() }} disabled={loading} />
+      <label class="ds-checkbox-label"><input type="checkbox" class="ds-checkbox ds-checkbox-sm" bind:checked={allPatterns} /> All observed patterns</label>
+      <div class="relative ml-auto">
+        <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-4" />
+        <Input size="sm" type="search" class="w-64 pl-8" bind:value={search} placeholder="Find a pattern or database" />
+      </div>
+      {#if report?.supported}<span class="text-xs text-fg-4">{formatNumber(patternRows.length)} patterns</span>{/if}
+    </div>
+    <div class="flex min-h-0 flex-1 flex-col gap-4 px-5 py-4">
+      {#if error}<EmptyState size="compact" icon={AlertTriangle} title="Request failed" description={error} />{/if}
+      {#if loading && !report}<div class="flex justify-center py-12"><Spinner /></div>
+      {:else if report && !report.supported}<EmptyState icon={AlertTriangle} title="Query log is not available" description={report.coverage} />
+      {:else if report}
+        <div class="grid shrink-0 grid-cols-3 gap-3"><Stat label="Regressions" value={formatNumber(report.regressions.length)} tone={report.regressions.length ? 'danger' : 'default'} /><Stat label="Patterns compared" value={formatNumber(report.compared)} /><Stat label="Insufficient data" value={formatNumber(report.insufficient)} /></div>
+        <Panel variant="muted" padding="sm" class="shrink-0">
+          <div class="space-y-1 text-xs leading-relaxed text-fg-3"><p>Current: {windowLabel(report.current)}</p><p>Baseline: {windowLabel(report.baseline)}</p><p>{report.coverage}</p><p>Requires ≥{report.min_samples} successful queries in each window and ≥50% growth, plus ≥100 ms p95 latency or ≥16 MiB mean memory / bytes read. The newest minute is excluded to allow query-log flushing. Refreshes every 5 minutes while this page is visible.</p>{#if report.truncated}<p class="text-warning">Limited to the 1,000 most frequent current patterns. Other patterns have not been evaluated.</p>{/if}</div>
+        </Panel>
+        <div class="min-h-0 flex-1 overflow-hidden rounded-lg border border-edge-subtle bg-surface">
+          <DataTable
+            fill
+            columns={patternColumns}
+            rows={patternRows}
+            rowKey={(r) => `${r.database}:${r.hash}`}
+            emptyTitle={search ? 'No matching patterns' : allPatterns ? 'No queries recorded in these windows' : 'No qualifying regressions'}
+            emptyDescription={report.insufficient ? `${report.insufficient} patterns lack enough successful observations. Use a longer window or inspect all patterns.` : 'Choose another window or return after more workload queries have been recorded.'}
+            onrowclick={(r) => selectPattern(r)}
+          >
+            {#snippet cell(row, col, value)}
+              {#if col.key === 'status'}
+                <Badge tone={row.status === 'regressed' ? 'danger' : row.status === 'insufficient_data' ? 'warning' : 'neutral'}>{value}</Badge>
+              {:else if col.key === 'change'}
+                {#if row.status === 'insufficient_data'}<span class="text-fg-3">{value}</span>
+                {:else if p95Change(row)?.regressed}<Badge tone="danger">{value}</Badge>
+                {:else}<span class="font-mono text-xs text-fg-3">{value}</span>{/if}
+              {:else}
+                {value}
+              {/if}
+            {/snippet}
+          </DataTable>
         </div>
-        {#if loading && !report}<div class="flex justify-center py-12"><Spinner /></div>
-        {:else if report && !report.supported}<EmptyState icon={AlertTriangle} title="Query log is not available" description={report.coverage} />
-        {:else if report}
-          <div class="grid grid-cols-3 gap-3"><Stat label="Regressions" value={formatNumber(report.regressions.length)} tone={report.regressions.length ? 'danger' : 'default'} /><Stat label="Patterns compared" value={formatNumber(report.compared)} /><Stat label="Insufficient data" value={formatNumber(report.insufficient)} /></div>
-          <Panel variant="muted" padding="sm">
-            <div class="space-y-1 text-xs leading-relaxed text-fg-3"><p>Current: {windowLabel(report.current)}</p><p>Baseline: {windowLabel(report.baseline)}</p><p>{report.coverage}</p><p>Requires ≥{report.min_samples} successful queries in each window and ≥50% growth, plus ≥100 ms p95 latency or ≥16 MiB mean memory / bytes read. The newest minute is excluded to allow query-log flushing. Refreshes every 5 minutes while this page is visible.</p>{#if report.truncated}<p class="text-warning">Limited to the 1,000 most frequent current patterns. Other patterns have not been evaluated.</p>{/if}</div>
-          </Panel>
-          {#if visiblePatterns.length === 0}<EmptyState icon={TrendingUp} title={search ? 'No matching patterns' : allPatterns ? 'No queries recorded in these windows' : 'No qualifying regressions'} description={report.insufficient ? `${report.insufficient} patterns lack enough successful observations. Use a longer window or inspect all patterns.` : 'Choose another window or return after more workload queries have been recorded.'} />
-          {:else}<div class="space-y-3">
-            {#each visiblePatterns.slice(0,patternLimit) as p (`${p.database}:${p.hash}`)}
-              <Panel padding="sm">
-                <div class="mb-3 flex items-center gap-2"><Badge tone={p.status === 'regressed' ? 'danger' : p.status === 'insufficient_data' ? 'warning' : 'neutral'}>{p.status === 'insufficient_data' ? 'Insufficient data' : p.status === 'regressed' ? 'Regression' : 'Stable'}</Badge><span class="truncate font-mono text-xs text-fg-3">{p.database || 'default'} · {p.hash}</span>{#if canWrite}<Button size="xs" variant="secondary" class="ml-auto shrink-0" disabled={p.current.runs < 10} onclick={() => selectPattern(p)}>Investigate</Button>{/if}</div>
-                <pre class="mb-2 max-h-24 overflow-auto whitespace-pre-wrap text-xs text-fg-2">{p.sample_query}</pre>
-                {@render changesTable(p.changes.filter(c => ['p95_ms', 'mean_memory_bytes', 'mean_read_bytes'].includes(c.metric)), p.status !== 'insufficient_data')}
-                <p class="mt-2 text-xs text-fg-4">Successful queries: {formatNumber(p.baseline.runs)} → {formatNumber(p.current.runs)} · Failures: {formatNumber(p.baseline.failures)} → {formatNumber(p.current.failures)}{#if p.extra_duration_ms > 0} · Additional aggregate duration: {ms(p.extra_duration_ms)}{/if}</p>
-              </Panel>
-            {/each}
-            {#if visiblePatterns.length > patternLimit}<div class="flex justify-center"><Button variant="secondary" size="sm" onclick={() => patternLimit += 50}>Show more patterns ({visiblePatterns.length - patternLimit} remaining)</Button></div>{/if}
-          </div>{/if}
-        {/if}
-        {#if monitor}<Panel title="Hourly background detection" description="Compares the last 24 hours with the previous 24 hours on this connection's node, even when this page is closed.">
-          <div class="flex flex-wrap items-center gap-3"><Badge tone={monitor.enabled ? 'brand' : 'neutral'}>{monitor.enabled ? 'Enabled' : 'Disabled'}</Badge>{#if isAdmin}<Button variant="secondary" size="sm" disabled={busy} onclick={toggleMonitor}>{monitor.enabled ? 'Disable hourly scans' : 'Enable hourly scans'}</Button>{/if}<span class="text-xs text-fg-3">Requires a dedicated Performance account under <button type="button" class="text-accent hover:underline" onclick={openBackgroundAccounts}>Admin → Connections → Background accounts</button>.</span></div>
-          {#if monitor.last_scan_at}<p class="mt-3 text-xs text-fg-3">Last attempt: {date(monitor.last_scan_at)}</p>{/if}
-          {#if monitor.report && monitor.report_at}<p class="mt-1 text-xs text-fg-3">Last successful scan: {date(monitor.report_at)} · {monitor.report.regressions.length} regressions · {monitor.report.insufficient} patterns with insufficient data</p>{/if}
-          {#if monitor.last_error}<p class="mt-2 text-xs text-warning">Last scan failed: {monitor.last_error}. Previous results may be stale.</p>{/if}
-        </Panel>{/if}
+      {/if}
+      {#if monitor}<Panel title="Hourly background detection" description="Compares the last 24 hours with the previous 24 hours on this connection's node, even when this page is closed." class="shrink-0">
+        <div class="flex flex-wrap items-center gap-3"><Badge tone={monitor.enabled ? 'brand' : 'neutral'}>{monitor.enabled ? 'Enabled' : 'Disabled'}</Badge>{#if isAdmin}<Button variant="secondary" size="sm" disabled={busy} onclick={toggleMonitor}>{monitor.enabled ? 'Disable hourly scans' : 'Enable hourly scans'}</Button>{/if}<span class="text-xs text-fg-3">Requires a dedicated Performance account under <button type="button" class="text-accent hover:underline" onclick={openBackgroundAccounts}>Admin → Connections → Background accounts</button>.</span></div>
+        {#if monitor.last_scan_at}<p class="mt-3 text-xs text-fg-3">Last attempt: {date(monitor.last_scan_at)}</p>{/if}
+        {#if monitor.report && monitor.report_at}<p class="mt-1 text-xs text-fg-3">Last successful scan: {date(monitor.report_at)} · {monitor.report.regressions.length} regressions · {monitor.report.insufficient} patterns with insufficient data</p>{/if}
+        {#if monitor.last_error}<p class="mt-2 text-xs text-warning">Last scan failed: {monitor.last_error}. Previous results may be stale.</p>{/if}
+      </Panel>{/if}
+    </div>
+  {:else}
+    <div class="flex h-10 shrink-0 items-center gap-2 border-b border-edge-subtle px-4">
+      <div class="relative">
+        <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-4" />
+        <Input size="sm" type="search" class="w-72 pl-8" bind:value={search} placeholder="Find investigations by title, owner or status" />
+      </div>
+      <span class="ml-auto text-xs text-fg-4">{formatNumber(investigationRows.length)} investigations</span>
+    </div>
+    {#if error}<div class="shrink-0 px-5 pt-4"><EmptyState size="compact" icon={AlertTriangle} title="Request failed" description={error} /></div>{/if}
+    <div class="min-h-0 flex-1">
+      {#if loading && investigations.length === 0}<div class="flex justify-center py-12"><Spinner /></div>
       {:else}
-        <Input type="search" bind:value={search} placeholder="Find investigations by title, owner or status" />
-        {#if loading && investigations.length === 0}<div class="flex justify-center py-12"><Spinner /></div>
-        {:else if filteredInvestigations.length === 0}<EmptyState icon={ClipboardList} title="No investigations yet" description="Choose Investigate on a query pattern to capture a baseline, record a change and compare its results." />
-        {:else}<div class="space-y-2">{#each filteredInvestigations as item (item.id)}
-          <button class="flex w-full items-center gap-3 rounded-lg border border-edge-subtle bg-surface p-4 text-left hover:border-edge-strong disabled:opacity-50" disabled={busy} onclick={() => openInvestigation(item.id)}><ClipboardList size={18} class="shrink-0 text-fg-3" /><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-fg">{item.title}</span><span class="mt-1 block text-xs text-fg-3">{item.owner || 'Unassigned'} · {item.database || 'default'} · Updated {date(item.updated_at)}</span></span><Badge tone={item.status === 'resolved' ? 'success' : 'neutral'}>{item.status}</Badge></button>
-        {/each}</div>{/if}
+        <DataTable
+          fill
+          columns={investigationColumns}
+          rows={investigationRows}
+          rowKey={(r) => r.id}
+          emptyTitle={search ? 'No matching investigations' : 'No investigations yet'}
+          emptyDescription={search ? 'Try another title, owner or status.' : 'Choose a query pattern under Regressions to capture a baseline, record a change and compare its results.'}
+          onrowclick={(r) => { if (!busy) void openInvestigation(r.id) }}
+        >
+          {#snippet cell(row, col, value)}
+            {#if col.key === 'status'}<Badge tone={row.status === 'resolved' ? 'success' : 'neutral'}>{value}</Badge>
+            {:else if col.key === 'title'}<span class="text-fg">{value}</span>
+            {:else}{value}{/if}
+          {/snippet}
+        </DataTable>
       {/if}
     </div>
-  </PageBody>
+  {/if}
 </div>

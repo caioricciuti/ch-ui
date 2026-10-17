@@ -5,14 +5,13 @@
   import { apiGet, apiPost, apiPut, apiDel } from '../lib/api/client'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import { openSavedQueryTab } from '../lib/stores/tabs.svelte'
-  import { formatDate } from '../lib/utils/format'
+  import { formatDate, formatRelativeTime } from '../lib/utils/format'
   import Button from '../lib/components/common/Button.svelte'
   import Combobox from '../lib/components/common/Combobox.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
   import Sheet from '../lib/components/common/Sheet.svelte'
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
-  import PageBody from '../lib/components/common/PageBody.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
   import Switch from '../lib/components/common/Switch.svelte'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
@@ -23,7 +22,7 @@
   import ReportsSection from '../lib/components/reports/ReportsSection.svelte'
   import { getSection } from '../lib/stores/nav.svelte'
   import { PAGE_SECTIONS, docsURL } from '../lib/routes'
-  import { Clock, Plus, Play, Trash2, ChevronDown, ChevronRight, FileText, ExternalLink, Pencil } from 'lucide-svelte'
+  import { Clock, Plus, Play, Trash2, FileText, ExternalLink, Pencil, History, Search } from 'lucide-svelte'
 
   // The sidebar drives the section through ?section=: query jobs (the
   // default) or report delivery.
@@ -46,8 +45,9 @@
   let formTimeout = $state(60000)
   let saving = $state(false)
 
-  // Run history
+  // Run history, in a sheet for one schedule at a time
   const RUNS_PAGE_SIZE = 10
+  let showRunsSheet = $state(false)
   let expandedSchedule = $state<string | null>(null)
   let runs = $state<ScheduleRun[]>([])
   let runsLoading = $state(false)
@@ -171,12 +171,7 @@
     try {
       await apiDel(`/api/schedules/${id}`)
       schedules = schedules.filter(s => s.id !== id)
-      if (expandedSchedule === id) {
-        expandedSchedule = null
-        runs = []
-        runsOffset = 0
-        runsHasMore = false
-      }
+      if (expandedSchedule === id) closeRuns()
       toastSuccess('Schedule deleted')
     } catch (e: unknown) {
       toastError(e instanceof Error ? e.message : String(e))
@@ -253,24 +248,35 @@
     }
   }
 
-  async function toggleRuns(id: string) {
-    if (expandedSchedule === id) {
-      expandedSchedule = null
-      runs = []
-      runsOffset = 0
-      runsHasMore = false
-      runsLoadingMore = false
-      return
-    }
+  async function openRuns(id: string) {
     expandedSchedule = id
+    showRunsSheet = true
     await loadRuns(id, false)
   }
 
+  function closeRuns() {
+    showRunsSheet = false
+    expandedSchedule = null
+    runs = []
+    runsOffset = 0
+    runsHasMore = false
+    runsLoadingMore = false
+  }
+
+  const runsSchedule = $derived(schedules.find((s) => s.id === expandedSchedule) ?? null)
+
+  // The details sheet replaces the runs sheet while open and hands back on close.
   async function openRunDetails(schedule: Schedule, run: ScheduleRun) {
     if (savedQueries.length === 0) await loadSavedQueries()
     selectedSchedule = schedule
     selectedRun = run
+    showRunsSheet = false
     showRunSheet = true
+  }
+
+  function closeRunDetails() {
+    showRunSheet = false
+    if (expandedSchedule) showRunsSheet = true
   }
 
   function openScheduleQueryInEditor() {
@@ -279,6 +285,7 @@
     if (!q) return
     openSavedQueryTab(q)
     showRunSheet = false
+    closeRuns()
   }
 
   // Newest first, as the API returns them; no initial sort keeps that order.
@@ -299,6 +306,33 @@
       default: return { tone: 'neutral', label: status ?? 'Pending' }
     }
   }
+
+  // The schedule list
+  let search = $state('')
+  type Row = Record<string, unknown> & Schedule & { target: string }
+
+  const rows = $derived.by<Row[]>(() => {
+    const q = search.trim().toLowerCase()
+    const all = schedules.map((s) => ({ ...s, target: savedQueryMap.get(s.saved_query_id)?.name ?? s.saved_query_name ?? '' }))
+    if (!q) return all
+    return all.filter((r) => r.name.toLowerCase().includes(q) || r.target.toLowerCase().includes(q) || r.cron.includes(q))
+  })
+
+  function ts(value: string | null): number {
+    const n = value ? new Date(value).getTime() : NaN
+    return Number.isNaN(n) ? 0 : n
+  }
+
+  // API order by default, as the cards had it.
+  const scheduleColumns: DataColumn<Row>[] = [
+    { key: 'name', label: 'Name', truncate: true },
+    { key: 'target', label: 'Saved query', truncate: true },
+    { key: 'cron', label: 'Cron', mono: true, width: '130px' },
+    { key: 'timezone', label: 'Timezone', width: '110px' },
+    { key: 'last_run_at', label: 'Last run', width: '170px', format: (v) => (v ? formatRelativeTime(v) : 'Never'), sortValue: (row) => ts(row.last_run_at) },
+    { key: 'next_run_at', label: 'Next run', width: '170px', format: (v) => formatDate(v), sortValue: (row) => ts(row.next_run_at) },
+    { key: 'enabled', label: 'Enabled', width: '80px', sortable: false },
+  ]
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -320,121 +354,84 @@
       <ReportsSection />
     </div>
   {:else}
-  <PageBody width="md">
-    {#if loading}
-      <div class="flex items-center justify-center py-12"><Spinner /></div>
-    {:else if schedules.length === 0}
-      <EmptyState
-        icon={Clock}
-        title="No scheduled queries yet"
-        description="Create a schedule to run saved queries automatically."
-        primary={{ label: 'Create Schedule', onclick: openCreateModal }}
-      />
-    {:else}
-      <div class="flex flex-col gap-3">
-        {#each schedules as schedule (schedule.id)}
-          {@const badge = statusBadge(schedule.last_status)}
-          {@const queryRef = savedQueryMap.get(schedule.saved_query_id)}
-          <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
-            <div class="flex items-center gap-3 p-3 {expandedSchedule === schedule.id ? 'border-b border-edge-subtle' : ''}">
-              <Button
-                icon
-                variant="ghost"
-                size="xs"
-                aria-label={expandedSchedule === schedule.id ? 'Hide runs' : 'View runs'}
-                onclick={() => toggleRuns(schedule.id)}
-              >
-                {#if expandedSchedule === schedule.id}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
-              </Button>
-
-              <div class="min-w-0 flex-1">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="text-[13px] font-semibold text-fg">{schedule.name}</span>
-                  <Badge class="font-mono">{schedule.cron}</Badge>
-                  <span class="text-xs text-fg-4">{schedule.timezone}</span>
-                </div>
-                <div class="mt-1 flex flex-wrap items-center gap-3 text-xs text-fg-3">
-                  <Badge tone={badge.tone} dot>{badge.label}</Badge>
-                  <span>Last: {formatDate(schedule.last_run_at)}</span>
-                  <span>Next: {formatDate(schedule.next_run_at)}</span>
-                  {#if queryRef || schedule.saved_query_name}
-                    <span class="text-fg-4">{queryRef?.name ?? schedule.saved_query_name}</span>
-                  {/if}
-                </div>
-              </div>
-
-              <Switch
-                checked={schedule.enabled}
-                label={schedule.enabled ? 'Disable schedule' : 'Enable schedule'}
-                title={schedule.enabled ? 'Disable' : 'Enable'}
-                onchange={() => toggleEnabled(schedule)}
-              />
-
-              <div class="flex items-center gap-0.5">
-                <Button
-                  icon
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Run now"
-                  title="Run now"
-                  onclick={() => manualRun(schedule.id)}
-                  disabled={runningId === schedule.id}
-                >
-                  {#if runningId === schedule.id}<Spinner size="sm" />{:else}<Play size={14} />{/if}
-                </Button>
-                <Button icon variant="ghost" size="sm" aria-label="Edit" title="Edit" onclick={() => openEditModal(schedule)}>
-                  <Pencil size={14} />
-                </Button>
-                <Button icon variant="ghost" size="sm" aria-label="Delete" title="Delete" class="hover:text-danger" onclick={() => askDeleteSchedule(schedule.id)}>
-                  <Trash2 size={14} />
-                </Button>
-              </div>
-            </div>
-
-            {#if expandedSchedule === schedule.id}
-              <div class="px-3 py-3">
-                {#if runsLoading}
-                  <div class="flex items-center justify-center py-4"><Spinner size="sm" /></div>
-                {:else if runs.length === 0}
-                  <EmptyState size="compact" title="No runs yet" description="Runs are listed here after the first scheduled or manual run." />
-                {:else}
-                  <DataTable
-                    columns={runColumns}
-                    rows={runs as unknown as Record<string, unknown>[]}
-                    rowKey={(r) => String(r.id)}
-                    onrowclick={(r) => openRunDetails(schedule, r as unknown as ScheduleRun)}
-                  >
-                    {#snippet cell(row, col, value)}
-                      {#if col.key === 'status'}
-                        {@const rb = statusBadge((row as unknown as ScheduleRun).status)}
-                        <Badge tone={rb.tone}>{rb.label}</Badge>
-                      {:else if col.key === 'error' && (row as unknown as ScheduleRun).error}
-                        <span class="text-danger">{value}</span>
-                      {:else}
-                        {value}
-                      {/if}
-                    {/snippet}
-                    {#snippet actions(row)}
-                      <Button size="xs" variant="outline" onclick={(e) => { e.stopPropagation(); openRunDetails(schedule, row as unknown as ScheduleRun) }}>
-                        <FileText size={12} /> View
-                      </Button>
-                    {/snippet}
-                  </DataTable>
-                  {#if runsHasMore}
-                    <div class="mt-2 flex justify-center">
-                      <Button size="sm" variant="outline" loading={runsLoadingMore} onclick={() => loadRuns(schedule.id, true)}>
-                        Load {RUNS_PAGE_SIZE} more
-                      </Button>
-                    </div>
-                  {/if}
-                {/if}
-              </div>
-            {/if}
-          </div>
-        {/each}
+  {#if loading}
+    <div class="flex flex-1 items-center justify-center py-12"><Spinner /></div>
+  {:else if schedules.length === 0}
+    <EmptyState
+      icon={Clock}
+      title="No scheduled queries yet"
+      description="Create a schedule to run saved queries automatically."
+      primary={{ label: 'Create Schedule', onclick: openCreateModal }}
+    />
+  {:else}
+    <div class="flex h-10 shrink-0 items-center gap-2 border-b border-edge-subtle px-4">
+      <div class="relative">
+        <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-4" />
+        <Input size="sm" type="search" class="w-64 pl-8" placeholder="Search name, query, cron" bind:value={search} spellcheck={false} />
       </div>
-    {/if}
-  </PageBody>
+      <span class="ml-auto text-xs text-fg-4">{rows.length} {rows.length === 1 ? 'schedule' : 'schedules'}</span>
+    </div>
+    <div class="min-h-0 flex-1">
+      <DataTable
+        fill
+        columns={scheduleColumns}
+        {rows}
+        rowKey={(r) => r.id}
+        emptyTitle="Nothing matches"
+        emptyDescription="Try another name, saved query or cron expression."
+        onrowclick={(r) => openEditModal(r)}
+      >
+        {#snippet cell(row, col, value)}
+          {#if col.key === 'name'}
+            <span class="font-medium text-fg">{row.name}</span>
+          {:else if col.key === 'target'}
+            <span class={value ? '' : 'text-fg-4'}>{value || 'Unavailable'}</span>
+          {:else if col.key === 'last_run_at'}
+            {@const badge = statusBadge(row.last_status)}
+            <span class="inline-flex items-center gap-2">
+              <Badge tone={badge.tone} dot>{badge.label}</Badge>
+              <span class="text-fg-3" title={row.last_run_at ? formatDate(row.last_run_at) : undefined}>{value}</span>
+            </span>
+          {:else if col.key === 'enabled'}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <span role="presentation" class="inline-flex" onclick={(e: MouseEvent) => e.stopPropagation()}>
+              <Switch
+                size="sm"
+                checked={row.enabled}
+                label={row.enabled ? 'Disable schedule' : 'Enable schedule'}
+                title={row.enabled ? 'Disable' : 'Enable'}
+                onchange={() => toggleEnabled(row)}
+              />
+            </span>
+          {:else}
+            {value}
+          {/if}
+        {/snippet}
+        {#snippet actions(row)}
+          <Button icon variant="ghost" size="xs" aria-label="View runs" title="View runs" onclick={(e) => { e.stopPropagation(); openRuns(row.id) }}>
+            <History size={13} />
+          </Button>
+          <Button
+            icon
+            variant="ghost"
+            size="xs"
+            aria-label="Run now"
+            title="Run now"
+            disabled={runningId === row.id}
+            onclick={(e) => { e.stopPropagation(); manualRun(row.id) }}
+          >
+            {#if runningId === row.id}<Spinner size="sm" />{:else}<Play size={13} />{/if}
+          </Button>
+          <Button icon variant="ghost" size="xs" aria-label="Edit" title="Edit" onclick={(e) => { e.stopPropagation(); openEditModal(row) }}>
+            <Pencil size={13} />
+          </Button>
+          <Button icon variant="ghost" size="xs" aria-label="Delete" title="Delete" class="hover:text-danger" onclick={(e) => { e.stopPropagation(); askDeleteSchedule(row.id) }}>
+            <Trash2 size={13} />
+          </Button>
+        {/snippet}
+      </DataTable>
+    </div>
+  {/if}
   {/if}
 </div>
 
@@ -486,7 +483,54 @@
   </div>
 </Sheet>
 
-<Sheet open={showRunSheet} title="Schedule Run Details" size="lg" onclose={() => showRunSheet = false}>
+<Sheet
+  open={showRunsSheet}
+  title="Run history"
+  description={runsSchedule ? `${runsSchedule.name}, newest first` : ''}
+  size="lg"
+  onclose={closeRuns}
+>
+  {#if runsSchedule}
+    {#if runsLoading}
+      <div class="flex items-center justify-center py-8"><Spinner size="sm" /></div>
+    {:else if runs.length === 0}
+      <EmptyState size="compact" title="No runs yet" description="Runs are listed here after the first scheduled or manual run." />
+    {:else}
+      {@const schedule = runsSchedule}
+      <DataTable
+        columns={runColumns}
+        rows={runs as unknown as Record<string, unknown>[]}
+        rowKey={(r) => String(r.id)}
+        onrowclick={(r) => openRunDetails(schedule, r as unknown as ScheduleRun)}
+      >
+        {#snippet cell(row, col, value)}
+          {#if col.key === 'status'}
+            {@const rb = statusBadge((row as unknown as ScheduleRun).status)}
+            <Badge tone={rb.tone}>{rb.label}</Badge>
+          {:else if col.key === 'error' && (row as unknown as ScheduleRun).error}
+            <span class="text-danger">{value}</span>
+          {:else}
+            {value}
+          {/if}
+        {/snippet}
+        {#snippet actions(row)}
+          <Button size="xs" variant="outline" onclick={(e) => { e.stopPropagation(); openRunDetails(schedule, row as unknown as ScheduleRun) }}>
+            <FileText size={12} /> View
+          </Button>
+        {/snippet}
+      </DataTable>
+      {#if runsHasMore}
+        <div class="mt-2 flex justify-center">
+          <Button size="sm" variant="outline" loading={runsLoadingMore} onclick={() => loadRuns(schedule.id, true)}>
+            Load {RUNS_PAGE_SIZE} more
+          </Button>
+        </div>
+      {/if}
+    {/if}
+  {/if}
+</Sheet>
+
+<Sheet open={showRunSheet} title="Schedule Run Details" size="lg" onclose={closeRunDetails}>
   {#if selectedRun && selectedSchedule}
     {@const runBadge = statusBadge(selectedRun.status)}
     {@const saved = savedQueryMap.get(selectedSchedule.saved_query_id)}
