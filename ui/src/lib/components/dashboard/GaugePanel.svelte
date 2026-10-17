@@ -1,6 +1,5 @@
 <script lang="ts">
   import { DEFAULT_COLORS, type ComputedStat } from '../../utils/chart-transform'
-  import { dashboardIsDark } from './dashboard-theme.svelte'
 
   interface Props {
     stat: ComputedStat
@@ -29,8 +28,9 @@
   const clampedRaw = $derived(stat.raw != null ? Math.max(minVal, Math.min(maxVal, stat.raw)) : minVal)
   const fraction = $derived(maxVal > minVal ? (clampedRaw - minVal) / (maxVal - minVal) : 0)
 
-  const dark = $derived(dashboardIsDark())
-  const bgColor = $derived(dark ? '#374151' : '#e5e7eb')
+  // Colors are CSS var() tokens on SVG styles, so the gauge follows the theme by itself.
+  const bgColor = 'var(--edge-strong)'
+  const neutralColor = 'var(--fg-3)'
 
   const strokeW = $derived(Math.max(6, Math.min(width, height) * 0.07))
   const topPad = $derived(strokeW / 2 + 4)
@@ -56,12 +56,12 @@
   const thresholdSegments = $derived.by(() => {
     const thresholds = stat.colorMode !== 'none'
       ? ([] as { value: number; color: string }[]).concat(
-          ...(stat as ComputedStat & { __thresholds?: { value: number; color: string }[] }).__thresholds ?? [{ value: minVal, color: '#22c55e' }]
+          ...(stat as ComputedStat & { __thresholds?: { value: number; color: string }[] }).__thresholds ?? [{ value: minVal, color: 'var(--success)' }]
         )
       : []
 
     if (thresholds.length === 0) {
-      return [{ path: arcPath(0, 1), color: stat.color || (dark ? '#6b7280' : '#d1d5db') }]
+      return [{ path: arcPath(0, 1), color: stat.color || neutralColor }]
     }
 
     const sorted = [...thresholds].sort((a, b) => a.value - b.value)
@@ -76,7 +76,7 @@
       }
     }
 
-    return segments.length > 0 ? segments : [{ path: arcPath(0, 1), color: stat.color || '#6b7280' }]
+    return segments.length > 0 ? segments : [{ path: arcPath(0, 1), color: stat.color || neutralColor }]
   })
 
   const needleAngle = $derived(Math.PI + fraction * Math.PI)
@@ -102,13 +102,13 @@
   {#if width > 0 && height > 0 && radius > 10}
     <svg class="absolute inset-0 w-full h-full" viewBox="0 0 {width} {height}">
       <!-- Background arc -->
-      <path d={arcPath(0, 1)} stroke={bgColor} stroke-width={strokeW} fill="none" stroke-linecap="round" />
+      <path d={arcPath(0, 1)} style="stroke: {bgColor}" stroke-width={strokeW} fill="none" stroke-linecap="round" />
       <!-- Threshold segments -->
       {#each thresholdSegments as seg}
-        <path d={seg.path} stroke={seg.color} stroke-width={strokeW} fill="none" stroke-linecap="butt" />
+        <path d={seg.path} style="stroke: {seg.color}" stroke-width={strokeW} fill="none" stroke-linecap="butt" />
       {/each}
       <!-- Needle dot -->
-      <circle cx={needleX} cy={needleY} r={dotR} fill={stat.color || DEFAULT_COLORS[0]} />
+      <circle cx={needleX} cy={needleY} r={dotR} style="fill: {stat.color || DEFAULT_COLORS[0]}" />
       <!-- Min/Max labels -->
       <text x={cx - radius} y={cy + strokeW / 2 + 14} text-anchor="middle" class="fill-fg-4" style="font-size: 10px">{minVal}</text>
       <text x={cx + radius} y={cy + strokeW / 2 + 14} text-anchor="middle" class="fill-fg-4" style="font-size: 10px">{maxVal}</text>

@@ -7,6 +7,8 @@
   import { getSection } from '../lib/stores/nav.svelte'
   import { PAGE_SECTIONS, docsURL } from '../lib/routes'
   import { formatNumber, formatBytes, formatElapsed } from '../lib/utils/format'
+  import { chartColor, tokenColor, withAlpha } from '../lib/utils/chart-transform'
+  import { getTheme } from '../lib/stores/theme.svelte'
   import TrendChart from '../lib/components/common/TrendChart.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
   import PageBody from '../lib/components/common/PageBody.svelte'
@@ -191,18 +193,22 @@
 
   const failureCount = $derived(num(summary?.failed_queries))
 
-  const volumeChart = $derived({
-    x: volume.map((r) => num(r.t)),
-    series: [
-      { label: 'Queries', values: volume.map((r) => num(r.queries)), color: '#f97316', fill: 'rgba(249,115,22,0.14)' },
-      { label: 'Failures', values: volume.map((r) => num(r.failures)), color: '#ef4444' },
-    ],
+  const volumeChart = $derived.by(() => {
+    // uPlot needs resolved colors; re-resolve the theme-dependent danger red on a theme flip.
+    getTheme()
+    return {
+      x: volume.map((r) => num(r.t)),
+      series: [
+        { label: 'Queries', values: volume.map((r) => num(r.queries)), color: chartColor(0), fill: withAlpha(chartColor(0), 0.14) },
+        { label: 'Failures', values: volume.map((r) => num(r.failures)), color: tokenColor('--danger') },
+      ],
+    }
   })
   const latencyChart = $derived({
     x: latency.map((r) => num(r.t)),
     series: [
-      { label: 'p50', values: latency.map((r) => num(r.p50_ms)), color: '#7dd3fc' },
-      { label: 'p95', values: latency.map((r) => num(r.p95_ms)), color: '#0ea5e9', fill: 'rgba(14,165,233,0.12)' },
+      { label: 'p50', values: latency.map((r) => num(r.p50_ms)), color: chartColor(2) },
+      { label: 'p95', values: latency.map((r) => num(r.p95_ms)), color: chartColor(1), fill: withAlpha(chartColor(1), 0.12) },
     ],
   })
 
