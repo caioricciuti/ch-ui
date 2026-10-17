@@ -1069,10 +1069,10 @@
   <!-- Drag handle -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="h-1 shrink-0 cursor-row-resize group flex items-center justify-center hover:bg-ch-orange/20 transition-colors {dragging ? 'bg-ch-orange/30' : 'bg-surface-2'}"
+    class="h-1 shrink-0 cursor-row-resize group flex items-center justify-center hover:bg-accent-soft transition-colors {dragging ? 'bg-accent-soft' : 'bg-surface-2'}"
     onmousedown={onDragStart}
   >
-    <div class="w-8 h-0.5 rounded-full {dragging ? 'bg-ch-orange' : 'bg-fg-4 group-hover:bg-accent/60'} transition-colors"></div>
+    <div class="w-8 h-0.5 rounded-full {dragging ? 'bg-accent' : 'bg-fg-4 group-hover:bg-accent/60'} transition-colors"></div>
   </div>
 
   <!-- Results pane -->

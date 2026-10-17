@@ -6,8 +6,13 @@
   import { formatBytes, formatDate, formatNumber } from '../../../utils/format'
   import Skeleton from '../../common/Skeleton.svelte'
   import EmptyState from '../../common/EmptyState.svelte'
+  import PageHeader from '../../common/PageHeader.svelte'
+  import Tabs from '../../common/Tabs.svelte'
+  import Stat from '../../common/Stat.svelte'
+  import Panel from '../../common/Panel.svelte'
+  import Button from '../../common/Button.svelte'
   import VirtualTable from '../../table/VirtualTable.svelte'
-  import { Database, HardDrive, Rows3, Table2, Clock, RefreshCw, FolderOpen } from 'lucide-svelte'
+  import { RefreshCw } from 'lucide-svelte'
 
   interface Props {
     tab: DatabaseTab
@@ -36,10 +41,10 @@
   const metrics = $derived.by(() => {
     if (!dbInfo || Object.keys(dbInfo).length === 0) return []
     return [
-      { label: 'Tables', value: formatNumber(Number(dbInfo.table_count ?? 0)), icon: Table2, color: 'text-accent' },
-      { label: 'Rows', value: formatNumber(Number(dbInfo.total_rows ?? 0)), icon: Rows3, color: 'text-accent' },
-      { label: 'Total Size', value: formatBytes(Number(dbInfo.total_bytes ?? 0)), icon: HardDrive, color: 'text-ch-green' },
-      { label: 'Engine', value: String(dbInfo.engine ?? '—'), icon: Database, color: 'text-fg-3' },
+      { label: 'Tables', value: formatNumber(Number(dbInfo.table_count ?? 0)), size: 'lg' as const },
+      { label: 'Rows', value: formatNumber(Number(dbInfo.total_rows ?? 0)), size: 'lg' as const },
+      { label: 'Total Size', value: formatBytes(Number(dbInfo.total_bytes ?? 0)), size: 'lg' as const },
+      { label: 'Engine', value: String(dbInfo.engine ?? '—'), size: 'md' as const },
     ]
   })
 
@@ -92,30 +97,22 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <div class="flex items-center gap-3 px-4 py-3 border-b border-edge-subtle bg-surface-2 shrink-0">
-    <Database size={16} class="text-accent shrink-0" />
-    <div class="min-w-0">
-      <span class="text-sm font-medium text-fg truncate">{tab.database}</span>
-    </div>
-    <button
-      class="ml-1 p-1 rounded hover:bg-hover transition-colors text-fg-4 hover:text-fg"
-      onclick={refresh}
-      title="Refresh database info"
-    >
-      <RefreshCw size={13} class={infoLoading || tablesLoading ? 'animate-spin' : ''} />
-    </button>
-  </div>
+  <PageHeader title={tab.database} subtitle="Database">
+    {#snippet actions()}
+      <Button
+        icon
+        size="sm"
+        variant="ghost"
+        onclick={refresh}
+        title="Refresh database info"
+        aria-label="Refresh database info"
+      >
+        <RefreshCw size={13} class={infoLoading || tablesLoading ? 'animate-spin' : ''} />
+      </Button>
+    {/snippet}
+  </PageHeader>
 
-  <div class="flex items-center gap-1 px-3 py-1.5 border-b border-edge-subtle bg-canvas shrink-0">
-    {#each subTabs as st (st.id)}
-      <button
-        class="px-3 py-1.5 text-xs rounded-md transition-colors whitespace-nowrap {activeSubTab === st.id
- ? 'bg-surface-2 text-fg font-medium'
-          : 'text-fg-3 hover:text-fg hover:bg-hover'}"
-        onclick={() => switchTab(st.id)}
-      >{st.label}</button>
-    {/each}
-  </div>
+  <Tabs items={subTabs} value={activeSubTab} onchange={(id) => switchTab(id as SubTab)} class="shrink-0 px-3" />
 
   <div class="flex-1 min-h-0 overflow-auto">
     {#if activeSubTab === 'overview'}
@@ -131,20 +128,12 @@
         <div class="p-4 space-y-4">
           <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
             {#each metrics as m (m.label)}
-              {@const Icon = m.icon}
-              <div class="bg-surface border border-edge-subtle rounded-md p-4">
-                <div class="flex items-center gap-2 mb-2">
-                  <Icon size={14} class={m.color} />
-                  <span class="text-xs text-fg-3 uppercase tracking-wider">{m.label}</span>
-                </div>
-                <div class="text-xl font-semibold text-fg truncate">{m.value}</div>
-              </div>
+              <Stat label={m.label} value={m.value} size={m.size} />
             {/each}
           </div>
 
-          <div class="bg-surface border border-edge-subtle rounded-md p-4">
-            <h3 class="text-xs text-fg-3 uppercase tracking-wider mb-3">Details</h3>
-            <div class="grid grid-cols-[140px_1fr] gap-y-2 gap-x-3 text-sm">
+          <Panel title="Details">
+            <div class="grid grid-cols-[140px_1fr] gap-y-2 gap-x-3 text-[13px]">
               <span class="text-fg-3">Name</span>
               <code class="font-mono text-fg break-all">{dbInfo.name ?? tab.database}</code>
 
@@ -152,21 +141,15 @@
               <span class="text-fg">{dbInfo.engine ?? '—'}</span>
 
               <span class="text-fg-3">Data Path</span>
-              <span class="flex items-center gap-2 text-fg break-all">
-                <FolderOpen size={13} class="text-fg-3 shrink-0" />
-                <code class="font-mono text-xs">{dbInfo.data_path ?? '—'}</code>
-              </span>
+              <code class="font-mono text-xs text-fg break-all">{dbInfo.data_path ?? '—'}</code>
 
               <span class="text-fg-3">Metadata Path</span>
               <code class="font-mono text-xs text-fg break-all">{dbInfo.metadata_path ?? '—'}</code>
 
               <span class="text-fg-3">Last Modified</span>
-              <span class="flex items-center gap-2 text-fg">
-                <Clock size={13} class="text-fg-3 shrink-0" />
-                {formatDate(dbInfo.last_modified)}
-              </span>
+              <span class="text-fg">{formatDate(dbInfo.last_modified)}</span>
             </div>
-          </div>
+          </Panel>
         </div>
       {/if}
     {:else if activeSubTab === 'tables'}
