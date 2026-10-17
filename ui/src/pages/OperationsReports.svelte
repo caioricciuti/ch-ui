@@ -6,6 +6,7 @@
   import { success, error as toastError } from '../lib/stores/toast.svelte'
   import { getSession } from '../lib/stores/session.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
+  import { docsURL } from '../lib/routes'
   import PageBody from '../lib/components/common/PageBody.svelte'
   import Panel from '../lib/components/common/Panel.svelte'
   import Button from '../lib/components/common/Button.svelte'
@@ -62,7 +63,7 @@
   }
 </script>
 
-<PageHeader title="Reports" subtitle="Weekly operations" docs="https://ch-ui.com/docs/operations-reports/">
+<PageHeader title="Reports" subtitle="Weekly operations" docs={docsURL('operations-reports')}>
   {#snippet actions()}
     {#if admin}<Button variant="ghost" size="sm" disabled={loading || busy} onclick={load}><RefreshCw size={14} /> Refresh</Button><Button size="sm" loading={busy} disabled={loading || !!loadError} onclick={generate}><FileText size={14} /> Generate report</Button>{/if}
   {/snippet}

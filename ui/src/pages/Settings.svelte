@@ -27,6 +27,7 @@
   import Input from '../lib/components/common/Input.svelte'
   import PageBody from '../lib/components/common/PageBody.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
+  import { docsURL } from '../lib/routes'
   import Panel from '../lib/components/common/Panel.svelte'
   import SectionHeader from '../lib/components/common/SectionHeader.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
@@ -278,7 +279,7 @@
 </script>
 
 <div class="flex h-full flex-col">
-  <PageHeader title="License" subtitle={settingsTabItems.find((t) => t.id === activeTab)?.label}>
+  <PageHeader title="License" subtitle={settingsTabItems.find((t) => t.id === activeTab)?.label} docs={docsURL('settings', activeTab)}>
     {#snippet meta()}
       {#if licenseState === 'loading'}
         <Badge tone="neutral">Checking license…</Badge>

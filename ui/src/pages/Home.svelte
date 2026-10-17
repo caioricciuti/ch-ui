@@ -10,6 +10,7 @@
     Rocket,
     SquareTerminal,
     Table2,
+    ExternalLink,
   } from 'lucide-svelte'
   import { getSession } from '../lib/stores/session.svelte'
   import { getTabs, openQueryTab, setActiveTab } from '../lib/stores/tabs.svelte'
@@ -18,7 +19,7 @@
   import { hasProReadAccess } from '../lib/stores/license.svelte'
   import { listWorkspaceSavedQueries } from '../lib/api/workspace'
   import { runQuery } from '../lib/api/query'
-  import { PAGE_ROUTES, ADMIN_ONLY_ROUTES, type PageRoute, type IconComponent } from '../lib/routes'
+  import { PAGE_ROUTES, ADMIN_ONLY_ROUTES, DOCS_ORIGIN, type PageRoute, type IconComponent } from '../lib/routes'
   import { prefetchPage } from '../lib/components/layout/pageLoaders'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
   import Button from '../lib/components/common/Button.svelte'
@@ -167,6 +168,12 @@ LIMIT 20`,
 
   const resources: ResourceLink[] = [
     {
+      id: 'chui-docs',
+      title: 'CH-UI Docs',
+      description: 'Guides for every page in this app',
+      href: `${DOCS_ORIGIN}/docs/`,
+    },
+    {
       id: 'clickhouse-docs',
       title: 'ClickHouse Docs',
       description: 'Official docs and SQL reference',
@@ -229,9 +236,20 @@ LIMIT 20`,
     <section class="rounded-lg border border-edge-subtle bg-surface p-5 lg:p-6">
       <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div class="space-y-1">
-          <div class="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-2.5 py-0.5 text-[11px] font-medium text-accent">
-            <Home size={11} />
-            Workspace Home
+          <div class="flex items-center gap-2">
+            <div class="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-2.5 py-0.5 text-[11px] font-medium text-accent">
+              <Home size={11} />
+              Workspace Home
+            </div>
+            <a
+              class="ds-badge border border-edge bg-transparent transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
+              href="{DOCS_ORIGIN}/docs/"
+              target="_blank"
+              rel="noreferrer"
+              title="Open the docs"
+            >
+              Docs <ExternalLink size={11} />
+            </a>
           </div>
           <h1 class="text-[20px] font-semibold text-fg">
             Welcome back{session?.user ? `, ${session.user}` : ''}
@@ -281,7 +299,7 @@ LIMIT 20`,
         <BookOpen size={14} class="text-accent" />
         <h2 class="text-[13px] font-semibold text-fg">Resources</h2>
       </div>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
         {#each resources as resource (resource.id)}
           <a
             class="rounded-md border border-edge-subtle bg-surface px-3.5 py-3 transition-colors hover:border-edge-strong hover:bg-hover"

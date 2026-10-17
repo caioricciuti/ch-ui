@@ -60,7 +60,7 @@
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import { getSection, setSection } from '../lib/stores/nav.svelte'
   import { goTo } from '../lib/stores/router.svelte'
-  import { PAGE_SECTIONS } from '../lib/routes'
+  import { PAGE_SECTIONS, docsURL } from '../lib/routes'
 
   // ── State ──────────────────────────────────────────────────────────────────
   let summary = $state<HealthSummary | null>(null)
@@ -634,7 +634,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Cluster Health" subtitle={activeLabel}>
+  <PageHeader title="Cluster Health" subtitle={activeLabel} docs={docsURL('cluster-health', activeSection)}>
     {#snippet meta()}
       {#if summary}
         <Badge tone="neutral">

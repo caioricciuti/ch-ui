@@ -19,7 +19,7 @@
   import ActorCell from '../lib/components/common/ActorCell.svelte'
   import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
   import { getSection } from '../lib/stores/nav.svelte'
-  import { PAGE_SECTIONS } from '../lib/routes'
+  import { PAGE_SECTIONS, docsURL } from '../lib/routes'
   import Sheet from '../lib/components/common/Sheet.svelte'
   import FormField from '../lib/components/common/FormField.svelte'
   import Input from '../lib/components/common/Input.svelte'
@@ -427,7 +427,7 @@
 {/snippet}
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Cost Center" subtitle={SECTION_LABELS[activeSection]} meta={headerMeta}>
+  <PageHeader title="Cost Center" subtitle={SECTION_LABELS[activeSection]} meta={headerMeta} docs={docsURL('cost-center', activeSection)}>
     {#snippet actions()}
       <Tabs variant="segmented" size="sm" items={rangeItems} value={range} onchange={(id) => setRange(id as CostsRange)} />
       <Button icon variant="ghost" size="sm" aria-label="Refresh" title="Refresh" onclick={() => loadAll()}>

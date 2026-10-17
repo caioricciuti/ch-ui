@@ -8,6 +8,7 @@
   import { getAuthConfig, type AuthConfig } from '../lib/api/auth'
   import { withBase } from '../lib/basePath'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
+  import { docsURL } from '../lib/routes'
   import PageBody from '../lib/components/common/PageBody.svelte'
   import Button from '../lib/components/common/Button.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
@@ -58,7 +59,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Fleet" subtitle="All ClickHouse environments" docs="https://ch-ui.com/docs/performance/#fleet-overview">
+  <PageHeader title="Fleet" subtitle="All ClickHouse environments" docs={docsURL('fleet')}>
     {#snippet actions()}<Button size="sm" variant="outline" onclick={load}><RefreshCw size={13} /> Refresh</Button>{/snippet}
   </PageHeader>
   {#if loading}<div class="flex flex-1 items-center justify-center"><Spinner /></div>

@@ -8,6 +8,7 @@
   import Input from '../common/Input.svelte'
   import PageBody from '../common/PageBody.svelte'
   import PageHeader from '../common/PageHeader.svelte'
+  import { docsURL } from '../../routes'
   import Spinner from '../common/Spinner.svelte'
   import { Plus, Trash2, Play, Square, Workflow } from 'lucide-svelte'
 
@@ -52,7 +53,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Pipelines" subtitle="Stream data into ClickHouse from external sources">
+  <PageHeader title="Pipelines" subtitle="Stream data into ClickHouse from external sources" docs={docsURL('pipelines')}>
     {#snippet meta()}
       {#if !loading}
         <Badge tone="neutral">{pipelines.length} total</Badge>

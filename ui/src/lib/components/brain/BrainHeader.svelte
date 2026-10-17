@@ -3,6 +3,7 @@
   import type { ComboboxOption } from '../common/Combobox.svelte'
   import Combobox from '../common/Combobox.svelte'
   import PageHeader from '../common/PageHeader.svelte'
+  import { docsURL } from '../../routes'
 
   interface Props {
     models: BrainModelOption[]
@@ -24,7 +25,7 @@
   )
 </script>
 
-<PageHeader title="Brain" subtitle={chatTitle}>
+<PageHeader title="Brain" subtitle={chatTitle} docs={docsURL('brain')}>
   {#snippet actions()}
     <span class="hidden text-xs text-fg-4 md:block">
       Type <kbd class="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-[10px] text-fg-3">@</kbd> to add context

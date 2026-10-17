@@ -16,7 +16,7 @@
   import type { TelemetrySource } from '../lib/types/telemetry'
   import { getSection, setSection } from '../lib/stores/nav.svelte'
   import { hasProReadAccess } from '../lib/stores/license.svelte'
-  import { PAGE_SECTIONS } from '../lib/routes'
+  import { PAGE_SECTIONS, docsURL } from '../lib/routes'
   import { ServerCrash } from 'lucide-svelte'
 
   const sections = PAGE_SECTIONS.telemetry ?? []
@@ -50,7 +50,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <PageHeader title="Telemetry" subtitle={activeLabel}>
+  <PageHeader title="Telemetry" subtitle={activeLabel} docs={docsURL('telemetry', active)}>
     {#snippet actions()}
       <Button size="sm" variant="outline" onclick={() => { sendData = true }}>Send data here</Button>
     {/snippet}
