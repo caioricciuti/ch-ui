@@ -109,7 +109,7 @@
                   </div>
                 </Panel>
               {/each}
-              {#if !differences.length}<p class="text-[13px] text-fg-3">No differences match this filter.</p>{/if}
+              {#if !differences.length}<EmptyState size="compact" title="No differences match this filter" description="Clear the search or pick another difference type to see the rest." />{/if}
             </div>
           {:else}<EmptyState icon={GitCompare} title="Visible schemas match" description="No differences found in the compared fields and objects visible to these accounts." />{/if}
         {:else if !comparing && !error}<EmptyState icon={GitCompare} title="Compare two environments" description="Find schema drift before a deployment and export a reviewable SQL plan." />{/if}

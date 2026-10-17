@@ -15,6 +15,7 @@
   import TransformNode from './nodes/TransformNode.svelte'
   import RouteNode from './nodes/RouteNode.svelte'
   import PipelineFit from './PipelineFit.svelte'
+  import Badge from '../common/Badge.svelte'
   import { MAX_SINKS, SOURCE_NODE_TYPES, SINK_NODE_TYPES, newNodeConfig, type NodeType } from '../../types/pipelines'
   import { MAX_TRANSFORMS, TRANSFORM_NODE_TYPES, isTransformType, readRoute } from '../../types/transforms'
   import { bridgeDeleted, connectionProblem, insertIntoEdge, isRouteNode, layoutBranches, makeRoom, CANVAS_MIN_ZOOM, type StoredViewport } from './transforms/graph'
@@ -249,7 +250,7 @@
           <div class="flex items-center gap-1 font-medium text-fg-2 text-xs">
             {transform.label}
             {#if transform.pro && !isProActive()}
-              <span class="ml-auto rounded-sm bg-surface-2 px-1 text-[9px] font-semibold uppercase tracking-wider text-fg-4">Pro</span>
+              <Badge tone="brand" class="ml-auto">Pro</Badge>
             {/if}
           </div>
           <div class="text-[9px] text-fg-4 truncate">{transform.description}</div>

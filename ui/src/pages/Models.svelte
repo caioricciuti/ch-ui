@@ -716,8 +716,12 @@
     </div>
     <div class="min-h-0 flex-1">
       {#if dagNodes.length === 0}
-        <div class="flex h-full items-center justify-center text-[13px] text-fg-3">
-          {models.length === 0 ? 'No models to show' : 'Loading DAG...'}
+        <div class="flex h-full items-center justify-center">
+          {#if models.length === 0}
+            <EmptyState size="compact" title="No models to show" description="Create a model and its dependencies appear here as a graph." />
+          {:else}
+            <span class="text-[13px] text-fg-3">Loading DAG...</span>
+          {/if}
         </div>
       {:else}
         <SvelteFlow
