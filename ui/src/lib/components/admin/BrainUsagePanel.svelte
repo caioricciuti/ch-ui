@@ -93,7 +93,7 @@
 </script>
 
 <div class="space-y-8">
-  <SectionHeader level="page" title="Brain usage" description="Tokens and cost per person or role and model, from Brain chat, Ask AI and Fix with AI. Cost is stored when each request runs, so a price change never rewrites the past.">
+  <SectionHeader title="Brain usage" description="Tokens and cost per person or role and model, from Brain chat, Ask AI and Fix with AI. Cost is stored when each request runs, so a price change never rewrites the past.">
     {#snippet actions()}
       <Select size="sm" class="w-32" options={groupOptions} bind:value={groupBy} onchange={(v) => { groupBy = v as BrainUsageGroupBy; void load() }} />
       <Select size="sm" class="w-36" options={periodOptions} bind:value={days} onchange={(v) => { days = v; void load() }} />

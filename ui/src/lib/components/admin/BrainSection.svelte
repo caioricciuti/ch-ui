@@ -306,7 +306,7 @@
 {:else}
   <PageBody width="md">
     <div class="space-y-8">
-      <SectionHeader level="page" title="Brain" description="AI providers, the models they expose, model roles, prices and the system prompt every chat starts from. Budgets and usage have their own sections.">
+      <SectionHeader title="Brain" description="AI providers, the models they expose, model roles, prices and the system prompt every chat starts from. Budgets and usage have their own sections.">
         {#snippet actions()}
           <Button icon size="sm" variant="ghost" aria-label="Refresh" title="Refresh" onclick={() => loadAll()}>
             <RefreshCw size={14} />
