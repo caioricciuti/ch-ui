@@ -1857,7 +1857,7 @@ func (h *QueryHandler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 		nil,
 		45*time.Second,
 	); err != nil {
-		writeError(w, http.StatusBadGateway, fmt.Sprintf("%s\n\nCommand:\n%s", err.Error(), sql))
+		writeError(w, clickhouseStatus(err), fmt.Sprintf("%s\n\nCommand:\n%s", err.Error(), sql))
 		return
 	}
 
@@ -1937,7 +1937,7 @@ func (h *QueryHandler) DropDatabase(w http.ResponseWriter, r *http.Request) {
 		nil,
 		45*time.Second,
 	); err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, clickhouseStatus(err), err.Error())
 		return
 	}
 
@@ -2127,7 +2127,7 @@ func (h *QueryHandler) CreateTable(w http.ResponseWriter, r *http.Request) {
 		nil,
 		45*time.Second,
 	); err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, clickhouseStatus(err), err.Error())
 		return
 	}
 
@@ -2217,7 +2217,7 @@ func (h *QueryHandler) DropTable(w http.ResponseWriter, r *http.Request) {
 		nil,
 		45*time.Second,
 	); err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, clickhouseStatus(err), err.Error())
 		return
 	}
 
