@@ -127,6 +127,19 @@ func (c *CHClient) doWithRetry(req *http.Request, client *http.Client) (*http.Re
 	return resp, err
 }
 
+// setAuth authenticates a request with ClickHouse's own headers rather than
+// HTTP Basic auth. Basic auth splits user and password at the first colon
+// (RFC 7617), so a user named "sso:ana@example.com" could never sign in that
+// way; the headers carry any name. ClickHouse, ClickHouse Cloud and chproxy
+// all accept them.
+func setAuth(req *http.Request, user, password string) {
+	if user == "" {
+		return
+	}
+	req.Header.Set("X-ClickHouse-User", user)
+	req.Header.Set("X-ClickHouse-Key", password)
+}
+
 // Execute runs a query against ClickHouse
 func (c *CHClient) Execute(ctx context.Context, query, user, password string, settings map[string]string) (*QueryResult, error) {
 	// Determine if this is a read or write query
@@ -157,9 +170,7 @@ func (c *CHClient) Execute(ctx context.Context, query, user, password string, se
 	}
 
 	// Set auth if provided
-	if user != "" {
-		req.SetBasicAuth(user, password)
-	}
+	setAuth(req, user, password)
 
 	req.Header.Set("Content-Type", "text/plain")
 	req.Header.Set("X-CH-UI-Session", c.sessionID)
@@ -251,9 +262,7 @@ func (c *CHClient) ExecuteRaw(ctx context.Context, query, user, password, format
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	if user != "" {
-		req.SetBasicAuth(user, password)
-	}
+	setAuth(req, user, password)
 	req.Header.Set("Content-Type", "text/plain")
 	req.Header.Set("X-CH-UI-Session", c.sessionID)
 
@@ -595,9 +604,7 @@ func (c *CHClient) ExecuteStreaming(
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to create request: %w", err)
 	}
-	if user != "" {
-		req.SetBasicAuth(user, password)
-	}
+	setAuth(req, user, password)
 	req.Header.Set("Content-Type", "text/plain")
 	req.Header.Set("X-CH-UI-Session", c.sessionID)
 
@@ -765,9 +772,7 @@ func (c *CHClient) ExecuteExport(
 	if err != nil {
 		return 0, fmt.Errorf("failed to create request: %w", err)
 	}
-	if user != "" {
-		req.SetBasicAuth(user, password)
-	}
+	setAuth(req, user, password)
 	req.Header.Set("Content-Type", "text/plain")
 	req.Header.Set("X-CH-UI-Session", c.sessionID)
 

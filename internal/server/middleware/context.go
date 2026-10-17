@@ -21,6 +21,10 @@ type SessionInfo struct {
 	// AuthSubject is the human identity (OIDC email) when it differs from
 	// ClickhouseUser; empty for password logins.
 	AuthSubject string
+	// SSOIdentityID is the sso_identities row behind an SSO session, so a
+	// connection switch can provision the person on the target connection
+	// in per-person mode. Empty for password logins.
+	SSOIdentityID string
 }
 
 // Actor is the person behind a session, for attribution and per-person data:

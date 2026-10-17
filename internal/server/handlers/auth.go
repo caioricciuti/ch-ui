@@ -23,6 +23,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/embedded"
 	"github.com/caioricciuti/ch-ui/internal/oidc"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
+	"github.com/caioricciuti/ch-ui/internal/ssoidentity"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"github.com/caioricciuti/ch-ui/internal/version"
 )
@@ -52,6 +53,9 @@ type AuthHandler struct {
 	// Agents starts connectors for connections created by sign-in with a
 	// ClickHouse URL. nil in tests.
 	Agents *embedded.Manager
+	// Provisioner creates per-person ClickHouse users for SSO people on
+	// connections in per-person mode. nil refuses per-person sign-ins.
+	Provisioner *ssoidentity.Provisioner
 
 	// loginURLMu serialises find-or-create for sign-in with a ClickHouse URL.
 	loginURLMu sync.Mutex
@@ -989,6 +993,9 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 	if existingSession.AuthSubject != nil {
 		info.AuthSubject = *existingSession.AuthSubject
 	}
+	if existingSession.SSOIdentityID != nil {
+		info.SSOIdentityID = *existingSession.SSOIdentityID
+	}
 	actor := middleware.Actor(info)
 	viaSSO := info.AuthSubject != ""
 	// A password session (one from before SSO-only, or break-glass since
@@ -1000,28 +1007,54 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 
 	var username, password, encryptedPwd string
 	reused := false
+	// perPerson is set when the target connection gives every SSO person
+	// their own ClickHouse user. That user is provisioned below, once the
+	// tunnel is known to be online, so an offline agent reports as offline
+	// rather than as a provisioning failure.
+	perPerson := false
 	if viaSSO {
-		saUser, saEncrypted, err := h.DB.GetConnectionSSOAccount(newConn.ID)
+		identCfg, err := h.DB.GetSSOIdentityConfig(newConn.ID)
 		if err != nil {
-			slog.Error("Failed to read SSO service account", "connection", newConn.ID, "error", err)
+			slog.Error("Failed to read SSO identity config", "connection", newConn.ID, "error", err)
 			writeError(w, http.StatusInternalServerError, "Failed to retrieve connection")
 			return
 		}
-		if saUser == "" || saEncrypted == "" {
+		perPerson = identCfg.PerPerson()
+		switch {
+		case perPerson && info.SSOIdentityID == "":
+			// A session from before per-person mode (or from a release that
+			// did not record identities) carries no identity to provision.
 			writeJSON(w, http.StatusConflict, map[string]interface{}{
 				"success": false,
-				"error":   "sso_not_configured",
-				"message": "SSO is not set up on this connection (no ClickHouse service account).",
+				"error":   "sso_reauth_required",
+				"message": "Sign in again to use this connection.",
 			})
 			return
+		case perPerson:
+			// Provisioned after the tunnel check below.
+		default:
+			saUser, saEncrypted, err := h.DB.GetConnectionSSOAccount(newConn.ID)
+			if err != nil {
+				slog.Error("Failed to read SSO service account", "connection", newConn.ID, "error", err)
+				writeError(w, http.StatusInternalServerError, "Failed to retrieve connection")
+				return
+			}
+			if saUser == "" || saEncrypted == "" {
+				writeJSON(w, http.StatusConflict, map[string]interface{}{
+					"success": false,
+					"error":   "sso_not_configured",
+					"message": "SSO is not set up on this connection (no ClickHouse service account).",
+				})
+				return
+			}
+			saPassword, err := crypto.Decrypt(saEncrypted, h.Config.AppSecretKey)
+			if err != nil {
+				slog.Error("Failed to decrypt SSO service account", "connection", newConn.ID, "error", err)
+				writeError(w, http.StatusInternalServerError, "Internal server error")
+				return
+			}
+			username, password, encryptedPwd = saUser, saPassword, saEncrypted
 		}
-		saPassword, err := crypto.Decrypt(saEncrypted, h.Config.AppSecretKey)
-		if err != nil {
-			slog.Error("Failed to decrypt SSO service account", "connection", newConn.ID, "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal server error")
-			return
-		}
-		username, password, encryptedPwd = saUser, saPassword, saEncrypted
 	} else {
 		username = strings.TrimSpace(req.Username)
 		if username == "" {
@@ -1081,6 +1114,35 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if perPerson {
+		// Create or re-sync the person's own ClickHouse user on the target.
+		// Never fall back to the shared account when this fails.
+		var res *ssoidentity.Result
+		if h.Provisioner == nil {
+			err = errors.New("no SSO provisioner configured")
+		} else {
+			res, err = h.Provisioner.SignInIdentity(r.Context(), newConn.ID, info.SSOIdentityID)
+		}
+		if err != nil {
+			status, code, msg := ssoProvisionError(err, newConn.Name)
+			slog.Warn("Switch connection failed: SSO user provisioning", "user", actor, "connection", newConn.Name, "error", err)
+			h.auditLoginFailure(actor, newConn, clientIP, "SSO user provisioning failed (switch connection): "+err.Error())
+			writeJSON(w, status, map[string]interface{}{
+				"success": false,
+				"error":   code,
+				"message": msg,
+			})
+			return
+		}
+		password, err = crypto.Decrypt(res.EncryptedPassword, h.Config.AppSecretKey)
+		if err != nil {
+			slog.Error("Failed to decrypt provisioned SSO user password", "connection", newConn.ID, "error", err)
+			writeError(w, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+		username, encryptedPwd = res.CHUser, res.EncryptedPassword
+	}
+
 	testResult, err := h.Gateway.TestConnection(newConn.ID, username, password, 15*time.Second)
 	if err == nil && !testResult.Success {
 		errMsg := testResult.Error
@@ -1101,6 +1163,16 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch {
+		case perPerson:
+			// The user was just created or re-synced by the provisioner; a
+			// refusal is a setup problem (host rule, profile), never counted.
+			slog.Warn("Switch connection failed: provisioned SSO user rejected", "user", actor, "connection", newConn.Name, "error", err)
+			h.auditLoginFailure(actor, newConn, clientIP, "provisioned sso user rejected (switch connection): "+sanitizeClickHouseAuthMessage(err.Error()))
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"success": false,
+				"error":   "sso_user_rejected",
+				"message": "ClickHouse rejected the user CH-UI provisioned for you on this connection. Ask an admin to check the audit log.",
+			})
 		case viaSSO:
 			// A stored service account the target rejects is a setup
 			// problem, not a guess by the caller: never counted.
@@ -1165,6 +1237,7 @@ func (h *AuthHandler) SwitchConnection(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt:         expiresAt,
 		UserRole:          role,
 		AuthSubject:       info.AuthSubject,
+		SSOIdentityID:     info.SSOIdentityID,
 	})
 	if errors.Is(err, database.ErrSessionChanged) {
 		writeJSON(w, http.StatusConflict, map[string]interface{}{

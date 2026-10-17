@@ -126,8 +126,8 @@ jobs:
           # define, so it runs on its own.
           go test ./internal/performance -run TestPerformanceQueryLive -count=1 -race -args -performance-fixtures
           go test ./internal/operations ./internal/server/handlers ./internal/incidenttimeline \
-            ./internal/telemetry ./internal/mcpserver -count=1 -race \
-            -run '^(TestScheduledReportUsesDedicatedAccountAndPersistsOnce|TestSchemaCompareLive|TestReadonlyProfileUserLive|TestIncidentTimelineQueriesLive|TestHistogramWindowLive|TestMCPReadonlyAndAllowListLive)$'
+            ./internal/telemetry ./internal/mcpserver ./internal/ssoidentity -count=1 -race \
+            -run '^(TestScheduledReportUsesDedicatedAccountAndPersistsOnce|TestSchemaCompareLive|TestReadonlyProfileUserLive|TestIncidentTimelineQueriesLive|TestHistogramWindowLive|TestMCPReadonlyAndAllowListLive|TestSSOProvisionLive)$'
 
   race:
     # The race detector makes tests about ten times slower, so it is split

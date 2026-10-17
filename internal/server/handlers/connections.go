@@ -83,8 +83,9 @@ func (h *ConnectionsHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, results)
 }
 
-// SetSSOAccount stores the ClickHouse service account that OIDC SSO sessions on
-// this connection will use for queries. Admin only.
+// SetSSOAccount stores the connection's SSO ClickHouse account: in shared
+// mode the service account every OIDC session queries as, in per-person mode
+// the provisioner that creates and syncs each person's own user. Admin only.
 // PUT /{id}/sso-account  { "username": "...", "password": "..." }
 func (h *ConnectionsHandler) SetSSOAccount(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -120,20 +121,125 @@ func (h *ConnectionsHandler) SetSSOAccount(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var username, chUser *string
-	if session := middleware.GetSession(r); session != nil {
-		username, chUser = strPtr(middleware.Actor(session)), strPtr(session.ClickhouseUser)
+	accountRole := "service account"
+	if cfg, err := h.DB.GetSSOIdentityConfig(id); err == nil && cfg.PerPerson() {
+		accountRole = "provisioner"
 	}
+	username, chUser := sessionActor(r)
 	h.DB.CreateAuditLog(database.AuditLogParams{
 		Action:         "connection.sso_account.set",
 		Username:       username,
 		ClickhouseUser: chUser,
 		ConnectionID:   strPtr(id),
-		Details:        strPtr(fmt.Sprintf("SSO ClickHouse service account set to %s", req.Username)),
+		Details:        strPtr(fmt.Sprintf("SSO ClickHouse %s set to %s", accountRole, req.Username)),
 		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+// sessionActor returns the person and ClickHouse user behind the request's
+// session for audit rows, nil when there is no session.
+func sessionActor(r *http.Request) (username, chUser *string) {
+	if session := middleware.GetSession(r); session != nil {
+		return strPtr(middleware.Actor(session)), strPtr(session.ClickhouseUser)
+	}
+	return nil, nil
+}
+
+// GetSSOIdentity returns how SSO people are identified to ClickHouse on this
+// connection: the saved identity config (shared mode by default) and whether
+// the SSO account that mode relies on is set. Admin only.
+// GET /{id}/sso-identity
+func (h *ConnectionsHandler) GetSSOIdentity(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "Connection ID is required")
+		return
+	}
+	conn, err := h.DB.GetConnectionByID(id)
+	if err != nil {
+		slog.Error("Failed to get connection", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to retrieve connection")
+		return
+	}
+	if conn == nil {
+		writeError(w, http.StatusNotFound, "Connection not found")
+		return
+	}
+	h.writeSSOIdentity(w, id)
+}
+
+// SetSSOIdentity saves the connection's SSO identity config. Per-person mode
+// is a Pro feature; shared mode (the default) saves on every edition.
+// PUT /{id}/sso-identity  body: database.SSOIdentityConfig as JSON
+func (h *ConnectionsHandler) SetSSOIdentity(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "Connection ID is required")
+		return
+	}
+	var cfg database.SSOIdentityConfig
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&cfg); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	cfg.Normalize()
+	if cfg.PerPerson() && !h.Config.IsPro() {
+		writeError(w, http.StatusPaymentRequired, "Pro license required")
+		return
+	}
+	if err := cfg.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	conn, err := h.DB.GetConnectionByID(id)
+	if err != nil {
+		slog.Error("Failed to get connection", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to retrieve connection")
+		return
+	}
+	if conn == nil {
+		writeError(w, http.StatusNotFound, "Connection not found")
+		return
+	}
+	if err := h.DB.SetSSOIdentityConfig(id, cfg); err != nil {
+		slog.Error("Failed to save SSO identity config", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to save SSO identity settings")
+		return
+	}
+
+	username, chUser := sessionActor(r)
+	h.DB.CreateAuditLog(database.AuditLogParams{
+		Action:         "connection.sso_identity.updated",
+		Username:       username,
+		ClickhouseUser: chUser,
+		ConnectionID:   strPtr(id),
+		Details:        strPtr(fmt.Sprintf("SSO identity mode set to %s (user prefix %s, %d group mapping(s))", cfg.Mode, cfg.UserPrefix, len(cfg.RoleMappings))),
+		IPAddress:      strPtr(getClientIP(r)),
+	})
+	h.writeSSOIdentity(w, id)
+}
+
+func (h *ConnectionsHandler) writeSSOIdentity(w http.ResponseWriter, connID string) {
+	cfg, err := h.DB.GetSSOIdentityConfig(connID)
+	if err != nil {
+		slog.Error("Failed to read SSO identity config", "error", err, "id", connID)
+		writeError(w, http.StatusInternalServerError, "Failed to read SSO identity settings")
+		return
+	}
+	ssoUser, ssoPassword, err := h.DB.GetConnectionSSOAccount(connID)
+	if err != nil {
+		slog.Error("Failed to read SSO account", "error", err, "id", connID)
+		writeError(w, http.StatusInternalServerError, "Failed to read SSO identity settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"config":           cfg,
+		"provisioner_user": ssoUser,
+		"provisioner_set":  ssoUser != "" && ssoPassword != "",
+	})
 }
 
 // Get returns a single connection by ID.

@@ -281,7 +281,18 @@ func (h *RBACHandler) serviceAccounts(connID string) map[string]string {
 		}
 	}
 	if user, _, err := h.DB.GetConnectionSSOAccount(connID); err == nil && user != "" {
-		addReason(out, user, "SSO service account")
+		label := "SSO service account"
+		if cfg, err := h.DB.GetSSOIdentityConfig(connID); err == nil && cfg.PerPerson() {
+			label = "SSO provisioner"
+		}
+		addReason(out, user, label)
+	}
+	// Users CH-UI provisioned for SSO people stay listed even after the
+	// connection goes back to shared mode: the provisioner still owns them.
+	if users, err := h.DB.ListSSOClickHouseUsers(connID); err == nil {
+		for _, u := range users {
+			addReason(out, u.CHUser, "SSO user "+u.Email)
+		}
 	}
 	return out
 }

@@ -438,3 +438,131 @@ func TestSwitchConnectionOtherServerNeedsPassword(t *testing.T) {
 		})
 	}
 }
+
+// perPersonTarget creates a second connection "analytics" in per-person mode,
+// or puts connID itself in that mode when connID is given (the fixture's
+// connection has the fake agent online, so a switch reaches provisioning).
+// The SSO account is set so the only thing standing between the switch and
+// a provisioned user is the provisioner itself.
+func perPersonTarget(t *testing.T, db *database.DB, connID string) string {
+	t.Helper()
+	other := connID
+	if other == "" {
+		var err error
+		other, err = db.CreateConnection(database.CreateConnectionParams{Name: "analytics", TunnelToken: "analytics-token"})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.SetSSOIdentityConfig(other, database.SSOIdentityConfig{
+		Mode:         database.SSOModePerPerson,
+		RoleMappings: []database.SSORoleMapping{{Group: "data", Roles: []string{"analyst_ro"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	enc, err := crypto.Encrypt("prov-pass", switchSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetConnectionSSOAccount(other, "chui_prov", enc); err != nil {
+		t.Fatal(err)
+	}
+	return other
+}
+
+func TestSwitchConnectionPerPersonWithoutIdentityNeedsReauth(t *testing.T) {
+	h, db, _ := switchFixture(t, "irrelevant", "alice@example.com")
+	other := perPersonTarget(t, db, "")
+	rec := postSwitch(h, `{"connection_id":"`+other+`"}`, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("per-person target without identity: %d %s, want 409", rec.Code, rec.Body.String())
+	}
+	var out map[string]interface{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out["error"] != "sso_reauth_required" || out["message"] != "Sign in again to use this connection." {
+		t.Fatalf("body: %s", rec.Body.String())
+	}
+	if s, _ := db.GetSession("sess"); s == nil {
+		t.Fatal("refused switch dropped the session")
+	}
+}
+
+func TestSwitchConnectionPerPersonProvisioningFailureIsRefused(t *testing.T) {
+	h, db, connID := switchFixture(t, "irrelevant", "alice@example.com")
+	ident, err := db.UpsertSSOIdentity("https://idp.example", "sub-alice", "alice@example.com", "Alice", []string{"data"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Re-create alice's session with the identity on it; the fixture's
+	// session has none.
+	if err := db.DeleteSession("sess"); err != nil {
+		t.Fatal(err)
+	}
+	enc, err := crypto.Encrypt("irrelevant", switchSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateSession(database.CreateSessionParams{
+		ConnectionID: connID, ClickhouseUser: "svc_sso", EncryptedPassword: enc, Token: "sess",
+		ExpiresAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339), UserRole: "analyst",
+		AuthSubject: "alice@example.com", SSOIdentityID: ident.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The fixture's own connection, so the tunnel check passes and the
+	// switch reaches provisioning.
+	other := perPersonTarget(t, db, connID)
+
+	// No provisioner on the handler: provisioning cannot run. Neither the
+	// shared account nor the old credentials may be used instead.
+	rec := postSwitch(h, `{"connection_id":"`+other+`"}`, nil)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("provisioning failure: %d %s, want 502", rec.Code, rec.Body.String())
+	}
+	var out map[string]interface{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out["error"] != "sso_provisioning_failed" || !strings.Contains(out["message"].(string), "SSO user provisioning failed on ch;") {
+		t.Fatalf("body: %s", rec.Body.String())
+	}
+	s, _ := db.GetSession("sess")
+	if s == nil || s.ClickhouseUser != "svc_sso" {
+		t.Fatalf("refused switch changed the session: %+v", s)
+	}
+	a := findAudit(auditActions(t, db), "user.login_failed", "SSO user provisioning failed (switch connection): no SSO provisioner configured")
+	if a == nil || a.Username == nil || *a.Username != "alice@example.com" || a.ConnectionID == nil || *a.ConnectionID != other {
+		t.Fatalf("provisioning failure audit row missing or wrong: %+v", a)
+	}
+}
+
+func TestSwitchConnectionSSOKeepsIdentityID(t *testing.T) {
+	h, db, connID := switchFixture(t, "irrelevant", "alice@example.com")
+	ident, err := db.UpsertSSOIdentity("https://idp.example", "sub-alice", "alice@example.com", "Alice", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeleteSession("sess"); err != nil {
+		t.Fatal(err)
+	}
+	enc, err := crypto.Encrypt("svc-pass", switchSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateSession(database.CreateSessionParams{
+		ConnectionID: connID, ClickhouseUser: "svc_sso", EncryptedPassword: enc, Token: "sess",
+		ExpiresAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339), UserRole: "analyst",
+		AuthSubject: "alice@example.com", SSOIdentityID: ident.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetConnectionSSOAccount(connID, "svc_sso", enc); err != nil {
+		t.Fatal(err)
+	}
+	rec := postSwitch(h, `{"connection_id":"`+connID+`"}`, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("shared-mode sso switch: %d %s", rec.Code, rec.Body.String())
+	}
+	s, _ := db.GetSession(newSessionToken(t, rec))
+	if s == nil || s.SSOIdentityID == nil || *s.SSOIdentityID != ident.ID {
+		t.Fatalf("identity id not carried to the new session: %+v", s)
+	}
+}

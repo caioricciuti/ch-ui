@@ -173,6 +173,8 @@ Any signed-in role, every edition. Read with your ClickHouse account; see [Data 
 | `GET` | `/api/connections/{id}/token` | Get tunnel token (admin) |
 | `POST` | `/api/connections/{id}/regenerate-token` | Regenerate tunnel token (admin) |
 | `PUT` | `/api/connections/{id}/sso-account` | Set the SSO ClickHouse service account (admin) |
+| `GET` | `/api/connections/{id}/sso-identity` | SSO identity mode (shared or per-person users) and group to role mapping (admin) |
+| `PUT` | `/api/connections/{id}/sso-identity` | Set the SSO identity mode and mapping; per-person needs Pro (admin) |
 | `GET` | `/api/connections/{id}/background-credentials` | Mode and account name for every background worker (admin, passwords never returned) |
 | `PUT` | `/api/connections/{id}/background-credentials/{worker}` | Set a worker's mode: `service_account`, `session` or `disabled` (admin) |
 

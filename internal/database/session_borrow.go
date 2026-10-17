@@ -29,6 +29,11 @@ func (db *DB) BorrowSessionCredentials(connectionID, worker, secret string) (str
 		return "", "", fmt.Errorf("failed to load sessions: %w", err)
 	}
 	for _, sess := range sessions {
+		// A per-person SSO user belongs to that person: a job must never run
+		// as them. Shared accounts and password logins may be borrowed.
+		if owner, err := db.SSOClickHouseUserOwner(connectionID, sess.ClickhouseUser); err != nil || owner != "" {
+			continue
+		}
 		password, err := crypto.Decrypt(sess.EncryptedPassword, secret)
 		if err != nil {
 			continue
