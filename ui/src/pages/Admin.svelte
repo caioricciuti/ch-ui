@@ -24,9 +24,14 @@
 
   const isAdminRole = $derived(getSession()?.role === 'admin')
 
+  // The panel label says Connections; the section id stayed `tunnels`.
+  // Links written from the label still land on the right section.
+  const sectionAliases: Record<string, AdminTab> = { connections: 'tunnels' }
+
   function normalizeAdminTab(value: string | null | undefined): AdminTab {
     const raw = (value ?? '').trim().toLowerCase()
     if ((adminTabIds as string[]).includes(raw)) return raw as AdminTab
+    if (raw in sectionAliases) return sectionAliases[raw]
     return 'overview'
   }
 

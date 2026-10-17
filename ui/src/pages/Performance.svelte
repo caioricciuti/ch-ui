@@ -10,6 +10,7 @@
   } from '../lib/api/performance'
   import { getSession } from '../lib/stores/session.svelte'
   import { getSection, setSection } from '../lib/stores/nav.svelte'
+  import { goTo } from '../lib/stores/router.svelte'
   import { PAGE_SECTIONS, docsURL } from '../lib/routes'
   import { formatBytes, formatNumber, formatElapsed } from '../lib/utils/format'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
@@ -180,6 +181,10 @@
     const timer = setInterval(() => { now = Date.now(); if (!document.hidden && !loading && !busy && !selected && !detail) void load() }, 300000)
     return () => { clearInterval(timer); sequence++; detailSequence++ }
   })
+  function openBackgroundAccounts() {
+    goTo('admin')
+    setSection('tunnels')
+  }
 </script>
 
 {#snippet changesTable(changes: Change[], sufficient = true)}
@@ -286,7 +291,7 @@
           </div>{/if}
         {/if}
         {#if monitor}<Panel title="Hourly background detection" description="Compares the last 24 hours with the previous 24 hours on this connection's node, even when this page is closed.">
-          <div class="flex flex-wrap items-center gap-3"><Badge tone={monitor.enabled ? 'brand' : 'neutral'}>{monitor.enabled ? 'Enabled' : 'Disabled'}</Badge>{#if isAdmin}<Button variant="secondary" size="sm" disabled={busy} onclick={toggleMonitor}>{monitor.enabled ? 'Disable hourly scans' : 'Enable hourly scans'}</Button>{/if}<span class="text-xs text-fg-3">Requires a dedicated Performance account under Connections → Background accounts.</span></div>
+          <div class="flex flex-wrap items-center gap-3"><Badge tone={monitor.enabled ? 'brand' : 'neutral'}>{monitor.enabled ? 'Enabled' : 'Disabled'}</Badge>{#if isAdmin}<Button variant="secondary" size="sm" disabled={busy} onclick={toggleMonitor}>{monitor.enabled ? 'Disable hourly scans' : 'Enable hourly scans'}</Button>{/if}<span class="text-xs text-fg-3">Requires a dedicated Performance account under <button type="button" class="text-accent hover:underline" onclick={openBackgroundAccounts}>Admin → Connections → Background accounts</button>.</span></div>
           {#if monitor.last_scan_at}<p class="mt-3 text-xs text-fg-3">Last attempt: {date(monitor.last_scan_at)}</p>{/if}
           {#if monitor.report && monitor.report_at}<p class="mt-1 text-xs text-fg-3">Last successful scan: {date(monitor.report_at)} · {monitor.report.regressions.length} regressions · {monitor.report.insufficient} patterns with insufficient data</p>{/if}
           {#if monitor.last_error}<p class="mt-2 text-xs text-warning">Last scan failed: {monitor.last_error}. Previous results may be stale.</p>{/if}

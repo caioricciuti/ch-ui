@@ -5,6 +5,8 @@
   import { getReports, getReportSettings, getReportChannels, saveReportSettings, generateReport, sendReport, type ReportSettings, type OperationsReport } from '../lib/api/operationsReports'
   import { success, error as toastError } from '../lib/stores/toast.svelte'
   import { getSession } from '../lib/stores/session.svelte'
+  import { goTo } from '../lib/stores/router.svelte'
+  import { setSection } from '../lib/stores/nav.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
   import { docsURL } from '../lib/routes'
   import PageBody from '../lib/components/common/PageBody.svelte'
@@ -61,6 +63,15 @@
     const url = URL.createObjectURL(new Blob([selected.body], { type: 'text/plain;charset=utf-8' }))
     const a = document.createElement('a'); a.href = url; a.download = `ch-ui-report-${selected.created_at.slice(0, 10)}.txt`; a.click(); URL.revokeObjectURL(url)
   }
+  function openBackgroundAccounts() {
+    goTo('admin')
+    setSection('tunnels')
+  }
+
+  function openAlertChannels() {
+    goTo('governance')
+    setSection('alert-channels')
+  }
 </script>
 
 <PageHeader title="Reports" subtitle="Weekly operations" docs={docsURL('operations-reports')}>
@@ -86,7 +97,7 @@
               <FormField label="Email channel" for="report-channel"><select id="report-channel" class="ds-select w-full" bind:value={settings.channel_id} disabled={busy}><option value="">In-app only</option>{#each channels as c}<option value={c.id}>{c.name} · {c.type}</option>{/each}</select></FormField>
             </div>
             <FormField label="Email recipients" for="report-recipients" hint="Comma-separated addresses. Leave empty for in-app reports; email contains workload identifiers and operational metrics."><Input id="report-recipients" bind:value={recipients} placeholder="data-team@example.com" disabled={busy} /></FormField>
-            <p class="text-xs text-fg-3">Configure a dedicated Weekly operations reports account under Admin → Connections → Background accounts before enabling. Manual generation uses your current ClickHouse account. Email channels are managed under Governance → Alert channels.</p>
+            <p class="text-xs text-fg-3">Configure a dedicated Weekly operations reports account under <button type="button" class="text-accent hover:underline" onclick={openBackgroundAccounts}>Admin → Connections → Background accounts</button> before enabling. Manual generation uses your current ClickHouse account. Email channels are managed under <button type="button" class="text-accent hover:underline" onclick={openAlertChannels}>Governance → Alert channels</button>.</p>
             {#if staleChannel}<p role="alert" class="text-xs text-danger">The saved channel is not an active email channel, so reports cannot be emailed. Choose an email channel or In-app only.</p>{/if}
             {#if settings.last_error}<p role="alert" class="text-xs text-danger">{settings.last_error}</p>{/if}
             <div class="flex items-center justify-between gap-3"><p class="text-xs text-fg-3">{settings.enabled && settings.next_run_at ? `Next report: ${new Date(settings.next_run_at).toLocaleString()}` : 'Automatic reports are disabled.'}</p><Button type="submit" size="sm" loading={busy}>Save settings</Button></div>
