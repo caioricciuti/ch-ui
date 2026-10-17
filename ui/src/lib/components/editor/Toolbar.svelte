@@ -35,6 +35,15 @@
 
   let { running = false, onrun, oncancel, onformat, onexplain, onask, askActive = false, askPro = true, onsave, onparams, onhistory, paramCount = 0, paramsActive = false, paramsEl = $bindable(null), estimate = null, estimateLoading = false }: Props = $props()
 
+  // Toggle buttons: ghost at rest, accent-soft while aria-pressed. The variant form wins over
+  // the ghost rest colours by specificity, where a plain text-accent would lose on source order.
+  const pressedClass = 'aria-pressed:bg-accent-soft aria-pressed:text-accent aria-pressed:hover:bg-accent-soft aria-pressed:hover:text-accent'
+
+  // Parameters stays a raw <button> because the parent anchors its popover to the element
+  // via bind:this, which Button does not expose. Classes mirror Button ghost sm.
+  const ghostSm =
+    'inline-flex h-7 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-xs font-medium text-fg-3 transition-colors duration-100 hover:bg-hover hover:text-fg disabled:pointer-events-none disabled:opacity-50'
+
   const estimateLabel = $derived.by(() => {
     if (estimateLoading) return 'Estimating...'
     if (!estimate || !estimate.success || estimate.error) return null
@@ -45,13 +54,13 @@
   })
 </script>
 
-<div class="flex h-10 items-center gap-1 border-b border-edge-subtle bg-surface px-2">
+<div class="flex h-10 shrink-0 items-center gap-2 border-b border-edge-subtle bg-surface px-4">
   <!-- Primary: the one thing you press all the time -->
   {#if running && oncancel}
-    <button class="inline-flex h-7 items-center gap-1.5 rounded-md bg-danger-soft px-3 text-[13px] font-medium text-danger transition-colors hover:brightness-110" onclick={oncancel} title="Cancel query ({cancelShortcut})">
+    <Button variant="danger" size="sm" onclick={oncancel} title="Cancel query ({cancelShortcut})">
       <Square size={13} />
       Cancel
-    </button>
+    </Button>
   {:else}
     <Button size="sm" onclick={onrun} title="Run the selection, or the statement under the cursor ({runShortcut}). Run all statements: {runAllShortcut}">
       <Play size={13} />
@@ -60,7 +69,7 @@
     </Button>
   {/if}
 
-  <span class="mx-1 h-4 w-px bg-edge"></span>
+  <span class="h-4 w-px bg-edge"></span>
 
   <!-- One-shot actions -->
   {#if onformat}
@@ -78,23 +87,19 @@
 
   <!-- Modes: pressed state so they read as toggles -->
   {#if onask}
-    <button
-      class="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {askActive ? 'bg-accent-soft text-accent' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
-      onclick={onask}
-      aria-pressed={askActive}
-      title="Ask AI to write or edit the query"
-    >
+    <Button variant="ghost" size="sm" class={pressedClass} onclick={onask} aria-pressed={askActive} title="Ask AI to write or edit the query">
       <Sparkles size={13} />
       Ask AI
       {#if !askPro}
         <span class="text-[10px] font-semibold uppercase tracking-wider text-accent">Pro</span>
       {/if}
-    </button>
+    </Button>
   {/if}
   {#if onparams && paramCount > 0}
     <button
       bind:this={paramsEl}
-      class="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {paramsActive ? 'bg-accent-soft text-accent' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
+      type="button"
+      class="{ghostSm} {pressedClass}"
       onclick={onparams}
       aria-pressed={paramsActive}
       title="Set values for the {'{name:Type}'} parameters in this query"
@@ -107,12 +112,12 @@
 
   <!-- Readout, not a control -->
   {#if estimateLabel}
-    <span class="ml-2 inline-flex items-center gap-1 text-xs text-fg-3" title="Estimated scan from EXPLAIN ESTIMATE">
+    <span class="inline-flex items-center gap-1 text-xs tabular-nums text-fg-3" title="Estimated scan from EXPLAIN ESTIMATE">
       <Zap size={12} />
       {estimateLabel}
     </span>
   {:else if estimateLoading}
-    <span class="ml-2 inline-flex items-center gap-1 text-xs text-fg-4">
+    <span class="inline-flex items-center gap-1 text-xs text-fg-4">
       <Zap size={12} class="animate-pulse" />
       Estimating…
     </span>
