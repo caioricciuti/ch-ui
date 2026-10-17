@@ -92,7 +92,8 @@ func (u *UI) Error(format string, args ...interface{}) {
 	if u.jsonMode {
 		return
 	}
-	u.red.Print("✗ ")
+	fmt.Fprint(os.Stderr, journalPriority(journalError))
+	u.red.Fprint(os.Stderr, "✗ ")
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 }
 
@@ -279,15 +280,18 @@ func (u *UI) QueryLog(queryID string, elapsed time.Duration, rows int) {
 	u.dim.Printf("(%s, %s rows)\n", elapsed.Round(time.Millisecond), formatNumber(rows))
 }
 
-// QueryError prints a query error log line
+// QueryError prints a query error log line. It goes to stderr and, under
+// journald, carries the WARNING priority so `journalctl -p warning` lists
+// failed queries instead of filing them as INFO with the rest of stdout.
 func (u *UI) QueryError(queryID string, err error) {
 	if u.jsonMode {
 		return
 	}
 
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	u.dim.Printf("[%s] ", timestamp)
-	u.red.Printf("Query %s failed: %v\n", queryID[:8], err)
+	fmt.Fprint(os.Stderr, journalPriority(journalWarning))
+	u.dim.Fprintf(os.Stderr, "[%s] ", timestamp)
+	u.red.Fprintf(os.Stderr, "Query %s failed: %v\n", queryID[:8], err)
 }
 
 // Disconnected prints a disconnection message
@@ -360,4 +364,22 @@ func FormatBytes(b uint64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// journald priorities, from sd-daemon(3). systemd sets JOURNAL_STREAM when a
+// service's output is connected to the journal; a line that starts with <N>
+// is then filed at priority N instead of the unit's default, which is INFO
+// for everything on stdout and stderr alike.
+const (
+	journalError   = 3
+	journalWarning = 4
+)
+
+// journalPriority returns the <N> prefix for level when writing to journald,
+// and nothing anywhere else (a terminal, Docker, a file).
+func journalPriority(level int) string {
+	if os.Getenv("JOURNAL_STREAM") == "" {
+		return ""
+	}
+	return fmt.Sprintf("<%d>", level)
 }
