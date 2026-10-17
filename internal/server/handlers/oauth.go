@@ -169,8 +169,7 @@ func validateRedirectURI(raw string) error {
 	case "https":
 		return nil
 	case "http":
-		host := u.Hostname()
-		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		if isLoopbackHost(u.Hostname()) {
 			return nil
 		}
 		return fmt.Errorf("http redirect_uri is only allowed for loopback hosts")
@@ -346,7 +345,7 @@ func (h *OAuthHandler) Authorize(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_client", err.Error())
 		return
 	}
-	if !containsExact(client.RedirectURIs, redirectURI) {
+	if !redirectRegistered(client.RedirectURIs, redirectURI) {
 		// Never redirect to an unregistered URI.
 		oauthError(w, http.StatusBadRequest, "invalid_request", "redirect_uri is not registered for this client")
 		return
@@ -431,6 +430,32 @@ func normalizeScope(raw string) (string, error) {
 // hasScope reports whether the space-separated scope string grants s.
 func hasScope(scope, s string) bool {
 	return containsExact(strings.Fields(scope), s)
+}
+
+// redirectRegistered reports whether the redirect_uri of an authorization
+// request matches one the client registered. Everything compares exactly
+// except http loopback URIs: a native client listens on whatever port is
+// free, so RFC 8252 section 7.3 requires the server to ignore the port and
+// still compare scheme, host and path. Claude Code registers
+// http://localhost/callback and sends http://localhost:60146/callback.
+func redirectRegistered(registered []string, candidate string) bool {
+	if containsExact(registered, candidate) {
+		return true
+	}
+	c, err := url.Parse(candidate)
+	if err != nil || c.Scheme != "http" || !isLoopbackHost(c.Hostname()) {
+		return false
+	}
+	for _, r := range registered {
+		u, err := url.Parse(r)
+		if err != nil || u.Scheme != "http" || !isLoopbackHost(u.Hostname()) {
+			continue
+		}
+		if u.Hostname() == c.Hostname() && u.Path == c.Path && u.RawQuery == c.RawQuery {
+			return true
+		}
+	}
+	return false
 }
 
 func containsExact(list []string, v string) bool {

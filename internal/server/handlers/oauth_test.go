@@ -316,6 +316,31 @@ func TestOAuthPKCEMismatchAndExpiry(t *testing.T) {
 	}
 }
 
+func TestRedirectRegisteredLoopbackIgnoresPort(t *testing.T) {
+	registered := []string{"http://localhost/callback", "http://127.0.0.1/callback", "https://app.example.com/cb", "cursor://anysphere.cursor-mcp/oauth/callback"}
+	cases := []struct {
+		uri string
+		ok  bool
+	}{
+		{"http://localhost/callback", true},
+		{"http://localhost:60146/callback", true},
+		{"http://127.0.0.1:8912/callback", true},
+		{"http://[::1]:5000/callback", false},   // host not registered
+		{"http://localhost:60146/other", false}, // path differs
+		{"http://localhost:60146/callback/", false},
+		{"https://localhost:60146/callback", false}, // only http loopback ignores the port
+		{"https://app.example.com/cb", true},
+		{"https://app.example.com:8443/cb", false}, // non-loopback stays exact
+		{"http://evil.example.com:80/callback", false},
+		{"cursor://anysphere.cursor-mcp/oauth/callback", true},
+	}
+	for _, c := range cases {
+		if got := redirectRegistered(registered, c.uri); got != c.ok {
+			t.Errorf("redirectRegistered(%q) = %v, want %v", c.uri, got, c.ok)
+		}
+	}
+}
+
 func TestValidateRedirectURI(t *testing.T) {
 	ok := []string{"https://claude.ai/cb", "http://localhost:1234/cb", "http://127.0.0.1/cb", "vscode://redhat.vscode/callback", "cursor://anysphere/cb"}
 	for _, u := range ok {
