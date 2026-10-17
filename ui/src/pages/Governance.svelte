@@ -3,7 +3,6 @@
 	import { formatDate, formatBytes } from '../lib/utils/format';
 	import { onMount } from 'svelte';
 	import {
-		Table2,
 		Search,
 		Plus,
 		Trash2,
@@ -565,9 +564,127 @@
 		<AuditLogSection />
 	{:else if activeTab === 'settings'}
 		<SettingsSection />
+	{:else if activeTab === 'tables'}
+		<div class="flex min-h-0 flex-1 flex-col">
+			<div class="flex h-10 shrink-0 items-center gap-2 px-5">
+				<div class="relative">
+					<Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-4" />
+					<Input size="sm" type="search" class="w-64 pl-8" placeholder="Search tables…" bind:value={tableSearchQuery} spellcheck={false} />
+				</div>
+				<div class="w-56">
+					<Combobox
+						options={databaseFilterOptions}
+						value={selectedDatabase}
+						onChange={(v) => selectedDatabase = v}
+						placeholder="All Databases"
+					/>
+				</div>
+				<span class="ml-auto text-xs tabular-nums text-fg-4">{filteredTables.length} {filteredTables.length === 1 ? 'table' : 'tables'}</span>
+			</div>
+			<div class="min-h-0 flex-1 px-5 pb-4">
+				{#if loading && tables.length === 0}
+					<div class="flex h-full items-center justify-center"><Spinner size="lg" /></div>
+				{:else}
+					<div class="h-full overflow-hidden rounded-lg border border-edge-subtle bg-surface">
+						<DataTable
+							fill
+							columns={tableColumns}
+							rows={asRows(filteredTables)}
+							rowKey={(r) => `${r.database_name}.${r.table_name}`}
+							sort={{ key: 'table_name', dir: 'asc' }}
+							emptyTitle="No tables found"
+							emptyDescription="Nothing matches the current search and database filter."
+						>
+							{#snippet cell(row, col, value)}
+								{#if col.key === 'tags'}
+									{@const tags = (row as unknown as GovTable).tags}
+									{#if tags && tags.length > 0}
+										<div class="flex flex-wrap gap-1">
+											{#each tags as tag (tag)}<Badge tone="brand">{tag}</Badge>{/each}
+										</div>
+									{:else}
+										<span class="text-fg-4">-</span>
+									{/if}
+								{:else if col.key === 'table_name'}
+									<span class="font-medium text-fg">{value}</span>
+								{:else}
+									{value}
+								{/if}
+							{/snippet}
+							{#snippet actions(row)}
+								<Button size="xs" variant="outline" onclick={() => openTableDetails(row as unknown as GovTable)}>
+									<PanelRightOpen size={12} />
+									View
+								</Button>
+							{/snippet}
+						</DataTable>
+					</div>
+				{/if}
+			</div>
+		</div>
+	{:else if activeTab === 'queries'}
+		{#if !isAdmin}
+			<EmptyState icon={Lock} title="Admins only" description="The query audit holds every user's SQL text, harvested with privileged credentials, so only admins can open it." />
+		{:else}
+			<div class="flex min-h-0 flex-1 flex-col">
+				<div class="flex h-10 shrink-0 items-center gap-2 px-5">
+					<Input size="sm" class="w-56" placeholder="Filter by user…" bind:value={queryUserFilter} />
+					<div class="w-40">
+						<Combobox
+							options={queryLimitOptions}
+							value={String(queryLimit)}
+							onChange={(v) => {
+								queryLimit = Number(v) || 100;
+								void loadQueries();
+							}}
+							placeholder="Query limit"
+						/>
+					</div>
+					<Button size="sm" onclick={() => loadQueries()}>Apply filters</Button>
+					<span class="ml-auto text-xs tabular-nums text-fg-4">{queryLog.length} {queryLog.length === 1 ? 'query' : 'queries'}</span>
+				</div>
+				<div class="min-h-0 flex-1 px-5 pb-4">
+					{#if loading && queryLog.length === 0}
+						<div class="flex h-full items-center justify-center"><Spinner size="lg" /></div>
+					{:else if queryLog.length === 0}
+						<EmptyState
+							icon={Search}
+							title="No query logs found"
+							description="Nothing has been harvested for this filter yet. Harvesting may be paused. Check the mode under Settings."
+							secondary={{ label: 'Open settings', onclick: () => switchTab('settings') }}
+						/>
+					{:else}
+						<div class="h-full overflow-hidden rounded-lg border border-edge-subtle bg-surface">
+							<DataTable fill columns={queryColumns} rows={asRows(queryLog)} sort={{ key: 'event_time', dir: 'desc' }}>
+								{#snippet cell(row, col, value)}
+									{#if col.key === 'query_kind'}
+										<Badge tone={(row as unknown as QueryLogEntry).is_error ? 'danger' : 'success'}>{value}</Badge>
+									{:else if col.key === 'ch_user'}
+										{@const entry = row as unknown as QueryLogEntry}
+										{#if entry.actor && entry.actor !== entry.ch_user}
+											<span class="font-medium text-fg"><ActorCell name={entry.actor} accounts={[entry.ch_user]} /></span>
+										{:else}
+											<span class="font-medium text-fg">{value}</span>
+										{/if}
+									{:else}
+										{value}
+									{/if}
+								{/snippet}
+								{#snippet actions(row)}
+									<Button size="xs" variant="outline" onclick={() => openQueryDetails(row as unknown as QueryLogEntry)}>
+										<PanelRightOpen size={12} />
+										View
+									</Button>
+								{/snippet}
+							</DataTable>
+						</div>
+					{/if}
+				</div>
+			</div>
+		{/if}
 	{:else}
 	<PageBody width="lg">
-		{#if loading && !overview && !tables.length && !queryLog.length}
+		{#if loading && !overview}
 			<div class="flex items-center justify-center py-12">
 				<Spinner size="lg" />
 			</div>
@@ -674,116 +791,6 @@
 						</div>
 					</div>
 				{/if}
-			{/if}
-
-			<!-- Tables -->
-			{#if activeTab === 'tables'}
-				<div class="space-y-5">
-					<div class="flex flex-col gap-3 md:flex-row">
-						<div class="flex-1">
-							<Input type="search" placeholder="Search tables…" bind:value={tableSearchQuery} />
-						</div>
-						<div class="w-full md:w-64">
-							<Combobox
-								options={databaseFilterOptions}
-								value={selectedDatabase}
-								onChange={(v) => selectedDatabase = v}
-								placeholder="All Databases"
-							/>
-						</div>
-					</div>
-
-					{#if filteredTables.length > 0}
-						<DataTable columns={tableColumns} rows={asRows(filteredTables)} rowKey={(r) => `${r.database_name}.${r.table_name}`} sort={{ key: 'table_name', dir: 'asc' }}>
-							{#snippet cell(row, col, value)}
-								{#if col.key === 'tags'}
-									{@const tags = (row as unknown as GovTable).tags}
-									{#if tags && tags.length > 0}
-										<div class="flex flex-wrap gap-1">
-											{#each tags as tag (tag)}<Badge tone="brand">{tag}</Badge>{/each}
-										</div>
-									{:else}
-										<span class="text-fg-4">-</span>
-									{/if}
-								{:else if col.key === 'table_name'}
-									<span class="font-medium text-fg">{value}</span>
-								{:else}
-									{value}
-								{/if}
-							{/snippet}
-							{#snippet actions(row)}
-								<Button size="xs" variant="outline" onclick={() => openTableDetails(row as unknown as GovTable)}>
-									<PanelRightOpen size={12} />
-									View
-								</Button>
-							{/snippet}
-						</DataTable>
-					{:else}
-						<EmptyState icon={Table2} title="No tables found" description="Nothing matches the current search and database filter." />
-					{/if}
-				</div>
-			{/if}
-
-			<!-- Query Audit -->
-			{#if activeTab === 'queries' && !isAdmin}
-				<EmptyState icon={Lock} title="Admins only" description="The query audit holds every user's SQL text, harvested with privileged credentials, so only admins can open it." />
-			{:else if activeTab === 'queries'}
-				<div class="space-y-5">
-					{#if queryLog.length === 0 && !loading}
-						<p class="flex items-center gap-2 text-[13px] text-fg-3">
-							<Info size={14} class="shrink-0 text-fg-4" />
-							<span>
-								Harvesting may be paused. Check the mode under
-								<button class="font-medium text-fg underline underline-offset-2 hover:text-accent" onclick={() => switchTab('settings')}>Settings</button>.
-							</span>
-						</p>
-					{/if}
-
-					<div class="flex flex-col gap-3 md:flex-row">
-						<div class="flex-1">
-							<Input placeholder="Filter by user…" bind:value={queryUserFilter} />
-						</div>
-						<div class="w-full md:w-48">
-							<Combobox
-								options={queryLimitOptions}
-								value={String(queryLimit)}
-								onChange={(v) => {
-									queryLimit = Number(v) || 100;
-									void loadQueries();
-								}}
-								placeholder="Query limit"
-							/>
-						</div>
-						<Button size="md" onclick={() => loadQueries()}>Apply filters</Button>
-					</div>
-
-					{#if queryLog.length > 0}
-						<DataTable columns={queryColumns} rows={asRows(queryLog)} sort={{ key: 'event_time', dir: 'desc' }}>
-							{#snippet cell(row, col, value)}
-								{#if col.key === 'query_kind'}
-									<Badge tone={(row as unknown as QueryLogEntry).is_error ? 'danger' : 'success'}>{value}</Badge>
-								{:else if col.key === 'ch_user'}
-									{@const entry = row as unknown as QueryLogEntry}
-									{#if entry.actor && entry.actor !== entry.ch_user}
-										<span class="font-medium text-fg"><ActorCell name={entry.actor} accounts={[entry.ch_user]} /></span>
-									{:else}
-										<span class="font-medium text-fg">{value}</span>
-									{/if}
-								{:else}
-									{value}
-								{/if}
-							{/snippet}
-							{#snippet actions(row)}
-								<Button size="xs" variant="outline" onclick={() => openQueryDetails(row as unknown as QueryLogEntry)}>
-									<PanelRightOpen size={12} />
-									View
-								</Button>
-							{/snippet}
-						</DataTable>
-					{:else}
-						<EmptyState icon={Search} title="No query logs found" description="Nothing has been harvested for this filter yet." />
-					{/if}
-				</div>
 			{/if}
 		{/if}
 	</PageBody>

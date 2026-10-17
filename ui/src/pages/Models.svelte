@@ -3,7 +3,7 @@
   import type { Materialization, Model, ModelPipeline, ModelRun, ModelRunResult, DAGNode, DAGEdge, RunOutcome, RunScope } from '../lib/types/models'
   import * as api from '../lib/api/models'
   import { refreshModelCache } from '../lib/editor/completions'
-  import { formatDate } from '../lib/utils/format'
+  import { formatDate, formatDuration } from '../lib/utils/format'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import { openModelTab } from '../lib/stores/tabs.svelte'
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
@@ -51,12 +51,6 @@
     MoreHorizontal,
     GitBranch,
     History,
-    CheckCircle,
-    XCircle,
-    SkipForward,
-    Clock,
-    ChevronDown,
-    ChevronRight,
     X,
     Info,
     Code,
@@ -97,11 +91,17 @@
   // History overlay
   let showHistory = $state(false)
   let runs = $state<ModelRun[]>([])
-  let expandedRunId = $state<string | null>(null)
+  // Run whose per-model results are open in the run sheet.
+  let selectedRunId = $state<string | null>(null)
+  let selectedRun = $derived(selectedRunId ? runs.find((r) => r.id === selectedRunId) ?? null : null)
   let runResults = $state<Record<string, ModelRunResult[]>>({})
-  // Result ids whose stored SQL or test outcomes are shown in the history.
-  let expandedSQL = $state<Record<string, boolean>>({})
-  let expandedTests = $state<Record<string, boolean>>({})
+  // Result whose stored SQL or test outcomes are shown under the results table.
+  let resultDetail = $state<{ id: string; kind: 'sql' | 'tests' } | null>(null)
+  let detailResult = $derived.by(() => {
+    const detail = resultDetail
+    if (!detail || !selectedRunId) return null
+    return runResults[selectedRunId]?.find((r) => r.id === detail.id) ?? null
+  })
 
   // New model sheet
   let showCreate = $state(false)
@@ -431,7 +431,8 @@
     }
     await loadModels()
     await loadRuns()
-    expandedRunId = res.run_id
+    selectedRunId = res.run_id
+    resultDetail = null
     await loadRunResults(res.run_id)
     showHistory = true
   }
@@ -454,12 +455,22 @@
     showHistory = true
   }
 
-  function toggleRunExpand(runId: string) {
-    if (expandedRunId === runId) {
-      expandedRunId = null
+  function openRun(runId: string) {
+    selectedRunId = runId
+    resultDetail = null
+    loadRunResults(runId)
+  }
+
+  function closeRun() {
+    selectedRunId = null
+    resultDetail = null
+  }
+
+  function toggleResultDetail(id: string, kind: 'sql' | 'tests') {
+    if (resultDetail?.id === id && resultDetail.kind === kind) {
+      resultDetail = null
     } else {
-      expandedRunId = runId
-      loadRunResults(runId)
+      resultDetail = { id, kind }
     }
   }
 
@@ -485,10 +496,49 @@
     return r.tests_passed + r.tests_failed > 0 || !!r.test_details
   }
 
-  // DataTable is typed over Record rows; Model is an interface, so cast in and out.
+  // DataTable is typed over Record rows; our row types are interfaces, so cast in and out.
   type Row = Record<string, unknown>
-  const asRows = (rows: Model[]): Row[] => rows as unknown as Row[]
+  const asRows = <T,>(rows: T[]): Row[] => rows as unknown as Row[]
   const asModel = (row: Row): Model => row as unknown as Model
+  const asRun = (row: Row): ModelRun => row as unknown as ModelRun
+  const asResult = (row: Row): ModelRunResult => row as unknown as ModelRunResult
+
+  function runDurationMs(run: ModelRun): number | null {
+    if (!run.finished_at) return null
+    const ms = Date.parse(run.finished_at) - Date.parse(run.started_at)
+    return Number.isFinite(ms) ? Math.max(ms, 0) : null
+  }
+
+  function runScope(run: ModelRun): string {
+    const pipeline = run.pipeline_id ? pipelineById.get(run.pipeline_id) : undefined
+    if (pipeline) return pipeline.name
+    return run.selector || 'All models'
+  }
+
+  function runOutcome(run: ModelRun): string {
+    const parts = [`${run.succeeded} ok`]
+    if (run.failed > 0) parts.push(`${run.failed} failed`)
+    if (run.skipped > 0) parts.push(`${run.skipped} skipped`)
+    return parts.join(', ')
+  }
+
+  const runColumns: DataColumn<Row>[] = [
+    { key: 'started_at', label: 'Started', mono: true, format: (v) => formatDate(v), sortValue: (r) => Date.parse(String(r.started_at)) || 0 },
+    { key: 'status', label: 'Status' },
+    { key: 'total_models', label: 'Models', align: 'right' },
+    { key: 'succeeded', label: 'Outcome', sortable: false, format: (_v, r) => runOutcome(asRun(r)) },
+    { key: 'finished_at', label: 'Duration', align: 'right', format: (_v, r) => { const ms = runDurationMs(asRun(r)); return ms == null ? '-' : formatDuration(ms) }, sortValue: (r) => runDurationMs(asRun(r)) ?? -1 },
+    { key: 'pipeline_id', label: 'Scope', truncate: true, format: (_v, r) => runScope(asRun(r)), sortValue: (r) => runScope(asRun(r)) },
+    { key: 'triggered_by', label: 'Triggered by', format: (v) => (v ? String(v) : '-') },
+  ]
+
+  const resultColumns: DataColumn<Row>[] = [
+    { key: 'model_name', label: 'Model' },
+    { key: 'status', label: 'Status' },
+    { key: 'elapsed_ms', label: 'Duration', align: 'right', format: (v) => formatDuration(Number(v ?? 0)) },
+    { key: 'tests_passed', label: 'Tests', sortable: false },
+    { key: 'error', label: 'Error', truncate: true, sortable: false, format: (v) => (v ? String(v) : '') },
+  ]
 
   const modelColumns: DataColumn<Row>[] = [
     { key: 'name', label: 'Model' },
@@ -748,7 +798,13 @@
     aria-labelledby="models-history-title"
     tabindex="-1"
     use:trapFocus
-    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); showHistory = false } }}
+    onkeydown={(e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      // The run sheet sits inside this overlay, so Escape closes it first.
+      if (selectedRunId) closeRun()
+      else showHistory = false
+    }}
   >
     <div class="flex h-12 shrink-0 items-center gap-3 border-b border-edge-subtle px-5">
       <h2 id="models-history-title" class="flex-1 text-[15px] font-semibold tracking-[-0.01em] text-fg">Run history</h2>
@@ -757,114 +813,128 @@
       </Button>
       <Button size="sm" variant="outline" onclick={() => { showHistory = false }}>Close</Button>
     </div>
-    <div class="min-h-0 flex-1 overflow-auto">
+    <div class="min-h-0 flex-1">
       {#if runs.length === 0}
         <EmptyState icon={History} title="No runs yet" description="Run the pipeline and each run shows up here with per-model results." />
       {:else}
-        <div class="mx-auto w-full max-w-6xl space-y-2 px-5 py-5">
-          {#each runs as run (run.id)}
-            {@const runPipeline = run.pipeline_id ? pipelineById.get(run.pipeline_id) : undefined}
-            <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
-              <button
-                onclick={() => toggleRunExpand(run.id)}
-                class="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-hover"
-              >
-                {#if expandedRunId === run.id}
-                  <ChevronDown size={14} class="shrink-0 text-fg-4" />
+        <div class="mx-auto flex h-full w-full max-w-6xl flex-col px-5 py-5">
+          <div class="min-h-0 flex-1 overflow-hidden rounded-lg border border-edge-subtle bg-surface">
+            <DataTable
+              fill
+              columns={runColumns}
+              rows={asRows(runs)}
+              rowKey={(r) => String(r.id)}
+              sort={{ key: 'started_at', dir: 'desc' }}
+              onrowclick={(r) => openRun(String(r.id))}
+            >
+              {#snippet cell(_row, col, value)}
+                {#if col.key === 'status'}
+                  <Badge tone={statusTone(value)} class="uppercase tracking-wide">{value}</Badge>
+                {:else if col.key === 'started_at'}
+                  <span class="text-fg">{value}</span>
                 {:else}
-                  <ChevronRight size={14} class="shrink-0 text-fg-4" />
+                  {value}
                 {/if}
-                <Badge tone={statusTone(run.status)} class="uppercase tracking-wide">{run.status}</Badge>
-                <span class="flex-1 text-xs text-fg-2">
-                  {run.total_models} models
-                  <span class="text-fg-4">|</span>
-                  <span class="text-success">{run.succeeded} ok</span>
-                  {#if run.failed > 0}
-                    <span class="text-fg-4">|</span>
-                    <span class="text-danger">{run.failed} failed</span>
-                  {/if}
-                  {#if run.skipped > 0}
-                    <span class="text-fg-4">|</span>
-                    <span class="text-fg-3">{run.skipped} skipped</span>
-                  {/if}
-                  {#if runPipeline}
-                    <span class="text-fg-4">|</span>
-                    <span class="text-fg-3">{runPipeline.name}</span>
-                  {/if}
-                  {#if run.selector}
-                    <span class="text-fg-4">|</span>
-                    <code class="font-mono text-[11px] text-fg-3">{run.selector}</code>
-                  {/if}
-                </span>
-                <span class="text-[11px] tabular-nums text-fg-4">{formatDate(run.started_at)}</span>
-              </button>
-
-              {#if expandedRunId === run.id && runResults[run.id]}
-                <div class="border-t border-edge-subtle">
-                  {#each runResults[run.id] as result (result.id)}
-                    <div class="flex items-center gap-3 border-b border-edge-subtle px-4 py-2 text-xs last:border-0">
-                      <span class="shrink-0">
-                        {#if result.status === 'success'}
-                          <CheckCircle size={14} class="text-success" />
-                        {:else if result.status === 'error'}
-                          <XCircle size={14} class="text-danger" />
-                        {:else if result.status === 'skipped'}
-                          <SkipForward size={14} class="text-fg-4" />
-                        {:else}
-                          <Clock size={14} class="text-info" />
-                        {/if}
-                      </span>
-                      <span class="min-w-[120px] font-medium text-fg-2">{result.model_name}</span>
-                      <Badge tone={statusTone(result.status)}>{result.status}</Badge>
-                      <span class="tabular-nums text-fg-4">{result.elapsed_ms}ms</span>
-                      {#if hasTests(result)}
-                        <Badge tone="success">{result.tests_passed} passed</Badge>
-                        {#if result.tests_failed > 0}
-                          <Badge tone="danger">{result.tests_failed} failed</Badge>
-                        {/if}
-                      {/if}
-                      {#if result.error}
-                        <span class="flex-1 truncate text-danger" title={result.error}>{result.error}</span>
-                      {:else}
-                        <span class="flex-1"></span>
-                      {/if}
-                      {#if hasTests(result)}
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          aria-expanded={!!expandedTests[result.id]}
-                          onclick={() => { expandedTests[result.id] = !expandedTests[result.id] }}
-                        >
-                          <FlaskConical size={12} /> Tests
-                        </Button>
-                      {/if}
-                      {#if result.resolved_sql}
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          aria-expanded={!!expandedSQL[result.id]}
-                          onclick={() => { expandedSQL[result.id] = !expandedSQL[result.id] }}
-                        >
-                          <Code size={12} /> SQL
-                        </Button>
-                      {/if}
-                    </div>
-                    {#if hasTests(result) && expandedTests[result.id]}
-                      <div class="border-b border-edge-subtle bg-surface-2 px-4 py-3 last:border-0">
-                        <TestOutcomesTable outcomes={parseTestOutcomes(result.test_details)} />
-                      </div>
-                    {/if}
-                    {#if result.resolved_sql && expandedSQL[result.id]}
-                      <pre class="max-h-64 overflow-auto border-b border-edge-subtle bg-surface-2 px-4 py-3 font-mono text-xs text-fg-2 whitespace-pre-wrap break-all last:border-0">{result.resolved_sql}</pre>
-                    {/if}
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          {/each}
+              {/snippet}
+            </DataTable>
+          </div>
         </div>
       {/if}
     </div>
+
+    <!-- Inside the overlay so it stacks above it. -->
+    <Sheet
+      open={!!selectedRun}
+      title={selectedRun ? formatDate(selectedRun.started_at) : ''}
+      description={selectedRun ? `${runScope(selectedRun)}: ${selectedRun.total_models} models, ${runOutcome(selectedRun)}` : ''}
+      size="lg"
+      onclose={closeRun}
+    >
+      {#if selectedRun}
+        {@const results = runResults[selectedRun.id]}
+        <div class="space-y-4">
+          {#if !results}
+            <Skeleton variant="rows" rows={4} label="Loading run results" />
+          {:else}
+            <DataTable
+              columns={resultColumns}
+              rows={asRows(results)}
+              rowKey={(r) => String(r.id)}
+              emptyTitle="No model results"
+              emptyDescription="This run has no per-model results."
+            >
+              {#snippet cell(row, col, value)}
+                {@const result = asResult(row)}
+                {#if col.key === 'model_name'}
+                  <span class="font-medium text-fg">{value}</span>
+                {:else if col.key === 'status'}
+                  <Badge tone={statusTone(value)}>{value}</Badge>
+                {:else if col.key === 'tests_passed'}
+                  {#if hasTests(result)}
+                    <span class="inline-flex items-center gap-1">
+                      <Badge tone="success">{result.tests_passed} passed</Badge>
+                      {#if result.tests_failed > 0}<Badge tone="danger">{result.tests_failed} failed</Badge>{/if}
+                    </span>
+                  {:else}
+                    <span class="text-fg-4">-</span>
+                  {/if}
+                {:else if col.key === 'error'}
+                  <span class="text-danger">{value}</span>
+                {:else}
+                  {value}
+                {/if}
+              {/snippet}
+              {#snippet actions(row)}
+                {@const result = asResult(row)}
+                {#if hasTests(result)}
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    aria-expanded={resultDetail?.id === result.id && resultDetail.kind === 'tests'}
+                    onclick={() => toggleResultDetail(result.id, 'tests')}
+                  >
+                    <FlaskConical size={12} /> Tests
+                  </Button>
+                {/if}
+                {#if result.resolved_sql}
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    aria-expanded={resultDetail?.id === result.id && resultDetail.kind === 'sql'}
+                    onclick={() => toggleResultDetail(result.id, 'sql')}
+                  >
+                    <Code size={12} /> SQL
+                  </Button>
+                {/if}
+              {/snippet}
+            </DataTable>
+          {/if}
+
+          {#if detailResult && resultDetail}
+            <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
+              <div class="flex h-9 items-center gap-2 border-b border-edge-subtle px-3">
+                <span class="text-[13px] font-medium text-fg">{detailResult.model_name}</span>
+                <span class="text-xs text-fg-3">{resultDetail.kind === 'sql' ? 'Resolved SQL' : 'Test outcomes'}</span>
+                <Button icon variant="ghost" size="xs" class="ml-auto" aria-label="Close" onclick={() => { resultDetail = null }}>
+                  <X size={13} />
+                </Button>
+              </div>
+              {#if resultDetail.kind === 'tests'}
+                <div class="px-3 py-3">
+                  <TestOutcomesTable outcomes={parseTestOutcomes(detailResult.test_details)} />
+                </div>
+              {:else}
+                <pre class="max-h-80 overflow-auto bg-surface-2 px-4 py-3 font-mono text-xs text-fg-2 whitespace-pre-wrap break-all">{detailResult.resolved_sql}</pre>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      {#snippet footer()}
+        <Button size="sm" variant="outline" onclick={closeRun}>Close</Button>
+      {/snippet}
+    </Sheet>
   </div>
 {/if}
 
