@@ -20,7 +20,7 @@
     requestBillingPortal,
     LicenseServerError,
   } from '../lib/license-server'
-  import { Shield, ShieldCheck, ShieldAlert, Upload, X, FileText, ExternalLink, KeyRound, ChevronRight } from 'lucide-svelte'
+  import { Shield, ShieldCheck, ShieldAlert, FileText, ExternalLink, KeyRound } from 'lucide-svelte'
   import Badge from '../lib/components/common/Badge.svelte'
   import Button from '../lib/components/common/Button.svelte'
   import FormField from '../lib/components/common/FormField.svelte'
@@ -30,6 +30,7 @@
   import { docsURL } from '../lib/routes'
   import Panel from '../lib/components/common/Panel.svelte'
   import SectionHeader from '../lib/components/common/SectionHeader.svelte'
+  import Sheet from '../lib/components/common/Sheet.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
   import Stat from '../lib/components/common/Stat.svelte'
   import Textarea from '../lib/components/common/Textarea.svelte'
@@ -42,19 +43,22 @@
   let deactivating = $state(false)
   let showConfirmDeactivate = $state(false)
   let licenseInput = $state('')
-  let inputMode = $state<'paste' | 'idle'>('idle')
+  let activateOpen = $state(false)
   let fileInput = $state<HTMLInputElement | null>(null)
 
   // Self-serve licensing (license.ch-ui.com)
+  let trialOpen = $state(false)
   let trialEmail = $state('')
   let trialName = $state('')
   let trialLoading = $state(false)
   let trialHint = $state('')
+  // Email the trial license was sent to; shown where the form used to be.
+  let trialSentTo = $state('')
   let checkoutLoading = $state(false)
   let manageOpen = $state(false)
-  let resendEmail = $state('')
+  let manageEmail = $state('')
+  let manageStatus = $state('')
   let resendLoading = $state(false)
-  let portalEmail = $state('')
   let portalLoading = $state(false)
   type SettingsTab = 'license' | 'instance' | 'legal'
   const settingsTabItems: Array<{ id: SettingsTab; label: string }> = [
@@ -142,7 +146,7 @@
     try {
       await activateLicense(text)
       licenseInput = ''
-      inputMode = 'idle'
+      activateOpen = false
       success('License activated successfully')
     } catch (e) {
       toastError(e instanceof Error && e.message ? e.message : 'Failed to activate license')
@@ -162,8 +166,10 @@
     if (!trialEmailValid || trialLoading) return
     trialLoading = true
     trialHint = ''
+    const email = trialEmail.trim()
     try {
-      const res = await startTrial(trialEmail.trim(), trialName.trim() || undefined)
+      const res = await startTrial(email, trialName.trim() || undefined)
+      trialOpen = false
       if (res.license) {
         try {
           // Older servers return the license inline: activate immediately.
@@ -173,19 +179,24 @@
           success('Trial activated — 30 days of Pro')
         } catch {
           // Trial was created but local activation failed — the license was emailed.
-          success('Trial created — the license was sent to your email. Paste it below to activate.')
+          trialSentTo = email
+          success('Trial created. The license was sent to your email; activate it under Activate Pro.')
         }
       } else {
         // Email-only delivery: prove inbox ownership, then paste to activate.
         trialEmail = ''
         trialName = ''
-        success('Trial created — the license was sent to your email. Paste it below to activate.')
+        trialSentTo = email
+        success('Trial created. The license was sent to your email; activate it under Activate Pro.')
       }
     } catch (e) {
       if (e instanceof LicenseServerError && e.status === 409) {
         toastError(e.message)
-        trialHint = 'Already used a trial with this email? Use "Resend license email" under Manage below.'
-        manageOpen = true
+        trialHint = 'Already used a trial with this email? Use "Resend license email" under Manage license & billing.'
+        // Hand the same address to the manage sheet so it can be re-sent.
+        if (!manageEmail.trim()) manageEmail = email
+        trialOpen = false
+        openManage()
       } else {
         toastError(licenseServerMessage(e, 'Failed to start trial'))
       }
@@ -211,13 +222,19 @@
     }
   }
 
+  function openManage() {
+    manageStatus = ''
+    manageOpen = true
+  }
+
   async function submitResend() {
-    const email = resendEmail.trim()
-    if (!email || resendLoading) return
+    const email = manageEmail.trim()
+    if (!email || resendLoading || portalLoading) return
     resendLoading = true
+    manageStatus = ''
     try {
       const res = await resendLicense(email)
-      success(res.message || 'If a license exists for this email, it has been re-sent.')
+      manageStatus = res.message || 'If a license exists for this email, it has been re-sent.'
     } catch (e) {
       toastError(licenseServerMessage(e, 'Failed to resend license email'))
     } finally {
@@ -226,12 +243,13 @@
   }
 
   async function submitPortal() {
-    const email = portalEmail.trim()
-    if (!email || portalLoading) return
+    const email = manageEmail.trim()
+    if (!email || portalLoading || resendLoading) return
     portalLoading = true
+    manageStatus = ''
     try {
       const res = await requestBillingPortal(email)
-      success(res.message || 'Billing portal link sent — check your email.')
+      manageStatus = res.message || 'Billing portal link sent — check your email.'
     } catch (e) {
       toastError(licenseServerMessage(e, 'Failed to request billing portal link'))
     } finally {
@@ -259,7 +277,7 @@
     const reader = new FileReader()
     reader.onload = () => {
       licenseInput = reader.result as string
-      inputMode = 'paste'
+      activateOpen = true
     }
     reader.readAsText(file)
     target.value = ''
@@ -368,19 +386,13 @@
                 <Badge tone="neutral">Community Edition</Badge>
                 <span class="text-xs text-fg-3">Try every Pro feature for 30 days, no card required. One trial per email; the license is also sent to your inbox.</span>
               </div>
-              <div class="divide-y divide-edge-subtle border-t border-edge-subtle px-4">
-                <FormField layout="row" label="Email" for="trial-email" required hint="Where the trial license is sent.">
-                  <Input id="trial-email" type="email" bind:value={trialEmail} placeholder="you@company.com" autocomplete="email" />
-                </FormField>
-                <FormField layout="row" label="Name" for="trial-name" hint="Optional.">
-                  <Input id="trial-name" type="text" bind:value={trialName} placeholder="Your name" />
-                </FormField>
-              </div>
               <div class="flex flex-wrap items-center justify-between gap-3 border-t border-edge-subtle px-4 py-3">
-                <span class="text-xs {trialHint ? 'text-warning' : 'text-fg-3'}">{trialHint || (canManageLicense ? 'Free 30-day trial of Pro.' : 'Ask an admin to start the trial on this instance.')}</span>
-                <Button size="sm" loading={trialLoading} disabled={!trialEmailValid || !canManageLicense} onclick={startFreeTrial}>
-                  {trialLoading ? 'Starting trial…' : 'Start free trial'}
-                </Button>
+                {#if trialSentTo}
+                  <span class="text-xs text-success">Trial license sent to {trialSentTo}. Activate it under Activate Pro once it arrives.</span>
+                {:else}
+                  <span class="text-xs {trialHint ? 'text-warning' : 'text-fg-3'}">{trialHint || (canManageLicense ? 'No trial requested on this instance.' : 'Ask an admin to start the trial on this instance.')}</span>
+                {/if}
+                <Button size="sm" disabled={!canManageLicense} onclick={() => trialOpen = true}>Start free trial</Button>
               </div>
             </Panel>
           {/if}
@@ -413,27 +425,16 @@
               {/snippet}
             </SectionHeader>
             <Panel>
-              {#if inputMode === 'idle'}
-                <div class="flex flex-wrap items-center gap-2">
-                  <Button size="sm" variant="outline" onclick={() => inputMode = 'paste'}>Paste License JSON</Button>
-                  <Button size="sm" variant="outline" onclick={openFilePicker}><Upload size={14} /> Upload License File</Button>
-                </div>
-              {:else}
-                <div class="space-y-3">
-                  <div class="relative">
-                    <Textarea bind:value={licenseInput} placeholder="Paste signed license JSON here…" rows={8} mono class="resize-y pr-8" />
-                    <Button icon size="xs" variant="ghost" class="absolute top-1.5 right-1.5" aria-label="Cancel" onclick={() => { licenseInput = ''; inputMode = 'idle' }}>
-                      <X size={13} />
-                    </Button>
-                  </div>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <Button size="sm" loading={activating} disabled={!licenseInput.trim()} onclick={activate}>
-                      {activating ? 'Activating…' : 'Activate License'}
-                    </Button>
-                    <Button size="sm" variant="outline" onclick={openFilePicker}><Upload size={14} /> Replace from File</Button>
-                  </div>
-                </div>
-              {/if}
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <span class="text-xs text-fg-3">
+                  {proActive
+                    ? 'The new license takes effect as soon as it is activated.'
+                    : 'The license is the signed JSON from the email, pasted or uploaded as a file.'}
+                </span>
+                <Button size="sm" variant="outline" onclick={() => activateOpen = true}>
+                  {proActive ? 'Replace license' : 'Activate license'}
+                </Button>
+              </div>
             </Panel>
           </div>
         {/if}
@@ -441,34 +442,12 @@
         <div>
           <SectionHeader title="Manage license & billing" description="Re-send a license file or get a Stripe billing-portal link by email.">
             {#snippet actions()}
-              <Button size="sm" variant="ghost" aria-pressed={manageOpen} onclick={() => manageOpen = !manageOpen}>
-                <ChevronRight size={12} class="transition-transform {manageOpen ? 'rotate-90' : ''}" />
-                {manageOpen ? 'Hide' : 'Show'}
-              </Button>
+              <Button size="sm" variant="outline" onclick={openManage}>Manage</Button>
             {/snippet}
           </SectionHeader>
-          {#if manageOpen}
-            <Panel padding="none">
-              <div class="divide-y divide-edge-subtle px-4">
-                <FormField layout="row" label="Resend license email" for="resend-email" hint="Get your license file re-sent to the email used at purchase or trial.">
-                  <div class="flex items-center gap-2">
-                    <Input id="resend-email" type="email" bind:value={resendEmail} placeholder="you@company.com" autocomplete="email" />
-                    <Button size="md" variant="outline" loading={resendLoading} disabled={!resendEmail.trim()} onclick={submitResend}>
-                      {resendLoading ? 'Sending…' : 'Resend'}
-                    </Button>
-                  </div>
-                </FormField>
-                <FormField layout="row" label="Manage billing" for="portal-email" hint="Receive a secure Stripe billing-portal link by email.">
-                  <div class="flex items-center gap-2">
-                    <Input id="portal-email" type="email" bind:value={portalEmail} placeholder="you@company.com" autocomplete="email" />
-                    <Button size="md" variant="outline" loading={portalLoading} disabled={!portalEmail.trim()} onclick={submitPortal}>
-                      {portalLoading ? 'Sending…' : 'Email link'}
-                    </Button>
-                  </div>
-                </FormField>
-              </div>
-            </Panel>
-          {/if}
+          <Panel>
+            <span class="text-xs text-fg-3">Both go to the email used at purchase or trial. Nothing on this instance changes.</span>
+          </Panel>
         </div>
 
         <input
@@ -552,3 +531,78 @@
     {/if}
   </PageBody>
 </div>
+
+<Sheet open={trialOpen} title="Start a Pro trial" description="30 days of every Pro feature, no card required. One trial per email." size="sm" onclose={() => trialOpen = false}>
+  {#snippet footer()}
+    <Button variant="outline" size="sm" onclick={() => trialOpen = false}>Cancel</Button>
+    <Button size="sm" loading={trialLoading} disabled={!trialEmailValid || !canManageLicense} onclick={startFreeTrial}>
+      {trialLoading ? 'Requesting…' : 'Request trial'}
+    </Button>
+  {/snippet}
+  <div class="flex flex-col gap-4">
+    <FormField label="Email" for="trial-email" required hint="Where the trial license is sent." controlWidth="full">
+      <Input id="trial-email" type="email" bind:value={trialEmail} placeholder="you@company.com" autocomplete="email" />
+    </FormField>
+    <FormField label="Name" for="trial-name" hint="Optional." controlWidth="full">
+      <Input id="trial-name" type="text" bind:value={trialName} placeholder="Your name" />
+    </FormField>
+  </div>
+</Sheet>
+
+<Sheet
+  open={activateOpen}
+  title="Activate a license"
+  description={proActive ? 'Replaces the current license. No need to deactivate first.' : 'Paste the signed license JSON you received by email, or upload the file.'}
+  size="md"
+  onclose={() => activateOpen = false}
+>
+  {#snippet footer()}
+    <Button variant="outline" size="sm" onclick={() => activateOpen = false}>Cancel</Button>
+    <Button size="sm" loading={activating} disabled={!licenseInput.trim()} onclick={activate}>
+      {activating ? 'Activating…' : 'Activate'}
+    </Button>
+  {/snippet}
+  <div class="flex flex-col gap-4">
+    <FormField label="License JSON" for="license-json" controlWidth="full">
+      <Textarea id="license-json" bind:value={licenseInput} placeholder="Paste signed license JSON here…" rows={12} mono class="resize-y" />
+    </FormField>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <span class="text-xs text-fg-3">Or load the .json file from the email. Its contents fill the field above.</span>
+      <Button size="sm" variant="outline" onclick={openFilePicker}>Upload a file</Button>
+    </div>
+  </div>
+</Sheet>
+
+<Sheet open={manageOpen} title="License and billing" description="Re-send a license file or get a Stripe billing-portal link by email." size="sm" onclose={() => manageOpen = false}>
+  {#snippet footer()}
+    <Button variant="outline" size="sm" onclick={() => manageOpen = false}>Cancel</Button>
+  {/snippet}
+  <div class="flex flex-col gap-4">
+    <FormField label="Email" for="manage-email" required hint="The email used at purchase or trial." controlWidth="full">
+      <Input id="manage-email" type="email" bind:value={manageEmail} placeholder="you@company.com" autocomplete="email" />
+    </FormField>
+    <div class="divide-y divide-edge-subtle rounded-lg border border-edge-subtle px-3">
+      <div class="flex flex-wrap items-center justify-between gap-3 py-3">
+        <div class="min-w-0">
+          <p class="text-[13px] font-medium text-fg">Resend license email</p>
+          <p class="mt-0.5 text-xs text-fg-3">Your license file, re-sent to this address.</p>
+        </div>
+        <Button size="sm" variant="outline" loading={resendLoading} disabled={!manageEmail.trim() || portalLoading} onclick={submitResend}>
+          {resendLoading ? 'Sending…' : 'Resend'}
+        </Button>
+      </div>
+      <div class="flex flex-wrap items-center justify-between gap-3 py-3">
+        <div class="min-w-0">
+          <p class="text-[13px] font-medium text-fg">Manage billing</p>
+          <p class="mt-0.5 text-xs text-fg-3">A secure Stripe billing-portal link, sent by email.</p>
+        </div>
+        <Button size="sm" variant="outline" loading={portalLoading} disabled={!manageEmail.trim() || resendLoading} onclick={submitPortal}>
+          {portalLoading ? 'Sending…' : 'Email link'}
+        </Button>
+      </div>
+    </div>
+    {#if manageStatus}
+      <p class="text-[13px] text-success" role="status">{manageStatus}</p>
+    {/if}
+  </div>
+</Sheet>

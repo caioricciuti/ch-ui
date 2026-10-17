@@ -15,6 +15,7 @@
   import PageBody from '../common/PageBody.svelte'
   import SectionHeader from '../common/SectionHeader.svelte'
   import Panel from '../common/Panel.svelte'
+  import Sheet from '../common/Sheet.svelte'
   import FormField from '../common/FormField.svelte'
   import Select from '../common/Select.svelte'
   import Badge from '../common/Badge.svelte'
@@ -38,6 +39,7 @@
   let harvestModeSaving = $state(false)
   let minDurationDraft = $state<string | number>('0')
   let minDurationSaving = $state(false)
+  let editOpen = $state(false)
 
   const isAdmin = $derived(getSession()?.role === 'admin')
 
@@ -102,6 +104,16 @@
     await persistGovernanceSettings({ sync_enabled: false })
   }
 
+  function openEdit() {
+    minDurationDraft = String(queryHarvest?.min_duration_ms ?? 0)
+    editOpen = true
+  }
+
+  function closeEdit() {
+    editOpen = false
+    minDurationDraft = String(queryHarvest?.min_duration_ms ?? 0)
+  }
+
   async function saveMinDuration() {
     const ms = Number(minDurationDraft)
     if (!Number.isInteger(ms) || ms < 0 || ms > 3_600_000) {
@@ -112,6 +124,7 @@
     try {
       queryHarvest = await updateQueryHarvestMinDuration(ms)
       minDurationDraft = String(queryHarvest.min_duration_ms)
+      editOpen = false
       toastSuccess(ms === 0 ? 'Every query is harvested' : `Successful queries under ${ms} ms are skipped`)
     } catch (err: unknown) {
       toastError('Failed to update minimum duration: ' + (err instanceof Error ? err.message : String(err)))
@@ -182,58 +195,60 @@
         title="Query harvesting"
         description="Which queries from system.query_log are kept for the query audit and policy checks."
       />
-      <Panel>
-        {#if queryHarvest}
-          <FormField
-            layout="row"
-            label="Harvest mode"
-            hint={harvestModeHint[queryHarvest.mode]}
-            controlWidth="md"
-          >
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <div class="w-full sm:w-56">
-                <Select
-                  options={harvestModeOptions}
-                  value={queryHarvest.mode}
-                  disabled={!isAdmin || harvestModeSaving}
-                  onchange={(v) => void changeHarvestMode(v as QueryHarvestMode)}
-                />
+      {#if queryHarvest}
+        <Panel padding="none">
+          {#snippet actions()}
+            {#if isAdmin}
+              <Button size="sm" variant="outline" onclick={openEdit}>Edit</Button>
+            {/if}
+          {/snippet}
+          <div class="divide-y divide-edge-subtle px-4">
+            <FormField
+              layout="row"
+              label="Harvest mode"
+              hint={harvestModeHint[queryHarvest.mode]}
+              controlWidth="md"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="w-full sm:w-56">
+                  <Select
+                    options={harvestModeOptions}
+                    value={queryHarvest.mode}
+                    disabled={!isAdmin || harvestModeSaving}
+                    onchange={(v) => void changeHarvestMode(v as QueryHarvestMode)}
+                  />
+                </div>
+                <div class="flex items-center gap-1.5">
+                  {#if queryHarvest.harvesting}
+                    <Badge tone="success">Harvesting</Badge>
+                  {:else}
+                    <Badge tone="neutral">Paused</Badge>
+                  {/if}
+                  <Badge tone="neutral">{queryHarvest.policy_count} {queryHarvest.policy_count === 1 ? 'policy' : 'policies'}</Badge>
+                </div>
               </div>
-              <div class="flex items-center gap-1.5">
-                {#if queryHarvest.harvesting}
-                  <Badge tone="success">Harvesting</Badge>
+            </FormField>
+            <FormField
+              layout="row"
+              label="Minimum duration"
+              hint="Successful queries faster than this are not kept. Failed and denied queries are always kept."
+              controlWidth="md"
+            >
+              <p class="py-1.5 text-[13px] text-fg">
+                {#if queryHarvest.min_duration_ms === 0}
+                  Every query is kept
                 {:else}
-                  <Badge tone="neutral">Paused</Badge>
+                  <span class="font-mono text-xs">{queryHarvest.min_duration_ms} ms</span>
                 {/if}
-                <Badge tone="neutral">{queryHarvest.policy_count} {queryHarvest.policy_count === 1 ? 'policy' : 'policies'}</Badge>
-              </div>
-            </div>
-          </FormField>
-          <FormField
-            layout="row"
-            label="Minimum duration (ms)"
-            hint="Successful queries faster than this are not kept. Failed and denied queries are always kept. 0 keeps every query."
-            controlWidth="md"
-          >
-            <div class="flex flex-wrap items-center gap-2">
-              <div class="w-full sm:w-32">
-                <Input type="number" size="sm" min={0} max={3600000} step={1} bind:value={minDurationDraft} disabled={!isAdmin || minDurationSaving} />
-              </div>
-              {#if isAdmin}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  loading={minDurationSaving}
-                  disabled={String(minDurationDraft) === String(queryHarvest.min_duration_ms)}
-                  onclick={() => void saveMinDuration()}>Save</Button
-                >
-              {/if}
-            </div>
-          </FormField>
-        {:else}
+              </p>
+            </FormField>
+          </div>
+        </Panel>
+      {:else}
+        <Panel>
           <EmptyState size="compact" title="Harvest settings unavailable" />
-        {/if}
-      </Panel>
+        </Panel>
+      {/if}
     </section>
 
     <section>
@@ -277,6 +292,34 @@
     </p>
   </div>
 </PageBody>
+
+<Sheet open={editOpen} title="Governance settings" description="Which harvested queries are kept." size="sm" onclose={closeEdit}>
+  <form
+    class="space-y-4"
+    onsubmit={(e) => {
+      e.preventDefault()
+      void saveMinDuration()
+    }}
+  >
+    <FormField
+      label="Minimum duration (ms)"
+      for="gov-min-duration"
+      controlWidth="full"
+      hint="Successful queries faster than this are not kept. Failed and denied queries are always kept. 0 keeps every query."
+    >
+      <Input id="gov-min-duration" type="number" min={0} max={3600000} step={1} bind:value={minDurationDraft} disabled={minDurationSaving} />
+    </FormField>
+  </form>
+  {#snippet footer()}
+    <Button size="sm" variant="ghost" onclick={closeEdit}>Cancel</Button>
+    <Button
+      size="sm"
+      loading={minDurationSaving}
+      disabled={String(minDurationDraft) === String(queryHarvest?.min_duration_ms ?? 0)}
+      onclick={() => void saveMinDuration()}>Save</Button
+    >
+  {/snippet}
+</Sheet>
 
 <ConfirmDialog
   open={showEnableConfirm}
