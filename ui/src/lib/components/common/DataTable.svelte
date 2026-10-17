@@ -36,6 +36,8 @@
     emptyTitle?: string
     emptyDescription?: string
     onrowclick?: (row: R) => void
+    /** Key (as returned by `rowKey`) of the row to show as selected. */
+    selectedKey?: string | number
     /** Right-click on a row (e.g. open the row's menu at the pointer). */
     onrowcontextmenu?: (row: R, e: MouseEvent) => void
     class?: string
@@ -52,7 +54,7 @@
 
   let {
     columns, rows, rowKey, sort = null, fill = false, framed = true,
-    emptyTitle = 'Nothing here', emptyDescription, onrowclick, onrowcontextmenu, class: cls = '', cell, actions,
+    emptyTitle = 'Nothing here', emptyDescription, onrowclick, selectedKey, onrowcontextmenu, class: cls = '', cell, actions,
   }: DataTableProps<Row> = $props()
 
   let sortKey = $state<string | null>(null)
@@ -137,8 +139,9 @@
       </thead>
       <tbody>
         {#each sorted as row, i (rowKey ? rowKey(row, i) : i)}
+          {@const key = rowKey ? rowKey(row, i) : i}
           <tr
-            class="group transition-colors hover:bg-hover {onrowclick ? 'cursor-pointer focus-visible:bg-hover focus-visible:outline-none' : ''}"
+            class="group transition-colors hover:bg-hover {onrowclick ? 'cursor-pointer focus-visible:bg-hover focus-visible:outline-none' : ''} {selectedKey !== undefined && key === selectedKey ? 'bg-surface-2' : ''}"
             tabindex={onrowclick ? 0 : undefined}
             onclick={onrowclick ? () => onrowclick(row) : undefined}
             onkeydown={onrowclick ? (e: KeyboardEvent) => {
