@@ -398,8 +398,30 @@ func sessionCredentials(s *middleware.SessionInfo) chCredentials {
 	return chCredentials{connectionID: s.ConnectionID, user: s.ClickhouseUser, encryptedPassword: s.EncryptedPassword}
 }
 
-func shareCredentials(s *database.DashboardShare) chCredentials {
-	return chCredentials{connectionID: s.ConnectionID, user: s.ClickhouseUser, encryptedPassword: s.EncryptedPassword}
+// shareOwnerGone is what a share link answers when the SSO person behind it
+// no longer has a per-person ClickHouse user, or has a locked one.
+const shareOwnerGone = "This share's owner no longer has access"
+
+// shareCredentials is who a share link queries as. A share created by an SSO
+// person with a per-person ClickHouse user stores no password: the live
+// sso_clickhouse_users row supplies the user and its current password, so
+// the link survives the rotation at every sign-in. A locked or dropped user
+// answers 410 Gone.
+func (h *DashboardsHandler) shareCredentials(share *database.DashboardShare) (chCredentials, *statusError) {
+	creds := chCredentials{connectionID: share.ConnectionID, user: share.ClickhouseUser, encryptedPassword: share.EncryptedPassword}
+	if share.SSOIdentityID == "" {
+		return creds, nil
+	}
+	u, err := h.DB.GetSSOClickHouseUser(share.SSOIdentityID, share.ConnectionID)
+	if err != nil {
+		slog.Error("Failed to resolve the share owner's per-person user", "error", err, "share", share.ID)
+		return creds, &statusError{http.StatusInternalServerError, "Failed to resolve share credentials"}
+	}
+	if u == nil || u.Locked() {
+		return creds, &statusError{http.StatusGone, shareOwnerGone}
+	}
+	creds.user, creds.encryptedPassword = u.CHUser, u.EncryptedPassword
+	return creds, nil
 }
 
 // sessionVariableValues resolves the variable values for an authenticated
@@ -458,7 +480,11 @@ func (h *DashboardsHandler) publicOptions(r *http.Request, share *database.Dashb
 		return nil, "", &statusError{http.StatusTooManyRequests, "Rate limit exceeded. Please slow down."}
 	}
 	status, payload := cache.do(key, func() (int, []byte) {
-		opts, all, err := h.runOptionsQuery(publicShareContext(share), shareCredentials(share), r.URL.Path, v, used, usedTypes, timeRange)
+		creds, serr := h.shareCredentials(share)
+		if serr != nil {
+			return errorPayload(serr.status, serr.msg)
+		}
+		opts, all, err := h.runOptionsQuery(publicShareContext(share), creds, r.URL.Path, v, used, usedTypes, timeRange)
 		if err != nil {
 			se := asStatusError(err)
 			if se.status == http.StatusBadGateway {

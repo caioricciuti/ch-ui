@@ -15,6 +15,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/dashboards"
+	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/testutil"
 )
@@ -142,7 +143,7 @@ func TestDashboardDateTimeVariablesLive(t *testing.T) {
 	})
 
 	t.Run("share link", func(t *testing.T) {
-		share, err := db.CreateDashboardShare(id, "viewer", "public", "", conn, user, enc, nil, nil)
+		share, err := db.CreateDashboardShare(database.CreateDashboardShareParams{DashboardID: id, AccessLevel: "viewer", Visibility: "public", ConnectionID: conn, ClickhouseUser: user, EncryptedPassword: enc})
 		if err != nil {
 			t.Fatal(err)
 		}

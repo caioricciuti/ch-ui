@@ -1446,11 +1446,27 @@ func (h *DashboardsHandler) CreateShare(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	share, err := h.DB.CreateDashboardShare(
-		dashboardID, "viewer", visibility, middleware.Actor(session),
-		session.ConnectionID, session.ClickhouseUser, session.EncryptedPassword,
-		cleanEmails, body.ExpiresAt,
-	)
+	// An SSO person with a per-person ClickHouse user gets a reference to
+	// that user, never a copy of its password: the password rotates at every
+	// sign-in, and the share must stop working when the user is removed.
+	chUser, encryptedPassword, identityID := session.ClickhouseUser, session.EncryptedPassword, ""
+	if session.SSOIdentityID != "" {
+		u, err := h.DB.GetSSOClickHouseUser(session.SSOIdentityID, session.ConnectionID)
+		if err != nil {
+			slog.Error("Failed to resolve the session's per-person user", "error", err)
+			writeError(w, http.StatusInternalServerError, "Failed to create share")
+			return
+		}
+		if u != nil {
+			chUser, encryptedPassword, identityID = u.CHUser, "", session.SSOIdentityID
+		}
+	}
+
+	share, err := h.DB.CreateDashboardShare(database.CreateDashboardShareParams{
+		DashboardID: dashboardID, AccessLevel: "viewer", Visibility: visibility, CreatedBy: middleware.Actor(session),
+		ConnectionID: session.ConnectionID, ClickhouseUser: chUser, EncryptedPassword: encryptedPassword, SSOIdentityID: identityID,
+		AllowedEmails: cleanEmails, ExpiresAt: body.ExpiresAt,
+	})
 	if err != nil {
 		slog.Error("Failed to create share", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to create share")
@@ -1837,9 +1853,14 @@ func (h *DashboardsHandler) runPublicPanel(r *http.Request, share *database.Dash
 		return errorPayload(http.StatusBadRequest, "Processed query is empty")
 	}
 
+	creds, serr := h.shareCredentials(share)
+	if serr != nil {
+		return errorPayload(serr.status, serr.msg)
+	}
+
 	// The sharer's governance policies still apply to what the link runs.
 	if h.guardrailsEnabled() {
-		decision, err := h.Guardrails.EvaluateQuery(share.ConnectionID, share.ClickhouseUser, query, r.URL.Path)
+		decision, err := h.Guardrails.EvaluateQuery(creds.connectionID, creds.user, query, r.URL.Path)
 		if err != nil {
 			slog.Error("Guardrail evaluation failed for public panel", "error", err)
 			return errorPayload(http.StatusInternalServerError, "Failed to evaluate governance guardrails")
@@ -1849,7 +1870,7 @@ func (h *DashboardsHandler) runPublicPanel(r *http.Request, share *database.Dash
 		}
 	}
 
-	password, err := crypto.Decrypt(share.EncryptedPassword, h.Config.AppSecretKey)
+	password, err := crypto.Decrypt(creds.encryptedPassword, h.Config.AppSecretKey)
 	if err != nil {
 		slog.Error("Failed to decrypt share credentials", "error", err)
 		return errorPayload(http.StatusInternalServerError, "Failed to process query")
@@ -1858,7 +1879,7 @@ func (h *DashboardsHandler) runPublicPanel(r *http.Request, share *database.Dash
 	// Not bound to this request's context: concurrent viewers may be waiting
 	// on the same result. Tagged with the share's owner and dashboard, since
 	// the viewer is anonymous.
-	result, qErr := h.Gateway.ExecuteQueryWithSettingsCtx(publicShareContext(share), share.ConnectionID, query, share.ClickhouseUser, password, publicQuerySettings, 35*time.Second)
+	result, qErr := h.Gateway.ExecuteQueryWithSettingsCtx(publicShareContext(share), creds.connectionID, query, creds.user, password, publicQuerySettings, 35*time.Second)
 	if qErr != nil {
 		// ClickHouse errors can quote the SQL, which a share link never sees.
 		slog.Warn("Public panel query failed", "error", qErr, "dashboard", share.DashboardID)

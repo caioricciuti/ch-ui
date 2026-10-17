@@ -100,14 +100,18 @@ type OAuthCode struct {
 	ConnectionID  string
 	CHUser        string
 	CHPasswordEnc string
+	// SSOIdentityID references the person's per-person ClickHouse user
+	// instead of copying its password; see MCPKey.SSOIdentityID. The tokens
+	// minted from the code inherit it.
+	SSOIdentityID string
 	Subject       string
 	ExpiresAt     string
 	UsedAt        *string
 }
 
 func (db *DB) CreateOAuthCode(c *OAuthCode) error {
-	_, err := db.conn.Exec(`INSERT INTO oauth_codes (code_hash, client_id, client_name, redirect_uri, scope, code_challenge, connection_id, ch_user, ch_password_enc, subject, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.CodeHash, c.ClientID, c.ClientName, c.RedirectURI, c.Scope, c.CodeChallenge, c.ConnectionID, c.CHUser, c.CHPasswordEnc, c.Subject, c.ExpiresAt)
+	_, err := db.conn.Exec(`INSERT INTO oauth_codes (code_hash, client_id, client_name, redirect_uri, scope, code_challenge, connection_id, ch_user, ch_password_enc, sso_identity_id, subject, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.CodeHash, c.ClientID, c.ClientName, c.RedirectURI, c.Scope, c.CodeChallenge, c.ConnectionID, c.CHUser, c.CHPasswordEnc, nullIfEmpty(c.SSOIdentityID), c.Subject, c.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("create oauth code: %w", err)
 	}
@@ -125,8 +129,8 @@ func (db *DB) ConsumeOAuthCode(codeHash string) (*OAuthCode, error) {
 	}
 	defer tx.Rollback()
 	var c OAuthCode
-	err = tx.QueryRow(`SELECT code_hash, client_id, client_name, redirect_uri, scope, code_challenge, connection_id, ch_user, ch_password_enc, subject, expires_at, used_at FROM oauth_codes WHERE code_hash = ?`, codeHash).
-		Scan(&c.CodeHash, &c.ClientID, &c.ClientName, &c.RedirectURI, &c.Scope, &c.CodeChallenge, &c.ConnectionID, &c.CHUser, &c.CHPasswordEnc, &c.Subject, &c.ExpiresAt, &c.UsedAt)
+	err = tx.QueryRow(`SELECT code_hash, client_id, client_name, redirect_uri, scope, code_challenge, connection_id, ch_user, ch_password_enc, COALESCE(sso_identity_id, ''), subject, expires_at, used_at FROM oauth_codes WHERE code_hash = ?`, codeHash).
+		Scan(&c.CodeHash, &c.ClientID, &c.ClientName, &c.RedirectURI, &c.Scope, &c.CodeChallenge, &c.ConnectionID, &c.CHUser, &c.CHPasswordEnc, &c.SSOIdentityID, &c.Subject, &c.ExpiresAt, &c.UsedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
