@@ -204,6 +204,7 @@ func authMiddleware(deps Deps, next http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), ctxKey, ak)
+		clearWriteDeadline(w)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
