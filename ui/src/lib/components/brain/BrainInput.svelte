@@ -18,12 +18,22 @@
   let isEmpty = $state(true)
   let dropdownRef: { handleKeydown: (e: KeyboardEvent) => boolean } | undefined = $state()
 
-  const CHIP_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-    table: { bg: 'rgba(59,130,246,0.12)', text: '#3b82f6', border: 'rgba(59,130,246,0.25)' },
-    dashboard: { bg: 'rgba(139,92,246,0.12)', text: '#8b5cf6', border: 'rgba(139,92,246,0.25)' },
-    pipeline: { bg: 'rgba(16,185,129,0.12)', text: '#10b981', border: 'rgba(16,185,129,0.25)' },
-    model: { bg: 'rgba(245,158,11,0.12)', text: '#f59e0b', border: 'rgba(245,158,11,0.25)' },
-    saved_query: { bg: 'rgba(6,182,212,0.12)', text: '#06b6d4', border: 'rgba(6,182,212,0.25)' },
+  // One chart token per mention type; the chip tints it for its background and border.
+  const CHIP_TOKENS: Record<string, string> = {
+    table: '--chart-2',       // blue
+    dashboard: '--chart-4',   // violet
+    pipeline: '--chart-7',    // lime
+    model: '--chart-6',       // gold
+    saved_query: '--chart-3', // teal
+  }
+
+  function chipColors(type: string): { bg: string; text: string; border: string } {
+    const token = `var(${CHIP_TOKENS[type] ?? CHIP_TOKENS.table})`
+    return {
+      bg: `color-mix(in srgb, ${token} 12%, transparent)`,
+      text: token,
+      border: `color-mix(in srgb, ${token} 25%, transparent)`,
+    }
   }
 
   const TYPE_LABELS: Record<string, string> = {
@@ -53,7 +63,7 @@
       chip.dataset.mentionName = (mention as { name: string }).name
     }
 
-    const colors = CHIP_COLORS[mention.type] ?? CHIP_COLORS.table
+    const colors = chipColors(mention.type)
     const prefix = TYPE_LABELS[mention.type] ?? mention.type
 
     Object.assign(chip.style, {

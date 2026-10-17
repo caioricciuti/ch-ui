@@ -6,6 +6,8 @@
   import { openQueryTab } from '../lib/stores/tabs.svelte'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import { formatNumber, formatBytes } from '../lib/utils/format'
+  import { chartColor, tokenColor, withAlpha } from '../lib/utils/chart-transform'
+  import { getTheme } from '../lib/stores/theme.svelte'
   import TrendChart from '../lib/components/common/TrendChart.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
   import PageBody from '../lib/components/common/PageBody.svelte'
@@ -149,8 +151,10 @@
   const storageMonthlyCost = $derived(storageRows.reduce((a, r) => a + num(r.monthly_cost), 0))
 
   // ── Trend chart: stack spend by team (top 5 + Other) ──
-  const TEAM_COLORS = ['#f97316', '#0ea5e9', '#8b5cf6', '#10b981', '#f59e0b']
   const trendChart = $derived.by(() => {
+    // uPlot needs resolved colors; re-resolve the theme-dependent grey on a theme flip.
+    getTheme()
+    const otherColor = tokenColor('--fg-4')
     const xs = [...new Set(trendRows.map((r) => num(r.t)))].sort((a, b) => a - b)
     const xIndex = new Map(xs.map((t, i) => [t, i]))
     const totals = new Map<string, number>()
@@ -159,13 +163,16 @@
       totals.set(team, (totals.get(team) ?? 0) + num(r.cost))
     }
     const top = [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([t]) => t)
-    const series = top.map((team, i) => ({
-      label: team,
-      values: new Array<number>(xs.length).fill(0),
-      color: team === UNALLOCATED ? '#6b7280' : TEAM_COLORS[i % TEAM_COLORS.length],
-      fill: i === 0 ? 'rgba(249,115,22,0.12)' : undefined,
-    }))
-    const other = { label: 'Other', values: new Array<number>(xs.length).fill(0), color: '#94a3b8', fill: undefined as string | undefined }
+    const series = top.map((team, i) => {
+      const color = team === UNALLOCATED ? chartColor(7) : chartColor(i)
+      return {
+        label: team,
+        values: new Array<number>(xs.length).fill(0),
+        color,
+        fill: i === 0 ? withAlpha(color, 0.12) : undefined,
+      }
+    })
+    const other = { label: 'Other', values: new Array<number>(xs.length).fill(0), color: otherColor, fill: undefined as string | undefined }
     let hasOther = false
     for (const r of trendRows) {
       const i = xIndex.get(num(r.t))

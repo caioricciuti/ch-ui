@@ -34,8 +34,29 @@ function isLegacyDefault(colors: string[]): boolean {
     && colors.every((c, i) => c?.toLowerCase() === LEGACY_DEFAULT_COLORS[i].toLowerCase())
 }
 
-function defaultColor(i: number): string {
+/** The chart token for series `i` (--chart-1 for 0), wrapping past the eighth. */
+export function chartColor(i: number): string {
   return DEFAULT_COLORS[i % DEFAULT_COLORS.length]
+}
+
+/**
+ * A theme token (`--danger`, `--fg-4`) resolved to the color in effect, for
+ * canvas and uPlot, which cannot read var(). CSS and SVG callers should pass
+ * `var(--name)` through instead so the browser tracks theme flips for them.
+ * Falls back to the grey chart color when there is no document (tests) or
+ * the token is unset.
+ */
+export function tokenColor(name: string): string {
+  if (typeof document === 'undefined') return DEFAULT_COLORS[7]
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || DEFAULT_COLORS[7]
+}
+
+/** `#rrggbb` with an alpha, for area fills under a series line. Other color syntaxes pass through unchanged. */
+export function withAlpha(color: string, alpha: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(color.trim())
+  if (!m) return color
+  const n = parseInt(m[1], 16)
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`
 }
 
 /**
@@ -46,7 +67,7 @@ function defaultColor(i: number): string {
 export function seriesColors(colors: string[] | undefined): string[] {
   if (!colors?.length || isLegacyDefault(colors)) return DEFAULT_COLORS
   const n = Math.max(colors.length, DEFAULT_COLORS.length)
-  return Array.from({ length: n }, (_, i) => colors[i] || defaultColor(i))
+  return Array.from({ length: n }, (_, i) => colors[i] || chartColor(i))
 }
 
 /**
@@ -56,7 +77,7 @@ export function seriesColors(colors: string[] | undefined): string[] {
 export function setSeriesColor(colors: string[] | undefined, index: number, color: string): string[] | undefined {
   const own = !colors || isLegacyDefault(colors) ? [] : [...colors]
   while (own.length <= index) own.push('')
-  own[index] = color.toLowerCase() === defaultColor(index).toLowerCase() ? '' : color
+  own[index] = color.toLowerCase() === chartColor(index).toLowerCase() ? '' : color
   while (own.length && !own[own.length - 1]) own.pop()
   return own.length ? own : undefined
 }
@@ -784,11 +805,14 @@ function formatDuration(seconds: number, decimals?: number): string {
   return formatWithDecimals(seconds / 86400, decimals ?? 1) + ' d'
 }
 
+// Stat colors land in CSS and SVG styles, never on a canvas, so they stay as
+// var() and follow the theme on their own.
 const DEFAULT_THRESHOLDS: StatThreshold[] = [
-  { value: -Infinity, color: '#22c55e' },
-  { value: 80, color: '#f59e0b' },
-  { value: 90, color: '#ef4444' },
+  { value: -Infinity, color: 'var(--success)' },
+  { value: 80, color: 'var(--warning)' },
+  { value: 90, color: 'var(--danger)' },
 ]
+const NEUTRAL_STAT_COLOR = 'var(--fg-3)'
 
 export function resolveThresholdColor(value: number, thresholds?: StatThreshold[]): string {
   const t = thresholds && thresholds.length > 0 ? thresholds : DEFAULT_THRESHOLDS
@@ -806,6 +830,7 @@ export interface ComputedStat {
   value: string
   prefix: string
   suffix: string
+  /** A CSS color: a user hex from the thresholds, or a var() token. */
   color: string
   colorMode: PanelConfig['statColorMode']
   field: string
@@ -858,7 +883,7 @@ export function computeStat(
   const unit = config.statUnit ?? 'none'
   const colorMode = config.statColorMode ?? 'none'
 
-  const empty: ComputedStat = { raw: null, value: '--', prefix: '', suffix: '', color: '#6b7280', colorMode, field }
+  const empty: ComputedStat = { raw: null, value: '--', prefix: '', suffix: '', color: NEUTRAL_STAT_COLOR, colorMode, field }
 
   if (!field || data.length === 0) return empty
 
@@ -882,7 +907,7 @@ export function computeStat(
 
   const color = colorMode !== 'none'
     ? resolveThresholdColor(raw, config.statThresholds)
-    : '#6b7280'
+    : NEUTRAL_STAT_COLOR
 
   return { raw, value: parts.value, prefix, suffix, color, colorMode, field }
 }

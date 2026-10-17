@@ -39,6 +39,7 @@
     type ClusterHealthSettings,
   } from '../lib/api/clusterHealth'
   import { fetchHealthStates } from '../lib/api/alerting'
+  import { chartColor, withAlpha } from '../lib/utils/chart-transform'
   import TrendChart from '../lib/components/common/TrendChart.svelte'
   import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
   import Sheet from '../lib/components/common/Sheet.svelte'
@@ -407,8 +408,6 @@
   ])
 
   // ── Trend series (one series per node, aligned on captured_at) ─────────────
-  const NODE_COLORS = ['#f97316', '#0ea5e9', '#10b981', '#a855f7', '#f59e0b', '#ec4899', '#84cc16', '#ef4444']
-
   function buildNodeSeries(metric: (n: NodeSample) => number, group: MetricGroup) {
     const samples = nodeFilter ? history.filter((s) => s.node === nodeFilter) : history
     const times = Array.from(new Set(samples.map((s) => s.captured_at))).sort()
@@ -426,8 +425,8 @@
       return {
         label: name,
         values,
-        color: NODE_COLORS[ni % NODE_COLORS.length],
-        fill: nodeNames.length === 1 ? `${NODE_COLORS[ni % NODE_COLORS.length]}24` : undefined,
+        color: chartColor(ni),
+        fill: nodeNames.length === 1 ? withAlpha(chartColor(ni), 0.14) : undefined,
       }
     })
 
