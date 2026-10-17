@@ -25,6 +25,8 @@
   import Input from '../lib/components/common/Input.svelte'
   import Textarea from '../lib/components/common/Textarea.svelte'
   import Select from '../lib/components/common/Select.svelte'
+  import FormField from '../lib/components/common/FormField.svelte'
+  import Sheet from '../lib/components/common/Sheet.svelte'
 
   // The sidebar drives the section through ?section=.
   type Section = 'regressions' | 'investigations'
@@ -48,6 +50,8 @@
   let note = $state('')
   let status = $state<Investigation['status']>('open')
   let replacement = $state('')
+  let baselineOpen = $state(false)
+  const selectedRuns = $derived(selected?.current.runs ?? 0)
   let now = $state(Date.now())
   let sequence = 0
   let detailSequence = 0
@@ -126,6 +130,7 @@
   function selectPattern(p: Pattern) {
     selected = p
     detail = null
+    baselineOpen = false
     title = `Investigate ${p.database || 'query'} · ${p.hash}`
     owner = getSession()?.user ?? ''
     note = ''
@@ -136,6 +141,7 @@
   function showDetail(value: InvestigationDetail) {
     detail = value
     selected = null
+    baselineOpen = false
     title = value.investigation.title
     owner = value.investigation.owner
     status = value.investigation.status
@@ -242,28 +248,44 @@
       <div class="space-y-4">
         {#if error}<EmptyState size="compact" icon={AlertTriangle} title="Request failed" description={error} />{/if}
         <Button variant="ghost" size="sm" disabled={busy} onclick={() => { selected = null; detail = null; detailSequence++ }}><ArrowLeft size={14} /> Back</Button>
-        <Panel title={selected ? 'Capture a performance baseline' : detail?.investigation.title} description="Saved measurements and notes are shared with users of this connection.">
-          <pre class="mb-4 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-surface-2 p-3 text-xs text-fg-3">{selected?.sample_query ?? detail?.investigation.sample_query}</pre>
-          {#if selected}
-            <p class="mb-4 text-xs leading-relaxed text-fg-3">Capture the current {range} before making a change. A comparison uses a full, equally long window after this baseline. Query literals are normalized. If you rewrite SQL and its normalized hash changes, select the replacement pattern when capturing a comparison.</p>
-          {/if}
-          <div class="grid gap-4 md:grid-cols-2">
-            <div><label for="performance-title" class="mb-1 block text-xs text-fg-3">Title</label><Input id="performance-title" bind:value={title} disabled={!canWrite || busy} /></div>
-            <div><label for="performance-owner" class="mb-1 block text-xs text-fg-3">Owner</label><Input id="performance-owner" bind:value={owner} placeholder="Name or email" disabled={!canWrite || busy} /></div>
-            {#if detail}<div><label for="performance-status" class="mb-1 block text-xs text-fg-3">Status</label><Select id="performance-status" value={status} onchange={v => status = v as Investigation['status']} disabled={!canWrite || busy} options={[{value:'open',label:'Open'},{value:'monitoring',label:'Monitoring a change'},{value:'resolved',label:'Resolved'}]} /></div>{/if}
-          </div>
-          {#if canWrite}
-            <div class="mt-4"><label for="performance-note" class="mb-1 block text-xs text-fg-3">{selected ? 'Initial notes' : 'Add a note or record a change'}</label><Textarea id="performance-note" bind:value={note} disabled={busy} placeholder="What changed, when it was deployed, and what you expect to improve" /></div>
-            {#if detail}<div class="mt-4"><label for="performance-replacement" class="mb-1 block text-xs text-fg-3">Compare against (choose a replacement if the SQL changed)</label><Select id="performance-replacement" options={replacementOptions} bind:value={replacement} disabled={busy} /><p class="mt-1 text-xs text-fg-4">Replacement choices come from the latest {range} scan. Compare equivalent workloads and wait a full baseline window after your deployment so the comparison excludes pre-change workload.</p></div>{/if}
-            <div class="mt-4 flex flex-wrap items-center gap-3">
-              <Button disabled={busy || !title.trim() || (!!selected && selected.current.runs < 10)} onclick={save}>{selected ? 'Capture baseline' : 'Save update'}</Button>
-              {#if selected && selected.current.runs < 10}<span class="text-xs text-fg-3">At least 10 successful queries in the current window are needed to capture a baseline.</span>{/if}
-              {#if detail}<Button variant="secondary" disabled={busy || !comparisonReady || !!note.trim()} onclick={compare}>Capture comparison</Button>{/if}
-              {#if detail && !comparisonReady}<span class="text-xs text-fg-3">Full comparison available {new Date(comparisonReadyAt).toLocaleString()}</span>{/if}
-              {#if detail && note.trim()}<span class="text-xs text-fg-3">Save your note before capturing a comparison.</span>{/if}
+        {#if selected}
+          {@const sufficient = selected.status !== 'insufficient_data'}
+          <Panel title={`${selected.database || 'default'} · ${selected.hash}`} description="Saved measurements and notes are shared with users of this connection.">
+            {#snippet actions()}
+              {#if canWrite}
+                {#if selectedRuns < 10}<span class="text-xs text-fg-3">At least 10 successful queries in the current window are needed to capture a baseline.</span>{/if}
+                <Button size="sm" disabled={busy || selectedRuns < 10} onclick={() => (baselineOpen = true)}>Capture baseline</Button>
+              {/if}
+            {/snippet}
+            <pre class="mb-4 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-surface-2 p-3 text-xs text-fg-3">{selected.sample_query}</pre>
+            <div class="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Stat label="Status" size="md" value={statusLabel(selected)} tone={selected.status === 'regressed' ? 'danger' : selected.status === 'insufficient_data' ? 'warning' : 'default'} />
+              <Stat label="Current p95" value={ms(selected.current.p95_ms)} hint={`Baseline ${ms(selected.baseline.p95_ms)}`} />
+              <Stat label="Executions" value={formatNumber(selected.current.runs)} hint={`Baseline ${formatNumber(selected.baseline.runs)}`} />
+              <Stat label="Memory / query" value={formatBytes(selected.current.mean_memory_bytes)} hint={`Baseline ${formatBytes(selected.baseline.mean_memory_bytes)}`} />
             </div>
-          {/if}
-        </Panel>
+            {@render changesTable(selected.changes, sufficient)}
+          </Panel>
+        {:else if detail}
+          <Panel title={detail.investigation.title} description="Saved measurements and notes are shared with users of this connection.">
+            <pre class="mb-4 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-surface-2 p-3 text-xs text-fg-3">{detail.investigation.sample_query}</pre>
+            <div class="grid gap-4 md:grid-cols-2">
+              <FormField label="Title" for="performance-title" controlWidth="full"><Input id="performance-title" bind:value={title} disabled={!canWrite || busy} /></FormField>
+              <FormField label="Owner" for="performance-owner" controlWidth="full"><Input id="performance-owner" bind:value={owner} placeholder="Name or email" disabled={!canWrite || busy} /></FormField>
+              <FormField label="Status" for="performance-status" controlWidth="full"><Select id="performance-status" value={status} onchange={v => status = v as Investigation['status']} disabled={!canWrite || busy} options={[{value:'open',label:'Open'},{value:'monitoring',label:'Monitoring a change'},{value:'resolved',label:'Resolved'}]} /></FormField>
+            </div>
+            {#if canWrite}
+              <FormField class="mt-4" label="Add a note or record a change" for="performance-note" controlWidth="full"><Textarea id="performance-note" bind:value={note} disabled={busy} placeholder="What changed, when it was deployed, and what you expect to improve" /></FormField>
+              <FormField class="mt-4" label="Compare against (choose a replacement if the SQL changed)" for="performance-replacement" controlWidth="full" hint={`Replacement choices come from the latest ${range} scan. Compare equivalent workloads and wait a full baseline window after your deployment so the comparison excludes pre-change workload.`}><Select id="performance-replacement" options={replacementOptions} bind:value={replacement} disabled={busy} /></FormField>
+              <div class="mt-4 flex flex-wrap items-center gap-3">
+                <Button disabled={busy || !title.trim()} onclick={save}>Save update</Button>
+                <Button variant="secondary" disabled={busy || !comparisonReady || !!note.trim()} onclick={compare}>Capture comparison</Button>
+                {#if !comparisonReady}<span class="text-xs text-fg-3">Full comparison available {new Date(comparisonReadyAt).toLocaleString()}</span>{/if}
+                {#if note.trim()}<span class="text-xs text-fg-3">Save your note before capturing a comparison.</span>{/if}
+              </div>
+            {/if}
+          </Panel>
+        {/if}
 
         {#if detail}
           {@const baseline = detail.investigation.baseline}
@@ -375,3 +397,19 @@
     </div>
   {/if}
 </div>
+
+{#if selected}
+  <Sheet open={baselineOpen} size="md" title="Capture baseline" description={`${selected.database || 'default'} · ${selected.hash}`} onclose={() => (baselineOpen = false)}>
+    <form id="performance-baseline-form" class="space-y-4" onsubmit={(e) => { e.preventDefault(); void save() }}>
+      <p class="text-xs leading-relaxed text-fg-3">Capture the current {range} before making a change. A comparison uses a full, equally long window after this baseline. Query literals are normalized. If you rewrite SQL and its normalized hash changes, select the replacement pattern when capturing a comparison.</p>
+      <FormField label="Title" for="performance-title" required controlWidth="full"><Input id="performance-title" bind:value={title} disabled={busy} required /></FormField>
+      <FormField label="Owner" for="performance-owner" controlWidth="full"><Input id="performance-owner" bind:value={owner} placeholder="Name or email" disabled={busy} /></FormField>
+      <FormField label="Initial notes" for="performance-note" controlWidth="full"><Textarea id="performance-note" bind:value={note} disabled={busy} placeholder="What changed, when it was deployed, and what you expect to improve" /></FormField>
+      {#if error}<p role="alert" class="text-xs text-danger">{error}</p>{/if}
+    </form>
+    {#snippet footer()}
+      <Button size="sm" variant="ghost" disabled={busy} onclick={() => (baselineOpen = false)}>Cancel</Button>
+      <Button size="sm" type="submit" form="performance-baseline-form" disabled={!title.trim() || selectedRuns < 10} loading={busy}>Capture baseline</Button>
+    {/snippet}
+  </Sheet>
+{/if}
