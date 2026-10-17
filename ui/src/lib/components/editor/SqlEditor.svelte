@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
-  import { EditorView, keymap, Decoration, ViewPlugin, type DecorationSet, type KeyBinding, type ViewUpdate } from '@codemirror/view'
+  import { EditorView, keymap, Decoration, ViewPlugin, placeholder as cmPlaceholder, type DecorationSet, type KeyBinding, type ViewUpdate } from '@codemirror/view'
   import { EditorState, Compartment, RangeSetBuilder } from '@codemirror/state'
   import { sql, StandardSQL } from '@codemirror/lang-sql'
   import { autocompletion } from '@codemirror/autocomplete'
@@ -28,9 +28,11 @@
     /** Escape or Mod-. while running is true. */
     oncancel?: () => void
     running?: boolean
+    /** Muted hint shown while the document is empty. */
+    placeholder?: string
   }
 
-  let { value = '', onrun, onrunall, onchange, onsave, onformat, oncancel, running = false }: Props = $props()
+  let { value = '', onrun, onrunall, onchange, onsave, onformat, oncancel, running = false, placeholder = '' }: Props = $props()
 
   let container: HTMLDivElement
   let view: EditorView | undefined
@@ -271,8 +273,10 @@
         activeStatementHighlight,
         schemaLinkTheme,
         themeCompartment.of(getThemeExtension()),
+        ...(placeholder ? [cmPlaceholder(placeholder)] : []),
         EditorView.theme({
           '&': { height: '100%', fontSize: '13px' },
+          '.cm-placeholder': { color: 'var(--fg-4)', fontStyle: 'normal' },
           '.cm-scroller': { overflow: 'auto', fontFamily: 'var(--font-mono)' },
           '.cm-active-statement': { backgroundColor: 'var(--accent-soft)' },
         }),

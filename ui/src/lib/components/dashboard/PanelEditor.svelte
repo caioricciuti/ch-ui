@@ -14,8 +14,11 @@
   import { formatDashboardTimeRangeLabel } from '../../utils/dashboard-time'
   import { toDashboardTimeRangePayload } from '../../utils/dashboard-time'
   import MarkdownPanel from './MarkdownPanel.svelte'
-  import { untrack } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import { PanelsTopLeft } from 'lucide-svelte'
+  import Combobox from '../common/Combobox.svelte'
+  import { listSavedQueries } from '../../api/savedQueries'
+  import type { SavedQuery } from '../../types/api'
 
   interface Props {
     dashboardId: string
@@ -58,6 +61,31 @@
   let queryError = $state<string | null>(null)
 
   let editorComponent: SqlEditor | undefined = $state()
+
+  // Saved queries the panel can start from: the SQL is copied into the panel,
+  // so later edits to the saved query do not change the dashboard.
+  let savedQueries = $state<SavedQuery[]>([])
+  let savedQueryId = $state('')
+  const savedQueryOptions = $derived(
+    savedQueries.map((q) => ({ value: q.id, label: q.name, hint: q.description ?? undefined, keywords: q.query })),
+  )
+
+  onMount(() => {
+    void listSavedQueries()
+      .then((qs) => (savedQueries = qs))
+      .catch(() => (savedQueries = []))
+  })
+
+  async function useSavedQuery(id: string): Promise<void> {
+    savedQueryId = id
+    const q = savedQueries.find((s) => s.id === id)
+    if (!q) return
+    query = q.query
+    if (!name.trim()) name = q.name
+    if (!description.trim() && q.description) description = q.description
+    await tick()
+    await runQuery()
+  }
 
   // The config as saved: settings that do not apply to the chosen type are left out.
   const currentConfig = $derived.by<PanelConfig>(() => {
@@ -296,7 +324,22 @@
           </div>
         </div>
       {:else}
-        <Toolbar running={running} onrun={runQuery} onformat={handleFormat} onsave={handleSave} />
+        <Toolbar running={running} onrun={runQuery} onformat={handleFormat} />
+        {#if savedQueryOptions.length > 0}
+          <div class="flex h-9 shrink-0 items-center gap-2 border-b border-edge-subtle bg-surface px-3 text-xs text-fg-3">
+            <label for="panel-saved-query" class="shrink-0">Start from a saved query</label>
+            <div class="w-72">
+              <Combobox
+                id="panel-saved-query"
+                options={savedQueryOptions}
+                value={savedQueryId}
+                placeholder="Choose one"
+                emptyText="No saved query matches"
+                onChange={(v) => void useSavedQuery(v)}
+              />
+            </div>
+          </div>
+        {/if}
 
         <!-- SQL Editor -->
         <div class="h-[42%] min-h-[200px] shrink-0 border-b border-edge-subtle">
@@ -305,6 +348,7 @@
             value={query}
             onrun={runQuery}
             onchange={(v) => query = v}
+            placeholder="SQL for this panel. Run it to preview, then pick a visualization on the right."
           />
         </div>
 
