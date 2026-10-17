@@ -6,6 +6,7 @@
   import InputDialog from '../common/InputDialog.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import ContextMenu, { type ContextMenuItem } from '../common/ContextMenu.svelte'
+  import Skeleton from '../common/Skeleton.svelte'
   import { getSession } from '../../stores/session.svelte'
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import { listSavedSearches, createSavedSearch, updateSavedSearch, deleteSavedSearch } from '../../api/telemetry'
@@ -166,7 +167,7 @@
         <div class="my-1 border-t border-edge-subtle"></div>
       {/if}
       {#if loading && mine.length === 0}
-        <div class="px-3 py-2 text-xs text-fg-4">Loading…</div>
+        <Skeleton variant="text" rows={3} label="Loading saved searches" class="px-3 py-2" />
       {:else if mine.length === 0}
         <div class="px-3 py-2 text-xs text-fg-4">No saved searches yet.</div>
       {:else}

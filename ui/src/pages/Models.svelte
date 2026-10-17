@@ -13,6 +13,7 @@
   import Button from '../lib/components/common/Button.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
+  import Skeleton from '../lib/components/common/Skeleton.svelte'
   import Sheet from '../lib/components/common/Sheet.svelte'
   import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
   import { trapFocus } from '../lib/utils/focus-trap'
@@ -594,7 +595,7 @@
   <!-- ─── Content ─────────────────────────────────────────────────── -->
   <div class="min-h-0 flex-1 overflow-auto">
     {#if loading}
-      <div class="flex h-full items-center justify-center text-[13px] text-fg-3">Loading...</div>
+      <Skeleton variant="rows" rows={6} label="Loading models" />
     {:else if models.length === 0}
       <div class="flex h-full items-center justify-center">
         <EmptyState
@@ -715,10 +716,10 @@
       <Button size="sm" variant="outline" onclick={() => { showDAG = false }}>Close</Button>
     </div>
     <div class="min-h-0 flex-1">
-      {#if dagNodes.length === 0}
-        <div class="flex h-full items-center justify-center text-[13px] text-fg-3">
-          {models.length === 0 ? 'No models to show' : 'Loading DAG...'}
-        </div>
+      {#if dagNodes.length === 0 && models.length === 0}
+        <div class="flex h-full items-center justify-center text-[13px] text-fg-3">No models to show</div>
+      {:else if dagNodes.length === 0}
+        <Skeleton variant="block" label="Loading dependency graph" class="p-5" />
       {:else}
         <SvelteFlow
           nodes={dagNodes}

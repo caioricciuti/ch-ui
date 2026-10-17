@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import Stat from '../common/Stat.svelte'
   import Badge from '../common/Badge.svelte'
+  import Skeleton from '../common/Skeleton.svelte'
   import { getIngestStats } from '../../api/ingest'
   import { formatAge, formatRate, rejectedEntries, type IngestStats } from '../../types/ingest'
   import { formatBytes, formatNumber, formatRelativeTime } from '../../utils/format'
@@ -89,7 +90,7 @@
         <p class="break-words rounded-md bg-danger-soft px-3 py-2 text-[13px] text-danger">{stats.last_error}</p>
       {/if}
     {:else}
-      <p class="text-[13px] text-fg-3">Loading ingest stats</p>
+      <Skeleton variant="block" label="Loading ingest stats" />
     {/if}
   </section>
 {/if}

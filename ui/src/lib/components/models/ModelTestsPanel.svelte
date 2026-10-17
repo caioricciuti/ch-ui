@@ -11,6 +11,7 @@
   import Select, { type SelectOption } from '../common/Select.svelte'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
+  import Skeleton from '../common/Skeleton.svelte'
   import { Plus, Pencil, Trash2 } from 'lucide-svelte'
 
   interface Props {
@@ -193,7 +194,7 @@
   </div>
   <div class="min-h-0 flex-1">
     {#if loading}
-      <div class="flex h-full items-center justify-center text-[13px] text-fg-3">Loading tests...</div>
+      <Skeleton variant="rows" rows={3} label="Loading tests" />
     {:else}
       <DataTable
         {columns}
