@@ -29,6 +29,7 @@
 	import Input from '../lib/components/common/Input.svelte';
 	import Textarea from '../lib/components/common/Textarea.svelte';
 	import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte';
+	import ActorCell from '../lib/components/common/ActorCell.svelte';
 	import AccessSection from '../lib/components/governance/AccessSection.svelte';
 	import AccessControlSection from '../lib/components/governance/rbac/AccessControlSection.svelte';
 	import EffectiveAccessSection from '../lib/components/governance/rbac/EffectiveAccessSection.svelte';
@@ -755,7 +756,12 @@
 								{#if col.key === 'query_kind'}
 									<Badge tone={(row as unknown as QueryLogEntry).is_error ? 'danger' : 'success'}>{value}</Badge>
 								{:else if col.key === 'ch_user'}
-									<span class="font-medium text-fg">{value}</span>
+									{@const entry = row as unknown as QueryLogEntry}
+									{#if entry.actor && entry.actor !== entry.ch_user}
+										<span class="font-medium text-fg"><ActorCell name={entry.actor} accounts={[entry.ch_user]} /></span>
+									{:else}
+										<span class="font-medium text-fg">{value}</span>
+									{/if}
 								{:else}
 									{value}
 								{/if}
@@ -865,7 +871,7 @@
 
 	<Sheet
 		open={queryDetailSheetOpen}
-		title={selectedQuery ? `Query Details · ${selectedQuery.ch_user}` : 'Query Details'}
+		title={selectedQuery ? `Query Details · ${selectedQuery.actor || selectedQuery.ch_user}` : 'Query Details'}
 		size="xl"
 		onclose={closeQueryDetails}
 	>
@@ -873,6 +879,7 @@
 			<div class="space-y-5">
 				<div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
 					{@render fact('Kind', selectedQuery.query_kind)}
+					{@render fact('ClickHouse user', selectedQuery.ch_user)}
 					{@render fact('Duration', `${selectedQuery.duration_ms} ms`)}
 					{@render fact('Read rows', selectedQuery.read_rows.toLocaleString())}
 					{@render fact('Timestamp', formatDate(selectedQuery.event_time))}

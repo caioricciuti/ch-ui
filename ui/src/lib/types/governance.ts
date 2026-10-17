@@ -115,6 +115,9 @@ export interface QueryLogEntry {
   connection_id: string
   query_id: string
   ch_user: string
+  /** Who ran the query: the person CH-UI's tag named, else the ClickHouse
+   * user (then equal to ch_user). Empty on rows harvested before v2.28. */
+  actor: string
   query_text: string
   normalized_hash: string
   query_kind: string

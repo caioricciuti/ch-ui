@@ -13,7 +13,7 @@ Everything is computed **live by ClickHouse itself**: the query log *is* the his
 
 ### Headline tiles
 
-For the selected range (1h / 6h / 24h / 7d / 30d): total queries, failures, active users, p50/p95/max latency, data read, and peak memory.
+For the selected range (1h / 6h / 24h / 7d / 30d): total queries, failures, active users, p50/p95/max latency, data read, and peak memory. A user is the person behind the queries when CH-UI's [query tag](#query-tags) is present (the SSO email, or the owner of a scheduled job), and the ClickHouse account otherwise.
 
 ### Trend charts
 
@@ -30,7 +30,7 @@ Both charts have time axes, a live legend that doubles as a hover tooltip, and a
 | **Memory** | Heaviest patterns by peak memory |
 | **Frequent** | Most-run patterns |
 | **Errors** | Failures grouped by exception code, with the error name, count, and last message |
-| **Users** | Per-user load: runs, failures, p95, read bytes, peak memory |
+| **Users** | Per-user load: runs, failures, p95, read bytes, peak memory. Users are people where the query tag names one and ClickHouse accounts elsewhere; a muted *via* line lists the accounts a person's queries ran as, and the user filter matches that same name |
 | **Hot tables** | Most-read tables, with per-table I/O fair-shared across multi-table queries |
 
 Every pattern row can be **opened in a new editor tab** with one click.

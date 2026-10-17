@@ -18,6 +18,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/queryinsights"
+	"github.com/caioricciuti/ch-ui/internal/querylogactor"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 	"github.com/go-chi/chi/v5"
@@ -114,6 +115,25 @@ func (h *QueryInsightsHandler) resolveCluster(r *http.Request, cs chSession) str
 	return ""
 }
 
+// personAccounts lists the connection's per-person SSO users as actor
+// accounts, so query_log rows those users ran outside CH-UI are labeled by
+// email like the tagged ones. A lookup failure only loses the relabeling.
+func personAccounts(db *database.DB, connID string) []querylogactor.Account {
+	if db == nil {
+		return nil
+	}
+	users, err := db.ListSSOClickHouseUsers(connID)
+	if err != nil {
+		slog.Warn("Query log attribution: failed to load SSO users", "connection", connID, "error", err)
+		return nil
+	}
+	accounts := make([]querylogactor.Account, 0, len(users))
+	for _, u := range users {
+		accounts = append(accounts, querylogactor.Account{User: u.CHUser, Person: u.Email})
+	}
+	return accounts
+}
+
 // isQueryLogUnavailable detects the errors ClickHouse raises when query_log is
 // disabled or a column this section needs doesn't exist on this version.
 func isQueryLogUnavailable(err error) bool {
@@ -163,6 +183,7 @@ func (h *QueryInsightsHandler) getSection(w http.ResponseWriter, r *http.Request
 		Search:        strings.TrimSpace(q.Get("search")),
 		Table:         strings.TrimSpace(q.Get("table")),
 		MinDurationMS: minMS,
+		Accounts:      personAccounts(h.DB, cs.connID),
 	}
 
 	rows, err := h.exec(cs, build(cluster, rng, filters), queryInsightsTimeout)

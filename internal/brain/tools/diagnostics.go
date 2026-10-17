@@ -256,14 +256,14 @@ func analyzeQueryLogSQL(view string, rng queryinsights.Range, f queryinsights.Fi
 
 var analyzeQueryLog = Tool{
 	Name:        "analyze_query_log",
-	Description: "Find what is slow, failing or expensive in system.query_log over a window. Views: slow (query patterns by p95 latency), failed (failures grouped by error code), heavy_readers (patterns that read the most bytes), patterns (most-run patterns), users (load per ClickHouse user). Returns the top 20 rows; the pattern views carry a hash to pass to query_pattern. Local node only.",
+	Description: "Find what is slow, failing or expensive in system.query_log over a window. Views: slow (query patterns by p95 latency), failed (failures grouped by error code), heavy_readers (patterns that read the most bytes), patterns (most-run patterns), users (load per person: the SSO email or job owner behind queries CH-UI ran, the ClickHouse user otherwise). Returns the top 20 rows; the pattern views carry a hash to pass to query_pattern. Local node only.",
 	Parameters: mustJSON(map[string]any{
 		"type":     "object",
 		"required": []string{"view"},
 		"properties": map[string]any{
 			"view":            map[string]any{"type": "string", "enum": []string{"slow", "failed", "heavy_readers", "patterns", "users"}},
 			"window":          map[string]any{"type": "string", "enum": []string{"1h", "6h", "24h", "7d"}, "description": "Default 24h."},
-			"user":            map[string]any{"type": "string", "description": "Only this ClickHouse user."},
+			"user":            map[string]any{"type": "string", "description": "Only this person (SSO email or job owner for queries CH-UI ran) or ClickHouse user."},
 			"table":           map[string]any{"type": "string", "description": "Only queries touching this table, as database.table."},
 			"min_duration_ms": map[string]any{"type": "integer", "minimum": 0, "description": "Only queries at least this slow."},
 		},

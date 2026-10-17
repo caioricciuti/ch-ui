@@ -118,10 +118,14 @@ type SchemaChange struct {
 }
 
 type QueryLogEntry struct {
-	ID             string  `json:"id"`
-	ConnectionID   string  `json:"connection_id"`
-	QueryID        string  `json:"query_id"`
-	User           string  `json:"ch_user"`
+	ID           string `json:"id"`
+	ConnectionID string `json:"connection_id"`
+	QueryID      string `json:"query_id"`
+	User         string `json:"ch_user"`
+	// Actor is who ran the query (querylogactor.Expr): the person named by
+	// CH-UI's query tag, else the ClickHouse user. Policies, violations and
+	// fingerprints stay on User; Actor is for display and filtering.
+	Actor          string  `json:"actor"`
 	QueryText      string  `json:"query_text"`
 	NormalizedHash string  `json:"normalized_hash"`
 	QueryKind      string  `json:"query_kind"`
