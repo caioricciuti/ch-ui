@@ -22,6 +22,7 @@
   import Sheet from '../common/Sheet.svelte'
   import Stat from '../common/Stat.svelte'
   import Tabs from '../common/Tabs.svelte'
+  import Skeleton from '../common/Skeleton.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import { Plus, Copy, Trash2, RefreshCw, Search, UserRound } from 'lucide-svelte'
   import { formatDate, formatRelativeTime } from '../../utils/format'
@@ -398,7 +399,7 @@
     </div>
 
     {#if loading}
-      <p class="py-6 text-center text-xs text-fg-3">Loading keys…</p>
+      <Skeleton variant="rows" rows={4} label="Loading keys" />
     {:else}
       <DataTable
         {columns}

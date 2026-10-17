@@ -4,6 +4,7 @@
   import { X, HelpCircle, Copy, Check, Shield, RefreshCw } from 'lucide-svelte'
   import SinkSchemaEditor from './SinkSchemaEditor.svelte'
   import SinkTableLayout from './SinkTableLayout.svelte'
+  import Switch from '../common/Switch.svelte'
   import { signalHint } from '../../types/ingest'
   import { clearNodeError, getNodeError } from './transforms/counters.svelte'
 
@@ -241,27 +242,18 @@
             class="{inputClass} resize-none font-mono"
           ></textarea>
         {:else if field.type === 'toggle'}
-          <button
+          <Switch
             id={inputId}
-            aria-label={field.label}
-            aria-pressed={Boolean(getFieldValue(field))}
-            class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {
- getFieldValue(field) ? 'bg-accent' : 'bg-edge'
-            }"
-            onclick={() => {
+            checked={Boolean(getFieldValue(field))}
+            label={field.label}
+            onchange={(next) => {
               if (field.key === 'auth_enabled') {
-                handleAuthToggle(!getFieldValue(field))
+                handleAuthToggle(next)
               } else {
-                handleChange(field.key, !getFieldValue(field))
+                handleChange(field.key, next)
               }
             }}
-          >
-            <span
-              class="inline-block h-3.5 w-3.5 transform rounded-full bg-surface transition-transform shadow-sm {
- getFieldValue(field) ? 'translate-x-4' : 'translate-x-0.5'
-              }"
-            ></span>
-          </button>
+          />
           {#if field.key === 'auth_enabled' && getFieldValue(field)}
             <div class="mt-2">
               <p class="flex items-center gap-1 text-[11px] font-medium text-fg-3 uppercase tracking-wider mb-1">

@@ -14,6 +14,7 @@
   import PageHeader from '../lib/components/common/PageHeader.svelte'
   import PageBody from '../lib/components/common/PageBody.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
+  import Switch from '../lib/components/common/Switch.svelte'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
   import FormField from '../lib/components/common/FormField.svelte'
   import Input from '../lib/components/common/Input.svelte'
@@ -362,16 +363,12 @@
                 </div>
               </div>
 
-              <button
-                role="switch"
-                aria-checked={schedule.enabled}
-                aria-label={schedule.enabled ? 'Disable schedule' : 'Enable schedule'}
-                class="relative h-5 w-9 shrink-0 rounded-full transition-colors {schedule.enabled ? 'bg-accent' : 'bg-edge-strong'}"
-                onclick={() => toggleEnabled(schedule)}
+              <Switch
+                checked={schedule.enabled}
+                label={schedule.enabled ? 'Disable schedule' : 'Enable schedule'}
                 title={schedule.enabled ? 'Disable' : 'Enable'}
-              >
-                <span class="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-fill-fg shadow-sm transition-transform {schedule.enabled ? 'translate-x-4' : ''}"></span>
-              </button>
+                onchange={() => toggleEnabled(schedule)}
+              />
 
               <div class="flex items-center gap-0.5">
                 <Button

@@ -7,6 +7,7 @@
   import FormField from '../common/FormField.svelte'
   import Input from '../common/Input.svelte'
   import Button from '../common/Button.svelte'
+  import Switch from '../common/Switch.svelte'
 
   interface Props {
     open: boolean
@@ -174,16 +175,7 @@
           <div class="text-xs font-medium text-fg-2">Enabled</div>
           <p class="mt-0.5 text-xs text-fg-3">Paused pipelines keep their schedule but do not run.</p>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={enabled}
-          aria-label={enabled ? 'Pause schedule' : 'Enable schedule'}
-          class="relative h-5 w-9 shrink-0 rounded-full transition-colors {enabled ? 'bg-accent' : 'bg-edge-strong'}"
-          onclick={() => { enabled = !enabled }}
-        >
-          <span class="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-fill-fg shadow-sm transition-transform {enabled ? 'translate-x-4' : ''}"></span>
-        </button>
+        <Switch checked={enabled} label={enabled ? 'Pause schedule' : 'Enable schedule'} onchange={(next) => { enabled = next }} />
       </div>
 
       <div class="space-y-1 rounded-md bg-surface-2 p-3 text-xs">

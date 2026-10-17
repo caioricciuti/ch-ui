@@ -5,6 +5,7 @@
   import Combobox from '../common/Combobox.svelte'
   import type { ComboboxOption } from '../common/Combobox.svelte'
   import Spinner from '../common/Spinner.svelte'
+  import Skeleton from '../common/Skeleton.svelte'
   import { Activity, Layers3, AreaChart, GitBranch, Gauge, RefreshCw, FlaskConical, Scale } from 'lucide-svelte'
 
   interface Props {
@@ -321,7 +322,7 @@
         </button>
       </div>
       {#if planLoading}
-        <div class="text-xs text-fg-3">Loading query plan...</div>
+        <Skeleton variant="text" rows={4} label="Loading query plan" />
       {:else if planError}
         <div class="text-xs text-danger">{planError}</div>
       {:else if planFlow.length > 0}
@@ -413,7 +414,7 @@
     <div class="surface-card rounded-md p-3">
       <div class="text-[11px] uppercase tracking-wider text-fg-3 inline-flex items-center gap-1.5 mb-3"><Gauge size={13} />Inline Profile Events</div>
       {#if profileLoading}
-        <div class="text-xs text-fg-3">Loading profile from system.query_log...</div>
+        <Skeleton variant="text" rows={4} label="Loading profile" />
       {:else if profileError}
         <div class="text-xs text-danger">{profileError}</div>
       {:else if profileAvailable && profile}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { SINK_PRESETS, WIDE_ROLES, wideEventsDDL, type SinkPreset } from '../../types/pipelines'
   import { usesOtelLayout } from '../../types/ingest'
+  import Switch from '../common/Switch.svelte'
 
   interface Props {
     config: Record<string, unknown>
@@ -67,14 +68,7 @@
   <div>
     <p class={labelClass}>{label}</p>
     <div class="flex items-start gap-2">
-      <button
-        aria-label={label}
-        aria-pressed={!!config[key]}
-        class="relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors {config[key] ? 'bg-accent' : 'bg-edge'}"
-        onclick={() => onChange(key, !config[key])}
-      >
-        <span class="inline-block h-3.5 w-3.5 transform rounded-full bg-surface shadow-sm transition-transform {config[key] ? 'translate-x-4' : 'translate-x-0.5'}"></span>
-      </button>
+      <Switch checked={!!config[key]} {label} class="mt-0.5" onchange={(next) => onChange(key, next)} />
       <p class="text-[11px] text-fg-4">{help}</p>
     </div>
   </div>

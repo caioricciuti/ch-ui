@@ -4,7 +4,7 @@
   import type { ColumnMeta } from '../../../types/query'
   import { fetchDatabaseInfo, fetchDatabaseTables } from '../../../api/query'
   import { formatBytes, formatDate, formatNumber } from '../../../utils/format'
-  import Spinner from '../../common/Spinner.svelte'
+  import Skeleton from '../../common/Skeleton.svelte'
   import EmptyState from '../../common/EmptyState.svelte'
   import VirtualTable from '../../table/VirtualTable.svelte'
   import { Database, HardDrive, Rows3, Table2, Clock, RefreshCw, FolderOpen } from 'lucide-svelte'
@@ -120,9 +120,8 @@
   <div class="flex-1 min-h-0 overflow-auto">
     {#if activeSubTab === 'overview'}
       {#if infoLoading}
-        <div class="flex items-center justify-center py-12 gap-2">
-          <Spinner size="sm" />
-          <span class="text-sm text-fg-3">Loading database info...</span>
+        <div class="p-4">
+          <Skeleton variant="block" label="Loading database info" />
         </div>
       {:else if infoError}
         <div class="p-4">
@@ -172,10 +171,7 @@
       {/if}
     {:else if activeSubTab === 'tables'}
       {#if tablesLoading}
-        <div class="flex items-center justify-center py-12 gap-2">
-          <Spinner size="sm" />
-          <span class="text-sm text-fg-3">Loading tables...</span>
-        </div>
+        <Skeleton variant="rows" rows={6} label="Loading tables" />
       {:else if tablesError}
         <div class="p-4">
           <div class="rounded-md bg-danger-soft p-3 text-[13px] text-fg">{tablesError}</div>
