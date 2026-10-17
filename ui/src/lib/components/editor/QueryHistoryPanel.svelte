@@ -5,6 +5,8 @@
   import { formatNumber, formatElapsed } from '../../utils/format'
   import { error as toastError, success as toastSuccess } from '../../stores/toast.svelte'
   import Spinner from '../common/Spinner.svelte'
+  import Input from '../common/Input.svelte'
+  import EmptyState from '../common/EmptyState.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import { Search, X, ExternalLink, Replace, Copy, Trash2, History, CircleCheck, CircleX, CircleMinus } from 'lucide-svelte'
 
@@ -164,12 +166,13 @@
   <div class="flex items-center gap-2 shrink-0">
     <div class="relative flex-1">
       <Search size={13} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-4" />
-      <input
-        class="w-full pl-8 pr-7 py-1.5 text-xs rounded-md border border-edge bg-canvas text-fg-2 focus:outline-none focus:border-ch-orange"
+      <Input
+        size="sm"
+        class="w-full pl-8 pr-7"
         placeholder="Search history..."
         bind:value={search}
         oninput={handleSearchInput}
-        spellcheck="false"
+        spellcheck={false}
       />
       {#if search}
         <button
@@ -210,11 +213,7 @@
   {:else if loadError}
     <div class="flex-1 p-3 text-[13px] text-danger">{loadError}</div>
   {:else if entries.length === 0}
-    <div class="flex flex-col items-center justify-center flex-1 gap-2 text-fg-4">
-      <History size={26} class="text-fg-4" />
-      <p class="text-sm">No queries in history yet</p>
-      <p class="text-xs text-fg-4">Queries you run are recorded automatically</p>
-    </div>
+    <EmptyState size="compact" icon={History} title="No queries in history yet" description="Queries you run are recorded automatically." class="flex-1" />
   {:else}
     <div class="flex-1 overflow-y-auto -mx-1 px-1">
       <ul class="flex flex-col gap-1.5">
