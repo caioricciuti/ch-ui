@@ -717,7 +717,9 @@
     </div>
     <div class="min-h-0 flex-1">
       {#if dagNodes.length === 0 && models.length === 0}
-        <div class="flex h-full items-center justify-center text-[13px] text-fg-3">No models to show</div>
+        <div class="flex h-full items-center justify-center">
+          <EmptyState size="compact" title="No models to show" description="Create a model and its dependencies appear here as a graph." />
+        </div>
       {:else if dagNodes.length === 0}
         <Skeleton variant="block" label="Loading dependency graph" class="p-5" />
       {:else}

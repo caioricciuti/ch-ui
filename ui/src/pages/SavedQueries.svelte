@@ -554,17 +554,23 @@
   oncancel={() => (deleting = null)}
 />
 
-<InputDialog
+<Sheet
   open={newFolderOpen}
   title={newFolderParent ? `New folder in ${folderLabel(folders, newFolderParent)}` : 'New folder'}
-  description="Folders nest and are shared by everyone. A query lives in one folder at a time."
-  placeholder="Folder name"
-  bind:value={newFolderName}
-  confirmLabel="Create"
-  loading={folderSaving}
-  onconfirm={submitNewFolder}
-  oncancel={() => (newFolderOpen = false)}
-/>
+  description="The name shown in the folder tree. Folders nest and are shared by everyone."
+  size="sm"
+  onclose={() => (newFolderOpen = false)}
+>
+  <form id="sq-new-folder-form" onsubmit={(e) => { e.preventDefault(); void submitNewFolder(newFolderName) }}>
+    <FormField label="Name" for="sq-new-folder-name" required controlWidth="full">
+      <Input id="sq-new-folder-name" placeholder="Folder name" bind:value={newFolderName} disabled={folderSaving} />
+    </FormField>
+  </form>
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" onclick={() => (newFolderOpen = false)} disabled={folderSaving}>Cancel</Button>
+    <Button size="sm" type="submit" form="sq-new-folder-form" loading={folderSaving} disabled={!newFolderName.trim()}>Create</Button>
+  {/snippet}
+</Sheet>
 
 <InputDialog
   open={!!renamingFolder}

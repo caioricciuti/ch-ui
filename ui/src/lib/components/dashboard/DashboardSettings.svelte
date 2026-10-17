@@ -244,12 +244,6 @@
         <FormField label="Description" for="dashboard-description" controlWidth="full">
           <Textarea id="dashboard-description" rows={3} placeholder="Optional description" bind:value={generalDescription} />
         </FormField>
-        <div class="flex items-center justify-end">
-          <Button size="sm" loading={savingGeneral} onclick={saveGeneral}>
-            <Save size={13} /> Save
-          </Button>
-        </div>
-
         <div class="mt-4 rounded-lg border border-edge-subtle p-4">
           <h3 class="text-sm font-medium text-fg mb-1">Duplicate Dashboard</h3>
           <p class="text-xs text-fg-3 mb-3">Copy this dashboard with its panels and variables into the same folder, with the same tags.</p>
@@ -288,18 +282,6 @@
           oninput={() => { jsonError = null; jsonDirty = true }}
           spellcheck="false"
         ></textarea>
-
-        <div class="flex items-center justify-end gap-2">
-          {#if jsonDirty}
-            <Button variant="ghost" size="sm" onclick={resetJson}>Discard edits</Button>
-          {/if}
-          <Button variant="secondary" size="sm" onclick={handleCopyEditor}>
-            <Copy size={13} /> Copy
-          </Button>
-          <Button size="sm" loading={saving} onclick={applyJson}>
-            <Save size={13} /> Apply Changes
-          </Button>
-        </div>
       </div>
 
     {:else if tab === 'export'}
@@ -307,15 +289,7 @@
         <!-- Export -->
         <div class="rounded-lg border border-edge-subtle p-4">
           <h3 class="text-sm font-medium text-fg mb-1">Export Dashboard</h3>
-          <p class="text-xs text-fg-3 mb-3">Download the full dashboard configuration, including all panels and variables, as a JSON file.</p>
-          <div class="flex gap-2">
-            <Button size="sm" onclick={handleExport}>
-              <Download size={13} /> Download JSON
-            </Button>
-            <Button variant="secondary" size="sm" onclick={handleCopyJson}>
-              <Copy size={13} /> Copy to Clipboard
-            </Button>
-          </div>
+          <p class="text-xs text-fg-3">Download the full dashboard configuration, including all panels and variables, as a JSON file, or copy it to the clipboard. Both actions are below.</p>
         </div>
 
         <!-- Import -->
@@ -365,4 +339,33 @@
       />
     {/if}
   </div>
+  {#snippet footer()}
+    {#if tab === 'general'}
+      <Button variant="ghost" size="sm" onclick={onclose} disabled={savingGeneral}>Cancel</Button>
+      <Button size="sm" loading={savingGeneral} onclick={saveGeneral}>
+        <Save size={13} /> Save
+      </Button>
+    {:else if tab === 'json'}
+      <Button variant="ghost" size="sm" onclick={onclose} disabled={saving}>Cancel</Button>
+      {#if jsonDirty}
+        <Button variant="ghost" size="sm" onclick={resetJson} disabled={saving}>Discard edits</Button>
+      {/if}
+      <Button variant="secondary" size="sm" onclick={handleCopyEditor}>
+        <Copy size={13} /> Copy
+      </Button>
+      <Button size="sm" loading={saving} onclick={applyJson}>
+        <Save size={13} /> Apply Changes
+      </Button>
+    {:else if tab === 'export'}
+      <Button variant="ghost" size="sm" onclick={onclose}>Cancel</Button>
+      <Button variant="secondary" size="sm" onclick={handleCopyJson}>
+        <Copy size={13} /> Copy to Clipboard
+      </Button>
+      <Button size="sm" onclick={handleExport}>
+        <Download size={13} /> Download JSON
+      </Button>
+    {:else}
+      <Button variant="ghost" size="sm" onclick={onclose}>Close</Button>
+    {/if}
+  {/snippet}
 </Sheet>

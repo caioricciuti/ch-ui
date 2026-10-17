@@ -485,18 +485,16 @@
 	})
 </script>
 
-<!-- Small label/value block for detail sheets: a fact, not a KPI. -->
-{#snippet fact(label: string, value: string | number)}
-	<div class="min-w-0 rounded-md bg-surface-2 px-3 py-2">
-		<p class="text-[11px] font-medium uppercase tracking-wider text-fg-3">{label}</p>
-		<p class="mt-0.5 truncate text-[13px] font-medium text-fg">{value}</p>
-	</div>
-{/snippet}
-
 <div class="flex h-full min-h-0 flex-col">
+	<PageHeader title="Governance" subtitle={activeTabLabel} docs={docsURL('governance', activeTab)}>
+		{#snippet actions()}
+			<Button size="sm" variant="outline" loading={syncing} onclick={handleSyncNow}>Sync now</Button>
+		{/snippet}
+	</PageHeader>
+
 	{#if govSettings && !govSettings.sync_enabled && !govSettings.banner_dismissed}
 		{@const fresh = !overview || (overview.database_count === 0 && overview.table_count === 0)}
-		<div class="flex items-start gap-3 border-b border-edge-subtle bg-info-soft px-5 py-3 text-[13px] text-fg">
+		<div class="flex shrink-0 items-start gap-3 border-b border-edge-subtle bg-info-soft px-5 py-3 text-[13px] text-fg">
 			<Info size={16} class="mt-0.5 shrink-0 text-info" />
 			<div class="min-w-0 flex-1">
 				{#if fresh}
@@ -526,12 +524,6 @@
 			</Button>
 		</div>
 	{/if}
-
-	<PageHeader title="Governance" subtitle={activeTabLabel} docs={docsURL('governance', activeTab)}>
-		{#snippet actions()}
-			<Button size="sm" variant="outline" loading={syncing} onclick={handleSyncNow}>Sync now</Button>
-		{/snippet}
-	</PageHeader>
 
 	{#if activeTab === 'access'}
 		<AccessSection />
@@ -807,10 +799,10 @@
 		{#if selectedTable}
 			<div class="space-y-5">
 				<div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-					{@render fact('Engine', selectedTable.engine || '-')}
-					{@render fact('Rows', selectedTable.total_rows.toLocaleString())}
-					{@render fact('Size', formatBytes(selectedTable.total_bytes))}
-					{@render fact('Partitions', selectedTable.partition_count)}
+					<Stat variant="muted" size="md" label={'Engine'} value={selectedTable.engine || '-'} />
+					<Stat variant="muted" size="md" label={'Rows'} value={selectedTable.total_rows.toLocaleString()} />
+					<Stat variant="muted" size="md" label={'Size'} value={formatBytes(selectedTable.total_bytes)} />
+					<Stat variant="muted" size="md" label={'Partitions'} value={selectedTable.partition_count} />
 				</div>
 
 				<Panel title="Columns" padding="none">
@@ -876,7 +868,7 @@
 								{/each}
 							</div>
 						{:else}
-							<p class="text-[13px] text-fg-3">No table notes yet.</p>
+							<EmptyState size="compact" title="No table notes yet" description="Notes added here are shared with everyone who opens this table." />
 						{/if}
 					</div>
 				</Panel>
@@ -893,11 +885,11 @@
 		{#if selectedQuery}
 			<div class="space-y-5">
 				<div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-					{@render fact('Kind', selectedQuery.query_kind)}
-					{@render fact('ClickHouse user', selectedQuery.ch_user)}
-					{@render fact('Duration', `${selectedQuery.duration_ms} ms`)}
-					{@render fact('Read rows', selectedQuery.read_rows.toLocaleString())}
-					{@render fact('Timestamp', formatDate(selectedQuery.event_time))}
+					<Stat variant="muted" size="md" label={'Kind'} value={selectedQuery.query_kind} />
+					<Stat variant="muted" size="md" label={'ClickHouse user'} value={selectedQuery.ch_user} />
+					<Stat variant="muted" size="md" label={'Duration'} value={`${selectedQuery.duration_ms} ms`} />
+					<Stat variant="muted" size="md" label={'Read rows'} value={selectedQuery.read_rows.toLocaleString()} />
+					<Stat variant="muted" size="md" label={'Timestamp'} value={formatDate(selectedQuery.event_time)} />
 				</div>
 
 				<Panel title="SQL" padding="none">

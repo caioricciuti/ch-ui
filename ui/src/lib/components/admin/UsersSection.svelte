@@ -583,7 +583,7 @@
   size="lg"
   onclose={() => (createCHUserSheetOpen = false)}
 >
-  <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); void createClickHouseUser() }}>
+  <form id="ch-create-user-form" class="space-y-4" onsubmit={(e) => { e.preventDefault(); void createClickHouseUser() }}>
     <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
       <FormField label="Username" for="ch-user-name" required>
         <Input id="ch-user-name" size="sm" placeholder="analytics_reader" bind:value={createCHUserForm.name} required />
@@ -632,12 +632,11 @@
         </div>
       </Panel>
     {/if}
-
-    <div class="flex items-center justify-end gap-2 border-t border-edge-subtle pt-3">
-      <Button size="sm" variant="ghost" onclick={() => (createCHUserSheetOpen = false)}>Cancel</Button>
-      <Button size="sm" type="submit" disabled={!createCHUserForm.name.trim()}>Create user</Button>
-    </div>
   </form>
+  {#snippet footer()}
+    <Button size="sm" variant="ghost" onclick={() => (createCHUserSheetOpen = false)}>Cancel</Button>
+    <Button size="sm" type="submit" form="ch-create-user-form" disabled={!createCHUserForm.name.trim()}>Create user</Button>
+  {/snippet}
 </Sheet>
 
 <Sheet
@@ -647,7 +646,7 @@
   size="md"
   onclose={() => (editCHUserPasswordSheetOpen = false)}
 >
-  <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); void updateClickHouseUserPassword() }}>
+  <form id="ch-edit-password-form" class="space-y-4" onsubmit={(e) => { e.preventDefault(); void updateClickHouseUserPassword() }}>
     <FormField label="Auth type" for="ch-user-edit-auth">
       <Select id="ch-user-edit-auth" size="sm" options={clickHouseAuthTypeOptions} value={updateCHUserPasswordForm.authType} onchange={(v) => (updateCHUserPasswordForm = { ...updateCHUserPasswordForm, authType: v })} />
     </FormField>
@@ -668,12 +667,11 @@
       <input type="checkbox" class="ds-checkbox" bind:checked={updateCHUserPasswordForm.ifExists} />
       Use IF EXISTS
     </label>
-
-    <div class="flex items-center justify-end gap-2 border-t border-edge-subtle pt-3">
-      <Button size="sm" variant="ghost" onclick={() => (editCHUserPasswordSheetOpen = false)}>Cancel</Button>
-      <Button size="sm" type="submit" disabled={!selectedCHUserName}>Save password</Button>
-    </div>
   </form>
+  {#snippet footer()}
+    <Button size="sm" variant="ghost" onclick={() => (editCHUserPasswordSheetOpen = false)}>Cancel</Button>
+    <Button size="sm" type="submit" form="ch-edit-password-form" disabled={!selectedCHUserName}>Save password</Button>
+  {/snippet}
 </Sheet>
 
 <ConfirmDialog

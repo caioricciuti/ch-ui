@@ -7,6 +7,7 @@
   import Sheet from '../common/Sheet.svelte'
   import Spinner from '../common/Spinner.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
+  import EmptyState from '../common/EmptyState.svelte'
   import { Copy, Trash2, ExternalLink, Code, Link, Mail, Globe, Lock, Send, X } from 'lucide-svelte'
 
   interface DashboardShare {
@@ -246,10 +247,7 @@
     {#if loading}
       <div class="flex justify-center py-6"><Spinner /></div>
     {:else if shares.length === 0}
-      <div class="text-center py-6 text-fg-4">
-        <Link size={24} class="mx-auto mb-2" />
-        <p class="text-xs">No share links yet</p>
-      </div>
+      <EmptyState size="compact" title="No share links yet" description="Create a link above to share this dashboard." />
     {:else}
       <div class="flex flex-col gap-3">
         {#each shares as share (share.id)}

@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { ApiError } from '../../api/client'
   import {
     defaultSSOIdentityConfig,
@@ -14,7 +14,8 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
   import { isProActive } from '../../stores/license.svelte'
   import Sheet from '../common/Sheet.svelte'
-  import Modal from '../common/Modal.svelte'
+  import Panel from '../common/Panel.svelte'
+  import EmptyState from '../common/EmptyState.svelte'
   import Button from '../common/Button.svelte'
   import Input from '../common/Input.svelte'
   import Select from '../common/Select.svelte'
@@ -221,6 +222,8 @@
       })
       sqlText = res.sql ?? ''
       sqlOpen = true
+      await tick()
+      sqlPre?.scrollIntoView({ block: 'nearest' })
     } catch (e) {
       if (handleProError(e)) {
         toastError('Per-person ClickHouse users need a Pro license.')
@@ -380,7 +383,7 @@
             <Button size="xs" variant="outline" disabled={busy} onclick={addMapping}><Plus size={12} /> Add group</Button>
           </div>
           {#if mappings.length === 0}
-            <p class="rounded-md border border-dashed border-edge-subtle px-3 py-3 text-center text-xs text-fg-4">No groups mapped. People will only get the fallback roles.</p>
+            <EmptyState size="compact" title="No groups mapped" description="People will only get the fallback roles." />
           {:else}
             <div class="overflow-hidden rounded-lg border border-edge-subtle">
               <table class="w-full border-separate border-spacing-0 text-[13px]">
@@ -433,6 +436,16 @@
         <div role="alert" class="rounded-md bg-danger-soft px-3 py-2 text-[13px] text-danger">{formError}</div>
       {/if}
 
+      {#if sqlOpen}
+        <Panel variant="muted" padding="sm" title="Setup SQL" description="Run this as a ClickHouse admin. It creates what the current settings need.">
+          {#snippet actions()}
+            <Button size="xs" variant="outline" onclick={() => void copySQL()}><Copy size={12} /> Copy</Button>
+            <Button size="xs" variant="ghost" onclick={() => (sqlOpen = false)}>Done</Button>
+          {/snippet}
+          <pre bind:this={sqlPre} class="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md border border-edge-subtle bg-surface p-3 font-mono text-[11px] text-fg">{sqlText || '-- nothing to run'}</pre>
+        </Panel>
+      {/if}
+
       {#if verifyChecks}
         <div class="space-y-2">
           <div class="flex items-center gap-2">
@@ -478,15 +491,3 @@
     <Button size="sm" type="submit" form="sso-identity-form" loading={saving} disabled={busy || loading || !!loadError}>Save</Button>
   {/snippet}
 </Sheet>
-
-<Modal open={sqlOpen} title="Setup SQL" description="Run this as a ClickHouse admin. It creates what the current settings need." size="lg" onclose={() => (sqlOpen = false)}>
-  <div class="space-y-2">
-    <div class="flex items-center justify-end">
-      <Button size="xs" variant="outline" onclick={() => void copySQL()}><Copy size={12} /> Copy</Button>
-    </div>
-    <pre bind:this={sqlPre} class="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-edge-subtle bg-surface-2 p-3 font-mono text-[11px] text-fg">{sqlText || '-- nothing to run'}</pre>
-  </div>
-  {#snippet footer()}
-    <Button size="sm" onclick={() => (sqlOpen = false)}>Done</Button>
-  {/snippet}
-</Modal>

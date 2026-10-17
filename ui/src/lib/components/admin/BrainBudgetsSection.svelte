@@ -169,7 +169,6 @@
   <PageBody width="md">
     <div class="space-y-8">
       <SectionHeader
-        level="page"
         title="Brain budgets"
         description="Limits on Brain chat and Ask AI per person, per role or for everyone. Each rule caps every person it applies to; a person's own rule wins over their role's, which wins over the global one. Days and months are UTC."
       >

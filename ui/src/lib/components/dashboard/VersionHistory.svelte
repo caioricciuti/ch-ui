@@ -9,7 +9,7 @@
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import EmptyState from '../common/EmptyState.svelte'
-  import Modal from '../common/Modal.svelte'
+  import Sheet from '../common/Sheet.svelte'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
   import Spinner from '../common/Spinner.svelte'
@@ -146,7 +146,7 @@
   </DataTable>
 {/if}
 
-<Modal
+<Sheet
   open={!!viewing}
   title={viewing ? `Version ${viewing.version}` : ''}
   description={viewing ? `${formatDate(viewing.created_at)}${viewing.created_by ? `, by ${viewing.created_by}` : ''}. Read only.` : ''}
@@ -156,7 +156,7 @@
   {#if viewLoading}
     <div class="flex items-center justify-center py-10"><Spinner /></div>
   {:else}
-    <pre class="max-h-[60vh] overflow-auto rounded-md border border-edge-subtle bg-canvas p-3 font-mono text-xs leading-relaxed text-fg-2">{viewJson}</pre>
+    <pre class="overflow-auto rounded-md border border-edge-subtle bg-canvas p-3 font-mono text-xs leading-relaxed text-fg-2">{viewJson}</pre>
   {/if}
   {#snippet footer()}
     <Button variant="ghost" size="sm" onclick={() => (viewing = null)}>Close</Button>
@@ -169,7 +169,7 @@
       </Button>
     {/if}
   {/snippet}
-</Modal>
+</Sheet>
 
 <ConfirmDialog
   open={!!restoring}

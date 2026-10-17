@@ -12,6 +12,7 @@
   import PageBody from '../lib/components/common/PageBody.svelte'
   import { getSection, setSection } from '../lib/stores/nav.svelte'
   import { getSession } from '../lib/stores/session.svelte'
+  import EmptyState from '../lib/components/common/EmptyState.svelte'
   import { PAGE_SECTIONS, docsURL } from '../lib/routes'
   import { Shield } from 'lucide-svelte'
 
@@ -48,13 +49,13 @@
 </script>
 
 {#if !isAdminRole}
-  <div class="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-    <Shield size={28} class="text-fg-4" />
-    <h1 class="text-[15px] font-semibold tracking-[-0.01em] text-fg">Admin access required</h1>
-    <p class="max-w-md text-[13px] text-fg-3">
-      You are signed in as <span class="font-semibold">{getSession()?.role ?? 'viewer'}</span>.
-      Ask a CH-UI admin to grant you the admin role (Admin &rarr; Users), then log in again.
-    </p>
+  <div class="flex h-full items-center justify-center overflow-auto">
+    <EmptyState
+      size="page"
+      icon={Shield}
+      title="Admin access required"
+      description={`You are signed in as ${getSession()?.role ?? 'viewer'}. Ask a CH-UI admin to grant you the admin role under Admin, Users, then log in again.`}
+    />
   </div>
 {:else}
   <div class="flex h-full min-h-0 flex-col">

@@ -27,6 +27,7 @@
   import FormField from "../common/FormField.svelte";
   import Input from "../common/Input.svelte";
   import Panel from "../common/Panel.svelte";
+  import EmptyState from "../common/EmptyState.svelte";
   import Tabs from "../common/Tabs.svelte";
   import Combobox, { type ComboboxOption } from "../common/Combobox.svelte";
   import {
@@ -1508,6 +1509,7 @@
   onclose={() => (createDatabaseSheetOpen = false)}
 >
   <form
+    id="create-database-form"
     class="space-y-4"
     onsubmit={(e) => {
       e.preventDefault();
@@ -1559,23 +1561,19 @@
       Creates a database with selected engine. If cluster is set, operation runs
       with <code>ON CLUSTER</code>.
     </Panel>
-
-    <div class="flex items-center justify-end gap-2 pt-1">
-      <Button
-        variant="outline"
-        size="sm"
-        onclick={() => (createDatabaseSheetOpen = false)}>Cancel</Button
-      >
-      <Button
-        type="submit"
-        size="sm"
-        disabled={createDatabaseSubmitting}
-      >
-        <FolderPlus size={14} />
-        {createDatabaseSubmitting ? "Creating..." : "Create Database"}
-      </Button>
-    </div>
   </form>
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" onclick={() => (createDatabaseSheetOpen = false)}>Cancel</Button>
+    <Button
+      type="submit"
+      form="create-database-form"
+      size="sm"
+      disabled={createDatabaseSubmitting}
+    >
+      <FolderPlus size={14} />
+      {createDatabaseSubmitting ? "Creating..." : "Create Database"}
+    </Button>
+  {/snippet}
 </Sheet>
 
 <Sheet
@@ -1585,6 +1583,7 @@
   onclose={() => (createTableSheetOpen = false)}
 >
   <form
+    id="create-table-form"
     class="space-y-4"
     onsubmit={(e) => {
       e.preventDefault();
@@ -1794,23 +1793,19 @@
           class="text-[11px] whitespace-pre-wrap break-words max-h-36 overflow-auto text-fg-2">{createTableErrorMessage}</pre>
       </div>
     {/if}
-
-    <div class="flex items-center justify-end gap-2 pt-1">
-      <Button
-        variant="outline"
-        size="sm"
-        onclick={() => (createTableSheetOpen = false)}>Cancel</Button
-      >
-      <Button
-        type="submit"
-        size="sm"
-        disabled={createTableSubmitting}
-      >
-        <TableProperties size={14} />
-        {createTableSubmitting ? "Creating..." : "Create Table"}
-      </Button>
-    </div>
   </form>
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" onclick={() => (createTableSheetOpen = false)}>Cancel</Button>
+    <Button
+      type="submit"
+      form="create-table-form"
+      size="sm"
+      disabled={createTableSubmitting}
+    >
+      <TableProperties size={14} />
+      {createTableSubmitting ? "Creating..." : "Create Table"}
+    </Button>
+  {/snippet}
 </Sheet>
 
 <Sheet
@@ -1820,6 +1815,7 @@
   onclose={() => (deleteDatabaseSheetOpen = false)}
 >
   <form
+    id="delete-database-form"
     class="space-y-4"
     onsubmit={(e) => {
       e.preventDefault();
@@ -1865,25 +1861,21 @@
         placeholder={deleteDatabaseForm.name}
       />
     </FormField>
-
-    <div class="flex items-center justify-end gap-2 pt-1">
-      <Button
-        variant="outline"
-        size="sm"
-        onclick={() => (deleteDatabaseSheetOpen = false)}>Cancel</Button
-      >
-      <Button
-        type="submit"
-        variant="danger"
-        size="sm"
-        disabled={deleteDatabaseSubmitting ||
-          deleteDatabaseForm.typedName.trim() !== deleteDatabaseForm.name}
-      >
-        <Trash2 size={14} />
-        {deleteDatabaseSubmitting ? "Deleting..." : "Delete Database"}
-      </Button>
-    </div>
   </form>
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" onclick={() => (deleteDatabaseSheetOpen = false)}>Cancel</Button>
+    <Button
+      type="submit"
+      form="delete-database-form"
+      variant="danger"
+      size="sm"
+      disabled={deleteDatabaseSubmitting ||
+        deleteDatabaseForm.typedName.trim() !== deleteDatabaseForm.name}
+    >
+      <Trash2 size={14} />
+      {deleteDatabaseSubmitting ? "Deleting..." : "Delete Database"}
+    </Button>
+  {/snippet}
 </Sheet>
 
 <Sheet
@@ -1893,6 +1885,7 @@
   onclose={() => (uploadSheetOpen = false)}
 >
   <form
+    id="upload-data-form"
     class="space-y-4"
     onsubmit={(e) => {
       e.preventDefault();
@@ -2116,7 +2109,7 @@
         Preview
       </div>
       {#if uploadPreviewRows.length === 0}
-        <div class="text-xs text-fg-3">No preview rows yet.</div>
+        <EmptyState size="compact" title="No preview rows yet" description="Pick a file to see its first rows here." />
       {:else}
         <pre
           class="text-[11px] max-h-40 overflow-auto whitespace-pre-wrap break-all text-fg-2">{JSON.stringify(
@@ -2155,23 +2148,19 @@
         {/if}
       </Panel>
     {/if}
-
-    <div class="flex items-center justify-end gap-2 pt-1">
-      <Button
-        variant="outline"
-        size="sm"
-        onclick={() => (uploadSheetOpen = false)}>Cancel</Button
-      >
-      <Button
-        type="submit"
-        size="sm"
-        disabled={uploadSubmitting || uploadDiscovering}
-      >
-        <Upload size={14} />
-        {uploadSubmitting ? "Uploading..." : "Upload Data"}
-      </Button>
-    </div>
   </form>
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" onclick={() => (uploadSheetOpen = false)}>Cancel</Button>
+    <Button
+      type="submit"
+      form="upload-data-form"
+      size="sm"
+      disabled={uploadSubmitting || uploadDiscovering}
+    >
+      <Upload size={14} />
+      {uploadSubmitting ? "Uploading..." : "Upload Data"}
+    </Button>
+  {/snippet}
 </Sheet>
 
 <Sheet
@@ -2181,6 +2170,7 @@
   onclose={() => (deleteTableSheetOpen = false)}
 >
   <form
+    id="delete-table-form"
     class="space-y-4"
     onsubmit={(e) => {
       e.preventDefault();
@@ -2227,26 +2217,22 @@
         placeholder={`${deleteTableForm.database}.${deleteTableForm.name}`}
       />
     </FormField>
-
-    <div class="flex items-center justify-end gap-2 pt-1">
-      <Button
-        variant="outline"
-        size="sm"
-        onclick={() => (deleteTableSheetOpen = false)}>Cancel</Button
-      >
-      <Button
-        type="submit"
-        variant="danger"
-        size="sm"
-        disabled={deleteTableSubmitting ||
-          deleteTableForm.typedName.trim() !==
-            `${deleteTableForm.database}.${deleteTableForm.name}`}
-      >
-        <Trash2 size={14} />
-        {deleteTableSubmitting ? "Deleting..." : "Delete Table"}
-      </Button>
-    </div>
   </form>
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" onclick={() => (deleteTableSheetOpen = false)}>Cancel</Button>
+    <Button
+      type="submit"
+      form="delete-table-form"
+      variant="danger"
+      size="sm"
+      disabled={deleteTableSubmitting ||
+        deleteTableForm.typedName.trim() !==
+          `${deleteTableForm.database}.${deleteTableForm.name}`}
+    >
+      <Trash2 size={14} />
+      {deleteTableSubmitting ? "Deleting..." : "Delete Table"}
+    </Button>
+  {/snippet}
 </Sheet>
 
 <Sheet
