@@ -979,6 +979,7 @@
     localStorage.setItem('ch-ui-split-percent', String(splitPercent))
   }
 
+  const runShortcut = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘↵' : 'Ctrl+↵'
   const EDITOR_LINE_PX = 20
   const editorPaneStyle = $derived.by(() => {
     if (userSized) return `height: ${splitPercent}%`
@@ -1047,6 +1048,7 @@
         onformat={handleFormat}
         oncancel={handleCancel}
         {running}
+        placeholder="Write SQL here. {runShortcut} runs the statement under the cursor, Save keeps it for later."
       />
     </div>
   </div>

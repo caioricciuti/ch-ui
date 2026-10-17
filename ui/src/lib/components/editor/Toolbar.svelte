@@ -120,15 +120,16 @@
 
   <div class="flex-1"></div>
 
-  <!-- Utility: icons only -->
+  <!-- Utility: history as an icon, save with a label so a first-time user finds it -->
   {#if onhistory}
     <Button icon variant="ghost" size="sm" onclick={onhistory} title="Query history" aria-label="Query history">
       <History size={14} />
     </Button>
   {/if}
   {#if onsave}
-    <Button icon variant="ghost" size="sm" onclick={onsave} title="Save query ({saveShortcut})" aria-label="Save query">
-      <Save size={14} />
+    <Button variant="ghost" size="sm" onclick={onsave} title="Save query ({saveShortcut})">
+      <Save size={13} />
+      Save
     </Button>
   {/if}
 </div>

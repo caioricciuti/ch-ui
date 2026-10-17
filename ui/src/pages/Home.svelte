@@ -234,7 +234,7 @@ LIMIT 20`,
             Workspace Home
           </div>
           <h1 class="text-[20px] font-semibold text-fg">
-            Welcome back{session?.user ? `, ${session.user}` : ''}
+            {firstRun ? 'Welcome' : 'Welcome back'}{session?.user ? `, ${session.user}` : ''}
           </h1>
           <p class="text-[13px] text-fg-3">
             Start a new query, jump into saved work, or open tools quickly. Press
