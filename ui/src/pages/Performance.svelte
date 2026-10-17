@@ -212,7 +212,7 @@
   </PageHeader>
   <PageBody width="lg">
     <div class="space-y-4">
-      {#if error}<div role="alert" class="rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">{error}</div>{/if}
+      {#if error}<EmptyState size="compact" icon={AlertTriangle} title="Request failed" description={error} />{/if}
 
       {#if selected || detail}
         <Button variant="ghost" size="sm" disabled={busy} onclick={() => { selected = null; detail = null; detailSequence++ }}><ArrowLeft size={14} /> Back</Button>
@@ -267,7 +267,7 @@
       {:else if section === 'regressions'}
         <div class="flex flex-wrap items-end gap-3">
           <div><label for="performance-range" class="mb-1 block text-xs text-fg-3">Compare each window</label><Select id="performance-range" class="w-36" value={range} options={rangeOptions} onchange={v => { range = v as PerformanceRange; void load() }} disabled={loading} /></div>
-          <label class="flex h-8 items-center gap-2 text-xs text-fg-3"><input type="checkbox" bind:checked={allPatterns} /> All observed patterns</label>
+          <label class="ds-checkbox-label h-8"><input type="checkbox" class="ds-checkbox ds-checkbox-sm" bind:checked={allPatterns} /> All observed patterns</label>
           <div class="ml-auto flex items-center gap-2"><Search size={14} class="text-fg-4" /><Input type="search" bind:value={search} placeholder="Find a pattern or database" /></div>
         </div>
         {#if loading && !report}<div class="flex justify-center py-12"><Spinner /></div>

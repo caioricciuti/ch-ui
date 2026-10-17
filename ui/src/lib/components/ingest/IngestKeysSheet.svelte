@@ -5,7 +5,8 @@
   import Spinner from '../common/Spinner.svelte'
   import EmptyState from '../common/EmptyState.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
-  import InputDialog from '../common/InputDialog.svelte'
+  import FormField from '../common/FormField.svelte'
+  import Input from '../common/Input.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import IngestSecret from './IngestSecret.svelte'
   import { listIngestKeys, createIngestKey, revokeIngestKey } from '../../api/ingest'
@@ -35,6 +36,7 @@
   let naming = $state(false)
   let newName = $state('')
   let creating = $state(false)
+  let nameInput = $state<HTMLInputElement>()
   let revealed = $state<{ name: string; secret: string } | null>(null)
   let revokeTarget = $state<IngestKey | null>(null)
   let revoking = $state(false)
@@ -55,6 +57,25 @@
       void load()
     }
   })
+
+  $effect(() => {
+    if (naming) nameInput?.focus()
+  })
+
+  function startNaming() {
+    newName = ''
+    naming = true
+  }
+
+  function cancelNaming() {
+    naming = false
+    newName = ''
+  }
+
+  function submitCreate(e: SubmitEvent) {
+    e.preventDefault()
+    void create(newName.trim())
+  }
 
   async function load() {
     loading = true
@@ -111,6 +132,14 @@
       {/if}
     {/if}
 
+    {#if naming}
+      <form id="ingest-key-form" class="rounded-md bg-surface-2 p-3" onsubmit={submitCreate}>
+        <FormField label="Key name" for="ingest-key-name" required controlWidth="full" hint="Also the name shown in the key list. Use it to recognise the shipper, e.g. prod-collector.">
+          <Input id="ingest-key-name" placeholder="prod-collector" bind:value={newName} bind:ref={nameInput} disabled={creating} />
+        </FormField>
+      </form>
+    {/if}
+
     {#if error}
       <EmptyState size="compact" icon={AlertTriangle} title="Could not load keys" description={error} primary={{ label: 'Retry', onclick: () => void load() }} />
     {:else if loading && keys.length === 0}
@@ -155,22 +184,15 @@
   {#snippet footer()}
     <Button size="sm" variant="ghost" onclick={onclose}>Close</Button>
     {#if canWrite}
-      <Button size="sm" onclick={() => { newName = ''; naming = true }}><Plus size={14} /> Create key</Button>
+      {#if naming}
+        <Button size="sm" variant="outline" onclick={cancelNaming} disabled={creating}>Cancel</Button>
+        <Button size="sm" type="submit" form="ingest-key-form" loading={creating} disabled={!newName.trim()}>Create key</Button>
+      {:else}
+        <Button size="sm" onclick={startNaming}><Plus size={14} /> Create key</Button>
+      {/if}
     {/if}
   {/snippet}
 </Sheet>
-
-<InputDialog
-  open={naming}
-  title="Create ingest key"
-  description="A name to recognise the shipper that uses it, e.g. prod-collector."
-  placeholder="prod-collector"
-  bind:value={newName}
-  confirmLabel="Create key"
-  loading={creating}
-  onconfirm={create}
-  oncancel={() => (naming = false)}
-/>
 
 <ConfirmDialog
   open={revokeTarget !== null}

@@ -21,6 +21,7 @@
 <script lang="ts">
   import DatabaseTree from '../explorer/DatabaseTree.svelte'
   import Button from '../common/Button.svelte'
+  import Badge from '../common/Badge.svelte'
   import { openTableTab } from '../../stores/tabs.svelte'
   import { goTo, getRouteType } from '../../stores/router.svelte'
   import { getSession } from '../../stores/session.svelte'
@@ -174,7 +175,7 @@
             <meta.icon size={15} strokeWidth={1.75} class="shrink-0 {active ? 'text-accent' : 'text-fg-3'}" />
             <span class="truncate">{meta.label}</span>
             {#if meta.pro && !licensedPro}
-              <span class="ml-auto rounded-sm bg-surface-2 px-1 text-[9px] font-semibold uppercase tracking-wider text-fg-4">Pro</span>
+              <Badge tone="brand" class="ml-auto">Pro</Badge>
             {/if}
           </button>
           {#if active && sections.length > 0}
@@ -188,7 +189,7 @@
                 >
                   <span class="truncate">{s.label}</span>
                   {#if s.pro && !licensedPro}
-                    <span class="ml-auto rounded-sm bg-surface-2 px-1 text-[9px] font-semibold uppercase tracking-wider text-fg-4">Pro</span>
+                    <Badge tone="brand" class="ml-auto">Pro</Badge>
                   {/if}
                 </button>
               {/each}

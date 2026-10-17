@@ -23,6 +23,7 @@
   import { prefetchPage } from '../lib/components/layout/pageLoaders'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
   import Button from '../lib/components/common/Button.svelte'
+  import Badge from '../lib/components/common/Badge.svelte'
   import type { Tab } from '../lib/stores/tabs.svelte'
 
   interface QuickLink {
@@ -237,8 +238,7 @@ LIMIT 20`,
       <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div class="space-y-1">
           <div class="flex items-center gap-2">
-            <div class="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-2.5 py-0.5 text-[11px] font-medium text-accent">
-              <Home size={11} />
+            <div class="inline-flex items-center rounded-full bg-accent-soft px-2.5 py-0.5 text-[11px] font-medium text-accent">
               Workspace Home
             </div>
             <a
@@ -260,13 +260,10 @@ LIMIT 20`,
             for keyboard shortcuts.
           </p>
         </div>
-        <button
-          class="inline-flex h-8 items-center justify-center gap-2 rounded-md bg-accent px-3.5 text-[13px] font-medium text-accent-fg transition-[filter] hover:brightness-110"
-          onclick={() => openQueryTab()}
-        >
+        <Button onclick={() => openQueryTab()}>
           <SquareTerminal size={14} />
           Run Query
-        </button>
+        </Button>
       </div>
     </section>
 
@@ -287,7 +284,7 @@ LIMIT 20`,
               <p class="text-xs text-fg-3">{item.description}</p>
             </div>
             {#if item.locked}
-              <span class="shrink-0 self-start rounded-sm bg-surface-2 px-1 text-[9px] font-semibold uppercase tracking-wider text-fg-4">Pro</span>
+              <Badge tone="brand" class="shrink-0 self-start">Pro</Badge>
             {/if}
           </div>
         </button>
@@ -362,15 +359,13 @@ LIMIT 20`,
     <section class="space-y-3">
       <h2 class="text-[13px] font-semibold text-fg">Recently opened</h2>
       {#if recentTabs.length === 0}
-        <div class="rounded-md border border-dashed border-edge px-4 py-10 text-center">
-          <p class="text-[13px] text-fg-3">No recent workspace items yet.</p>
-          <button
-            class="mt-4 inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-3 text-xs font-medium text-fg-2 transition-colors hover:bg-hover hover:text-fg"
-            onclick={() => openQueryTab()}
-          >
-            <SquareTerminal size={13} />
-            Create first query
-          </button>
+        <div class="rounded-md border border-edge-subtle bg-surface">
+          <EmptyState
+            size="compact"
+            title="No recent workspace items yet"
+            description="Queries, tables and models you open show up here."
+            primary={{ label: 'Create first query', onclick: () => openQueryTab() }}
+          />
         </div>
       {:else}
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">

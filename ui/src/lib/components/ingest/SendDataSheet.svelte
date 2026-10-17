@@ -7,7 +7,7 @@
   import Spinner from '../common/Spinner.svelte'
   import FormField from '../common/FormField.svelte'
   import EmptyState from '../common/EmptyState.svelte'
-  import InputDialog from '../common/InputDialog.svelte'
+  import Input from '../common/Input.svelte'
   import IngestSecret from './IngestSecret.svelte'
   import { listPipelines } from '../../api/pipelines'
   import { createIngestKey, getIngestInfo } from '../../api/ingest'
@@ -52,6 +52,7 @@
   let naming = $state(false)
   let newName = $state('')
   let creating = $state(false)
+  let nameInput = $state<HTMLInputElement>()
 
   const canWrite = $derived((getSession()?.role ?? 'viewer') !== 'viewer')
   const selected = $derived(pipelines.find((p) => p.id === selectedId) ?? null)
@@ -74,6 +75,25 @@
   $effect(() => {
     if (shippers.length && !shippers.some((s) => s.id === shipper)) shipper = shippers[0].id
   })
+
+  $effect(() => {
+    if (naming) nameInput?.focus()
+  })
+
+  function startNaming() {
+    newName = ''
+    naming = true
+  }
+
+  function cancelNaming() {
+    naming = false
+    newName = ''
+  }
+
+  function submitCreate(e: SubmitEvent) {
+    e.preventDefault()
+    void create(newName.trim())
+  }
 
   async function load() {
     loading = true
@@ -161,10 +181,21 @@
         {:else}
           <div class="flex items-center justify-between gap-3 rounded-md bg-surface-2 px-3 py-2">
             <p class="text-xs text-fg-3">The snippet uses {KEY_PLACEHOLDER}. Use an existing key of this pipeline, or create one now to fill it in.</p>
-            {#if canWrite}
-              <Button size="sm" variant="outline" onclick={() => { newName = ''; naming = true }}>Create key</Button>
+            {#if canWrite && !naming}
+              <Button size="sm" variant="outline" onclick={startNaming}>Create key</Button>
             {/if}
           </div>
+          {#if naming}
+            <form class="space-y-3 rounded-md bg-surface-2 p-3" onsubmit={submitCreate}>
+              <FormField label="Key name" for="send-data-key-name" required controlWidth="full" hint="Also the name shown in the pipeline's key list. Use it to recognise the shipper, e.g. prod-collector.">
+                <Input id="send-data-key-name" placeholder="prod-collector" bind:value={newName} bind:ref={nameInput} disabled={creating} />
+              </FormField>
+              <div class="flex justify-end gap-2">
+                <Button size="sm" variant="ghost" onclick={cancelNaming} disabled={creating}>Cancel</Button>
+                <Button size="sm" type="submit" loading={creating} disabled={!newName.trim()}>Create key</Button>
+              </div>
+            </form>
+          {/if}
         {/if}
       </div>
 
@@ -201,15 +232,3 @@
     {/if}
   {/snippet}
 </Sheet>
-
-<InputDialog
-  open={naming}
-  title="Create ingest key"
-  description="A name to recognise the shipper that uses it, e.g. prod-collector."
-  placeholder="prod-collector"
-  bind:value={newName}
-  confirmLabel="Create key"
-  loading={creating}
-  onconfirm={create}
-  oncancel={() => (naming = false)}
-/>

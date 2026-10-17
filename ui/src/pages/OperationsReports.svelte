@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { FileText, RefreshCw, Send, Download } from 'lucide-svelte'
+  import { FileText, RefreshCw, Send, Download, AlertTriangle } from 'lucide-svelte'
   import { getReports, getReportSettings, getReportChannels, saveReportSettings, generateReport, sendReport, type ReportSettings, type OperationsReport } from '../lib/api/operationsReports'
   import { success, error as toastError } from '../lib/stores/toast.svelte'
   import { getSession } from '../lib/stores/session.svelte'
@@ -16,6 +16,8 @@
   import Input from '../lib/components/common/Input.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
   import Stat from '../lib/components/common/Stat.svelte'
+  import Select from '../lib/components/common/Select.svelte'
+  import EmptyState from '../lib/components/common/EmptyState.svelte'
 
   let reports = $state<OperationsReport[]>([])
   let settings = $state<ReportSettings | null>(null)
@@ -30,6 +32,8 @@
   /** A saved channel the list no longer offers: a webhook, or one turned off or deleted. Reports go out as email only. */
   const staleChannel = $derived(!!settings?.channel_id && !channels.some((c) => c.id === settings?.channel_id))
   const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  const weekdayOptions = weekdays.map((label, i) => ({ value: String(i), label }))
+  const channelOptions = $derived([{ value: '', label: 'In-app only' }, ...channels.map((c) => ({ value: c.id, label: `${c.name} · ${c.type}` }))])
 
   function errorMessage(e: unknown) { return e instanceof Error ? e.message : 'Request failed' }
   async function load() {
@@ -81,20 +85,20 @@
 </PageHeader>
 <PageBody width="full">
   {#if !admin}
-    <p class="text-[13px] text-fg-3">An administrator can configure and view operational reports for this connection.</p>
+    <EmptyState size="compact" title="Admins only" description="An administrator can configure and view operational reports for this connection." />
   {:else if loading}<Spinner />
-  {:else if loadError}<p role="alert" class="text-[13px] text-danger">{loadError}</p>
+  {:else if loadError}<EmptyState size="compact" icon={AlertTriangle} title="Could not load reports" description={loadError} primary={{ label: 'Retry', onclick: () => void load() }} />
   {:else}
     <div class="space-y-6">
       <p class="max-w-3xl text-[13px] text-fg-3">Save a weekly summary of regressions, CPU-heavy workloads, failures, storage growth and resolved investigations. Reports use observed system-table data and remain available after query logs expire.</p>
       {#if settings}
         <Panel>
           <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); void save() }}>
-            <div class="flex items-center justify-between"><h2 class="text-[13px] font-medium">Weekly schedule</h2><label class="flex items-center gap-2 text-[13px]"><input type="checkbox" bind:checked={settings.enabled} disabled={busy} /> Enabled</label></div>
+            <div class="flex items-center justify-between"><h2 class="text-[13px] font-medium">Weekly schedule</h2><label class="ds-checkbox-label"><input type="checkbox" class="ds-checkbox ds-checkbox-sm" bind:checked={settings.enabled} disabled={busy} /> Enabled</label></div>
             <div class="grid gap-4 md:grid-cols-3">
-              <FormField label="Day" for="report-day"><select id="report-day" class="ds-select w-full" bind:value={settings.weekday} disabled={busy}>{#each weekdays as day, i}<option value={i}>{day}</option>{/each}</select></FormField>
+              <FormField label="Day" for="report-day"><Select id="report-day" options={weekdayOptions} value={String(settings.weekday)} onchange={(v) => { if (settings) settings.weekday = Number(v) }} disabled={busy} /></FormField>
               <FormField label="Hour (UTC)" for="report-hour"><Input id="report-hour" type="number" min="0" max="23" bind:value={settings.hour} disabled={busy} required /></FormField>
-              <FormField label="Email channel" for="report-channel"><select id="report-channel" class="ds-select w-full" bind:value={settings.channel_id} disabled={busy}><option value="">In-app only</option>{#each channels as c}<option value={c.id}>{c.name} · {c.type}</option>{/each}</select></FormField>
+              <FormField label="Email channel" for="report-channel"><Select id="report-channel" options={channelOptions} bind:value={settings.channel_id} disabled={busy} /></FormField>
             </div>
             <FormField label="Email recipients" for="report-recipients" hint="Comma-separated addresses. Leave empty for in-app reports; email contains workload identifiers and operational metrics."><Input id="report-recipients" bind:value={recipients} placeholder="data-team@example.com" disabled={busy} /></FormField>
             <p class="text-xs text-fg-3">Configure a dedicated Weekly operations reports account under <button type="button" class="text-accent hover:underline" onclick={openBackgroundAccounts}>Admin → Connections → Background accounts</button> before enabling. Manual generation uses your current ClickHouse account. Email channels are managed under <button type="button" class="text-accent hover:underline" onclick={openAlertChannels}>Governance → Alert channels</button>.</p>
@@ -105,7 +109,7 @@
         </Panel>
       {/if}
       {#if !reports.length}
-        <Panel><p class="text-[13px] font-medium">Your first report starts here</p><p class="mt-1 text-[13px] text-fg-3">Generate a report to compare the last seven days with the previous seven. Missing history is labeled as insufficient data.</p></Panel>
+        <EmptyState size="compact" icon={FileText} title="Your first report starts here" description="Generate a report to compare the last seven days with the previous seven. Missing history is labeled as insufficient data." primary={{ label: 'Generate report', onclick: () => void generate() }} />
       {:else}
         <div class="grid gap-4 lg:grid-cols-[240px_1fr]">
           <nav aria-label="Saved reports" class="max-h-[600px] space-y-1 overflow-auto">{#each reports as report (report.id)}<button class="w-full rounded-md p-3 text-left hover:bg-hover {selected?.id === report.id ? 'bg-active' : ''}" onclick={() => selectedID = report.id}><span class="block text-[13px]">{new Date(report.created_at).toLocaleString()}</span><span class="text-xs text-fg-3">{report.delivery_status.replaceAll('_', ' ')}</span></button>{/each}</nav>
