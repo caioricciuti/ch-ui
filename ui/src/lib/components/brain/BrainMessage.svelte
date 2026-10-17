@@ -102,7 +102,7 @@
 
 {#if message.role === 'user'}
   <div class="flex justify-end">
-    <div class="max-w-[80%] bg-accent-soft text-fg rounded-lg rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap">{message.content}</div>
+    <div class="max-w-[80%] bg-accent-soft text-fg rounded-lg rounded-br-sm px-4 py-2.5 whitespace-pre-wrap">{message.content}</div>
   </div>
 {:else}
   <div class="flex justify-start">
@@ -122,7 +122,7 @@
       {#if message.content}
         {#each segments as seg}
           {#if seg.type === 'markdown'}
-            <div class="prose-brain text-sm text-fg">{@html seg.html}</div>
+            <div class="prose-brain text-fg">{@html seg.html}</div>
           {:else if seg.type === 'sql'}
             <BrainSqlBlock
               sql={seg.content}

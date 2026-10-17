@@ -11,7 +11,7 @@
 </script>
 
 <div class="w-full h-full overflow-y-auto px-4 py-3">
-  <div class="prose-panel text-sm text-fg">
+  <div class="prose-panel text-fg">
     {@html html}
   </div>
 </div>

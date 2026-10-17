@@ -218,7 +218,7 @@
     <div class="flex-1 overflow-y-auto -mx-1 px-1">
       <ul class="flex flex-col gap-1.5">
         {#each entries as entry (entry.id)}
-          <li class="group rounded-md border border-edge-subtle bg-canvas/60 hover:border-ch-orange/40 transition-colors">
+          <li class="group rounded-md border border-edge-subtle bg-canvas/60 hover:border-accent/40 transition-colors">
             <button
               class="w-full text-left px-3 pt-2 pb-1"
               onclick={() => onopen(entry.query_text)}

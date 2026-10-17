@@ -117,7 +117,7 @@
   <div class="relative flex items-center justify-between gap-2 px-2 py-1 text-[11px] text-fg-2">
     <span class="flex items-center gap-1.5 shrink-0 tabular-nums">
       <span
-        class="size-1.5 rounded-full {running ? 'bg-ch-orange animate-pulse' : 'bg-fg-4'}"
+        class="size-1.5 rounded-full {running ? 'bg-accent animate-pulse' : 'bg-fg-4'}"
         aria-hidden="true"
       ></span>
       {elapsed.toFixed(2)}s
@@ -126,7 +126,7 @@
     {#if readRows !== null}
       <span class="flex items-center gap-1.5 min-w-0 justify-end tabular-nums">
         {#if percent !== null}
-          <span class="shrink-0 font-medium text-ch-orange">{percent.toFixed(1)}%</span>
+          <span class="shrink-0 font-medium text-accent">{percent.toFixed(1)}%</span>
         {/if}
         <span class="truncate text-fg-3">
           read {formatCompactNumber(readRows)} {readRows === 1 ? 'row' : 'rows'}{readBytes !== null ? ` · ${formatBytes(readBytes)}` : ''}

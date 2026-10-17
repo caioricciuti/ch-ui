@@ -204,19 +204,19 @@
     switch (s) {
       case 'pending_approval': return 'text-warning'
       case 'error': return 'text-danger'
-      case 'declined': return 'text-muted-foreground'
+      case 'declined': return 'text-fg-3'
       case 'success': default: return 'text-success'
     }
   }
 </script>
 
 <div
-  class="w-full {compact ? 'mb-1' : 'mb-2'} rounded-lg border bg-card/60 text-xs overflow-hidden {isApproval ? 'border-warning/40 bg-warning-soft' : 'border-edge-subtle'}"
+  class="w-full {compact ? 'mb-1' : 'mb-2'} rounded-lg border bg-surface/60 text-xs overflow-hidden {isApproval ? 'border-warning/40 bg-warning-soft' : 'border-edge-subtle'}"
 >
   <button
     type="button"
     onclick={() => (expanded = !expanded)}
-    class="w-full text-left flex items-center gap-2 {compact ? 'px-2 py-1' : 'px-3 py-2'} hover:bg-card transition-colors"
+    class="w-full text-left flex items-center gap-2 {compact ? 'px-2 py-1' : 'px-3 py-2'} hover:bg-hover transition-colors"
   >
     <span class="flex-shrink-0 inline-flex items-center justify-center w-4">
       {#if effectiveStatus === 'pending' || effectiveStatus === 'running'}
@@ -226,20 +226,20 @@
         <span class="inline-flex {statusClass(effectiveStatus)}" title={effectiveStatus ?? 'success'}><StatusIcon size={13} /></span>
       {/if}
     </span>
-    <span class="font-mono font-medium text-foreground">{label}</span>
+    <span class="font-mono font-medium text-fg">{label}</span>
     {#if queryRowSummary}
-      <span class="text-muted-foreground truncate">{queryRowSummary}</span>
+      <span class="text-fg-3 truncate">{queryRowSummary}</span>
     {:else if summary}
-      <span class="text-muted-foreground truncate">{summary}</span>
+      <span class="text-fg-3 truncate">{summary}</span>
     {/if}
     {#if isApproval}
       <span class="ml-auto text-[10px] uppercase tracking-wide text-warning font-semibold">Needs approval</span>
     {:else if localDecision === 'approved' && effectiveStatus === 'pending'}
       <span class="ml-auto text-[10px] uppercase tracking-wide text-accent font-semibold">Running…</span>
     {:else if localDecision === 'declined' && effectiveStatus === 'declined'}
-      <span class="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Declined</span>
+      <span class="ml-auto text-[10px] uppercase tracking-wide text-fg-3 font-semibold">Declined</span>
     {:else}
-      <span class="ml-auto text-muted-foreground/60 text-[10px]">
+      <span class="ml-auto text-fg-3/60 text-[10px]">
         {expanded ? 'collapse' : 'details'}
       </span>
     {/if}
@@ -264,22 +264,22 @@
   {/if}
 
   {#if openUrl && effectiveStatus === 'success' && isWrite}
-    <div class="border-t border-border px-3 py-2 bg-background/50">
+    <div class="border-t border-edge px-3 py-2 bg-canvas/50">
       <a href={openUrl} class="text-[11px] text-accent hover:underline">Open →</a>
     </div>
   {/if}
 
   {#if expanded}
-    <div class="border-t border-border bg-background/50 px-3 py-2 space-y-2">
+    <div class="border-t border-edge bg-canvas/50 px-3 py-2 space-y-2">
       {#if explainText}
         <div>
-          <div class="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">EXPLAIN</div>
+          <div class="text-[10px] uppercase tracking-wide text-fg-3 mb-1">EXPLAIN</div>
           <pre class="text-[11px] font-mono whitespace-pre overflow-auto max-h-80 rounded bg-surface-2 px-2 py-1 text-fg">{explainText}</pre>
         </div>
       {/if}
       {#if compareRows}
         <div>
-          <div class="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Estimated data read</div>
+          <div class="text-[10px] uppercase tracking-wide text-fg-3 mb-1">Estimated data read</div>
           <div class="overflow-x-auto">
             <table class="w-full border-collapse text-[11px]">
               <thead>
@@ -307,13 +307,13 @@
       {/if}
       {#if toolCall.args != null}
         <div>
-          <div class="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Args</div>
+          <div class="text-[10px] uppercase tracking-wide text-fg-3 mb-1">Args</div>
           <pre class="text-[11px] font-mono whitespace-pre-wrap break-all">{formatResult(toolCall.args)}</pre>
         </div>
       {/if}
       {#if resultPreview}
         <div>
-          <div class="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Result</div>
+          <div class="text-[10px] uppercase tracking-wide text-fg-3 mb-1">Result</div>
           <pre class="text-[11px] font-mono whitespace-pre-wrap break-all max-h-64 overflow-auto">{resultPreview}</pre>
         </div>
       {/if}

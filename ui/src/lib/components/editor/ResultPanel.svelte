@@ -196,7 +196,7 @@
   {#if loading && meta.length === 0}
     <div class="flex flex-col items-center justify-center flex-1 gap-2 text-fg-3">
       <Spinner size="sm" />
-      <span class="text-sm">Executing query...</span>
+      <span>Executing query...</span>
       {#if streamRows > 0}
         <span class="text-xs text-fg-4 tabular-nums">{formatNumber(streamRows)} rows received</span>
       {/if}
@@ -261,7 +261,7 @@
   {:else if meta.length === 0}
     <div class="flex flex-col items-center justify-center flex-1 gap-2 text-fg-4">
       <SquareTerminal size={28} class="text-fg-4" />
-      <p class="text-sm">Run a query to see results</p>
+      <p>Run a query to see results</p>
       <p class="text-xs text-fg-4">Cmd/Ctrl+Enter to execute</p>
     </div>
   {:else}

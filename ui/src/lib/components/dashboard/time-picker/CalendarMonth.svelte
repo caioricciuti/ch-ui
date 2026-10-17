@@ -51,7 +51,7 @@
 </script>
 
 <div class="select-none">
-  <div class="text-center text-sm font-semibold text-fg mb-2">
+  <div class="text-center text-[13px] font-semibold text-fg mb-2">
     {title}
   </div>
 

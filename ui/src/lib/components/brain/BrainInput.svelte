@@ -309,7 +309,7 @@
     {/if}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="brain-editable flex-1 text-sm bg-transparent border border-edge rounded-lg px-3 py-2 text-fg min-h-[44px] max-h-[200px] overflow-auto focus:outline-none focus:border-accent/50 transition-colors"
+      class="brain-editable flex-1 bg-transparent border border-edge rounded-lg px-3 py-2 text-fg min-h-[44px] max-h-[200px] overflow-auto focus:outline-none focus:border-accent/50 transition-colors"
       contenteditable={!streaming}
       role="textbox"
       aria-label="Message Brain"

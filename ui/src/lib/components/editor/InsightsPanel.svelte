@@ -232,19 +232,19 @@
   <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
     <div class="surface-card rounded-md p-3">
       <div class="text-[11px] uppercase tracking-wider text-fg-3 inline-flex items-center gap-1.5"><Activity size={13} />Runtime</div>
-      <div class="mt-2 text-xl font-semibold text-fg">{elapsedMs > 0 ? formatElapsed(elapsedSeconds) : '\u2014'}</div>
+      <div class="mt-2 text-2xl font-semibold tabular-nums text-fg">{elapsedMs > 0 ? formatElapsed(elapsedSeconds) : '\u2014'}</div>
       <div class="mt-1 text-xs text-fg-3">{formatNumber(data.length)} rows returned</div>
     </div>
 
     <div class="surface-card rounded-md p-3">
       <div class="text-[11px] uppercase tracking-wider text-fg-3 inline-flex items-center gap-1.5"><Gauge size={13} />Inline Profiling</div>
-      <div class="mt-2 text-sm font-semibold text-fg">{rowsPerSec > 0 ? formatNumber(Math.round(rowsPerSec)) : '0'} rows/s</div>
+      <div class="mt-2 text-[15px] font-semibold tabular-nums text-fg">{rowsPerSec > 0 ? formatNumber(Math.round(rowsPerSec)) : '0'} rows/s</div>
       <div class="mt-1 text-xs text-fg-3">{throughputBytesPerSec > 0 ? formatBytes(throughputBytesPerSec) : '0 B'}/s (estimated)</div>
     </div>
 
     <div class="surface-card rounded-md p-3">
       <div class="text-[11px] uppercase tracking-wider text-fg-3 inline-flex items-center gap-1.5"><Layers3 size={13} />Streaming Viewer</div>
-      <div class="mt-2 text-sm font-semibold text-fg">{formatNumber(streamRows || data.length)} rows, {formatNumber(streamChunks)} chunks</div>
+      <div class="mt-2 text-[15px] font-semibold tabular-nums text-fg">{formatNumber(streamRows || data.length)} rows, {formatNumber(streamChunks)} chunks</div>
       <div class="mt-1 text-xs text-fg-3">
         {#if running}
           Live ingest running...
@@ -367,7 +367,7 @@
                 <span class="text-fg-3">{formatBytes(col.bytes)} ({col.pct.toFixed(1)}%)</span>
               </div>
               <div class="mt-1 h-1.5 rounded bg-surface-2 overflow-hidden">
-                <div class="h-full bg-ch-orange/80" style={`width:${Math.max(3, col.pct)}%`}></div>
+                <div class="h-full bg-accent/80" style={`width:${Math.max(3, col.pct)}%`}></div>
               </div>
               <div class="mt-0.5 text-[11px] text-fg-3">{col.type} · avg {formatBytes(col.avgBytes)}/row</div>
             </div>
@@ -402,7 +402,7 @@
             <div class="grid grid-cols-[90px_1fr_42px] items-center gap-2 text-[11px]">
               <span class="text-fg-3 font-mono truncate">{bin.from.toFixed(2)}</span>
               <div class="h-3 rounded bg-surface-2 overflow-hidden">
-                <div class="h-full bg-ch-orange/80" style={`width:${Math.max(bin.widthPct, 2)}%`}></div>
+                <div class="h-full bg-accent/80" style={`width:${Math.max(bin.widthPct, 2)}%`}></div>
               </div>
               <span class="text-right text-fg-2">{bin.count}</span>
             </div>

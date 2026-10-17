@@ -79,7 +79,7 @@
 
   const choiceClass = (active: boolean) =>
     active ? 'border-accent bg-accent-soft text-accent' : 'border-edge-subtle text-fg-3 hover:border-edge hover:text-fg'
-  const inputClass = 'w-full text-sm bg-transparent border border-edge rounded px-2 py-1.5 text-fg'
+  const inputClass = 'w-full bg-transparent border border-edge rounded px-2 py-1.5 text-fg'
 </script>
 
 <div>

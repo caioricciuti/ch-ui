@@ -258,7 +258,7 @@
     {/if}
     {#each options as opt, i (opt.key)}
       <button
-        class="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors
+        class="w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors
  {i === selectedIndex ? 'bg-accent-soft text-accent' : 'text-fg-2 hover:bg-hover'}"
         onmouseenter={() => selectedIndex = i}
         onclick={() => opt.action()}
@@ -270,7 +270,7 @@
         {/if}
         <span class="truncate">{opt.label}</span>
         {#if opt.hint}
-          <span class="ml-auto text-[10px] text-muted-foreground truncate max-w-[40%]">{opt.hint}</span>
+          <span class="ml-auto text-[10px] text-fg-3 truncate max-w-[40%]">{opt.hint}</span>
         {/if}
       </button>
     {/each}

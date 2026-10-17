@@ -308,7 +308,7 @@
       {#if dashboard}
         <div class="flex items-center gap-2">
           <LayoutDashboard size={16} class="text-accent" />
-          <h1 class="text-sm font-semibold">{dashboard.name}</h1>
+          <h1 class="text-[15px] font-semibold">{dashboard.name}</h1>
         </div>
         {#if dashboard.description}
           <span class="text-xs text-fg-3 truncate max-w-[40ch]">{dashboard.description}</span>
@@ -351,7 +351,7 @@
       <div class="flex flex-col items-center justify-center py-20 gap-3">
         {#if isPrivateError}
           <Lock size={36} class="text-fg-4" />
-          <p class="text-sm font-medium text-fg-2">This dashboard is private</p>
+          <p class="font-medium text-fg-2">This dashboard is private</p>
           <p class="text-xs text-fg-3 max-w-sm text-center">Access requires an invite. Check your email for a magic link from the dashboard owner.</p>
         {:else}
           <LayoutDashboard size={36} class="text-fg-4" />
@@ -361,7 +361,7 @@
     {:else if panels.length === 0}
       <div class="flex flex-col items-center justify-center py-20 gap-2 text-fg-3">
         <LayoutDashboard size={36} class="text-fg-4" />
-        <p class="text-sm">This dashboard has no panels</p>
+        <p>This dashboard has no panels</p>
       </div>
     {:else}
       <div bind:this={gridEl} class="relative w-full" style="min-height: {totalHeight}px;">
