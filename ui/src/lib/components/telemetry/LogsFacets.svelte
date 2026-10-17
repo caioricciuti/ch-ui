@@ -2,6 +2,7 @@
   import { ChevronRight, ChevronDown, AlertTriangle } from 'lucide-svelte'
   import Badge from '../common/Badge.svelte'
   import Spinner from '../common/Spinner.svelte'
+  import Skeleton from '../common/Skeleton.svelte'
   import EmptyState from '../common/EmptyState.svelte'
   import type { LogFacets } from '../../types/telemetry'
   import { severityTone } from './severity'
@@ -110,7 +111,7 @@
                 <span class="ml-auto shrink-0 tabular-nums">{formatNumber(v.count)}</span>
               </button>
             {:else}
-              <p class="px-1.5 py-1 text-[11px] text-fg-4">Loading…</p>
+              <Skeleton variant="text" rows={3} label="Loading values" class="px-1.5 py-1" />
             {/each}
           </div>
         {/if}

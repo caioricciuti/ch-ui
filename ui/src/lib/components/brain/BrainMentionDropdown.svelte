@@ -9,6 +9,7 @@
   import type { Model } from '../../types/models'
   import type { Pipeline } from '../../types/pipelines'
   import { Database, LayoutDashboard, GitBranch, Box, FileText, Loader2 } from 'lucide-svelte'
+  import Skeleton from '../common/Skeleton.svelte'
 
   interface Props {
     query: string
@@ -253,10 +254,7 @@
 {#if options.length > 0 || (!entitiesLoaded && query.includes('/'))}
   <div class="absolute bottom-full left-0 right-0 mb-1 max-h-60 overflow-auto rounded-lg border border-edge-subtle bg-surface shadow-lg z-50" bind:this={listEl}>
     {#if !entitiesLoaded && query.includes('/') && options.length === 0}
-      <div class="px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
-        <Loader2 size={12} class="animate-spin" />
-        Loading...
-      </div>
+      <Skeleton variant="text" rows={3} label="Loading mentions" class="px-3 py-2" />
     {/if}
     {#each options as opt, i (opt.key)}
       <button

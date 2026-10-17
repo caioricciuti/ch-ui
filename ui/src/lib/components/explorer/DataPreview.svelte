@@ -2,7 +2,7 @@
   import type { ColumnMeta } from '../../types/query'
   import { fetchExplorerData } from '../../api/query'
   import VirtualTable from '../table/VirtualTable.svelte'
-  import Spinner from '../common/Spinner.svelte'
+  import Skeleton from '../common/Skeleton.svelte'
 
   interface Props {
     database: string
@@ -51,9 +51,8 @@
   </div>
 
   {#if loading && meta.length === 0}
-    <div class="flex items-center justify-center flex-1 gap-2">
-      <Spinner size="sm" />
-      <span class="text-[13px] text-fg-3">Loading...</span>
+    <div class="flex-1 min-h-0 overflow-hidden">
+      <Skeleton variant="rows" rows={6} label="Loading sample rows" />
     </div>
   {:else if error}
     <div class="p-4">
