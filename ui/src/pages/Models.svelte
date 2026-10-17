@@ -9,14 +9,16 @@
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
   import ContextMenu from '../lib/components/common/ContextMenu.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
-  import { docsURL } from '../lib/routes'
+  import PageBody from '../lib/components/common/PageBody.svelte'
+  import SectionHeader from '../lib/components/common/SectionHeader.svelte'
+  import { PAGE_SECTIONS, docsURL } from '../lib/routes'
+  import { getSection, setSection } from '../lib/stores/nav.svelte'
   import Button from '../lib/components/common/Button.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
   import Skeleton from '../lib/components/common/Skeleton.svelte'
   import Sheet from '../lib/components/common/Sheet.svelte'
   import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
-  import { trapFocus } from '../lib/utils/focus-trap'
   import FormField from '../lib/components/common/FormField.svelte'
   import Input from '../lib/components/common/Input.svelte'
   import Select from '../lib/components/common/Select.svelte'
@@ -43,18 +45,14 @@
   import { getTheme } from '../lib/stores/theme.svelte'
   import {
     Boxes,
-    Plus,
-    Play,
     Trash2,
-    RefreshCw,
     Eye,
     MoreHorizontal,
     GitBranch,
     History,
     X,
-    Info,
     Code,
-    Pencil,
+    Search,
     ArrowUpFromLine,
     ArrowDownFromLine,
     RotateCcw,
@@ -66,10 +64,26 @@
   let models = $state<Model[]>([])
   let loading = $state(true)
 
-  // DAG overlay
-  let showDAG = $state(false)
+  // The sidebar drives the section through ?section=.
+  type Section = 'models' | 'graph' | 'history'
+  const SECTIONS: readonly Section[] = ['models', 'graph', 'history']
+  const isSection = (v: string | null): v is Section => (SECTIONS as readonly string[]).includes(v ?? '')
+  const section = $derived.by<Section>(() => {
+    const current = getSection()
+    return isSection(current) ? current : 'models'
+  })
+  const sectionLabel = $derived((PAGE_SECTIONS.models ?? []).find((s) => s.id === section)?.label ?? 'Models')
+
+  // Toolbar filters for the models section
+  let search = $state('')
+  // 'all', 'ungrouped' or a pipeline id
+  let pipelineFilter = $state('all')
+
+  // Dependency graph
   let dagNodes = $state<Node[]>([])
   let dagEdges = $state<Edge[]>([])
+  // Bumped to remount the canvas, which re-applies fitView.
+  let dagFit = $state(0)
 
   // DAG edges for dependency pills (raw from API)
   let dagEdgesRaw = $state<DAGEdge[]>([])
@@ -88,8 +102,7 @@
     return map
   })
 
-  // History overlay
-  let showHistory = $state(false)
+  // Run history
   let runs = $state<ModelRun[]>([])
   // Run whose per-model results are open in the run sheet.
   let selectedRunId = $state<string | null>(null)
@@ -152,6 +165,36 @@
     const grouped = new Set(pipelines.flatMap(p => p.model_ids))
     const fromServer = new Set(serverUngrouped ?? [])
     return models.filter(m => fromServer.has(m.id) || !grouped.has(m.id))
+  })
+
+  const pipelineFilterOptions = $derived([
+    { value: 'all', label: 'All pipelines' },
+    ...pipelines.map((p) => ({ value: p.id, label: p.name })),
+    { value: 'ungrouped', label: 'Ungrouped' },
+  ])
+
+  function matchesSearch(m: Model): boolean {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    return m.name.toLowerCase().includes(q)
+      || m.target_database.toLowerCase().includes(q)
+      || (m.description ?? '').toLowerCase().includes(q)
+  }
+
+  // Pipelines shown as groups, with their models narrowed by the search.
+  const visiblePipelines = $derived.by(() => {
+    const picked = pipelines.filter((p) => pipelineFilter === 'all' || pipelineFilter === p.id)
+    if (!search.trim()) return picked
+    return picked.filter((p) => pipelineModels(p).some(matchesSearch))
+  })
+  const visibleUngrouped = $derived(
+    pipelineFilter === 'all' || pipelineFilter === 'ungrouped' ? ungroupedModels.filter(matchesSearch) : [],
+  )
+  const visibleCount = $derived.by(() => {
+    const ids = new Set<string>()
+    for (const p of visiblePipelines) for (const m of pipelineModels(p)) if (matchesSearch(m)) ids.add(m.id)
+    for (const m of visibleUngrouped) ids.add(m.id)
+    return ids.size
   })
 
   // Context menu
@@ -220,6 +263,17 @@
     await loadModels()
     loadDAG()
     loadPipelines()
+  })
+
+  // Entering a section through the sidebar reloads what it shows, the
+  // same as the old DAG and History buttons did.
+  let lastSection: Section | null = null
+  $effect(() => {
+    const next = section
+    if (next === lastSection) return
+    lastSection = next
+    if (next === 'graph') refreshDAG()
+    else if (next === 'history') loadRuns()
   })
 
   // ── Data loading ───────────────────────────────────────────────────
@@ -434,7 +488,7 @@
     selectedRunId = res.run_id
     resultDetail = null
     await loadRunResults(res.run_id)
-    showHistory = true
+    setSection('history')
   }
 
   // ── Navigation ─────────────────────────────────────────────────────
@@ -445,14 +499,9 @@
     openModelTab(model)
   }
 
-  function openDAG() {
-    loadDAG()
-    showDAG = true
-  }
-
-  function openHistory() {
-    loadRuns()
-    showHistory = true
+  async function refreshDAG() {
+    await loadDAG()
+    dagFit++
   }
 
   function openRun(runId: string) {
@@ -551,12 +600,14 @@
   ]
 </script>
 
-{#snippet modelTable(rows: Model[])}
+{#snippet modelTable(rows: Model[], opts: { fill?: boolean; emptyTitle?: string; emptyDescription?: string })}
   <DataTable
     columns={modelColumns}
     rows={asRows(rows)}
     rowKey={(r) => String(r.id)}
-    framed={false}
+    fill={opts.fill ?? false}
+    emptyTitle={opts.emptyTitle ?? 'Nothing matches'}
+    emptyDescription={opts.emptyDescription ?? 'Try another search or pipeline.'}
     onrowclick={(r) => selectModel(String(r.id))}
     onrowcontextmenu={(r, e) => { const m = models.find((x) => x.id === String(r.id)); if (m) openContextMenuAtPointer(e, m) }}
   >
@@ -608,8 +659,51 @@
   </DataTable>
 {/snippet}
 
+{#snippet pipelineGroup(pipeline: ModelPipeline)}
+  {@const picked = pipelineModels(pipeline)}
+  {@const shown = picked.filter(matchesSearch)}
+  {@const nextRun = pipeline.next_runs[0] ?? pipeline.next_run_at}
+  {@const schedule = pipeline.cron ? `${pipeline.cron} ${pipeline.timezone}` : 'Not scheduled'}
+  <section>
+    <SectionHeader
+      title={pipeline.name}
+      description={`${pipeline.selector || '*'} · ${schedule}${pipeline.enabled && pipeline.cron && nextRun ? ` · Next ${formatDate(nextRun)}` : ''}`}
+    >
+      {#snippet actions()}
+        {#if pipeline.cron}
+          <Badge tone={pipeline.enabled ? 'success' : 'warning'}>{pipeline.enabled ? 'enabled' : 'paused'}</Badge>
+        {/if}
+        {#if pipeline.last_status}
+          <Badge tone={statusTone(pipeline.last_status)} title={pipeline.last_error ?? undefined}>last run {pipeline.last_status}</Badge>
+        {/if}
+        <Button
+          size="xs"
+          variant="ghost"
+          onclick={() => handleRunPipeline(pipeline)}
+          disabled={runningPipeline !== null || running || picked.length === 0}
+          title="Run this pipeline now"
+        >
+          {runningPipeline === pipeline.id ? 'Running...' : 'Run'}
+        </Button>
+        <Button size="xs" variant="ghost" onclick={() => openEditPipeline(pipeline)} title="Edit pipeline">Edit</Button>
+        <Button icon size="xs" variant="ghost" onclick={() => { pendingPipelineDelete = pipeline }} aria-label="Delete pipeline" title="Delete pipeline">
+          <Trash2 size={12} />
+        </Button>
+      {/snippet}
+    </SectionHeader>
+    {#if pipeline.selector_error}
+      <p class="mb-2 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger" role="alert">{pipeline.selector_error}</p>
+    {:else if pipeline.last_status === 'error' && pipeline.last_error}
+      <p class="mb-2 truncate text-xs text-danger" title={pipeline.last_error}>Last run: {pipeline.last_error}</p>
+    {/if}
+    {@render modelTable(shown, picked.length === 0
+      ? { emptyTitle: 'The selector picks no models', emptyDescription: 'Edit the pipeline to change its selector.' }
+      : {})}
+  </section>
+{/snippet}
+
 <div class="flex h-full min-h-0 flex-col overflow-hidden">
-  <PageHeader title="Models" subtitle="SQL transformations that run in dependency order" docs={docsURL('models')}>
+  <PageHeader title="Models" subtitle={sectionLabel} docs={docsURL('models', section)}>
     {#snippet meta()}
       {#if !loading}
         <Badge tone="neutral">{models.length} model{models.length !== 1 ? 's' : ''}</Badge>
@@ -617,6 +711,7 @@
       {/if}
     {/snippet}
     {#snippet actions()}
+      <GitHubSyncButton onsynced={async () => { await loadModels(); loadDAG(); loadPipelines() }} />
       <Button
         size="sm"
         variant="outline"
@@ -624,146 +719,21 @@
         disabled={running || models.length === 0}
         title="Run all models in dependency order"
       >
-        <Play size={13} /> {running ? 'Running...' : 'Run all'}
+        {running ? 'Running...' : 'Run all'}
       </Button>
-      <Button size="sm" variant="outline" onclick={openDAG} disabled={models.length === 0} title="Dependency graph">
-        <GitBranch size={13} /> DAG
-      </Button>
-      <Button size="sm" variant="outline" onclick={openHistory} title="Run history">
-        <History size={13} /> History
-      </Button>
-      <GitHubSyncButton onsynced={async () => { await loadModels(); loadDAG(); loadPipelines() }} />
-      <Button size="sm" variant="outline" onclick={openNewPipeline} disabled={models.length === 0}>
-        <Plus size={13} /> New pipeline
-      </Button>
-      <Button size="sm" onclick={handleCreate}>
-        <Plus size={14} /> New model
-      </Button>
+      <Button size="sm" variant="outline" onclick={openNewPipeline} disabled={models.length === 0}>New pipeline</Button>
+      <Button size="sm" onclick={handleCreate}>New model</Button>
     {/snippet}
   </PageHeader>
 
-  <!-- ─── Content ─────────────────────────────────────────────────── -->
-  <div class="min-h-0 flex-1 overflow-auto">
-    {#if loading}
-      <Skeleton variant="rows" rows={6} label="Loading models" />
-    {:else if models.length === 0}
-      <div class="flex h-full items-center justify-center">
-        <EmptyState
-          icon={Boxes}
-          title="No models yet"
-          description="Models are SQL transformations that form a pipeline. They can reference each other with $ref(model_name) and run in dependency order."
-          primary={{ label: 'Create your first model', onclick: handleCreate }}
-        />
+  {#if section === 'graph'}
+    <!-- ─── Dependency graph ─────────────────────────────────────── -->
+    <div class="flex h-10 shrink-0 items-center gap-2 border-b border-edge-subtle px-5">
+      <span class="text-xs text-fg-4">{dagNodes.length} node{dagNodes.length !== 1 ? 's' : ''}, {dagEdges.length} edge{dagEdges.length !== 1 ? 's' : ''}</span>
+      <div class="ml-auto flex items-center gap-1">
+        <Button size="sm" variant="ghost" onclick={() => { dagFit++ }} disabled={dagNodes.length === 0}>Fit</Button>
+        <Button size="sm" variant="ghost" onclick={refreshDAG}>Refresh</Button>
       </div>
-    {:else}
-      {#if !infoDismissed}
-        <div class="mx-5 mt-5 flex items-start gap-2.5 rounded-md bg-info-soft px-3 py-2.5 text-xs leading-relaxed text-fg-2">
-          <Info size={14} class="mt-0.5 shrink-0 text-info" />
-          <p class="flex-1">
-            Models are SQL transformations. Use <code class="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-[11px] text-fg">$ref(model_name)</code> to reference other models.
-            A <span class="font-semibold">pipeline</span> is a named group picked by a selector, run and scheduled together.
-            <span class="font-semibold">Run all</span> executes every model in dependency order; if a model fails, its dependents are skipped.
-          </p>
-          <button onclick={dismissInfo} class="mt-0.5 shrink-0 text-fg-4 hover:text-fg" title="Dismiss" aria-label="Dismiss">
-            <X size={14} />
-          </button>
-        </div>
-      {/if}
-      <div class="space-y-4 p-5">
-        {#each pipelines as pipeline (pipeline.id)}
-          {@const picked = pipelineModels(pipeline)}
-          {@const nextRun = pipeline.next_runs[0] ?? pipeline.next_run_at}
-          <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-edge-subtle px-4 py-2 text-xs">
-              <span class="text-[13px] font-medium text-fg">{pipeline.name}</span>
-              <code class="rounded-sm bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-fg-2" title="Selector">{pipeline.selector || '*'}</code>
-              <span class="text-fg-3">{picked.length} model{picked.length !== 1 ? 's' : ''}</span>
-              {#if pipeline.cron}
-                <span class="text-fg-4">|</span>
-                <span class="font-mono text-fg-2">{pipeline.cron}</span>
-                <span class="text-fg-3">{pipeline.timezone}</span>
-                <Badge tone={pipeline.enabled ? 'success' : 'warning'}>{pipeline.enabled ? 'enabled' : 'paused'}</Badge>
-                {#if pipeline.enabled && nextRun}
-                  <span class="tabular-nums text-fg-3">Next {formatDate(nextRun)}</span>
-                {/if}
-              {:else}
-                <span class="text-fg-4">|</span>
-                <span class="text-fg-3">Not scheduled</span>
-              {/if}
-              {#if pipeline.last_status}
-                <Badge tone={statusTone(pipeline.last_status)} title={pipeline.last_error ?? undefined}>last run {pipeline.last_status}</Badge>
-              {/if}
-              <div class="flex-1"></div>
-              <Button
-                size="xs"
-                variant="ghost"
-                onclick={() => handleRunPipeline(pipeline)}
-                disabled={runningPipeline !== null || running || picked.length === 0}
-                title="Run this pipeline now"
-              >
-                <Play size={11} />
-                {runningPipeline === pipeline.id ? 'Running...' : 'Run'}
-              </Button>
-              <Button size="xs" variant="ghost" onclick={() => openEditPipeline(pipeline)} title="Edit pipeline">
-                <Pencil size={11} /> Edit
-              </Button>
-              <Button icon size="xs" variant="ghost" onclick={() => { pendingPipelineDelete = pipeline }} aria-label="Delete pipeline" title="Delete pipeline">
-                <Trash2 size={12} />
-              </Button>
-            </div>
-            {#if pipeline.selector_error}
-              <div class="border-b border-edge-subtle bg-danger-soft px-4 py-2 text-xs text-danger" role="alert">
-                {pipeline.selector_error}
-              </div>
-            {/if}
-            {#if pipeline.last_status === 'error' && pipeline.last_error}
-              <div class="truncate border-b border-edge-subtle px-4 py-1.5 text-xs text-danger" title={pipeline.last_error}>
-                Last run: {pipeline.last_error}
-              </div>
-            {/if}
-            {#if picked.length > 0}
-              {@render modelTable(picked)}
-            {:else if !pipeline.selector_error}
-              <EmptyState size="compact" title="The selector picks no models" description="Edit the pipeline to change its selector." />
-            {/if}
-          </div>
-        {/each}
-
-        {#if ungroupedModels.length > 0}
-          <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-edge-subtle px-4 py-2 text-xs">
-              <span class="text-[13px] font-medium text-fg">{pipelines.length > 0 ? 'Ungrouped' : 'All models'}</span>
-              <span class="text-fg-3">{ungroupedModels.length} model{ungroupedModels.length !== 1 ? 's' : ''}</span>
-              <span class="text-fg-4">|</span>
-              <span class="text-fg-3">
-                {pipelines.length > 0 ? 'Not picked by any pipeline; Run all still runs them.' : 'Create a pipeline to run and schedule a group of models together.'}
-              </span>
-            </div>
-            {@render modelTable(ungroupedModels)}
-          </div>
-        {/if}
-      </div>
-    {/if}
-  </div>
-</div>
-
-<!-- ─── DAG Overlay ──────────────────────────────────────────────── -->
-{#if showDAG}
-  <div
-    class="fixed inset-0 z-50 flex flex-col bg-canvas"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="models-dag-title"
-    tabindex="-1"
-    use:trapFocus
-    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); showDAG = false } }}
-  >
-    <div class="flex h-12 shrink-0 items-center gap-3 border-b border-edge-subtle px-5">
-      <h2 id="models-dag-title" class="flex-1 text-[15px] font-semibold tracking-[-0.01em] text-fg">Dependency graph</h2>
-      <Button size="sm" variant="ghost" onclick={loadDAG}>
-        <RefreshCw size={12} /> Refresh
-      </Button>
-      <Button size="sm" variant="outline" onclick={() => { showDAG = false }}>Close</Button>
     </div>
     <div class="min-h-0 flex-1">
       {#if dagNodes.length === 0 && models.length === 0}
@@ -773,170 +743,206 @@
       {:else if dagNodes.length === 0}
         <Skeleton variant="block" label="Loading dependency graph" class="p-5" />
       {:else}
-        <SvelteFlow
-          nodes={dagNodes}
-          edges={dagEdges}
-          {nodeTypes}
-          fitView
-          colorMode={theme === 'dark' ? 'dark' : 'light'}
-          onnodeclick={({ node }) => { showDAG = false; selectModel(node.id); }}
-        >
-          <Background />
-          <Controls />
-        </SvelteFlow>
+        {#key dagFit}
+          <SvelteFlow
+            nodes={dagNodes}
+            edges={dagEdges}
+            {nodeTypes}
+            fitView
+            colorMode={theme === 'dark' ? 'dark' : 'light'}
+            onnodeclick={({ node }) => selectModel(node.id)}
+          >
+            <Background />
+            <Controls />
+          </SvelteFlow>
+        {/key}
       {/if}
     </div>
-  </div>
-{/if}
-
-<!-- ─── History Overlay ──────────────────────────────────────────── -->
-{#if showHistory}
-  <div
-    class="fixed inset-0 z-50 flex flex-col bg-canvas"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="models-history-title"
-    tabindex="-1"
-    use:trapFocus
-    onkeydown={(e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.stopPropagation()
-      // The run sheet sits inside this overlay, so Escape closes it first.
-      if (selectedRunId) closeRun()
-      else showHistory = false
-    }}
-  >
-    <div class="flex h-12 shrink-0 items-center gap-3 border-b border-edge-subtle px-5">
-      <h2 id="models-history-title" class="flex-1 text-[15px] font-semibold tracking-[-0.01em] text-fg">Run history</h2>
-      <Button size="sm" variant="ghost" onclick={loadRuns}>
-        <RefreshCw size={12} /> Refresh
-      </Button>
-      <Button size="sm" variant="outline" onclick={() => { showHistory = false }}>Close</Button>
+  {:else if section === 'history'}
+    <!-- ─── Run history ──────────────────────────────────────────── -->
+    <div class="flex h-10 shrink-0 items-center gap-2 border-b border-edge-subtle px-5">
+      <span class="text-xs text-fg-4">{runs.length} run{runs.length !== 1 ? 's' : ''}</span>
+      <Button size="sm" variant="ghost" class="ml-auto" onclick={loadRuns}>Refresh</Button>
     </div>
     <div class="min-h-0 flex-1">
       {#if runs.length === 0}
         <EmptyState icon={History} title="No runs yet" description="Run the pipeline and each run shows up here with per-model results." />
       {:else}
-        <div class="mx-auto flex h-full w-full max-w-6xl flex-col px-5 py-5">
-          <div class="min-h-0 flex-1 overflow-hidden rounded-lg border border-edge-subtle bg-surface">
-            <DataTable
-              fill
-              columns={runColumns}
-              rows={asRows(runs)}
-              rowKey={(r) => String(r.id)}
-              sort={{ key: 'started_at', dir: 'desc' }}
-              onrowclick={(r) => openRun(String(r.id))}
-            >
-              {#snippet cell(_row, col, value)}
-                {#if col.key === 'status'}
-                  <Badge tone={statusTone(value)} class="uppercase tracking-wide">{value}</Badge>
-                {:else if col.key === 'started_at'}
-                  <span class="text-fg">{value}</span>
-                {:else}
-                  {value}
-                {/if}
-              {/snippet}
-            </DataTable>
+        <DataTable
+          fill
+          columns={runColumns}
+          rows={asRows(runs)}
+          rowKey={(r) => String(r.id)}
+          sort={{ key: 'started_at', dir: 'desc' }}
+          selectedKey={selectedRunId ?? undefined}
+          onrowclick={(r) => openRun(String(r.id))}
+        >
+          {#snippet cell(_row, col, value)}
+            {#if col.key === 'status'}
+              <Badge tone={statusTone(value)} class="uppercase tracking-wide">{value}</Badge>
+            {:else if col.key === 'started_at'}
+              <span class="text-fg">{value}</span>
+            {:else}
+              {value}
+            {/if}
+          {/snippet}
+        </DataTable>
+      {/if}
+    </div>
+  {:else}
+    <!-- ─── Models ───────────────────────────────────────────────── -->
+    {#if loading}
+      <Skeleton variant="rows" rows={6} label="Loading models" />
+    {:else if models.length === 0}
+      <div class="flex flex-1 items-center justify-center">
+        <EmptyState
+          icon={Boxes}
+          title="No models yet"
+          description="Models are SQL transformations that form a pipeline. They can reference each other with $ref(model_name) and run in dependency order."
+          primary={{ label: 'Create your first model', onclick: handleCreate }}
+        />
+      </div>
+    {:else}
+      <div class="flex h-10 shrink-0 items-center gap-2 border-b border-edge-subtle px-5">
+        <div class="relative">
+          <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-4" />
+          <Input size="sm" type="search" class="w-64 pl-8" placeholder="Search name, database, description" bind:value={search} spellcheck={false} />
+        </div>
+        {#if pipelines.length > 0}
+          <Select size="sm" class="w-44" options={pipelineFilterOptions} bind:value={pipelineFilter} />
+        {/if}
+        <span class="ml-auto text-xs text-fg-4">{visibleCount} model{visibleCount !== 1 ? 's' : ''}</span>
+      </div>
+      {#if !infoDismissed}
+        <div class="flex shrink-0 items-center gap-2 border-b border-edge-subtle bg-info-soft px-5 py-1.5 text-[13px] text-fg-2">
+          <p class="min-w-0 flex-1 truncate">
+            Models reference each other with <code class="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-[11px] text-fg">$ref(model_name)</code>.
+            A pipeline is a named group picked by a selector, run and scheduled together. Run all executes every model in dependency order and skips the dependents of a failed model.
+          </p>
+          <Button icon size="xs" variant="ghost" onclick={dismissInfo} aria-label="Dismiss" title="Dismiss">
+            <X size={13} />
+          </Button>
+        </div>
+      {/if}
+      {#if pipelines.length === 0}
+        <div class="min-h-0 flex-1">
+          {@render modelTable(visibleUngrouped, { fill: true })}
+        </div>
+      {:else}
+        <PageBody width="lg">
+          <div class="space-y-8">
+            {#each visiblePipelines as pipeline (pipeline.id)}
+              {@render pipelineGroup(pipeline)}
+            {/each}
+            {#if visibleUngrouped.length > 0 || (pipelineFilter === 'ungrouped' && !search.trim())}
+              <section>
+                <SectionHeader title="Ungrouped" description="Not picked by any pipeline. Run all still runs them." />
+                {@render modelTable(visibleUngrouped, { emptyTitle: 'No ungrouped models', emptyDescription: 'Every model is picked by a pipeline.' })}
+              </section>
+            {/if}
+            {#if visiblePipelines.length === 0 && visibleUngrouped.length === 0 && pipelineFilter !== 'ungrouped'}
+              <EmptyState size="compact" title="Nothing matches" description="Try another search or pipeline." />
+            {/if}
           </div>
+        </PageBody>
+      {/if}
+    {/if}
+  {/if}
+</div>
+
+<!-- ─── Run detail sheet ─────────────────────────────────────────── -->
+<Sheet
+  open={section === 'history' && !!selectedRun}
+  title={selectedRun ? formatDate(selectedRun.started_at) : ''}
+  description={selectedRun ? `${runScope(selectedRun)}: ${selectedRun.total_models} models, ${runOutcome(selectedRun)}` : ''}
+  size="lg"
+  onclose={closeRun}
+>
+  {#if selectedRun}
+    {@const results = runResults[selectedRun.id]}
+    <div class="space-y-4">
+      {#if !results}
+        <Skeleton variant="rows" rows={4} label="Loading run results" />
+      {:else}
+        <DataTable
+          columns={resultColumns}
+          rows={asRows(results)}
+          rowKey={(r) => String(r.id)}
+          emptyTitle="No model results"
+          emptyDescription="This run has no per-model results."
+        >
+          {#snippet cell(row, col, value)}
+            {@const result = asResult(row)}
+            {#if col.key === 'model_name'}
+              <span class="font-medium text-fg">{value}</span>
+            {:else if col.key === 'status'}
+              <Badge tone={statusTone(value)}>{value}</Badge>
+            {:else if col.key === 'tests_passed'}
+              {#if hasTests(result)}
+                <span class="inline-flex items-center gap-1">
+                  <Badge tone="success">{result.tests_passed} passed</Badge>
+                  {#if result.tests_failed > 0}<Badge tone="danger">{result.tests_failed} failed</Badge>{/if}
+                </span>
+              {:else}
+                <span class="text-fg-4">-</span>
+              {/if}
+            {:else if col.key === 'error'}
+              <span class="text-danger">{value}</span>
+            {:else}
+              {value}
+            {/if}
+          {/snippet}
+          {#snippet actions(row)}
+            {@const result = asResult(row)}
+            {#if hasTests(result)}
+              <Button
+                size="xs"
+                variant="ghost"
+                aria-expanded={resultDetail?.id === result.id && resultDetail.kind === 'tests'}
+                onclick={() => toggleResultDetail(result.id, 'tests')}
+              >
+                <FlaskConical size={12} /> Tests
+              </Button>
+            {/if}
+            {#if result.resolved_sql}
+              <Button
+                size="xs"
+                variant="ghost"
+                aria-expanded={resultDetail?.id === result.id && resultDetail.kind === 'sql'}
+                onclick={() => toggleResultDetail(result.id, 'sql')}
+              >
+                <Code size={12} /> SQL
+              </Button>
+            {/if}
+          {/snippet}
+        </DataTable>
+      {/if}
+
+      {#if detailResult && resultDetail}
+        <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
+          <div class="flex h-9 items-center gap-2 border-b border-edge-subtle px-3">
+            <span class="text-[13px] font-medium text-fg">{detailResult.model_name}</span>
+            <span class="text-xs text-fg-3">{resultDetail.kind === 'sql' ? 'Resolved SQL' : 'Test outcomes'}</span>
+            <Button icon variant="ghost" size="xs" class="ml-auto" aria-label="Close" onclick={() => { resultDetail = null }}>
+              <X size={13} />
+            </Button>
+          </div>
+          {#if resultDetail.kind === 'tests'}
+            <div class="px-3 py-3">
+              <TestOutcomesTable outcomes={parseTestOutcomes(detailResult.test_details)} />
+            </div>
+          {:else}
+            <pre class="max-h-80 overflow-auto bg-surface-2 px-4 py-3 font-mono text-xs text-fg-2 whitespace-pre-wrap break-all">{detailResult.resolved_sql}</pre>
+          {/if}
         </div>
       {/if}
     </div>
+  {/if}
 
-    <!-- Inside the overlay so it stacks above it. -->
-    <Sheet
-      open={!!selectedRun}
-      title={selectedRun ? formatDate(selectedRun.started_at) : ''}
-      description={selectedRun ? `${runScope(selectedRun)}: ${selectedRun.total_models} models, ${runOutcome(selectedRun)}` : ''}
-      size="lg"
-      onclose={closeRun}
-    >
-      {#if selectedRun}
-        {@const results = runResults[selectedRun.id]}
-        <div class="space-y-4">
-          {#if !results}
-            <Skeleton variant="rows" rows={4} label="Loading run results" />
-          {:else}
-            <DataTable
-              columns={resultColumns}
-              rows={asRows(results)}
-              rowKey={(r) => String(r.id)}
-              emptyTitle="No model results"
-              emptyDescription="This run has no per-model results."
-            >
-              {#snippet cell(row, col, value)}
-                {@const result = asResult(row)}
-                {#if col.key === 'model_name'}
-                  <span class="font-medium text-fg">{value}</span>
-                {:else if col.key === 'status'}
-                  <Badge tone={statusTone(value)}>{value}</Badge>
-                {:else if col.key === 'tests_passed'}
-                  {#if hasTests(result)}
-                    <span class="inline-flex items-center gap-1">
-                      <Badge tone="success">{result.tests_passed} passed</Badge>
-                      {#if result.tests_failed > 0}<Badge tone="danger">{result.tests_failed} failed</Badge>{/if}
-                    </span>
-                  {:else}
-                    <span class="text-fg-4">-</span>
-                  {/if}
-                {:else if col.key === 'error'}
-                  <span class="text-danger">{value}</span>
-                {:else}
-                  {value}
-                {/if}
-              {/snippet}
-              {#snippet actions(row)}
-                {@const result = asResult(row)}
-                {#if hasTests(result)}
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    aria-expanded={resultDetail?.id === result.id && resultDetail.kind === 'tests'}
-                    onclick={() => toggleResultDetail(result.id, 'tests')}
-                  >
-                    <FlaskConical size={12} /> Tests
-                  </Button>
-                {/if}
-                {#if result.resolved_sql}
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    aria-expanded={resultDetail?.id === result.id && resultDetail.kind === 'sql'}
-                    onclick={() => toggleResultDetail(result.id, 'sql')}
-                  >
-                    <Code size={12} /> SQL
-                  </Button>
-                {/if}
-              {/snippet}
-            </DataTable>
-          {/if}
-
-          {#if detailResult && resultDetail}
-            <div class="overflow-hidden rounded-lg border border-edge-subtle bg-surface">
-              <div class="flex h-9 items-center gap-2 border-b border-edge-subtle px-3">
-                <span class="text-[13px] font-medium text-fg">{detailResult.model_name}</span>
-                <span class="text-xs text-fg-3">{resultDetail.kind === 'sql' ? 'Resolved SQL' : 'Test outcomes'}</span>
-                <Button icon variant="ghost" size="xs" class="ml-auto" aria-label="Close" onclick={() => { resultDetail = null }}>
-                  <X size={13} />
-                </Button>
-              </div>
-              {#if resultDetail.kind === 'tests'}
-                <div class="px-3 py-3">
-                  <TestOutcomesTable outcomes={parseTestOutcomes(detailResult.test_details)} />
-                </div>
-              {:else}
-                <pre class="max-h-80 overflow-auto bg-surface-2 px-4 py-3 font-mono text-xs text-fg-2 whitespace-pre-wrap break-all">{detailResult.resolved_sql}</pre>
-              {/if}
-            </div>
-          {/if}
-        </div>
-      {/if}
-
-      {#snippet footer()}
-        <Button size="sm" variant="outline" onclick={closeRun}>Close</Button>
-      {/snippet}
-    </Sheet>
-  </div>
-{/if}
+  {#snippet footer()}
+    <Button size="sm" variant="outline" onclick={closeRun}>Close</Button>
+  {/snippet}
+</Sheet>
 
 <!-- ─── Pipeline sheet ───────────────────────────────────────────── -->
 <PipelineSheet
@@ -973,9 +979,7 @@
 
   {#snippet footer()}
     <Button size="sm" variant="outline" onclick={() => { showCreate = false }}>Cancel</Button>
-    <Button size="sm" type="submit" form="new-model-form" loading={creating}>
-      <Plus size={12} /> Create model
-    </Button>
+    <Button size="sm" type="submit" form="new-model-form" loading={creating}>Create model</Button>
   {/snippet}
 </Sheet>
 
