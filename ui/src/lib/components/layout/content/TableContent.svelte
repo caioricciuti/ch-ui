@@ -10,6 +10,7 @@
   import DataPreview from '../../explorer/DataPreview.svelte'
   import VirtualTable from '../../table/VirtualTable.svelte'
   import Spinner from '../../common/Spinner.svelte'
+  import EmptyState from '../../common/EmptyState.svelte'
   import { Table2, Database, HardDrive, Rows3, Clock, Key, LayoutGrid, RefreshCw, Copy, Check, ChevronDown, Braces, FileSpreadsheet, FileText, Code2 } from 'lucide-svelte'
   import ContextMenu from '../../common/ContextMenu.svelte'
   import type { ContextMenuItem } from '../../common/ContextMenu.svelte'
@@ -458,7 +459,7 @@
         />
         <VirtualTable meta={schemaMeta} data={schemaData} />
       {:else}
-        <div class="flex items-center justify-center py-12 text-fg-4 text-sm">No schema data</div>
+        <EmptyState size="compact" title="No schema data" description="ClickHouse returned no columns for this table." />
       {/if}
 
     {:else if activeSubTab === 'data'}

@@ -182,13 +182,16 @@
 </div>
 
 <Sheet open={annotationOpen} title="Record a deployment" description="Add a timestamped observation for this connection." onclose={() => { if (!saving) annotationOpen = false }}>
-  <form class="space-y-4" onsubmit={saveAnnotation}>
+  <form id="deployment-form" class="space-y-4" onsubmit={saveAnnotation}>
     <FormField label="Occurred at (your local time)" for="deployment-time" required><input id="deployment-time" type="datetime-local" step="1" class="ds-input" required bind:value={occurredAt} /></FormField>
     <FormField label="Title" for="deployment-title" required><Input id="deployment-title" required maxlength={200} bind:value={title} placeholder="API v1.8 deployed" /></FormField>
     <FormField label="Details" for="deployment-details"><Textarea id="deployment-details" rows={5} bind:value={details} placeholder="Change reference and relevant context" /></FormField>
     <p class="text-xs text-fg-3">Your identity is recorded with this annotation. A deployment marker does not imply it caused nearby failures.</p>
-    <Button type="submit" loading={saving} disabled={!title.trim()}>Save deployment</Button>
   </form>
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" onclick={() => (annotationOpen = false)} disabled={saving}>Cancel</Button>
+    <Button size="sm" type="submit" form="deployment-form" loading={saving} disabled={!title.trim()}>Save deployment</Button>
+  {/snippet}
 </Sheet>
 
 <Sheet open={relatedOpen} title={related?.title ?? 'Related incident'} onclose={() => relatedOpen = false}>

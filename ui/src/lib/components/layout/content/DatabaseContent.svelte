@@ -5,6 +5,7 @@
   import { fetchDatabaseInfo, fetchDatabaseTables } from '../../../api/query'
   import { formatBytes, formatDate, formatNumber } from '../../../utils/format'
   import Spinner from '../../common/Spinner.svelte'
+  import EmptyState from '../../common/EmptyState.svelte'
   import VirtualTable from '../../table/VirtualTable.svelte'
   import { Database, HardDrive, Rows3, Table2, Clock, RefreshCw, FolderOpen } from 'lucide-svelte'
 
@@ -182,7 +183,7 @@
       {:else if tablesMeta.length > 0}
         <VirtualTable meta={tablesMeta} data={tablesData} />
       {:else}
-        <div class="flex items-center justify-center py-12 text-fg-4 text-sm">No tables found</div>
+        <EmptyState size="compact" title="No tables" description="This database has no tables yet." />
       {/if}
     {/if}
   </div>

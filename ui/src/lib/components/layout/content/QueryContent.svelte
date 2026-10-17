@@ -1013,7 +1013,7 @@
 
     <!-- Ask AI (text-to-SQL) bar -->
     {#if showAsk}
-      <div class="shrink-0 border-b border-edge-subtle bg-ch-orange/5">
+      <div class="shrink-0 border-b border-edge-subtle bg-info-soft">
         {#if proActive}
           <AskAIBar bind:question={askQuestion} getSql={askContext} oninsert={insertGeneratedSQL} onclose={() => (showAsk = false)} />
         {:else}

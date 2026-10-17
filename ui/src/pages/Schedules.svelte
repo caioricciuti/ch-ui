@@ -399,7 +399,7 @@
                 {#if runsLoading}
                   <div class="flex items-center justify-center py-4"><Spinner size="sm" /></div>
                 {:else if runs.length === 0}
-                  <p class="py-2 text-xs text-fg-3">No runs yet</p>
+                  <EmptyState size="compact" title="No runs yet" description="Runs are listed here after the first scheduled or manual run." />
                 {:else}
                   <DataTable
                     columns={runColumns}

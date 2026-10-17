@@ -19,7 +19,6 @@
   import FormField from '../common/FormField.svelte'
   import Tabs from '../common/Tabs.svelte'
   import Sheet from '../common/Sheet.svelte'
-  import Modal from '../common/Modal.svelte'
   import InputDialog from '../common/InputDialog.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import EmptyState from '../common/EmptyState.svelte'
@@ -609,17 +608,23 @@
   oncreated={onTemplateCreated}
 />
 
-<InputDialog
+<Sheet
   open={newFolderOpen}
   title={newFolderParent ? `New folder in ${pathLabel(newFolderParent)}` : 'New folder'}
   description="Folders nest. A dashboard can live in one folder at a time."
-  placeholder="Folder name"
-  bind:value={newFolderName}
-  confirmLabel="Create"
-  loading={folderSaving}
-  onconfirm={submitNewFolder}
-  oncancel={() => (newFolderOpen = false)}
-/>
+  size="sm"
+  onclose={() => (newFolderOpen = false)}
+>
+  <form id="new-folder-form" onsubmit={(e) => { e.preventDefault(); void submitNewFolder(newFolderName) }}>
+    <FormField label="Name" for="new-folder-name" required controlWidth="full">
+      <Input id="new-folder-name" placeholder="Folder name" bind:value={newFolderName} disabled={folderSaving} />
+    </FormField>
+  </form>
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" onclick={() => (newFolderOpen = false)} disabled={folderSaving}>Cancel</Button>
+    <Button size="sm" type="submit" form="new-folder-form" loading={folderSaving} disabled={!newFolderName.trim()}>Create</Button>
+  {/snippet}
+</Sheet>
 
 <InputDialog
   open={!!renamingFolder}
@@ -643,25 +648,29 @@
   oncancel={() => (deletingFolder = null)}
 />
 
-<Modal open={!!moving} title="Move to folder" description={moving ? `Where "${moving.name}" should live.` : ''} size="sm" onclose={() => (moving = null)}>
-  <FormField label="Folder" for="move-folder" controlWidth="full">
-    <Select id="move-folder" options={folderOptions} bind:value={moveTarget} />
-  </FormField>
+<Sheet open={!!moving} title="Move to folder" description={moving ? `Where "${moving.name}" should live.` : ''} size="sm" onclose={() => (moving = null)}>
+  <form id="move-folder-form" onsubmit={(e) => { e.preventDefault(); void submitMove() }}>
+    <FormField label="Folder" for="move-folder" controlWidth="full">
+      <Select id="move-folder" options={folderOptions} bind:value={moveTarget} />
+    </FormField>
+  </form>
   {#snippet footer()}
-    <Button variant="ghost" size="sm" onclick={() => (moving = null)}>Cancel</Button>
-    <Button size="sm" loading={moveSaving} onclick={submitMove}>Move</Button>
+    <Button variant="ghost" size="sm" onclick={() => (moving = null)} disabled={moveSaving}>Cancel</Button>
+    <Button size="sm" type="submit" form="move-folder-form" loading={moveSaving}>Move</Button>
   {/snippet}
-</Modal>
+</Sheet>
 
-<Modal open={!!tagging} title="Edit tags" description={tagging ? tagging.name : ''} size="sm" onclose={() => (tagging = null)}>
-  <FormField label="Tags" for="edit-tags" controlWidth="full" hint="Comma-separated. Up to 20 tags of 40 characters.">
-    <Input id="edit-tags" placeholder="ops, kafka" bind:value={tagsValue} onkeydown={(e) => { if (e.key === 'Enter') void submitTags() }} />
-  </FormField>
+<Sheet open={!!tagging} title="Edit tags" description={tagging ? tagging.name : ''} size="sm" onclose={() => (tagging = null)}>
+  <form id="edit-tags-form" onsubmit={(e) => { e.preventDefault(); void submitTags() }}>
+    <FormField label="Tags" for="edit-tags" controlWidth="full" hint="Comma-separated. Up to 20 tags of 40 characters.">
+      <Input id="edit-tags" placeholder="ops, kafka" bind:value={tagsValue} disabled={tagsSaving} />
+    </FormField>
+  </form>
   {#snippet footer()}
-    <Button variant="ghost" size="sm" onclick={() => (tagging = null)}>Cancel</Button>
-    <Button size="sm" loading={tagsSaving} onclick={submitTags}>Save tags</Button>
+    <Button variant="ghost" size="sm" onclick={() => (tagging = null)} disabled={tagsSaving}>Cancel</Button>
+    <Button size="sm" type="submit" form="edit-tags-form" loading={tagsSaving}>Save tags</Button>
   {/snippet}
-</Modal>
+</Sheet>
 
 <InputDialog
   open={!!renaming}

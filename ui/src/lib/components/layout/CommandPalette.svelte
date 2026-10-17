@@ -16,6 +16,7 @@
   import { openShortcutHelp } from '../../stores/shortcut-help.svelte'
   import { ALT, MOD, combo } from '../../utils/shortcuts'
   import { prefetchPage } from './pageLoaders'
+  import Badge from '../common/Badge.svelte'
   import type { DashboardFolder } from '../../types/api'
   import {
     GROUP_LABEL, matchPrefix, telemetryItems, helpItems, entityItems, loadProEntities,
@@ -477,7 +478,7 @@
                   {/if}
                 </span>
                 {#if lockedPageIds.has(item.id)}
-                  <span class="shrink-0 rounded-sm bg-surface-2 px-1 text-[9px] font-semibold uppercase tracking-wider text-fg-4">Pro</span>
+                  <Badge tone="brand" class="shrink-0">Pro</Badge>
                 {/if}
                 {#if item.shortcut}
                   <span class="text-[10px] text-fg-3 px-1.5 py-0.5 rounded border border-edge font-mono shrink-0">
@@ -505,7 +506,7 @@
                 {/if}
               </span>
               {#if lockedPageIds.has(item.id)}
-                <span class="shrink-0 rounded-sm bg-surface-2 px-1 text-[9px] font-semibold uppercase tracking-wider text-fg-4">Pro</span>
+                <Badge tone="brand" class="shrink-0">Pro</Badge>
               {/if}
               {#if item.shortcut}
                 <span class="text-[10px] text-fg-3 px-1.5 py-0.5 rounded border border-edge font-mono shrink-0">{item.shortcut}</span>

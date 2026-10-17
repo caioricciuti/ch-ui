@@ -6,7 +6,10 @@
   import { getCurrentPipelineId, pushPipelineDetail, pushPipelineList } from '../lib/stores/router.svelte'
   import PipelineList from '../lib/components/pipelines/PipelineList.svelte'
   import PipelineEditor from '../lib/components/pipelines/PipelineEditor.svelte'
-  import InputDialog from '../lib/components/common/InputDialog.svelte'
+  import Sheet from '../lib/components/common/Sheet.svelte'
+  import FormField from '../lib/components/common/FormField.svelte'
+  import Input from '../lib/components/common/Input.svelte'
+  import Button from '../lib/components/common/Button.svelte'
 
   let pipelines = $state<Pipeline[]>([])
   let loading = $state(true)
@@ -45,6 +48,17 @@
     } finally {
       loading = false
     }
+  }
+
+  function cancelCreate() {
+    showCreate = false
+    createName = ''
+  }
+
+  function submitCreate(e: SubmitEvent) {
+    e.preventDefault()
+    const name = createName.trim()
+    if (name) void handleCreate(name)
   }
 
   async function handleCreate(name: string) {
@@ -120,14 +134,14 @@
   />
 {/if}
 
-<InputDialog
-  open={showCreate}
-  title="Create Pipeline"
-  description="Give your pipeline a name. You can configure the source and sink in the editor."
-  placeholder="My pipeline"
-  bind:value={createName}
-  confirmLabel="Create"
-  loading={createLoading}
-  onconfirm={handleCreate}
-  oncancel={() => { showCreate = false; createName = '' }}
-/>
+<Sheet open={showCreate} title="Create Pipeline" description="Also the name shown in the pipeline list and in alerts. Source and sink are set in the editor." size="sm" onclose={cancelCreate}>
+  <form id="pipeline-create-form" onsubmit={submitCreate}>
+    <FormField label="Name" for="pipeline-create-name" required controlWidth="full">
+      <Input id="pipeline-create-name" placeholder="My pipeline" bind:value={createName} disabled={createLoading} />
+    </FormField>
+  </form>
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" onclick={cancelCreate} disabled={createLoading}>Cancel</Button>
+    <Button size="sm" type="submit" form="pipeline-create-form" loading={createLoading} disabled={!createName.trim()}>Create</Button>
+  {/snippet}
+</Sheet>

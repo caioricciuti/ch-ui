@@ -4,6 +4,9 @@
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
   import InputDialog from '../common/InputDialog.svelte'
+  import Sheet from '../common/Sheet.svelte'
+  import FormField from '../common/FormField.svelte'
+  import Input from '../common/Input.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import ContextMenu, { type ContextMenuItem } from '../common/ContextMenu.svelte'
   import { getSession } from '../../stores/session.svelte'
@@ -195,17 +198,21 @@
 
 <ContextMenu open={!!menu} x={menu?.x ?? 0} y={menu?.y ?? 0} items={menuItems()} onclose={() => (menu = null)} />
 
-<InputDialog
-  open={saveOpen}
-  title="Save search"
-  description={currentQuery ? `Query: ${currentQuery}` : 'Saves the current query and time range.'}
-  placeholder="Checkout errors"
-  bind:value={saveName}
-  confirmLabel="Save"
-  loading={saving}
-  onconfirm={save}
-  oncancel={() => (saveOpen = false)}
-/>
+<Sheet open={saveOpen} title="Save search" description="The name shown in the Saved list. Stores the current query and time range." size="sm" onclose={() => (saveOpen = false)}>
+  <form id="saved-search-form" class="space-y-4" onsubmit={(e) => { e.preventDefault(); void save(saveName) }}>
+    <FormField label="Name" for="saved-search-name" required controlWidth="full">
+      <Input id="saved-search-name" placeholder="Checkout errors" bind:value={saveName} disabled={saving} />
+    </FormField>
+    <div>
+      <p class="mb-1 text-xs font-medium text-fg-2">Query</p>
+      <pre class="overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-surface-2 p-2 font-mono text-xs text-fg-3">{currentQuery || '(empty query)'}</pre>
+    </div>
+  </form>
+  {#snippet footer()}
+    <Button variant="ghost" size="sm" onclick={() => (saveOpen = false)} disabled={saving}>Cancel</Button>
+    <Button size="sm" type="submit" form="saved-search-form" loading={saving} disabled={!saveName.trim()}>Save</Button>
+  {/snippet}
+</Sheet>
 
 <InputDialog
   open={!!renameTarget}
