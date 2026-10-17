@@ -103,8 +103,9 @@ secret material.
 ## 3. Set the ClickHouse service account
 
 Configure the ClickHouse account that SSO sessions query through, on the target
-connection (admin only). In per-person mode this same account is the
-**provisioner** (see below):
+connection: **Admin → Connections**, **SSO** on the row, then **Service
+account**. In per-person mode this same account is the **provisioner** (see
+below). The API equivalent (admin only):
 
 ```bash
 curl -X PUT https://ch-ui.yourcompany.com/api/connections/<CONNECTION_ID>/sso-account \
@@ -153,8 +154,15 @@ there from the groups of their last verified token.
 
 ### Setup
 
-Run once as a ClickHouse admin, then store `chui_provisioner` as the
-connection's SSO account (step 3 above):
+Open **Admin → Connections**, click **SSO** on the connection, choose
+**Per-person ClickHouse users**, fill in the group to role mapping, and click
+**Show setup SQL**: it renders the statements below for your roles, prefix and
+profile. Run them once as a ClickHouse admin, store `chui_provisioner` and its
+password as the connection's account in the same sheet, then **Verify**: CH-UI
+signs in as the provisioner, creates a probe user under the prefix with each
+mapped role, checks that it cannot create users outside the prefix or create
+roles, and drops the probe, showing each check as pass or fail. **Save** turns
+the mode on.
 
 ```sql
 -- Roles SSO people can receive (or map to roles you already have).
@@ -216,7 +224,17 @@ curl -X PUT https://ch-ui.yourcompany.com/api/connections/<CONNECTION_ID>/sso-id
 | `lock_after_days`, `drop_after_days` | Lifecycle of users that stop signing in (see below); `0` turns either off |
 
 `GET /api/connections/{id}/sso-identity` returns the config and whether a
-provisioner is set.
+provisioner is set. `POST …/sso-identity/setup-sql` renders the setup SQL for a
+config, `POST …/sso-identity/verify` runs the probe and returns its checks.
+
+### Leaving
+
+CH-UI only learns someone left when they stop signing in, so a daily sweep per
+connection locks users not seen for `lock_after_days` (`ALTER USER … HOST
+NONE`: no login, but `system.query_log` history stays attributable) and drops
+them after `drop_after_days`. **Remove access** in **Admin → Users** does both
+at once on every connection and signs the person out. A sign-in after a lock
+simply provisions them again with their current groups.
 
 ### Security
 
@@ -385,5 +403,8 @@ available.
 | `PUT` | `/api/connections/{id}/sso-account` | Set the connection's ClickHouse service account, the provisioner in per-person mode (admin) |
 | `GET` | `/api/connections/{id}/sso-identity` | The connection's SSO identity mode and group to role mapping (admin) |
 | `PUT` | `/api/connections/{id}/sso-identity` | Set the mode and mapping; `per_person` needs Pro (admin) |
+| `POST` | `/api/connections/{id}/sso-identity/setup-sql` | Render the one-time admin setup SQL for a config (admin) |
+| `POST` | `/api/connections/{id}/sso-identity/verify` | Probe the provisioner: sign in, create a user under the prefix with each role, confirm the grant scope, drop it (admin, Pro) |
+| `DELETE` | `/api/admin/users/sso/{email}/access` | Drop the person's ClickHouse users on every connection and sign them out (admin) |
 | `GET` | `/api/admin/sso` | Current SSO config, secret redacted (admin) |
 | `PUT` | `/api/admin/sso` | Update DB-managed SSO config and hot-reload the provider (admin) |

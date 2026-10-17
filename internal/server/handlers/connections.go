@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -18,6 +20,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/embedded"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
+	"github.com/caioricciuti/ch-ui/internal/ssoidentity"
 	"github.com/caioricciuti/ch-ui/internal/tokens"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
@@ -30,6 +33,8 @@ type ConnectionsHandler struct {
 	Agents  *embedded.Manager
 	// RateLimiter is shared with AuthHandler. nil creates one on first use.
 	RateLimiter *middleware.RateLimiter
+	// Provisioner verifies per-person SSO provisioning accounts.
+	Provisioner *ssoidentity.Provisioner
 
 	limiterOnce sync.Once
 }
@@ -240,6 +245,175 @@ func (h *ConnectionsHandler) writeSSOIdentity(w http.ResponseWriter, connID stri
 		"provisioner_user": ssoUser,
 		"provisioner_set":  ssoUser != "" && ssoPassword != "",
 	})
+}
+
+// ssoIdentityProbeTimeout bounds one verify run: nine or so statements, each
+// with its own statement timeout inside the provisioner.
+const ssoIdentityProbeTimeout = 60 * time.Second
+
+// ssoIdentityConfigForRequest returns the posted config, normalized, or the
+// connection's saved one when the request carries none.
+func (h *ConnectionsHandler) ssoIdentityConfigForRequest(connID string, posted *database.SSOIdentityConfig) (database.SSOIdentityConfig, error) {
+	if posted == nil {
+		return h.DB.GetSSOIdentityConfig(connID)
+	}
+	cfg := *posted
+	cfg.Normalize()
+	return cfg, nil
+}
+
+// SSOIdentitySetupSQL renders the admin setup script for a per-person
+// config: the roles, the optional profile, the provisioning account and its
+// grants. The config comes from the request so the admin can see the script
+// for what they are about to save; it falls back to the saved config. Only
+// text is produced, so every edition gets it. Admin only.
+// POST /{id}/sso-identity/setup-sql  { "config": {...}, "provisioner_user": "chui_provisioner" }
+func (h *ConnectionsHandler) SSOIdentitySetupSQL(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "Connection ID is required")
+		return
+	}
+	var req struct {
+		Config          *database.SSOIdentityConfig `json:"config"`
+		ProvisionerUser string                      `json:"provisioner_user"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	conn, err := h.DB.GetConnectionByID(id)
+	if err != nil {
+		slog.Error("Failed to get connection", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to retrieve connection")
+		return
+	}
+	if conn == nil {
+		writeError(w, http.StatusNotFound, "Connection not found")
+		return
+	}
+	cfg, err := h.ssoIdentityConfigForRequest(id, req.Config)
+	if err != nil {
+		slog.Error("Failed to read SSO identity config", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to read SSO identity settings")
+		return
+	}
+	prov := strings.TrimSpace(req.ProvisionerUser)
+	if prov == "" {
+		if saved, _, err := h.DB.GetConnectionSSOAccount(id); err == nil {
+			prov = saved
+		}
+	}
+	if prov == "" {
+		prov = "chui_provisioner"
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"sql": ssoidentity.SetupSQL(cfg, prov)})
+}
+
+// VerifySSOIdentity probes a provisioning account against a per-person
+// config on the connection's live ClickHouse: sign-in, host detection, the
+// SHOW USERS grant, a throw-away user under the prefix with every managed
+// role, and that the account is refused outside the prefix. Nothing real is
+// touched and the probe user is dropped again. The config and the account
+// may come from the request (not saved yet) or fall back to the saved ones.
+// Pro and admin only.
+// POST /{id}/sso-identity/verify
+//
+//	{ "config": {...}, "provisioner": { "username": "...", "password": "..." } }
+func (h *ConnectionsHandler) VerifySSOIdentity(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "Connection ID is required")
+		return
+	}
+	if !h.Config.IsPro() {
+		writeError(w, http.StatusPaymentRequired, "Pro license required")
+		return
+	}
+	var req struct {
+		Config      *database.SSOIdentityConfig `json:"config"`
+		Provisioner *struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		} `json:"provisioner"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	conn, err := h.DB.GetConnectionByID(id)
+	if err != nil {
+		slog.Error("Failed to get connection", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to retrieve connection")
+		return
+	}
+	if conn == nil {
+		writeError(w, http.StatusNotFound, "Connection not found")
+		return
+	}
+	cfg, err := h.ssoIdentityConfigForRequest(id, req.Config)
+	if err != nil {
+		slog.Error("Failed to read SSO identity config", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to read SSO identity settings")
+		return
+	}
+	if err := cfg.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !cfg.PerPerson() {
+		writeError(w, http.StatusBadRequest, "Verification applies to per-person mode; shared mode has no provisioner")
+		return
+	}
+
+	var user, password string
+	if req.Provisioner != nil && strings.TrimSpace(req.Provisioner.Username) != "" {
+		user, password = strings.TrimSpace(req.Provisioner.Username), req.Provisioner.Password
+	} else {
+		savedUser, enc, err := h.DB.GetConnectionSSOAccount(id)
+		if err != nil {
+			slog.Error("Failed to read SSO account", "error", err, "id", id)
+			writeError(w, http.StatusInternalServerError, "Failed to read the provisioning account")
+			return
+		}
+		if savedUser == "" || enc == "" {
+			writeError(w, http.StatusBadRequest, "No provisioning account: save one on the connection or send its credentials to verify")
+			return
+		}
+		password, err = crypto.Decrypt(enc, h.Config.AppSecretKey)
+		if err != nil {
+			slog.Error("Failed to decrypt SSO account password", "error", err, "id", id)
+			writeError(w, http.StatusInternalServerError, "Failed to read the provisioning account")
+			return
+		}
+		user = savedUser
+	}
+	if !h.Gateway.IsTunnelOnline(id) {
+		writeError(w, http.StatusServiceUnavailable, "Connection is offline")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), ssoIdentityProbeTimeout)
+	defer cancel()
+	checks := h.Provisioner.Probe(ctx, id, cfg, user, password)
+	ok := ssoidentity.AllOK(checks)
+	failed := 0
+	for _, c := range checks {
+		if !c.OK {
+			failed++
+		}
+	}
+
+	username, chUser := sessionActor(r)
+	h.DB.CreateAuditLog(database.AuditLogParams{
+		Action:         "connection.sso_identity.verified",
+		Username:       username,
+		ClickhouseUser: chUser,
+		ConnectionID:   strPtr(id),
+		Details:        strPtr(fmt.Sprintf("SSO provisioner %s verified: ok=%t, %d of %d check(s) failed", user, ok, failed, len(checks))),
+		IPAddress:      strPtr(getClientIP(r)),
+	})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": ok, "checks": checks})
 }
 
 // Get returns a single connection by ID.
