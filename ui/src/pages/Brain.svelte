@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { openQueryTab } from '../lib/stores/tabs.svelte'
+  import { goTo } from '../lib/stores/router.svelte'
+  import { setSection } from '../lib/stores/nav.svelte'
+  import { getSession } from '../lib/stores/session.svelte'
   import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
   import { getDatabases, loadDatabases, loadTables, loadColumns } from '../lib/stores/schema.svelte'
   import type { BrainArtifact, BrainBudgetStatus, BrainChat, BrainMessage as BrainMessageType, BrainModelOption, MentionRef, EntityContext } from '../lib/types/brain'
@@ -30,6 +33,8 @@
   let loading = $state(true)
   let chats = $state<BrainChat[]>([])
   let models = $state<BrainModelOption[]>([])
+  // Until the first load answers, the empty state must not claim there is no provider.
+  let modelsLoaded = $state(false)
   let selectedChatId = $state<string>('')
   let messages = $state<BrainMessageType[]>([])
   let artifacts = $state<BrainArtifact[]>([])
@@ -101,6 +106,7 @@
       models = await listBrainModels()
       const def = models.find(m => m.is_default) ?? models[0]
       if (def && !selectedModelId) selectedModelId = def.id
+      modelsLoaded = true
     } catch (e: any) {
       toastError(e.message)
     }
@@ -395,7 +401,12 @@
 
     <div class="min-h-0 flex-1 space-y-5 overflow-auto p-6" bind:this={messagesEl}>
       {#if messages.length === 0}
-        <BrainEmptyState onPick={(p) => brainInput?.setText(p)} />
+        <BrainEmptyState
+          onPick={(p) => brainInput?.setText(p)}
+          noProvider={modelsLoaded && models.length === 0}
+          isAdmin={getSession()?.role === 'admin'}
+          onSetup={() => { goTo('admin'); setSection('brain') }}
+        />
       {:else}
         {#each messages as msg, i (msg.id)}
           <BrainMessage

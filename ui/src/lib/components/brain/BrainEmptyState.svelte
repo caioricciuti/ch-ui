@@ -1,10 +1,16 @@
 <script lang="ts">
   import { Brain, BarChart3, Search, Wand2, Sparkles } from 'lucide-svelte'
+  import Button from '../common/Button.svelte'
 
   interface Props {
     onPick?: (prompt: string) => void
+    /** No AI model is configured on this instance, so a prompt can only fail. */
+    noProvider?: boolean
+    isAdmin?: boolean
+    /** Opens Admin → Brain. */
+    onSetup?: () => void
   }
-  let { onPick }: Props = $props()
+  let { onPick, noProvider = false, isAdmin = false, onSetup }: Props = $props()
 
   const suggestions = [
     {
@@ -35,11 +41,27 @@
     <div class="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-md bg-surface-2 text-fg-3">
       <Brain size={18} strokeWidth={1.75} />
     </div>
+    {#if noProvider}
+      <h2 class="text-[14px] font-semibold text-fg">Brain needs an AI provider first</h2>
+      <p class="mx-auto mt-1 max-w-[46ch] text-[13px] leading-relaxed text-fg-3">
+        {#if isAdmin}
+          Add Anthropic, OpenAI, an OpenAI-compatible endpoint or Ollama in Admin → Brain. Chat works on the free core; Ask AI in the editor and the agentic tools are Pro.
+        {:else}
+          No model is configured on this instance yet. Ask an admin to add one in Admin → Brain.
+        {/if}
+      </p>
+      {#if isAdmin && onSetup}
+        <div class="mt-5">
+          <Button size="sm" onclick={onSetup}>Set up a provider</Button>
+        </div>
+      {/if}
+    {:else}
     <h2 class="text-[14px] font-semibold text-fg">Brain can act on your workspace</h2>
     <p class="mx-auto mt-1 max-w-[46ch] text-[13px] leading-relaxed text-fg-3">
       Ask anything. Brain reads your real ClickHouse and, with your approval, creates models, dashboards, panels and queries for you.
     </p>
-    {#if onPick}
+    {/if}
+    {#if onPick && !noProvider}
       <div class="mt-6 grid grid-cols-1 gap-2 text-left sm:grid-cols-2">
         {#each suggestions as s}
           <button

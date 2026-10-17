@@ -495,17 +495,31 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	{#if govSettings && !govSettings.sync_enabled && !govSettings.banner_dismissed}
+		{@const fresh = !overview || (overview.database_count === 0 && overview.table_count === 0)}
 		<div class="flex items-start gap-3 border-b border-edge-subtle bg-info-soft px-5 py-3 text-[13px] text-fg">
 			<Info size={16} class="mt-0.5 shrink-0 text-info" />
 			<div class="min-w-0 flex-1">
-				<p class="font-medium">Governance background sync is now opt-in.</p>
-				<p class="mt-0.5 text-fg-2">
-					Your existing data is preserved, but the syncer is paused until you enable it explicitly.
-					<button
-						class="ml-1 font-medium text-info underline underline-offset-2 hover:text-fg"
-						onclick={() => switchTab('settings')}
-					>Review settings</button>
-				</p>
+				{#if fresh}
+					<!-- Nothing harvested yet: this is a first visit, not an upgrade. -->
+					<p class="font-medium">Governance sync is off.</p>
+					<p class="mt-0.5 text-fg-2">
+						Turn it on to harvest tables, columns, users and query history from this connection in the background. Everything on this page fills in from that.
+						<button
+							class="ml-1 font-medium text-info underline underline-offset-2 hover:text-fg"
+							disabled={govToggleSaving}
+							onclick={() => void persistGovernanceSettings({ sync_enabled: true })}
+						>Turn on sync</button>
+					</p>
+				{:else}
+					<p class="font-medium">Governance background sync is now opt-in.</p>
+					<p class="mt-0.5 text-fg-2">
+						Your existing data is preserved, but the syncer is paused until you enable it explicitly.
+						<button
+							class="ml-1 font-medium text-info underline underline-offset-2 hover:text-fg"
+							onclick={() => switchTab('settings')}
+						>Review settings</button>
+					</p>
+				{/if}
 			</div>
 			<Button icon variant="ghost" size="sm" aria-label="Dismiss banner" disabled={govToggleSaving} onclick={dismissGovernanceUpgradeBanner}>
 				<X size={14} />
