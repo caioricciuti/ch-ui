@@ -270,3 +270,142 @@ func setupStatements(script, provPassword string) []string {
 	}
 	return out
 }
+
+// TestSSOProbeLive runs Probe against a real ClickHouse: a provisioner set up
+// exactly by SetupSQL passes every check and leaves nothing behind; one with
+// a global CREATE USER grant fails the "outside the prefix" check, and the
+// user it managed to create is dropped again.
+func TestSSOProbeLive(t *testing.T) {
+	endpoint := os.Getenv("CHUI_TEST_CLICKHOUSE_URL")
+	if endpoint == "" {
+		t.Skip("set CHUI_TEST_CLICKHOUSE_URL to a disposable test instance")
+	}
+	client := connector.NewCHClient(endpoint, false)
+	adminUser, adminPassword := os.Getenv("CHUI_TEST_CLICKHOUSE_USER"), os.Getenv("CHUI_TEST_CLICKHOUSE_PASSWORD")
+	if adminUser == "" {
+		adminUser = "default"
+	}
+	admin := func(sql string) ([]map[string]any, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		res, err := client.Execute(ctx, sql, adminUser, adminPassword, nil)
+		if err != nil {
+			return nil, err
+		}
+		raw, _ := json.Marshal(res.Data)
+		var rows []map[string]any
+		_ = json.Unmarshal(raw, &rows)
+		return rows, nil
+	}
+	leftovers := func(like string) []string {
+		rows, err := admin("SELECT name FROM system.users WHERE name LIKE " + safe.QuotedLiteral(like) + " ORDER BY name")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, r := range rows {
+			names = append(names, fmt.Sprint(r["name"]))
+		}
+		return names
+	}
+
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	prefix := "sso" + suffix + ":"
+	roleA, roleB := "chui_sso_a_"+suffix, "chui_sso_b_"+suffix
+	profile := "chui_sso_profile_" + suffix
+	prov := "chui_sso_prov_" + suffix
+	t.Cleanup(func() {
+		for _, name := range leftovers("%chui_probe%") {
+			t.Errorf("probe left user %s behind", name)
+			if _, err := admin("DROP USER IF EXISTS " + safe.Identifier(name)); err != nil {
+				t.Error(err)
+			}
+		}
+		for _, sql := range []string{
+			"DROP USER IF EXISTS " + safe.Identifier(prov),
+			"DROP ROLE IF EXISTS " + safe.Identifier(roleA),
+			"DROP ROLE IF EXISTS " + safe.Identifier(roleB),
+			"DROP SETTINGS PROFILE IF EXISTS " + safe.Identifier(profile),
+		} {
+			if _, err := admin(sql); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+
+	cfg := database.SSOIdentityConfig{
+		Mode:            database.SSOModePerPerson,
+		UserPrefix:      prefix,
+		SettingsProfile: profile,
+		Host:            database.SSOHostAuto,
+		RoleMappings: []database.SSORoleMapping{
+			{Group: "a", Roles: []string{roleA}},
+			{Group: "b", Roles: []string{roleB}},
+		},
+	}
+	provPassword := "prov-" + suffix
+	for _, sql := range setupStatements(SetupSQL(cfg, prov), provPassword) {
+		if _, err := admin(sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+
+	db, conn := testutil.WorkerDB(t)
+	agent := testutil.NewWorkerAgent(t, db, nil)
+	// The account is deliberately not saved on the connection: Probe takes
+	// it explicitly, as the verify endpoint does before the admin saves it.
+	p := &Provisioner{DB: db, Gateway: agent.Gateway, Secret: testSecret}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	checks := p.Probe(ctx, conn, cfg, prov, provPassword)
+	if !AllOK(checks) {
+		t.Fatalf("a provisioner set up by SetupSQL failed checks: %+v", checks)
+	}
+	want := []string{checkSignIn, checkHost, checkShowUsers, checkCreate, checkGrant(roleA), checkGrant(roleB), checkOutside, checkRole, checkDrop}
+	if strings.Join(names(checks), "|") != strings.Join(want, "|") {
+		t.Fatalf("checks = %v\nwant %v", names(checks), want)
+	}
+	if c := find(t, checks, checkSignIn); c.Detail != "signed in as "+prov {
+		t.Errorf("sign-in detail = %q", c.Detail)
+	}
+	if c := find(t, checks, checkHost); !strings.HasPrefix(c.Detail, "users will be pinned to ") || strings.Contains(c.Detail, "::ffff:") {
+		t.Errorf("host detail = %q", c.Detail)
+	}
+	if left := leftovers("%chui_probe%"); len(left) != 0 {
+		t.Fatalf("probe left users behind: %v", left)
+	}
+
+	// Wrong password: only the sign-in runs, everything else is skipped.
+	checks = p.Probe(ctx, conn, cfg, prov, "not-the-password")
+	if len(checks) != len(want) || checks[0].OK {
+		t.Fatalf("checks with a wrong password = %+v", checks)
+	}
+	for _, c := range checks[1:] {
+		if c.OK || c.Detail != skippedDetail {
+			t.Errorf("%s = %+v, want skipped", c.Name, c)
+		}
+	}
+
+	// Too broad: a global CREATE USER (and DROP USER, so the probe can clean
+	// up) grant lets the provisioner create users outside the prefix.
+	if _, err := admin("GRANT CREATE USER, DROP USER ON *.* TO " + safe.Identifier(prov)); err != nil {
+		t.Fatal(err)
+	}
+	checks = p.Probe(ctx, conn, cfg, prov, provPassword)
+	if AllOK(checks) {
+		t.Fatalf("a global CREATE USER grant passed: %+v", checks)
+	}
+	c := find(t, checks, checkOutside)
+	if c.OK || !strings.Contains(c.Detail, "too broad") || !strings.Contains(c.Detail, "was dropped again") {
+		t.Fatalf("outside check = %+v", c)
+	}
+	for _, n := range []string{checkSignIn, checkCreate, checkGrant(roleA), checkGrant(roleB), checkRole, checkDrop} {
+		if !find(t, checks, n).OK {
+			t.Errorf("%s = %+v, want ok", n, find(t, checks, n))
+		}
+	}
+	if left := leftovers("%chui_probe%"); len(left) != 0 {
+		t.Fatalf("probe left users behind: %v", left)
+	}
+}

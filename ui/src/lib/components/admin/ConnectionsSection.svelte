@@ -12,6 +12,7 @@
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import Spinner from '../common/Spinner.svelte'
   import BackgroundAccountsSheet from './BackgroundAccountsSheet.svelte'
+  import SSOIdentitySheet from './SSOIdentitySheet.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import { Plus, RefreshCw, Copy, KeyRound, Pencil, Trash2, Search, AlertTriangle } from 'lucide-svelte'
 
@@ -72,6 +73,7 @@
   let deleteTarget = $state<TunnelConnection | null>(null)
   let deleteLoading = $state(false)
   let backgroundTarget = $state<TunnelConnection | null>(null)
+  let ssoTarget = $state<TunnelConnection | null>(null)
 
   onMount(() => {
     void loadTunnels()
@@ -312,6 +314,7 @@
           {#snippet actions(row)}
             {@const conn = asConn(row)}
             <Button variant="ghost" size="xs" onclick={() => (backgroundTarget = conn)}>Background accounts</Button>
+            <Button variant="ghost" size="xs" title="How SSO people reach ClickHouse on this connection" onclick={() => (ssoTarget = conn)}>SSO</Button>
             {#if conn.type !== 'direct' && !conn.is_embedded}
               <Button icon variant="ghost" size="xs" aria-label="Show agent token" title="Show token" onclick={() => void viewToken(conn)}>
                 <KeyRound size={13} />
@@ -339,6 +342,10 @@
 
 {#if backgroundTarget}
   <BackgroundAccountsSheet connection={backgroundTarget} onclose={() => (backgroundTarget = null)} />
+{/if}
+
+{#if ssoTarget}
+  <SSOIdentitySheet connection={ssoTarget} onclose={() => (ssoTarget = null)} />
 {/if}
 
 <Sheet

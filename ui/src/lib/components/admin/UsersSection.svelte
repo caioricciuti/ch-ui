@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { apiGet, apiPut, apiDel, apiPost, ApiError } from '../../api/client'
+  import { removeSSOAccess } from '../../api/ssoIdentity'
+  import type { SSOClickHouseUser } from '../../api/ssoIdentity'
   import { formatDate, formatRelativeTime } from '../../utils/format'
   import { navigate } from '../../stores/router.svelte'
   import { getSession } from '../../stores/session.svelte'
@@ -38,6 +40,8 @@
     last_login: string
     session_count: number
     exists_in_clickhouse?: boolean
+    /** Per-person ClickHouse users of an SSO person, one per connection; empty otherwise. */
+    clickhouse_users?: SSOClickHouseUser[]
   }
   type UsersResponse = { users?: AppUser[]; sync?: { clickhouse_user_check?: boolean } }
   /** One entry of GET /api/admin/user-roles. connection_id is '' for SSO people (all connections). */
@@ -53,6 +57,11 @@
   let userRoles = $state<Record<string, string>>({})
   let usersLoading = $state(true)
   let roleSavingUser = $state<string | null>(null)
+
+  // Remove access: drops an SSO person's ClickHouse users on every
+  // connection and ends their sessions.
+  let removeAccessTarget = $state<AppUser | null>(null)
+  let removeAccessLoading = $state(false)
 
   const currentConnectionId = $derived(getSession()?.connectionId ?? '')
   const currentConnectionName = $derived(getSession()?.connectionName || 'this connection')
@@ -191,6 +200,36 @@
     } catch (e) {
       toastError(e instanceof Error ? e.message : String(e))
     }
+  }
+
+  async function confirmRemoveAccess() {
+    if (!removeAccessTarget) return
+    const target = removeAccessTarget
+    const email = displayUser(target.username)
+    removeAccessLoading = true
+    try {
+      const res = await removeSSOAccess(email)
+      const dropped = res.dropped ?? 0
+      const ended = res.sessions_ended ?? 0
+      const failed = res.failed ?? []
+      const summary = `${dropped} ClickHouse user${dropped === 1 ? '' : 's'} dropped, ${ended} session${ended === 1 ? '' : 's'} ended for ${email}`
+      if (failed.length === 0) {
+        toastSuccess(summary)
+      } else {
+        toastError(`${summary}. Failed on ${failed.map((f) => `${f.connection_name}: ${f.error}`).join('; ')}`)
+      }
+      removeAccessTarget = null
+      await loadUsers()
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : String(e))
+    } finally {
+      removeAccessLoading = false
+    }
+  }
+
+  function chUsersOf(row: Row): SSOClickHouseUser[] {
+    const list = row.clickhouse_users
+    return Array.isArray(list) ? (list as SSOClickHouseUser[]) : []
   }
 
   // ClickHouse >= 24.9 returns auth_type as Array(Enum8) (multiple auth methods),
@@ -468,13 +507,26 @@
                   onchange={(id) => { if (id !== currentRole) void setRole(username, id) }}
                 />
               {:else if col.key === 'username'}
-                <span class="inline-flex min-w-0 items-center gap-2">
-                  <span class="truncate">{row.display_name ?? value}</span>
-                  {#if row.via_sso}
-                    <Badge tone="neutral">SSO</Badge>
-                    <span class="truncate text-xs text-fg-3" title="ClickHouse account this person queries as">as {row.clickhouse_user}</span>
-                  {/if}
-                </span>
+                {@const chUsers = chUsersOf(row)}
+                <div class="min-w-0">
+                  <span class="inline-flex min-w-0 items-center gap-2">
+                    <span class="truncate">{row.display_name ?? value}</span>
+                    {#if row.via_sso}
+                      <Badge tone="neutral">SSO</Badge>
+                      {#if chUsers.length === 0}
+                        <span class="truncate text-xs text-fg-3" title="ClickHouse account this person queries as">as {row.clickhouse_user}</span>
+                      {/if}
+                    {/if}
+                  </span>
+                  {#each chUsers as cu (cu.connection_id)}
+                    <div class="flex items-center gap-1.5 text-xs text-fg-3">
+                      <span class="truncate" title={cu.last_sync_at ? `Synced ${formatDate(cu.last_sync_at)}` : undefined}>
+                        {cu.connection_name}: {cu.ch_user}{#if cu.roles.length > 0}, roles {cu.roles.join(', ')}{/if}{#if cu.last_sync_at}, synced {formatRelativeTime(cu.last_sync_at)}{/if}
+                      </span>
+                      {#if cu.locked}<Badge tone="warning">locked</Badge>{/if}
+                    </div>
+                  {/each}
+                </div>
               {:else if col.key === 'scope_label'}
                 <span class="text-xs text-fg-3" title={row.via_sso ? 'SSO roles follow the person to every connection' : 'ClickHouse user roles are set per connection'}>{value}</span>
               {:else if col.key === 'last_login_label'}
@@ -487,6 +539,11 @@
               {#if row.has_override}
                 <Button size="xs" variant="ghost" class="text-danger hover:text-danger" onclick={() => void removeRole(String(row.username))}>
                   Remove override
+                </Button>
+              {/if}
+              {#if row.via_sso}
+                <Button size="xs" variant="ghost" class="text-danger hover:text-danger" title="Drop this person's ClickHouse users on every connection and sign them out" onclick={() => (removeAccessTarget = row as unknown as AppUser)}>
+                  Remove access
                 </Button>
               {/if}
             {/snippet}
@@ -618,6 +675,17 @@
     </div>
   </form>
 </Sheet>
+
+<ConfirmDialog
+  open={removeAccessTarget !== null}
+  title="Remove ClickHouse access?"
+  description={removeAccessTarget ? `Drop every ClickHouse user provisioned for ${displayUser(removeAccessTarget.username)} on every connection and sign them out of CH-UI. They can sign in again through SSO, which provisions fresh users from their current groups.` : ''}
+  confirmLabel="Remove access"
+  destructive={true}
+  loading={removeAccessLoading}
+  onconfirm={confirmRemoveAccess}
+  oncancel={() => { if (!removeAccessLoading) removeAccessTarget = null }}
+/>
 
 <ConfirmDialog
   open={deleteCHUserConfirmOpen}

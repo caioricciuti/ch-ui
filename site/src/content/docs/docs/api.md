@@ -175,6 +175,8 @@ Any signed-in role, every edition. Read with your ClickHouse account; see [Data 
 | `PUT` | `/api/connections/{id}/sso-account` | Set the SSO ClickHouse service account (admin) |
 | `GET` | `/api/connections/{id}/sso-identity` | SSO identity mode (shared or per-person users) and group to role mapping (admin) |
 | `PUT` | `/api/connections/{id}/sso-identity` | Set the SSO identity mode and mapping; per-person needs Pro (admin) |
+| `POST` | `/api/connections/{id}/sso-identity/setup-sql` | Render the admin setup SQL for an SSO identity config (admin) |
+| `POST` | `/api/connections/{id}/sso-identity/verify` | Probe the SSO provisioner and return pass/fail checks (admin, Pro) |
 | `GET` | `/api/connections/{id}/background-credentials` | Mode and account name for every background worker (admin, passwords never returned) |
 | `PUT` | `/api/connections/{id}/background-credentials/{worker}` | Set a worker's mode: `service_account`, `session` or `disabled` (admin) |
 
@@ -354,6 +356,7 @@ Every `/api/admin/*` route requires the admin role.
 | `GET` | `/api/admin/user-roles` | Get role overrides |
 | `PUT` | `/api/admin/user-roles/{username}` | Set role override (body `role`, optional `connection_id`, default the current connection; SSO overrides apply on all connections) |
 | `DELETE` | `/api/admin/user-roles/{username}` | Remove role override (optional `?connection_id=`, default the current connection) |
+| `DELETE` | `/api/admin/users/sso/{email}/access` | Drop an SSO person's per-person ClickHouse users on every connection and sign them out (admin) |
 | `GET` | `/api/admin/connections` | List connections with tunnel status |
 | `GET` | `/api/admin/clickhouse-users` | Query system.users from ClickHouse |
 | `POST` | `/api/admin/clickhouse-users` | Create ClickHouse user |

@@ -69,6 +69,12 @@ func perPersonConfig() database.SSOIdentityConfig {
 // connection, a fake agent answering with r, and the provisioner.
 func setup(t *testing.T, cfg database.SSOIdentityConfig, r responder) (*database.DB, string, *testutil.Agent, *Provisioner) {
 	t.Helper()
+	return setupWith(t, cfg, r.respond)
+}
+
+// setupWith is setup with any agent responder.
+func setupWith(t *testing.T, cfg database.SSOIdentityConfig, respond func(tunnel.GatewayMessage) *tunnel.AgentMessage) (*database.DB, string, *testutil.Agent, *Provisioner) {
+	t.Helper()
 	db, conn := testutil.WorkerDB(t)
 	enc, err := crypto.Encrypt("prov-pw", testSecret)
 	if err != nil {
@@ -80,7 +86,7 @@ func setup(t *testing.T, cfg database.SSOIdentityConfig, r responder) (*database
 	if err := db.SetSSOIdentityConfig(conn, cfg); err != nil {
 		t.Fatal(err)
 	}
-	agent := testutil.NewAgent(t, db, "worker-token", r.respond)
+	agent := testutil.NewAgent(t, db, "worker-token", respond)
 	return db, conn, agent, &Provisioner{DB: db, Gateway: agent.Gateway, Secret: testSecret}
 }
 

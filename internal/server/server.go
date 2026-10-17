@@ -356,7 +356,7 @@ func (s *Server) setupRoutes() {
 			// authenticated user, but mutating a connection or revealing/rotating
 			// its tunnel token — the credential an agent uses to bridge into the
 			// customer's ClickHouse network — requires admin.
-			connectionsHandler := &handlers.ConnectionsHandler{DB: db, Gateway: gw, Config: cfg, Agents: s.agents}
+			connectionsHandler := &handlers.ConnectionsHandler{DB: db, Gateway: gw, Config: cfg, Agents: s.agents, Provisioner: s.ssoProvisioner}
 			protected.Route("/connections", func(cr chi.Router) {
 				cr.Get("/", connectionsHandler.List)
 				cr.Get("/{id}", connectionsHandler.Get)
@@ -373,6 +373,8 @@ func (s *Server) setupRoutes() {
 					ar.Put("/{id}/sso-account", connectionsHandler.SetSSOAccount)
 					ar.Get("/{id}/sso-identity", connectionsHandler.GetSSOIdentity)
 					ar.Put("/{id}/sso-identity", connectionsHandler.SetSSOIdentity)
+					ar.Post("/{id}/sso-identity/setup-sql", connectionsHandler.SSOIdentitySetupSQL)
+					ar.Post("/{id}/sso-identity/verify", connectionsHandler.VerifySSOIdentity)
 				})
 			})
 
@@ -423,6 +425,7 @@ func (s *Server) setupRoutes() {
 				GovSyncer:    s.govSyncer,
 				GitHubSyncer: s.githubSyncer,
 				OIDCManager:  s.oidcManager,
+				Provisioner:  s.ssoProvisioner,
 			}
 			protected.Route("/admin", func(ar chi.Router) {
 				adminHandler.Routes(ar)
