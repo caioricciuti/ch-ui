@@ -1,24 +1,26 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { AlertTriangle, RefreshCw, Server, ArrowRight } from 'lucide-svelte'
+  import { AlertTriangle, RefreshCw } from 'lucide-svelte'
   import { fetchFleet, type FleetResult, type FleetConnection } from '../lib/api/fleet'
   import { getSession, login } from '../lib/stores/session.svelte'
   import { navigate } from '../lib/stores/router.svelte'
   import { getAuthConfig, type AuthConfig } from '../lib/api/auth'
   import { withBase } from '../lib/basePath'
+  import { formatNumber } from '../lib/utils/format'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
   import { docsURL } from '../lib/routes'
-  import PageBody from '../lib/components/common/PageBody.svelte'
   import Button from '../lib/components/common/Button.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
-  import Panel from '../lib/components/common/Panel.svelte'
   import Stat from '../lib/components/common/Stat.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
   import Input from '../lib/components/common/Input.svelte'
   import FormField from '../lib/components/common/FormField.svelte'
   import Sheet from '../lib/components/common/Sheet.svelte'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
+  import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
+
+  type Row = Record<string, unknown> & FleetConnection & { node_count: number }
 
   let fleet = $state<FleetResult | null>(null)
   let loading = $state(true)
@@ -31,10 +33,34 @@
   let signInError = $state('')
   let signingIn = $state(false)
   let authConfig = $state<AuthConfig | null>(null)
-  const entries = $derived((fleet?.connections ?? []).filter(c => c.name.toLowerCase().includes(filter.toLowerCase())))
-  const needsAttention = $derived((fleet?.connections ?? []).filter(c => c.status !== 'healthy').length)
+  const connections = $derived(fleet?.connections ?? [])
+  const rows = $derived<Row[]>(connections.filter(c => c.name.toLowerCase().includes(filter.toLowerCase())).map(c => ({ ...c, node_count: c.nodes.length })))
+  const needsAttention = $derived(connections.filter(c => c.status !== 'healthy').length)
+  const hasRegressions = $derived(connections.some(c => c.regressions !== undefined))
   const labels: Record<FleetConnection['status'], string> = { healthy: 'Healthy', warning: 'Needs attention', critical: 'Critical', offline: 'Offline', disabled: 'Collection disabled', missing: 'No samples', stale: 'Stale samples' }
+  const notes: Partial<Record<FleetConnection['status'], string>> = {
+    offline: 'The connector is offline. Retained measurements are historical.',
+    disabled: 'Background collection is disabled. Enable it in Cluster Health settings.',
+    missing: 'No health samples yet. Check background monitoring credentials and system-table permissions.',
+    stale: 'No recent samples. Check collector credentials and connectivity; these values are historical.',
+  }
   function tone(status: FleetConnection['status']): 'success' | 'warning' | 'danger' | 'neutral' { return status === 'healthy' ? 'success' : status === 'critical' || status === 'offline' ? 'danger' : status === 'disabled' || status === 'missing' ? 'neutral' : 'warning' }
+  /** Metrics only mean something once a node has been sampled. */
+  const sampled = (fmt: (n: number) => string) => (v: unknown, row: Row) => row.node_count ? fmt(Number(v)) : '—'
+  const columns = $derived<DataColumn<Row>[]>([
+    { key: 'name', label: 'Name', width: '22%' },
+    { key: 'status', label: 'Status', width: '150px', sortValue: (r) => labels[r.status] },
+    { key: 'node_count', label: 'Nodes', align: 'right', width: '70px' },
+    { key: 'max_replication_delay', label: 'Replication delay', align: 'right', format: sampled(n => `${formatNumber(n)} s`) },
+    { key: 'parts_pressure_pct', label: 'Parts pressure', align: 'right', format: sampled(n => `${n.toFixed(1)}%`) },
+    { key: 'readonly_replicas', label: 'Readonly replicas', align: 'right', format: sampled(formatNumber) },
+    { key: 'replication_queue', label: 'Replication queue', align: 'right', format: sampled(formatNumber) },
+    { key: 'pending_mutations', label: 'Pending mutations', align: 'right', format: sampled(formatNumber) },
+    { key: 'long_queries', label: 'Long queries', align: 'right', format: sampled(formatNumber) },
+    { key: 'open_incidents', label: 'Open incidents', align: 'right', format: (v) => formatNumber(Number(v)) },
+    ...(hasRegressions ? [{ key: 'regressions', label: 'Query regressions', align: 'right', format: (v: unknown) => v === undefined ? '—' : formatNumber(Number(v)) } satisfies DataColumn<Row>] : []),
+    { key: 'captured_at', label: 'Sampled', width: '170px', format: (v) => v ? new Date(String(v)).toLocaleString() : 'Awaiting first sample', sortValue: (r) => r.captured_at ? new Date(r.captured_at).getTime() : 0 },
+  ])
   async function load() {
     if (!fleet) loading = true
     try { fleet = await fetchFleet(); error = '' } catch (e) { error = e instanceof Error ? e.message : 'Failed to load fleet' } finally { loading = false }
@@ -65,52 +91,42 @@
   {#if loading}<div class="flex flex-1 items-center justify-center"><Spinner /></div>
   {:else if error && !fleet}<EmptyState icon={AlertTriangle} title="Couldn't load the fleet" description={error} primary={{ label: 'Retry', onclick: load }} />
   {:else}
-    <PageBody width="lg">
-      <div class="space-y-5">
-        {#if error}<p class="text-[13px] text-danger" role="alert">Refresh failed: {error}. The cards below show the last successful load.</p>{/if}
-        <div class="grid grid-cols-2 gap-3 md:grid-cols-3">
-          <Stat label="Environments" value={fleet?.connections.length ?? 0} />
-          <Stat label="Online" value={fleet?.connections.filter(c => c.online).length ?? 0} />
-          <Stat label="Needs attention" value={needsAttention} tone={needsAttention ? 'warning' : 'success'} />
-        </div>
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <label for="fleet-filter" class="sr-only">Filter environments</label><Input id="fleet-filter" type="search" placeholder="Filter environments" class="w-64" bind:value={filter} />
-          <p class="text-xs text-fg-3">Retained monitoring samples · refreshes every 30 seconds</p>
-        </div>
-        {#if !entries.length}<EmptyState icon={Server} title={filter ? 'No matching environments' : 'No connections configured'} />{/if}
-        <div class="grid gap-4 lg:grid-cols-2">
-          {#each entries as connection (connection.id)}
-            <Panel title={connection.name} description={connection.cluster || 'ClickHouse environment'}>
-              {#snippet actions()}<Badge tone={tone(connection.status)}>{labels[connection.status]}</Badge>{/snippet}
-              <div class="space-y-4">
-                {#if connection.status === 'offline'}<p class="text-xs text-fg-3">The connector is offline. Retained measurements below are historical.</p>
-                {:else if connection.status === 'disabled'}<p class="text-xs text-fg-3">Background collection is disabled. Enable it in Cluster Health settings.</p>
-                {:else if connection.status === 'missing'}<p class="text-xs text-fg-3">No health samples yet. Check background monitoring credentials and system-table permissions.</p>
-                {:else if connection.status === 'stale'}<p class="text-xs text-warning">No recent samples. Check collector credentials and connectivity; these values are historical.</p>{/if}
-                <div class="grid grid-cols-3 gap-x-3 gap-y-4 text-xs">
-                  <div><p class="text-fg-3">Replication delay</p><p class="mt-1 font-mono text-[13px]">{connection.nodes.length ? `${connection.max_replication_delay.toLocaleString()} s` : '—'}</p></div>
-                  <div><p class="text-fg-3">Parts pressure</p><p class="mt-1 font-mono text-[13px]">{connection.nodes.length ? `${connection.parts_pressure_pct.toFixed(1)}%` : '—'}</p></div>
-                  <div><p class="text-fg-3">Readonly replicas</p><p class="mt-1 font-mono text-[13px]">{connection.nodes.length ? connection.readonly_replicas : '—'}</p></div>
-                  <div><p class="text-fg-3">Replication queue</p><p class="mt-1 font-mono text-[13px]">{connection.nodes.length ? connection.replication_queue : '—'}</p></div>
-                  <div><p class="text-fg-3">Pending mutations</p><p class="mt-1 font-mono text-[13px]">{connection.nodes.length ? connection.pending_mutations : '—'}</p></div>
-                  <div><p class="text-fg-3">Long queries</p><p class="mt-1 font-mono text-[13px]">{connection.nodes.length ? connection.long_queries : '—'}</p></div>
-                  <div><p class="text-fg-3">Open incidents</p><p class="mt-1 font-mono text-[13px]">{connection.open_incidents}</p></div>
-                  {#if connection.regressions !== undefined}<div><p class="text-fg-3">Query regressions</p><p class="mt-1 font-mono text-[13px]">{connection.regressions}</p></div>{/if}
-                </div>
-                <div class="border-t border-edge-subtle pt-3 text-[11px] text-fg-3">
-                  {connection.captured_at ? `Sampled ${new Date(connection.captured_at).toLocaleString()} · ${connection.nodes.length} nodes` : 'Awaiting first sample'}
-                </div>
-                <div class="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onclick={() => inspect(connection, '/cluster-health')}><ArrowRight size={12} /> Inspect health</Button>
-                  <Button size="sm" variant="ghost" onclick={() => inspect(connection, '/governance?section=incidents')}>Incidents</Button>
-                  <Button size="sm" variant="ghost" onclick={() => inspect(connection, '/performance')}>Performance</Button>
-                </div>
-              </div>
-            </Panel>
-          {/each}
-        </div>
-      </div>
-    </PageBody>
+    {#if error}<p class="shrink-0 border-b border-edge-subtle px-4 py-2 text-[13px] text-danger" role="alert">Refresh failed: {error}. The table shows the last successful load.</p>{/if}
+    <div class="grid shrink-0 grid-cols-3 gap-3 border-b border-edge-subtle px-4 py-3">
+      <Stat label="Environments" value={connections.length} />
+      <Stat label="Online" value={connections.filter(c => c.online).length} />
+      <Stat label="Needs attention" value={needsAttention} tone={needsAttention ? 'warning' : 'success'} />
+    </div>
+    <div class="flex h-10 shrink-0 items-center gap-2 border-b border-edge-subtle px-4">
+      <label for="fleet-filter" class="sr-only">Filter environments</label>
+      <Input id="fleet-filter" size="sm" type="search" placeholder="Filter environments" class="w-64" bind:value={filter} />
+      <span class="ml-auto text-xs text-fg-4">{rows.length} of {connections.length} environments · retained monitoring samples, refreshes every 30 seconds</span>
+    </div>
+    <div class="min-h-0 flex-1">
+      <DataTable
+        fill
+        {columns}
+        {rows}
+        rowKey={(r) => r.id}
+        sort={{ key: 'name', dir: 'asc' }}
+        emptyTitle={filter ? 'No matching environments' : 'No connections configured'}
+        emptyDescription={filter ? 'Try another name.' : undefined}
+        onrowclick={(r) => inspect(r, '/cluster-health')}
+      >
+        {#snippet cell(row, col, value)}
+          {#if col.key === 'name'}
+            <span class="block truncate font-medium text-fg">{row.name}</span>
+            <span class="block truncate text-xs text-fg-4">{row.cluster || 'ClickHouse environment'}</span>
+          {:else if col.key === 'status'}
+            <Badge tone={tone(row.status)} title={notes[row.status]}>{labels[row.status]}</Badge>
+          {:else}{value}{/if}
+        {/snippet}
+        {#snippet actions(row)}
+          <Button size="xs" variant="ghost" onclick={() => inspect(row, '/governance?section=incidents')}>Incidents</Button>
+          <Button size="xs" variant="ghost" onclick={() => inspect(row, '/performance')}>Performance</Button>
+        {/snippet}
+      </DataTable>
+    </div>
   {/if}
 </div>
 
