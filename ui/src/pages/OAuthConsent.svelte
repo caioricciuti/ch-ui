@@ -83,6 +83,7 @@
           </li>
         {/each}
       </ul>
+      <p class="text-[11px] text-fg-3"><a class="text-accent hover:underline" href="https://ch-ui.com/docs/mcp/#permission-levels" target="_blank" rel="noreferrer">What each permission unlocks</a></p>
       {#if info.granted.length < info.scopes.length}
         <p class="text-xs leading-relaxed text-fg-3">Your CH-UI role is {info.role}, which is read-only here. The client gets read access only; an admin can change your role in Admin → Users.</p>
       {/if}

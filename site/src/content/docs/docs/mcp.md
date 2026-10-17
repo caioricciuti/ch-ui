@@ -200,18 +200,28 @@ lands in a config file. Any MCP client can use the server without the plugin.
 
 The admin page for the server shows:
 
-- Four counters: active keys, OAuth grants, keys expiring in the next 7 days,
-  and keys used in the last 24 hours.
-- The endpoint URL with a copy button and ready-made config snippets for
-  Claude Code, Cursor, VS Code and a generic client.
-- One table of **API keys** and one of **OAuth grants**, with search and a
-  toggle to show revoked entries. Rotate or revoke from the row. Read + write
-  keys show a `read + write` badge, and keys with lifecycle actions an
-  `actions` badge next to it.
-- **New key**: pick the connection, ClickHouse user, access level (Read or
-  Read + write), the **Allow lifecycle actions** checkbox (shown for
-  Read + write only), database allowlist and expiry. After you create the
-  key, the form turns into a one-time reveal with the snippets already
+- Four counters: OAuth grants, service keys, service keys expiring in the
+  next 7 days, and keys or grants used in the last 24 hours. OAuth access
+  tokens never count as expiring: they live an hour by design and renew on
+  their own.
+- **Connect a client as yourself**: the endpoint URL with a copy button and
+  the steps for Claude Code, claude.ai, Cursor, VS Code and a generic client.
+  None of them contains a key; the client signs you in.
+- **Connect with a service key**: the same URL with a bearer header, for CI,
+  scripts and shared clients.
+- One table of **OAuth grants** and one of **service keys**, with search and
+  a toggle to show revoked entries. The page opens on the grants when you
+  have one yourself. The **Runs as** column names the person behind a grant
+  with their ClickHouse user underneath, or the account behind a key; a
+  service key with write access on `default` or another CH-UI admin account
+  gets an `admin account` warning, because nothing it does is attributed to
+  a person. Rotate or revoke from the row. Read + write keys show a
+  `read + write` badge, and keys with lifecycle actions an `actions` badge
+  next to it.
+- **New service key**: pick the connection, ClickHouse account, access level
+  (Read or Read + write), the **Allow lifecycle actions** checkbox (shown
+  for Read + write only), database allowlist and expiry. After you create
+  the key, the form turns into a one-time reveal with the snippets already
   filled in.
 
 ## What a key is

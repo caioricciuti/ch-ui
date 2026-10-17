@@ -9,6 +9,8 @@
     type MCPKey,
   } from '../../api/mcp'
   import { success, error as toastError } from '../../stores/toast.svelte'
+  import { getSession } from '../../stores/session.svelte'
+  import { DOCS_ORIGIN } from '../../routes'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import Panel from '../common/Panel.svelte'
   import Button from '../common/Button.svelte'
@@ -21,7 +23,7 @@
   import Stat from '../common/Stat.svelte'
   import Tabs from '../common/Tabs.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
-  import { Plus, Copy, Trash2, RefreshCw, ExternalLink, Search } from 'lucide-svelte'
+  import { Plus, Copy, Trash2, RefreshCw, Search, UserRound } from 'lucide-svelte'
   import { formatDate, formatRelativeTime } from '../../utils/format'
 
   interface ConnectionRow {
@@ -38,6 +40,12 @@
 
   // ── Table controls ────────────────────────────────────────────
   let view = $state<'api' | 'oauth'>('api')
+  // Once the person picks a tab, load() stops choosing one for them.
+  let viewTouched = false
+  // ClickHouse accounts that are admins in CH-UI: a service key with write
+  // access on one of them acts with admin power and no person behind it.
+  let adminAccounts = $state<Set<string>>(new Set(['default']))
+  const permissionDocs = `${DOCS_ORIGIN}/docs/mcp/#permission-levels`
   let search = $state('')
   let showRevoked = $state(false)
 
@@ -84,8 +92,32 @@
     { id: 'vscode', label: 'VS Code' },
     { id: 'generic', label: 'Generic' },
   ]
+  type OAuthClientId = ClientId | 'claudeai'
+  const oauthClientTabs = [
+    { id: 'claude', label: 'Claude Code' },
+    { id: 'claudeai', label: 'claude.ai' },
+    { id: 'cursor', label: 'Cursor' },
+    { id: 'vscode', label: 'VS Code' },
+    { id: 'generic', label: 'Generic' },
+  ]
   let endpointClient = $state<ClientId>('claude')
+  let oauthClient = $state<OAuthClientId>('claude')
   let revealClient = $state<ClientId>('claude')
+
+  /** How to add the server so the client signs the person in; no key anywhere. */
+  function oauthSnippetFor(client: OAuthClientId): string {
+    switch (client) {
+      case 'claude':
+        return `claude mcp add --transport http ch-ui ${mcpUrl}\n# then inside Claude Code: /mcp, pick ch-ui, Authenticate`
+      case 'claudeai':
+        return `Settings → Connectors → Add custom connector\nURL: ${mcpUrl}\nNo client id or secret. Approve in the browser when asked.`
+      case 'cursor':
+      case 'vscode':
+        return JSON.stringify({ mcpServers: { 'ch-ui': { url: mcpUrl } } }, null, 2) + '\n// no headers: the client offers to sign in'
+      default:
+        return `URL: ${mcpUrl}\nNo header. The client discovers CH-UI's sign-in from the first 401 and opens the consent page.`
+    }
+  }
 
   function snippetFor(client: ClientId, key: string): string {
     switch (client) {
@@ -117,7 +149,14 @@
   }
   const activeKeys = $derived(keys.filter((k) => k.kind === 'api' && isLive(k)).length)
   const oauthGrants = $derived(keys.filter((k) => k.kind === 'oauth' && isLive(k)).length)
-  const expiringSoon = $derived(keys.filter(expiresSoon).length)
+  // Service keys only: an OAuth access token lives an hour by design and
+  // renews on its own, so counting it here would read as a warning.
+  const expiringSoon = $derived(keys.filter((k) => k.kind === 'api' && expiresSoon(k)).length)
+
+  /** A service key with write access on an admin account: admin power, nobody behind it. */
+  function sharedAdminKey(k: MCPKey): boolean {
+    return k.kind === 'api' && k.scopes === 'read_write' && adminAccounts.has(k.ch_user)
+  }
   const usedToday = $derived(
     keys.filter((k) => k.last_used_at && Date.now() - new Date(k.last_used_at).getTime() < DAY).length,
   )
@@ -144,7 +183,7 @@
   const columns: DataColumn<Row>[] = [
     { key: 'display_name', label: 'Name', width: '24%' },
     { key: 'connection_name', label: 'Connection', truncate: true },
-    { key: 'ch_user', label: 'ClickHouse user', mono: true },
+    { key: 'ch_user', label: 'Runs as', sortable: false },
     { key: 'scopes', label: 'Access', sortable: false },
     { key: 'allowed_databases', label: 'Databases', truncate: true, format: (v) => (v ? String(v) : 'all') },
     { key: 'expires_at', label: 'Expires', sortValue: (r) => (r.expires_at ? new Date(r.expires_at).getTime() : Number.MAX_SAFE_INTEGER) },
@@ -155,13 +194,19 @@
   async function load() {
     loading = true
     try {
-      const [keysRes, conns] = await Promise.all([
+      const [keysRes, conns, roles] = await Promise.all([
         listMCPKeys(),
         apiGet<ConnectionRow[]>('/api/connections'),
+        apiGet<{ username: string; role: string }[]>('/api/admin/user-roles').catch(() => []),
       ])
       keys = keysRes.keys
       connections = conns
+      adminAccounts = new Set(['default', ...roles.filter((r) => r.role === 'admin').map((r) => r.username)])
       if (!form.connectionId && conns.length > 0) form.connectionId = conns[0].id
+      // Someone who just connected a client as themselves came here to see
+      // that grant, so open on it.
+      const me = getSession()?.user
+      if (!viewTouched && me && keys.some((k) => k.kind === 'oauth' && isLive(k) && k.subject === me)) view = 'oauth'
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Failed to load MCP keys')
     } finally {
@@ -218,7 +263,7 @@
       })
       revealed = { secret: res.secret, name: res.key.name }
       resetForm()
-      success('MCP key created')
+      success('Service key created')
       await load()
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Failed to create MCP key')
@@ -290,28 +335,17 @@
 <div class="space-y-8">
   <SectionHeader
     title="MCP Server"
-    description="AI clients connect here with a key and get row-capped, read-only tools. Every call is recorded in query history and the audit log."
-  >
-    {#snippet actions()}
-      <a
-        class="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs font-medium text-fg-2 transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
-        href="https://ch-ui.com/docs/mcp"
-        target="_blank"
-        rel="noreferrer"
-      >
-        Docs <ExternalLink size={12} />
-      </a>
-    {/snippet}
-  </SectionHeader>
+    description="Claude, Cursor, VS Code and other AI clients query this ClickHouse through CH-UI. People connect as themselves; scripts and CI use a service key. Every call is recorded in query history and the audit log."
+  />
 
   <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-    <Stat label="Active keys" value={activeKeys} />
     <Stat label="OAuth grants" value={oauthGrants} />
-    <Stat label="Expiring in 7 days" value={expiringSoon} tone={expiringSoon > 0 ? 'warning' : 'default'} />
+    <Stat label="Service keys" value={activeKeys} />
+    <Stat label="Keys expiring in 7 days" value={expiringSoon} tone={expiringSoon > 0 ? 'warning' : 'default'} />
     <Stat label="Used in last 24h" value={usedToday} />
   </div>
 
-  <Panel title="Endpoint" description="Point any MCP client at this URL with a key as the bearer token.">
+  <Panel title="Connect a client as yourself" description="Add the server with the URL and nothing else. The client sends you here to approve, and its token runs as you: your connection, your ClickHouse user, your name in the audit log.">
     <div class="space-y-3">
       <div class="flex items-center gap-2">
         <Input mono readonly value={mcpUrl} class="flex-1" />
@@ -319,6 +353,19 @@
           <Copy size={14} />
         </Button>
       </div>
+      <Tabs variant="segmented" size="sm" items={oauthClientTabs} value={oauthClient} onchange={(id) => (oauthClient = id as OAuthClientId)} />
+      <div class="relative">
+        <pre class="overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-surface-2 p-3 pr-10 font-mono text-xs leading-relaxed text-fg-2">{oauthSnippetFor(oauthClient)}</pre>
+        <Button icon variant="ghost" size="xs" class="absolute right-1.5 top-1.5" aria-label="Copy" title="Copy" onclick={() => copyText(oauthSnippetFor(oauthClient), 'Snippet')}>
+          <Copy size={13} />
+        </Button>
+      </div>
+      <p class="text-xs text-fg-4">The consent page lists what the client asked for: Read, Create drafts and Run actions. A read-only role grants Read only. <a class="text-accent hover:underline" href={permissionDocs} target="_blank" rel="noreferrer">Permission levels</a></p>
+    </div>
+  </Panel>
+
+  <Panel title="Connect with a service key" description="For CI, scripts and shared clients. The key runs as a dedicated ClickHouse account you choose, not as a person.">
+    <div class="space-y-3">
       <Tabs variant="segmented" size="sm" items={clientTabs} value={endpointClient} onchange={(id) => (endpointClient = id as ClientId)} />
       {@render snippetBlock(endpointClient, '<KEY>')}
     </div>
@@ -330,11 +377,11 @@
         variant="segmented"
         size="sm"
         items={[
-          { id: 'api', label: 'API keys', count: apiCount },
           { id: 'oauth', label: 'OAuth grants', count: oauthCount },
+          { id: 'api', label: 'Service keys', count: apiCount },
         ]}
         value={view}
-        onchange={(id) => (view = id as 'api' | 'oauth')}
+        onchange={(id) => { viewTouched = true; view = id as 'api' | 'oauth' }}
       />
       <div class="relative w-64">
         <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-4" />
@@ -345,8 +392,8 @@
         Show revoked
       </label>
       <div class="flex-1"></div>
-      <Button size="sm" onclick={openCreate}>
-        <Plus size={14} /> New key
+      <Button size="sm" variant={view === 'api' ? 'primary' : 'outline'} onclick={openCreate}>
+        <Plus size={14} /> New service key
       </Button>
     </div>
 
@@ -358,10 +405,10 @@
         {rows}
         rowKey={(r) => r.id}
         sort={{ key: 'last_used_at', dir: 'desc' }}
-        emptyTitle={view === 'api' ? 'No API keys yet' : 'No OAuth grants yet'}
+        emptyTitle={view === 'api' ? 'No service keys yet' : 'No OAuth grants yet'}
         emptyDescription={view === 'api'
-          ? 'Create a key to connect Claude Code, Cursor, VS Code or any MCP client.'
-          : 'Grants appear here when a person signs in to an AI client through CH-UI.'}
+          ? 'Create one for CI, a script or a shared client. People connect as themselves with the URL above.'
+          : 'Grants appear here when a person adds the URL above to an AI client and approves the sign-in.'}
       >
         {#snippet cell(row, col, value)}
           {#if col.key === 'display_name'}
@@ -374,6 +421,18 @@
                 {#if row.kind === 'oauth'}{row.client_id || 'oauth client'}{:else}{row.key_prefix}{/if}
               </div>
             </div>
+          {:else if col.key === 'ch_user'}
+            {#if row.kind === 'oauth'}
+              <div class="min-w-0">
+                <div class="flex items-center gap-1.5 text-fg"><UserRound size={12} class="shrink-0 text-fg-3" /><span class="truncate">{row.subject || 'person'}</span></div>
+                <div class="truncate font-mono text-[11px] text-fg-4">{row.ch_user}</div>
+              </div>
+            {:else}
+              <div class="flex min-w-0 items-center gap-1.5">
+                <span class="truncate font-mono text-xs text-fg-2">{row.ch_user}</span>
+                {#if sharedAdminKey(row)}<Badge tone="warning" title="This account is an admin in CH-UI and the key can write. Nothing it does is attributed to a person; prefer connecting as yourself or a locked-down account.">admin account</Badge>{/if}
+              </div>
+            {/if}
           {:else if col.key === 'scopes'}
             <div class="flex items-center gap-1">
               {#if row.scopes === 'read_write'}
@@ -428,10 +487,10 @@
 
 <Sheet
   open={sheetOpen}
-  title={revealed ? `Key "${revealed.name}"` : 'New MCP key'}
+  title={revealed ? `Key "${revealed.name}"` : 'New service key'}
   description={revealed
     ? 'Rotate it from the keys table if it ever leaks.'
-    : 'The key runs as a ClickHouse user on one connection. Its grants are the permission boundary.'}
+    : 'For CI, scripts and shared clients. The key runs as the ClickHouse account you name here, and that account\'s grants are the permission boundary. To connect a client as yourself, use the URL on the page instead.'}
   size="lg"
   onclose={closeSheet}
 >
@@ -458,7 +517,7 @@
       onsubmit={(e) => { e.preventDefault(); void submit() }}
     >
       <FormField label="Name" for="mcp-key-name" required controlWidth="full">
-        <Input id="mcp-key-name" bind:value={form.name} placeholder="claude-code laptop" />
+        <Input id="mcp-key-name" bind:value={form.name} placeholder="ci-nightly-report" />
       </FormField>
       <FormField label="Connection" for="mcp-key-connection" required controlWidth="full">
         <Select id="mcp-key-connection" options={connectionOptions} bind:value={form.connectionId} />
@@ -497,7 +556,7 @@
             <input type="checkbox" class="ds-checkbox" bind:checked={form.allowActions} />
             Allow lifecycle actions
           </label>
-          <p class="text-xs text-fg-4">Run existing models as this ClickHouse user, start and stop pipelines, and on Pro run scheduled jobs and send reports now. These run against ClickHouse; each one asks for confirmation in clients that support it and is audited.</p>
+          <p class="text-xs text-fg-4">Run existing models as this ClickHouse user, start and stop pipelines, and on Pro run scheduled jobs and send reports now. These run against ClickHouse; each one asks for confirmation in clients that support it and is audited. <a class="text-accent hover:underline" href={permissionDocs} target="_blank" rel="noreferrer">Permission levels</a></p>
         </div>
       {/if}
       <FormField label="Allowed databases" for="mcp-key-dbs" controlWidth="full" hint="Comma-separated. Empty = all databases the user can see.">
