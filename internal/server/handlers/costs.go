@@ -195,6 +195,7 @@ func (h *CostsHandler) getSection(w http.ResponseWriter, r *http.Request) {
 	}
 	cluster := h.resolveCluster(r, cs)
 	cfg, _ := h.loadConfig(cs.connID)
+	cfg.Accounts = personAccounts(h.DB, cs.connID)
 
 	rows, err := h.exec(cs, build(cluster, rng, cfg), costsTimeout)
 	degraded := false

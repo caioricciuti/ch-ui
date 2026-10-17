@@ -26,8 +26,17 @@ export interface InsightsResult {
   data: Record<string, unknown>[]
 }
 
+/** A row of the users section. `user` is the actor of the query_log rows:
+ * the person CH-UI's query tag named (SSO email, job owner) when present,
+ * the ClickHouse account otherwise. */
+export interface InsightsActorRow extends Record<string, unknown> {
+  user: string
+  /** ClickHouse accounts the actor's queries ran as. */
+  accounts?: string[]
+}
+
 export interface InsightsFilters {
-  /** Exact ClickHouse user. */
+  /** Exact actor: the person behind the queries, or the ClickHouse user. */
   user?: string
   /** query_kind: Select | Insert | Create | Alter | Drop | Show | System | Other. */
   kind?: string

@@ -16,6 +16,7 @@
   import Panel from '../lib/components/common/Panel.svelte'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
+  import ActorCell from '../lib/components/common/ActorCell.svelte'
   import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
   import { getSection } from '../lib/stores/nav.svelte'
   import { PAGE_SECTIONS } from '../lib/routes'
@@ -99,6 +100,9 @@
   const fmtCost = (v: unknown) => fmtMoney(v)
 
   // ── Team rollup (client-side aggregation of the per-user rows) ──
+  // A user row is a person when CH-UI's query tag named one (SSO email,
+  // job owner), a ClickHouse account otherwise; `accounts` lists the
+  // accounts the person's queries ran as.
   interface TeamRow extends Record<string, unknown> {
     team: string
     users: number
@@ -409,6 +413,8 @@
 {#snippet teamCell(row: Row, col: ColumnSpec, value: string)}
   {#if col.key === 'team' && value === UNALLOCATED}
     <span class="italic text-fg-4">{value}</span>
+  {:else if col.key === 'user'}
+    <ActorCell name={value} accounts={row.accounts} />
   {:else}
     {value}
   {/if}

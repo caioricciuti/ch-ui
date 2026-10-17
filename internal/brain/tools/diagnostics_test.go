@@ -106,7 +106,8 @@ func TestBrainAnalyzeQueryLogSQLShape(t *testing.T) {
 			if !strings.HasSuffix(strings.TrimSpace(sql), "LIMIT 20") {
 				t.Errorf("%s: want top 20, got %q", view, sql[len(sql)-20:])
 			}
-			for _, want := range []string{"user = 'bob'", "has(tables, 'db.t')", "query_duration_ms >= 50"} {
+			// The user filter matches the actor (tag person, else ClickHouse user).
+			for _, want := range []string{"JSONExtractString(log_comment, 'person'), ''), user) = 'bob'", "has(tables, 'db.t')", "query_duration_ms >= 50"} {
 				if !strings.Contains(sql, want) {
 					t.Errorf("%s: missing filter %s", view, want)
 				}

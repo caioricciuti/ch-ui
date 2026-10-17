@@ -10,6 +10,11 @@
 // Unlike clusterhealth there is no harvester or local storage — query_log IS
 // the history, so every section is a live aggregation pushed down to
 // ClickHouse, fanned out across the cluster when one is detected.
+//
+// Load is attributed to the actor of each query_log row
+// (querylogactor.Expr): the person named by CH-UI's query tag when there is
+// one, the ClickHouse account otherwise. The "user" column and filter are
+// that actor.
 package queryinsights
 
 import (
@@ -17,12 +22,13 @@ import (
 	"strings"
 
 	"github.com/caioricciuti/ch-ui/internal/clusterhealth"
+	"github.com/caioricciuti/ch-ui/internal/querylogactor"
 )
 
 // Filters narrow every section's aggregation. All values are sanitized here —
 // strings are escaped before interpolation and the query kind is allowlisted.
 type Filters struct {
-	User          string // exact ClickHouse user
+	User          string // exact actor: person behind the query, or ClickHouse user
 	QueryKind     string // allowlisted system.query_log query_kind
 	Search        string // case-insensitive substring of the query text
 	Table         string // only queries touching this table (has(tables, …))
@@ -33,6 +39,15 @@ type Filters struct {
 	// ExcludeLogCommentPrefixes hides queries whose log_comment starts with
 	// any of these, for the JSON tags (tunnel.LogCommentPrefix).
 	ExcludeLogCommentPrefixes []string
+	// Accounts maps per-person ClickHouse accounts (SSO users) to the person
+	// behind them, so their untagged queries count for the same actor as
+	// the tagged ones.
+	Accounts []querylogactor.Account
+}
+
+// actor is the SQL expression for who ran a query_log row.
+func (f Filters) actor() string {
+	return querylogactor.Expr(f.Accounts)
 }
 
 var allowedQueryKinds = map[string]bool{
@@ -61,7 +76,7 @@ func escapeLikePattern(s string) string {
 func (f Filters) clauses() string {
 	var b strings.Builder
 	if f.User != "" {
-		fmt.Fprintf(&b, "\n  AND user = '%s'", escapeString(f.User))
+		fmt.Fprintf(&b, "\n  AND %s = '%s'", f.actor(), escapeString(f.User))
 	}
 	if allowedQueryKinds[f.QueryKind] {
 		fmt.Fprintf(&b, "\n  AND query_kind = '%s'", f.QueryKind)
@@ -147,7 +162,7 @@ func SummaryQuery(cluster string, rng Range, f Filters) string {
 	return fmt.Sprintf(`SELECT
   countIf(type = 'QueryFinish') AS total_queries,
   countIf(type != 'QueryFinish') AS failed_queries,
-  uniqIf(user, type = 'QueryFinish') AS active_users,
+  uniqIf(%s, type = 'QueryFinish') AS active_users,
   round(quantileIf(0.5)(query_duration_ms, type = 'QueryFinish'), 1) AS p50_ms,
   round(quantileIf(0.95)(query_duration_ms, type = 'QueryFinish'), 1) AS p95_ms,
   maxIf(query_duration_ms, type = 'QueryFinish') AS max_ms,
@@ -155,7 +170,7 @@ func SummaryQuery(cluster string, rng Range, f Filters) string {
   maxIf(memory_usage, type = 'QueryFinish') AS peak_memory
 FROM %s
 WHERE %s
-FORMAT JSON`, source(cluster), baseWhere(rng, f))
+FORMAT JSON`, f.actor(), source(cluster), baseWhere(rng, f))
 }
 
 // VolumeQuery buckets query counts and failures over time for the trend chart.
@@ -250,20 +265,35 @@ ORDER BY occurrences DESC
 LIMIT 100 FORMAT JSON`, source(cluster), baseWhere(rng, f))
 }
 
-// UsersQuery aggregates load per ClickHouse user.
+// UsersQuery aggregates load per actor, returned as `user`, with the
+// ClickHouse accounts behind that actor as `accounts`.
+//
+// The actor expression reads the `user` column and the section also needs
+// that column as the account, so a subselect renames both (actor, account)
+// before the outer query aliases actor back to `user`: an outer
+// `expr AS user` next to `groupUniqArray(user)` would make the aggregate
+// read the alias, not the column.
 func UsersQuery(cluster string, rng Range, f Filters) string {
 	return fmt.Sprintf(`SELECT
-  user,
+  actor AS user,
+  groupUniqArray(account) AS accounts,
   countIf(type = 'QueryFinish') AS runs,
   countIf(type != 'QueryFinish') AS failures,
   round(quantileIf(0.95)(query_duration_ms, type = 'QueryFinish'), 1) AS p95_ms,
   sumIf(read_bytes, type = 'QueryFinish') AS read_bytes,
   maxIf(memory_usage, type = 'QueryFinish') AS max_memory
-FROM %s
-WHERE %s
-GROUP BY user
+FROM (SELECT
+    %s AS actor,
+    user AS account,
+    type,
+    query_duration_ms,
+    read_bytes,
+    memory_usage
+  FROM %s
+  WHERE %s)
+GROUP BY actor
 ORDER BY runs DESC
-LIMIT 100 FORMAT JSON`, source(cluster), baseWhere(rng, f))
+LIMIT 100 FORMAT JSON`, f.actor(), source(cluster), baseWhere(rng, f))
 }
 
 // TablesQuery surfaces the most-read tables. Requires the query_log `tables`

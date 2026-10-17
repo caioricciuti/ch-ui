@@ -12,6 +12,11 @@
 // rates: CPU core-hours (from OSCPUVirtualTimeMicroseconds) and GB-months of
 // storage. Team attribution happens in the handler, not in SQL — user→team
 // rules live in the local config.
+//
+// Spend is attributed to the actor of each query_log row
+// (querylogactor.Expr): the person named by CH-UI's query tag when there is
+// one, the ClickHouse account otherwise. The "user" column every section
+// returns is that actor.
 package costs
 
 import (
@@ -21,10 +26,13 @@ import (
 	"strings"
 
 	"github.com/caioricciuti/ch-ui/internal/clusterhealth"
+	"github.com/caioricciuti/ch-ui/internal/querylogactor"
 )
 
-// TeamRule assigns ClickHouse users to a cost center. Entries are exact user
-// names, or prefixes when they end with '*' (e.g. "etl_*").
+// TeamRule assigns users to a cost center. Entries are exact names, or
+// prefixes when they end with '*' (e.g. "etl_*"). They match the actor of a
+// query_log row: an SSO email or job owner for queries CH-UI tagged, the
+// ClickHouse user otherwise.
 type TeamRule struct {
 	Name  string   `json:"name"`
 	Users []string `json:"users"`
@@ -36,6 +44,11 @@ type Config struct {
 	CPUPerCoreHour float64    `json:"cpuPerCoreHour"`
 	StorageGBMonth float64    `json:"storageGBMonth"`
 	Teams          []TeamRule `json:"teams"`
+
+	// Accounts maps per-person ClickHouse accounts (SSO users) to the person
+	// behind them, so their untagged queries land on the same row as the
+	// tagged ones. The handler sets it per request; it is never stored.
+	Accounts []querylogactor.Account `json:"-"`
 }
 
 // DefaultConfig approximates on-demand cloud rates (per vCPU-hour, per
@@ -49,7 +62,8 @@ func DefaultConfig() Config {
 // spend is the page's allocation-coverage KPI.
 const Unallocated = "Unallocated"
 
-// MapTeam resolves a user against the team rules; first match wins.
+// MapTeam resolves an actor (person or ClickHouse user) against the team
+// rules; first match wins.
 func MapTeam(user string, teams []TeamRule) string {
 	for _, t := range teams {
 		for _, p := range t.Users {
@@ -158,52 +172,70 @@ func baseWhere(rng Range) string {
   AND log_comment != '%s'`, rng.Interval, rng.Interval, LogComment)
 }
 
+// actorRows is the per-row subselect the per-actor sections aggregate over.
+// The actor expression reads the `user` column, and the sections also need
+// that column as the account behind the actor, so the subselect renames both
+// (actor, account) before the outer query aliases actor back to `user`: an
+// outer `expr AS user` next to `groupUniqArray(user)` would make the
+// aggregate read the alias, not the column.
+func actorRows(cluster string, rng Range, cfg Config) string {
+	return fmt.Sprintf(`(SELECT
+    %s AS actor,
+    user AS account,
+    type,
+    event_time,
+    read_bytes,
+    %s AS cpu_hours
+  FROM %s
+  WHERE %s)`, querylogactor.Expr(cfg.Accounts), cpuHours, source(cluster, "system.query_log"), baseWhere(rng))
+}
+
 // SummaryQuery powers the headline tiles: compute spend, waste (spend on
-// failed queries), core-hours, scan volume.
+// failed queries), core-hours, scan volume. active_users counts actors.
 func SummaryQuery(cluster string, rng Range, cfg Config) string {
 	return fmt.Sprintf(`SELECT
   countIf(type = 'QueryFinish') AS total_queries,
   countIf(type != 'QueryFinish') AS failed_queries,
-  uniq(user) AS active_users,
+  uniq(%[5]s) AS active_users,
   round(sum(%[1]s), 4) AS cpu_core_hours,
   round(sum(%[1]s) * %[2]s, 4) AS compute_cost,
   round(sumIf(%[1]s, type != 'QueryFinish') * %[2]s, 4) AS failed_cost,
   sum(read_bytes) AS read_bytes
 FROM %[3]s
 WHERE %[4]s
-FORMAT JSON`, cpuHours, rate(cfg.CPUPerCoreHour), source(cluster, "system.query_log"), baseWhere(rng))
+FORMAT JSON`, cpuHours, rate(cfg.CPUPerCoreHour), source(cluster, "system.query_log"), baseWhere(rng), querylogactor.Expr(cfg.Accounts))
 }
 
-// TrendQuery buckets compute spend per user over time; the handler folds
-// users into teams so the chart can stack by cost center.
+// TrendQuery buckets compute spend per actor over time, as `user`; the
+// handler folds actors into teams so the chart can stack by cost center.
 func TrendQuery(cluster string, rng Range, cfg Config) string {
 	return fmt.Sprintf(`SELECT
   toUnixTimestamp(toStartOfInterval(event_time, INTERVAL %d SECOND)) AS t,
-  user,
-  round(sum(%s) * %s, 6) AS cost
+  actor AS user,
+  round(sum(cpu_hours) * %s, 6) AS cost
 FROM %s
-WHERE %s
-GROUP BY t, user
+GROUP BY t, actor
 ORDER BY t ASC
-LIMIT 20000 FORMAT JSON`, rng.BucketSeconds, cpuHours, rate(cfg.CPUPerCoreHour), source(cluster, "system.query_log"), baseWhere(rng))
+LIMIT 20000 FORMAT JSON`, rng.BucketSeconds, rate(cfg.CPUPerCoreHour), actorRows(cluster, rng, cfg))
 }
 
-// UsersQuery aggregates spend per ClickHouse user; the handler attaches the
-// team so the UI can roll the same rows up into a per-team table.
+// UsersQuery aggregates spend per actor, returned as `user`, with the
+// ClickHouse accounts behind that actor as `accounts`; the handler attaches
+// the team so the UI can roll the same rows up into a per-team table.
 func UsersQuery(cluster string, rng Range, cfg Config) string {
 	return fmt.Sprintf(`SELECT
-  user,
+  actor AS user,
+  groupUniqArray(account) AS accounts,
   countIf(type = 'QueryFinish') AS queries,
   countIf(type != 'QueryFinish') AS failures,
-  round(sum(%[1]s), 4) AS cpu_core_hours,
-  round(sum(%[1]s) * %[2]s, 4) AS compute_cost,
-  round(sumIf(%[1]s, type != 'QueryFinish') * %[2]s, 4) AS failed_cost,
+  round(sum(cpu_hours), 4) AS cpu_core_hours,
+  round(sum(cpu_hours) * %[1]s, 4) AS compute_cost,
+  round(sumIf(cpu_hours, type != 'QueryFinish') * %[1]s, 4) AS failed_cost,
   sum(read_bytes) AS read_bytes
-FROM %[3]s
-WHERE %[4]s
-GROUP BY user
+FROM %[2]s
+GROUP BY actor
 ORDER BY compute_cost DESC
-LIMIT 200 FORMAT JSON`, cpuHours, rate(cfg.CPUPerCoreHour), source(cluster, "system.query_log"), baseWhere(rng))
+LIMIT 200 FORMAT JSON`, rate(cfg.CPUPerCoreHour), actorRows(cluster, rng, cfg))
 }
 
 // SampleQueryCap mirrors queryinsights: long enough for the sample to be
@@ -218,7 +250,7 @@ func QueriesQuery(cluster string, rng Range, cfg Config) string {
   toString(normalized_query_hash) AS hash,
   substring(any(query), 1, %[1]d) AS sample_query,
   count() AS runs,
-  uniq(user) AS users,
+  uniq(%[6]s) AS users,
   round(sum(%[2]s), 4) AS cpu_core_hours,
   round(sum(%[2]s) * %[3]s, 4) AS compute_cost,
   round(sum(%[2]s) * %[3]s / count(), 6) AS cost_per_run,
@@ -229,7 +261,7 @@ WHERE %[5]s
   AND type = 'QueryFinish'
 GROUP BY normalized_query_hash
 ORDER BY compute_cost DESC
-LIMIT 100 FORMAT JSON`, SampleQueryCap, cpuHours, rate(cfg.CPUPerCoreHour), source(cluster, "system.query_log"), baseWhere(rng))
+LIMIT 100 FORMAT JSON`, SampleQueryCap, cpuHours, rate(cfg.CPUPerCoreHour), source(cluster, "system.query_log"), baseWhere(rng), querylogactor.Expr(cfg.Accounts))
 }
 
 // StorageQuery prices the on-disk footprint per table as a monthly run rate.

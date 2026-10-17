@@ -26,7 +26,7 @@ Besides the Overview, the page has four sections, listed in the sidebar under Co
 | Section | What it answers |
 | --- | --- |
 | **Teams** | Spend per cost center: compute cost, share of total, failed-query cost, core-hours, scan volume, query and user counts |
-| **Users** | The same per ClickHouse user, with the team each user resolved to |
+| **Users** | The same per user, with the team each user resolved to. A user is the person behind the queries when CH-UI's [query tag](/docs/query-insights#query-tags) is present (the SSO email, or the owner of a scheduled job), and the ClickHouse account otherwise; a muted *via* line shows the accounts a person's queries ran as |
 | **Cost drivers** | Query *patterns* ranked by **total spend** (grouped by `normalized_query_hash`), deliberately not by latency, so the cheap query that runs fifty thousand times surfaces here even though Query Insights never shows it. Includes cost per run, and every row opens in a new editor tab |
 | **Storage** | Per-table monthly run rate from on-disk bytes, with uncompressed size, **compression ratio**, and row count |
 
@@ -56,7 +56,7 @@ The model is saved per connection via `GET`/`PUT /api/costs/config`; submitted v
 
 ## Mapping users to teams
 
-Team rules map ClickHouse users to cost centers:
+Team rules map users to cost centers. A rule matches the same name the Users section shows: the person (SSO email or job owner) for queries CH-UI tagged, the ClickHouse account for everything else, so `*@example.com` is a valid rule for an SSO domain.
 
 - Each team lists user entries: **exact names** (`airflow`) or **prefixes ending with `*`** (`etl_*`).
 - **First match wins**, top to bottom.
@@ -95,6 +95,7 @@ Storage is a snapshot of what is on disk right now, priced as a monthly run rate
 Fine print, all deliberate:
 
 - Only **initial** queries are counted (`is_initial_query = 1`), so distributed sub-queries don't double-bill.
+- Spend is attributed to the **person** named in CH-UI's query tag when there is one (the SSO email, or the owner of a scheduled job), and to the ClickHouse account otherwise, so people sharing an SSO service account are still billed separately. Queries a per-person SSO user runs outside CH-UI are labeled by that person's email too.
 - **Failed queries are included**: a query that burned 20 core-minutes and then threw an exception still cost you 20 core-minutes. Their share is broken out as the failed-query cost tile: pure waste, and usually the cheapest thing on the page to fix.
 - CH-UI tags its own Cost Center queries with the log comment `ch-ui:cost-center` and excludes exactly those, so the page never bills itself.
 - On cluster deployments, aggregations fan out via `clusterAllReplicas('<cluster>', …)`. The cluster is auto-detected; you can override it with `?cluster=`. If remote nodes can't be reached (for example, credentials aren't valid cluster-wide), the page **degrades to the local node** and shows a Degraded badge rather than failing, except on timeouts, where it won't pile a second heavy scan onto a loaded cluster.

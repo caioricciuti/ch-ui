@@ -20,6 +20,7 @@
   import Input from '../lib/components/common/Input.svelte'
   import Select from '../lib/components/common/Select.svelte'
   import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
+  import ActorCell from '../lib/components/common/ActorCell.svelte'
   import {
     RefreshCw, AlertTriangle, Server, Timer, MemoryStick, Repeat,
     Users, Table2, ExternalLink, Search, X, Funnel,
@@ -80,6 +81,9 @@
       ],
     },
     {
+      // `user` is the actor: the person CH-UI's query tag named (SSO email,
+      // job owner), else the ClickHouse account; `accounts` lists the
+      // accounts the person's queries ran as. The funnel filters by it.
       key: 'users', label: 'Users', icon: Users, filterKey: 'user', filterField: 'user',
       columns: [
         { key: 'user', label: 'User', mono: true },
@@ -425,6 +429,13 @@
               rows={sectionResult.data}
               emptyTitle="Nothing recorded for this range"
             >
+              {#snippet cell(row, col, value)}
+                {#if spec.key === 'users' && col.key === 'user'}
+                  <ActorCell name={value} accounts={row.accounts} />
+                {:else}
+                  {value}
+                {/if}
+              {/snippet}
               {#snippet actions(row)}
                 {#if spec.filterKey}
                   <Button icon variant="ghost" size="xs"

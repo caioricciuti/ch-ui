@@ -1091,6 +1091,9 @@ func (db *DB) runMigrations() error {
 	if err := db.ensureColumn("gov_policies", "enforcement_mode", "TEXT NOT NULL DEFAULT 'warn'"); err != nil {
 		return err
 	}
+	if err := db.ensureColumn("gov_query_log", "actor", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := db.ensureColumn("gov_policy_violations", "detection_phase", "TEXT NOT NULL DEFAULT 'post_exec'"); err != nil {
 		return err
 	}

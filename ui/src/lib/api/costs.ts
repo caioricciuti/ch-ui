@@ -17,9 +17,22 @@ export interface CostsResult {
   data: Record<string, unknown>[]
 }
 
+/** A row of the users and trend sections. `user` is the actor of the
+ * query_log rows: the person CH-UI's query tag named (SSO email, job owner)
+ * when present, the ClickHouse account otherwise. */
+export interface CostsActorRow extends Record<string, unknown> {
+  user: string
+  /** Team the actor resolved to, attached by the handler. */
+  team?: string
+  /** ClickHouse accounts the actor's queries ran as (users section only). */
+  accounts?: string[]
+}
+
 export interface TeamRule {
   name: string
-  /** Exact ClickHouse user names, or prefixes ending with '*' (e.g. "etl_*"). */
+  /** Exact names, or prefixes ending with '*' (e.g. "etl_*"). They match the
+   * actor: an SSO email or job owner for queries CH-UI ran, the ClickHouse
+   * user otherwise. */
   users: string[]
 }
 

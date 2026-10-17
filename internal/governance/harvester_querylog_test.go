@@ -15,14 +15,18 @@ import (
 	"time"
 
 	"github.com/caioricciuti/ch-ui/connector"
+	"github.com/caioricciuti/ch-ui/internal/querylogactor"
 	"github.com/caioricciuti/ch-ui/internal/testutil"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
 
 func TestBuildQueryLogHarvestSQL(t *testing.T) {
 	wm := parseQueryLogWatermark("2026-10-12 10:00:00.000002|q'2")
-	sql := buildQueryLogHarvestSQL(wm, "svc'x", 0, true)
+	sql := buildQueryLogHarvestSQL(wm, "svc'x", 0, true, []querylogactor.Account{{User: "sso:a@x", Person: "a@x"}})
 	for _, must := range []string{
+		"user AS ch_user,",
+		"JSONExtractString(log_comment, 'person')",
+		"transform(user, ['sso:a@x'], ['a@x'], user)) AS actor,",
 		"type IN ('QueryFinish', 'ExceptionBeforeStart', 'ExceptionWhileProcessing')",
 		"(event_time_microseconds, query_id) > (parseDateTime64BestEffort('2026-10-12 10:00:00.000002', 6), 'q\\'2')",
 		"NOT (log_comment = 'ch-ui:governance' AND user = 'svc\\'x')",
@@ -38,7 +42,7 @@ func TestBuildQueryLogHarvestSQL(t *testing.T) {
 			t.Fatalf("unexpected %q in:\n%s", mustNot, sql)
 		}
 	}
-	if s := buildQueryLogHarvestSQL(wm, "u", 25, false); !strings.Contains(s, "(type != 'QueryFinish' OR query_duration_ms >= 25)") || !strings.Contains(s, "CAST([], 'Array(String)') AS tables") {
+	if s := buildQueryLogHarvestSQL(wm, "u", 25, false, nil); !strings.Contains(s, "(type != 'QueryFinish' OR query_duration_ms >= 25)") || !strings.Contains(s, "CAST([], 'Array(String)') AS tables") {
 		t.Fatalf("fallback/floor SQL wrong:\n%s", s)
 	}
 }
@@ -118,8 +122,8 @@ func TestQueryLogHarvestFailureKeepsWatermark(t *testing.T) {
 func TestQueryLogHarvestWatermarkAndNoDuplicateViolations(t *testing.T) {
 	s, store, f, conn := newHarvestTest(t)
 	f.rows = `[
-	 {"query_id":"q1","ch_user":"alice","query":"SELECT 1 FROM db.tbl","event_time":"2026-10-12 10:00:00","event_time_us":"2026-10-12 10:00:00.000001","tables":["db.tbl"],"exception_code":0},
-	 {"query_id":"q2","ch_user":"alice","query":"SELECT 2 FROM db.tbl","event_time":"2026-10-12 10:00:00","event_time_us":"2026-10-12 10:00:00.000002","tables":["db.tbl"],"exception_code":0}
+	 {"query_id":"q1","ch_user":"alice","actor":"alice@example.com","query":"SELECT 1 FROM db.tbl","event_time":"2026-10-12 10:00:00","event_time_us":"2026-10-12 10:00:00.000001","tables":["db.tbl"],"exception_code":0},
+	 {"query_id":"q2","ch_user":"alice","actor":"alice","query":"SELECT 2 FROM db.tbl","event_time":"2026-10-12 10:00:00","event_time_us":"2026-10-12 10:00:00.000002","tables":["db.tbl"],"exception_code":0}
 	]`
 	creds := CHCredentials{ConnectionID: conn, User: "svc"}
 	if _, err := s.syncQueryLog(context.Background(), creds); err != nil {
@@ -142,6 +146,22 @@ func TestQueryLogHarvestWatermarkAndNoDuplicateViolations(t *testing.T) {
 	}
 	if len(violations) != 2 {
 		t.Fatalf("violations = %d, want 2", len(violations))
+	}
+	for _, v := range violations {
+		if v.User != "alice" {
+			t.Fatalf("violation must name the ClickHouse user, got %q", v.User)
+		}
+	}
+	// The stored row keeps both names, and the user filter matches either.
+	stored, _, err := store.GetQueryLog(conn, 10, 0, "alice@example.com", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 1 || stored[0].User != "alice" || stored[0].Actor != "alice@example.com" {
+		t.Fatalf("actor filter: %+v", stored)
+	}
+	if stored, _, err = store.GetQueryLog(conn, 10, 0, "alice", ""); err != nil || len(stored) != 2 {
+		t.Fatalf("ch_user filter: %d rows, %v", len(stored), err)
 	}
 	f.mu.Lock()
 	last := f.sqls[len(f.sqls)-1]
@@ -170,7 +190,7 @@ func TestQueryLogHarvestSQLLive(t *testing.T) {
 	}
 	wm := parseQueryLogWatermark(time.Now().Add(-time.Hour).UTC().Format("2006-01-02 15:04:05") + "|x'y")
 	for _, withTables := range []bool{true, false} {
-		if _, err := client.Execute(ctx, buildQueryLogHarvestSQL(wm, "default", 10, withTables), user, pass, nil); err != nil {
+		if _, err := client.Execute(ctx, buildQueryLogHarvestSQL(wm, "default", 10, withTables, []querylogactor.Account{{User: "sso:a@x", Person: "a@x"}}), user, pass, nil); err != nil {
 			t.Fatalf("harvest SQL (tables=%v) failed on ClickHouse: %v", withTables, err)
 		}
 	}

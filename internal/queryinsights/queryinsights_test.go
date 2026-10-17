@@ -8,6 +8,8 @@ package queryinsights
 import (
 	"strings"
 	"testing"
+
+	"github.com/caioricciuti/ch-ui/internal/querylogactor"
 )
 
 func TestRangeSpec(t *testing.T) {
@@ -148,9 +150,13 @@ func TestVolumeQueryZeroFills(t *testing.T) {
 }
 
 func TestFilters_EscapingAndAllowlist(t *testing.T) {
+	actor := querylogactor.Expr(nil)
 	q := SummaryQuery("", DefaultRange, Filters{User: "o'brien"})
-	if !strings.Contains(q, `AND user = 'o\'brien'`) {
-		t.Fatalf("user filter must escape quotes: %s", q)
+	if !strings.Contains(q, `AND `+actor+` = 'o\'brien'`) {
+		t.Fatalf("user filter must match the actor and escape quotes: %s", q)
+	}
+	if strings.Contains(q, "AND user = ") {
+		t.Fatalf("user filter must not match the raw ClickHouse user: %s", q)
 	}
 
 	q = SummaryQuery("", DefaultRange, Filters{Search: `100%_\`})
@@ -187,8 +193,38 @@ func TestFilters_EscapingAndAllowlist(t *testing.T) {
 		"slow":   SlowQueriesQuery("", DefaultRange, Filters{User: "alice"}),
 		"tables": TablesQuery("", DefaultRange, Filters{User: "alice"}),
 	} {
-		if !strings.Contains(q, "AND user = 'alice'") {
+		if !strings.Contains(q, "AND "+actor+" = 'alice'") {
 			t.Fatalf("%s: filters not applied: %s", name, q)
+		}
+	}
+}
+
+// Load is attributed to the actor of a row (tag person, else ClickHouse
+// user), returned as `user`, with the accounts behind each actor alongside.
+func TestUsersQueryGroupsByActor(t *testing.T) {
+	actor := querylogactor.Expr(nil)
+	q := UsersQuery("prod", DefaultRange, Filters{})
+	for _, must := range []string{
+		actor + " AS actor,", "user AS account,", "actor AS user,",
+		"groupUniqArray(account) AS accounts,", "GROUP BY actor", "ORDER BY runs DESC",
+		"FROM clusterAllReplicas('prod', system.query_log)",
+	} {
+		if !strings.Contains(q, must) {
+			t.Fatalf("users query missing %q:\n%s", must, q)
+		}
+	}
+	if strings.Contains(q, "GROUP BY user") || strings.Contains(q, "groupUniqArray(user)") {
+		t.Fatalf("users query must not read the shadowed user alias:\n%s", q)
+	}
+	if s := SummaryQuery("", DefaultRange, Filters{}); !strings.Contains(s, "uniqIf("+actor+", type = 'QueryFinish') AS active_users") {
+		t.Fatalf("summary must count actors:\n%s", s)
+	}
+
+	f := Filters{User: "ann@x", Accounts: []querylogactor.Account{{User: "sso:ann@x", Person: "ann@x"}}}
+	want := "transform(user, ['sso:ann@x'], ['ann@x'], user)"
+	for name, q := range map[string]string{"users": UsersQuery("", DefaultRange, f), "slow": SlowQueriesQuery("", DefaultRange, f)} {
+		if !strings.Contains(q, want) {
+			t.Fatalf("%s must relabel SSO accounts:\n%s", name, q)
 		}
 	}
 }

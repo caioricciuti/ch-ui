@@ -470,8 +470,8 @@ func (s *Store) BatchInsertQueryLog(connectionID string, entries []QueryLogEntry
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(
-		`INSERT OR IGNORE INTO gov_query_log (id, connection_id, query_id, ch_user, query_text, normalized_hash, query_kind, event_time, duration_ms, read_rows, read_bytes, result_rows, written_rows, written_bytes, memory_usage, tables_used, is_error, error_message, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT OR IGNORE INTO gov_query_log (id, connection_id, query_id, ch_user, actor, query_text, normalized_hash, query_kind, event_time, duration_ms, read_rows, read_bytes, result_rows, written_rows, written_bytes, memory_usage, tables_used, is_error, error_message, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	)
 	if err != nil {
 		return fmt.Errorf("prepare query log insert: %w", err)
@@ -484,7 +484,7 @@ func (s *Store) BatchInsertQueryLog(connectionID string, entries []QueryLogEntry
 			isError = 1
 		}
 		_, err := stmt.Exec(
-			e.ID, e.ConnectionID, e.QueryID, e.User, e.QueryText, e.NormalizedHash, e.QueryKind,
+			e.ID, e.ConnectionID, e.QueryID, e.User, e.Actor, e.QueryText, e.NormalizedHash, e.QueryKind,
 			e.EventTime, e.DurationMs, e.ReadRows, e.ReadBytes, e.ResultRows, e.WrittenRows, e.WrittenBytes,
 			e.MemoryUsage, e.TablesUsed, isError, ptrToNullString(e.ErrorMessage), e.CreatedAt,
 		)
@@ -514,8 +514,8 @@ func (s *Store) InsertQueryLogBatch(entries []QueryLogEntry) (int, error) {
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(
-		`INSERT OR IGNORE INTO gov_query_log (id, connection_id, query_id, ch_user, query_text, normalized_hash, query_kind, event_time, duration_ms, read_rows, read_bytes, result_rows, written_rows, written_bytes, memory_usage, tables_used, is_error, error_message, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT OR IGNORE INTO gov_query_log (id, connection_id, query_id, ch_user, actor, query_text, normalized_hash, query_kind, event_time, duration_ms, read_rows, read_bytes, result_rows, written_rows, written_bytes, memory_usage, tables_used, is_error, error_message, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("prepare query log insert: %w", err)
@@ -540,7 +540,7 @@ func (s *Store) InsertQueryLogBatch(entries []QueryLogEntry) (int, error) {
 			createdAt = now
 		}
 		result, err := stmt.Exec(
-			id, e.ConnectionID, e.QueryID, e.User, e.QueryText, e.NormalizedHash, e.QueryKind,
+			id, e.ConnectionID, e.QueryID, e.User, e.Actor, e.QueryText, e.NormalizedHash, e.QueryKind,
 			e.EventTime, e.DurationMs, e.ReadRows, e.ReadBytes, e.ResultRows, e.WrittenRows, e.WrittenBytes,
 			e.MemoryUsage, e.TablesUsed, isError, ptrToNullString(e.ErrorMessage), createdAt,
 		)
@@ -568,8 +568,10 @@ func (s *Store) GetQueryLog(connectionID string, limit, offset int, user, table 
 	args := []interface{}{connectionID}
 
 	if user != "" {
-		where += " AND ch_user = ?"
-		args = append(args, user)
+		// The UI shows the actor (person) over the ClickHouse user, so a
+		// filter typed from either column must match.
+		where += " AND (ch_user = ? OR actor = ?)"
+		args = append(args, user, user)
 	}
 	if table != "" {
 		where += " AND tables_used LIKE ?"
@@ -587,7 +589,7 @@ func (s *Store) GetQueryLog(connectionID string, limit, offset int, user, table 
 
 	// Get page
 	query := fmt.Sprintf(
-		`SELECT id, connection_id, query_id, ch_user, query_text, normalized_hash, query_kind, event_time, duration_ms, read_rows, read_bytes, result_rows, written_rows, written_bytes, memory_usage, tables_used, is_error, error_message, created_at
+		`SELECT id, connection_id, query_id, ch_user, actor, query_text, normalized_hash, query_kind, event_time, duration_ms, read_rows, read_bytes, result_rows, written_rows, written_bytes, memory_usage, tables_used, is_error, error_message, created_at
 		 FROM gov_query_log WHERE %s ORDER BY event_time DESC LIMIT ? OFFSET ?`, where,
 	)
 	args = append(args, limit, offset)
@@ -602,7 +604,7 @@ func (s *Store) GetQueryLog(connectionID string, limit, offset int, user, table 
 	for rows.Next() {
 		var e QueryLogEntry
 		var errorMsg sql.NullString
-		if err := rows.Scan(&e.ID, &e.ConnectionID, &e.QueryID, &e.User, &e.QueryText, &e.NormalizedHash, &e.QueryKind, &e.EventTime, &e.DurationMs, &e.ReadRows, &e.ReadBytes, &e.ResultRows, &e.WrittenRows, &e.WrittenBytes, &e.MemoryUsage, &e.TablesUsed, &e.IsError, &errorMsg, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.ConnectionID, &e.QueryID, &e.User, &e.Actor, &e.QueryText, &e.NormalizedHash, &e.QueryKind, &e.EventTime, &e.DurationMs, &e.ReadRows, &e.ReadBytes, &e.ResultRows, &e.WrittenRows, &e.WrittenBytes, &e.MemoryUsage, &e.TablesUsed, &e.IsError, &errorMsg, &e.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan query log entry: %w", err)
 		}
 		e.ErrorMessage = nullStringToPtr(errorMsg)
@@ -617,7 +619,7 @@ func (s *Store) GetQueryLog(connectionID string, limit, offset int, user, table 
 // GetQueryByQueryID returns a single query log entry by its ClickHouse query_id.
 func (s *Store) GetQueryByQueryID(connectionID, queryID string) (*QueryLogEntry, error) {
 	row := s.conn().QueryRow(
-		`SELECT id, connection_id, query_id, ch_user, query_text, normalized_hash, query_kind,
+		`SELECT id, connection_id, query_id, ch_user, actor, query_text, normalized_hash, query_kind,
 		        event_time, duration_ms, read_rows, read_bytes, result_rows, written_rows,
 		        written_bytes, memory_usage, tables_used, is_error, error_message, created_at
 		 FROM gov_query_log WHERE connection_id = ? AND query_id = ? LIMIT 1`,
@@ -625,7 +627,7 @@ func (s *Store) GetQueryByQueryID(connectionID, queryID string) (*QueryLogEntry,
 	)
 
 	var e QueryLogEntry
-	if err := row.Scan(&e.ID, &e.ConnectionID, &e.QueryID, &e.User, &e.QueryText,
+	if err := row.Scan(&e.ID, &e.ConnectionID, &e.QueryID, &e.User, &e.Actor, &e.QueryText,
 		&e.NormalizedHash, &e.QueryKind, &e.EventTime, &e.DurationMs,
 		&e.ReadRows, &e.ReadBytes, &e.ResultRows, &e.WrittenRows,
 		&e.WrittenBytes, &e.MemoryUsage, &e.TablesUsed, &e.IsError,

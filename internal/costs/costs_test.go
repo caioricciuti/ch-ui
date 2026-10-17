@@ -9,6 +9,8 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/caioricciuti/ch-ui/internal/querylogactor"
 )
 
 func TestRangeSpec(t *testing.T) {
@@ -67,6 +69,52 @@ func TestQueryLogSectionsShareBaseFilters(t *testing.T) {
 			if !strings.Contains(q, must) {
 				t.Errorf("%s query missing %q:\n%s", name, must, q)
 			}
+		}
+	}
+}
+
+// Spend is attributed to the actor of a row (tag person, else ClickHouse
+// user), returned as `user` so the handler's team mapping and the UI keep
+// working, with the accounts behind each actor alongside.
+func TestSectionsAttributeByActor(t *testing.T) {
+	cfg := DefaultConfig()
+	actor := querylogactor.Expr(nil)
+	if !strings.Contains(actor, "JSONExtractString(log_comment, 'person')") || !strings.HasSuffix(actor, ", user)") {
+		t.Fatalf("unexpected actor expression: %s", actor)
+	}
+	users := UsersQuery("", DefaultRange, cfg)
+	for _, must := range []string{actor + " AS actor,", "user AS account,", "actor AS user,", "groupUniqArray(account) AS accounts,", "GROUP BY actor", "ORDER BY compute_cost DESC"} {
+		if !strings.Contains(users, must) {
+			t.Errorf("users query missing %q:\n%s", must, users)
+		}
+	}
+	if strings.Contains(users, "GROUP BY user") || strings.Contains(users, "groupUniqArray(user)") {
+		t.Errorf("users query must not read the shadowed user alias:\n%s", users)
+	}
+	trend := TrendQuery("prod", DefaultRange, cfg)
+	for _, must := range []string{actor + " AS actor,", "actor AS user,", "GROUP BY t, actor", "clusterAllReplicas('prod', system.query_log)"} {
+		if !strings.Contains(trend, must) {
+			t.Errorf("trend query missing %q:\n%s", must, trend)
+		}
+	}
+	if !strings.Contains(SummaryQuery("", DefaultRange, cfg), "uniq("+actor+") AS active_users") {
+		t.Errorf("summary must count actors:\n%s", SummaryQuery("", DefaultRange, cfg))
+	}
+	if !strings.Contains(QueriesQuery("", DefaultRange, cfg), "uniq("+actor+") AS users") {
+		t.Errorf("queries must count actors per pattern:\n%s", QueriesQuery("", DefaultRange, cfg))
+	}
+
+	// Known per-person accounts relabel untagged rows in every section.
+	cfg.Accounts = []querylogactor.Account{{User: "sso:ann@x", Person: "ann@x"}}
+	want := "transform(user, ['sso:ann@x'], ['ann@x'], user)"
+	for name, q := range map[string]string{
+		"summary": SummaryQuery("", DefaultRange, cfg),
+		"trend":   TrendQuery("", DefaultRange, cfg),
+		"users":   UsersQuery("", DefaultRange, cfg),
+		"queries": QueriesQuery("", DefaultRange, cfg),
+	} {
+		if !strings.Contains(q, want) {
+			t.Errorf("%s query must relabel SSO accounts:\n%s", name, q)
 		}
 	}
 }

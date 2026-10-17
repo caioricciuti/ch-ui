@@ -18,6 +18,7 @@ import (
 
 	"github.com/caioricciuti/ch-ui/internal/alerts"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/querylogactor"
 	"github.com/google/uuid"
 )
 
@@ -93,11 +94,12 @@ func (s *Syncer) syncQueryLog(ctx context.Context, creds CHCredentials) (*QueryL
 		wm = parseQueryLogWatermark(*state.Watermark)
 	}
 	minDuration := QueryHarvestMinDurationMs(s.db)
+	accounts := s.personAccounts(connID)
 
-	rows, err := s.executeQuery(creds, buildQueryLogHarvestSQL(wm, creds.User, minDuration, true))
+	rows, err := s.executeQuery(creds, buildQueryLogHarvestSQL(wm, creds.User, minDuration, true, accounts))
 	if err != nil {
 		// Fallback for older CH setups where the "tables" column may be unavailable.
-		rows, err = s.executeQuery(creds, buildQueryLogHarvestSQL(wm, creds.User, minDuration, false))
+		rows, err = s.executeQuery(creds, buildQueryLogHarvestSQL(wm, creds.User, minDuration, false, accounts))
 		if err != nil {
 			syncErr = fmt.Errorf("query_log query failed: %w", err)
 			return result, syncErr
@@ -132,6 +134,7 @@ func (s *Syncer) syncQueryLog(ctx context.Context, creds CHCredentials) (*QueryL
 			ConnectionID:   connID,
 			QueryID:        fmt.Sprintf("%v", row["query_id"]),
 			User:           fmt.Sprintf("%v", row["ch_user"]),
+			Actor:          fmt.Sprintf("%v", row["actor"]),
 			QueryText:      queryText,
 			NormalizedHash: hash,
 			QueryKind:      kind,
@@ -378,11 +381,32 @@ func chQuote(s string) string {
 	return "'" + s + "'"
 }
 
+// personAccounts lists the connection's per-person SSO users so the harvest
+// labels their untagged queries by email. A lookup failure only loses the
+// relabeling, never the harvest.
+func (s *Syncer) personAccounts(connID string) []querylogactor.Account {
+	if s.db == nil {
+		return nil
+	}
+	users, err := s.db.ListSSOClickHouseUsers(connID)
+	if err != nil {
+		slog.Warn("Query log harvest: failed to load SSO users for attribution", "connection", connID, "error", err)
+		return nil
+	}
+	accounts := make([]querylogactor.Account, 0, len(users))
+	for _, u := range users {
+		accounts = append(accounts, querylogactor.Account{User: u.CHUser, Person: u.Email})
+	}
+	return accounts
+}
+
 // buildQueryLogHarvestSQL reads system.query_log after the watermark. It keeps
 // finished queries and both exception types (so denied attempts are audited),
 // and leaves out only the governance syncer's own queries: log_comment alone
 // is not enough, since any user can set it, so the harvest user must match too.
-func buildQueryLogHarvestSQL(wm queryLogWatermark, harvestUser string, minDurationMs int64, withTables bool) string {
+// ch_user stays the ClickHouse account (policies refer to it); actor is the
+// person behind the row (querylogactor.Expr).
+func buildQueryLogHarvestSQL(wm queryLogWatermark, harvestUser string, minDurationMs int64, withTables bool, accounts []querylogactor.Account) string {
 	tables := "tables"
 	if !withTables {
 		tables = "CAST([], 'Array(String)') AS tables"
@@ -396,6 +420,7 @@ func buildQueryLogHarvestSQL(wm queryLogWatermark, harvestUser string, minDurati
 	return fmt.Sprintf(`SELECT
 		query_id,
 		user AS ch_user,
+		%s AS actor,
 		query,
 		event_time,
 		toString(event_time_microseconds) AS event_time_us,
@@ -417,7 +442,7 @@ func buildQueryLogHarvestSQL(wm queryLogWatermark, harvestUser string, minDurati
 	  AND (event_time_microseconds, query_id) > (%s, %s)
 	  AND NOT (log_comment = %s AND user = %s)%s
 	ORDER BY event_time_microseconds ASC, query_id ASC
-	LIMIT %d`, tables, ts, ts, ts, chQuote(wm.QueryID), chQuote(GovernanceLogComment), chQuote(harvestUser), duration, queryLogBatchLimit)
+	LIMIT %d`, querylogactor.Expr(accounts), tables, ts, ts, ts, chQuote(wm.QueryID), chQuote(GovernanceLogComment), chQuote(harvestUser), duration, queryLogBatchLimit)
 }
 
 // SettingQueryHarvestMinDurationKey stores the optional duration floor (ms)
