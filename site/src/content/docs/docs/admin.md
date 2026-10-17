@@ -49,6 +49,8 @@ View all ClickHouse connections with their type (Embedded for the one from serve
 
 Each connection row has a **Background accounts** button. It sets which ClickHouse account unattended jobs (schedules, models, pipeline sinks, governance, Cluster Health, telemetry monitors, performance monitoring and weekly reports) use on that connection. See [Background Accounts](/docs/background-accounts).
 
+Each row also has an **SSO** button: the ClickHouse account SSO sessions use on that connection, and whether SSO people share it or get [their own ClickHouse users](/docs/sso#per-person-clickhouse-users), with the group to role mapping, **Show setup SQL** and **Verify**.
+
 ```bash
 GET /api/admin/connections
 ```
@@ -61,9 +63,19 @@ CH-UI provides two user views:
 - **ClickHouse users**: live users from the connected ClickHouse instance
 
 People who sign in with [SSO](/docs/sso) are listed one row per person, by
-email, with an **SSO** badge and the ClickHouse service account they query as.
-Their role override applies to that person only. An override set on the service
-account name applies to password logins as that account, not to SSO people.
+email, with an **SSO** badge and the ClickHouse account they query as: the
+shared service account, or, on connections with
+[per-person ClickHouse users](/docs/sso#per-person-clickhouse-users), one line
+per connection with their own user, its roles, the last sync and a **locked**
+badge once the sweep locked it. Their role override applies to that person
+only. An override set on the service account name applies to password logins as
+that account, not to SSO people.
+
+**Remove access** on an SSO person drops their ClickHouse users on every
+connection and signs them out at once (`DELETE /api/admin/users/sso/{email}/access`).
+A connection whose agent is offline is reported and retried by the daily
+sweep. Their IdP account is untouched: a later sign-in provisions them again,
+with their current groups.
 
 The application list shows the current connection: its password users and every
 SSO person. Switch connection to manage another connection's users.
