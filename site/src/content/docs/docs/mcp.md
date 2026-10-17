@@ -78,9 +78,14 @@ what the client asks for, and click **Allow access**.
 What the person approving needs to know:
 
 - The token runs queries **as them**: their connection, their ClickHouse user
-  (or the SSO service account), their guardrails. Every call is audited under
-  their name (`mcp.oauth.consent`, then the usual `mcp.query.execute` and
-  `mcp.tool.call` rows).
+  (or the SSO service account, or their own
+  [per-person SSO user](/docs/sso#per-person-clickhouse-users)), their
+  guardrails. Every call is audited under their name (`mcp.oauth.consent`,
+  then the usual `mcp.query.execute` and `mcp.tool.call` rows).
+- A grant from an SSO person with a per-person ClickHouse user stores no
+  password: it follows the live user, so the rotation at every sign-in does
+  not break it. Once that user is locked or dropped, the access token gets
+  `401` and a refresh answers `invalid_grant`, which ends the grant.
 - The consent screen lists each requested scope separately: **Read**,
   **Create drafts** (`write`) and **Run actions** (`actions`). See
   [Permission levels](#permission-levels) for what each one unlocks.

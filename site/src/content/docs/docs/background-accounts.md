@@ -73,6 +73,7 @@ For `session` and `disabled`, send only `{ "mode": "session" }` or `{ "mode": "d
 - A `disabled` worker does not run in the background, and it does not fall back to a session.
 - If a saved password cannot be decrypted (for example after `APP_SECRET_KEY` changed), the worker fails closed. It does not borrow someone else's session.
 - In `session` mode with nobody signed in, the worker has no credentials. Scheduled runs are recorded as errors; governance, Cluster Health and telemetry monitors skip that tick and keep their last result.
+- A job never borrows a [per-person SSO user](/docs/sso#per-person-clickhouse-users): that account belongs to one person. In `session` mode such sessions are skipped, so on a connection where everyone signs in with per-person SSO, a worker needs a dedicated account to run. Shared SSO service accounts and password sessions can be borrowed.
 
 ## Manual runs
 

@@ -30,7 +30,7 @@ Both charts have time axes, a live legend that doubles as a hover tooltip, and a
 | **Memory** | Heaviest patterns by peak memory |
 | **Frequent** | Most-run patterns |
 | **Errors** | Failures grouped by exception code, with the error name, count, and last message |
-| **Users** | Per-user load: runs, failures, p95, read bytes, peak memory. Users are people where the query tag names one and ClickHouse accounts elsewhere; a muted *via* line lists the accounts a person's queries ran as, and the user filter matches that same name |
+| **Users** | Per-user load: runs, failures, p95, read bytes, peak memory. Users are people where the query tag names one and ClickHouse accounts elsewhere; queries a [per-person SSO user](/docs/sso#per-person-clickhouse-users) runs outside CH-UI count for that person too. A muted *via* line lists the accounts a person's queries ran as, and the user filter matches that same name |
 | **Hot tables** | Most-read tables, with per-table I/O fair-shared across multi-table queries |
 
 Every pattern row can be **opened in a new editor tab** with one click.

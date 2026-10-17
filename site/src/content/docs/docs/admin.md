@@ -73,8 +73,8 @@ that account, not to SSO people.
 
 **Remove access** on an SSO person drops their ClickHouse users on every
 connection and signs them out at once (`DELETE /api/admin/users/sso/{email}/access`).
-A connection whose agent is offline is reported and retried by the daily
-sweep. Their IdP account is untouched: a later sign-in provisions them again,
+A connection whose agent is offline is reported in the response and its user
+is kept for the hourly sweep to retire. Their IdP account is untouched: a later sign-in provisions them again,
 with their current groups.
 
 The application list shows the current connection: its password users and every
