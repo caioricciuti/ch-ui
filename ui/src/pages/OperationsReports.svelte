@@ -17,6 +17,8 @@
   import Spinner from '../lib/components/common/Spinner.svelte'
   import Stat from '../lib/components/common/Stat.svelte'
   import Select from '../lib/components/common/Select.svelte'
+  import Sheet from '../lib/components/common/Sheet.svelte'
+  import Switch from '../lib/components/common/Switch.svelte'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
   import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
@@ -27,7 +29,9 @@
   let reports = $state<OperationsReport[]>([])
   let settings = $state<ReportSettings | null>(null)
   let channels = $state<{ id: string; name: string; type: string }[]>([])
-  let recipients = $state('')
+  type ScheduleDraft = { enabled: boolean; weekday: string; hour: number; channel_id: string; recipients: string }
+  let editOpen = $state(false)
+  let draft = $state<ScheduleDraft>({ enabled: false, weekday: '1', hour: 9, channel_id: '', recipients: '' })
   let loading = $state(true)
   let busy = $state(false)
   let loadError = $state('')
@@ -39,6 +43,12 @@
   const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
   const weekdayOptions = weekdays.map((label, i) => ({ value: String(i), label }))
   const channelOptions = $derived([{ value: '', label: 'In-app only' }, ...channels.map((c) => ({ value: c.id, label: `${c.name} · ${c.type}` }))])
+  const savedChannel = $derived(channels.find((c) => c.id === settings?.channel_id))
+  const scheduleSummary = $derived.by(() => {
+    if (!settings?.enabled) return 'Automatic reports are off'
+    const delivery = !settings.channel_id ? 'in-app only' : savedChannel ? `emailed via ${savedChannel.name}` : 'email channel unavailable'
+    return `Every ${weekdays[settings.weekday] ?? 'week'} at ${String(settings.hour).padStart(2, '0')}:00 UTC, ${delivery}`
+  })
   const rows = $derived<ReportRow[]>(reports.map((r) => ({ ...r, regressions: r.payload.regression_count, failures: r.payload.failures, resolved: r.payload.resolved_investigations })))
   const columns: DataColumn<ReportRow>[] = [
     { key: 'created_at', label: 'Generated', format: formatDate },
@@ -55,7 +65,7 @@
     loading = true; loadError = ''
     try {
       const [r, s, c] = await Promise.all([getReports(), getReportSettings(), getReportChannels()])
-      reports = r.reports; settings = s; channels = c.channels; recipients = s.recipients.join(', ')
+      reports = r.reports; settings = s; channels = c.channels
     } catch (e) { loadError = errorMessage(e) }
     finally { loading = false }
   }
@@ -65,10 +75,16 @@
     try { const report = await generateReport(); reports = [report, ...reports]; selectedID = report.id; success('Report saved') }
     catch (e) { toastError(errorMessage(e)) } finally { busy = false }
   }
+  function openEdit() {
+    if (!settings) return
+    draft = { enabled: settings.enabled, weekday: String(settings.weekday), hour: settings.hour, channel_id: settings.channel_id, recipients: settings.recipients.join(', ') }
+    editOpen = true
+  }
   async function save() {
     if (!settings || busy) return; busy = true
     try {
-      settings = await saveReportSettings({ ...settings, weekday: Number(settings.weekday), hour: Number(settings.hour), recipients: recipients.split(',').map((v) => v.trim()).filter(Boolean) })
+      settings = await saveReportSettings({ ...settings, enabled: draft.enabled, channel_id: draft.channel_id, weekday: Number(draft.weekday), hour: Number(draft.hour), recipients: draft.recipients.split(',').map((v) => v.trim()).filter(Boolean) })
+      editOpen = false
       success('Report settings saved')
     } catch (e) { toastError(errorMessage(e)) } finally { busy = false }
   }
@@ -107,20 +123,18 @@
     <div class="space-y-6">
       <p class="max-w-3xl text-[13px] text-fg-3">Save a weekly summary of regressions, CPU-heavy workloads, failures, storage growth and resolved investigations. Reports use observed system-table data and remain available after query logs expire.</p>
       {#if settings}
-        <Panel>
-          <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); void save() }}>
-            <div class="flex items-center justify-between"><h2 class="text-[13px] font-medium">Weekly schedule</h2><label class="ds-checkbox-label"><input type="checkbox" class="ds-checkbox ds-checkbox-sm" bind:checked={settings.enabled} disabled={busy} /> Enabled</label></div>
-            <div class="grid gap-4 md:grid-cols-3">
-              <FormField label="Day" for="report-day"><Select id="report-day" options={weekdayOptions} value={String(settings.weekday)} onchange={(v) => { if (settings) settings.weekday = Number(v) }} disabled={busy} /></FormField>
-              <FormField label="Hour (UTC)" for="report-hour"><Input id="report-hour" type="number" min="0" max="23" bind:value={settings.hour} disabled={busy} required /></FormField>
-              <FormField label="Email channel" for="report-channel"><Select id="report-channel" options={channelOptions} bind:value={settings.channel_id} disabled={busy} /></FormField>
-            </div>
-            <FormField label="Email recipients" for="report-recipients" hint="Comma-separated addresses. Leave empty for in-app reports; email contains workload identifiers and operational metrics."><Input id="report-recipients" bind:value={recipients} placeholder="data-team@example.com" disabled={busy} /></FormField>
-            <p class="text-xs text-fg-3">Configure a dedicated Weekly operations reports account under <button type="button" class="text-accent hover:underline" onclick={openBackgroundAccounts}>Admin → Connections → Background accounts</button> before enabling. Manual generation uses your current ClickHouse account. Email channels are managed under <button type="button" class="text-accent hover:underline" onclick={openAlertChannels}>Governance → Alert channels</button>.</p>
+        <Panel title="Weekly schedule">
+          {#snippet actions()}
+            <Button variant="outline" size="sm" disabled={busy} onclick={openEdit}>Edit schedule</Button>
+          {/snippet}
+          <div class="space-y-2">
+            <p class="text-[13px] text-fg">{scheduleSummary}</p>
+            {#if settings.enabled && settings.next_run_at}<p class="text-xs text-fg-3">Next report: {new Date(settings.next_run_at).toLocaleString()}</p>{/if}
+            {#if settings.channel_id && settings.recipients.length}<p class="text-xs text-fg-3">Recipients: {settings.recipients.join(', ')}</p>{/if}
             {#if staleChannel}<p role="alert" class="text-xs text-danger">The saved channel is not an active email channel, so reports cannot be emailed. Choose an email channel or In-app only.</p>{/if}
             {#if settings.last_error}<p role="alert" class="text-xs text-danger">{settings.last_error}</p>{/if}
-            <div class="flex items-center justify-between gap-3"><p class="text-xs text-fg-3">{settings.enabled && settings.next_run_at ? `Next report: ${new Date(settings.next_run_at).toLocaleString()}` : 'Automatic reports are disabled.'}</p><Button type="submit" size="sm" loading={busy}>Save settings</Button></div>
-          </form>
+            <p class="text-xs text-fg-3">Configure a dedicated Weekly operations reports account under <button type="button" class="text-accent hover:underline" onclick={openBackgroundAccounts}>Admin → Connections → Background accounts</button> before enabling. Manual generation uses your current ClickHouse account. Email channels are managed under <button type="button" class="text-accent hover:underline" onclick={openAlertChannels}>Governance → Alert channels</button>.</p>
+          </div>
         </Panel>
       {/if}
       {#if !reports.length}
@@ -143,3 +157,25 @@
     </div>
   {/if}
 </PageBody>
+
+<Sheet open={editOpen} size="sm" title="Weekly schedule" description="Reports are generated at this hour and kept in-app. Choose an email channel to send them out as well." onclose={() => (editOpen = false)}>
+  <form id="report-schedule-form" class="space-y-4" onsubmit={(e) => { e.preventDefault(); void save() }}>
+    <div class="flex items-center justify-between gap-4">
+      <div>
+        <div class="text-xs font-medium text-fg-2">Enabled</div>
+        <p class="mt-0.5 text-xs text-fg-3">Generate a report every week on the schedule below.</p>
+      </div>
+      <Switch checked={draft.enabled} label={draft.enabled ? 'Turn automatic reports off' : 'Turn automatic reports on'} disabled={busy} onchange={(next) => { draft.enabled = next }} />
+    </div>
+    <div class="grid gap-4 md:grid-cols-2">
+      <FormField label="Day" for="report-day" controlWidth="full"><Select id="report-day" options={weekdayOptions} bind:value={draft.weekday} disabled={busy} /></FormField>
+      <FormField label="Hour (UTC)" for="report-hour" controlWidth="full"><Input id="report-hour" type="number" min="0" max="23" bind:value={draft.hour} disabled={busy} required /></FormField>
+    </div>
+    <FormField label="Email channel" for="report-channel" controlWidth="full"><Select id="report-channel" options={channelOptions} bind:value={draft.channel_id} disabled={busy} /></FormField>
+    <FormField label="Email recipients" for="report-recipients" controlWidth="full" hint="Comma-separated addresses. Leave empty for in-app reports; email contains workload identifiers and operational metrics."><Input id="report-recipients" bind:value={draft.recipients} placeholder="data-team@example.com" disabled={busy} /></FormField>
+  </form>
+  {#snippet footer()}
+    <Button size="sm" variant="ghost" disabled={busy} onclick={() => (editOpen = false)}>Cancel</Button>
+    <Button size="sm" type="submit" form="report-schedule-form" loading={busy}>Save</Button>
+  {/snippet}
+</Sheet>
