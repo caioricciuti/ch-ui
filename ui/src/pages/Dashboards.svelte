@@ -20,6 +20,7 @@
   import { nextFreeRow } from '../lib/utils/grid-layout'
   import { getSession } from '../lib/stores/session.svelte'
   import Button from '../lib/components/common/Button.svelte'
+  import PageHeader from '../lib/components/common/PageHeader.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
   import InputDialog from '../lib/components/common/InputDialog.svelte'
@@ -36,7 +37,7 @@
   import ReportEditor from '../lib/components/reports/ReportEditor.svelte'
   import { fetchReports, type ReportChannel, type ReportInput, type ReportWorkerMode } from '../lib/api/reports'
   import { isProActive } from '../lib/stores/license.svelte'
-  import { Plus, RefreshCw, Share2, ChevronDown, ChevronRight, Star, Timer, Settings, Info, X, Pencil, Mail } from 'lucide-svelte'
+  import { Plus, RefreshCw, Share2, ChevronDown, Star, Timer, Settings, Info, X, Pencil, Mail } from 'lucide-svelte'
 
   interface Props {
     dashboardId?: string
@@ -618,53 +619,43 @@
   {#if !dashboardId}
     <DashboardBrowser />
   {:else}
-    <div class="flex h-12 shrink-0 items-center gap-2 border-b border-edge-subtle px-5">
-      <nav class="flex min-w-0 items-center gap-1 text-[13px]" aria-label="Breadcrumb">
-        <button class="shrink-0 text-fg-3 transition-colors hover:text-fg" onclick={openDashboardListTab}>Dashboards</button>
-        {#each folderCrumbs as crumb (crumb.id)}
-          <ChevronRight size={13} class="shrink-0 text-fg-4" />
-          <button class="shrink-0 truncate text-fg-3 transition-colors hover:text-fg" onclick={() => openFolderInList(crumb.id)}>{crumb.name}</button>
-        {/each}
-        <ChevronRight size={13} class="shrink-0 text-fg-4" />
-        <h1
-          class="truncate text-[15px] font-semibold tracking-[-0.01em] text-fg {canWrite ? 'cursor-text' : ''}"
-          ondblclick={openRename}
-          title={canWrite ? 'Double-click to rename' : undefined}
-        >
-          {currentDashboard?.name ?? 'Dashboard'}
-        </h1>
-      </nav>
-
-      {#if currentDashboard}
-        {#if canWrite}
-          <button
-            class="shrink-0 rounded p-0.5 text-fg-4 transition-colors hover:text-fg"
-            onclick={openRename}
-            aria-label="Rename dashboard"
-            title="Rename dashboard"
+    <PageHeader
+      title={currentDashboard?.name ?? 'Dashboard'}
+      crumbs={[
+        { label: 'Dashboards', onclick: openDashboardListTab },
+        ...folderCrumbs.map((c) => ({ label: c.name, onclick: () => openFolderInList(c.id) })),
+      ]}
+      onrename={canWrite ? openRename : undefined}
+    >
+      {#snippet meta()}
+        {#if currentDashboard}
+          {#if canWrite}
+            <Button icon size="xs" variant="ghost" onclick={openRename} aria-label="Rename dashboard" title="Rename dashboard">
+              <Pencil size={13} />
+            </Button>
+          {/if}
+          <Button
+            icon
+            size="xs"
+            variant="ghost"
+            onclick={toggleCurrentStar}
+            aria-label={currentDashboard.starred ? 'Unstar' : 'Star'}
+            aria-pressed={currentDashboard.starred}
+            title={currentDashboard.starred ? 'Unstar' : 'Star'}
           >
-            <Pencil size={13} />
-          </button>
+            <Star size={14} class={currentDashboard.starred ? 'text-warning' : ''} fill={currentDashboard.starred ? 'currentColor' : 'none'} />
+          </Button>
+          {#each currentDashboard.tags.slice(0, 4) as t (t)}<Badge>{t}</Badge>{/each}
         {/if}
-        <button
-          class="shrink-0 rounded p-0.5 transition-colors {currentDashboard.starred ? 'text-warning' : 'text-fg-4 hover:text-fg'}"
-          onclick={toggleCurrentStar}
-          aria-label={currentDashboard.starred ? 'Unstar' : 'Star'}
-          aria-pressed={currentDashboard.starred}
-          title={currentDashboard.starred ? 'Unstar' : 'Star'}
-        >
-          <Star size={14} fill={currentDashboard.starred ? 'currentColor' : 'none'} />
-        </button>
-        {#each currentDashboard.tags.slice(0, 4) as t (t)}<Badge>{t}</Badge>{/each}
-      {/if}
 
-      {#if currentDashboard?.description}
-        <Tooltip text={currentDashboard.description} side="bottom">
-          <span class="inline-flex cursor-help text-fg-4 hover:text-fg"><Info size={14} /></span>
-        </Tooltip>
-      {/if}
+        {#if currentDashboard?.description}
+          <Tooltip text={currentDashboard.description} side="bottom">
+            <span class="inline-flex cursor-help text-fg-4 hover:text-fg"><Info size={14} /></span>
+          </Tooltip>
+        {/if}
+      {/snippet}
 
-      <div class="ml-auto flex items-center gap-2">
+      {#snippet actions()}
         <TimeRangeSelector value={dashboardTimeRange} onchange={handleTimeRangeChange} />
         {#if panelEditorOpen}
           <span class="text-xs text-fg-3">
@@ -736,8 +727,8 @@
             </Button>
           {/if}
         {/if}
-      </div>
-    </div>
+      {/snippet}
+    </PageHeader>
 
     {#if currentDashboard && dashboardVariables.length > 0}
       <VariableBar
