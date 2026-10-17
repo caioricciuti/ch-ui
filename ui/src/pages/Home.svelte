@@ -2,7 +2,6 @@
   import { onMount } from 'svelte'
   import {
     ArrowUpRight,
-    BookOpen,
     Boxes,
     Home,
     Plug,
@@ -10,7 +9,6 @@
     Rocket,
     SquareTerminal,
     Table2,
-    ExternalLink,
   } from 'lucide-svelte'
   import { getSession } from '../lib/stores/session.svelte'
   import { getTabs, openQueryTab, setActiveTab } from '../lib/stores/tabs.svelte'
@@ -24,6 +22,10 @@
   import EmptyState from '../lib/components/common/EmptyState.svelte'
   import Button from '../lib/components/common/Button.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
+  import PageHeader from '../lib/components/common/PageHeader.svelte'
+  import PageBody from '../lib/components/common/PageBody.svelte'
+  import SectionHeader from '../lib/components/common/SectionHeader.svelte'
+  import GettingStarted from '../lib/components/home/GettingStarted.svelte'
   import type { Tab } from '../lib/stores/tabs.svelte'
 
   interface QuickLink {
@@ -72,6 +74,7 @@
     )
   })
   const firstRun = $derived(recentTabs.length === 0 && savedQueryCount === 0)
+  const greeting = $derived(`${firstRun ? 'Welcome' : 'Welcome back'}${session?.user ? `, ${session.user}` : ''}`)
 
   // The pages Home links to, in order. Admin-only ones only for admins;
   // Pro ones always, with a badge when unlicensed (they open ProRequired).
@@ -231,43 +234,22 @@ LIMIT 20`,
   }
 </script>
 
-<div class="h-full overflow-auto bg-canvas">
-  <div class="mx-auto w-full max-w-6xl p-5 lg:p-7 space-y-6">
-    <!-- Hero: one surface, quiet border, one primary action -->
-    <section class="rounded-lg border border-edge-subtle bg-surface p-5 lg:p-6">
-      <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div class="space-y-1">
-          <div class="flex items-center gap-2">
-            <div class="inline-flex items-center rounded-full bg-accent-soft px-2.5 py-0.5 text-[11px] font-medium text-accent">
-              Workspace Home
-            </div>
-            <a
-              class="ds-badge border border-edge bg-transparent transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
-              href="{DOCS_ORIGIN}/docs/"
-              target="_blank"
-              rel="noreferrer"
-              title="Open the docs"
-            >
-              Docs <ExternalLink size={11} />
-            </a>
-          </div>
-          <h1 class="text-[20px] font-semibold text-fg">
-            {firstRun ? 'Welcome' : 'Welcome back'}{session?.user ? `, ${session.user}` : ''}
-          </h1>
-          <p class="text-[13px] text-fg-3">
-            Start a new query, jump into saved work, or open tools quickly. Press
-            <kbd class="rounded border border-edge bg-surface-2 px-1 font-mono text-[11px] text-fg-2">?</kbd>
-            for keyboard shortcuts.
-          </p>
-        </div>
-        <Button onclick={() => openQueryTab()}>
-          <SquareTerminal size={14} />
-          Run Query
-        </Button>
-      </div>
-    </section>
+<div class="flex h-full flex-col">
+  <PageHeader title="Home" subtitle={greeting} docs="{DOCS_ORIGIN}/docs/">
+    {#snippet actions()}
+      <Button size="sm" onclick={() => openQueryTab()}>
+        <SquareTerminal size={14} />
+        Run Query
+      </Button>
+    {/snippet}
+  </PageHeader>
+  <PageBody width="lg">
+    <div class="space-y-8">
+    <GettingStarted />
 
-    <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+    <section>
+    <SectionHeader title="Start" description="Open a tool, or press ? for keyboard shortcuts." />
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
       {#each quickLinks as item (item.id)}
         <button
           class="rounded-md border border-edge-subtle bg-surface px-4 py-3.5 text-left transition-colors hover:border-edge-strong hover:bg-hover"
@@ -289,13 +271,11 @@ LIMIT 20`,
           </div>
         </button>
       {/each}
+    </div>
     </section>
 
     <section>
-      <div class="mb-3 flex items-center gap-2">
-        <BookOpen size={14} class="text-accent" />
-        <h2 class="text-[13px] font-semibold text-fg">Resources</h2>
-      </div>
+      <SectionHeader title="Resources" />
       <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
         {#each resources as resource (resource.id)}
           <a
@@ -356,8 +336,8 @@ LIMIT 20`,
         </EmptyState>
       </section>
     {:else}
-    <section class="space-y-3">
-      <h2 class="text-[13px] font-semibold text-fg">Recently opened</h2>
+    <section>
+      <SectionHeader title="Recently opened" />
       {#if recentTabs.length === 0}
         <div class="rounded-md border border-edge-subtle bg-surface">
           <EmptyState
@@ -387,5 +367,6 @@ LIMIT 20`,
       {/if}
     </section>
     {/if}
-  </div>
+    </div>
+  </PageBody>
 </div>
