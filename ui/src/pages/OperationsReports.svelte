@@ -18,6 +18,11 @@
   import Stat from '../lib/components/common/Stat.svelte'
   import Select from '../lib/components/common/Select.svelte'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
+  import Badge from '../lib/components/common/Badge.svelte'
+  import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
+  import { formatDate } from '../lib/utils/format'
+
+  type ReportRow = Record<string, unknown> & OperationsReport & { regressions: number; failures: number; resolved: number }
 
   let reports = $state<OperationsReport[]>([])
   let settings = $state<ReportSettings | null>(null)
@@ -34,6 +39,16 @@
   const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
   const weekdayOptions = weekdays.map((label, i) => ({ value: String(i), label }))
   const channelOptions = $derived([{ value: '', label: 'In-app only' }, ...channels.map((c) => ({ value: c.id, label: `${c.name} · ${c.type}` }))])
+  const rows = $derived<ReportRow[]>(reports.map((r) => ({ ...r, regressions: r.payload.regression_count, failures: r.payload.failures, resolved: r.payload.resolved_investigations })))
+  const columns: DataColumn<ReportRow>[] = [
+    { key: 'created_at', label: 'Generated', format: formatDate },
+    { key: 'regressions', label: 'Regressions', align: 'right', width: '120px' },
+    { key: 'failures', label: 'Failed executions', align: 'right', width: '150px' },
+    { key: 'resolved', label: 'Resolved investigations', align: 'right', width: '190px' },
+    { key: 'delivery_status', label: 'Delivery', width: '140px', format: (v) => String(v).replaceAll('_', ' ') },
+  ]
+  const deliveryTone = (status: string): 'neutral' | 'success' | 'warning' | 'danger' | 'info' =>
+    status === 'sent' ? 'success' : status === 'failed' ? 'danger' : ['queued', 'retry', 'sending'].includes(status) ? 'info' : 'neutral'
 
   function errorMessage(e: unknown) { return e instanceof Error ? e.message : 'Request failed' }
   async function load() {
@@ -111,17 +126,19 @@
       {#if !reports.length}
         <EmptyState size="compact" icon={FileText} title="Your first report starts here" description="Generate a report to compare the last seven days with the previous seven. Missing history is labeled as insufficient data." primary={{ label: 'Generate report', onclick: () => void generate() }} />
       {:else}
-        <div class="grid gap-4 lg:grid-cols-[240px_1fr]">
-          <nav aria-label="Saved reports" class="max-h-[600px] space-y-1 overflow-auto">{#each reports as report (report.id)}<button class="w-full rounded-md p-3 text-left hover:bg-hover {selected?.id === report.id ? 'bg-active' : ''}" onclick={() => selectedID = report.id}><span class="block text-[13px]">{new Date(report.created_at).toLocaleString()}</span><span class="text-xs text-fg-3">{report.delivery_status.replaceAll('_', ' ')}</span></button>{/each}</nav>
-          {#if selected}
-            <div class="min-w-0 space-y-4">
-              <div class="grid grid-cols-3 gap-3"><Stat label="Regressions" value={String(selected.payload.regression_count)} /><Stat label="Failed executions" value={String(selected.payload.failures)} /><Stat label="Resolved investigations" value={String(selected.payload.resolved_investigations)} /></div>
-              <div class="flex flex-wrap items-center justify-between gap-2"><p class="text-xs text-fg-3">Saved by {selected.created_by} · Email: {selected.delivery_status.replaceAll('_', ' ')}</p><div class="flex gap-2"><Button variant="outline" size="sm" onclick={download}><Download size={14} /> Download</Button><Button variant="outline" size="sm" disabled={busy || !settings?.channel_id || staleChannel || ['queued','retry','sending'].includes(selected.delivery_status)} onclick={send}><Send size={14} /> Email report</Button></div></div>
-              {#if selected.delivery_error}<p role="alert" class="text-xs text-danger">{selected.delivery_error}</p>{/if}
-              <Panel><pre class="whitespace-pre-wrap break-words font-sans text-[13px] leading-6 text-fg-2">{selected.body}</pre></Panel>
-            </div>
-          {/if}
-        </div>
+        <DataTable {columns} {rows} rowKey={(r) => r.id} selectedKey={selected?.id} onrowclick={(r) => selectedID = r.id} emptyTitle="No reports yet">
+          {#snippet cell(row, col, value)}
+            {#if col.key === 'delivery_status'}<Badge tone={deliveryTone(row.delivery_status)}>{value}</Badge>{:else}{value}{/if}
+          {/snippet}
+        </DataTable>
+        {#if selected}
+          <div class="min-w-0 space-y-4">
+            <div class="grid grid-cols-3 gap-3"><Stat label="Regressions" value={String(selected.payload.regression_count)} /><Stat label="Failed executions" value={String(selected.payload.failures)} /><Stat label="Resolved investigations" value={String(selected.payload.resolved_investigations)} /></div>
+            <div class="flex flex-wrap items-center justify-between gap-2"><p class="text-xs text-fg-3">Generated {formatDate(selected.created_at)} by {selected.created_by} · Email: {selected.delivery_status.replaceAll('_', ' ')}</p><div class="flex gap-2"><Button variant="outline" size="sm" onclick={download}><Download size={14} /> Download</Button><Button variant="outline" size="sm" disabled={busy || !settings?.channel_id || staleChannel || ['queued','retry','sending'].includes(selected.delivery_status)} onclick={send}><Send size={14} /> Email report</Button></div></div>
+            {#if selected.delivery_error}<p role="alert" class="text-xs text-danger">{selected.delivery_error}</p>{/if}
+            <Panel><pre class="whitespace-pre-wrap break-words font-sans text-[13px] leading-6 text-fg-2">{selected.body}</pre></Panel>
+          </div>
+        {/if}
       {/if}
     </div>
   {/if}
