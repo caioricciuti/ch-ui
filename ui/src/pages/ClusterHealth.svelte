@@ -638,7 +638,6 @@
     {#snippet meta()}
       {#if summary}
         <Badge tone="neutral">
-          <Server size={11} />
           {#if summary.is_cluster}
             {summary.cluster} · {nodes.length} node{nodes.length === 1 ? '' : 's'}
           {:else}
@@ -648,7 +647,7 @@
       {/if}
       {#if downNodes.length > 0}
         <Badge tone="danger" title={downNodes.map((n) => n.node).join(', ')}>
-          <AlertTriangle size={11} /> {downNodes.length} node{downNodes.length === 1 ? '' : 's'} down
+          {downNodes.length} node{downNodes.length === 1 ? '' : 's'} down
         </Badge>
       {/if}
       {#if summaryErrors.length > 0}
@@ -657,13 +656,13 @@
         </Badge>
       {/if}
       {#if firingAlerts > 0}
-        <button type="button" class="rounded-md" title="Open health checks in Governance" onclick={() => { goTo('governance'); setSection('health-alerts') }}>
-          <Badge tone="danger">{firingAlerts} {firingAlerts === 1 ? 'alert' : 'alerts'} firing</Badge>
-        </button>
+        <Button variant="ghost" size="xs" class="text-danger hover:text-danger" title="Open health checks in Governance" onclick={() => { goTo('governance'); setSection('health-alerts') }}>
+          {firingAlerts} {firingAlerts === 1 ? 'alert' : 'alerts'} firing
+        </Button>
       {/if}
       {#if summary?.degraded}
         <Badge tone="warning" title="Some nodes could not be reached; showing local node only">
-          <AlertTriangle size={11} /> Degraded
+          Degraded
         </Badge>
       {/if}
     {/snippet}

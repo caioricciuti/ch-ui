@@ -279,7 +279,7 @@
 </script>
 
 <div class="flex h-full flex-col">
-  <PageHeader title="License" subtitle={settingsTabItems.find((t) => t.id === activeTab)?.label} docs={docsURL('settings', activeTab)}>
+  <PageHeader title="Settings" subtitle={settingsTabItems.find((t) => t.id === activeTab)?.label} docs={docsURL('settings', activeTab)}>
     {#snippet meta()}
       {#if licenseState === 'loading'}
         <Badge tone="neutral">Checking license…</Badge>

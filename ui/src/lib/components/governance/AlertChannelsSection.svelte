@@ -15,7 +15,6 @@
   import Input from '../common/Input.svelte'
   import FormField from '../common/FormField.svelte'
   import Sheet from '../common/Sheet.svelte'
-  import Modal from '../common/Modal.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import Spinner from '../common/Spinner.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
@@ -394,19 +393,21 @@
 </Sheet>
 
 <!-- Test send -->
-<Modal open={testChannel !== null} title="Send a test alert" description={testChannel ? `Through "${testChannel.name}" (${testChannel.channel_type.toUpperCase()}).` : ''} size="sm" onclose={() => (testChannel = null)}>
-  {#if testIsWebhook}
-    <p class="text-[13px] text-fg-2">Posts a test event to the channel URL.</p>
-  {:else}
-    <FormField label="Recipients" for="test-recipients" hint="Comma-separated email addresses.">
-      <Input id="test-recipients" placeholder="you@company.com" bind:value={testRecipients} onkeydown={(e) => e.key === 'Enter' && void sendTest()} />
-    </FormField>
-  {/if}
+<Sheet open={testChannel !== null} title="Send a test alert" description={testChannel ? `Through "${testChannel.name}" (${testChannel.channel_type.toUpperCase()}).` : ''} size="sm" onclose={() => (testChannel = null)}>
+  <form id="alert-test-form" class="space-y-4" onsubmit={(e) => { e.preventDefault(); void sendTest() }}>
+    {#if testIsWebhook}
+      <p class="text-[13px] text-fg-2">Posts a test event to the channel URL.</p>
+    {:else}
+      <FormField label="Recipients" for="test-recipients" hint="Comma-separated email addresses." controlWidth="full">
+        <Input id="test-recipients" placeholder="you@company.com" bind:value={testRecipients} />
+      </FormField>
+    {/if}
+  </form>
   {#snippet footer()}
     <Button variant="ghost" size="sm" onclick={() => (testChannel = null)}>Cancel</Button>
-    <Button size="sm" loading={testSending} onclick={() => void sendTest()}><Send size={13} /> Send</Button>
+    <Button size="sm" type="submit" form="alert-test-form" loading={testSending}>Send test</Button>
   {/snippet}
-</Modal>
+</Sheet>
 
 <ConfirmDialog
   open={deletingChannel !== null}
