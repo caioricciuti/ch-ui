@@ -6,6 +6,9 @@ export interface OAuthConsentInfo {
   client_id: string
   redirect_host: string
   scopes: string[]
+  /** The part of scopes the person's CH-UI role lets them grant. */
+  granted: string[]
+  role: string
   connection: string
   user: string
   expires_at: string

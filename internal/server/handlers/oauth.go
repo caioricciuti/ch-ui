@@ -489,6 +489,17 @@ func (h *OAuthHandler) loadPending(w http.ResponseWriter, r *http.Request) *data
 	return req
 }
 
+// grantedScope is what a person's CH-UI role lets them grant of the scope a
+// client asked for. Clients ask for everything they could use (Claude Code
+// always sends read write actions), so a read-only person grants read and
+// the consent page says which parts were left out.
+func grantedScope(requested, role string) string {
+	if role == "admin" || role == "analyst" {
+		return requested
+	}
+	return scopeRead
+}
+
 func (h *OAuthHandler) consentInfo(w http.ResponseWriter, r *http.Request) {
 	req := h.loadPending(w, r)
 	if req == nil {
@@ -506,6 +517,8 @@ func (h *OAuthHandler) consentInfo(w http.ResponseWriter, r *http.Request) {
 		"client_id":     req.ClientID,
 		"redirect_host": ru.Host,
 		"scopes":        strings.Fields(req.Scope),
+		"granted":       strings.Fields(grantedScope(req.Scope, sess.UserRole)),
+		"role":          sess.UserRole,
 		"connection":    connName,
 		"user":          middleware.Actor(sess),
 		"expires_at":    req.ExpiresAt,
@@ -518,10 +531,7 @@ func (h *OAuthHandler) consentApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := middleware.GetSession(r)
-	if strings.Contains(req.Scope, scopeWrite) && sess.UserRole != "admin" && sess.UserRole != "analyst" {
-		writeError(w, http.StatusForbidden, "Your role is read-only in CH-UI, so you cannot grant write scope")
-		return
-	}
+	scope := grantedScope(req.Scope, sess.UserRole)
 	// An SSO person with a per-person ClickHouse user grants a reference to
 	// that user, never a copy of its password: the password rotates at every
 	// sign-in, and the tokens must stop working when the user is removed.
@@ -543,7 +553,7 @@ func (h *OAuthHandler) consentApprove(w http.ResponseWriter, r *http.Request) {
 		ClientID:      req.ClientID,
 		ClientName:    req.ClientName,
 		RedirectURI:   req.RedirectURI,
-		Scope:         req.Scope,
+		Scope:         scope,
 		CodeChallenge: req.CodeChallenge,
 		ConnectionID:  sess.ConnectionID,
 		CHUser:        chUser,
@@ -565,7 +575,11 @@ func (h *OAuthHandler) consentApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	u.RawQuery = v.Encode()
 	subj := middleware.Actor(sess)
-	h.DB.CreateAuditLog(database.AuditLogParams{Action: "mcp.oauth.consent", Username: &subj, ClickhouseUser: &sess.ClickhouseUser, ConnectionID: &sess.ConnectionID, Details: strPtr("client: " + req.ClientName + ", scope: " + req.Scope)})
+	details := "client: " + req.ClientName + ", scope: " + scope
+	if scope != req.Scope {
+		details += " (requested: " + req.Scope + ", role " + sess.UserRole + ")"
+	}
+	h.DB.CreateAuditLog(database.AuditLogParams{Action: "mcp.oauth.consent", Username: &subj, ClickhouseUser: &sess.ClickhouseUser, ConnectionID: &sess.ConnectionID, Details: strPtr(details)})
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "redirect_url": u.String()})
 }
 

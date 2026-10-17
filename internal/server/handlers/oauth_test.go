@@ -543,6 +543,72 @@ func TestOAuthWriteScopeFollowsRole(t *testing.T) {
 	}
 }
 
+// A read-only person approving a client that asked for everything (Claude
+// Code always requests read write actions) grants read instead of being
+// refused, and the consent info says so.
+func TestOAuthConsentGrantsWhatTheRoleAllows(t *testing.T) {
+	r, db, _ := oauthRigWithSession(t, func(connID, enc string) *middleware.SessionInfo {
+		return &middleware.SessionInfo{
+			ID: "s1", ConnectionID: connID, ClickhouseUser: "vera", EncryptedPassword: enc, UserRole: "viewer", AuthSubject: "vera@example.com",
+		}
+	})
+	rec := do(t, r, "POST", "/oauth/register", `{"client_name":"Claude Code","redirect_uris":["http://localhost/callback"]}`, false)
+	var reg struct {
+		ClientID string `json:"client_id"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &reg)
+	verifier := "a-very-long-verifier-string-with-enough-entropy-1234567890"
+	sum := sha256.Sum256([]byte(verifier))
+	q := url.Values{
+		"response_type": {"code"}, "client_id": {reg.ClientID}, "redirect_uri": {"http://localhost:60146/callback"},
+		"code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "code_challenge_method": {"S256"}, "scope": {"read write actions"},
+	}
+	rec = do(t, r, "GET", "/oauth/authorize?"+q.Encode(), "", false)
+	loc, _ := url.Parse(rec.Header().Get("Location"))
+	reqID := loc.Query().Get("request")
+
+	rec = do(t, r, "GET", "/api/oauth/consent/"+reqID, "", false)
+	var info struct {
+		Scopes  []string `json:"scopes"`
+		Granted []string `json:"granted"`
+		Role    string   `json:"role"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &info)
+	if rec.Code != http.StatusOK || len(info.Scopes) != 3 || len(info.Granted) != 1 || info.Granted[0] != "read" || info.Role != "viewer" {
+		t.Fatalf("consent info: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = do(t, r, "POST", "/api/oauth/consent/"+reqID+"/approve", "", false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("approve as viewer: %d %s", rec.Code, rec.Body.String())
+	}
+	var appr struct {
+		RedirectURL string `json:"redirect_url"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &appr)
+	cb, _ := url.Parse(appr.RedirectURL)
+	if cb.Host != "localhost:60146" || cb.Query().Get("code") == "" {
+		t.Fatalf("redirect: %s", appr.RedirectURL)
+	}
+	form := url.Values{"grant_type": {"authorization_code"}, "code": {cb.Query().Get("code")}, "code_verifier": {verifier}, "client_id": {reg.ClientID}}
+	rec = do(t, r, "POST", "/oauth/token", form.Encode(), true)
+	var tok struct {
+		AccessToken string `json:"access_token"`
+		Scope       string `json:"scope"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &tok)
+	if rec.Code != http.StatusOK || tok.Scope != "read" {
+		t.Fatalf("token: %d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(mcpToolList(t, r, tok.AccessToken), `"save_query"`) {
+		t.Fatal("viewer grant must not expose write tools")
+	}
+	logs, err := db.GetAuditLogsFiltered(5, "", "mcp.oauth.consent", "", "")
+	if err != nil || len(logs) == 0 || logs[0].Details == nil || !strings.Contains(*logs[0].Details, "scope: read (requested: read write actions, role viewer)") {
+		t.Fatalf("audit: %v %+v", err, logs)
+	}
+}
+
 // Write scope survives the person's sign-out: the role recorded when the
 // token was issued stands in until an admin changes it. With the role
 // unknown the token is read-only, and a refresh keeps the scope so the

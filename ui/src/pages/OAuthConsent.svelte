@@ -73,15 +73,19 @@
       <ul class="space-y-2.5">
         {#each info.scopes as s}
           {@const t = scopeText[s] ?? { label: s, detail: '' }}
-          <li class="flex items-start gap-2.5 text-xs">
-            {#if s === 'write'}<PencilLine size={14} class="mt-0.5 shrink-0 text-accent" />{:else if s === 'actions'}<Play size={14} class="mt-0.5 shrink-0 text-accent" />{:else}<Eye size={14} class="mt-0.5 shrink-0 text-accent" />{/if}
+          {@const granted = info.granted.includes(s)}
+          <li class="flex items-start gap-2.5 text-xs {granted ? '' : 'opacity-60'}">
+            {#if s === 'write'}<PencilLine size={14} class="mt-0.5 shrink-0 {granted ? 'text-accent' : 'text-fg-4'}" />{:else if s === 'actions'}<Play size={14} class="mt-0.5 shrink-0 {granted ? 'text-accent' : 'text-fg-4'}" />{:else}<Eye size={14} class="mt-0.5 shrink-0 text-accent" />{/if}
             <div>
-              <div class="font-medium text-fg">{t.label}</div>
+              <div class="font-medium text-fg">{t.label}{#if !granted}<span class="ml-1.5 font-normal text-fg-3">not granted</span>{/if}</div>
               <div class="mt-0.5 leading-relaxed text-fg-3">{t.detail}</div>
             </div>
           </li>
         {/each}
       </ul>
+      {#if info.granted.length < info.scopes.length}
+        <p class="text-xs leading-relaxed text-fg-3">Your CH-UI role is {info.role}, which is read-only here. The client gets read access only; an admin can change your role in Admin → Users.</p>
+      {/if}
 
       <p class="flex items-start gap-1.5 text-[11px] leading-relaxed text-fg-3">
         <ShieldCheck size={13} class="mt-0.5 shrink-0" />

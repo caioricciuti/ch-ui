@@ -52,7 +52,9 @@ registered for that request, so it does not show up in `tools/list`.
   it existed. It can only be set on a read + write key; the API refuses
   `allow_actions` with a read key.
 - Over OAuth, `actions` is only valid together with `write`. Both are only
-  granted to the CH-UI admin and analyst roles, and the person's role is
+  granted to the CH-UI admin and analyst roles. A read-only person approving
+  a client that asked for them (Claude Code always asks for all three) grants
+  read; the consent page marks the rest as not granted. The person's role is
   checked again on every request: a demotion removes write and actions at
   once, without waiting for the token to be refreshed.
 - Keep in mind what the two together allow: a client with actions can create
