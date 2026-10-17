@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
   import type { TableTab } from '../../../stores/tabs.svelte'
+  import { openDatabaseTab } from '../../../stores/tabs.svelte'
   import type { ColumnMeta } from '../../../types/query'
   import { fetchTableInfo, fetchTableSchema } from '../../../api/query'
   import { formatBytes, formatDate, formatNumber } from '../../../utils/format'
@@ -12,7 +13,12 @@
   import Spinner from '../../common/Spinner.svelte'
   import Skeleton from '../../common/Skeleton.svelte'
   import EmptyState from '../../common/EmptyState.svelte'
-  import { Table2, Database, HardDrive, Rows3, Clock, Key, LayoutGrid, RefreshCw, Copy, Check, ChevronDown, Braces, FileSpreadsheet, FileText, Code2 } from 'lucide-svelte'
+  import PageHeader from '../../common/PageHeader.svelte'
+  import Tabs from '../../common/Tabs.svelte'
+  import Stat from '../../common/Stat.svelte'
+  import Panel from '../../common/Panel.svelte'
+  import Button from '../../common/Button.svelte'
+  import { RefreshCw, Copy, Check, ChevronDown, Braces, FileSpreadsheet, FileText, Code2 } from 'lucide-svelte'
   import ContextMenu from '../../common/ContextMenu.svelte'
   import type { ContextMenuItem } from '../../common/ContextMenu.svelte'
   import { EditorView } from '@codemirror/view'
@@ -300,10 +306,10 @@
   const metrics = $derived.by(() => {
     if (!tableInfo || Object.keys(tableInfo).length === 0) return []
     return [
-      { label: 'Rows', value: formatNumber(Number(tableInfo.total_rows ?? 0)), icon: Rows3, color: 'text-accent' },
-      { label: 'Size', value: formatBytes(Number(tableInfo.total_bytes ?? 0)), icon: HardDrive, color: 'text-ch-green' },
-      { label: 'Engine', value: String(tableInfo.engine ?? '—'), icon: Database, color: 'text-accent' },
-      { label: 'Last Modified', value: formatDate(tableInfo.metadata_modification_time), icon: Clock, color: 'text-fg-3' },
+      { label: 'Rows', value: formatNumber(Number(tableInfo.total_rows ?? 0)), size: 'lg' as const },
+      { label: 'Size', value: formatBytes(Number(tableInfo.total_bytes ?? 0)), size: 'lg' as const },
+      { label: 'Engine', value: String(tableInfo.engine ?? '—'), size: 'md' as const },
+      { label: 'Last Modified', value: formatDate(tableInfo.metadata_modification_time), size: 'md' as const },
     ]
   })
 
@@ -321,33 +327,26 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <!-- Header -->
-  <div class="flex items-center gap-3 px-4 py-3 border-b border-edge-subtle bg-surface-2 shrink-0">
-    <Table2 size={16} class="text-accent shrink-0" />
-    <div class="min-w-0">
-      <span class="text-sm text-fg-3">{tab.database}.</span>
-      <span class="text-sm font-medium text-fg truncate">{tab.table}</span>
-    </div>
-    <button
-      class="ml-1 p-1 rounded hover:bg-hover transition-colors text-fg-4 hover:text-fg"
-      onclick={handleRefresh}
-      title="Refresh table info"
-    >
-      <RefreshCw size={13} class={infoLoading ? 'animate-spin' : ''} />
-    </button>
-  </div>
+  <PageHeader
+    title={tab.table}
+    subtitle="Table"
+    crumbs={[{ label: tab.database, onclick: () => openDatabaseTab(tab.database) }]}
+  >
+    {#snippet actions()}
+      <Button
+        icon
+        size="sm"
+        variant="ghost"
+        onclick={handleRefresh}
+        title="Refresh table info"
+        aria-label="Refresh table info"
+      >
+        <RefreshCw size={13} class={infoLoading ? 'animate-spin' : ''} />
+      </Button>
+    {/snippet}
+  </PageHeader>
 
-  <!-- Sub-tab bar -->
-  <div class="flex items-center gap-1 px-3 py-1.5 border-b border-edge-subtle bg-canvas shrink-0">
-    {#each subTabs as st (st.id)}
-      <button
-        class="px-3 py-1.5 text-xs rounded-md transition-colors whitespace-nowrap {activeSubTab === st.id
- ? 'bg-surface-2 text-fg font-medium'
-          : 'text-fg-3 hover:text-fg hover:bg-hover'}"
-        onclick={() => switchTab(st.id)}
-      >{st.label}</button>
-    {/each}
-  </div>
+  <Tabs items={subTabs} value={activeSubTab} onchange={(id) => switchTab(id as SubTab)} class="shrink-0 px-3" />
 
   <!-- Sub-tab content -->
   <div class="flex-1 min-h-0 overflow-auto">
@@ -364,41 +363,33 @@
         <!-- Metric cards -->
         <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 p-4">
           {#each metrics as m (m.label)}
-            {@const Icon = m.icon}
-            <div class="bg-surface border border-edge-subtle rounded-md p-4">
-              <div class="flex items-center gap-2 mb-2">
-                <Icon size={14} class={m.color} />
-                <span class="text-xs text-fg-3 uppercase tracking-wider">{m.label}</span>
-              </div>
-              <div class="text-xl font-semibold text-fg truncate">{m.value}</div>
-            </div>
+            <Stat label={m.label} value={m.value} size={m.size} />
           {/each}
         </div>
 
-        <!-- Detail rows (keys) — only if any keys exist -->
+        <!-- Storage keys, only when any exist -->
         {#if hasKeys}
           <div class="px-4 pb-4">
-            <div class="bg-surface border border-edge-subtle rounded-md p-4">
-              <h3 class="text-xs text-fg-3 uppercase tracking-wider mb-3">Storage Keys</h3>
-              <div class="grid grid-cols-[140px_1fr] gap-y-2 gap-x-3 text-sm">
-              {#if tableInfo.partition_key}
-                <span class="text-fg-3 inline-flex items-center gap-2"><LayoutGrid size={13} class="shrink-0" />Partition Key</span>
-                <code class="text-xs text-fg-2 font-mono truncate">{tableInfo.partition_key}</code>
-              {/if}
-              {#if tableInfo.sorting_key}
-                <span class="text-fg-3 inline-flex items-center gap-2"><Key size={13} class="shrink-0" />Sorting Key</span>
-                <code class="text-xs text-fg-2 font-mono truncate">{tableInfo.sorting_key}</code>
-              {/if}
-              {#if tableInfo.primary_key}
-                <span class="text-fg-3 inline-flex items-center gap-2"><Key size={13} class="text-accent shrink-0" />Primary Key</span>
-                <code class="text-xs text-fg-2 font-mono truncate">{tableInfo.primary_key}</code>
-              {/if}
-              {#if tableInfo.sampling_key}
-                <span class="text-fg-3 inline-flex items-center gap-2"><Key size={13} class="shrink-0" />Sampling Key</span>
-                <code class="text-xs text-fg-2 font-mono truncate">{tableInfo.sampling_key}</code>
-              {/if}
+            <Panel title="Storage Keys">
+              <div class="grid grid-cols-[140px_1fr] gap-y-2 gap-x-3 text-[13px]">
+                {#if tableInfo.partition_key}
+                  <span class="text-fg-3">Partition Key</span>
+                  <code class="text-xs text-fg font-mono truncate">{tableInfo.partition_key}</code>
+                {/if}
+                {#if tableInfo.sorting_key}
+                  <span class="text-fg-3">Sorting Key</span>
+                  <code class="text-xs text-fg font-mono truncate">{tableInfo.sorting_key}</code>
+                {/if}
+                {#if tableInfo.primary_key}
+                  <span class="text-fg-3">Primary Key</span>
+                  <code class="text-xs text-fg font-mono truncate">{tableInfo.primary_key}</code>
+                {/if}
+                {#if tableInfo.sampling_key}
+                  <span class="text-fg-3">Sampling Key</span>
+                  <code class="text-xs text-fg font-mono truncate">{tableInfo.sampling_key}</code>
+                {/if}
               </div>
-            </div>
+            </Panel>
           </div>
         {/if}
 
