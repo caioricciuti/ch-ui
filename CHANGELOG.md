@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.28.0] - 2026-10-17
+
+Every SSO person can now be their own ClickHouse user, every query CH-UI runs is tagged with the person and object behind it, and Cost Center, Query Insights and the governance query log attribute work to people instead of shared accounts. MCP covers the whole product, and SSO only mode turns off password sign-in.
+
+### Upgrade notes
+
+- **The agent authenticates to ClickHouse with the `X-ClickHouse-User` and `X-ClickHouse-Key` headers** instead of HTTP Basic auth, which cannot carry a user name with a colon such as `sso:ana@example.com`. A proxy between the agent and ClickHouse (chproxy, HAProxy, nginx) must pass those headers through. Update remote agents (`ch-ui connect`) before switching a connection to per-person SSO users (#361).
+- **Every query CH-UI runs on someone's behalf now sets `log_comment`** to a JSON tag such as `{"chui":"editor","person":"ana@example.com","object":"dash:42"}`. Brain, MCP, scheduled reports, SQL alerts, dashboard variables and public dashboards no longer use their old `ch-ui:brain`, `ch-ui:mcp`, `ch-ui:report`, `ch-ui:sql-alert`, `ch-ui:dashboard-variable` and `ch-ui:public-dashboard` tags; anything of yours that filtered on them needs the new form. CH-UI's own introspection (Cost Center, Query Insights, Performance, Cluster Health, governance harvest, Incident Timeline) keeps its `ch-ui:<feature>` tags. Users whose ClickHouse profile is `readonly=1` cannot change settings and run untagged (#357).
+- **Cost Center and Query Insights count people, not accounts**, wherever the tag names one: the `user` column is the SSO email or job owner, with the ClickHouse accounts shown underneath, and cost-center team rules match that name. Rows without a tag (third-party tools) still show the ClickHouse user (#364).
+- **Turning on SSO only signs out every password session** at once, and at startup while it is on (#355).
+- Existing MCP keys get no new permissions: lifecycle actions need the per-key opt-in (#353).
+- Schema version 2026.10.18 adds the `sso_identities` and `sso_clickhouse_users` tables, `connections.sso_identity_config`, `sessions.sso_identity_id`, `sso_identity_id` on `dashboard_shares`, `oauth_codes` and `mcp_keys`, and `gov_query_log.actor` (#361, #363, #364).
+
+### Added
+
+- **Per-person ClickHouse users for SSO** (Pro, per connection): every person who signs in through SSO gets their own ClickHouse user named `sso:<email>` (prefix configurable), created and kept in sync at each sign-in by a narrow provisioning account scoped to that prefix, with ClickHouse roles taken from their IdP groups, a random password rotated at every sign-in and stored encrypted, and a `HOST` clause pinned to the address ClickHouse sees the agent from. A pre-existing user CH-UI did not create is refused, never taken over; a provisioning failure refuses the sign-in instead of falling back to the shared account. Connection switch provisions the person on the target from their last verified groups. `GET`/`PUT /api/connections/{id}/sso-identity` (#361).
+- **Admin → Connections → SSO**: a sheet per connection to choose the shared account or per-person users, set the service or provisioning account (until now API only), map IdP groups to ClickHouse roles, render the one-time **setup SQL** and **Verify** the provisioner with a probe that creates a user under the prefix with each role, confirms it cannot create users outside the prefix or roles, and drops it. **Admin → Users** shows each SSO person's ClickHouse users per connection and can **Remove access** on every connection at once (#362).
+- **Lifecycle of per-person users**: an hourly Pro sweep locks users not seen for `lock_after_days` (`HOST NONE`, so `system.query_log` history stays attributable) and drops them after `drop_after_days`. Dashboard shares and MCP OAuth tokens created by an SSO person follow their current ClickHouse user, so password rotation never breaks them, and answer 410 or 401 once the person's access is removed (#363).
+- **Query tags**: every workload query carries the feature, the person (SSO email, ClickHouse user, job owner, OAuth subject) and the workspace object (`dash:<id>`, `saved_query:<id>`, `chat:<id>`, `schedule:<id>`, `alert:<id>`, `report:<id>`, `model_run:<id>`, `pipeline:<id>`, `mcp_key:<id>`) in `log_comment`, so `system.query_log` can be split per person even behind a shared SSO or background account. Documented on the Query Insights page (#357).
+- **Attribution by person**: Cost Center (active users, trend, users table), Query Insights (user filter, users) and the governance query log attribute rows to the person behind the tag; a per-person SSO user's queries from outside CH-UI land on the same row; the governance log keeps `ch_user` for policies and adds `actor` (#364).
+- **SSO only** (Pro): turn off ClickHouse username/password sign-in from Admin → Settings → SSO or with `OIDC_SSO_ONLY=true`. It can only be turned on from an SSO session, applies only while the provider is loaded, and `CHUI_ALLOW_PASSWORD_LOGIN=true` is the break-glass override (#355).
+- **MCP operations tools** (Pro, read-only): `firing_alerts`, `list_alerts`, `alert_events`, `list_schedules`, `list_reports` (OAuth sign-ins only) and `cluster_health`; free `query_history` returns the queries this MCP client ran. Keys with a database allow-list see only SQL alerts inside it and cannot read cluster health (#352).
+- **MCP lifecycle actions** behind a per-key opt-in (Admin → MCP Server, read + write keys; OAuth scope `actions`): `run_model`, `start_pipeline`, `stop_pipeline`, and on Pro `run_schedule_now` and `run_saved_report_now` (OAuth, own reports); read-only `get_model_run` and `pipeline_status` for every key. Models run from MCP use the key's own ClickHouse user and allow-list (#353).
+- **MCP observability tools**: free `telemetry_sources`, `search_logs`, `ingest_status` and `table_lineage`; Pro `search_traces`, `get_trace`, `service_map`, `list_metrics`, `query_metrics` and `list_monitors`, all with the key's own ClickHouse user and allow-list (#354).
+
+### Changed
+
+- Background jobs in session mode never borrow a per-person SSO user; such connections need a dedicated background account (#361).
+- The access-control guard labels the SSO provisioner and every provisioned user (#361).
+- Brain's query-log diagnostics exclude Brain's own queries by their new tag; Performance no longer hides Brain and MCP queries (#357).
+- New audit actions: `sso.user_provisioned`, `sso.user_synced`, `sso.user_locked`, `sso.user_dropped`, `sso.access_removed`, `connection.sso_identity.updated`, `connection.sso_identity.verified`, `sso.password_sessions_revoked` (#355, #361, #362, #363).
+
+### Documentation
+
+- SSO, authentication, admin, audit log, dashboards, MCP, background accounts, governance, security, connections, clusters, Cost Center and Query Insights pages describe per-person users, query tags, attribution and header-based ClickHouse auth (#361, #362, #365).
+- The MCP page covers the permission levels and every tool; license, pricing and README list the current MCP Pro tools (#356).
+
+### Dependencies
+
+- golang.org/x/crypto 0.58.0 (#358); astro 7.3.8 and @astrojs/starlight 0.42.6 for the site (#359); svelte 5.57.2, vite 8.3.4, marked 18.1.0, @codemirror/language 6.13.1, @codemirror/view 6.43.14, @types/node 26.6.5 and jsdom 30.1.1 for the UI (#360).
+
 ## [2.27.0] - 2026-10-16
 
 CH-UI receives logs, traces and events itself: ingest endpoints for OpenTelemetry, Elasticsearch bulk and Splunk HEC, a durable spool, pipeline transforms and routing, table layouts and ingest alerts.
