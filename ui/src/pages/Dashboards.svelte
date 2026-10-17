@@ -24,6 +24,7 @@
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
   import InputDialog from '../lib/components/common/InputDialog.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
+  import EmptyState from '../lib/components/common/EmptyState.svelte'
   import Tooltip from '../lib/components/common/Tooltip.svelte'
   import PanelEditor from '../lib/components/dashboard/PanelEditor.svelte'
   import DashboardGrid, { type PanelResult } from '../lib/components/dashboard/DashboardGrid.svelte'
@@ -876,7 +877,7 @@
       {:else if fsResult.error}
         <p class="p-4 text-[13px] text-danger">{fsResult.error}</p>
       {:else if fsIsTable && fsResult.meta.length === 0}
-        <p class="p-4 text-[13px] text-fg-3">No data</p>
+        <EmptyState size="compact" title="No data" description="The query returned no columns." />
       {:else if fsIsTable}
         <!-- Virtualized: a fullscreen table can hold every row of a large result. -->
         <div class="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-edge-subtle">
