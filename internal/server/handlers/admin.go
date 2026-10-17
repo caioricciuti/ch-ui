@@ -20,6 +20,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/oidc"
 	"github.com/caioricciuti/ch-ui/internal/safe"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
+	"github.com/caioricciuti/ch-ui/internal/ssoidentity"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
 
@@ -32,6 +33,9 @@ type AdminHandler struct {
 	GovSyncer    *governance.Syncer
 	GitHubSyncer *ghclient.Syncer
 	OIDCManager  *oidc.Manager // live OIDC provider holder, reloaded on SSO config save
+	// Provisioner drops the per-person ClickHouse users of an SSO person
+	// whose access is removed.
+	Provisioner *ssoidentity.Provisioner
 }
 
 // Routes registers all admin routes on the given chi.Router.
@@ -39,6 +43,7 @@ func (h *AdminHandler) Routes(r chi.Router) {
 	r.Use(middleware.RequireAdmin(h.DB))
 
 	r.Get("/users", h.GetUsers)
+	r.Delete("/users/sso/{email}/access", h.RemoveSSOAccess)
 	r.Get("/user-roles", h.GetUserRoles)
 	r.Put("/user-roles/{username}", h.SetUserRole)
 	r.Delete("/user-roles/{username}", h.DeleteUserRole)
@@ -149,15 +154,37 @@ func (h *AdminHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		includeStale = true
 	}
 
+	// Per-person SSO: the ClickHouse users CH-UI created for each person,
+	// keyed by email. Password users and people without one get [].
+	chUsersByEmail, err := h.ssoClickHouseUsersByEmail()
+	if err != nil {
+		slog.Error("Failed to list per-person SSO users", "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to retrieve users")
+		return
+	}
+	provisioned := func(u database.SessionUser) []ssoClickHouseUserSummary {
+		if u.ViaSSO {
+			if list := chUsersByEmail[strings.ToLower(strings.TrimSpace(u.DisplayName))]; list != nil {
+				return list
+			}
+		}
+		return []ssoClickHouseUserSummary{}
+	}
+
 	existsMap, err := h.fetchCurrentClickHouseUsers(r)
 	if err != nil {
 		slog.Warn("Admin users: failed to compare with current ClickHouse users", "error", err)
 		// Fallback to app-local users only if ClickHouse comparison fails.
-		if appUsers == nil {
-			appUsers = []database.SessionUser{}
+		type fallbackUser struct {
+			database.SessionUser
+			ClickHouseUsers []ssoClickHouseUserSummary `json:"clickhouse_users"`
+		}
+		fallback := make([]fallbackUser, 0, len(appUsers))
+		for _, u := range appUsers {
+			fallback = append(fallback, fallbackUser{SessionUser: u, ClickHouseUsers: provisioned(u)})
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"users": appUsers,
+			"users": fallback,
 			"sync":  map[string]bool{"clickhouse_user_check": false},
 		})
 		return
@@ -165,7 +192,8 @@ func (h *AdminHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 
 	type responseUser struct {
 		database.SessionUser
-		ExistsInClickHouse bool `json:"exists_in_clickhouse"`
+		ExistsInClickHouse bool                       `json:"exists_in_clickhouse"`
+		ClickHouseUsers    []ssoClickHouseUserSummary `json:"clickhouse_users"`
 	}
 
 	filtered := make([]responseUser, 0, len(appUsers))
@@ -179,6 +207,7 @@ func (h *AdminHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		filtered = append(filtered, responseUser{
 			SessionUser:        u,
 			ExistsInClickHouse: exists,
+			ClickHouseUsers:    provisioned(u),
 		})
 	}
 

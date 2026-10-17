@@ -382,6 +382,17 @@ func (p *Provisioner) detectHost(ctx context.Context, connID string, acct accoun
 			return c.address, nil
 		}
 	}
+	addr, err := p.lookupHost(ctx, connID, acct)
+	if err != nil {
+		return "", err
+	}
+	p.hosts.Store(connID, cachedHost{address: addr, at: time.Now()})
+	return addr, nil
+}
+
+// lookupHost asks ClickHouse which address it sees acct connect from, with
+// no cache: the probe uses it for an account that may not be saved yet.
+func (p *Provisioner) lookupHost(ctx context.Context, connID string, acct account) (string, error) {
 	res, err := p.exec(ctx, connID, acct, "SELECT toString(address) AS address FROM system.processes WHERE query_id = queryID()", nil)
 	var addr string
 	if err == nil {
@@ -398,7 +409,6 @@ func (p *Provisioner) detectHost(ctx context.Context, connID string, acct accoun
 		}
 		return "", fmt.Errorf("cannot detect the address ClickHouse sees the provisioning account %s from; grant it SELECT(address, query_id) ON system.processes or set the connection's SSO host explicitly: %w", acct.user, err)
 	}
-	p.hosts.Store(connID, cachedHost{address: addr, at: time.Now()})
 	return addr, nil
 }
 
