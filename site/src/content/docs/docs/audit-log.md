@@ -45,7 +45,25 @@ ClickHouse query activity and metadata changes inside a connection.
 - **Failed sign-in reasons**: a failed password login (`user.login_failed`)
   says why in its details: `invalid credentials` when ClickHouse rejected the
   login (or the error was not recognised), `clickhouse unreachable` when
-  ClickHouse did not answer
+  ClickHouse did not answer. An SSO sign-in or connection switch refused
+  because the person's ClickHouse user could not be provisioned writes the
+  same action with the provisioning error (users, roles and connections,
+  never a password)
+- **Per-person SSO users**: on a connection with
+  [per-person ClickHouse users](/docs/sso#per-person-clickhouse-users), the
+  user created at a person's first sign-in (`sso.user_provisioned`) and
+  re-synced at every later one (`sso.user_synced`), both with the roles before
+  and after; the sweep or an admin locking (`sso.user_locked`) or dropping
+  (`sso.user_dropped`) a user, with the person's email and last sign-in, the
+  actor being `system` for the sweep; and **Remove access** in Admin → Users
+  (`sso.access_removed`, with the counts of users dropped, failures and
+  sessions ended). The `ch_user` is the per-person user and the connection is
+  recorded on each row
+- **SSO identity settings**: an admin saving a connection's identity mode and
+  group to role mapping (`connection.sso_identity.updated`, with the mode,
+  prefix and number of mappings) or running **Verify** on the provisioner
+  (`connection.sso_identity.verified`, with the account and how many checks
+  failed)
 - **Background accounts** (v2.12.0+): an admin changing a worker's
   [background account](/docs/background-accounts)
   (`connection.background_account.updated`, with the worker, mode and account
@@ -101,7 +119,8 @@ an optional **target** (e.g. the affected user or connection), structured
 
 For people who sign in with [SSO](/docs/sso) (v2.13.2+), the actor is the
 person's email, and the ClickHouse account the action ran as (the shared
-service account) is kept in a separate `ch_user` field. `ch_user` is only set
+service account, or their own per-person user) is kept in a separate `ch_user`
+field. `ch_user` is only set
 when it differs from the actor. It shows as the **ClickHouse user** column on
 the page and is carried by `GET /api/governance/audit-logs`, the JSON and CSV
 exports, and SIEM forwarding. Rows written before v2.13.2 keep the service

@@ -88,7 +88,11 @@ be able to do. Configuring them is admin-only. See
 
 For password sessions, the user's own ClickHouse grants are also enforced by
 ClickHouse itself (queries run as that user). For SSO sessions, CH-UI RBAC plus
-the service account's ClickHouse grants are the access control.
+the service account's ClickHouse grants are the access control; on a connection
+with [per-person ClickHouse users](/docs/sso#per-person-clickhouse-users) each
+person has their own user with the roles their IdP groups map to, so ClickHouse
+enforces grants per person there too. CH-UI authenticates to ClickHouse with
+the `X-ClickHouse-User` and `X-ClickHouse-Key` headers, not HTTP Basic auth.
 
 ClickHouse access entities can be edited from **Governance → Access control**
 (Pro, admin only). The browser sends structured operations, never SQL: the
@@ -114,9 +118,9 @@ See [Monitoring & SIEM](/docs/monitoring) for setup.
 
 ## Secrets & encryption
 
-- ClickHouse credentials, AI API keys, and the SSO service-account password are
-  encrypted at rest (AES-256-GCM) with `APP_SECRET_KEY` before being stored in
-  SQLite.
+- ClickHouse credentials, AI API keys, the SSO service-account password and
+  the generated passwords of per-person SSO users are encrypted at rest
+  (AES-256-GCM) with `APP_SECRET_KEY` before being stored in SQLite.
 - Source `APP_SECRET_KEY` from the environment or `server.yaml`; keep it out of
   the database directory and use a different key per environment. Rotate it
   with `APP_SECRET_KEY_PREVIOUS`, which re-encrypts every stored secret on

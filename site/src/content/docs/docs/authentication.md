@@ -140,8 +140,10 @@ connection with its status; offline ones cannot be picked.
   current password, the password field opens too; neither case counts
   toward the login rate limit.
 - **SSO sessions:** nothing to type. The switch uses the target connection's
-  SSO service account and keeps your email and role. Connections without a
-  service account show **SSO not set up**.
+  SSO service account and keeps your email and role. On a connection with
+  [per-person ClickHouse users](/docs/sso#per-person-clickhouse-users) it
+  creates or re-syncs your own user first, from the groups of your last
+  sign-in. Connections without a service account show **SSO not set up**.
 
 A switch reloads the app. Open tabs, pinned results, recent palette commands,
 open dashboard folders and log columns are kept per person and connection in
@@ -173,7 +175,14 @@ Statuses:
 - `403` the `Origin` header is not CH-UI's own origin or an allowed origin
 - `409` `sso_not_configured` (SSO session, target has no service account),
   `sso_account_rejected` (ClickHouse refused that service account), or
-  `session_changed` (another request switched or ended this session first)
+  `session_changed` (another request switched or ended this session first).
+  On a per-person target also `sso_reauth_required` (the session predates
+  per-person mode; sign in again), `sso_no_roles` (your groups map to no
+  role there), `sso_user_exists` (a ClickHouse user with your name exists
+  that CH-UI did not create) or `sso_user_rejected` (ClickHouse refused the
+  user CH-UI just provisioned)
+- `502` `sso_provisioning_failed`: creating or syncing your per-person user
+  failed; the audit log has the error
 - `415` the body is not `application/json`
 - `429` the shared login rate limit (`retryAfter` in the body), or more than
   20 switch requests a minute from one IP

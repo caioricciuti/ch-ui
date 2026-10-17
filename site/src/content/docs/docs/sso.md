@@ -159,10 +159,13 @@ Open **Admin → Connections**, click **SSO** on the connection, choose
 **Show setup SQL**: it renders the statements below for your roles, prefix and
 profile. Run them once as a ClickHouse admin, store `chui_provisioner` and its
 password as the connection's account in the same sheet, then **Verify**: CH-UI
-signs in as the provisioner, creates a probe user under the prefix with each
-mapped role, checks that it cannot create users outside the prefix or create
-roles, and drops the probe, showing each check as pass or fail. **Save** turns
-the mode on.
+signs in as the provisioner, detects the address ClickHouse sees it from (host
+`auto` only), checks it can read `system.users`, creates a probe user under the
+prefix (`HOST NONE`, so it can never log in) and grants it each mapped role,
+checks that it cannot create users outside the prefix or create roles, and
+drops the probe, showing each check as pass or fail. The run is recorded as
+`connection.sso_identity.verified`. **Save** turns the mode on
+(`connection.sso_identity.updated`).
 
 ```sql
 -- Roles SSO people can receive (or map to roles you already have).
@@ -229,12 +232,25 @@ config, `POST …/sso-identity/verify` runs the probe and returns its checks.
 
 ### Leaving
 
-CH-UI only learns someone left when they stop signing in, so a daily sweep per
-connection locks users not seen for `lock_after_days` (`ALTER USER … HOST
-NONE`: no login, but `system.query_log` history stays attributable) and drops
-them after `drop_after_days`. **Remove access** in **Admin → Users** does both
-at once on every connection and signs the person out. A sign-in after a lock
-simply provisions them again with their current groups.
+CH-UI only learns someone left when they stop signing in, so an hourly sweep
+over every per-person connection locks users not seen for `lock_after_days`
+(`ALTER USER … HOST NONE`: no login, but `system.query_log` history stays
+attributable) and drops them after `drop_after_days`. The sweep runs with a
+Pro license only, skips connections whose agent is offline, and retries a
+failed lock or drop on its next tick. It records `sso.user_locked` and
+`sso.user_dropped` in the audit log with the actor `system`. **Remove access**
+in **Admin → Users** drops the person's users on every connection right away
+and signs them out (`sso.access_removed`); a connection that is offline is
+reported in the response and its user is kept for the sweep. A sign-in after a
+lock simply provisions them again with their current groups.
+
+Dashboard share links and MCP OAuth tokens a person created while on a
+per-person connection carry no password of their own: they follow the live
+user, so the rotation at every sign-in does not break them, and they stop
+working when the user is locked or dropped. A share link then answers
+`410 Gone`, an OAuth access token `401`, and refreshing the token ends the
+grant. See [public sharing](/docs/dashboards#public-sharing) and
+[MCP OAuth](/docs/mcp#connect-a-client-with-oauth).
 
 ### Security
 
@@ -268,8 +284,8 @@ the group mapping until it is removed. In the API, an SSO person's override is k
 
 ## What is per person
 
-SSO people share one ClickHouse account, but CH-UI keeps their data and their
-actions apart by email:
+In shared mode SSO people share one ClickHouse account, but CH-UI keeps their
+data and their actions apart by email either way:
 
 - **Roles:** group mapping and overrides are per person.
 - **Query history:** each person sees, deletes and clears only their own
@@ -284,9 +300,16 @@ actions apart by email:
 
 - **Switching connection:** an SSO person can switch to any connection that
   has its own SSO service account, without typing anything. The session keeps
-  the email and role; queries then run as that connection's service account.
-  Connections without one show **SSO not set up** in the switcher, and the API
-  answers `409 sso_not_configured`.
+  the email and role; queries then run as that connection's service account,
+  or, on a per-person connection, as the person's own user, provisioned on
+  the switch from the groups of their last verified token. Connections
+  without an account show **SSO not set up** in the switcher, and the API
+  answers `409 sso_not_configured`. A per-person target answers
+  `409 sso_reauth_required` for a session from before per-person mode (sign
+  in again), `409 sso_no_roles` or `409 sso_user_exists` for the refusals
+  above, `409 sso_user_rejected` when ClickHouse refuses the user CH-UI just
+  provisioned, and `502 sso_provisioning_failed` for any other provisioning
+  error. See [Switching connection](/docs/authentication#switching-connection).
 
 In shared mode ClickHouse itself only sees the service account, so
 `system.query_log` can tell SSO people apart only through the
@@ -390,7 +413,8 @@ available.
 - Use `OIDC_ALLOWED_DOMAINS` to restrict sign-in to your corporate email
   domain(s).
 - The session shows the person's email (`via_sso: true` in `/api/auth/session`),
-  while queries authenticate to ClickHouse as the service account.
+  while queries authenticate to ClickHouse as the service account, or as the
+  person's own user on a per-person connection.
 
 ## Endpoints
 

@@ -23,6 +23,8 @@ X-CH-UI-Session: ch-ui-<32 hex>
 
 The value is a stable per-process identifier, generated once when the CH-UI server (direct connections) or the remote tunnel agent (tunneled connections) starts, sent verbatim on every subsequent request. Configure your load balancer to hash on this header for upstream selection.
 
+CH-UI authenticates to ClickHouse with the `X-ClickHouse-User` and `X-ClickHouse-Key` headers, not HTTP Basic auth, so the proxy must pass those two headers through as well. chproxy and HAProxy do so by default; the chproxy `[[users]]` entry below accepts them like a Basic auth login.
+
 ### Why not ClickHouse's native `session_id`?
 
 ClickHouse's built-in `session_id` URL parameter would seem like the obvious fit, but it triggers a **server-side mutex**. Only one query can run at a time per session. A dashboard with 8 concurrent panel queries deadlocks instantly with `SESSION_IS_LOCKED`.

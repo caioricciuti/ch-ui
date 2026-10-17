@@ -493,6 +493,8 @@ Public viewers load the dashboard at `/public/d/<token>`. Their panel queries ex
 
 Variables work on public links too, with the values limited to what the dashboard offers: a value must be one of the variable's options (the options query runs again on the server with the sharer's credentials, cached for 60 seconds), and a text or constant variable is always its default. Anything else is refused with `400`. Public viewers do not see the options queries.
 
+Panel and options queries from a share link carry the `public_dashboard` [query tag](/docs/query-insights#query-tags) in `log_comment`, naming the person who created the share and the dashboard (`{"chui":"public_dashboard","person":"ana@example.com","object":"dash:<id>"}`), so they are attributed to the sharer in `system.query_log`. A share created by an SSO person on a connection with [per-person ClickHouse users](/docs/sso#per-person-clickhouse-users) stores no password: it runs as that person's live user, survives the password rotation at each sign-in, and answers `410 Gone` once the user is locked or dropped.
+
 Link options for wall screens and TVs:
 
 | Parameter | Example | Effect |

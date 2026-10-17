@@ -220,13 +220,14 @@ Admins can add threaded comments to incidents. Each comment updates the incident
 
 ## Query Audit
 
-The **Query Audit** section lists the queries the `query_log` worker has harvested into CH-UI's database. It does not query `system.query_log` live. Filter by ClickHouse user, pick how many rows to load, and open **View** on a row for the full query and its metrics. When the list is empty, check the harvest mode under [Settings](#settings): in the default `auto` mode nothing is harvested until a policy exists.
+The **Query Audit** section lists the queries the `query_log` worker has harvested into CH-UI's database. It does not query `system.query_log` live. Filter by user, pick how many rows to load, and open **View** on a row for the full query and its metrics. The user column shows the person behind the query (the `actor`: the person named by CH-UI's [query tag](/docs/query-insights#query-tags), or the email behind a [per-person SSO user](/docs/sso#per-person-clickhouse-users)) with the ClickHouse account it ran as underneath; the filter matches either name. Policy violations stay keyed on the ClickHouse user. When the list is empty, check the harvest mode under [Settings](#settings): in the default `auto` mode nothing is harvested until a policy exists.
 
 ### What gets harvested
 
 Harvesting is incremental. The watermark is the `event_time_microseconds` and `query_id` of the last stored row, so rows that share a second are never skipped when a batch ends between them, and a failed harvest keeps the old watermark and retries the same window. It keeps initial queries (`is_initial_query = 1`) that finished or failed (`QueryFinish`, `ExceptionBeforeStart`, `ExceptionWhileProcessing`), so denied attempts are audited too. The only queries it leaves out are the governance syncer's own, which it tags with `log_comment = 'ch-ui:governance'` and recognises by that comment together with the harvest user, so setting the comment by hand does not hide a query. An optional minimum duration (see [Settings](#settings)) skips fast successful queries; it is 0 by default. Each entry holds:
 
-- Query ID, query text, user, event time
+- Query ID, query text, event time
+- `ch_user`, the ClickHouse account, and `actor`, the person behind the row: the `person` in CH-UI's query tag when there is one, else the email of a per-person SSO user, else the ClickHouse account again
 - Normalized hash (SHA-256 of the query with literals replaced, for fingerprinting similar queries)
 - Query kind (Select/Insert/Create/Alter/Drop/Other)
 - Metrics: duration, read rows/bytes, result rows, written rows/bytes, memory usage
@@ -238,7 +239,7 @@ Batch limit: 5000 queries per sync cycle.
 ### API
 
 ```bash
-# Harvested entries, newest first. limit 1-5000 (default 100), offset, user, table
+# Harvested entries, newest first. limit 1-5000 (default 100), offset, user (matches ch_user or actor), table
 GET /api/governance/query-log?user=alice&limit=100
 
 # One entry by ClickHouse query_id

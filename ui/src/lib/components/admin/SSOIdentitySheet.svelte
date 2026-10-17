@@ -365,7 +365,7 @@
             <Select id="sso-host" size="sm" options={hostOptions} value={hostMode} disabled={busy} onchange={(v) => (hostMode = v as HostMode)} />
           </FormField>
           {#if hostMode === 'custom'}
-            <FormField label="IP list" for="sso-host-ips" controlWidth="full" hint="Comma-separated IPs or CIDR ranges.">
+            <FormField label="IP list" for="sso-host-ips" controlWidth="full" hint="Comma-separated IP addresses.">
               <Input id="sso-host-ips" size="sm" mono autocomplete="off" placeholder="10.0.0.5, 10.0.1.0/24" bind:value={hostCustom} disabled={busy} spellcheck={false} />
             </FormField>
           {/if}

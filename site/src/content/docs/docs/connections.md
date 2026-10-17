@@ -31,6 +31,8 @@ Internally each direct connection runs the same connector code inside the server
 
 With either kind, your browser only talks to CH-UI. The ClickHouse calls are made by the server (direct) or the connector (tunnel), never by the browser. You do not need CORS headers on ClickHouse, and an HTTPS CH-UI can use a plain `http://` ClickHouse URL without mixed-content errors.
 
+Both kinds sign in to ClickHouse over HTTP with the `X-ClickHouse-User` and `X-ClickHouse-Key` headers rather than HTTP Basic auth. ClickHouse, ClickHouse Cloud and chproxy accept them; a proxy of your own in between must pass them through. See [Clusters and load balancers](/docs/clusters) for proxy examples.
+
 ## Direct connections
 
 ### The connection from server config
