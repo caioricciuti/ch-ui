@@ -13,20 +13,28 @@ matching `oidc_*` keys in `server.yaml`), or from **Admin → Settings** in the 
 ## How it works
 
 OIDC authenticates the **person**. CH-UI never receives a ClickHouse password
-from your IdP, so queries run through a **per-connection ClickHouse service
-account** that you configure. The person's identity (email) drives their CH-UI
-role and is recorded in the audit trail. Password login keeps working alongside
-SSO unless you turn on [SSO only](#sso-only).
+from your IdP, so each connection decides who ClickHouse sees for an SSO
+person. There are two modes, set per connection:
+
+- **Shared account** (the default): every SSO session queries through one
+  **ClickHouse service account** you configure. ClickHouse sees one user for
+  everybody; CH-UI's own roles (admin / analyst / viewer) are the access
+  control, and CH-UI tells people apart by email in its history, audit log and
+  the [query tag](/docs/query-insights#query-tags) it puts on every query.
+- **Per-person ClickHouse users**: every person gets their own ClickHouse
+  user, created and kept in sync by a narrow provisioning account, with
+  ClickHouse roles taken from their IdP groups. ClickHouse can then
+  attribute, limit and audit each person. See
+  [Per-person ClickHouse users](#per-person-clickhouse-users).
 
 ```
 Person ── OIDC ──▶ CH-UI    (identity, role, audit are per person)
-                   CH-UI ── service account ──▶ ClickHouse
+                   CH-UI ── service account ─────────▶ ClickHouse   shared
+                   CH-UI ── sso:<email> (own user) ──▶ ClickHouse   per person
 ```
 
-Because all SSO users share one ClickHouse service account at the database
-layer, ClickHouse-native per-user grants do not apply to them. CH-UI's own RBAC
-(admin / analyst / viewer) is their access control. Grant the service account
-the least privilege your SSO users need.
+The person's identity (email) drives their CH-UI role either way. Password
+login keeps working alongside SSO unless you turn on [SSO only](#sso-only).
 
 ## 1. Register CH-UI with your IdP
 
@@ -95,7 +103,8 @@ secret material.
 ## 3. Set the ClickHouse service account
 
 Configure the ClickHouse account that SSO sessions query through, on the target
-connection (admin only):
+connection (admin only). In per-person mode this same account is the
+**provisioner** (see below):
 
 ```bash
 curl -X PUT https://ch-ui.yourcompany.com/api/connections/<CONNECTION_ID>/sso-account \
@@ -107,6 +116,120 @@ curl -X PUT https://ch-ui.yourcompany.com/api/connections/<CONNECTION_ID>/sso-ac
 The password is encrypted at rest with `APP_SECRET_KEY`. Until a service account
 is set, SSO logins fail with "SSO is not finished being set up (no ClickHouse
 service account on the connection)".
+
+## Per-person ClickHouse users
+
+Per-person mode gives every SSO person their own ClickHouse user, named
+`<prefix><email>` (`sso:ana@example.com` by default), so `system.query_log`,
+quotas, row policies and grants work per person. It is a Pro feature, set per
+connection, and existing installs stay on the shared account until an admin
+switches.
+
+### What happens at sign-in
+
+Every sign-in, not just the first:
+
+1. The OIDC callback verifies the ID token as usual.
+2. CH-UI computes the ClickHouse roles from the token's groups and the
+   connection's group to role mapping. No match and no fallback role: the
+   sign-in is refused for that connection with "Your groups don't give you
+   access to &lt;connection&gt;".
+3. The person is keyed by the token's issuer and subject, never by email, so an
+   email change at the IdP keeps the same ClickHouse user. A ClickHouse user
+   with the person's name that CH-UI did not create is **refused**, never taken
+   over.
+4. CH-UI generates a random 32-byte password and, as the provisioner, runs
+   `CREATE USER IF NOT EXISTS`, `ALTER USER … IDENTIFIED WITH sha256_hash`
+   (rotation; only the hash appears in SQL), revokes managed roles the person
+   lost, grants the ones they have, and sets `DEFAULT ROLE ALL`.
+5. The password is stored encrypted with `APP_SECRET_KEY` and the session
+   queries as that user. The audit log records `sso.user_provisioned` or
+   `sso.user_synced` with the roles before and after.
+
+A provisioning failure refuses SSO on that connection and is written to the
+audit log as `user.login_failed`; there is no silent fall-back to a shared
+account. Switching to another per-person connection provisions the person
+there from the groups of their last verified token.
+
+### Setup
+
+Run once as a ClickHouse admin, then store `chui_provisioner` as the
+connection's SSO account (step 3 above):
+
+```sql
+-- Roles SSO people can receive (or map to roles you already have).
+CREATE ROLE IF NOT EXISTS chui_viewer;
+CREATE ROLE IF NOT EXISTS chui_analyst;
+-- Grants on those roles are yours to decide. Give them at least
+--   GRANT SELECT ON system.processes, system.query_log TO chui_viewer, chui_analyst;
+-- so query progress and Query Profile work for the people.
+
+-- Optional caps for every SSO user.
+CREATE SETTINGS PROFILE IF NOT EXISTS chui_sso_limits SETTINGS
+    max_memory_usage = 4000000000, max_execution_time = 300;
+
+-- The provisioner: manages users under the prefix only.
+-- The wildcard goes OUTSIDE the backticks; `sso:*` would be a literal name.
+CREATE USER IF NOT EXISTS chui_provisioner IDENTIFIED WITH sha256_password BY '<choose a password>';
+GRANT CREATE USER, ALTER USER, DROP USER ON `sso:`* TO chui_provisioner;
+-- It may hand out exactly these roles, and nothing else.
+GRANT chui_viewer, chui_analyst TO chui_provisioner WITH ADMIN OPTION;
+-- To refuse pre-existing users it did not create.
+GRANT SHOW USERS ON *.* TO chui_provisioner;
+-- Only with host "auto": to learn the address it connects from.
+GRANT SELECT(address, query_id) ON system.processes TO chui_provisioner;
+-- Roles stay off by default: its everyday connection reads no data.
+SET DEFAULT ROLE NONE TO chui_provisioner;
+```
+
+On a cluster, add `ON CLUSTER <name>` to each statement unless users live in
+replicated access storage.
+
+Then set the connection's mode and mapping (admin only):
+
+```bash
+curl -X PUT https://ch-ui.yourcompany.com/api/connections/<CONNECTION_ID>/sso-identity \
+  -H 'Content-Type: application/json' --cookie 'chui_session=<admin session>' \
+  -d '{
+    "mode": "per_person",
+    "user_prefix": "sso:",
+    "settings_profile": "chui_sso_limits",
+    "host": "auto",
+    "role_mappings": [
+      {"group": "data-analysts", "roles": ["chui_analyst"]},
+      {"group": "everyone", "roles": ["chui_viewer"]}
+    ],
+    "fallback_roles": [],
+    "lock_after_days": 30,
+    "drop_after_days": 90
+  }'
+```
+
+| Field | Meaning |
+|---|---|
+| `mode` | `shared` (default) or `per_person` |
+| `user_prefix` | Start of every created user name; the provisioner's grants are scoped to it |
+| `settings_profile` | Profile assigned to every created user, optional |
+| `host` | `auto` pins each user to the address ClickHouse sees the provisioner connect from (the agent's host for tunnel connections); `any` for `HOST ANY`; or a comma-separated list of IPs |
+| `role_mappings` | IdP group to ClickHouse roles; a person gets the union over their groups, matched case-insensitively |
+| `fallback_roles` | Granted when no group matches; empty refuses the sign-in |
+| `lock_after_days`, `drop_after_days` | Lifecycle of users that stop signing in (see below); `0` turns either off |
+
+`GET /api/connections/{id}/sso-identity` returns the config and whether a
+provisioner is set.
+
+### Security
+
+- The provisioner can only create, alter and drop users under the prefix and
+  grant the roles it administers. If it leaks, the blast radius is "the
+  strongest mapped role", never `default` or another user. Keep the mapped
+  roles narrower than the server admin.
+- Per-person passwords are random, rotated at every sign-in and stored
+  encrypted with `APP_SECRET_KEY`. `host` pins the users to CH-UI's address,
+  so a leaked password is useless from elsewhere.
+- Background jobs keep their dedicated [background accounts](/docs/background-accounts);
+  a job never runs as a person. In per-person mode the "borrow a session"
+  fallback skips SSO sessions.
 
 ## Role mapping
 
@@ -147,8 +270,10 @@ actions apart by email:
   Connections without one show **SSO not set up** in the switcher, and the API
   answers `409 sso_not_configured`.
 
-Shared by design: ClickHouse itself only sees the service account, so
-`system.query_log` and the query profile cannot tell SSO people apart.
+In shared mode ClickHouse itself only sees the service account, so
+`system.query_log` can tell SSO people apart only through the
+[query tag](/docs/query-insights#query-tags) CH-UI adds; per-person mode
+gives each person their own ClickHouse user.
 
 ### Upgrading from v2.13.1 or earlier
 
@@ -257,6 +382,8 @@ available.
 | `GET` | `/api/auth/oidc/login` | Starts the SSO flow (redirects to the IdP) |
 | `GET` | `/api/auth/oidc/callback` | IdP redirect target; creates the session |
 | `POST` | `/api/auth/switch-connection` | Move the SSO session to another connection with its service account |
-| `PUT` | `/api/connections/{id}/sso-account` | Set the connection's ClickHouse service account (admin) |
+| `PUT` | `/api/connections/{id}/sso-account` | Set the connection's ClickHouse service account, the provisioner in per-person mode (admin) |
+| `GET` | `/api/connections/{id}/sso-identity` | The connection's SSO identity mode and group to role mapping (admin) |
+| `PUT` | `/api/connections/{id}/sso-identity` | Set the mode and mapping; `per_person` needs Pro (admin) |
 | `GET` | `/api/admin/sso` | Current SSO config, secret redacted (admin) |
 | `PUT` | `/api/admin/sso` | Update DB-managed SSO config and hot-reload the provider (admin) |

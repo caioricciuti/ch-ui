@@ -156,8 +156,8 @@ func TestSSOProvisionLive(t *testing.T) {
 	if u != anaUser || strings.Join(roles, ",") != roleA {
 		t.Fatalf("currentUser() = %q, currentRoles() = %v", u, roles)
 	}
-	rows, err := admin("SELECT settings_profile_names FROM system.users WHERE name = " + safe.QuotedLiteral(anaUser))
-	if err != nil || len(rows) != 1 || !strings.Contains(fmt.Sprint(rows[0]["settings_profile_names"]), profile) {
+	rows, err := admin("SELECT count() AS n FROM system.settings_profile_elements WHERE user_name = " + safe.QuotedLiteral(anaUser) + " AND inherit_profile = " + safe.QuotedLiteral(profile))
+	if err != nil || len(rows) != 1 || toInt(rows[0]["n"]) != 1 {
 		t.Errorf("profile not assigned: rows = %v, err = %v", rows, err)
 	}
 
@@ -222,6 +222,32 @@ func TestSSOProvisionLive(t *testing.T) {
 	}
 	if left, err := db.ListSSOClickHouseUsers(conn); err != nil || len(left) != 0 {
 		t.Fatalf("users after drop = %v, err = %v", left, err)
+	}
+
+	// Host "auto": the provisioner's SELECT(address, query_id) grant from
+	// SetupSQL lets it pin the user to the address ClickHouse sees it from,
+	// which here is the same address the person connects from.
+	cfg.Host = database.SSOHostAuto
+	if err := db.SetSSOIdentityConfig(conn, cfg); err != nil {
+		t.Fatal(err)
+	}
+	res, err = p.SignIn(ctx, conn, Person{Issuer: "https://idp.example", Subject: "sub-ana", Email: "ana@x.com", Name: "Ana", Groups: []string{"a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	autoPassword, err := crypto.Decrypt(res.EncryptedPassword, testSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u, _, err := whoami(anaUser, autoPassword); err != nil || u != anaUser {
+		t.Fatalf("login with host auto: user = %q, err = %v", u, err)
+	}
+	rows, err = admin("SELECT host_ip FROM system.users WHERE name = " + safe.QuotedLiteral(anaUser))
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("rows = %v, err = %v", rows, err)
+	}
+	if ips, _ := rows[0]["host_ip"].([]any); len(ips) != 1 || strings.Contains(fmt.Sprint(ips[0]), "::ffff:") {
+		t.Fatalf("host_ip = %v, want exactly one plain address", rows[0]["host_ip"])
 	}
 }
 
