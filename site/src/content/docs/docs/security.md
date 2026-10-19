@@ -179,19 +179,22 @@ redaction.
 
 Check these configuration exceptions before upgrading:
 
-- **Old Compose encryption key:** rotate the public
-  `please-change-me-to-a-random-secret` placeholder using
-  [the key rotation procedure](/docs/configuration#rotating-the-app-secret-key).
-  It is now refused as the current key. Keep the database volume and key backed
-  up; an existing database without its key will stop with recovery instructions.
+- **Old Compose encryption key:** nothing to do. The public
+  `please-change-me-to-a-random-secret` placeholder is replaced on the first
+  start with a random key saved next to the database, and stored secrets are
+  re-encrypted from it. See
+  [rotating the app secret key](/docs/configuration#rotating-the-app-secret-key).
+  Back up the data volume, which now holds the key.
 - **Redirecting ClickHouse URLs:** configure the final HTTP/HTTPS endpoint.
   Redirects are refused for sign-in, queries, streaming and exports.
 - **Link-local ClickHouse addresses:** use a private or other supported address.
   Link-local and metadata targets, including DNS aliases to them, are refused.
 - **Custom clients and separate frontends:** login must send
   `Content-Type: application/json`. Browser writes must use the app's origin or
-  an origin explicitly allowed in configuration. Set `APP_URL` to the public URL
-  when running behind a TLS proxy. The bundled frontend already sends JSON.
+  an origin explicitly allowed in configuration. Behind a TLS proxy the same
+  host is accepted on either scheme unless `APP_URL` or a trusted
+  `X-Forwarded-Proto` says which one is public; set `APP_URL` to the public URL
+  to enforce HTTPS. The bundled frontend already sends JSON.
 
 ## Vulnerability disclosure
 

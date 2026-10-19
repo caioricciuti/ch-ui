@@ -238,9 +238,21 @@ func serveConfig(cfg *config.Config, ln net.Listener) error {
 		slog.Info("Trusting X-Forwarded-For from configured reverse proxies", "ranges", fmt.Sprint(trustedProxies))
 	}
 
+	publicKeyInEnv := strings.TrimSpace(cfg.AppSecretKey) == config.FormerComposeKey
 	secretSource, err := config.EnsureAppSecretKey(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize app secret key: %w", err)
+	}
+	// Set only by CH-UI itself: the public Compose key is being retired.
+	autoRotate := secretSource == config.SecretKeySourceReplacedPublic ||
+		(publicKeyInEnv && cfg.AppSecretKeyPrevious == config.FormerComposeKey)
+	if secretSource == config.SecretKeySourceReplacedPublic {
+		slog.Warn("Stored secrets were encrypted with the public key from the old Compose file or with no saved key; generated a new persisted key and re-encrypting them with it",
+			"path", config.AppSecretKeyPath(cfg.DatabasePath))
+	}
+	if publicKeyInEnv {
+		slog.Warn("APP_SECRET_KEY is the public placeholder from the old Compose file and is ignored; remove it from your environment",
+			"key_file", config.AppSecretKeyPath(cfg.DatabasePath))
 	}
 	if secretSource == config.SecretKeySourceGenerated {
 		slog.Warn("APP_SECRET_KEY was not configured; generated a persisted secret key",
@@ -269,7 +281,16 @@ func serveConfig(cfg *config.Config, ln net.Listener) error {
 	slog.Info("Database initialized", "path", cfg.DatabasePath)
 
 	if rotating {
-		rotateStoredSecrets(db, cfg)
+		if err := rotateStoredSecrets(db, cfg, autoRotate); err != nil {
+			if secretSource == config.SecretKeySourceReplacedPublic {
+				// Drop the new key so the next start retries the same rotation
+				// instead of loading a key nothing was encrypted with.
+				if rmErr := os.Remove(config.AppSecretKeyPath(cfg.DatabasePath)); rmErr != nil {
+					slog.Error("Could not remove the generated key file", "error", rmErr)
+				}
+				return fmt.Errorf("re-encrypting stored secrets under the new key failed, nothing was changed: %w", err)
+			}
+		}
 	}
 
 	// Role overrides are keyed per SSO person since v2.13.2. An override on an
@@ -580,12 +601,13 @@ func logLicenseChoice(choice config.LicenseChoice, haveDBLicense bool) {
 // APP_SECRET_KEY_PREVIOUS so it reads with APP_SECRET_KEY alone. Values are
 // never logged, only counts per kind and the ids of unreadable secrets. A
 // failure leaves the database untouched; decryption still falls back to the
-// previous key, so startup continues.
-func rotateStoredSecrets(db *database.DB, cfg *config.Config) {
+// previous key. automatic means CH-UI chose the previous key itself, so the
+// log does not tell the operator to remove a setting they never added.
+func rotateStoredSecrets(db *database.DB, cfg *config.Config, automatic bool) error {
 	report, err := db.RotateSecrets(cfg.AppSecretKey, cfg.AppSecretKeyPrevious)
 	if err != nil {
-		slog.Error("Secret key rotation failed; nothing was changed, stored secrets still decrypt with APP_SECRET_KEY_PREVIOUS", "error", err)
-		return
+		slog.Error("Secret key rotation failed; nothing was changed, stored secrets still decrypt with the previous key", "error", err)
+		return err
 	}
 	rotated := 0
 	for _, kind := range report.Kinds() {
@@ -594,9 +616,19 @@ func rotateStoredSecrets(db *database.DB, cfg *config.Config) {
 			"reencrypted", report.Rotated[kind], "already_current", report.Current[kind])
 	}
 	for _, u := range report.Unreadable {
+		if automatic {
+			slog.Warn("Stored secret decrypts with neither the new key nor the old Compose key; left unchanged. If you used your own APP_SECRET_KEY before, set it again; otherwise re-enter the secret in the UI",
+				"kind", u.Kind, "id", u.ID)
+			continue
+		}
 		slog.Warn("Stored secret decrypts with neither APP_SECRET_KEY nor APP_SECRET_KEY_PREVIOUS; left unchanged, re-enter it in the UI",
 			"kind", u.Kind, "id", u.ID)
 	}
+	if automatic {
+		slog.Info("Secret key rotation complete", "reencrypted", rotated, "unreadable", len(report.Unreadable))
+		return nil
+	}
 	slog.Info("Secret key rotation complete, you can remove APP_SECRET_KEY_PREVIOUS",
 		"reencrypted", rotated, "unreadable", len(report.Unreadable))
+	return nil
 }
