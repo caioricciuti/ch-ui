@@ -50,3 +50,23 @@ func TestSecurityBrowserPublicScheme(t *testing.T) {
 		t.Fatal("rejected configured public origin")
 	}
 }
+
+// Behind a TLS proxy that sends no forwarding headers and with no APP_URL,
+// the scheme is unknown: the same host on either scheme is accepted, other
+// hosts are not.
+func TestBrowserRequestUnknownScheme(t *testing.T) {
+	cfg := CORSConfig{}
+	for origin, want := range map[string]bool{
+		"https://app.example":     true,
+		"http://app.example":      true,
+		"https://evil.example":    false,
+		"https://app.example:444": false,
+	} {
+		r := httptest.NewRequest(http.MethodPost, "http://app.example/api/query", nil)
+		r.RemoteAddr = "203.0.113.7:5555"
+		r.Header.Set("Origin", origin)
+		if got := BrowserRequestAllowed(cfg, r); got != want {
+			t.Errorf("%s: got %v want %v", origin, got, want)
+		}
+	}
+}

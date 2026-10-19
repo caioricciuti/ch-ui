@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -79,28 +80,85 @@ func TestAppSecretKeyPreviousLoad(t *testing.T) {
 	}
 }
 
-func TestSecurityRejectsComposeDefault(t *testing.T) {
-	cfg := &Config{AppSecretKey: "please-change-me-to-a-random-secret"}
-	if _, err := EnsureAppSecretKey(cfg); err == nil {
-		t.Fatal("known public encryption key accepted")
+func TestComposeKeyIsReplacedNotUsed(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "ch-ui.db")
+	if err := os.WriteFile(dbPath, []byte("existing database"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{DatabasePath: dbPath, AppSecretKey: FormerComposeKey}
+	source, err := EnsureAppSecretKey(cfg)
+	if err != nil || source != SecretKeySourceReplacedPublic {
+		t.Fatalf("first start: %s %v", source, err)
+	}
+	if cfg.AppSecretKey == FormerComposeKey || cfg.AppSecretKey == "" {
+		t.Fatal("public key kept as the current key")
+	}
+	if cfg.AppSecretKeyPrevious != FormerComposeKey {
+		t.Fatalf("previous key %q, want the Compose key", cfg.AppSecretKeyPrevious)
+	}
+
+	// The old compose file still passes the public key on the next start.
+	again := &Config{DatabasePath: dbPath, AppSecretKey: FormerComposeKey}
+	source, err = EnsureAppSecretKey(again)
+	if err != nil || source != SecretKeySourceFile {
+		t.Fatalf("second start: %s %v", source, err)
+	}
+	if again.AppSecretKey != cfg.AppSecretKey || again.AppSecretKeyPrevious != FormerComposeKey {
+		t.Fatal("second start did not reuse the generated key with the Compose fallback")
 	}
 }
 
-func TestSecurityExistingDatabaseRequiresKeyMigration(t *testing.T) {
+func TestExistingDatabaseWithoutKeyRotatesFromComposeKey(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "ch-ui.db")
-	if err := os.WriteFile(path, []byte("existing database"), 0600); err != nil {
+	dbPath := filepath.Join(dir, "ch-ui.db")
+	if err := os.WriteFile(dbPath, []byte("existing database"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := &Config{DatabasePath: path}
-	if _, err := EnsureAppSecretKey(cfg); err == nil {
-		t.Fatal("silently generated a replacement key for existing database")
+	cfg := &Config{DatabasePath: dbPath}
+	source, err := EnsureAppSecretKey(cfg)
+	if err != nil || source != SecretKeySourceReplacedPublic {
+		t.Fatalf("got %s %v", source, err)
 	}
-	cfg.AppSecretKeyPrevious = "please-change-me-to-a-random-secret"
-	if source, err := EnsureAppSecretKey(cfg); err != nil || source != SecretKeySourceGenerated {
-		t.Fatalf("migration: %s %v", source, err)
+	if cfg.AppSecretKeyPrevious != FormerComposeKey {
+		t.Fatalf("previous key %q, want the Compose key", cfg.AppSecretKeyPrevious)
 	}
-	if cfg.AppSecretKey == cfg.AppSecretKeyPrevious {
-		t.Fatal("key was not rotated")
+
+	// Once the file exists the key loads from it with no fallback.
+	reload := &Config{DatabasePath: dbPath}
+	if source, err := EnsureAppSecretKey(reload); err != nil || source != SecretKeySourceFile || reload.AppSecretKeyPrevious != "" {
+		t.Fatalf("reload: %s %v previous=%q", source, err, reload.AppSecretKeyPrevious)
+	}
+}
+
+func TestExplicitPreviousKeyWins(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "ch-ui.db")
+	if err := os.WriteFile(dbPath, []byte("existing database"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{DatabasePath: dbPath, AppSecretKey: FormerComposeKey, AppSecretKeyPrevious: "my-old-key"}
+	if _, err := EnsureAppSecretKey(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AppSecretKeyPrevious != "my-old-key" {
+		t.Fatalf("previous key overwritten: %q", cfg.AppSecretKeyPrevious)
+	}
+}
+
+func TestComposeKeyInKeyFileIsReplaced(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "ch-ui.db")
+	if err := os.WriteFile(AppSecretKeyPath(dbPath), []byte(FormerComposeKey+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{DatabasePath: dbPath}
+	source, err := EnsureAppSecretKey(cfg)
+	if err != nil || source != SecretKeySourceReplacedPublic || cfg.AppSecretKey == FormerComposeKey {
+		t.Fatalf("got %s %v", source, err)
+	}
+	data, err := os.ReadFile(AppSecretKeyPath(dbPath))
+	if err != nil || strings.TrimSpace(string(data)) != cfg.AppSecretKey {
+		t.Fatal("key file not replaced with the new key")
 	}
 }
