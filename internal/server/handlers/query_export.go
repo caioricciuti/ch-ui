@@ -151,10 +151,7 @@ func (h *QueryHandler) ExportQuery(w http.ResponseWriter, r *http.Request) {
 		h.recordQueryHistory(session.ConnectionID, session.ClickhouseUser, actor, query, status, errMsg, time.Since(start).Milliseconds(), 0)
 	}
 	audit := func(outcome string, bytes int64) {
-		preview := query
-		if len(preview) > 100 {
-			preview = preview[:100] + "..."
-		}
+		preview := auditQueryPreview(query)
 		details := fmt.Sprintf("%s, %s, %d bytes: %s", req.Format, outcome, bytes, preview)
 		ip := getClientIP(r)
 		h.background(func() {

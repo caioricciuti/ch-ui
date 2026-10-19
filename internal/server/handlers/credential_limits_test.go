@@ -98,6 +98,7 @@ func TestSwitchConnectionSharesLoginRateLimit(t *testing.T) {
 	}
 	// The lockout is shared with login for the same user and connection.
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"connection_id":"`+connID+`","username":"victim","password":"right"}`))
+	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "192.0.2.99:5000"
 	rec := httptest.NewRecorder()
 	h.Login(rec, req)

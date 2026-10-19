@@ -22,6 +22,13 @@ prominent startup warning that it is serving plaintext HTTP. Never expose CH-UI
 directly on an untrusted network without TLS: session cookies and ClickHouse
 credentials must not cross a network in cleartext.
 
+ClickHouse HTTP clients refuse redirects, including redirects from HTTPS to
+HTTP, so credentials cannot be forwarded to another origin. Configure the final
+ClickHouse HTTP endpoint directly. On every new connection the connector
+resolves the hostname, rejects link-local, cloud metadata, unspecified and
+multicast addresses, and dials a validated IP without a second DNS lookup.
+Private and loopback ClickHouse targets remain supported.
+
 ## Authentication
 
 - **Password login**: credentials are validated against ClickHouse over the
@@ -132,6 +139,17 @@ See [Monitoring & SIEM](/docs/monitoring) for setup.
 
 ## Application security
 
+- **Browser requests**: unsafe requests to the browser API must come from its
+  own origin or an explicitly allowed origin. Sibling origins on the same site
+  are checked too. Password login also requires `application/json`. Configure
+  `APP_URL` and `allowed_origins` for your public URL and any trusted separate
+  frontend; webhook and ingest authentication are independent of browser CSRF
+  checks.
+- **Query audit redaction**: execution, streaming and export audit previews use
+  the same credential redaction as query history, before truncation. Existing
+  audit entries are not rewritten; restrict access and review retention if old
+  queries contained secrets.
+
 - **Content rendering**: all Markdown from AI/Brain output and dashboard text
   panels (including unauthenticated public dashboards) is sanitized before
   rendering, closing stored-XSS vectors. External links open with
@@ -150,6 +168,30 @@ See [Monitoring & SIEM](/docs/monitoring) for setup.
   frontend typecheck/test/build on every change.
 - Dependabot tracks Go modules, UI packages, and GitHub Actions.
 - Releases publish SHA-256 checksums alongside binaries.
+
+## Upgrading with the security hardening changes
+
+Existing installations with a configured private key or their persisted
+`.app_secret_key` retain that key. Saved credentials and sessions keep working;
+normal HTTP/HTTPS ClickHouse endpoints on public, private and loopback addresses
+remain supported. No user data migration is required for origin checks or audit
+redaction.
+
+Check these configuration exceptions before upgrading:
+
+- **Old Compose encryption key:** rotate the public
+  `please-change-me-to-a-random-secret` placeholder using
+  [the key rotation procedure](/docs/configuration#rotating-the-app-secret-key).
+  It is now refused as the current key. Keep the database volume and key backed
+  up; an existing database without its key will stop with recovery instructions.
+- **Redirecting ClickHouse URLs:** configure the final HTTP/HTTPS endpoint.
+  Redirects are refused for sign-in, queries, streaming and exports.
+- **Link-local ClickHouse addresses:** use a private or other supported address.
+  Link-local and metadata targets, including DNS aliases to them, are refused.
+- **Custom clients and separate frontends:** login must send
+  `Content-Type: application/json`. Browser writes must use the app's origin or
+  an origin explicitly allowed in configuration. Set `APP_URL` to the public URL
+  when running behind a TLS proxy. The bundled frontend already sends JSON.
 
 ## Vulnerability disclosure
 
