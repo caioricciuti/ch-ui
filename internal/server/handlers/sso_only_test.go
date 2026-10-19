@@ -55,6 +55,7 @@ func proConfig(cfg *config.Config) *config.Config {
 // loginAlice posts alice's right password to the fixture connection.
 func loginAlice(h *AuthHandler, connID string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"connection_id":"`+connID+`","username":"alice","password":"right"}`))
+	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "198.51.100.40:5000"
 	rec := httptest.NewRecorder()
 	h.Login(rec, req)

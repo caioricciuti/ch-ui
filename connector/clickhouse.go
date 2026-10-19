@@ -36,10 +36,7 @@ type CHClient struct {
 // creates a server-side mutex that blocks concurrent queries.
 func NewCHClient(baseURL string, insecureSkipVerify bool) *CHClient {
 	transport := &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
+		DialContext:           clickHouseDialContext,
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: insecureSkipVerify},
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   10,
@@ -57,9 +54,20 @@ func NewCHClient(baseURL string, insecureSkipVerify bool) *CHClient {
 		transport: transport,
 		httpClient: &http.Client{
 			Transport: transport,
-			Timeout:   5 * time.Minute,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+			Timeout: 5 * time.Minute,
 		},
 	}
+}
+
+// streamingClient removes only the total request timeout. Authentication
+// redirect restrictions must also apply to streams and exports.
+func (c *CHClient) streamingClient() *http.Client {
+	client := *c.httpClient
+	client.Timeout = 0
+	return &client
 }
 
 func generateSessionID() string {
@@ -608,9 +616,8 @@ func (c *CHClient) ExecuteStreaming(
 	req.Header.Set("Content-Type", "text/plain")
 	req.Header.Set("X-CH-UI-Session", c.sessionID)
 
-	// Use a client without timeout for streaming (context controls cancellation)
-	// but share the configured transport for proper TLS and connection management.
-	streamClient := &http.Client{Transport: c.transport}
+	// Context controls cancellation; retain the redirect policy and transport.
+	streamClient := c.streamingClient()
 
 	if trackProgress {
 		sampleCtx, stopSampling := context.WithCancel(ctx)
@@ -777,7 +784,7 @@ func (c *CHClient) ExecuteExport(
 	req.Header.Set("X-CH-UI-Session", c.sessionID)
 
 	// No client timeout: an export can run long, the context cancels it.
-	resp, err := (&http.Client{Transport: c.transport}).Do(req)
+	resp, err := c.streamingClient().Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("request failed: %w", err)
 	}

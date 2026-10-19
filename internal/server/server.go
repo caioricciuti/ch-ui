@@ -312,6 +312,9 @@ func (s *Server) setupRoutes() {
 
 	// ── API routes ─────────────────────────────────────────────────────
 	r.Route("/api", func(api chi.Router) {
+		api.Use(middleware.BrowserRequestProtection(middleware.CORSConfig{
+			AllowedOrigins: cfg.AllowedOrigins, AppURL: cfg.AppURL, DevMode: cfg.DevMode,
+		}))
 		// First-run setup: closes for good when an admin exists, otherwise
 		// issues and logs the one-time setup code. The only place it runs.
 		setupHandler := &handlers.SetupHandler{DB: db, RateLimiter: rateLimiter, Agents: s.agents}

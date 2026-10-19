@@ -39,6 +39,7 @@ func postLogin(t *testing.T, h *AuthHandler, ip string, body map[string]string) 
 	t.Helper()
 	raw, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(string(raw)))
+	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = ip + ":40000"
 	rec := httptest.NewRecorder()
 	h.Login(rec, req)
@@ -328,6 +329,7 @@ func TestLoginIgnoresForwardedForFromUntrustedPeer(t *testing.T) {
 
 	raw, _ := json.Marshal(map[string]string{"username": "alice", "password": "x", "clickhouse_url": "http://ch.example:8123"})
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(string(raw)))
+	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "203.0.113.9:40000"
 	req.Header.Set("X-Forwarded-For", "198.51.100.77")
 	req.Header.Set("X-Forwarded-Proto", "https")

@@ -282,6 +282,18 @@ makes all of them unreadable. Rotate it this way instead:
 5. Remove `APP_SECRET_KEY_PREVIOUS` (and `.app_secret_key`, if you replaced it
    with an explicit key) and restart.
 
+**Upgrading from the old Docker Compose default:** earlier Compose files set
+`APP_SECRET_KEY` to the public placeholder
+`please-change-me-to-a-random-secret`. That value is now refused as the current
+key. Back up the database, generate a new key, and follow the rotation steps
+above with that placeholder in `APP_SECRET_KEY_PREVIOUS`. In Compose, add
+`APP_SECRET_KEY_PREVIOUS` to the service's `environment` for the migration;
+setting it in your shell alone does not pass it to the container. Remove it
+after startup reports a successful rotation. The updated Compose file generates
+a random persisted key for new installations when `APP_SECRET_KEY` is empty.
+An existing database without a persisted key requires its former key to be
+provided explicitly; CH-UI will not silently create a replacement key.
+
 What to expect:
 
 - Sessions are re-encrypted too, so nobody is signed out and running

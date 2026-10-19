@@ -78,3 +78,29 @@ func TestAppSecretKeyPreviousLoad(t *testing.T) {
 		t.Fatalf("env: got %q", got)
 	}
 }
+
+func TestSecurityRejectsComposeDefault(t *testing.T) {
+	cfg := &Config{AppSecretKey: "please-change-me-to-a-random-secret"}
+	if _, err := EnsureAppSecretKey(cfg); err == nil {
+		t.Fatal("known public encryption key accepted")
+	}
+}
+
+func TestSecurityExistingDatabaseRequiresKeyMigration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ch-ui.db")
+	if err := os.WriteFile(path, []byte("existing database"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{DatabasePath: path}
+	if _, err := EnsureAppSecretKey(cfg); err == nil {
+		t.Fatal("silently generated a replacement key for existing database")
+	}
+	cfg.AppSecretKeyPrevious = "please-change-me-to-a-random-secret"
+	if source, err := EnsureAppSecretKey(cfg); err != nil || source != SecretKeySourceGenerated {
+		t.Fatalf("migration: %s %v", source, err)
+	}
+	if cfg.AppSecretKey == cfg.AppSecretKeyPrevious {
+		t.Fatal("key was not rotated")
+	}
+}

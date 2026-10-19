@@ -234,6 +234,16 @@ func sanitizeQueryForHistory(q string) string {
 	return q
 }
 
+// auditQueryPreview redacts before truncation so credentials crossing the
+// preview boundary cannot escape redaction. All query audit paths use it.
+func auditQueryPreview(query string) string {
+	query = sanitizeQueryForHistory(query)
+	if len(query) > 100 {
+		return truncateUTF8(query, 100) + "..."
+	}
+	return query
+}
+
 // truncateUTF8 cuts s to at most n bytes without splitting a rune.
 func truncateUTF8(s string, n int) string {
 	if len(s) <= n {
@@ -339,10 +349,7 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	rows := countRows(result.Data)
 
 	// Audit log (truncate query preview to 100 chars)
-	preview := query
-	if len(preview) > 100 {
-		preview = preview[:100] + "..."
-	}
+	preview := auditQueryPreview(query)
 	h.background(func() {
 		ip := getClientIP(r)
 		h.DB.CreateAuditLog(database.AuditLogParams{
@@ -1244,10 +1251,7 @@ run:
 	}
 
 	// Audit log
-	preview := query
-	if len(preview) > 100 {
-		preview = preview[:100] + "..."
-	}
+	preview := auditQueryPreview(query)
 	h.background(func() {
 		h.DB.CreateAuditLog(database.AuditLogParams{
 			Action:         "query.stream",

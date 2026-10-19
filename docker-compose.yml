@@ -18,8 +18,11 @@ services:
       # Bound to localhost. Publish on all interfaces only behind TLS.
       - "127.0.0.1:3488:3488"
     environment:
-      # CHANGE THIS in production. It encrypts API keys and session credentials.
-      APP_SECRET_KEY: ${APP_SECRET_KEY:-please-change-me-to-a-random-secret}
+      # Empty: generate and persist a random key in the data volume.
+      # Set a strong random value to manage the key externally.
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-}
+      # Only during migration from the old Compose default:
+      # APP_SECRET_KEY_PREVIOUS: please-change-me-to-a-random-secret
       CLICKHOUSE_URL: http://clickhouse:8123
       CONNECTION_NAME: Local ClickHouse
       # Forward audit events to your SIEM (optional):

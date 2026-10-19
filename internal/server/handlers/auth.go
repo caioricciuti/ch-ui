@@ -431,6 +431,15 @@ func (h *AuthHandler) auditLoginFailure(username string, conn *database.Connecti
 // ---------- POST /login ----------
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	if !isJSONRequest(r) {
+		writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		return
+	}
+	if !h.sameOriginRequest(r) {
+		writeError(w, http.StatusForbidden, "Cross-origin request denied")
+		return
+	}
+
 	if h.passwordLoginBlocked() {
 		writeError(w, http.StatusForbidden, errSSOOnly)
 		return
@@ -859,18 +868,11 @@ func isJSONRequest(r *http.Request) bool {
 // header (not a browser cross-site call), the host the request was sent to,
 // or an origin the CORS policy allows.
 func (h *AuthHandler) sameOriginRequest(r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		return true
-	}
-	if u, err := url.Parse(origin); err == nil && u.Host != "" && strings.EqualFold(u.Host, r.Host) {
-		return true
-	}
 	cfg := middleware.CORSConfig{}
 	if h.Config != nil {
 		cfg = middleware.CORSConfig{AllowedOrigins: h.Config.AllowedOrigins, AppURL: h.Config.AppURL, DevMode: h.Config.DevMode}
 	}
-	return middleware.OriginAllowed(cfg, origin)
+	return middleware.BrowserRequestAllowed(cfg, r)
 }
 
 // clickHouseEndpoint returns the lower-cased host and port CH-UI dials for

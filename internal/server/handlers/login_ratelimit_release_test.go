@@ -24,6 +24,7 @@ func TestLoginEarlyReturnReleasesRateLimitSlot(t *testing.T) {
 
 	for i := 0; i < MaxAttemptsPerIP*3; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"u","password":"p"}`))
+		req.Header.Set("Content-Type", "application/json")
 		req.RemoteAddr = "203.0.113.7:4000"
 		rec := httptest.NewRecorder()
 		h.Login(rec, req)
