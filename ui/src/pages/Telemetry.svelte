@@ -44,6 +44,12 @@
     }
   }
 
+  // The sheet's setup registers a source; pick it up without a page refresh.
+  function closeSendData() {
+    sendData = false
+    void load()
+  }
+
   onMount(() => {
     if (!getSection()) setSection('logs')
     void load()
@@ -82,4 +88,4 @@
   {/if}
 </div>
 
-<SendDataSheet open={sendData} signal={active === 'traces' ? 'traces' : 'logs'} onclose={() => { sendData = false }} />
+<SendDataSheet open={sendData} signal={active === 'traces' ? 'traces' : 'logs'} onclose={closeSendData} />

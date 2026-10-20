@@ -406,7 +406,7 @@ func (s *Server) setupRoutes() {
 			protected.Mount("/dashboards", dashboardsHandler.Routes())
 
 			// Telemetry (OpenTelemetry data exploration)
-			telemetryHandler := &handlers.TelemetryHandler{DB: db, Gateway: gw, Config: cfg}
+			telemetryHandler := &handlers.TelemetryHandler{DB: db, Gateway: gw, Config: cfg, Runner: s.pipelineRunner}
 			protected.Mount("/telemetry", telemetryHandler.Routes())
 
 			// Pipelines

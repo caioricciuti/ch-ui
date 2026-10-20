@@ -235,9 +235,9 @@
   <EmptyState
     icon={Waypoints}
     title="No traces source yet"
-    description="Point CH-UI at the ClickHouse table your OpenTelemetry collector writes spans into. Detection finds the exporter's otel_traces table automatically."
-    primary={{ label: 'Configure sources', onclick: () => setSection('sources') }}
-    secondary={onsenddata ? { label: 'Send data here', onclick: onsenddata } : undefined}
+    description="Send traces straight to CH-UI, or point it at the ClickHouse table your OpenTelemetry collector already writes spans to."
+    primary={onsenddata ? { label: 'Send data here', onclick: onsenddata } : { label: 'Configure sources', onclick: () => setSection('sources') }}
+    secondary={onsenddata ? { label: 'Configure sources', onclick: () => setSection('sources') } : undefined}
   />
 {:else if traceId}
   <TraceView {sourceId} {traceId} startHint={traceTs} onback={closeTrace} onfilter={addFilter} />

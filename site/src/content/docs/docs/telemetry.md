@@ -72,11 +72,12 @@ JSON layout.
 
 ## Send data here
 
-No collector writing to ClickHouse yet? CH-UI can receive OTLP itself. Create
-a [pipeline](/docs/pipelines) with an **Ingest** source (signal `logs` or
-`traces`) and a ClickHouse sink with **Create Table If Not Exists** on, name
-the table `otel_logs` or `otel_traces`, create an ingest key and run it. Then
-send OTLP over HTTP to CH-UI:
+No collector writing to ClickHouse yet? CH-UI can receive OTLP itself. On
+the Logs or Traces tab click **Send data here**, check the database, table
+name and retention, and click **Set up**. CH-UI creates the table, an ingest
+pipeline that writes to it, an ingest key (shown once) and the Telemetry
+source, then shows the config for your shipper. Analysts and admins can set
+it up; viewers see who to ask. Then send OTLP over HTTP to CH-UI:
 
 ```yaml
 exporters:
@@ -96,8 +97,9 @@ export OTEL_EXPORTER_OTLP_LOGS_HEADERS="Authorization=Bearer%20chi_..."
 
 CH-UI spools each request on disk before it answers and writes it to the
 exporter's table layout (traces include the `<table>_trace_id_ts` lookup), so
-**Detect sources** below finds the tables and every Telemetry screen works on
-them. Each key serves one pipeline and one signal: logs and traces need a
+every Telemetry screen works on them. A pipeline you build by hand in
+[Pipelines](/docs/pipelines) works the same way; register its table with
+**Detect sources** below. Each key serves one pipeline and one signal: logs and traces need a
 pipeline and a key each. Logs sent with the Elasticsearch bulk API or Splunk
 HEC to a `logs` key land in the same `otel_logs` layout. Keys, limits, the
 separate `:4318` listener and configs for Vector, Fluent Bit, Filebeat,

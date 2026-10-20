@@ -430,9 +430,9 @@
   <EmptyState
     icon={Search}
     title="No logs source yet"
-    description="Point CH-UI at the ClickHouse table your OpenTelemetry collector writes logs into. Detection finds the exporter's otel_logs table automatically."
-    primary={{ label: 'Configure sources', onclick: () => setSection('sources') }}
-    secondary={onsenddata ? { label: 'Send data here', onclick: onsenddata } : undefined}
+    description="Send logs straight to CH-UI, or point it at the ClickHouse table your OpenTelemetry collector already writes to."
+    primary={onsenddata ? { label: 'Send data here', onclick: onsenddata } : { label: 'Configure sources', onclick: () => setSection('sources') }}
+    secondary={onsenddata ? { label: 'Configure sources', onclick: () => setSection('sources') } : undefined}
   />
 {:else}
   <div class="flex h-10 shrink-0 items-center gap-2 border-b border-edge-subtle px-5">
