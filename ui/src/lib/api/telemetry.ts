@@ -4,6 +4,7 @@ import type {
   LogSearchRequest, LogSearchResponse, LogQuery, LogHistogramResponse, LogFacets, LogContextResponse, LogRow,
   SavedSearch, SavedSearchInput,
 } from '../types/telemetry'
+import type { ReceiveSetupInput, ReceiveSetupResult } from '../types/ingest'
 
 const BASE = '/api/telemetry'
 
@@ -35,6 +36,11 @@ export async function detectSources(): Promise<TelemetrySource[]> {
 
 export function testSource(id: string): Promise<SourceTestResult> {
   return apiPost<SourceTestResult>(`${BASE}/sources/${id}/test`, {})
+}
+
+/** One step: an ingest pipeline, its table, a key and the source. The secret is only in this response. */
+export function setupReceive(input: ReceiveSetupInput): Promise<ReceiveSetupResult> {
+  return apiPost<ReceiveSetupResult>(`${BASE}/receive`, input)
 }
 
 // ── Logs ─────────────────────────────────────────────────────

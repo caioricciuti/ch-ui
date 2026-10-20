@@ -18,12 +18,9 @@ func clickhouseStatus(err error) int {
 	if err == nil {
 		return http.StatusOK
 	}
-	m := chExceptionCode.FindStringSubmatch(err.Error())
-	if m == nil {
+	switch clickhouseCode(err) {
+	case 0:
 		return http.StatusBadGateway
-	}
-	code, _ := strconv.Atoi(m[1])
-	switch code {
 	case 497, 164: // ACCESS_DENIED, READONLY
 		return http.StatusForbidden
 	case 159: // TIMEOUT_EXCEEDED
@@ -46,4 +43,18 @@ func clickhouseStatus(err error) int {
 		return http.StatusBadRequest
 	}
 	return http.StatusBadGateway
+}
+
+// clickhouseCode is the exception code of a failed statement, or 0 when the
+// error carries none (the connection failed, say).
+func clickhouseCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	m := chExceptionCode.FindStringSubmatch(err.Error())
+	if m == nil {
+		return 0
+	}
+	code, _ := strconv.Atoi(m[1])
+	return code
 }

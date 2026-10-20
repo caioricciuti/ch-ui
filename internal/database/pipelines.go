@@ -180,6 +180,48 @@ func (db *DB) CreatePipeline(name, description, connectionID, createdBy string) 
 	return id, nil
 }
 
+// CreatePipelineWithGraph creates a draft pipeline and its graph in one
+// transaction, so a failure never leaves a pipeline without its graph.
+// graph gets the new pipeline's id: node and edge ids are primary keys
+// across all pipelines, so callers derive them from it.
+func (db *DB) CreatePipelineWithGraph(name, description, connectionID, createdBy string, graph func(pipelineID string) ([]PipelineNode, []PipelineEdge), viewportConfig string) (string, error) {
+	id := uuid.NewString()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	var desc, creator interface{}
+	if description != "" {
+		desc = description
+	}
+	if createdBy != "" {
+		creator = createdBy
+	}
+	if viewportConfig == "" {
+		viewportConfig = "{}"
+	}
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return "", fmt.Errorf("begin pipeline transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
+		`INSERT INTO pipelines (id, name, description, connection_id, status, config, created_by, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
+		id, name, desc, connectionID, viewportConfig, creator, now, now,
+	); err != nil {
+		return "", fmt.Errorf("create pipeline: %w", err)
+	}
+	nodes, edges := graph(id)
+	if err := insertPipelineGraph(tx, id, nodes, edges, now); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("commit pipeline transaction: %w", err)
+	}
+	return id, nil
+}
+
 // UpdatePipeline updates a pipeline's name and description.
 func (db *DB) UpdatePipeline(id, name, description string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -272,7 +314,30 @@ func (db *DB) SavePipelineGraph(pipelineID string, nodes []PipelineNode, edges [
 		return fmt.Errorf("delete old nodes: %w", err)
 	}
 
-	// Insert nodes
+	if err := insertPipelineGraph(tx, pipelineID, nodes, edges, now); err != nil {
+		return err
+	}
+
+	// Update pipeline config (viewport) and updated_at
+	if viewportConfig != "" {
+		if _, err := tx.Exec("UPDATE pipelines SET config = ?, updated_at = ? WHERE id = ?", viewportConfig, now, pipelineID); err != nil {
+			return fmt.Errorf("update pipeline config: %w", err)
+		}
+	} else {
+		if _, err := tx.Exec("UPDATE pipelines SET updated_at = ? WHERE id = ?", now, pipelineID); err != nil {
+			return fmt.Errorf("update pipeline updated_at: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit graph transaction: %w", err)
+	}
+	return nil
+}
+
+// insertPipelineGraph inserts a pipeline's nodes and edges. Empty ids get a
+// fresh UUID.
+func insertPipelineGraph(tx *sql.Tx, pipelineID string, nodes []PipelineNode, edges []PipelineEdge, now string) error {
 	for _, n := range nodes {
 		nodeID := n.ID
 		if nodeID == "" {
@@ -288,7 +353,6 @@ func (db *DB) SavePipelineGraph(pipelineID string, nodes []PipelineNode, edges [
 		}
 	}
 
-	// Insert edges
 	for _, e := range edges {
 		edgeID := e.ID
 		if edgeID == "" {
@@ -309,21 +373,6 @@ func (db *DB) SavePipelineGraph(pipelineID string, nodes []PipelineNode, edges [
 		if err != nil {
 			return fmt.Errorf("insert edge %s: %w", edgeID, err)
 		}
-	}
-
-	// Update pipeline config (viewport) and updated_at
-	if viewportConfig != "" {
-		if _, err := tx.Exec("UPDATE pipelines SET config = ?, updated_at = ? WHERE id = ?", viewportConfig, now, pipelineID); err != nil {
-			return fmt.Errorf("update pipeline config: %w", err)
-		}
-	} else {
-		if _, err := tx.Exec("UPDATE pipelines SET updated_at = ? WHERE id = ?", now, pipelineID); err != nil {
-			return fmt.Errorf("update pipeline updated_at: %w", err)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit graph transaction: %w", err)
 	}
 	return nil
 }

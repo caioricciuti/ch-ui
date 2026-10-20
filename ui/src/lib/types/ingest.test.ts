@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { KEY_PLACEHOLDER, buildSnippet, esEndpoint, hecEndpoint, shipperApisFor, snippetFile, withOtelSinkDefaults, formatAge, formatRate, rejectedEntries, shippersFor, signalEndpoint, usesOtelLayout } from './ingest'
+import { KEY_PLACEHOLDER, buildSnippet, defaultReceiveTable, pickIngestPipeline, receiveSetupError, esEndpoint, hecEndpoint, shipperApisFor, snippetFile, withOtelSinkDefaults, formatAge, formatRate, rejectedEntries, shippersFor, signalEndpoint, usesOtelLayout } from './ingest'
 
 const BASE = 'https://chui.example.com/ingest/'
 const KEY = 'chi_abcdef0123456789'
@@ -231,5 +231,52 @@ describe('withOtelSinkDefaults', () => {
 
   it('reports no change when already defaulted', () => {
     expect(withOtelSinkDefaults({ table: 'otel_traces', create_table: true }, 'traces')).toBeNull()
+  })
+})
+
+describe('pickIngestPipeline', () => {
+  const pipes = [
+    { id: 't1', signal: 'traces' as const },
+    { id: 'l1', signal: 'logs' as const },
+    { id: 'l2', signal: 'logs' as const },
+  ]
+
+  it('keeps the requested pipeline whatever its signal', () => {
+    expect(pickIngestPipeline(pipes, { keepId: 't1', signal: 'logs' })).toBe('t1')
+  })
+
+  it('picks the first pipeline of the signal', () => {
+    expect(pickIngestPipeline(pipes, { signal: 'logs' })).toBe('l1')
+    expect(pickIngestPipeline(pipes, { keepId: 'gone', signal: 'traces' })).toBe('t1')
+  })
+
+  it('returns no pipeline when only other signals have one', () => {
+    expect(pickIngestPipeline([{ id: 't1', signal: 'traces' as const }], { signal: 'logs' })).toBe('')
+  })
+
+  it('falls back to the first pipeline without a signal, none when empty', () => {
+    expect(pickIngestPipeline(pipes, {})).toBe('t1')
+    expect(pickIngestPipeline([], {})).toBe('')
+  })
+})
+
+describe('receive setup', () => {
+  const ok = { signal: 'logs' as const, database: 'default', table: 'otel_logs', ttl_days: 30 }
+
+  it('defaults the table per signal', () => {
+    expect(defaultReceiveTable('logs')).toBe('otel_logs')
+    expect(defaultReceiveTable('traces')).toBe('otel_traces')
+  })
+
+  it('accepts a complete form', () => {
+    expect(receiveSetupError(ok)).toBe('')
+  })
+
+  it('names the first missing or bad field', () => {
+    expect(receiveSetupError({ ...ok, database: ' ' })).toBe('Pick a database.')
+    expect(receiveSetupError({ ...ok, table: '' })).toBe('Enter a table name.')
+    expect(receiveSetupError({ ...ok, ttl_days: 0 })).toMatch(/Retention/)
+    expect(receiveSetupError({ ...ok, ttl_days: 1.5 })).toMatch(/Retention/)
+    expect(receiveSetupError({ ...ok, ttl_days: Number.NaN })).toMatch(/Retention/)
   })
 })

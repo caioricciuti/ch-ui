@@ -11,10 +11,16 @@
   import IngestSecret from './IngestSecret.svelte'
   import { listPipelines } from '../../api/pipelines'
   import { createIngestKey, getIngestInfo } from '../../api/ingest'
-  import { buildSnippet, isIngestSignal, shipperApisFor, shippersFor, snippetFile, usesOtelLayout, KEY_PLACEHOLDER, type IngestSignal, type Shipper, type ShipperApi } from '../../types/ingest'
+  import { setupReceive } from '../../api/telemetry'
+  import { listDatabases } from '../../api/query'
+  import {
+    buildSnippet, defaultReceiveTable, isIngestSignal, pickIngestPipeline, receiveSetupError, shipperApisFor, shippersFor, snippetFile, usesOtelLayout,
+    KEY_PLACEHOLDER, type IngestSignal, type ReceiveSignal, type Shipper, type ShipperApi,
+  } from '../../types/ingest'
   import type { PipelineStatus } from '../../types/pipelines'
   import { pushPipelineList } from '../../stores/router.svelte'
   import { getSession } from '../../stores/session.svelte'
+  import { hasProReadAccess } from '../../stores/license.svelte'
   import { success, error as toastError } from '../../stores/toast.svelte'
   import { AlertTriangle, Copy } from 'lucide-svelte'
 
@@ -53,6 +59,15 @@
   let newName = $state('')
   let creating = $state(false)
   let nameInput = $state<HTMLInputElement>()
+  /** Receive setup form, shown when the signal has no ingest pipeline. */
+  let pickedSignal = $state<ReceiveSignal>('logs')
+  let databases = $state<string[]>([])
+  let setupDatabase = $state('default')
+  let setupTable = $state('')
+  let setupTtl = $state<string | number>(30)
+  let settingUp = $state(false)
+  /** Pipelines made by the setup in this sheet; their source is already registered. */
+  let setupIds = $state<string[]>([])
 
   const canWrite = $derived((getSession()?.role ?? 'viewer') !== 'viewer')
   const selected = $derived(pipelines.find((p) => p.id === selectedId) ?? null)
@@ -63,6 +78,15 @@
     selected && baseUrl ? buildSnippet({ baseUrl, esUrl, hecUrl, signal: selected.signal, shipper, key: created?.secret }) : '',
   )
   const pipelineOptions = $derived(pipelines.map((p) => ({ value: p.id, label: `${p.name} (${p.signal})` })))
+  /** The Telemetry page fixes the signal; elsewhere the setup asks for it. */
+  const fixedSignal = $derived<ReceiveSignal | null>(signal === 'logs' || signal === 'traces' ? signal : null)
+  const setupSignal = $derived<ReceiveSignal>(fixedSignal ?? pickedSignal)
+  const databaseOptions = $derived(databases.map((d) => ({ value: d, label: d })))
+  const setupInvalid = $derived(receiveSetupError({ signal: setupSignal, database: setupDatabase, table: setupTable, ttl_days: Number(setupTtl) }))
+  const signalOptions = [
+    { value: 'logs', label: 'Logs' },
+    { value: 'traces', label: 'Traces' },
+  ]
 
   $effect(() => {
     if (open) void load()
@@ -107,12 +131,49 @@
         .filter((p) => p.source_type === 'source_ingest')
         .map((p) => ({ id: p.id, name: p.name, status: p.status, signal: isIngestSignal(p.signal) ? p.signal : 'logs' }))
       if (pipelineId && secret) secrets = { ...secrets, [pipelineId]: { name: 'new key', secret } }
-      const keep = pipelines.find((p) => p.id === (pipelineId || selectedId))
-      selectedId = (keep ?? pipelines.find((p) => p.signal === signal) ?? pipelines[0])?.id ?? ''
+      selectedId = pickIngestPipeline(pipelines, { keepId: pipelineId || selectedId, signal })
+      if (!selectedId && canWrite) await loadDatabases()
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : String(e)
     } finally {
       loading = false
+    }
+  }
+
+  async function loadDatabases() {
+    setupTable = defaultReceiveTable(setupSignal)
+    setupTtl = 30
+    try {
+      databases = await listDatabases()
+    } catch {
+      databases = []
+    }
+    if (!databases.includes('default')) databases = ['default', ...databases]
+    setupDatabase = 'default'
+  }
+
+  function pickSignal(v: string) {
+    const next: ReceiveSignal = v === 'traces' ? 'traces' : 'logs'
+    // Swap the table only while it is still the other signal's default.
+    if (setupTable === defaultReceiveTable(pickedSignal)) setupTable = defaultReceiveTable(next)
+    pickedSignal = next
+  }
+
+  async function submitSetup(e: SubmitEvent) {
+    e.preventDefault()
+    if (setupInvalid || settingUp) return
+    settingUp = true
+    try {
+      const res = await setupReceive({ signal: setupSignal, database: setupDatabase, table: setupTable.trim(), ttl_days: Number(setupTtl) })
+      secrets = { ...secrets, [res.pipeline.id]: { name: res.key.name, secret: res.secret } }
+      setupIds = [...setupIds, res.pipeline.id]
+      selectedId = res.pipeline.id
+      success(`Receiving ${setupSignal} into ${res.database}.${res.table}`)
+      await load()
+    } catch (err: unknown) {
+      toastError(err instanceof Error ? err.message : String(err))
+    } finally {
+      settingUp = false
     }
   }
 
@@ -150,13 +211,34 @@
     <div class="flex justify-center py-10"><Spinner /></div>
   {:else if error}
     <EmptyState size="compact" icon={AlertTriangle} title="Could not load" description={error} primary={{ label: 'Retry', onclick: () => void load() }} />
-  {:else if pipelines.length === 0}
-    <EmptyState
-      size="compact"
-      title="No ingest pipeline yet"
-      description="Create a pipeline in Pipelines with an Ingest (OTLP, JSON) source and a ClickHouse sink with Create Table on, then come back for the shipper config."
-      primary={{ label: 'Open Pipelines', onclick: openPipelines }}
-    />
+  {:else if !selected && !canWrite}
+    <EmptyState size="compact" title="No {fixedSignal ?? 'ingest'} pipeline yet" description="Ask an admin or analyst to set this up." />
+  {:else if !selected}
+    <form id="send-data-setup" class="space-y-5" onsubmit={submitSetup}>
+      <p class="text-[13px] text-fg-2">
+        No {fixedSignal ?? 'ingest'} pipeline yet. Set up creates the table, an ingest pipeline with a key, and the Telemetry source in one step.
+      </p>
+      {#if !fixedSignal}
+        <FormField label="Signal" for="send-data-signal" controlWidth="full">
+          <Select id="send-data-signal" options={signalOptions} value={pickedSignal} onchange={pickSignal} disabled={settingUp} />
+        </FormField>
+      {/if}
+      <FormField label="Database" for="send-data-database" controlWidth="full">
+        <Select id="send-data-database" options={databaseOptions} bind:value={setupDatabase} disabled={settingUp} />
+      </FormField>
+      <FormField label="Table" for="send-data-table" controlWidth="full" hint="Created in the OpenTelemetry layout if it does not exist.">
+        <Input id="send-data-table" mono bind:value={setupTable} disabled={settingUp} />
+      </FormField>
+      <FormField label="Retention in days" for="send-data-ttl" controlWidth="full" hint="Rows older than this are dropped.">
+        <Input id="send-data-ttl" type="number" min={1} step={1} bind:value={setupTtl} disabled={settingUp} />
+      </FormField>
+      {#if setupSignal === 'traces' && !hasProReadAccess()}
+        <p class="text-xs text-fg-3">Traces are stored without a license; browsing them in Telemetry, Traces needs Pro.</p>
+      {/if}
+      <p class="text-xs text-fg-3">
+        To build the pipeline by hand instead, use <button type="button" class="text-accent hover:underline" onclick={openPipelines}>Pipelines</button>.
+      </p>
+    </form>
   {:else if selected}
     <div class="space-y-5">
       <FormField label="Pipeline" for="send-data-pipeline" controlWidth="full">
@@ -165,7 +247,7 @@
           {#if selected.status === 'running'}
             <Badge tone="success">running</Badge>
           {:else}
-            <Badge tone="warning" title="Receivers answer 404 until the pipeline runs">{selected.status}</Badge>
+            <Badge tone="warning" title="Receivers answer 503 until the pipeline runs">{selected.status}</Badge>
           {/if}
         </div>
       </FormField>
@@ -218,16 +300,18 @@
         </div>
       </div>
 
-      {#if usesOtelLayout(selected.signal)}
+      {#if usesOtelLayout(selected.signal) && !setupIds.includes(selected.id)}
         <p class="text-xs text-fg-3">
-          With Create Table on in the sink, the table is created in the OpenTelemetry layout. Add it under Telemetry, Sources (Detect sources finds it) to browse the {selected.signal}.
+          If this pipeline was built in Pipelines, add its table under Telemetry, Sources (Detect sources finds it) to browse the {selected.signal}. Set up here registers the source itself.
         </p>
       {/if}
     </div>
   {/if}
   {#snippet footer()}
     <Button size="sm" variant="ghost" onclick={onclose}>Close</Button>
-    {#if snippet && !loading}
+    {#if !loading && !error && !selected && canWrite}
+      <Button size="sm" type="submit" form="send-data-setup" loading={settingUp} disabled={!!setupInvalid} title={setupInvalid || undefined}>Set up</Button>
+    {:else if snippet && !loading}
       <Button size="sm" onclick={copySnippet}><Copy size={14} /> Copy snippet</Button>
     {/if}
   {/snippet}

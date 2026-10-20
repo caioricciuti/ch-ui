@@ -1,3 +1,5 @@
+import type { TelemetrySource } from './telemetry'
+
 export type IngestSignal = 'logs' | 'traces' | 'events'
 
 export const INGEST_SIGNALS: { value: IngestSignal; label: string; hint: string }[] = [
@@ -482,4 +484,53 @@ export function withOtelSinkDefaults(sink: Record<string, unknown>, signal: unkn
   const isDefault = table === '' || Object.values(OTEL_TABLES).includes(table)
   if (!isDefault || (table === target && sink.create_table === true)) return null
   return { ...sink, table: target, create_table: true }
+}
+
+// ── Receive setup (POST /api/telemetry/receive) ──────────────
+
+/** Signals the one-step receive setup creates a pipeline, table and source for. */
+export type ReceiveSignal = 'logs' | 'traces'
+
+export interface ReceiveSetupInput {
+  signal: ReceiveSignal
+  database: string
+  table: string
+  ttl_days: number
+}
+
+export interface ReceiveSetupResult {
+  pipeline: { id: string; name: string; status: string; signal: string }
+  key: IngestKey
+  /** Only in this response; the server keeps a hash. */
+  secret: string
+  source: TelemetrySource | null
+  table_created: boolean
+  database: string
+  table: string
+}
+
+/** Default table the receive setup creates for an OpenTelemetry signal. */
+export function defaultReceiveTable(signal: ReceiveSignal): string {
+  return OTEL_TABLES[signal] ?? `otel_${signal}`
+}
+
+/** First problem with a receive setup form, or '' when it can be sent. */
+export function receiveSetupError(input: ReceiveSetupInput): string {
+  if (!input.database.trim()) return 'Pick a database.'
+  if (!input.table.trim()) return 'Enter a table name.'
+  if (!Number.isInteger(input.ttl_days) || input.ttl_days < 1) return 'Retention must be a whole number of days, 1 or more.'
+  return ''
+}
+
+/**
+ * Which ingest pipeline the Send data sheet opens on. keepId (the caller's
+ * pipeline, or the one already selected) wins; with a signal, only a pipeline
+ * of that signal counts, so a traces pipeline never hides the logs setup.
+ * An empty id means the sheet offers the setup form.
+ */
+export function pickIngestPipeline<T extends { id: string; signal: IngestSignal }>(pipelines: T[], opts: { keepId?: string; signal?: IngestSignal }): string {
+  const keep = opts.keepId ? pipelines.find((p) => p.id === opts.keepId) : undefined
+  if (keep) return keep.id
+  if (opts.signal) return pipelines.find((p) => p.signal === opts.signal)?.id ?? ''
+  return pipelines[0]?.id ?? ''
 }

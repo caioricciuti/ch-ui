@@ -548,12 +548,31 @@ func (t sinkTarget) ensureOTelTable(ctx context.Context, preset string) error {
 			return err
 		}
 	}
+	signal := SignalTraces
+	if preset == PresetOTelLogs {
+		signal = SignalLogs
+	}
+	for _, stmt := range OTelTableStatements(signal, db, table, ttl) {
+		if _, err := t.exec(ctx, stmt, nil); err != nil {
+			return fmt.Errorf("execute CREATE: %w", err)
+		}
+	}
+	slog.Info("Auto-created OpenTelemetry table", "database", db, "table", table, "layout", preset, "ttl_days", ttl)
+	return nil
+}
+
+// OTelTableStatements returns the CREATE ... IF NOT EXISTS statements of the
+// exporter table for a logs or traces signal, as the sink runs them: the
+// traces table comes with its trace id lookup and the view that fills it.
+// Telemetry's receive setup creates the table ahead of the first batch with
+// these, so both paths make the same table.
+func OTelTableStatements(signal, db, table string, ttlDays int) []string {
 	var stmts []string
-	switch preset {
-	case PresetOTelLogs:
-		stmts = []string{otlp.LogsTableDDL(db, table, ttl, "")}
+	switch signal {
+	case SignalLogs:
+		stmts = []string{otlp.LogsTableDDL(db, table, ttlDays, "")}
 	default:
-		stmts = otlp.TracesTableDDL(db, table, ttl, "")
+		stmts = otlp.TracesTableDDL(db, table, ttlDays, "")
 	}
 	// The spans and lookup tables end in a SETTINGS clause; extend it.
 	for i, stmt := range stmts {
@@ -561,13 +580,7 @@ func (t sinkTarget) ensureOTelTable(ctx context.Context, preset string) error {
 			stmts[i] = stmt + fmt.Sprintf(", non_replicated_deduplication_window = %d", dedupWindow)
 		}
 	}
-	for _, stmt := range stmts {
-		if _, err := t.exec(ctx, stmt, nil); err != nil {
-			return fmt.Errorf("execute CREATE: %w", err)
-		}
-	}
-	slog.Info("Auto-created OpenTelemetry table", "database", db, "table", table, "layout", preset, "ttl_days", ttl)
-	return nil
+	return stmts
 }
 
 // findCredentials resolves the configured background account or session credentials.

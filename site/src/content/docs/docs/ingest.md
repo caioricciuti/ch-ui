@@ -15,6 +15,19 @@ Ingest is part of the open-source core: an ingest source is a
 
 ## How it works
 
+The quickest way to receive logs or traces: open **Telemetry**, click **Send
+data here** and then **Set up**. In one step CH-UI creates the `otel_logs` or
+`otel_traces` table (in `default` unless you pick another database, with a
+30-day TTL unless you change it), creates and starts an ingest pipeline that
+writes to it, creates an ingest key and shows it once, and registers the
+table as a Telemetry source. The sheet then shows ready-to-paste configs for
+your shipper. It needs the analyst or admin role, a ClickHouse user that can
+create the table, and pipelines allowed under the connection's
+[background accounts](/docs/background-accounts). If an `otel_logs` table already
+exists with the exporter's columns, it is reused.
+
+To build it by hand, or for the `events` signal:
+
 1. Create a pipeline with an **Ingest** source and a **ClickHouse** sink.
 2. Pick the source's signal: `logs`, `traces` or `events`.
 3. Create an ingest key for the pipeline and copy it. It is shown once.
@@ -153,8 +166,8 @@ when CH-UI starts. The same data is at
 
 ## Send data here
 
-The **Send data here** panel in the pipeline editor fills these snippets with
-your URL and the key you just created. Replace `https://ch-ui.example.com`
+The **Send data here** sheet, on the Telemetry page and in the pipeline
+editor, fills these snippets with your URL and the key you just created. Replace `https://ch-ui.example.com`
 and `chi_...` below.
 
 ### OpenTelemetry Collector

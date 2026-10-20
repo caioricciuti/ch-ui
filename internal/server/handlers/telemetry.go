@@ -19,6 +19,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/pipelines"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/telemetry"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
@@ -32,6 +33,12 @@ type TelemetryHandler struct {
 	DB      *database.DB
 	Gateway *tunnel.Gateway
 	Config  *config.Config
+	// Runner starts the ingest pipeline of the receive setup.
+	Runner *pipelines.Runner
+
+	// Receive setup steps; tests replace them (telemetry_receive.go).
+	startPipeline func(id string) error
+	newIngestKey  func() (secret, hash, prefix string, err error)
 
 	cacheMu sync.Mutex
 	schemas map[string]schemaEntry
@@ -60,6 +67,7 @@ func (h *TelemetryHandler) Routes() chi.Router {
 	r.With(writer).Put("/sources/{id}", h.UpdateSource)
 	r.With(writer).Delete("/sources/{id}", h.DeleteSource)
 	r.Post("/sources/{id}/test", h.TestSource)
+	r.With(writer).Post("/receive", h.Receive)
 
 	r.Post("/logs/search", h.SearchLogs)
 	r.Post("/logs/histogram", h.LogsHistogram)
