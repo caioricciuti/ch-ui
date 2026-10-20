@@ -94,7 +94,7 @@
         placeholder="Value"
         bind:value
         spellcheck="false"
-        onkeydown={(e) => { if (e.key === 'Enter') apply() }}
+        onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); apply() } }}
       />
       {#if valueInvalid}
         <p class="text-[11px] text-danger">This column is numeric. Enter a number.</p>

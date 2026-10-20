@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
+  import { takePageIntent } from '../../stores/page-intent.svelte'
   import { apiGet } from '../../api/client'
   import {
     listMCPKeys,
@@ -226,6 +227,11 @@
     revealClient = 'claude'
     sheetOpen = true
   }
+
+  // "New MCP service key" from the command palette, once connections are in.
+  $effect(() => {
+    if (!loading && takePageIntent('new-mcp-key')) untrack(openCreate)
+  })
 
   function closeSheet() {
     sheetOpen = false

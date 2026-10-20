@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import type { Dashboard, DashboardFolder } from '../../types/api'
   import {
     listDashboards, listDashboardFolders, createDashboardFolder, updateDashboardFolder, deleteDashboardFolder,
@@ -7,6 +7,7 @@
   } from '../../api/dashboards'
   import { pushDashboardDetail } from '../../stores/router.svelte'
   import { getSession } from '../../stores/session.svelte'
+  import { takePageIntent } from '../../stores/page-intent.svelte'
   import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { formatDate, formatRelativeTime } from '../../utils/format'
   import PageHeader from '../common/PageHeader.svelte'
@@ -242,6 +243,11 @@
     createForm = { name: '', description: '', folder: selectedFolder ?? '', tags: '' }
     createOpen = true
   }
+
+  // "New dashboard" from the command palette.
+  $effect(() => {
+    if (takePageIntent('new-dashboard') && canWrite) untrack(openCreate)
+  })
 
   function parseTags(raw: string): string[] {
     return raw.split(',').map((t) => t.trim()).filter(Boolean)

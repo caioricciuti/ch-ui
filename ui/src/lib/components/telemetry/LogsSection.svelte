@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isInModal } from '../../utils/shortcuts'
   import { errorText } from '../../utils/errors'
   import { onMount, untrack } from 'svelte'
   import { RefreshCw, PanelLeftClose, PanelLeftOpen, Radio, Search, Columns3, X } from 'lucide-svelte'
@@ -325,6 +326,7 @@
   function onKey(e: KeyboardEvent) {
     const target = e.target as HTMLElement | null
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+    if (isInModal(target)) return
     if (e.key === 'j' || e.key === 'ArrowDown') {
       e.preventDefault()
       selectedIndex = Math.min(rows.length - 1, selectedIndex + 1)

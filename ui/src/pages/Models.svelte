@@ -1,6 +1,7 @@
 <script lang="ts">
   import { errorText } from '../lib/utils/errors'
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
+  import { takePageIntent } from '../lib/stores/page-intent.svelte'
   import type { Materialization, Model, ModelPipeline, ModelRun, ModelRunResult, DAGNode, DAGEdge, RunOutcome, RunScope } from '../lib/types/models'
   import * as api from '../lib/api/models'
   import { refreshModelCache } from '../lib/editor/completions'
@@ -264,6 +265,12 @@
     await loadModels()
     loadDAG()
     loadPipelines()
+  })
+
+  // "New model" from the command palette, once the list is in so the
+  // suggested name does not collide.
+  $effect(() => {
+    if (!loading && takePageIntent('new-model')) untrack(handleCreate)
   })
 
   // Entering a section through the sidebar reloads what it shows, the

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { errorText } from '../lib/utils/errors'
   import { onMount } from 'svelte'
+  import { takePageIntent } from '../lib/stores/page-intent.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
@@ -53,6 +54,11 @@
   onMount(() => {
     if (!getSection()) setSection('logs')
     void load()
+  })
+
+  // "Send data to Telemetry" from the command palette.
+  $effect(() => {
+    if (takePageIntent('send-data')) sendData = true
   })
 </script>
 

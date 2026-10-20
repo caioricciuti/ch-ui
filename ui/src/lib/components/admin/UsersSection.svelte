@@ -1,6 +1,7 @@
 <script lang="ts">
   import { errorText } from '../../utils/errors'
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
+  import { takePageIntent } from '../../stores/page-intent.svelte'
   import { apiGet, apiPut, apiDel, apiPost, ApiError } from '../../api/client'
   import { removeSSOAccess } from '../../api/ssoIdentity'
   import type { SSOClickHouseUser } from '../../api/ssoIdentity'
@@ -281,6 +282,15 @@
     resetCreateCHUserForm()
     createCHUserSheetOpen = true
   }
+
+  // "New ClickHouse user" from the command palette.
+  $effect(() => {
+    if (!takePageIntent('new-clickhouse-user')) return
+    untrack(() => {
+      view = 'clickhouse'
+      openCreateCHUserSheet()
+    })
+  })
 
   function openUpdateCHUserPasswordSheet(username: string, authType: unknown) {
     selectedCHUserName = username

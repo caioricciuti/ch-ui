@@ -70,6 +70,7 @@
   aria-expanded={ariaExpanded}
   aria-busy={loading || undefined}
   data-autofocus-skip={autofocusSkip || undefined}
+  data-variant={variant}
   class="{base} {variants[variant]} {sizeClass} {cls}"
   disabled={disabled || loading}
   {onclick}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { Search, ChevronDown, Check } from 'lucide-svelte'
+  import { openLayer } from '../../utils/dialog-keys'
 
   export interface ComboboxOption {
     value: string
@@ -111,8 +112,17 @@
     }
   }
 
-  function onKeydown(e: KeyboardEvent) {
+  // While open the list is the top layer, so Esc closes it and not the
+  // sheet or dialog around it.
+  $effect(() => {
     if (!open) return
+    const layer = openLayer()
+    return () => layer.release()
+  })
+
+  /** Keys from the search input while the list is open. The trigger has its own. */
+  function onKeydown(e: KeyboardEvent) {
+    if (!open || e.target === triggerEl) return
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
@@ -154,9 +164,12 @@
 
 </script>
 
-<svelte:window onkeydown={onKeydown} onpointerdown={onWindowPointerDown} />
+<svelte:window onpointerdown={onWindowPointerDown} />
 
-<div class="relative" bind:this={rootEl}>
+<!-- Keys are handled here, not on window, so a dialog around the combobox
+     sees Esc only after the list had its chance to close. -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="relative" bind:this={rootEl} onkeydown={onKeydown}>
   <button
     bind:this={triggerEl}
     id={uid}
