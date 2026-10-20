@@ -41,6 +41,8 @@
   } from 'lucide-svelte'
   import ContextMenu, { type ContextMenuItem } from '../common/ContextMenu.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
+  import DocsPill from '../common/DocsPill.svelte'
+  import { DOCS_ORIGIN } from '../../routes'
   import { ALT, combo, tabShortcut } from '../../utils/shortcuts'
 
   interface Props {
@@ -508,6 +510,12 @@
     </div>
   {/if}
 
+  <!-- One pill for the workspace: in a split it sits on the right-hand bar. -->
+  {#if !split || groupId === 'right'}
+    <div class="sticky right-0 ml-auto flex shrink-0 items-center self-stretch bg-sidebar px-3">
+      <DocsPill href="{DOCS_ORIGIN}/docs/querying/" />
+    </div>
+  {/if}
 </div>
 
 <ContextMenu
