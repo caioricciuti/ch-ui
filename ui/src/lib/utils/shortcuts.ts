@@ -21,6 +21,12 @@ export function isEditableTarget(target: EventTarget | null): boolean {
     target.isContentEditable
 }
 
+/** Focus is inside an open sheet or dialog, which owns the keyboard until it closes. */
+export function isInModal(target: EventTarget | null): boolean {
+  if (typeof Element === 'undefined' || !(target instanceof Element)) return false
+  return target.closest('[aria-modal="true"]') !== null
+}
+
 export type TabShortcut = 'close' | 'duplicate' | 'split' | 'rename'
 
 /**
@@ -29,6 +35,7 @@ export type TabShortcut = 'close' | 'duplicate' | 'split' | 'rename'
  * The ⌘⇧ forms cannot type anything, so they work everywhere.
  */
 export function tabShortcut(e: Pick<KeyboardEvent, 'key' | 'code' | 'altKey' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'target'>): TabShortcut | null {
+  if (isInModal(e.target)) return null
   const mod = e.metaKey || e.ctrlKey
   const typing = isEditableTarget(e.target)
   const alt = e.altKey && !mod && !typing
@@ -94,11 +101,38 @@ export function shortcutGroups(): ShortcutGroup[] {
       title: 'SQL editor',
       items: [
         { keys: [MOD, 'Enter'], label: 'Run the statement at the cursor, or the selection' },
+        { keys: [SHIFT, MOD, 'Enter'], label: 'Run every statement in order' },
         { keys: [MOD, 'S'], label: 'Save the query' },
         { keys: [SHIFT, ALT, 'F'], label: 'Format SQL' },
+        { keys: [MOD, 'F'], label: 'Find and replace' },
         { keys: ['Esc'], label: 'Cancel the running query' },
         { keys: [MOD, '.'], label: 'Cancel the running query' },
+        { keys: [MOD, 'Click'], label: 'Open the table or database under the pointer' },
         { keys: ['Tab'], label: 'Indent (Esc, then Tab, moves focus out)' },
+      ],
+    },
+    {
+      title: 'Query results',
+      items: [
+        { keys: ['↑', '↓', '←', '→'], label: 'Move between cells' },
+        { keys: ['Enter'], label: 'Inspect the cell' },
+        { keys: [MOD, 'C'], label: 'Copy the cell' },
+      ],
+    },
+    {
+      title: 'Telemetry',
+      items: [
+        { keys: ['J', 'K'], label: 'Next or previous log line or span' },
+        { keys: ['Enter'], label: 'Open the selected log line' },
+        { keys: ['Esc'], label: 'Close the log or span detail' },
+      ],
+    },
+    {
+      title: 'Sheets and dialogs',
+      items: [
+        { keys: ['Esc'], label: 'Close (an open list or menu inside closes first)' },
+        { keys: ['Enter'], label: 'In a one-line field, run the main button' },
+        { keys: ['Tab'], label: 'Move between fields; focus stays inside' },
       ],
     },
   ]

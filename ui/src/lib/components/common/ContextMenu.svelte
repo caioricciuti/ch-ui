@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte'
+  import { openLayer } from '../../utils/dialog-keys'
 
   export interface ContextMenuItem {
     id: string
@@ -91,6 +92,13 @@
       if (highlightedIndex >= 0) activateIndex(highlightedIndex)
     }
   }
+
+  // An open menu is the top layer: Esc closes it, not the sheet under it.
+  $effect(() => {
+    if (!open) return
+    const layer = openLayer()
+    return () => layer.release()
+  })
 
   $effect(() => {
     if (!open) {
