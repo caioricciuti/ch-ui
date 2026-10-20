@@ -10,7 +10,7 @@
   import { getGroups, isSplit, setFocusedGroup, splitTabToSide, openQueryTab } from '../../stores/tabs.svelte'
   import { openCommandPalette, toggleCommandPalette } from '../../stores/command-palette.svelte'
   import { openShortcutHelp } from '../../stores/shortcut-help.svelte'
-  import { isEditableTarget, isKey } from '../../utils/shortcuts'
+  import { isEditableTarget, isInModal, isKey } from '../../utils/shortcuts'
   import KeyboardShortcuts from './KeyboardShortcuts.svelte'
 
   const groups = $derived(getGroups())
@@ -56,7 +56,9 @@
       return
     }
 
-    if (isTypingTarget) return
+    // Below here, keys act on the workspace: not while typing, and not while
+    // a sheet or dialog has focus.
+    if (isTypingTarget || isInModal(e.target)) return
 
     // Letters go through isKey: on macOS Option+K reports e.key "˚", so only
     // e.code matches.

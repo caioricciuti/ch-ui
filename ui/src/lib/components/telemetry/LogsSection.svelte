@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isInModal } from '../../utils/shortcuts'
   import { errorText } from '../../utils/errors'
   import { onMount, untrack } from 'svelte'
   import { RefreshCw, PanelLeftClose, PanelLeftOpen, Radio, Search, Columns3, X } from 'lucide-svelte'
@@ -7,6 +8,7 @@
   import Input from '../common/Input.svelte'
   import Spinner from '../common/Spinner.svelte'
   import EmptyState from '../common/EmptyState.svelte'
+  import GuideLink from '../common/GuideLink.svelte'
   import TimeRangeSelector from '../dashboard/TimeRangeSelector.svelte'
   import SearchHelp from './SearchHelp.svelte'
   import LogsHistogram from './LogsHistogram.svelte'
@@ -325,6 +327,7 @@
   function onKey(e: KeyboardEvent) {
     const target = e.target as HTMLElement | null
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+    if (isInModal(target)) return
     if (e.key === 'j' || e.key === 'ArrowDown') {
       e.preventDefault()
       selectedIndex = Math.min(rows.length - 1, selectedIndex + 1)
@@ -433,7 +436,9 @@
     description="Send logs straight to CH-UI, or point it at the ClickHouse table your OpenTelemetry collector already writes to."
     primary={onsenddata ? { label: 'Send data here', onclick: onsenddata } : { label: 'Configure sources', onclick: () => setSection('sources') }}
     secondary={onsenddata ? { label: 'Configure sources', onclick: () => setSection('sources') } : undefined}
-  />
+  >
+    <GuideLink guide="ship-logs" label="How to ship logs" />
+  </EmptyState>
 {:else}
   <div class="flex h-10 shrink-0 items-center gap-2 border-b border-edge-subtle px-5">
     {#if logSources.length > 1}

@@ -16,7 +16,7 @@ import { listPipelines } from '../../api/pipelines'
 import { listBrainChats } from '../../api/brain'
 
 export type Group =
-  | 'recent' | 'page' | 'table' | 'saved' | 'dashboard'
+  | 'recent' | 'page' | 'section' | 'table' | 'saved' | 'dashboard'
   | 'model' | 'pipeline' | 'brainchat' | 'telemetry' | 'action' | 'help'
 
 export interface CommandItem {
@@ -37,6 +37,7 @@ export type Grouped = Array<{ group: Group; items: Ranked[] }>
 export const GROUP_LABEL: Record<Group, string> = {
   recent: 'Recent',
   page: 'Pages',
+  section: 'Sections',
   action: 'Actions',
   saved: 'Saved queries',
   dashboard: 'Dashboards',
@@ -48,13 +49,14 @@ export const GROUP_LABEL: Record<Group, string> = {
   help: 'Help',
 }
 const GROUP_ORDER: Group[] = [
-  'recent', 'help', 'page', 'telemetry',
+  'recent', 'help', 'page', 'section', 'telemetry',
   'saved', 'dashboard', 'model', 'pipeline', 'brainchat',
   'table', 'action',
 ]
 
 const PREFIXES: Record<string, Group> = {
   '>': 'action',
+  's:': 'section',
   't:': 'table',
   'q:': 'saved',
   'd:': 'dashboard',
@@ -91,7 +93,7 @@ export function telemetryItems(): CommandItem[] {
       id: `tel-${slug}`,
       group: 'telemetry',
       label,
-      sub: 'Open telemetry tab',
+      sub: 'Open section',
       icon,
       keywords: kw,
       run: () => {
@@ -109,11 +111,11 @@ function mkHelp(id: string, label: string, sub: string): CommandItem {
 
 export function helpItems(cmd: string): CommandItem[] {
   return [
-    mkHelp('help-prefixes', 'Prefixes — scope to one kind',
-      '> actions · t: tables · q: saved queries · d: dashboards · m: models · p: pipelines · b: brain chats · tel: telemetry · ? help'),
+    mkHelp('help-prefixes', 'Prefixes: scope to one kind',
+      '> actions · s: sections · t: tables · q: saved queries · d: dashboards · m: models · p: pipelines · b: brain chats · tel: telemetry · ? help'),
     mkHelp('help-shortcuts', 'Keyboard shortcuts',
       `${cmd}K open palette · ${cmd}⇧N new query · ↑↓ select · Enter run · Esc close`),
-    mkHelp('help-tip-brain', 'Type a question — Brain answers it',
+    mkHelp('help-tip-brain', 'Type a question and Brain answers it',
       'End your query with "?" and hit Enter to seed a Brain chat with the prompt.'),
   ]
 }

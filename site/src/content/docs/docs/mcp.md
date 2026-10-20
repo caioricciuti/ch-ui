@@ -63,6 +63,8 @@ registered for that request, so it does not show up in `tools/list`.
 
 ## Connect a client with OAuth
 
+Using Claude Code? [Connect Claude Code](/docs/guides/connect-claude-code) is the step-by-step version.
+
 Give the client the URL `https://your-ch-ui.example.com/mcp` and nothing
 else. It discovers CH-UI's authorization server from the `401` response,
 registers itself (or presents a Client ID Metadata Document), and opens the
@@ -73,7 +75,7 @@ what the client asks for, and click **Allow access**.
   connector → paste the URL. No client id or secret needed.
 - **ChatGPT**: add the URL as an MCP server in developer mode.
 - **Claude Code**: `claude mcp add --transport http ch-ui https://your-ch-ui.example.com/mcp`,
-  then run `/mcp` and choose *Authenticate*.
+  then run `/mcp` inside Claude Code, pick **ch-ui** and choose **Authenticate**.
 - **Cursor, VS Code, Zed, Devin**: add the URL without a `headers` block; the
   client offers to sign in.
 

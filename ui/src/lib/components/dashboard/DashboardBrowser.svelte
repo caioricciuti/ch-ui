@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import type { Dashboard, DashboardFolder } from '../../types/api'
   import {
     listDashboards, listDashboardFolders, createDashboardFolder, updateDashboardFolder, deleteDashboardFolder,
@@ -7,6 +7,7 @@
   } from '../../api/dashboards'
   import { pushDashboardDetail } from '../../stores/router.svelte'
   import { getSession } from '../../stores/session.svelte'
+  import { takePageIntent } from '../../stores/page-intent.svelte'
   import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { formatDate, formatRelativeTime } from '../../utils/format'
   import PageHeader from '../common/PageHeader.svelte'
@@ -22,6 +23,7 @@
   import InputDialog from '../common/InputDialog.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import EmptyState from '../common/EmptyState.svelte'
+  import GuideLink from '../common/GuideLink.svelte'
   import Spinner from '../common/Spinner.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import ContextMenu, { type ContextMenuItem } from '../common/ContextMenu.svelte'
@@ -242,6 +244,11 @@
     createForm = { name: '', description: '', folder: selectedFolder ?? '', tags: '' }
     createOpen = true
   }
+
+  // "New dashboard" from the command palette.
+  $effect(() => {
+    if (takePageIntent('new-dashboard') && canWrite) untrack(openCreate)
+  })
 
   function parseTags(raw: string): string[] {
     return raw.split(',').map((t) => t.trim()).filter(Boolean)
@@ -484,7 +491,9 @@
       description="Create a dashboard to visualize your ClickHouse data. Folders keep them organized as the list grows."
       primary={canWrite ? { label: 'New dashboard', onclick: openCreate } : undefined}
       secondary={canWrite ? { label: 'New from template', onclick: () => (templateOpen = true) } : undefined}
-    />
+    >
+      <GuideLink guide="first-dashboard" label="How to build a dashboard" />
+    </EmptyState>
   {:else}
     <div class="flex min-h-0 flex-1">
       <FolderTree

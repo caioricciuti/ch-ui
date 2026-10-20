@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { tabShortcut } from './shortcuts'
+import { isInModal, shortcutGroups, tabShortcut } from './shortcuts'
 
 function press(code: string, opts: { alt?: boolean; meta?: boolean; shift?: boolean; key?: string; target?: EventTarget | null } = {}) {
   return {
@@ -42,5 +42,39 @@ describe('tabShortcut', () => {
 
   it('ignores plain letters', () => {
     expect(tabShortcut(press('KeyW', { key: 'w' }))).toBeNull()
+  })
+})
+
+describe('isInModal', () => {
+  it('is true inside an open sheet or dialog only', () => {
+    const dialog = document.createElement('div')
+    dialog.setAttribute('aria-modal', 'true')
+    const inside = dialog.appendChild(document.createElement('button'))
+    const outside = document.createElement('button')
+    document.body.append(dialog, outside)
+    expect(isInModal(inside)).toBe(true)
+    expect(isInModal(outside)).toBe(false)
+    expect(isInModal(null)).toBe(false)
+  })
+
+  it('keeps tab shortcuts away from a focused dialog', () => {
+    const dialog = document.createElement('div')
+    dialog.setAttribute('aria-modal', 'true')
+    const button = dialog.appendChild(document.createElement('button'))
+    document.body.appendChild(dialog)
+    expect(tabShortcut(press('KeyW', { alt: true, key: '∑', target: button }))).toBeNull()
+  })
+})
+
+describe('shortcutGroups', () => {
+  it('lists each combo once per group', () => {
+    for (const group of shortcutGroups()) {
+      const seen = new Set<string>()
+      for (const item of group.items) {
+        const id = `${item.keys.join('+')} ${item.label}`
+        expect(seen.has(id)).toBe(false)
+        seen.add(id)
+      }
+    }
   })
 })

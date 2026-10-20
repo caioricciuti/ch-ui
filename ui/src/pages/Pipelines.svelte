@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { takePageIntent } from '../lib/stores/page-intent.svelte'
   import type { Pipeline } from '../lib/types/pipelines'
   import * as api from '../lib/api/pipelines'
   import { success as toastSuccess, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
@@ -32,6 +33,11 @@
 
   onMount(async () => {
     await loadPipelines()
+  })
+
+  // "New pipeline" from the command palette.
+  $effect(() => {
+    if (takePageIntent('new-pipeline')) showCreate = true
   })
 
   async function loadPipelines() {

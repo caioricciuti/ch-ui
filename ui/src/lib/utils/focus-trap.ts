@@ -1,13 +1,36 @@
+import { wrapTarget } from './dialog-keys'
+
 /**
  * Svelte action for dialogs: keeps Tab inside the node, focuses the first
  * focusable element (or the node) on mount, and returns focus to whatever
  * had it when the dialog closes.
  */
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+export const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
+
+// Safari does not focus a button on click, so a dialog opened by a click
+// would find the body focused and have nothing to give focus back to. The
+// last pressed control stands in for the opener in that case.
+let lastPressed: HTMLElement | null = null
+if (typeof document !== 'undefined') {
+  document.addEventListener(
+    'pointerdown',
+    (e) => {
+      const target = e.target instanceof Element ? e.target.closest<HTMLElement>(FOCUSABLE) : null
+      lastPressed = target
+    },
+    true,
+  )
+}
+
+function opener(): HTMLElement | null {
+  const active = document.activeElement as HTMLElement | null
+  if (active && active !== document.body) return active
+  return lastPressed && document.contains(lastPressed) ? lastPressed : null
+}
 
 export function trapFocus(node: HTMLElement, options: { initial?: 'first' | 'none' } = {}) {
-  const previouslyFocused = document.activeElement as HTMLElement | null
+  const previouslyFocused = opener()
 
   function focusables(): HTMLElement[] {
     return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
@@ -23,15 +46,10 @@ export function trapFocus(node: HTMLElement, options: { initial?: 'first' | 'non
       node.focus()
       return
     }
-    const first = items[0]
-    const last = items[items.length - 1]
-    const active = document.activeElement
-    if (e.shiftKey && (active === first || !node.contains(active))) {
+    const target = wrapTarget(items, document.activeElement, e.shiftKey, node)
+    if (target) {
       e.preventDefault()
-      last.focus()
-    } else if (!e.shiftKey && (active === last || !node.contains(active))) {
-      e.preventDefault()
-      first.focus()
+      target.focus()
     }
   }
 

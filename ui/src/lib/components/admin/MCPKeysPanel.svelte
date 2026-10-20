@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
+  import { takePageIntent } from '../../stores/page-intent.svelte'
   import { apiGet } from '../../api/client'
   import {
     listMCPKeys,
@@ -10,7 +11,7 @@
   } from '../../api/mcp'
   import { success, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { getSession } from '../../stores/session.svelte'
-  import { DOCS_ORIGIN } from '../../routes'
+  import { DOCS_ORIGIN, guideURL } from '../../routes'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import Panel from '../common/Panel.svelte'
   import Button from '../common/Button.svelte'
@@ -227,6 +228,11 @@
     sheetOpen = true
   }
 
+  // "New MCP service key" from the command palette, once connections are in.
+  $effect(() => {
+    if (!loading && takePageIntent('new-mcp-key')) untrack(openCreate)
+  })
+
   function closeSheet() {
     sheetOpen = false
     revealed = null
@@ -361,7 +367,7 @@
           <Copy size={13} />
         </Button>
       </div>
-      <p class="text-xs text-fg-4">The consent page lists what the client asked for: Read, Create drafts and Run actions. A read-only role grants Read only. <a class="text-accent hover:underline" href={permissionDocs} target="_blank" rel="noreferrer">Permission levels</a></p>
+      <p class="text-xs text-fg-4">The consent page lists what the client asked for: Read, Create drafts and Run actions. A read-only role grants Read only. <a class="text-accent hover:underline" href={permissionDocs} target="_blank" rel="noreferrer">Permission levels</a>. <a class="text-accent hover:underline" href={guideURL('connect-claude-code')} target="_blank" rel="noreferrer">Connect Claude Code step by step</a></p>
     </div>
   </Panel>
 

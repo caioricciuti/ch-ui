@@ -1,6 +1,7 @@
 <script lang="ts">
   import { errorText } from '../../utils/errors'
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
+  import { takePageIntent } from '../../stores/page-intent.svelte'
   import { apiGet, apiPut, apiDel, apiPost, ApiError } from '../../api/client'
   import { removeSSOAccess } from '../../api/ssoIdentity'
   import type { SSOClickHouseUser } from '../../api/ssoIdentity'
@@ -11,6 +12,7 @@
   import Spinner from '../common/Spinner.svelte'
   import Sheet from '../common/Sheet.svelte'
   import HelpTip from '../common/HelpTip.svelte'
+  import GuideLink from '../common/GuideLink.svelte'
   import FormField from '../common/FormField.svelte'
   import Tabs from '../common/Tabs.svelte'
   import Badge from '../common/Badge.svelte'
@@ -282,6 +284,15 @@
     createCHUserSheetOpen = true
   }
 
+  // "New ClickHouse user" from the command palette.
+  $effect(() => {
+    if (!takePageIntent('new-clickhouse-user')) return
+    untrack(() => {
+      view = 'clickhouse'
+      openCreateCHUserSheet()
+    })
+  })
+
   function openUpdateCHUserPasswordSheet(username: string, authType: unknown) {
     selectedCHUserName = username
     updateCHUserPasswordForm = { authType: normalizeCHAuthTypeForForm(authType), password: '', ifExists: true }
@@ -465,6 +476,7 @@
       <Badge tone="warning" title="The ClickHouse user check could not run, so this list may include stale session users.">Unverified list</Badge>
     {/if}
     <div class="ml-auto flex items-center gap-2">
+      <GuideLink guide="invite-teammate" label="How to invite a teammate" class="mr-2" />
       <span class="text-xs text-fg-4 tabular-nums">{visibleCount} {visibleCount === 1 ? 'user' : 'users'}</span>
       <Button icon variant="ghost" size="sm" aria-label="Refresh" title="Refresh" onclick={() => void refreshUsersTab()}>
         <RefreshCw size={14} />

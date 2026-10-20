@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { isInModal } from '../../utils/shortcuts'
   import { errorText } from '../../utils/errors'
   import { ArrowLeft, Copy, AlertTriangle } from 'lucide-svelte'
   import Button from '../common/Button.svelte'
@@ -61,6 +62,7 @@
   function onKey(e: KeyboardEvent) {
     const target = e.target as HTMLElement | null
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+    if (isInModal(target)) return
     if (!detail) return
     if (e.key === 'Escape') {
       selected = null

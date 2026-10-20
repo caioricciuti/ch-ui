@@ -57,6 +57,8 @@ GET /api/admin/connections
 
 ## Users
 
+Adding a person? [Invite a teammate](/docs/guides/invite-teammate) is the short version of this section.
+
 CH-UI provides two user views:
 
 - **Application users**: active users with role overrides and login history

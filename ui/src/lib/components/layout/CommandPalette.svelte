@@ -3,12 +3,14 @@
   import { tick, onMount, untrack } from 'svelte'
   import {
     Search, Plus, Table2, Sparkles, Moon, Sun, Monitor, LogOut, SquareTerminal, Home,
-    Hash, Boxes, Database, Keyboard, ArrowLeftRight,
+    Hash, Boxes, Database, Keyboard, ArrowLeftRight, Send, KeyRound, UserPlus,
   } from 'lucide-svelte'
   import { closeCommandPalette, isCommandPaletteOpen } from '../../stores/command-palette.svelte'
   import { openConnectionSwitcher } from '../../stores/connection-switcher.svelte'
   import { openQueryTab, openTableTab, getTabs, openHomeTab, setActiveTab, type Tab } from '../../stores/tabs.svelte'
-  import { PAGE_ROUTES, ADMIN_ONLY_ROUTES, isPageRouteType, type PageRoute } from '../../routes'
+  import { PAGE_ROUTES, PAGE_SECTIONS, ADMIN_ONLY_ROUTES, isPageRouteType, type PageRoute } from '../../routes'
+  import { setSection } from '../../stores/nav.svelte'
+  import { requestPageIntent, type PageIntent } from '../../stores/page-intent.svelte'
   import { getDatabases, loadDatabases, loadTables } from '../../stores/schema.svelte'
   import { getSession, logout } from '../../stores/session.svelte'
   import { getTheme, getThemePreference, setThemePreference } from '../../stores/theme.svelte'
@@ -24,6 +26,7 @@
   } from './commandPaletteSearch.pro'
   import type { CommandItem, Group, Grouped } from './commandPaletteSearch.pro'
   import { readScoped, writeScoped } from '../../stores/workspace-scope'
+  import { openLayer } from '../../utils/dialog-keys'
 
   let inputEl: HTMLInputElement | undefined = $state()
   let query = $state('')
@@ -47,6 +50,7 @@
   const pro = $derived(isProActive())
   const proRead = $derived(hasProReadAccess())
   const isAdmin = $derived(session?.role === 'admin')
+  const canWrite = $derived(!!session && session.role !== 'viewer')
   const cmd = MOD
 
   // Extra search words per page; labels and descriptions come from PAGE_ROUTES.
@@ -72,14 +76,39 @@
     'incident-timeline': 'incidents outages events',
   }
 
-  /** Page ids shown with a Pro badge: Pro pages without a license. They open ProRequired. */
-  const lockedPageIds = $derived(
-    new Set(
-      (Object.keys(PAGE_ROUTES) as PageRoute[])
-        .filter((r) => PAGE_ROUTES[r].pro && !proRead)
-        .map((r) => `page-${r}`),
-    ),
-  )
+  /**
+   * Item ids shown with a Pro badge: Pro pages and sections without a
+   * license, the same ones the sidebar marks. They open ProRequired.
+   */
+  const lockedPageIds = $derived.by(() => {
+    const ids = new Set<string>()
+    if (proRead) return ids
+    for (const route of Object.keys(PAGE_ROUTES) as PageRoute[]) {
+      if (PAGE_ROUTES[route].pro) ids.add(`page-${route}`)
+      for (const s of PAGE_SECTIONS[route] ?? []) {
+        if (PAGE_ROUTES[route].pro || s.pro) ids.add(sectionItemId(route, s.id))
+      }
+    }
+    return ids
+  })
+
+  function sectionItemId(route: PageRoute, section: string): string {
+    // Telemetry sections keep their own ids so the tel: scope finds them.
+    return route === 'telemetry' ? `tel-${section}` : `sec-${route}-${section}`
+  }
+
+  /** Go to a page section, the way the sidebar does. */
+  function openSection(route: PageRoute, section: string) {
+    goTo(route)
+    setSection(section)
+  }
+
+  /** Go to a page and open one of its sheets. */
+  function openWithIntent(route: PageRoute, intent: PageIntent, section?: string) {
+    requestPageIntent(intent)
+    if (section) openSection(route, section)
+    else goTo(route)
+  }
 
   function scoreMatch(text: string, term: string): number {
     if (!term) return 1
@@ -112,16 +141,45 @@
       }))
     }
 
-    if (pro) {
-      items.push(...telemetryItems())
+    // Every section the sidebar lists under a page. The first one is where
+    // the page opens, so the page item already covers it.
+    for (const route of Object.keys(PAGE_SECTIONS) as PageRoute[]) {
+      if (route === 'telemetry') continue
+      if (ADMIN_ONLY_ROUTES.has(route) && !isAdmin) continue
+      const meta = PAGE_ROUTES[route]
+      for (const s of (PAGE_SECTIONS[route] ?? []).slice(1)) {
+        items.push({
+          id: sectionItemId(route, s.id),
+          group: 'section',
+          label: `${meta.label} · ${s.label}`,
+          sub: 'Open section',
+          icon: meta.icon,
+          keywords: `${s.label} ${meta.label} ${PAGE_KEYWORDS[route] ?? ''}`,
+          run: () => openSection(route, s.id),
+        })
+      }
     }
+    items.push(...telemetryItems())
 
     items.push(
-      mkAction('new-query', 'New Query', Plus, combo(ALT, 'N'), () => openQueryTab(), 'create sql blank editor'),
-      mkAction('new-dashboard', 'New Dashboard', Plus, undefined, () => goTo('dashboards'), 'create dashboard'),
-      mkAction('new-model', 'New Model', Plus, undefined, () => goTo('models'), 'create model dbt'),
-      mkAction('new-pipeline', 'New Pipeline', Plus, undefined, () => goTo('pipelines'), 'create pipeline'),
-      mkAction('new-brain-chat', 'New Brain Chat', Plus, undefined, () => goTo('brain'), 'new chat brain ai'),
+      mkAction('new-query', 'New query', Plus, combo(ALT, 'N'), () => openQueryTab(), 'create sql blank editor tab'),
+    )
+    if (canWrite) {
+      items.push(mkAction('new-dashboard', 'New dashboard', Plus, undefined, () => openWithIntent('dashboards', 'new-dashboard'), 'create dashboard charts'))
+    }
+    items.push(
+      mkAction('new-model', 'New model', Plus, undefined, () => openWithIntent('models', 'new-model'), 'create model dbt transformation'),
+      mkAction('new-pipeline', 'New pipeline', Plus, undefined, () => openWithIntent('pipelines', 'new-pipeline'), 'create pipeline ingest stream'),
+      mkAction('send-data', 'Send data to Telemetry', Send, undefined, () => openWithIntent('telemetry', 'send-data'), 'receive logs traces otlp otel ingest endpoint token setup'),
+      mkAction('new-brain-chat', 'New Brain chat', Plus, undefined, () => goTo('brain'), 'new chat brain ai'),
+    )
+    if (isAdmin) {
+      items.push(
+        mkAction('new-mcp-key', 'New MCP service key', KeyRound, undefined, () => openWithIntent('admin', 'new-mcp-key', 'mcp'), 'create mcp key token claude agent api'),
+        mkAction('new-clickhouse-user', 'New ClickHouse user', UserPlus, undefined, () => openWithIntent('admin', 'new-clickhouse-user', 'users'), 'create add invite user account'),
+      )
+    }
+    items.push(
       mkAction('shortcuts', 'Keyboard shortcuts', Keyboard, '?', () => openShortcutHelp(), 'help keys hotkeys keyboard shortcuts'),
     )
 
@@ -372,6 +430,13 @@
       const raw = readScoped(RECENT_KEY)
       if (raw) recentIds = JSON.parse(raw)
     } catch {}
+  })
+
+  // Opened over a sheet, the palette is the top layer and takes Esc.
+  $effect(() => {
+    if (!open) return
+    const layer = openLayer()
+    return () => layer.release()
   })
 
   $effect(() => {
