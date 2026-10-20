@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../../utils/errors'
   import { onMount, onDestroy } from 'svelte'
   import type { TableTab } from '../../../stores/tabs.svelte'
   import { openDatabaseTab } from '../../../stores/tabs.svelte'
@@ -192,7 +193,7 @@
     try {
       tableInfo = await fetchTableInfo(tab.database, tab.table)
     } catch (e) {
-      infoError = e instanceof Error ? e.message : String(e)
+      infoError = errorText(e)
     } finally {
       infoLoading = false
     }
@@ -280,7 +281,7 @@
       })
       schemaLoaded = true
     } catch (e) {
-      schemaError = e instanceof Error ? e.message : String(e)
+      schemaError = errorText(e)
     } finally {
       schemaLoading = false
     }
@@ -461,7 +462,7 @@
           <view.default database={tab.database} table={tab.table} />
         {:catch e}
           <div class="p-4">
-            <div class="rounded-md bg-danger-soft p-3 text-[13px] text-fg">{e instanceof Error ? e.message : String(e)}</div>
+            <div class="rounded-md bg-danger-soft p-3 text-[13px] text-fg">{errorText(e)}</div>
           </div>
         {/await}
       </div>

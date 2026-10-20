@@ -4,7 +4,7 @@
   import { apiGet } from '../../api/client'
   import { fetchClusterInfo, fetchNodeInfo } from '../../api/query'
   import { formatDate, formatRelativeTime } from '../../utils/format'
-  import { error as toastError } from '../../stores/toast.svelte'
+  import { errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { setSection } from '../../stores/nav.svelte'
   import PageBody from '../common/PageBody.svelte'
   import SectionHeader from '../common/SectionHeader.svelte'
@@ -44,7 +44,7 @@
     try {
       stats = await apiGet<AdminStats>('/api/admin/stats')
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       statsLoading = false
     }
@@ -54,7 +54,7 @@
     try {
       connections = await apiGet<ConnectionRow[]>('/api/admin/connections')
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../lib/utils/errors'
   import { onMount } from 'svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
@@ -37,7 +38,7 @@
     try {
       sources = await listSources()
     } catch (e: unknown) {
-      error = e instanceof Error ? e.message : String(e)
+      error = errorText(e)
     } finally {
       loading = false
     }

@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -62,9 +63,12 @@ func TestSaveModelRenameRewritesPipelines(t *testing.T) {
 	if _, err := db.SaveModel(ModelSave{Model: Model{ConnectionID: connA, Name: "taken", TargetDatabase: "default", Materialization: "view"}}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.SaveModel(ModelSave{Model: Model{ConnectionID: connA, Name: "taken", TargetDatabase: "default", Materialization: "view"}}); !errors.Is(err, ErrModelNameTaken) {
+		t.Fatalf("creating a second model with a taken name: want ErrModelNameTaken, got %v", err)
+	}
 	m.Name = "taken"
-	if _, err := db.SaveModel(ModelSave{Model: *m, RenameInSelector: rename}); err == nil {
-		t.Fatal("renaming onto an existing name must fail")
+	if _, err := db.SaveModel(ModelSave{Model: *m, RenameInSelector: rename}); !errors.Is(err, ErrModelNameTaken) {
+		t.Fatalf("renaming onto an existing name: want ErrModelNameTaken, got %v", err)
 	}
 	if p, _ := db.GetModelPipelineByID(mine); p.Selector != "+sales+" {
 		t.Fatalf("a failed rename changed the selector: %q", p.Selector)

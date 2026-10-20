@@ -200,6 +200,10 @@ type ModelSave struct {
 	RenameInSelector func(selector, oldName, newName string) (string, bool)
 }
 
+// ErrModelNameTaken is returned by SaveModel when another model on the same
+// connection already has the name.
+var ErrModelNameTaken = errors.New("a model with this name already exists")
+
 // SaveModel creates or updates a model with its options, optionally replaces
 // its tests, and on a rename rewrites pipeline selectors, all in one
 // transaction. Returns the model's id.
@@ -231,7 +235,9 @@ func (db *DB) SaveModel(s ModelSave) (string, error) {
 			m.ID, m.Name, m.Description, m.ConnectionID, m.TargetDatabase, m.Materialization,
 			m.SQLBody, m.TableEngine, m.OrderBy, m.PartitionBy, m.EngineArgs,
 			m.IncrementalStrategy, m.UniqueKey, m.WatermarkColumn, source, creator, now, now,
-		); err != nil {
+		); isUniqueViolation(err) {
+			return "", ErrModelNameTaken
+		} else if err != nil {
 			return "", fmt.Errorf("create model: %w", err)
 		}
 	} else {
@@ -251,7 +257,9 @@ func (db *DB) SaveModel(s ModelSave) (string, error) {
 			m.Name, m.Description, m.TargetDatabase, m.Materialization,
 			m.SQLBody, m.TableEngine, m.OrderBy, m.PartitionBy, m.EngineArgs,
 			m.IncrementalStrategy, m.UniqueKey, m.WatermarkColumn, now, m.ID,
-		); err != nil {
+		); isUniqueViolation(err) {
+			return "", ErrModelNameTaken
+		} else if err != nil {
 			return "", fmt.Errorf("update model: %w", err)
 		}
 		if oldName != m.Name && s.RenameInSelector != nil {

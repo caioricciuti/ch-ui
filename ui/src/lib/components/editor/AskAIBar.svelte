@@ -3,7 +3,7 @@
   import { X, Sparkles } from 'lucide-svelte'
   import { onDestroy } from 'svelte'
   import { generateSQLStream } from '../../api/brainPro'
-  import { error as toastError, success as toastSuccess, warning as toastWarning } from '../../stores/toast.svelte'
+  import { error as toastError, errorFrom as toastErrorFrom, success as toastSuccess, warning as toastWarning } from '../../stores/toast.svelte'
   import { budgetWarningText } from '../brain/brain-budget'
   import Button from '../common/Button.svelte'
 
@@ -79,11 +79,9 @@
       question = ''
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === 'AbortError') return
-      let message = e instanceof Error ? e.message : 'Failed to generate SQL'
-      if (/no active ai model/i.test(message)) {
-        message = 'No AI provider configured. Add one in Admin > Brain.'
-      }
-      toastError(message)
+      const raw = e instanceof Error ? e.message : ''
+      if (/no active ai model/i.test(raw)) toastError('No AI provider configured. Add one in Admin > Brain.')
+      else toastErrorFrom(e, 'generate SQL')
     } finally {
       asking = false
       preview = ''

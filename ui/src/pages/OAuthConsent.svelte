@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../lib/utils/errors'
   import { onMount } from 'svelte'
   import { getOAuthConsent, approveOAuthConsent, denyOAuthConsent, type OAuthConsentInfo } from '../lib/api/oauth'
   import Spinner from '../lib/components/common/Spinner.svelte'
@@ -24,7 +25,7 @@
     try {
       info = await getOAuthConsent(requestId)
     } catch (e) {
-      error = e instanceof Error ? e.message : 'This authorization request is no longer valid.'
+      error = errorText(e)
     }
   })
 
@@ -34,7 +35,7 @@
       const res = approve ? await approveOAuthConsent(requestId) : await denyOAuthConsent(requestId)
       window.location.assign(res.redirect_url)
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Could not complete the request.'
+      error = errorText(e)
       busy = false
     }
   }

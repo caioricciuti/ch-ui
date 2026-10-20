@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { errorText } from '../lib/utils/errors'
   import { onMount } from 'svelte'
   import type { Materialization, Model, ModelPipeline, ModelRun, ModelRunResult, DAGNode, DAGEdge, RunOutcome, RunScope } from '../lib/types/models'
   import * as api from '../lib/api/models'
   import { refreshModelCache } from '../lib/editor/completions'
   import { formatDate, formatDuration } from '../lib/utils/format'
-  import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
   import { openModelTab } from '../lib/stores/tabs.svelte'
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
   import ContextMenu from '../lib/components/common/ContextMenu.svelte'
@@ -284,7 +285,7 @@
       const res = await api.listModels()
       models = res.models ?? []
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to load models')
+      toastErrorFrom(e, 'load models')
     } finally {
       loading = false
     }
@@ -308,7 +309,7 @@
         style: 'stroke: var(--accent); stroke-width: 2px;',
       }))
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to load DAG')
+      toastErrorFrom(e, 'load DAG')
     }
   }
 
@@ -317,7 +318,7 @@
       const res = await api.listModelRuns()
       runs = res.runs ?? []
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to load runs')
+      toastErrorFrom(e, 'load runs')
     }
   }
 
@@ -327,7 +328,7 @@
       const res = await api.getModelRun(runId)
       runResults[runId] = res.results ?? []
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to load run results')
+      toastErrorFrom(e, 'load run results')
     }
   }
 
@@ -337,7 +338,7 @@
       pipelines = res.pipelines ?? []
       serverUngrouped = res.ungrouped_model_ids ?? []
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to load pipelines')
+      toastErrorFrom(e, 'load pipelines')
     }
   }
 
@@ -350,7 +351,7 @@
       await showRunOutcome(res, `Pipeline ${p.name} finished`)
       await loadPipelines()
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to run pipeline')
+      toastErrorFrom(e, 'run pipeline')
     } finally {
       runningPipeline = null
     }
@@ -374,7 +375,7 @@
       toastSuccess('Pipeline deleted')
       await loadPipelines()
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to delete pipeline')
+      toastErrorFrom(e, 'delete pipeline')
     } finally {
       deletingPipeline = false
       pendingPipelineDelete = null
@@ -387,7 +388,7 @@
       const res = await api.runSingleModel(m.id, opts)
       await showRunOutcome(res, opts.fullRefresh ? `Full refresh of ${m.name} finished` : 'Model run finished')
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to run model')
+      toastErrorFrom(e, 'run the model')
     } finally {
       runningModelId = null
     }
@@ -433,7 +434,7 @@
       await loadPipelines()
       openModelTab(res.model)
     } catch (e: unknown) {
-      createError = (e instanceof Error ? e.message : '') || 'Failed to create model'
+      createError = errorText(e) || 'Failed to create model'
     } finally {
       creating = false
     }
@@ -455,7 +456,7 @@
       await loadModels()
       await loadPipelines()
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to delete model')
+      toastErrorFrom(e, 'delete model')
     } finally {
       confirmDeleteLoading = false
       confirmDeleteOpen = false
@@ -470,7 +471,7 @@
       const res = await api.runAllModels()
       await showRunOutcome(res, 'Model run finished')
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to run models')
+      toastErrorFrom(e, 'run models')
     } finally {
       running = false
     }

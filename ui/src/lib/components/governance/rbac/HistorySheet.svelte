@@ -1,10 +1,11 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../../../utils/errors'
   import { untrack } from 'svelte'
   import type { RbacHistoryDiff, RbacHistoryRow, RbacRevertPlan } from '../../../types/rbac'
   import { fetchRbacHistoryDiff, planRbacRevert } from '../../../api/rbac'
   import { setSection } from '../../../stores/nav.svelte'
-  import { success as toastSuccess, error as toastError } from '../../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../../stores/toast.svelte'
   import { formatDate } from '../../../utils/format'
   import { changeLine, changeTone, driftLabel, driftTone, effectiveLine, entityKeyLabel, sourceLabel, stageRevert } from './history'
   import Sheet from '../../common/Sheet.svelte'
@@ -60,7 +61,7 @@
     } catch (err: unknown) {
       if (req !== request) return
       diff = null
-      diffError = err instanceof Error ? err.message : String(err)
+      diffError = errorText(err)
     } finally {
       if (req === request) diffLoading = false
     }
@@ -100,7 +101,7 @@
       }
       stage(plan)
     } catch (err: unknown) {
-      toastError(err instanceof Error ? err.message : String(err))
+      toastErrorFrom(err)
     } finally {
       reverting = false
     }

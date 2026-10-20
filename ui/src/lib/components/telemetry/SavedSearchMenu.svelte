@@ -11,7 +11,7 @@
   import ContextMenu, { type ContextMenuItem } from '../common/ContextMenu.svelte'
   import Skeleton from '../common/Skeleton.svelte'
   import { getSession } from '../../stores/session.svelte'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { listSavedSearches, createSavedSearch, updateSavedSearch, deleteSavedSearch } from '../../api/telemetry'
   import type { SavedSearch, SearchKind } from '../../types/telemetry'
 
@@ -59,7 +59,7 @@
     try {
       searches = await listSavedSearches()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }
@@ -93,7 +93,7 @@
       saveOpen = false
       saveName = ''
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       saving = false
     }
@@ -110,7 +110,7 @@
       toastSuccess('Search renamed')
       renameTarget = null
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       renaming = false
     }
@@ -126,7 +126,7 @@
       toastSuccess('Search deleted')
       deleteTarget = null
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       deleting = false
     }

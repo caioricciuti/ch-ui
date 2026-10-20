@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { onMount } from 'svelte'
   import Stat from '../common/Stat.svelte'
   import Badge from '../common/Badge.svelte'
@@ -28,7 +29,7 @@
       stats = await getIngestStats(pipelineId)
       error = ''
     } catch (e: unknown) {
-      error = e instanceof Error ? e.message : String(e)
+      error = errorText(e)
     }
   }
 

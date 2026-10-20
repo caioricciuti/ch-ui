@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { onMount } from 'svelte'
   import { apiGet, apiPut } from '../../api/client'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Sheet from '../common/Sheet.svelte'
   import Button from '../common/Button.svelte'
   import Input from '../common/Input.svelte'
@@ -59,7 +60,7 @@
       accounts = await apiGet<Account[]>(endpoint)
       selectWorker()
     } catch (e) {
-      loadError = e instanceof Error ? e.message : 'Could not load background accounts'
+      loadError = errorText(e)
     } finally {
       loading = false
     }
@@ -75,7 +76,7 @@
       password = ''
       toastSuccess(mode === 'service_account' ? 'Account verified and saved' : 'Background execution updated')
     } catch (e) {
-      toastError(e instanceof Error ? e.message : 'Could not save background account')
+      toastErrorFrom(e, 'save background account')
     } finally {
       saving = false
     }

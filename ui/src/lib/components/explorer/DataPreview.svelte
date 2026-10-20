@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import type { ColumnMeta } from '../../types/query'
   import { fetchExplorerData } from '../../api/query'
   import VirtualTable from '../table/VirtualTable.svelte'
@@ -31,8 +32,8 @@
       })
       meta = res.meta ?? []
       data = res.data ?? []
-    } catch (e: any) {
-      error = e.message
+    } catch (e: unknown) {
+      error = errorText(e)
     } finally {
       loading = false
     }

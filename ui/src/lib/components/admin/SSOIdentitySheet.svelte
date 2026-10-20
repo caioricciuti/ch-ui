@@ -11,7 +11,8 @@
     verifySSOIdentity,
   } from '../../api/ssoIdentity'
   import type { SSOIdentityConfig, SSOIdentityMode, SSOVerifyCheck } from '../../api/ssoIdentity'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
+  import { errorText } from '../../utils/errors'
   import { isProActive } from '../../stores/license.svelte'
   import Sheet from '../common/Sheet.svelte'
   import Panel from '../common/Panel.svelte'
@@ -133,7 +134,7 @@
       accountUsername = provisionerUser
       accountPassword = ''
     } catch (e) {
-      loadError = e instanceof Error ? e.message : 'Could not load SSO identity settings'
+      loadError = errorText(e, 'load the SSO identity settings')
     } finally {
       loading = false
     }
@@ -142,10 +143,6 @@
   onMount(() => {
     void load()
   })
-
-  function describe(e: unknown, fallback: string): string {
-    return e instanceof Error && e.message ? e.message : fallback
-  }
 
   /** 402 means per-person needs Pro; flip the hint on and tell the caller. */
   function handleProError(e: unknown): boolean {
@@ -183,9 +180,9 @@
       if (handleProError(e)) {
         formError = 'Per-person ClickHouse users need a Pro license.'
       } else if (e instanceof ApiError && e.status === 400) {
-        formError = describe(e, 'Invalid settings')
+        formError = errorText(e)
       } else {
-        toastError(describe(e, 'Could not save SSO identity settings'))
+        toastErrorFrom(e, 'save the SSO identity settings')
       }
     } finally {
       saving = false
@@ -206,7 +203,7 @@
       toastSuccess(`${accountLabel} saved`)
       await load(true)
     } catch (e) {
-      toastError(describe(e, `Could not save the ${accountLabel.toLowerCase()}`))
+      toastErrorFrom(e, `save the ${accountLabel.toLowerCase()}`)
     } finally {
       savingAccount = false
     }
@@ -228,7 +225,7 @@
       if (handleProError(e)) {
         toastError('Per-person ClickHouse users need a Pro license.')
       } else {
-        toastError(describe(e, 'Could not build the setup SQL'))
+        toastErrorFrom(e, 'build the setup SQL')
       }
     } finally {
       loadingSQL = false
@@ -251,7 +248,7 @@
       if (handleProError(e)) {
         toastError('Per-person ClickHouse users need a Pro license.')
       } else {
-        toastError(describe(e, 'Verification failed'))
+        toastErrorFrom(e, 'run the checks')
       }
     } finally {
       verifying = false

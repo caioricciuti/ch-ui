@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { apiGet, apiPost, apiPut, apiDel } from '../../api/client'
   import { formatDate, formatRelativeTime } from '../../utils/format'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Button from '../common/Button.svelte'
   import Input from '../common/Input.svelte'
   import Badge from '../common/Badge.svelte'
@@ -84,7 +84,7 @@
     try {
       tunnels = await apiGet<TunnelConnection[]>('/api/connections')
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       tunnelsLoading = false
     }
@@ -131,7 +131,7 @@
         setTokenPreview({ id: created.id, name: created.name }, res)
       }
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       createLoading = false
     }
@@ -175,7 +175,7 @@
       editTarget = null
       await loadTunnels()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       editLoading = false
     }
@@ -195,7 +195,7 @@
       deleteTarget = null
       await loadTunnels()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       deleteLoading = false
     }
@@ -206,7 +206,7 @@
       const res = await apiGet<TunnelTokenResponse>(`/api/connections/${encodeURIComponent(conn.id)}/token`)
       setTokenPreview(conn, res)
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -216,7 +216,7 @@
       setTokenPreview(conn, res)
       toastSuccess(res.message || `Token regenerated for "${conn.name}"`)
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 

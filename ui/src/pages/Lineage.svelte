@@ -3,7 +3,7 @@
   import { GitFork, AlertTriangle, RefreshCw, Search, X } from 'lucide-svelte'
   import { fetchLineage, lineageFailure, LINEAGE_FAILURE_TITLES, type LineageFailure } from '../lib/api/lineage'
   import { listDatabases } from '../lib/api/query'
-  import { error as toastError, warning as toastWarning } from '../lib/stores/toast.svelte'
+  import { error as toastError, warning as toastWarning, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
   import { formatDate } from '../lib/utils/format'
   import { DEFAULT_HOPS, isolatedCount, KIND_LABELS, layoutLineage, MAX_VISIBLE_NODES } from '../lib/utils/lineage-layout'
   import { buildLineageSearch, databaseOf, MAX_HOPS, MIN_HOPS, parseLineageSearch } from '../lib/utils/lineage-url'
@@ -172,7 +172,7 @@
       (e: unknown) => {
         booting = false
         // The graph still works for databases named in the URL.
-        toastError(e instanceof Error ? e.message : String(e))
+        toastErrorFrom(e)
         allDatabases = [...databases]
         void load()
       },

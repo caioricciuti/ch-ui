@@ -3,7 +3,7 @@
   import { onMount } from 'svelte'
   import { Eye, Search } from 'lucide-svelte'
   import { formatDate } from '../../utils/format'
-  import { error as toastError } from '../../stores/toast.svelte'
+  import { errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import {
     fetchAccessUsers,
     fetchAccessRoles,
@@ -64,7 +64,7 @@
       accessMatrix = matrixRes?.matrix ?? []
       overPermissions = overPermsRes?.over_permissions ?? []
     } catch (err: unknown) {
-      toastError('Failed to load access data: ' + (err instanceof Error ? err.message : String(err)))
+      toastErrorFrom(err, 'load access data')
     } finally {
       loading = false
     }

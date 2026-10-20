@@ -8,7 +8,7 @@
   import { getSession } from '../../stores/session.svelte'
   import { setSection } from '../../stores/nav.svelte'
   import { navigate } from '../../stores/router.svelte'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { formatDate } from '../../utils/format'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
@@ -73,7 +73,7 @@
     try {
       events = await adminListAlertEvents({ limit: Number(eventLimit) })
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }
@@ -86,7 +86,7 @@
       drift = isAdmin ? open.filter((inc) => inc.source === 'drift') : []
       ingest = open.filter((inc) => inc.source === 'ingest')
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -114,7 +114,7 @@
       ackTarget = null
       await loadDrift()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       ackSaving = false
     }
@@ -127,7 +127,7 @@
       toastSuccess('Acknowledgement removed')
       await loadDrift()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       unacking = null
     }

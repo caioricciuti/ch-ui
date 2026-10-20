@@ -1,10 +1,11 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../lib/utils/errors'
   import { onMount } from 'svelte'
   import { ArrowRight, Download, GitCompare, AlertTriangle } from 'lucide-svelte'
   import { compareSchemas, fetchSchemaConnections, type SchemaComparison, type SchemaConnection, type SchemaDifference, type SchemaEndpoint } from '../lib/api/schemaCompare'
   import { getSession } from '../lib/stores/session.svelte'
-  import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
   import { copyToClipboard } from '../lib/utils/export'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
   import { docsURL } from '../lib/routes'
@@ -67,13 +68,13 @@
       source.connection_id = ownConnection ?? connections[0]?.id ?? ''
       target.connection_id = connections.find(c => c.id !== source.connection_id && c.online)?.id ?? source.connection_id
       error = ''
-    } catch (e) { error = e instanceof Error ? e.message : 'Failed to load connections' }
+    } catch (e) { error = errorText(e) }
     finally { loading = false }
   }
   async function compare() {
     comparing = true; error = ''; comparison = null; selected = null
     try { comparison = await compareSchemas({ ...source }, { ...target }) }
-    catch (e) { error = e instanceof Error ? e.message : 'Comparison failed' }
+    catch (e) { error = errorText(e) }
     finally { comparing = false; source.password = ''; target.password = '' }
   }
   function selectConnection(endpoint: SchemaEndpoint, value: string) { endpoint.connection_id = value; endpoint.username = ''; endpoint.password = ''; comparison = null; selected = null }
@@ -86,7 +87,7 @@
   }
   async function copyReview(diff: SchemaDifference) {
     try { await copyToClipboard(diff.review_sql); toastSuccess('Review SQL copied') }
-    catch (e) { toastError(e instanceof Error ? e.message : 'Copy failed') }
+    catch (e) { toastErrorFrom(e, 'copy the review SQL') }
   }
   onMount(() => { void load(); return () => { source.password = ''; target.password = '' } })
 </script>

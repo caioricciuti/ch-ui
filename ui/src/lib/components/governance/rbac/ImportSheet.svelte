@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../../../utils/errors'
   import { Plus, Upload, X } from 'lucide-svelte'
   import type { RbacImportKind, RbacImportPlan, RbacNewUser, RbacOp, RbacPruneKind } from '../../../types/rbac'
   import { planRbacImport } from '../../../api/rbac'
@@ -117,7 +118,7 @@
     } catch (err: unknown) {
       if (id !== request) return
       plan = null
-      error = err instanceof Error ? err.message : String(err)
+      error = errorText(err)
     } finally {
       if (id === request) previewing = false
     }
@@ -146,7 +147,7 @@
       }
       onstage(ops, passwords)
     } catch (err: unknown) {
-      error = err instanceof Error ? err.message : String(err)
+      error = errorText(err)
     } finally {
       staging = false
     }

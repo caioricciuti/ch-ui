@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import Sheet from '../common/Sheet.svelte'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
@@ -15,7 +16,7 @@
   import type { PipelineStatus } from '../../types/pipelines'
   import { pushPipelineList } from '../../stores/router.svelte'
   import { getSession } from '../../stores/session.svelte'
-  import { success, error as toastError } from '../../stores/toast.svelte'
+  import { success, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { AlertTriangle, Copy } from 'lucide-svelte'
 
   interface Props {
@@ -110,7 +111,7 @@
       const keep = pipelines.find((p) => p.id === (pipelineId || selectedId))
       selectedId = (keep ?? pipelines.find((p) => p.signal === signal) ?? pipelines[0])?.id ?? ''
     } catch (e: unknown) {
-      error = e instanceof Error ? e.message : String(e)
+      error = errorText(e)
     } finally {
       loading = false
     }
@@ -124,7 +125,7 @@
       secrets = { ...secrets, [selected.id]: { name: res.key.name, secret: res.secret } }
       naming = false
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       creating = false
     }

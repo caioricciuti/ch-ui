@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { onMount } from 'svelte'
   import type { ModelTest, ModelTestInput, TestArgs, TestKind, TestSeverity } from '../../types/models'
   import * as api from '../../api/models'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import Sheet from '../common/Sheet.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
@@ -66,7 +67,7 @@
       const res = await api.listModelTests(modelId)
       tests = res.tests ?? []
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to load tests')
+      toastErrorFrom(e, 'load tests')
     } finally {
       loading = false
     }
@@ -147,7 +148,7 @@
       sheetOpen = false
       await loadTests()
     } catch (e: unknown) {
-      formError = (e instanceof Error ? e.message : '') || 'Failed to save test'
+      formError = errorText(e) || 'Failed to save test'
     } finally {
       saving = false
     }
@@ -161,7 +162,7 @@
       toastSuccess('Test deleted')
       await loadTests()
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to delete test')
+      toastErrorFrom(e, 'delete test')
     } finally {
       deleting = false
       pendingDelete = null

@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../../../utils/errors'
   import { onMount } from 'svelte'
   import { Download, Plus, RefreshCw, Search, Upload } from 'lucide-svelte'
   import type { RbacApplyResponse, RbacExportFormat, RbacOp, RbacRowPolicy, RbacQuota, RbacSettingsProfile, RbacSnapshot, RbacTarget } from '../../../types/rbac'
@@ -8,7 +9,7 @@
   import { downloadBlob } from '../../../utils/export'
   import { setSection } from '../../../stores/nav.svelte'
   import { takeStagedRevert } from './history'
-  import { success as toastSuccess, error as toastError } from '../../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../../stores/toast.svelte'
   import { assigneesLabel, membersOf } from './changes'
   import Select from '../../common/Select.svelte'
   import Input from '../../common/Input.svelte'
@@ -85,7 +86,7 @@
     try {
       snapshot = await fetchRbacSnapshot()
     } catch (err: unknown) {
-      loadError = err instanceof Error ? err.message : String(err)
+      loadError = errorText(err)
     } finally {
       loading = false
     }
@@ -287,7 +288,7 @@
       const { blob, filename } = await exportRbac(format)
       downloadBlob(blob, filename)
     } catch (err: unknown) {
-      toastError(err instanceof Error ? err.message : String(err))
+      toastErrorFrom(err)
     } finally {
       exporting = false
     }

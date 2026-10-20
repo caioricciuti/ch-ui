@@ -4,7 +4,7 @@
   import type { AuditLog } from '../../types/api'
   import { apiGet } from '../../api/client'
   import { formatDate } from '../../utils/format'
-  import { error as toastError } from '../../stores/toast.svelte'
+  import { errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Button from '../common/Button.svelte'
   import Input from '../common/Input.svelte'
   import Select from '../common/Select.svelte'
@@ -99,7 +99,7 @@
       const res = await apiGet<AuditLog[]>(`/api/governance/audit-logs?${params}`)
       logs = res ?? []
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }

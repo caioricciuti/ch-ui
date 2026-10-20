@@ -11,7 +11,7 @@
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import MonitorEditor from './MonitorEditor.svelte'
   import { getSession } from '../../stores/session.svelte'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { listMonitors, createMonitor, updateMonitor, deleteMonitor, runMonitor } from '../../api/telemetryPro'
   import { formatRelativeTime, formatDate } from '../../utils/format'
   import type { TelemetrySource } from '../../types/telemetry'
@@ -42,7 +42,7 @@
     try {
       monitors = await listMonitors()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }
@@ -119,7 +119,7 @@
       editorOpen = false
       editing = null
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       saving = false
     }
@@ -135,7 +135,7 @@
       toastSuccess('Monitor deleted')
       deleting = null
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       deleteLoading = false
     }
@@ -149,7 +149,7 @@
       if (res.firing) toastError(`"${m.name}": ${res.value} matches, condition met`)
       else toastSuccess(`"${m.name}": ${res.value} matches, condition not met`)
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       running = null
     }

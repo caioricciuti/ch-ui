@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../lib/utils/errors'
   import { onDestroy } from 'svelte'
   import type { Dashboard, DashboardVariable, Panel, PanelConfig, PanelLink } from '../lib/types/api'
   import type { ColumnMeta } from '../lib/utils/chart-transform'
@@ -28,7 +29,7 @@
   } from '../lib/utils/grid-layout'
   import { linkLabel, resolveLink, type ClickContext, type PanelClick } from '../lib/utils/drilldown'
   import ContextMenu, { type ContextMenuItem } from '../lib/components/common/ContextMenu.svelte'
-  import { error as toastError } from '../lib/stores/toast.svelte'
+  import { error as toastError, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
   import { LayoutDashboard, RefreshCw, Lock, Timer } from 'lucide-svelte'
   import logo from '../assets/logo.png'
 
@@ -138,7 +139,7 @@
       if (e && typeof e === 'object' && 'isPrivate' in e) {
         isPrivateError = true
       }
-      error = e instanceof Error ? e.message : 'Failed to load dashboard'
+      error = errorText(e)
     } finally {
       loading = false
     }
@@ -285,7 +286,7 @@
         return
       }
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
       return
     }
     handleVariableValuesChange({ ...variableValues, [v.name]: [value] })

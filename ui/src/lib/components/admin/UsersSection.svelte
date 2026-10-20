@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { onMount } from 'svelte'
   import { apiGet, apiPut, apiDel, apiPost, ApiError } from '../../api/client'
   import { removeSSOAccess } from '../../api/ssoIdentity'
@@ -6,7 +7,7 @@
   import { formatDate, formatRelativeTime } from '../../utils/format'
   import { navigate } from '../../stores/router.svelte'
   import { getSession } from '../../stores/session.svelte'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Spinner from '../common/Spinner.svelte'
   import Sheet from '../common/Sheet.svelte'
   import HelpTip from '../common/HelpTip.svelte'
@@ -103,7 +104,7 @@
   ]
 
   function describeUsersError(e: unknown): string {
-    const message = e instanceof Error ? e.message : String(e)
+    const message = errorText(e)
     const status = e instanceof ApiError ? e.status : 0
     if (status === 403) return 'You need the CH-UI admin role to manage users.'
     if (/access_denied|not enough privileges|grant show users/i.test(message)) {
@@ -184,7 +185,7 @@
       userRoles = { ...userRoles, [username]: role }
       toastSuccess(`Role set to ${role} for ${displayUser(username)} on ${isSSOKey(username) ? 'all connections' : currentConnectionName}`)
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       if (roleSavingUser === username) roleSavingUser = null
     }
@@ -198,7 +199,7 @@
       userRoles = rest
       toastSuccess(`Role override removed for ${displayUser(username)}`)
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -221,7 +222,7 @@
       removeAccessTarget = null
       await loadUsers()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       removeAccessLoading = false
     }
@@ -368,7 +369,7 @@
       updateCHUserPasswordForm = { authType: 'sha256_password', password: '', ifExists: true }
       await loadClickHouseUsers()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -393,7 +394,7 @@
       await refreshUsersTab()
     } catch (e) {
       deleteCHUserLoading = false
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import Sheet from '../common/Sheet.svelte'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
@@ -12,7 +13,7 @@
   import { listIngestKeys, createIngestKey, revokeIngestKey } from '../../api/ingest'
   import type { IngestKey } from '../../types/ingest'
   import { getSession } from '../../stores/session.svelte'
-  import { success, error as toastError } from '../../stores/toast.svelte'
+  import { success, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { formatDate, formatRelativeTime } from '../../utils/format'
   import { Plus, Trash2, AlertTriangle } from 'lucide-svelte'
 
@@ -85,7 +86,7 @@
       keys = res.keys ?? []
       onchange?.(keys.filter((k) => !k.revoked_at).length)
     } catch (e: unknown) {
-      error = e instanceof Error ? e.message : String(e)
+      error = errorText(e)
     } finally {
       loading = false
     }
@@ -101,7 +102,7 @@
       newName = ''
       await load()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       creating = false
     }
@@ -116,7 +117,7 @@
       revokeTarget = null
       await load()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       revoking = false
     }

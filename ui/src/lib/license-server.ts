@@ -45,14 +45,14 @@ async function postJson<T>(path: string, body: Record<string, string>): Promise<
       body: JSON.stringify(body),
     })
   } catch {
-    throw new LicenseServerError(0, 'Could not reach the license server — check your connection and try again.')
+    throw new LicenseServerError(0, 'Could not reach the license server. Check your connection and try again.')
   }
 
   const data: unknown = await res.json().catch(() => null)
 
   if (!res.ok) {
     if (res.status === 429) {
-      throw new LicenseServerError(429, 'Too many requests — please wait a few minutes and try again.')
+      throw new LicenseServerError(429, 'Too many requests. Wait a few minutes and try again.')
     }
     const message =
       data !== null &&
@@ -60,7 +60,7 @@ async function postJson<T>(path: string, body: Record<string, string>): Promise<
       'error' in data &&
       typeof (data as { error: unknown }).error === 'string'
         ? (data as { error: string }).error
-        : `License server error (HTTP ${res.status})`
+        : `The license server returned an error (HTTP ${res.status}). Try again in a few minutes.`
     throw new LicenseServerError(res.status, message)
   }
 
