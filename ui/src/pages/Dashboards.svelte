@@ -39,6 +39,7 @@
   import ReportEditor from '../lib/components/reports/ReportEditor.svelte'
   import { fetchReports, type ReportChannel, type ReportInput, type ReportWorkerMode } from '../lib/api/reports'
   import { isProActive } from '../lib/stores/license.svelte'
+  import { docsURL } from '../lib/routes'
   import { Plus, RefreshCw, Share2, ChevronDown, Star, Timer, Settings, Info, X, Pencil, Mail } from 'lucide-svelte'
 
   interface Props {
@@ -629,6 +630,7 @@
         ...folderCrumbs.map((c) => ({ label: c.name, onclick: () => openFolderInList(c.id) })),
       ]}
       onrename={canWrite ? openRename : undefined}
+      docs={docsURL('dashboards')}
     >
       {#snippet meta()}
         {#if currentDashboard}

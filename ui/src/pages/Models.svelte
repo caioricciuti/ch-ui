@@ -708,7 +708,6 @@
     {#snippet meta()}
       {#if !loading}
         <Badge tone="neutral">{models.length} model{models.length !== 1 ? 's' : ''}</Badge>
-        <Badge tone="neutral">{pipelines.length} pipeline{pipelines.length !== 1 ? 's' : ''}</Badge>
       {/if}
     {/snippet}
     {#snippet actions()}

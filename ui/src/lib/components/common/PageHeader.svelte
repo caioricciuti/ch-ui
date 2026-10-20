@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
-  import { ArrowLeft, ChevronRight, ExternalLink } from 'lucide-svelte'
+  import { ArrowLeft, ChevronRight } from 'lucide-svelte'
   import Button from './Button.svelte'
+  import DocsPill from './DocsPill.svelte'
 
   export interface Crumb {
     label: string
@@ -68,17 +69,7 @@
   {#if meta || docs}
     <div class="flex shrink-0 items-center gap-1.5">
       {#if meta}{@render meta()}{/if}
-      {#if docs}
-        <a
-          class="ds-badge border border-edge bg-transparent transition-colors hover:border-edge-strong hover:bg-hover hover:text-fg"
-          href={docs}
-          target="_blank"
-          rel="noreferrer"
-          title="Open the docs for this page"
-        >
-          Docs <ExternalLink size={11} />
-        </a>
-      {/if}
+      {#if docs}<DocsPill href={docs} />{/if}
     </div>
   {/if}
   {#if actions}
