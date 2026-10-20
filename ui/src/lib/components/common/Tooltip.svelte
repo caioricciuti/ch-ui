@@ -4,20 +4,25 @@
 
   interface Props {
     text: string
-    side?: 'top' | 'bottom'
-    /** Delay before showing, so tooltips do not flash while the pointer crosses controls. */
+    /** `right` suits a vertical rail; top and bottom flip when there is no room. */
+    side?: 'top' | 'bottom' | 'right'
+    /** Delay before showing, so tooltips do not flash while the pointer crosses controls. 0 shows at once. */
     delay?: number
+    /** Suppress the tooltip, e.g. while the trigger's own popover is open. */
+    disabled?: boolean
     class?: string
     children: Snippet
   }
 
-  let { text, side = 'top', delay = 350, class: cls = '', children }: Props = $props()
+  let { text, side = 'top', delay = 350, disabled = false, class: cls = '', children }: Props = $props()
 
   let triggerEl = $state<HTMLSpanElement | null>(null)
   let tipEl = $state<HTMLDivElement | null>(null)
   let open = $state(false)
   let x = $state(0)
   let y = $state(0)
+  // Hidden until the first position lands, so it never flashes at 0,0.
+  let placed = $state(false)
   let timer: ReturnType<typeof setTimeout> | null = null
   let raf: number | null = null
 
@@ -30,13 +35,19 @@
     if (!open || !triggerEl || !tipEl) return
     const t = triggerEl.getBoundingClientRect()
     const r = tipEl.getBoundingClientRect()
-    const topY = t.top - r.height - GAP
-    const bottomY = t.bottom + GAP
-    let next = side
-    if (side === 'top' && topY < PAD && bottomY + r.height <= window.innerHeight - PAD) next = 'bottom'
-    if (side === 'bottom' && bottomY + r.height > window.innerHeight - PAD && topY >= PAD) next = 'top'
-    y = Math.round(next === 'top' ? topY : bottomY)
-    x = Math.round(Math.min(Math.max(t.left + t.width / 2 - r.width / 2, PAD), window.innerWidth - r.width - PAD))
+    if (side === 'right') {
+      x = Math.round(t.right + GAP)
+      y = Math.round(Math.min(Math.max(t.top + t.height / 2 - r.height / 2, PAD), window.innerHeight - r.height - PAD))
+    } else {
+      const topY = t.top - r.height - GAP
+      const bottomY = t.bottom + GAP
+      let next = side
+      if (side === 'top' && topY < PAD && bottomY + r.height <= window.innerHeight - PAD) next = 'bottom'
+      if (side === 'bottom' && bottomY + r.height > window.innerHeight - PAD && topY >= PAD) next = 'top'
+      y = Math.round(next === 'top' ? topY : bottomY)
+      x = Math.round(Math.min(Math.max(t.left + t.width / 2 - r.width / 2, PAD), window.innerWidth - r.width - PAD))
+    }
+    placed = true
   }
 
   function schedule() {
@@ -44,14 +55,20 @@
     raf = requestAnimationFrame(() => void position())
   }
 
+  function reveal() {
+    placed = false
+    open = true
+    window.addEventListener('scroll', schedule, true)
+    window.addEventListener('resize', schedule)
+    schedule()
+  }
+
   function show() {
+    if (disabled) return
     if (timer) clearTimeout(timer)
-    timer = setTimeout(() => {
-      open = true
-      window.addEventListener('scroll', schedule, true)
-      window.addEventListener('resize', schedule)
-      schedule()
-    }, delay)
+    timer = null
+    if (delay <= 0) reveal()
+    else timer = setTimeout(reveal, delay)
   }
 
   function hide() {
@@ -61,6 +78,10 @@
     window.removeEventListener('scroll', schedule, true)
     window.removeEventListener('resize', schedule)
   }
+
+  $effect(() => {
+    if (disabled) hide()
+  })
 
   onDestroy(hide)
 </script>
@@ -82,7 +103,7 @@
   <div
     bind:this={tipEl}
     class="pointer-events-none fixed z-[260] max-w-[22rem] whitespace-pre-line rounded-md bg-elevated px-2.5 py-1.5 text-[12px] leading-snug text-fg-2"
-    style="left:{x}px;top:{y}px;box-shadow: var(--shadow-popover)"
+    style="left:{x}px;top:{y}px;visibility:{placed ? 'visible' : 'hidden'};box-shadow: var(--shadow-popover)"
     role="tooltip"
   >
     {text}

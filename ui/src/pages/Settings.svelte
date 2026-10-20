@@ -27,7 +27,7 @@
   import Input from '../lib/components/common/Input.svelte'
   import PageBody from '../lib/components/common/PageBody.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
-  import { docsURL } from '../lib/routes'
+  import { docsURL, PAGE_ROUTES } from '../lib/routes'
   import Panel from '../lib/components/common/Panel.svelte'
   import SectionHeader from '../lib/components/common/SectionHeader.svelte'
   import Sheet from '../lib/components/common/Sheet.svelte'
@@ -119,7 +119,7 @@
 
   function syncSettingsTabParam(tab: SettingsTab) {
     if (typeof window === 'undefined') return
-    if (!window.location.pathname.endsWith('/license')) return
+    if (!window.location.pathname.endsWith(PAGE_ROUTES.settings.path)) return
     setSection(tab)
   }
 
@@ -297,7 +297,7 @@
 </script>
 
 <div class="flex h-full flex-col">
-  <PageHeader title="Settings" subtitle={settingsTabItems.find((t) => t.id === activeTab)?.label} docs={docsURL('settings', activeTab)}>
+  <PageHeader title={PAGE_ROUTES.settings.label} subtitle={settingsTabItems.find((t) => t.id === activeTab)?.label} docs={docsURL('settings', activeTab)}>
     {#snippet meta()}
       {#if licenseState === 'loading'}
         <Badge tone="neutral">Checking license…</Badge>

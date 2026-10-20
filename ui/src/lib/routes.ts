@@ -44,7 +44,7 @@ const ROUTES = {
   'operations-reports': { label: 'Reports', path: '/reports', description: 'Weekly operations summaries', icon: ScrollText, pro: true, docs: '/docs/operations-reports/' },
   'incident-timeline': { label: 'Incident Timeline', path: '/incident-timeline', description: 'Correlate failures and operational events', icon: Clock, pro: true, docs: '/docs/incident-timeline/' },
   admin: { label: 'Admin', path: '/admin', description: 'Users, connections, MCP', icon: Shield, docs: '/docs/admin/' },
-  settings: { label: 'License', path: '/license', description: 'Edition and entitlements', icon: KeyRound, docs: '/docs/license/' },
+  settings: { label: 'Instance', path: '/instance', description: 'License, instance and legal', icon: KeyRound, docs: '/docs/license/' },
 } as const satisfies Record<string, PageRouteMeta>
 
 export type PageRoute = keyof typeof ROUTES
@@ -61,6 +61,12 @@ export function isPageRouteType(type: string | undefined | null): type is PageRo
  */
 export const PATH_ALIASES: Record<string, string> = {
   '/settings': PAGE_ROUTES.settings.path,
+  '/license': PAGE_ROUTES.settings.path,
+}
+
+/** Current path for an old one, or null when the path is not an alias. */
+export function resolvePathAlias(path: string): string | null {
+  return Object.hasOwn(PATH_ALIASES, path) ? PATH_ALIASES[path] : null
 }
 
 /** Path -> route type, for parsing the URL. */
@@ -77,14 +83,27 @@ export interface NavGroup {
   id: 'query' | 'explore' | 'visualize' | 'build' | 'operate' | 'settings'
   label: string
   routes: PageRoute[]
+  /** Small subheads in the context panel, for groups too long to scan flat. Covers every route, in order. */
+  subgroups?: NavSubgroup[]
 }
+
+export interface NavSubgroup {
+  label: string
+  routes: PageRoute[]
+}
+
+const OPERATE_SUBGROUPS: NavSubgroup[] = [
+  { label: 'Health', routes: ['fleet', 'cluster-health'] },
+  { label: 'Performance', routes: ['performance', 'query-insights', 'cost-center'] },
+  { label: 'Control', routes: ['governance', 'incident-timeline', 'operations-reports'] },
+]
 
 export const NAV_GROUPS: NavGroup[] = [
   { id: 'query', label: 'Query', routes: [] },
   { id: 'explore', label: 'Explore', routes: ['saved-queries', 'lineage', 'brain'] },
   { id: 'visualize', label: 'Visualize', routes: ['dashboards', 'telemetry'] },
   { id: 'build', label: 'Build', routes: ['models', 'pipelines', 'schedules', 'schema-compare'] },
-  { id: 'operate', label: 'Operate', routes: ['fleet', 'cluster-health', 'performance', 'query-insights', 'incident-timeline', 'cost-center', 'operations-reports', 'governance'] },
+  { id: 'operate', label: 'Operate', routes: OPERATE_SUBGROUPS.flatMap((s) => s.routes), subgroups: OPERATE_SUBGROUPS },
   { id: 'settings', label: 'Settings', routes: ['admin', 'settings'] },
 ]
 
@@ -100,6 +119,18 @@ export const DOCS_ORIGIN = 'https://ch-ui.com'
 export function docsURL(route: PageRoute, section?: string | null): string {
   const own = section ? PAGE_SECTIONS[route]?.find((s) => s.id === section)?.docs : undefined
   return DOCS_ORIGIN + (own ?? PAGE_ROUTES[route].docs)
+}
+
+/**
+ * The context panel's list for a group: one block per subgroup (label null
+ * when the group has none), keeping only routes `visible` allows and
+ * dropping blocks left empty.
+ */
+export function navBlocks(group: NavGroup, visible: (route: PageRoute) => boolean): { label: string | null; routes: PageRoute[] }[] {
+  const blocks = group.subgroups ?? [{ label: null, routes: group.routes }]
+  return blocks
+    .map((b) => ({ label: b.label, routes: b.routes.filter(visible) }))
+    .filter((b) => b.routes.length > 0)
 }
 
 export function groupForRoute(type: string | undefined | null): NavGroup {

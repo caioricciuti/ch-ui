@@ -29,7 +29,7 @@
   import { getSection, setSection, isPanelCollapsed, setPanelCollapsed } from '../../stores/nav.svelte'
   import { MOD, combo } from '../../utils/shortcuts'
   import {
-    groupForRoute, isPageRouteType, PAGE_ROUTES, PAGE_SECTIONS, ADMIN_ONLY_ROUTES, type PageRoute,
+    groupForRoute, isPageRouteType, navBlocks, PAGE_ROUTES, PAGE_SECTIONS, ADMIN_ONLY_ROUTES, type PageRoute,
   } from '../../routes'
   import { PanelLeftClose, PanelLeftOpen, BookOpen, ExternalLink } from 'lucide-svelte'
   import { prefetchPage } from './pageLoaders'
@@ -62,8 +62,8 @@
   const collapsed = $derived(onWorkspace && (narrow || isPanelCollapsed(group.id)))
   const width = $derived(collapsed ? COLLAPSED_WIDTH : onWorkspace ? explorerWidth : NAV_WIDTH)
   const licensedPro = $derived(hasProReadAccess())
-  const routes = $derived(
-    group.routes.filter((r) => !ADMIN_ONLY_ROUTES.has(r) || session?.role === 'admin'),
+  const blocks = $derived(
+    navBlocks(group, (r) => !ADMIN_ONLY_ROUTES.has(r) || session?.role === 'admin'),
   )
 
   // The overlay is a peek: it closes when the screen widens or you leave
@@ -160,43 +160,48 @@
     </div>
 
     <nav class="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2" aria-label={group.label}>
-      <div class="space-y-px">
-        {#each routes as route}
-          {@const active = routeType === route}
-          {@const meta = PAGE_ROUTES[route]}
-          {@const sections = sectionsFor(route)}
-          <button
-            class="flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-[13px] transition-colors {active ? 'bg-active font-medium text-fg' : 'text-fg-2 hover:bg-hover hover:text-fg'}"
-            onclick={() => goTo(route)}
-            onpointerenter={() => prefetchPage(route)}
-            onfocus={() => prefetchPage(route)}
-            aria-current={active ? 'page' : undefined}
-          >
-            <meta.icon size={15} strokeWidth={1.75} class="shrink-0 {active ? 'text-accent' : 'text-fg-3'}" />
-            <span class="truncate">{meta.label}</span>
-            {#if meta.pro && !licensedPro}
-              <Badge tone="brand" class="ml-auto">Pro</Badge>
-            {/if}
-          </button>
-          {#if active && sections.length > 0}
-            {@const current = activeSection(route)}
-            <div class="relative my-1 ml-[17px] pl-3 before:absolute before:bottom-1 before:left-0 before:top-1 before:w-px before:bg-edge">
-              {#each sections as s}
-                <button
-                  class="flex h-7 w-full items-center rounded-md px-2 text-[12.5px] transition-colors {current === s.id ? 'bg-hover font-medium text-fg' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
-                  onclick={() => openSection(route, s.id)}
-                  aria-current={current === s.id ? 'true' : undefined}
-                >
-                  <span class="truncate">{s.label}</span>
-                  {#if s.pro && !licensedPro}
-                    <Badge tone="brand" class="ml-auto">Pro</Badge>
-                  {/if}
-                </button>
-              {/each}
-            </div>
+      {#each blocks as block, i}
+        <div class="space-y-px {i > 0 ? 'mt-3' : ''}" role={block.label ? 'group' : undefined} aria-label={block.label ?? undefined}>
+          {#if block.label}
+            <div class="flex h-6 items-center px-2 text-[10px] font-medium uppercase tracking-[0.1em] text-fg-4" aria-hidden="true">{block.label}</div>
           {/if}
-        {/each}
-      </div>
+          {#each block.routes as route}
+            {@const active = routeType === route}
+            {@const meta = PAGE_ROUTES[route]}
+            {@const sections = sectionsFor(route)}
+            <button
+              class="flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-[13px] transition-colors {active ? 'bg-active font-medium text-fg' : 'text-fg-2 hover:bg-hover hover:text-fg'}"
+              onclick={() => goTo(route)}
+              onpointerenter={() => prefetchPage(route)}
+              onfocus={() => prefetchPage(route)}
+              aria-current={active ? 'page' : undefined}
+            >
+              <meta.icon size={15} strokeWidth={1.75} class="shrink-0 {active ? 'text-accent' : 'text-fg-3'}" />
+              <span class="truncate">{meta.label}</span>
+              {#if meta.pro && !licensedPro}
+                <Badge tone="brand" class="ml-auto">Pro</Badge>
+              {/if}
+            </button>
+            {#if active && sections.length > 0}
+              {@const current = activeSection(route)}
+              <div class="relative my-1 ml-[17px] pl-3 before:absolute before:bottom-1 before:left-0 before:top-1 before:w-px before:bg-edge">
+                {#each sections as s}
+                  <button
+                    class="flex h-7 w-full items-center rounded-md px-2 text-[12.5px] transition-colors {current === s.id ? 'bg-hover font-medium text-fg' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
+                    onclick={() => openSection(route, s.id)}
+                    aria-current={current === s.id ? 'true' : undefined}
+                  >
+                    <span class="truncate">{s.label}</span>
+                    {#if s.pro && !licensedPro}
+                      <Badge tone="brand" class="ml-auto">Pro</Badge>
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          {/each}
+        </div>
+      {/each}
 
       {#if group.id === 'settings'}
         <div class="mt-auto border-t border-edge-subtle pt-2">

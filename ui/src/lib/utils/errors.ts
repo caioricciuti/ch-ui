@@ -52,7 +52,7 @@ const CH_OTHER: Copy = { lead: 'ClickHouse returned an error.', next: 'Check the
 
 function statusCopy(status: number, retryAfter: number): Copy {
   if (status === 401) return { lead: 'Your session ended.', next: 'Sign in again to continue.' }
-  if (status === 402) return { lead: 'This needs a Pro license.', next: 'Activate one in Settings.' }
+  if (status === 402) return { lead: 'This needs a Pro license.', next: 'Activate one under Instance.' }
   if (status === 403) return { lead: 'Your role cannot do this.', next: 'Ask an admin for access.' }
   if (status === 404) return { lead: 'That item no longer exists.', next: 'Refresh the page and try again.' }
   if (status === 409) return { lead: 'This changed in the meantime.', next: 'Refresh the page and try again.' }
