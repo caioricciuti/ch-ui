@@ -11,6 +11,7 @@ import {
   type LineageNodeKind,
   type LineageRefresh,
 } from '../types/lineage'
+import { errorText } from '../utils/errors'
 
 const BASE = '/api/lineage'
 
@@ -148,7 +149,7 @@ export async function fetchLineageNode(database: string, name: string): Promise<
  * How a failed /api/lineage call should read. pick: too many objects
  * without a filter (422), the fix is choosing databases. offline: the
  * tunnel is down (503). unreadable: system.tables could not be read (502).
- * The server message is kept verbatim.
+ * The pick message is the server's own; the rest go through errorText.
  */
 export type LineageFailure = { kind: 'pick' | 'offline' | 'unreadable' | 'error'; message: string }
 
@@ -160,9 +161,9 @@ export const LINEAGE_FAILURE_TITLES: Record<LineageFailure['kind'], string> = {
 }
 
 export function lineageFailure(e: unknown): LineageFailure {
-  const message = e instanceof Error ? e.message : String(e)
+  const message = errorText(e)
   if (e instanceof ApiError) {
-    if (e.status === 422) return { kind: 'pick', message }
+    if (e.status === 422) return { kind: 'pick', message: e.message }
     if (e.status === 503) return { kind: 'offline', message }
     if (e.status === 502) return { kind: 'unreadable', message }
   }

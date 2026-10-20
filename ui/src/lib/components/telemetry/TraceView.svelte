@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { ArrowLeft, Copy, AlertTriangle } from 'lucide-svelte'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
@@ -41,7 +42,7 @@
     selected = null
     getTrace(sid, tid, hint || undefined)
       .then((d) => { if (mySeq === seq) detail = d })
-      .catch((e: unknown) => { if (mySeq === seq) { error = e instanceof Error ? e.message : String(e); detail = null } })
+      .catch((e: unknown) => { if (mySeq === seq) { error = errorText(e); detail = null } })
       .finally(() => { if (mySeq === seq) loading = false })
   })
 

@@ -4,7 +4,7 @@
   import { getSession } from '../../stores/session.svelte'
   import { goTo } from '../../stores/router.svelte'
   import { setSection } from '../../stores/nav.svelte'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { fetchSqlAlerts } from '../../api/alerting'
   import { createAck, deleteAck, listFiring } from '../../api/alerts'
   import type { FiringIncident, SqlAlert, SqlAlertWorkerMode } from '../../types/alerts'
@@ -76,7 +76,7 @@
       alerts = res.alerts
       workerMode = res.worker_mode
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
       refreshing = false
@@ -88,7 +88,7 @@
     try {
       firing = await listFiring()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -116,7 +116,7 @@
       ackTarget = null
       await loadFiring()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       ackSaving = false
     }
@@ -129,7 +129,7 @@
       toastSuccess('Acknowledgement removed')
       await loadFiring()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       unacking = null
     }

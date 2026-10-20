@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { errorText } from '../lib/utils/errors'
   import { onMount, tick } from 'svelte'
   import { openQueryTab } from '../lib/stores/tabs.svelte'
   import { goTo } from '../lib/stores/router.svelte'
   import { setSection } from '../lib/stores/nav.svelte'
   import { getSession } from '../lib/stores/session.svelte'
-  import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
   import { getDatabases, loadDatabases, loadTables, loadColumns } from '../lib/stores/schema.svelte'
   import type { BrainArtifact, BrainBudgetStatus, BrainChat, BrainMessage as BrainMessageType, BrainModelOption, MentionRef, EntityContext } from '../lib/types/brain'
   import {
@@ -108,7 +109,7 @@
       if (def && !selectedModelId) selectedModelId = def.id
       modelsLoaded = true
     } catch (e: any) {
-      toastError(e.message)
+      toastErrorFrom(e)
     }
   }
 
@@ -119,7 +120,7 @@
         await selectChat(chats[0].id)
       }
     } catch (e: any) {
-      toastError(e.message)
+      toastErrorFrom(e)
     }
   }
 
@@ -129,7 +130,7 @@
       chats = [chat, ...chats]
       await selectChat(chat.id)
     } catch (e: any) {
-      toastError(e.message)
+      toastErrorFrom(e)
     }
   }
 
@@ -148,7 +149,7 @@
       await tick()
       scrollToBottom()
     } catch (e: any) {
-      toastError(e.message)
+      toastErrorFrom(e)
     }
   }
 
@@ -177,7 +178,7 @@
         await selectChat(chat.id)
       }
     } catch (e: any) {
-      toastError(e.message)
+      toastErrorFrom(e)
     }
   }
 
@@ -203,7 +204,7 @@
         }
       }
     } catch (e: any) {
-      toastError(e.message)
+      toastErrorFrom(e)
     }
   }
 
@@ -346,7 +347,7 @@
               ? { ...tc, status: 'declined' as const, result: { error: 'Connection dropped before approval.' } }
               : tc
           )
-          return { ...m, content: m.content || `Error: ${e.message}`, status: 'error' as const, toolCalls: list }
+          return { ...m, content: m.content || errorText(e), status: 'error' as const, toolCalls: list }
         })
       }
     } finally {
@@ -369,7 +370,7 @@
       toastSuccess('Query executed and saved as artifact')
       artifacts = await listBrainArtifacts(selectedChatId)
     } catch (e: any) {
-      toastError(e.message)
+      toastErrorFrom(e)
     } finally {
       runningSql = null
     }

@@ -4,7 +4,7 @@
   import type { BrainUsageGroupBy, BrainUsageReport, BrainUsageRow } from '../../types/brain'
   import { adminGetBrainUsage } from '../../api/brain'
   import { setSection } from '../../stores/nav.svelte'
-  import { error as toastError } from '../../stores/toast.svelte'
+  import { errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { formatCost, formatTokens } from '../brain/brain-usage'
   import { subjectLabel } from '../brain/brain-budget'
   import SectionHeader from '../common/SectionHeader.svelte'
@@ -46,7 +46,7 @@
     try {
       report = await adminGetBrainUsage(Number(days), groupBy)
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }

@@ -7,7 +7,7 @@
   } from '../../api/dashboards'
   import { pushDashboardDetail } from '../../stores/router.svelte'
   import { getSession } from '../../stores/session.svelte'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { formatDate, formatRelativeTime } from '../../utils/format'
   import PageHeader from '../common/PageHeader.svelte'
   import { docsURL } from '../../routes'
@@ -53,7 +53,7 @@
       folders = f
       if (selectedFolder && !f.some((x) => x.id === selectedFolder)) selectedFolder = null
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }
@@ -155,7 +155,7 @@
       await setDashboardStar(d.id, next)
     } catch (e: unknown) {
       dashboards = dashboards.map((x) => (x.id === d.id ? { ...x, starred: !next } : x))
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -229,7 +229,7 @@
       toastSuccess(folderId ? `Moved to ${pathLabel(folderId)}` : 'Moved to the root')
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -263,7 +263,7 @@
       createOpen = false
       pushDashboardDetail(d.id)
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       creating = false
     }
@@ -282,7 +282,7 @@
       toastSuccess(`Duplicated as "${detail.dashboard.name}"`)
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -306,7 +306,7 @@
       await loadAll()
       selectedFolder = f.id
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       folderSaving = false
     }
@@ -326,7 +326,7 @@
       renamingFolder = null
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       folderSaving = false
     }
@@ -345,7 +345,7 @@
       toastSuccess('Folder deleted, its contents moved up one level')
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       folderSaving = false
     }
@@ -388,7 +388,7 @@
       tagging = null
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       tagsSaving = false
     }
@@ -412,7 +412,7 @@
       toastSuccess('Dashboard renamed')
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       renameSaving = false
     }
@@ -430,7 +430,7 @@
       toastSuccess('Dashboard deleted')
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       deleteSaving = false
     }

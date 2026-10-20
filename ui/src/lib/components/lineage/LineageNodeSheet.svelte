@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { fetchLineageNode } from '../../api/lineage'
   import { ApiError } from '../../api/client'
-  import { error as toastError, success as toastSuccess } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { copyToClipboard } from '../../utils/export'
   import { formatBytes, formatDate, formatNumber } from '../../utils/format'
   import { KIND_LABELS } from '../../utils/lineage-layout'
@@ -50,8 +51,8 @@
           loadError = 'This object no longer exists. Refresh the graph.'
           return
         }
-        loadError = e instanceof Error ? e.message : String(e)
-        toastError(loadError)
+        loadError = errorText(e)
+        toastErrorFrom(e, 'load the object details')
       },
     ).finally(() => {
       if (mine === seq) loading = false
@@ -69,7 +70,7 @@
       await copyToClipboard(detail.ddl)
       toastSuccess('Definition copied')
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 

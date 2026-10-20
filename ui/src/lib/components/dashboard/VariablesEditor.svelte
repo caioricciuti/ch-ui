@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { DashboardVariable, DashboardVariableOption, DashboardVariableType } from '../../types/api'
   import { fetchVariableOptions, saveDashboardVariables } from '../../api/dashboards'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { isValidVariableName, parseOptionList } from '../../utils/dashboard-variables'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import SectionHeader from '../common/SectionHeader.svelte'
@@ -76,7 +76,7 @@
       toastSuccess(message)
       return true
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
       return false
     } finally {
       busy = false
@@ -183,7 +183,7 @@
       preview = await fetchVariableOptions(dashboardId, def.name, { definition: def, variables: {} })
     } catch (e: unknown) {
       preview = null
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       previewing = false
     }

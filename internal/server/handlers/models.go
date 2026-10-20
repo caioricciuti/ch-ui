@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -115,6 +116,17 @@ func (b modelBody) applyOptions(m *database.Model) {
 	set(&m.WatermarkColumn, b.WatermarkColumn)
 }
 
+// writeModelSaveError answers a failed SaveModel: a taken name is the
+// user's to fix, anything else is logged and reported without internals.
+func writeModelSaveError(w http.ResponseWriter, name string, err error) {
+	if errors.Is(err, database.ErrModelNameTaken) {
+		writeError(w, http.StatusConflict, fmt.Sprintf("A model named %q already exists on this connection. Pick another name.", name))
+		return
+	}
+	slog.Error("Failed to save model", "error", err, "name", name)
+	writeError(w, http.StatusInternalServerError, "Could not save the model. Try again; the server log has the cause.")
+}
+
 // CreateModel creates a new model.
 func (h *ModelsHandler) CreateModel(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
@@ -152,7 +164,7 @@ func (h *ModelsHandler) CreateModel(w http.ResponseWriter, r *http.Request) {
 	m.ConnectionID, m.CreatedBy = session.ConnectionID, &actor
 	id, err := h.DB.SaveModel(database.ModelSave{Model: m})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create model: %v", err))
+		writeModelSaveError(w, m.Name, err)
 		return
 	}
 
@@ -241,7 +253,7 @@ func (h *ModelsHandler) UpdateModel(w http.ResponseWriter, r *http.Request) {
 	// A rename rewrites the pipeline selectors naming the old name in the
 	// same transaction, so scheduled pipelines keep working.
 	if _, err := h.DB.SaveModel(database.ModelSave{Model: m, RenameInSelector: models.RenameInSelector}); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to update model: %v", err))
+		writeModelSaveError(w, m.Name, err)
 		return
 	}
 
@@ -387,7 +399,8 @@ func (h *ModelsHandler) ValidateAll(w http.ResponseWriter, r *http.Request) {
 
 	errors, err := h.Runner.Validate(session.ConnectionID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Validation failed: %v", err))
+		slog.Error("Failed to validate models", "error", err, "connection", session.ConnectionID)
+		writeError(w, http.StatusInternalServerError, "Could not validate the models. Try again; the server log has the cause.")
 		return
 	}
 

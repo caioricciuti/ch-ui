@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { onMount } from 'svelte'
   import { getRouteType, getCurrentDashboardId, goTo } from '../../stores/router.svelte'
   import { loadLicense, hasProReadAccess, isLicenseInGrace, isLicenseLoaded, getLicense } from '../../stores/license.svelte'
@@ -50,7 +51,7 @@
         if (!cancelled) loadedVersion++
       },
       (e: unknown) => {
-        if (!cancelled) loadFailed = e instanceof Error ? e.message : 'Failed to load this page'
+        if (!cancelled) loadFailed = errorText(e)
       },
     )
     return () => {

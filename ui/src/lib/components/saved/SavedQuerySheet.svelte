@@ -3,7 +3,7 @@
   import {
     updateSavedQuery, folderOptions, visibilityOptions, parseTags, validateSavedQueryDetails,
   } from '../../api/savedQueries'
-  import { error as toastError, success as toastSuccess } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Sheet from '../common/Sheet.svelte'
   import Button from '../common/Button.svelte'
   import FormField from '../common/FormField.svelte'
@@ -66,7 +66,7 @@
       toastSuccess('Saved query updated')
       onsaved(updated)
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       saving = false
     }

@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../lib/utils/errors'
   import { onMount } from 'svelte'
   import { AlertTriangle, RefreshCw } from 'lucide-svelte'
   import { fetchFleet, type FleetResult, type FleetConnection } from '../lib/api/fleet'
@@ -63,7 +64,7 @@
   ])
   async function load() {
     if (!fleet) loading = true
-    try { fleet = await fetchFleet(); error = '' } catch (e) { error = e instanceof Error ? e.message : 'Failed to load fleet' } finally { loading = false }
+    try { fleet = await fetchFleet(); error = '' } catch (e) { error = errorText(e) } finally { loading = false }
   }
   function inspect(connection: FleetConnection, path: string) {
     if (connection.id === getSession()?.connectionId) { navigate(path); return }
@@ -73,7 +74,7 @@
     if (!selected) return
     signingIn = true
     try { await login(selected.id, username, password, undefined, destination); password = ''; selected = null; navigate(destination) }
-    catch (e) { signInError = e instanceof Error ? e.message : 'Sign in failed'; password = '' }
+    catch (e) { signInError = errorText(e); password = '' }
     finally { signingIn = false }
   }
   onMount(() => {

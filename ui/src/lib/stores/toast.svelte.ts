@@ -1,5 +1,6 @@
 import { toast } from 'svelte-sonner'
 import type { ExternalToast } from 'svelte-sonner'
+import { friendlyError } from '../utils/errors'
 
 export type ToastType = 'info' | 'success' | 'error' | 'warning'
 
@@ -37,6 +38,15 @@ export function error(message: string, optionsOrDuration?: number | ExternalToas
   const cleanMessage = normalizeMessage(message)
   if (!cleanMessage) return
   toast.error(cleanMessage, resolveToastOptions('error', optionsOrDuration))
+}
+
+/**
+ * Toast for a failed call: a human message, with the original server text as
+ * the description. action reads after "Could not", e.g. 'save the policy'.
+ */
+export function errorFrom(e: unknown, action?: string): void {
+  const { message, detail } = friendlyError(e, action)
+  error(message, detail ? { description: detail } : undefined)
 }
 
 export function warning(message: string, optionsOrDuration?: number | ExternalToast): void {

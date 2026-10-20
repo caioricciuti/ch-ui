@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../lib/utils/errors'
   import { onMount, onDestroy } from 'svelte'
   import {
     HeartPulse,
@@ -58,7 +59,7 @@
   import ConfirmDialog from '../lib/components/common/ConfirmDialog.svelte'
   import { openQueryTab } from '../lib/stores/tabs.svelte'
   import { getSession } from '../lib/stores/session.svelte'
-  import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
   import { getSection, setSection } from '../lib/stores/nav.svelte'
   import { goTo } from '../lib/stores/router.svelte'
   import { PAGE_SECTIONS, docsURL } from '../lib/routes'
@@ -484,7 +485,7 @@
       detail = null
       if (activeSection !== 'overview') await loadSection(activeSection, true)
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : 'Kill failed')
+      toastErrorFrom(e, 'kill the query')
     } finally {
       killing = false
     }
@@ -509,7 +510,7 @@
       lastUpdated = new Date()
       error = null
     } catch (e: unknown) {
-      error = e instanceof Error ? e.message : 'Failed to load cluster health'
+      error = errorText(e)
     } finally {
       loading = false
       refreshing = false
@@ -555,9 +556,8 @@
         sectionError = null
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Failed to load section'
-      if (loadedSection === section) sectionError = msg
-      if (!background) toastError(msg)
+      if (loadedSection === section) sectionError = errorText(e)
+      if (!background) toastErrorFrom(e)
     } finally {
       if (loadedSection === section) sectionLoading = false
     }
@@ -597,7 +597,7 @@
       showSettings = false
       await loadSummary()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : 'Failed to save settings')
+      toastErrorFrom(e, 'save settings')
     } finally {
       savingSettings = false
     }

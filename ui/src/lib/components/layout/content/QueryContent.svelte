@@ -50,11 +50,12 @@
   import { executeStreamQuery } from '../../../api/stream'
   import { apiPost, apiPut } from '../../../api/client'
   import { getMaxResultRows } from '../../../stores/query-limit.svelte'
-  import { error as toastError, success as toastSuccess, info as toastInfo, warning as toastWarning } from '../../../stores/toast.svelte'
+  import { error as toastError, errorFrom as toastErrorFrom, success as toastSuccess, info as toastInfo, warning as toastWarning } from '../../../stores/toast.svelte'
   import { budgetWarningText } from '../../brain/brain-budget'
   import { detectQueryParams, isParamValueMissing, paramDefaultsToSave } from '../../../utils/query-params'
   import { firstKeyword, splitStatements, statementAt } from '../../../editor/statements'
   import { parseCHError, byteToCharOffset } from '../../../utils/ch-error'
+  import { errorText } from '../../../utils/errors'
   import { isProActive, loadLicense } from '../../../stores/license.svelte'
   import { getSession } from '../../../stores/session.svelte'
   import { openQueryTab, openSavedQueryTab } from '../../../stores/tabs.svelte'
@@ -670,8 +671,8 @@
       if (res.budget) toastWarning(budgetWarningText(res.budget))
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === 'AbortError') return
-      let message = e instanceof Error ? e.message : 'Failed to fix the query'
-      if (/no active ai model/i.test(message)) message = 'No AI provider configured. Add one in Admin > Brain.'
+      const raw = e instanceof Error ? e.message : ''
+      const message = /no active ai model/i.test(raw) ? 'No AI provider configured. Add one in Admin > Brain.' : errorText(e, 'fix the query')
       if (fixController === controller) fixError = message
     } finally {
       if (fixController === controller) {
@@ -740,7 +741,7 @@
       downloadBlob(blob, filename)
       toastSuccess(`Exported ${filename}`)
     } catch (e) {
-      if (!controller.signal.aborted) toastError(errorMessage(e))
+      if (!controller.signal.aborted) toastErrorFrom(e, 'export the result')
     } finally {
       if (exportJob?.controller === controller) exportJob = null
     }
@@ -771,7 +772,7 @@
         if (res.comments_dropped) toastInfo('ClickHouse formatting removes comments. Undo (Cmd/Ctrl+Z) brings them back.')
       }
     } catch (e) {
-      toastError(errorMessage(e))
+      toastErrorFrom(e, 'format the query')
     } finally {
       formatting = false
     }
@@ -904,7 +905,7 @@
     } catch (e) {
       const current = savedQueryConflict(e)
       if (current) saveConflict = current
-      else toastError(errorMessage(e))
+      else toastErrorFrom(e, 'update the saved query')
     } finally {
       saving = false
     }
@@ -949,7 +950,7 @@
       toastSuccess('Query saved')
       showSaveModal = false
     } catch (e) {
-      toastError(errorMessage(e))
+      toastErrorFrom(e, 'save the query')
     } finally {
       saving = false
     }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { onMount } from 'svelte'
   import type { BrainModelOption, BrainProviderAdmin, BrainSkill } from '../../types/brain'
   import {
@@ -15,7 +16,7 @@
     adminUpdateBrainProvider,
     adminUpdateBrainSkill,
   } from '../../api/brain'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Spinner from '../common/Spinner.svelte'
   import Sheet from '../common/Sheet.svelte'
   import HelpTip from '../common/HelpTip.svelte'
@@ -106,7 +107,7 @@
         skillForm = { name: active.name, content: active.content, isActive: active.is_active, isDefault: active.is_default }
       }
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }
@@ -133,7 +134,7 @@
       closeProviderSheet()
       await loadAll()
     } catch (e) {
-      providerError = e instanceof Error && e.message ? e.message : 'Failed to create provider'
+      providerError = errorText(e)
     } finally {
       providerCreating = false
     }
@@ -148,7 +149,7 @@
       toastSuccess('Provider updated')
       await loadAll()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -158,7 +159,7 @@
       toastSuccess(`Synced models for ${provider.name}. Recommended model auto-selected.`)
       await loadAll()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -171,7 +172,7 @@
       toastSuccess('Provider deleted')
       await loadAll()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -209,7 +210,7 @@
       addModelProvider = null
       await loadAll()
     } catch (e) {
-      addModelError = e instanceof Error && e.message ? e.message : 'Failed to add model'
+      addModelError = errorText(e)
     } finally {
       addingModel = false
     }
@@ -226,7 +227,7 @@
       toastSuccess('Model updated')
       await loadAll()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -258,7 +259,7 @@
       if (action === 'activate_recommended') toastSuccess('Recommended model activated and set as default')
       await loadAll()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -284,7 +285,7 @@
       skillSheetOpen = false
       await loadAll()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 

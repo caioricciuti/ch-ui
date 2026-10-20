@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from './lib/utils/errors'
   import { onMount, untrack, type Component } from 'svelte'
   import { initSession, isAuthenticated, isInitializing } from './lib/stores/session.svelte'
   import { initRouter } from './lib/stores/router.svelte'
@@ -35,7 +36,7 @@
   let oauthRequestId = $state(getOAuthRequestId())
 
   function reportLoadError(e: unknown): void {
-    loadError = e instanceof Error ? e.message : 'Failed to load the app'
+    loadError = errorText(e)
   }
 
   onMount(() => {

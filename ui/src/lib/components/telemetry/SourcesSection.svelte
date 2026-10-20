@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { Plus, ScanSearch, Activity, Pencil, Trash2 } from 'lucide-svelte'
   import PageBody from '../common/PageBody.svelte'
   import SectionHeader from '../common/SectionHeader.svelte'
@@ -11,7 +12,7 @@
   import DetectSourcesSheet from './DetectSourcesSheet.svelte'
   import { createSource, updateSource, deleteSource, detectSources, testSource } from '../../api/telemetry'
   import type { TelemetrySource, SourceInput, SourceTestResult } from '../../types/telemetry'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { getSession } from '../../stores/session.svelte'
   import { formatRelativeTime, formatDate } from '../../utils/format'
 
@@ -35,7 +36,7 @@
       const r: SourceTestResult = await testSource(s.id)
       tests = { ...tests, [s.id]: { ok: r.ok, missing: r.missing ?? [], error: r.error, latest: r.latest, rows: r.row_count_1h, json: hasJsonAttributes(s, r.columns ?? {}) } }
     } catch (e: unknown) {
-      tests = { ...tests, [s.id]: { ok: false, missing: [], error: e instanceof Error ? e.message : String(e), latest: null, rows: 0, json: false } }
+      tests = { ...tests, [s.id]: { ok: false, missing: [], error: errorText(e), latest: null, rows: 0, json: false } }
     }
   }
 
@@ -115,7 +116,7 @@
       tests = {}
       await onreload()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       saving = false
     }
@@ -134,7 +135,7 @@
     try {
       proposals = await detectSources()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       detecting = false
     }
@@ -157,7 +158,7 @@
       tests = {}
       await onreload()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       adding = false
     }
@@ -176,7 +177,7 @@
       deleting = null
       await onreload()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       deleteLoading = false
     }

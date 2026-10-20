@@ -3,7 +3,7 @@
   import type { Dashboard, DashboardVariable, Panel } from '../../types/api'
   import { apiPost, apiPut } from '../../api/client'
   import { duplicateDashboard, type DashboardDetail } from '../../api/dashboards'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Sheet from '../common/Sheet.svelte'
   import Button from '../common/Button.svelte'
   import Tabs from '../common/Tabs.svelte'
@@ -186,7 +186,7 @@
       tab = 'json'
       toastSuccess('File loaded. Review it and click Apply to import.')
     } catch (e: unknown) {
-      toastError('Failed to read file: ' + (e instanceof Error ? e.message : String(e)))
+      toastErrorFrom(e, 'read the file')
     } finally {
       importing = false
       if (fileInput) fileInput.value = ''
@@ -212,7 +212,7 @@
       toastSuccess('Dashboard updated')
       onimported(updated, panels)
     } catch (e: unknown) {
-      toastError('Failed to save: ' + (e instanceof Error ? e.message : String(e)))
+      toastErrorFrom(e, 'save the dashboard')
     } finally {
       savingGeneral = false
     }
@@ -225,7 +225,7 @@
       toastSuccess(`Duplicated as "${detail.dashboard.name}"`)
       onduplicated(detail)
     } catch (e: unknown) {
-      toastError('Failed to duplicate: ' + (e instanceof Error ? e.message : String(e)))
+      toastErrorFrom(e, 'duplicate the dashboard')
     } finally {
       duplicating = false
     }

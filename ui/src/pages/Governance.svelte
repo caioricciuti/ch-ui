@@ -44,7 +44,7 @@
 	import SqlAlertsSection from '../lib/components/governance/SqlAlertsSection.svelte';
 	import AuditLogSection from '../lib/components/governance/AuditLogSection.svelte';
 	import SettingsSection from '../lib/components/governance/SettingsSection.svelte';
-	import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte';
+	import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte';
 	import {
 		fetchOverview,
 		fetchDatabases,
@@ -278,7 +278,7 @@
 		try {
 			govSettings = await fetchGovernanceSettings();
 		} catch (err: unknown) {
-			toastError('Failed to load governance settings: ' + (err instanceof Error ? err.message : String(err)));
+			toastErrorFrom(err, 'load governance settings');
 		}
 	}
 
@@ -289,7 +289,7 @@
 			if (payload.sync_enabled === true) toastSuccess('Governance sync enabled');
 			if (payload.sync_enabled === false) toastSuccess('Governance sync disabled');
 		} catch (err: unknown) {
-			toastError('Failed to update governance settings: ' + (err instanceof Error ? err.message : String(err)));
+			toastErrorFrom(err, 'update governance settings');
 		} finally {
 			govToggleSaving = false;
 		}
@@ -304,7 +304,7 @@
 		try {
 			overview = await fetchOverview();
 		} catch (err: unknown) {
-			toastError('Failed to load dashboard: ' + (err instanceof Error ? err.message : String(err)));
+			toastErrorFrom(err, 'load dashboard');
 		} finally {
 			loading = false;
 		}
@@ -320,7 +320,7 @@
 			databases = dbsRes?.databases ?? [];
 			tables = tablesRes?.tables ?? [];
 		} catch (err: unknown) {
-			toastError('Failed to load tables: ' + (err instanceof Error ? err.message : String(err)));
+			toastErrorFrom(err, 'load tables');
 		} finally {
 			loading = false;
 		}
@@ -336,7 +336,7 @@
 			const logRes = await fetchQueryLog({ user: queryUserFilter || undefined, limit: queryLimit });
 			queryLog = logRes?.entries ?? [];
 		} catch (err: unknown) {
-			toastError('Failed to load query audit: ' + (err instanceof Error ? err.message : String(err)));
+			toastErrorFrom(err, 'load query audit');
 		} finally {
 			loading = false;
 		}
@@ -357,7 +357,7 @@
 				loadDashboard();
 			}, 2000);
 		} catch (err: unknown) {
-			toastError('Failed to start sync: ' + (err instanceof Error ? err.message : String(err)));
+			toastErrorFrom(err, 'start sync');
 		} finally {
 			syncing = false;
 		}
@@ -382,7 +382,7 @@
 			tableNotes = notesRes?.notes ?? [];
 		} catch (err: unknown) {
 			if (seq !== tableDetailSeq) return;
-			toastError('Failed to load table details: ' + (err instanceof Error ? err.message : String(err)));
+			toastErrorFrom(err, 'load table details');
 		} finally {
 			if (seq === tableDetailSeq) tableDetailLoading = false;
 		}
@@ -409,7 +409,7 @@
 			tableNotes = notesRes?.notes ?? [];
 			toastSuccess('Table note added');
 		} catch (err: unknown) {
-			toastError('Failed to add table note: ' + (err instanceof Error ? err.message : String(err)));
+			toastErrorFrom(err, 'add table note');
 		}
 	}
 
@@ -427,7 +427,7 @@
 			tableNotes = notesRes?.notes ?? [];
 			toastSuccess('Note deleted');
 		} catch (err: unknown) {
-			toastError('Failed to delete note: ' + (err instanceof Error ? err.message : String(err)));
+			toastErrorFrom(err, 'delete note');
 		}
 	}
 

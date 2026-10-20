@@ -9,7 +9,7 @@
   import { getSession } from '../lib/stores/session.svelte'
   import { PAGE_SECTIONS, docsURL } from '../lib/routes'
   import { formatDate, formatRelativeTime } from '../lib/utils/format'
-  import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
   import Button from '../lib/components/common/Button.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
   import Input from '../lib/components/common/Input.svelte'
@@ -61,7 +61,7 @@
       folders = f
       if (selectedFolder && !f.some((x) => x.id === selectedFolder)) selectedFolder = null
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }
@@ -228,7 +228,7 @@
       }
       subscribeOpen = true
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -238,7 +238,7 @@
       toastSuccess(`Duplicated as "${copy.name}", visible only to you`)
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -250,7 +250,7 @@
       toastSuccess(q.verified ? 'Verified mark removed' : 'Marked as verified')
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -269,7 +269,7 @@
       toastSuccess(folderId ? `Moved to ${folderLabel(folders, folderId)}` : 'Moved to the root')
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -315,7 +315,7 @@
       deleting = null
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       deleteSaving = false
     }
@@ -341,7 +341,7 @@
       await loadAll()
       selectedFolder = f.id
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       folderSaving = false
     }
@@ -361,7 +361,7 @@
       renamingFolder = null
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       folderSaving = false
     }
@@ -391,7 +391,7 @@
       toastSuccess(moved > 0 ? `Folder deleted, ${plural(moved, 'query', 'queries')} moved to the root` : 'Folder deleted')
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       folderSaving = false
     }

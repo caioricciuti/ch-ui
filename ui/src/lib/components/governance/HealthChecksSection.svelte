@@ -1,9 +1,10 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { onMount } from 'svelte'
   import { getSession } from '../../stores/session.svelte'
   import { goTo } from '../../stores/router.svelte'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { fetchAlertEvaluations, fetchHealthSettings, fetchHealthStates, saveHealthSettings } from '../../api/alerting'
   import { createAck, deleteAck, listFiring } from '../../api/alerts'
   import type {
@@ -138,7 +139,7 @@
       collectionEnabled = s.collection_enabled
       states = st
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
       refreshing = false
@@ -150,7 +151,7 @@
     try {
       firing = await listFiring()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -173,7 +174,7 @@
       ackTarget = null
       await loadFiring()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       ackSaving = false
     }
@@ -186,7 +187,7 @@
       toastSuccess('Acknowledgement removed')
       await loadFiring()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       unacking = null
     }
@@ -207,7 +208,7 @@
       const evs = await fetchAlertEvaluations('health', kind)
       if (seq === detailSeq) evaluations = evs
     } catch (e: unknown) {
-      if (seq === detailSeq) toastError(e instanceof Error ? e.message : String(e))
+      if (seq === detailSeq) toastErrorFrom(e)
     } finally {
       if (seq === detailSeq) evaluationsLoading = false
     }
@@ -287,7 +288,7 @@
       editing = false
       toastSuccess(`${HEALTH_CHECK_LABELS[sel.check_kind]} updated`)
     } catch (e: unknown) {
-      saveError = e instanceof Error ? e.message : String(e)
+      saveError = errorText(e)
     } finally {
       saving = false
     }

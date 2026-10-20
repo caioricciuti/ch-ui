@@ -1,5 +1,6 @@
 import { ApiError } from '../../api/client'
 import type { Connection, Session } from '../../types/api'
+import { errorText } from '../../utils/errors'
 
 export interface SwitchTarget {
   connection: Connection
@@ -31,7 +32,7 @@ function bodyField(e: ApiError, field: string): unknown {
 /** What the switcher shows for a failed switch. */
 export function switchErrorView(e: unknown): SwitchErrorView {
   if (!(e instanceof ApiError)) {
-    return { message: e instanceof Error && e.message ? e.message : 'Switch failed', needsPassword: false }
+    return { message: e instanceof Error && e.message ? errorText(e) : 'Could not switch the connection. Try again.', needsPassword: false }
   }
   if (e.status === 401) {
     // The server only reuses the current password on the same ClickHouse
@@ -49,5 +50,5 @@ export function switchErrorView(e: unknown): SwitchErrorView {
     return { message: 'Your session changed in another tab. Reload and try again.', needsPassword: false }
   }
   const message = bodyField(e, 'message')
-  return { message: typeof message === 'string' && message ? message : e.message, needsPassword: false }
+  return { message: typeof message === 'string' && message ? message : errorText(e), needsPassword: false }
 }

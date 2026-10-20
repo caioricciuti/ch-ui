@@ -1,10 +1,11 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../lib/utils/errors'
   import { onMount } from 'svelte'
   import type { CostsRange, CostsResult, CostsConfig } from '../lib/api/costs'
   import { fetchCosts, getCostsConfig, saveCostsConfig } from '../lib/api/costs'
   import { openQueryTab } from '../lib/stores/tabs.svelte'
-  import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
   import { formatNumber, formatBytes } from '../lib/utils/format'
   import { chartColor, tokenColor, withAlpha } from '../lib/utils/chart-transform'
   import { getTheme } from '../lib/stores/theme.svelte'
@@ -287,7 +288,7 @@
       if (activeSection === 'queries') void loadQueries(seq)
     } catch (e: unknown) {
       if (seq !== loadSeq) return
-      error = e instanceof Error ? e.message : String(e)
+      error = errorText(e)
     } finally {
       if (seq === loadSeq) {
         loading = false
@@ -304,7 +305,7 @@
       queriesResult = res
     } catch (e: unknown) {
       if (seq !== loadSeq) return
-      toastError('Failed to load cost drivers: ' + (e instanceof Error ? e.message : String(e)))
+      toastErrorFrom(e, 'load cost drivers')
     } finally {
       if (seq === loadSeq) queriesLoading = false
     }
@@ -395,7 +396,7 @@
       toastSuccess('Cost model saved')
       void loadAll(true)
     } catch (e: unknown) {
-      toastError('Failed to save: ' + (e instanceof Error ? e.message : String(e)))
+      toastErrorFrom(e, 'save the cost model')
     } finally {
       saving = false
     }

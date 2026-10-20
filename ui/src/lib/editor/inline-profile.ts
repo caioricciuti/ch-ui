@@ -4,6 +4,7 @@
 // started last may land, and only that load may move the spinner.
 
 import type { QueryProfileResult } from '../types/query'
+import { errorText } from '../utils/errors'
 
 export interface InlineProfileState {
   profile: Record<string, unknown> | null
@@ -48,7 +49,7 @@ export function createInlineProfileLoader(
         update({ available: !!res.available, profile: res.profile ?? null, reason: res.reason ?? null })
       } catch (e) {
         if (id !== latest) return
-        update({ available: false, profile: null, error: e instanceof Error ? e.message : String(e) })
+        update({ available: false, profile: null, error: errorText(e) })
       } finally {
         if (id === latest) update({ loading: false })
       }

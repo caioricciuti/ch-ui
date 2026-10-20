@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { untrack } from 'svelte'
   import Sheet from '../common/Sheet.svelte'
   import Button from '../common/Button.svelte'
@@ -223,7 +224,7 @@
       toastSuccess(report ? 'Report saved' : 'Report created')
       onsaved(saved)
     } catch (e: unknown) {
-      error = e instanceof Error ? e.message : String(e)
+      error = errorText(e)
     } finally {
       saving = false
     }

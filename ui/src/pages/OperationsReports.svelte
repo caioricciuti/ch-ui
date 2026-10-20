@@ -3,7 +3,8 @@
   import { onMount } from 'svelte'
   import { FileText, RefreshCw, Send, Download, AlertTriangle } from 'lucide-svelte'
   import { getReports, getReportSettings, getReportChannels, saveReportSettings, generateReport, sendReport, type ReportSettings, type OperationsReport } from '../lib/api/operationsReports'
-  import { success, error as toastError } from '../lib/stores/toast.svelte'
+  import { success, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
+  import { errorText } from '../lib/utils/errors'
   import { getSession } from '../lib/stores/session.svelte'
   import { goTo } from '../lib/stores/router.svelte'
   import { setSection } from '../lib/stores/nav.svelte'
@@ -60,20 +61,19 @@
   const deliveryTone = (status: string): 'neutral' | 'success' | 'warning' | 'danger' | 'info' =>
     status === 'sent' ? 'success' : status === 'failed' ? 'danger' : ['queued', 'retry', 'sending'].includes(status) ? 'info' : 'neutral'
 
-  function errorMessage(e: unknown) { return e instanceof Error ? e.message : 'Request failed' }
   async function load() {
     loading = true; loadError = ''
     try {
       const [r, s, c] = await Promise.all([getReports(), getReportSettings(), getReportChannels()])
       reports = r.reports; settings = s; channels = c.channels
-    } catch (e) { loadError = errorMessage(e) }
+    } catch (e) { loadError = errorText(e) }
     finally { loading = false }
   }
   onMount(() => { if (admin) void load(); else loading = false })
   async function generate() {
     if (busy) return; busy = true
     try { const report = await generateReport(); reports = [report, ...reports]; selectedID = report.id; success('Report saved') }
-    catch (e) { toastError(errorMessage(e)) } finally { busy = false }
+    catch (e) { toastErrorFrom(e, 'generate the report') } finally { busy = false }
   }
   function openEdit() {
     if (!settings) return
@@ -86,12 +86,12 @@
       settings = await saveReportSettings({ ...settings, enabled: draft.enabled, channel_id: draft.channel_id, weekday: Number(draft.weekday), hour: Number(draft.hour), recipients: draft.recipients.split(',').map((v) => v.trim()).filter(Boolean) })
       editOpen = false
       success('Report settings saved')
-    } catch (e) { toastError(errorMessage(e)) } finally { busy = false }
+    } catch (e) { toastErrorFrom(e, 'save the report settings') } finally { busy = false }
   }
   async function send() {
     if (!selected || busy) return; busy = true
     try { await sendReport(selected.id); success('Report queued for delivery'); reports = (await getReports()).reports }
-    catch (e) { toastError(errorMessage(e)) } finally { busy = false }
+    catch (e) { toastErrorFrom(e, 'send the report') } finally { busy = false }
   }
   function download() {
     if (!selected) return

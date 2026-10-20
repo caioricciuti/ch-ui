@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { onMount, untrack } from 'svelte'
   import { RefreshCw, Plus, Gauge } from 'lucide-svelte'
   import Button from '../common/Button.svelte'
@@ -193,7 +194,7 @@
     />
   {:else}
   {#if error}
-    <div class="shrink-0 border-b border-edge-subtle bg-danger-soft px-5 py-1.5 text-xs text-danger">{error}</div>
+    <div class="shrink-0 border-b border-edge-subtle bg-danger-soft px-5 py-1.5 text-xs text-danger">{errorText(error)}</div>
   {/if}
 
   <PageBody width="lg">

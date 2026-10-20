@@ -5,7 +5,7 @@
   import type { IncrementalStrategy, Materialization, ModelEditState, ModelRunResult, RunScope } from '../../../types/models'
   import * as api from '../../../api/models'
   import { refreshModelCache } from '../../../editor/completions'
-  import { success as toastSuccess, error as toastError } from '../../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../../stores/toast.svelte'
   import SqlEditor from '../../editor/SqlEditor.svelte'
   import Input from '../../common/Input.svelte'
   import Select, { type SelectOption } from '../../common/Select.svelte'
@@ -194,7 +194,7 @@
       toastSuccess('Model saved')
       return true
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to save model')
+      toastErrorFrom(e, 'save the model')
       return false
     } finally {
       saving = false
@@ -221,7 +221,7 @@
         toastError(runResult?.error || res.error || 'Model run failed')
       }
     } catch (e: unknown) {
-      toastError((e instanceof Error ? e.message : '') || 'Failed to run model')
+      toastErrorFrom(e, 'run the model')
     } finally {
       running = false
     }

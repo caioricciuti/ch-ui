@@ -20,6 +20,7 @@
   import {
     success as toastSuccess,
     error as toastError,
+    errorFrom as toastErrorFrom,
   } from "../../stores/toast.svelte";
   import Spinner from "../common/Spinner.svelte";
   import Sheet from "../common/Sheet.svelte";
@@ -507,7 +508,7 @@
         columns.map((c) => (plain.test(c.name) ? c.name : quoteIdent(c.name))).join(", "),
       );
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e));
+      toastErrorFrom(e);
       closeMenu();
     }
   }
@@ -771,7 +772,7 @@
       );
       toastSuccess("Schema discovered");
     } catch (e: any) {
-      toastError(e.message);
+      toastErrorFrom(e);
     } finally {
       uploadDiscovering = false;
     }
@@ -945,7 +946,7 @@
       await loadTables(name);
       selectDatabase(name);
     } catch (e: any) {
-      toastError(e.message);
+      toastErrorFrom(e);
     } finally {
       createDatabaseSubmitting = false;
     }
@@ -1100,7 +1101,7 @@
       deleteDatabaseSheetOpen = false;
       await reloadDatabases();
     } catch (e: any) {
-      toastError(e.message);
+      toastErrorFrom(e);
     } finally {
       deleteDatabaseSubmitting = false;
     }
@@ -1126,7 +1127,7 @@
       deleteTableSheetOpen = false;
       await loadTables(deleteTableForm.database);
     } catch (e: any) {
-      toastError(e.message);
+      toastErrorFrom(e);
     } finally {
       deleteTableSubmitting = false;
     }

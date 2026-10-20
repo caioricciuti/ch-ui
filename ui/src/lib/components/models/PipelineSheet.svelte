@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import type { ModelPipeline, PipelineInput } from '../../types/models'
   import * as api from '../../api/models'
   import { formatDate } from '../../utils/format'
@@ -112,7 +113,7 @@
       onclose()
       await onsaved()
     } catch (e: unknown) {
-      formError = (e instanceof Error ? e.message : '') || 'Failed to save pipeline'
+      formError = errorText(e)
     } finally {
       saving = false
     }

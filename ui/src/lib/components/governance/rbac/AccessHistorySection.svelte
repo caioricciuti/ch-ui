@@ -1,11 +1,12 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../../../utils/errors'
   import { onMount } from 'svelte'
   import { History, RefreshCw } from 'lucide-svelte'
   import type { RbacHistoryRow } from '../../../types/rbac'
   import { fetchRbacHistory, takeRbacSnapshot } from '../../../api/rbac'
   import { isProActive } from '../../../stores/license.svelte'
-  import { success as toastSuccess, error as toastError } from '../../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../../stores/toast.svelte'
   import { formatDate } from '../../../utils/format'
   import { driftLabel, driftTone, sourceLabel, sourceTone, summaryText } from './history'
   import Select from '../../common/Select.svelte'
@@ -45,7 +46,7 @@
       rows = page.snapshots
       nextCursor = page.next_cursor
     } catch (err: unknown) {
-      loadError = err instanceof Error ? err.message : String(err)
+      loadError = errorText(err)
     } finally {
       loading = false
     }
@@ -59,7 +60,7 @@
       rows = [...rows, ...page.snapshots]
       nextCursor = page.next_cursor
     } catch (err: unknown) {
-      toastError(err instanceof Error ? err.message : String(err))
+      toastErrorFrom(err)
     } finally {
       loadingMore = false
     }
@@ -72,7 +73,7 @@
       toastSuccess(res.created ? 'Snapshot stored' : 'No change since the last snapshot')
       await load()
     } catch (err: unknown) {
-      toastError(err instanceof Error ? err.message : String(err))
+      toastErrorFrom(err)
     } finally {
       taking = false
     }

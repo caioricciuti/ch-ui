@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import type { Dashboard, DashboardFolder, PanelConfig } from '../../types/api'
   import { listDashboards, listDashboardFolders, createDashboard, createPanel, folderPath } from '../../api/dashboards'
   import { pushDashboardDetail } from '../../stores/router.svelte'
@@ -76,7 +77,7 @@
       dashboards = d
       folders = f
     } catch (e: unknown) {
-      formError = e instanceof Error ? e.message : String(e)
+      formError = errorText(e)
     } finally {
       loading = false
     }
@@ -126,7 +127,7 @@
         : (dashboards.find((d) => d.id === dashboardId) ?? null)
       if (!target) throw new Error('Dashboard not found')
     } catch (e: unknown) {
-      formError = e instanceof Error ? e.message : String(e)
+      formError = errorText(e)
       saving = false
       return
     }
@@ -146,7 +147,7 @@
       toastSuccess(`Added to ${target.name}`, { action: { label: 'Open dashboard', onClick: () => pushDashboardDetail(id) } })
       onclose()
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e)
+      const message = errorText(e)
       if (isNew) {
         // Keep the new dashboard: list it, select it, and offer a link, so a
         // retry adds the panel there instead of creating a second one.

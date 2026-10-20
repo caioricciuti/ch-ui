@@ -13,7 +13,7 @@
   } from '../../api/governance'
   import { listDatabases, listTables, listColumns } from '../../api/query'
   import { formatDate } from '../../utils/format'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Tabs from '../common/Tabs.svelte'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
@@ -88,7 +88,7 @@
       policies = p?.policies ?? []
       violations = v?.violations ?? []
     } catch (err: unknown) {
-      toastError('Failed to load policies: ' + (err instanceof Error ? err.message : String(err)))
+      toastErrorFrom(err, 'load policies')
     } finally {
       loading = false
     }
@@ -280,7 +280,7 @@
       closePolicyForm()
       await load()
     } catch (err: unknown) {
-      toastError('Failed to save policy: ' + (err instanceof Error ? err.message : String(err)))
+      toastErrorFrom(err, 'save the policy')
     } finally {
       saving = false
     }
@@ -305,7 +305,7 @@
       cancelDelete()
       await load()
     } catch (err: unknown) {
-      toastError('Failed to delete policy: ' + (err instanceof Error ? err.message : String(err)))
+      toastErrorFrom(err, 'delete the policy')
     } finally {
       deleting = false
     }
@@ -316,7 +316,7 @@
       const res = await promoteViolationToIncident(violation.id)
       toastSuccess(res?.created ? 'Incident created from violation' : 'Existing incident updated')
     } catch (err: unknown) {
-      toastError('Failed to promote violation: ' + (err instanceof Error ? err.message : String(err)))
+      toastErrorFrom(err, 'promote the violation')
     }
   }
 

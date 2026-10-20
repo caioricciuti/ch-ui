@@ -2,7 +2,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { getSession } from '../../stores/session.svelte'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { listSilences, createSilence, updateSilence, expireSilence } from '../../api/alerts'
   import { fetchSqlAlerts } from '../../api/alerting'
   import { listConnections } from '../../api/auth'
@@ -110,7 +110,7 @@
       connections = c
       sqlAlerts = a
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
       refreshing = false
@@ -203,7 +203,7 @@
       sheetOpen = false
       await load()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       saving = false
     }
@@ -219,7 +219,7 @@
       expiring = null
       await load()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       expireBusy = false
     }
