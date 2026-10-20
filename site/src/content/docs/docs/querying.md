@@ -5,6 +5,8 @@ description: Multi-tab SQL editor with streaming results, result filtering & sor
 
 CH-UI provides a ClickHouse-first SQL workspace with a multi-tab editor, schema explorer, autocomplete, query streaming, result filtering and sorting, automatic query history, error navigation, data upload, and saved queries.
 
+New to CH-UI? [Run your first query](/docs/guides/first-query) walks through sign-in, running and saving in a few steps.
+
 ## Overview
 
 The rail on the left groups the product into six areas:

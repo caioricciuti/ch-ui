@@ -22,6 +22,7 @@
   import PageHeader from '../lib/components/common/PageHeader.svelte'
   import Badge from '../lib/components/common/Badge.svelte'
   import EmptyState from '../lib/components/common/EmptyState.svelte'
+  import GuideLink from '../lib/components/common/GuideLink.svelte'
   import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
   import FolderTree from '../lib/components/common/FolderTree.svelte'
   import SavedQuerySheet from '../lib/components/saved/SavedQuerySheet.svelte'
@@ -421,7 +422,9 @@
       title="No saved queries yet"
       description="Save a query from the SQL editor and it will show up here. Folders keep them organized as the list grows."
       primary={{ label: 'Open the editor', onclick: () => openQueryTab() }}
-    />
+    >
+      <GuideLink guide="first-query" label="How to save a query" />
+    </EmptyState>
   {:else}
     <div class="flex min-h-0 flex-1">
       <FolderTree

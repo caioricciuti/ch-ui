@@ -11,6 +11,7 @@
   import Panel from '../common/Panel.svelte'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
+  import GuideLink from '../common/GuideLink.svelte'
   import { getSession } from '../../stores/session.svelte'
   import { goTo } from '../../stores/router.svelte'
   import { setSection } from '../../stores/nav.svelte'
@@ -21,6 +22,7 @@
   import { adminListBrainProviders } from '../../api/brain'
   import { listMCPKeys } from '../../api/mcp'
   import { apiGet } from '../../api/client'
+  import type { Guide } from '../../routes'
 
   /** `created_by` of the dashboard the server seeds on first start. */
   const SYSTEM_CREATED_BY = 'system'
@@ -34,6 +36,8 @@
     action: string
     run: () => void
     adminOnly?: boolean
+    /** The ch-ui.com guide that walks through this step. */
+    guide?: Guide
   }
 
   const session = $derived(getSession())
@@ -59,6 +63,7 @@
       description: 'Open a query tab and run any SELECT. It lands in your history.',
       action: 'New query',
       run: () => openQueryTab('SELECT version() AS version, uptime() AS uptime_seconds'),
+      guide: 'first-query',
     },
     {
       id: 'save',
@@ -66,6 +71,7 @@
       description: 'Save one you will run again. Saved queries feed dashboards, schedules and alerts.',
       action: 'New query',
       run: () => openQueryTab(),
+      guide: 'first-query',
     },
     {
       id: 'dashboard',
@@ -73,6 +79,7 @@
       description: 'Put a saved query on a panel.',
       action: 'Open dashboards',
       run: () => goTo('dashboards'),
+      guide: 'first-dashboard',
     },
     {
       id: 'provider',
@@ -89,6 +96,7 @@
       action: 'Open MCP Server',
       run: () => openAdmin('mcp'),
       adminOnly: true,
+      guide: 'connect-claude-code',
     },
     {
       id: 'teammate',
@@ -97,6 +105,7 @@
       action: 'Open users',
       run: () => openAdmin('users'),
       adminOnly: true,
+      guide: 'invite-teammate',
     },
   ]
 
@@ -201,7 +210,12 @@
           {/if}
           <div class="min-w-0 flex-1">
             <p class="text-[13px] font-medium {isDone ? 'text-fg-3' : 'text-fg'}">{step.title}</p>
-            {#if !isDone}<p class="text-xs text-fg-3">{step.description}</p>{/if}
+            {#if !isDone}
+              <p class="text-xs text-fg-3">
+                {step.description}
+                {#if step.guide}<GuideLink guide={step.guide} label="Guide" class="ml-1" />{/if}
+              </p>
+            {/if}
           </div>
           {#if isDone}
             <Badge tone="success">Done</Badge>

@@ -13,6 +13,8 @@ reads them with no extra setup.
 Ingest is part of the open-source core: an ingest source is a
 [pipeline](/docs/pipelines) source, and pipelines are free.
 
+Just want logs flowing? [Ship logs](/docs/guides/ship-logs) is the one-step setup from the Telemetry page.
+
 ## How it works
 
 The quickest way to receive logs or traces: open **Telemetry**, click **Send

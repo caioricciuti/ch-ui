@@ -25,6 +25,7 @@
   import PageHeader from '../lib/components/common/PageHeader.svelte'
   import PageBody from '../lib/components/common/PageBody.svelte'
   import SectionHeader from '../lib/components/common/SectionHeader.svelte'
+  import GuideLink from '../lib/components/common/GuideLink.svelte'
   import GettingStarted from '../lib/components/home/GettingStarted.svelte'
   import type { Tab } from '../lib/stores/tabs.svelte'
 
@@ -320,6 +321,7 @@ LIMIT 20`,
                 </button>
               {/each}
             </div>
+            <p class="text-center"><GuideLink guide="first-query" label="Step by step: run and save your first query" /></p>
             {#if isAdmin}
               <div class="flex flex-wrap items-center justify-center gap-2">
                 <Button variant="outline" size="sm" onclick={() => openAdminSection('tunnels')}>
