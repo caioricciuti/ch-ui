@@ -15,7 +15,8 @@
     type VariableValues,
   } from '../lib/utils/dashboard-variables'
   import DashboardBrowser from '../lib/components/dashboard/DashboardBrowser.svelte'
-  import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
+  import { errorText } from '../lib/utils/errors'
   import { toDashboardTimeRangePayload, dashboardRangeFromUrlParams, dashboardRangeToUrlParams } from '../lib/utils/dashboard-time'
   import { nextFreeRow } from '../lib/utils/grid-layout'
   import { getSession } from '../lib/stores/session.svelte'
@@ -158,7 +159,7 @@
       }
       subscribeOpen = true
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       subscribeLoading = false
     }
@@ -282,7 +283,7 @@
       toastSuccess('Dashboard deleted')
       goTo('dashboards', 'Dashboards')
     } catch (e: unknown) {
-      toastError(errorMessage(e))
+      toastErrorFrom(e, 'delete the dashboard')
     }
   }
 
@@ -307,8 +308,8 @@
       runAllPanelQueries(res.panels ?? [])
     } catch (e: unknown) {
       if (seq !== detailSeq) return
-      detailError = errorMessage(e)
-      toastError(errorMessage(e))
+      detailError = errorText(e, 'load the dashboard')
+      toastErrorFrom(e, 'load the dashboard')
     } finally {
       if (seq === detailSeq) detailLoading = false
     }
@@ -355,7 +356,7 @@
       await setDashboardStar(currentDashboard.id, next)
     } catch (e: unknown) {
       currentDashboard = { ...currentDashboard, starred: !next }
-      toastError(errorMessage(e))
+      toastErrorFrom(e, next ? 'star the dashboard' : 'unstar the dashboard')
     }
   }
 
@@ -430,7 +431,7 @@
       renameOpen = false
       toastSuccess('Dashboard renamed')
     } catch (e: unknown) {
-      toastError(errorMessage(e))
+      toastErrorFrom(e, 'rename the dashboard')
     } finally {
       renaming = false
     }
@@ -479,7 +480,7 @@
       }
       toastSuccess('Panel duplicated')
     } catch (e: unknown) {
-      toastError('Failed to duplicate: ' + errorMessage(e))
+      toastErrorFrom(e, 'duplicate the panel')
     }
   }
 
@@ -490,7 +491,7 @@
       panels = panels.filter(p => p.id !== panelId)
       toastSuccess('Panel deleted')
     } catch (e: unknown) {
-      toastError(errorMessage(e))
+      toastErrorFrom(e, 'delete the panel')
     }
   }
 
@@ -582,7 +583,8 @@
         try {
           await apiGet(`/api/dashboards/${encodeURIComponent(action.dashboardId)}`)
         } catch (e: unknown) {
-          toastError(e instanceof ApiError && e.status === 404 ? 'That dashboard no longer exists' : errorMessage(e))
+          if (e instanceof ApiError && e.status === 404) toastError('That dashboard no longer exists. Check the link on this panel.')
+          else toastErrorFrom(e, 'open the dashboard')
           return
         }
         pushDashboardDetail(action.dashboardId, action.search)

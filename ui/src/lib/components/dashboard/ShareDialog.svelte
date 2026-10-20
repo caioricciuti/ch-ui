@@ -1,6 +1,6 @@
 <script lang="ts">
   import { apiGet, apiPost, apiDel } from '../../api/client'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { withBase } from '../../basePath'
   import { formatDate } from '../../utils/format'
   import Button from '../common/Button.svelte'
@@ -60,7 +60,7 @@
       const res = await apiGet<{ shares: DashboardShare[] }>(`/api/dashboards/${dashboardId}/shares`)
       shares = res.shares ?? []
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : 'Failed to load shares')
+      toastErrorFrom(e, 'load shares')
     } finally {
       loading = false
     }
@@ -116,7 +116,7 @@
         newVisibility = 'public'
       }
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : 'Failed to create share')
+      toastErrorFrom(e, 'create share')
     } finally {
       creating = false
     }
@@ -132,7 +132,7 @@
       revokeTarget = null
       toastSuccess('Share link revoked')
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : 'Failed to revoke share')
+      toastErrorFrom(e, 'revoke share')
     } finally {
       revoking = false
     }
@@ -153,7 +153,7 @@
         toastSuccess(`${sentCount} invite(s) sent`)
       }
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : 'Failed to send invites')
+      toastErrorFrom(e, 'send invites')
     } finally {
       sendingInvites = { ...sendingInvites, [share.id]: false }
     }

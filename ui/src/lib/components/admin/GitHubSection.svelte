@@ -3,7 +3,7 @@
   import { onMount } from 'svelte'
   import { getGitHubIntegration, saveGitHubIntegration, deleteGitHubIntegration, testGitHubConnection, triggerGitHubSync, getGitHubSyncLogs } from '../../api/github'
   import type { GitHubIntegration, GitHubSyncLog } from '../../types/models'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { isProActive } from '../../stores/license.svelte'
   import { getSession } from '../../stores/session.svelte'
   import { goTo } from '../../stores/router.svelte'
@@ -57,7 +57,7 @@
       ghSyncLogs = logs
       resetForm()
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to load GitHub integration')
+      toastErrorFrom(e, 'load GitHub integration')
     } finally {
       ghLoading = false
     }
@@ -95,7 +95,7 @@
       editOpen = false
       await loadGitHubTab()
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to save')
+      toastErrorFrom(e, 'save the GitHub settings')
     } finally {
       ghSaving = false
     }
@@ -145,7 +145,7 @@
       resetForm()
       toastSuccess('GitHub integration removed')
     } catch (e: unknown) {
-      toastError((e as Error).message || 'Failed to remove')
+      toastErrorFrom(e, 'remove the GitHub integration')
     } finally {
       confirmRemoveOpen = false
     }

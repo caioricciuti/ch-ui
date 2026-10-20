@@ -7,7 +7,7 @@
   import type { LogRow } from '../../types/telemetry'
   import { logsContext, logsByTrace } from '../../api/telemetry'
   import LogTraceWaterfall from './LogTraceWaterfall.svelte'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { severityTone } from './severity'
   import { formatClock, formatFull, resolveRange } from './time'
 
@@ -58,7 +58,7 @@
           contextAnchor = res.anchor_index
         })
         .catch((e: unknown) => {
-          if (contextFor === key) toastError(e instanceof Error ? e.message : String(e))
+          if (contextFor === key) toastErrorFrom(e)
         })
         .finally(() => {
           if (contextFor === key) contextLoading = false
@@ -73,7 +73,7 @@
           if (traceFor === traceId) traceRows = rows
         })
         .catch((e: unknown) => {
-          if (traceFor === traceId) toastError(e instanceof Error ? e.message : String(e))
+          if (traceFor === traceId) toastErrorFrom(e)
         })
         .finally(() => {
           if (traceFor === traceId) traceLoading = false

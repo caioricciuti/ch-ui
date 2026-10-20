@@ -8,7 +8,7 @@
     revokeMCPKey,
     type MCPKey,
   } from '../../api/mcp'
-  import { success, error as toastError } from '../../stores/toast.svelte'
+  import { success, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { getSession } from '../../stores/session.svelte'
   import { DOCS_ORIGIN } from '../../routes'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
@@ -209,7 +209,7 @@
       const me = getSession()?.user
       if (!viewTouched && me && keys.some((k) => k.kind === 'oauth' && isLive(k) && k.subject === me)) view = 'oauth'
     } catch (e) {
-      toastError(e instanceof Error ? e.message : 'Failed to load MCP keys')
+      toastErrorFrom(e, 'load MCP keys')
     } finally {
       loading = false
     }
@@ -267,7 +267,7 @@
       success('Service key created')
       await load()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : 'Failed to create MCP key')
+      toastErrorFrom(e, 'create MCP key')
     } finally {
       creating = false
     }
@@ -282,7 +282,7 @@
       revokeTarget = null
       await load()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : 'Failed to revoke key')
+      toastErrorFrom(e, 'revoke key')
     } finally {
       revoking = false
     }
@@ -300,7 +300,7 @@
       rotateTarget = null
       await load()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : 'Failed to rotate key')
+      toastErrorFrom(e, 'rotate key')
     } finally {
       rotating = false
     }

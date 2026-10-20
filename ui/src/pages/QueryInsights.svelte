@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../lib/utils/errors'
   import { onMount } from 'svelte'
   import type { InsightsRange, InsightsSection, InsightsResult, InsightsFilters } from '../lib/api/queryInsights'
   import { fetchInsights } from '../lib/api/queryInsights'
@@ -231,9 +232,9 @@
       volume = v.supported ? v.data : []
       latency = l.supported ? l.data : []
       if (section !== 'overview') void loadSection(section, seq)
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (seq !== loadSeq) return
-      error = e.message
+      error = errorText(e)
     } finally {
       if (seq === loadSeq) {
         loading = false
@@ -254,10 +255,10 @@
       const res = await fetchInsights(key, range, knownCluster(), filters)
       if (stale()) return
       sectionResult = res
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (stale()) return
       sectionResult = null
-      sectionError = e.message
+      sectionError = errorText(e)
     } finally {
       if (!stale()) sectionLoading = false
     }

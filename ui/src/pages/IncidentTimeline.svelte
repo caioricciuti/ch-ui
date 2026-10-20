@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../lib/utils/errors'
   import { onMount } from 'svelte'
   import { RefreshCw, Plus, AlertTriangle } from 'lucide-svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
@@ -21,7 +22,7 @@
   import { getIncident, fetchIncidentComments } from '../lib/api/governance'
   import type { GovernanceIncident, GovernanceIncidentComment } from '../lib/types/governance'
   import { getSession } from '../lib/stores/session.svelte'
-  import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
 
   const sourceLabels: Record<TimelineSource, string> = {
     queries: 'Queries', parts: 'Merges / mutations', health: 'Cluster pressure',
@@ -65,7 +66,7 @@
       window.history.replaceState(window.history.state, '', url)
     } catch (e) {
       if (current !== seq) return
-      error = e instanceof Error ? e.message : String(e)
+      error = errorText(e)
       result = null
     } finally {
       if (current === seq) loading = false
@@ -98,7 +99,7 @@
         range = encodeAbsoluteDashboardRange(new Date(Date.parse(at) - 1800000).toISOString(), new Date(Date.parse(at) + 1800000).toISOString())
       }
       await load()
-    } catch (e) { toastError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) { toastErrorFrom(e) }
     finally { saving = false }
   }
 
@@ -111,7 +112,7 @@
       const [incident, notes] = await Promise.all([getIncident(id), fetchIncidentComments(id)])
       related = incident.incident
       comments = notes.comments ?? []
-    } catch (e) { toastError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) { toastErrorFrom(e) }
     finally { relatedLoading = false }
   }
 

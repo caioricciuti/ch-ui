@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../../../utils/errors'
   import { onMount } from 'svelte'
   import { ShieldQuestion } from 'lucide-svelte'
   import type { RbacEvidence, RbacExplainQuery, RbacExplanation, RbacSnapshot, RbacWhoCanResult, RbacWhoCanUser } from '../../../types/rbac'
@@ -87,7 +88,7 @@
       }
       asked = question
     } catch (err: unknown) {
-      error = err instanceof Error ? err.message : String(err)
+      error = errorText(err)
     } finally {
       loading = false
     }

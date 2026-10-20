@@ -10,7 +10,7 @@
   } from '../../api/governance'
   import type { GovernanceSettings, QueryHarvestMode, QueryHarvestSettings } from '../../types/governance'
   import { getSession } from '../../stores/session.svelte'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { formatDate } from '../../utils/format'
   import PageBody from '../common/PageBody.svelte'
   import SectionHeader from '../common/SectionHeader.svelte'
@@ -65,7 +65,7 @@
     try {
       govSettings = await fetchGovernanceSettings()
     } catch (err: unknown) {
-      toastError('Failed to load governance settings: ' + (err instanceof Error ? err.message : String(err)))
+      toastErrorFrom(err, 'load governance settings')
     } finally {
       govSettingsLoading = false
     }
@@ -88,7 +88,7 @@
       if (payload.sync_enabled === true) toastSuccess('Governance sync enabled')
       if (payload.sync_enabled === false) toastSuccess('Governance sync disabled')
     } catch (err: unknown) {
-      toastError('Failed to update governance settings: ' + (err instanceof Error ? err.message : String(err)))
+      toastErrorFrom(err, 'update governance settings')
     } finally {
       govToggleSaving = false
     }
@@ -127,7 +127,7 @@
       editOpen = false
       toastSuccess(ms === 0 ? 'Every query is harvested' : `Successful queries under ${ms} ms are skipped`)
     } catch (err: unknown) {
-      toastError('Failed to update minimum duration: ' + (err instanceof Error ? err.message : String(err)))
+      toastErrorFrom(err, 'update minimum duration')
     } finally {
       minDurationSaving = false
     }
@@ -139,7 +139,7 @@
       queryHarvest = await updateQueryHarvestMode(mode)
       toastSuccess(`Query harvest mode set to "${mode}"`)
     } catch (err: unknown) {
-      toastError('Failed to update harvest mode: ' + (err instanceof Error ? err.message : String(err)))
+      toastErrorFrom(err, 'update harvest mode')
     } finally {
       harvestModeSaving = false
     }

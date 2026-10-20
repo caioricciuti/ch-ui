@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { DashboardTemplate } from '../../types/api'
   import { listDashboardTemplates, createDashboardFromTemplate, type DashboardDetail } from '../../api/dashboards'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Sheet from '../common/Sheet.svelte'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
@@ -37,7 +37,7 @@
       templates = await listDashboardTemplates()
       if (!templates.some((t) => t.id === selected)) selected = templates[0]?.id ?? null
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }
@@ -65,7 +65,7 @@
       toastSuccess(`Created "${detail.dashboard.name}" from ${picked.name}`)
       oncreated(detail)
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       creating = false
     }

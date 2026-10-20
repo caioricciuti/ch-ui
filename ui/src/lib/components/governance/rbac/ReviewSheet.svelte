@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../../../utils/errors'
   import { untrack } from 'svelte'
   import { Copy } from 'lucide-svelte'
   import type { RbacApplyResponse, RbacOp, RbacPlan, RbacSnapshot } from '../../../types/rbac'
@@ -99,7 +100,7 @@
     } catch (err: unknown) {
       if (id !== request) return
       plan = null
-      planError = err instanceof Error ? err.message : String(err)
+      planError = errorText(err)
     } finally {
       if (id === request) planning = false
     }
@@ -128,7 +129,7 @@
       result = res
       onapplied(res)
     } catch (err: unknown) {
-      applyError = err instanceof Error ? err.message : String(err)
+      applyError = errorText(err)
       if (err instanceof ApiError && err.status === 409) void replan(ops, effectiveCluster)
     } finally {
       applying = false

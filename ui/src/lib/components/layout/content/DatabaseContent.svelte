@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../../utils/errors'
   import { onMount } from 'svelte'
   import type { DatabaseTab } from '../../../stores/tabs.svelte'
   import type { ColumnMeta } from '../../../types/query'
@@ -54,7 +55,7 @@
     try {
       dbInfo = await fetchDatabaseInfo(tab.database)
     } catch (e) {
-      infoError = e instanceof Error ? e.message : String(e)
+      infoError = errorText(e)
     } finally {
       infoLoading = false
     }
@@ -74,7 +75,7 @@
       })
       tablesLoaded = true
     } catch (e) {
-      tablesError = e instanceof Error ? e.message : String(e)
+      tablesError = errorText(e)
     } finally {
       tablesLoading = false
     }

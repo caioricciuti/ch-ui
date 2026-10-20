@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../lib/utils/errors'
   import { onMount, untrack } from 'svelte'
   import { RefreshCw, Search, ArrowLeft, AlertTriangle } from 'lucide-svelte'
   import {
@@ -158,7 +159,7 @@
     error = ''
     busy = true
     try { const value = await fetchInvestigation(id); if (seq === detailSequence) showDetail(value) }
-    catch (e) { if (seq === detailSequence) error = (e instanceof Error ? e.message : String(e)) }
+    catch (e) { if (seq === detailSequence) error = errorText(e) }
     finally { if (seq === detailSequence) busy = false }
   }
 
@@ -172,7 +173,7 @@
         : detail ? await updateInvestigation(detail.investigation.id, { title, owner, note, status, revision: detail.investigation.revision }) : null
       if (value) showDetail(value)
       investigations = (await fetchInvestigations()).investigations
-    } catch (e) { error = (e instanceof Error ? e.message : String(e)) }
+    } catch (e) { error = errorText(e) }
     finally { busy = false }
   }
 
@@ -184,7 +185,7 @@
       const [hash,database] = replacement ? JSON.parse(replacement) as [string,string] : [detail.investigation.query_hash,detail.investigation.database]
       showDetail(await compareInvestigation(detail.investigation.id, {hash,database}))
       investigations = (await fetchInvestigations()).investigations
-    } catch (e) { error = (e instanceof Error ? e.message : String(e)) }
+    } catch (e) { error = errorText(e) }
     finally { busy = false }
   }
 
@@ -193,7 +194,7 @@
     busy = true
     error = ''
     try { monitor = await setPerformanceMonitor(!monitor.enabled) }
-    catch (e) { error = (e instanceof Error ? e.message : String(e)) }
+    catch (e) { error = errorText(e) }
     finally { busy = false }
   }
 

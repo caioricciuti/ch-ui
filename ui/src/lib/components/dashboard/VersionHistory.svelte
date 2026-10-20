@@ -4,7 +4,7 @@
   import {
     listDashboardVersions, getDashboardVersion, restoreDashboardVersion, type DashboardDetail,
   } from '../../api/dashboards'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { formatDate, formatRelativeTime } from '../../utils/format'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
@@ -44,7 +44,7 @@
     try {
       versions = await listDashboardVersions(dashboardId)
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }
@@ -70,7 +70,7 @@
       viewJson = JSON.stringify(full.snapshot ?? {}, null, 2)
     } catch (e: unknown) {
       viewing = null
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       viewLoading = false
     }
@@ -96,7 +96,7 @@
       onrestored(detail)
       await load()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       restoreSaving = false
     }

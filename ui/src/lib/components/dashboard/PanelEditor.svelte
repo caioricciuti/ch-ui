@@ -3,7 +3,7 @@
   import type { ColumnMeta } from '../../types/query'
   import { apiPost, apiPut } from '../../api/client'
   import { formatSQL } from '../../api/query'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Button from '../common/Button.svelte'
   import Spinner from '../common/Spinner.svelte'
   import Toolbar from '../editor/Toolbar.svelte'
@@ -232,7 +232,7 @@
       query = formatted
       toastSuccess('Query formatted')
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -275,7 +275,7 @@
         if (res.panel) onsave(res.panel)
       }
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       saving = false
     }

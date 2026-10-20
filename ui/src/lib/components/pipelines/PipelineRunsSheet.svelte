@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import * as api from '../../api/pipelines'
   import { formatBytes, formatDate, formatNumber, formatTime } from '../../utils/format'
   import Sheet from '../common/Sheet.svelte'
@@ -9,7 +10,7 @@
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import IngestStats from '../ingest/IngestStats.svelte'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import type { PipelineCheckpoint } from '../../types/pipelines'
   import { ArrowLeft, RefreshCw, AlertTriangle, RotateCcw } from 'lucide-svelte'
 
@@ -79,7 +80,7 @@
       confirmReset = false
       await loadPositions()
     } catch (e: unknown) {
-      toastError(errorText(e, 'Failed to reset the position'))
+      toastErrorFrom(e, 'reset the position')
     } finally {
       resetting = false
     }
@@ -127,10 +128,6 @@
     }
   })
 
-  function errorText(e: unknown, fallback: string): string {
-    return (e instanceof Error ? e.message : String(e)) || fallback
-  }
-
   async function loadRuns() {
     const seq = ++requestSeq
     loading = true
@@ -149,7 +146,7 @@
         last_error: r.last_error,
       }))
     } catch (e: unknown) {
-      if (seq === requestSeq) error = errorText(e, 'Failed to load runs')
+      if (seq === requestSeq) error = errorText(e)
     } finally {
       if (seq === requestSeq) loading = false
     }
@@ -166,7 +163,7 @@
       if (seq !== requestSeq) return
       logs = (res.logs ?? []).map((l) => ({ id: l.id, level: l.level, message: l.message, created_at: l.created_at }))
     } catch (e: unknown) {
-      if (seq === requestSeq) error = errorText(e, 'Failed to load run logs')
+      if (seq === requestSeq) error = errorText(e)
     } finally {
       if (seq === requestSeq) loading = false
     }

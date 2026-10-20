@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { onMount } from 'svelte'
   import { Plus, RefreshCw, Search, Send, Eye, History, Pencil, Trash2, Mail, Download, Settings } from 'lucide-svelte'
   import Button from '../common/Button.svelte'
@@ -19,7 +20,7 @@
     type Report, type ReportChannel, type ReportDelivery, type ReportPreview, type ReportWorkerMode,
   } from '../../api/reports'
   import { getSession } from '../../stores/session.svelte'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { downloadBlob } from '../../utils/export'
   import { formatBytes, formatDate, formatRelativeTime } from '../../utils/format'
   import type { Dashboard, SavedQuery } from '../../types/api'
@@ -73,7 +74,7 @@
       savedQueries = sq
       dashboards = ds
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }
@@ -160,7 +161,7 @@
       toastSuccess('Report deleted')
       deleting = null
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       deleteLoading = false
     }
@@ -174,7 +175,7 @@
       else if (d?.status === 'delivered') toastSuccess(`"${r.name}" sent`)
       else toastSuccess(`"${r.name}" is sending; failed channels retry automatically`)
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       busyId = null
       await load()
@@ -189,7 +190,7 @@
     try {
       preview = await previewReport(r.id)
     } catch (e: unknown) {
-      previewError = e instanceof Error ? e.message : String(e)
+      previewError = errorText(e)
     }
   }
 
@@ -198,7 +199,7 @@
     try {
       deliveries = await fetchReportDeliveries(r.id)
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       deliveriesLoading = false
     }
@@ -215,7 +216,7 @@
       const { blob, filename } = await downloadDeliveryCSV(d.id)
       downloadBlob(blob, filename)
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -231,7 +232,7 @@
       toastSuccess('Recipient domains saved')
       settingsOpen = false
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       settingsSaving = false
     }

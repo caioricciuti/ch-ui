@@ -13,7 +13,7 @@
 <script lang="ts">
   import type { Panel, PanelConfig } from '../../types/api'
   import { apiPut } from '../../api/client'
-  import { error as toastError } from '../../stores/toast.svelte'
+  import { errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Spinner from '../common/Spinner.svelte'
   import PanelRenderer from './PanelRenderer.svelte'
   import EmptyState from '../common/EmptyState.svelte'
@@ -236,7 +236,7 @@
         })
       ))
     } catch (e: unknown) {
-      toastError('Failed to save layout: ' + (e instanceof Error ? e.message : String(e)))
+      toastErrorFrom(e, 'save layout')
     }
   }
 </script>

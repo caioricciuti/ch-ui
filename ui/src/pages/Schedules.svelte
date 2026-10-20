@@ -3,7 +3,7 @@
   import { onMount } from 'svelte'
   import type { Schedule, ScheduleRun, SavedQuery } from '../lib/types/api'
   import { apiGet, apiPost, apiPut, apiDel } from '../lib/api/client'
-  import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
   import { openSavedQueryTab } from '../lib/stores/tabs.svelte'
   import { formatDate, formatRelativeTime } from '../lib/utils/format'
   import Button from '../lib/components/common/Button.svelte'
@@ -84,7 +84,7 @@
       const res = await apiGet<{ schedules: Schedule[] }>('/api/schedules')
       schedules = res.schedules ?? []
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }
@@ -96,7 +96,7 @@
       const res = await apiGet<{ saved_queries: SavedQuery[] }>('/api/saved-queries')
       savedQueries = res.saved_queries ?? []
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       savedQueriesLoading = false
     }
@@ -156,7 +156,7 @@
       showModal = false
       await loadSchedules()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       saving = false
     }
@@ -174,7 +174,7 @@
       if (expandedSchedule === id) closeRuns()
       toastSuccess('Schedule deleted')
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -196,7 +196,7 @@
       schedules = schedules.map(sc => sc.id === s.id ? { ...sc, enabled: !sc.enabled } : sc)
       toastSuccess(s.enabled ? 'Schedule disabled' : 'Schedule enabled')
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -212,7 +212,7 @@
       await loadSchedules()
       if (expandedSchedule === id) await loadRuns(id)
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       runningId = null
     }
@@ -238,7 +238,7 @@
       runsHasMore = !!res.has_more
       runsOffset = typeof res.next_offset === 'number' ? res.next_offset : offset + incoming.length
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       if (append) {
         runsLoadingMore = false

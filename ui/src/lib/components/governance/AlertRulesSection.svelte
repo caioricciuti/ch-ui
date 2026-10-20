@@ -12,7 +12,7 @@
   import type { Connection } from '../../types/api'
   import { EVENT_TYPE_OPTIONS as eventTypeOptions, eventTypeDescription, eventTypeLabel as eventLabel } from './alerting-silences'
   import { isWebhook, severityTone } from './alerting-admin'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
   import Select from '../common/Select.svelte'
@@ -104,7 +104,7 @@
       rules = r
       connections = conns
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }
@@ -193,7 +193,7 @@
       ruleSheetOpen = false
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       ruleSaving = false
     }
@@ -215,7 +215,7 @@
       toastSuccess('Rule deleted')
       await loadAll()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 </script>

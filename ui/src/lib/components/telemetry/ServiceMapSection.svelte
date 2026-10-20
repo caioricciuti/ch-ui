@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { onMount } from 'svelte'
   import { RefreshCw, PanelRightClose, PanelRightOpen, Waypoints } from 'lucide-svelte'
   import Button from '../common/Button.svelte'
@@ -79,7 +80,7 @@
       writeUrl()
     } catch (e: unknown) {
       if (mySeq !== seq) return
-      error = e instanceof Error ? e.message : String(e)
+      error = errorText(e)
       map = null
     } finally {
       if (mySeq === seq) loading = false

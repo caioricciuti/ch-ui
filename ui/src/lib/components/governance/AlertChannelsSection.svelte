@@ -8,7 +8,7 @@
     adminTestAlertChannel,
   } from '../../api/alerts'
   import { channelTarget, isWebhook } from './alerting-admin'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
   import Select from '../common/Select.svelte'
@@ -91,7 +91,7 @@
     try {
       channels = await adminListAlertChannels()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }
@@ -185,7 +185,7 @@
       channelSheetOpen = false
       await loadChannels()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       channelSaving = false
     }
@@ -200,7 +200,7 @@
       toastSuccess('Channel deleted')
       await loadChannels()
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -223,7 +223,7 @@
       toastSuccess(`Test alert sent through "${testChannel.name}"`)
       testChannel = null
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       testSending = false
     }

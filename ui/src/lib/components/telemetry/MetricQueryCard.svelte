@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts" module>
+  import { errorText } from '../../utils/errors'
   import type { MetricAggregation, MetricType } from '../../types/telemetryPro'
 
   /** One query on the explorer: what to plot and how. Mirrored in the URL by the section. */
@@ -149,7 +150,7 @@
       result = res
     } catch (e: unknown) {
       if (mySeq !== seq) return
-      error = e instanceof Error ? e.message : String(e)
+      error = errorText(e)
       result = null
     } finally {
       if (mySeq === seq) loading = false

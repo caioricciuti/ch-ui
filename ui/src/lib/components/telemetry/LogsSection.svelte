@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { onMount, untrack } from 'svelte'
   import { RefreshCw, PanelLeftClose, PanelLeftOpen, Radio, Search, Columns3, X } from 'lucide-svelte'
   import Button from '../common/Button.svelte'
@@ -172,7 +173,7 @@
     } catch (e: unknown) {
       if (mySeq !== facetsSeq) return
       facets = null
-      facetsError = e instanceof Error ? e.message : String(e)
+      facetsError = errorText(e)
     } finally {
       if (mySeq === facetsSeq) facetsLoading = false
     }
@@ -502,7 +503,7 @@
     />
   {:else}
   {#if error}
-    <div class="shrink-0 border-b border-edge-subtle bg-danger-soft px-5 py-1.5 text-xs text-danger">{error}</div>
+    <div class="shrink-0 border-b border-edge-subtle bg-danger-soft px-5 py-1.5 text-xs text-danger">{errorText(error)}</div>
   {/if}
 
   <div class="flex min-h-0 flex-1">

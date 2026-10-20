@@ -42,17 +42,17 @@ const NAME_SUFFIX_RE = /\s*\(([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|ABORTED|UNFINISHED)\
 const EXCEPTION_RE = /DB::\w*Exception:/g
 
 const HINTS: Record<number, string> = {
-  62: 'Check the SQL syntax near the highlighted token — a keyword may be misspelled or missing.',
-  60: "The table doesn't exist — check the name and database (the message may suggest a close match).",
-  81: "The database doesn't exist — check the name or create it first.",
-  47: 'Unknown column or identifier — check the spelling against the table schema.',
-  241: 'The query exceeded the memory limit — narrow the date range, add filters, or reduce columns and JOINs.',
-  159: 'The query timed out — add filters or a LIMIT, or increase the query timeout.',
-  209: 'The server took too long to respond — retry, or increase the timeout.',
-  516: 'Authentication failed — check the ClickHouse username and password for this connection.',
-  396: 'The result exceeded the configured row/byte limit — lower Max rows or add a LIMIT.',
+  62: 'Check the SQL syntax near the highlighted token. A keyword may be misspelled or missing.',
+  60: "The table doesn't exist. Check the name and database (the message may suggest a close match).",
+  81: "The database doesn't exist. Check the name or create it first.",
+  47: 'Unknown column or identifier. Check the spelling against the table schema.',
+  241: 'The query exceeded the memory limit. Narrow the date range, add filters, or reduce columns and JOINs.',
+  159: 'The query timed out. Add filters or a LIMIT, or increase the query timeout.',
+  209: 'The server took too long to respond. Retry, or increase the timeout.',
+  516: 'Authentication failed. Check the ClickHouse username and password for this connection.',
+  396: 'The result exceeded the configured row/byte limit. Lower Max rows or add a LIMIT.',
   394: 'The query was cancelled on the server.',
-  202: 'Too many simultaneous queries on the server — retry in a moment.',
+  202: 'Too many simultaneous queries on the server. Retry in a moment.',
 }
 
 /**

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { fetchRetentionSettings, updateRetentionSettings } from '../../api/retention'
   import type { RetentionConfig, RetentionSettings } from '../../api/retention'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import PageBody from '../common/PageBody.svelte'
   import SectionHeader from '../common/SectionHeader.svelte'
   import Panel from '../common/Panel.svelte'
@@ -89,7 +89,7 @@
     try {
       retention = await fetchRetentionSettings()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       retentionLoading = false
     }
@@ -122,7 +122,7 @@
       retentionSheetOpen = false
       toastSuccess('Retention settings saved')
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       retentionSaving = false
     }

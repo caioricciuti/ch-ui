@@ -3,7 +3,8 @@
   import type { QueryHistoryEntry } from '../../api/history'
   import { fetchQueryHistory, deleteQueryHistoryEntry, clearQueryHistory } from '../../api/history'
   import { formatNumber, formatElapsed } from '../../utils/format'
-  import { error as toastError, success as toastSuccess } from '../../stores/toast.svelte'
+  import { error as toastError, errorFrom as toastErrorFrom, success as toastSuccess } from '../../stores/toast.svelte'
+  import { errorText } from '../../utils/errors'
   import Spinner from '../common/Spinner.svelte'
   import Input from '../common/Input.svelte'
   import EmptyState from '../common/EmptyState.svelte'
@@ -58,8 +59,8 @@
     } catch (e) {
       if (seq !== loadSeq) return
       // Keep the loaded list visible when only a load-more fails.
-      if (reset) loadError = errorMessage(e)
-      else toastError(errorMessage(e))
+      if (reset) loadError = errorText(e, 'load the query history')
+      else toastErrorFrom(e, 'load more history')
     } finally {
       if (seq === loadSeq) loading = false
     }
@@ -82,10 +83,6 @@
     void load()
   }
 
-  function errorMessage(e: unknown): string {
-    return e instanceof Error ? e.message : String(e)
-  }
-
   async function confirmDelete() {
     const entry = pendingDelete
     if (!entry || deleting) return
@@ -95,7 +92,7 @@
       entries = entries.filter((e) => e.id !== entry.id)
       pendingDelete = null
     } catch (e) {
-      toastError(errorMessage(e))
+      toastErrorFrom(e, 'delete the entry')
     } finally {
       deleting = false
     }
@@ -111,7 +108,7 @@
       confirmClear = false
       toastSuccess('Query history cleared')
     } catch (e) {
-      toastError(errorMessage(e))
+      toastErrorFrom(e, 'clear the history')
     } finally {
       clearing = false
     }

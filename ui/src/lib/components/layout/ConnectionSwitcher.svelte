@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { onMount, tick } from 'svelte'
   import { Check } from 'lucide-svelte'
   import Button from '../common/Button.svelte'
@@ -50,7 +51,7 @@
     try {
       connections = await listConnections()
     } catch (e) {
-      loadError = e instanceof Error ? e.message : 'Failed to load connections'
+      loadError = errorText(e)
     } finally {
       loading = false
     }

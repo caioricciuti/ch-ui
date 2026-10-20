@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import type { Pipeline } from '../lib/types/pipelines'
   import * as api from '../lib/api/pipelines'
-  import { success as toastSuccess, error as toastError } from '../lib/stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
   import { getCurrentPipelineId, pushPipelineDetail, pushPipelineList } from '../lib/stores/router.svelte'
   import PipelineList from '../lib/components/pipelines/PipelineList.svelte'
   import PipelineEditor from '../lib/components/pipelines/PipelineEditor.svelte'
@@ -19,10 +19,6 @@
   let createLoading = $state(false)
   /** Pipelines with a start or stop request in flight. */
   let pendingIds = $state<string[]>([])
-
-  function errorText(e: unknown, fallback: string): string {
-    return (e instanceof Error ? e.message : String(e)) || fallback
-  }
 
   async function withPending(id: string, fn: () => Promise<void>) {
     if (pendingIds.includes(id)) return
@@ -44,7 +40,7 @@
       const res = await api.listPipelines()
       pipelines = res.pipelines ?? []
     } catch (e: unknown) {
-      toastError(errorText(e, 'Failed to load pipelines'))
+      toastErrorFrom(e, 'load pipelines')
     } finally {
       loading = false
     }
@@ -72,7 +68,7 @@
       // Open the editor for the newly created pipeline
       pushPipelineDetail(res.pipeline.id)
     } catch (e: unknown) {
-      toastError(errorText(e, 'Failed to create pipeline'))
+      toastErrorFrom(e, 'create the pipeline')
     } finally {
       createLoading = false
     }
@@ -84,7 +80,7 @@
       toastSuccess('Pipeline deleted')
       await loadPipelines()
     } catch (e: unknown) {
-      toastError(errorText(e, 'Failed to delete pipeline'))
+      toastErrorFrom(e, 'delete the pipeline')
     }
   }
 
@@ -94,7 +90,7 @@
         await api.startPipeline(id)
         toastSuccess('Pipeline started')
       } catch (e: unknown) {
-        toastError(errorText(e, 'Failed to start pipeline'))
+        toastErrorFrom(e, 'start the pipeline')
       }
       await loadPipelines()
     })
@@ -106,7 +102,7 @@
         await api.stopPipeline(id)
         toastSuccess('Pipeline stopped')
       } catch (e: unknown) {
-        toastError(errorText(e, 'Failed to stop pipeline'))
+        toastErrorFrom(e, 'stop the pipeline')
       }
       await loadPipelines()
     })

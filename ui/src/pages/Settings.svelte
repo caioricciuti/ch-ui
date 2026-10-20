@@ -10,7 +10,7 @@
     activateLicense,
     deactivateLicense,
   } from '../lib/stores/license.svelte'
-  import { success, error as toastError } from '../lib/stores/toast.svelte'
+  import { success, error as toastError, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
   import { getSession } from '../lib/stores/session.svelte'
   import { formatDate } from '../lib/utils/format'
   import {
@@ -149,7 +149,7 @@
       activateOpen = false
       success('License activated successfully')
     } catch (e) {
-      toastError(e instanceof Error && e.message ? e.message : 'Failed to activate license')
+      toastErrorFrom(e, 'activate the license')
     } finally {
       activating = false
     }
@@ -191,7 +191,7 @@
       }
     } catch (e) {
       if (e instanceof LicenseServerError && e.status === 409) {
-        toastError(e.message)
+        toastErrorFrom(e)
         trialHint = 'Already used a trial with this email? Use "Resend license email" under Manage license & billing.'
         // Hand the same address to the manage sheet so it can be re-sent.
         if (!manageEmail.trim()) manageEmail = email
@@ -216,7 +216,7 @@
       else window.open(url, '_blank', 'noopener')
     } catch (e) {
       popup?.close()
-      toastError(licenseServerMessage(e, 'Could not start checkout — use the pricing page instead'))
+      toastError(licenseServerMessage(e, 'Could not start checkout. Use the pricing page instead.'))
     } finally {
       checkoutLoading = false
     }
@@ -264,7 +264,7 @@
       showConfirmDeactivate = false
       success('License deactivated')
     } catch (e) {
-      toastError(e instanceof Error && e.message ? e.message : 'Failed to deactivate license')
+      toastErrorFrom(e, 'deactivate the license')
     } finally {
       deactivating = false
     }

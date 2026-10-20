@@ -2,7 +2,7 @@
   import type { SavedQuery, SavedQueryVersion } from '../../types/api'
   import { listSavedQueryVersions, getSavedQueryVersion, restoreSavedQueryVersion } from '../../api/savedQueries'
   import { formatDate, formatRelativeTime } from '../../utils/format'
-  import { error as toastError, success as toastSuccess } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Sheet from '../common/Sheet.svelte'
   import Button from '../common/Button.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
@@ -51,7 +51,7 @@
       versions = await listSavedQueryVersions(id)
       if (versions.length > 0) await pick(versions[0])
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }
@@ -63,7 +63,7 @@
     try {
       selected = await getSavedQueryVersion(query.id, v.version)
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       previewLoading = false
     }
@@ -79,7 +79,7 @@
       onrestored()
       await load(query.id)
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       restoring = false
     }

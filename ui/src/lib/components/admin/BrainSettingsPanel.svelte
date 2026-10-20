@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { onMount } from 'svelte'
   import { Plus, Trash2 } from 'lucide-svelte'
   import type { BrainModelOption, BrainModelPrice, BrainSettings } from '../../types/brain'
   import { adminGetBrainSettings, adminUpdateBrainSettings } from '../../api/brain'
   import { isPriced } from '../brain/brain-budget'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import SectionHeader from '../common/SectionHeader.svelte'
   import Panel from '../common/Panel.svelte'
   import FormField from '../common/FormField.svelte'
@@ -68,7 +69,7 @@
         openPrices()
       }
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 
@@ -118,7 +119,7 @@
       quickModelSet = true
       toastSuccess('Brain settings saved')
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       saving = false
     }
@@ -189,7 +190,7 @@
       toastSuccess('Prices saved')
       pricesOpen = false
     } catch (e) {
-      priceError = e instanceof Error ? e.message : String(e)
+      priceError = errorText(e)
     } finally {
       saving = false
     }

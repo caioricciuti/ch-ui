@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import Sheet from '../common/Sheet.svelte'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
@@ -184,7 +185,7 @@
       onchanged(saved)
       onclose()
     } catch (e: unknown) {
-      error = e instanceof Error ? e.message : String(e)
+      error = errorText(e)
     } finally {
       saving = false
     }
@@ -237,7 +238,7 @@
       onclose()
     } catch (e: unknown) {
       confirmDelete = false
-      error = e instanceof Error ? e.message : String(e)
+      error = errorText(e)
     } finally {
       deleting = false
     }

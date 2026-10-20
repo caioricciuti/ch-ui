@@ -10,7 +10,7 @@
     createIncidentComment as apiCreateIncidentComment,
   } from '../../api/governance'
   import type { GovernanceIncident, GovernanceIncidentComment } from '../../types/governance'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { formatDate, formatRelativeTime } from '../../utils/format'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
@@ -109,7 +109,7 @@
       })
       incidents = res?.incidents ?? []
     } catch (err: unknown) {
-      toastError('Failed to load incidents: ' + (err instanceof Error ? err.message : String(err)))
+      toastErrorFrom(err, 'load incidents')
     } finally {
       loading = false
     }
@@ -149,7 +149,7 @@
       toastSuccess('Incident created')
       await load()
     } catch (err: unknown) {
-      toastError('Failed to create incident: ' + (err instanceof Error ? err.message : String(err)))
+      toastErrorFrom(err, 'create incident')
     } finally {
       creating = false
     }
@@ -173,7 +173,7 @@
       selected = incidentRes?.incident ?? selected
       comments = commentsRes?.comments ?? []
     } catch (err: unknown) {
-      toastError('Failed to load incident: ' + (err instanceof Error ? err.message : String(err)))
+      toastErrorFrom(err, 'load incident')
     } finally {
       detailLoading = false
     }
@@ -195,7 +195,7 @@
       await loadDetail(selected.id)
       await load()
     } catch (err: unknown) {
-      toastError('Failed to update incident: ' + (err instanceof Error ? err.message : String(err)))
+      toastErrorFrom(err, 'update incident')
     } finally {
       saving = false
     }
@@ -231,7 +231,7 @@
       commentTab = 'write'
       await loadDetail(selected.id)
     } catch (err: unknown) {
-      toastError('Failed to add comment: ' + (err instanceof Error ? err.message : String(err)))
+      toastErrorFrom(err, 'add comment')
     } finally {
       postingComment = false
     }

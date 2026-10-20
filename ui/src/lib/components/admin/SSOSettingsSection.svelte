@@ -3,7 +3,7 @@
   import { onMount } from 'svelte'
   import { fetchSSOSettings, updateSSOSettings } from '../../api/sso'
   import type { SSOSettings } from '../../api/sso'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { isProActive } from '../../stores/license.svelte'
   import SectionHeader from '../common/SectionHeader.svelte'
   import Panel from '../common/Panel.svelte'
@@ -88,7 +88,7 @@
       if ((e instanceof Error ? e.message : String(e)).toLowerCase().includes('pro license')) {
         ssoProRequired = true
       } else {
-        toastError(e instanceof Error ? e.message : String(e))
+        toastErrorFrom(e)
       }
     } finally {
       ssoLoading = false
@@ -123,12 +123,12 @@
       applySSOSettings(next)
       ssoSheetOpen = false
       if (next.reload_error) {
-        toastError(`Saved, but the SSO provider could not be initialized: ${next.reload_error}`)
+        toastError('Saved, but the SSO provider could not start. Check the issuer URL, client ID and secret.', { description: next.reload_error })
       } else {
         toastSuccess('SSO settings saved and applied, no restart needed')
       }
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       ssoSaving = false
     }

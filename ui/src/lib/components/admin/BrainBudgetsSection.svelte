@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { onMount } from 'svelte'
   import { Gauge, Lock, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-svelte'
   import type { BrainBudgetRuleView } from '../../types/brain'
   import { apiGet } from '../../api/client'
   import { adminCreateBrainBudget, adminDeleteBrainBudget, adminListBrainBudgets, adminUpdateBrainBudget } from '../../api/brain'
   import { goTo } from '../../stores/router.svelte'
-  import { success as toastSuccess, error as toastError } from '../../stores/toast.svelte'
+  import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { formatCost, formatTokens } from '../brain/brain-usage'
   import { ROLES, draftFromRule, emptyRuleDraft, limitsText, parseRuleDraft, subjectLabel, type BudgetRuleDraft } from '../brain/brain-budget'
   import PageBody from '../common/PageBody.svelte'
@@ -54,7 +55,7 @@
       rules = res.budgets
       pro = res.pro
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       loading = false
     }
@@ -99,7 +100,7 @@
       sheetOpen = false
       await load()
     } catch (e) {
-      formError = e instanceof Error ? e.message : String(e)
+      formError = errorText(e)
     } finally {
       saving = false
     }
@@ -114,7 +115,7 @@
       toastSuccess('Budget deleted')
       await load()
     } catch (e) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     }
   }
 

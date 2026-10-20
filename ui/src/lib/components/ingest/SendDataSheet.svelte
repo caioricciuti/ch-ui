@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import Sheet from '../common/Sheet.svelte'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
@@ -21,7 +22,7 @@
   import { pushPipelineList } from '../../stores/router.svelte'
   import { getSession } from '../../stores/session.svelte'
   import { hasProReadAccess } from '../../stores/license.svelte'
-  import { success, error as toastError } from '../../stores/toast.svelte'
+  import { success, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { AlertTriangle, Copy } from 'lucide-svelte'
 
   interface Props {
@@ -134,7 +135,7 @@
       selectedId = pickIngestPipeline(pipelines, { keepId: pipelineId || selectedId, signal })
       if (!selectedId && canWrite) await loadDatabases()
     } catch (e: unknown) {
-      error = e instanceof Error ? e.message : String(e)
+      error = errorText(e)
     } finally {
       loading = false
     }
@@ -171,7 +172,7 @@
       success(`Receiving ${setupSignal} into ${res.database}.${res.table}`)
       await load()
     } catch (err: unknown) {
-      toastError(err instanceof Error ? err.message : String(err))
+      toastErrorFrom(err, 'set up receiving')
     } finally {
       settingUp = false
     }
@@ -185,7 +186,7 @@
       secrets = { ...secrets, [selected.id]: { name: res.key.name, secret: res.secret } }
       naming = false
     } catch (e: unknown) {
-      toastError(e instanceof Error ? e.message : String(e))
+      toastErrorFrom(e)
     } finally {
       creating = false
     }

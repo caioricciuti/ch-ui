@@ -134,9 +134,12 @@ describe('lineageFailure', () => {
     expect(lineageFailure(new ApiError('cannot read system.tables', 502)).kind).toBe('unreadable')
   })
 
-  it('falls back to a plain error', () => {
-    expect(lineageFailure(new ApiError('boom', 500))).toEqual({ kind: 'error', message: 'boom' })
-    expect(lineageFailure(new Error('network'))).toEqual({ kind: 'error', message: 'network' })
+  it('falls back to a plain error with human copy', () => {
+    expect(lineageFailure(new ApiError('boom', 500))).toEqual({
+      kind: 'error',
+      message: 'The server hit an unexpected error. Try again. If it keeps happening, check the CH-UI server logs. Details: boom',
+    })
+    expect(lineageFailure(new Error('Graph is empty'))).toEqual({ kind: 'error', message: 'Graph is empty' })
     expect(lineageFailure('odd')).toEqual({ kind: 'error', message: 'odd' })
   })
 })

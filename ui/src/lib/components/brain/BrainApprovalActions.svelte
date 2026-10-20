@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <script lang="ts">
+  import { errorText } from '../../utils/errors'
   import { approveBrainToolCall, declineBrainToolCall } from '../../api/brainPro'
   import Button from '../common/Button.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
@@ -18,7 +19,7 @@
   let error = $state('')
 
   function message(e: unknown): string {
-    return e instanceof Error && e.message ? e.message : 'Request failed'
+    return errorText(e)
   }
 
   async function approve() {
