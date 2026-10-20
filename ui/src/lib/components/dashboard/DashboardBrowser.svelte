@@ -22,6 +22,7 @@
   import InputDialog from '../common/InputDialog.svelte'
   import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import EmptyState from '../common/EmptyState.svelte'
+  import GuideLink from '../common/GuideLink.svelte'
   import Spinner from '../common/Spinner.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
   import ContextMenu, { type ContextMenuItem } from '../common/ContextMenu.svelte'
@@ -484,7 +485,9 @@
       description="Create a dashboard to visualize your ClickHouse data. Folders keep them organized as the list grows."
       primary={canWrite ? { label: 'New dashboard', onclick: openCreate } : undefined}
       secondary={canWrite ? { label: 'New from template', onclick: () => (templateOpen = true) } : undefined}
-    />
+    >
+      <GuideLink guide="first-dashboard" label="How to build a dashboard" />
+    </EmptyState>
   {:else}
     <div class="flex min-h-0 flex-1">
       <FolderTree

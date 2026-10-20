@@ -10,6 +10,8 @@ explorer, a service map, and monitors that raise alerts. Nothing is copied or
 indexed elsewhere. Every screen runs SQL against your tables, through the same
 connection and credentials as the query editor.
 
+No logs yet? [Ship logs](/docs/guides/ship-logs) gets them flowing in a few steps.
+
 Telemetry lives under **Visualize → Telemetry**, with six sections in the
 sidebar: Logs, Traces, Metrics, Service map, Monitors and Sources.
 
@@ -72,9 +74,11 @@ JSON layout.
 
 ## Send data here
 
-No collector writing to ClickHouse yet? CH-UI can receive OTLP itself. On
-the Logs or Traces tab click **Send data here**, check the database, table
-name and retention, and click **Set up**. CH-UI creates the table, an ingest
+No collector writing to ClickHouse yet? CH-UI can receive OTLP itself. Click
+**Send data here** in the Telemetry page header (the Logs and Traces sections
+also show it in their empty state until they have a source). Opened from the
+Traces section it sets up traces, from any other section logs. Check the
+database, table name and retention, and click **Set up**. CH-UI creates the table, an ingest
 pipeline that writes to it, an ingest key (shown once) and the Telemetry
 source, then shows the config for your shipper. Analysts and admins can set
 it up; viewers see who to ask. Then send OTLP over HTTP to CH-UI:

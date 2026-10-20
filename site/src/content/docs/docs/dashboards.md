@@ -5,6 +5,8 @@ description: Build and share ClickHouse dashboards with SQL-powered panels
 
 Dashboards let you build visual panels backed by SQL queries against your ClickHouse data. Each panel supports time-range interpolation, multiple chart types, and a grid layout.
 
+New to dashboards? [Build your first dashboard](/docs/guides/first-dashboard) goes from a saved query to a shared link in a few steps.
+
 Available on all plans (limits scale by plan).
 
 ## Overview
@@ -94,14 +96,22 @@ Any other `panel_type` is refused with `400`. The same chart types (all but `tex
 
 ## Panel Editor
 
-Each panel is configured with:
+**Add Panel** in the dashboard header (or **Add panel** on an empty grid)
+opens the panel builder in place of the grid; **Create Panel** (or **Update
+Panel** when editing) saves it and **Cancel** goes back. The left side holds
+the query, the right side the panel's settings:
 
-| Field | Description | Default |
-|---|---|---|
-| Name | Panel title | Required |
-| Panel Type | One of the types above | `table` |
-| Query | SQL query (supports the variables below). Not needed for `text`. | Required |
-| Config | Display options as JSON (below) | `{}` |
+| Part | What it does |
+|---|---|
+| **Start from a saved query** | A picker above the SQL editor, shown when saved queries exist. It copies the query's SQL into the panel, fills an empty name and description, and runs the preview. The SQL is copied, so later edits to the saved query do not change the panel |
+| SQL editor and **Run** | The panel's query (supports the variables below), with a preview of the result under it. Required for every type but `text` |
+| **Panel Name** | Panel title. Required |
+| **Description** | Optional |
+| **Available Variables** | A collapsed list of the time macros and dashboard variables the query can use |
+| **Visualization** | One of the types above, `table` by default, followed by the options of the chosen type (columns, units, thresholds, colors, legend) |
+
+Picking **Text** swaps the SQL editor for a Markdown editor with a live
+preview. The settings are stored as the panel's `config` (below).
 
 ### Chart Config
 
@@ -473,7 +483,7 @@ POST /api/dashboards/{id}/duplicate
 
 ## Public Sharing
 
-Any dashboard can be shared with a **public read-only link**; no CH-UI login is required to view it. Create a share from the dashboard's share menu (or via the API) and send the link; revoke it anytime to cut access instantly.
+Any dashboard can be shared with a **public read-only link**; no CH-UI login is required to view it. Click **Share** in the dashboard header to open the **Share Dashboard** sheet, pick **Public** or **Invite Only**, and click **Create Share Link** (or use the API) and send the link; revoke it anytime to cut access instantly.
 
 ```bash
 # List share links for a dashboard

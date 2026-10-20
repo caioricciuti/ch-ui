@@ -102,6 +102,21 @@ export function docsURL(route: PageRoute, section?: string | null): string {
   return DOCS_ORIGIN + (own ?? PAGE_ROUTES[route].docs)
 }
 
+/** The task-first "how do I" guides on ch-ui.com, linked where a newcomer needs them. */
+const GUIDES = {
+  'first-query': '/docs/guides/first-query/',
+  'first-dashboard': '/docs/guides/first-dashboard/',
+  'ship-logs': '/docs/guides/ship-logs/',
+  'invite-teammate': '/docs/guides/invite-teammate/',
+  'connect-claude-code': '/docs/guides/connect-claude-code/',
+} as const
+
+export type Guide = keyof typeof GUIDES
+
+export function guideURL(guide: Guide): string {
+  return DOCS_ORIGIN + GUIDES[guide]
+}
+
 export function groupForRoute(type: string | undefined | null): NavGroup {
   if (!isPageRouteType(type)) return NAV_GROUPS[0]
   return NAV_GROUPS.find((g) => g.routes.includes(type)) ?? NAV_GROUPS[0]

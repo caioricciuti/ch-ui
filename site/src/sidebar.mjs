@@ -16,6 +16,16 @@ export const sidebar = [
     ],
   },
   {
+    label: "Guides",
+    items: [
+      "docs/guides/first-query",
+      "docs/guides/first-dashboard",
+      "docs/guides/ship-logs",
+      "docs/guides/invite-teammate",
+      "docs/guides/connect-claude-code",
+    ],
+  },
+  {
     label: "Workspace",
     items: [
       "docs/connections",
