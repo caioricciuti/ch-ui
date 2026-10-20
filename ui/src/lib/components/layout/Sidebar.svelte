@@ -49,6 +49,9 @@
     }
   })
 
+  // Rail tooltips open at once, beside the icon: the rail is all icons.
+  const RAIL_TIP = { side: 'right', delay: 0 } as const
+
   // One icon per group. Six is learnable; fourteen is not.
   const GROUP_ICONS: Record<NavGroup['id'], typeof Compass> = {
     query: SquareTerminal,
@@ -129,42 +132,46 @@
 </script>
 
 <nav class="flex h-full w-12 shrink-0 flex-col items-center border-r border-edge-subtle bg-sidebar py-2" aria-label="Primary">
-  <Button icon variant="ghost" size="sm" onclick={openCommandPalette} title="Search or run a command ({combo(MOD, 'K')})" aria-label="Command menu">
-    <Search size={15} />
-  </Button>
+  <Tooltip text={`Search or run a command (${combo(MOD, 'K')})`} {...RAIL_TIP}>
+    <Button icon variant="ghost" size="sm" onclick={openCommandPalette} aria-label="Command menu">
+      <Search size={15} />
+    </Button>
+  </Tooltip>
 
   <span class="my-1.5 h-px w-5 bg-edge"></span>
 
-  <button
-    class="relative inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors {activeGroup.id === 'query' ? 'bg-active text-accent' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
-    onclick={goWorkspace}
-    title="Query workspace ({combo(ALT, 'N')} for a new query)"
-    aria-label="Query"
-    aria-current={activeGroup.id === 'query' ? 'page' : undefined}
-  >
-    {#if activeGroup.id === 'query'}<span class="absolute -left-2 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent"></span>{/if}
-    <SquareTerminal size={16} />
-  </button>
+  <Tooltip text={`Query workspace (${combo(ALT, 'N')} for a new query)`} {...RAIL_TIP}>
+    <button
+      class="relative inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors {activeGroup.id === 'query' ? 'bg-active text-accent' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
+      onclick={goWorkspace}
+      aria-label="Query"
+      aria-current={activeGroup.id === 'query' ? 'page' : undefined}
+    >
+      {#if activeGroup.id === 'query'}<span class="absolute -left-2 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent"></span>{/if}
+      <SquareTerminal size={16} />
+    </button>
+  </Tooltip>
 
   {#each railGroups as g}
     {@const Icon = GROUP_ICONS[g.id]}
     {@const active = activeGroup.id === g.id}
-    <button
-      class="relative mt-1 inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors {active ? 'bg-active text-fg' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
-      onclick={() => openGroup(g)}
-      title={g.label}
-      aria-label={g.label}
-      aria-current={active ? 'page' : undefined}
-    >
-      {#if active}<span class="absolute -left-2 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent"></span>{/if}
-      <Icon size={16} />
-    </button>
+    <Tooltip text={g.label} {...RAIL_TIP} class="mt-1">
+      <button
+        class="relative inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors {active ? 'bg-active text-fg' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
+        onclick={() => openGroup(g)}
+        aria-label={g.label}
+        aria-current={active ? 'page' : undefined}
+      >
+        {#if active}<span class="absolute -left-2 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent"></span>{/if}
+        <Icon size={16} />
+      </button>
+    </Tooltip>
   {/each}
 
   <div class="flex-1"></div>
 
   {#if versionInfo}
-    <Tooltip text={versionInfo.text} class="mb-1">
+    <Tooltip text={versionInfo.text} {...RAIL_TIP} class="mb-1">
       <a
         href={versionInfo.href}
         target="_blank"
@@ -183,50 +190,55 @@
     </Tooltip>
   {/if}
 
-  <button
-    class="relative inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors {activeGroup.id === 'settings' ? 'bg-active text-fg' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
-    onclick={() => goTo(settingsFirst)}
-    title="Settings"
-    aria-label="Settings"
-    aria-current={activeGroup.id === 'settings' ? 'page' : undefined}
-  >
-    {#if activeGroup.id === 'settings'}<span class="absolute -left-2 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent"></span>{/if}
-    <Settings size={16} />
-  </button>
+  <Tooltip text="Settings" {...RAIL_TIP}>
+    <button
+      class="relative inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors {activeGroup.id === 'settings' ? 'bg-active text-fg' : 'text-fg-3 hover:bg-hover hover:text-fg'}"
+      onclick={() => goTo(settingsFirst)}
+      aria-label="Settings"
+      aria-current={activeGroup.id === 'settings' ? 'page' : undefined}
+    >
+      {#if activeGroup.id === 'settings'}<span class="absolute -left-2 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent"></span>{/if}
+      <Settings size={16} />
+    </button>
+  </Tooltip>
 
   <span class="my-1.5 h-px w-5 bg-edge"></span>
 
   {#if session}
-    <button
-      bind:this={connectionButton}
-      class="inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-hover {switcherOpen ? 'bg-active' : ''}"
-      onclick={() => (switcherOpen ? closeConnectionSwitcher() : openConnectionSwitcher())}
-      onmousedown={(e) => e.stopPropagation()}
-      title={`${connectionTitle}\nClick to switch connection`}
-      aria-label="Switch connection (now {session.connectionName ?? 'CH-UI'})"
-      aria-expanded={switcherOpen}
-      aria-haspopup="dialog"
-    >
-      <span class="h-1.5 w-1.5 rounded-full {session.connectionOnline ? 'bg-success' : 'bg-danger'}"></span>
-    </button>
+    <Tooltip text={`${connectionTitle}\nClick to switch connection`} {...RAIL_TIP} disabled={switcherOpen}>
+      <button
+        bind:this={connectionButton}
+        class="inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-hover {switcherOpen ? 'bg-active' : ''}"
+        onclick={() => (switcherOpen ? closeConnectionSwitcher() : openConnectionSwitcher())}
+        onmousedown={(e) => e.stopPropagation()}
+        aria-label="Switch connection (now {session.connectionName ?? 'CH-UI'})"
+        aria-expanded={switcherOpen}
+        aria-haspopup="dialog"
+      >
+        <span class="h-1.5 w-1.5 rounded-full {session.connectionOnline ? 'bg-success' : 'bg-danger'}"></span>
+      </button>
+    </Tooltip>
     <span class="sr-only" role="status">
       {session.connectionName ?? 'Connection'}: {session.connectionOnline ? 'connected' : 'disconnected'}
     </span>
   {/if}
-  <Button
-    icon
-    variant="ghost"
-    size="sm"
-    onclick={cycleThemePreference}
-    title="{THEME_LABEL[themePref]}. Click for {THEME_LABEL[NEXT_THEME[themePref]].toLowerCase()}"
-    aria-label="Theme: {THEME_LABEL[themePref]}. Switch to {THEME_LABEL[NEXT_THEME[themePref]].toLowerCase()}"
-  >
-    {#if themePref === 'system'}<Monitor size={15} />{:else if themePref === 'dark'}<Moon size={15} />{:else}<Sun size={15} />{/if}
-  </Button>
-  {#if session}
-    <Button icon variant="ghost" size="sm" class="hover:text-danger" onclick={logout} title="Log out ({session.user})" aria-label="Log out">
-      <LogOut size={15} />
+  <Tooltip text={`${THEME_LABEL[themePref]}. Click for ${THEME_LABEL[NEXT_THEME[themePref]].toLowerCase()}`} {...RAIL_TIP}>
+    <Button
+      icon
+      variant="ghost"
+      size="sm"
+      onclick={cycleThemePreference}
+      aria-label="Theme: {THEME_LABEL[themePref]}. Switch to {THEME_LABEL[NEXT_THEME[themePref]].toLowerCase()}"
+    >
+      {#if themePref === 'system'}<Monitor size={15} />{:else if themePref === 'dark'}<Moon size={15} />{:else}<Sun size={15} />{/if}
     </Button>
+  </Tooltip>
+  {#if session}
+    <Tooltip text={`Log out (${session.user})`} {...RAIL_TIP}>
+      <Button icon variant="ghost" size="sm" class="hover:text-danger" onclick={logout} aria-label="Log out">
+        <LogOut size={15} />
+      </Button>
+    </Tooltip>
   {/if}
 </nav>
 

@@ -30,7 +30,7 @@
     <h1 class="text-[15px] font-semibold tracking-[-0.01em] text-fg">Pro license required</h1>
     <p class="mt-1 text-[13px] leading-relaxed text-fg-3">
       <span class="font-medium text-fg">{feature}</span> is part of CH-UI Pro. Activate a license under
-      Settings, or get one if you don't have it yet.
+      Instance, or get one if you don't have it yet.
     </p>
     <p class="mt-4 text-[12px] text-fg-3">Pro also includes</p>
 
