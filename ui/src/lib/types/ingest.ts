@@ -524,13 +524,20 @@ export function receiveSetupError(input: ReceiveSetupInput): string {
 
 /**
  * Which ingest pipeline the Send data sheet opens on. keepId (the caller's
- * pipeline, or the one already selected) wins; with a signal, only a pipeline
- * of that signal counts, so a traces pipeline never hides the logs setup.
+ * pipeline) wins; previousId (picked on an earlier open of the same sheet)
+ * only when it has the signal asked for, since Telemetry keeps the sheet
+ * mounted across Logs and Traces. With a signal, only a pipeline of that
+ * signal counts, so a traces pipeline never hides the logs setup.
  * An empty id means the sheet offers the setup form.
  */
-export function pickIngestPipeline<T extends { id: string; signal: IngestSignal }>(pipelines: T[], opts: { keepId?: string; signal?: IngestSignal }): string {
+export function pickIngestPipeline<T extends { id: string; signal: IngestSignal }>(
+  pipelines: T[],
+  opts: { keepId?: string; previousId?: string; signal?: IngestSignal },
+): string {
   const keep = opts.keepId ? pipelines.find((p) => p.id === opts.keepId) : undefined
   if (keep) return keep.id
+  const previous = opts.previousId ? pipelines.find((p) => p.id === opts.previousId) : undefined
+  if (previous && (!opts.signal || previous.signal === opts.signal)) return previous.id
   if (opts.signal) return pipelines.find((p) => p.signal === opts.signal)?.id ?? ''
   return pipelines[0]?.id ?? ''
 }

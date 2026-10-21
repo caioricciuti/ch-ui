@@ -250,6 +250,13 @@ describe('pickIngestPipeline', () => {
     expect(pickIngestPipeline(pipes, { keepId: 'gone', signal: 'traces' })).toBe('t1')
   })
 
+  it('keeps an earlier pick only for the same signal', () => {
+    expect(pickIngestPipeline(pipes, { previousId: 'l2', signal: 'logs' })).toBe('l2')
+    expect(pickIngestPipeline(pipes, { previousId: 'l2', signal: 'traces' })).toBe('t1')
+    expect(pickIngestPipeline([{ id: 'l1', signal: 'logs' as const }], { previousId: 'l1', signal: 'traces' })).toBe('')
+    expect(pickIngestPipeline(pipes, { previousId: 'l2' })).toBe('l2')
+  })
+
   it('returns no pipeline when only other signals have one', () => {
     expect(pickIngestPipeline([{ id: 't1', signal: 'traces' as const }], { signal: 'logs' })).toBe('')
   })
