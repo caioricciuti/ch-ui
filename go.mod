@@ -6,7 +6,7 @@ module github.com/caioricciuti/ch-ui
 // GO-2026-6088 (net/http). CI's setup-go reads this line (go-version-file) and
 // installs exactly this toolchain, the Dockerfile's golang image matches it,
 // and govulncheck scans with that toolchain. Raise it to pick up stdlib fixes.
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/IBM/sarama v1.61.1

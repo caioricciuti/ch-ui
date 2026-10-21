@@ -651,7 +651,7 @@ curl http://localhost:3488/health
 
 ## Development
 
-Requirements: Go 1.26.9+ (the version in `go.mod`), Bun
+Requirements: Go 1.26.10+ (the version in `go.mod`), Bun
 
 ```bash
 git clone https://github.com/caioricciuti/ch-ui.git
