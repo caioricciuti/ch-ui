@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { KEY_PLACEHOLDER, buildSnippet, defaultReceiveTable, pickIngestPipeline, receiveSetupError, esEndpoint, hecEndpoint, shipperApisFor, snippetFile, withOtelSinkDefaults, formatAge, formatRate, rejectedEntries, shippersFor, signalEndpoint, usesOtelLayout } from './ingest'
+import { KEY_PLACEHOLDER, buildSnippet, defaultReceiveTable, pickIngestPipeline, receiveSetupError, retentionDays, esEndpoint, hecEndpoint, shipperApisFor, snippetFile, withOtelSinkDefaults, formatAge, formatRate, rejectedEntries, shippersFor, signalEndpoint, usesOtelLayout } from './ingest'
 
 const BASE = 'https://chui.example.com/ingest/'
 const KEY = 'chi_abcdef0123456789'
@@ -282,8 +282,22 @@ describe('receive setup', () => {
   it('names the first missing or bad field', () => {
     expect(receiveSetupError({ ...ok, database: ' ' })).toBe('Pick a database.')
     expect(receiveSetupError({ ...ok, table: '' })).toBe('Enter a table name.')
-    expect(receiveSetupError({ ...ok, ttl_days: 0 })).toMatch(/Retention/)
+    expect(receiveSetupError({ ...ok, ttl_days: -1 })).toMatch(/Retention/)
+    expect(receiveSetupError({ ...ok, ttl_days: 36501 })).toMatch(/Retention/)
     expect(receiveSetupError({ ...ok, ttl_days: 1.5 })).toMatch(/Retention/)
     expect(receiveSetupError({ ...ok, ttl_days: Number.NaN })).toMatch(/Retention/)
+  })
+
+  it('accepts 0 days, which keeps rows forever', () => {
+    expect(receiveSetupError({ ...ok, ttl_days: 0 })).toBe('')
+  })
+})
+
+describe('retentionDays', () => {
+  it('reads the field as days, blank as NaN', () => {
+    expect(retentionDays(30)).toBe(30)
+    expect(retentionDays('0')).toBe(0)
+    expect(retentionDays(' ')).toBeNaN()
+    expect(retentionDays('')).toBeNaN()
   })
 })

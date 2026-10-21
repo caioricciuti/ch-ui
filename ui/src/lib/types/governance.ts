@@ -275,3 +275,11 @@ export interface GovernanceIncidentComment {
   created_by?: string | null
   created_at: string
 }
+
+/** Shown before turning on governance sync, from Settings and from the first-visit banner. */
+export const ENABLE_SYNC_CONFIRM = {
+  title: 'Enable governance sync?',
+  description:
+    'The syncer will poll your ClickHouse cluster every 5 minutes, borrowing credentials from your admin session. Each borrow is recorded in the audit log. The disclosure under Governance, Settings explains what it reads.',
+  confirmLabel: 'I understand, enable',
+}

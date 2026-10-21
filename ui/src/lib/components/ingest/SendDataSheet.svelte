@@ -15,8 +15,8 @@
   import { setupReceive } from '../../api/telemetry'
   import { listDatabases } from '../../api/query'
   import {
-    buildSnippet, defaultReceiveTable, isIngestSignal, pickIngestPipeline, receiveSetupError, shipperApisFor, shippersFor, snippetFile, usesOtelLayout,
-    KEY_PLACEHOLDER, type IngestSignal, type ReceiveSignal, type Shipper, type ShipperApi,
+    buildSnippet, defaultReceiveTable, isIngestSignal, pickIngestPipeline, receiveSetupError, retentionDays, shipperApisFor, shippersFor, snippetFile, usesOtelLayout,
+    KEY_PLACEHOLDER, RECEIVE_MAX_TTL_DAYS, type IngestSignal, type ReceiveSignal, type Shipper, type ShipperApi,
   } from '../../types/ingest'
   import type { PipelineStatus } from '../../types/pipelines'
   import { pushPipelineList } from '../../stores/router.svelte'
@@ -83,7 +83,7 @@
   const fixedSignal = $derived<ReceiveSignal | null>(signal === 'logs' || signal === 'traces' ? signal : null)
   const setupSignal = $derived<ReceiveSignal>(fixedSignal ?? pickedSignal)
   const databaseOptions = $derived(databases.map((d) => ({ value: d, label: d })))
-  const setupInvalid = $derived(receiveSetupError({ signal: setupSignal, database: setupDatabase, table: setupTable, ttl_days: Number(setupTtl) }))
+  const setupInvalid = $derived(receiveSetupError({ signal: setupSignal, database: setupDatabase, table: setupTable, ttl_days: retentionDays(setupTtl) }))
   const signalOptions = [
     { value: 'logs', label: 'Logs' },
     { value: 'traces', label: 'Traces' },
@@ -165,7 +165,7 @@
     if (setupInvalid || settingUp) return
     settingUp = true
     try {
-      const res = await setupReceive({ signal: setupSignal, database: setupDatabase, table: setupTable.trim(), ttl_days: Number(setupTtl) })
+      const res = await setupReceive({ signal: setupSignal, database: setupDatabase, table: setupTable.trim(), ttl_days: retentionDays(setupTtl) })
       secrets = { ...secrets, [res.pipeline.id]: { name: res.key.name, secret: res.secret } }
       setupIds = [...setupIds, res.pipeline.id]
       selectedId = res.pipeline.id
@@ -230,8 +230,8 @@
       <FormField label="Table" for="send-data-table" controlWidth="full" hint="Created in the OpenTelemetry layout if it does not exist.">
         <Input id="send-data-table" mono bind:value={setupTable} disabled={settingUp} />
       </FormField>
-      <FormField label="Retention in days" for="send-data-ttl" controlWidth="full" hint="Rows older than this are dropped.">
-        <Input id="send-data-ttl" type="number" min={1} step={1} bind:value={setupTtl} disabled={settingUp} />
+      <FormField label="Retention in days" for="send-data-ttl" controlWidth="full" hint="Rows older than this are dropped. 0 keeps them forever.">
+        <Input id="send-data-ttl" type="number" min={0} max={RECEIVE_MAX_TTL_DAYS} step={1} bind:value={setupTtl} disabled={settingUp} />
       </FormField>
       {#if setupSignal === 'traces' && !hasProReadAccess()}
         <p class="text-xs text-fg-3">Traces are stored without a license; browsing them in Telemetry, Traces needs Pro.</p>

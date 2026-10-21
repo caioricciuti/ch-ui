@@ -8,7 +8,7 @@
     updateQueryHarvestMode,
     updateQueryHarvestMinDuration,
   } from '../../api/governance'
-  import type { GovernanceSettings, QueryHarvestMode, QueryHarvestSettings } from '../../types/governance'
+  import { ENABLE_SYNC_CONFIRM, type GovernanceSettings, type QueryHarvestMode, type QueryHarvestSettings } from '../../types/governance'
   import { getSession } from '../../stores/session.svelte'
   import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { formatDate } from '../../utils/format'
@@ -323,9 +323,7 @@
 
 <ConfirmDialog
   open={showEnableConfirm}
-  title="Enable governance sync?"
-  description="The syncer will poll your ClickHouse cluster every 5 minutes, borrowing credentials from your admin session. Each borrow is recorded in the audit log. Make sure you have read the disclosure on this page."
-  confirmLabel="I understand, enable"
+  {...ENABLE_SYNC_CONFIRM}
   loading={govToggleSaving}
   onconfirm={confirmEnableGovernanceSync}
   oncancel={() => (showEnableConfirm = false)}
