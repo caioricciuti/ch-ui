@@ -17,7 +17,7 @@ admin role; viewers see who to ask.
    - **Database**: where the table goes. `default` is preselected.
    - **Table**: `otel_logs` by default. CH-UI creates it in the
      OpenTelemetry layout, or reuses it if it already has that shape.
-   - **Retention in days**: rows older than this are dropped. 30 by default.
+   - **Retention in days**: rows older than this are dropped. 30 by default; 0 keeps them forever.
 4. Click **Set up**.
 
 ## Copy the key

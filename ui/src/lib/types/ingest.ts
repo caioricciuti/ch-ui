@@ -518,8 +518,18 @@ export function defaultReceiveTable(signal: ReceiveSignal): string {
 export function receiveSetupError(input: ReceiveSetupInput): string {
   if (!input.database.trim()) return 'Pick a database.'
   if (!input.table.trim()) return 'Enter a table name.'
-  if (!Number.isInteger(input.ttl_days) || input.ttl_days < 1) return 'Retention must be a whole number of days, 1 or more.'
+  if (!Number.isInteger(input.ttl_days) || input.ttl_days < 0 || input.ttl_days > RECEIVE_MAX_TTL_DAYS) {
+    return `Retention must be a whole number of days from 0 to ${RECEIVE_MAX_TTL_DAYS}.`
+  }
   return ''
+}
+
+/** The server's bound on receive retention (100 years); 0 keeps rows forever. */
+export const RECEIVE_MAX_TTL_DAYS = 36500
+
+/** The retention field as days. A blank field is NaN, not 0, so clearing it never means forever. */
+export function retentionDays(value: string | number): number {
+  return String(value).trim() === '' ? Number.NaN : Number(value)
 }
 
 /**

@@ -176,9 +176,9 @@
           await activateLicense(JSON.stringify(res.license))
           trialEmail = ''
           trialName = ''
-          success('Trial activated — 30 days of Pro')
+          success('Trial activated: 30 days of Pro')
         } catch {
-          // Trial was created but local activation failed — the license was emailed.
+          // Trial was created but local activation failed; the license was emailed.
           trialSentTo = email
           success('Trial created. The license was sent to your email; activate it under Activate Pro.')
         }
@@ -249,7 +249,7 @@
     manageStatus = ''
     try {
       const res = await requestBillingPortal(email)
-      manageStatus = res.message || 'Billing portal link sent — check your email.'
+      manageStatus = res.message || 'Billing portal link sent. Check your email.'
     } catch (e) {
       toastError(licenseServerMessage(e, 'Failed to request billing portal link'))
     } finally {
