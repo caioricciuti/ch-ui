@@ -132,7 +132,7 @@
         .filter((p) => p.source_type === 'source_ingest')
         .map((p) => ({ id: p.id, name: p.name, status: p.status, signal: isIngestSignal(p.signal) ? p.signal : 'logs' }))
       if (pipelineId && secret) secrets = { ...secrets, [pipelineId]: { name: 'new key', secret } }
-      selectedId = pickIngestPipeline(pipelines, { keepId: pipelineId || selectedId, signal })
+      selectedId = pickIngestPipeline(pipelines, { keepId: pipelineId, previousId: selectedId, signal })
       if (!selectedId && canWrite) await loadDatabases()
     } catch (e: unknown) {
       error = errorText(e)
