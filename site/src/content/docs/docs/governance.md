@@ -256,7 +256,7 @@ GET /api/governance/query-log/{query_id}
 
 The switch that turns the collector on. It is off by default, and when it is off the workers do not run and **Sync now** returns `409` with `governance_sync_disabled`. Turning it on needs an active Pro license (or one in the read-only grace period); turning it off is always allowed. The toggle is admin only and is recorded in the audit log as `governance.sync_toggle`.
 
-While sync is off, a banner under the page header says so. On a connection with nothing harvested yet it reads **Governance sync is off** and its **Turn on sync** link enables sync in place; on an instance that already holds governance data it explains that sync is now opt-in and links to Settings. The banner can be dismissed.
+While sync is off, a banner under the page header says so. On a connection with nothing harvested yet it reads **Governance sync is off** and its **Turn on sync** link asks for the same confirmation as Settings, then enables sync in place; on an instance that already holds governance data it explains that sync is now opt-in and links to Settings. The banner can be dismissed.
 
 ```bash
 GET /api/admin/governance/settings

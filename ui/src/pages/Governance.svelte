@@ -60,15 +60,16 @@
 	} from '../lib/api/governance';
 	import { getSection, setSection } from '../lib/stores/nav.svelte';
 	import { getSession } from '../lib/stores/session.svelte';
-	import type {
-		GovernanceOverview,
-		GovDatabase,
-		GovTable,
-		GovColumn,
-		QueryLogEntry,
-		GovernanceObjectComment,
-		SyncState,
-		GovernanceSettings
+	import {
+		ENABLE_SYNC_CONFIRM,
+		type GovernanceOverview,
+		type GovDatabase,
+		type GovTable,
+		type GovColumn,
+		type QueryLogEntry,
+		type GovernanceObjectComment,
+		type SyncState,
+		type GovernanceSettings
 	} from '../lib/types/governance';
 
 	// State
@@ -102,6 +103,7 @@
 	// Sync settings (opt-in toggle + upgrade banner)
 	let govSettings = $state<GovernanceSettings | null>(null);
 	let govToggleSaving = $state<boolean>(false);
+	let showEnableConfirm = $state<boolean>(false);
 	// Dashboard data
 	let overview = $state<GovernanceOverview | null>(null);
 
@@ -504,7 +506,7 @@
 						<button
 							class="ml-1 font-medium text-info underline underline-offset-2 hover:text-fg"
 							disabled={govToggleSaving}
-							onclick={() => void persistGovernanceSettings({ sync_enabled: true })}
+							onclick={() => (showEnableConfirm = true)}
 						>Turn on sync</button>
 					</p>
 				{:else}
@@ -912,6 +914,17 @@
 			</div>
 		{/if}
 	</Sheet>
+
+<ConfirmDialog
+	open={showEnableConfirm}
+	{...ENABLE_SYNC_CONFIRM}
+	loading={govToggleSaving}
+	onconfirm={async () => {
+		showEnableConfirm = false;
+		await persistGovernanceSettings({ sync_enabled: true });
+	}}
+	oncancel={() => (showEnableConfirm = false)}
+/>
 
 <ConfirmDialog
 	open={deletingNoteId !== null}
