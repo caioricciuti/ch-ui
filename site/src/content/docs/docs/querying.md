@@ -14,11 +14,11 @@ The rail on the left groups the product into six areas:
 | Group | Pages |
 |---|---|
 | **Query** | The SQL workspace: editor tabs and the schema explorer |
-| **Explore** | Saved Queries, Brain |
+| **Explore** | Saved Queries, Lineage, Brain |
 | **Visualize** | Dashboards, Telemetry |
-| **Build** | Models, Pipelines, Schedules |
-| **Operate** | Cluster Health, Query Insights, Cost Center, Governance |
-| **Settings** | Admin, License |
+| **Build** | Models, Pipelines, Schedules, Schema Compare |
+| **Operate** | Health: Fleet, Cluster Health. Performance: Performance, Query Insights, Cost Center. Control: Governance, Incident Timeline, Reports |
+| **Settings** | Admin, Instance (license, instance details, legal) |
 
 Picking a group opens its list in the context panel next to the rail. Pages are full screens with their own URL, and pages with several parts (Admin, Governance, Telemetry, the Operate pages) list them as sections in that panel instead of showing tab strips. Tabs are kept for the query workspace, where holding two things open side by side is the point: it has two split groups (left/right), and each tab is a query editor or a table/database browser.
 
@@ -240,11 +240,14 @@ The left sidebar provides a navigable schema tree.
 
 ### Table Browser
 
-Click a table in the explorer to open a table tab showing:
+Click a table in the explorer to open a table tab. Its header names the database as a breadcrumb, and it has four tabs:
 
-- Column list with types
-- Data preview (paginated, default 100 rows, max 1000)
-- Host info and table metadata
+- **Overview**: rows, size, engine and last modified, the storage keys (partition, sorting, primary, sampling), and the `CREATE TABLE` statement with a copy button
+- **Schema**: column list with types
+- **Data Sample**: data preview (paginated, default 100 rows, max 1000)
+- **Lineage**: what feeds and reads the table
+
+A database tab has **Overview** (tables, rows, total size, engine) and **Tables**.
 
 ### Autocomplete
 
@@ -504,10 +507,19 @@ The response matches the standard query-execution shape (`data`, `meta`, `statis
 
 Press **⌘K** (macOS) or **Ctrl+K** anywhere in the workspace to open the command palette:
 
-- **Navigate**: fuzzy-search pages, tables, recent tabs, and (Pro) saved queries, dashboards, models, pipelines, Brain chats, and telemetry tabs
-- **Run actions**: new query (`⌘⇧N`), new dashboard / model / pipeline / Brain chat, toggle theme, sign out
+- **Navigate**: fuzzy-search pages, every page section (listed as "Page · Section", for example "Governance · Alert rules", with the same admin and Pro gating as the sidebar), tables, recent tabs, and (Pro) saved queries, dashboards, models, pipelines, Brain chats, and telemetry tabs
+- **Run actions**: new query (**⌥N** / **Alt+N**, or **⌘⇧N**), new dashboard, model or pipeline (each opens its create sheet), **Send data to Telemetry**, new Brain chat, and for admins **New MCP service key** and **New ClickHouse user**; also theme, switch connection, keyboard shortcuts and sign out
 - **Scope with prefixes** (Pro): `>` actions, `t:` tables, `q:` saved queries, `d:` dashboards, `m:` models, `p:` pipelines, `b:` Brain chats, `tel:` telemetry, `?` help
 - **Ask Brain** (Pro): type a question and hit Enter to seed a Brain chat with the prompt
+
+Press **?** anywhere outside a text field for the full list of keyboard shortcuts.
+
+### Keyboard in sheets and dialogs
+
+- **Esc** closes only the topmost layer: an open dropdown, menu or the command palette inside a sheet closes first, then the sheet. In a code editor inside a sheet, the first Esc leaves the editor and the second closes the sheet, so unsaved SQL is not lost by accident.
+- **Enter** in a one-line field runs the sheet's main footer button. It does not fire in multi-line fields, code editors, or on a danger button.
+- **Tab** moves between fields and stays inside the open sheet; when it closes, focus goes back to what opened it.
+- Workspace shortcuts such as **Alt+W** and the Telemetry list keys do not act on the page behind an open sheet. **⌘K** still works.
 
 ## Display Controls
 

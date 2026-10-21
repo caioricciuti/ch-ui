@@ -66,7 +66,7 @@ remains Apache-2.0. See `LICENSING.md` in the repository for the exact scope.
 
 ### How activation works
 
-You receive a **signed license file** (JSON) and an admin activates it on your instance's **Settings → License** page: paste the JSON or upload the file. Activating, replacing, and removing a license are admin only. Verification happens **locally** against a public key embedded in the binary:
+You receive a **signed license file** (JSON) and an admin activates it on your instance's **Instance** page (Settings group in the rail, `/instance`), in the **License** section: paste the JSON or upload the file. Old `/license` links in the app redirect there. Activating, replacing, and removing a license are admin only. Verification happens **locally** against a public key embedded in the binary:
 
 - **No call-home**: works in air-gapped environments
 - **No account required**: the license is the whole relationship
@@ -79,18 +79,18 @@ browser tab, and background work such as Cluster Health collection and audit
 forwarding.
 
 To move from a trial to a paid license, or to apply a renewed or upgraded one,
-use **Replace license** in Settings, License (shown while a license is active).
+use **Replace license** under Instance, License (shown while a license is active).
 The new license replaces the current one; there is no need to deactivate first.
 
-### The Settings page
+### The Instance page
 
-**Settings** has three tabs: License, Instance and Legal.
+**Instance** has three sections in the context panel: License, Instance and Legal.
 
 **License** shows the edition, customer, license ID and expiry, and a status badge: Pro Active, Pro Grace Period, Pro Expired or Community. Below that:
 
-- **Start free trial** (Community only): enter an email, and optionally a name, and CH-UI asks the license server for a 30-day Pro trial. One trial per email. The license is emailed to you; paste it or upload the file to activate. Only admins can start a trial.
-- **Activate Pro** or **Replace license** (admins): paste the license JSON or upload the file. **Buy Pro License** opens Stripe checkout in a new tab.
-- **Manage license & billing**: **Resend license email** re-sends your license file to the email used at purchase or trial, and **Manage billing** emails you a link to the Stripe billing portal for your subscription.
+- **Start free trial** (Community only): opens a sheet where you enter an email, and optionally a name, and CH-UI asks the license server for a 30-day Pro trial. One trial per email; if the email already had one, the License and billing sheet opens with that email filled in so you can re-send it. The license is emailed to you; paste it or upload the file to activate. Only admins can start a trial.
+- **Activate Pro** or **Replace license** (admins): **Activate license** (or **Replace license**) opens a sheet where you paste the license JSON or use **Upload a file**. **Buy Pro License** opens Stripe checkout in a new tab.
+- **Manage license & billing**: **Manage** opens a sheet with one email field, the one used at purchase or trial. **Resend** re-sends your license file to it, and **Email link** sends a link to the Stripe billing portal for your subscription.
 
 The trial, checkout, resend and billing requests go from your browser to `https://license.ch-ui.com`, so they need internet access from the browser. Activation itself stays offline.
 
@@ -131,7 +131,7 @@ the expiry date, giving you time to renew:
 
 - Pro pages still open, with a warning bar at the top: "Pro license expired.
   Read-only until *date*. Changes are blocked until a renewed license is
-  activated." The **Manage license** button in that bar opens Settings, License.
+  activated." The **Manage license** button in that bar opens Instance, License.
 - Reads keep working, so dashboards and monitoring stay usable. The server
   answers `GET` and `HEAD` on Pro endpoints as before, along with the
   read-only `POST` searches (for example trace search, the metrics query, and
@@ -146,7 +146,7 @@ the expiry date, giving you time to renew:
 - Pro features outside the Pro pages stay locked until a license is active
   again: SSO settings, GitHub sync, Ask AI in the editor, and Pro search in
   the command palette.
-- Settings, License shows a **Pro Grace Period** badge with the expiry date and
+- Instance, License shows a **Pro Grace Period** badge with the expiry date and
   the date the grace period ends.
 
 After the grace window, Pro features lock until a valid license is activated.

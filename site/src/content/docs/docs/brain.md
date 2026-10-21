@@ -155,7 +155,7 @@ events as the Ask AI stream.
 
 ### Creating a chat
 
-Open **Brain** in the sidebar and click **New Chat**. If no provider is configured yet, Brain points you to **Admin → Brain** to add one.
+Open **Brain** in the sidebar and click **New Chat**. If no provider is configured yet, the new chat says **Brain needs an AI provider first** instead of sending your prompt: admins get a **Set up a provider** button that opens **Admin → Brain**, everyone else is asked to have an admin add one.
 
 ### Schema context
 

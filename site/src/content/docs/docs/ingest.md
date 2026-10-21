@@ -26,7 +26,9 @@ table as a Telemetry source. The sheet then shows ready-to-paste configs for
 your shipper. It needs the analyst or admin role, a ClickHouse user that can
 create the table, and pipelines allowed under the connection's
 [background accounts](/docs/background-accounts). If an `otel_logs` table already
-exists with the exporter's columns, it is reused.
+exists with the exporter's columns, it is reused; one without them is refused
+with the missing columns listed. The same setup is available as
+[`POST /api/telemetry/receive`](/docs/api#telemetry).
 
 To build it by hand, or for the `events` signal:
 

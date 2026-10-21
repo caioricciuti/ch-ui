@@ -552,6 +552,11 @@ already covers them. Two things matter:
   listener with a public `Host` header got `403 Forbidden: invalid Host
   header`, which clients reported as an auth failure. The workaround there is
   `MCPGODEBUG=disablelocalhostprotection=1` on the CH-UI process.
+- Newer clients (Claude Code 2.1.30 and later) hold a `subscriptions/listen`
+  stream open on `/mcp` for as long as the session lasts. Since v2.29.0 CH-UI
+  lifts its five-minute write timeout for `/mcp` requests, so those streams
+  are no longer cut every few minutes. A proxy read timeout can still end
+  one; the client then reconnects.
 
 ## Notes and troubleshooting
 

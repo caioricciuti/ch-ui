@@ -22,7 +22,7 @@ Each schedule has:
 
 ## Creating a Schedule
 
-Navigate to **Schedules** in the sidebar and click **New Schedule**.
+Navigate to **Schedules** in the sidebar and click **Create Schedule**. The Query jobs section lists schedules as a table (name, saved query, cron, timezone, last and next run) with an **Enabled** switch on each row; click a row to edit it.
 
 | Field | Description | Default |
 |---|---|---|
@@ -130,7 +130,9 @@ Both alert types use fingerprint-based deduplication to prevent duplicate alerts
 
 ## Run History
 
-View execution history for each schedule.
+In the app, the **View runs** row action opens a sheet with that schedule's runs, paged. Click a run to see its details.
+
+The API returns the same history:
 
 ```bash
 GET /api/schedules/{id}/runs?limit=50&offset=0

@@ -7,7 +7,7 @@ Performance answers two questions: which query patterns got slower or heavier re
 
 Available on Pro and Enterprise plans.
 
-Open it from **Operate → Performance**. The page has two tabs: **Regressions** and **Investigations**.
+Open it from **Operate → Performance** (under the Performance subgroup). The page has two sections in the context panel: **Regressions** and **Investigations**.
 
 ## How a regression is detected
 
@@ -35,11 +35,11 @@ Regressions are sorted by **additional aggregate duration**: the increase in mea
 
 A flagged pattern is something to look at, not a diagnosis. Changes in input data, traffic mix, cold caches or which node served the queries can all move these numbers.
 
-## Using the Regressions tab
+## Using the Regressions section
 
-1. Pick a window under **Compare each window**: 1 hour, 6 hours, 24 hours or 7 days. The default is 24 hours.
+1. Pick a window under **Compare each window** in the toolbar: 1 hour, 6 hours, 24 hours or 7 days. The default is 24 hours.
 2. Read the summary: number of regressions, patterns compared, and patterns with insufficient data. The panel below it shows the exact current and baseline windows and what the scan covered.
-3. Each card shows the normalized query text (literal values are stripped), the p95 latency, mean memory and mean bytes read for both windows, and the success and failure counts.
+3. The table has one row per pattern: status, the normalized query text (literal values are stripped), database, current and baseline p95, the change, executions and memory per query. Click a row to open the pattern with its sample query and the full before and after figures, including mean bytes read.
 4. Turn on **All observed patterns** to see stable and insufficient patterns too, not only regressions. Use the search box to filter by text or database.
 
 The page rescans when you open it, when you click **Refresh**, and every five minutes while the tab is visible. Interactive scans always run with your own ClickHouse credentials.
@@ -50,8 +50,8 @@ If `system.query_log` is missing or your account cannot read it, the page says *
 
 An investigation keeps a baseline measurement, an owner, notes, and every later comparison, so you can show what changed after a fix.
 
-1. On a pattern, click **Investigate**. The button is disabled if the current window has fewer than 10 successful runs.
-2. Give it a **Title**, an **Owner** (a name or email), and optional initial notes, then click **Capture baseline**. The server rereads the metrics for that exact pattern with your credentials. If it finds fewer than 10 successful executions, the baseline is refused.
+1. Open a pattern from the Regressions table and click **Capture baseline**. The button is disabled if the current window has fewer than 10 successful runs.
+2. In the sheet, give it a **Title**, an **Owner** (a name or email), and optional initial notes, then click **Capture baseline**. The server rereads the metrics for that exact pattern with your credentials. If it finds fewer than 10 successful executions, the baseline is refused.
 3. Ship your change through your normal process. Come back and add a note describing what changed and when it was deployed. Set the status to **Monitoring a change** if that helps the team.
 4. When a full window has passed since the baseline, click **Capture comparison**. Until then the page shows when the comparison becomes available. If you rewrote the SQL and its normalized hash changed, pick the new pattern under **Compare against**; the choices come from the latest scan.
 5. Review the before and after figures, then set the status to **Resolved** when the evidence supports it.
@@ -105,7 +105,7 @@ Resolved investigations are pruned 180 days after they were resolved (v2.14.3+; 
 
 ## Fleet overview
 
-**Operate → Fleet** is an administrator view of every connection on one page. For each connection it shows:
+**Operate → Fleet** (under the Health subgroup) is an administrator view of every connection on one page, as a table with one row per connection. For each connection it shows:
 
 - Whether the connector is online
 - Replication delay, replication queue, readonly replicas, parts pressure, pending mutations and long queries from the latest retained [Cluster Health](/docs/cluster-health) poll
@@ -126,7 +126,7 @@ Each connection gets a status:
 
 The regression count only appears when hourly background detection is enabled, the last scan succeeded, and that scan is less than 2 hours old. Otherwise the field is left out rather than shown as zero.
 
-Fleet reads only data CH-UI already retains; it never queries another connection with someone else's credentials. The page refreshes every 30 seconds. **Inspect health**, **Incidents** and **Performance** open a sign-in sheet for that connection, because switching to it needs your own ClickHouse credentials for it. Configure Cluster Health collection and performance scanning separately for each connection.
+Fleet reads only data CH-UI already retains; it never queries another connection with someone else's credentials. The page refreshes every 30 seconds. Clicking a row (to inspect Cluster Health) and the **Incidents** and **Performance** row actions open a sign-in sheet for that connection, because switching to it needs your own ClickHouse credentials for it. Configure Cluster Health collection and performance scanning separately for each connection.
 
 ## API
 
