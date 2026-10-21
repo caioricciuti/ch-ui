@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.29.0] - 2026-10-21
+
+A usability release: every page now follows one design contract, Home walks a new instance through getting started, Telemetry receives logs and traces from one sheet, errors say what to do next, and five how-do-I guides cover the first steps. It also hardens credentials and browser requests and moves to Go 1.26.10.
+
+### Upgrade notes
+
+- **ClickHouse redirects are refused** for sign-in, queries, streaming and exports, so credentials never follow a redirect to another host. A connection URL that redirects must point at the final endpoint (#385).
+- **Link-local ClickHouse targets are refused.** Every resolved address is checked at connection time and the checked IP is dialled. Private and loopback targets keep working; a connection on a link-local address (169.254.0.0/16, fe80::/10) needs a private or public one (#385).
+- **Password login takes JSON only.** The bundled frontend already sends it; a custom login client must send `Content-Type: application/json` (#385).
+- **Unsafe browser requests to `/api` must come from an allowed origin.** A separate browser frontend needs its origin allowed. Behind a TLS proxy with no `APP_URL`, the same host is accepted on either scheme; set `APP_URL` to enforce HTTPS origins. Webhook and ingest authentication are unchanged (#385, #386).
+- **Docker Compose installs on the old default `APP_SECRET_KEY` upgrade on their own.** The first start generates a new key, saves it as `.app_secret_key` next to the database and re-encrypts stored secrets; nobody is signed out. Remove the old placeholder from your environment afterwards (#385, #386).
+
+### Security
+
+- Built with **Go 1.26.10**, which stops trusting compromised intermediate certificates when verifying TLS (GO-2026-6809). Affects outgoing SMTP over TLS (#394).
+- Query audit previews are redacted before truncation, so SQL credentials no longer land in the audit log; existing entries are not rewritten (#385).
+
+### Added
+
+- **Getting-started checklist on Home** for a fresh instance: connect ClickHouse, run and save a query, make a dashboard, add an AI provider, connect an AI client, invite a teammate. Each step opens the right place and ticks itself off; admins see every step, others see theirs (#384).
+- **Telemetry: Send data here sets up receiving logs or traces in one step.** It creates the table, the ingest pipeline, a key and the Telemetry source, then shows the shipper config with the key filled in (#388).
+- **Five how-do-I guides** on ch-ui.com (first query, first dashboard, ship logs, invite a teammate, connect Claude Code), linked from Home and the matching empty states (#389).
+- **Command palette** reaches every page section and adds actions for new dashboard, sending data to Telemetry, new MCP key and new ClickHouse user (#390).
+
+### Changed
+
+- **Navigation**: Operate pages are grouped under Health, Performance and Control; the License page is now **Instance** (old links still work); rail tooltips appear instantly (#391).
+- **Admin, MCP Server** leads with connecting a client as yourself through OAuth. Admin-created keys are now called service keys, the table shows who or what each one runs as, and write keys on an admin account are flagged (#372).
+- **Errors** across the app say what happened and what to do next, with the original detail underneath, instead of raw server text. Creating or renaming a model onto a taken name returns a clear message (#387).
+- **Keyboard**: Esc closes only the topmost menu, dropdown or sheet; Enter submits sheets; focus returns where it was; shortcuts no longer act behind an open sheet (#390).
+- **One page shell everywhere.** Home, the pipeline editor, dashboards, database and table tabs use the shared header (with a back arrow and breadcrumbs where it applies), tabs and stat tiles. Every form sheet submits from its footer. Dashboard Move, Edit tags, the version viewer and the alert channel test open as sheets. Creating a pipeline, folder or saved search opens a sheet with a name field (#378, #379, #382, #384).
+- **Lists are tables**: Pipelines, Schedules, Fleet, Schema Compare, Reports, Performance and the Models run history are sortable tables with a toolbar instead of card grids; Governance Tables and Query Audit scroll inside the table (#380).
+- **Settings show state first** and edit in a sheet: Reports schedule, GitHub sync, governance settings, the Instance page forms and the Performance baseline capture (#381).
+- **Models** shows its dependency graph and run history as sections instead of full-screen overlays, with search and a pipeline filter; the header badge counting pipelines is gone (#382, #392).
+- Lists and panels show a skeleton while loading, empty lists show the next action, and toggles are real switches for screen readers (#378, #379).
+- Charts, gauges, the pipeline canvas and mention chips take their colours from the theme, so they match in light and dark; body text is 13 px everywhere; toggle buttons share one pressed style (#383, #395).
+- Brain explains that a provider must be configured instead of failing the first prompt, and Governance offers to turn on sync on a fresh instance instead of an upgrade notice; Turn on sync there asks for the same confirmation as the Settings switch (#373, #397).
+- A docs link on the query workspace and dashboard pages, like every other page (#392).
+- The SQL editor toolbar uses the shared buttons; Cancel is red while a query runs (#382).
+- Connector: failed queries and errors go to stderr and, under systemd, log at WARNING and ERR priority instead of INFO (#376).
+
+### Fixed
+
+- MCP `subscriptions/listen` streams from newer clients (Claude Code 2.1.30 and later) are no longer closed after five minutes (#374).
+- Schema changes ClickHouse refuses for a missing grant return 403, and malformed ones 400, instead of 502 (#375).
+- Last login, created, updated and audit log times were shifted by the browser's UTC offset (#377).
+- Starting or testing a pipeline with no source or sink explains what to add instead of showing a backend error beside a "saved" toast (#377).
+- Reports and Performance link to Background accounts instead of describing the path; `/admin?section=connections` opens Connections; the Instance header no longer shows the edition twice (#377).
+- Send data here on the Traces tab offered the logs pipeline when it had been opened on Logs first (#393).
+- Send data here refused 0 days of retention, which the API accepts as keep forever (#397).
+- Toasts were light in dark mode (#395).
+
+### Documentation
+
+- Five how-do-I guides, linked from Home and the matching empty states (#389).
+- Pages and steps updated for the Instance page, the Operate subgroups, the table layouts, state-first settings, the keyboard rules in sheets, `POST /api/telemetry/receive` and the connection security rules (#396).
+
 ## [2.28.1] - 2026-10-17
 
 OAuth sign-in from Claude Code and other native MCP clients works, and every page in the app links to its docs.
