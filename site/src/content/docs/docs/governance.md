@@ -256,6 +256,8 @@ GET /api/governance/query-log/{query_id}
 
 The switch that turns the collector on. It is off by default, and when it is off the workers do not run and **Sync now** returns `409` with `governance_sync_disabled`. Turning it on needs an active Pro license (or one in the read-only grace period); turning it off is always allowed. The toggle is admin only and is recorded in the audit log as `governance.sync_toggle`.
 
+While sync is off, a banner under the page header says so. On a connection with nothing harvested yet it reads **Governance sync is off** and its **Turn on sync** link enables sync in place; on an instance that already holds governance data it explains that sync is now opt-in and links to Settings. The banner can be dismissed.
+
 ```bash
 GET /api/admin/governance/settings
 PUT /api/admin/governance/settings
@@ -280,7 +282,7 @@ PUT /api/governance/query-harvest
 { "mode": "always", "min_duration_ms": 0 }
 ```
 
-Both return `{ "mode": "auto", "min_duration_ms": 0, "policy_count": 0, "harvesting": false }`, where `policy_count` is for your current connection and `harvesting` says whether the worker is harvesting it right now. `min_duration_ms` (0 to 3600000, optional on PUT) skips successful queries faster than that; failed and denied queries are always kept. Anyone with Governance access can read the settings; changing them is admin only and is audited as `governance.query_harvest_mode`.
+Both return `{ "mode": "auto", "min_duration_ms": 0, "policy_count": 0, "harvesting": false }`, where `policy_count` is for your current connection and `harvesting` says whether the worker is harvesting it right now. `min_duration_ms` (0 to 3600000, optional on PUT) skips successful queries faster than that; failed and denied queries are always kept. In the UI the harvest mode applies as soon as you pick it, and the minimum duration is shown read-only with an **Edit** button that opens a small sheet. Anyone with Governance access can read the settings; changing them is admin only and is audited as `governance.query_harvest_mode`.
 
 ## Alerts
 

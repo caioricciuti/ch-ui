@@ -114,7 +114,10 @@ Common statuses returned by `/api/auth/login`:
 
 - `400` bad request body or missing username, or (with `clickhouse_url`) both
   a URL and a connection were sent, or the URL failed validation
-- `403` `clickhouse_url` was sent but sign-in with a ClickHouse URL is off
+- `403` `clickhouse_url` was sent but sign-in with a ClickHouse URL is off,
+  or `Cross-origin request denied`: the browser's `Origin` is not this app or
+  an allowed origin (see [Security](/docs/security#application-security))
+- `415` the body was not sent with `Content-Type: application/json`
 - `401` ClickHouse rejected the credentials, or the error could not be
   classified. Counts toward the rate limit.
 - `429` IP/user rate limit (`retryAfter` in seconds in the body), or the login

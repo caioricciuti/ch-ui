@@ -20,8 +20,10 @@ Open **Admin** from the Settings group in the rail. Its sections are listed in t
 | **Brain budgets** | Token and dollar limits on Brain per person, role or everyone |
 | **Brain usage** | Tokens and cost per person or role and model |
 | **GitHub** | GitHub sync for models, per connection |
-| **MCP Server** | Endpoint, client snippets, MCP keys and OAuth grants |
+| **MCP Server** | Connecting a client as yourself (OAuth), service keys, and the OAuth grants and keys in one table |
 | **Settings** | Data retention and SSO |
+
+The Connections section's id is `tunnels`; `/admin?section=connections` opens it too.
 
 ## System Statistics
 

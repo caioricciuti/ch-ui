@@ -424,10 +424,10 @@ Passwords, secret keys, connection strings and webhook tokens in node configs ar
 
 ## Using the Pipeline Editor
 
-Pipelines belong to a connection and run with that connection's credentials, so the list shows only the pipelines on the connection you are signed in to. Switch connections to see and manage the others.
+Pipelines belong to a connection and run with that connection's credentials, so the list shows only the pipelines on the connection you are signed in to. Switch connections to see and manage the others. The list is a table (name, status, source, last error, updated) with a search box in the toolbar; click a row to open the editor, and use the row actions to start, stop or delete a pipeline.
 
 1. Navigate to **Pipelines** in the sidebar
-2. Click **New Pipeline** and give it a name. It is created on the connection you are signed in to
+2. Click **New pipeline**, enter a name in the sheet and click **Create**. It is created on the connection you are signed in to
 3. Drag a **source** node onto the canvas from the left panel
 4. Drag the **ClickHouse** sink node onto the canvas
 5. Connect them by dragging from the source's output handle to the sink's input handle. To add [transforms](#transforms), drop them onto the edge

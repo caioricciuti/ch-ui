@@ -13,7 +13,7 @@ Available on all plans.
 
 Each model has:
 
-- **A name**: a valid ClickHouse identifier, unique per connection. It is also the name of the view or table the model builds.
+- **A name**: a valid ClickHouse identifier, unique per connection. It is also the name of the view or table the model builds. Creating or renaming a model onto a name that is taken returns `409`.
 - **A SQL body**: one `SELECT`, optionally with `$ref(other_model)` references and `$this`.
 - **A materialization**: `view`, `table`, `incremental` or `materialized_view`.
 - **A target database**: where the view or table is created.
@@ -299,7 +299,7 @@ Each test has a **severity**:
 
 A test whose query fails (for example a column that no longer exists) counts as failed with its error. Tests run after the build, so a failed test does not undo the build: the new table is already in place, and only the downstream models are held back.
 
-Add tests in the **Tests** tab of the model editor. Run history shows `tests passed / failed` per model and, when you expand a result, each test with its failing rows and the SQL it ran.
+Add tests in the **Tests** tab of the model editor. Run history shows `tests passed / failed` per model and, when you click **Tests** on a result in the run sheet, each test with its failing rows and the SQL it ran.
 
 API: `GET /api/models/{id}/tests`, `POST /api/models/{id}/tests`, `PUT` and `DELETE /api/models/{id}/tests/{testId}`. The body is `{"kind": "accepted_values", "column_name": "status", "args": {"values": ["paid", "refunded"]}, "severity": "warn"}`; `args` holds `values`, `to` and `field`, or `expression`.
 
@@ -313,7 +313,7 @@ CH-UI extracts the references from every model, builds the dependency graph and 
 | Self-reference | `cannot reference itself via $ref(model_name)` |
 | Circular dependency | `cycle detected in model dependencies` |
 
-Run validation from the UI or with `GET /api/models/validate`. **DAG** in the page header draws the graph.
+Run validation from the UI or with `GET /api/models/validate`. The **Dependency graph** section of the Models page (in the context panel, `?section=graph`) draws the graph, with **Fit** and **Refresh** in its toolbar.
 
 ## Compile and preview
 
@@ -364,7 +364,7 @@ Separate terms with commas: `+daily_revenue, customers+` runs the union. Picked 
 
 ## Pipelines
 
-A pipeline is a named, stable group of models: a **name**, a **selector** and an optional **schedule**. Pipelines are listed on the Models page; each shows the models its selector picks today, its schedule, the next run and the last outcome. Models no pipeline picks are listed under **Ungrouped**.
+A pipeline is a named, stable group of models: a **name**, a **selector** and an optional **schedule**. Pipelines are listed on the Models page; each shows the models its selector picks today, its schedule, the next run and the last outcome. Models no pipeline picks are listed under **Ungrouped**. The toolbar above the list has a search box (name, database, description) and a pipeline filter.
 
 ```
 nightly_events   selector: +daily_events+      cron: 0 2 * * *   Europe/Lisbon
@@ -404,7 +404,7 @@ Before named pipelines, a schedule hung off an "anchor" model and ran that model
 
 ## Run history
 
-**History** in the page header lists recent runs with their status, counts and the selector they ran. Expand a run for per-model results; **SQL** on a result shows the statements that ran, and a model with tests shows each test's outcome.
+The **Run history** section of the Models page (in the context panel, `?section=history`) lists recent runs in a table with their status, counts and the selector they ran. After a run from the page, it switches to Run history and opens that run. Click a run to open a sheet with its per-model results; **SQL** on a result shows the statements that ran, and **Tests** on a model with tests shows each test's outcome.
 
 | Run status | Meaning |
 |---|---|

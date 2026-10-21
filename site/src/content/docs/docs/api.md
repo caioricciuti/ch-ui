@@ -98,6 +98,12 @@ The consent page in the app calls these with the session cookie:
 
 All below require `chui_session` cookie.
 
+Unsafe methods (anything but `GET`, `HEAD` and `OPTIONS`) under `/api` are
+refused with `403 Cross-origin request denied` when the request carries an
+`Origin` that is not CH-UI's own or one in `allowed_origins`. Scripts that send
+no `Origin` (curl, for example) are not affected. `POST /api/auth/login` also
+requires `Content-Type: application/json` and returns `415` without it.
+
 Optional `X-CHUI-Connection: <connection id>` header: when present and the
 session is on a different connection (it was switched in another tab), the
 request is refused with `409 {"error":"connection_changed"}` instead of
@@ -139,6 +145,12 @@ running on the new connection. The UI sends it on every request.
 | `POST` | `/api/query/schema/table/drop` | Drop table |
 | `POST` | `/api/query/upload/discover` | Detect schema from uploaded file |
 | `POST` | `/api/query/upload/ingest` | Insert uploaded data into table |
+
+When ClickHouse refuses one of the four `schema` calls, the status follows the
+ClickHouse error code: `403` for a missing grant or a read-only user (codes
+497, 164), `400` for syntax errors, unknown or duplicate databases, tables or
+columns and bad arguments, `504` for a timeout (159), `503` for too many
+simultaneous queries (202), and `502` for anything else.
 
 ### Query History
 
@@ -250,6 +262,7 @@ monitor endpoints are listed under [Pro API Groups](#telemetry-pro).
 | `PUT` | `/api/telemetry/sources/{id}` | Update source |
 | `DELETE` | `/api/telemetry/sources/{id}` | Delete source |
 | `POST` | `/api/telemetry/sources/{id}/test` | Check the mapping and count recent rows |
+| `POST` | `/api/telemetry/receive` | Set up receiving OTLP logs or traces in one step (analyst, admin). See below |
 | `POST` | `/api/telemetry/logs/search` | Search logs |
 | `POST` | `/api/telemetry/logs/histogram` | Log counts over time by severity |
 | `POST` | `/api/telemetry/logs/facets` | Top values for facet fields |
@@ -259,6 +272,30 @@ monitor endpoints are listed under [Pro API Groups](#telemetry-pro).
 | `POST` | `/api/telemetry/saved-searches` | Save a search |
 | `PUT` | `/api/telemetry/saved-searches/{id}` | Update saved search |
 | `DELETE` | `/api/telemetry/saved-searches/{id}` | Delete saved search |
+
+`POST /api/telemetry/receive` is what **Send data here** calls. It creates (or
+reuses) the table with your own ClickHouse user, creates and starts an ingest
+pipeline named `Receive logs` or `Receive traces` (numbered if the name is
+taken), creates an ingest key called `Default key`, and registers the
+Telemetry source unless that table already is one. Every field is optional
+except `signal`:
+
+```json
+POST /api/telemetry/receive
+{ "signal": "logs", "database": "default", "table": "otel_logs", "ttl_days": 30 }
+```
+
+`signal` is `logs` or `traces`; `table` defaults to `otel_<signal>`, and
+`ttl_days` to 30 (0 keeps data forever, at most 36500). The `201` response
+holds `pipeline` (`id`, `name`, `status`, `signal`), `key`, `secret` (the key,
+returned only here), `source`, `table_created`, `database` and `table`. It
+returns `503` when the server has no ingest spool, `409` when pipelines are
+disabled under the connection's background accounts or the table exists
+without the OpenTelemetry columns (the body lists them in `missing`), `400`
+for an unknown database or a bad name, and `403` when your ClickHouse user
+cannot read or create the table. If a step after the pipeline is created
+fails, the pipeline and its key are removed again; a table the call created
+is kept and reused on the next try.
 
 `GET` and `PUT /api/telemetry/config` (the single-table config from before
 v2.11.0) now return `410 Gone`.

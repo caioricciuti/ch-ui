@@ -7,7 +7,7 @@ When something breaks, the first question is usually "what else happened around 
 
 Available on Pro and Enterprise plans.
 
-Open it from **Operate → Incident Timeline**. It is only available to administrators.
+Open it from **Operate → Incident Timeline** (under the Control subgroup). It is only available to administrators.
 
 The timeline shows what was observed at the same time. It does not claim that one event caused another.
 

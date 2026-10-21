@@ -83,6 +83,8 @@ curl -X POST http://localhost:3488/api/connections \
 
 `clickhouse_url` is required for direct connections and must be an `http://` or `https://` URL with a host. The `201` response is `{ "connection": {...} }`.
 
+Use the final ClickHouse endpoint: CH-UI does not follow HTTP redirects from ClickHouse, so a URL that redirects fails to sign in or query. When it connects, CH-UI resolves the host and refuses link-local, cloud metadata, unspecified and multicast addresses (including DNS names that resolve to them). Private and loopback addresses work. See [Security](/docs/security).
+
 To rename a direct connection or point it at another URL, use the **Edit** button on its row in **Admin > Connections**. Saving a new URL restarts that connection's connector against the new target. The same through the API:
 
 ```bash

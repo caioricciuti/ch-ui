@@ -26,7 +26,7 @@ GitHub Sync is a **Pro** feature. Without an active license the endpoints return
 GitHub Sync is configured per connection in **Admin → GitHub** (admin only).
 
 1. **Create a token.** A GitHub fine-grained personal access token with read access to the repository's contents is enough. The token is encrypted at rest with your server's `app_secret_key`.
-2. **Configure the integration.** Repository as `owner/repo`, branch (defaults to `main`), and the path inside the repo where model files live (defaults to `models/`).
+2. **Configure the integration.** Click **Connect repository** (or **Edit** once one is connected) to open the GitHub sync sheet: Repository as `owner/repo`, branch (defaults to `main`), the path inside the repo where model files live (defaults to `models/`), the personal access token and the webhook secret, then **Save**. The page then shows the repository, branch and path, whether a token and webhook secret are set, the last sync, and **Test connection**.
 3. **Run the first sync.** Click **Sync now** and check the sync log. It reports created, updated, deleted, and unchanged counts plus the commit SHA.
 
 ## Auto-sync on push
@@ -42,7 +42,7 @@ The webhook URL for the current connection is shown on the Admin → GitHub page
 A **webhook secret is required**. CH-UI verifies GitHub's `X-Hub-Signature-256` header on every delivery and rejects requests that don't match. Until a secret is saved for the connection, every webhook request is refused with `403`, so a push never triggers a sync from an unauthenticated caller.
 
 1. Generate a random secret of at least 16 characters, for example `openssl rand -hex 32`.
-2. Paste it into **Webhook secret** on the Admin → GitHub page and save (or send it as `webhook_secret` with `PUT /api/admin/github/{connectionId}`). It is encrypted at rest with your server's `app_secret_key`. Leave the field empty on later saves to keep the stored one.
+2. Paste it into **Webhook secret** in the sheet that **Edit** opens on the Admin → GitHub page and save (or send it as `webhook_secret` with `PUT /api/admin/github/{connectionId}`). It is encrypted at rest with your server's `app_secret_key`. Leave the field empty on later saves to keep the stored one.
 3. In the GitHub webhook settings, set **Content type** to `application/json`, paste the same value into **Secret**, and pick **Just the push event**.
 
 Payloads are capped at 5 MiB. Only one sync runs per connection at a time: a push that arrives while a sync is running is folded into a single follow-up sync, and **Sync now** returns `409` until the running sync finishes.
@@ -139,7 +139,7 @@ Every sync (manual or webhook) is recorded in the sync log with its trigger, cou
 
 ## Disconnecting
 
-**Disconnect** on the Admin → GitHub page removes the integration and its token. Synced models stay in CH-UI; they just stop following the repo.
+**Remove** on the Admin → GitHub page removes the integration and its token, after a confirmation. Synced models stay in CH-UI; they just stop following the repo.
 
 <CardGrid>
   <LinkCard title="Models" href="/docs/models" description="SQL models, materializations, and scheduled runs" />

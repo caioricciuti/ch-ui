@@ -7,7 +7,7 @@ An operations report is a saved weekly summary for one connection: query regress
 
 Available on Pro and Enterprise plans.
 
-Open it from **Operate → Reports**. It is only available to administrators.
+Open it from **Operate → Reports** (under the Control subgroup). It is only available to administrators.
 
 ## What a report contains
 
@@ -40,16 +40,16 @@ Queries run with `readonly=1`, a 25 second execution limit, 512 MiB of memory an
 
 Click **Generate report**. It runs with your current ClickHouse account and saves the report. It does not send email. To send it, select the report and click **Email report**.
 
-The list on the left shows the 52 most recent reports with their email status. Select one to read it, or click **Download** to save it as a plain text file.
+The table lists the 52 most recent reports with their regressions, failed executions, resolved investigations and email status. Click a row to read that report below the table, or click **Download** to save it as a plain text file.
 
 ## Scheduling weekly reports
 
 Schedules start disabled. Installing or upgrading CH-UI creates the report tables but does not enable any scan or report delivery; nothing runs until an administrator saves an enabled schedule.
 
 1. Go to **Admin → Connections**, click **Background accounts** on the connection, and configure **Weekly operations reports** with a dedicated service account. Grant it `SELECT` on `system.query_log` and `system.parts`, and on `system.clusters` if you want cluster coverage. Borrowing a signed-in user's session is not allowed for this worker. See [Background accounts](/docs/background-accounts).
-2. In **Reports**, under **Weekly schedule**, tick **Enabled**, choose a **Day** and an **Hour (UTC)**. The default is Monday at 09:00 UTC. All schedules use UTC.
+2. In **Reports**, the **Weekly schedule** panel shows the current schedule in one line. Click **Edit schedule**, turn on **Enabled**, and choose a **Day** and an **Hour (UTC)**. The default is Monday at 09:00 UTC. All schedules use UTC.
 3. Optionally choose an **Email channel** and **Email recipients** (see below).
-4. Click **Save settings**. The page shows when the next report is due.
+4. Click **Save**. The panel shows when the next report is due.
 
 Saving fails if the schedule is enabled and the connection has no dedicated Weekly operations reports account.
 

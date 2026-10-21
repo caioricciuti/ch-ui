@@ -28,7 +28,7 @@ The result shows how many tables each side has, how many match, and the number o
 - **Missing in target**: exists only in the source.
 - **Only in target**: exists only in the target.
 
-Each difference shows the source and target values and a **Review suggestion**. Click **Download review SQL** to save the whole plan as `schema-review.sql`.
+The differences are a table with the object, its kind, the change and a summary. Click a row to open a sheet with the source and target definitions and the review SQL for that difference, with **Copy review SQL**. Click **Download review SQL** in the page header to save the whole plan as `schema-review.sql`.
 
 ## What is compared
 
