@@ -35,15 +35,6 @@
 
   let { running = false, onrun, oncancel, onformat, onexplain, onask, askActive = false, askPro = true, onsave, onparams, onhistory, paramCount = 0, paramsActive = false, paramsEl = $bindable(null), estimate = null, estimateLoading = false }: Props = $props()
 
-  // Toggle buttons: ghost at rest, accent-soft while aria-pressed. The variant form wins over
-  // the ghost rest colours by specificity, where a plain text-accent would lose on source order.
-  const pressedClass = 'aria-pressed:bg-accent-soft aria-pressed:text-accent aria-pressed:hover:bg-accent-soft aria-pressed:hover:text-accent'
-
-  // Parameters stays a raw <button> because the parent anchors its popover to the element
-  // via bind:this, which Button does not expose. Classes mirror Button ghost sm.
-  const ghostSm =
-    'inline-flex h-7 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-xs font-medium text-fg-3 transition-colors duration-100 hover:bg-hover hover:text-fg disabled:pointer-events-none disabled:opacity-50'
-
   const estimateLabel = $derived.by(() => {
     if (estimateLoading) return 'Estimating...'
     if (!estimate || !estimate.success || estimate.error) return null
@@ -87,7 +78,7 @@
 
   <!-- Modes: pressed state so they read as toggles -->
   {#if onask}
-    <Button variant="ghost" size="sm" class={pressedClass} onclick={onask} aria-pressed={askActive} title="Ask AI to write or edit the query">
+    <Button variant="ghost" size="sm" onclick={onask} aria-pressed={askActive} title="Ask AI to write or edit the query">
       <Sparkles size={13} />
       Ask AI
       {#if !askPro}
@@ -96,10 +87,10 @@
     </Button>
   {/if}
   {#if onparams && paramCount > 0}
-    <button
-      bind:this={paramsEl}
-      type="button"
-      class="{ghostSm} {pressedClass}"
+    <Button
+      variant="ghost"
+      size="sm"
+      bind:ref={paramsEl}
       onclick={onparams}
       aria-pressed={paramsActive}
       title="Set values for the {'{name:Type}'} parameters in this query"
@@ -107,7 +98,7 @@
       <Braces size={13} />
       Parameters
       <span class="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/15 px-1 text-[10px] font-semibold tabular-nums text-accent">{paramCount}</span>
-    </button>
+    </Button>
   {/if}
 
   <!-- Readout, not a control -->

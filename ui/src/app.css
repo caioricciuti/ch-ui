@@ -36,10 +36,6 @@
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* Brand */
-  --color-ch-orange: #f97316;
-  --color-ch-green: #10b981;
-
   /* Neutral ramp, true neutral (no blue cast). Still used by legacy
      `gray-*` utilities during the migration; new code uses semantic tokens. */
   --color-gray-50: #f7f7f8;
@@ -107,25 +103,6 @@
   --color-fill-fg: var(--fill-fg);
   /* Text on a warning fill; amber is light in dark mode, so it flips */
   --color-warning-fg: var(--warning-fg);
-
-  /* Compatibility aliases for the shadcn-style names still in use */
-  --color-background: var(--canvas);
-  --color-foreground: var(--fg);
-  --color-card: var(--surface);
-  --color-card-foreground: var(--fg);
-  --color-popover: var(--elevated);
-  --color-popover-foreground: var(--fg);
-  --color-primary: var(--accent);
-  --color-primary-foreground: var(--accent-fg);
-  --color-secondary: var(--surface-2);
-  --color-secondary-foreground: var(--fg-2);
-  --color-muted: var(--surface-2);
-  --color-muted-foreground: var(--fg-3);
-  --color-accent-foreground: var(--fg);
-  --color-destructive: var(--danger);
-  --color-border: var(--edge);
-  --color-input: var(--edge);
-  --color-ring: var(--accent-ring);
 }
 
 :root {
@@ -176,25 +153,6 @@
   --chart-6: #b38200;
   --chart-7: #5c9a0b;
   --chart-8: #71717a;
-
-  /* legacy names still referenced by a few components */
-  --radius: 6px;
-  --background: var(--canvas);
-  --foreground: var(--fg);
-  --card: var(--surface);
-  --card-foreground: var(--fg);
-  --popover: var(--elevated);
-  --popover-foreground: var(--fg);
-  --primary: var(--accent);
-  --primary-foreground: var(--accent-fg);
-  --secondary: var(--surface-2);
-  --secondary-foreground: var(--fg-2);
-  --muted: var(--surface-2);
-  --muted-foreground: var(--fg-3);
-  --destructive: var(--danger);
-  --border: var(--edge);
-  --input: var(--edge);
-  --ring: var(--accent-ring);
 }
 
 .dark {
