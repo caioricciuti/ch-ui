@@ -1,8 +1,11 @@
 <script lang="ts">
   import { Toaster } from 'svelte-sonner'
+  import { getTheme } from '../../stores/theme.svelte'
 </script>
 
+<!-- Sonner defaults to light; its rich colours follow this, not the app tokens. -->
 <Toaster
+  theme={getTheme()}
   position="bottom-right"
   richColors={true}
   closeButton={true}

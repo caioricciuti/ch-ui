@@ -328,7 +328,7 @@
         }
         if (nextEdges !== edges) onEdgesChange(nextEdges)
       }}
-      defaultEdgeOptions={{ animated: true, style: 'stroke: #f97316; stroke-width: 2;' }}
+      defaultEdgeOptions={{ animated: true, style: 'stroke: var(--accent); stroke-width: 2;' }}
     >
       <Controls />
       <Background gap={16} />
@@ -339,69 +339,50 @@
 </div>
 
 <style>
-  /* Canvas background */
+  /* Colours come from the theme tokens, so one set of rules covers light and dark. */
   :global(.svelte-flow) {
-    background-color: #fafafa;
-  }
-  :global(.svelte-flow.dark) {
-    background-color: #0a0a0a;
+    background-color: var(--canvas);
   }
 
-  /* Edge styling */
   :global(.svelte-flow .svelte-flow__edge-path) {
-    stroke: #f97316;
+    stroke: var(--accent);
     stroke-width: 2;
   }
 
-  /* Handle sizing */
   :global(.svelte-flow .svelte-flow__handle) {
     width: 10px;
     height: 10px;
   }
 
-  /* Controls: dark mode */
-  :global(.svelte-flow.dark .svelte-flow__controls) {
-    background: #1a1a1a;
-    border: 1px solid #333;
+  :global(.svelte-flow .svelte-flow__controls) {
+    background: var(--elevated);
+    border: 1px solid var(--edge);
     border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  }
+  :global(.svelte-flow.dark .svelte-flow__controls) {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
   }
-  :global(.svelte-flow.dark .svelte-flow__controls-button) {
-    background: #1a1a1a;
-    border-color: #333;
-    fill: #a3a3a3;
-    color: #a3a3a3;
+  :global(.svelte-flow .svelte-flow__controls-button) {
+    background: var(--elevated);
+    border-color: var(--edge);
+    fill: var(--fg-3);
+    color: var(--fg-3);
   }
-  :global(.svelte-flow.dark .svelte-flow__controls-button:hover) {
-    background: #2a2a2a;
-    fill: #f97316;
-    color: #f97316;
-  }
-
-  /* Controls: light mode */
-  :global(.svelte-flow .svelte-flow__controls) {
-    border-radius: 8px;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  :global(.svelte-flow .svelte-flow__controls-button:hover) {
+    background: var(--hover);
+    fill: var(--accent);
+    color: var(--accent);
   }
 
-  /* MiniMap: dark mode */
-  :global(.svelte-flow.dark .svelte-flow__minimap) {
-    background: #141414;
-    border: 1px solid #333;
-    border-radius: 8px;
-  }
-
-  /* MiniMap: light mode */
   :global(.svelte-flow .svelte-flow__minimap) {
+    background: var(--surface);
+    border: 1px solid var(--edge);
     border-radius: 8px;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
   }
 
-  /* Background dots */
   :global(.svelte-flow .svelte-flow__background) {
-    --xy-background-pattern-dots-color-default: #e5e5e5;
-  }
-  :global(.svelte-flow.dark .svelte-flow__background) {
-    --xy-background-pattern-dots-color-default: #7e7d7d;
+    --xy-background-pattern-dots-color-default: var(--edge-strong);
   }
 </style>

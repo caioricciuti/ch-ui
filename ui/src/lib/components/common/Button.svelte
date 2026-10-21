@@ -14,10 +14,13 @@
     form?: string
     title?: string
     'aria-label'?: string
+    /** Toggle state; ghost and outline buttons read accent-soft while pressed. */
     'aria-pressed'?: boolean
     'aria-expanded'?: boolean
     /** Skip this button when a dialog picks its first focus (close buttons). */
     autofocusSkip?: boolean
+    /** The button element, e.g. to anchor a popover to it. */
+    ref?: HTMLButtonElement | null
     class?: string
     onclick?: (e: MouseEvent) => void
     children: Snippet
@@ -36,6 +39,7 @@
     'aria-pressed': ariaPressed,
     'aria-expanded': ariaExpanded,
     autofocusSkip = false,
+    ref = $bindable(null),
     class: cls = '',
     onclick,
     children,
@@ -44,11 +48,15 @@
   const base =
     'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap transition-colors duration-100 disabled:pointer-events-none disabled:opacity-50'
 
+  // The aria-pressed variant outranks the rest and hover colours by specificity, so the
+  // pressed look holds under the pointer and over a caller's text colour.
+  const pressed = 'aria-pressed:bg-accent-soft aria-pressed:text-accent aria-pressed:hover:bg-accent-soft aria-pressed:hover:text-accent'
+
   const variants: Record<string, string> = {
     primary: 'bg-accent text-accent-fg hover:brightness-110 active:brightness-95',
     secondary: 'bg-surface-2 text-fg hover:bg-active',
-    outline: 'border border-edge bg-transparent text-fg-2 hover:border-edge-strong hover:bg-hover hover:text-fg',
-    ghost: 'text-fg-3 hover:bg-hover hover:text-fg',
+    outline: `border border-edge bg-transparent text-fg-2 hover:border-edge-strong hover:bg-hover hover:text-fg ${pressed}`,
+    ghost: `text-fg-3 hover:bg-hover hover:text-fg ${pressed}`,
     danger: 'bg-danger text-fill-fg hover:brightness-110 active:brightness-95',
   }
 
@@ -62,6 +70,7 @@
 </script>
 
 <button
+  bind:this={ref}
   {type}
   {form}
   {title}
