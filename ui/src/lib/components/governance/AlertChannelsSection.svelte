@@ -7,7 +7,7 @@
     adminListAlertChannels, adminCreateAlertChannel, adminUpdateAlertChannel, adminDeleteAlertChannel,
     adminTestAlertChannel,
   } from '../../api/alerts'
-  import { channelTarget, isWebhook } from './alerting-admin'
+  import { REMOVED_CHANNEL_HINT, channelTarget, isSupportedChannelType, isWebhook } from './alerting-admin'
   import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
@@ -42,10 +42,6 @@
     smtp_from_name: '',
     smtp_use_tls: true,
     smtp_starttls: false,
-    api_key: '',
-    api_from_email: '',
-    api_from_name: '',
-    api_base_url: '',
     webhook_url: '',
     webhook_format: 'generic' as WebhookFormat,
     webhook_header_name: '',
@@ -67,8 +63,6 @@
 
   const channelTypeOptions = [
     { value: 'smtp', label: 'SMTP' },
-    { value: 'resend', label: 'Resend' },
-    { value: 'brevo', label: 'Brevo' },
     { value: 'webhook', label: 'Webhook (JSON, Slack, Teams)' },
   ]
   const webhookFormatOptions = [
@@ -106,6 +100,7 @@
   }
 
   function openEditChannel(ch: AlertChannel) {
+    if (!isSupportedChannelType(ch.channel_type)) return
     const cfg = ch.config ?? {}
     editingChannel = ch
     channelForm = {
@@ -120,9 +115,6 @@
       smtp_from_name: ch.channel_type === 'smtp' ? String(cfg.from_name ?? '') : '',
       smtp_use_tls: cfg.use_tls !== false,
       smtp_starttls: cfg.starttls === true,
-      api_from_email: ch.channel_type !== 'smtp' ? String(cfg.from_email ?? '') : '',
-      api_from_name: ch.channel_type !== 'smtp' ? String(cfg.from_name ?? '') : '',
-      api_base_url: String(cfg.base_url ?? ''),
       webhook_url: String(cfg.url ?? ''),
       webhook_format: (cfg.format === 'slack' || cfg.format === 'teams' ? cfg.format : 'generic') as WebhookFormat,
       webhook_header_name: String(cfg.secret_header_name ?? ''),
@@ -147,7 +139,7 @@
       config.from_name = f.smtp_from_name
       config.use_tls = f.smtp_use_tls
       config.starttls = f.smtp_starttls
-    } else if (f.channel_type === 'webhook') {
+    } else {
       config.url = f.webhook_url.trim()
       config.format = f.webhook_format
       config.secret_header_name = f.webhook_header_name.trim()
@@ -156,11 +148,6 @@
       if (f.webhook_signing_secret) config.signing_secret = f.webhook_signing_secret
       config.allow_http = f.webhook_allow_http
       config.allow_private_network = f.webhook_allow_private
-    } else {
-      if (f.api_key) config.api_key = f.api_key
-      config.from_email = f.api_from_email
-      config.from_name = f.api_from_name
-      if (f.api_base_url) config.base_url = f.api_base_url
     }
     return config
   }
@@ -251,15 +238,22 @@
           rowKey={(r) => String(r.id)}
           sort={{ key: 'name', dir: 'asc' }}
           emptyTitle="No channels yet"
-          emptyDescription="A channel holds the credentials alerts are sent with: an SMTP relay, Resend or Brevo."
+          emptyDescription="A channel holds the credentials alerts are sent with: an SMTP relay or a webhook."
         >
           {#snippet cell(row, col, value)}
             {#if col.key === 'name'}
               <span class="font-medium text-fg">{value}</span>
+              {#if !isSupportedChannelType(String(row.channel_type))}
+                <span class="block text-xs text-fg-3">{REMOVED_CHANNEL_HINT}</span>
+              {/if}
             {:else if col.key === 'channel_type'}
               <Badge>{String(value).toUpperCase()}</Badge>
             {:else if col.key === 'is_active'}
-              <Badge dot tone={row.is_active ? 'success' : 'neutral'}>{row.is_active ? 'Active' : 'Off'}</Badge>
+              {#if !isSupportedChannelType(String(row.channel_type))}
+                <Badge tone="warning">Unsupported</Badge>
+              {:else}
+                <Badge dot tone={row.is_active ? 'success' : 'neutral'}>{row.is_active ? 'Active' : 'Off'}</Badge>
+              {/if}
             {:else}
               {value}
             {/if}
@@ -267,8 +261,10 @@
           {#snippet actions(row)}
             {@const ch = row as unknown as AlertChannel}
             {#if isAdmin}
-              <Button icon variant="ghost" size="xs" aria-label="Send a test alert" title="Send test" onclick={() => openTest(ch)}><Send size={13} /></Button>
-              <Button icon variant="ghost" size="xs" aria-label="Edit channel" title="Edit" onclick={() => openEditChannel(ch)}><Pencil size={13} /></Button>
+              {#if isSupportedChannelType(ch.channel_type)}
+                <Button icon variant="ghost" size="xs" aria-label="Send a test alert" title="Send test" onclick={() => openTest(ch)}><Send size={13} /></Button>
+                <Button icon variant="ghost" size="xs" aria-label="Edit channel" title="Edit" onclick={() => openEditChannel(ch)}><Pencil size={13} /></Button>
+              {/if}
               <Button icon variant="ghost" size="xs" aria-label="Delete channel" title="Delete" onclick={() => (deletingChannel = ch)}><Trash2 size={13} /></Button>
             {/if}
           {/snippet}
@@ -282,7 +278,7 @@
 <Sheet
   open={channelSheetOpen}
   title={editingChannel ? 'Edit channel' : 'New channel'}
-  description="Where alerts are sent. SMTP for your own relay, Resend or Brevo for API delivery, or a webhook for Slack, Teams or your own endpoint."
+  description="Where alerts are sent. SMTP for your own relay, or a webhook for Slack, Teams or your own endpoint."
   size="md"
   onclose={() => (channelSheetOpen = false)}
 >
@@ -331,7 +327,7 @@
           STARTTLS
         </label>
       </div>
-    {:else if channelForm.channel_type === 'webhook'}
+    {:else}
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <FormField label="URL" for="ch-hook-url" required class="md:col-span-2" hint="CH-UI POSTs JSON here for every alert. HTTPS is required unless you allow plain HTTP below.">
           <Input id="ch-hook-url" mono placeholder="https://hooks.slack.com/services/..." bind:value={channelForm.webhook_url} required />
@@ -362,21 +358,6 @@
       {#if channelForm.webhook_allow_private}
         <p class="text-xs text-warning">CH-UI will post to loopback and internal addresses through this channel. Only enable it for an endpoint you control.</p>
       {/if}
-    {:else}
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <FormField label="API key" for="ch-key" required={!editingChannel} class="md:col-span-2" hint={editingChannel?.has_secret ? 'Leave empty to keep the stored key.' : undefined}>
-          <Input id="ch-key" type="password" bind:value={channelForm.api_key} required={!editingChannel} autocomplete="new-password" />
-        </FormField>
-        <FormField label="From email" for="ch-api-from" required>
-          <Input id="ch-api-from" type="email" placeholder="alerts@company.com" bind:value={channelForm.api_from_email} required />
-        </FormField>
-        <FormField label="From name" for="ch-api-from-name">
-          <Input id="ch-api-from-name" placeholder="CH-UI Alerts" bind:value={channelForm.api_from_name} />
-        </FormField>
-        <FormField label="API base URL (advanced)" for="ch-base" hint="Leave empty. CH-UI calls https://api.resend.com or https://api.brevo.com. Only set this for a proxy of the provider's API, never a website: the value is used as the API endpoint." class="md:col-span-2">
-          <Input id="ch-base" mono placeholder="Default: provider API" bind:value={channelForm.api_base_url} />
-        </FormField>
-      </div>
     {/if}
 
     <label class="ds-checkbox-label">

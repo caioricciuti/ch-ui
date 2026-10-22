@@ -11,7 +11,7 @@
   import { listConnections } from '../../api/auth'
   import type { Connection } from '../../types/api'
   import { EVENT_TYPE_OPTIONS as eventTypeOptions, eventTypeDescription, eventTypeLabel as eventLabel } from './alerting-silences'
-  import { isWebhook, severityTone } from './alerting-admin'
+  import { isSupportedChannelType, isWebhook, severityTone } from './alerting-admin'
   import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Button from '../common/Button.svelte'
   import Badge from '../common/Badge.svelte'
@@ -325,6 +325,7 @@
                 <input type="checkbox" class="ds-checkbox" bind:checked={bindings[i].checked} />
                 <span class="font-medium text-fg">{ch?.name ?? b.channel_id}</span>
                 <span class="text-xs text-fg-4">{ch?.channel_type.toUpperCase()}</span>
+                {#if ch && !isSupportedChannelType(ch.channel_type)}<Badge tone="warning">Unsupported</Badge>{/if}
               </label>
               {#if b.checked && isWebhook(ch?.channel_type)}
                 <p class="mt-1 pl-6 text-xs text-fg-3">Posts to the channel URL; no recipients needed.</p>

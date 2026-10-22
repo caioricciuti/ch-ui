@@ -4,12 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"io"
 	"mime"
 	"mime/multipart"
-	"net/http"
-	"net/http/httptest"
 	netmail "net/mail"
 	"strings"
 	"testing"
@@ -134,75 +131,20 @@ func TestBuildMIMEPlainTextUnchanged(t *testing.T) {
 	}
 }
 
-func TestResendPayloadWithAttachment(t *testing.T) {
-	var got map[string]interface{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/emails" || r.Header.Get("Authorization") != "Bearer key" {
-			t.Errorf("unexpected request %s %s", r.URL.Path, r.Header.Get("Authorization"))
+// Channels of a removed provider fail with an error that says what to do,
+// and an unknown type still reads as unsupported.
+func TestSendRejectsRemovedProviders(t *testing.T) {
+	cfg := map[string]interface{}{"api_key": "key", "from_email": "r@example.com"}
+	for _, kind := range []string{"resend", "Brevo"} {
+		_, err := Send(context.Background(), kind, cfg, []string{"a@example.com"}, "s", "body")
+		if err == nil || !strings.Contains(err.Error(), "no longer supported") || !strings.Contains(err.Error(), "SMTP or webhook") {
+			t.Fatalf("%s: err %v", kind, err)
 		}
-		_ = json.NewDecoder(r.Body).Decode(&got)
-		_, _ = w.Write([]byte(`{"id":"re_123"}`))
-	}))
-	defer srv.Close()
-	cfg := map[string]interface{}{"api_key": "key", "from_email": "r@example.com", "base_url": srv.URL}
-	id, err := (&Sender{}).SendMessage(context.Background(), ChannelTypeResend, cfg, []string{"a@example.com"}, testMessage())
-	if err != nil || id != "re_123" {
-		t.Fatalf("send: %q %v", id, err)
 	}
-	if strings.ContainsAny(got["subject"].(string), "\r\n") {
-		t.Fatal("subject keeps a line break")
+	if _, err := Send(context.Background(), "pigeon", cfg, []string{"a@example.com"}, "s", "body"); err == nil || !strings.Contains(err.Error(), "unsupported channel type: pigeon") {
+		t.Fatalf("unknown type: err %v", err)
 	}
-	if got["html"] != "<p>Hello</p>" || !strings.HasPrefix(got["text"].(string), "Hello") {
-		t.Fatalf("bodies %v", got)
-	}
-	atts, _ := got["attachments"].([]interface{})
-	if len(atts) != 1 {
-		t.Fatalf("attachments %v", got["attachments"])
-	}
-	a := atts[0].(map[string]interface{})
-	data, _ := base64.StdEncoding.DecodeString(a["content"].(string))
-	if a["filename"] != "report.csv" || string(data) != "a,b\r\n1,2\r\n" {
-		t.Fatalf("attachment %v", a)
-	}
-}
-
-func TestBrevoPayloadWithAttachment(t *testing.T) {
-	var got map[string]interface{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v3/smtp/email" || r.Header.Get("api-key") != "key" {
-			t.Errorf("unexpected request %s", r.URL.Path)
-		}
-		_ = json.NewDecoder(r.Body).Decode(&got)
-		_, _ = w.Write([]byte(`{"messageId":"<b@1>"}`))
-	}))
-	defer srv.Close()
-	cfg := map[string]interface{}{"api_key": "key", "from_email": "r@example.com", "base_url": srv.URL}
-	id, err := (&Sender{}).SendMessage(context.Background(), ChannelTypeBrevo, cfg, []string{"a@example.com"}, testMessage())
-	if err != nil || id != "<b@1>" {
-		t.Fatalf("send: %q %v", id, err)
-	}
-	if got["htmlContent"] != "<p>Hello</p>" || got["textContent"] == nil {
-		t.Fatalf("bodies %v", got)
-	}
-	atts, _ := got["attachment"].([]interface{})
-	if len(atts) != 1 {
-		t.Fatalf("attachment %v", got["attachment"])
-	}
-	a := atts[0].(map[string]interface{})
-	data, _ := base64.StdEncoding.DecodeString(a["content"].(string))
-	if a["name"] != "report.csv" || string(data) != "a,b\r\n1,2\r\n" {
-		t.Fatalf("attachment %v", a)
-	}
-
-	// A plain Send still carries no HTML or attachment keys.
-	got = nil
-	if _, err := Send(context.Background(), ChannelTypeBrevo, cfg, []string{"a@example.com"}, "s", "body"); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := got["attachment"]; ok {
-		t.Fatal("plain send added an attachment")
-	}
-	if _, ok := got["htmlContent"]; ok {
-		t.Fatal("plain send added HTML")
+	if !RemovedChannelType(" BREVO ") || RemovedChannelType(ChannelTypeSMTP) || RemovedChannelType("webhook") {
+		t.Fatal("RemovedChannelType misclassifies")
 	}
 }

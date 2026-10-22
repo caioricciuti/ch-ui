@@ -15,7 +15,7 @@ import (
 // schemaVersion is the current database schema version. Bump it (date-based)
 // whenever schema-affecting migrations are added below. It is recorded in the
 // settings table after a successful migration run for upgrade observability.
-const schemaVersion = "2026.10.18"
+const schemaVersion = "2026.10.23"
 
 func (db *DB) runMigrations() error {
 	var prev string
@@ -632,7 +632,7 @@ func (db *DB) runMigrations() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_gov_incident_comment_incident ON gov_incident_comments(incident_id, created_at)`,
 
-		// Alerting channels (SMTP/Resend/Brevo)
+		// Alerting channels (SMTP, webhook)
 		`CREATE TABLE IF NOT EXISTS alert_channels (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
@@ -1362,6 +1362,10 @@ Formatting:
 	}
 
 	if err := db.migrateSSOCredentialRefs(); err != nil {
+		return err
+	}
+
+	if err := db.migrateRemovedChannelTypes(); err != nil {
 		return err
 	}
 	slog.Info("Database migrations completed", "schema_version", schemaVersion)

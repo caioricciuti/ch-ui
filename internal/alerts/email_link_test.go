@@ -7,11 +7,8 @@ package alerts
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"net"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -23,26 +20,6 @@ import (
 // emailFake stands in for one email provider and hands back the text body
 // of the one message it receives.
 type emailFake func(t *testing.T) (cfg map[string]interface{}, body func() string)
-
-// apiFake stands in for Resend or Brevo and records the text field of the
-// API call.
-func apiFake(path, textKey string) emailFake {
-	return func(t *testing.T) (map[string]interface{}, func() string) {
-		got := make(chan string, 1)
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var p map[string]interface{}
-			_ = json.NewDecoder(r.Body).Decode(&p)
-			if r.URL.Path == path {
-				s, _ := p[textKey].(string)
-				got <- s
-			}
-			_, _ = w.Write([]byte(`{"id":"m1","messageId":"m1"}`))
-		}))
-		t.Cleanup(srv.Close)
-		cfg := map[string]interface{}{"api_key": "key", "from_email": "alerts@example.com", "base_url": srv.URL}
-		return cfg, func() string { return receive(t, got) }
-	}
-}
 
 // smtpFake accepts one plain SMTP session and records the DATA section.
 func smtpFake(t *testing.T) (map[string]interface{}, func() string) {
@@ -104,9 +81,7 @@ func receive(t *testing.T, got chan string) string {
 }
 
 var emailFakes = map[string]emailFake{
-	ChannelTypeSMTP:   smtpFake,
-	ChannelTypeResend: apiFake("/emails", "text"),
-	ChannelTypeBrevo:  apiFake("/v3/smtp/email", "textContent"),
+	ChannelTypeSMTP: smtpFake,
 }
 
 // sendOneEmail sends one event through a rule with an optional body

@@ -189,8 +189,8 @@ func TestReportDeliveryUsesSavedSnapshotAndConfiguredChannel(t *testing.T) {
 	}
 	defer db.Close()
 	const secret = "report-test-only-secret"
-	cfgJSON, _ := crypto.Encrypt(`{"from_email":"reports@example.com","api_key":"test-only"}`, secret)
-	channel, err := db.CreateAlertChannel("reports", "resend", cfgJSON, true, "admin")
+	cfgJSON, _ := crypto.Encrypt(`{"host":"smtp.example.com","from_email":"reports@example.com","password":"test-only"}`, secret)
+	channel, err := db.CreateAlertChannel("reports", "smtp", cfgJSON, true, "admin")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestReportDeliveryUsesSavedSnapshotAndConfiguredChannel(t *testing.T) {
 	calls := 0
 	runner.Send = func(ctx context.Context, kind string, cfg map[string]interface{}, recipients []string, subject, body string) (string, error) {
 		calls++
-		if kind != "resend" || len(recipients) != 1 || recipients[0] != "ops@example.com" || body != "fixed snapshot" {
+		if kind != "smtp" || len(recipients) != 1 || recipients[0] != "ops@example.com" || body != "fixed snapshot" {
 			t.Fatal("delivery inputs changed")
 		}
 		if calls == 1 {
@@ -227,7 +227,7 @@ func TestReportDeliveryUsesSavedSnapshotAndConfiguredChannel(t *testing.T) {
 // A report queued for a webhook channel fails once with a clear message
 // instead of retrying a send that can never work.
 func TestReportDeliveryRefusesWebhookChannel(t *testing.T) {
-	for kind, want := range map[string]bool{"smtp": true, "Resend": true, "brevo": true, "webhook": false, "": false} {
+	for kind, want := range map[string]bool{"smtp": true, "SMTP": true, "resend": false, "brevo": false, "webhook": false, "": false} {
 		if EmailChannel(kind) != want {
 			t.Errorf("EmailChannel(%q) = %v", kind, !want)
 		}

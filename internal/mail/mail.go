@@ -1,44 +1,35 @@
-// Package mail sends one-off notifications through the providers CH-UI
-// supports: SMTP, Resend and Brevo. It is core (Apache-2.0): free features such
-// as dashboard share invites send mail, and Pro alerting builds on it.
+// Package mail sends one-off notifications over SMTP. It is core
+// (Apache-2.0): free features such as dashboard share invites send mail, and
+// Pro alerting builds on it.
 package mail
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net"
-	"net/http"
 	"net/smtp"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// Provider channel types, as stored on alert channels.
-const (
-	ChannelTypeSMTP   = "smtp"
-	ChannelTypeResend = "resend"
-	ChannelTypeBrevo  = "brevo"
-)
+// ChannelTypeSMTP is the email channel type, as stored on alert channels.
+const ChannelTypeSMTP = "smtp"
+
+// RemovedChannelType reports whether channelType names an email API provider
+// CH-UI used to support. Such channels stay in the database, deactivated,
+// until an admin deletes them or recreates them as SMTP or webhook.
+func RemovedChannelType(channelType string) bool {
+	switch strings.ToLower(strings.TrimSpace(channelType)) {
+	case "resend", "brevo":
+		return true
+	}
+	return false
+}
 
 // Sender sends mail. The zero value is ready to use.
-type Sender struct {
-	// HTTP is used for the Resend and Brevo APIs; nil means a client with a
-	// 15 second timeout.
-	HTTP *http.Client
-}
-
-func (s *Sender) client() *http.Client {
-	if s != nil && s.HTTP != nil {
-		return s.HTTP
-	}
-	return &http.Client{Timeout: 15 * time.Second}
-}
+type Sender struct{}
 
 // Send sends one message through the provider named by channelType and
 // returns the provider message id when it reports one.
@@ -64,11 +55,10 @@ func (s *Sender) SendMessage(ctx context.Context, channelType string, channelCon
 	switch strings.ToLower(channelType) {
 	case ChannelTypeSMTP:
 		return s.sendSMTPMessage(ctx, channelConfig, recipients, msg)
-	case ChannelTypeResend:
-		return s.sendResendMessage(ctx, channelConfig, recipients, msg)
-	case ChannelTypeBrevo:
-		return s.sendBrevoMessage(ctx, channelConfig, recipients, msg)
 	default:
+		if RemovedChannelType(channelType) {
+			return "", fmt.Errorf("%s channels are no longer supported: recreate this channel as SMTP or webhook", strings.ToLower(strings.TrimSpace(channelType)))
+		}
 		return "", fmt.Errorf("unsupported channel type: %s", channelType)
 	}
 }
@@ -217,126 +207,4 @@ func (s *Sender) sendSMTPMessage(ctx context.Context, cfg map[string]interface{}
 		return "", fmt.Errorf("smtp quit: %w", err)
 	}
 	return "smtp", nil
-}
-
-func (s *Sender) sendResendMessage(ctx context.Context, cfg map[string]interface{}, recipients []string, m Message) (string, error) {
-	apiKey := stringCfg(cfg, "api_key")
-	fromEmail := stringCfg(cfg, "from_email")
-	fromName := stringCfg(cfg, "from_name")
-	baseURL := stringCfg(cfg, "base_url")
-	if baseURL == "" {
-		baseURL = "https://api.resend.com"
-	}
-	if apiKey == "" || fromEmail == "" {
-		return "", fmt.Errorf("resend config requires api_key and from_email")
-	}
-
-	from := fromEmail
-	if fromName != "" {
-		from = fmt.Sprintf("%s <%s>", fromName, fromEmail)
-	}
-	payload := map[string]interface{}{
-		"from":    from,
-		"to":      recipients,
-		"subject": cleanHeader(m.Subject),
-		"text":    m.Text,
-	}
-	if m.HTML != "" {
-		payload["html"] = m.HTML
-	}
-	if len(m.Attachments) > 0 {
-		list := make([]map[string]string, 0, len(m.Attachments))
-		for _, a := range m.Attachments {
-			list = append(list, map[string]string{"filename": a.Filename, "content": base64.StdEncoding.EncodeToString(a.Data)})
-		}
-		payload["attachments"] = list
-	}
-	raw, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+"/emails", bytes.NewReader(raw))
-	if err != nil {
-		return "", fmt.Errorf("resend request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := s.client().Do(req)
-	if err != nil {
-		return "", fmt.Errorf("resend send: %w", err)
-	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		return "", fmt.Errorf("resend error (%d): %s", resp.StatusCode, strings.TrimSpace(string(data)))
-	}
-
-	var out struct {
-		ID string `json:"id"`
-	}
-	_ = json.Unmarshal(data, &out)
-	return out.ID, nil
-}
-
-func (s *Sender) sendBrevoMessage(ctx context.Context, cfg map[string]interface{}, recipients []string, m Message) (string, error) {
-	apiKey := stringCfg(cfg, "api_key")
-	fromEmail := stringCfg(cfg, "from_email")
-	fromName := stringCfg(cfg, "from_name")
-	baseURL := stringCfg(cfg, "base_url")
-	if baseURL == "" {
-		baseURL = "https://api.brevo.com"
-	}
-	if apiKey == "" || fromEmail == "" {
-		return "", fmt.Errorf("brevo config requires api_key and from_email")
-	}
-
-	to := make([]map[string]string, 0, len(recipients))
-	for _, r := range recipients {
-		to = append(to, map[string]string{"email": r})
-	}
-
-	payload := map[string]interface{}{
-		"sender": map[string]string{
-			"name":  fromName,
-			"email": fromEmail,
-		},
-		"to":          to,
-		"subject":     cleanHeader(m.Subject),
-		"textContent": m.Text,
-	}
-	if m.HTML != "" {
-		payload["htmlContent"] = m.HTML
-	}
-	if len(m.Attachments) > 0 {
-		list := make([]map[string]string, 0, len(m.Attachments))
-		for _, a := range m.Attachments {
-			list = append(list, map[string]string{"name": a.Filename, "content": base64.StdEncoding.EncodeToString(a.Data)})
-		}
-		payload["attachment"] = list
-	}
-	raw, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+"/v3/smtp/email", bytes.NewReader(raw))
-	if err != nil {
-		return "", fmt.Errorf("brevo request: %w", err)
-	}
-	req.Header.Set("api-key", apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := s.client().Do(req)
-	if err != nil {
-		return "", fmt.Errorf("brevo send: %w", err)
-	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		return "", fmt.Errorf("brevo error (%d): %s", resp.StatusCode, strings.TrimSpace(string(data)))
-	}
-
-	var out struct {
-		MessageID string `json:"messageId"`
-	}
-	_ = json.Unmarshal(data, &out)
-	return out.MessageID, nil
 }

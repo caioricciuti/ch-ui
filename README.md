@@ -248,7 +248,7 @@ Almost everything is free. Pro adds production operations, governance and schedu
 | Incident timeline + deployment annotations | - | **Yes** |
 | Schema comparison + downloadable SQL review plans | - | **Yes** |
 | Weekly operations reports + configured email delivery | - | **Yes** |
-| Alerting (SMTP, Resend, Brevo, Slack, Teams, webhooks), incl. ingest and pipeline alerts | - | **Yes** |
+| Alerting (SMTP, Slack, Teams, webhooks), incl. ingest and pipeline alerts | - | **Yes** |
 | Telemetry Traces, Metrics, Service map, Monitors | - | **Yes** |
 | Ask AI (text-to-SQL in the editor) + Brain agentic tools | - | **Yes** |
 | Brain budgets per person and per role, dollar limits | - | **Yes** |

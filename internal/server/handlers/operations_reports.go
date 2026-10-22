@@ -100,7 +100,7 @@ func (h *OperationsReportsHandler) saveSettings(w http.ResponseWriter, r *http.R
 			return
 		}
 		if c == nil || !c.IsActive || !operations.EmailChannel(c.ChannelType) {
-			writeError(w, 400, "Choose an active email channel (SMTP, Resend or Brevo); reports cannot be sent to a webhook")
+			writeError(w, 400, "Choose an active SMTP channel; reports cannot be sent to a webhook")
 			return
 		}
 	}

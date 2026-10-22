@@ -48,6 +48,11 @@ func TestReportsHandlerValidationAndRoles(t *testing.T) {
 	if res := do("POST", "/", "v", "viewer", body(plain, "a@example.com")); res.Code != 403 {
 		t.Fatalf("viewer create: %d", res.Code)
 	}
+	legacy, _ := db.CreateAlertChannel("old", "resend", "enc", false, "admin")
+	legacyBody := fmt.Sprintf(`{"name":"Old","source_type":"saved_query","saved_query_id":%q,"connection_id":%q,"cron":"0 8 * * *","targets":[{"channel_id":%q,"recipients":["a@example.com"]}]}`, plain, conn, legacy)
+	if res := do("POST", "/", "root", "admin", legacyBody); res.Code != 400 || !strings.Contains(res.Body.String(), "Recreate this channel as SMTP or webhook") {
+		t.Fatalf("removed provider channel accepted: %d %s", res.Code, res.Body.String())
+	}
 	if res := do("POST", "/", "a", "analyst", body(noDefault, "a@example.com")); res.Code != 400 || !strings.Contains(res.Body.String(), "no default") {
 		t.Fatalf("parameter without default accepted: %d %s", res.Code, res.Body.String())
 	}

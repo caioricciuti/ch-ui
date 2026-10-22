@@ -84,7 +84,7 @@ func TestMigrateModelSchedulesAnchorRollsBackOnFailure(t *testing.T) {
 
 func TestMigrateAlertRoutesRollsBackOnFailure(t *testing.T) {
 	db := openTestDB(t)
-	channelID, err := db.CreateAlertChannel("legacy-mail", "resend", "enc", true, "admin")
+	channelID, err := db.CreateAlertChannel("legacy-mail", "smtp", "enc", true, "admin")
 	if err != nil {
 		t.Fatalf("CreateAlertChannel: %v", err)
 	}

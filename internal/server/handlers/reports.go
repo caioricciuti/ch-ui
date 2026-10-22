@@ -207,6 +207,10 @@ func (h *ReportsHandler) decode(w http.ResponseWriter, r *http.Request, session 
 			writeError(w, http.StatusBadRequest, "Channel not found")
 			return false
 		}
+		if !isSupportedChannelType(channel.ChannelType) {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("%s: %s", channel.Name, channelTypeError(channel.ChannelType)))
+			return false
+		}
 		t.ChannelName, t.ChannelType = channel.Name, channel.ChannelType
 		if strings.EqualFold(channel.ChannelType, alerts.ChannelTypeWebhook) {
 			t.Recipients = []string{}
