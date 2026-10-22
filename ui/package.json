@@ -35,7 +35,7 @@
     "@codemirror/view": "6.43.14",
     "@tailwindcss/vite": "4.3.3",
     "@xyflow/svelte": "1.7.0",
-    "dompurify": "3.4.16",
+    "dompurify": "3.4.17",
     "lucide-svelte": "1.0.1",
     "marked": "18.1.0",
     "svelte-sonner": "1.2.1",
