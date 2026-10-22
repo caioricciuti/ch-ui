@@ -44,8 +44,6 @@ const (
 	maxHealthEventsPerPoll = 20
 	// historySampleInterval is how often a steady state is still recorded.
 	historySampleInterval = time.Hour
-	// evaluationRetention bounds the evaluation history.
-	evaluationRetention = 30 * 24 * time.Hour
 	// detailRows bounds the top offenders attached to a firing event.
 	detailRows = 5
 	// ghostExpiry is how long a node may be absent from every poll before
@@ -837,9 +835,14 @@ func offendersFor(rows []map[string]interface{}, node string) []map[string]inter
 	return rows
 }
 
-// pruneEvaluations drops evaluation history past evaluationRetention.
+// pruneEvaluations drops evaluation history older than the configured
+// retention window (database.RetentionConfig.AlertEvaluations, 0 keeps it).
 func (h *Harvester) pruneEvaluations(now time.Time) {
-	cutoff := now.Add(-evaluationRetention).UTC().Format(time.RFC3339)
+	days := h.db.RetentionDays(func(c database.RetentionConfig) int { return c.AlertEvaluations })
+	if days <= 0 {
+		return
+	}
+	cutoff := now.UTC().AddDate(0, 0, -days).Format(time.RFC3339)
 	if n, err := h.db.PruneAlertEvaluations(cutoff); err != nil {
 		slog.Warn("Alert evaluation prune failed", "error", err)
 	} else if n > 0 {

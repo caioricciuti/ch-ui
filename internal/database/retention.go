@@ -37,6 +37,19 @@ type RetentionConfig struct {
 	// ResolvedInvestigations prunes resolved performance investigations by
 	// resolved_at; open and monitoring ones are never pruned.
 	ResolvedInvestigations int `json:"resolved_investigations"`
+
+	// The windows below are applied by the job that owns each table, not by
+	// RunRetention, so they never show in RetentionStats.
+	//
+	// GovQueryLog and GovPolicyViolations are pruned by the governance syncer.
+	GovQueryLog         int `json:"gov_query_log"`
+	GovPolicyViolations int `json:"gov_policy_violations"`
+	// RBACSnapshots is the access history window, applied by the governance
+	// syncer and on every new access history row. The per-connection row cap
+	// (RBACHistoryMaxRows) still applies when it is 0.
+	RBACSnapshots int `json:"rbac_snapshots"`
+	// AlertEvaluations is pruned by the cluster health harvester.
+	AlertEvaluations int `json:"alert_evaluations"`
 }
 
 // DefaultRetentionConfig returns the built-in retention windows.
@@ -55,12 +68,17 @@ func DefaultRetentionConfig() RetentionConfig {
 		OperationsReports:      180,
 		IncidentAnnotations:    180,
 		ResolvedInvestigations: 180,
+		GovQueryLog:            30,
+		GovPolicyViolations:    30,
+		RBACSnapshots:          180,
+		AlertEvaluations:       30,
 	}
 }
 
 // Validate rejects nonsensical retention windows.
 func (c RetentionConfig) Validate() error {
-	for _, t := range retentionTargets {
+	targets := append(append([]retentionTarget{}, retentionTargets...), externalRetentionTargets...)
+	for _, t := range targets {
 		days := t.days(c)
 		if days < 0 {
 			return fmt.Errorf("retention for %s must be >= 0 days (0 disables pruning)", t.table)
@@ -112,6 +130,27 @@ var retentionTargets = []retentionTarget{
 	{"incident_deployment_annotations", "occurred_at", func(c RetentionConfig) int { return c.IncidentAnnotations }, ""},
 	// Events cascade with their investigation.
 	{"performance_investigations", "resolved_at", func(c RetentionConfig) int { return c.ResolvedInvestigations }, "status = 'resolved'"},
+}
+
+// externalRetentionTargets are validated with the rest but pruned by the job
+// that owns each table (see RetentionConfig). Only table and days are used.
+var externalRetentionTargets = []retentionTarget{
+	{table: "gov_query_log", days: func(c RetentionConfig) int { return c.GovQueryLog }},
+	{table: "gov_policy_violations", days: func(c RetentionConfig) int { return c.GovPolicyViolations }},
+	{table: "rbac_snapshots", days: func(c RetentionConfig) int { return c.RBACSnapshots }},
+	{table: "alert_evaluations", days: func(c RetentionConfig) int { return c.AlertEvaluations }},
+}
+
+// RetentionDays returns one configured retention window, for jobs that prune
+// their own tables. When the config cannot be loaded it logs and returns the
+// default. 0 means keep forever; callers must skip pruning then.
+func (db *DB) RetentionDays(pick func(RetentionConfig) int) int {
+	cfg, err := db.GetRetentionConfig()
+	if err != nil {
+		slog.Warn("Retention: failed to load config, using defaults", "error", err)
+		return pick(DefaultRetentionConfig())
+	}
+	return pick(cfg)
 }
 
 // GetRetentionConfig loads the stored retention config, falling back to the

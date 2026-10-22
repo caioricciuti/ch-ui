@@ -17,6 +17,12 @@ export interface RetentionConfig {
   operations_reports: number
   incident_annotations: number
   resolved_investigations: number
+  // Pruned by the job that owns the table, so they never appear in
+  // RetentionLastRun.rows_deleted.
+  gov_query_log: number
+  gov_policy_violations: number
+  rbac_snapshots: number
+  alert_evaluations: number
 }
 
 export interface RetentionLastRun {

@@ -284,3 +284,57 @@ func TestDiskFreeBytesFloor(t *testing.T) {
 		t.Fatalf("healthy disk = %q", got)
 	}
 }
+
+func TestPruneEvaluationsFollowsRetentionConfig(t *testing.T) {
+	h, db, conn := evalHarvester(t)
+	now := time.Now().UTC()
+	evalsAt := func(daysAgo ...int) []database.AlertEvaluation {
+		var out []database.AlertEvaluation
+		for _, d := range daysAgo {
+			out = append(out, database.AlertEvaluation{Source: "health", SourceID: CheckReplicaReadonly, ConnectionID: conn, Node: "ch-1",
+				State: "ok", EvaluatedAt: now.AddDate(0, 0, -d).Format(time.RFC3339)})
+		}
+		return out
+	}
+	if err := db.InsertAlertEvaluations(evalsAt(400, 45, 1)); err != nil {
+		t.Fatal(err)
+	}
+	count := func() int {
+		t.Helper()
+		evals, err := db.ListAlertEvaluations(conn, "health", CheckReplicaReadonly, 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(evals)
+	}
+
+	// 0 keeps evaluations forever.
+	cfg := database.DefaultRetentionConfig()
+	cfg.AlertEvaluations = 0
+	if err := db.SetRetentionConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	h.pruneEvaluations(now)
+	if n := count(); n != 3 {
+		t.Fatalf("retention 0 must keep every evaluation, %d left", n)
+	}
+
+	// A 60 day window drops only the 400 day old row.
+	cfg.AlertEvaluations = 60
+	if err := db.SetRetentionConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	h.pruneEvaluations(now)
+	if n := count(); n != 2 {
+		t.Fatalf("60 day window: %d left, want 2", n)
+	}
+
+	// The default (30 days) drops the 45 day old row too.
+	if err := db.SetRetentionConfig(database.DefaultRetentionConfig()); err != nil {
+		t.Fatal(err)
+	}
+	h.pruneEvaluations(now)
+	if n := count(); n != 1 {
+		t.Fatalf("default window: %d left, want 1", n)
+	}
+}

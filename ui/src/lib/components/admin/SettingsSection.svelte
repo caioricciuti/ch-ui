@@ -22,7 +22,9 @@
 
   // ── Data retention ─────────────────────────────────────────
   type RetentionKey = keyof RetentionConfig
-  const retentionTables: Array<{ key: RetentionKey; label: string; holds: string }> = [
+  // prunedBy names the job that prunes a table on its own schedule; those
+  // tables are not part of the hourly cleanup or its row counts.
+  const retentionTables: Array<{ key: RetentionKey; label: string; holds: string; prunedBy?: string }> = [
     { key: 'audit_logs', label: 'Audit logs', holds: 'Every admin and query action, by user and IP' },
     { key: 'alert_events', label: 'Alert events', holds: 'Alerts that fired and what they said' },
     { key: 'alert_dispatch_jobs', label: 'Alert dispatch jobs', holds: 'Delivery attempts per channel' },
@@ -36,6 +38,10 @@
     { key: 'operations_reports', label: 'Operations reports', holds: 'Weekly reports and their delivery state' },
     { key: 'incident_annotations', label: 'Deployment annotations', holds: 'Deployments marked on the incident timeline' },
     { key: 'resolved_investigations', label: 'Resolved investigations', holds: 'Performance investigations after they are resolved; open ones are kept' },
+    { key: 'gov_query_log', label: 'Governance query log', holds: 'Queries synced from ClickHouse for governance', prunedBy: 'Governance sync' },
+    { key: 'gov_policy_violations', label: 'Policy violations', holds: 'Queries that broke a governance policy', prunedBy: 'Governance sync' },
+    { key: 'rbac_snapshots', label: 'Access history', holds: 'Users, roles and grants over time; at most 500 rows per connection', prunedBy: 'Governance sync' },
+    { key: 'alert_evaluations', label: 'Alert evaluations', holds: 'Health check and SQL alert results over time', prunedBy: 'Cluster health' },
   ]
 
   type RetentionRow = {
@@ -45,6 +51,7 @@
     days: number
     defaultDays: number
     deletedLastRun: number
+    prunedBy?: string
   }
 
   let retention = $state<RetentionSettings | null>(null)
@@ -63,6 +70,7 @@
       days: r.config[t.key],
       defaultDays: r.defaults[t.key],
       deletedLastRun: r.last_run?.rows_deleted[t.key] ?? 0,
+      prunedBy: t.prunedBy,
     }))
   })
 
@@ -173,6 +181,8 @@
                     <span class="text-[11px] text-fg-4">default</span>
                   {/if}
                 </span>
+              {:else if col.key === 'deletedLastRun' && row.prunedBy}
+                <span class="text-xs text-fg-4" title={`Pruned by ${row.prunedBy.toLowerCase()}, not by this cleanup`}>{row.prunedBy}</span>
               {:else}
                 <span class="text-fg-3">{value}</span>
               {/if}
@@ -181,7 +191,7 @@
 
           <Panel variant="muted" padding="sm">
             <p class="text-xs text-fg-3">
-              Cleanup runs every hour.
+              Cleanup runs every hour. Tables that name a job under Last cleanup are pruned by that job instead and are not counted here.
               {#if retention.last_run}
                 Last run {new Date(retention.last_run.last_run_at).toLocaleString()} ·
                 {retention.last_run.total_deleted.toLocaleString()} row{retention.last_run.total_deleted === 1 ? '' : 's'} deleted in {retention.last_run.duration_ms} ms.

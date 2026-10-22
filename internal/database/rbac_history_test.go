@@ -197,6 +197,45 @@ func TestRBACHistoryRetention(t *testing.T) {
 	}
 }
 
+func TestRBACHistoryRetentionFollowsConfig(t *testing.T) {
+	db := openTestDB(t)
+	conn := historyConn(t, db, "cfg")
+	now := time.Now().UTC()
+
+	// 0 keeps rows forever, both when a row is recorded and in the sweep.
+	cfg := DefaultRetentionConfig()
+	cfg.RBACSnapshots = 0
+	if err := db.SetRetentionConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	for i, days := range []int{400, 300, 100} {
+		if _, _, err := db.recordRBACSnapshotAt(historyInput(conn, "admin", fmt.Sprintf("h-%d", i)), nil, now.AddDate(0, 0, -days)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := db.PruneRBACSnapshots(now); err != nil || n != 0 {
+		t.Fatalf("retention 0 pruned %d rows, err=%v", n, err)
+	}
+	if _, _, err := db.RecordRBACSnapshot(historyInput(conn, "admin", "h-new"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := historyCount(t, db, `SELECT COUNT(*) FROM rbac_snapshots WHERE connection_id = ?`, conn); got != 4 {
+		t.Fatalf("rows with retention 0 = %d, want 4", got)
+	}
+
+	// A 200 day window drops the 400 and 300 day old rows.
+	cfg.RBACSnapshots = 200
+	if err := db.SetRetentionConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := db.PruneRBACSnapshots(now); err != nil || n != 2 {
+		t.Fatalf("200 day window pruned %d rows, want 2, err=%v", n, err)
+	}
+	if got := historyCount(t, db, `SELECT COUNT(*) FROM rbac_snapshots WHERE hash IN ('h-2', 'h-new')`); got != 2 {
+		t.Fatalf("recent rows kept = %d, want 2", got)
+	}
+}
+
 func TestRBACHistoryCascadesOnConnectionDelete(t *testing.T) {
 	db := openTestDB(t)
 	conn := historyConn(t, db, "gone")

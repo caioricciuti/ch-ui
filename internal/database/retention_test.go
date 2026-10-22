@@ -180,6 +180,67 @@ func TestRetentionConfig_RoundTripAndValidation(t *testing.T) {
 	if err := db.SetRetentionConfig(bad); err == nil {
 		t.Fatal("expected error for negative retention")
 	}
+
+	// Windows pruned by other jobs are validated the same way.
+	bad = DefaultRetentionConfig()
+	bad.AlertEvaluations = 3651
+	if err := db.SetRetentionConfig(bad); err == nil {
+		t.Fatal("expected error for alert_evaluations over 3650 days")
+	}
+	bad = DefaultRetentionConfig()
+	bad.GovQueryLog = -1
+	if err := db.SetRetentionConfig(bad); err == nil {
+		t.Fatal("expected error for negative gov_query_log retention")
+	}
+}
+
+func TestRetentionConfig_ExternalWindows(t *testing.T) {
+	db := openTestDB(t)
+
+	// Defaults match the windows that used to be hardcoded.
+	def := DefaultRetentionConfig()
+	if def.GovQueryLog != 30 || def.GovPolicyViolations != 30 || def.RBACSnapshots != 180 || def.AlertEvaluations != 30 {
+		t.Fatalf("unexpected defaults: %+v", def)
+	}
+
+	// A config stored before these keys existed falls back to their defaults.
+	if err := db.SetSetting(SettingRetentionConfig, `{"audit_logs": 10}`); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := db.GetRetentionConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AuditLogs != 10 || cfg.GovQueryLog != 30 || cfg.RBACSnapshots != 180 || cfg.AlertEvaluations != 30 {
+		t.Fatalf("old config not merged with defaults: %+v", cfg)
+	}
+
+	cfg.GovQueryLog, cfg.GovPolicyViolations, cfg.RBACSnapshots, cfg.AlertEvaluations = 7, 0, 365, 90
+	if err := db.SetRetentionConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := db.RetentionDays(func(c RetentionConfig) int { return c.RBACSnapshots }); got != 365 {
+		t.Fatalf("RetentionDays(rbac_snapshots) = %d, want 365", got)
+	}
+	if got := db.RetentionDays(func(c RetentionConfig) int { return c.GovPolicyViolations }); got != 0 {
+		t.Fatalf("RetentionDays(gov_policy_violations) = %d, want 0", got)
+	}
+
+	// An unreadable config falls back to the defaults.
+	if err := db.SetSetting(SettingRetentionConfig, `not json`); err != nil {
+		t.Fatal(err)
+	}
+	if got := db.RetentionDays(func(c RetentionConfig) int { return c.AlertEvaluations }); got != 30 {
+		t.Fatalf("RetentionDays on bad config = %d, want default 30", got)
+	}
+
+	// RunRetention leaves these tables to their own jobs.
+	stats := db.RunRetention()
+	for _, table := range []string{"gov_query_log", "gov_policy_violations", "rbac_snapshots", "alert_evaluations"} {
+		if _, ok := stats.RowsDeleted[table]; ok {
+			t.Errorf("RunRetention must not report %s", table)
+		}
+	}
 }
 
 func TestOpen_EnablesIncrementalAutoVacuumOnNewDatabases(t *testing.T) {
