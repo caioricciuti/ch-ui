@@ -4,6 +4,7 @@
   import { getSession } from '../../stores/session.svelte'
   import { goTo } from '../../stores/router.svelte'
   import { setSection } from '../../stores/nav.svelte'
+  import { requestBackgroundAccounts } from '../../stores/page-intent.svelte'
   import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import { fetchSqlAlerts } from '../../api/alerting'
   import { createAck, deleteAck, listFiring } from '../../api/alerts'
@@ -158,6 +159,7 @@
   }
 
   function openConnections() {
+    requestBackgroundAccounts('sql_alert')
     goTo('admin')
     setSection('tunnels')
   }
@@ -184,7 +186,7 @@
         <Panel variant="muted" padding="sm" class="mb-3">
           <p class="text-[13px] text-fg-2">
             SQL alerts run with a dedicated background account. Configure it in
-            <button type="button" class="font-medium text-accent hover:underline" onclick={openConnections}>Admin, Connections</button>.
+            <button type="button" class="font-medium text-accent hover:underline" onclick={openConnections}>Admin → Connections → Background accounts</button>.
             Until then only Test run and Run now execute.
           </p>
         </Panel>

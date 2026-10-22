@@ -45,6 +45,8 @@
     cell?: Snippet<[R, DataColumn<R>, string]>
     /** Trailing cell per row, for buttons. */
     actions?: Snippet<[R]>
+    /** Keep the actions cell visible instead of revealing it on row hover. For tables whose row actions are the main way in. */
+    actionsVisible?: boolean
   }
 </script>
 
@@ -54,7 +56,7 @@
 
   let {
     columns, rows, rowKey, sort = null, fill = false, framed = true,
-    emptyTitle = 'Nothing here', emptyDescription, onrowclick, selectedKey, onrowcontextmenu, class: cls = '', cell, actions,
+    emptyTitle = 'Nothing here', emptyDescription, onrowclick, selectedKey, onrowcontextmenu, class: cls = '', cell, actions, actionsVisible = false,
   }: DataTableProps<Row> = $props()
 
   let sortKey = $state<string | null>(null)
@@ -161,7 +163,7 @@
             {/each}
             {#if actions}
               <td class="border-b border-edge-subtle px-2 py-1 pr-3 text-right group-last:border-b-0">
-                <div class="inline-flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                <div class="inline-flex items-center justify-end gap-0.5 {actionsVisible ? '' : 'opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100'}">
                   {@render actions(row)}
                 </div>
               </td>

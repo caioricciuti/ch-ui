@@ -1,6 +1,6 @@
-// A palette action that opens a sheet on a page ("New dashboard") leaves
-// an intent here and navigates. The page takes it when it mounts, or at
-// once when it is already on screen.
+// A palette action or a deep link that opens a sheet on a page ("New
+// dashboard", "Background accounts") leaves an intent here and navigates.
+// The page takes it when it mounts, or at once when it is already on screen.
 export type PageIntent =
   | 'new-dashboard'
   | 'new-model'
@@ -8,8 +8,11 @@ export type PageIntent =
   | 'send-data'
   | 'new-mcp-key'
   | 'new-clickhouse-user'
+  /** Admin, Connections: open Background accounts for the session's connection. */
+  | 'background-accounts'
 
 let pending = $state<PageIntent | null>(null)
+let backgroundWorker: string | null = null
 
 export function requestPageIntent(intent: PageIntent): void {
   pending = intent
@@ -20,4 +23,17 @@ export function takePageIntent(intent: PageIntent): boolean {
   if (pending !== intent) return false
   pending = null
   return true
+}
+
+/** Opens Admin, Connections with Background accounts showing one worker. */
+export function requestBackgroundAccounts(worker: string): void {
+  backgroundWorker = worker
+  pending = 'background-accounts'
+}
+
+/** The worker a Background accounts deep link asked for, cleared once read. */
+export function takeBackgroundWorker(): string | null {
+  const w = backgroundWorker
+  backgroundWorker = null
+  return w
 }

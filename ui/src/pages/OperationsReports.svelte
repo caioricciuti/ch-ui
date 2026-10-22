@@ -8,6 +8,7 @@
   import { getSession } from '../lib/stores/session.svelte'
   import { goTo } from '../lib/stores/router.svelte'
   import { setSection } from '../lib/stores/nav.svelte'
+  import { requestBackgroundAccounts } from '../lib/stores/page-intent.svelte'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
   import { docsURL } from '../lib/routes'
   import PageBody from '../lib/components/common/PageBody.svelte'
@@ -99,6 +100,7 @@
     const a = document.createElement('a'); a.href = url; a.download = `ch-ui-report-${selected.created_at.slice(0, 10)}.txt`; a.click(); URL.revokeObjectURL(url)
   }
   function openBackgroundAccounts() {
+    requestBackgroundAccounts('operations.report')
     goTo('admin')
     setSection('tunnels')
   }

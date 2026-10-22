@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { apiGet, apiPost, apiPut, apiDel } from '../../api/client'
   import { formatDate, formatRelativeTime } from '../../utils/format'
+  import { takePageIntent, takeBackgroundWorker } from '../../stores/page-intent.svelte'
+  import { getSession } from '../../stores/session.svelte'
   import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Button from '../common/Button.svelte'
   import Input from '../common/Input.svelte'
@@ -73,11 +75,34 @@
   let deleteTarget = $state<TunnelConnection | null>(null)
   let deleteLoading = $state(false)
   let backgroundTarget = $state<TunnelConnection | null>(null)
+  let backgroundWorker = $state<string | undefined>(undefined)
   let ssoTarget = $state<TunnelConnection | null>(null)
+
+  // "Background accounts" deep links from Performance, Reports and alerts
+  // land here: open the sheet for the session's connection once the list
+  // has loaded (or at once when it already has).
+  let backgroundPending = false
 
   onMount(() => {
     void loadTunnels()
   })
+
+  $effect(() => {
+    if (!takePageIntent('background-accounts')) return
+    untrack(() => {
+      backgroundPending = true
+      backgroundWorker = takeBackgroundWorker() ?? undefined
+      if (tunnels.length) openPendingBackground()
+    })
+  })
+
+  function openPendingBackground() {
+    if (!backgroundPending) return
+    backgroundPending = false
+    const id = getSession()?.connectionId
+    const conn = tunnels.find((c) => c.id === id) ?? (tunnels.length === 1 ? tunnels[0] : undefined)
+    if (conn) backgroundTarget = conn
+  }
 
   async function loadTunnels() {
     tunnelsLoading = true
@@ -87,6 +112,7 @@
       toastErrorFrom(e)
     } finally {
       tunnelsLoading = false
+      openPendingBackground()
     }
   }
 
@@ -293,6 +319,7 @@
       <div class="h-full overflow-hidden rounded-lg border border-edge-subtle bg-surface">
         <DataTable
           fill
+          actionsVisible
           {columns}
           {rows}
           rowKey={(r) => String(r.id)}
@@ -313,7 +340,7 @@
           {/snippet}
           {#snippet actions(row)}
             {@const conn = asConn(row)}
-            <Button variant="ghost" size="xs" onclick={() => (backgroundTarget = conn)}>Background accounts</Button>
+            <Button variant="ghost" size="xs" onclick={() => { backgroundWorker = undefined; backgroundTarget = conn }}>Background accounts</Button>
             <Button variant="ghost" size="xs" title="How SSO people reach ClickHouse on this connection" onclick={() => (ssoTarget = conn)}>SSO</Button>
             {#if conn.type !== 'direct' && !conn.is_embedded}
               <Button icon variant="ghost" size="xs" aria-label="Show agent token" title="Show token" onclick={() => void viewToken(conn)}>
@@ -341,7 +368,7 @@
 </div>
 
 {#if backgroundTarget}
-  <BackgroundAccountsSheet connection={backgroundTarget} onclose={() => (backgroundTarget = null)} />
+  <BackgroundAccountsSheet connection={backgroundTarget} worker={backgroundWorker} onclose={() => (backgroundTarget = null)} />
 {/if}
 
 {#if ssoTarget}

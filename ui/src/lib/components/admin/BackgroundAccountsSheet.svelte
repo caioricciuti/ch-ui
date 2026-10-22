@@ -1,6 +1,6 @@
 <script lang="ts">
   import { errorText } from '../../utils/errors'
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { apiGet, apiPut } from '../../api/client'
   import { success as toastSuccess, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Sheet from '../common/Sheet.svelte'
@@ -10,8 +10,10 @@
   import Spinner from '../common/Spinner.svelte'
   import { ExternalLink } from 'lucide-svelte'
 
-  let { connection, onclose }: {
+  let { connection, worker: initialWorker, onclose }: {
     connection: { id: string; name: string }
+    /** Worker to show first; defaults to Telemetry monitors. */
+    worker?: string
     onclose: () => void
   } = $props()
 
@@ -35,7 +37,7 @@
     report: 'Grant SELECT on the tables your reported saved queries and dashboards read. Reports require a dedicated account and run with readonly=1; Send now and Preview use it too.',
   }
   let accounts = $state<Account[]>([])
-  let worker = $state('telemetry.monitor')
+  let worker = $state(untrack(() => initialWorker) ?? 'telemetry.monitor')
   let mode = $state('service_account')
   let username = $state('')
   let password = $state('')
