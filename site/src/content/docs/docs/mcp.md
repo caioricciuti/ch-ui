@@ -287,9 +287,9 @@ back as `cursor`. Cursors are opaque.
 | `search_catalog` | Free | Read | Finds tables, columns, saved queries and dashboards whose name or comment contains a term. The first call to make when the model does not know where the data lives |
 | `list_databases` | Free | Read | Databases visible to the connection |
 | `list_tables` | Free | Read | Tables in a database with engine, rows and size. `like` filter, `page_size` (default 50, max 500), `cursor` |
-| `describe_table` | Free | Read | Columns with types, comments and compressed/uncompressed size; engine, keys and the `CREATE TABLE` statement; active parts, partitions, last modification; `sample_rows` (default 3, max 20, 0 to skip) |
+| `describe_table` | Free | Read | Columns with types, comments and compressed/uncompressed size; engine, keys and the `CREATE TABLE` statement; active parts, partitions, last modification; `sample_rows` (default 3, max 20, 0 to skip). `tables` describes up to 10 tables in one call |
 | `estimate_query` | Free | Read | `EXPLAIN ESTIMATE` for a SELECT: parts, rows and marks per table, totals, and a plain assessment. No data is read |
-| `run_select` | Free | Read | Read-only SQL (SELECT, WITH, SHOW, DESCRIBE, EXISTS, EXPLAIN). `max_rows` (default 100, max 2000), `format` json or csv, `max_bytes` budget |
+| `run_select` | Free | Read | Read-only SQL (SELECT, WITH, SHOW, DESCRIBE, EXISTS, EXPLAIN). `max_rows` (default 100, max 2000), `format` json or csv, `max_bytes` budget. `queries` runs up to 5 statements together |
 | `run_saved_query` | Free | Read | Runs a saved query by `id` or `name`, with `params` for its bind parameters. Same caps and guards as `run_select`. Reports whether the query is **verified** |
 | `explain_query` | Free | Read | `EXPLAIN indexes = 1` plan for a SELECT |
 
@@ -300,6 +300,14 @@ the tokens of JSON for wide results; the metadata follows as a second text
 block. Results are capped at `max_rows` exactly. `truncated: true` appears
 only when ClickHouse had more rows than `max_rows` (CH-UI asks for one row
 more than the cap to tell), and tells the model to filter or aggregate.
+
+**Batching.** One call can do the work of several. `describe_table` with
+`tables` returns one entry per table, four tables at a time against
+ClickHouse, and a table that cannot be described carries an `error` in its
+entry instead of failing the call. `run_select` with `queries` runs up to five
+statements in parallel, each through the same read-only check, allowlist,
+governance policies and query history as a single call; every result carries
+its `query_index`, and a failed statement reports in place.
 
 **Byte budget.** `max_bytes` on `run_select` and `run_saved_query` maps to
 ClickHouse's `max_bytes_to_read`: the query is aborted once it has read more
