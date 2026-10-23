@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -462,33 +463,6 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 			return errResult("database %q is not in this key's allowlist", args.Database), nil, nil
 		}
 		params := map[string]string{"param_db": args.Database, "param_tbl": args.Table}
-		cols, err := runCH(ctx, deps, ak,
-			"SELECT name, type, default_kind, default_expression, comment, is_in_primary_key, is_in_sorting_key, is_in_partition_key, data_compressed_bytes, data_uncompressed_bytes FROM system.columns WHERE database = {db:String} AND table = {tbl:String} ORDER BY position FORMAT JSON",
-			params, metaTimeout)
-		if err != nil {
-			return errResult("describe_table failed: %v", err), nil, nil
-		}
-		if len(cols) == 0 {
-			return errResult("table %s.%s not found", args.Database, args.Table), nil, nil
-		}
-		out := map[string]any{"database": args.Database, "table": args.Table, "columns": cols}
-
-		meta, err := runCH(ctx, deps, ak,
-			"SELECT engine, partition_key, sorting_key, primary_key, total_rows, total_bytes, comment, create_table_query, metadata_modification_time FROM system.tables WHERE database = {db:String} AND name = {tbl:String} FORMAT JSON",
-			params, metaTimeout)
-		if err == nil && len(meta) == 1 {
-			out["table_info"] = meta[0]
-		}
-
-		// Parts give freshness and physical size; system.parts may be off
-		// limits to a locked-down user, so this is best effort.
-		parts, err := runCH(ctx, deps, ak,
-			"SELECT count() AS active_parts, uniqExact(partition_id) AS partitions, sum(rows) AS rows, sum(data_compressed_bytes) AS compressed_bytes, sum(data_uncompressed_bytes) AS uncompressed_bytes, max(modification_time) AS last_modified FROM system.parts WHERE active AND database = {db:String} AND table = {tbl:String} FORMAT JSON",
-			params, metaTimeout)
-		if err == nil && len(parts) == 1 {
-			out["storage"] = parts[0]
-		}
-
 		n := args.SampleRows
 		if req.Params != nil && !argProvided(req, "sample_rows") {
 			n = 3
@@ -496,15 +470,62 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		if n > 20 {
 			n = 20
 		}
-		if n > 0 {
-			sampleSQL := fmt.Sprintf("SELECT * FROM %s.%s LIMIT %d FORMAT JSON", quoteIdent(args.Database), quoteIdent(args.Table), n)
-			if blocked := checkGuardrails(deps, ak, sampleSQL, "/mcp/describe_table"); blocked != nil {
-				out["sample_note"] = "sample rows withheld by governance policy"
-			} else if sample, err := runCH(ctx, deps, ak, sampleSQL, map[string]string{"max_result_rows": strconv.Itoa(n), "max_execution_time": "10"}, metaTimeout); err != nil {
-				out["sample_note"] = "sample rows unavailable: " + err.Error()
-			} else {
-				out["sample_rows"] = sample
-			}
+		sampleSQL := fmt.Sprintf("SELECT * FROM %s.%s LIMIT %d FORMAT JSON", quoteIdent(args.Database), quoteIdent(args.Table), n)
+		sampleBlocked := n > 0 && checkGuardrails(deps, ak, sampleSQL, "/mcp/describe_table") != nil
+
+		// The four lookups are independent, so they share one round trip
+		// through the tunnel instead of four.
+		var (
+			wg                 sync.WaitGroup
+			cols, meta, parts  []map[string]any
+			sample             []map[string]any
+			colsErr, sampleErr error
+		)
+		wg.Go(func() {
+			cols, colsErr = runCH(ctx, deps, ak,
+				"SELECT name, type, default_kind, default_expression, comment, is_in_primary_key, is_in_sorting_key, is_in_partition_key, data_compressed_bytes, data_uncompressed_bytes FROM system.columns WHERE database = {db:String} AND table = {tbl:String} ORDER BY position FORMAT JSON",
+				params, metaTimeout)
+		})
+		wg.Go(func() {
+			meta, _ = runCH(ctx, deps, ak,
+				"SELECT engine, partition_key, sorting_key, primary_key, total_rows, total_bytes, comment, create_table_query, metadata_modification_time FROM system.tables WHERE database = {db:String} AND name = {tbl:String} FORMAT JSON",
+				params, metaTimeout)
+		})
+		// Parts give freshness and physical size; system.parts may be off
+		// limits to a locked-down user, so this is best effort.
+		wg.Go(func() {
+			parts, _ = runCH(ctx, deps, ak,
+				"SELECT count() AS active_parts, uniqExact(partition_id) AS partitions, sum(rows) AS rows, sum(data_compressed_bytes) AS compressed_bytes, sum(data_uncompressed_bytes) AS uncompressed_bytes, max(modification_time) AS last_modified FROM system.parts WHERE active AND database = {db:String} AND table = {tbl:String} FORMAT JSON",
+				params, metaTimeout)
+		})
+		if n > 0 && !sampleBlocked {
+			wg.Go(func() {
+				sample, sampleErr = runCH(ctx, deps, ak, sampleSQL, map[string]string{"max_result_rows": strconv.Itoa(n), "max_execution_time": "10"}, metaTimeout)
+			})
+		}
+		wg.Wait()
+
+		if colsErr != nil {
+			return errResult("describe_table failed: %v", colsErr), nil, nil
+		}
+		if len(cols) == 0 {
+			return errResult("table %s.%s not found", args.Database, args.Table), nil, nil
+		}
+		out := map[string]any{"database": args.Database, "table": args.Table, "columns": cols}
+		if len(meta) == 1 {
+			out["table_info"] = meta[0]
+		}
+		if len(parts) == 1 {
+			out["storage"] = parts[0]
+		}
+		switch {
+		case n <= 0:
+		case sampleBlocked:
+			out["sample_note"] = "sample rows withheld by governance policy"
+		case sampleErr != nil:
+			out["sample_note"] = "sample rows unavailable: " + sampleErr.Error()
+		default:
+			out["sample_rows"] = sample
 		}
 		return jsonResult(out), nil, nil
 	})

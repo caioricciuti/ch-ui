@@ -1,10 +1,12 @@
 package mcpserver
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -65,22 +67,29 @@ func registerCatalogTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		}
 
 		out := map[string]any{"query": q}
-		tables, err := runCH(ctx, deps, ak,
-			"SELECT database, name AS table, engine, comment, total_rows FROM system.tables WHERE database NOT IN "+systemDBs+
-				" AND (positionCaseInsensitive(name, {q:String}) > 0 OR positionCaseInsensitive(comment, {q:String}) > 0) ORDER BY database, name LIMIT "+fmt.Sprint(searchMaxTables)+" FORMAT JSON",
-			params, metaTimeout)
-		if err != nil {
+		// Tables and columns are independent lookups; run them together.
+		var (
+			wg                    sync.WaitGroup
+			tables, columns       []map[string]any
+			tablesErr, columnsErr error
+		)
+		wg.Go(func() {
+			tables, tablesErr = runCH(ctx, deps, ak,
+				"SELECT database, name AS table, engine, comment, total_rows FROM system.tables WHERE database NOT IN "+systemDBs+
+					" AND (positionCaseInsensitive(name, {q:String}) > 0 OR positionCaseInsensitive(comment, {q:String}) > 0) ORDER BY database, name LIMIT "+fmt.Sprint(searchMaxTables)+" FORMAT JSON",
+				params, metaTimeout)
+		})
+		wg.Go(func() {
+			columns, columnsErr = runCH(ctx, deps, ak,
+				"SELECT database, table, name AS column, type, comment FROM system.columns WHERE database NOT IN "+systemDBs+
+					" AND (positionCaseInsensitive(name, {q:String}) > 0 OR positionCaseInsensitive(comment, {q:String}) > 0) ORDER BY database, table, name LIMIT "+fmt.Sprint(searchMaxColumns)+" FORMAT JSON",
+				params, metaTimeout)
+		})
+		wg.Wait()
+		if err := cmp.Or(tablesErr, columnsErr); err != nil {
 			return errResult("search_catalog failed: %v", err), nil, nil
 		}
 		out["tables"] = filterRows(tables, keep)
-
-		columns, err := runCH(ctx, deps, ak,
-			"SELECT database, table, name AS column, type, comment FROM system.columns WHERE database NOT IN "+systemDBs+
-				" AND (positionCaseInsensitive(name, {q:String}) > 0 OR positionCaseInsensitive(comment, {q:String}) > 0) ORDER BY database, table, name LIMIT "+fmt.Sprint(searchMaxColumns)+" FORMAT JSON",
-			params, metaTimeout)
-		if err != nil {
-			return errResult("search_catalog failed: %v", err), nil, nil
-		}
 		out["columns"] = filterRows(columns, keep)
 
 		lq := strings.ToLower(q)
