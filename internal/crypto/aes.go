@@ -4,9 +4,11 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"golang.org/x/crypto/scrypt"
@@ -150,10 +152,45 @@ func SetPreviousKey(secret string) error {
 	return nil
 }
 
+// maxCachedKeys bounds the derived-key cache. A running server uses one or
+// two secrets; the bound only matters for callers that pass many (tests).
+const maxCachedKeys = 16
+
+// keyCache holds derived Keys by the SHA-256 of their secret, so Encrypt and
+// Decrypt run scrypt once per secret instead of once per call. Without it
+// every MCP request spent ~25ms and 16MB deriving the same key. A Key is
+// safe for concurrent use: GCM keeps no state between Seal/Open calls.
+var keyCache struct {
+	mu   sync.Mutex
+	keys map[[sha256.Size]byte]*Key
+}
+
+// cachedKey returns the derived Key for secret, deriving it on first use.
+func cachedKey(secret string) (*Key, error) {
+	id := sha256.Sum256([]byte(secret))
+	keyCache.mu.Lock()
+	k := keyCache.keys[id]
+	keyCache.mu.Unlock()
+	if k != nil {
+		return k, nil
+	}
+	k, err := NewKey(secret)
+	if err != nil {
+		return nil, err
+	}
+	keyCache.mu.Lock()
+	if keyCache.keys == nil || len(keyCache.keys) >= maxCachedKeys {
+		keyCache.keys = make(map[[sha256.Size]byte]*Key)
+	}
+	keyCache.keys[id] = k
+	keyCache.mu.Unlock()
+	return k, nil
+}
+
 // Encrypt encrypts plaintext using AES-256-GCM with a 16-byte nonce.
 // Returns format: iv:authTag:encrypted (hex-encoded).
 func Encrypt(plaintext, secret string) (string, error) {
-	k, err := NewKey(secret)
+	k, err := cachedKey(secret)
 	if err != nil {
 		return "", err
 	}
@@ -169,7 +206,7 @@ func Decrypt(encryptedStr, secret string) (string, error) {
 		return "", err
 	}
 
-	k, err := NewKey(secret)
+	k, err := cachedKey(secret)
 	if err != nil {
 		return "", err
 	}
