@@ -43,7 +43,7 @@ type runSavedQueryArgs struct {
 	Name     string            `json:"name,omitempty" jsonschema:"saved query name, exact match, case-insensitive; give id or name"`
 	Params   map[string]string `json:"params,omitempty" jsonschema:"values for the query's {name:Type} parameters; stored defaults are used for any omitted"`
 	MaxRows  int               `json:"max_rows,omitempty" jsonschema:"maximum rows to return (default 100, max 2000)"`
-	Format   string            `json:"format,omitempty" jsonschema:"json (default) or csv"`
+	Format   string            `json:"format,omitempty" jsonschema:"result format: json (default, rows as objects) or csv (header + rows, about half the tokens for wide results)"`
 	MaxBytes int64             `json:"max_bytes,omitempty" jsonschema:"abort if the query reads more than this many uncompressed bytes (0 = no budget)"`
 }
 
