@@ -56,7 +56,7 @@ CH-UI runs on your own infrastructure. When you self-host it, whether the open-s
 - Pro licenses are **signed files verified offline**; your deployment does not need to contact our servers to validate a license.
 - It connects to **your ClickHouse**; to your chosen AI provider only if you enable Brain with your own key; and to the license service only when you ask it to, for example to request a trial from inside the app.
 - It contacts **GitHub** (GitHub, Inc., USA) to check for new releases: the web app asks api.github.com for the latest release from each user's browser, and `ch-ui update` downloads release files from GitHub when you run it. If you set up GitHub model sync, it also talks to the repository you configure, with the token you provide.
-- It sends email only through the **email providers you configure** for alerts and reports: your own SMTP server, Resend, or Brevo.
+- It sends email only through the **email providers you configure** for alerts and reports: your own SMTP server.
 - It forwards audit events to a **webhook** only if you configure one.
 - It contacts your **identity provider** only if you configure OIDC single sign-on.
 

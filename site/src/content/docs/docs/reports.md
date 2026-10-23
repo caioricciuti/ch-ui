@@ -3,7 +3,7 @@ title: Scheduled Reports
 description: Send a saved query result or a dashboard summary on a cron to email, Slack, Teams or a webhook, through your existing alert channels.
 ---
 
-A scheduled report runs a saved query or summarizes a dashboard on a cron and delivers the result to one or more of your [alert channels](/docs/alerts): SMTP, Resend or Brevo email, and webhooks in generic JSON, Slack or Teams format. Reports are separate from [scheduled query jobs](/docs/schedules): a job only runs SQL, a report sends its result to people.
+A scheduled report runs a saved query or summarizes a dashboard on a cron and delivers the result to one or more of your [alert channels](/docs/alerts): SMTP email, and webhooks in generic JSON, Slack or Teams format. Reports are separate from [scheduled query jobs](/docs/schedules): a job only runs SQL, a report sends its result to people.
 
 Available on Pro and Enterprise plans. Find reports under **Schedules → Report delivery**; the API lives at `/api/reports` and returns `402` without a license.
 
