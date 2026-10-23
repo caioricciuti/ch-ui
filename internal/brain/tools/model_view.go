@@ -51,8 +51,13 @@ func WrapToolOutput(toolName, body string) string {
 }
 
 func capForModel(raw json.RawMessage) string {
+	// UseNumber keeps every digit: through float64 a Decimal(38,10) of
+	// 123456789012345678.1234567891 would reach the model as
+	// 123456789012345680.
 	var obj map[string]any
-	if err := json.Unmarshal(raw, &obj); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&obj); err != nil {
 		return capBytes(string(raw))
 	}
 	// Query results: CSV like the MCP server, far cheaper than JSON rows.
@@ -162,6 +167,8 @@ func cellText(v any) string {
 		return ""
 	case string:
 		return x
+	case json.Number:
+		return x.String()
 	case float64:
 		return strconv.FormatFloat(x, 'f', -1, 64)
 	case bool:
