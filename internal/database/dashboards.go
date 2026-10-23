@@ -592,11 +592,11 @@ func (db *DB) ListShareInvites(shareID string) ([]DashboardShareInvite, error) {
 	return invites, rows.Err()
 }
 
-// GetFirstActiveAlertChannel returns the first active email channel (SMTP/Resend/Brevo).
+// GetFirstActiveAlertChannel returns the first active email (SMTP) channel.
 func (db *DB) GetFirstActiveAlertChannel() (*AlertChannel, error) {
 	row := db.conn.QueryRow(
 		`SELECT id, name, channel_type, config_encrypted, is_active, created_by, created_at, updated_at
-		 FROM alert_channels WHERE is_active = 1 ORDER BY created_at ASC LIMIT 1`,
+		 FROM alert_channels WHERE is_active = 1 AND LOWER(channel_type) = 'smtp' ORDER BY created_at ASC LIMIT 1`,
 	)
 	ch, err := scanAlertChannelRow(row)
 	if err == sql.ErrNoRows {

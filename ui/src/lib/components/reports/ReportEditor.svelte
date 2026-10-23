@@ -10,6 +10,7 @@
   import Combobox from '../common/Combobox.svelte'
   import Panel from '../common/Panel.svelte'
   import Badge from '../common/Badge.svelte'
+  import { REMOVED_CHANNEL_HINT, isSupportedChannelType } from '../governance/alerting-admin'
   import { apiGet } from '../../api/client'
   import { listDashboards } from '../../api/dashboards'
   import { getSession } from '../../stores/session.svelte'
@@ -156,7 +157,7 @@
   const variableNames = $derived(Object.keys(form.variables))
 
   function isEmail(c: ReportChannel): boolean {
-    return c.channel_type !== 'webhook'
+    return c.channel_type === 'smtp'
   }
 
   function channelLabel(c: ReportChannel): string {
@@ -165,7 +166,7 @@
       if (c.format === 'teams') return 'Teams'
       return 'Webhook'
     }
-    return 'Email'
+    return isEmail(c) ? 'Email' : 'Unsupported'
   }
 
   function parseRecipients(raw: string | undefined): string[] {
@@ -182,6 +183,7 @@
     if (selectedIds.length > REPORT_LIMITS.targets) return `At most ${REPORT_LIMITS.targets} channels`
     for (const id of selectedIds) {
       const c = channels.find((x) => x.id === id)
+      if (c && !isSupportedChannelType(c.channel_type)) return `${c.name}: ${REMOVED_CHANNEL_HINT}`
       if (!c || !isEmail(c)) continue
       const list = parseRecipients(form.recipients[id])
       if (list.length === 0) return `Add recipients for ${c.name}`
@@ -335,9 +337,9 @@
       </FormField>
     </div>
 
-    <FormField label="Deliver to" hint={`Up to ${REPORT_LIMITS.targets} channels. Channels are managed in Governance, Alerts.`}>
+    <FormField label="Deliver to" hint={`Up to ${REPORT_LIMITS.targets} channels. Channels are managed in Governance, Alert channels.`}>
       {#if activeChannels.length === 0}
-        <p class="text-[13px] text-fg-3">No alert channels yet. An admin adds them in Governance, Alerts.</p>
+        <p class="text-[13px] text-fg-3">No alert channels yet. An admin adds them in Governance, Alert channels.</p>
       {:else}
         <div class="space-y-2">
           {#each activeChannels as c (c.id)}

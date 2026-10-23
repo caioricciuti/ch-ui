@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
-export type AlertChannelType = 'smtp' | 'resend' | 'brevo' | 'webhook'
+export type AlertChannelType = 'smtp' | 'webhook'
+/** Providers CH-UI no longer sends through. Their channels still list, turned off, until deleted. */
+export type RemovedChannelType = 'resend' | 'brevo'
 export type WebhookFormat = 'generic' | 'slack' | 'teams'
 export type AlertSeverity = 'info' | 'warn' | 'error' | 'critical'
 export type AlertEventType =
@@ -16,7 +18,7 @@ export type AlertEventType =
 export interface AlertChannel {
   id: string
   name: string
-  channel_type: AlertChannelType
+  channel_type: AlertChannelType | RemovedChannelType
   is_active: boolean
   created_by?: string | null
   created_at: string
@@ -30,7 +32,7 @@ export interface AlertRuleChannelBinding {
   rule_id: string
   channel_id: string
   channel_name: string
-  channel_type: AlertChannelType
+  channel_type: AlertChannelType | RemovedChannelType
   recipients: string[]
   is_active: boolean
   created_at: string

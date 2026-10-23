@@ -76,11 +76,7 @@ func ValidateSettings(s database.OperationsReportSettings) error {
 // EmailChannel reports whether a channel type sends email. Reports go out
 // as email only; a webhook channel cannot carry them.
 func EmailChannel(channelType string) bool {
-	switch strings.ToLower(strings.TrimSpace(channelType)) {
-	case alerts.ChannelTypeSMTP, alerts.ChannelTypeResend, alerts.ChannelTypeBrevo:
-		return true
-	}
-	return false
+	return strings.EqualFold(strings.TrimSpace(channelType), alerts.ChannelTypeSMTP)
 }
 
 // errNotEmailChannel fails a delivery for good: retrying cannot help.

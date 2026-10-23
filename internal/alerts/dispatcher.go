@@ -22,11 +22,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/safe"
 )
 
-const (
-	ChannelTypeSMTP   = mail.ChannelTypeSMTP
-	ChannelTypeResend = mail.ChannelTypeResend
-	ChannelTypeBrevo  = mail.ChannelTypeBrevo
-)
+const ChannelTypeSMTP = mail.ChannelTypeSMTP
 
 const (
 	EventTypePolicyViolation  = "policy.violation"
@@ -57,7 +53,6 @@ type Dispatcher struct {
 	db     *database.DB
 	cfg    *config.Config
 	stopCh chan struct{}
-	http   *http.Client
 	// webhookHTTP overrides the guarded webhook client (tests only).
 	webhookHTTP *http.Client
 	// allow reports whether alerts may be delivered now. It follows the
@@ -72,10 +67,7 @@ func NewDispatcher(db *database.DB, cfg *config.Config) *Dispatcher {
 		db:     db,
 		cfg:    cfg,
 		stopCh: make(chan struct{}),
-		http: &http.Client{
-			Timeout: 15 * time.Second,
-		},
-		allow: config.NewProGate("Alert dispatcher", cfg.ProAccess).Allow,
+		allow:  config.NewProGate("Alert dispatcher", cfg.ProAccess).Allow,
 	}
 }
 
@@ -384,7 +376,7 @@ func SendDirect(ctx context.Context, channelType string, channelConfig map[strin
 }
 
 func (d *Dispatcher) sendByChannelType(ctx context.Context, channelType string, channelConfig map[string]interface{}, recipients []string, subject, body string) (string, error) {
-	return (&mail.Sender{HTTP: d.http}).Send(ctx, channelType, channelConfig, recipients, subject, body)
+	return mail.Send(ctx, channelType, channelConfig, recipients, subject, body)
 }
 
 func ruleMatchesEvent(rule database.AlertRule, event database.AlertEvent) bool {

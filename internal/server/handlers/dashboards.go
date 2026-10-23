@@ -1541,7 +1541,7 @@ func (h *DashboardsHandler) InviteToShare(w http.ResponseWriter, r *http.Request
 
 	channel, err := h.DB.GetFirstActiveAlertChannel()
 	if err != nil || channel == nil {
-		writeError(w, http.StatusBadRequest, "No email channel configured. Set up an SMTP, Resend, or Brevo channel in Admin > Alerts first.")
+		writeError(w, http.StatusBadRequest, "No email channel configured. Set up an active SMTP channel in Governance > Alert channels first.")
 		return
 	}
 

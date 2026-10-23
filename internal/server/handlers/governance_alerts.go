@@ -19,6 +19,7 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/alerts"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/mail"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/go-chi/chi/v5"
 )
@@ -98,7 +99,7 @@ func (h *GovernanceHandler) CreateAlertChannel(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if !isSupportedChannelType(channelType) {
-		writeError(w, http.StatusBadRequest, "channel_type must be smtp, resend, brevo, or webhook")
+		writeError(w, http.StatusBadRequest, channelTypeError(channelType))
 		return
 	}
 	if err := validateChannelConfig(channelType, body.Config, false); err != nil {
@@ -180,7 +181,12 @@ func (h *GovernanceHandler) UpdateAlertChannel(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if !isSupportedChannelType(channelType) {
-		writeError(w, http.StatusBadRequest, "channel_type must be smtp, resend, brevo, or webhook")
+		writeError(w, http.StatusBadRequest, channelTypeError(channelType))
+		return
+	}
+	// The stored config belongs to the old type; a new type needs its own.
+	if channelType != channel.ChannelType && body.Config == nil {
+		writeError(w, http.StatusBadRequest, "config is required when changing channel_type")
 		return
 	}
 
@@ -271,6 +277,10 @@ func (h *GovernanceHandler) TestAlertChannel(w http.ResponseWriter, r *http.Requ
 	}
 	if channel == nil {
 		writeError(w, http.StatusNotFound, "Alert channel not found")
+		return
+	}
+	if !isSupportedChannelType(channel.ChannelType) {
+		writeError(w, http.StatusBadRequest, channelTypeError(channel.ChannelType))
 		return
 	}
 
@@ -687,15 +697,21 @@ func sanitizeChannelConfig(channelType string, cfg map[string]interface{}) (map[
 			hasSecret = strings.TrimSpace(fmt.Sprintf("%v", out["password"])) != ""
 			out["password"] = ""
 		}
-	case alerts.ChannelTypeResend, alerts.ChannelTypeBrevo:
-		if _, ok := out["api_key"]; ok {
-			hasSecret = strings.TrimSpace(fmt.Sprintf("%v", out["api_key"])) != ""
-			out["api_key"] = ""
-		}
 	case alerts.ChannelTypeWebhook:
 		for _, key := range alerts.WebhookSecretKeys {
 			if v, ok := out[key]; ok {
 				if v != nil && strings.TrimSpace(fmt.Sprintf("%v", v)) != "" {
+					hasSecret = true
+				}
+				out[key] = ""
+			}
+		}
+	default:
+		// Channels of a removed provider (Resend, Brevo) still list, so
+		// their stored API key must not leave the server either.
+		for _, key := range []string{"api_key", "password"} {
+			if _, ok := out[key]; ok {
+				if strings.TrimSpace(fmt.Sprintf("%v", out[key])) != "" {
 					hasSecret = true
 				}
 				out[key] = ""
@@ -710,8 +726,6 @@ func channelSecretKeys(channelType string) []string {
 	switch strings.ToLower(strings.TrimSpace(channelType)) {
 	case alerts.ChannelTypeSMTP:
 		return []string{"password"}
-	case alerts.ChannelTypeResend, alerts.ChannelTypeBrevo:
-		return []string{"api_key"}
 	case alerts.ChannelTypeWebhook:
 		return alerts.WebhookSecretKeys
 	}
@@ -772,13 +786,6 @@ func validateChannelConfig(channelType string, cfg map[string]interface{}, allow
 		if !allowEmptySecret && get("username") != "" && get("password") == "" {
 			return fmt.Errorf("smtp config requires password when username is set")
 		}
-	case alerts.ChannelTypeResend, alerts.ChannelTypeBrevo:
-		if get("from_email") == "" {
-			return fmt.Errorf("%s config requires from_email", channelType)
-		}
-		if !allowEmptySecret && get("api_key") == "" {
-			return fmt.Errorf("%s config requires api_key", channelType)
-		}
 	case alerts.ChannelTypeWebhook:
 		return alerts.ValidateWebhookConfig(cfg)
 	default:
@@ -810,11 +817,24 @@ func validateRecipients(values []string) ([]string, error) {
 
 func isSupportedChannelType(v string) bool {
 	switch strings.ToLower(strings.TrimSpace(v)) {
-	case alerts.ChannelTypeSMTP, alerts.ChannelTypeResend, alerts.ChannelTypeBrevo, alerts.ChannelTypeWebhook:
+	case alerts.ChannelTypeSMTP, alerts.ChannelTypeWebhook:
 		return true
 	default:
 		return false
 	}
+}
+
+// removedChannelMessage tells an admin what to do with a channel of a
+// provider CH-UI no longer sends through.
+const removedChannelMessage = "Resend and Brevo were removed. Recreate this channel as SMTP or webhook."
+
+// channelTypeError is the 400 message for a channel type that cannot be
+// created, edited or tested.
+func channelTypeError(channelType string) string {
+	if mail.RemovedChannelType(channelType) {
+		return removedChannelMessage
+	}
+	return "channel_type must be smtp or webhook"
 }
 
 func isSupportedEventType(v string) bool {
