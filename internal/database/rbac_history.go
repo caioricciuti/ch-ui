@@ -17,12 +17,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// Access history retention: rows not seen for this long are pruned, and a
-// connection keeps at most this many rows. Its newest row is always kept.
-const (
-	RBACHistoryRetentionDays = 180
-	RBACHistoryMaxRows       = 500
-)
+// Access history retention: rows not seen for RetentionConfig.RBACSnapshots
+// days are pruned, and a connection keeps at most this many rows. Its newest
+// row is always kept.
+const RBACHistoryMaxRows = 500
 
 // rbacTimeFormat is fixed width so timestamps sort as text.
 const rbacTimeFormat = "2006-01-02T15:04:05.000000Z"
@@ -105,6 +103,8 @@ func (db *DB) RecordRBACSnapshot(in RBACSnapshotInput, classify RBACClassifier) 
 
 func (db *DB) recordRBACSnapshotAt(in RBACSnapshotInput, classify RBACClassifier, at time.Time) (*RBACSnapshot, bool, error) {
 	now := at.UTC().Format(rbacTimeFormat)
+	// Read the window before the write transaction takes the lock.
+	retentionDays := db.RetentionDays(func(c RetentionConfig) int { return c.RBACSnapshots })
 	var out *RBACSnapshot
 	inserted := false
 	err := db.inImmediateTx(func(ctx context.Context, q sqlRunner) error {
@@ -179,7 +179,7 @@ func (db *DB) recordRBACSnapshotAt(in RBACSnapshotInput, classify RBACClassifier
 			boolInt(row.MultiNode), row.PlanHash, boolInt(row.Complete), row.Drift, row.Summary); err != nil {
 			return fmt.Errorf("insert snapshot: %w", err)
 		}
-		if _, err := pruneRBACSnapshotsOn(ctx, q, at, in.ConnectionID); err != nil {
+		if _, err := pruneRBACSnapshotsOn(ctx, q, at, retentionDays, in.ConnectionID); err != nil {
 			return err
 		}
 		out, inserted = &row, true
@@ -293,27 +293,32 @@ func (db *DB) CountRBACDrift(connectionID string, since time.Time) (int, error) 
 }
 
 // PruneRBACSnapshots applies access history retention to every connection:
-// rows last seen more than RBACHistoryRetentionDays ago and rows beyond the
-// newest RBACHistoryMaxRows go, but each connection's newest row always
-// stays. Bodies no row points at are removed too. Recording a new row
-// prunes its own connection the same way, so history stays bounded when the
-// governance syncer is off.
+// rows last seen more than RetentionConfig.RBACSnapshots days ago (none when
+// it is 0) and rows beyond the newest RBACHistoryMaxRows go, but each
+// connection's newest row always stays. Bodies no row points at are removed
+// too. Recording a new row prunes its own connection the same way, so history
+// stays bounded when the governance syncer is off.
 func (db *DB) PruneRBACSnapshots(now time.Time) (int64, error) {
-	return pruneRBACSnapshotsOn(context.Background(), db.conn, now, "")
+	days := db.RetentionDays(func(c RetentionConfig) int { return c.RBACSnapshots })
+	return pruneRBACSnapshotsOn(context.Background(), db.conn, now, days, "")
 }
 
-func pruneRBACSnapshotsOn(ctx context.Context, q sqlRunner, now time.Time, connectionID string) (int64, error) {
-	cutoff := now.UTC().AddDate(0, 0, -RBACHistoryRetentionDays).Format(rbacTimeFormat)
+func pruneRBACSnapshotsOn(ctx context.Context, q sqlRunner, now time.Time, retentionDays int, connectionID string) (int64, error) {
 	scope, args := "", []any{}
 	if connectionID != "" {
 		scope, args = "WHERE connection_id = ?", append(args, connectionID)
 	}
-	args = append(args, RBACHistoryMaxRows, cutoff)
+	keep := "rn > ?"
+	args = append(args, RBACHistoryMaxRows)
+	if retentionDays > 0 {
+		keep = "(rn > ? OR last_seen_at < ?)"
+		args = append(args, now.UTC().AddDate(0, 0, -retentionDays).Format(rbacTimeFormat))
+	}
 	res, err := q.ExecContext(ctx, `DELETE FROM rbac_snapshots WHERE id IN (
 		SELECT id FROM (
 			SELECT id, last_seen_at, ROW_NUMBER() OVER (PARTITION BY connection_id ORDER BY first_seen_at DESC, rowid DESC) AS rn
 			FROM rbac_snapshots `+scope+`
-		) WHERE rn > 1 AND (rn > ? OR last_seen_at < ?)
+		) WHERE rn > 1 AND `+keep+`
 	)`, args...)
 	if err != nil {
 		return 0, fmt.Errorf("prune access snapshots: %w", err)

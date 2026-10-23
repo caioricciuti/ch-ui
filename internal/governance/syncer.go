@@ -24,7 +24,6 @@ const (
 	syncTickInterval = 5 * time.Minute
 	queryTimeout     = 60 * time.Second
 	staleDuration    = 10 * time.Minute
-	retentionDays    = 30
 )
 
 // Syncer orchestrates ClickHouse → SQLite governance synchronisation.
@@ -282,24 +281,37 @@ func (s *Syncer) backgroundTick() {
 	wg.Wait()
 }
 
-// pruneRetention deletes query log and violation rows older than retentionDays
-// for every known connection, bounding SQLite growth on busy ClickHouse instances.
+// pruneRetention deletes query log and violation rows older than their
+// configured retention windows (database.RetentionConfig, 0 keeps them) for
+// every known connection, bounding SQLite growth on busy ClickHouse instances.
 func (s *Syncer) pruneRetention(connections []database.Connection) {
-	cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays).Format("2006-01-02 15:04:05")
+	cfg, err := s.db.GetRetentionConfig()
+	if err != nil {
+		slog.Warn("Governance retention: failed to load config, using defaults", "error", err)
+		cfg = database.DefaultRetentionConfig()
+	}
+	now := time.Now().UTC()
+	cutoff := func(days int) string { return now.AddDate(0, 0, -days).Format("2006-01-02 15:04:05") }
 	for _, conn := range connections {
-		if n, err := s.store.CleanupOldQueryLogs(conn.ID, cutoff); err != nil {
-			slog.Warn("Governance retention prune (query_log) failed",
-				"connection", conn.ID, "error", err)
-		} else if n > 0 {
-			slog.Info("Governance retention pruned query_log",
-				"connection", conn.ID, "rows", n, "older_than", cutoff)
+		if cfg.GovQueryLog > 0 {
+			before := cutoff(cfg.GovQueryLog)
+			if n, err := s.store.CleanupOldQueryLogs(conn.ID, before); err != nil {
+				slog.Warn("Governance retention prune (query_log) failed",
+					"connection", conn.ID, "error", err)
+			} else if n > 0 {
+				slog.Info("Governance retention pruned query_log",
+					"connection", conn.ID, "rows", n, "older_than", before)
+			}
 		}
-		if n, err := s.store.CleanupOldViolations(conn.ID, cutoff); err != nil {
-			slog.Warn("Governance retention prune (violations) failed",
-				"connection", conn.ID, "error", err)
-		} else if n > 0 {
-			slog.Info("Governance retention pruned violations",
-				"connection", conn.ID, "rows", n, "older_than", cutoff)
+		if cfg.GovPolicyViolations > 0 {
+			before := cutoff(cfg.GovPolicyViolations)
+			if n, err := s.store.CleanupOldViolations(conn.ID, before); err != nil {
+				slog.Warn("Governance retention prune (violations) failed",
+					"connection", conn.ID, "error", err)
+			} else if n > 0 {
+				slog.Info("Governance retention pruned violations",
+					"connection", conn.ID, "rows", n, "older_than", before)
+			}
 		}
 	}
 	if n, err := s.db.PruneRBACSnapshots(time.Now()); err != nil {
