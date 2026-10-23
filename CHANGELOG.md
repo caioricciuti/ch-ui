@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.30.0] - 2026-10-23
+## [2.30.0] - 2026-10-24
 
 A faster, more accurate MCP server and the end of the Resend and Brevo alert channels. MCP requests spend about a tenth of the server time they did, results travel gzipped and come back exactly as ClickHouse sent them, and models can describe several tables or run several queries in one call. Retention now covers the governance and alert history that used to be kept for fixed windows.
 
