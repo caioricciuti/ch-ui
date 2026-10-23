@@ -202,9 +202,11 @@ type chStats struct {
 	BytesRead int64   `json:"bytes_read"`
 }
 
-// chResult is a decoded gateway result with column order and server stats.
+// chResult is a gateway result with column order and server stats. Rows
+// are kept exactly as ClickHouse sent them: decoding into maps would sort
+// the columns alphabetically and push every number through float64.
 type chResult struct {
-	Rows    []map[string]any
+	Rows    []json.RawMessage
 	Columns []chColumn
 	Stats   *chStats
 }
@@ -236,6 +238,8 @@ func cellString(v any) string {
 		return ""
 	case string:
 		return x
+	case json.Number:
+		return x.String()
 	case float64:
 		return strconv.FormatFloat(x, 'f', -1, 64)
 	case bool:
@@ -253,7 +257,26 @@ func runCH(ctx context.Context, deps Deps, ak *authedKey, sql string, extra map[
 	if err != nil {
 		return nil, err
 	}
-	return res.Rows, nil
+	return decodeRows(res.Rows, false)
+}
+
+// decodeRows decodes raw result rows into maps. exact keeps numbers as
+// json.Number, so a Decimal or Int64 renders with every digit it came with.
+func decodeRows(raw []json.RawMessage, exact bool) ([]map[string]any, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	rows := make([]map[string]any, len(raw))
+	for i, r := range raw {
+		dec := json.NewDecoder(bytes.NewReader(r))
+		if exact {
+			dec.UseNumber()
+		}
+		if err := dec.Decode(&rows[i]); err != nil {
+			return nil, fmt.Errorf("failed to decode result rows: %w", err)
+		}
+	}
+	return rows, nil
 }
 
 // runCHFull is runCH keeping ClickHouse's column metadata and statistics.
@@ -667,7 +690,11 @@ func runReadQuery(ctx context.Context, deps Deps, ak *authedKey, q readQuery) *m
 	}
 
 	if format == "csv" {
-		body := toCSV(res.Columns, rows)
+		decoded, err := decodeRows(rows, true)
+		if err != nil {
+			return errResult("%v", err)
+		}
+		body := toCSV(res.Columns, decoded)
 		if len(body) > maxResultBytes {
 			return errResult("result too large (%d KB, cap %d KB): select fewer columns, add filters, or aggregate", len(body)/1024, maxResultBytes/1024)
 		}
@@ -678,7 +705,7 @@ func runReadQuery(ctx context.Context, deps Deps, ak *authedKey, q readQuery) *m
 		}}
 	}
 	if rows == nil {
-		rows = []map[string]any{}
+		rows = []json.RawMessage{}
 	}
 	meta["rows"] = rows
 	return jsonResult(meta)
