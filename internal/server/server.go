@@ -278,7 +278,8 @@ func (s *Server) setupRoutes() {
 	r.HandleFunc("/connect", gw.HandleWebSocket)
 
 	// ── Embedded MCP server (streamable HTTP; chm_ bearer keys) ──────────
-	r.Handle("/mcp", mcpserver.Handler(mcpserver.Deps{
+	// Results are JSON or event streams and compress ~15x (compress.go).
+	r.Handle("/mcp", CompressStream(mcpserver.Handler(mcpserver.Deps{
 		DB:             db,
 		Gateway:        gw,
 		Config:         cfg,
@@ -287,7 +288,7 @@ func (s *Server) setupRoutes() {
 		PipelineRunner: s.pipelineRunner,
 		ReportRunner:   s.reportRunner,
 		IngestHub:      s.ingestHub,
-	}))
+	})))
 
 	// ── OAuth 2.1 authorization server for /mcp ─────────────────────────
 	oauthHandler := &handlers.OAuthHandler{DB: db, Config: cfg}

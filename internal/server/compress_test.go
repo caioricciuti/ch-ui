@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 func staticFixture() (http.Handler, *atomic.Int32) {
@@ -153,5 +154,127 @@ func TestCompressStaticKeepsCallerHeaders(t *testing.T) {
 	rec := get(h, "/assets/app.js", "gzip")
 	if rec.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 		t.Fatalf("Cache-Control lost: %q", rec.Header().Get("Cache-Control"))
+	}
+}
+
+func TestCompressStreamJSON(t *testing.T) {
+	body := `{"rows":[` + strings.Repeat(`{"a":1,"b":"x"},`, 200) + `{}]}`
+	h := CompressStream(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		_, _ = io.WriteString(w, body)
+	}))
+
+	rec := get(h, "/mcp", "gzip, deflate, br")
+	if rec.Header().Get("Content-Encoding") != "gzip" || rec.Header().Get("Content-Length") != "" {
+		t.Fatalf("want gzip without Content-Length, got %v", rec.Header())
+	}
+	if !strings.Contains(rec.Header().Get("Vary"), "Accept-Encoding") {
+		t.Error("missing Vary: Accept-Encoding")
+	}
+	if got := gunzip(t, rec.Body.Bytes()); got != body {
+		t.Error("decompressed body differs")
+	}
+	if rec.Body.Len() >= len(body)/4 {
+		t.Errorf("compressed %d bytes, original %d", rec.Body.Len(), len(body))
+	}
+
+	plain := get(h, "/mcp", "")
+	if plain.Header().Get("Content-Encoding") != "" || plain.Body.String() != body {
+		t.Error("a client without Accept-Encoding: gzip must get the plain body")
+	}
+}
+
+func TestCompressStreamPassesOtherResponses(t *testing.T) {
+	for name, set := range map[string]func(http.Header){
+		"png":            func(h http.Header) { h.Set("Content-Type", "image/png") },
+		"already-zipped": func(h http.Header) { h.Set("Content-Type", "application/json"); h.Set("Content-Encoding", "br") },
+		"no-type":        func(http.Header) {},
+	} {
+		h := CompressStream(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			set(w.Header())
+			_, _ = io.WriteString(w, "payload")
+		}))
+		rec := get(h, "/mcp", "gzip")
+		if rec.Header().Get("Content-Encoding") == "gzip" || rec.Body.String() != "payload" {
+			t.Errorf("%s: should pass through, got %q %v", name, rec.Body.String(), rec.Header())
+		}
+	}
+}
+
+// Each flushed event must reach the client while the stream is still open,
+// and the wrapper must not hide the connection from ResponseController.
+func TestCompressStreamFlushesEvents(t *testing.T) {
+	firstEvent := "data: " + strings.Repeat("x", 2*minCompressSize) + "\n\n"
+	release := make(chan struct{})
+	deadlineErr := make(chan error, 1)
+	srv := httptest.NewServer(CompressStream(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		deadlineErr <- http.NewResponseController(w).SetWriteDeadline(time.Time{})
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, firstEvent)
+		w.(http.Flusher).Flush()
+		<-release
+		_, _ = io.WriteString(w, "data: second\n\n")
+	})))
+	defer srv.Close()
+	defer close(release)
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	resp, err := (&http.Client{Transport: &http.Transport{DisableCompression: true}}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if err := <-deadlineErr; err != nil {
+		t.Errorf("SetWriteDeadline through the wrapper: %v", err)
+	}
+	if resp.Header.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("want gzip event stream, got %v", resp.Header)
+	}
+	zr, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := make(chan string, 1)
+	go func() {
+		buf := make([]byte, len(firstEvent))
+		_, _ = io.ReadFull(zr, buf)
+		line <- string(buf)
+	}()
+	select {
+	case got := <-line:
+		if got != firstEvent {
+			t.Errorf("first event: %.40q", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("first event did not arrive before the stream ended: Flush is not reaching the client")
+	}
+}
+
+// A response that is still small when it ends or first flushes goes out
+// plain: gzip framing would make it bigger.
+func TestCompressStreamSkipsSmallResponses(t *testing.T) {
+	small := `{"error":"unknown or revoked token"}`
+	h := CompressStream(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, small)
+	}))
+	rec := get(h, "/mcp", "gzip")
+	if rec.Code != http.StatusUnauthorized || rec.Header().Get("Content-Encoding") != "" || rec.Body.String() != small {
+		t.Errorf("small response: %d %v %q", rec.Code, rec.Header(), rec.Body.String())
+	}
+
+	flushed := CompressStream(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: hi\n\n")
+		w.(http.Flusher).Flush()
+		_, _ = io.WriteString(w, strings.Repeat("data: later\n\n", 500))
+	}))
+	rec = get(flushed, "/mcp", "gzip")
+	if rec.Header().Get("Content-Encoding") != "" || !strings.HasPrefix(rec.Body.String(), "data: hi\n\n") || !strings.HasSuffix(rec.Body.String(), "data: later\n\n") {
+		t.Errorf("stream small at first flush must stay plain throughout: %v %.40q", rec.Header(), rec.Body.String())
 	}
 }
