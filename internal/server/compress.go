@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"compress/gzip"
+	"io"
 	"net/http"
 	"path"
 	"strconv"
@@ -186,4 +187,141 @@ func (b *bufferedResponse) replay(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodHead {
 		_, _ = w.Write(b.body.Bytes())
 	}
+}
+
+// streamTypes are the API response types CompressStream gzips: MCP answers
+// with JSON or with a server-sent event stream.
+var streamTypes = []string{"application/json", "text/event-stream"}
+
+// gzipWriters pools stream compressors; each gzip.Writer allocates ~800KB.
+var gzipWriters = sync.Pool{New: func() any {
+	zw, _ := gzip.NewWriterLevel(io.Discard, gzip.DefaultCompression)
+	return zw
+}}
+
+// CompressStream gzips streamed API responses (JSON and server-sent events)
+// for clients that send Accept-Encoding: gzip. Unlike CompressStatic it
+// never holds a whole response: it waits for the first minCompressSize
+// bytes to decide, and every Flush after that pushes the compressed bytes
+// so far, so an event stream still delivers each event as it is sent. A
+// response or event stream that is still small at its first Flush goes out
+// plain. A 500-row MCP result shrinks from ~72KB to under 5KB.
+func CompressStream(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Vary", "Accept-Encoding")
+		if r.Method == http.MethodHead || !acceptsGzip(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		gw := &gzipStreamWriter{ResponseWriter: w}
+		defer gw.close()
+		next.ServeHTTP(gw, r)
+	})
+}
+
+// gzipStreamWriter compresses a response whose Content-Type, known at
+// WriteHeader, is one of streamTypes and whose body reaches minCompressSize
+// before its first Flush. Anything else passes through unchanged.
+type gzipStreamWriter struct {
+	http.ResponseWriter
+	status  int          // held while pending
+	pending bool         // compressible; deciding until minCompressSize or Flush
+	buf     bytes.Buffer // body held while pending
+	zw      *gzip.Writer // set once compressing
+	started bool         // headers sent to the client
+}
+
+func (g *gzipStreamWriter) WriteHeader(status int) {
+	if g.started || g.pending {
+		return
+	}
+	h := g.Header()
+	if status >= http.StatusOK && status != http.StatusNoContent && status != http.StatusNotModified &&
+		h.Get("Content-Encoding") == "" && isStreamType(h.Get("Content-Type")) {
+		g.status, g.pending = status, true
+		return
+	}
+	if status >= http.StatusOK {
+		g.started = true
+	}
+	g.ResponseWriter.WriteHeader(status)
+}
+
+func (g *gzipStreamWriter) Write(p []byte) (int, error) {
+	if !g.started && !g.pending {
+		g.WriteHeader(http.StatusOK)
+	}
+	if g.zw != nil {
+		return g.zw.Write(p)
+	}
+	if !g.pending {
+		return g.ResponseWriter.Write(p)
+	}
+	g.buf.Write(p)
+	if g.buf.Len() < minCompressSize {
+		return len(p), nil
+	}
+	return len(p), g.startGzip()
+}
+
+// startGzip sends the held headers with Content-Encoding: gzip and
+// compresses the held body.
+func (g *gzipStreamWriter) startGzip() error {
+	h := g.Header()
+	h.Del("Content-Length")
+	h.Set("Content-Encoding", "gzip")
+	g.pending, g.started = false, true
+	g.ResponseWriter.WriteHeader(g.status)
+	g.zw = gzipWriters.Get().(*gzip.Writer)
+	g.zw.Reset(g.ResponseWriter)
+	_, err := g.zw.Write(g.buf.Bytes())
+	g.buf = bytes.Buffer{}
+	return err
+}
+
+// sendPlain sends a held response that stayed small, uncompressed.
+func (g *gzipStreamWriter) sendPlain() {
+	g.pending, g.started = false, true
+	g.ResponseWriter.WriteHeader(g.status)
+	_, _ = g.ResponseWriter.Write(g.buf.Bytes())
+	g.buf = bytes.Buffer{}
+}
+
+// Flush emits everything written so far, then flushes the connection.
+func (g *gzipStreamWriter) Flush() {
+	if g.pending {
+		g.sendPlain()
+	}
+	if g.zw != nil {
+		_ = g.zw.Flush()
+	}
+	_ = http.NewResponseController(g.ResponseWriter).Flush()
+}
+
+// Unwrap lets http.ResponseController reach the connection, for
+// SetWriteDeadline on long-lived event streams.
+func (g *gzipStreamWriter) Unwrap() http.ResponseWriter { return g.ResponseWriter }
+
+func (g *gzipStreamWriter) close() {
+	if g.pending {
+		g.sendPlain()
+	}
+	if g.zw == nil {
+		return
+	}
+	_ = g.zw.Close()
+	g.zw.Reset(io.Discard)
+	gzipWriters.Put(g.zw)
+	g.zw = nil
+}
+
+func isStreamType(contentType string) bool {
+	mt, _, _ := strings.Cut(contentType, ";")
+	mt = strings.ToLower(strings.TrimSpace(mt))
+	for _, t := range streamTypes {
+		if mt == t {
+			return true
+		}
+	}
+	return false
 }
