@@ -52,6 +52,8 @@ func TestMetadataLookupsRunInParallel(t *testing.T) {
 	}{
 		{"describe_table", map[string]any{"database": "default", "table": "events"}, 4},
 		{"search_catalog", map[string]any{"query": "ev"}, 2},
+		{"describe_table", map[string]any{"tables": []map[string]any{{"database": "default", "table": "a"}, {"database": "default", "table": "b"}}}, 8},
+		{"run_select", map[string]any{"queries": []string{"SELECT 1", "SELECT 2", "SELECT 3"}}, 3},
 	} {
 		t.Run(tc.tool, func(t *testing.T) {
 			var seen atomic.Int64

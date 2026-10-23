@@ -33,6 +33,11 @@ const (
 	// results land in an LLM context window, not a data pipeline.
 	maxResultBytes = 200 * 1024
 
+	// Batch limits for describe_table tables and run_select queries.
+	maxBatchTables        = 10
+	maxBatchQueries       = 5
+	batchTableParallelism = 4
+
 	maxHistoryQueryLen = 16 * 1024
 )
 
@@ -385,15 +390,22 @@ type pageArgs struct {
 }
 
 type describeTableArgs struct {
-	Database   string `json:"database" jsonschema:"the database the table lives in"`
-	Table      string `json:"table" jsonschema:"the table to describe"`
-	SampleRows int    `json:"sample_rows,omitempty" jsonschema:"number of sample rows to include (default 3, max 20, 0 to skip)"`
+	Database   string           `json:"database,omitempty" jsonschema:"the database the table lives in"`
+	Table      string           `json:"table,omitempty" jsonschema:"the table to describe"`
+	Tables     []describeTarget `json:"tables,omitempty" jsonschema:"describe several tables in one call (max 10) instead of database and table"`
+	SampleRows int              `json:"sample_rows,omitempty" jsonschema:"number of sample rows to include per table (default 3, max 20, 0 to skip)"`
+}
+
+type describeTarget struct {
+	Database string `json:"database"`
+	Table    string `json:"table"`
 }
 
 type runSelectArgs struct {
-	SQL     string `json:"sql" jsonschema:"the read-only SQL statement to run (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN)"`
-	MaxRows int    `json:"max_rows,omitempty" jsonschema:"maximum rows to return (default 100, max 2000)"`
-	Format  string `json:"format,omitempty" jsonschema:"result format: json (default, rows as objects) or csv (header + rows, about half the tokens for wide results)"`
+	SQL     string   `json:"sql,omitempty" jsonschema:"the read-only SQL statement to run (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN)"`
+	Queries []string `json:"queries,omitempty" jsonschema:"up to 5 independent read-only statements to run together instead of sql; each gets the same max_rows, format and max_bytes"`
+	MaxRows int      `json:"max_rows,omitempty" jsonschema:"maximum rows to return (default 100, max 2000)"`
+	Format  string   `json:"format,omitempty" jsonschema:"result format: json (default, rows as objects) or csv (header + rows, about half the tokens for wide results)"`
 	// MaxBytes maps to ClickHouse max_bytes_to_read: the query is aborted
 	// once it has read more uncompressed bytes than this. Use estimate_query
 	// first to size it.
@@ -477,15 +489,8 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Name:        "describe_table",
 		Title:       title,
 		Annotations: ann,
-		Description: "Describe a table: columns, types, comments, and the CREATE statement's sorting/partition keys.",
+		Description: "Describe a table: columns, types, comments, and the CREATE statement's sorting/partition keys. Pass tables to describe up to 10 tables in one call.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args describeTableArgs) (*mcp.CallToolResult, any, error) {
-		if args.Database == "" || args.Table == "" {
-			return errResult("database and table are required"), nil, nil
-		}
-		if !dbAllowed(ak.key, args.Database) {
-			return errResult("database %q is not in this key's allowlist", args.Database), nil, nil
-		}
-		params := map[string]string{"param_db": args.Database, "param_tbl": args.Table}
 		n := args.SampleRows
 		if req.Params != nil && !argProvided(req, "sample_rows") {
 			n = 3
@@ -493,64 +498,39 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		if n > 20 {
 			n = 20
 		}
-		sampleSQL := fmt.Sprintf("SELECT * FROM %s.%s LIMIT %d FORMAT JSON", quoteIdent(args.Database), quoteIdent(args.Table), n)
-		sampleBlocked := n > 0 && checkGuardrails(deps, ak, sampleSQL, "/mcp/describe_table") != nil
-
-		// The four lookups are independent, so they share one round trip
-		// through the tunnel instead of four.
-		var (
-			wg                 sync.WaitGroup
-			cols, meta, parts  []map[string]any
-			sample             []map[string]any
-			colsErr, sampleErr error
-		)
-		wg.Go(func() {
-			cols, colsErr = runCH(ctx, deps, ak,
-				"SELECT name, type, default_kind, default_expression, comment, is_in_primary_key, is_in_sorting_key, is_in_partition_key, data_compressed_bytes, data_uncompressed_bytes FROM system.columns WHERE database = {db:String} AND table = {tbl:String} ORDER BY position FORMAT JSON",
-				params, metaTimeout)
-		})
-		wg.Go(func() {
-			meta, _ = runCH(ctx, deps, ak,
-				"SELECT engine, partition_key, sorting_key, primary_key, total_rows, total_bytes, comment, create_table_query, metadata_modification_time FROM system.tables WHERE database = {db:String} AND name = {tbl:String} FORMAT JSON",
-				params, metaTimeout)
-		})
-		// Parts give freshness and physical size; system.parts may be off
-		// limits to a locked-down user, so this is best effort.
-		wg.Go(func() {
-			parts, _ = runCH(ctx, deps, ak,
-				"SELECT count() AS active_parts, uniqExact(partition_id) AS partitions, sum(rows) AS rows, sum(data_compressed_bytes) AS compressed_bytes, sum(data_uncompressed_bytes) AS uncompressed_bytes, max(modification_time) AS last_modified FROM system.parts WHERE active AND database = {db:String} AND table = {tbl:String} FORMAT JSON",
-				params, metaTimeout)
-		})
-		if n > 0 && !sampleBlocked {
+		if len(args.Tables) == 0 {
+			if args.Database == "" || args.Table == "" {
+				return errResult("database and table (or tables) are required"), nil, nil
+			}
+			out, msg := describeTable(ctx, deps, ak, args.Database, args.Table, n)
+			if msg != "" {
+				return errResult("%s", msg), nil, nil
+			}
+			return jsonResult(out), nil, nil
+		}
+		if args.Database != "" || args.Table != "" {
+			return errResult("pass either database and table, or tables, not both"), nil, nil
+		}
+		if len(args.Tables) > maxBatchTables {
+			return errResult("at most %d tables per call", maxBatchTables), nil, nil
+		}
+		// A bounded number of tables at a time: each one is four queries.
+		results := make([]map[string]any, len(args.Tables))
+		slots := make(chan struct{}, batchTableParallelism)
+		var wg sync.WaitGroup
+		for i, t := range args.Tables {
 			wg.Go(func() {
-				sample, sampleErr = runCH(ctx, deps, ak, sampleSQL, map[string]string{"max_result_rows": strconv.Itoa(n), "max_execution_time": "10"}, metaTimeout)
+				slots <- struct{}{}
+				defer func() { <-slots }()
+				out, msg := describeTable(ctx, deps, ak, t.Database, t.Table, n)
+				if msg != "" {
+					out = map[string]any{"database": t.Database, "table": t.Table, "error": msg}
+				}
+				results[i] = out
 			})
 		}
 		wg.Wait()
-
-		if colsErr != nil {
-			return errResult("describe_table failed: %v", colsErr), nil, nil
-		}
-		if len(cols) == 0 {
-			return errResult("table %s.%s not found", args.Database, args.Table), nil, nil
-		}
-		out := map[string]any{"database": args.Database, "table": args.Table, "columns": cols}
-		if len(meta) == 1 {
-			out["table_info"] = meta[0]
-		}
-		if len(parts) == 1 {
-			out["storage"] = parts[0]
-		}
-		switch {
-		case n <= 0:
-		case sampleBlocked:
-			out["sample_note"] = "sample rows withheld by governance policy"
-		case sampleErr != nil:
-			out["sample_note"] = "sample rows unavailable: " + sampleErr.Error()
-		default:
-			out["sample_rows"] = sample
-		}
-		return jsonResult(out), nil, nil
+		return jsonResult(map[string]any{"tables": results}), nil, nil
 	})
 
 	title, ann = readOnlyTool("Run read-only SQL")
@@ -558,12 +538,22 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Name:        "run_select",
 		Title:       title,
 		Annotations: ann,
-		Description: "Run a read-only SQL statement (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN) and return the rows as JSON. Row-capped and time-limited; write statements are rejected and the session runs with readonly enforced. Every call is recorded in CH-UI query history and the audit log.",
+		Description: "Run a read-only SQL statement (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN) and return the rows as JSON. Pass queries to run up to 5 independent statements together. Row-capped and time-limited; write statements are rejected and the session runs with readonly enforced. Every call is recorded in CH-UI query history and the audit log.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args runSelectArgs) (*mcp.CallToolResult, any, error) {
-		return runReadQuery(ctx, deps, ak, readQuery{
+		q := readQuery{
 			SQL: args.SQL, MaxRows: args.MaxRows, Format: args.Format, MaxBytes: args.MaxBytes,
 			Endpoint: "/mcp/run_select",
-		}), nil, nil
+		}
+		if len(args.Queries) == 0 {
+			return runReadQuery(ctx, deps, ak, q), nil, nil
+		}
+		if strings.TrimSpace(args.SQL) != "" {
+			return errResult("pass either sql or queries, not both"), nil, nil
+		}
+		if len(args.Queries) > maxBatchQueries {
+			return errResult("at most %d queries per call", maxBatchQueries), nil, nil
+		}
+		return runReadQueries(ctx, deps, ak, q, args.Queries), nil, nil
 	})
 
 	title, ann = readOnlyTool("Explain query plan")
@@ -593,6 +583,121 @@ func registerFreeTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		}
 		return jsonResult(map[string]any{"plan": rows}), nil, nil
 	})
+}
+
+// describeTable gathers one table's columns, table metadata, storage and
+// sample rows. msg is set, and out nil, when the table cannot be described.
+func describeTable(ctx context.Context, deps Deps, ak *authedKey, database, table string, n int) (out map[string]any, msg string) {
+	if database == "" || table == "" {
+		return nil, "database and table are required"
+	}
+	if !dbAllowed(ak.key, database) {
+		return nil, fmt.Sprintf("database %q is not in this key's allowlist", database)
+	}
+	params := map[string]string{"param_db": database, "param_tbl": table}
+	sampleSQL := fmt.Sprintf("SELECT * FROM %s.%s LIMIT %d FORMAT JSON", quoteIdent(database), quoteIdent(table), n)
+	sampleBlocked := n > 0 && checkGuardrails(deps, ak, sampleSQL, "/mcp/describe_table") != nil
+
+	// The four lookups are independent, so they share one round trip
+	// through the tunnel instead of four.
+	var (
+		wg                 sync.WaitGroup
+		cols, meta, parts  []map[string]any
+		sample             []map[string]any
+		colsErr, sampleErr error
+	)
+	wg.Go(func() {
+		cols, colsErr = runCH(ctx, deps, ak,
+			"SELECT name, type, default_kind, default_expression, comment, is_in_primary_key, is_in_sorting_key, is_in_partition_key, data_compressed_bytes, data_uncompressed_bytes FROM system.columns WHERE database = {db:String} AND table = {tbl:String} ORDER BY position FORMAT JSON",
+			params, metaTimeout)
+	})
+	wg.Go(func() {
+		meta, _ = runCH(ctx, deps, ak,
+			"SELECT engine, partition_key, sorting_key, primary_key, total_rows, total_bytes, comment, create_table_query, metadata_modification_time FROM system.tables WHERE database = {db:String} AND name = {tbl:String} FORMAT JSON",
+			params, metaTimeout)
+	})
+	// Parts give freshness and physical size; system.parts may be off
+	// limits to a locked-down user, so this is best effort.
+	wg.Go(func() {
+		parts, _ = runCH(ctx, deps, ak,
+			"SELECT count() AS active_parts, uniqExact(partition_id) AS partitions, sum(rows) AS rows, sum(data_compressed_bytes) AS compressed_bytes, sum(data_uncompressed_bytes) AS uncompressed_bytes, max(modification_time) AS last_modified FROM system.parts WHERE active AND database = {db:String} AND table = {tbl:String} FORMAT JSON",
+			params, metaTimeout)
+	})
+	if n > 0 && !sampleBlocked {
+		wg.Go(func() {
+			sample, sampleErr = runCH(ctx, deps, ak, sampleSQL, map[string]string{"max_result_rows": strconv.Itoa(n), "max_execution_time": "10"}, metaTimeout)
+		})
+	}
+	wg.Wait()
+
+	if colsErr != nil {
+		return nil, fmt.Sprintf("describe_table failed: %v", colsErr)
+	}
+	if len(cols) == 0 {
+		return nil, fmt.Sprintf("table %s.%s not found", database, table)
+	}
+	out = map[string]any{"database": database, "table": table, "columns": cols}
+	if len(meta) == 1 {
+		out["table_info"] = meta[0]
+	}
+	if len(parts) == 1 {
+		out["storage"] = parts[0]
+	}
+	switch {
+	case n <= 0:
+	case sampleBlocked:
+		out["sample_note"] = "sample rows withheld by governance policy"
+	case sampleErr != nil:
+		out["sample_note"] = "sample rows unavailable: " + sampleErr.Error()
+	default:
+		out["sample_rows"] = sample
+	}
+	return out, ""
+}
+
+// runReadQueries runs independent statements together, each through
+// runReadQuery with every guard and its own history entry. Each query's
+// content blocks carry its query_index; a failed query reports its error
+// in place without failing the others.
+func runReadQueries(ctx context.Context, deps Deps, ak *authedKey, base readQuery, sqls []string) *mcp.CallToolResult {
+	results := make([]*mcp.CallToolResult, len(sqls))
+	var wg sync.WaitGroup
+	for i, sql := range sqls {
+		wg.Go(func() {
+			q := base
+			q.SQL = sql
+			q.Meta = map[string]any{"query_index": i}
+			results[i] = runReadQuery(ctx, deps, ak, q)
+		})
+	}
+	wg.Wait()
+
+	out := &mcp.CallToolResult{IsError: true}
+	size := 0
+	for i, r := range results {
+		if r.IsError {
+			out.Content = append(out.Content, &mcp.TextContent{Text: fmt.Sprintf("query %d failed: %s", i, resultText(r))})
+		} else {
+			out.IsError = false
+			out.Content = append(out.Content, r.Content...)
+		}
+		size += len(resultText(r))
+	}
+	if size > maxResultBytes {
+		return errResult("batch result too large (%d KB, cap %d KB): run fewer queries, lower max_rows, or aggregate", size/1024, maxResultBytes/1024)
+	}
+	return out
+}
+
+// resultText joins a result's text content blocks.
+func resultText(r *mcp.CallToolResult) string {
+	var sb strings.Builder
+	for _, c := range r.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			sb.WriteString(tc.Text)
+		}
+	}
+	return sb.String()
 }
 
 // readQuery is the input of runReadQuery, shared by run_select and

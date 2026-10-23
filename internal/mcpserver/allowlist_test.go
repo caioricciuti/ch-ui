@@ -55,16 +55,6 @@ func fakeDeps(t *testing.T, allowed string) (Deps, *authedKey, *fakeCH) {
 	return Deps{DB: db, Gateway: agent.Gateway, Config: &config.Config{}}, ak, f
 }
 
-func resultText(r *mcp.CallToolResult) string {
-	var sb strings.Builder
-	for _, c := range r.Content {
-		if tc, ok := c.(*mcp.TextContent); ok {
-			sb.WriteString(tc.Text)
-		}
-	}
-	return sb.String()
-}
-
 func TestRunReadQueryEnforcesAllowedDatabases(t *testing.T) {
 	deps, ak, f := fakeDeps(t, "analytics")
 	ctx := context.Background()
