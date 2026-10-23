@@ -165,3 +165,46 @@ func TestDecryptFallsBackToPreviousKey(t *testing.T) {
 		t.Fatal("cleared previous key still used")
 	}
 }
+
+func TestCachedKeyReusedPerSecret(t *testing.T) {
+	a, err := cachedKey(testSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := cachedKey(testSecret)
+	if a != b {
+		t.Error("same secret should reuse the derived key")
+	}
+	other, _ := cachedKey("other-secret")
+	if other == a {
+		t.Error("different secrets must not share a key")
+	}
+	enc, _ := Encrypt("x", testSecret)
+	if _, err := Decrypt(enc, "other-secret"); err == nil {
+		t.Error("a value must not decrypt under another secret's cached key")
+	}
+}
+
+func TestCachedKeyBounded(t *testing.T) {
+	for i := 0; i < maxCachedKeys*2; i++ {
+		if _, err := cachedKey(strings.Repeat("s", i+1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	keyCache.mu.Lock()
+	n := len(keyCache.keys)
+	keyCache.mu.Unlock()
+	if n > maxCachedKeys {
+		t.Errorf("cache holds %d keys, cap %d", n, maxCachedKeys)
+	}
+}
+
+func BenchmarkDecrypt(b *testing.B) {
+	enc, _ := Encrypt("chpass", testSecret)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := Decrypt(enc, testSecret); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
