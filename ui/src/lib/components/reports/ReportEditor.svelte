@@ -15,6 +15,7 @@
   import { getSession } from '../../stores/session.svelte'
   import { goTo } from '../../stores/router.svelte'
   import { setSection } from '../../stores/nav.svelte'
+  import { requestBackgroundAccounts } from '../../stores/page-intent.svelte'
   import { success as toastSuccess } from '../../stores/toast.svelte'
   import {
     createReport, updateReport, REPORT_LIMITS,
@@ -232,6 +233,7 @@
 
   function openConnections() {
     onclose()
+    requestBackgroundAccounts('report')
     goTo('admin')
     setSection('tunnels')
   }
@@ -244,7 +246,7 @@
         <p class="text-[13px] text-fg-2">
           Reports run with the connection's dedicated <span class="font-mono">report</span> background account and never borrow a session.
           Set it up in
-          <button type="button" class="font-medium text-accent hover:underline" onclick={openConnections}>Admin, Connections</button>.
+          <button type="button" class="font-medium text-accent hover:underline" onclick={openConnections}>Admin → Connections → Background accounts</button>.
           Until then runs fail and nothing is sent.
         </p>
       </Panel>

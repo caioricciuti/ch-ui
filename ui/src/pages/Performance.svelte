@@ -12,6 +12,7 @@
   import { getSession } from '../lib/stores/session.svelte'
   import { getSection, setSection } from '../lib/stores/nav.svelte'
   import { goTo } from '../lib/stores/router.svelte'
+  import { requestBackgroundAccounts } from '../lib/stores/page-intent.svelte'
   import { PAGE_SECTIONS, docsURL } from '../lib/routes'
   import { formatBytes, formatNumber, formatElapsed, formatDate } from '../lib/utils/format'
   import PageHeader from '../lib/components/common/PageHeader.svelte'
@@ -216,6 +217,7 @@
     return () => { clearInterval(timer); sequence++; detailSequence++ }
   })
   function openBackgroundAccounts() {
+    requestBackgroundAccounts('performance')
     goTo('admin')
     setSection('tunnels')
   }
