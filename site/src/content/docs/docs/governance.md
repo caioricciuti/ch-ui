@@ -28,7 +28,7 @@ Governance is split into sections, listed in the sidebar under Governance (each 
 
 Governance caches ClickHouse metadata and access state in CH-UI's **local SQLite database** on your own server, via three background sync workers, so the data never leaves your infrastructure. The collector is **opt-in** and runs with the connection's governance [background account](/docs/background-accounts): a dedicated ClickHouse account, a borrowed active session (the default), or disabled.
 
-> **Retention & limits.** Query history is capped at the newest **100,000** queries per connection and a **14-day** rolling window (whichever is smaller); metadata, users, roles, and grants reflect the latest sync. Query text can contain literal values from your SQL; CH-UI does not read your table data/rows.
+> **Retention & limits.** Synced query history and policy violations are kept for **30 days** by default, and access history for 180 days; change them under [Data Retention](/docs/admin#data-retention) (`gov_query_log`, `gov_policy_violations`, `rbac_snapshots`). Metadata, users, roles, and grants reflect the latest sync. Query text can contain literal values from your SQL; CH-UI does not read your table data/rows.
 
 | Worker | Source | Strategy | Tick |
 |---|---|---|---|
@@ -286,7 +286,7 @@ Both return `{ "mode": "auto", "min_duration_ms": 0, "policy_count": 0, "harvest
 
 ## Alerts
 
-Governance events (policy violations, schedule failures, slow schedules) can be delivered by email through alert rules and channels. Channels support SMTP, Resend, and Brevo; configs are encrypted at rest and each channel has a **Test** button.
+Governance events (policy violations, schedule failures, slow schedules) can be delivered by email through alert rules and channels. Channels are SMTP email or webhooks (generic JSON, Slack, Teams); configs are encrypted at rest and each channel has a **Test** button.
 
 Rules match events to channels by event type and minimum severity, with per-fingerprint cooldowns, retry limits, and templated subject/body. Delivery runs on an 8-second dispatch loop with exponential-backoff retries.
 

@@ -1,9 +1,9 @@
 ---
 title: Alerts
-description: "Alerting for governance, scheduled jobs, cluster health checks and SQL threshold alerts: SMTP, Resend, Brevo and webhook (generic JSON, Slack, Teams) channels, rules with severity thresholds and cooldowns, delivery retries, and an event history"
+description: "Alerting for governance, scheduled jobs, cluster health checks and SQL threshold alerts: SMTP and webhook (generic JSON, Slack, Teams) channels, rules with severity thresholds and cooldowns, delivery retries, and an event history"
 ---
 
-Alerts turn governance, scheduler, telemetry, cluster health, SQL alert and ingest events into notifications: a policy blocks a query, a scheduled job fails or runs slow, a telemetry monitor starts firing, a replica falls behind, a query you wrote crosses a threshold, a shipper stops sending to an ingest pipeline, and the right people hear about it through your own SMTP server, a transactional provider, or a webhook into Slack, Teams or your own endpoint.
+Alerts turn governance, scheduler, telemetry, cluster health, SQL alert and ingest events into notifications: a policy blocks a query, a scheduled job fails or runs slow, a telemetry monitor starts firing, a replica falls behind, a query you wrote crosses a threshold, a shipper stops sending to an ingest pipeline, and the right people hear about it through your own SMTP server or a webhook into Slack, Teams or your own endpoint.
 
 Alerts are a Pro feature. Manage them in Governance: **Alerts** lists the events that fired, **Alert rules** decides which events are delivered, **Alert channels** holds the delivery settings. The API lives at `/api/governance/alerts/*` (returns `402` on the free edition, and the background dispatcher only runs with a Pro license).
 
@@ -37,16 +37,18 @@ Severities rank `info` < `warn` < `error` < `critical`.
 
 ## Channels
 
-A channel is one way to deliver an alert. Three email provider types, plus webhooks:
+A channel is one way to deliver an alert. There are two types: SMTP for email, and webhooks (generic JSON, Slack or Teams):
 
 | Provider | Required config | Optional config |
 | --- | --- | --- |
 | **SMTP** | `host`, `from_email` (`password` required if `username` is set) | `port`, `username`, `password`, `from_name`, `use_tls`, `starttls`, `insecure_skip_verify` |
-| **Resend** | `api_key`, `from_email` | `from_name` |
-| **Brevo** | `api_key`, `from_email` | `from_name` |
 | **Webhook** | `url` | `format`, `secret_header_name`, `secret_header_value`, `signing_secret`, `allow_http`, `allow_private_network` |
 
-Channel configs are **encrypted at rest** with the app secret key. Secrets are never echoed back: the API returns the password, API key or webhook secrets blanked, with a `has_secret` flag so the UI knows one is stored. Updating a channel without re-entering the secret keeps the existing one.
+Channel configs are **encrypted at rest** with the app secret key. Secrets are never echoed back: the API returns the password or webhook secrets blanked, with a `has_secret` flag so the UI knows one is stored. Updating a channel without re-entering the secret keeps the existing one. Changing a channel's type needs a new `config`, since the stored one belongs to the old type.
+
+:::caution[Resend and Brevo were removed in v2.30.0]
+CH-UI no longer sends through Resend or Brevo. On upgrade, existing Resend and Brevo channels are turned off and listed as **Unsupported**. The rows and their encrypted config stay, but the API key is never returned. They cannot be edited, tested or picked for a report; creating one returns `400`. Queued deliveries on them are cancelled. Delete them and recreate the channel as SMTP or as a webhook.
+:::
 
 ### SMTP options
 
@@ -249,7 +251,7 @@ State works like the health checks: pending, firing, resolved, with `[RESOLVED]`
 
 ## Evaluation history
 
-Health checks and SQL alerts keep an evaluation history: a row on every state change and every error, plus one sample per hour while nothing changes. Rows older than 30 days are pruned. The history is shown in each check's and alert's sheet.
+Health checks and SQL alerts keep an evaluation history: a row on every state change and every error, plus one sample per hour while nothing changes. Rows older than 30 days are pruned by default; change it under [Data Retention](/docs/admin#data-retention), `alert_evaluations` (v2.30.0+). The history is shown in each check's and alert's sheet.
 
 ## API
 

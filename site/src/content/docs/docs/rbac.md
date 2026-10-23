@@ -413,8 +413,9 @@ Some differences cannot be reverted and are listed before you stage:
 A revert over 200 changes asks you to pick entities to revert now; repeat for
 the rest.
 
-Snapshots are kept for 180 days, at most 500 per connection, and the newest
-one is always kept. Retention runs with governance pruning and on every new
+Snapshots are kept for 180 days by default (change it under
+[Data Retention](/docs/admin#data-retention), `rbac_snapshots`), at most 500 per
+connection, and the newest one is always kept. Retention runs with governance pruning and on every new
 snapshot, so it applies with background sync off too.
 
 ## Permissions

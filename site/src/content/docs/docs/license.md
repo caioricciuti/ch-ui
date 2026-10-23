@@ -48,7 +48,7 @@ The **Pro License** unlocks the full Pro module set on top of the Open Source co
 - **[Pipeline Sample, Redact and Route](/docs/pipelines#pro-nodes)**: deterministic sampling, redaction of emails, IPs, card numbers, tokens and custom patterns, and routing one pipeline to up to 8 tables by rules
 - **[MCP Pro tools](/docs/mcp#tools)**: operations (alerts, alert events, schedules, reports, cluster health, `query_insights_top`, `costs_summary`), telemetry traces, metrics, service map and monitors, and the `run_schedule_now` and `run_saved_report_now` actions for AI clients (the MCP server itself is in the core)
 - **[Governance](/docs/governance)**: catalog, access matrix, query audit, incidents, policies, guardrails (query blocking in the editor and MCP), and the audit log viewer
-- **[Alerts](/docs/alerts)**: channels (SMTP, Resend, Brevo, webhooks), rules, and delivery
+- **[Alerts](/docs/alerts)**: channels (SMTP, webhooks for Slack, Teams or your own endpoint), rules, and delivery
 - **[Scheduled query jobs](/docs/schedules)**: cron-driven query runs with run history and timezones, plus the parameterized saved-query Run API (model and pipeline schedules stay in the open-source core)
 - **[Ask AI and Brain agentic tools](/docs/brain)**: text-to-SQL in the editor grounded in your live schema, and the tool-calling agent loop (still bring-your-own AI key)
 - **[GitHub sync](/docs/github)**: keep models in version control

@@ -199,6 +199,12 @@ PUT /api/admin/retention
 | `operations_reports` | 180 days |
 | `incident_annotations` (`incident_deployment_annotations`, by when the deployment happened) | 180 days |
 | `resolved_investigations` (`performance_investigations` that are resolved, by resolution time; open and monitoring ones are never pruned) | 180 days |
+| `gov_query_log` (queries synced from ClickHouse for [governance](/docs/governance)) | 30 days |
+| `gov_policy_violations` (queries that broke a governance policy) | 30 days |
+| `rbac_snapshots` ([access history](/docs/rbac#access-history); at most 500 rows per connection whatever the window, and the newest is always kept) | 180 days |
+| `alert_evaluations` ([evaluation history](/docs/alerts#evaluation-history) of health checks and SQL alerts) | 30 days |
+
+The last four (v2.30.0+, fixed windows before that) are pruned by the job that owns each table, not by the hourly cleanup: the governance sync prunes the query log, violations and access history, access history is also pruned on every new snapshot, and the cluster health harvester prunes alert evaluations. They show the owning job under **Last cleanup** and are not counted in the run stats `GET` returns.
 
 Set a window to `0` to keep that table forever (pruning disabled); the maximum is 3650 days. The background job runs hourly and deletes in small batches so it never holds the SQLite write lock for long. Config changes are recorded in the audit log (`retention.config_update`).
 
