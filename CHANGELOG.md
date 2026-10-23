@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.30.0] - 2026-10-23
+
+A faster, more accurate MCP server and the end of the Resend and Brevo alert channels. MCP requests spend about a tenth of the server time they did, results travel gzipped and come back exactly as ClickHouse sent them, and models can describe several tables or run several queries in one call. Retention now covers the governance and alert history that used to be kept for fixed windows.
+
+### Upgrade notes
+
+- **Resend and Brevo alert channels are removed.** On upgrade, existing Resend and Brevo channels are turned off and marked Unsupported in Governance, Alert channels. Delete them and recreate them as SMTP or webhook channels; alerts routed only to them stop delivering until you do (#402).
+
+### Security
+
+- DOMPurify 3.4.17 in the frontend (GHSA-cg2g-xh64-v4q7, GHSA-mrv2-3pqr-j5jr) (#403).
+- The ch-ui.com site build pins zod to 4.6.6 (GHSA-mrhx-c7xc-m3w5) (#407).
+
+### Added
+
+- **MCP batching.** `describe_table` accepts `tables` to describe up to 10 tables in one call, and `run_select` accepts `queries` to run up to 5 statements together, so models need fewer turns. Each statement keeps every guard and its own query history entry, and a failed one reports in place (#410).
+
+### Changed
+
+- **Data retention covers more history.** Admin > Settings > Data retention now sets the windows for the governance query log, policy violations, access history and alert evaluations, which used to be fixed in code. Defaults are unchanged (30, 30, 180 and 30 days), and 0 keeps rows forever (#399).
+- MCP clients are told to request CSV for multi-row results, which roughly halves the tokens a result costs (#406).
+- Incident timeline: events are compact rows in a virtualized list that fills the window, so long windows scroll smoothly and the source filters stay in view. Coverage moved to a Coverage sheet; click a row for its full details (#401).
+- Performance, Operations reports, SQL alerts and the report editor link straight to the right Background account for the current connection, and row actions on Admin, Connections are always visible (#400).
+
+### Performance
+
+- Encrypted credentials are decrypted without re-deriving the key each time, cutting about 25 ms of CPU from every MCP request and every other decrypt in the app (#404).
+- MCP responses are gzipped for clients that accept it: a 500-row result goes from about 72 KB to under 5 KB on the wire, and event streams still deliver each event immediately (#408).
+- MCP `describe_table` and `search_catalog` run their metadata lookups in parallel, answering in one round trip instead of four or two (#405).
+
+### Fixed
+
+- MCP `run_select` and `run_saved_query` return columns in the order the query selected them, and no longer round high-precision Decimal and large integer values through float64. A `Decimal(38, 10)` of `123456789012345678.1234567891` used to come back as `123456789012345680` (#409).
+- Brain sees high-precision Decimal and large integer values with every digit, instead of rounded through float64 (#411).
+
 ## [2.29.0] - 2026-10-21
 
 A usability release: every page now follows one design contract, Home walks a new instance through getting started, Telemetry receives logs and traces from one sheet, errors say what to do next, and five how-do-I guides cover the first steps. It also hardens credentials and browser requests and moves to Go 1.26.10.
