@@ -177,6 +177,9 @@ type Gateway struct {
 	db      *database.DB
 	tunnels sync.Map // map[connectionID]*ConnectedTunnel
 	stopCh  chan struct{}
+	// readLoops counts agent read loops still running, including their
+	// disconnect bookkeeping; see WaitReadLoops.
+	readLoops sync.WaitGroup
 
 	authTimeout time.Duration // how long a new socket may take to authenticate
 }
@@ -198,6 +201,24 @@ func (g *Gateway) Stop() {
 	close(g.stopCh)
 }
 
+// WaitReadLoops waits up to timeout for every agent read loop to return,
+// which includes the database writes of its disconnect. It reports whether
+// they all did. Tests call it after closing their agents, so nothing writes
+// to a database that is about to be closed and removed.
+func (g *Gateway) WaitReadLoops(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		g.readLoops.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
 // HandleWebSocket handles the WebSocket upgrade and read loop for a tunnel agent.
 func (g *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -210,7 +231,11 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Read loop. A panic in a message handler must drop this one agent
 	// connection, not the whole server.
-	safe.Go("tunnel read loop", func() { g.readLoop(conn) })
+	g.readLoops.Add(1)
+	safe.Go("tunnel read loop", func() {
+		defer g.readLoops.Done()
+		g.readLoop(conn)
+	})
 }
 
 func (g *Gateway) readLoop(conn *websocket.Conn) {

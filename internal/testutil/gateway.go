@@ -113,6 +113,12 @@ func NewAgent(t *testing.T, db *database.DB, token string, respond func(tunnel.G
 		case <-time.After(5 * time.Second):
 			t.Error("agent did not stop")
 		}
+		// The gateway records the disconnect in the database after the
+		// socket closes; let it finish before the test closes the database
+		// and removes its directory.
+		if !a.Gateway.WaitReadLoops(5 * time.Second) {
+			t.Error("gateway read loop did not stop")
+		}
 	})
 	return a
 }
