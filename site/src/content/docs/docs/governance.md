@@ -108,7 +108,7 @@ Free-form notes on tables or columns. Multiple notes per object, each with autho
 
 Harvested from `system.users` and `system.roles`. Tracks auth type (`no_password`, `plaintext_password`, `sha256_password`, `double_sha1_password`), host restrictions, and default roles.
 
-Creating a user (`POST /api/governance/access/users`, admin only) runs a plain `CREATE USER`, never `IF NOT EXISTS`. If the name is taken the request fails with `409` and no roles are granted, so an existing account cannot pick up roles by accident.
+Creating a user (`POST /api/governance/access/users`, admin only) takes the same `auth` object as [Admin → Users](/docs/admin#create-user) (v2.31.0+; `password` and `auth_type` are deprecated until v2.33) and runs a plain `CREATE USER`, never `IF NOT EXISTS`. If the name is taken the request fails with `409` and no roles are granted, so an existing account cannot pick up roles by accident.
 
 To change roles, grants, row policies, quotas or settings profiles, use **Governance → Access control**: see [Access Control Editor](/docs/rbac). Applying a change there triggers an access sync when background sync is on. With background sync on, each sync also stores a snapshot for [Access history](/docs/rbac#access-history).
 

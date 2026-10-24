@@ -86,7 +86,7 @@ func TestQueryHarvestMinDurationSetting(t *testing.T) {
 
 // B8: CREATE USER is never IF NOT EXISTS, and a taken name is recognised.
 func TestCreateChUserSQLIsPlain(t *testing.T) {
-	sql := buildCreateChUserSQL("bob", "no_password", "")
+	sql := buildCreateChUserSQL("bob", chUserAuth{Method: "no_password"})
 	if strings.Contains(sql, "IF NOT EXISTS") || !strings.HasPrefix(sql, "CREATE USER `bob`") {
 		t.Fatalf("sql = %q", sql)
 	}
@@ -111,7 +111,7 @@ func TestCreateChUserExistsLive(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = client.Execute(context.Background(), "DROP USER IF EXISTS "+safe.Identifier(name), user, pass, nil)
 	})
-	sql := buildCreateChUserSQL(name, "no_password", "")
+	sql := buildCreateChUserSQL(name, chUserAuth{Method: "no_password"})
 	if _, err := client.Execute(ctx, sql, user, pass, nil); err != nil {
 		t.Fatalf("first create: %v", err)
 	}

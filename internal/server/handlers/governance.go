@@ -1015,7 +1015,10 @@ func (h *GovernanceHandler) CreateChUser(w http.ResponseWriter, r *http.Request)
 	}
 
 	var body struct {
-		Name         string   `json:"name"`
+		Name string `json:"name"`
+		// Auth carries a hash made by the client, as on Admin → Users.
+		Auth *chUserAuth `json:"auth"`
+		// Deprecated plaintext path, kept until v2.33.
 		Password     string   `json:"password"`
 		AuthType     string   `json:"auth_type"`
 		DefaultRoles []string `json:"default_roles"`
@@ -1032,23 +1035,9 @@ func (h *GovernanceHandler) CreateChUser(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	authType := strings.TrimSpace(strings.ToLower(body.AuthType))
-	if authType == "" {
-		if strings.TrimSpace(body.Password) == "" {
-			authType = "no_password"
-		} else {
-			authType = "plaintext_password"
-		}
-	}
-
-	switch authType {
-	case "no_password", "plaintext_password", "sha256_password", "double_sha1_password":
-	default:
-		writeError(w, http.StatusBadRequest, "auth_type must be one of: no_password, plaintext_password, sha256_password, double_sha1_password")
-		return
-	}
-	if authType != "no_password" && strings.TrimSpace(body.Password) == "" {
-		writeError(w, http.StatusBadRequest, "password is required for selected auth_type")
+	auth, _, errMsg := resolveChUserAuth(w, body.Auth, body.AuthType, body.Password, false)
+	if errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}
 
@@ -1060,13 +1049,13 @@ func (h *GovernanceHandler) CreateChUser(w http.ResponseWriter, r *http.Request)
 
 	// Plain CREATE USER (if_not_exists is ignored): an existing account must
 	// not silently receive the requested roles.
-	if err := h.executeClickHouseSQL(r.Context(), creds, buildCreateChUserSQL(name, authType, body.Password)); err != nil {
+	if err := h.executeClickHouseSQL(r.Context(), creds, buildCreateChUserSQL(name, auth)); err != nil {
 		if isAccessEntityExistsError(err) {
 			writeError(w, http.StatusConflict, fmt.Sprintf("ClickHouse user %q already exists", name))
 			return
 		}
 		// ClickHouse can quote the statement back, password included.
-		msg := maskChUserPassword(err.Error(), body.Password)
+		msg := auth.mask(err.Error())
 		slog.Error("Failed to create ClickHouse user", "connection", session.ConnectionID, "name", name, "error", msg)
 		writeError(w, http.StatusBadGateway, msg)
 		return
