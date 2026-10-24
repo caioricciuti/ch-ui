@@ -419,6 +419,26 @@ func (db *DB) GetSSOClickHouseUser(identityID, connID string) (*SSOClickHouseUse
 	return u, nil
 }
 
+// ListSSOClickHouseUsersForIdentity returns the person's users on every
+// connection, locked ones included.
+func (db *DB) ListSSOClickHouseUsersForIdentity(identityID string) ([]SSOClickHouseUser, error) {
+	rows, err := db.conn.Query(
+		"SELECT "+ssoClickHouseUserColumns+" FROM sso_clickhouse_users WHERE identity_id = ? ORDER BY connection_id", identityID)
+	if err != nil {
+		return nil, fmt.Errorf("list sso clickhouse users for identity: %w", err)
+	}
+	defer rows.Close()
+	var out []SSOClickHouseUser
+	for rows.Next() {
+		u, err := scanSSOClickHouseUser(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("list sso clickhouse users for identity: %w", err)
+		}
+		out = append(out, *u)
+	}
+	return out, rows.Err()
+}
+
 // SaveSSOClickHouseUser records a provisioned or re-synced user: the current
 // password, roles and sync time, unlocked, seen now.
 func (db *DB) SaveSSOClickHouseUser(u SSOClickHouseUser) error {

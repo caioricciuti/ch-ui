@@ -127,12 +127,13 @@ func registerProActionTools(srv *mcp.Server, deps Deps, ak *authedKey) {
 		Name:        "run_saved_report_now",
 		Title:       title,
 		Annotations: ann,
-		Description: "Run one of your own reports on this connection now and deliver it to all its channels (email or webhook), like Send now on the Reports page. OAuth sign-ins only. Returns the delivery status.",
+		Description: "Run one of your own reports on this connection now and deliver it to all its channels (email or webhook), like Send now on the Reports page. OAuth sign-ins and keys that run as a person only. Returns the delivery status.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args runReportArgs) (*mcp.CallToolResult, any, error) {
 		// Reports belong to people (same rule as list_reports): an OAuth
-		// sign-in reaches its own, an API key has no person and none.
-		if ak.key.Kind != "oauth" || strings.TrimSpace(ak.key.Subject) == "" {
-			return errResult("run_saved_report_now needs an OAuth sign-in: reports belong to the person who created them, and an API key is not a person"), nil, nil
+		// sign-in or a run-as-me key reaches its own, a service key on a
+		// ClickHouse account has no person and none.
+		if !ak.key.ActsAsPerson() || strings.TrimSpace(ak.key.Subject) == "" {
+			return errResult("run_saved_report_now needs an OAuth sign-in or a key that runs as you: reports belong to the person who created them, and a service key on a ClickHouse account is not a person"), nil, nil
 		}
 		if res := refuseActionForAllowList(ak, "run_saved_report_now", "a report reads whatever its query or dashboard reads"); res != nil {
 			return res, nil, nil

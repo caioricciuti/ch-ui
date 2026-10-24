@@ -62,13 +62,15 @@ type Deps struct {
 type authedKey struct {
 	key        *database.MCPKey
 	chPassword string
-	// roleReadOnly is set when the person behind an OAuth token no longer
+	// roleReadOnly is set when the person behind an OAuth token or run-as-me
+	// key no longer
 	// holds a CH-UI role that may write, whatever scope they granted.
 	roleReadOnly bool
 }
 
 // queryTag is what this key's queries carry in log_comment: the person behind
-// an OAuth token, else the admin who created the API key, and the key itself.
+// an OAuth token or run-as-me key, else the admin who created the service
+// key, and the key itself.
 func (ak *authedKey) queryTag() tunnel.QueryTag {
 	person := ak.key.Subject
 	if person == "" {
@@ -162,9 +164,10 @@ func authMiddleware(deps Deps, next http.Handler) http.Handler {
 		}
 		enc := k.CHPasswordEnc
 		if k.SSOIdentityID != "" {
-			// An OAuth token of an SSO person with a per-person ClickHouse
-			// user holds no password: the live row supplies the current one,
-			// and a locked or dropped user ends the token.
+			// A key of an SSO person with a per-person ClickHouse user (an
+			// OAuth token or a run-as-me service key) holds no password: the
+			// live row supplies the current one, and a locked or dropped
+			// user ends the key.
 			u, err := deps.DB.GetSSOClickHouseUser(k.SSOIdentityID, k.ConnectionID)
 			if err != nil {
 				http.Error(w, `{"error":"failed to resolve token credentials"}`, http.StatusInternalServerError)
@@ -192,10 +195,10 @@ func authMiddleware(deps Deps, next http.Handler) http.Handler {
 		touchKey(deps, k.ID)
 
 		ak := &authedKey{key: k, chPassword: password}
-		if k.Kind == "oauth" && k.Scopes == "read_write" {
-			// Write scope was granted at consent; the person's role is
-			// checked again on every request so a demotion takes effect at
-			// once, not when the token is refreshed.
+		if k.ActsAsPerson() && k.Scopes == "read_write" {
+			// Write scope was granted at consent or key creation; the
+			// person's role is checked again on every request so a demotion
+			// takes effect at once, not when the token is refreshed.
 			role, err := deps.DB.OAuthKeyRole(k)
 			if err != nil {
 				slog.Warn("mcp: resolve oauth token role failed; serving read-only", "key_id", k.ID, "error", err)

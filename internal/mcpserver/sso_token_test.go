@@ -106,3 +106,75 @@ func TestOAuthTokenOfPerPersonUserFollowsLiveCredentials(t *testing.T) {
 		t.Fatalf("%d statements reached ClickHouse for a retired user", n)
 	}
 }
+
+// A service key created to run as an SSO person behaves like that person's
+// OAuth grant: no password stored, the live per-person user on every call,
+// write tools only while the person's role may write, refused once the user
+// is locked.
+func TestRunAsMeServiceKeyFollowsPersonAndRole(t *testing.T) {
+	db := openTestDB(t)
+	conn, err := db.CreateConnection(database.CreateConnectionParams{Name: "worker", TunnelToken: "worker-token-2", Type: database.ConnectionTypeTunnel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := testutil.NewAgent(t, db, "worker-token-2", func(tunnel.GatewayMessage) *tunnel.AgentMessage {
+		return &tunnel.AgentMessage{Type: "query_result", Data: json.RawMessage(`[{"x":1}]`), Meta: json.RawMessage(`[{"name":"x","type":"UInt8"}]`)}
+	})
+	cfg := &config.Config{AppSecretKey: "test-secret-key-for-mcp-tests"}
+	ident, err := db.UpsertSSOIdentity("https://idp.example", "sub-ana", "ana@x.com", "Ana", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, err := crypto.Encrypt("pw1", cfg.AppSecretKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SaveSSOClickHouseUser(database.SSOClickHouseUser{
+		IdentityID: ident.ID, ConnectionID: conn, CHUser: "sso:ana@x.com", EncryptedPassword: enc,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	plaintext, hash, prefix := GenerateKey()
+	if _, err := db.CreateMCPKey(database.CreateMCPKeyParams{
+		Name: "nightly", KeyHash: hash, KeyPrefix: prefix, ConnectionID: conn,
+		CHUser: "sso:ana@x.com", SSOIdentityID: ident.ID, Scopes: "read_write", CreatedBy: "ana@x.com",
+		Subject: "ana@x.com", GrantRole: "admin",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h := Handler(Deps{DB: db, Gateway: agent.Gateway, Config: cfg})
+	const list = `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`
+	const call = `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"run_select","arguments":{"sql":"SELECT 1"}}}`
+
+	rec := mcpRequest(t, h, plaintext, call)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "isError") {
+		t.Fatalf("run_select: %d %s", rec.Code, rec.Body.String())
+	}
+	var ran *tunnel.GatewayMessage
+	for _, m := range agent.Messages() {
+		if m.Type == "query" && strings.Contains(m.SQL, "SELECT 1") {
+			ran = &m
+		}
+	}
+	if ran == nil || ran.User != "sso:ana@x.com" || ran.Password != "pw1" {
+		t.Fatalf("query ran as %+v, want sso:ana@x.com with the live password", ran)
+	}
+
+	if rec := mcpRequest(t, h, plaintext, list); !strings.Contains(rec.Body.String(), `"save_query"`) {
+		t.Fatalf("admin person: write tools missing: %s", rec.Body.String())
+	}
+	// Demoted to viewer: the key loses write at once, like an OAuth grant.
+	if err := db.SetUserRole("sso:ana@x.com", "", "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := mcpRequest(t, h, plaintext, list); strings.Contains(rec.Body.String(), `"save_query"`) {
+		t.Fatalf("viewer person: write tools still listed")
+	}
+
+	if err := db.SetSSOClickHouseUserLocked(ident.ID, conn, true); err != nil {
+		t.Fatal(err)
+	}
+	if rec := mcpRequest(t, h, plaintext, call); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("locked user: want 401, got %d %s", rec.Code, rec.Body.String())
+	}
+}

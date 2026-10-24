@@ -137,3 +137,93 @@ func TestMCPKeyAllowActionsRequiresReadWrite(t *testing.T) {
 		}
 	}
 }
+
+// An SSO admin with a per-person ClickHouse user can create a key that runs
+// as them: the list says where, the row references the identity and holds no
+// password, and the option is refused where they have no live user.
+func TestMCPKeyRunsAsMe(t *testing.T) {
+	db, err := dbtest.Open(t, "mcpkeys-as-me.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	mkConn := func(name, token string) string {
+		t.Helper()
+		id, err := db.CreateConnection(database.CreateConnectionParams{Name: name, TunnelToken: token, Type: database.ConnectionTypeTunnel})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	prod := mkConn("prod", "cht_33333333333333333333333333333333")
+	other := mkConn("other", "cht_44444444444444444444444444444444")
+	locked := mkConn("locked", "cht_55555555555555555555555555555555")
+	ident, err := db.UpsertSSOIdentity("https://idp.example", "sub-ana", "ana@x.com", "Ana", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []string{prod, locked} {
+		if err := db.SaveSSOClickHouseUser(database.SSOClickHouseUser{IdentityID: ident.ID, ConnectionID: c, CHUser: "sso:ana@x.com", EncryptedPassword: "enc"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.SetSSOClickHouseUserLocked(ident.ID, locked, true); err != nil {
+		t.Fatal(err)
+	}
+
+	h := &MCPKeysHandler{DB: db, Config: &config.Config{AppSecretKey: "mcp-keys-secret"}}
+	r := chi.NewRouter()
+	r.Route("/keys", h.Routes)
+	ana := &middleware.SessionInfo{ConnectionID: prod, ClickhouseUser: "sso:ana@x.com", AuthSubject: "ana@x.com", UserRole: "admin", SSOIdentityID: ident.ID}
+	shared := &middleware.SessionInfo{ConnectionID: prod, ClickhouseUser: "svc", AuthSubject: "bob@x.com", UserRole: "admin"}
+	call := func(sess *middleware.SessionInfo, method, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "/keys/", strings.NewReader(body))
+		req = req.WithContext(middleware.SetSession(req.Context(), sess))
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec
+	}
+
+	var listed struct {
+		AsMe map[string]string `json:"as_me"`
+	}
+	_ = json.Unmarshal(call(ana, http.MethodGet, "").Body.Bytes(), &listed)
+	if len(listed.AsMe) != 1 || listed.AsMe[prod] != "sso:ana@x.com" {
+		t.Fatalf("as_me = %v, want only prod (other has no user, locked is locked)", listed.AsMe)
+	}
+	listed.AsMe = nil
+	_ = json.Unmarshal(call(shared, http.MethodGet, "").Body.Bytes(), &listed)
+	if len(listed.AsMe) != 0 {
+		t.Fatalf("shared-account session: as_me = %v, want empty", listed.AsMe)
+	}
+
+	rec := call(ana, http.MethodPost, `{"name":"nightly","connection_id":"`+prod+`","as_me":true,"ch_user":"ignored","ch_password":"ignored","scopes":"read_write"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create as me: %d %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Key database.MCPKey `json:"key"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	k, err := db.GetMCPKeyByID(created.Key.ID)
+	if err != nil || k == nil {
+		t.Fatalf("load key: %v", err)
+	}
+	if k.SSOIdentityID != ident.ID || k.CHPasswordEnc != "" || k.CHUser != "sso:ana@x.com" || k.Subject != "ana@x.com" || k.GrantRole != "admin" || k.Kind != "api" {
+		t.Fatalf("stored key = %+v, want a reference to ana's user with no password", k)
+	}
+
+	for name, c := range map[string]struct {
+		sess *middleware.SessionInfo
+		conn string
+	}{
+		"no per-person user": {ana, other},
+		"locked user":        {ana, locked},
+		"shared account":     {shared, prod},
+	} {
+		rec := call(c.sess, http.MethodPost, `{"name":"x","connection_id":"`+c.conn+`","as_me":true}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: want 400, got %d %s", name, rec.Code, rec.Body.String())
+		}
+	}
+}

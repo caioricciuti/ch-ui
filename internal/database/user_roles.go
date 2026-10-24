@@ -326,12 +326,13 @@ func (db *DB) ActorRole(actor, connectionID string) (string, error) {
 	return role, nil
 }
 
-// OAuthKeyRole returns the app role an OAuth MCP token acts with, resolved
+// OAuthKeyRole returns the app role a person-backed MCP key (an OAuth token
+// or a run-as-me service key) acts with, resolved
 // the way a session's is: the person's override on the key's connection,
 // else the role cached on their newest live session there, else the role
-// recorded when the token was issued, else viewer; capped on a connection
-// created from the login page. Admin-created keys have no person behind them
-// and return "". On error it returns viewer.
+// recorded when the key was issued, else viewer; capped on a connection
+// created from the login page. Service keys on a ClickHouse account have no
+// person behind them and return "". On error it returns viewer.
 func (db *DB) OAuthKeyRole(k *MCPKey) (string, error) {
 	role, _, err := db.OAuthKeyRoleKnown(k)
 	return role, err
@@ -341,7 +342,7 @@ func (db *DB) OAuthKeyRole(k *MCPKey) (string, error) {
 // an override, a live session or the issue-time role. When nothing did, the
 // role is viewer only until the person signs in again.
 func (db *DB) OAuthKeyRoleKnown(k *MCPKey) (string, bool, error) {
-	if k.Kind != "oauth" {
+	if !k.ActsAsPerson() {
 		return "", false, nil
 	}
 	subject := k.oauthAuthSubject()
@@ -375,7 +376,7 @@ func (db *DB) OAuthKeyRoleKnown(k *MCPKey) (string, bool, error) {
 func (db *DB) ClearOAuthGrantRoles(roleKey, connectionID string) error {
 	var err error
 	if subject, ok := strings.CutPrefix(roleKey, SSORoleKeyPrefix); ok {
-		_, err = db.conn.Exec("UPDATE mcp_keys SET grant_role = '' WHERE kind = 'oauth' AND subject = ? AND subject != ch_user", subject)
+		_, err = db.conn.Exec("UPDATE mcp_keys SET grant_role = '' WHERE (kind = 'oauth' OR sso_identity_id IS NOT NULL) AND subject = ? AND subject != ch_user", subject)
 	} else {
 		_, err = db.conn.Exec("UPDATE mcp_keys SET grant_role = '' WHERE kind = 'oauth' AND subject = ? AND ch_user = ? AND connection_id = ?", roleKey, roleKey, connectionID)
 	}
