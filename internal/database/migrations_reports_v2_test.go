@@ -102,4 +102,21 @@ func TestPruneReportDeliveries(t *testing.T) {
 	if d, _ := db.GetReportDelivery(fresh); d == nil || !d.HasSnapshot {
 		t.Fatal("fresh snapshot must be kept")
 	}
+
+	// A zero history cutoff (retention 0) keeps every delivery, and the
+	// snapshot cleanup still runs.
+	ancient, _ := db.CreateReportDelivery(id, "schedule", "", now.AddDate(-2, 0, 0))
+	if err := db.FinishReportDelivery(ancient, ReportDeliveryResult{Status: "delivered", Snapshot: []byte(`{"x":1}`), Finished: true}, now.AddDate(-2, 0, 0)); err != nil {
+		t.Fatal(err)
+	}
+	cleared, deleted, err = db.PruneReportDeliveries(now.Add(-7*24*time.Hour), time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 0 || cleared != 1 {
+		t.Fatalf("zero cutoff: cleared %d deleted %d, want 1 and 0", cleared, deleted)
+	}
+	if d, _ := db.GetReportDelivery(ancient); d == nil || d.HasSnapshot {
+		t.Fatal("two-year-old delivery must be kept with its snapshot cleared")
+	}
 }

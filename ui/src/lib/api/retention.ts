@@ -23,6 +23,7 @@ export interface RetentionConfig {
   gov_policy_violations: number
   rbac_snapshots: number
   alert_evaluations: number
+  report_deliveries: number
 }
 
 export interface RetentionLastRun {

@@ -70,7 +70,7 @@ CSV cells that start with `=`, `+`, `-` or `@` get a leading apostrophe so sprea
 
 ## Delivery history
 
-Click a report, or its history button, to see its latest 100 runs with the status per channel and the number of tries. **Download** returns the CSV a run sent. Stored snapshots are cleared 7 days after a run finishes; history rows are kept for 90 days.
+Click a report, or its history button, to see its latest 100 runs with the status per channel and the number of tries. **Download** returns the CSV a run sent. Stored snapshots are cleared 7 days after a run finishes; history rows are kept for 90 days by default, set under [Data Retention](/docs/admin#data-retention) as `report_deliveries` (v2.31.0+, `0` keeps them forever).
 
 ## Who can do what
 

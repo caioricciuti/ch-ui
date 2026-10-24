@@ -492,3 +492,47 @@ func TestRunRefusesSavedQueryHiddenFromAuthor(t *testing.T) {
 		t.Fatalf("owner author: %v", err)
 	}
 }
+
+// The delivery history window comes from the retention settings: a shorter
+// window prunes sooner, and 0 keeps every delivery.
+func TestPruneFollowsRetentionSetting(t *testing.T) {
+	f := newFixture(t, "service_account")
+	old, err := f.db.CreateReportDelivery(f.sub.ID, "schedule", "", f.now.AddDate(0, 0, -40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	setDays := func(days int) {
+		t.Helper()
+		cfg := database.DefaultRetentionConfig()
+		cfg.ReportDeliveries = days
+		if err := f.db.SetRetentionConfig(cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kept := func() bool {
+		t.Helper()
+		d, err := f.db.GetReportDelivery(old)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d != nil
+	}
+
+	// The default 90 days keeps a 40-day-old delivery.
+	f.runner.prune(f.now)
+	if !kept() {
+		t.Fatal("default window deleted a 40-day-old delivery")
+	}
+	setDays(0)
+	f.runner.lastPrune = time.Time{}
+	f.runner.prune(f.now)
+	if !kept() {
+		t.Fatal("retention 0 deleted a delivery")
+	}
+	setDays(30)
+	f.runner.lastPrune = time.Time{}
+	f.runner.prune(f.now)
+	if kept() {
+		t.Fatal("30-day window kept a 40-day-old delivery")
+	}
+}

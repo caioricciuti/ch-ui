@@ -50,6 +50,9 @@ type RetentionConfig struct {
 	RBACSnapshots int `json:"rbac_snapshots"`
 	// AlertEvaluations is pruned by the cluster health harvester.
 	AlertEvaluations int `json:"alert_evaluations"`
+	// ReportDeliveries is the report delivery history window, pruned by the
+	// report runner. Snapshots inside it are still cleared after 7 days.
+	ReportDeliveries int `json:"report_deliveries"`
 }
 
 // DefaultRetentionConfig returns the built-in retention windows.
@@ -72,6 +75,7 @@ func DefaultRetentionConfig() RetentionConfig {
 		GovPolicyViolations:    30,
 		RBACSnapshots:          180,
 		AlertEvaluations:       30,
+		ReportDeliveries:       90,
 	}
 }
 
@@ -139,6 +143,7 @@ var externalRetentionTargets = []retentionTarget{
 	{table: "gov_policy_violations", days: func(c RetentionConfig) int { return c.GovPolicyViolations }},
 	{table: "rbac_snapshots", days: func(c RetentionConfig) int { return c.RBACSnapshots }},
 	{table: "alert_evaluations", days: func(c RetentionConfig) int { return c.AlertEvaluations }},
+	{table: "report_deliveries", days: func(c RetentionConfig) int { return c.ReportDeliveries }},
 }
 
 // RetentionDays returns one configured retention window, for jobs that prune

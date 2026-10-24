@@ -616,7 +616,7 @@ func (db *DB) SettleReportDelivery(id string, at time.Time) (status string, sent
 
 // PruneReportDeliveries clears the stored snapshot of deliveries finished
 // before snapshotCutoff and deletes deliveries started before
-// historyCutoff.
+// historyCutoff. A zero historyCutoff keeps every delivery.
 func (db *DB) PruneReportDeliveries(snapshotCutoff, historyCutoff time.Time) (cleared, deleted int64, err error) {
 	res, err := db.conn.Exec(`UPDATE report_deliveries SET snapshot = NULL WHERE snapshot IS NOT NULL AND finished_at IS NOT NULL AND finished_at < ?`,
 		snapshotCutoff.UTC().Format(time.RFC3339))
@@ -624,6 +624,9 @@ func (db *DB) PruneReportDeliveries(snapshotCutoff, historyCutoff time.Time) (cl
 		return 0, 0, err
 	}
 	cleared, _ = res.RowsAffected()
+	if historyCutoff.IsZero() {
+		return cleared, 0, nil
+	}
 	res, err = db.conn.Exec(`DELETE FROM report_deliveries WHERE started_at < ?`, historyCutoff.UTC().Format(time.RFC3339))
 	if err != nil {
 		return cleared, 0, err

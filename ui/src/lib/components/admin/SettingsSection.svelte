@@ -42,6 +42,7 @@
     { key: 'gov_policy_violations', label: 'Policy violations', holds: 'Queries that broke a governance policy', prunedBy: 'Governance sync' },
     { key: 'rbac_snapshots', label: 'Access history', holds: 'Users, roles and grants over time; at most 500 rows per connection', prunedBy: 'Governance sync' },
     { key: 'alert_evaluations', label: 'Alert evaluations', holds: 'Health check and SQL alert results over time', prunedBy: 'Cluster health' },
+    { key: 'report_deliveries', label: 'Report deliveries', holds: 'Scheduled report runs and their delivery status; the rendered copy is kept 7 days', prunedBy: 'Reports' },
   ]
 
   type RetentionRow = {
