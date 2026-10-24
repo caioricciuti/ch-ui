@@ -345,11 +345,11 @@ and the provider supports tools.
 | `GET` | `/api/models/dag` | Get DAG for visualization |
 | `GET` | `/api/models/runs` | List runs (`?limit=&offset=`) |
 | `GET` | `/api/models/runs/{runId}` | Get run + per-model results |
-| `GET` | `/api/models/pipelines` | List named pipelines with picked models and next runs |
-| `POST` | `/api/models/pipelines` | Create pipeline (`name`, `selector`, `cron`, `timezone`, `enabled`) |
-| `PUT` | `/api/models/pipelines/{id}` | Update pipeline |
-| `DELETE` | `/api/models/pipelines/{id}` | Delete pipeline |
-| `POST` | `/api/models/pipelines/{id}/run` | Execute pipeline |
+| `GET` | `/api/models/pipelines` | List model groups with picked models and next runs |
+| `POST` | `/api/models/pipelines` | Create model group (`name`, `selector`, `cron`, `timezone`, `enabled`) |
+| `PUT` | `/api/models/pipelines/{id}` | Update model group |
+| `DELETE` | `/api/models/pipelines/{id}` | Delete model group |
+| `POST` | `/api/models/pipelines/{id}/run` | Run model group |
 | `GET` | `/api/models/schedule-preview` | Next 3 run times for `?cron=&timezone=` |
 
 ### Pipelines (Data Ingestion)
