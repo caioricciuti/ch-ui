@@ -60,9 +60,10 @@ const (
 	DefaultTimeRange = "24h"
 	// MaxDashboardPanels bounds the panels in a dashboard summary.
 	MaxDashboardPanels = 25
-	// SnapshotRetention and HistoryRetention bound what is kept.
+	// SnapshotRetention bounds how long a delivery keeps its rendered
+	// snapshot. The history window itself is database.RetentionConfig's
+	// ReportDeliveries.
 	SnapshotRetention = 7 * 24 * time.Hour
-	HistoryRetention  = 90 * 24 * time.Hour
 
 	// SettingRecipientDomains holds the comma separated email domains
 	// report recipients must use. Empty means any address.

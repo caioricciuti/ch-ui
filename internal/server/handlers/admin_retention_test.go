@@ -44,7 +44,7 @@ func TestRetentionSettingsExternalWindows(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get: %d %s", rec.Code, rec.Body.String())
 	}
-	for _, key := range []string{`"gov_query_log":30`, `"gov_policy_violations":30`, `"rbac_snapshots":180`, `"alert_evaluations":30`} {
+	for _, key := range []string{`"gov_query_log":30`, `"gov_policy_violations":30`, `"rbac_snapshots":180`, `"alert_evaluations":30`, `"report_deliveries":90`} {
 		if !strings.Contains(rec.Body.String(), key) {
 			t.Fatalf("response lacks %s: %s", key, rec.Body.String())
 		}

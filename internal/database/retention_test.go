@@ -199,7 +199,7 @@ func TestRetentionConfig_ExternalWindows(t *testing.T) {
 
 	// Defaults match the windows that used to be hardcoded.
 	def := DefaultRetentionConfig()
-	if def.GovQueryLog != 30 || def.GovPolicyViolations != 30 || def.RBACSnapshots != 180 || def.AlertEvaluations != 30 {
+	if def.GovQueryLog != 30 || def.GovPolicyViolations != 30 || def.RBACSnapshots != 180 || def.AlertEvaluations != 30 || def.ReportDeliveries != 90 {
 		t.Fatalf("unexpected defaults: %+v", def)
 	}
 
@@ -236,7 +236,7 @@ func TestRetentionConfig_ExternalWindows(t *testing.T) {
 
 	// RunRetention leaves these tables to their own jobs.
 	stats := db.RunRetention()
-	for _, table := range []string{"gov_query_log", "gov_policy_violations", "rbac_snapshots", "alert_evaluations"} {
+	for _, table := range []string{"gov_query_log", "gov_policy_violations", "rbac_snapshots", "alert_evaluations", "report_deliveries"} {
 		if _, ok := stats.RowsDeleted[table]; ok {
 			t.Errorf("RunRetention must not report %s", table)
 		}

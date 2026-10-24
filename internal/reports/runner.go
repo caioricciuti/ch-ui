@@ -246,7 +246,12 @@ func (r *Runner) prune(now time.Time) {
 		return
 	}
 	r.lastPrune = now
-	cleared, deleted, err := r.db.PruneReportDeliveries(now.Add(-SnapshotRetention), now.Add(-HistoryRetention))
+	// 0 days keeps the history; snapshots are cleared either way.
+	var historyCutoff time.Time
+	if days := r.db.RetentionDays(func(c database.RetentionConfig) int { return c.ReportDeliveries }); days > 0 {
+		historyCutoff = now.AddDate(0, 0, -days)
+	}
+	cleared, deleted, err := r.db.PruneReportDeliveries(now.Add(-SnapshotRetention), historyCutoff)
 	if err != nil {
 		slog.Warn("Reports: prune failed", "error", err)
 		return
