@@ -1,11 +1,11 @@
 ---
 title: Models (SQL Transformations)
-description: SQL models that build ClickHouse views, tables, incremental tables and materialized views, reference each other with $ref(), carry data tests, and run in dependency order by hand or in named, scheduled pipelines
+description: SQL models that build ClickHouse views, tables, incremental tables and materialized views, reference each other with $ref(), carry data tests, and run in dependency order by hand or in named, scheduled model groups
 ---
 
 import { CardGrid, LinkCard } from "@astrojs/starlight/components";
 
-A model is a named `SELECT` that CH-UI builds into a ClickHouse view, table, incremental table or materialized view. Models reference each other with `$ref(model_name)`; CH-UI turns those references into a dependency graph (DAG) and runs models in dependency order, by hand or in named pipelines on a cron schedule. Data tests check each model's output after it builds.
+A model is a named `SELECT` that CH-UI builds into a ClickHouse view, table, incremental table or materialized view. Models reference each other with `$ref(model_name)`; CH-UI turns those references into a dependency graph (DAG) and runs models in dependency order, by hand or in named model groups on a cron schedule. Data tests check each model's output after it builds.
 
 Available on all plans.
 
@@ -330,7 +330,7 @@ Runs are synchronous: the request returns when the run has finished, with its st
 |---|---|---|
 | **Run all** (page header) | `POST /api/models/run` | Every model of the connection, in dependency order |
 | Selector | `POST /api/models/run` with `{"selector": "+orders"}` | The models the selector picks |
-| **Run** (pipeline group) | `POST /api/models/pipelines/{id}/run` | The models the pipeline's selector picks |
+| **Run** (model group) | `POST /api/models/pipelines/{id}/run` | The models the group's selector picks |
 | **Run** / **Run with upstream** (editor, model menu) | `POST /api/models/{id}/run` | The model plus all its upstream models |
 | **Run downstream** | `POST /api/models/{id}/run` with `{"scope": "downstream"}` | The model plus everything that reads it |
 | **Run only this model** | `POST /api/models/{id}/run` with `{"scope": "only"}` | The model alone |
@@ -362,22 +362,24 @@ A selector picks models the way dbt's `--select` does, without tags and paths:
 
 Separate terms with commas: `+daily_revenue, customers+` runs the union. Picked models always run in dependency order.
 
-## Pipelines
+## Model groups
 
-A pipeline is a named, stable group of models: a **name**, a **selector** and an optional **schedule**. Pipelines are listed on the Models page; each shows the models its selector picks today, its schedule, the next run and the last outcome. Models no pipeline picks are listed under **Ungrouped**. The toolbar above the list has a search box (name, database, description) and a pipeline filter.
+A model group is a named, stable set of models: a **name**, a **selector** and an optional **schedule**. Groups are listed on the Models page; each shows the models its selector picks today, its schedule, the next run and the last outcome. Models no group picks are listed under **Ungrouped**. The toolbar above the list has a search box (name, database, description) and a group filter.
+
+Model groups are not the same as [pipelines](/docs/pipelines), which move data into ClickHouse. Earlier versions called model groups pipelines, and the API still does: the endpoints live under `/api/models/pipelines` and runs carry a `pipeline_id`.
 
 ```
 nightly_events   selector: +daily_events+      cron: 0 2 * * *   Europe/Lisbon
 finance          selector: orders_current+     cron: */15 * * * *  UTC
 ```
 
-Because the selector names models rather than storing a list, a pipeline follows the graph: a new model that reads `daily_events` joins `nightly_events` without editing it. A selector that names a model that was renamed or deleted is shown on the pipeline as an error, and its runs fail until you fix it.
+Because the selector names models rather than storing a list, a group follows the graph: a new model that reads `daily_events` joins `nightly_events` without editing it. A selector that names a model that was renamed or deleted is shown on the group as an error, and its runs fail until you fix it.
 
 API: `GET /api/models/pipelines` (with `model_ids`, `next_runs` and `ungrouped_model_ids`), `POST /api/models/pipelines`, `PUT` and `DELETE /api/models/pipelines/{id}`, `POST /api/models/pipelines/{id}/run`. The body is `{"name": "nightly_events", "selector": "+daily_events+", "cron": "0 2 * * *", "timezone": "Europe/Lisbon", "enabled": true}`.
 
 ## Scheduling
 
-Each pipeline can have one cron schedule. The scheduler checks for due pipelines every 30 seconds.
+Each model group can have one cron schedule. The scheduler checks for due groups every 30 seconds.
 
 | Field | Description |
 |---|---|
@@ -385,22 +387,22 @@ Each pipeline can have one cron schedule. The scheduler checks for due pipelines
 | Timezone | IANA name the cron is read in, for example `Europe/Lisbon`. Default `UTC` |
 | Enabled | Off pauses the schedule without deleting it; on resumes it from the next due time |
 
-The pipeline sheet shows the next three run times as you type. `GET /api/models/schedule-preview?cron=0+9+*+*+*&timezone=Europe/Lisbon` returns the same list.
+The model group sheet shows the next three run times as you type. `GET /api/models/schedule-preview?cron=0+9+*+*+*&timezone=Europe/Lisbon` returns the same list.
 
 ```
-0 9 * * *     # Daily at 9:00 in the pipeline's timezone
+0 9 * * *     # Daily at 9:00 in the group's timezone
 0 */6 * * *   # Every 6 hours
 30 2 * * 0    # Sundays at 2:30
 0 0 1 * *     # First of the month at midnight
 ```
 
-A scheduled run behaves like **Run** on the pipeline, with `triggered_by` set to `scheduler`. The pipeline records the outcome (`success`, or `error` with a summary when any model failed or was skipped) and the run it started.
+A scheduled run behaves like **Run** on the group, with `triggered_by` set to `scheduler`. The group records the outcome (`success`, or `error` with a summary when any model failed or was skipped) and the run it started.
 
 Credentials come from the `model` [background account](/docs/background-accounts). If none are available, or the worker is disabled, the run fails. Disabled blocks manual runs too.
 
 ### Schedules from earlier versions
 
-Before named pipelines, a schedule hung off an "anchor" model and ran that model's whole connected component. On the first start of this version each such schedule becomes a pipeline named after its anchor model, with the same cron, state and next run, in `UTC`. Its selector is `+anchor+` when that picks the whole component, otherwise the component's model names (`raw_events,cleaned_events,daily_aggregates`). The old `model_schedules` table is kept but no longer read; the `/api/models/schedule/{anchorId}` endpoints are gone.
+Before model groups, a schedule hung off an "anchor" model and ran that model's whole connected component. On the first start of this version each such schedule becomes a model group named after its anchor model, with the same cron, state and next run, in `UTC`. Its selector is `+anchor+` when that picks the whole component, otherwise the component's model names (`raw_events,cleaned_events,daily_aggregates`). The old `model_schedules` table is kept but no longer read; the `/api/models/schedule/{anchorId}` endpoints are gone.
 
 ## Run history
 
