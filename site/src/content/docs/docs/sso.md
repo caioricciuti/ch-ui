@@ -244,12 +244,13 @@ and signs them out (`sso.access_removed`); a connection that is offline is
 reported in the response and its user is kept for the sweep. A sign-in after a
 lock simply provisions them again with their current groups.
 
-Dashboard share links and MCP OAuth tokens a person created while on a
+Dashboard share links, MCP OAuth tokens and MCP service keys that
+[run as the person](/docs/mcp#keys-that-run-as-you) created while on a
 per-person connection carry no password of their own: they follow the live
 user, so the rotation at every sign-in does not break them, and they stop
 working when the user is locked or dropped. A share link then answers
-`410 Gone`, an OAuth access token `401`, and refreshing the token ends the
-grant. See [public sharing](/docs/dashboards#public-sharing) and
+`410 Gone`, an OAuth access token or a run-as-me key `401`, and refreshing
+the token ends the grant. See [public sharing](/docs/dashboards#public-sharing) and
 [MCP OAuth](/docs/mcp#connect-a-client-with-oauth).
 
 ### Security
@@ -381,7 +382,7 @@ While it is in force:
 - `POST /api/auth/switch-connection` answers `403` for a password session, and
   SSO sessions switch as usual.
 
-Not affected: MCP API keys, ingest keys, first-run setup and health checks.
+Not affected: MCP service keys, ingest keys, first-run setup and health checks.
 MCP OAuth consent signs in through the normal login page, so it uses SSO too.
 
 ### Lockout protection
