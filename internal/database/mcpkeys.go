@@ -23,10 +23,11 @@ type MCPKey struct {
 	CHUser        string `json:"ch_user"`
 	CHPasswordEnc string `json:"-"`
 	// SSOIdentityID, on an OAuth token granted by an SSO person with a
-	// per-person ClickHouse user, references that user instead of copying
-	// its password: CHPasswordEnc is then empty and the live
-	// sso_clickhouse_users row supplies the password on every request, so
-	// the token survives password rotation and dies with the user.
+	// per-person ClickHouse user or a service key created to run as that
+	// person, references that user instead of copying its password:
+	// CHPasswordEnc is then empty and the live sso_clickhouse_users row
+	// supplies the password on every request, so the key survives password
+	// rotation and dies with the user.
 	SSOIdentityID string `json:"-"`
 	// Scopes is 'read' or 'read_write'. Write tools (create saved queries,
 	// dashboards, models, pipelines) are registered only for read_write keys.
@@ -52,8 +53,8 @@ type MCPKey struct {
 	Kind     string `json:"kind"`
 	Subject  string `json:"subject"`
 	ClientID string `json:"client_id"`
-	// GrantRole is the CH-UI role the person held when an OAuth token was
-	// issued. It stands in for their role only while they have no live
+	// GrantRole is the CH-UI role the person held when an OAuth token or a
+	// run-as-me service key was issued. It stands in for their role only while they have no live
 	// session on the key's connection; see OAuthKeyRole.
 	GrantRole string `json:"-"`
 }
@@ -68,6 +69,12 @@ func (k *MCPKey) Expired(now time.Time) bool {
 		return true // unparseable expiry fails closed
 	}
 	return !now.Before(t)
+}
+
+// ActsAsPerson reports whether the key acts with a person's CH-UI role: an
+// OAuth token, or a service key created to run as an SSO person.
+func (k *MCPKey) ActsAsPerson() bool {
+	return k.Kind == "oauth" || k.SSOIdentityID != ""
 }
 
 // oauthAuthSubject is the SSO email behind an OAuth token, or "" when the
@@ -87,7 +94,7 @@ type CreateMCPKeyParams struct {
 	ConnectionID     string
 	CHUser           string
 	CHPasswordEnc    string
-	SSOIdentityID    string // oauth only: see MCPKey.SSOIdentityID
+	SSOIdentityID    string // see MCPKey.SSOIdentityID
 	Scopes           string // "read" or "read_write"
 	AllowActions     bool   // honored only with Scopes "read_write"
 	AllowedDatabases string
@@ -96,7 +103,7 @@ type CreateMCPKeyParams struct {
 	Kind             string  // "" or "api" (default), or "oauth"
 	Subject          string
 	ClientID         string
-	GrantRole        string // oauth only: see MCPKey.GrantRole
+	GrantRole        string // person-backed keys only: see MCPKey.GrantRole
 }
 
 func (db *DB) CreateMCPKey(p CreateMCPKeyParams) (*MCPKey, error) {

@@ -38,6 +38,8 @@
 
   let keys = $state<MCPKey[]>([])
   let connections = $state<ConnectionRow[]>([])
+  // Connection id to my per-person ClickHouse user, where a key can run as me.
+  let asMe = $state<Record<string, string>>({})
   let loading = $state(true)
 
   // ── Table controls ────────────────────────────────────────────
@@ -57,6 +59,7 @@
   let form = $state({
     name: '',
     connectionId: '',
+    runsAs: 'me' as 'me' | 'account',
     chUser: '',
     chPassword: '',
     scopes: 'read' as 'read' | 'read_write',
@@ -84,6 +87,12 @@
     { value: 'read_write', label: 'Read + write' },
   ]
   const connectionOptions = $derived(connections.map((c) => ({ value: c.id, label: c.name })))
+  const meUser = $derived(asMe[form.connectionId] ?? '')
+  const runsAsMe = $derived(!!meUser && form.runsAs === 'me')
+  const runsAsOptions = $derived([
+    { value: 'me', label: `Me (${meUser})` },
+    { value: 'account', label: 'A ClickHouse account' },
+  ])
 
   // ── Endpoint + client snippets ────────────────────────────────
   const mcpUrl = $derived(`${window.location.origin}/mcp`)
@@ -202,6 +211,7 @@
         apiGet<{ username: string; role: string }[]>('/api/admin/user-roles').catch(() => []),
       ])
       keys = keysRes.keys
+      asMe = keysRes.as_me ?? {}
       connections = conns
       adminAccounts = new Set(['default', ...roles.filter((r) => r.role === 'admin').map((r) => r.username)])
       if (!form.connectionId && conns.length > 0) form.connectionId = conns[0].id
@@ -242,6 +252,7 @@
     form = {
       name: '',
       connectionId: connections[0]?.id ?? '',
+      runsAs: 'me',
       chUser: '',
       chPassword: '',
       scopes: 'read',
@@ -252,8 +263,8 @@
   }
 
   async function submit() {
-    if (!form.name.trim() || !form.connectionId || !form.chUser.trim()) {
-      toastError('Name, connection and ClickHouse user are required')
+    if (!form.name.trim() || !form.connectionId || (!runsAsMe && !form.chUser.trim())) {
+      toastError(runsAsMe ? 'Name and connection are required' : 'Name, connection and ClickHouse user are required')
       return
     }
     creating = true
@@ -261,8 +272,9 @@
       const res = await createMCPKey({
         name: form.name.trim(),
         connection_id: form.connectionId,
-        ch_user: form.chUser.trim(),
-        ch_password: form.chPassword,
+        as_me: runsAsMe,
+        ch_user: runsAsMe ? '' : form.chUser.trim(),
+        ch_password: runsAsMe ? '' : form.chPassword,
         scopes: form.scopes,
         allow_actions: form.scopes === 'read_write' && form.allowActions,
         allowed_databases: form.allowedDatabases.trim(),
@@ -429,7 +441,7 @@
               </div>
             </div>
           {:else if col.key === 'ch_user'}
-            {#if row.kind === 'oauth'}
+            {#if row.kind === 'oauth' || row.subject}
               <div class="min-w-0">
                 <div class="flex items-center gap-1.5 text-fg"><UserRound size={12} class="shrink-0 text-fg-3" /><span class="truncate">{row.subject || 'person'}</span></div>
                 <div class="truncate font-mono text-[11px] text-fg-4">{row.ch_user}</div>
@@ -497,7 +509,7 @@
   title={revealed ? `Key "${revealed.name}"` : 'New service key'}
   description={revealed
     ? 'Rotate it from the keys table if it ever leaks.'
-    : 'For CI, scripts and shared clients. The key runs as the ClickHouse account you name here, and that account\'s grants are the permission boundary. To connect a client as yourself, use the URL on the page instead.'}
+    : 'For CI, scripts and clients that cannot sign in. The key runs as you or as a ClickHouse account you name here, and that user\'s grants are the permission boundary. To connect a client that can sign in, use the URL on the page instead.'}
   size="lg"
   onclose={closeSheet}
 >
@@ -508,7 +520,7 @@
       </div>
       <div class="flex items-center gap-2">
         <pre class="flex-1 overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-surface-2 p-3 font-mono text-xs text-fg">{revealed.secret}</pre>
-        <Button size="md" variant="outline" icon aria-label="Copy key" title="Copy key" onclick={() => copyText(revealed!.secret, 'MCP key')}>
+        <Button size="md" variant="outline" icon aria-label="Copy key" title="Copy key" onclick={() => copyText(revealed!.secret, 'Key')}>
           <Copy size={14} />
         </Button>
       </div>
@@ -529,14 +541,28 @@
       <FormField label="Connection" for="mcp-key-connection" required controlWidth="full">
         <Select id="mcp-key-connection" options={connectionOptions} bind:value={form.connectionId} />
       </FormField>
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <FormField label="ClickHouse user" for="mcp-key-user" required controlWidth="full" hint="The key runs as this user. Use a locked-down account.">
-          <Input id="mcp-key-user" bind:value={form.chUser} placeholder="mcp_readonly" autocomplete="off" />
+      {#if meUser}
+        <FormField
+          label="Runs as"
+          for="mcp-key-runs-as"
+          controlWidth="full"
+          hint={runsAsMe
+            ? 'Follows your SSO user: no password is stored, your name is on every query, and the key stops when your access is removed. Your CH-UI role still decides whether it can write.'
+            : 'A shared account. Nothing the key does is attributed to a person.'}
+        >
+          <Select id="mcp-key-runs-as" options={runsAsOptions} value={form.runsAs} onchange={(v) => (form.runsAs = v as 'me' | 'account')} />
         </FormField>
-        <FormField label="ClickHouse password" for="mcp-key-password" controlWidth="full">
-          <Input id="mcp-key-password" type="password" bind:value={form.chPassword} autocomplete="new-password" />
-        </FormField>
-      </div>
+      {/if}
+      {#if !runsAsMe}
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <FormField label="ClickHouse user" for="mcp-key-user" required controlWidth="full" hint="The key runs as this user. Use a locked-down account.">
+            <Input id="mcp-key-user" bind:value={form.chUser} placeholder="mcp_readonly" autocomplete="off" />
+          </FormField>
+          <FormField label="ClickHouse password" for="mcp-key-password" controlWidth="full">
+            <Input id="mcp-key-password" type="password" bind:value={form.chPassword} autocomplete="new-password" />
+          </FormField>
+        </div>
+      {/if}
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <FormField
           label="Access"
@@ -563,7 +589,7 @@
             <input type="checkbox" class="ds-checkbox" bind:checked={form.allowActions} />
             Allow lifecycle actions
           </label>
-          <p class="text-xs text-fg-4">Run existing models as this ClickHouse user, start and stop pipelines, and on Pro run scheduled jobs and send reports now. These run against ClickHouse; each one asks for confirmation in clients that support it and is audited. <a class="text-accent hover:underline" href={permissionDocs} target="_blank" rel="noreferrer">Permission levels</a></p>
+          <p class="text-xs text-fg-4">Run existing models as {runsAsMe ? 'you' : 'this ClickHouse user'}, start and stop pipelines, and on Pro run scheduled jobs and send reports now. These run against ClickHouse; each one asks for confirmation in clients that support it and is audited. <a class="text-accent hover:underline" href={permissionDocs} target="_blank" rel="noreferrer">Permission levels</a></p>
         </div>
       {/if}
       <FormField label="Allowed databases" for="mcp-key-dbs" controlWidth="full" hint="Comma-separated. Empty = all databases the user can see.">
@@ -584,8 +610,8 @@
 
 <ConfirmDialog
   open={rotateTarget !== null}
-  title="Rotate MCP key"
-  description={`Rotate "${rotateTarget?.name ?? ''}"? A new secret is issued with the same connection, user, scope and expiry; the current secret stops working immediately. Update every client that uses it.`}
+  title="Rotate service key"
+  description={`Rotate "${rotateTarget?.name ?? ''}"? A new secret is issued with the same connection, runs-as user, scope and expiry; the current secret stops working immediately. Update every client that uses it.`}
   confirmLabel="Rotate"
   destructive={false}
   loading={rotating}
@@ -595,8 +621,8 @@
 
 <ConfirmDialog
   open={revokeTarget !== null}
-  title="Revoke MCP key"
-  description={`Revoke "${revokeTarget?.name ?? ''}"? Clients using it lose access immediately. This cannot be undone.`}
+  title={revokeTarget?.kind === 'oauth' ? 'Revoke OAuth grant' : 'Revoke service key'}
+  description={`Revoke "${revokeTarget?.kind === 'oauth' ? revokeTarget.subject || revokeTarget.name : revokeTarget?.name ?? ''}"? Clients using it lose access immediately. This cannot be undone.`}
   confirmLabel="Revoke"
   destructive={true}
   loading={revoking}

@@ -18,7 +18,7 @@ export interface MCPKey {
   revoked_at: string | null
   /** 'api' for admin-created keys, 'oauth' for tokens a person granted via OAuth. */
   kind: 'api' | 'oauth'
-  /** The person who granted an OAuth token. */
+  /** The person who granted an OAuth token or created a key that runs as them. */
   subject: string
   client_id: string
 }
@@ -26,6 +26,8 @@ export interface MCPKey {
 export interface MCPKeysResult {
   success: boolean
   keys: MCPKey[]
+  /** Connection id to the signed-in person's per-person ClickHouse user, where a new key can run as them. */
+  as_me: Record<string, string>
 }
 
 export interface CreateMCPKeyRequest {
@@ -39,6 +41,8 @@ export interface CreateMCPKeyRequest {
   allowed_databases: string
   /** Days until the key expires; 0 or omitted = never. */
   expires_in_days?: number
+  /** Run as the signed-in person's per-person ClickHouse user; ch_user and ch_password are then ignored. */
+  as_me?: boolean
 }
 
 export interface CreateMCPKeyResult {
