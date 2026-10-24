@@ -25,7 +25,7 @@ Open Source includes the full workspace, running on your own infrastructure:
 - [Sink table layouts](/docs/pipelines#table-layouts): custom from data, wide events, OpenTelemetry logs and traces
 - Brain AI chat (bring your own key), with skills and artifacts
 - Telemetry logs, sources, and saved searches
-- The MCP server for AI clients (read tools, write tools, lifecycle actions, OAuth, API keys)
+- The MCP server for AI clients (read tools, write tools, lifecycle actions, OAuth, service keys)
 - The admin panel: users, roles, ClickHouse users, connections (including multiple connections), tunnel agents, Brain providers and skills, retention. These need the admin role, not Pro.
 - The command palette (actions, tables, tabs) and the tunnel connector
 

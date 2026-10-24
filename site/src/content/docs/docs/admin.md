@@ -214,7 +214,7 @@ SSO status and configuration also live in **Admin → Settings**: a status panel
 
 ## MCP Server
 
-**Admin → MCP Server** manages the embedded MCP endpoint: counters for active keys, OAuth grants, keys expiring soon and keys used in the last day, the endpoint URL with config snippets per client, and the tables of API keys and OAuth grants where you create, rotate and revoke access. See [MCP Server](/docs/mcp).
+**Admin → MCP Server** manages the embedded MCP endpoint: counters for active keys, OAuth grants, keys expiring soon and keys used in the last day, the endpoint URL with config snippets per client, and the tables of service keys and OAuth grants where you create, rotate and revoke access. See [MCP Server](/docs/mcp).
 
 ## Brain configuration
 

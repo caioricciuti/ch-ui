@@ -214,13 +214,14 @@ The admin page for the server shows:
 - One table of **OAuth grants** and one of **service keys**, with search and
   a toggle to show revoked entries. The page opens on the grants when you
   have one yourself. The **Runs as** column names the person behind a grant
-  with their ClickHouse user underneath, or the account behind a key; a
-  service key with write access on `default` or another CH-UI admin account
+  with their ClickHouse user underneath, the person behind a key that runs as
+  them, or the account behind any other key; a service key with write access on `default` or another CH-UI admin account
   gets an `admin account` warning, because nothing it does is attributed to
   a person. Rotate or revoke from the row. Read + write keys show a
   `read + write` badge, and keys with lifecycle actions an `actions` badge
   next to it.
-- **New service key**: pick the connection, ClickHouse account, access level
+- **New service key**: pick the connection, who the key runs as (see
+  [Keys that run as you](#keys-that-run-as-you)), access level
   (Read or Read + write), the **Allow lifecycle actions** checkbox (shown
   for Read + write only), database allowlist and expiry. After you create
   the key, the form turns into a one-time reveal with the snippets already
@@ -260,6 +261,29 @@ rotation issues a new secret with the same connection, ClickHouse user,
 permission level, allowlist and expiry, and revokes the old one in the same
 transaction. An expired key gets `401` with an "expired" message, so the
 client shows why.
+
+### Keys that run as you
+
+With [per-person ClickHouse users](/docs/sso#per-person-clickhouse-users),
+an admin who signed in with SSO can create a service key that runs as
+themselves instead of a ClickHouse account. The **New service key** sheet
+shows a **Runs as** choice when you have a per-person user on the chosen
+connection: **Me** (the default) or **A ClickHouse account**. Use it for a
+script or a client that cannot do the OAuth sign-in but should act as you.
+
+A key that runs as you behaves like your [OAuth grant](#connect-a-client-with-oauth):
+
+- It stores no password. Every call uses your live per-person user, so the
+  key keeps working when the password rotates at sign-in, and answers `401`
+  once that user is locked or dropped.
+- Your name is on every query, in query history and in the audit log.
+- Your CH-UI role is checked again on every request. If your role no longer
+  allows writing, a Read + write key loses its write and action tools at
+  once.
+- `list_reports` and `run_saved_report_now` see your own reports.
+
+It still expires and rotates like any service key. Rotation keeps it bound
+to you.
 
 ## Tools
 
@@ -376,7 +400,7 @@ in the UI, for the key's connection only.
 | `list_alerts` | Pro | Read | Health check thresholds with the nodes pending or firing, and the SQL alerts with state, last value and last run. Paginated |
 | `alert_events` | Pro | Read | Alert events, newest first. `range` 1h, 6h, 24h (default), 7d or 30d; `limit` (default 50, max 500) |
 | `list_schedules` | Pro | Read | Scheduled query jobs that run on the connection, with last status and next run. Paginated |
-| `list_reports` | Pro | Read | Your own scheduled reports on the connection, with channels and last delivery status. No recipients. OAuth sign-ins only: reports belong to people, so an API key gets an empty list |
+| `list_reports` | Pro | Read | Your own scheduled reports on the connection, with channels and last delivery status. No recipients. OAuth sign-ins and keys that run as you only: reports belong to people, so a key on a ClickHouse account gets an empty list |
 | `cluster_health` | Pro | Read | Live per-node replication, merges, mutations, parts pressure, long queries and disk usage |
 | `query_insights_top` | Pro | Read | Top query patterns from `system.query_log` by p95 latency (`slow`), peak memory (`memory`) or run count (`frequent`) |
 | `costs_summary` | Pro | Read | Cost Center spend summary priced with the connection's configured rates |
@@ -387,9 +411,10 @@ in the UI, for the key's connection only.
 |---|---|---|---|
 | `query_history` | Free | Read | The `run_select` and `run_saved_query` calls this client already made on the connection, newest first, with status, error, elapsed time and rows. `range` (1h, 6h, 24h, 7d default, 30d), `status` ok or error, `limit` (default 50, max 500) |
 
-An API key sees only its own queries, even when its ClickHouse user is shared
-with other keys or with people in the editor. An OAuth sign-in sees the
-person's MCP queries across refreshed tokens. Queries run in the CH-UI editor,
+A service key on a ClickHouse account sees only its own queries, even when
+that user is shared with other keys or with people in the editor. An OAuth
+sign-in or a key that runs as you sees the person's MCP queries across
+refreshed tokens and other keys. Queries run in the CH-UI editor,
 and other people's queries, are never included.
 
 ### Actions
@@ -400,7 +425,7 @@ and other people's queries, are never included.
 | `start_pipeline` | Free | Actions | Starts a pipeline on this connection. It keeps writing until it is stopped. Pipelines with a SQLite source can only be started by an admin from the UI |
 | `stop_pipeline` | Free | Actions | Stops a running pipeline. Its source position is kept, so starting it again resumes |
 | `run_schedule_now` | Pro | Actions | Runs a scheduled job's saved query once, now, as the key's ClickHouse user, like **Run now** on the Schedules page |
-| `run_saved_report_now` | Pro | Actions | Runs one of your own reports on this connection and delivers it to its channels, like **Send now** on the Reports page. OAuth sign-ins only: reports belong to people, so API keys are refused |
+| `run_saved_report_now` | Pro | Actions | Runs one of your own reports on this connection and delivers it to its channels, like **Send now** on the Reports page. OAuth sign-ins and keys that run as you only: reports belong to people, so keys on a ClickHouse account are refused |
 
 Models and scheduled jobs run with the key's own ClickHouse user and its
 grants, without `readonly = 1` for the build itself but with the usual time
@@ -569,8 +594,8 @@ already covers them. Two things matter:
 ## Notes and troubleshooting
 
 - MCP queries carry the `mcp` [query tag](/docs/query-insights#query-tags) in
-  `log_comment`, naming the person behind an OAuth token (or the admin who
-  created an API key) and the key: `{"chui":"mcp","person":"ana@example.com","object":"mcp_key:…"}`.
+  `log_comment`, naming the person behind an OAuth token or a key that runs
+  as them (or the admin who created any other service key) and the key: `{"chui":"mcp","person":"ana@example.com","object":"mcp_key:…"}`.
   They show up in [Query Insights](/docs/query-insights) like any other
   workload.
 - The connection's agent must be online; tools return a clear "offline" error
