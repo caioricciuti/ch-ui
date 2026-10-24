@@ -38,9 +38,9 @@ func NewScheduler(db *database.DB, runner *Runner) *Scheduler {
 // goroutine.
 func (s *Scheduler) Start() {
 	if n, err := MigrateLegacySchedules(s.db); err != nil {
-		slog.Error("Failed to copy model schedules into pipelines", "error", err)
+		slog.Error("Failed to copy model schedules into model groups", "error", err)
 	} else if n > 0 {
-		slog.Info("Copied model schedules into named pipelines", "pipelines", n)
+		slog.Info("Copied model schedules into model groups", "pipelines", n)
 	}
 	if n, err := s.db.MarkInterruptedModelRuns(InterruptedRunMessage); err != nil {
 		slog.Error("Failed to close interrupted model runs", "error", err)
@@ -73,7 +73,7 @@ func (s *Scheduler) Stop() {
 func (s *Scheduler) tick() {
 	pipelines, err := s.db.GetEnabledModelPipelines()
 	if err != nil {
-		slog.Error("Failed to load scheduled model pipelines", "error", err)
+		slog.Error("Failed to load scheduled model groups", "error", err)
 		return
 	}
 
@@ -87,7 +87,7 @@ func (s *Scheduler) tick() {
 			continue
 		}
 
-		slog.Info("Model pipeline schedule triggered",
+		slog.Info("Model group schedule triggered",
 			"connection_id", p.ConnectionID, "pipeline", p.Name, "selector", p.Selector, "cron", p.Cron)
 
 		status := "success"
@@ -99,7 +99,7 @@ func (s *Scheduler) tick() {
 		if runErr != nil {
 			status = "error"
 			runError = runErr.Error()
-			slog.Error("Scheduled model pipeline failed", "connection_id", p.ConnectionID, "pipeline", p.Name, "error", runErr)
+			slog.Error("Scheduled model group failed", "connection_id", p.ConnectionID, "pipeline", p.Name, "error", runErr)
 		}
 
 		var nextRunAt *string
@@ -108,7 +108,7 @@ func (s *Scheduler) tick() {
 			nextRunAt = &formatted
 		}
 		if err := s.db.RecordModelPipelineRun(p.ID, status, runError, runID, nextRunAt); err != nil {
-			slog.Error("Failed to record model pipeline run", "pipeline_id", p.ID, "error", err)
+			slog.Error("Failed to record model group run", "pipeline_id", p.ID, "error", err)
 		}
 	}
 }

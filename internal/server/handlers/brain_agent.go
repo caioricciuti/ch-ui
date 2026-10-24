@@ -72,7 +72,7 @@ const proPromptWrite = "Mutating tools (the user must approve each one; they see
 	"  - start_pipeline(pipeline_id): begin ingestion.\n" +
 	"  Run / schedule models:\n" +
 	"  - run_model(model_id) / build_model(model_id, full_refresh?): build a model with its upstream models and run their data tests. full_refresh rebuilds an incremental or materialized_view model from scratch.\n" +
-	"  - schedule_model(model_id, cron, timezone?): saves a named pipeline (+model+) on a 5-field cron, read in timezone (default UTC).\n" +
+	"  - schedule_model(model_id, cron, timezone?): saves a model group named after the model (+model+) on a 5-field cron, read in timezone (default UTC).\n" +
 	"  Update:\n" +
 	"  - update_saved_query(id, ...) / update_model(id, ...): fix existing things instead of recreating. Unspecified fields keep their current value.\n" +
 	"  Delete (irreversible):\n" +

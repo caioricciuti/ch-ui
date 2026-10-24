@@ -308,7 +308,7 @@ func (h *ModelsHandler) ListPipelines(w http.ResponseWriter, r *http.Request) {
 	}
 	pipelines, err := h.DB.GetModelPipelines(session.ConnectionID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to load pipelines")
+		writeError(w, http.StatusInternalServerError, "Failed to load model groups")
 		return
 	}
 	_, all, err := h.modelTargetsFor(session.ConnectionID)
@@ -437,10 +437,10 @@ func (h *ModelsHandler) applyPipelineBody(w http.ResponseWriter, connectionID st
 
 func pipelineSaveError(w http.ResponseWriter, err error) {
 	if strings.Contains(err.Error(), "UNIQUE") {
-		writeError(w, http.StatusConflict, "A pipeline with this name already exists")
+		writeError(w, http.StatusConflict, "A model group with this name already exists")
 		return
 	}
-	writeError(w, http.StatusInternalServerError, "Failed to save pipeline")
+	writeError(w, http.StatusInternalServerError, "Failed to save model group")
 }
 
 // CreatePipeline stores a named pipeline.
@@ -479,11 +479,11 @@ func (h *ModelsHandler) pipelineForSession(w http.ResponseWriter, r *http.Reques
 	}
 	p, err := h.DB.GetModelPipelineByID(chi.URLParam(r, "pipelineId"))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to load pipeline")
+		writeError(w, http.StatusInternalServerError, "Failed to load model group")
 		return nil
 	}
 	if p == nil || p.ConnectionID != session.ConnectionID {
-		writeError(w, http.StatusNotFound, "Pipeline not found")
+		writeError(w, http.StatusNotFound, "Model group not found")
 		return nil
 	}
 	return p
@@ -518,7 +518,7 @@ func (h *ModelsHandler) DeletePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.DB.DeleteModelPipeline(p.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to delete pipeline")
+		writeError(w, http.StatusInternalServerError, "Failed to delete model group")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})

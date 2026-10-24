@@ -434,8 +434,8 @@ func (r *Runner) runTests(runID string, m database.Model, modelTargets map[strin
 // connection's models. Nothing is recorded.
 var ErrModelNotFound = errors.New("model not found")
 
-// ErrPipelineNotFound means the pipeline is not one of the connection's.
-var ErrPipelineNotFound = errors.New("pipeline not found")
+// ErrPipelineNotFound means the model group is not one of the connection's.
+var ErrPipelineNotFound = errors.New("model group not found")
 
 // RunFailedError is returned, together with the run ID, when a run finished
 // but at least one model failed or was skipped. The run is recorded.

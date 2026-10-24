@@ -455,7 +455,7 @@ func writeRunOutcome(w http.ResponseWriter, runID string, err error) {
 	case errors.Is(err, models.ErrModelNotFound):
 		writeError(w, http.StatusNotFound, "Model not found")
 	case errors.Is(err, models.ErrPipelineNotFound):
-		writeError(w, http.StatusNotFound, "Pipeline not found")
+		writeError(w, http.StatusNotFound, "Model group not found")
 	case errors.As(err, &selErr):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:

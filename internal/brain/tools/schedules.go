@@ -23,7 +23,7 @@ func RegisterSchedules(r *Registry) {
 
 var scheduleModel = Tool{
 	Name:             "schedule_model",
-	Description:      "Schedule a model to build on a cron, with its upstream and downstream models (and their data tests). Creates or updates the named model pipeline called after the model, with selector +<model>+. Pass cron in standard 5-field format (e.g. '0 6 * * *' = daily at 06:00) and an optional IANA timezone (default UTC).",
+	Description:      "Schedule a model to build on a cron, with its upstream and downstream models (and their data tests). Creates or updates the model group named after the model, with selector +<model>+. Pass cron in standard 5-field format (e.g. '0 6 * * *' = daily at 06:00) and an optional IANA timezone (default UTC).",
 	RequiresApproval: true,
 	Parameters: mustJSON(map[string]any{
 		"type":     "object",
