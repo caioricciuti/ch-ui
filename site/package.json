@@ -11,12 +11,13 @@
   },
   "dependencies": {
     "@astrojs/starlight": "0.42.6",
-    "astro": "7.3.8"
+    "astro": "7.4.0"
   },
   "overrides": {
     "http-cache-semantics": "4.3.0",
     "sharp": "0.35.5",
     "source-map-js": "1.2.2",
+    "undici": "8.12.2",
     "zod": "4.6.6"
   },
   "trustedDependencies": [],
