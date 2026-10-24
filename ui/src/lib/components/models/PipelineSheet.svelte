@@ -105,10 +105,10 @@
     try {
       if (pipeline) {
         await api.updatePipeline(pipeline.id, input)
-        toastSuccess('Pipeline saved')
+        toastSuccess('Model group saved')
       } else {
         await api.createPipeline(input)
-        toastSuccess('Pipeline created')
+        toastSuccess('Model group created')
       }
       onclose()
       await onsaved()
@@ -122,7 +122,7 @@
 
 <Sheet
   {open}
-  title={pipeline ? 'Edit pipeline' : 'New pipeline'}
+  title={pipeline ? 'Edit model group' : 'New model group'}
   description="A named group of models picked by a selector, run in dependency order, optionally on a schedule."
   size="sm"
   {onclose}
@@ -174,7 +174,7 @@
       <div class="flex items-center justify-between gap-4">
         <div>
           <div class="text-xs font-medium text-fg-2">Enabled</div>
-          <p class="mt-0.5 text-xs text-fg-3">Paused pipelines keep their schedule but do not run.</p>
+          <p class="mt-0.5 text-xs text-fg-3">Paused groups keep their schedule but do not run.</p>
         </div>
         <Switch checked={enabled} label={enabled ? 'Pause schedule' : 'Enable schedule'} onchange={(next) => { enabled = next }} />
       </div>
@@ -204,7 +204,7 @@
   {#snippet footer()}
     <Button size="sm" variant="outline" onclick={onclose}>Cancel</Button>
     <Button size="sm" type="submit" form="pipeline-form" loading={saving}>
-      {pipeline ? 'Save' : 'Create pipeline'}
+      {pipeline ? 'Save' : 'Create group'}
     </Button>
   {/snippet}
 </Sheet>

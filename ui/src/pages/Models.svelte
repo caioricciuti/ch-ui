@@ -170,7 +170,7 @@
   })
 
   const pipelineFilterOptions = $derived([
-    { value: 'all', label: 'All pipelines' },
+    { value: 'all', label: 'All groups' },
     ...pipelines.map((p) => ({ value: p.id, label: p.name })),
     { value: 'ungrouped', label: 'Ungrouped' },
   ])
@@ -345,7 +345,7 @@
       pipelines = res.pipelines ?? []
       serverUngrouped = res.ungrouped_model_ids ?? []
     } catch (e: unknown) {
-      toastErrorFrom(e, 'load pipelines')
+      toastErrorFrom(e, 'load model groups')
     }
   }
 
@@ -358,7 +358,7 @@
       await showRunOutcome(res, `Pipeline ${p.name} finished`)
       await loadPipelines()
     } catch (e: unknown) {
-      toastErrorFrom(e, 'run pipeline')
+      toastErrorFrom(e, 'run model group')
     } finally {
       runningPipeline = null
     }
@@ -379,10 +379,10 @@
     deletingPipeline = true
     try {
       await api.deletePipeline(pendingPipelineDelete.id)
-      toastSuccess('Pipeline deleted')
+      toastSuccess('Model group deleted')
       await loadPipelines()
     } catch (e: unknown) {
-      toastErrorFrom(e, 'delete pipeline')
+      toastErrorFrom(e, 'delete model group')
     } finally {
       deletingPipeline = false
       pendingPipelineDelete = null
@@ -615,7 +615,7 @@
     rowKey={(r) => String(r.id)}
     fill={opts.fill ?? false}
     emptyTitle={opts.emptyTitle ?? 'Nothing matches'}
-    emptyDescription={opts.emptyDescription ?? 'Try another search or pipeline.'}
+    emptyDescription={opts.emptyDescription ?? 'Try another search or group.'}
     onrowclick={(r) => selectModel(String(r.id))}
     onrowcontextmenu={(r, e) => { const m = models.find((x) => x.id === String(r.id)); if (m) openContextMenuAtPointer(e, m) }}
   >
@@ -689,12 +689,12 @@
           variant="ghost"
           onclick={() => handleRunPipeline(pipeline)}
           disabled={runningPipeline !== null || running || picked.length === 0}
-          title="Run this pipeline now"
+          title="Run this group now"
         >
           {runningPipeline === pipeline.id ? 'Running...' : 'Run'}
         </Button>
-        <Button size="xs" variant="ghost" onclick={() => openEditPipeline(pipeline)} title="Edit pipeline">Edit</Button>
-        <Button icon size="xs" variant="ghost" onclick={() => { pendingPipelineDelete = pipeline }} aria-label="Delete pipeline" title="Delete pipeline">
+        <Button size="xs" variant="ghost" onclick={() => openEditPipeline(pipeline)} title="Edit group">Edit</Button>
+        <Button icon size="xs" variant="ghost" onclick={() => { pendingPipelineDelete = pipeline }} aria-label="Delete group" title="Delete group">
           <Trash2 size={12} />
         </Button>
       {/snippet}
@@ -705,7 +705,7 @@
       <p class="mb-2 truncate text-xs text-danger" title={pipeline.last_error}>Last run: {pipeline.last_error}</p>
     {/if}
     {@render modelTable(shown, picked.length === 0
-      ? { emptyTitle: 'The selector picks no models', emptyDescription: 'Edit the pipeline to change its selector.' }
+      ? { emptyTitle: 'The selector picks no models', emptyDescription: 'Edit the group to change its selector.' }
       : {})}
   </section>
 {/snippet}
@@ -728,7 +728,7 @@
       >
         {running ? 'Running...' : 'Run all'}
       </Button>
-      <Button size="sm" variant="outline" onclick={openNewPipeline} disabled={models.length === 0}>New pipeline</Button>
+      <Button size="sm" variant="outline" onclick={openNewPipeline} disabled={models.length === 0}>New group</Button>
       <Button size="sm" onclick={handleCreate}>New model</Button>
     {/snippet}
   </PageHeader>
@@ -773,7 +773,7 @@
     </div>
     <div class="min-h-0 flex-1">
       {#if runs.length === 0}
-        <EmptyState icon={History} title="No runs yet" description="Run the pipeline and each run shows up here with per-model results." />
+        <EmptyState icon={History} title="No runs yet" description="Run all models or a group, and each run shows up here with per-model results." />
       {:else}
         <DataTable
           fill
@@ -805,7 +805,7 @@
         <EmptyState
           icon={Boxes}
           title="No models yet"
-          description="Models are SQL transformations that form a pipeline. They can reference each other with $ref(model_name) and run in dependency order."
+          description="Models are SQL transformations that build on each other. They can reference each other with $ref(model_name) and run in dependency order."
           primary={{ label: 'Create your first model', onclick: handleCreate }}
         />
       </div>
@@ -824,7 +824,7 @@
         <div class="flex shrink-0 items-center gap-2 border-b border-edge-subtle bg-info-soft px-5 py-1.5 text-[13px] text-fg-2">
           <p class="min-w-0 flex-1 truncate">
             Models reference each other with <code class="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-[11px] text-fg">$ref(model_name)</code>.
-            A pipeline is a named group picked by a selector, run and scheduled together. Run all executes every model in dependency order and skips the dependents of a failed model.
+            A model group is a named set of models picked by a selector, run and scheduled together. Run all executes every model in dependency order and skips the dependents of a failed model.
           </p>
           <Button icon size="xs" variant="ghost" onclick={dismissInfo} aria-label="Dismiss" title="Dismiss">
             <X size={13} />
@@ -843,12 +843,12 @@
             {/each}
             {#if visibleUngrouped.length > 0 || (pipelineFilter === 'ungrouped' && !search.trim())}
               <section>
-                <SectionHeader title="Ungrouped" description="Not picked by any pipeline. Run all still runs them." />
-                {@render modelTable(visibleUngrouped, { emptyTitle: 'No ungrouped models', emptyDescription: 'Every model is picked by a pipeline.' })}
+                <SectionHeader title="Ungrouped" description="Not in any group. Run all still runs them." />
+                {@render modelTable(visibleUngrouped, { emptyTitle: 'No ungrouped models', emptyDescription: 'Every model is in a group.' })}
               </section>
             {/if}
             {#if visiblePipelines.length === 0 && visibleUngrouped.length === 0 && pipelineFilter !== 'ungrouped'}
-              <EmptyState size="compact" title="Nothing matches" description="Try another search or pipeline." />
+              <EmptyState size="compact" title="Nothing matches" description="Try another search or group." />
             {/if}
           </div>
         </PageBody>
@@ -1003,8 +1003,8 @@
 
 <ConfirmDialog
   open={!!pendingPipelineDelete}
-  title="Delete pipeline"
-  description={pendingPipelineDelete ? `Delete the pipeline "${pendingPipelineDelete.name}" and its schedule? Its models are kept.` : ''}
+  title="Delete model group"
+  description={pendingPipelineDelete ? `Delete the group "${pendingPipelineDelete.name}" and its schedule? Its models are kept.` : ''}
   confirmLabel="Delete"
   destructive
   loading={deletingPipeline}
