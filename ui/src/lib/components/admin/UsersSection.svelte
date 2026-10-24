@@ -22,7 +22,8 @@
   import Input from '../common/Input.svelte'
   import Select from '../common/Select.svelte'
   import DataTable, { type DataColumn } from '../common/DataTable.svelte'
-  import { RefreshCw, UserPlus, KeyRound, Trash2, Search } from 'lucide-svelte'
+  import { RefreshCw, UserPlus, KeyRound, Trash2, Search, Copy } from 'lucide-svelte'
+  import { generatePassword, randomSalt, saltedSha256 } from '../../utils/password-hash'
 
   // Admin > Users. Two lists: CH-UI application users (with the role
   // override that grants Admin UI access) and the users defined in the
@@ -85,25 +86,46 @@
   let selectedCHUserName = $state('')
   let createCHUserErrorMessage = $state('')
   let createCHUserExecutedCommands = $state<string[]>([])
+  // How a created or changed user signs in. The password is generated or
+  // typed here and hashed in the browser; only the hash is sent.
+  type SignIn = 'generate' | 'set' | 'none'
   let createCHUserForm = $state({
     name: '',
-    authType: 'sha256_password',
+    signIn: 'generate' as SignIn,
     password: '',
     defaultRoles: '',
-    ifNotExists: true,
   })
   let updateCHUserPasswordForm = $state({
-    authType: 'sha256_password',
+    signIn: 'generate' as SignIn,
     password: '',
     ifExists: true,
   })
+  // A generated password, shown once in the sheet that made it.
+  let revealedPassword = $state<{ user: string; password: string } | null>(null)
 
-  const clickHouseAuthTypeOptions = [
-    { value: 'sha256_password', label: 'sha256_password' },
-    { value: 'plaintext_password', label: 'plaintext_password' },
-    { value: 'double_sha1_password', label: 'double_sha1_password' },
-    { value: 'no_password', label: 'no_password' },
+  const signInOptions = [
+    { value: 'generate', label: 'Generate a password' },
+    { value: 'set', label: 'Set a password' },
+    { value: 'none', label: 'No password' },
   ]
+
+  /** The auth sent to the server, and the password to show once when one was generated. */
+  async function buildCHUserAuth(signIn: SignIn, typed: string): Promise<{ auth: { method: string; hash?: string; salt?: string }; generated?: string }> {
+    if (signIn === 'none') return { auth: { method: 'no_password' } }
+    const password = signIn === 'generate' ? generatePassword() : typed
+    const salt = randomSalt()
+    const auth = { method: 'sha256_hash', hash: await saltedSha256(password, salt), salt }
+    return signIn === 'generate' ? { auth, generated: password } : { auth }
+  }
+
+  async function copyPassword(value: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      toastSuccess('Password copied')
+    } catch {
+      toastError('Clipboard unavailable')
+    }
+  }
 
   function describeUsersError(e: unknown): string {
     const message = errorText(e)
@@ -236,9 +258,7 @@
   }
 
   // ClickHouse >= 24.9 returns auth_type as Array(Enum8) (multiple auth methods),
-  // older versions return a scalar Enum8 string. Normalize both shapes.
-  const CH_PASSWORD_AUTH_TYPES = ['no_password', 'plaintext_password', 'sha256_password', 'double_sha1_password']
-
+  // older versions return a scalar Enum8 string.
   function formatCHAuthType(value: unknown): string {
     if (Array.isArray(value)) {
       const parts = value.filter((v) => typeof v === 'string' && v.trim())
@@ -246,12 +266,6 @@
     }
     if (typeof value === 'string' && value.trim()) return value
     return '—'
-  }
-
-  function normalizeCHAuthTypeForForm(value: unknown): string {
-    const raw = Array.isArray(value) ? value[0] : value
-    const lowered = typeof raw === 'string' ? raw.toLowerCase() : ''
-    return CH_PASSWORD_AUTH_TYPES.includes(lowered) ? lowered : 'sha256_password'
   }
 
   function formatCHDefaultRoles(row: Row): string {
@@ -276,7 +290,8 @@
   function resetCreateCHUserForm() {
     createCHUserErrorMessage = ''
     createCHUserExecutedCommands = []
-    createCHUserForm = { name: '', authType: 'sha256_password', password: '', defaultRoles: '', ifNotExists: true }
+    createCHUserForm = { name: '', signIn: 'generate', password: '', defaultRoles: '' }
+    revealedPassword = null
   }
 
   function openCreateCHUserSheet() {
@@ -293,9 +308,10 @@
     })
   })
 
-  function openUpdateCHUserPasswordSheet(username: string, authType: unknown) {
+  function openUpdateCHUserPasswordSheet(username: string) {
     selectedCHUserName = username
-    updateCHUserPasswordForm = { authType: normalizeCHAuthTypeForForm(authType), password: '', ifExists: true }
+    updateCHUserPasswordForm = { signIn: 'generate', password: '', ifExists: true }
+    revealedPassword = null
     editCHUserPasswordSheetOpen = true
   }
 
@@ -305,23 +321,29 @@
       toastError('Username is required')
       return
     }
-    if (createCHUserForm.authType !== 'no_password' && !createCHUserForm.password.trim()) {
-      toastError('Password is required for selected auth type')
+    if (createCHUserForm.signIn === 'set' && !createCHUserForm.password) {
+      toastError('Type a password, or generate one')
       return
     }
+    const name = createCHUserForm.name.trim()
     const defaultRoles = createCHUserForm.defaultRoles.split(',').map((v) => v.trim()).filter(Boolean)
     try {
+      const { auth, generated } = await buildCHUserAuth(createCHUserForm.signIn, createCHUserForm.password)
       const result = await apiPost<{ commands?: string[]; command?: string }>('/api/admin/clickhouse-users', {
-        name: createCHUserForm.name.trim(),
-        auth_type: createCHUserForm.authType,
-        password: createCHUserForm.password,
+        name,
+        auth,
         default_roles: defaultRoles,
-        if_not_exists: createCHUserForm.ifNotExists,
       })
-      createCHUserExecutedCommands = result?.commands ?? (result?.command ? [result.command] : [])
-      toastSuccess(`ClickHouse user "${createCHUserForm.name.trim()}" created`)
-      createCHUserSheetOpen = false
-      resetCreateCHUserForm()
+      toastSuccess(`ClickHouse user "${name}" created`)
+      if (generated) {
+        // Keep the sheet open on the one-time reveal.
+        resetCreateCHUserForm()
+        createCHUserExecutedCommands = result?.commands ?? (result?.command ? [result.command] : [])
+        revealedPassword = { user: name, password: generated }
+      } else {
+        createCHUserSheetOpen = false
+        resetCreateCHUserForm()
+      }
       await refreshUsersTab()
     } catch (e) {
       createCHUserErrorMessage = e instanceof Error ? e.message : 'Create user failed'
@@ -333,25 +355,13 @@
     return `\`${input.replace(/`/g, '``')}\``
   }
 
-  function escapeLiteralForPreview(input: string): string {
-    return input.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
-  }
-
   function buildCreateCHUserCommandPreview(): string {
     const user = createCHUserForm.name.trim() || 'new_user'
-    const auth = createCHUserForm.authType
-    // The preview never shows the typed password.
-    const pass = createCHUserForm.password ? '***' : ''
     const roles = createCHUserForm.defaultRoles.split(',').map((value) => value.trim()).filter(Boolean)
 
-    const createParts: string[] = ['CREATE USER']
-    if (createCHUserForm.ifNotExists) createParts.push('IF NOT EXISTS')
-    createParts.push(escapeIdentifierForPreview(user))
-    if (auth === 'plaintext_password') {
-      createParts.push(`IDENTIFIED BY '${escapeLiteralForPreview(pass || 'password')}'`)
-    } else if (auth !== 'no_password') {
-      createParts.push(`IDENTIFIED WITH ${auth} BY '${escapeLiteralForPreview(pass || 'password')}'`)
-    }
+    // The hash and salt are never shown, like in the commands the server returns.
+    const createParts: string[] = ['CREATE USER', escapeIdentifierForPreview(user)]
+    if (createCHUserForm.signIn !== 'none') createParts.push("IDENTIFIED WITH sha256_hash BY '***' SALT '***'")
 
     const statements = [createParts.join(' ')]
     if (roles.length > 0) {
@@ -364,20 +374,25 @@
 
   async function updateClickHouseUserPassword() {
     if (!selectedCHUserName) return
-    if (updateCHUserPasswordForm.authType !== 'no_password' && !updateCHUserPasswordForm.password.trim()) {
-      toastError('Password is required for selected auth type')
+    if (updateCHUserPasswordForm.signIn === 'set' && !updateCHUserPasswordForm.password) {
+      toastError('Type a password, or generate one')
       return
     }
+    const user = selectedCHUserName
     try {
-      await apiPut(`/api/admin/clickhouse-users/${encodeURIComponent(selectedCHUserName)}/password`, {
-        auth_type: updateCHUserPasswordForm.authType,
-        password: updateCHUserPasswordForm.password,
+      const { auth, generated } = await buildCHUserAuth(updateCHUserPasswordForm.signIn, updateCHUserPasswordForm.password)
+      await apiPut(`/api/admin/clickhouse-users/${encodeURIComponent(user)}/password`, {
+        auth,
         if_exists: updateCHUserPasswordForm.ifExists,
       })
-      toastSuccess(`Password updated for "${selectedCHUserName}"`)
-      editCHUserPasswordSheetOpen = false
-      selectedCHUserName = ''
-      updateCHUserPasswordForm = { authType: 'sha256_password', password: '', ifExists: true }
+      toastSuccess(`Password updated for "${user}"`)
+      updateCHUserPasswordForm = { signIn: 'generate', password: '', ifExists: true }
+      if (generated) {
+        revealedPassword = { user, password: generated }
+      } else {
+        editCHUserPasswordSheetOpen = false
+        selectedCHUserName = ''
+      }
       await loadClickHouseUsers()
     } catch (e) {
       toastErrorFrom(e)
@@ -575,7 +590,7 @@
               <Button size="xs" variant="ghost" title="Edit this user's roles and privileges in Governance > Access control" onclick={() => navigate(`/governance?section=rbac&user=${encodeURIComponent(String(row.name))}`)}>
                 Edit grants
               </Button>
-              <Button icon variant="ghost" size="xs" aria-label="Change password" title="Change password" onclick={() => openUpdateCHUserPasswordSheet(String(row.name), row.auth_type)}>
+              <Button icon variant="ghost" size="xs" aria-label="Change password" title="Change password" onclick={() => openUpdateCHUserPasswordSheet(String(row.name))}>
                 <KeyRound size={13} />
               </Button>
               <Button icon variant="ghost" size="xs" aria-label="Delete user" title="Delete" class="hover:text-danger" onclick={() => openDeleteCHUserConfirm(String(row.name))}>
@@ -589,41 +604,73 @@
   </div>
 </div>
 
+{#snippet passwordReveal(r: { user: string; password: string })}
+  <div class="space-y-2">
+    <div class="rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-xs text-fg">
+      The password of {r.user}. Shown once: copy it now, it cannot be retrieved later. CH-UI only ever had its hash.
+    </div>
+    <div class="flex items-center gap-2">
+      <pre class="flex-1 overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-surface-2 p-3 font-mono text-xs text-fg">{r.password}</pre>
+      <Button size="md" variant="outline" icon aria-label="Copy password" title="Copy password" onclick={() => copyPassword(r.password)}>
+        <Copy size={14} />
+      </Button>
+    </div>
+  </div>
+{/snippet}
+
+{#snippet signInFields(form: { signIn: SignIn; password: string }, idPrefix: string, onSignIn: (v: SignIn) => void)}
+  <FormField
+    label="Sign in"
+    for={`${idPrefix}-sign-in`}
+    controlWidth="full"
+    hint={form.signIn === 'generate'
+      ? 'A strong password is made in your browser and shown once after saving.'
+      : form.signIn === 'set'
+        ? 'Hashed in your browser with a random salt; only the hash is sent.'
+        : 'Anyone who can reach ClickHouse can sign in as this user. Restrict it with grants and HOST rules.'}
+  >
+    <Select id={`${idPrefix}-sign-in`} size="sm" options={signInOptions} value={form.signIn} onchange={(v) => onSignIn(v as SignIn)} />
+  </FormField>
+  {#if form.signIn === 'set'}
+    <FormField label="Password" for={`${idPrefix}-password`} controlWidth="full">
+      <Input id={`${idPrefix}-password`} size="sm" type="password" autocomplete="new-password" bind:value={form.password} />
+    </FormField>
+  {/if}
+{/snippet}
+
 <Sheet
   open={createCHUserSheetOpen}
   title="Create ClickHouse user"
-  description="Creates the user directly in ClickHouse on the active connection. The auth type controls how ClickHouse stores and verifies the credential."
+  description="Creates the user directly in ClickHouse on the active connection. The password never reaches CH-UI's server: it is hashed in your browser."
   size="lg"
   onclose={() => (createCHUserSheetOpen = false)}
 >
+  {#if revealedPassword}
+    <div class="space-y-4">
+      {@render passwordReveal(revealedPassword)}
+      {#if createCHUserExecutedCommands.length > 0}
+        <Panel padding="sm" title="Executed commands">
+          <div class="space-y-2">
+            {#each createCHUserExecutedCommands as sql}
+              <pre class="max-h-24 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-fg-2">{sql}</pre>
+            {/each}
+          </div>
+        </Panel>
+      {/if}
+    </div>
+  {:else}
   <form id="ch-create-user-form" class="space-y-4" onsubmit={(e) => { e.preventDefault(); void createClickHouseUser() }}>
     <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
       <FormField label="Username" for="ch-user-name" required>
         <Input id="ch-user-name" size="sm" placeholder="analytics_reader" bind:value={createCHUserForm.name} required />
       </FormField>
-      <FormField label="Auth type" for="ch-user-auth">
-        <Select id="ch-user-auth" size="sm" options={clickHouseAuthTypeOptions} value={createCHUserForm.authType} onchange={(v) => (createCHUserForm = { ...createCHUserForm, authType: v })} />
-      </FormField>
-      <FormField label="Password" for="ch-user-password" class="md:col-span-2" controlWidth="full">
-        <Input
-          id="ch-user-password"
-          size="sm"
-          type="password"
-          autocomplete="new-password"
-          placeholder={createCHUserForm.authType === 'no_password' ? 'Not required for no_password' : 'Enter password'}
-          bind:value={createCHUserForm.password}
-          disabled={createCHUserForm.authType === 'no_password'}
-        />
-      </FormField>
+      <div class="space-y-3 md:col-span-2">
+        {@render signInFields(createCHUserForm, 'ch-user', (v) => (createCHUserForm = { ...createCHUserForm, signIn: v }))}
+      </div>
       <FormField label="Default roles" hint="Optional, comma-separated." for="ch-user-roles" class="md:col-span-2" controlWidth="full">
         <Input id="ch-user-roles" size="sm" placeholder="role_reader, role_writer" bind:value={createCHUserForm.defaultRoles} />
       </FormField>
     </div>
-
-    <label class="ds-checkbox-label text-xs">
-      <input type="checkbox" class="ds-checkbox" bind:checked={createCHUserForm.ifNotExists} />
-      Use IF NOT EXISTS
-    </label>
 
     <Panel variant="muted" padding="sm" title="Command preview">
       <pre class="max-h-36 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-fg-2">{buildCreateCHUserCommandPreview()}</pre>
@@ -636,19 +683,15 @@
       </div>
     {/if}
 
-    {#if createCHUserExecutedCommands.length > 0}
-      <Panel padding="sm" title="Executed commands">
-        <div class="space-y-2">
-          {#each createCHUserExecutedCommands as sql}
-            <pre class="max-h-24 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-fg-2">{sql}</pre>
-          {/each}
-        </div>
-      </Panel>
-    {/if}
   </form>
+  {/if}
   {#snippet footer()}
-    <Button size="sm" variant="ghost" onclick={() => (createCHUserSheetOpen = false)}>Cancel</Button>
-    <Button size="sm" type="submit" form="ch-create-user-form" disabled={!createCHUserForm.name.trim()}>Create user</Button>
+    {#if revealedPassword}
+      <Button size="sm" onclick={() => { createCHUserSheetOpen = false; resetCreateCHUserForm() }}>Done</Button>
+    {:else}
+      <Button size="sm" variant="ghost" onclick={() => (createCHUserSheetOpen = false)}>Cancel</Button>
+      <Button size="sm" type="submit" form="ch-create-user-form" disabled={!createCHUserForm.name.trim()}>Create user</Button>
+    {/if}
   {/snippet}
 </Sheet>
 
@@ -659,31 +702,25 @@
   size="md"
   onclose={() => (editCHUserPasswordSheetOpen = false)}
 >
+  {#if revealedPassword}
+    {@render passwordReveal(revealedPassword)}
+  {:else}
   <form id="ch-edit-password-form" class="space-y-4" onsubmit={(e) => { e.preventDefault(); void updateClickHouseUserPassword() }}>
-    <FormField label="Auth type" for="ch-user-edit-auth">
-      <Select id="ch-user-edit-auth" size="sm" options={clickHouseAuthTypeOptions} value={updateCHUserPasswordForm.authType} onchange={(v) => (updateCHUserPasswordForm = { ...updateCHUserPasswordForm, authType: v })} />
-    </FormField>
-
-    <FormField label="New password" for="ch-user-new-password">
-      <Input
-        id="ch-user-new-password"
-        size="sm"
-        type="password"
-        autocomplete="new-password"
-        placeholder={updateCHUserPasswordForm.authType === 'no_password' ? 'Not required for no_password' : 'Enter new password'}
-        bind:value={updateCHUserPasswordForm.password}
-        disabled={updateCHUserPasswordForm.authType === 'no_password'}
-      />
-    </FormField>
+    {@render signInFields(updateCHUserPasswordForm, 'ch-user-edit', (v) => (updateCHUserPasswordForm = { ...updateCHUserPasswordForm, signIn: v }))}
 
     <label class="ds-checkbox-label text-xs">
       <input type="checkbox" class="ds-checkbox" bind:checked={updateCHUserPasswordForm.ifExists} />
       Use IF EXISTS
     </label>
   </form>
+  {/if}
   {#snippet footer()}
-    <Button size="sm" variant="ghost" onclick={() => (editCHUserPasswordSheetOpen = false)}>Cancel</Button>
-    <Button size="sm" type="submit" form="ch-edit-password-form" disabled={!selectedCHUserName}>Save password</Button>
+    {#if revealedPassword}
+      <Button size="sm" onclick={() => { editCHUserPasswordSheetOpen = false; selectedCHUserName = ''; revealedPassword = null }}>Done</Button>
+    {:else}
+      <Button size="sm" variant="ghost" onclick={() => (editCHUserPasswordSheetOpen = false)}>Cancel</Button>
+      <Button size="sm" type="submit" form="ch-edit-password-form" disabled={!selectedCHUserName}>Save password</Button>
+    {/if}
   {/snippet}
 </Sheet>
 

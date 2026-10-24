@@ -123,7 +123,7 @@ Lost the admin role, or nobody who has it can sign in? Run `ch-ui reset-admin` o
 
 ## ClickHouse User Management
 
-Manage ClickHouse users directly from the admin UI.
+Manage ClickHouse users directly from the admin UI. Passwords never reach CH-UI's server (v2.31.0+): the browser generates a password or takes the one you type, hashes it with a random salt, and sends only the hash. A generated password is shown once after saving. Commands shown in the UI and the audit log carry `BY '***' SALT '***'`.
 
 ### Create User
 
@@ -131,35 +131,34 @@ Manage ClickHouse users directly from the admin UI.
 POST /api/admin/clickhouse-users
 {
   "name": "analyst_user",
-  "password": "secure_password",
-  "auth_type": "sha256_password",
-  "default_roles": ["analyst_role"],
-  "if_not_exists": true
+  "auth": {"method": "sha256_hash", "hash": "<64 hex>", "salt": "<salt>"},
+  "default_roles": ["analyst_role"]
 }
 ```
 
 | Field | Description | Default |
 |---|---|---|
 | `name` | Username | Required |
-| `password` | Password (empty for `no_password`) | None |
-| `auth_type` | `no_password`, `plaintext_password`, `sha256_password`, `double_sha1_password` | Inferred from password |
+| `auth.method` | `sha256_hash`, `double_sha1_hash`, `bcrypt_hash` or `no_password` | Required with `auth` |
+| `auth.hash` | `sha256_hash`: hex of sha256(password + salt), 64 characters. `double_sha1_hash`: 40 hex. `bcrypt_hash`: `$2b$12$...` | None |
+| `auth.salt` | `sha256_hash` only, optional: letters, digits and `. _ ~ + / = -`, at most 128 | None |
 | `default_roles` | Array of role names or `["ALL"]` | None |
-| `if_not_exists` | Skip if user exists | `false` |
 
-When `auth_type` is omitted, it's inferred: `sha256_password` if a password is provided, `no_password` otherwise.
+The operation generates up to three commands: `CREATE USER` (never `IF NOT EXISTS`, so a taken name fails with `409`), `GRANT` roles, and `ALTER USER SET DEFAULT ROLE`.
 
-The operation generates up to three commands: `CREATE USER`, `GRANT` roles, and `ALTER USER SET DEFAULT ROLE`.
+**Deprecated:** `password` with `auth_type` (`no_password`, `plaintext_password`, `sha256_password`, `double_sha1_password`) still works until v2.33, so the server sees the password. Such requests get a `Deprecation: true` header and are marked `deprecated=plaintext_password_field` in the audit log. Sending both `auth` and `password` is a `400`.
 
 ### Change Password
 
 ```bash
 PUT /api/admin/clickhouse-users/{username}/password
 {
-  "password": "new_password",
-  "auth_type": "sha256_password",
+  "auth": {"method": "sha256_hash", "hash": "<64 hex>", "salt": "<salt>"},
   "if_exists": true
 }
 ```
+
+The same `auth` object as Create User. `{"method": "no_password"}` removes the password.
 
 ### Delete User
 
