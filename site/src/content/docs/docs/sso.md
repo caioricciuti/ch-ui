@@ -118,6 +118,26 @@ The password is encrypted at rest with `APP_SECRET_KEY`. Until a service account
 is set, SSO logins fail with "SSO is not finished being set up (no ClickHouse
 service account on the connection)".
 
+Each connection needs its own account, because each connection is its own
+ClickHouse. Nothing is inherited: copying credentials to another server on its
+own could open it to everyone who signs in through SSO. While SSO is enabled,
+**Admin → Connections** marks connections without an account **SSO not set
+up**, and creating a connection reminds you to set it up.
+
+To set up another connection the same way (v2.31.0+), open its **SSO** sheet
+and use **Start from another connection**. It copies the mode, the account,
+the group mapping, the host rule and the lock and drop days in one step. The
+account's password is copied on the server and never sent to the browser.
+The same account must exist on the new connection's ClickHouse; in per-person
+mode, **Verify** checks it. The API equivalent (admin only):
+
+```bash
+curl -X POST https://ch-ui.yourcompany.com/api/connections/<CONNECTION_ID>/sso-identity/copy-from \
+  -H 'Content-Type: application/json' \
+  --cookie 'chui_session=<admin session>' \
+  -d '{"source_id": "<CONNECTION_ID_TO_COPY_FROM>"}'
+```
+
 ## Per-person ClickHouse users
 
 Per-person mode gives every SSO person their own ClickHouse user, named
@@ -304,7 +324,8 @@ data and their actions apart by email either way:
   the email and role; queries then run as that connection's service account,
   or, on a per-person connection, as the person's own user, provisioned on
   the switch from the groups of their last verified token. Connections
-  without an account show **SSO not set up** in the switcher, and the API
+  without an account show **SSO not set up** in the switcher (for an admin,
+  **Set up SSO**, which opens that connection's SSO sheet), and the API
   answers `409 sso_not_configured`. A per-person target answers
   `409 sso_reauth_required` for a session from before per-person mode (sign
   in again), `409 sso_no_roles` or `409 sso_user_exists` for the refusals

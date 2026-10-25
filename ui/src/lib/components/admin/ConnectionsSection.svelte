@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte'
   import { apiGet, apiPost, apiPut, apiDel } from '../../api/client'
   import { formatDate, formatRelativeTime } from '../../utils/format'
-  import { takePageIntent, takeBackgroundWorker } from '../../stores/page-intent.svelte'
+  import { takePageIntent, takeBackgroundWorker, takeSSOConnection } from '../../stores/page-intent.svelte'
   import { getSession } from '../../stores/session.svelte'
   import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
   import Button from '../common/Button.svelte'
@@ -32,6 +32,8 @@
     created_at: string
     last_seen?: string
     host_info?: { hostname?: string; os?: string } | null
+    /** Present only while SSO sign-in is on: whether the connection has its SSO account. */
+    sso_set?: boolean
   }
   type TunnelTokenResponse = {
     tunnel_token: string
@@ -82,6 +84,8 @@
   // land here: open the sheet for the session's connection once the list
   // has loaded (or at once when it already has).
   let backgroundPending = false
+  // The switcher's "Set up SSO" lands here with a connection id.
+  let ssoPending: string | null = null
 
   onMount(() => {
     void loadTunnels()
@@ -95,6 +99,25 @@
       if (tunnels.length) openPendingBackground()
     })
   })
+
+  $effect(() => {
+    if (!takePageIntent('sso-setup')) return
+    untrack(() => {
+      ssoPending = takeSSOConnection()
+      if (tunnels.length) openPendingSSO()
+    })
+  })
+
+  function openPendingSSO() {
+    if (!ssoPending) return
+    const conn = tunnels.find((c) => c.id === ssoPending)
+    ssoPending = null
+    if (conn) ssoTarget = conn
+  }
+
+  // Connections to copy an SSO setup from: those that have one.
+  const ssoSources = $derived(tunnels.filter((c) => c.sso_set === true).map((c) => ({ id: c.id, name: c.name })))
+  const ssoOn = $derived(tunnels.some((c) => c.sso_set !== undefined))
 
   function openPendingBackground() {
     if (!backgroundPending) return
@@ -113,6 +136,7 @@
     } finally {
       tunnelsLoading = false
       openPendingBackground()
+      openPendingSSO()
     }
   }
 
@@ -149,7 +173,8 @@
     try {
       const body = createMode === 'direct' ? { name, type: 'direct', clickhouse_url: url } : { name }
       const res = await apiPost<TunnelTokenResponse>('/api/connections', body)
-      toastSuccess(createMode === 'direct' ? `Connection "${name}" created and connecting to ${url}` : `Agent connection "${name}" created`)
+      const ssoHint = ssoOn ? ' Set up SSO from its row so people who sign in through SSO can use it.' : ''
+      toastSuccess((createMode === 'direct' ? `Connection "${name}" created and connecting to ${url}.` : `Agent connection "${name}" created.`) + ssoHint)
       createOpen = false
       await loadTunnels()
       const created = res.connection
@@ -331,7 +356,12 @@
             {#if col.key === 'online_label'}
               <Badge dot tone={row.online ? 'success' : 'neutral'}>{value}</Badge>
             {:else if col.key === 'name'}
-              <span class="font-medium text-fg">{value}</span>
+              <span class="flex min-w-0 items-center gap-1.5">
+                <span class="truncate font-medium text-fg">{value}</span>
+                {#if row.sso_set === false}
+                  <Badge tone="warning" title="People who sign in through SSO cannot use this connection until it has an SSO account">SSO not set up</Badge>
+                {/if}
+              </span>
             {:else if col.key === 'type_label'}
               <Badge tone={value === 'Embedded' ? 'brand' : 'neutral'}>{value}</Badge>
             {:else}
@@ -372,7 +402,11 @@
 {/if}
 
 {#if ssoTarget}
-  <SSOIdentitySheet connection={ssoTarget} onclose={() => (ssoTarget = null)} />
+  <SSOIdentitySheet
+    connection={ssoTarget}
+    copySources={ssoSources.filter((s) => s.id !== ssoTarget?.id)}
+    onclose={() => { ssoTarget = null; void loadTunnels() }}
+  />
 {/if}
 
 <Sheet

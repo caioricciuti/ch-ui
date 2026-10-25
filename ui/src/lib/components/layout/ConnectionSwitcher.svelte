@@ -13,6 +13,9 @@
   import { getSession, switchConnection } from '../../stores/session.svelte'
   import { confirmUnload, hasUnpersistedChanges } from '../../stores/tabs.svelte'
   import { switchTarget, switchErrorView, type SwitchTarget } from './connection-switcher'
+  import { requestSSOSetup } from '../../stores/page-intent.svelte'
+  import { goTo } from '../../stores/router.svelte'
+  import { setSection } from '../../stores/nav.svelte'
   import type { Connection } from '../../types/api'
 
   interface Props {
@@ -26,6 +29,15 @@
   const PANEL_WIDTH = 300
   const session = $derived(getSession())
   const viaSSO = $derived(session?.viaSSO === true)
+  const isAdmin = $derived(session?.role === 'admin')
+
+  /** Admins fix a connection without SSO from here: its SSO sheet opens. */
+  function setUpSSO(t: SwitchTarget) {
+    requestSSOSetup(t.connection.id)
+    goTo('admin')
+    setSection('tunnels')
+    onclose()
+  }
 
   let panelEl = $state<HTMLDivElement | null>(null)
   let passwordEl = $state<HTMLInputElement | undefined>()
@@ -140,22 +152,27 @@
     <ul class="max-h-64 overflow-y-auto px-1" role="listbox" aria-label="Connections">
       {#each targets as t (t.connection.id)}
         {@const isSelected = selectedId === t.connection.id}
-        {@const blocked = t.disabledReason !== null && !t.current}
+        {@const noSSO = t.disabledReason === 'SSO not set up' && !t.current}
+        {@const fixable = noSSO && isAdmin}
+        {@const blocked = t.disabledReason !== null && !t.current && !fixable}
         <li role="option" aria-selected={t.current || isSelected} aria-disabled={t.disabledReason !== null}>
           {#snippet row()}
             <button
               type="button"
               class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[13px] transition-colors
-                {blocked ? 'pointer-events-none text-fg-4' : t.current ? 'cursor-default text-fg' : isSelected ? 'bg-active text-fg' : 'text-fg-2 hover:bg-hover'}"
-              disabled={t.disabledReason !== null || busy}
-              onclick={() => pick(t)}
+                {blocked ? 'pointer-events-none text-fg-4' : fixable ? 'text-fg-3 hover:bg-hover' : t.current ? 'cursor-default text-fg' : isSelected ? 'bg-active text-fg' : 'text-fg-2 hover:bg-hover'}"
+              disabled={(t.disabledReason !== null && !fixable) || busy}
+              title={fixable ? 'Open its SSO settings' : undefined}
+              onclick={() => (fixable ? setUpSSO(t) : pick(t))}
             >
               <span class="flex w-3.5 shrink-0 justify-center text-accent">
                 {#if t.current}<Check size={13} />{/if}
               </span>
               <span class="min-w-0 flex-1 truncate">{t.connection.name}</span>
               {#if t.connection.kind}<span class="shrink-0 text-[11px] text-fg-4">{t.connection.kind}</span>{/if}
-              {#if blocked && t.disabledReason === 'SSO not set up'}
+              {#if fixable}
+                <Badge tone="warning">Set up SSO</Badge>
+              {:else if blocked && noSSO}
                 <Badge tone="neutral">SSO not set up</Badge>
               {:else}
                 <Badge dot tone={t.connection.online ? 'success' : 'danger'}>{t.connection.online ? 'Online' : 'Offline'}</Badge>
@@ -163,7 +180,7 @@
             </button>
           {/snippet}
           {#if blocked}
-            <Tooltip text={t.disabledReason ?? ''} side="top" class="w-full cursor-not-allowed">{@render row()}</Tooltip>
+            <Tooltip text={noSSO ? 'An admin has to set up SSO for this connection' : (t.disabledReason ?? '')} side="top" class="w-full cursor-not-allowed">{@render row()}</Tooltip>
           {:else}
             {@render row()}
           {/if}
