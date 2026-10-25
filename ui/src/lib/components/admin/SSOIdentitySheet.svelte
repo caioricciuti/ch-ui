@@ -3,6 +3,7 @@
   import { onMount, tick } from 'svelte'
   import { ApiError } from '../../api/client'
   import {
+    copySSOIdentity,
     defaultSSOIdentityConfig,
     fetchSSOIdentity,
     fetchSSOSetupSQL,
@@ -29,8 +30,10 @@
   // connection. Shared mode uses one service account; per-person mode (Pro)
   // provisions a ClickHouse user per person from their IdP groups.
 
-  let { connection, onclose }: {
+  let { connection, copySources = [], onclose }: {
     connection: { id: string; name: string }
+    /** Connections with an SSO setup this one can start from. */
+    copySources?: { id: string; name: string }[]
     onclose: () => void
   } = $props()
 
@@ -64,6 +67,9 @@
   let accountUsername = $state('')
   let accountPassword = $state('')
 
+  let copySourceId = $state('')
+  let copying = $state(false)
+
   let verifyChecks = $state<SSOVerifyCheck[] | null>(null)
   let verifyOk = $state(false)
 
@@ -74,7 +80,24 @@
   const proGated = $derived(proRequired || !isProActive())
   const perPerson = $derived(mode === 'per_person')
   const accountLabel = $derived(perPerson ? 'Provisioning account' : 'Service account')
-  const busy = $derived(saving || savingAccount || verifying || loadingSQL)
+  const busy = $derived(saving || savingAccount || verifying || loadingSQL || copying)
+  const copyOptions = $derived(copySources.map((c) => ({ value: c.id, label: c.name })))
+
+  async function copyFrom() {
+    const source = copySources.find((c) => c.id === (copySourceId || copySources[0]?.id))
+    if (!source) return
+    copying = true
+    try {
+      await copySSOIdentity(connection.id, source.id)
+      await load(true)
+      toastSuccess(`Copied the SSO setup of ${source.name}. The account must exist on this connection's ClickHouse too.`)
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 402) proRequired = true
+      toastErrorFrom(e, 'copy the SSO setup')
+    } finally {
+      copying = false
+    }
+  }
 
   const hostOptions = [
     { value: 'auto', label: 'auto (this server\'s address)' },
@@ -294,6 +317,14 @@
     <p role="alert" class="text-[13px] text-danger">{loadError}</p>
   {:else}
     <form id="sso-identity-form" class="space-y-6" onsubmit={(e) => { e.preventDefault(); void save() }}>
+      {#if !provisionerSet && copySources.length > 0}
+        <Panel variant="muted" padding="sm" title="Start from another connection" description="Copies the mode, the account, the group mapping and the rest. The account's password is copied on the server and never shown. The account must also exist on this connection's ClickHouse; create it there first if it does not.">
+          <div class="flex flex-wrap items-center gap-2">
+            <Select id="sso-copy-source" size="sm" class="w-56" options={copyOptions} value={copySourceId || copySources[0].id} disabled={busy} onchange={(v) => (copySourceId = v)} />
+            <Button size="sm" variant="outline" loading={copying} disabled={busy} onclick={copyFrom}>Copy setup</Button>
+          </div>
+        </Panel>
+      {/if}
       <div class="space-y-3">
         <h3 class="text-[13px] font-semibold text-fg">Mode</h3>
         <div class="space-y-2">

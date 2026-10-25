@@ -114,6 +114,11 @@ export function updateSSOIdentity(connectionId: string, config: SSOIdentityConfi
   return apiPut<SSOIdentityResponse>(`${base(connectionId)}/sso-identity`, config)
 }
 
+/** Copies another connection's SSO settings and account (the password stays on the server). */
+export function copySSOIdentity(connectionId: string, sourceId: string) {
+  return apiPost<SSOIdentityResponse>(`${base(connectionId)}/sso-identity/copy-from`, { source_id: sourceId })
+}
+
 export function updateSSOAccount(connectionId: string, account: SSOAccountRequest) {
   return apiPut<{ success: boolean }>(`${base(connectionId)}/sso-account`, account)
 }

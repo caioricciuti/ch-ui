@@ -380,6 +380,7 @@ func (s *Server) setupRoutes() {
 					ar.Put("/{id}/sso-account", connectionsHandler.SetSSOAccount)
 					ar.Get("/{id}/sso-identity", connectionsHandler.GetSSOIdentity)
 					ar.Put("/{id}/sso-identity", connectionsHandler.SetSSOIdentity)
+					ar.Post("/{id}/sso-identity/copy-from", connectionsHandler.CopySSOIdentity)
 					ar.Post("/{id}/sso-identity/setup-sql", connectionsHandler.SSOIdentitySetupSQL)
 					ar.Post("/{id}/sso-identity/verify", connectionsHandler.VerifySSOIdentity)
 				})

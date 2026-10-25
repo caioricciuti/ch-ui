@@ -68,6 +68,9 @@ type connectionResponse struct {
 	Online        bool       `json:"online"`
 	LastSeen      *time.Time `json:"last_seen,omitempty"`
 	HostInfo      any        `json:"host_info,omitempty"`
+	// SSOSet is set only while SSO sign-in is enabled: whether the
+	// connection has the SSO account people who sign in through SSO need.
+	SSOSet *bool `json:"sso_set,omitempty"`
 }
 
 // List returns all connections.
@@ -80,12 +83,29 @@ func (h *ConnectionsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ssoOn := ssoSignInEnabled(h.DB, h.Config)
 	results := make([]connectionResponse, 0, len(conns))
 	for _, c := range conns {
-		results = append(results, h.buildConnectionResponse(c))
+		resp := h.buildConnectionResponse(c)
+		if ssoOn {
+			user, pw, err := h.DB.GetConnectionSSOAccount(c.ID)
+			set := err == nil && user != "" && pw != ""
+			resp.SSOSet = &set
+		}
+		results = append(results, resp)
 	}
 
 	writeJSON(w, http.StatusOK, results)
+}
+
+// ssoSignInEnabled reports whether people can sign in through SSO, from the
+// admin SSO settings or the config file.
+func ssoSignInEnabled(db *database.DB, cfg *config.Config) bool {
+	if cfg != nil && cfg.OIDCEnabled() {
+		return true
+	}
+	stored, err := db.GetSSOConfig()
+	return err == nil && stored.Enabled
 }
 
 // SetSSOAccount stores the connection's SSO ClickHouse account: in shared
@@ -222,6 +242,85 @@ func (h *ConnectionsHandler) SetSSOIdentity(w http.ResponseWriter, r *http.Reque
 		ClickhouseUser: chUser,
 		ConnectionID:   strPtr(id),
 		Details:        strPtr(fmt.Sprintf("SSO identity mode set to %s (user prefix %s, %d group mapping(s))", cfg.Mode, cfg.UserPrefix, len(cfg.RoleMappings))),
+		IPAddress:      strPtr(getClientIP(r)),
+	})
+	h.writeSSOIdentity(w, id)
+}
+
+// CopySSOIdentity copies another connection's SSO setup onto this one: the
+// identity settings (mode, prefix, host, group map, lifecycle) and the SSO
+// account, whose encrypted password is copied server-side and never sent to
+// the browser. The account works only if it exists on this connection's
+// ClickHouse too; the sheet's Verify and Setup SQL say so.
+// POST /{id}/sso-identity/copy-from {"source_id": "..."}
+func (h *ConnectionsHandler) CopySSOIdentity(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req struct {
+		SourceID string `json:"source_id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.SourceID = strings.TrimSpace(req.SourceID)
+	if id == "" || req.SourceID == "" {
+		writeError(w, http.StatusBadRequest, "source_id is required")
+		return
+	}
+	if req.SourceID == id {
+		writeError(w, http.StatusBadRequest, "Pick another connection to copy from")
+		return
+	}
+	for _, cid := range []string{id, req.SourceID} {
+		conn, err := h.DB.GetConnectionByID(cid)
+		if err != nil {
+			slog.Error("Failed to get connection", "error", err, "id", cid)
+			writeError(w, http.StatusInternalServerError, "Failed to retrieve connection")
+			return
+		}
+		if conn == nil {
+			writeError(w, http.StatusNotFound, "Connection not found")
+			return
+		}
+	}
+	srcUser, srcPassword, err := h.DB.GetConnectionSSOAccount(req.SourceID)
+	if err != nil {
+		slog.Error("Failed to read SSO account", "error", err, "id", req.SourceID)
+		writeError(w, http.StatusInternalServerError, "Failed to read SSO identity settings")
+		return
+	}
+	if srcUser == "" || srcPassword == "" {
+		writeError(w, http.StatusBadRequest, "That connection has no SSO account to copy")
+		return
+	}
+	cfg, err := h.DB.GetSSOIdentityConfig(req.SourceID)
+	if err != nil {
+		slog.Error("Failed to read SSO identity config", "error", err, "id", req.SourceID)
+		writeError(w, http.StatusInternalServerError, "Failed to read SSO identity settings")
+		return
+	}
+	if cfg.PerPerson() && !h.Config.IsPro() {
+		writeError(w, http.StatusPaymentRequired, "Pro license required")
+		return
+	}
+	if err := h.DB.SetSSOIdentityConfig(id, cfg); err != nil {
+		slog.Error("Failed to save SSO identity config", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to save SSO identity settings")
+		return
+	}
+	if err := h.DB.SetConnectionSSOAccount(id, srcUser, srcPassword); err != nil {
+		slog.Error("Failed to set SSO account", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "Failed to save SSO service account")
+		return
+	}
+
+	username, chUser := sessionActor(r)
+	h.DB.CreateAuditLog(database.AuditLogParams{
+		Action:         "connection.sso_identity.copied",
+		Username:       username,
+		ClickhouseUser: chUser,
+		ConnectionID:   strPtr(id),
+		Details:        strPtr(fmt.Sprintf("SSO setup copied from connection %s: mode %s, account %s, %d group mapping(s)", req.SourceID, cfg.Mode, srcUser, len(cfg.RoleMappings))),
 		IPAddress:      strPtr(getClientIP(r)),
 	})
 	h.writeSSOIdentity(w, id)

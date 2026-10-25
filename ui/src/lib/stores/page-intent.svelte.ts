@@ -10,9 +10,12 @@ export type PageIntent =
   | 'new-clickhouse-user'
   /** Admin, Connections: open Background accounts for the session's connection. */
   | 'background-accounts'
+  /** Admin, Connections: open the SSO sheet of one connection. */
+  | 'sso-setup'
 
 let pending = $state<PageIntent | null>(null)
 let backgroundWorker: string | null = null
+let ssoConnection: string | null = null
 
 export function requestPageIntent(intent: PageIntent): void {
   pending = intent
@@ -36,4 +39,17 @@ export function takeBackgroundWorker(): string | null {
   const w = backgroundWorker
   backgroundWorker = null
   return w
+}
+
+/** Opens Admin, Connections with the SSO sheet of one connection. */
+export function requestSSOSetup(connectionId: string): void {
+  ssoConnection = connectionId
+  pending = 'sso-setup'
+}
+
+/** The connection an SSO setup deep link asked for, cleared once read. */
+export function takeSSOConnection(): string | null {
+  const id = ssoConnection
+  ssoConnection = null
+  return id
 }
