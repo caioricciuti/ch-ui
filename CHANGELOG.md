@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.31.0] - 2026-10-25
+
+People act as themselves in more places. An MCP service key can now run as the person who created it, Admin → Users never sends a ClickHouse password to the server, and a new connection takes another connection's SSO setup in one step. The Models page stops calling its groups "pipelines".
+
+### Upgrade notes
+
+- **API clients that create ClickHouse users with a plaintext password should move to `auth`.** `password` and `auth_type` on `POST /api/admin/clickhouse-users`, `PUT /api/admin/clickhouse-users/{username}/password` and `POST /api/governance/access/users` still work, but answer with a `Deprecation` header and are removed in v2.33. Send `auth` with a salted hash instead (#423).
+- On `POST /api/governance/access/users`, a password sent without `auth_type` is now stored as `sha256_password` instead of `plaintext_password`. Sign-in with that password is unchanged (#423).
+
+### Security
+
+- Admin → Users never sends a ClickHouse password to CH-UI's server. Passwords are generated or typed in the browser and only a salted sha256 hash is sent. A generated password is shown once. The `plaintext_password` option is gone from the UI (#423).
+- undici 8.12.2 in the frontend tooling and the ch-ui.com site (GHSA-xjj6-f33q-929c, GHSA-4qv8-2p9j-2685, GHSA-f72v-6w45-q472) (#415, #416).
+
+### Deprecated
+
+- `password` and `auth_type` on `POST /api/admin/clickhouse-users`, `PUT /api/admin/clickhouse-users/{username}/password` and `POST /api/governance/access/users`. Send `auth` with a hash instead. The old fields are removed in v2.33 (#423).
+
+### Added
+
+- **MCP service keys can run as you.** With per-person SSO, the New service key sheet offers **Runs as: Me**. The key stores no password, follows your live ClickHouse user, puts your name on every query, and stops working when your access is removed. Scripts and clients that cannot sign in with OAuth can now act as a person (#417).
+- **Set up SSO on another connection in one step.** **Start from another connection** in a connection's SSO sheet copies the mode, account, group mapping and lifecycle settings. The account password stays on the server (#424).
+- Connections without an SSO account are marked **SSO not set up** in Admin → Connections while SSO is enabled. In the connection switcher, admins get **Set up SSO**, which opens that connection's SSO settings (#424).
+
+### Changed
+
+- The Models page calls its named, scheduled sets of models **model groups** instead of pipelines, so they are no longer confused with the Pipelines page. The API keeps its `/api/models/pipelines` paths and the `pipeline_id` field (#420).
+- The report delivery history window is configurable under Data Retention (`report_deliveries`, default 90 days, `0` keeps it forever). Rendered snapshots are still cleared after 7 days (#422).
+- Dependencies: go-chi 5.5.0, minio-go 7.4.1, astro 7.4.0, marked 18.1.1 (#414, #415, #416).
+
 ## [2.30.0] - 2026-10-24
 
 A faster, more accurate MCP server and the end of the Resend and Brevo alert channels. MCP requests spend about a tenth of the server time they did, results travel gzipped and come back exactly as ClickHouse sent them, and models can describe several tables or run several queries in one call. Retention now covers the governance and alert history that used to be kept for fixed windows.
