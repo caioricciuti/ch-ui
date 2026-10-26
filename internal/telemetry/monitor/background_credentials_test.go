@@ -66,8 +66,10 @@ func TestBackgroundAccountExecution(t *testing.T) {
 		}
 		r.tick()
 	})
+	// CheckWorker ends with the account disabled: the monitor keeps its last
+	// value and says why it no longer runs.
 	m, err := db.GetTelemetryMonitor(id)
-	if err != nil || m.LastState != "ok" || m.LastValue == nil || *m.LastValue != 0 {
+	if err != nil || m.LastState != "error" || m.LastError == nil || !strings.Contains(*m.LastError, "disabled") || m.LastValue == nil || *m.LastValue != 0 {
 		t.Fatalf("monitor result: %#v %v", m, err)
 	}
 }

@@ -22,6 +22,7 @@ import (
 
 type Agent struct {
 	Gateway *tunnel.Gateway
+	url     string
 	mu      sync.Mutex
 	queries []tunnel.GatewayMessage
 }
@@ -68,7 +69,36 @@ func NewAgent(t *testing.T, db *database.DB, token string, respond func(tunnel.G
 	t.Cleanup(a.Gateway.Stop)
 	srv := httptest.NewServer(http.HandlerFunc(a.Gateway.HandleWebSocket))
 	t.Cleanup(srv.Close)
-	ws, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	a.url = "ws" + strings.TrimPrefix(srv.URL, "http")
+	stop := a.connect(t, token, respond)
+	t.Cleanup(func() {
+		stop()
+		// The gateway records the disconnect in the database after the
+		// socket closes; let it finish before the test closes the database
+		// and removes its directory.
+		if !a.Gateway.WaitReadLoops(5 * time.Second) {
+			t.Error("gateway read loop did not stop")
+		}
+	})
+	return a
+}
+
+// AddAgent connects another agent, for the connection with token, to the
+// gateway of a, so one gateway serves several connections. Its queries
+// are recorded on the returned Agent; call it after NewAgent so its socket
+// closes before a waits for the gateway.
+func (a *Agent) AddAgent(t *testing.T, token string, respond func(tunnel.GatewayMessage) *tunnel.AgentMessage) *Agent {
+	t.Helper()
+	b := &Agent{Gateway: a.Gateway, url: a.url}
+	t.Cleanup(b.connect(t, token, respond))
+	return b
+}
+
+// connect dials the gateway, authenticates with token and answers queries.
+// stop closes the socket and waits for the answer loop to end.
+func (a *Agent) connect(t *testing.T, token string, respond func(tunnel.GatewayMessage) *tunnel.AgentMessage) (stop func()) {
+	t.Helper()
+	ws, _, err := websocket.DefaultDialer.Dial(a.url, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,21 +136,14 @@ func NewAgent(t *testing.T, db *database.DB, token string, respond func(tunnel.G
 			}
 		}
 	}()
-	t.Cleanup(func() {
+	return func() {
 		ws.Close()
 		select {
 		case <-done:
 		case <-time.After(5 * time.Second):
 			t.Error("agent did not stop")
 		}
-		// The gateway records the disconnect in the database after the
-		// socket closes; let it finish before the test closes the database
-		// and removes its directory.
-		if !a.Gateway.WaitReadLoops(5 * time.Second) {
-			t.Error("gateway read loop did not stop")
-		}
-	})
-	return a
+	}
 }
 
 func (a *Agent) Messages() []tunnel.GatewayMessage {

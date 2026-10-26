@@ -45,6 +45,7 @@ func TestConnectionUnreachableFiresAndResolves(t *testing.T) {
 	off := offlineHarvester(t, db)
 	for i := 0; i < 2; i++ {
 		off.tick()
+		off.wait()
 		pollAgain(off)
 	}
 	if st := stateOf(t, db, conn, CheckConnectionUnreachable, ConnectionNode); st == nil || st.State != alerts.StatePending || st.BreachCount != 2 {
@@ -55,7 +56,9 @@ func TestConnectionUnreachableFiresAndResolves(t *testing.T) {
 	}
 	// Not due yet: the poll interval holds.
 	off.tick()
+	off.wait()
 	off.tick()
+	off.wait()
 	if st := stateOf(t, db, conn, CheckConnectionUnreachable, ConnectionNode); st.BreachCount != 0 || st.State != alerts.StateFiring {
 		t.Fatalf("third poll must fire once: %+v", st)
 	}
@@ -86,8 +89,10 @@ func TestConnectionUnreachableFiresAndResolves(t *testing.T) {
 	}
 	on := NewHarvester(store, db, agent.Gateway, "test-secret", func() bool { return true })
 	on.tick()
+	on.wait()
 	pollAgain(on)
 	on.tick()
+	on.wait()
 	evs = connectionEvents(t, db)
 	if len(evs) != 2 || evs[0].Title != "[RESOLVED] Connection unreachable" {
 		t.Fatalf("want a resolve, got %+v", evs)
@@ -119,6 +124,7 @@ func TestConnectionUnreachableNoCredentialsFreezes(t *testing.T) {
 	}
 	for i := 0; i < 3; i++ {
 		h.tick()
+		h.wait()
 		pollAgain(h)
 	}
 	after := stateOf(t, db, conn, CheckConnectionUnreachable, ConnectionNode)
@@ -172,6 +178,7 @@ func TestConnectionUnreachableStartupGrace(t *testing.T) {
 	h.startedAt = time.Now()
 	for i := 0; i < 5; i++ {
 		h.tick()
+		h.wait()
 		pollAgain(h)
 	}
 	if st := stateOf(t, db, conn, CheckConnectionUnreachable, ConnectionNode); st != nil {
@@ -179,6 +186,7 @@ func TestConnectionUnreachableStartupGrace(t *testing.T) {
 	}
 	h.startedAt = time.Now().Add(-reachabilityGrace)
 	h.tick()
+	h.wait()
 	if st := stateOf(t, db, conn, CheckConnectionUnreachable, ConnectionNode); st == nil || st.BreachCount != 1 {
 		t.Fatalf("after the grace window an offline poll counts: %+v", st)
 	}
@@ -195,6 +203,7 @@ func TestConnectionUnreachableDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.tick()
+	h.wait()
 	if st := stateOf(t, db, conn, CheckConnectionUnreachable, ConnectionNode); st != nil {
 		t.Fatalf("a disabled check must not run: %+v", st)
 	}

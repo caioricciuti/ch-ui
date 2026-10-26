@@ -315,8 +315,10 @@ func TestSamplingOffClosesSampleIncidents(t *testing.T) {
 	}
 
 	h.tick()
+	h.wait()
 	pollAgain(h)
 	h.tick()
+	h.wait()
 
 	var resolves []database.AlertEvent
 	for _, ev := range eventsOf(t, db, alerts.EventTypeHealthDisk) {
