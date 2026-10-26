@@ -390,7 +390,7 @@ Every saved query has an owner (the person who saved it) and a visibility:
 - A query you cannot see answers `404`, in the UI, the API, Brain and the MCP server alike.
 - Admins can pick **All owners** in the toolbar to see everyone's private queries, for example when someone leaves the team.
 - A schedule keeps running a query that became private. The schedules list then shows only its name.
-- **Duplicate** makes a private copy owned by you, in the same folder.
+- **Duplicate** makes a private copy owned by you, in the same folder, on the connection you are signed in to.
 
 ### The Saved Queries page
 
@@ -400,6 +400,7 @@ Every saved query has an owner (the person who saved it) and a visibility:
 - Deleting a folder deletes its subfolders too. The queries inside move to the root; none are deleted.
 - The toolbar searches name, description, SQL and tags, and filters by tag.
 - The table shows **Name**, **Folder**, **Owner**, **Visibility** and **Updated**. Click a row to open the query in the editor. Drag a row onto a folder to move it.
+- The list is shared across connections, but a query is saved on the connection you were signed in to. One saved on another connection shows a **Saved on &lt;connection&gt;** badge, and opening it says where it runs: like any SQL in the editor, it runs on the connection you are signed in to now, with your own credentials.
 - Right-click a row (or use its menu) for **Open**, **Edit details** (name, description, folder, tags, visibility), **Move**, **Duplicate**, **History**, **Copy SQL** and **Delete**. Actions you are not allowed to take are disabled.
 
 The **Save query** form in the editor also asks for a folder and the visibility.
@@ -408,7 +409,7 @@ The **Save query** form in the editor also asks for a folder and the visibility.
 
 Saving a change to the name, description, SQL, parameters or connection records a new version. Moving, tagging and visibility changes do not. A save that changes nothing records nothing, and each query keeps its latest 50 versions. Queries saved before history existed get their first version, the state before the change, the first time they are edited.
 
-**History** in the row menu lists the versions with who saved them and when, and previews the SQL of the selected one. **Restore** writes that version back and records it as a new version noted "Restored version N", so nothing is lost.
+**History** in the row menu lists the versions with who saved them and when, and previews the SQL of the selected one. **Restore** writes that version back and records it as a new version noted "Restored version N", so nothing is lost. A restore keeps the query on its current connection.
 
 ### API
 
@@ -421,7 +422,9 @@ POST /api/saved-queries
 { "name": "Daily active users", "query": "SELECT count(DISTINCT user_id) ...",
   "folder_id": "<folder id>", "tags": ["product"], "visibility": "private" }
 
-# Update any subset of the fields (also used to rename, move and re-tag)
+# Update any subset of the fields (also used to rename, move and re-tag).
+# A query is saved on the session's connection; connection_id may only be
+# empty (unchanged) or that connection, anything else is 400
 PUT /api/saved-queries/{id}
 { "name": "Updated name", "folder_id": "", "visibility": "shared" }
 

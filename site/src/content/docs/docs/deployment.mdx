@@ -175,7 +175,10 @@ tls_key_file: /etc/ch-ui/tls/server.key
 ```
 
 Both must be set (PEM files). If either is missing, CH-UI serves plain HTTP and
-expects a reverse proxy to terminate TLS.
+expects a reverse proxy to terminate TLS. Direct connections work with native
+TLS: their in-process connectors dial the server over `wss://` on loopback.
+That one loopback dial skips certificate checks, since the certificate is
+issued for the public name; TLS to ClickHouse is still verified.
 
 ## 2) Create Tunnel Connection + Token (VM2)
 

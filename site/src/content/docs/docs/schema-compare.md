@@ -68,6 +68,8 @@ Treat engine, key, view and destructive changes with care. Some of them cannot b
 
 Any signed-in role (viewer, analyst, admin) can run a comparison. What it can read is limited by the ClickHouse accounts used. Credentials for another connection are required every time; CH-UI does not reuse another user's session or a background account for this.
 
+Typed credentials are checked against their connection before any metadata is read, and they count against the same lockout as the login page: a wrong password is a failed sign-in attempt for that user and connection, and too many get `429`. While [SSO only](/docs/sso#sso-only) is in force, typed credentials are refused with `403`, so you can only compare databases on the connection you are signed in to.
+
 Comparisons are not stored and are not written to the [audit log](/docs/audit-log).
 
 ## API

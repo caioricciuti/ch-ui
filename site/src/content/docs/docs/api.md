@@ -179,7 +179,7 @@ Any signed-in role, every edition. Read with your ClickHouse account; see [Data 
 | `GET` | `/api/connections` | List connections |
 | `POST` | `/api/connections` | Create connection (admin) |
 | `GET` | `/api/connections/{id}` | Get connection |
-| `PUT` | `/api/connections/{id}` | Update connection (admin) |
+| `PUT` | `/api/connections/{id}` | Update connection (admin); a URL that reaches another ClickHouse server resets the connection and the response carries `reset` with the counts |
 | `DELETE` | `/api/connections/{id}` | Delete connection (admin) |
 | `POST` | `/api/connections/{id}/test` | Test connection |
 | `GET` | `/api/connections/{id}/token` | Get tunnel token (admin) |
@@ -194,10 +194,18 @@ Any signed-in role, every edition. Read with your ClickHouse account; see [Data 
 
 Background accounts are available in every edition. `{worker}` is one of
 `schedule`, `model`, `pipeline`, `governance`, `cluster_health`,
-`telemetry.monitor`, `performance`, `operations.report`. The `PUT` body is
+`telemetry.monitor`, `performance`, `operations.report`, `sql_alert`,
+`report`. The `PUT` body is
 `{"mode": "...", "username": "...", "password": "..."}`; for
 `service_account` CH-UI runs `SELECT 1` with the account before saving. See
 [Background Accounts](/docs/background-accounts).
+
+When `PUT /api/connections/{id}` points a direct connection at a different
+ClickHouse server, the response has a `reset` object with what was cleared:
+`sessions`, `role_overrides`, `sso_users`, `sso_account`,
+`background_accounts`, `mcp_keys`, `dashboard_shares`. It is left out when the
+URL reaches the same server. See
+[Repointing a direct connection](/docs/connections/#repointing-a-direct-connection).
 
 ### Saved Queries
 
@@ -219,7 +227,9 @@ Background accounts are available in every edition. `{worker}` is one of
 | `POST` | `/api/saved-queries/{id}/run` | Run with parameters, result as JSON (**Pro**, see [Query Parameters](/docs/querying#running-a-saved-query-via-the-api)) |
 
 Create, update, delete, duplicate, restore and folder changes need the admin or
-analyst role. Viewers can list, read and run what they can see. Only the owner
+analyst role. A query is created (and duplicated) on the session's connection;
+a `connection_id` in the body may only be empty or that connection, anything
+else answers `400`. Restoring a version keeps the query's current connection. Viewers can list, read and run what they can see. Only the owner
 or an admin can change a query; a private query you cannot see answers `404`.
 See [Saved Queries](/docs/querying#saved-queries).
 
@@ -463,13 +473,17 @@ budget rules per role or person or with a dollar limit
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/schedules` | List schedules |
+| `GET` | `/api/schedules` | List the schedules of the session's connection |
 | `GET` | `/api/schedules/{id}` | Get schedule |
 | `POST` | `/api/schedules` | Create schedule (admin or analyst) |
 | `PUT` | `/api/schedules/{id}` | Update schedule (admin or analyst) |
 | `DELETE` | `/api/schedules/{id}` | Delete schedule (admin or analyst) |
 | `POST` | `/api/schedules/{id}/run` | Manual execution with the caller's credentials (admin or analyst) |
 | `GET` | `/api/schedules/{id}/runs` | Run history |
+
+Every schedule route only reaches schedules of the session's connection; one on
+another connection answers `404`. A new schedule runs on the session's
+connection, and a `connection_id` for any other connection answers `400`.
 
 ### Cluster Health
 
@@ -516,7 +530,7 @@ See [Cost Center](/docs/cost-center).
 | `GET` | `/api/governance/overview` | Summary stats |
 | `POST` | `/api/governance/sync` | Trigger full sync |
 | `POST` | `/api/governance/sync/{type}` | Trigger single sync (metadata/query_log/access) |
-| `GET` | `/api/governance/sync/status` | Sync state for all workers |
+| `GET` | `/api/governance/sync/status` | Sync state for all workers: `status`, `last_synced_at` (last success), `last_attempt_at`, `consecutive_failures`, `ch_user`, `last_error` |
 | `GET` | `/api/governance/databases` | List databases |
 | `GET` | `/api/governance/tables` | List tables (`?database=`) |
 | `GET` | `/api/governance/tables/{db}/{table}` | Table detail + columns + tags + recent queries |
@@ -674,7 +688,9 @@ server runs with `allow_login_url` on (off by default, see
 [Configuration](/docs/configuration/#sign-in-with-a-clickhouse-url)). The server
 reuses or creates a direct connection for that URL and signs in against it.
 Sending it with `connectionId` returns `400`, as does a URL that fails the
-first-run setup URL checks. Sending it while the setting is off returns `403`.
+first-run setup URL checks. Without `clickhouse_url`, send `connectionId`:
+leaving it out only works while the login page lists a single connection, and
+otherwise answers `400`. Sending it while the setting is off returns `403`.
 When the login page has already created 20 connections and the URL matches
 none of the saved ones, the response is `429`.
 

@@ -68,9 +68,10 @@ OIDC_ACCEPT_UNVERIFIED_EMAIL=false   # accept tokens without email_verified (see
 OIDC_SSO_ONLY=false                  # turn off password sign-in (see SSO only)
 ```
 
-If `OIDC_CONNECTION_ID` is empty, SSO sessions use the embedded connection. If
-there is no embedded connection, they use the oldest connection (the first one
-created). With no connections at all, SSO sign-in fails.
+If `OIDC_CONNECTION_ID` is empty, SSO sessions use the oldest connection that
+has an SSO account set up, or the oldest connection when none has one. The
+embedded connection that first-run setup replaced, which the login page hides,
+is skipped. With no connections at all, SSO sign-in fails.
 
 On startup the server logs `OIDC SSO enabled` and a **Sign in with SSO** button
 appears on the login page. If discovery fails (IdP unreachable, bad issuer),
@@ -259,9 +260,13 @@ attributable) and drops them after `drop_after_days`. The sweep runs with a
 Pro license only, skips connections whose agent is offline, and retries a
 failed lock or drop on its next tick. It records `sso.user_locked` and
 `sso.user_dropped` in the audit log with the actor `system`. **Remove access**
-in **Admin → Users** drops the person's users on every connection right away
-and signs them out (`sso.access_removed`); a connection that is offline is
-reported in the response and its user is kept for the sweep. A sign-in after a
+in **Admin → Users** drops the person's users on every connection right away,
+revokes their MCP keys and OAuth tokens there, and signs them out
+(`sso.access_removed`). A connection that is offline is reported in the
+response, but the removal still takes effect in CH-UI at once: the user is
+marked removed, so share links, run-as-me keys and OAuth refreshes stop
+working, and the sweep drops it once the connection is back. A later sign-in
+clears the mark. A sign-in after a
 lock simply provisions them again with their current groups.
 
 Dashboard share links, MCP OAuth tokens and MCP service keys that

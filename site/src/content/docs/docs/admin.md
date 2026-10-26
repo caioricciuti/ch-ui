@@ -49,6 +49,8 @@ View all ClickHouse connections with their type (Embedded for the one from serve
 
 **Edit** on a row opens a sheet. Direct connections can be renamed and pointed at another ClickHouse URL; saving a new URL restarts that connection's connector. Agent connections can only be renamed, and the agent and its token keep working. The embedded connection has no Edit or Delete: it shows **Server config**, because its name and URL come from `clickhouse_url` and `connection_name` in the server config (hover the label to see that).
 
+A new URL that reaches a different ClickHouse server resets the connection, because what CH-UI stored for it belongs to the old server. Saving signs everyone out of that connection and clears its role overrides, per-person SSO user records, the SSO account, MCP keys and their OAuth tokens, and dashboard share links. Background accounts set to a service account are switched to **Disabled**. Nothing is sent to either ClickHouse server; set these up again for the new one. The audit log gets a `connection.reset` entry with the counts. A URL for the same server (only case, a default port or a trailing slash differs) clears nothing. The same reset happens when first-run setup points the connection elsewhere, and on startup when `clickhouse_url` for the embedded connection names a different server than before.
+
 Each connection row has a **Background accounts** button. It sets which ClickHouse account unattended jobs (schedules, models, pipeline sinks, governance, Cluster Health, telemetry monitors, performance monitoring and weekly reports) use on that connection. See [Background Accounts](/docs/background-accounts).
 
 Each row also has an **SSO** button: the ClickHouse account SSO sessions use on that connection, and whether SSO people share it or get [their own ClickHouse users](/docs/sso#per-person-clickhouse-users), with the group to role mapping, **Show setup SQL** and **Verify**.
@@ -77,8 +79,11 @@ that account, not to SSO people.
 
 **Remove access** on an SSO person drops their ClickHouse users on every
 connection and signs them out at once (`DELETE /api/admin/users/sso/{email}/access`).
-A connection whose agent is offline is reported in the response and its user
-is kept for the hourly sweep to retire. Their IdP account is untouched: a later sign-in provisions them again,
+It also revokes the MCP keys and OAuth tokens that run as them on those
+connections. A connection that is offline is reported in the response, and the
+removal still takes effect in CH-UI right away: their ClickHouse user there is
+refused for every CH-UI path (MCP, OAuth refresh, share links, run-as-me), and
+the hourly sweep drops it once the connection is back. Their IdP account is untouched: a later sign-in provisions them again,
 with their current groups.
 
 The application list shows the current connection: its password users and every

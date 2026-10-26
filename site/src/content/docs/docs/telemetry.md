@@ -339,7 +339,11 @@ to use a dedicated ClickHouse account, borrow an active session (the default for
 existing installations), or disable background execution. A dedicated account
 lets monitoring continue after everyone signs out. It needs SELECT grants
 on the monitored logs and traces tables. A disabled or undecryptable account
-never falls back to a human session. See
+never falls back to a human session. When a connection has no usable account,
+its monitors go to the error state with the reason (**Not evaluated: ... Set a
+telemetry monitors account for this connection in Admin > Connections.**),
+without an *evaluation failed* event. Monitors on a connection whose tunnel is
+offline are skipped and keep their state. See
 [Background Accounts](/docs/background-accounts). **Run now** evaluates a
 monitor immediately with your own credentials, even when background execution
 is disabled.
@@ -386,5 +390,6 @@ hour"* in plain language and get the underlying query back.
 - **Monitors stop updating**: check the connection status and the
   [background account](/docs/background-accounts) mode. Session mode needs
   someone signed in to the connection. Disabled mode, an unreadable saved
-  password, or no usable session skips evaluation and leaves the previous
-  result visible. The server's debug logs record credential lookup failures.
+  password, or no usable session skips evaluation and shows **Not evaluated**
+  with the reason on the monitor row. The server log has one warning per
+  change. Monitors on an offline connection are skipped without an error.
