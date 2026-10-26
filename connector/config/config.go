@@ -33,6 +33,14 @@ type Config struct {
 	JSON    bool `yaml:"-"`
 	// Connect behavior
 	Takeover bool `yaml:"-"`
+
+	// In-process connectors only. TunnelInsecureSkipVerify skips certificate
+	// checks on the tunnel dial alone (the loopback dial to the server's own
+	// TLS listener, whose certificate names the public host). SkipHostInfo
+	// stops host reports, which would describe the CH-UI machine rather than
+	// the ClickHouse server.
+	TunnelInsecureSkipVerify bool `yaml:"-"`
+	SkipHostInfo             bool `yaml:"-"`
 }
 
 // Default configuration values

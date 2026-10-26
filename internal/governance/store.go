@@ -63,7 +63,7 @@ func (s *Store) conn() *sql.DB {
 // GetSyncStates returns all sync states for a connection.
 func (s *Store) GetSyncStates(connectionID string) ([]SyncState, error) {
 	rows, err := s.conn().Query(
-		`SELECT id, connection_id, sync_type, last_synced_at, watermark, status, last_error, row_count, created_at, updated_at
+		`SELECT `+syncStateColumns+`
 		 FROM gov_sync_state WHERE connection_id = ? ORDER BY sync_type`, connectionID,
 	)
 	if err != nil {
@@ -73,15 +73,11 @@ func (s *Store) GetSyncStates(connectionID string) ([]SyncState, error) {
 
 	var results []SyncState
 	for rows.Next() {
-		var ss SyncState
-		var lastSynced, watermark, lastError sql.NullString
-		if err := rows.Scan(&ss.ID, &ss.ConnectionID, &ss.SyncType, &lastSynced, &watermark, &ss.Status, &lastError, &ss.RowCount, &ss.CreatedAt, &ss.UpdatedAt); err != nil {
+		ss, err := scanSyncState(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan sync state: %w", err)
 		}
-		ss.LastSyncedAt = nullStringToPtr(lastSynced)
-		ss.Watermark = nullStringToPtr(watermark)
-		ss.LastError = nullStringToPtr(lastError)
-		results = append(results, ss)
+		results = append(results, *ss)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate sync state rows: %w", err)
@@ -89,49 +85,124 @@ func (s *Store) GetSyncStates(connectionID string) ([]SyncState, error) {
 	return results, nil
 }
 
+const syncStateColumns = `id, connection_id, sync_type, last_synced_at, last_attempt_at, consecutive_failures, ch_user,
+	watermark, status, last_error, row_count, created_at, updated_at`
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanSyncState(row rowScanner) (*SyncState, error) {
+	var ss SyncState
+	var lastSynced, lastAttempt, chUser, watermark, lastError sql.NullString
+	if err := row.Scan(&ss.ID, &ss.ConnectionID, &ss.SyncType, &lastSynced, &lastAttempt, &ss.ConsecutiveFailures, &chUser,
+		&watermark, &ss.Status, &lastError, &ss.RowCount, &ss.CreatedAt, &ss.UpdatedAt); err != nil {
+		return nil, err
+	}
+	ss.LastSyncedAt = nullStringToPtr(lastSynced)
+	ss.LastAttemptAt = nullStringToPtr(lastAttempt)
+	ss.CHUser = nullStringToPtr(chUser)
+	ss.Watermark = nullStringToPtr(watermark)
+	ss.LastError = nullStringToPtr(lastError)
+	return &ss, nil
+}
+
 // GetSyncState returns a specific sync state for a connection and sync type.
 func (s *Store) GetSyncState(connectionID string, syncType string) (*SyncState, error) {
 	row := s.conn().QueryRow(
-		`SELECT id, connection_id, sync_type, last_synced_at, watermark, status, last_error, row_count, created_at, updated_at
+		`SELECT `+syncStateColumns+`
 		 FROM gov_sync_state WHERE connection_id = ? AND sync_type = ?`, connectionID, syncType,
 	)
-
-	var ss SyncState
-	var lastSynced, watermark, lastError sql.NullString
-	err := row.Scan(&ss.ID, &ss.ConnectionID, &ss.SyncType, &lastSynced, &watermark, &ss.Status, &lastError, &ss.RowCount, &ss.CreatedAt, &ss.UpdatedAt)
+	ss, err := scanSyncState(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get sync state: %w", err)
 	}
-	ss.LastSyncedAt = nullStringToPtr(lastSynced)
-	ss.Watermark = nullStringToPtr(watermark)
-	ss.LastError = nullStringToPtr(lastError)
-	return &ss, nil
+	return ss, nil
 }
 
-// UpsertSyncState inserts or updates a sync state record.
+// UpsertSyncState inserts or updates a sync state record. Every call is an
+// attempt (last_attempt_at). Status "idle" is a success: it sets
+// last_synced_at and clears the failure count. "error" keeps last_synced_at
+// at the last success and counts the failure. "running" keeps the previous
+// result (last_synced_at, last_error, row_count) until the run ends.
 func (s *Store) UpsertSyncState(connectionID string, syncType string, status string, watermark *string, lastError *string, rowCount int) error {
+	return s.upsertSyncState(connectionID, syncType, status, watermark, lastError, rowCount, nil)
+}
+
+// MarkSyncRunning marks a sync as started by the ClickHouse user chUser.
+func (s *Store) MarkSyncRunning(connectionID string, syncType string, chUser string) error {
+	var user *string
+	if chUser != "" {
+		user = &chUser
+	}
+	return s.upsertSyncState(connectionID, syncType, "running", nil, nil, 0, user)
+}
+
+func (s *Store) upsertSyncState(connectionID, syncType, status string, watermark, lastError *string, rowCount int, chUser *string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	id := uuid.NewString()
+	var syncedAt *string
+	failures := 0
+	switch status {
+	case "idle":
+		syncedAt = &now
+	case "error":
+		failures = 1
+	}
 
 	_, err := s.conn().Exec(
-		`INSERT INTO gov_sync_state (id, connection_id, sync_type, last_synced_at, watermark, status, last_error, row_count, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO gov_sync_state (id, connection_id, sync_type, last_synced_at, last_attempt_at, consecutive_failures, ch_user,
+		   watermark, status, last_error, row_count, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(connection_id, sync_type) DO UPDATE SET
-		   last_synced_at = excluded.last_synced_at,
+		   last_synced_at = COALESCE(excluded.last_synced_at, gov_sync_state.last_synced_at),
+		   last_attempt_at = excluded.last_attempt_at,
+		   consecutive_failures = CASE excluded.status
+		     WHEN 'error' THEN gov_sync_state.consecutive_failures + 1
+		     WHEN 'running' THEN gov_sync_state.consecutive_failures
+		     ELSE 0 END,
+		   ch_user = COALESCE(excluded.ch_user, gov_sync_state.ch_user),
 		   watermark = COALESCE(excluded.watermark, gov_sync_state.watermark),
 		   status = excluded.status,
-		   last_error = excluded.last_error,
-		   row_count = excluded.row_count,
+		   last_error = CASE WHEN excluded.status = 'running' THEN gov_sync_state.last_error ELSE excluded.last_error END,
+		   row_count = CASE WHEN excluded.status = 'running' THEN gov_sync_state.row_count ELSE excluded.row_count END,
 		   updated_at = excluded.updated_at`,
-		id, connectionID, syncType, now, ptrToNullString(watermark), status, ptrToNullString(lastError), rowCount, now, now,
+		id, connectionID, syncType, ptrToNullString(syncedAt), now, failures, ptrToNullString(chUser),
+		ptrToNullString(watermark), status, ptrToNullString(lastError), rowCount, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert sync state: %w", err)
 	}
 	return nil
+}
+
+// SyncUsers returns the ClickHouse users the governance syncs of a connection
+// last ran as, the most recent attempt first.
+func (s *Store) SyncUsers(connectionID string) ([]string, error) {
+	rows, err := s.conn().Query(
+		`SELECT ch_user FROM gov_sync_state
+		 WHERE connection_id = ? AND COALESCE(ch_user, '') != ''
+		 GROUP BY ch_user ORDER BY MAX(COALESCE(last_attempt_at, '')) DESC, ch_user`, connectionID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get sync users: %w", err)
+	}
+	defer rows.Close()
+	var users []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, fmt.Errorf("scan sync user: %w", err)
+		}
+		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sync users: %w", err)
+	}
+	return users, nil
 }
 
 // UpdateSyncWatermark updates only the watermark for a specific sync state.

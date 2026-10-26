@@ -7,9 +7,10 @@
   import { openQueryTab, openSavedQueryTab, renameSavedQueryTabs } from '../lib/stores/tabs.svelte'
   import { getSection } from '../lib/stores/nav.svelte'
   import { getSession } from '../lib/stores/session.svelte'
+  import { loadConnectionNames, otherConnectionId } from '../lib/stores/connection-names'
   import { PAGE_SECTIONS, docsURL } from '../lib/routes'
   import { formatDate, formatRelativeTime } from '../lib/utils/format'
-  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../lib/stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom, info as toastInfo } from '../lib/stores/toast.svelte'
   import Button from '../lib/components/common/Button.svelte'
   import Spinner from '../lib/components/common/Spinner.svelte'
   import Input from '../lib/components/common/Input.svelte'
@@ -51,6 +52,36 @@
   let tagFilter = $state('')
   let owners = $state<'visible' | 'all'>('visible')
   let selectedFolder = $state<string | null>(null)
+
+  // The list spans every connection; a query always runs on the session's.
+  // One saved on another connection says so.
+  let connectionNames = $state<Map<string, string>>(new Map())
+  let connectionNamesRequested = false
+
+  function savedOn(q: SavedQuery): string | null {
+    const other = otherConnectionId(q.connection_id, session?.connectionId)
+    return other ? (connectionNames.get(other) ?? 'another connection') : null
+  }
+
+  function connectionNote(q: SavedQuery | null): string | null {
+    const on = q ? savedOn(q) : null
+    return on ? `Saved on ${on}, running on ${session?.connectionName || 'this connection'}` : null
+  }
+
+  /** Opens the query in the editor; one from another connection says where it runs. */
+  function openQuery(q: SavedQuery) {
+    openSavedQueryTab(q)
+    const note = connectionNote(q)
+    if (note) toastInfo(note)
+  }
+
+  $effect(() => {
+    const current = session?.connectionId
+    if (connectionNamesRequested || !current) return
+    if (!queries.some((q) => otherConnectionId(q.connection_id, current))) return
+    connectionNamesRequested = true
+    void loadConnectionNames().then((m) => (connectionNames = m))
+  })
 
   async function loadAll() {
     try {
@@ -166,7 +197,7 @@
     if (!q) return []
     const locked = !q.can_edit
     const items: ContextMenuItem[] = [
-      { id: 'open', label: 'Open', icon: Play, onSelect: () => openSavedQueryTab(q) },
+      { id: 'open', label: 'Open', icon: Play, onSelect: () => openQuery(q) },
       { id: 'details', label: 'Edit details', icon: Pencil, disabled: locked, onSelect: () => (editing = q) },
       { id: 'move', label: 'Move', icon: FolderInput, disabled: locked, onSelect: () => openMove(q) },
       { id: 'history', label: 'History', icon: History, onSelect: () => (historyFor = q) },
@@ -225,7 +256,8 @@
         name: q.name,
         source_type: 'saved_query',
         saved_query_id: q.id,
-        connection_id: q.connection_id || session?.connectionId || '',
+        // Reports run on the session's connection, like the query itself.
+        connection_id: session?.connectionId ?? '',
       }
       subscribeOpen = true
     } catch (e: unknown) {
@@ -476,7 +508,7 @@
             sort={{ key: 'updated_at', dir: 'desc' }}
             emptyTitle={filtered ? 'Nothing matches' : selectedFolder ? 'This folder is empty' : 'Nothing in this section'}
             emptyDescription={filtered ? 'Try another search or tag.' : selectedFolder ? (canWrite ? 'Move a query here from its menu or drag it onto the folder.' : undefined) : 'Queries you can see in this section show up here.'}
-            onrowclick={(r) => openSavedQueryTab(r)}
+            onrowclick={(r) => openQuery(r)}
             onrowcontextmenu={(r, e) => openRowMenu(e, r)}
           >
             {#snippet cell(row, col, value)}
@@ -486,6 +518,7 @@
                     <div class="flex min-w-0 items-center gap-1.5">
                       <span class="truncate font-medium text-fg">{row.name}</span>
                       {#if row.verified}<Badge tone="success">Verified</Badge>{/if}
+                      {#if savedOn(row)}<Badge tone="warning" title={connectionNote(row) ?? undefined}>Saved on {savedOn(row)}</Badge>{/if}
                     </div>
                     {#if row.description}
                       <div class="truncate text-xs text-fg-3">{row.description}</div>
@@ -519,7 +552,7 @@
 <ContextMenu open={!!menu} x={menu?.x ?? 0} y={menu?.y ?? 0} items={rowMenuItems()} onclose={() => (menu = null)} />
 <ContextMenu open={!!folderMenu} x={folderMenu?.x ?? 0} y={folderMenu?.y ?? 0} items={folderMenuItems()} onclose={() => (folderMenu = null)} />
 
-<SavedQuerySheet query={editing} {folders} {isAdmin} onclose={() => (editing = null)} onsaved={onDetailsSaved} />
+<SavedQuerySheet query={editing} {folders} {isAdmin} connectionNote={connectionNote(editing)} onclose={() => (editing = null)} onsaved={onDetailsSaved} />
 <ReportEditor
   open={subscribeOpen}
   report={null}

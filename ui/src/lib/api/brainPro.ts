@@ -2,6 +2,7 @@
 import { withBase } from '../basePath'
 import { connectionHeaders } from '../stores/workspace-scope'
 import { apiPost } from './client'
+import { connectionChangedMessage } from './connection-changed'
 import type { BrainBudgetStatus, BrainUsage } from '../types/brain'
 
 /** How generated SQL fared when ClickHouse checked it with EXPLAIN. */
@@ -76,7 +77,7 @@ async function streamSQL(path: string, body: unknown, handlers: SQLStreamHandler
   })
   if (!response.ok) {
     const err = (await response.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error ?? `Request failed (${response.status})`)
+    throw new Error(connectionChangedMessage(response.status, err) ?? err.error ?? `Request failed (${response.status})`)
   }
   const reader = response.body?.getReader()
   if (!reader) throw new Error('No response body')

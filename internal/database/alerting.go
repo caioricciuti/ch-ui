@@ -413,6 +413,21 @@ func (db *DB) RevertSQLAlertRun(before *SQLAlert, run SQLAlertRun) (bool, error)
 	return n > 0, nil
 }
 
+// SetSQLAlertSkipped stores why an alert could not run (no account for its
+// connection) as its last error, without counting a run: state, counters
+// and last run time stay, so the alert stays due and runs once the cause is
+// fixed. It only applies while the alert is still as loaded (a).
+func (db *DB) SetSQLAlertSkipped(a *SQLAlert, reason string) (bool, error) {
+	res, err := db.conn.Exec(`UPDATE sql_alerts SET last_error = ?
+		WHERE id = ? AND updated_at = ? AND state = ? AND breach_count = ? AND ok_count = ? AND error_count = ? AND enabled = ?`,
+		nullableString(reason), a.ID, a.UpdatedAt, a.State, a.BreachCount, a.OkCount, a.ErrorCount, boolInt(a.Enabled))
+	if err != nil {
+		return false, fmt.Errorf("record skipped sql alert: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // ── Evaluation history ───────────────────────────────────────────────────────
 
 // AlertEvaluation is one recorded evaluation of a health check node or a SQL

@@ -193,3 +193,37 @@ func TestSavedQueryVisibilityClaimsLegacyOwner(t *testing.T) {
 		t.Fatal("unknown visibility must fail")
 	}
 }
+
+// A restore brings back the content of a version but keeps the query's
+// current connection, so it cannot move the query to another one.
+func TestRestoreSavedQueryVersionKeepsConnection(t *testing.T) {
+	db := openTestDB(t)
+	connA, err := db.CreateConnection(CreateConnectionParams{Name: "a", TunnelToken: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connB, err := db.CreateConnection(CreateConnectionParams{Name: "b", TunnelToken: "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := db.CreateSavedQuery(CreateSavedQueryParams{Name: "Q", Query: "SELECT 1", ConnectionID: connA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.RecordSavedQueryVersion(id, "alice", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpdateSavedQuery(id, UpdateSavedQueryParams{Name: "Q", Query: "SELECT 2", ConnectionID: connB}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.RecordSavedQueryVersion(id, "bob", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.RestoreSavedQueryVersion(id, 1, "bob"); err != nil {
+		t.Fatal(err)
+	}
+	q, _ := db.GetSavedQueryByID(id)
+	if q == nil || q.Query != "SELECT 1" || q.ConnectionID == nil || *q.ConnectionID != connB {
+		t.Fatalf("restored: %+v, want SELECT 1 on %s", q, connB)
+	}
+}

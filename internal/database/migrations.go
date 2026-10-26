@@ -1369,6 +1369,9 @@ Formatting:
 		return err
 	}
 
+	if err := db.migrateGovSyncAttempts(); err != nil {
+		return err
+	}
 	if err := db.migrateSSOAccessRemoved(); err != nil {
 		return err
 	}

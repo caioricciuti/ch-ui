@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { executeStreamQuery, exportFullResult, filenameFromDisposition, EXPORT_CUT_OFF, STREAM_CLOSED_EARLY } from './stream'
+import { CONNECTION_CHANGED_MESSAGE, onConnectionChanged } from './connection-changed'
+
+function connectionChanged(): Response {
+  return new Response(JSON.stringify({ success: false, error: 'connection_changed' }), { status: 409 })
+}
 
 function ndjsonResponse(lines: string[]): Response {
   const body = new ReadableStream<Uint8Array>({
@@ -52,6 +57,17 @@ describe('executeStreamQuery', () => {
     expect(onError).toHaveBeenCalledWith('Code: 60. Unknown table')
   })
 
+  it('a 409 connection_changed reports the notice text, not the code', async () => {
+    const changed = vi.fn()
+    onConnectionChanged(changed)
+    vi.stubGlobal('fetch', vi.fn(async () => connectionChanged()))
+    const onError = vi.fn()
+    await executeStreamQuery('SELECT 1', 100, () => {}, () => {}, () => {}, onError)
+    onConnectionChanged(null)
+    expect(onError).toHaveBeenCalledWith(CONNECTION_CHANGED_MESSAGE)
+    expect(changed).toHaveBeenCalledTimes(1)
+  })
+
   it('stays quiet when the caller aborted', async () => {
     const controller = new AbortController()
     controller.abort()
@@ -90,6 +106,11 @@ describe('exportFullResult', () => {
   it('throws the server message when the export is refused', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'update the agent' }), { status: 409 })))
     await expect(exportFullResult('SELECT 1', 'CSVWithNames', undefined, () => {})).rejects.toThrow('update the agent')
+  })
+
+  it('a 409 connection_changed on export throws the notice text', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => connectionChanged()))
+    await expect(exportFullResult('SELECT 1', 'CSVWithNames', undefined, () => {})).rejects.toThrow(CONNECTION_CHANGED_MESSAGE)
   })
 
   it('reports a download cut off by the server', async () => {

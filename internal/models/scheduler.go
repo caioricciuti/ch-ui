@@ -2,6 +2,7 @@ package models
 
 import (
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/database"
@@ -22,6 +23,11 @@ type Scheduler struct {
 	db     *database.DB
 	runner *Runner
 	stopCh chan struct{}
+
+	// busy holds the connections with scheduled groups in flight.
+	mu   sync.Mutex
+	busy map[string]bool
+	wg   sync.WaitGroup
 }
 
 // NewScheduler creates a new model scheduler.
@@ -30,6 +36,7 @@ func NewScheduler(db *database.DB, runner *Runner) *Scheduler {
 		db:     db,
 		runner: runner,
 		stopCh: make(chan struct{}),
+		busy:   make(map[string]bool),
 	}
 }
 
@@ -70,6 +77,12 @@ func (s *Scheduler) Stop() {
 	close(s.stopCh)
 }
 
+// tick starts the due groups and returns without waiting for them. Groups
+// of one connection run one after another in a single goroutine, and
+// different connections run side by side, so a long run on one ClickHouse
+// server never delays the groups of another. A connection whose previous
+// groups are still running is skipped: its due groups stay due and start
+// on a later tick.
 func (s *Scheduler) tick() {
 	pipelines, err := s.db.GetEnabledModelPipelines()
 	if err != nil {
@@ -78,6 +91,8 @@ func (s *Scheduler) tick() {
 	}
 
 	now := time.Now().UTC()
+	due := map[string][]database.ModelPipeline{}
+	var order []string
 	for _, p := range pipelines {
 		if p.NextRunAt == nil {
 			continue
@@ -86,29 +101,69 @@ func (s *Scheduler) tick() {
 		if err != nil || nextRun.After(now) {
 			continue
 		}
-
-		slog.Info("Model group schedule triggered",
-			"connection_id", p.ConnectionID, "pipeline", p.Name, "selector", p.Selector, "cron", p.Cron)
-
-		status := "success"
-		var runError string
-		// Run returns an error (a *RunFailedError, with the run recorded)
-		// when any model failed or was skipped, so a run with failures is
-		// never recorded as a success here.
-		runID, runErr := s.runner.Run(p.ConnectionID, RunOptions{Selector: p.Selector, PipelineID: p.ID, TriggeredBy: SchedulerTrigger})
-		if runErr != nil {
-			status = "error"
-			runError = runErr.Error()
-			slog.Error("Scheduled model group failed", "connection_id", p.ConnectionID, "pipeline", p.Name, "error", runErr)
+		if _, ok := due[p.ConnectionID]; !ok {
+			order = append(order, p.ConnectionID)
 		}
+		due[p.ConnectionID] = append(due[p.ConnectionID], p)
+	}
+	for _, connID := range order {
+		s.start(connID, due[connID])
+	}
+}
 
-		var nextRunAt *string
-		if next := NextRuns(p.Cron, p.Timezone, time.Now(), 1); len(next) > 0 {
-			formatted := next[0].Format(time.RFC3339)
-			nextRunAt = &formatted
+// start runs the due groups of one connection in the background unless
+// that connection already has scheduled groups running.
+func (s *Scheduler) start(connID string, due []database.ModelPipeline) {
+	s.mu.Lock()
+	if s.busy[connID] {
+		s.mu.Unlock()
+		slog.Debug("Model groups still running on connection, skipping", "connection_id", connID, "due", len(due))
+		return
+	}
+	s.busy[connID] = true
+	s.mu.Unlock()
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		defer func() {
+			s.mu.Lock()
+			delete(s.busy, connID)
+			s.mu.Unlock()
+		}()
+		defer safe.Recover("model-scheduler-run")
+		for _, p := range due {
+			s.runPipeline(p)
 		}
-		if err := s.db.RecordModelPipelineRun(p.ID, status, runError, runID, nextRunAt); err != nil {
-			slog.Error("Failed to record model group run", "pipeline_id", p.ID, "error", err)
-		}
+	}()
+}
+
+// wait blocks until every started run has finished (tests).
+func (s *Scheduler) wait() {
+	s.wg.Wait()
+}
+
+func (s *Scheduler) runPipeline(p database.ModelPipeline) {
+	slog.Info("Model group schedule triggered",
+		"connection_id", p.ConnectionID, "pipeline", p.Name, "selector", p.Selector, "cron", p.Cron)
+
+	status := "success"
+	var runError string
+	// Run returns an error (a *RunFailedError, with the run recorded)
+	// when any model failed or was skipped, so a run with failures is
+	// never recorded as a success here.
+	runID, runErr := s.runner.Run(p.ConnectionID, RunOptions{Selector: p.Selector, PipelineID: p.ID, TriggeredBy: SchedulerTrigger})
+	if runErr != nil {
+		status = "error"
+		runError = runErr.Error()
+		slog.Error("Scheduled model group failed", "connection_id", p.ConnectionID, "pipeline", p.Name, "error", runErr)
+	}
+
+	var nextRunAt *string
+	if next := NextRuns(p.Cron, p.Timezone, time.Now(), 1); len(next) > 0 {
+		formatted := next[0].Format(time.RFC3339)
+		nextRunAt = &formatted
+	}
+	if err := s.db.RecordModelPipelineRun(p.ID, status, runError, runID, nextRunAt); err != nil {
+		slog.Error("Failed to record model group run", "pipeline_id", p.ID, "error", err)
 	}
 }

@@ -59,7 +59,7 @@ func (s *Syncer) syncQueryLog(ctx context.Context, creds CHCredentials) (*QueryL
 	}
 
 	// Update sync state to running
-	if err := s.store.UpsertSyncState(connID, string(SyncQueryLog), "running", nil, nil, 0); err != nil {
+	if err := s.store.MarkSyncRunning(connID, string(SyncQueryLog), creds.User); err != nil {
 		slog.Error("Failed to update sync state", "error", err)
 	}
 
@@ -96,10 +96,12 @@ func (s *Syncer) syncQueryLog(ctx context.Context, creds CHCredentials) (*QueryL
 	minDuration := QueryHarvestMinDurationMs(s.db)
 	accounts := s.personAccounts(connID)
 
-	rows, err := s.executeQuery(creds, buildQueryLogHarvestSQL(wm, creds.User, minDuration, true, accounts))
+	syncUsers := s.governanceUsers(connID, creds.User)
+
+	rows, err := s.executeQuery(ctx, creds, buildQueryLogHarvestSQL(wm, syncUsers, minDuration, true, accounts))
 	if err != nil {
 		// Fallback for older CH setups where the "tables" column may be unavailable.
-		rows, err = s.executeQuery(creds, buildQueryLogHarvestSQL(wm, creds.User, minDuration, false, accounts))
+		rows, err = s.executeQuery(ctx, creds, buildQueryLogHarvestSQL(wm, syncUsers, minDuration, false, accounts))
 		if err != nil {
 			syncErr = fmt.Errorf("query_log query failed: %w", err)
 			return result, syncErr
@@ -400,18 +402,42 @@ func (s *Syncer) personAccounts(connID string) []querylogactor.Account {
 	return accounts
 }
 
+// governanceUsers lists the ClickHouse users governance syncs of the
+// connection ran as: the current one plus those recorded in the sync state,
+// so the syncer's own queries stay out of the harvest when the account
+// changed between syncs (or a manual sync ran as someone else).
+func (s *Syncer) governanceUsers(connID, current string) []string {
+	users := []string{current}
+	recorded, err := s.store.SyncUsers(connID)
+	if err != nil {
+		slog.Warn("Query log harvest: failed to load governance sync users", "connection", connID, "error", err)
+		return users
+	}
+	for _, u := range recorded {
+		if u != current {
+			users = append(users, u)
+		}
+	}
+	return users
+}
+
 // buildQueryLogHarvestSQL reads system.query_log after the watermark. It keeps
 // finished queries and both exception types (so denied attempts are audited),
 // and leaves out only the governance syncer's own queries: log_comment alone
-// is not enough, since any user can set it, so the harvest user must match too.
+// is not enough, since any user can set it, so the user must also be one the
+// syncer ran as (syncUsers).
 // ch_user stays the ClickHouse account (policies refer to it); actor is the
 // person behind the row (querylogactor.Expr).
-func buildQueryLogHarvestSQL(wm queryLogWatermark, harvestUser string, minDurationMs int64, withTables bool, accounts []querylogactor.Account) string {
+func buildQueryLogHarvestSQL(wm queryLogWatermark, syncUsers []string, minDurationMs int64, withTables bool, accounts []querylogactor.Account) string {
 	tables := "tables"
 	if !withTables {
 		tables = "CAST([], 'Array(String)') AS tables"
 	}
 	ts := fmt.Sprintf("parseDateTime64BestEffort(%s, 6)", chQuote(wm.TS))
+	quotedUsers := make([]string, len(syncUsers))
+	for i, u := range syncUsers {
+		quotedUsers[i] = chQuote(u)
+	}
 	duration := ""
 	if minDurationMs > 0 {
 		// The floor only applies to successful queries; failures are always kept.
@@ -440,9 +466,9 @@ func buildQueryLogHarvestSQL(wm queryLogWatermark, harvestUser string, minDurati
 	  AND event_date >= toDate(%s)
 	  AND event_time >= toDateTime(%s)
 	  AND (event_time_microseconds, query_id) > (%s, %s)
-	  AND NOT (log_comment = %s AND user = %s)%s
+	  AND NOT (log_comment = %s AND user IN (%s))%s
 	ORDER BY event_time_microseconds ASC, query_id ASC
-	LIMIT %d`, querylogactor.Expr(accounts), tables, ts, ts, ts, chQuote(wm.QueryID), chQuote(GovernanceLogComment), chQuote(harvestUser), duration, queryLogBatchLimit)
+	LIMIT %d`, querylogactor.Expr(accounts), tables, ts, ts, ts, chQuote(wm.QueryID), chQuote(GovernanceLogComment), strings.Join(quotedUsers, ", "), duration, queryLogBatchLimit)
 }
 
 // SettingQueryHarvestMinDurationKey stores the optional duration floor (ms)

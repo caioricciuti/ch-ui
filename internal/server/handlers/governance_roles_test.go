@@ -92,3 +92,38 @@ func TestGovernanceTagDeleteStaysOnConnection(t *testing.T) {
 		t.Fatalf("delete on own connection: status %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestGovernancePolicyStaysOnConnection(t *testing.T) {
+	_, store, connA, connB, router := newGovernanceRoleRouter(t)
+	id, err := store.CreatePolicy(connB, "pii", "", "table", "db", "t", "", "pii_reader", "warn", "warn", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	update := `{"name":"renamed","required_role":"pii_reader","severity":"warn","enforcement_mode":"warn"}`
+	for _, c := range []struct{ method, body string }{
+		{http.MethodGet, ""},
+		{http.MethodPut, update},
+		{http.MethodDelete, ""},
+	} {
+		if rec := serveAs(router, "admin", connA, c.method, "/policies/"+id, c.body); rec.Code != http.StatusNotFound {
+			t.Errorf("%s from another connection: status %d, want 404", c.method, rec.Code)
+		}
+	}
+	p, err := store.GetPolicyByID(id)
+	if err != nil || p == nil {
+		t.Fatalf("policy gone after cross-connection requests: %v", err)
+	}
+	if p.Name != "pii" {
+		t.Errorf("cross-connection update changed the name to %q", p.Name)
+	}
+
+	if rec := serveAs(router, "admin", connB, http.MethodGet, "/policies/"+id, ""); rec.Code != http.StatusOK {
+		t.Errorf("get on own connection: status %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if rec := serveAs(router, "admin", connB, http.MethodPut, "/policies/"+id, update); rec.Code != http.StatusOK {
+		t.Errorf("update on own connection: status %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if rec := serveAs(router, "admin", connB, http.MethodDelete, "/policies/"+id, ""); rec.Code != http.StatusOK {
+		t.Errorf("delete on own connection: status %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+}

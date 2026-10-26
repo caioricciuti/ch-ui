@@ -445,7 +445,7 @@ func (s *Server) setupRoutes() {
 
 			// Schema comparison (Pro). Both routes are reads, POST /compare
 			// included, so they stay open in the read-only grace window.
-			schemaHandler := &handlers.SchemaCompareHandler{DB: db, Gateway: gw, Config: cfg}
+			schemaHandler := &handlers.SchemaCompareHandler{DB: db, Gateway: gw, Config: cfg, OIDC: s.oidcManager, RateLimiter: rateLimiter}
 			protected.With(middleware.RequireProRead(cfg)).Mount("/schema-compare", schemaHandler.Routes())
 
 			// ClickHouse access control editor (Pro, admin only). Gated per

@@ -81,7 +81,7 @@ func TestScheduleSharedWorkspaceDelegation(t *testing.T) {
 	body := `{"name":"job","cron":"* * * * *","connection_id":"` + conn + `","saved_query_id":"` + query + `"}`
 	for _, role := range []string{"viewer", "analyst", "admin"} {
 		req := httptest.NewRequest("POST", "/schedules/", strings.NewReader(body))
-		req = req.WithContext(middleware.SetSession(req.Context(), &middleware.SessionInfo{UserRole: role, ConnectionID: "different-connection", ClickhouseUser: role}))
+		req = req.WithContext(middleware.SetSession(req.Context(), &middleware.SessionInfo{UserRole: role, ConnectionID: conn, ClickhouseUser: role}))
 		rr := httptest.NewRecorder()
 		r.ServeHTTP(rr, req)
 		want := 201

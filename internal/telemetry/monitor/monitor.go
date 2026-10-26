@@ -67,6 +67,7 @@ type Credentials struct {
 // QueryExecutor runs SQL on a connection; satisfied by *tunnel.Gateway.
 type QueryExecutor interface {
 	ExecuteQuery(connectionID, sql, user, password string, timeout time.Duration) (*tunnel.QueryResult, error)
+	IsTunnelOnline(connectionID string) bool
 }
 
 // MonitorRunner evaluates enabled monitors using each connection's configured
@@ -81,6 +82,8 @@ type MonitorRunner struct {
 	running bool
 	stopCh  chan struct{}
 	ticking sync.Mutex // held while a tick runs; a slow tick skips the next
+	// noCreds keeps the missing-account warning to one per change.
+	noCreds safe.Changes
 }
 
 // NewMonitorRunner wires a runner; call Start to begin ticking. pro reports
@@ -148,6 +151,9 @@ func (r *MonitorRunner) tick() {
 	}
 	now := time.Now()
 	creds := map[string]*Credentials{}
+	// skipped holds why the monitors of a connection without a usable
+	// account are not evaluated.
+	skipped := map[string]string{}
 	type job struct {
 		m *database.TelemetryMonitor
 		c Credentials
@@ -160,16 +166,30 @@ func (r *MonitorRunner) tick() {
 		}
 		c, ok := creds[m.ConnectionID]
 		if !ok {
-			found, err := r.findCredentials(m.ConnectionID)
-			if err != nil {
-				slog.Debug("Telemetry monitors: no credentials", "connection", m.ConnectionID, "error", err)
+			// An offline tunnel is not a monitor error: skip it so the
+			// state stays as it is and no error alert is raised.
+			if !r.gateway.IsTunnelOnline(m.ConnectionID) {
 				creds[m.ConnectionID] = nil
 				continue
 			}
-			c = &found
+			found, err := r.findCredentials(m.ConnectionID)
+			if err != nil {
+				if r.noCreds.Set(m.ConnectionID, err.Error()) {
+					slog.Warn("Telemetry monitors: no account for connection, its monitors are not evaluated", "connection", m.ConnectionID, "error", err)
+				}
+				skipped[m.ConnectionID] = "Not evaluated: " + err.Error() + ". Set a telemetry monitors account for this connection in Admin > Connections."
+			} else {
+				if r.noCreds.Set(m.ConnectionID, "") {
+					slog.Info("Telemetry monitors: account available again", "connection", m.ConnectionID)
+				}
+				c = &found
+			}
 			creds[m.ConnectionID] = c
 		}
 		if c == nil {
+			if reason, ok := skipped[m.ConnectionID]; ok {
+				r.markSkipped(m, reason)
+			}
 			continue
 		}
 		jobs = append(jobs, job{m: m, c: *c})
@@ -195,6 +215,21 @@ func (r *MonitorRunner) tick() {
 	}
 	close(queue)
 	wg.Wait()
+}
+
+// markSkipped shows on a monitor why it was not evaluated, as an error state
+// without an alert event, so its last state is not taken for a current one.
+// Written once: a monitor already showing the reason is left alone.
+func (r *MonitorRunner) markSkipped(m *database.TelemetryMonitor, reason string) {
+	if m.LastState == "error" && m.LastError != nil && *m.LastError == reason {
+		return
+	}
+	if m.LastState == "ok" || m.LastState == "firing" {
+		lastGood.Store(m.ID, m.LastState)
+	}
+	if err := r.db.SetTelemetryMonitorSkipped(m.ID, reason); err != nil {
+		slog.Warn("Telemetry monitors: failed to record skipped monitor", "monitor", m.ID, "error", err)
+	}
 }
 
 // monitorDue reports whether the interval has elapsed since the last run.

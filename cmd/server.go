@@ -321,7 +321,7 @@ func serveConfig(cfg *config.Config, ln net.Listener) error {
 	logLicenseChoice(choice, dbLicense != "")
 
 	// Connector manager runs one in-process connector per direct connection.
-	agents := embedded.NewManager(db, cfg.Port)
+	agents := embedded.NewManager(db, cfg.Port, cfg.TLSEnabled())
 	agents.SameServer = handlers.SameClickHouseEndpoint
 
 	// Create and start server

@@ -116,6 +116,8 @@ func (e *slowExecutor) ExecuteQuery(_, sql, _, _ string, _ time.Duration) (*tunn
 	return &tunnel.QueryResult{Data: json.RawMessage(`[{"c":0}]`)}, nil
 }
 
+func (e *slowExecutor) IsTunnelOnline(string) bool { return true }
+
 // TestTickEvaluatesConcurrently checks the worker pool: with several slow
 // monitors due, a tick runs more than one query at a time, never more
 // than monitorWorkers, and still evaluates them all.

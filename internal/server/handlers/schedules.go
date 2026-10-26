@@ -46,49 +46,100 @@ func (h *SchedulesHandler) Routes(r chi.Router) {
 	r.With(writer).Post("/{id}/run", h.ManualRun)
 }
 
-// List returns all scheduled jobs.
+// List returns the scheduled jobs that run on the caller's connection.
 func (h *SchedulesHandler) List(w http.ResponseWriter, r *http.Request) {
-	schedules, err := h.DB.GetSchedules()
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+	all, err := h.DB.GetSchedules()
 	if err != nil {
 		slog.Error("Failed to list schedules", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to fetch schedules")
 		return
 	}
-
-	if schedules == nil {
-		schedules = []database.Schedule{}
+	queries, err := h.DB.GetSavedQueries()
+	if err != nil {
+		slog.Error("Failed to list saved queries for schedules", "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to fetch schedules")
+		return
 	}
-	// Name only: a job keeps running a query that became private, and the
-	// list still says which one without exposing its SQL.
-	if queries, err := h.DB.GetSavedQueries(); err == nil {
-		names := make(map[string]string, len(queries))
-		for _, q := range queries {
-			names[q.ID] = q.Name
+	byID := make(map[string]*database.SavedQuery, len(queries))
+	for i := range queries {
+		byID[queries[i].ID] = &queries[i]
+	}
+
+	schedules := []database.Schedule{}
+	for i := range all {
+		sq := byID[all[i].SavedQueryID]
+		if scheduleConnection(&all[i], sq, session.ConnectionID) != session.ConnectionID {
+			continue
 		}
-		for i := range schedules {
-			schedules[i].SavedQueryName = names[schedules[i].SavedQueryID]
+		// Name only: a job keeps running a query that became private, and the
+		// list still says which one without exposing its SQL.
+		if sq != nil {
+			all[i].SavedQueryName = sq.Name
 		}
+		schedules = append(schedules, all[i])
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"schedules": schedules})
 }
 
-// Get returns a single scheduled job by ID.
-func (h *SchedulesHandler) Get(w http.ResponseWriter, r *http.Request) {
+// scheduleConnection is the connection a job runs on, resolved as the
+// scheduler does. A job with no connection at all falls back to fallback,
+// as run_schedule_now does over MCP.
+func scheduleConnection(schedule *database.Schedule, savedQuery *database.SavedQuery, fallback string) string {
+	if conn := scheduler.ConnectionFor(schedule, savedQuery); conn != "" {
+		return conn
+	}
+	return fallback
+}
+
+// scheduleForSession loads the job named in the URL when it runs on the
+// caller's connection. Jobs run with their connection's credentials, so one
+// on another connection is reported as not found. It returns the job and
+// its saved query (nil when that is gone). On failure it writes the
+// response and returns nil.
+func (h *SchedulesHandler) scheduleForSession(w http.ResponseWriter, r *http.Request, session *middleware.SessionInfo) (*database.Schedule, *database.SavedQuery) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "Schedule ID is required")
-		return
+		return nil, nil
 	}
-
 	schedule, err := h.DB.GetScheduleByID(id)
 	if err != nil {
 		slog.Error("Failed to get schedule", "error", err, "id", id)
 		writeError(w, http.StatusInternalServerError, "Failed to fetch schedule")
-		return
+		return nil, nil
 	}
 	if schedule == nil {
-		writeError(w, http.StatusNotFound, "Schedule not found")
+		writeError(w, http.StatusNotFound, "Scheduled job not found")
+		return nil, nil
+	}
+	savedQuery, err := h.DB.GetSavedQueryByID(schedule.SavedQueryID)
+	if err != nil {
+		slog.Error("Failed to fetch saved query for schedule", "error", err, "saved_query_id", schedule.SavedQueryID)
+		writeError(w, http.StatusInternalServerError, "Failed to fetch saved query")
+		return nil, nil
+	}
+	if scheduleConnection(schedule, savedQuery, session.ConnectionID) != session.ConnectionID {
+		writeError(w, http.StatusNotFound, "Scheduled job not found")
+		return nil, nil
+	}
+	return schedule, savedQuery
+}
+
+// Get returns a single scheduled job by ID.
+func (h *SchedulesHandler) Get(w http.ResponseWriter, r *http.Request) {
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+	schedule, _ := h.scheduleForSession(w, r, session)
+	if schedule == nil {
 		return
 	}
 
@@ -113,6 +164,9 @@ func (h *SchedulesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if !sessionConnectionOnly(w, session, body.ConnectionID, "Scheduled jobs") {
 		return
 	}
 
@@ -162,15 +216,9 @@ func (h *SchedulesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		timeoutMs = *body.TimeoutMs
 	}
 
-	connectionID := strings.TrimSpace(body.ConnectionID)
-	if connectionID == "" {
-		if savedQuery.ConnectionID != nil {
-			connectionID = *savedQuery.ConnectionID
-		}
-		if connectionID == "" {
-			connectionID = session.ConnectionID
-		}
-	}
+	// A job runs on the caller's connection, never on another ClickHouse
+	// server the caller has not signed in to.
+	connectionID := session.ConnectionID
 
 	id, err := h.DB.CreateSchedule(name, savedQueryID, connectionID, cronExpr, timezone, middleware.Actor(session), timeoutMs)
 	if err != nil {
@@ -211,32 +259,25 @@ func (h *SchedulesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Schedule ID is required")
-		return
-	}
-
-	existing, err := h.DB.GetScheduleByID(id)
-	if err != nil {
-		slog.Error("Failed to get schedule for update", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Failed to fetch schedule")
-		return
-	}
+	existing, _ := h.scheduleForSession(w, r, session)
 	if existing == nil {
-		writeError(w, http.StatusNotFound, "Scheduled job not found")
 		return
 	}
+	id := existing.ID
 
 	var body struct {
-		Name      *string `json:"name"`
-		Cron      *string `json:"cron"`
-		Timezone  *string `json:"timezone"`
-		Enabled   *bool   `json:"enabled"`
-		TimeoutMs *int    `json:"timeout_ms"`
+		Name         *string `json:"name"`
+		Cron         *string `json:"cron"`
+		Timezone     *string `json:"timezone"`
+		Enabled      *bool   `json:"enabled"`
+		TimeoutMs    *int    `json:"timeout_ms"`
+		ConnectionID string  `json:"connection_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if !sessionConnectionOnly(w, session, body.ConnectionID, "Scheduled jobs") {
 		return
 	}
 
@@ -329,22 +370,11 @@ func (h *SchedulesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Schedule ID is required")
-		return
-	}
-
-	existing, err := h.DB.GetScheduleByID(id)
-	if err != nil {
-		slog.Error("Failed to get schedule for delete", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Failed to fetch schedule")
-		return
-	}
+	existing, _ := h.scheduleForSession(w, r, session)
 	if existing == nil {
-		writeError(w, http.StatusNotFound, "Scheduled job not found")
 		return
 	}
+	id := existing.ID
 
 	if err := h.DB.DeleteSchedule(id); err != nil {
 		slog.Error("Failed to delete schedule", "error", err, "id", id)
@@ -364,22 +394,16 @@ func (h *SchedulesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 // ListRuns returns the execution history for a scheduled job.
 func (h *SchedulesHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Schedule ID is required")
+	session := middleware.GetSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
 		return
 	}
-
-	schedule, err := h.DB.GetScheduleByID(id)
-	if err != nil {
-		slog.Error("Failed to get schedule for runs", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Failed to fetch schedule")
-		return
-	}
+	schedule, _ := h.scheduleForSession(w, r, session)
 	if schedule == nil {
-		writeError(w, http.StatusNotFound, "Scheduled job not found")
 		return
 	}
+	id := schedule.ID
 
 	limit := 50
 	if raw := r.URL.Query().Get("limit"); raw != "" {
@@ -425,40 +449,19 @@ func (h *SchedulesHandler) ManualRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Schedule ID is required")
-		return
-	}
-
-	schedule, err := h.DB.GetScheduleByID(id)
-	if err != nil {
-		slog.Error("Failed to get schedule for manual run", "error", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "Failed to fetch schedule")
-		return
-	}
+	// The job runs on its own connection with the caller's ClickHouse
+	// credentials, so it must be the connection the caller signed in to.
+	// scheduleForSession refuses any other.
+	schedule, savedQuery := h.scheduleForSession(w, r, session)
 	if schedule == nil {
-		writeError(w, http.StatusNotFound, "Scheduled job not found")
 		return
 	}
-
-	// Get the saved query
-	savedQuery, err := h.DB.GetSavedQueryByID(schedule.SavedQueryID)
-	if err != nil {
-		slog.Error("Failed to fetch saved query for manual run", "error", err, "saved_query_id", schedule.SavedQueryID)
-		writeError(w, http.StatusInternalServerError, "Failed to fetch saved query")
-		return
-	}
+	id := schedule.ID
 	if savedQuery == nil {
 		writeError(w, http.StatusBadRequest, "Saved query not found")
 		return
 	}
-
-	// Determine connection
 	connectionID := session.ConnectionID
-	if schedule.ConnectionID != nil && *schedule.ConnectionID != "" {
-		connectionID = *schedule.ConnectionID
-	}
 
 	// Decrypt credentials
 	password, err := crypto.Decrypt(session.EncryptedPassword, h.Config.AppSecretKey)
@@ -475,6 +478,7 @@ func (h *SchedulesHandler) ManualRun(w http.ResponseWriter, r *http.Request) {
 		Action:         "schedule.manual_run",
 		Username:       strPtr(middleware.Actor(session)),
 		ClickhouseUser: &session.ClickhouseUser,
+		ConnectionID:   &connectionID,
 		Details:        strPtr(fmt.Sprintf("status=%s elapsed=%dms", status, elapsed)),
 	})
 

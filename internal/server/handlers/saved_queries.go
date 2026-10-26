@@ -186,10 +186,10 @@ func (h *SavedQueriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	connectionID := strings.TrimSpace(deref(body.ConnectionID))
-	if connectionID == "" {
-		connectionID = session.ConnectionID
+	if !sessionConnectionOnly(w, session, deref(body.ConnectionID), "Saved queries") {
+		return
 	}
+	connectionID := session.ConnectionID
 	visibility := database.SavedQueryShared
 	if body.Visibility != nil && strings.TrimSpace(*body.Visibility) != "" {
 		visibility = strings.TrimSpace(*body.Visibility)
@@ -318,10 +318,16 @@ func (h *SavedQueriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		contentChanged = contentChanged || p != params.Parameters
 		params.Parameters = p
 	}
+	// An empty connection_id leaves the query where it is: clearing it would
+	// let jobs without their own connection follow the query elsewhere.
 	if body.ConnectionID != nil {
-		c := strings.TrimSpace(*body.ConnectionID)
-		contentChanged = contentChanged || c != params.ConnectionID
-		params.ConnectionID = c
+		if !sessionConnectionOnly(w, session, *body.ConnectionID, "Saved queries") {
+			return
+		}
+		if c := strings.TrimSpace(*body.ConnectionID); c != "" {
+			contentChanged = contentChanged || c != params.ConnectionID
+			params.ConnectionID = c
+		}
 	}
 	verifiedChanged := body.Verified != nil && *body.Verified != existing.Verified
 	if verifiedChanged {
@@ -447,8 +453,9 @@ func (h *SavedQueriesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 // Duplicate copies a saved query the caller can see. The copy belongs to
-// the caller, is private, and keeps the folder and tags. An optional "name"
-// in the body sets the copy's name; otherwise it is "<original> (copy)".
+// the caller and its connection, is private, and keeps the folder and tags.
+// An optional "name" in the body sets the copy's name; otherwise it is
+// "<original> (copy)".
 func (h *SavedQueriesHandler) Duplicate(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
@@ -475,7 +482,7 @@ func (h *SavedQueriesHandler) Duplicate(w http.ResponseWriter, r *http.Request) 
 		Description:  deref(original.Description),
 		Query:        original.Query,
 		Parameters:   deref(original.Parameters),
-		ConnectionID: deref(original.ConnectionID),
+		ConnectionID: session.ConnectionID,
 		CreatedBy:    actor,
 		FolderID:     deref(original.FolderID),
 		Tags:         original.Tags,
@@ -499,6 +506,20 @@ func (h *SavedQueriesHandler) Duplicate(w http.ResponseWriter, r *http.Request) 
 }
 
 // deref returns the string a pointer points to, or "" when nil.
+// sessionConnectionOnly accepts a connection_id from a request body only
+// when it is empty or the caller's connection. Objects created or changed
+// through the session belong to the session's connection, so nothing runs
+// on another ClickHouse server with what the caller signed in with. On
+// refusal it writes 400 and returns false.
+func sessionConnectionOnly(w http.ResponseWriter, session *middleware.SessionInfo, connectionID, what string) bool {
+	connectionID = strings.TrimSpace(connectionID)
+	if connectionID == "" || connectionID == session.ConnectionID {
+		return true
+	}
+	writeError(w, http.StatusBadRequest, what+" can only use the connection you are signed in to. Switch to the other connection first.")
+	return false
+}
+
 func deref(s *string) string {
 	if s == nil {
 		return ""

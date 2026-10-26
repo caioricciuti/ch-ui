@@ -7,6 +7,7 @@ import {
   switchConnection as apiSwitchConnection,
   type SwitchConnectionParams,
 } from '../api/auth'
+import { onConnectionChanged, setConnectionSwitching } from '../api/connection-changed'
 import { stripBase, withBase } from '../basePath'
 import { BRAIN_SEED_KEY, scopeKey, setWorkspaceScope } from './workspace-scope'
 
@@ -23,8 +24,29 @@ let error = $state<string | null>(null)
 // reloads the page instead of mixing the two.
 let pageScope: string | null = null
 
+type SessionEvent = 'login' | 'logout' | 'switch'
+
+/**
+ * Set when the session changed under this tab (another tab switched, signed
+ * in or out, or a request came back connection_changed). The tab shows a
+ * notice with a Reload button instead of reloading on its own, so unsaved
+ * work (an open editor, a half-filled form) can still be copied out.
+ */
+export type StaleSession = 'changed' | 'logout'
+let stale = $state<StaleSession | null>(null)
+
+function markStale(reason: StaleSession): void {
+  // A signed-out page has no work to lose: load the new session right away.
+  if (!session) {
+    if (!initializing && !submitting) window.location.reload()
+    return
+  }
+  if (stale !== 'logout') stale = reason
+}
+
 // Tells the other tabs of this browser that the session changed under them:
-// they reload, so none keeps working on a connection or person that is gone.
+// they show the stale notice, so none keeps working on a connection or person
+// that is gone without knowing it.
 const CHANNEL_NAME = 'ch-ui-session'
 let channel: BroadcastChannel | null = null
 
@@ -32,14 +54,14 @@ function sessionChannel(): BroadcastChannel | null {
   if (channel || typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return channel
   try {
     channel = new BroadcastChannel(CHANNEL_NAME)
-    channel.onmessage = () => window.location.reload()
+    channel.onmessage = (e: MessageEvent<{ type?: SessionEvent }>) => markStale(e.data?.type === 'logout' ? 'logout' : 'changed')
   } catch {
     channel = null
   }
   return channel
 }
 
-function announce(type: 'login' | 'logout' | 'switch'): void {
+function announce(type: SessionEvent): void {
   try {
     sessionChannel()?.postMessage({ type })
   } catch {
@@ -58,6 +80,28 @@ function applyScope(s: Session | null): void {
 
 export function getSession(): Session | null {
   return session
+}
+
+/** Why this tab's session is stale, or null while it is current. */
+export function getStaleSession(): StaleSession | null {
+  return stale
+}
+
+/** Hides the notice; the next stale request or message shows it again. */
+export function dismissStaleSession(): void {
+  stale = null
+}
+
+/**
+ * Reads the session again for the connection's online state, which startup
+ * only read once. A session that moved to another connection (another tab)
+ * is left to the stale notice.
+ */
+export async function refreshConnectionOnline(): Promise<void> {
+  if (!session) return
+  const fresh = await checkSession()
+  if (!fresh || !session || fresh.connectionId !== session.connectionId) return
+  if (fresh.connectionOnline !== session.connectionOnline) session = { ...session, connectionOnline: fresh.connectionOnline }
 }
 
 /** True until the startup session check finishes. */
@@ -83,6 +127,7 @@ export async function initSession(): Promise<void> {
   initializing = true
   error = null
   sessionChannel()
+  onConnectionChanged(() => markStale('changed'))
   try {
     session = await checkSession()
   } catch {
@@ -102,16 +147,20 @@ export async function initSession(): Promise<void> {
 export async function login(connectionId: string, username: string, password: string, clickhouseUrl?: string, reloadTo?: string): Promise<void> {
   error = null
   submitting = true
+  // Requests still in flight from this page may answer connection_changed
+  // once the new session lands; they are this tab's own doing.
+  setConnectionSwitching(true)
   try {
     const res = await apiLogin({ connectionId, username, password, clickhouseUrl })
     const nextScope = scopeKey(res.session)
     announce('login')
     if (pageScope !== null && pageScope !== nextScope) {
-      // Stay "submitting" until the page goes away.
+      // Stay "submitting" (and switching) until the page goes away.
       dropBrainSeed()
       window.location.assign(withBase(reloadTo ?? stripBase(window.location.pathname) + window.location.search))
       return
     }
+    setConnectionSwitching(false)
     session = res.session
     pageScope = nextScope
     applyScope(session)
@@ -121,6 +170,7 @@ export async function login(connectionId: string, username: string, password: st
     submitting = false
   } catch (e: unknown) {
     error = e instanceof Error && e.message ? e.message : 'Login failed'
+    setConnectionSwitching(false)
     submitting = false
     throw e
   }
@@ -132,7 +182,15 @@ export async function login(connectionId: string, username: string, password: st
  * switchConnection in api/auth.
  */
 export async function switchConnection(params: SwitchConnectionParams): Promise<void> {
-  await apiSwitchConnection(params)
+  // From here until the page goes, a connection_changed answer is this tab's
+  // own switch landing, not another tab's.
+  setConnectionSwitching(true)
+  try {
+    await apiSwitchConnection(params)
+  } catch (e) {
+    setConnectionSwitching(false)
+    throw e
+  }
   announce('switch')
   dropBrainSeed()
   window.location.assign(withBase('/'))

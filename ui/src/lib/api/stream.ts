@@ -2,6 +2,7 @@ import { withBase } from '../basePath'
 import { connectionHeaders } from '../stores/workspace-scope'
 import type { ColumnMeta, QueryProgress, QueryStats, StreamMessage } from '../types/query'
 import { safeParse } from '../utils/safe-json'
+import { connectionChangedMessage } from './connection-changed'
 
 export const STREAM_CLOSED_EARLY = 'The connection closed before the query finished'
 
@@ -28,7 +29,7 @@ export async function executeStreamQuery(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
-    onError(body.error || `Request failed (${res.status})`)
+    onError(connectionChangedMessage(res.status, body) ?? (body.error || `Request failed (${res.status})`))
     return
   }
 
@@ -139,7 +140,7 @@ export async function exportFullResult(
   if (!res.ok) {
     const body: unknown = await res.json().catch(() => null)
     const msg = typeof body === 'object' && body !== null && 'error' in body ? String((body as { error: unknown }).error) : ''
-    throw new Error(msg || `Export failed (${res.status})`)
+    throw new Error(connectionChangedMessage(res.status, body) ?? (msg || `Export failed (${res.status})`))
   }
   const type = res.headers.get('content-type') ?? 'application/octet-stream'
   const filename = filenameFromDisposition(res.headers.get('content-disposition'), 'ch-ui-export')

@@ -34,9 +34,10 @@ type Connector struct {
 	lastQueryTime   atomic.Int64
 
 	// Control
-	ctx    context.Context
-	cancel context.CancelFunc
-	done   chan struct{}
+	ctx      context.Context
+	cancel   context.CancelFunc
+	done     chan struct{}
+	doneOnce sync.Once
 
 	// Reconnection
 	reconnectDelay time.Duration
@@ -71,17 +72,30 @@ func New(cfg *config.Config, u *ui.UI) *Connector {
 	}
 }
 
-// Run starts the connector and blocks until shutdown
+// Run starts the connector and blocks until shutdown. A failed first
+// connection retries with the same backoff as a dropped one (the server may
+// not be listening yet, or the gateway may be briefly unable to check the
+// token); only a permanent auth error or Shutdown ends it.
 func (c *Connector) Run() error {
 	c.startTime = time.Now()
 
 	// Initial connection
 	if err := c.connect(); err != nil {
-		if ce, ok := err.(*ConnectError); ok && ce.Type == "auth" {
-			c.ui.Error("Authentication failed — not retrying (token may be invalid or revoked)")
+		if isPermanentConnectError(err) {
+			c.ui.Error("Authentication failed, not retrying (token may be invalid or revoked)")
+			c.stop()
 			return err
 		}
-		return err
+		if c.ctx.Err() != nil {
+			return nil // Shutdown before or during the first dial
+		}
+		c.ui.Error("Connection failed: %v", err)
+		if err := c.reconnect(); err != nil {
+			if isPermanentConnectError(err) {
+				return err
+			}
+			return nil // Shutdown
+		}
 	}
 
 	// Start message handler
@@ -91,14 +105,17 @@ func (c *Connector) Run() error {
 	go c.heartbeatLoop()
 
 	// Start host info reporting
-	go c.hostInfoLoop()
+	if !c.cfg.SkipHostInfo {
+		go c.hostInfoLoop()
+	}
 
 	// Wait for shutdown
 	<-c.done
 	return nil
 }
 
-// Shutdown gracefully stops the connector
+// Shutdown gracefully stops the connector. Safe to call more than once and
+// after the connector stopped on its own.
 func (c *Connector) Shutdown() {
 	c.cancel()
 	c.connMu.Lock()
@@ -108,7 +125,13 @@ func (c *Connector) Shutdown() {
 		c.conn.Close()
 	}
 	c.connMu.Unlock()
-	close(c.done)
+	c.stop()
+}
+
+// stop cancels every loop and releases Run. Safe to call more than once.
+func (c *Connector) stop() {
+	c.cancel()
+	c.doneOnce.Do(func() { close(c.done) })
 }
 
 // Stats returns current connector statistics
@@ -137,7 +160,7 @@ func (c *Connector) connect() error {
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
-		TLSClientConfig:  &tls.Config{InsecureSkipVerify: c.cfg.InsecureSkipVerify},
+		TLSClientConfig:  &tls.Config{InsecureSkipVerify: c.cfg.InsecureSkipVerify || c.cfg.TunnelInsecureSkipVerify},
 	}
 
 	if c.cfg.InsecureSkipVerify {
@@ -165,6 +188,12 @@ func (c *Connector) connect() error {
 	}
 
 	c.connMu.Lock()
+	if c.ctx.Err() != nil {
+		// Shutdown ran while dialing and found no connection to close.
+		c.connMu.Unlock()
+		conn.Close()
+		return &ConnectError{Type: "network", Message: "Connector stopped", Err: c.ctx.Err()}
+	}
 	c.conn = conn
 	c.connMu.Unlock()
 
@@ -209,7 +238,9 @@ func (c *Connector) connect() error {
 
 	switch authResp.Type {
 	case MsgTypeAuthOK:
+		c.connMu.Lock()
 		c.authenticated = true
+		c.connMu.Unlock()
 		c.reconnectDelay = c.cfg.ReconnectDelay // Reset on successful connection
 		c.ui.Success("Authenticated successfully")
 		c.ui.Success("Tunnel established")
@@ -244,6 +275,13 @@ func (c *Connector) connect() error {
 			})
 		return &ConnectError{Type: "protocol", Message: fmt.Sprintf("Unexpected response: %s", authResp.Type)}
 	}
+}
+
+// isPermanentConnectError reports whether connect failed in a way retrying
+// cannot fix (an invalid or revoked token).
+func isPermanentConnectError(err error) bool {
+	ce, ok := err.(*ConnectError)
+	return ok && ce.Type == "auth"
 }
 
 func isPermanentAuthError(msg string) bool {
@@ -287,8 +325,10 @@ func (c *Connector) messageLoop() {
 			c.authenticated = false
 			c.connMu.Unlock()
 
-			// Attempt reconnection
-			c.reconnect()
+			// Attempt reconnection; an error means the connector stopped.
+			if err := c.reconnect(); err != nil {
+				return
+			}
 			continue
 		}
 
@@ -678,16 +718,23 @@ func (c *Connector) hostInfoLoop() {
 	}
 }
 
-func (c *Connector) reconnect() {
+// reconnect retries connect with exponential backoff. It returns nil once
+// connected, the context error after Shutdown, or the auth error when the
+// token is permanently rejected (the connector is then stopped).
+func (c *Connector) reconnect() error {
 	for {
-		select {
-		case <-c.ctx.Done():
-			return
-		default:
+		if err := c.ctx.Err(); err != nil {
+			return err
 		}
 
 		c.ui.Reconnecting(c.reconnectDelay)
-		time.Sleep(c.reconnectDelay)
+		timer := time.NewTimer(c.reconnectDelay)
+		select {
+		case <-c.ctx.Done():
+			timer.Stop()
+			return c.ctx.Err()
+		case <-timer.C:
+		}
 
 		// Exponential backoff
 		c.reconnectDelay *= 2
@@ -696,16 +743,19 @@ func (c *Connector) reconnect() {
 		}
 
 		if err := c.connect(); err != nil {
-			if ce, ok := err.(*ConnectError); ok && ce.Type == "auth" {
-				c.ui.Error("Authentication failed — stopping reconnection (token is invalid or revoked)")
-				close(c.done)
-				return
+			if isPermanentConnectError(err) {
+				c.ui.Error("Authentication failed, stopping reconnection (token is invalid or revoked)")
+				c.stop()
+				return err
+			}
+			if c.ctx.Err() != nil {
+				return c.ctx.Err()
 			}
 			c.ui.Error("Reconnection failed: %v", err)
 			continue
 		}
 
-		return
+		return nil
 	}
 }
 

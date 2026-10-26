@@ -397,6 +397,36 @@ func TestSwitchConnectionSameServerReusesPassword(t *testing.T) {
 	}
 }
 
+func TestClickHouseEndpointComparesSchemeHostPortAndPath(t *testing.T) {
+	ep := func(url string) chEndpoint {
+		t.Helper()
+		e, ok := clickHouseEndpoint(&database.Connection{Type: database.ConnectionTypeDirect, ClickHouseURL: url})
+		if !ok {
+			t.Fatalf("%s: not a direct endpoint", url)
+		}
+		return e
+	}
+	for _, same := range [][2]string{
+		{"http://CH.internal:8123", "http://ch.internal/"},
+		{"https://ch", "HTTPS://ch:8443"},
+		{"http://proxy/ch-a", "http://proxy:8123/ch-a/"},
+	} {
+		if ep(same[0]) != ep(same[1]) {
+			t.Errorf("%s and %s: different, want the same server", same[0], same[1])
+		}
+	}
+	for _, diff := range [][2]string{
+		{"http://proxy/ch-a", "http://proxy/ch-b"},
+		{"http://proxy/ch-a", "http://proxy/"},
+		{"http://proxy/CH-A", "http://proxy/ch-a"},
+		{"http://ch:8443", "https://ch:8443"},
+	} {
+		if ep(diff[0]) == ep(diff[1]) {
+			t.Errorf("%s and %s: the same, want different servers", diff[0], diff[1])
+		}
+	}
+}
+
 func TestSwitchConnectionOtherServerNeedsPassword(t *testing.T) {
 	cases := []struct {
 		name            string
@@ -404,6 +434,9 @@ func TestSwitchConnectionOtherServerNeedsPassword(t *testing.T) {
 	}{
 		{"different host", directConn("http://ch-a:8123"), directConn("http://ch-b:8123")},
 		{"different port", directConn("http://ch:8123"), directConn("http://ch:9123")},
+		{"different path", directConn("http://proxy:8123/ch-a"), directConn("http://proxy:8123/ch-b")},
+		{"path and root", directConn("http://proxy:8123/ch-a"), directConn("http://proxy:8123/")},
+		{"different scheme", directConn("http://ch:8443"), directConn("https://ch:8443")},
 		{"agent target", directConn("http://ch:8123"), database.CreateConnectionParams{}},
 		{"agent to agent", database.CreateConnectionParams{}, database.CreateConnectionParams{}},
 	}

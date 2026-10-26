@@ -10,6 +10,7 @@
   import Input from '../common/Input.svelte'
   import Textarea from '../common/Textarea.svelte'
   import Select from '../common/Select.svelte'
+  import { PlugZap } from 'lucide-svelte'
 
   /**
    * Edit details of a saved query: name, description, folder, tags and
@@ -19,11 +20,13 @@
     query: SavedQuery | null
     folders: SavedQueryFolder[]
     isAdmin: boolean
+    /** Set when the query was saved on another connection than the session's. */
+    connectionNote?: string | null
     onclose: () => void
     onsaved: (updated: SavedQuery) => void
   }
 
-  let { query, folders, isAdmin, onclose, onsaved }: Props = $props()
+  let { query, folders, isAdmin, connectionNote = null, onclose, onsaved }: Props = $props()
 
   let form = $state({ name: '', description: '', folder: '', tags: '', visibility: 'shared' as SavedQueryVisibility })
   let saving = $state(false)
@@ -80,6 +83,12 @@
   size="md"
   onclose={onclose}
 >
+  {#if connectionNote}
+    <p class="mb-4 flex items-center gap-1.5 rounded-md bg-warning-soft px-3 py-1.5 text-xs text-fg-2">
+      <PlugZap size={12} class="shrink-0 text-warning" />
+      <span>{connectionNote}</span>
+    </p>
+  {/if}
   <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); void save() }}>
     <FormField label="Name" for="sq-name" required controlWidth="full" error={touched && !form.name.trim() ? 'Name is required' : undefined}>
       <Input id="sq-name" bind:value={form.name} disabled={readOnly} autocomplete="off" />
