@@ -98,7 +98,9 @@ func TestSchedulerRecordsFailedRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := scheduledPipeline(t, db, conn, "bad", true)
-	NewScheduler(db, r).tick()
+	s := NewScheduler(db, r)
+	s.tick()
+	s.wait()
 	p, err := db.GetModelPipelineByID(id)
 	if err != nil || p == nil {
 		t.Fatalf("pipeline: %v %v", p, err)
@@ -124,7 +126,9 @@ func TestSchedulerSkipsPausedSchedules(t *testing.T) {
 		t.Fatal(err)
 	}
 	scheduledPipeline(t, db, conn, "m", false)
-	NewScheduler(db, r).tick()
+	s := NewScheduler(db, r)
+	s.tick()
+	s.wait()
 	runs, _ := db.GetModelRuns(conn, 10, 0)
 	if len(runs) != 0 {
 		t.Fatalf("a paused schedule must not run, got %d runs", len(runs))
@@ -236,6 +240,7 @@ func TestSchedulerRecordsAnInvalidSelectorOncePerDueTime(t *testing.T) {
 	}
 	s := NewScheduler(db, r)
 	s.tick()
+	s.wait()
 	p, err := db.GetModelPipelineByID(pid)
 	if err != nil || p == nil {
 		t.Fatalf("pipeline: %v %v", p, err)
@@ -256,6 +261,7 @@ func TestSchedulerRecordsAnInvalidSelectorOncePerDueTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.tick()
+	s.wait()
 	if p, _ = db.GetModelPipelineByID(pid); p.LastRunAt == nil || *p.LastRunAt != "marker" {
 		t.Fatalf("a pipeline that is not due must not be recorded again (was %s): %+v", lastRun, p)
 	}

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -49,6 +50,15 @@ type Harvester struct {
 	// counted against the connection check: agents reconnect after a
 	// restart.
 	startedAt time.Time
+	// polling holds the connections with a poll in flight: connections are
+	// polled side by side, and a connection whose last poll has not
+	// finished (a hung server) is skipped, never polled twice at once.
+	polling map[string]bool
+	wg      sync.WaitGroup
+	// noCreds and noMetrics keep the missing-credentials and
+	// unreadable-metrics warnings to one per change.
+	noCreds   safe.Changes
+	noMetrics safe.Changes
 }
 
 // NewHarvester creates a cluster-health Harvester. pro reports whether Pro
@@ -62,6 +72,7 @@ func NewHarvester(store *Store, db *database.DB, gw *tunnel.Gateway, secret stri
 		secret:    secret,
 		pro:       pro,
 		lastPoll:  make(map[string]time.Time),
+		polling:   make(map[string]bool),
 		startedAt: time.Now(),
 	}
 }
@@ -118,6 +129,9 @@ func (h *Harvester) IsRunning() bool {
 	return h.running
 }
 
+// tick starts a poll of every due connection and returns without waiting
+// for them; the offline and settings checks run inline. A connection whose
+// last poll is still running is left out until it finishes.
 func (h *Harvester) tick() {
 	if h.pro == nil || !h.pro() {
 		return
@@ -130,6 +144,9 @@ func (h *Harvester) tick() {
 
 	now := time.Now()
 	for _, conn := range connections {
+		if h.isPolling(conn.ID) {
+			continue
+		}
 		settings, err := h.store.GetSettings(conn.ID)
 		if err != nil {
 			slog.Warn("Cluster health: failed to load settings", "connection", conn.ID, "error", err)
@@ -155,11 +172,7 @@ func (h *Harvester) tick() {
 			}
 			continue
 		}
-		if settings.Enabled {
-			h.pollConnection(conn.ID, settings, now)
-		} else {
-			h.probeOnly(conn.ID, now)
-		}
+		h.startPoll(conn.ID, settings, now)
 	}
 
 	if now.Sub(h.lastPrune) >= pruneInterval {
@@ -167,6 +180,44 @@ func (h *Harvester) tick() {
 		h.pruneEvaluations(now)
 		h.lastPrune = now
 	}
+}
+
+func (h *Harvester) isPolling(connID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.polling[connID]
+}
+
+// startPoll samples (or, with sampling off, only probes) a connection in the
+// background unless a poll of it is still running.
+func (h *Harvester) startPoll(connID string, settings Settings, now time.Time) {
+	h.mu.Lock()
+	if h.polling[connID] {
+		h.mu.Unlock()
+		return
+	}
+	h.polling[connID] = true
+	h.mu.Unlock()
+	h.wg.Add(1)
+	go func() {
+		defer h.wg.Done()
+		defer func() {
+			h.mu.Lock()
+			delete(h.polling, connID)
+			h.mu.Unlock()
+		}()
+		defer safe.Recover("clusterhealth-poll")
+		if settings.Enabled {
+			h.pollConnection(connID, settings, now)
+		} else {
+			h.probeOnly(connID, now)
+		}
+	}()
+}
+
+// wait blocks until every started poll has finished (tests).
+func (h *Harvester) wait() {
+	h.wg.Wait()
 }
 
 // due reports whether a connection is ready to be polled again given its
@@ -191,7 +242,6 @@ func (h *Harvester) pollConnection(connID string, settings Settings, now time.Ti
 	probe := h.connectionCheckEnabled(connID)
 	creds, err := h.findCredentials(connID)
 	if err != nil {
-		slog.Debug("Cluster health: no credentials for connection", "connection", connID, "error", err)
 		if probe {
 			h.markPolled(connID, now)
 			h.evaluateReachability(connID, reachability{unknown: true, detail: "no credentials: " + err.Error()}, now)
@@ -223,10 +273,25 @@ func (h *Harvester) pollConnection(connID string, settings Settings, now time.Ti
 	if len(samples) == 0 {
 		// Nothing came back: whether the connection answers at all decides
 		// the connection check.
+		var r reachability
 		if probe {
-			h.evaluateReachability(connID, h.selectOne(creds), now)
+			r = h.selectOne(creds)
+		}
+		if len(col.Errors) > 0 && !r.breach && h.noMetrics.Set(connID, "failed") {
+			// The server answers but every metric failed, typically a user
+			// that may not read the system tables. Said once, in the log and
+			// in the connection check's history.
+			slog.Warn("Cluster health: no metric could be read; the background account may lack access to system tables",
+				"connection", connID, "user", creds.User, "errors", col.Errors)
+			r.detail, r.record = noMetricsDetail(col.Errors), true
+		}
+		if probe {
+			h.evaluateReachability(connID, r, now)
 		}
 		return
+	}
+	if h.noMetrics.Set(connID, "") {
+		slog.Info("Cluster health: metrics readable again", "connection", connID)
 	}
 	if probe {
 		h.evaluateReachability(connID, reachability{}, now)
@@ -272,11 +337,38 @@ func (h *Harvester) pruneRetention(connections []database.Connection) {
 	}
 }
 
-// findCredentials resolves the configured background account or session fallback.
+// noMetricsDetail explains a poll in which every metric failed, with the
+// first error (node presence first, then by metric name).
+func noMetricsDetail(errs map[string]string) string {
+	keys := make([]string, 0, len(errs))
+	for k := range errs {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if (keys[i] == "nodes") != (keys[j] == "nodes") {
+			return keys[i] == "nodes"
+		}
+		return keys[i] < keys[j]
+	})
+	first := errs[keys[0]]
+	if len(first) > 300 {
+		first = first[:300]
+	}
+	return "connected, but no health metric could be read; the ClickHouse user may not be allowed to read system tables: " + first
+}
+
+// findCredentials resolves the configured background account or session
+// fallback. A missing account is logged once per change, not every poll.
 func (h *Harvester) findCredentials(connectionID string) (CHCredentials, error) {
 	user, password, err := h.db.BackgroundCredentials(connectionID, "cluster_health", h.secret)
 	if err != nil {
+		if h.noCreds.Set(connectionID, err.Error()) {
+			slog.Warn("Cluster health: no credentials for connection, skipping it", "connection", connectionID, "error", err)
+		}
 		return CHCredentials{}, err
+	}
+	if h.noCreds.Set(connectionID, "") {
+		slog.Info("Cluster health: credentials available again", "connection", connectionID)
 	}
 	return CHCredentials{ConnectionID: connectionID, User: user, Password: password}, nil
 }

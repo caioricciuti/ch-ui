@@ -27,6 +27,9 @@ type reachability struct {
 	breach  bool
 	unknown bool
 	detail  string
+	// record writes the evaluation to the history even when nothing
+	// changed, for a detail that must show there.
+	record bool
 }
 
 // connectionCheckSetting returns the effective setting of the connection
@@ -182,7 +185,7 @@ func (h *Harvester) evaluateReachability(connID string, r reachability, now time
 		slog.Warn("Health alerts: failed to save state", "connection", connID, "error", err)
 	}
 	changed := next.State != prevState || transition != alerts.TransitionNone
-	if h.shouldRecord(connID, CheckConnectionUnreachable, ConnectionNode, changed || r.breach, now) {
+	if h.shouldRecord(connID, CheckConnectionUnreachable, ConnectionNode, changed || r.breach || r.record, now) {
 		if err := h.db.InsertAlertEvaluations([]database.AlertEvaluation{{
 			Source: "health", SourceID: CheckConnectionUnreachable, ConnectionID: connID, Node: ConnectionNode,
 			Value: st.LastValue, State: st.State, Error: r.detail, EvaluatedAt: nowStr,

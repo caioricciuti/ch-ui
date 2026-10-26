@@ -72,6 +72,8 @@ type Runner struct {
 	stopCh  chan struct{}
 	done    chan struct{}
 	ticking sync.Mutex // held while a tick runs; a slow tick skips the next
+	// noCreds keeps the missing-account warning to one per change.
+	noCreds safe.Changes
 }
 
 // NewRunner wires a runner; call Start to begin ticking. pro reports whether
@@ -143,6 +145,9 @@ func (r *Runner) tick() {
 	now := time.Now()
 	pruneHistory(list)
 	creds := map[string]*Credentials{}
+	// skipped holds why the alerts of a connection without a usable
+	// account are not evaluated.
+	skipped := map[string]string{}
 	type job struct {
 		a *database.SQLAlert
 		c Credentials
@@ -163,14 +168,22 @@ func (r *Runner) tick() {
 			}
 			found, err := r.findCredentials(a.ConnectionID)
 			if err != nil {
-				slog.Debug("SQL alerts: no credentials", "connection", a.ConnectionID, "error", err)
-				creds[a.ConnectionID] = nil
-				continue
+				if r.noCreds.Set(a.ConnectionID, err.Error()) {
+					slog.Warn("SQL alerts: no account for connection, its alerts are not evaluated", "connection", a.ConnectionID, "error", err)
+				}
+				skipped[a.ConnectionID] = "Not evaluated: " + err.Error() + ". Set a SQL alerts account for this connection in Admin > Connections."
+			} else {
+				if r.noCreds.Set(a.ConnectionID, "") {
+					slog.Info("SQL alerts: account available again", "connection", a.ConnectionID)
+				}
+				c = &found
 			}
-			c = &found
 			creds[a.ConnectionID] = c
 		}
 		if c == nil {
+			if reason, ok := skipped[a.ConnectionID]; ok {
+				r.markSkipped(a, reason)
+			}
 			continue
 		}
 		jobs = append(jobs, job{a: a, c: *c})
@@ -196,6 +209,18 @@ func (r *Runner) tick() {
 	}
 	close(queue)
 	wg.Wait()
+}
+
+// markSkipped shows on an alert why it was not evaluated, so its last state
+// is not taken for a current one. Written once: an alert already showing
+// the reason is left alone.
+func (r *Runner) markSkipped(a *database.SQLAlert, reason string) {
+	if a.LastError != nil && *a.LastError == reason {
+		return
+	}
+	if _, err := r.db.SetSQLAlertSkipped(a, reason); err != nil {
+		slog.Warn("SQL alerts: failed to record skipped alert", "alert", a.ID, "error", err)
+	}
 }
 
 // pruneHistory forgets the history timestamps of alerts that no longer

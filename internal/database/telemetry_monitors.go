@@ -152,6 +152,18 @@ func (db *DB) DeleteTelemetryMonitor(id string) error {
 	return nil
 }
 
+// SetTelemetryMonitorSkipped marks a monitor that could not run (no account
+// for its connection) as in error with reason, without counting a run: the
+// last run time and value stay, so it stays due and runs once the cause is
+// fixed.
+func (db *DB) SetTelemetryMonitorSkipped(id, reason string) error {
+	_, err := db.conn.Exec("UPDATE telemetry_monitors SET last_state = 'error', last_error = ? WHERE id = ?", reason, id)
+	if err != nil {
+		return fmt.Errorf("record skipped telemetry monitor: %w", err)
+	}
+	return nil
+}
+
 // RecordTelemetryMonitorRun stores the outcome of an evaluation. lastError
 // is empty on success.
 func (db *DB) RecordTelemetryMonitorRun(id string, value *float64, state, lastError string) error {
