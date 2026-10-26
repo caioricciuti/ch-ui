@@ -26,6 +26,11 @@ export type ScopedKey = (typeof SCOPED_KEYS)[number]
 export const SCOPES_INDEX_KEY = 'ch-ui-scopes'
 /** Scopes kept on this browser; the least recently used one beyond is removed. */
 export const MAX_SCOPES = 10
+/**
+ * Scopes with unsaved tabs are kept past MAX_SCOPES, up to this many in all;
+ * beyond it the oldest go regardless, so storage stays bounded.
+ */
+export const MAX_SCOPES_WITH_UNSAVED = 30
 /** Brain prompt handed from the command palette; never crosses a switch. */
 export const BRAIN_SEED_KEY = 'ch-ui-brain-prompt-seed'
 
@@ -147,17 +152,55 @@ function readIndex(): Record<string, number> {
   }
 }
 
-/** Marks scope as used now and evicts the oldest scopes beyond MAX_SCOPES. */
+/**
+ * True when the scope's stored tabs hold work that exists nowhere else: an
+ * edited tab, or a query tab with SQL that was never saved.
+ */
+export function hasUnsavedTabs(scope: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(`ch-ui-tabs:${scope}`) ?? 'null')
+    if (!parsed || typeof parsed !== 'object' || !('tabs' in parsed) || !Array.isArray(parsed.tabs)) return false
+    return parsed.tabs.some((t: unknown) => {
+      if (!t || typeof t !== 'object') return false
+      const tab = t as { type?: unknown; dirty?: unknown; sql?: unknown; savedQueryId?: unknown }
+      if (tab.dirty === true) return true
+      return tab.type === 'query' && !tab.savedQueryId && typeof tab.sql === 'string' && tab.sql.trim() !== ''
+    })
+  } catch {
+    return false
+  }
+}
+
+function evictScope(index: Record<string, number>, scope: string): void {
+  delete index[scope]
+  try {
+    for (const base of SCOPED_KEYS) localStorage.removeItem(`${base}:${scope}`)
+  } catch { /* unavailable */ }
+}
+
+/**
+ * Marks scope as used now and evicts the oldest scopes beyond MAX_SCOPES,
+ * skipping those with unsaved tabs until MAX_SCOPES_WITH_UNSAVED is reached.
+ */
 export function touchScope(scope: string, now: number = Date.now()): void {
   const index = readIndex()
   index[scope] = now
-  const byAge = Object.keys(index).sort((a, b) => index[b] - index[a])
-  for (const old of byAge.slice(MAX_SCOPES)) {
-    if (old === scope) continue
-    delete index[old]
-    try {
-      for (const base of SCOPED_KEYS) localStorage.removeItem(`${base}:${old}`)
-    } catch { /* unavailable */ }
+  const others = Object.keys(index).filter((k) => k !== scope).sort((a, b) => index[a] - index[b])
+  let count = others.length + 1
+  const kept: string[] = []
+  for (const old of others) {
+    if (count <= MAX_SCOPES) break
+    if (hasUnsavedTabs(old)) {
+      kept.push(old)
+      continue
+    }
+    evictScope(index, old)
+    count--
+  }
+  for (const old of kept) {
+    if (count <= MAX_SCOPES_WITH_UNSAVED) break
+    evictScope(index, old)
+    count--
   }
   try {
     localStorage.setItem(SCOPES_INDEX_KEY, JSON.stringify(index))

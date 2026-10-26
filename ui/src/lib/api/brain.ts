@@ -1,6 +1,7 @@
 import { withBase } from '../basePath'
 import { connectionHeaders } from '../stores/workspace-scope'
 import { apiDel, apiGet, apiPost, apiPut } from './client'
+import { connectionChangedMessage } from './connection-changed'
 import type {
   BrainArtifact,
   BrainBudgetList,
@@ -89,7 +90,7 @@ export async function streamBrainMessage(
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))
-    throw new Error(body.error ?? `Request failed (${response.status})`)
+    throw new Error(connectionChangedMessage(response.status, body) ?? body.error ?? `Request failed (${response.status})`)
   }
 
   const reader = response.body?.getReader()

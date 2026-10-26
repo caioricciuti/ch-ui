@@ -1,8 +1,8 @@
-import { toast } from 'svelte-sonner'
 import { withBase, stripBase } from '../basePath'
 import { safeParse } from '../utils/safe-json'
 import { connectionHeaders } from '../stores/workspace-scope'
 import { ApiError } from './api-error'
+import { connectionChangedMessage } from './connection-changed'
 
 export { ApiError }
 
@@ -32,19 +32,6 @@ function retryAfterSeconds(res: Response, body: unknown): number {
   if (fromBody > 0) return fromBody
   const fromHeader = Number(res.headers.get('retry-after') || 0)
   return Number.isFinite(fromHeader) && fromHeader > 0 ? fromHeader : 0
-}
-
-let reloadingForConnection = false
-
-/**
- * The session moved to another connection in a different tab: this page
- * still shows the old one, so say so and reload once.
- */
-function handleConnectionChanged(): void {
-  if (reloadingForConnection) return
-  reloadingForConnection = true
-  toast.warning('The connection changed in another tab. Reloading.')
-  setTimeout(() => window.location.reload(), 1200)
 }
 
 function buildErrorMessage(status: number, body: unknown): string {
@@ -110,10 +97,8 @@ async function request<T = unknown>(
   const body = await parseResponseBody(res)
   const isAuthEndpoint = url.startsWith('/api/auth/')
 
-  if (res.status === 409 && isRecord(body) && body.error === 'connection_changed') {
-    handleConnectionChanged()
-    throw new ApiError('The connection changed in another tab', res.status, body)
-  }
+  const changed = connectionChangedMessage(res.status, body)
+  if (changed) throw new ApiError(changed, res.status, body)
 
   if (res.status === 401 && !isAuthEndpoint) {
     // Session expired: sign in again, then come back to this page.

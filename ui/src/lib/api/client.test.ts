@@ -5,6 +5,7 @@ vi.mock('svelte-sonner', () => ({ toast: { warning: (m: string) => warning(m) } 
 
 import { ApiError, apiGet, safeNextPath } from './client'
 import { CONNECTION_HEADER, setWorkspaceScope } from '../stores/workspace-scope'
+import { CONNECTION_CHANGED_MESSAGE, CONNECTION_SWITCHING_MESSAGE, onConnectionChanged, setConnectionSwitching } from './connection-changed'
 
 const origin = 'https://ch-ui.example.com'
 
@@ -50,6 +51,8 @@ describe('request connection guard', () => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
     setWorkspaceScope(null)
+    onConnectionChanged(null)
+    setConnectionSwitching(false)
   })
 
   function json(body: unknown, status: number): Response {
@@ -71,15 +74,31 @@ describe('request connection guard', () => {
     expect(headers['Content-Type']).toBe('application/json')
   })
 
-  it('a 409 connection_changed warns once and reloads', async () => {
+  it('a 409 connection_changed raises the stale notice and never reloads', async () => {
     setWorkspaceScope({ user: 'alice', connectionId: 'conn-1' })
+    const changed = vi.fn()
+    onConnectionChanged(changed)
     vi.stubGlobal('fetch', vi.fn(async () => json({ success: false, error: 'connection_changed' }, 409)))
-    await expect(apiGet('/api/query/schema')).rejects.toBeInstanceOf(ApiError)
-    await expect(apiGet('/api/query/schema')).rejects.toBeInstanceOf(ApiError)
-    expect(warning).toHaveBeenCalledTimes(1)
-    expect(reload).not.toHaveBeenCalled()
+    const err = (await apiGet('/api/query/schema').catch((e: unknown) => e)) as ApiError
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err.message).toBe(CONNECTION_CHANGED_MESSAGE)
+    expect(changed).toHaveBeenCalledTimes(1)
     vi.runAllTimers()
-    expect(reload).toHaveBeenCalledTimes(1)
+    expect(reload).not.toHaveBeenCalled()
+    expect(warning).not.toHaveBeenCalled()
+  })
+
+  it('a 409 connection_changed while this tab switches is its own switch landing', async () => {
+    setWorkspaceScope({ user: 'alice', connectionId: 'conn-1' })
+    const changed = vi.fn()
+    onConnectionChanged(changed)
+    setConnectionSwitching(true)
+    vi.stubGlobal('fetch', vi.fn(async () => json({ success: false, error: 'connection_changed' }, 409)))
+    const err = (await apiGet('/api/query/schema').catch((e: unknown) => e)) as ApiError
+    expect(err.message).toBe(CONNECTION_SWITCHING_MESSAGE)
+    expect(changed).not.toHaveBeenCalled()
+    vi.runAllTimers()
+    expect(reload).not.toHaveBeenCalled()
   })
 
   it('other 409s are ordinary errors carrying the body', async () => {
