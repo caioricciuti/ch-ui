@@ -21,6 +21,12 @@ type Manager struct {
 	db   *database.DB
 	port int
 
+	// SameServer reports whether two direct connections reach the same
+	// ClickHouse server. When config moves the embedded connection to a
+	// different one, everything bound to the old server is cleared. nil
+	// treats every URL change as a different server.
+	SameServer func(a, b *database.Connection) bool
+
 	mu         sync.Mutex
 	connectors map[string]*connector.Connector
 }
@@ -98,8 +104,28 @@ func (m *Manager) ensureEmbeddedConnection(clickhouseURL, connectionName string)
 		}
 	}
 	if strings.TrimSpace(dbConn.ClickHouseURL) != clickhouseURL {
-		if err := m.db.UpdateConnectionClickHouseURL(dbConn.ID, clickhouseURL); err != nil {
+		next := *dbConn
+		next.ClickHouseURL = clickhouseURL
+		if m.SameServer != nil && m.SameServer(dbConn, &next) {
+			if err := m.db.UpdateConnectionClickHouseURL(dbConn.ID, clickhouseURL); err != nil {
+				return fmt.Errorf("update embedded connection url: %w", err)
+			}
+			return nil
+		}
+		reset, err := m.db.RepointConnectionServer(dbConn.ID, clickhouseURL)
+		if err != nil {
 			return fmt.Errorf("update embedded connection url: %w", err)
+		}
+		slog.Warn("Embedded connection points at a different ClickHouse server; old server state cleared", "id", dbConn.ID, "clickhouse_url", clickhouseURL)
+		actor := "system"
+		details := fmt.Sprintf("clickhouse_url changed in server config to %s; old server state cleared: %s", clickhouseURL, reset.Summary())
+		if err := m.db.CreateAuditLog(database.AuditLogParams{
+			Action:       "connection.reset",
+			Username:     &actor,
+			ConnectionID: &dbConn.ID,
+			Details:      &details,
+		}); err != nil {
+			slog.Warn("Failed to audit embedded connection reset", "id", dbConn.ID, "error", err)
 		}
 	}
 	return nil

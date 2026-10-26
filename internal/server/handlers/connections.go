@@ -71,6 +71,9 @@ type connectionResponse struct {
 	// SSOSet is set only while SSO sign-in is enabled: whether the
 	// connection has the SSO account people who sign in through SSO need.
 	SSOSet *bool `json:"sso_set,omitempty"`
+	// Reset is set only on the Update that pointed the connection at a
+	// different ClickHouse server: what was cleared from the old one.
+	Reset *database.ConnectionReset `json:"reset,omitempty"`
 }
 
 // List returns all connections.
@@ -624,7 +627,9 @@ func (h *ConnectionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 // Update renames a connection and, for direct connections, changes the target
-// ClickHouse URL (restarting the in-process connector). The embedded
+// ClickHouse URL (restarting the in-process connector). A URL on a different
+// ClickHouse server resets the connection (see setConnectionURL) and the
+// response carries "reset" so the UI can tell the admin. The embedded
 // connection is managed by server config and cannot be edited here.
 // PUT /{id}  { "name"?: "...", "clickhouse_url"?: "..." }
 func (h *ConnectionsHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -659,6 +664,7 @@ func (h *ConnectionsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var changes []string
+	var reset *database.ConnectionReset
 	if body.Name != nil {
 		name := strings.TrimSpace(*body.Name)
 		if name == "" {
@@ -686,11 +692,15 @@ func (h *ConnectionsHandler) Update(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		change, err := setConnectionURL(h.DB, conn, validated)
+		var change string
+		change, reset, err = setConnectionURL(h.DB, conn, validated)
 		if err != nil {
 			slog.Error("Failed to update connection URL", "error", err, "id", id)
 			writeError(w, http.StatusInternalServerError, "Failed to update connection URL")
 			return
+		}
+		if reset != nil && h.Provisioner != nil {
+			h.Provisioner.ForgetConnection(id)
 		}
 		if change != "" {
 			changes = append(changes, change)
@@ -699,11 +709,7 @@ func (h *ConnectionsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(changes) > 0 {
-		session := middleware.GetSession(r)
-		var username, chUser *string
-		if session != nil {
-			username, chUser = strPtr(middleware.Actor(session)), strPtr(session.ClickhouseUser)
-		}
+		username, chUser := sessionActor(r)
 		h.DB.CreateAuditLog(database.AuditLogParams{
 			Action:         "connection.updated",
 			Username:       username,
@@ -713,8 +719,21 @@ func (h *ConnectionsHandler) Update(w http.ResponseWriter, r *http.Request) {
 			IPAddress:      strPtr(getClientIP(r)),
 		})
 	}
+	if reset != nil {
+		username, chUser := sessionActor(r)
+		h.DB.CreateAuditLog(database.AuditLogParams{
+			Action:         "connection.reset",
+			Username:       username,
+			ClickhouseUser: chUser,
+			ConnectionID:   strPtr(id),
+			Details:        strPtr(fmt.Sprintf("Connection pointed at a different ClickHouse server; old server state cleared: %s", reset.Summary())),
+			IPAddress:      strPtr(getClientIP(r)),
+		})
+	}
 
-	writeJSON(w, http.StatusOK, h.buildConnectionResponse(*conn))
+	resp := h.buildConnectionResponse(*conn)
+	resp.Reset = reset
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // Delete deletes a connection by ID.
@@ -979,16 +998,31 @@ func renameConnection(db *database.DB, conn *database.Connection, name string) (
 
 // setConnectionURL points a direct connection at an already validated
 // ClickHouse URL and returns the audit change line, or "" when the URL is
-// unchanged. It does not restart the connector; callers do that.
-func setConnectionURL(db *database.DB, conn *database.Connection, validated string) (string, error) {
+// unchanged. When the new URL reaches a different ClickHouse server (see
+// SameClickHouseEndpoint), everything bound to the old server is cleared
+// with it (database.RepointConnectionServer) and reset says what; the caller
+// audits it and drops the provisioner's cache. It does not restart the
+// connector; callers do that.
+func setConnectionURL(db *database.DB, conn *database.Connection, validated string) (string, *database.ConnectionReset, error) {
 	if validated == conn.ClickHouseURL {
-		return "", nil
+		return "", nil, nil
 	}
-	if err := db.UpdateConnectionClickHouseURL(conn.ID, validated); err != nil {
-		return "", err
+	next := *conn
+	next.ClickHouseURL = validated
+	var reset *database.ConnectionReset
+	if SameClickHouseEndpoint(conn, &next) {
+		if err := db.UpdateConnectionClickHouseURL(conn.ID, validated); err != nil {
+			return "", nil, err
+		}
+	} else {
+		r, err := db.RepointConnectionServer(conn.ID, validated)
+		if err != nil {
+			return "", nil, err
+		}
+		reset = r
 	}
 	conn.ClickHouseURL = validated
-	return fmt.Sprintf("clickhouse_url set to %s", validated), nil
+	return fmt.Sprintf("clickhouse_url set to %s", validated), reset, nil
 }
 
 // startDirectConnector starts, or restarts, the in-process connector for a

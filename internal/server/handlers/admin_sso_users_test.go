@@ -272,3 +272,65 @@ func TestAdminRemoveSSOAccess(t *testing.T) {
 		t.Fatalf("second response = %+v", out)
 	}
 }
+
+// Removal takes effect in CH-UI at once on an offline connection: the row
+// kept for the drop is marked removed (so every auth path refuses it) and
+// the person's MCP keys and OAuth tokens there are revoked.
+func TestAdminRemoveSSOAccessOfflineRevokesInCHUI(t *testing.T) {
+	f := newAdminSSOFixture(t)
+	key, err := f.db.CreateMCPKey(database.CreateMCPKeyParams{
+		Name: "ana-dr", KeyHash: "ana-dr-hash", KeyPrefix: "chm_ana", ConnectionID: f.dr,
+		CHUser: "sso:ana@x.com", SSOIdentityID: f.anaID, Kind: "oauth", Subject: "ana@x.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := f.db.CreateMCPKey(database.CreateMCPKeyParams{
+		Name: "root-dr", KeyHash: "root-dr-hash", KeyPrefix: "chm_root", ConnectionID: f.dr,
+		CHUser: "root", CHPasswordEnc: "enc",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := f.call(t, f.adminSess, http.MethodDelete, "/admin/users/sso/ana%40x.com/access")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("remove access: %d %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Failed      []ssoAccessFailure `json:"failed"`
+		KeysRevoked int                `json:"keys_revoked"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Failed) != 1 || out.Failed[0].ConnectionID != f.dr || out.KeysRevoked != 1 {
+		t.Fatalf("response = %+v", out)
+	}
+
+	row, err := f.db.GetSSOClickHouseUser(f.anaID, f.dr)
+	if err != nil || row == nil {
+		t.Fatalf("dr row must be kept for the drop: %+v %v", row, err)
+	}
+	if !row.Removed() || !row.Locked() {
+		t.Fatalf("dr row = %+v, want removed and refused", row)
+	}
+	if k, _ := f.db.GetMCPKeyByID(key.ID); k == nil || k.RevokedAt == nil {
+		t.Fatalf("ana's key on dr not revoked: %+v", k)
+	}
+	if k, _ := f.db.GetMCPKeyByID(other.ID); k == nil || k.RevokedAt != nil {
+		t.Fatalf("root's key was revoked: %+v", k)
+	}
+	if a := findAudit(auditActions(t, f.db), "sso.access_removed", "1 MCP key(s) and OAuth token(s) revoked"); a == nil {
+		t.Fatal("audit does not count the revoked keys")
+	}
+
+	// The users screen shows the pending drop under the person.
+	byEmail, err := (&AdminHandler{DB: f.db}).ssoClickHouseUsersByEmail()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := byEmail["ana@x.com"]; len(got) != 1 || got[0].ConnectionID != f.dr || !got[0].RemovalPending || !got[0].Locked {
+		t.Fatalf("ana's entries = %+v, want dr removal pending", got)
+	}
+}

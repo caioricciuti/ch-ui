@@ -407,7 +407,9 @@ func oidcDomainAllowed(s oidc.Settings, email string) bool {
 }
 
 // oidcConnectionID returns the connection SSO sessions should use: the
-// configured one, or the embedded connection, or the first connection.
+// configured one, else the oldest connection with an SSO account, else the
+// oldest connection. The embedded connection setup replaced is skipped, as
+// in the login picker.
 func (h *AuthHandler) oidcConnectionID(s oidc.Settings) (string, error) {
 	if id := strings.TrimSpace(s.ConnectionID); id != "" {
 		return id, nil
@@ -416,13 +418,25 @@ func (h *AuthHandler) oidcConnectionID(s oidc.Settings) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for _, c := range conns {
-		if c.IsEmbedded {
+	hidden := hiddenLoginConnectionID(h.DB)
+	first := ""
+	for _, c := range conns { // oldest first
+		if c.ID == hidden {
+			continue
+		}
+		if first == "" {
+			first = c.ID
+		}
+		user, enc, err := h.DB.GetConnectionSSOAccount(c.ID)
+		if err != nil {
+			return "", err
+		}
+		if user != "" && enc != "" {
 			return c.ID, nil
 		}
 	}
-	if len(conns) > 0 {
-		return conns[0].ID, nil
+	if first != "" {
+		return first, nil
 	}
 	return "", fmt.Errorf("no connections exist")
 }

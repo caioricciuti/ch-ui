@@ -177,3 +177,50 @@ func TestSweepSkipsOfflineAndDisabledConnections(t *testing.T) {
 		t.Fatalf("thresholds off, but users changed: %+v", users)
 	}
 }
+
+// A user whose access an admin removed while the connection was offline is
+// dropped on the next tick, even with the idle thresholds off.
+func TestSweepDropsRemovedUsers(t *testing.T) {
+	db, conn, agent, p := setup(t, sweepConfig(), responder{})
+	off := sweepConfig()
+	off.LockAfterDays, off.DropAfterDays = 0, 0
+	if err := db.SetSSOIdentityConfig(conn, off); err != nil {
+		t.Fatal(err)
+	}
+	removed := seedUser(t, db, conn, "removed@x.com", time.Hour, false)
+	kept := seedUser(t, db, conn, "kept@x.com", time.Hour, false)
+	if _, err := db.RemoveSSOClickHouseUserAccess(removed.IdentityID, conn, removed.Email); err != nil {
+		t.Fatal(err)
+	}
+
+	sw := NewSweeper(db, p, func() bool { return true })
+	if res := sw.Tick(context.Background()); res != (SweepResult{Dropped: 1}) {
+		t.Fatalf("tick = %+v, want one drop", res)
+	}
+	if got, want := sqls(queries(agent, 0)), []string{"DROP USER IF EXISTS `sso:removed@x.com`"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("statements = %q, want %q", got, want)
+	}
+	if u, _ := db.GetSSOClickHouseUser(removed.IdentityID, conn); u != nil {
+		t.Fatalf("removed user still stored: %+v", u)
+	}
+	if u, _ := db.GetSSOClickHouseUser(kept.IdentityID, conn); u == nil || u.Locked() {
+		t.Fatalf("other user changed: %+v", u)
+	}
+}
+
+// A removed user whose drop fails keeps its row, still removed, for the
+// next tick.
+func TestSweepRemovedUserDropFailureIsRetried(t *testing.T) {
+	db, conn, _, p := setup(t, sweepConfig(), responder{failSQL: "DROP USER", failErr: "Code: 497. DB::Exception: Not enough privileges. (ACCESS_DENIED)"})
+	removed := seedUser(t, db, conn, "removed@x.com", time.Hour, false)
+	if _, err := db.RemoveSSOClickHouseUserAccess(removed.IdentityID, conn, removed.Email); err != nil {
+		t.Fatal(err)
+	}
+	sw := NewSweeper(db, p, func() bool { return true })
+	if res := sw.Tick(context.Background()); res != (SweepResult{Failed: 1}) {
+		t.Fatalf("tick = %+v, want one failure", res)
+	}
+	if u, _ := db.GetSSOClickHouseUser(removed.IdentityID, conn); u == nil || !u.Removed() {
+		t.Fatalf("row after failed drop = %+v, want kept and removed", u)
+	}
+}
