@@ -22,7 +22,7 @@
     createReport, updateReport, REPORT_LIMITS,
     type Report, type ReportChannel, type ReportFormat, type ReportInput, type ReportSource, type ReportWorkerMode,
   } from '../../api/reports'
-  import type { Connection, Dashboard, SavedQuery } from '../../types/api'
+  import type { Dashboard, SavedQuery } from '../../types/api'
 
   /** Create / edit Sheet for a scheduled report. */
   interface Props {
@@ -78,7 +78,6 @@
     if (src.source_type) f.source_type = src.source_type
     if (src.saved_query_id) f.saved_query_id = src.saved_query_id
     if (src.dashboard_id) f.dashboard_id = src.dashboard_id
-    if (src.connection_id) f.connection_id = src.connection_id
     if (src.cron) f.cron = src.cron
     if (src.timezone) f.timezone = src.timezone
     if (src.enabled !== undefined) f.enabled = src.enabled
@@ -103,7 +102,6 @@
   let error = $state('')
   let savedQueries = $state<SavedQuery[]>([])
   let dashboards = $state<Dashboard[]>([])
-  let connections = $state<Connection[]>([])
   let loadingLists = $state(false)
 
   // Reset the form each time the sheet opens.
@@ -119,14 +117,12 @@
   async function loadLists() {
     loadingLists = true
     try {
-      const [sq, ds, cs] = await Promise.all([
+      const [sq, ds] = await Promise.all([
         apiGet<{ saved_queries?: SavedQuery[] }>('/api/saved-queries').then((r) => r.saved_queries ?? []).catch(() => [] as SavedQuery[]),
         listDashboards().catch(() => [] as Dashboard[]),
-        apiGet<Connection[]>('/api/connections').catch(() => [] as Connection[]),
       ])
       savedQueries = sq
       dashboards = ds
-      connections = cs
     } finally {
       loadingLists = false
     }
@@ -150,7 +146,8 @@
     { value: '30d', label: 'Last 30 days' },
   ]
 
-  const connectionOptions = $derived(connections.map((c) => ({ value: c.id, label: c.name })))
+  // A report runs on the session's connection; the server refuses any other.
+  const connectionName = $derived(getSession()?.connectionName || 'this connection')
   const activeChannels = $derived(channels.filter((c) => c.is_active || form.selected[c.id]))
   const selectedIds = $derived(Object.keys(form.selected).filter((id) => form.selected[id]))
   const workerMode = $derived(workerModes[form.connection_id] ?? 'session')
@@ -177,7 +174,6 @@
     if (!form.name.trim()) return 'Name is required'
     if (form.source_type === 'saved_query' && !form.saved_query_id) return 'Choose a saved query'
     if (form.source_type === 'dashboard' && !form.dashboard_id) return 'Choose a dashboard'
-    if (!form.connection_id) return 'Choose a connection'
     if (form.cron.trim().split(/\s+/).length !== 5) return 'Cron needs five fields: minute hour day month weekday'
     if (selectedIds.length === 0) return 'Choose at least one channel'
     if (selectedIds.length > REPORT_LIMITS.targets) return `At most ${REPORT_LIMITS.targets} channels`
@@ -198,7 +194,7 @@
       source_type: form.source_type,
       saved_query_id: form.source_type === 'saved_query' ? form.saved_query_id : null,
       dashboard_id: form.source_type === 'dashboard' ? form.dashboard_id : null,
-      connection_id: form.connection_id,
+      connection_id: getSession()?.connectionId ?? '',
       cron: form.cron.trim(),
       timezone: form.timezone.trim() || 'UTC',
       enabled: form.enabled,
@@ -258,14 +254,11 @@
       <Input id="report-name" placeholder="e.g. Daily signups" maxlength={200} bind:value={form.name} />
     </FormField>
 
-    <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-      <FormField label="Source" for="report-source">
-        <Select id="report-source" options={SOURCES} value={form.source_type} onchange={(v) => (form.source_type = v as ReportSource)} />
-      </FormField>
-      <FormField label="Connection" for="report-connection">
-        <Select id="report-connection" options={connectionOptions} value={form.connection_id} placeholder="Choose a connection" onchange={(v) => (form.connection_id = v)} />
-      </FormField>
-    </div>
+    <p class="text-[13px] text-fg-3">Runs on <span class="font-medium text-fg">{connectionName}</span>, the connection you are signed in to.</p>
+
+    <FormField label="Source" for="report-source">
+      <Select id="report-source" options={SOURCES} value={form.source_type} onchange={(v) => (form.source_type = v as ReportSource)} />
+    </FormField>
 
     {#if form.source_type === 'saved_query'}
       <FormField label="Saved query" for="report-query" hint="Parameters use their saved default values.">

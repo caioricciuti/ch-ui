@@ -257,7 +257,7 @@
         source_type: 'saved_query',
         saved_query_id: q.id,
         // Reports run on the session's connection, like the query itself.
-        connection_id: session?.connectionId || q.connection_id || '',
+        connection_id: session?.connectionId ?? '',
       }
       subscribeOpen = true
     } catch (e: unknown) {
