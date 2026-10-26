@@ -875,37 +875,49 @@ func (h *AuthHandler) sameOriginRequest(r *http.Request) bool {
 	return middleware.BrowserRequestAllowed(cfg, r)
 }
 
-// clickHouseEndpoint returns the lower-cased host and port CH-UI dials for
-// a direct (or embedded) connection. ok is false for agent connections,
-// whose ClickHouse is whatever the remote agent points at, and for a URL
-// without a host.
-func clickHouseEndpoint(c *database.Connection) (host, port string, ok bool) {
+// chEndpoint is the ClickHouse HTTP endpoint CH-UI dials for a direct
+// connection.
+type chEndpoint struct{ scheme, host, port, path string }
+
+// clickHouseEndpoint returns the lower-cased scheme and host, the port and
+// the path CH-UI dials for a direct (or embedded) connection. A trailing
+// slash is dropped and an empty path is "/", so a path behind a proxy tells
+// two servers on one host apart. ok is false for agent connections, whose
+// ClickHouse is whatever the remote agent points at, and for a URL without
+// a host.
+func clickHouseEndpoint(c *database.Connection) (ep chEndpoint, ok bool) {
 	if c == nil || c.Type != database.ConnectionTypeDirect {
-		return "", "", false
+		return chEndpoint{}, false
 	}
 	u, err := url.Parse(strings.TrimSpace(c.ClickHouseURL))
 	if err != nil || u.Hostname() == "" {
-		return "", "", false
+		return chEndpoint{}, false
 	}
-	port = u.Port()
-	if port == "" {
-		switch strings.ToLower(u.Scheme) {
+	ep.scheme = strings.ToLower(u.Scheme)
+	ep.port = u.Port()
+	if ep.port == "" {
+		switch ep.scheme {
 		case "http":
-			port = "8123"
+			ep.port = "8123"
 		case "https":
-			port = "8443"
+			ep.port = "8443"
 		default:
-			return "", "", false
+			return chEndpoint{}, false
 		}
 	}
-	return strings.ToLower(u.Hostname()), port, true
+	ep.host = strings.ToLower(u.Hostname())
+	ep.path = strings.TrimRight(u.EscapedPath(), "/")
+	if ep.path == "" {
+		ep.path = "/"
+	}
+	return ep, true
 }
 
 // sameClickHouseServer reports whether target reaches the same ClickHouse
 // server as the connection currentID, so the session's stored password may
 // be reused there. Only the same connection, or two direct connections with
-// the same host and port, qualify; an agent or an unknown endpoint never
-// does.
+// the same scheme, host, port and path, qualify; an agent or an unknown
+// endpoint never does.
 func (h *AuthHandler) sameClickHouseServer(currentID string, target *database.Connection) bool {
 	if target == nil {
 		return false
@@ -917,12 +929,12 @@ func (h *AuthHandler) sameClickHouseServer(currentID string, target *database.Co
 	if err != nil || current == nil {
 		return false
 	}
-	curHost, curPort, ok := clickHouseEndpoint(current)
+	cur, ok := clickHouseEndpoint(current)
 	if !ok {
 		return false
 	}
-	host, port, ok := clickHouseEndpoint(target)
-	return ok && host == curHost && port == curPort
+	ep, ok := clickHouseEndpoint(target)
+	return ok && ep == cur
 }
 
 // SwitchConnection moves the caller's session to another connection.

@@ -159,3 +159,58 @@ func TestSchemaCompareMetadataFailuresAreNotEmptySuccess(t *testing.T) {
 		})
 	}
 }
+
+// Typed credentials for an endpoint share the login rate limit and are
+// refused while SSO-only sign-in is in force.
+func TestSchemaCompareTypedCredentialsAreRateLimited(t *testing.T) {
+	db, gw, connID := credentialFixture(t)
+	encrypted, err := crypto.Encrypt("caller-password", "test-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compare := func(h *SchemaCompareHandler, connID, password string) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]any{
+			"source": schemaEndpoint{ConnectionID: connID, Database: "a"},
+			"target": schemaEndpoint{ConnectionID: connID, Database: "b", Username: "victim", Password: password},
+		})
+		req := httptest.NewRequest("POST", "/compare", strings.NewReader(string(body)))
+		req.RemoteAddr = "198.51.100.50:5000"
+		req = req.WithContext(middleware.SetSession(req.Context(), &middleware.SessionInfo{ConnectionID: connID, ClickhouseUser: "caller", EncryptedPassword: encrypted}))
+		rr := httptest.NewRecorder()
+		h.Routes().ServeHTTP(rr, req)
+		return rr
+	}
+	h := &SchemaCompareHandler{DB: db, Gateway: gw, Config: &config.Config{AppSecretKey: "test-secret"}, RateLimiter: middleware.NewRateLimiter(db)}
+
+	// Unreachable ClickHouse is not a guess and never counts.
+	for i := 0; i < MaxAttemptsPerUser+1; i++ {
+		if rr := compare(h, connID, unreachablePassword); rr.Code != 502 {
+			t.Fatalf("unreachable attempt %d: %d %s", i+1, rr.Code, rr.Body.String())
+		}
+	}
+	for i := 0; i < MaxAttemptsPerUser; i++ {
+		if rr := compare(h, connID, rejectedPassword); rr.Code != 400 || !strings.Contains(rr.Body.String(), "Target: ") {
+			t.Fatalf("rejected attempt %d: %d %s", i+1, rr.Code, rr.Body.String())
+		}
+	}
+	if rr := compare(h, connID, rejectedPassword); rr.Code != 429 {
+		t.Fatalf("attempt past the limit: %d, want 429", rr.Code)
+	}
+	// The lockout is shared with login for the same user and connection.
+	auth := &AuthHandler{DB: db, Gateway: gw, RateLimiter: middleware.NewRateLimiter(db), Config: &config.Config{AppSecretKey: "test-secret"}}
+	req := httptest.NewRequest("POST", "/login", strings.NewReader(`{"connection_id":"`+connID+`","username":"victim","password":"right"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "192.0.2.98:5000"
+	rec := httptest.NewRecorder()
+	auth.Login(rec, req)
+	if rec.Code != 429 {
+		t.Fatalf("login after compare lockout: %d, want 429", rec.Code)
+	}
+
+	// SSO only: typed passwords are refused before anything is sent.
+	db2, gw2, conn2 := credentialFixture(t)
+	sso := &SchemaCompareHandler{DB: db2, Gateway: gw2, Config: proConfig(&config.Config{AppSecretKey: "test-secret"}), OIDC: ssoOnlyManager(t, true), RateLimiter: middleware.NewRateLimiter(db2)}
+	if rr := compare(sso, conn2, "right"); rr.Code != 403 {
+		t.Fatalf("typed password under SSO only: %d %s, want 403", rr.Code, rr.Body.String())
+	}
+}

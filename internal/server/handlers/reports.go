@@ -64,9 +64,9 @@ type reportChannel struct {
 	IsActive    bool   `json:"is_active"`
 }
 
-// List returns the reports the caller may see (all of them for admins), the
-// channels a report can target and the report account mode of each
-// connection.
+// List returns the reports on the caller's connection the caller may see
+// (all of them for admins), the channels a report can target and the report
+// account mode of each connection.
 func (h *ReportsHandler) List(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSession(r)
 	if session == nil {
@@ -81,7 +81,7 @@ func (h *ReportsHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	list := make([]database.ReportSubscription, 0, len(all))
 	for _, s := range all {
-		if canSeeReport(session, &s) {
+		if s.ConnectionID == session.ConnectionID && canSeeReport(session, &s) {
 			list = append(list, s)
 		}
 	}
@@ -153,7 +153,12 @@ func (h *ReportsHandler) decode(w http.ResponseWriter, r *http.Request, session 
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
 		return false
 	}
-	s.Name, s.SourceType, s.ConnectionID = in.Name, strings.TrimSpace(in.SourceType), strings.TrimSpace(in.ConnectionID)
+	// A report runs with its connection's report account, so it is built
+	// on the connection the caller signed in to and never on another.
+	if !sessionConnectionOnly(w, session, in.ConnectionID, "Reports") {
+		return false
+	}
+	s.Name, s.SourceType, s.ConnectionID = in.Name, strings.TrimSpace(in.SourceType), session.ConnectionID
 	s.SavedQueryID, s.DashboardID = trimmedPtr(in.SavedQueryID), trimmedPtr(in.DashboardID)
 	s.Cron, s.Timezone, s.Format = in.Cron, in.Timezone, strings.TrimSpace(in.Format)
 	s.RowLimit, s.InlineRows, s.MaxBytes, s.TimeoutSeconds = in.RowLimit, in.InlineRows, in.MaxBytes, in.TimeoutSeconds
@@ -192,7 +197,7 @@ func (h *ReportsHandler) decode(w http.ResponseWriter, r *http.Request, session 
 			return false
 		}
 	case reports.SourceDashboard:
-		d, err := h.DB.GetDashboardByID(*s.DashboardID)
+		d, err := h.DB.GetDashboardByIDFor(*s.DashboardID, middleware.Actor(session))
 		if err != nil || d == nil {
 			writeError(w, http.StatusBadRequest, "Dashboard not found")
 			return false
@@ -278,9 +283,9 @@ func canSeeReport(session *middleware.SessionInfo, s *database.ReportSubscriptio
 	return session.UserRole == "admin" || (s.CreatedBy != nil && *s.CreatedBy == middleware.Actor(session))
 }
 
-// load returns the report in the URL when the caller may see it. A report
-// the caller cannot see is 404, never 403, so ids cannot be probed. On
-// failure it has written the error.
+// load returns the report in the URL when the caller may see it and it is
+// on the caller's connection. A report the caller cannot see is 404, never
+// 403, so ids cannot be probed. On failure it has written the error.
 func (h *ReportsHandler) load(w http.ResponseWriter, r *http.Request, session *middleware.SessionInfo) *database.ReportSubscription {
 	s, err := h.DB.GetReportSubscription(chi.URLParam(r, "id"))
 	if err != nil {
@@ -288,7 +293,7 @@ func (h *ReportsHandler) load(w http.ResponseWriter, r *http.Request, session *m
 		writeError(w, http.StatusInternalServerError, "Failed to load report")
 		return nil
 	}
-	if s == nil || !canSeeReport(session, s) {
+	if s == nil || s.ConnectionID != session.ConnectionID || !canSeeReport(session, s) {
 		writeError(w, http.StatusNotFound, "Report not found")
 		return nil
 	}
@@ -492,7 +497,7 @@ func (h *ReportsHandler) Download(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to load delivery")
 		return
 	}
-	if !canSeeReport(session, s) {
+	if s == nil || s.ConnectionID != session.ConnectionID || !canSeeReport(session, s) {
 		writeError(w, http.StatusNotFound, "Delivery not found")
 		return
 	}
