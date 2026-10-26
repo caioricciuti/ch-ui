@@ -97,10 +97,12 @@ func (s *Sweeper) Stop() {
 	}
 }
 
-// Tick sweeps every connection in per-person mode once. A user not seen for
-// DropAfterDays is dropped; otherwise one not seen for LockAfterDays and not
-// locked yet is locked. A threshold of 0 is off. Failures are logged and
-// counted, never stop the tick, and are retried next time.
+// Tick sweeps every connection in per-person mode once. A user whose access
+// an admin removed while the connection was offline is dropped. A user not
+// seen for DropAfterDays is dropped; otherwise one not seen for
+// LockAfterDays and not locked yet is locked. A threshold of 0 is off.
+// Failures are logged and counted, never stop the tick, and are retried next
+// time.
 func (s *Sweeper) Tick(ctx context.Context) SweepResult {
 	var res SweepResult
 	if !s.pro() {
@@ -121,7 +123,7 @@ func (s *Sweeper) Tick(ctx context.Context) SweepResult {
 			slog.Warn("SSO sweep: read identity config", "connection", conn.ID, "error", err)
 			continue
 		}
-		if !cfg.PerPerson() || (cfg.LockAfterDays == 0 && cfg.DropAfterDays == 0) {
+		if !cfg.PerPerson() {
 			continue
 		}
 		if !s.Prov.Gateway.IsTunnelOnline(conn.ID) {
@@ -147,6 +149,18 @@ func (s *Sweeper) Tick(ctx context.Context) SweepResult {
 }
 
 func (s *Sweeper) sweepUser(ctx context.Context, cfg database.SSOIdentityConfig, u database.SSOPersonUser, now time.Time, res *SweepResult) {
+	if u.Removed() {
+		if err := s.Prov.Drop(ctx, u, sweepActor); err != nil {
+			slog.Warn("SSO sweep: drop removed user", "connection", u.ConnectionID, "user", u.CHUser, "error", err)
+			res.Failed++
+			return
+		}
+		res.Dropped++
+		return
+	}
+	if cfg.LockAfterDays == 0 && cfg.DropAfterDays == 0 {
+		return
+	}
 	lastSeen, err := time.Parse(time.RFC3339, u.LastSeenAt)
 	if err != nil {
 		slog.Warn("SSO sweep: unreadable last sign-in", "connection", u.ConnectionID, "user", u.CHUser, "last_seen", u.LastSeenAt)
@@ -162,7 +176,7 @@ func (s *Sweeper) sweepUser(ctx context.Context, cfg database.SSOIdentityConfig,
 			return
 		}
 		res.Dropped++
-	case cfg.LockAfterDays > 0 && !u.Locked() && idle > days(cfg.LockAfterDays):
+	case cfg.LockAfterDays > 0 && !u.LockedInClickHouse() && idle > days(cfg.LockAfterDays):
 		if err := s.Prov.Lock(ctx, u, sweepActor); err != nil {
 			slog.Warn("SSO sweep: lock user", "connection", u.ConnectionID, "user", u.CHUser, "error", err)
 			res.Failed++

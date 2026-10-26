@@ -390,6 +390,13 @@ func (p *Provisioner) detectHost(ctx context.Context, connID string, acct accoun
 	return addr, nil
 }
 
+// ForgetConnection drops what the provisioner cached for connID. Call it
+// when the connection is pointed at a different ClickHouse server: the
+// detected address belongs to the old one.
+func (p *Provisioner) ForgetConnection(connID string) {
+	p.hosts.Delete(connID)
+}
+
 // lookupHost asks ClickHouse which address it sees acct connect from, with
 // no cache: the probe uses it for an account that may not be saved yet.
 func (p *Provisioner) lookupHost(ctx context.Context, connID string, acct account) (string, error) {

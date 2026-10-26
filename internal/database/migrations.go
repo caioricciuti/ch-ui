@@ -1372,6 +1372,9 @@ Formatting:
 	if err := db.migrateGovSyncAttempts(); err != nil {
 		return err
 	}
+	if err := db.migrateSSOAccessRemoved(); err != nil {
+		return err
+	}
 	slog.Info("Database migrations completed", "schema_version", schemaVersion)
 	return nil
 }

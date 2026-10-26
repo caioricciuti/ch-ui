@@ -607,3 +607,33 @@ func TestNormalizeAddress(t *testing.T) {
 		}
 	}
 }
+
+// ForgetConnection drops the detected address, so the next sign-in after a
+// connection moved to another server detects it again.
+func TestForgetConnectionDropsCachedHost(t *testing.T) {
+	_, conn, agent, p := setup(t, perPersonConfig(), responder{address: "10.1.2.3"})
+	detections := func() int {
+		n := 0
+		for _, sql := range sqls(queries(agent, 0)) {
+			if strings.Contains(sql, "system.processes") {
+				n++
+			}
+		}
+		return n
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := p.SignIn(context.Background(), conn, ana()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := detections(); n != 1 {
+		t.Fatalf("detected %d times, want 1 (cached)", n)
+	}
+	p.ForgetConnection(conn)
+	if _, err := p.SignIn(context.Background(), conn, ana()); err != nil {
+		t.Fatal(err)
+	}
+	if n := detections(); n != 2 {
+		t.Fatalf("detected %d times after ForgetConnection, want 2", n)
+	}
+}

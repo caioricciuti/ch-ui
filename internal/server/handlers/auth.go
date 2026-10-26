@@ -533,10 +533,20 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		} else {
-			conn = &connections[0]
-			if hidden := hiddenLoginConnectionID(h.DB); hidden != "" && len(connections) > 1 && conn.ID == hidden {
-				conn = &connections[1]
+			// No connectionId: only unambiguous with one connection the
+			// login picker shows. The UI always sends one.
+			hidden := hiddenLoginConnectionID(h.DB)
+			var visible []*database.Connection
+			for i := range connections {
+				if connections[i].ID != hidden {
+					visible = append(visible, &connections[i])
+				}
 			}
+			if len(visible) != 1 {
+				writeError(w, http.StatusBadRequest, "connectionId is required when more than one connection exists")
+				return
+			}
+			conn = visible[0]
 		}
 	}
 
@@ -929,12 +939,19 @@ func (h *AuthHandler) sameClickHouseServer(currentID string, target *database.Co
 	if err != nil || current == nil {
 		return false
 	}
-	cur, ok := clickHouseEndpoint(current)
+	return SameClickHouseEndpoint(current, target)
+}
+
+// SameClickHouseEndpoint reports whether two direct connections dial the
+// same ClickHouse server (see clickHouseEndpoint). An agent connection or an
+// unknown endpoint never matches.
+func SameClickHouseEndpoint(a, b *database.Connection) bool {
+	aEp, ok := clickHouseEndpoint(a)
 	if !ok {
 		return false
 	}
-	ep, ok := clickHouseEndpoint(target)
-	return ok && ep == cur
+	bEp, ok := clickHouseEndpoint(b)
+	return ok && aEp == bEp
 }
 
 // SwitchConnection moves the caller's session to another connection.

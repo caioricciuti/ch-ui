@@ -385,24 +385,38 @@ type SSOClickHouseUser struct {
 	LastSyncAt        string   `json:"last_sync_at"`
 	LastSeenAt        string   `json:"last_seen_at"`
 	LockedAt          *string  `json:"locked_at,omitempty"`
+	// RemovedAt is set when an admin removed the person's access while the
+	// connection was offline: CH-UI stops using the user at once and the
+	// sweep drops it in ClickHouse once the connection is back.
+	RemovedAt *string `json:"removed_at,omitempty"`
 }
 
-// Locked reports whether the user is locked (HOST NONE) pending drop.
-func (u SSOClickHouseUser) Locked() bool { return u.LockedAt != nil && *u.LockedAt != "" }
+// Locked reports whether CH-UI must not use the user: it is locked (HOST
+// NONE) pending drop, or its access was removed pending drop.
+func (u SSOClickHouseUser) Locked() bool { return u.LockedInClickHouse() || u.Removed() }
 
-const ssoClickHouseUserColumns = "identity_id, connection_id, ch_user, encrypted_password, roles, last_sync_at, last_seen_at, locked_at"
+// LockedInClickHouse reports whether the user was locked (HOST NONE) in
+// ClickHouse.
+func (u SSOClickHouseUser) LockedInClickHouse() bool { return u.LockedAt != nil && *u.LockedAt != "" }
+
+// Removed reports whether an admin removed the person's access and the
+// ClickHouse user still waits to be dropped.
+func (u SSOClickHouseUser) Removed() bool { return u.RemovedAt != nil && *u.RemovedAt != "" }
+
+const ssoClickHouseUserColumns = "identity_id, connection_id, ch_user, encrypted_password, roles, last_sync_at, last_seen_at, locked_at, removed_at"
 
 func scanSSOClickHouseUser(scan func(dest ...any) error) (*SSOClickHouseUser, error) {
 	var u SSOClickHouseUser
 	var roles string
-	var locked sql.NullString
-	if err := scan(&u.IdentityID, &u.ConnectionID, &u.CHUser, &u.EncryptedPassword, &roles, &u.LastSyncAt, &u.LastSeenAt, &locked); err != nil {
+	var locked, removed sql.NullString
+	if err := scan(&u.IdentityID, &u.ConnectionID, &u.CHUser, &u.EncryptedPassword, &roles, &u.LastSyncAt, &u.LastSeenAt, &locked, &removed); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(roles), &u.Roles); err != nil || u.Roles == nil {
 		u.Roles = []string{}
 	}
 	u.LockedAt = nullStringToPtr(locked)
+	u.RemovedAt = nullStringToPtr(removed)
 	return &u, nil
 }
 
@@ -440,7 +454,7 @@ func (db *DB) ListSSOClickHouseUsersForIdentity(identityID string) ([]SSOClickHo
 }
 
 // SaveSSOClickHouseUser records a provisioned or re-synced user: the current
-// password, roles and sync time, unlocked, seen now.
+// password, roles and sync time, unlocked and not removed, seen now.
 func (db *DB) SaveSSOClickHouseUser(u SSOClickHouseUser) error {
 	if u.IdentityID == "" || u.ConnectionID == "" || u.CHUser == "" || u.EncryptedPassword == "" {
 		return errors.New("save sso clickhouse user: identity, connection, user and password are required")
@@ -455,11 +469,11 @@ func (db *DB) SaveSSOClickHouseUser(u SSOClickHouseUser) error {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err = db.conn.Exec(`INSERT INTO sso_clickhouse_users (`+ssoClickHouseUserColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+		VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
 		ON CONFLICT(identity_id, connection_id) DO UPDATE SET
 			ch_user = excluded.ch_user, encrypted_password = excluded.encrypted_password,
 			roles = excluded.roles, last_sync_at = excluded.last_sync_at,
-			last_seen_at = excluded.last_seen_at, locked_at = NULL`,
+			last_seen_at = excluded.last_seen_at, locked_at = NULL, removed_at = NULL`,
 		u.IdentityID, u.ConnectionID, u.CHUser, u.EncryptedPassword, string(rolesJSON), now, now)
 	if err != nil {
 		return fmt.Errorf("save sso clickhouse user: %w", err)
@@ -501,6 +515,41 @@ func (db *DB) DeleteSSOClickHouseUser(identityID, connID string) error {
 	return nil
 }
 
+// RemoveSSOClickHouseUserAccess ends the person's access to their user on the
+// connection inside CH-UI, before (or without) the ClickHouse drop: the row
+// is marked removed, so every path that resolves it treats it as locked, and
+// the MCP keys and OAuth tokens that run as the person there are revoked.
+// The row stays for the drop. Returns the number of keys revoked.
+func (db *DB) RemoveSSOClickHouseUserAccess(identityID, connID, email string) (int64, error) {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("remove sso clickhouse user access: %w", err)
+	}
+	defer tx.Rollback()
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := tx.Exec("UPDATE sso_clickhouse_users SET removed_at = COALESCE(removed_at, ?) WHERE identity_id = ? AND connection_id = ?", now, identityID, connID); err != nil {
+		return 0, fmt.Errorf("remove sso clickhouse user access: %w", err)
+	}
+	// Keys that reference the user, and OAuth tokens the person granted
+	// there before keys referenced it (Subject is their email, unlike a
+	// password grant whose Subject is the ClickHouse user).
+	keys := `SELECT id FROM mcp_keys WHERE connection_id = ? AND revoked_at IS NULL
+		AND (sso_identity_id = ? OR (kind = 'oauth' AND ? != '' AND LOWER(subject) = LOWER(?) AND subject != ch_user))`
+	args := []any{connID, identityID, email, email}
+	if _, err := tx.Exec("UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE revoked_at IS NULL AND key_id IN ("+keys+")", append([]any{now}, args...)...); err != nil {
+		return 0, fmt.Errorf("remove sso clickhouse user access: revoke refresh tokens: %w", err)
+	}
+	res, err := tx.Exec("UPDATE mcp_keys SET revoked_at = ? WHERE id IN ("+keys+")", append([]any{now}, args...)...)
+	if err != nil {
+		return 0, fmt.Errorf("remove sso clickhouse user access: revoke keys: %w", err)
+	}
+	revoked, _ := res.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("remove sso clickhouse user access: %w", err)
+	}
+	return revoked, nil
+}
+
 // SSOClickHouseUserOwner returns the identity that owns chUser on the
 // connection, or "" when CH-UI did not create that user.
 func (db *DB) SSOClickHouseUserOwner(connID, chUser string) (string, error) {
@@ -526,7 +575,7 @@ type SSOPersonUser struct {
 // ListSSOClickHouseUsers returns every per-person user on the connection
 // (every connection when connID is empty), oldest sign-in first.
 func (db *DB) ListSSOClickHouseUsers(connID string) ([]SSOPersonUser, error) {
-	q := `SELECT u.identity_id, u.connection_id, u.ch_user, u.encrypted_password, u.roles, u.last_sync_at, u.last_seen_at, u.locked_at, i.email, i.display_name
+	q := `SELECT u.identity_id, u.connection_id, u.ch_user, u.encrypted_password, u.roles, u.last_sync_at, u.last_seen_at, u.locked_at, u.removed_at, i.email, i.display_name
 		FROM sso_clickhouse_users u JOIN sso_identities i ON i.id = u.identity_id`
 	var args []any
 	if connID != "" {
@@ -543,14 +592,15 @@ func (db *DB) ListSSOClickHouseUsers(connID string) ([]SSOPersonUser, error) {
 	for rows.Next() {
 		var p SSOPersonUser
 		var roles string
-		var locked sql.NullString
-		if err := rows.Scan(&p.IdentityID, &p.ConnectionID, &p.CHUser, &p.EncryptedPassword, &roles, &p.LastSyncAt, &p.LastSeenAt, &locked, &p.Email, &p.DisplayName); err != nil {
+		var locked, removed sql.NullString
+		if err := rows.Scan(&p.IdentityID, &p.ConnectionID, &p.CHUser, &p.EncryptedPassword, &roles, &p.LastSyncAt, &p.LastSeenAt, &locked, &removed, &p.Email, &p.DisplayName); err != nil {
 			return nil, fmt.Errorf("list sso clickhouse users: %w", err)
 		}
 		if err := json.Unmarshal([]byte(roles), &p.Roles); err != nil || p.Roles == nil {
 			p.Roles = []string{}
 		}
 		p.LockedAt = nullStringToPtr(locked)
+		p.RemovedAt = nullStringToPtr(removed)
 		out = append(out, p)
 	}
 	return out, rows.Err()

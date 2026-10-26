@@ -407,8 +407,19 @@ func (s *SetupHandler) saveConnection(name, chURL string) (*database.Connection,
 		if _, err := renameConnection(s.DB, conn, name); err != nil {
 			return nil, fmt.Errorf("rename setup connection: %w", err)
 		}
-		if _, err := setConnectionURL(s.DB, conn, chURL); err != nil {
+		_, reset, err := setConnectionURL(s.DB, conn, chURL)
+		if err != nil {
 			return nil, fmt.Errorf("update setup connection url: %w", err)
+		}
+		// No SSO can be set up before setup closes, so the provisioner
+		// has nothing cached for this connection.
+		if reset != nil {
+			_ = s.DB.CreateAuditLog(database.AuditLogParams{
+				Action:       "connection.reset",
+				Username:     strPtr(setupActor),
+				ConnectionID: strPtr(conn.ID),
+				Details:      strPtr(fmt.Sprintf("Connection pointed at a different ClickHouse server; old server state cleared: %s", reset.Summary())),
+			})
 		}
 	} else {
 		newID, _, err := createConnectionRecord(s.DB, name, database.ConnectionTypeDirect, chURL)

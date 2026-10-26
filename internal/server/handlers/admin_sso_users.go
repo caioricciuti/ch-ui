@@ -28,6 +28,9 @@ type ssoClickHouseUserSummary struct {
 	LastSyncAt     string   `json:"last_sync_at"`
 	LastSeenAt     string   `json:"last_seen_at"`
 	Locked         bool     `json:"locked"`
+	// RemovalPending is set when access was removed while the connection
+	// was offline: CH-UI no longer uses the user and the sweep drops it.
+	RemovalPending bool `json:"removal_pending"`
 }
 
 // connectionNames maps every connection id to its name.
@@ -80,13 +83,14 @@ func (h *AdminHandler) ssoClickHouseUsersByEmail() (map[string][]ssoClickHouseUs
 			LastSyncAt:     u.LastSyncAt,
 			LastSeenAt:     u.LastSeenAt,
 			Locked:         u.Locked(),
+			RemovalPending: u.Removed(),
 		})
 	}
 	return out, nil
 }
 
 // ssoAccessFailure is one connection whose per-person user could not be
-// dropped; its row is kept so the sweep can retry.
+// dropped; its row is kept, marked removed, so the sweep can retry.
 type ssoAccessFailure struct {
 	ConnectionID   string `json:"connection_id"`
 	ConnectionName string `json:"connection_name"`
@@ -94,9 +98,11 @@ type ssoAccessFailure struct {
 }
 
 // RemoveSSOAccess ends an SSO person's access now: every ClickHouse user
-// CH-UI created for them is dropped on its connection, and all their
-// sessions are signed out. A connection that is offline or refuses the drop
-// is reported in "failed" and keeps its row for a later retry. Admin only.
+// CH-UI created for them is dropped on its connection, the MCP keys and
+// OAuth tokens that run as them there are revoked, and all their sessions
+// are signed out. A connection that is offline or refuses the drop is
+// reported in "failed" and keeps its row, marked removed so no CH-UI path
+// uses it, for the sweep to drop once the connection is back. Admin only.
 // DELETE /users/sso/{email}/access
 func (h *AdminHandler) RemoveSSOAccess(w http.ResponseWriter, r *http.Request) {
 	email, err := url.PathUnescape(chi.URLParam(r, "email"))
@@ -125,6 +131,7 @@ func (h *AdminHandler) RemoveSSOAccess(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dropped := 0
+	var keysRevoked int64
 	failed := []ssoAccessFailure{}
 	for _, u := range all {
 		if strings.ToLower(strings.TrimSpace(u.Email)) != email {
@@ -133,6 +140,15 @@ func (h *AdminHandler) RemoveSSOAccess(w http.ResponseWriter, r *http.Request) {
 		fail := func(msg string) {
 			failed = append(failed, ssoAccessFailure{ConnectionID: u.ConnectionID, ConnectionName: connectionName(names, u.ConnectionID), Error: msg})
 		}
+		// CH-UI stops using the user before ClickHouse is asked to drop it,
+		// so an offline connection or a failed drop leaves nothing usable.
+		n, err := h.DB.RemoveSSOClickHouseUserAccess(u.IdentityID, u.ConnectionID, u.Email)
+		if err != nil {
+			slog.Error("Failed to remove per-person SSO user access", "error", err, "email", email, "connection", u.ConnectionID)
+			fail("could not mark the user removed in CH-UI")
+			continue
+		}
+		keysRevoked += n
 		if h.Gateway == nil || !h.Gateway.IsTunnelOnline(u.ConnectionID) {
 			fail("connection is offline")
 			continue
@@ -162,13 +178,14 @@ func (h *AdminHandler) RemoveSSOAccess(w http.ResponseWriter, r *http.Request) {
 		Action:         "sso.access_removed",
 		Username:       actorName,
 		ClickhouseUser: chUser,
-		Details:        strPtr(fmt.Sprintf("Removed SSO access for %s: %d ClickHouse user(s) dropped, %d failed, %d session(s) signed out", email, dropped, len(failed), ended)),
+		Details:        strPtr(fmt.Sprintf("Removed SSO access for %s: %d ClickHouse user(s) dropped, %d failed, %d session(s) signed out, %d MCP key(s) and OAuth token(s) revoked", email, dropped, len(failed), ended, keysRevoked)),
 		IPAddress:      strPtr(getClientIP(r)),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"dropped":        dropped,
 		"failed":         failed,
+		"keys_revoked":   keysRevoked,
 		"sessions_ended": ended,
 	})
 }
