@@ -21,6 +21,8 @@
   import DataTable, { type DataColumn } from '../lib/components/common/DataTable.svelte'
   import ReportsSection from '../lib/components/reports/ReportsSection.svelte'
   import { getSection } from '../lib/stores/nav.svelte'
+  import { getSession } from '../lib/stores/session.svelte'
+  import { loadConnectionNames, otherConnectionId } from '../lib/stores/connection-names'
   import { PAGE_SECTIONS, docsURL } from '../lib/routes'
   import { Clock, Plus, Play, Trash2, FileText, ExternalLink, Pencil, History, Search } from 'lucide-svelte'
 
@@ -68,8 +70,25 @@
   // Manual run loading
   let runningId = $state<string | null>(null)
 
+  // A schedule runs on the connection it was created on. Running or editing
+  // one of another connection needs a switch there first.
+  const session = $derived(getSession())
+  let connectionNames = $state<Map<string, string>>(new Map())
+
+  function connectionName(id: string | null): string {
+    if (!id || id === session?.connectionId) return session?.connectionName || 'This connection'
+    return connectionNames.get(id) ?? 'Another connection'
+  }
+
+  /** Why Run now and Edit are off for this schedule, or null when they are on. */
+  function switchHint(s: Schedule): string | null {
+    const other = otherConnectionId(s.connection_id, session?.connectionId)
+    if (!other) return null
+    return `Runs on ${connectionName(other)}. Switch to that connection to run or edit it.`
+  }
+
   onMount(async () => {
-    await Promise.all([loadSchedules(), loadSavedQueries()])
+    await Promise.all([loadSchedules(), loadSavedQueries(), loadConnectionNames().then((m) => (connectionNames = m))])
   })
 
   const savedQueryMap = $derived.by(() => {
@@ -309,13 +328,17 @@
 
   // The schedule list
   let search = $state('')
-  type Row = Record<string, unknown> & Schedule & { target: string }
+  type Row = Record<string, unknown> & Schedule & { target: string; connection: string }
 
   const rows = $derived.by<Row[]>(() => {
     const q = search.trim().toLowerCase()
-    const all = schedules.map((s) => ({ ...s, target: savedQueryMap.get(s.saved_query_id)?.name ?? s.saved_query_name ?? '' }))
+    const all = schedules.map((s) => ({
+      ...s,
+      target: savedQueryMap.get(s.saved_query_id)?.name ?? s.saved_query_name ?? '',
+      connection: connectionName(s.connection_id),
+    }))
     if (!q) return all
-    return all.filter((r) => r.name.toLowerCase().includes(q) || r.target.toLowerCase().includes(q) || r.cron.includes(q))
+    return all.filter((r) => r.name.toLowerCase().includes(q) || r.target.toLowerCase().includes(q) || r.cron.includes(q) || r.connection.toLowerCase().includes(q))
   })
 
   function ts(value: string | null): number {
@@ -327,6 +350,7 @@
   const scheduleColumns: DataColumn<Row>[] = [
     { key: 'name', label: 'Name', truncate: true },
     { key: 'target', label: 'Saved query', truncate: true },
+    { key: 'connection', label: 'Connection', truncate: true, width: '160px' },
     { key: 'cron', label: 'Cron', mono: true, width: '130px' },
     { key: 'timezone', label: 'Timezone', width: '110px' },
     { key: 'last_run_at', label: 'Last run', width: '170px', format: (v) => (v ? formatRelativeTime(v) : 'Never'), sortValue: (row) => ts(row.last_run_at) },
@@ -379,13 +403,20 @@
         rowKey={(r) => r.id}
         emptyTitle="Nothing matches"
         emptyDescription="Try another name, saved query or cron expression."
-        onrowclick={(r) => openEditModal(r)}
+        onrowclick={(r) => (switchHint(r) ? openRuns(r.id) : openEditModal(r))}
       >
         {#snippet cell(row, col, value)}
           {#if col.key === 'name'}
             <span class="font-medium text-fg">{row.name}</span>
           {:else if col.key === 'target'}
             <span class={value ? '' : 'text-fg-4'}>{value || 'Unavailable'}</span>
+          {:else if col.key === 'connection'}
+            {@const hint = switchHint(row)}
+            {#if hint}
+              <Badge tone="warning" title={hint}>{value}</Badge>
+            {:else}
+              <span class="text-fg-2">{value}</span>
+            {/if}
           {:else if col.key === 'last_run_at'}
             {@const badge = statusBadge(row.last_status)}
             <span class="inline-flex items-center gap-2">
@@ -408,6 +439,7 @@
           {/if}
         {/snippet}
         {#snippet actions(row)}
+          {@const hint = switchHint(row)}
           <Button icon variant="ghost" size="xs" aria-label="View runs" title="View runs" onclick={(e) => { e.stopPropagation(); openRuns(row.id) }}>
             <History size={13} />
           </Button>
@@ -416,13 +448,13 @@
             variant="ghost"
             size="xs"
             aria-label="Run now"
-            title="Run now"
-            disabled={runningId === row.id}
+            title={hint ?? 'Run now'}
+            disabled={runningId === row.id || !!hint}
             onclick={(e) => { e.stopPropagation(); manualRun(row.id) }}
           >
             {#if runningId === row.id}<Spinner size="sm" />{:else}<Play size={13} />{/if}
           </Button>
-          <Button icon variant="ghost" size="xs" aria-label="Edit" title="Edit" onclick={(e) => { e.stopPropagation(); openEditModal(row) }}>
+          <Button icon variant="ghost" size="xs" aria-label="Edit" title={hint ?? 'Edit'} disabled={!!hint} onclick={(e) => { e.stopPropagation(); openEditModal(row) }}>
             <Pencil size={13} />
           </Button>
           <Button icon variant="ghost" size="xs" aria-label="Delete" title="Delete" class="hover:text-danger" onclick={(e) => { e.stopPropagation(); askDeleteSchedule(row.id) }}>
@@ -443,6 +475,9 @@
     </Button>
   {/snippet}
   <div class="flex flex-col gap-4">
+    {#if !editingId}
+      <p class="text-[13px] text-fg-3">Runs on <span class="font-medium text-fg">{connectionName(null)}</span>, the connection you are signed in to.</p>
+    {/if}
     <FormField label="Name" for="schedule-name">
       <Input id="schedule-name" placeholder="e.g. Daily Aggregation" bind:value={formName} />
     </FormField>

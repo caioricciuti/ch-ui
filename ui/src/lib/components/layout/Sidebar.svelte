@@ -2,11 +2,12 @@
   import { onMount } from 'svelte'
   import Button from '../common/Button.svelte'
   import Tooltip from '../common/Tooltip.svelte'
+  import ConfirmDialog from '../common/ConfirmDialog.svelte'
   import ConnectionSwitcher from './ConnectionSwitcher.svelte'
   import { isConnectionSwitcherOpen, openConnectionSwitcher, closeConnectionSwitcher } from '../../stores/connection-switcher.svelte'
   import { goTo, goWorkspace, getRouteType } from '../../stores/router.svelte'
   import { groupForRoute, NAV_GROUPS, ADMIN_ONLY_ROUTES, type NavGroup } from '../../routes'
-  import { getSession, logout } from '../../stores/session.svelte'
+  import { dismissStaleSession, getSession, getStaleSession, logout, refreshConnectionOnline } from '../../stores/session.svelte'
   import { cycleThemePreference, getThemePreference } from '../../stores/theme.svelte'
   import { ALT, MOD, combo } from '../../utils/shortcuts'
   import { openCommandPalette } from '../../stores/command-palette.svelte'
@@ -19,6 +20,10 @@
   } from 'lucide-svelte'
 
   const session = $derived(getSession())
+  const stale = $derived(getStaleSession())
+
+  // The status dot follows the connection while the tab is in view.
+  const ONLINE_POLL_MS = 30_000
 
   let nodeHostname = $state<string | null>(null)
   let clusterName = $state<string | null>(null)
@@ -123,9 +128,16 @@
     }
     document.addEventListener('visibilitychange', recheck)
     const timer = setInterval(recheck, CACHE_TTL)
+    const pollOnline = () => {
+      if (document.visibilityState === 'visible') void refreshConnectionOnline()
+    }
+    document.addEventListener('visibilitychange', pollOnline)
+    const onlineTimer = setInterval(pollOnline, ONLINE_POLL_MS)
     return () => {
       document.removeEventListener('visibilitychange', recheck)
+      document.removeEventListener('visibilitychange', pollOnline)
       clearInterval(timer)
+      clearInterval(onlineTimer)
     }
   })
 
@@ -245,3 +257,15 @@
 {#if session && switcherOpen}
   <ConnectionSwitcher anchor={switcherAnchor} onclose={closeConnectionSwitcher} />
 {/if}
+
+<ConfirmDialog
+  open={stale !== null}
+  title={stale === 'logout' ? 'You signed out in another tab' : "This tab's connection changed in another tab"}
+  description={stale === 'logout'
+    ? 'Reload to sign in again. Copy anything you have not saved first.'
+    : 'Requests from this tab fail until it reloads on the new connection. Copy anything you have not saved first.'}
+  confirmLabel="Reload"
+  cancelLabel="Not now"
+  onconfirm={() => window.location.reload()}
+  oncancel={dismissStaleSession}
+/>

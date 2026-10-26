@@ -4,6 +4,7 @@
   import { takePageIntent } from '../../stores/page-intent.svelte'
   import { apiGet, apiPut, apiDel, apiPost, ApiError } from '../../api/client'
   import { removeSSOAccess } from '../../api/ssoIdentity'
+  import { listConnections } from '../../api/auth'
   import type { SSOClickHouseUser } from '../../api/ssoIdentity'
   import { formatDate, formatRelativeTime } from '../../utils/format'
   import { navigate } from '../../stores/router.svelte'
@@ -127,7 +128,16 @@
     }
   }
 
-  function describeUsersError(e: unknown): string {
+  // direct or agent, for the offline hint; read once, only when needed.
+  let connectionKind: Promise<string | undefined> | null = null
+  function currentConnectionKind(): Promise<string | undefined> {
+    connectionKind ??= listConnections()
+      .then((list) => list.find((c) => c.id === currentConnectionId)?.kind)
+      .catch(() => undefined)
+    return connectionKind
+  }
+
+  async function describeUsersError(e: unknown): Promise<string> {
     const message = errorText(e)
     const status = e instanceof ApiError ? e.status : 0
     if (status === 403) return 'You need the CH-UI admin role to manage users.'
@@ -135,7 +145,10 @@
       return 'Your ClickHouse user lacks the SHOW USERS grant. Ask your ClickHouse admin for it (GRANT SHOW USERS ON *.*).'
     }
     if (status === 503 || /tunnel.*offline|connection.*offline/i.test(message)) {
-      return 'The connection tunnel is offline. Bring the agent back online and refresh.'
+      const kind = await currentConnectionKind()
+      if (kind === 'agent') return 'The connection agent is offline. Start ch-ui connect for this connection and refresh.'
+      if (kind === 'direct') return 'The built-in connector is not running. Check the CH-UI server log and refresh.'
+      return 'The connection is offline. Refresh once it is back.'
     }
     return message
   }
@@ -161,7 +174,7 @@
       }
       userRoles = map
     } catch (e: unknown) {
-      usersError = describeUsersError(e)
+      usersError = await describeUsersError(e)
     } finally {
       usersLoading = false
     }
@@ -173,7 +186,7 @@
       const res = await apiGet<{ data: Row[]; meta: { name: string; type: string }[] }>('/api/admin/clickhouse-users')
       chUsers = res.data ?? []
     } catch (e: unknown) {
-      chUsersError = describeUsersError(e)
+      chUsersError = await describeUsersError(e)
     }
   }
 
