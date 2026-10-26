@@ -80,7 +80,12 @@ key name shows up in the log.
 | `trusted_proxies` | `["10.0.0.0/8", "192.168.1.20"]` | loopback, private and link-local ranges | Reverse proxies whose `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto` and `X-Forwarded-Host` headers are believed. `[]` trusts none. See [Behind a reverse proxy](#behind-a-reverse-proxy) |
 
 `clickhouse_url` and `connection_name` are applied to the embedded connection
-on every start. A connection added with the first-run setup code on the login
+on every start. A `clickhouse_url` that reaches a different ClickHouse server
+than before resets that connection: sessions, role overrides, SSO records,
+MCP keys and share links of the old server are cleared and dedicated
+background accounts are disabled. See
+[Repointing a direct connection](/docs/connections/#repointing-a-direct-connection).
+A connection added with the first-run setup code on the login
 page is a separate direct connection and is not overwritten by them. See
 [Can't login?](/docs/cant-login/#first-run-setup-from-the-login-page).
 
@@ -185,6 +190,8 @@ one per-IP login limit.
 Set both `tls_cert_file` and `tls_key_file` to have CH-UI serve HTTPS directly.
 If unset, CH-UI serves plaintext HTTP and expects a reverse proxy to terminate
 TLS; when bound to a non-loopback address without TLS it logs a startup warning.
+Direct connections follow the setting: their in-process connectors dial the
+server's own gateway over `wss://` on loopback when TLS is on.
 See [Security](/docs/security).
 
 ### Audit forwarding (SIEM)
@@ -216,8 +223,9 @@ oidc_sso_only: false
 
 `oidc_groups_claim` is the ID-token claim that holds group memberships
 (default `groups`). `oidc_connection_id` picks the connection SSO sessions use;
-when unset, CH-UI uses the embedded connection, or the first connection if there
-is no embedded one. `oidc_sso_only` turns off password sign-in while SSO is
+when unset, CH-UI uses the oldest connection with an SSO account set up, or the
+oldest connection when none has one (skipping the embedded connection that
+first-run setup replaced). `oidc_sso_only` turns off password sign-in while SSO is
 up, also when SSO is configured in the Admin page, and signs out password
 sessions; see [SSO only](/docs/sso#sso-only). SSO login is Pro.
 

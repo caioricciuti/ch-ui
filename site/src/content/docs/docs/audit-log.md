@@ -19,7 +19,11 @@ ClickHouse query activity and metadata changes inside a connection.
 - **Sign-ins**: successful and **failed** logins, with password or
   [SSO](/docs/sso)
 - **Connection changes**: a connection (tunnel or direct) is added, edited,
-  or removed
+  or removed. A connection pointed at a different ClickHouse server also
+  writes `connection.reset`, with the counts of sessions, role overrides, SSO
+  records, background accounts, MCP keys and share links cleared (actor
+  `system` when the server config changed the embedded connection). See
+  [Repointing a direct connection](/docs/connections/#repointing-a-direct-connection)
 - **Connections created from the login page**: with
   [sign-in with a ClickHouse URL](/docs/configuration/#sign-in-with-a-clickhouse-url)
   on, each new connection the login page creates
@@ -56,8 +60,8 @@ ClickHouse query activity and metadata changes inside a connection.
   and after; the sweep or an admin locking (`sso.user_locked`) or dropping
   (`sso.user_dropped`) a user, with the person's email and last sign-in, the
   actor being `system` for the sweep; and **Remove access** in Admin → Users
-  (`sso.access_removed`, with the counts of users dropped, failures and
-  sessions ended). The `ch_user` is the per-person user and the connection is
+  (`sso.access_removed`, with the counts of users dropped, failures,
+  sessions ended and MCP keys and OAuth tokens revoked). The `ch_user` is the per-person user and the connection is
   recorded on each row
 - **SSO identity settings**: an admin saving a connection's identity mode and
   group to role mapping (`connection.sso_identity.updated`, with the mode,

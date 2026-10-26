@@ -49,7 +49,9 @@ Queries run via `clusterAllReplicas('<cluster>', system.X)` with per-node attrib
 
 ### History & retention
 
-A background harvester samples lightweight per-node aggregates on an interval and stores them in SQLite to power the trend charts. Only compact numeric aggregates are stored (detailed drill-down lists are always fetched live), so storage stays tiny. The harvester runs with the connection's `cluster_health` [background account](/docs/background-accounts); when it has no credentials it skips that connection until the next tick.
+A background harvester samples lightweight per-node aggregates on an interval and stores them in SQLite to power the trend charts. Only compact numeric aggregates are stored (detailed drill-down lists are always fetched live), so storage stays tiny. The harvester runs with the connection's `cluster_health` [background account](/docs/background-accounts); when it has no credentials it skips that connection until the next tick and logs a warning once. Connections are polled side by side, never two polls at once on one connection, so a slow or hung server does not delay polling and health checks on the others.
+
+When the server answers but every metric query fails, which usually means the ClickHouse user may not read the `system` tables, CH-UI logs a warning once and writes a row in the **Connection unreachable** check's evaluation history saying so, instead of looking healthy with no data.
 
 Samples older than the **retention window are pruned automatically**. The default is **7 days**, adjustable from 1 to 365.
 

@@ -16,7 +16,7 @@ Each connection has one setting per worker. The modes are:
 | Mode | In the UI | What happens |
 |---|---|---|
 | `service_account` | Dedicated ClickHouse account | The worker signs in with a username and password you saved. Runs keep going after everyone signs out. |
-| `session` | An active user session | The worker borrows the credentials of a signed-in session on the connection (the newest of up to 3 active sessions whose password decrypts). Someone has to stay signed in. |
+| `session` | An active user session | The worker borrows the credentials of a signed-in session on the connection (the newest of up to 3 active sessions whose password decrypts; governance keeps the same user between runs, see below). Someone has to stay signed in. |
 | `disabled` | Disabled | The worker gets no credentials, so background runs stop. It never borrows a session. |
 
 `session` is the default for every worker, so an upgrade keeps the old behavior until an administrator changes it. Choosing `session` or `disabled` deletes any saved account for that worker.
@@ -72,14 +72,15 @@ For `session` and `disabled`, send only `{ "mode": "session" }` or `{ "mode": "d
 
 - A `disabled` worker does not run in the background, and it does not fall back to a session.
 - If a saved password cannot be decrypted (for example after `APP_SECRET_KEY` changed), the worker fails closed. It does not borrow someone else's session.
-- In `session` mode with nobody signed in, the worker has no credentials. Scheduled runs are recorded as errors; governance, Cluster Health and telemetry monitors skip that tick and keep their last result.
+- In `session` mode with nobody signed in, the worker has no credentials. Scheduled runs are recorded as errors. The other workers skip that run and say why: governance shows the reason as its sync error, SQL alerts and telemetry monitors show **Not evaluated** with the reason, and Cluster Health logs a warning. Each is logged once per change, not on every tick.
+- Governance results depend on what the account can read, so in `session` mode governance keeps borrowing the ClickHouse user of its previous run while that user has a live session. Otherwise it picks admin sessions first, then by user name, instead of the newest session.
 - A job never borrows a [per-person SSO user](/docs/sso#per-person-clickhouse-users): that account belongs to one person. In `session` mode such sessions are skipped, so on a connection where everyone signs in with per-person SSO, a worker needs a dedicated account to run. Shared SSO service accounts and password sessions can be borrowed.
 
 ## Manual runs
 
 Clicking a run button is not background work, so most manual runs use your own session:
 
-- **Schedules**: **Run now** uses the caller's ClickHouse account and still works when the `schedule` worker is disabled.
+- **Schedules**: **Run now** uses the caller's ClickHouse account and still works when the `schedule` worker is disabled. It is only offered for schedules on the connection you are signed in to, so your password never goes to another connection's server.
 - **Telemetry monitors**: **Run now** uses your own credentials, also when disabled.
 - **SQL alerts**: **Test run** and **Run now** use your own credentials, also when the `sql_alert` worker is disabled or not set up.
 - **Governance**: a manual sync uses your session.
@@ -114,6 +115,8 @@ Choosing **Disabled** stops future runs but does not cancel work that already ha
 ## Troubleshooting
 
 If a worker stops, check in order: the connection is online, the worker's mode, that `APP_SECRET_KEY` has not changed, and the account's ClickHouse grants. The server's debug logs record each credential use and every lookup failure.
+
+Pointing a connection at a different ClickHouse server switches its dedicated accounts to **Disabled** and erases the saved user and password, since they belong to the old server. Set them up again for the new one. See [Repointing a direct connection](/docs/connections/#repointing-a-direct-connection).
 
 ## Restore and rollback
 

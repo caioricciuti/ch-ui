@@ -113,7 +113,10 @@ have. See
 Common statuses returned by `/api/auth/login`:
 
 - `400` bad request body or missing username, or (with `clickhouse_url`) both
-  a URL and a connection were sent, or the URL failed validation
+  a URL and a connection were sent, or the URL failed validation. Also
+  `connectionId is required when more than one connection exists`: leaving
+  out `connectionId` only works when the login picker shows a single
+  connection, or `Connection not found` for an unknown one
 - `403` `clickhouse_url` was sent but sign-in with a ClickHouse URL is off,
   or `Cross-origin request denied`: the browser's `Origin` is not this app or
   an allowed origin (see [Security](/docs/security#application-security))
@@ -136,7 +139,8 @@ connection with its status; offline ones cannot be picked.
   **Use my current password** is ticked. Untick it to sign in to the other
   connection as a different user. Your current password is only reused when
   the other connection points at the same ClickHouse server (two direct
-  connections with the same host and port, or the same connection). For a
+  connections with the same scheme, host, port and URL path, or the same
+  connection). For a
   different server or any agent connection the password field opens with
   **Different server, enter the password for &lt;user&gt;**; nothing is sent
   to that connection until you type it. If the same server refuses your
@@ -152,8 +156,11 @@ A switch reloads the app. Open tabs, pinned results, recent palette commands,
 open dashboard folders and log columns are kept per person and connection in
 the browser, so switching back restores what you had there. Theme, split
 sizes and the row limit stay the same everywhere. Other open CH-UI tabs in the
-same browser reload too; a tab that still sends a request for the old
-connection gets `409 connection_changed` and reloads.
+same browser are not reloaded, so their unsaved work is not lost. They show
+**This tab's connection changed in another tab** with **Reload** and **Not
+now**; until you reload, their requests fail with `409 connection_changed`.
+Signing in or out in one tab works the same way. Tabs that are signed out
+just reload.
 
 ```bash
 curl -X POST http://localhost:3488/api/auth/switch-connection \

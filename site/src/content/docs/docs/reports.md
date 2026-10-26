@@ -7,6 +7,8 @@ A scheduled report runs a saved query or summarizes a dashboard on a cron and de
 
 Available on Pro and Enterprise plans. Find reports under **Schedules → Report delivery**; the API lives at `/api/reports` and returns `402` without a license.
 
+Reports belong to the connection they were created on. The list, editing, history, **Preview** and **Send now** only cover the reports of the connection you are signed in to, for admins too; switch connection to see or change the others.
+
 ## Before you start
 
 - **A dedicated report account.** Every run, including **Send now** and **Preview**, uses the connection's `report` [background account](/docs/background-accounts). Reports never borrow a signed-in session: without a dedicated account the run fails and nothing is sent. Give the account SELECT on the tables your reported queries and dashboard panels read.
@@ -14,12 +16,13 @@ Available on Pro and Enterprise plans. Find reports under **Schedules → Report
 
 ## Create a report
 
-Click **New report** in the Report delivery section, **Subscribe** in the header of a dashboard to start with that dashboard, its current time range and its variable values filled in, or **Subscribe** in a saved query's menu to start with that query and its connection.
+Click **New report** in the Report delivery section, **Subscribe** in the header of a dashboard to start with that dashboard, its current time range and its variable values filled in, or **Subscribe** in a saved query's menu to start with that query.
+
+A report always runs on the connection you are signed in to, with that connection's `report` account. The form says which connection that is; there is no connection picker.
 
 | Field | What it does |
 |---|---|
 | Source | A saved query result, or a dashboard summary |
-| Connection | The connection the queries run on, with its `report` account |
 | Cron and time zone | Five field cron (`0 8 * * 1-5` is weekdays at 08:00), evaluated in the IANA time zone you enter |
 | Format | Saved queries only: CSV attachment, inline table, or both |
 | Row cap | Rows fetched, 1000 by default, at most 50,000 |
@@ -76,9 +79,9 @@ Click a report, or its history button, to see its latest 100 runs with the statu
 
 | Action | Roles |
 |---|---|
-| See reports and their history, download CSV | Every signed-in user |
-| Create, preview, send now | Admin, analyst |
-| Edit or delete | The creator or an admin |
+| See a report and its history, download CSV | The creator or an admin |
+| Create | Admin, analyst |
+| Preview, send now, edit or delete | The creator (admin or analyst) or an admin |
 | Set recipient domains | Admin |
 
 **Recipient domains**: an admin can limit report recipients to a list of email domains with the settings button on the Report delivery toolbar (setting `report_recipient_domains`). Analysts are then refused any address outside the list; admins are not limited. With no list, any address is accepted.
@@ -87,7 +90,7 @@ Click a report, or its history button, to see its latest 100 runs with the statu
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/reports` | Reports, the channels they can use, the report account mode per connection |
+| `GET` | `/api/reports` | Reports of the session's connection, the channels they can use, the report account mode per connection |
 | `POST` | `/api/reports` | Create |
 | `PUT` | `/api/reports/{id}` | Replace a report |
 | `DELETE` | `/api/reports/{id}` | Delete a report and its history |
@@ -102,13 +105,14 @@ Click a report, or its history button, to see its latest 100 runs with the statu
   "name": "Daily signups",
   "source_type": "saved_query",
   "saved_query_id": "<saved query id>",
-  "connection_id": "<connection id>",
   "cron": "0 8 * * 1-5",
   "timezone": "Europe/Madrid",
   "format": "both",
   "targets": [{ "channel_id": "<channel id>", "recipients": ["growth@example.com"] }]
 }
 ```
+
+`connection_id` is optional. The report is saved on the session's connection; a `connection_id` for any other connection gets `400` (`Reports can only use the connection you are signed in to. Switch to the other connection first.`). A report of another connection answers `404`.
 
 ## Audit trail
 

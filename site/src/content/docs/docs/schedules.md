@@ -11,6 +11,8 @@ Enabled schedules keep running during the 14-day grace period after a license ex
 
 Anyone signed in can list schedules and read their run history. Creating, editing, deleting and manually running a schedule needs the **admin** or **analyst** role; viewers get `403`.
 
+Schedules belong to a connection. The list, editing, deleting, run history and **Run now** only cover the schedules of the connection you are signed in to, for admins too. A schedule on another connection answers `404` until you switch to that connection. An old schedule with no connection on it or on its saved query counts as the current connection, so it can still be seen and deleted.
+
 ## Overview
 
 Each schedule has:
@@ -22,7 +24,9 @@ Each schedule has:
 
 ## Creating a Schedule
 
-Navigate to **Schedules** in the sidebar and click **Create Schedule**. The Query jobs section lists schedules as a table (name, saved query, cron, timezone, last and next run) with an **Enabled** switch on each row; click a row to edit it.
+Navigate to **Schedules** in the sidebar and click **Create Schedule**. The Query jobs section lists schedules as a table (name, saved query, connection, cron, timezone, last and next run) with an **Enabled** switch on each row; click a row to edit it.
+
+A new schedule runs on the connection you are signed in to, whichever connection its saved query was saved on; the form says which. The API takes no other: a `connection_id` in the create or update body that is not the session's connection gets `400` (`Scheduled jobs can only use the connection you are signed in to. Switch to the other connection first.`).
 
 | Field | Description | Default |
 |---|---|---|
@@ -73,7 +77,7 @@ Up to **3 schedules** run at the same time (system-wide). Each tick starts due s
 
 Scheduled runs need ClickHouse credentials. The runner:
 
-1. Uses the connection set on the schedule, or falls back to the saved query's connection
+1. Uses the connection set on the schedule (the one it was created on), or for older schedules without one, the saved query's connection
 2. Resolves credentials from that connection's `schedule` [background account](/docs/background-accounts): a dedicated ClickHouse account, or in the default session mode a borrowed active session (up to 3 recent sessions are tried)
 
 If the worker is disabled, the saved account cannot be decrypted, or no session is available in session mode, the run is recorded as an error. A configured account never falls back to a human session.
@@ -99,7 +103,7 @@ POST /api/schedules/{id}/run
 
 Returns synchronously with the run result including status, elapsed time, and any error.
 
-A manual run uses your own ClickHouse account, not the background account, so it still works when the `schedule` worker is disabled.
+A manual run uses your own ClickHouse account, not the background account, so it still works when the `schedule` worker is disabled. It only works on the connection you are signed in to, so your password is never sent to another ClickHouse server; the audit entry records the connection.
 
 ## Auto-Alerts
 
@@ -156,7 +160,7 @@ Default limit: 50, max: 500.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/schedules` | List all schedules |
+| `GET` | `/api/schedules` | List the schedules of the session's connection |
 | `GET` | `/api/schedules/{id}` | Get schedule details |
 | `POST` | `/api/schedules` | Create schedule |
 | `PUT` | `/api/schedules/{id}` | Update schedule |

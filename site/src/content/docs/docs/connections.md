@@ -25,7 +25,7 @@ Use a **tunnel** when it cannot: ClickHouse sits behind a firewall or NAT, in an
 | TLS to ClickHouse | Verified against the CH-UI host's system CAs | Verified against the connector host's CAs, can be skipped on the connector |
 | Created with | `CLICKHOUSE_URL`, first-run setup, Admin, the API, or the login page when `allow_login_url` is on | `ch-ui tunnel create`, Admin, or the API |
 
-Internally each direct connection runs the same connector code inside the server process, dialing the server's own gateway. So everything above the connection (queries, sessions, governance, schedules, background accounts) works the same for both kinds.
+Internally each direct connection runs the same connector code inside the server process, dialing the server's own gateway (over `wss://` when CH-UI serves TLS itself with `tls_cert_file` and `tls_key_file`). So everything above the connection (queries, sessions, governance, schedules, background accounts) works the same for both kinds. If that first dial fails, for example while the server is still starting, the connector retries with a growing delay up to 30 seconds instead of staying offline until a restart.
 
 ## No CORS or mixed-content problems
 
@@ -45,7 +45,7 @@ CLICKHOUSE_URL=http://clickhouse:8123 CONNECTION_NAME="Production" ch-ui server
 ch-ui server --clickhouse-url http://clickhouse:8123 --connection-name "Production"
 ```
 
-The server config is the source of truth for this connection: it is updated on every start, and Admin and the API cannot edit it. In **Admin > Connections** its row shows **Server config** instead of Edit and Delete buttons, and `PUT /api/connections/{id}` returns `400` for it. See [Configuration](/docs/configuration).
+The server config is the source of truth for this connection: it is updated on every start, and Admin and the API cannot edit it. If a new `CLICKHOUSE_URL` reaches a different ClickHouse server, the connection is reset on startup, the same as [pointing a direct connection at another server](#repointing-a-direct-connection). In **Admin > Connections** its row shows **Server config** instead of Edit and Delete buttons, and `PUT /api/connections/{id}` returns `400` for it. See [Configuration](/docs/configuration).
 
 ### The connection from first-run setup
 
@@ -85,7 +85,7 @@ curl -X POST http://localhost:3488/api/connections \
 
 Use the final ClickHouse endpoint: CH-UI does not follow HTTP redirects from ClickHouse, so a URL that redirects fails to sign in or query. When it connects, CH-UI resolves the host and refuses link-local, cloud metadata, unspecified and multicast addresses (including DNS names that resolve to them). Private and loopback addresses work. See [Security](/docs/security).
 
-To rename a direct connection or point it at another URL, use the **Edit** button on its row in **Admin > Connections**. Saving a new URL restarts that connection's connector against the new target. The same through the API:
+To rename a direct connection or point it at another URL, use the **Edit** button on its row in **Admin > Connections**. Saving a new URL restarts that connection's connector against the new target (see [Repointing a direct connection](#repointing-a-direct-connection) for what that clears). The same through the API:
 
 ```bash
 curl -X PUT http://localhost:3488/api/connections/{id} \
@@ -95,6 +95,29 @@ curl -X PUT http://localhost:3488/api/connections/{id} \
 ```
 
 Both fields are optional; send only what changes. `clickhouse_url` is validated like on create and can only be set on direct connections. The response is the updated connection object, and a request that changes something is written to the audit log as `connection.updated`. Deleting a direct connection stops its connector.
+
+### Repointing a direct connection
+
+Sessions, role overrides, SSO accounts, background accounts, MCP keys and share links are stored per connection, and most of them hold a ClickHouse user or password of the server the connection pointed at. So when a new URL reaches a different ClickHouse server, CH-UI resets the connection in the same step:
+
+- everyone signed in to it is signed out
+- role overrides, per-person SSO user records and the SSO account are removed
+- background accounts set to a dedicated account are switched to **Disabled**, with the saved user and password erased
+- MCP keys and their OAuth tokens are revoked
+- dashboard share links are deleted
+
+Nothing is sent to either ClickHouse server; per-person SSO users on the old server are not dropped. SSO settings (mode, user prefix, group mapping), governance metadata, query history and pipeline secrets are kept. Set the accounts up again for the new server.
+
+Same server means the same scheme, host, port and URL path. A URL that only differs in case, a default port (`8123` for `http`, `8443` for `https`) or a trailing slash clears nothing.
+
+The reset is written to the audit log as `connection.reset` with the counts, and the `PUT` response carries them in `reset`:
+
+```json
+"reset": { "sessions": 3, "role_overrides": 1, "sso_users": 0, "sso_account": true,
+           "background_accounts": 2, "mcp_keys": 1, "dashboard_shares": 0 }
+```
+
+The same applies when first-run setup saves a new URL for its connection, and to the embedded connection when `clickhouse_url` changes to another server.
 
 There is no option to skip TLS verification for direct connections. If ClickHouse uses a self-signed certificate, add its CA to the trust store of the CH-UI host, or use a tunnel connection and set `insecure_skip_verify` on the connector.
 
@@ -113,6 +136,8 @@ ch-ui connect \
   --key cht_your_token \
   --clickhouse-url http://127.0.0.1:8123
 ```
+
+`ch-ui connect` retries its first connection the same way a dropped one is retried, so it can start before the CH-UI server. It only gives up when the token is invalid or revoked.
 
 In Admin, choose **Remote agent** in **Add connection** to get a token instead. Through the API, omit `type` (or send `"type":"tunnel"`); the response includes `tunnel_token` and `setup_instructions`. The commands in `setup_instructions` use the server URL from `app_url` (`http` becomes `ws`, `https` becomes `wss`); when `app_url` is unset or points at localhost they keep a `<YOUR_SERVER_URL>` placeholder, because an agent on another machine cannot use localhost. A tunnel connection can be renamed with **Edit** in Admin or `PUT /api/connections/{id}` with `{"name":"..."}`; the agent and its token are not affected. Its ClickHouse URL is set on the connector, not on the server. Token rotation, service install and the rest are covered in [Connections & Tunnel](/docs/ingestion) and the [CLI reference](/docs/cli).
 

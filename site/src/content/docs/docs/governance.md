@@ -38,13 +38,25 @@ Governance caches ClickHouse metadata and access state in CH-UI's **local SQLite
 
 Workers wake every 5 minutes and trigger a sync if data is older than 10 minutes (staleness threshold). You can also trigger syncs manually, full or single type.
 
+Each connection syncs on its own, with a 5 minute timeout, so a slow or unreachable server does not hold up the others. A phase that fails is retried with a backoff: 10 minutes after the first failure, then 20, 40 and so on, up to 6 hours between attempts. A successful sync resets it, and **Sync now** always runs at once.
+
 ### Credentials
 
-Background sync uses the `governance` worker's setting under **Admin → Connections → Background accounts**. With a dedicated account, sync keeps running after everyone signs out. In the default session mode it borrows an active session on the connection (up to 3 recent sessions are tried), and each borrow is audited as `governance.credential_borrow`, at most once per connection per hour. When no credentials are available, or the worker is disabled, the tick is skipped. A manual sync always uses your own session. See [Background Accounts](/docs/background-accounts).
+Background sync uses the `governance` worker's setting under **Admin → Connections → Background accounts**. With a dedicated account, sync keeps running after everyone signs out. In the default session mode it borrows an active session on the connection, and each borrow is audited as `governance.credential_borrow`, at most once per connection per hour. Governance results depend on what the account can see, so the borrowed user stays the same between runs: sync keeps the ClickHouse user of its previous run while that user has a live session, and otherwise picks admin sessions first, then by user name. When no credentials are available, or the worker is disabled, the sync is not run and its status shows the reason as an error (for example **No governance account: ...**), with the same backoff. A manual sync always uses your own session. See [Background Accounts](/docs/background-accounts).
 
 ### Sync Status
 
-Each worker tracks: `status` (idle/running/error), `last_synced_at`, `watermark` (query_log only), `row_count`, and `last_error`.
+Each worker tracks: `status` (idle/running/error), `last_synced_at` (the last successful sync), `last_attempt_at` (the last run, whatever its outcome), `consecutive_failures`, `ch_user` (the ClickHouse user the last attempt ran as), `watermark` (query_log only), `row_count`, and `last_error`.
+
+The **Sync status** panel on the Governance dashboard shows the last error under an error badge, and the last attempt next to the last success when they differ.
+
+### Restricted ClickHouse users
+
+The governance account needs to read the `system` tables above. When it cannot, sync says so instead of looking synced:
+
+- If `system.users`, `system.roles`, `system.role_grants` or `system.grants` cannot be read, the access sync ends in error, names the user and the tables, and keeps the previously stored users, roles and grants. Guardrails then treat the access data as uncertain and fail open (see [Guardrails](#guardrails)).
+- If the join with `system.parts` fails, tables are read from `system.tables` alone. Stored row and byte counts are kept, and new tables start at zero.
+- If `system.tables` cannot be read, the metadata sync ends in error and columns are not compared in that run. A failed `system.columns` read is an error too. Columns are only compared for tables read in the same run, so a partial read does not report existing columns as added.
 
 ## Metadata Harvesting
 
@@ -142,6 +154,8 @@ Identifies privileges that haven't been used within a configurable threshold.
 
 Define guardrails that check queries against access rules before or after execution.
 
+Policies belong to the connection they were created on. Listing, reading, editing and deleting only reach the policies of the connection you are signed in to; a policy of another connection answers `404`.
+
 ### Policy Fields
 
 | Field | Description |
@@ -177,7 +191,7 @@ Define guardrails that check queries against access rules before or after execut
 
 ### Guardrails
 
-The guardrail service runs pre-execution checks on all query endpoints. If access state is stale (>10 minutes), an alert event is emitted but the query is allowed.
+The guardrail service runs pre-execution checks on all query endpoints. If access state is stale (>10 minutes), missing, or the last access sync failed, an alert event is emitted but the query is allowed. These "Guardrail evaluation uncertain" alerts are kept apart per connection.
 
 Guardrails are advisory. They match the query text, not a parsed plan, and they fail open when access data is stale or missing. The Policies tab says so. Use ClickHouse grants and row policies when a rule must hold.
 
