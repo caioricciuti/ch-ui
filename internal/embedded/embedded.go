@@ -20,6 +20,8 @@ import (
 type Manager struct {
 	db   *database.DB
 	port int
+	tls  bool
+	ui   *ui.UI
 
 	mu         sync.Mutex
 	connectors map[string]*connector.Connector
@@ -27,10 +29,15 @@ type Manager struct {
 
 // NewManager creates a connector manager. Call Start after the HTTP server
 // port is known; connectors retry until the gateway is accepting connections.
-func NewManager(db *database.DB, port int) *Manager {
+// tlsEnabled says the server serves TLS itself, so connectors dial wss://.
+func NewManager(db *database.DB, port int, tlsEnabled bool) *Manager {
 	return &Manager{
-		db:         db,
-		port:       port,
+		db:   db,
+		port: port,
+		tls:  tlsEnabled,
+		// One quiet UI shared by every connector: ui.New writes a global
+		// color setting that running connectors read.
+		ui:         ui.New(true, true, false, false),
 		connectors: make(map[string]*connector.Connector),
 	}
 }
@@ -108,34 +115,56 @@ func (m *Manager) ensureEmbeddedConnection(clickhouseURL, connectionName string)
 // StartConnection launches (or restarts) the in-process connector for a
 // direct connection. Safe to call for an already-running connection.
 func (m *Manager) StartConnection(c database.Connection) {
+	// Host info from an in-process connector would describe this machine,
+	// not the ClickHouse server, so none is reported; drop any stored by
+	// older versions.
+	if c.HostInfoJSON != nil {
+		if err := m.db.ClearConnectionHostInfo(c.ID); err != nil {
+			slog.Warn("Could not clear host info for direct connection", "id", c.ID, "error", err)
+		}
+	}
+
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	if existing, ok := m.connectors[c.ID]; ok {
 		existing.Shutdown()
 		delete(m.connectors, c.ID)
 	}
 
 	cfg := &connconfig.Config{
-		TunnelURL:         fmt.Sprintf("ws://127.0.0.1:%d/connect", m.port),
+		TunnelURL:         m.tunnelURL(),
 		Token:             c.TunnelToken,
 		ClickHouseURL:     c.ClickHouseURL,
 		Takeover:          true,
 		HeartbeatInterval: 30 * time.Second,
 		ReconnectDelay:    2 * time.Second,
 		MaxReconnectDelay: 30 * time.Second,
+		// The loopback dial reaches this server's own listener, whose
+		// certificate is issued for the public name, not 127.0.0.1.
+		TunnelInsecureSkipVerify: m.tls,
+		SkipHostInfo:             true,
 	}
-	conn := connector.New(cfg, ui.New(true, true, false, false)) // quiet mode
+	conn := connector.New(cfg, m.ui)
 	m.connectors[c.ID] = conn
-	m.mu.Unlock()
 
 	go func() {
-		// Give the HTTP server a moment on first boot; reconnect logic covers
-		// the rest.
+		// Give the HTTP server a moment on first boot; the connector retries
+		// until the gateway accepts it.
 		time.Sleep(500 * time.Millisecond)
 		slog.Info("Starting direct connector", "connection", c.Name, "id", c.ID, "clickhouse_url", c.ClickHouseURL)
 		if err := conn.Run(); err != nil {
 			slog.Error("Direct connector exited with error", "connection", c.Name, "id", c.ID, "error", err)
 		}
 	}()
+}
+
+// tunnelURL is the loopback gateway address the connectors dial.
+func (m *Manager) tunnelURL() string {
+	scheme := "ws"
+	if m.tls {
+		scheme = "wss"
+	}
+	return fmt.Sprintf("%s://127.0.0.1:%d/connect", scheme, m.port)
 }
 
 // StopConnection shuts down the connector for a connection, if running.

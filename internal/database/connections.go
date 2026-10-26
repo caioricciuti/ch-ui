@@ -297,6 +297,14 @@ func (db *DB) UpdateConnectionHostInfo(connId string, info HostInfo) error {
 	return nil
 }
 
+// ClearConnectionHostInfo removes the stored host info for a connection.
+func (db *DB) ClearConnectionHostInfo(connId string) error {
+	if _, err := db.conn.Exec("UPDATE connections SET host_info = NULL WHERE id = ?", connId); err != nil {
+		return fmt.Errorf("clear connection host info: %w", err)
+	}
+	return nil
+}
+
 // GetConnectionHostInfo retrieves the parsed host info for a connection.
 func (db *DB) GetConnectionHostInfo(connId string) (*HostInfo, error) {
 	var hostInfoStr sql.NullString
