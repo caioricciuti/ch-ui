@@ -252,7 +252,7 @@ func (s *GuardrailService) emitUncertainGuardrailEvent(connectionID, user, query
 		return
 	}
 	queryHash := hashNormalized(normalizeQuery(queryText))
-	fingerprint := fmt.Sprintf("guardrail:uncertain:user:%s:hash:%s:endpoint:%s", user, queryHash, requestEndpoint)
+	fingerprint := fmt.Sprintf("guardrail:uncertain:conn:%s:user:%s:hash:%s:endpoint:%s", connectionID, user, queryHash, requestEndpoint)
 	payload := map[string]interface{}{
 		"guardrail_status": "uncertain",
 		"reason":           reason,

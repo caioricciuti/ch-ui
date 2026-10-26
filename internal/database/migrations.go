@@ -15,7 +15,7 @@ import (
 // schemaVersion is the current database schema version. Bump it (date-based)
 // whenever schema-affecting migrations are added below. It is recorded in the
 // settings table after a successful migration run for upgrade observability.
-const schemaVersion = "2026.10.23"
+const schemaVersion = "2026.10.26"
 
 func (db *DB) runMigrations() error {
 	var prev string
@@ -1366,6 +1366,10 @@ Formatting:
 	}
 
 	if err := db.migrateRemovedChannelTypes(); err != nil {
+		return err
+	}
+
+	if err := db.migrateGovSyncAttempts(); err != nil {
 		return err
 	}
 	slog.Info("Database migrations completed", "schema_version", schemaVersion)

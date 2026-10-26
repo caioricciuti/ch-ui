@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,17 +20,30 @@ const overPermissionInactiveDays = 30
 
 // syncAccess harvests user, role, grant, and role_grant data from ClickHouse
 // system tables, upserts them into SQLite, and rebuilds the access matrix.
+//
+// A system table the account cannot read keeps its previously stored rows,
+// and the sync ends in error naming the table: the access matrix is then
+// incomplete, so guardrails treat the access state as uncertain.
 func (s *Syncer) syncAccess(ctx context.Context, creds CHCredentials) (*AccessSyncResult, error) {
 	connID := creds.ConnectionID
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	// Update sync state to running
-	if err := s.store.UpsertSyncState(connID, string(SyncAccess), "running", nil, nil, 0); err != nil {
+	if err := s.store.MarkSyncRunning(connID, string(SyncAccess), creds.User); err != nil {
 		slog.Error("Failed to update sync state", "error", err)
 	}
 
 	result := &AccessSyncResult{}
 	var syncErr error
+	var unreadable []string // system tables the account could not read
+	var firstReadErr error
+	sourceFailed := func(table string, err error) {
+		slog.Warn("Access sync: failed to query "+table+", keeping previous data", "connection", connID, "error", err)
+		unreadable = append(unreadable, table)
+		if firstReadErr == nil {
+			firstReadErr = err
+		}
+	}
 
 	defer func() {
 		status := "idle"
@@ -46,7 +60,7 @@ func (s *Syncer) syncAccess(ctx context.Context, creds CHCredentials) (*AccessSy
 	}()
 
 	// ── Phase 1: Users ──────────────────────────────────────────────────────
-	userRows, err := s.executeQuery(creds,
+	userRows, err := s.executeQuery(ctx, creds,
 		`SELECT
 			name,
 			toString(auth_type) AS auth_type,
@@ -57,7 +71,7 @@ func (s *Syncer) syncAccess(ctx context.Context, creds CHCredentials) (*AccessSy
 		 ORDER BY name`)
 	if err != nil {
 		slog.Warn("Access sync: failed to query system.users with role fields, trying fallback", "connection", connID, "error", err)
-		userRows, err = s.executeQuery(creds,
+		userRows, err = s.executeQuery(ctx, creds,
 			`SELECT
 				name,
 				toString(auth_type) AS auth_type,
@@ -67,11 +81,9 @@ func (s *Syncer) syncAccess(ctx context.Context, creds CHCredentials) (*AccessSy
 			 FROM system.users
 			 ORDER BY name`)
 		if err != nil {
-			slog.Warn("Access sync: fallback query for system.users failed", "connection", connID, "error", err)
+			sourceFailed("system.users", err)
 			userRows = nil
 		}
-	} else {
-		// no-op; rows handled below
 	}
 
 	usersFetched := err == nil
@@ -115,15 +127,11 @@ func (s *Syncer) syncAccess(ctx context.Context, creds CHCredentials) (*AccessSy
 		}
 	}
 
-	if !usersFetched {
-		slog.Warn("Access sync: keeping previous cached users because source query failed", "connection", connID)
-	}
-
 	// ── Phase 2: Roles ──────────────────────────────────────────────────────
-	roleRows, err := s.executeQuery(creds,
+	roleRows, err := s.executeQuery(ctx, creds,
 		`SELECT name FROM system.roles ORDER BY name`)
 	if err != nil {
-		slog.Warn("Access sync: failed to query system.roles", "connection", connID, "error", err)
+		sourceFailed("system.roles", err)
 	} else {
 		if err := s.store.DeleteChRolesForConnection(connID); err != nil {
 			syncErr = err
@@ -148,7 +156,7 @@ func (s *Syncer) syncAccess(ctx context.Context, creds CHCredentials) (*AccessSy
 	}
 
 	// ── Phase 3: Role grants ────────────────────────────────────────────────
-	roleGrantRows, err := s.executeQuery(creds,
+	roleGrantRows, err := s.executeQuery(ctx, creds,
 		`SELECT
 			user_name,
 			granted_role_name,
@@ -157,7 +165,7 @@ func (s *Syncer) syncAccess(ctx context.Context, creds CHCredentials) (*AccessSy
 		 FROM system.role_grants
 		 ORDER BY user_name, granted_role_name`)
 	if err != nil {
-		slog.Warn("Access sync: failed to query system.role_grants", "connection", connID, "error", err)
+		sourceFailed("system.role_grants", err)
 	} else {
 		if err := s.store.DeleteRoleGrantsForConnection(connID); err != nil {
 			syncErr = err
@@ -187,7 +195,7 @@ func (s *Syncer) syncAccess(ctx context.Context, creds CHCredentials) (*AccessSy
 	}
 
 	// ── Phase 4: Grants (privileges) ────────────────────────────────────────
-	grantRows, err := s.executeQuery(creds,
+	grantRows, err := s.executeQuery(ctx, creds,
 		`SELECT
 			user_name,
 			role_name,
@@ -200,7 +208,7 @@ func (s *Syncer) syncAccess(ctx context.Context, creds CHCredentials) (*AccessSy
 		 FROM system.grants
 		 ORDER BY user_name, role_name, access_type`)
 	if err != nil {
-		slog.Warn("Access sync: failed to query system.grants", "connection", connID, "error", err)
+		sourceFailed("system.grants", err)
 	} else {
 		if err := s.store.DeleteGrantsForConnection(connID); err != nil {
 			syncErr = err
@@ -250,6 +258,12 @@ func (s *Syncer) syncAccess(ctx context.Context, creds CHCredentials) (*AccessSy
 		slog.Warn("Failed to count over-permissions", "connection", connID, "error", err)
 	} else {
 		result.OverPermissions = len(overPerms)
+	}
+
+	if len(unreadable) > 0 {
+		syncErr = fmt.Errorf("ClickHouse user %q could not read %s; kept the previous data, access data is incomplete: %w",
+			creds.User, strings.Join(unreadable, ", "), firstReadErr)
+		return result, syncErr
 	}
 
 	slog.Info("Access sync completed",

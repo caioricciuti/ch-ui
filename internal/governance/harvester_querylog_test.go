@@ -22,14 +22,14 @@ import (
 
 func TestBuildQueryLogHarvestSQL(t *testing.T) {
 	wm := parseQueryLogWatermark("2026-10-12 10:00:00.000002|q'2")
-	sql := buildQueryLogHarvestSQL(wm, "svc'x", 0, true, []querylogactor.Account{{User: "sso:a@x", Person: "a@x"}})
+	sql := buildQueryLogHarvestSQL(wm, []string{"svc'x", "admin"}, 0, true, []querylogactor.Account{{User: "sso:a@x", Person: "a@x"}})
 	for _, must := range []string{
 		"user AS ch_user,",
 		"JSONExtractString(log_comment, 'person')",
 		"transform(user, ['sso:a@x'], ['a@x'], user)) AS actor,",
 		"type IN ('QueryFinish', 'ExceptionBeforeStart', 'ExceptionWhileProcessing')",
 		"(event_time_microseconds, query_id) > (parseDateTime64BestEffort('2026-10-12 10:00:00.000002', 6), 'q\\'2')",
-		"NOT (log_comment = 'ch-ui:governance' AND user = 'svc\\'x')",
+		"NOT (log_comment = 'ch-ui:governance' AND user IN ('svc\\'x', 'admin'))",
 		"ORDER BY event_time_microseconds ASC, query_id ASC",
 		"event_date >= toDate(",
 	} {
@@ -42,7 +42,7 @@ func TestBuildQueryLogHarvestSQL(t *testing.T) {
 			t.Fatalf("unexpected %q in:\n%s", mustNot, sql)
 		}
 	}
-	if s := buildQueryLogHarvestSQL(wm, "u", 25, false, nil); !strings.Contains(s, "(type != 'QueryFinish' OR query_duration_ms >= 25)") || !strings.Contains(s, "CAST([], 'Array(String)') AS tables") {
+	if s := buildQueryLogHarvestSQL(wm, []string{"u"}, 25, false, nil); !strings.Contains(s, "(type != 'QueryFinish' OR query_duration_ms >= 25)") || !strings.Contains(s, "CAST([], 'Array(String)') AS tables") {
 		t.Fatalf("fallback/floor SQL wrong:\n%s", s)
 	}
 }
@@ -190,7 +190,7 @@ func TestQueryLogHarvestSQLLive(t *testing.T) {
 	}
 	wm := parseQueryLogWatermark(time.Now().Add(-time.Hour).UTC().Format("2006-01-02 15:04:05") + "|x'y")
 	for _, withTables := range []bool{true, false} {
-		if _, err := client.Execute(ctx, buildQueryLogHarvestSQL(wm, "default", 10, withTables, []querylogactor.Account{{User: "sso:a@x", Person: "a@x"}}), user, pass, nil); err != nil {
+		if _, err := client.Execute(ctx, buildQueryLogHarvestSQL(wm, []string{"default"}, 10, withTables, []querylogactor.Account{{User: "sso:a@x", Person: "a@x"}}), user, pass, nil); err != nil {
 			t.Fatalf("harvest SQL (tables=%v) failed on ClickHouse: %v", withTables, err)
 		}
 	}

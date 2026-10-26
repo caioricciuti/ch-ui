@@ -735,17 +735,25 @@
 							</Panel>
 						</div>
 
-						<Panel title="Sync status" description="Last run of each governance sync worker.">
+						<Panel title="Sync status" description="Last successful sync and last attempt of each governance sync worker.">
 							<div class="divide-y divide-edge-subtle">
 								{#each overview.sync_states ?? [] as syncState (syncState.id)}
-									<div class="flex items-center justify-between gap-3 py-2 text-[13px]">
-										<span class="font-medium text-fg">{syncState.sync_type}</span>
-										<div class="flex items-center gap-3">
-											<span class="text-xs text-fg-3">
-												{syncState.last_synced_at ? formatDate(syncState.last_synced_at) : 'Never'}
-											</span>
-											<Badge tone={syncStatusTone(syncState.status)}>{syncStatusLabel(syncState.status)}</Badge>
+									<div class="py-2 text-[13px]">
+										<div class="flex items-center justify-between gap-3">
+											<span class="font-medium text-fg">{syncState.sync_type}</span>
+											<div class="flex items-center gap-3">
+												<span class="text-xs text-fg-3">
+													{syncState.last_synced_at ? `Synced ${formatDate(syncState.last_synced_at)}` : 'Never synced'}
+												</span>
+												{#if syncState.last_attempt_at && syncState.last_attempt_at !== syncState.last_synced_at}
+													<span class="text-xs text-fg-3">Last attempt {formatDate(syncState.last_attempt_at)}</span>
+												{/if}
+												<Badge tone={syncStatusTone(syncState.status)}>{syncStatusLabel(syncState.status)}</Badge>
+											</div>
 										</div>
+										{#if syncState.status === 'error' && syncState.last_error}
+											<p class="mt-1 break-words text-xs text-danger">{syncState.last_error}</p>
+										{/if}
 									</div>
 								{/each}
 							</div>

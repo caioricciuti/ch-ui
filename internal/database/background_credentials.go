@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -86,15 +87,34 @@ func (db *DB) SetBackgroundCredential(connectionID string, c BackgroundCredentia
 // BackgroundCredentials resolves fresh credentials for each run. A configured
 // account that cannot decrypt never falls back to a human session.
 func (db *DB) BackgroundCredentials(connectionID, worker, secret string) (string, string, error) {
+	return db.backgroundCredentials(connectionID, worker, secret, func() (string, string, error) {
+		return db.BorrowSessionCredentials(connectionID, worker, secret)
+	})
+}
+
+// StableBackgroundCredentials is BackgroundCredentials with a stable session
+// fallback (BorrowSessionCredentialsStable): in session mode it keeps
+// preferUser while that user has a live session. A configured service account
+// or a disabled worker behave exactly as in BackgroundCredentials.
+func (db *DB) StableBackgroundCredentials(connectionID, worker, secret, preferUser string) (string, string, error) {
+	return db.backgroundCredentials(connectionID, worker, secret, func() (string, string, error) {
+		return db.BorrowSessionCredentialsStable(connectionID, worker, secret, preferUser)
+	})
+}
+
+// ErrBackgroundDisabled means an admin disabled the worker on the connection.
+var ErrBackgroundDisabled = errors.New("background execution disabled")
+
+func (db *DB) backgroundCredentials(connectionID, worker, secret string, borrow func() (string, string, error)) (string, string, error) {
 	c, err := db.GetBackgroundCredential(connectionID, worker)
 	if err != nil {
 		return "", "", fmt.Errorf("load background credentials: %w", err)
 	}
 	switch c.Mode {
 	case "session":
-		return db.BorrowSessionCredentials(connectionID, worker, secret)
+		return borrow()
 	case "disabled":
-		return "", "", fmt.Errorf("background execution disabled for %s", worker)
+		return "", "", fmt.Errorf("%w for %s", ErrBackgroundDisabled, worker)
 	case "service_account":
 		password, err := crypto.Decrypt(c.EncryptedPassword, secret)
 		if err != nil {

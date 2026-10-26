@@ -23,7 +23,7 @@ func (s *Syncer) syncMetadata(ctx context.Context, creds CHCredentials) (*Metada
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	// Update sync state to running
-	if err := s.store.UpsertSyncState(connID, string(SyncMetadata), "running", nil, nil, 0); err != nil {
+	if err := s.store.MarkSyncRunning(connID, string(SyncMetadata), creds.User); err != nil {
 		slog.Error("Failed to update sync state", "error", err)
 	}
 
@@ -45,7 +45,7 @@ func (s *Syncer) syncMetadata(ctx context.Context, creds CHCredentials) (*Metada
 	}()
 
 	// ── Phase 1: Databases ──────────────────────────────────────────────────
-	dbRows, err := s.executeQuery(creds,
+	dbRows, err := s.executeQuery(ctx, creds,
 		`SELECT name, engine FROM system.databases
 		 WHERE name NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema')
 		 ORDER BY name`)
@@ -103,7 +103,9 @@ func (s *Syncer) syncMetadata(ctx context.Context, creds CHCredentials) (*Metada
 	}
 
 	// ── Phase 2: Tables with stats ──────────────────────────────────────────
-	tableRows, err := s.executeQuery(creds,
+	// Stats come from system.parts. A user that cannot read it still gets
+	// the table list from system.tables alone, with zero stats.
+	tableRows, err := s.executeQuery(ctx, creds,
 		`SELECT
 			t.database AS database_name,
 			t.name AS table_name,
@@ -117,21 +119,40 @@ func (s *Syncer) syncMetadata(ctx context.Context, creds CHCredentials) (*Metada
 		 WHERE t.database NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema')
 		 GROUP BY t.database, t.name, t.engine, t.uuid
 		 ORDER BY t.database, t.name`)
+	statsRead := err == nil
+	if err != nil {
+		slog.Debug("Metadata sync: table stats query failed, retrying without system.parts", "connection", connID, "error", err)
+		tableRows, err = s.executeQuery(ctx, creds,
+			`SELECT
+				database AS database_name,
+				name AS table_name,
+				engine,
+				uuid AS table_uuid,
+				0 AS total_rows,
+				0 AS total_bytes,
+				0 AS partition_count
+			 FROM system.tables
+			 WHERE database NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema')
+			 ORDER BY database, name`)
+	}
+	// Columns are only diffed against a table list read in this run: an
+	// empty or stale list would report every column as added.
+	tablesLoaded := false
+	seenTables := make(map[string]bool)
 	if err != nil {
 		slog.Warn("Metadata sync: failed to query tables", "connection", connID, "error", err)
-		// Continue — tables query failure is non-fatal
+		syncErr = fmt.Errorf("ClickHouse user %q could not read system.tables, so tables and columns were not updated: %w", creds.User, err)
+	} else if existingTables, err := s.store.GetTables(connID); err != nil {
+		slog.Error("Failed to load existing tables", "error", err)
+		syncErr = fmt.Errorf("failed to load existing tables: %w", err)
 	} else {
-		existingTables, err := s.store.GetTables(connID)
-		if err != nil {
-			slog.Error("Failed to load existing tables", "error", err)
-		}
+		tablesLoaded = true
 		existingTableMap := make(map[string]*GovTable)
 		for i := range existingTables {
 			key := existingTables[i].DatabaseName + "." + existingTables[i].TableName
 			existingTableMap[key] = &existingTables[i]
 		}
 
-		seenTables := make(map[string]bool)
 		for _, row := range tableRows {
 			dbName := fmt.Sprintf("%v", row["database_name"])
 			tableName := fmt.Sprintf("%v", row["table_name"])
@@ -143,7 +164,11 @@ func (s *Syncer) syncMetadata(ctx context.Context, creds CHCredentials) (*Metada
 			key := dbName + "." + tableName
 			seenTables[key] = true
 
-			_, found := existingTableMap[key]
+			existing, found := existingTableMap[key]
+			if !statsRead && found {
+				// No stats this run: keep the stored ones.
+				totalRows, totalBytes, partCount = existing.TotalRows, existing.TotalBytes, existing.PartitionCount
+			}
 			if err := s.store.UpsertTable(GovTable{
 				ID:             uuid.NewString(),
 				ConnectionID:   connID,
@@ -181,7 +206,10 @@ func (s *Syncer) syncMetadata(ctx context.Context, creds CHCredentials) (*Metada
 	}
 
 	// ── Phase 3: Columns ────────────────────────────────────────────────────
-	colRows, err := s.executeQuery(creds,
+	if !tablesLoaded {
+		return result, syncErr
+	}
+	colRows, err := s.executeQuery(ctx, creds,
 		`SELECT
 			database AS database_name,
 			table AS table_name,
@@ -196,6 +224,7 @@ func (s *Syncer) syncMetadata(ctx context.Context, creds CHCredentials) (*Metada
 		 ORDER BY database, table, position`)
 	if err != nil {
 		slog.Warn("Metadata sync: failed to query columns", "connection", connID, "error", err)
+		syncErr = fmt.Errorf("ClickHouse user %q could not read system.columns, so columns were not updated: %w", creds.User, err)
 	} else {
 		existingColMap := make(map[string]*GovColumn)
 		tables, tblErr := s.store.GetTables(connID)
@@ -219,6 +248,11 @@ func (s *Syncer) syncMetadata(ctx context.Context, creds CHCredentials) (*Metada
 			colName := fmt.Sprintf("%v", row["column_name"])
 			colType := fmt.Sprintf("%v", row["column_type"])
 			position := int(toInt64(row["column_position"]))
+			// Columns of a table missing from this run's table list cannot
+			// be diffed against what is stored for it.
+			if !seenTables[dbName+"."+tableName] {
+				continue
+			}
 			key := dbName + "." + tableName + "." + colName
 			seenCols[key] = true
 
