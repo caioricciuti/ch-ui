@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.32.0] - 2026-10-26
+
+Several connections to different ClickHouse servers now stay apart. Credentials and objects no longer cross from one connection to another, background work on one connection no longer waits for or hides problems on another, and a connection whose ClickHouse user cannot read the `system` database says so instead of looking synced.
+
+### Upgrade notes
+
+- **Schedules and reports are listed per connection.** Only the jobs and reports of the connection you are signed in to are shown, for admins too. Switch connection to see, edit or run the others (#430).
+- **Pointing a connection at a different ClickHouse server resets it.** Changing a connection's URL to another server (connection edit, first-run setup, or a new `CLICKHOUSE_URL` for the built-in connection) signs everyone out of it and clears what belonged to the old server: role overrides, per-person SSO user records, the SSO account, MCP keys and OAuth tokens, and dashboard share links. Service-account background accounts are switched to Disabled. Set them up again for the new server. A new URL for the same server clears nothing (#432).
+- API clients: `POST /api/auth/login` without `connectionId` now answers 400 when more than one connection is available. Creating or updating a schedule, report or saved query with a `connection_id` other than the session's connection answers 400 (#430, #432).
+- In the governance sync status, `last_synced_at` now means the last successful sync. The new `last_attempt_at`, `consecutive_failures` and `ch_user` fields carry the rest. A database migration adds them on start (#431).
+
+### Security
+
+- A manual **Run now** on a scheduled job no longer sends your ClickHouse user and password to the job's connection when it is not the one you are signed in to. Scheduled jobs, reports and saved queries are created on the connection you are signed in to, objects on other connections are hidden, and a `connection_id` for another connection is refused (#430).
+- Schema compare counts typed passwords against the login lockout and refuses them when SSO only is on (#430).
+- Two direct connections on the same host with a different URL path or scheme are no longer treated as the same server when switching, so a stored password is not reused between them (#430).
+- Pointing a connection at a different ClickHouse server clears the old server's sessions, roles, SSO records, accounts, keys and share links (see Upgrade notes) (#432).
+- Removing an SSO person's access takes effect in CH-UI at once even when a connection is offline: their ClickHouse user there is refused, their MCP keys and OAuth tokens there are revoked, and the user is dropped as soon as the connection is back (#432).
+
+### Fixed
+
+- **Governance sync with a restricted ClickHouse user.** Sync no longer reports success when the user cannot read `system.users`, `system.grants`, `system.tables` or `system.parts`. It keeps the previous data, names the unreadable table in the error, falls back to `system.tables` without `system.parts`, and stops reporting every column as added on each sync. Guardrails fail open instead of blocking everyone on an incomplete access list. The Governance **Sync status** panel shows the last error and the last attempt (#431).
+- Governance background sync backs off after repeated failures (10 minutes up to 6 hours), records a missing or disabled governance account, keeps using the same borrowed ClickHouse user between runs, no longer waits for the slowest connection, and enforces its 5-minute timeout. "Guardrail uncertain" alerts from different connections are no longer merged into one (#431).
+- Direct connections retry when their first connection to the gateway fails, instead of staying offline until a restart. `ch-ui connect` retries its first connection the same way, and stopping a connector twice no longer crashes the server (#427).
+- Direct connections work when CH-UI serves TLS itself, and no longer report the CH-UI machine as their ClickHouse host (#427).
+- A slow or unreachable ClickHouse server no longer delays scheduled model groups or cluster health polling and alerts on other connections. Telemetry monitors skip offline connections instead of raising "evaluation failed" (#429).
+- SQL alerts, telemetry monitors and cluster health say when a connection has no usable background account or its user cannot read the system tables, instead of showing a stale state (#429).
+- Guardrail policies and Brain chats belong to their connection: one from another connection is not found, and models and pipelines from another connection no longer reach the Brain prompt (#426).
+- Switching connection or signing in in one browser tab no longer reloads the other tabs and loses their unsaved work. They show a notice with a Reload button (#428).
+- Schedules and saved queries show which connection they belong to, and reports always run on the connection you are signed in to. The report form shows it instead of a connection picker (#428).
+- Unsaved query tabs are no longer dropped when moving across many connections. The sidebar connection status stays current, and direct connections get the right offline hint (#428).
+- SSO sign-in without a configured connection skips the built-in connection hidden after first-run setup and prefers a connection with SSO set up (#432).
+
 ## [2.31.0] - 2026-10-25
 
 People act as themselves in more places. An MCP service key can now run as the person who created it, Admin → Users never sends a ClickHouse password to the server, and a new connection takes another connection's SSO setup in one step. The Models page stops calling its groups "pipelines".
