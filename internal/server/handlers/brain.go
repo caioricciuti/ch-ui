@@ -248,7 +248,7 @@ func (h *BrainHandler) GetChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to load chat")
 		return
 	}
-	if chat == nil {
+	if chat == nil || chat.ConnectionID != session.ConnectionID {
 		writeError(w, http.StatusNotFound, "Chat not found")
 		return
 	}
@@ -269,7 +269,7 @@ func (h *BrainHandler) UpdateChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to load chat")
 		return
 	}
-	if chat == nil {
+	if chat == nil || chat.ConnectionID != session.ConnectionID {
 		writeError(w, http.StatusNotFound, "Chat not found")
 		return
 	}
@@ -374,7 +374,7 @@ func (h *BrainHandler) DeleteChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to load chat")
 		return
 	}
-	if chat == nil {
+	if chat == nil || chat.ConnectionID != session.ConnectionID {
 		writeError(w, http.StatusNotFound, "Chat not found")
 		return
 	}
@@ -400,7 +400,7 @@ func (h *BrainHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to load chat")
 		return
 	}
-	if chat == nil {
+	if chat == nil || chat.ConnectionID != session.ConnectionID {
 		writeError(w, http.StatusNotFound, "Chat not found")
 		return
 	}
@@ -477,7 +477,7 @@ func (h *BrainHandler) ListArtifacts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to load chat")
 		return
 	}
-	if chat == nil {
+	if chat == nil || chat.ConnectionID != session.ConnectionID {
 		writeError(w, http.StatusNotFound, "Chat not found")
 		return
 	}
@@ -504,7 +504,7 @@ func (h *BrainHandler) RunQueryArtifact(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "Failed to load chat")
 		return
 	}
-	if chat == nil {
+	if chat == nil || chat.ConnectionID != session.ConnectionID {
 		writeError(w, http.StatusNotFound, "Chat not found")
 		return
 	}
@@ -640,7 +640,7 @@ func (h *BrainHandler) StreamMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to load chat")
 		return
 	}
-	if chat == nil {
+	if chat == nil || chat.ConnectionID != session.ConnectionID {
 		writeError(w, http.StatusNotFound, "Chat not found")
 		return
 	}
@@ -815,7 +815,7 @@ type brainTurn struct {
 }
 
 func (h *BrainHandler) streamMessageCommunity(r *http.Request, stream *sseStream, t brainTurn) {
-	systemPrompt := h.buildSystemPrompt(t.contexts, t.entities, listViewer(t.session, false), false, true) + historyOmittedNote(t.omitted)
+	systemPrompt := h.buildSystemPrompt(t.contexts, t.entities, listViewer(t.session, false), t.session.ConnectionID, false, true) + historyOmittedNote(t.omitted)
 	providerMessages := append([]braincore.Message{{Role: "system", Content: systemPrompt}}, toMessages(t.history)...)
 
 	var built strings.Builder
@@ -961,7 +961,7 @@ func (h *BrainHandler) resolveRuntimeModel(chat *database.BrainChat, requestedMo
 	return rt, nil
 }
 
-func (h *BrainHandler) buildSystemPrompt(contexts []schemaContext, entities []entityContext, viewer database.SavedQueryViewer, pro, canWrite bool) string {
+func (h *BrainHandler) buildSystemPrompt(contexts []schemaContext, entities []entityContext, viewer database.SavedQueryViewer, connID string, pro, canWrite bool) string {
 	skillPrompt := ""
 	skill, err := h.DB.GetActiveBrainSkill()
 	if err == nil && skill != nil {
@@ -979,15 +979,16 @@ func (h *BrainHandler) buildSystemPrompt(contexts []schemaContext, entities []en
 		prompt += buildMultiSchemaPrompt(contexts)
 	}
 	if len(entities) > 0 {
-		prompt += h.buildEntityContextPrompt(entities, viewer)
+		prompt += h.buildEntityContextPrompt(entities, viewer, connID)
 	}
 	return prompt
 }
 
 // buildEntityContextPrompt describes the entities attached to a chat. Saved
 // queries the person cannot see read as not found, so a private query never
-// reaches the model through a crafted entity id.
-func (h *BrainHandler) buildEntityContextPrompt(entities []entityContext, viewer database.SavedQueryViewer) string {
+// reaches the model through a crafted entity id. Models and pipelines of
+// another connection read as not found too.
+func (h *BrainHandler) buildEntityContextPrompt(entities []entityContext, viewer database.SavedQueryViewer, connID string) string {
 	var sb strings.Builder
 	sb.WriteString("\n\nWorkspace entity context:\n")
 	for _, e := range entities {
@@ -1031,7 +1032,7 @@ func (h *BrainHandler) buildEntityContextPrompt(entities []entityContext, viewer
 			sb.WriteString(fmt.Sprintf("- Saved Query '%s' (id=%s)%s\n  SQL: %s\n", sq.Name, sq.ID, desc, q))
 		case "model":
 			m, err := h.DB.GetModelByID(e.ID)
-			if err != nil || m == nil {
+			if err != nil || m == nil || m.ConnectionID != connID {
 				sb.WriteString(fmt.Sprintf("- Model '%s' (id=%s): not found\n", e.Name, e.ID))
 				continue
 			}
@@ -1043,7 +1044,7 @@ func (h *BrainHandler) buildEntityContextPrompt(entities []entityContext, viewer
 				m.Name, m.ID, m.Materialization, m.TargetDatabase, m.Name, m.Status, sql))
 		case "pipeline":
 			p, err := h.DB.GetPipelineByID(e.ID)
-			if err != nil || p == nil {
+			if err != nil || p == nil || p.ConnectionID != connID {
 				sb.WriteString(fmt.Sprintf("- Pipeline '%s' (id=%s): not found\n", e.Name, e.ID))
 				continue
 			}

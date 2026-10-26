@@ -1314,6 +1314,11 @@ func (h *GovernanceHandler) CreatePolicy(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *GovernanceHandler) GetPolicy(w http.ResponseWriter, r *http.Request) {
+	connID := h.connectionID(r)
+	if connID == "" {
+		writeError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
 	id := chi.URLParam(r, "id")
 	policy, err := h.Store.GetPolicyByID(id)
 	if err != nil {
@@ -1321,7 +1326,7 @@ func (h *GovernanceHandler) GetPolicy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to get policy")
 		return
 	}
-	if policy == nil {
+	if policy == nil || policy.ConnectionID != connID {
 		writeError(w, http.StatusNotFound, "Policy not found")
 		return
 	}
@@ -1336,6 +1341,16 @@ func (h *GovernanceHandler) UpdatePolicy(w http.ResponseWriter, r *http.Request)
 	}
 
 	id := chi.URLParam(r, "id")
+	existing, err := h.Store.GetPolicyByID(id)
+	if err != nil {
+		slog.Error("Failed to load policy", "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to load policy")
+		return
+	}
+	if existing == nil || existing.ConnectionID != session.ConnectionID {
+		writeError(w, http.StatusNotFound, "Policy not found")
+		return
+	}
 
 	var body struct {
 		Name            string `json:"name"`
@@ -1387,6 +1402,16 @@ func (h *GovernanceHandler) DeletePolicy(w http.ResponseWriter, r *http.Request)
 	}
 
 	id := chi.URLParam(r, "id")
+	existing, err := h.Store.GetPolicyByID(id)
+	if err != nil {
+		slog.Error("Failed to load policy", "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to load policy")
+		return
+	}
+	if existing == nil || existing.ConnectionID != session.ConnectionID {
+		writeError(w, http.StatusNotFound, "Policy not found")
+		return
+	}
 	if err := h.Store.DeletePolicy(id); err != nil {
 		slog.Error("Failed to delete policy", "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to delete policy")
