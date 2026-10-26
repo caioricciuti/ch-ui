@@ -156,7 +156,7 @@ func (db *DB) GetSavedQueryVersion(savedQueryID string, version int) (*SavedQuer
 }
 
 // RestoreSavedQueryVersion writes the content of a version back to the
-// saved query and records the result as a new version noted
+// saved query, keeping its current connection, and records the result as a new version noted
 // "Restored version N". It returns the new version number (0 when the
 // current state already equals that version) or sql.ErrNoRows when the
 // version does not exist.
@@ -172,15 +172,18 @@ func (db *DB) RestoreSavedQueryVersion(savedQueryID string, version int, actor s
 		return 0, err
 	}
 	s := *v.Snapshot
-	if s.ConnectionID != "" {
-		// The connection may have been removed since; restore unbound then.
-		var n int
-		if err := db.conn.QueryRow("SELECT COUNT(*) FROM connections WHERE id = ?", s.ConnectionID).Scan(&n); err != nil {
-			return 0, fmt.Errorf("check connection: %w", err)
-		}
-		if n == 0 {
-			s.ConnectionID = ""
-		}
+	// The query keeps its current connection: a restore must not move it
+	// back to a connection the person restoring may not be signed in to.
+	current, err := db.GetSavedQueryByID(savedQueryID)
+	if err != nil {
+		return 0, err
+	}
+	if current == nil {
+		return 0, sql.ErrNoRows
+	}
+	s.ConnectionID = ""
+	if current.ConnectionID != nil {
+		s.ConnectionID = *current.ConnectionID
 	}
 	if err := db.UpdateSavedQuery(savedQueryID, UpdateSavedQueryParams{
 		Name: s.Name, Description: s.Description, Query: s.Query, Parameters: s.Parameters,

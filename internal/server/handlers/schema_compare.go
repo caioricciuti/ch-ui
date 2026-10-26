@@ -10,13 +10,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
+	"github.com/caioricciuti/ch-ui/internal/oidc"
 	"github.com/caioricciuti/ch-ui/internal/schemacompare"
 	"github.com/caioricciuti/ch-ui/internal/server/middleware"
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
@@ -27,6 +30,13 @@ type SchemaCompareHandler struct {
 	DB      *database.DB
 	Gateway *tunnel.Gateway
 	Config  *config.Config
+	// OIDC tells whether SSO-only sign-in is in force; typed passwords are
+	// refused then.
+	OIDC *oidc.Manager
+	// RateLimiter is shared with AuthHandler. nil creates one on first use.
+	RateLimiter *middleware.RateLimiter
+
+	limiterOnce sync.Once
 }
 
 type schemaEndpoint struct {
@@ -111,6 +121,10 @@ func (h *SchemaCompareHandler) Compare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err.Error())
 		return
 	}
+	if (request.Source.Username != "" || request.Target.Username != "") && ssoOnlyEnforced(h.Config, h.OIDC) {
+		writeError(w, 403, "Password sign-in is turned off. Compare only the connection you are signed in to.")
+		return
+	}
 	for _, endpoint := range []schemaEndpoint{request.Source, request.Target} {
 		conn, err := h.DB.GetConnectionByID(endpoint.ConnectionID)
 		if err != nil {
@@ -123,6 +137,14 @@ func (h *SchemaCompareHandler) Compare(w http.ResponseWriter, r *http.Request) {
 		}
 		if h.Gateway == nil || !h.Gateway.IsTunnelOnline(conn.ID) {
 			writeError(w, 503, "Both connections must be online to compare schemas")
+			return
+		}
+	}
+	for _, side := range []struct {
+		label    string
+		endpoint schemaEndpoint
+	}{{"Source", request.Source}, {"Target", request.Target}} {
+		if side.endpoint.Username != "" && !h.checkTypedCredentials(w, r, side.label, side.endpoint) {
 			return
 		}
 	}
@@ -143,6 +165,50 @@ func (h *SchemaCompareHandler) Compare(w http.ResponseWriter, r *http.Request) {
 		"captured_at": time.Now().UTC().Format(time.RFC3339), "result": result,
 		"scope": "Only objects visible to the supplied accounts are compared. Engine arguments, table settings, grants, dictionaries and data are excluded. Review all SQL and dependencies before applying changes.",
 	})
+}
+
+// checkTypedCredentials tests a typed username and password on the
+// endpoint's connection before any metadata is read with them. It shares the
+// login rate limit, so the compare form cannot be used to guess passwords.
+// On failure it has written the response.
+func (h *SchemaCompareHandler) checkTypedCredentials(w http.ResponseWriter, r *http.Request, label string, endpoint schemaEndpoint) bool {
+	attempt := &credentialAttempt{rl: h.limiter()}
+	defer attempt.release()
+	if !attempt.reserveIPAndUser(w, getClientIP(r), endpoint.Username, endpoint.ConnectionID) {
+		return false
+	}
+	result, err := h.Gateway.TestConnection(endpoint.ConnectionID, endpoint.Username, endpoint.Password, 15*time.Second)
+	if err == nil && !result.Success {
+		msg := result.Error
+		if msg == "" {
+			msg = "Invalid credentials"
+		}
+		err = errors.New(msg)
+	}
+	if err != nil {
+		slog.Warn("Schema compare credential check failed", "error", err, "connection", endpoint.ConnectionID)
+		if classifyClickHouseAuthError(err.Error()) == chAuthUnreachable {
+			writeError(w, 502, label+": "+sanitizeClickHouseAuthMessage(err.Error()))
+			return false
+		}
+		attempt.failed()
+		writeError(w, 400, label+": "+sanitizeClickHouseAuthMessage(err.Error()))
+		return false
+	}
+	attempt.succeeded()
+	return true
+}
+
+// limiter returns the rate limiter shared with login. Attempts are stored in
+// SQLite, so a fallback limiter (when none is wired) still sees the same
+// lockouts.
+func (h *SchemaCompareHandler) limiter() *middleware.RateLimiter {
+	h.limiterOnce.Do(func() {
+		if h.RateLimiter == nil {
+			h.RateLimiter = middleware.NewRateLimiter(h.DB)
+		}
+	})
+	return h.RateLimiter
 }
 
 func (h *SchemaCompareHandler) snapshot(ctx context.Context, credentials chSession, db string) ([]schemacompare.Table, error) {
