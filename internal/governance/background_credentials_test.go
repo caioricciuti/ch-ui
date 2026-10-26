@@ -23,5 +23,6 @@ func TestBackgroundAccountExecution(t *testing.T) {
 			t.Fatal(err)
 		}
 		s.backgroundTick()
+		s.inflight.Wait()
 	})
 }

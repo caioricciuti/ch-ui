@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -142,5 +143,75 @@ func TestBorrowSessionCredentials_AuditNamesSSOPerson(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("no pipeline.credential_borrow audit row")
+	}
+}
+
+// A stable borrow keeps the preferred user while it has a live session and
+// otherwise picks admin sessions first, then by user name, never the newest.
+func TestBorrowSessionCredentialsStable(t *testing.T) {
+	db := openTestDB(t)
+	const secret = "test-secret"
+
+	connID, err := db.CreateConnection(CreateConnectionParams{
+		Name:        "borrow-stable",
+		TunnelToken: "cht_borrow_stable",
+		Type:        ConnectionTypeTunnel,
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection: %v", err)
+	}
+	if _, _, err := db.BorrowSessionCredentialsStable(connID, "governance", secret, ""); !errors.Is(err, ErrNoBorrowableSession) {
+		t.Fatalf("no sessions: err = %v, want ErrNoBorrowableSession", err)
+	}
+
+	enc, err := crypto.Encrypt("pw", secret)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	add := func(user, role, token string) {
+		t.Helper()
+		if _, err := db.CreateSession(CreateSessionParams{
+			ConnectionID:      connID,
+			ClickhouseUser:    user,
+			EncryptedPassword: enc,
+			Token:             token,
+			ExpiresAt:         time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+			UserRole:          role,
+		}); err != nil {
+			t.Fatalf("CreateSession %s: %v", user, err)
+		}
+	}
+	borrow := func(prefer string) string {
+		t.Helper()
+		user, _, err := db.BorrowSessionCredentialsStable(connID, "governance", secret, prefer)
+		if err != nil {
+			t.Fatalf("BorrowSessionCredentialsStable: %v", err)
+		}
+		return user
+	}
+
+	add("zed_admin", "admin", "tok-stable-1")
+	add("bob", "viewer", "tok-stable-2")
+	add("amy", "analyst", "tok-stable-3")
+	if got := borrow(""); got != "zed_admin" {
+		t.Fatalf("no preference: got %q, want the admin session zed_admin", got)
+	}
+	if got := borrow("bob"); got != "bob" {
+		t.Fatalf("prefer bob: got %q", got)
+	}
+	if got := borrow("gone"); got != "zed_admin" {
+		t.Fatalf("preferred user without a session: got %q, want zed_admin", got)
+	}
+	add("abe_admin", "admin", "tok-stable-4")
+	if got := borrow(""); got != "abe_admin" {
+		t.Fatalf("two admins: got %q, want abe_admin by name", got)
+	}
+	if got := borrow("zed_admin"); got != "zed_admin" {
+		t.Fatalf("prefer zed_admin: got %q", got)
+	}
+
+	// The newest-first borrow used by the other workers is unchanged.
+	if user, _, err := db.BorrowSessionCredentials(connID, "schedule", secret); err != nil || user == "" {
+		t.Fatalf("BorrowSessionCredentials: %q %v", user, err)
 	}
 }

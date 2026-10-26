@@ -49,16 +49,22 @@ const (
 // ── Model structs ────────────────────────────────────────────────────────────
 
 type SyncState struct {
-	ID           string  `json:"id"`
-	ConnectionID string  `json:"connection_id"`
-	SyncType     string  `json:"sync_type"`
-	LastSyncedAt *string `json:"last_synced_at"`
-	Watermark    *string `json:"watermark"`
-	Status       string  `json:"status"`
-	LastError    *string `json:"last_error"`
-	RowCount     int     `json:"row_count"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
+	ID           string `json:"id"`
+	ConnectionID string `json:"connection_id"`
+	SyncType     string `json:"sync_type"`
+	// LastSyncedAt is the last successful sync, LastAttemptAt the last run
+	// whatever its outcome. ConsecutiveFailures drives the background backoff.
+	LastSyncedAt        *string `json:"last_synced_at"`
+	LastAttemptAt       *string `json:"last_attempt_at"`
+	ConsecutiveFailures int     `json:"consecutive_failures"`
+	// CHUser is the ClickHouse user the last attempt ran as.
+	CHUser    *string `json:"ch_user"`
+	Watermark *string `json:"watermark"`
+	Status    string  `json:"status"`
+	LastError *string `json:"last_error"`
+	RowCount  int     `json:"row_count"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 type GovDatabase struct {

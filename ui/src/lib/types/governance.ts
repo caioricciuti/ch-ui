@@ -13,7 +13,13 @@ export interface SyncState {
   id: string
   connection_id: string
   sync_type: 'metadata' | 'query_log' | 'access'
+  /** Last successful sync. */
   last_synced_at: string | null
+  /** Last run, whatever its outcome. */
+  last_attempt_at: string | null
+  consecutive_failures: number
+  /** ClickHouse user the last attempt ran as. */
+  ch_user: string | null
   watermark: string | null
   status: 'idle' | 'running' | 'error'
   last_error: string | null
