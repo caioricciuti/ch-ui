@@ -10,8 +10,8 @@
     "preview": "astro preview"
   },
   "dependencies": {
-    "@astrojs/starlight": "0.42.6",
-    "astro": "7.4.0"
+    "@astrojs/starlight": "0.42.7",
+    "astro": "7.4.2"
   },
   "overrides": {
     "http-cache-semantics": "4.3.0",
