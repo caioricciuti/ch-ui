@@ -57,8 +57,12 @@ func TestMetadataLookupsRunInParallel(t *testing.T) {
 	} {
 		t.Run(tc.tool, func(t *testing.T) {
 			var seen atomic.Int64
-			cs := connectTools(t, func(tunnel.GatewayMessage) *tunnel.AgentMessage {
-				seen.Add(1)
+			// Count queries only: cancelling sends a cancel_query per
+			// query, and those can land before the count is read.
+			cs := connectTools(t, func(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
+				if msg.Type != "cancel_query" {
+					seen.Add(1)
+				}
 				return nil
 			})
 			ctx, cancel := context.WithCancel(context.Background())

@@ -9,6 +9,15 @@ import {
   toDashboardTimeRangePayload,
 } from './dashboard-time'
 
+const isLocalMidnight = (d: Date) => d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0
+
+// Whole calendar days between two local dates, independent of DST.
+const calendarDaysBetween = (a: Date, b: Date) =>
+  Math.round(
+    (Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) - Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) /
+      86400000,
+  )
+
 describe('dashboard-time', () => {
   it('encodes and decodes absolute ranges', () => {
     const from = '2026-01-01T00:00:00.000Z'
@@ -79,7 +88,10 @@ describe('dashboard-time', () => {
       expect(result).not.toBeNull()
       const from = new Date(result!.from)
       const to = new Date(result!.to)
-      expect(to.getTime() - from.getTime()).toBe(86400000) // exactly 1 day
+      // Calendar days, not 86400000 ms: a day across a DST change is 23h or 25h.
+      expect(isLocalMidnight(from)).toBe(true)
+      expect(isLocalMidnight(to)).toBe(true)
+      expect(calendarDaysBetween(from, to)).toBe(1)
     })
 
     it('resolves preset:this-week', () => {
@@ -96,7 +108,7 @@ describe('dashboard-time', () => {
       const to = new Date(result!.to)
       expect(from.getDay()).toBe(0)
       expect(to.getDay()).toBe(0)
-      expect(to.getTime() - from.getTime()).toBe(604800000) // exactly 7 days
+      expect(calendarDaysBetween(from, to)).toBe(7)
     })
 
     it('resolves preset:this-month', () => {
