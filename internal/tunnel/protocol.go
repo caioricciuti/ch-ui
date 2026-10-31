@@ -25,6 +25,9 @@ type AgentMessage struct {
 	// that predate this field send none.
 	Capabilities []string `json:"capabilities,omitempty"`
 	Bytes        int64    `json:"bytes,omitempty"` // query_export_end total size
+	// ClickHouseEndpoint is the ClickHouse server the agent dials (auth), as
+	// chendpoint.Normalize spells it. Agents that predate it send none.
+	ClickHouseEndpoint string `json:"clickhouse_endpoint,omitempty"`
 }
 
 // CapabilityExport marks an agent that handles query_export.

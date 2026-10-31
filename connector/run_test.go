@@ -185,3 +185,45 @@ func TestPermanentAuthOnReconnectThenShutdown(t *testing.T) {
 	c.Shutdown()
 	c.Shutdown()
 }
+
+// The auth message names the ClickHouse server the agent dials, without
+// the credentials its URL may carry.
+func TestAuthReportsClickHouseEndpointWithoutCredentials(t *testing.T) {
+	got := make(chan AgentMessage, 1)
+	upgrader := websocket.Upgrader{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		var auth AgentMessage
+		if err := conn.ReadJSON(&auth); err != nil {
+			return
+		}
+		got <- auth
+		_ = conn.WriteJSON(GatewayMessage{Type: MsgTypeAuthOK})
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c := testConnector(srv)
+	c.cfg.ClickHouseURL = "http://reader:s3cret@CH.internal:8123/?password=x"
+	errCh := runAsync(c)
+
+	select {
+	case auth := <-got:
+		if auth.ClickHouseEndpoint != "http://ch.internal:8123/" {
+			t.Errorf("clickhouse_endpoint = %q, want http://ch.internal:8123/", auth.ClickHouseEndpoint)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no auth message")
+	}
+	c.Shutdown()
+	if err := waitRun(t, errCh); err != nil {
+		t.Errorf("Run after Shutdown = %v, want nil", err)
+	}
+}

@@ -31,23 +31,31 @@ type Connection struct {
 	Status        string  `json:"status"`
 	LastSeenAt    *string `json:"last_seen_at"`
 	HostInfoJSON  *string `json:"host_info"`
+	// AgentEndpoint is the ClickHouse endpoint the agent last reported
+	// (agent connections only); nil until an agent that reports it signs in.
+	AgentEndpoint *string `json:"agent_endpoint"`
+	// ServerResetAt is when the connection last moved to a different
+	// ClickHouse server and the old server's state was cleared.
+	ServerResetAt *string `json:"server_reset_at"`
 	CreatedAt     string  `json:"created_at"`
 }
 
-const connectionColumns = "id, name, tunnel_token, is_embedded, type, clickhouse_url, status, last_seen_at, host_info, created_at"
+const connectionColumns = "id, name, tunnel_token, is_embedded, type, clickhouse_url, status, last_seen_at, host_info, agent_endpoint, server_reset_at, created_at"
 
 // scanConnection scans a connection row from any row scanner (sql.Row / sql.Rows).
 func scanConnection(scan func(dest ...any) error) (*Connection, error) {
 	var c Connection
-	var lastSeenAt, hostInfo, chURL sql.NullString
+	var lastSeenAt, hostInfo, chURL, agentEndpoint, serverResetAt sql.NullString
 	var isEmbedded int
-	if err := scan(&c.ID, &c.Name, &c.TunnelToken, &isEmbedded, &c.Type, &chURL, &c.Status, &lastSeenAt, &hostInfo, &c.CreatedAt); err != nil {
+	if err := scan(&c.ID, &c.Name, &c.TunnelToken, &isEmbedded, &c.Type, &chURL, &c.Status, &lastSeenAt, &hostInfo, &agentEndpoint, &serverResetAt, &c.CreatedAt); err != nil {
 		return nil, err
 	}
 	c.IsEmbedded = isEmbedded == 1
 	c.ClickHouseURL = chURL.String
 	c.LastSeenAt = nullStringToPtr(lastSeenAt)
 	c.HostInfoJSON = nullStringToPtr(hostInfo)
+	c.AgentEndpoint = nullStringToPtr(agentEndpoint)
+	c.ServerResetAt = nullStringToPtr(serverResetAt)
 	return &c, nil
 }
 

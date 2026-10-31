@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// ConnectionReset counts what RepointConnectionServer cleared from a
-// connection that now points at a different ClickHouse server.
+// ConnectionReset counts what RepointConnectionServer or RepointAgentEndpoint
+// cleared from a connection that now points at a different ClickHouse server.
 type ConnectionReset struct {
 	Sessions           int64 `json:"sessions"`
 	RoleOverrides      int64 `json:"role_overrides"`
@@ -48,6 +48,28 @@ func (r ConnectionReset) Summary() string {
 // The SSO identity settings (mode, prefix, group map) are kept; they hold
 // no credential.
 func (db *DB) RepointConnectionServer(id, url string) (*ConnectionReset, error) {
+	return db.repoint(id, "UPDATE connections SET clickhouse_url = ? WHERE id = ?", url)
+}
+
+// RepointAgentEndpoint records that an agent connection's agent now reports
+// a different ClickHouse endpoint and, in the same transaction, clears the
+// old server's state exactly as RepointConnectionServer does.
+func (db *DB) RepointAgentEndpoint(id, endpoint string) (*ConnectionReset, error) {
+	return db.repoint(id, "UPDATE connections SET agent_endpoint = ? WHERE id = ?", endpoint)
+}
+
+// SetAgentEndpoint records the first endpoint an agent connection's agent
+// reports, when there is no earlier one to compare it with.
+func (db *DB) SetAgentEndpoint(id, endpoint string) error {
+	if _, err := db.conn.Exec("UPDATE connections SET agent_endpoint = ? WHERE id = ? AND agent_endpoint IS NULL", endpoint, id); err != nil {
+		return fmt.Errorf("set agent endpoint: %w", err)
+	}
+	return nil
+}
+
+// repoint runs update (which sets the new target, with args value and id)
+// and clears the old server's state in one transaction.
+func (db *DB) repoint(id, update, value string) (*ConnectionReset, error) {
 	tx, err := db.conn.Begin()
 	if err != nil {
 		return nil, fmt.Errorf("repoint connection: %w", err)
@@ -55,12 +77,15 @@ func (db *DB) RepointConnectionServer(id, url string) (*ConnectionReset, error) 
 	defer tx.Rollback()
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := tx.Exec("UPDATE connections SET clickhouse_url = ? WHERE id = ?", url, id)
+	res, err := tx.Exec(update, value, id)
 	if err != nil {
 		return nil, fmt.Errorf("repoint connection: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil, sql.ErrNoRows
+	}
+	if _, err := tx.Exec("UPDATE connections SET server_reset_at = ? WHERE id = ?", now, id); err != nil {
+		return nil, fmt.Errorf("repoint connection: %w", err)
 	}
 
 	reset := &ConnectionReset{}
