@@ -203,8 +203,12 @@ jobs:
       - name: Unit tests
         run: bun run test
 
+      # One advisory ignored, build-time only:
+      # GHSA-gcqx-w48m-w2h4 deepmerge 4.3.1 (via @sveltejs/vite-plugin-svelte).
+      # No patched release exists; it merges our own Vite plugin config at
+      # build time, never untrusted input. Drop this once a fix ships.
       - name: Dependency audit
-        run: bun audit
+        run: bun audit --ignore=GHSA-gcqx-w48m-w2h4
 
       - name: Build
         run: bun run build
