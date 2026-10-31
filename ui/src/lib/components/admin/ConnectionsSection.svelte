@@ -4,7 +4,7 @@
   import { formatDate, formatRelativeTime } from '../../utils/format'
   import { takePageIntent, takeBackgroundWorker, takeSSOConnection } from '../../stores/page-intent.svelte'
   import { getSession } from '../../stores/session.svelte'
-  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom } from '../../stores/toast.svelte'
+  import { success as toastSuccess, error as toastError, errorFrom as toastErrorFrom, warning as toastWarning } from '../../stores/toast.svelte'
   import Button from '../common/Button.svelte'
   import Input from '../common/Input.svelte'
   import Badge from '../common/Badge.svelte'
@@ -32,8 +32,23 @@
     created_at: string
     last_seen?: string
     host_info?: { hostname?: string; os?: string } | null
+    /** Agent connections: the ClickHouse server the agent last reported. Absent for agents too old to report it. */
+    agent_endpoint?: string
+    /** When the connection last moved to a different ClickHouse server and the old server's state was cleared. */
+    server_reset_at?: string
     /** Present only while SSO sign-in is on: whether the connection has its SSO account. */
     sso_set?: boolean
+    /** Set only on the update that pointed the connection at a different ClickHouse server. */
+    reset?: ConnectionReset
+  }
+  type ConnectionReset = {
+    sessions: number
+    role_overrides: number
+    sso_users: number
+    sso_account: boolean
+    background_accounts: number
+    mcp_keys: number
+    dashboard_shares: number
   }
   type TunnelTokenResponse = {
     tunnel_token: string
@@ -221,8 +236,12 @@
     }
     editLoading = true
     try {
-      await apiPut<TunnelConnection>(`/api/connections/${encodeURIComponent(target.id)}`, body)
-      toastSuccess(body.clickhouse_url !== undefined ? `Connection "${name}" updated and reconnecting` : `Connection "${name}" updated`)
+      const res = await apiPut<TunnelConnection>(`/api/connections/${encodeURIComponent(target.id)}`, body)
+      if (res?.reset) {
+        toastWarning(`Connection "${name}" now points at a different ClickHouse server. Cleared from the old one: ${resetSummary(res.reset)}.`, { duration: 15000 })
+      } else {
+        toastSuccess(body.clickhouse_url !== undefined ? `Connection "${name}" updated and reconnecting` : `Connection "${name}" updated`)
+      }
       editTarget = null
       await loadTunnels()
     } catch (e) {
@@ -290,7 +309,34 @@
   }
 
   function target(conn: TunnelConnection): string {
-    return conn.clickhouse_url || conn.host_info?.hostname || '—'
+    return conn.clickhouse_url || conn.agent_endpoint || conn.host_info?.hostname || '—'
+  }
+
+  function resetSummary(r: ConnectionReset): string {
+    const parts = [
+      [r.sessions, 'session(s) signed out'],
+      [r.role_overrides, 'role override(s)'],
+      [r.sso_users, 'per-person SSO user(s)'],
+      [r.background_accounts, 'background account(s) disabled'],
+      [r.mcp_keys, 'MCP key(s) revoked'],
+      [r.dashboard_shares, 'share link(s)'],
+    ]
+      .filter(([n]) => (n as number) > 0)
+      .map(([n, label]) => `${n} ${label}`)
+    if (r.sso_account) parts.push('SSO account')
+    return parts.length ? parts.join(', ') : 'nothing was stored'
+  }
+
+  // A reset in the last week is worth flagging in the list.
+  function recentReset(conn: TunnelConnection): boolean {
+    if (!conn.server_reset_at) return false
+    const at = Date.parse(conn.server_reset_at)
+    return Number.isFinite(at) && Date.now() - at < 7 * 86400000
+  }
+
+  // An online agent that has never reported its server is older than the check.
+  function agentTooOld(conn: TunnelConnection): boolean {
+    return conn.type !== 'direct' && !conn.is_embedded && conn.online && !conn.agent_endpoint
   }
 
   const rows = $derived.by<Row[]>(() => {
@@ -302,6 +348,7 @@
           c.name.toLowerCase().includes(term) ||
           (c.clickhouse_url ?? '').toLowerCase().includes(term) ||
           (c.host_info?.hostname ?? '').toLowerCase().includes(term) ||
+          (c.agent_endpoint ?? '').toLowerCase().includes(term) ||
           typeLabel(c).toLowerCase().includes(term)
         )
       })
@@ -361,9 +408,23 @@
                 {#if row.sso_set === false}
                   <Badge tone="warning" title="People who sign in through SSO cannot use this connection until it has an SSO account">SSO not set up</Badge>
                 {/if}
+                {#if recentReset(asConn(row))}
+                  <Badge
+                    tone="warning"
+                    title={`Moved to a different ClickHouse server ${formatRelativeTime(String(row.server_reset_at))}. Sessions, role overrides, per-person SSO users, the SSO account, background service accounts, MCP keys and share links of the old server were cleared. Details are in the audit log.`}
+                  >Server changed</Badge>
+                {/if}
               </span>
             {:else if col.key === 'type_label'}
               <Badge tone={value === 'Embedded' ? 'brand' : 'neutral'}>{value}</Badge>
+            {:else if col.key === 'target_label' && agentTooOld(asConn(row))}
+              <span class="flex min-w-0 items-center gap-1.5">
+                <span class="truncate">{value}</span>
+                <Badge
+                  tone="neutral"
+                  title="This agent is too old to report which ClickHouse server it reaches, so CH-UI cannot clear the old server's credentials if it is re-pointed. Update the agent."
+                >Update agent</Badge>
+              </span>
             {:else}
               {value}
             {/if}
@@ -460,8 +521,8 @@
   open={editTarget !== null}
   title="Edit connection"
   description={editIsDirect
-    ? 'Rename the connection or point it at another ClickHouse URL. Saving a new URL restarts this connection\'s connector.'
-    : 'Rename the connection. The agent and its token are not affected.'}
+    ? 'Rename the connection or point it at another ClickHouse URL. Saving a new URL restarts this connection\'s connector. A URL on a different server signs everyone out and clears what belonged to the old server: role overrides, per-person SSO users, the SSO account, background service accounts, MCP keys and share links.'
+    : 'Rename the connection. The agent and its token are not affected. If the agent is re-pointed at a different ClickHouse server, CH-UI clears what belonged to the old one when it next connects.'}
   size="lg"
   onclose={closeEdit}
 >

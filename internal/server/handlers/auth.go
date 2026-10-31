@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/caioricciuti/ch-ui/internal/chendpoint"
 	"github.com/caioricciuti/ch-ui/internal/config"
 	"github.com/caioricciuti/ch-ui/internal/crypto"
 	"github.com/caioricciuti/ch-ui/internal/database"
@@ -886,41 +887,19 @@ func (h *AuthHandler) sameOriginRequest(r *http.Request) bool {
 }
 
 // chEndpoint is the ClickHouse HTTP endpoint CH-UI dials for a direct
-// connection.
-type chEndpoint struct{ scheme, host, port, path string }
+// connection, as chendpoint.Normalize spells it.
+type chEndpoint = string
 
-// clickHouseEndpoint returns the lower-cased scheme and host, the port and
-// the path CH-UI dials for a direct (or embedded) connection. A trailing
-// slash is dropped and an empty path is "/", so a path behind a proxy tells
-// two servers on one host apart. ok is false for agent connections, whose
-// ClickHouse is whatever the remote agent points at, and for a URL without
-// a host.
+// clickHouseEndpoint returns the endpoint CH-UI dials for a direct (or
+// embedded) connection; see chendpoint.Normalize. ok is false for agent
+// connections, whose ClickHouse is whatever the remote agent points at
+// (the gateway compares the endpoint the agent reports instead), and for a
+// URL without a host.
 func clickHouseEndpoint(c *database.Connection) (ep chEndpoint, ok bool) {
 	if c == nil || c.Type != database.ConnectionTypeDirect {
-		return chEndpoint{}, false
+		return "", false
 	}
-	u, err := url.Parse(strings.TrimSpace(c.ClickHouseURL))
-	if err != nil || u.Hostname() == "" {
-		return chEndpoint{}, false
-	}
-	ep.scheme = strings.ToLower(u.Scheme)
-	ep.port = u.Port()
-	if ep.port == "" {
-		switch ep.scheme {
-		case "http":
-			ep.port = "8123"
-		case "https":
-			ep.port = "8443"
-		default:
-			return chEndpoint{}, false
-		}
-	}
-	ep.host = strings.ToLower(u.Hostname())
-	ep.path = strings.TrimRight(u.EscapedPath(), "/")
-	if ep.path == "" {
-		ep.path = "/"
-	}
-	return ep, true
+	return chendpoint.Normalize(c.ClickHouseURL)
 }
 
 // sameClickHouseServer reports whether target reaches the same ClickHouse

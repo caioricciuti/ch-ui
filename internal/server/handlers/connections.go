@@ -68,6 +68,12 @@ type connectionResponse struct {
 	Online        bool       `json:"online"`
 	LastSeen      *time.Time `json:"last_seen,omitempty"`
 	HostInfo      any        `json:"host_info,omitempty"`
+	// AgentEndpoint is the ClickHouse server an agent connection's agent
+	// last reported; absent until an agent that reports it signs in.
+	AgentEndpoint *string `json:"agent_endpoint,omitempty"`
+	// ServerResetAt is when the connection last moved to a different
+	// ClickHouse server and the old server's state was cleared.
+	ServerResetAt *string `json:"server_reset_at,omitempty"`
 	// SSOSet is set only while SSO sign-in is enabled: whether the
 	// connection has the SSO account people who sign in through SSO need.
 	SSOSet *bool `json:"sso_set,omitempty"`
@@ -1044,6 +1050,10 @@ func (h *ConnectionsHandler) buildConnectionResponse(c database.Connection) conn
 		Status:        c.Status,
 		LastSeenAt:    c.LastSeenAt,
 		CreatedAt:     c.CreatedAt,
+		ServerResetAt: c.ServerResetAt,
+	}
+	if c.Type != database.ConnectionTypeDirect {
+		resp.AgentEndpoint = c.AgentEndpoint
 	}
 
 	online, lastSeen := h.Gateway.GetTunnelStatus(c.ID)

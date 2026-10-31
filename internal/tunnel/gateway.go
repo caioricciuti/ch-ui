@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/caioricciuti/ch-ui/internal/chendpoint"
 	"github.com/caioricciuti/ch-ui/internal/database"
 	"github.com/caioricciuti/ch-ui/internal/safe"
 )
@@ -182,6 +184,11 @@ type Gateway struct {
 	readLoops sync.WaitGroup
 
 	authTimeout time.Duration // how long a new socket may take to authenticate
+
+	// OnServerChange, when set, runs after an agent connection's state was
+	// cleared because its agent reports a different ClickHouse server. Set
+	// it before agents connect.
+	OnServerChange func(connectionID string)
 }
 
 // NewGateway creates a new tunnel gateway.
@@ -302,7 +309,7 @@ func (g *Gateway) readLoop(conn *websocket.Conn) {
 					websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Already authenticated"), time.Now().Add(5*time.Second))
 				return
 			}
-			authConnID := g.handleAuth(conn, msg.Token, msg.Takeover, msg.Capabilities)
+			authConnID := g.handleAuth(conn, msg.Token, msg.Takeover, msg.Capabilities, msg.ClickHouseEndpoint)
 			if authConnID == "" {
 				return // auth failed, connection closed
 			}
@@ -348,7 +355,7 @@ func (g *Gateway) readLoop(conn *websocket.Conn) {
 	}
 }
 
-func (g *Gateway) handleAuth(conn *websocket.Conn, token string, takeover bool, capabilities []string) string {
+func (g *Gateway) handleAuth(conn *websocket.Conn, token string, takeover bool, capabilities []string, endpoint string) string {
 	remoteAddr := ""
 	if conn != nil && conn.RemoteAddr() != nil {
 		remoteAddr = conn.RemoteAddr().String()
@@ -397,6 +404,15 @@ func (g *Gateway) handleAuth(conn *websocket.Conn, token string, takeover bool, 
 		slog.Warn("Replaced stale tunnel connection", "name", tc.Name)
 	}
 
+	// Before the agent can run anything: if it now points at a different
+	// ClickHouse server, the old server's credentials must not reach it.
+	if !g.checkAgentEndpoint(tc, endpoint) {
+		sendJSON(conn, GatewayMessage{Type: "auth_error", Message: "Could not record the agent's ClickHouse server. Please retry."})
+		conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "Auth backend busy"), time.Now().Add(5*time.Second))
+		return ""
+	}
+
 	tunnel := &ConnectedTunnel{
 		ConnectionID:   tc.ID,
 		ConnectionName: tc.Name,
@@ -443,6 +459,55 @@ func (g *Gateway) handleAuth(conn *websocket.Conn, token string, takeover bool, 
 	})
 
 	return tc.ID
+}
+
+// checkAgentEndpoint compares the ClickHouse endpoint an agent connection's
+// agent reports with the one stored from its last sign-in. The first report
+// is stored. A different one clears the old server's state in one
+// transaction (database.RepointAgentEndpoint: sessions, role overrides,
+// per-person SSO users, the SSO account, service accounts, MCP keys, share
+// links), calls OnServerChange and writes a connection.reset audit entry.
+// Direct connections are skipped: the connection editor handles their URL.
+// An agent that reports nothing (older than the field) cannot be checked
+// and is let through. false means the check could not be recorded and the
+// agent must be refused.
+func (g *Gateway) checkAgentEndpoint(tc *database.Connection, reported string) bool {
+	if tc.Type == database.ConnectionTypeDirect {
+		return true
+	}
+	ep, ok := chendpoint.Normalize(reported)
+	if !ok {
+		if reported != "" {
+			slog.Warn("Agent reported an unreadable ClickHouse endpoint", "name", tc.Name, "connection_id", tc.ID)
+		}
+		return true
+	}
+	switch {
+	case tc.AgentEndpoint == nil || *tc.AgentEndpoint == "":
+		if err := g.db.SetAgentEndpoint(tc.ID, ep); err != nil {
+			slog.Error("Failed to store agent endpoint", "connection_id", tc.ID, "error", err)
+			return false
+		}
+	case *tc.AgentEndpoint != ep:
+		old := *tc.AgentEndpoint
+		reset, err := g.db.RepointAgentEndpoint(tc.ID, ep)
+		if err != nil {
+			slog.Error("Failed to reset connection for a new agent endpoint", "connection_id", tc.ID, "error", err)
+			return false
+		}
+		if g.OnServerChange != nil {
+			g.OnServerChange(tc.ID)
+		}
+		slog.Warn("Agent now points at a different ClickHouse server; old server state cleared",
+			"name", tc.Name, "connection_id", tc.ID, "old", old, "new", ep)
+		g.db.CreateAuditLog(database.AuditLogParams{
+			Action:       "connection.reset",
+			ConnectionID: strPtr(tc.ID),
+			Details: strPtr(fmt.Sprintf("Agent now points at a different ClickHouse server (%s, was %s); old server state cleared: %s",
+				ep, old, reset.Summary())),
+		})
+	}
+	return true
 }
 
 func (g *Gateway) handlePong(connID string) {

@@ -37,6 +37,10 @@ type AgentMessage struct {
 	Capabilities []string `json:"capabilities,omitempty"`
 	// Bytes is the total size of an export (for query_export_end).
 	Bytes int64 `json:"bytes,omitempty"`
+	// ClickHouseEndpoint names the ClickHouse server this agent dials (for
+	// auth), without credentials, so the server can tell when an agent is
+	// re-pointed and clear what belonged to the old one.
+	ClickHouseEndpoint string `json:"clickhouse_endpoint,omitempty"`
 }
 
 // QueryStats contains query execution statistics

@@ -99,6 +99,7 @@ func New(cfg *config.Config, db *database.DB, frontendFS fs.FS, agents *embedded
 	// re-initialize the provider at runtime without a restart.
 	oidcManager := oidc.NewManager()
 	ssoProvisioner := &ssoidentity.Provisioner{DB: db, Gateway: gw, Secret: cfg.AppSecretKey}
+	gw.OnServerChange = ssoProvisioner.ForgetConnection
 	if settings, ok := handlers.ResolveOIDCSettings(cfg, db); ok {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		err := oidcManager.Reload(ctx, settings)

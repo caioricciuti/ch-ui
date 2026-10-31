@@ -15,6 +15,7 @@ import (
 
 	"github.com/caioricciuti/ch-ui/connector/config"
 	"github.com/caioricciuti/ch-ui/connector/ui"
+	"github.com/caioricciuti/ch-ui/internal/chendpoint"
 	"github.com/gorilla/websocket"
 )
 
@@ -204,6 +205,7 @@ func (c *Connector) connect() error {
 		Takeover:     c.cfg.Takeover,
 		Capabilities: agentCapabilities,
 	}
+	authMsg.ClickHouseEndpoint, _ = chendpoint.Normalize(c.cfg.ClickHouseURL)
 
 	if err := c.send(authMsg); err != nil {
 		conn.Close()
