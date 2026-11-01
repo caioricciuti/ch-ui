@@ -25,8 +25,8 @@ import (
 	"github.com/caioricciuti/ch-ui/internal/tunnel"
 )
 
-// The new password of a ClickHouse user never comes back in a response,
-// an error body or the log, even when ClickHouse quotes the statement back.
+// The hash and salt of a ClickHouse user never come back in a response, an
+// error body or the log, even when ClickHouse quotes the statement back.
 func TestClickHouseUserPasswordNeverEchoed(t *testing.T) {
 	db, conn := testutil.WorkerDB(t)
 	agent := testutil.NewAgent(t, db, "worker-token", func(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
@@ -51,7 +51,8 @@ func TestClickHouseUserPasswordNeverEchoed(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
-	const secret = "S3cr3t-pa'ss"
+	secretHash := strings.Repeat("5e", 32)
+	const secretSalt = "S3cr3tSalt"
 	do := func(method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req = req.WithContext(middleware.SetSession(req.Context(), &middleware.SessionInfo{
@@ -61,52 +62,49 @@ func TestClickHouseUserPasswordNeverEchoed(t *testing.T) {
 		r.ServeHTTP(rec, req)
 		return rec
 	}
-	pw, _ := json.Marshal(secret)
+	auth := `"auth":{"method":"sha256_hash","hash":"` + secretHash + `","salt":"` + secretSalt + `"}`
 	for _, c := range []struct {
 		name, method, path, body string
 		want                     int
 	}{
-		{"create", "POST", "/clickhouse-users", `{"name":"ana","password":` + string(pw) + `}`, http.StatusCreated},
-		{"create plaintext", "POST", "/clickhouse-users", `{"name":"ana2","auth_type":"plaintext_password","password":` + string(pw) + `}`, http.StatusCreated},
-		{"create error", "POST", "/clickhouse-users", `{"name":"broken","password":` + string(pw) + `}`, http.StatusBadGateway},
-		{"update", "PUT", "/clickhouse-users/ana/password", `{"password":` + string(pw) + `}`, http.StatusOK},
-		{"update error", "PUT", "/clickhouse-users/broken/password", `{"password":` + string(pw) + `}`, http.StatusBadGateway},
+		{"create", "POST", "/clickhouse-users", `{"name":"ana",` + auth + `}`, http.StatusCreated},
+		{"create error", "POST", "/clickhouse-users", `{"name":"broken",` + auth + `}`, http.StatusBadGateway},
+		{"update", "PUT", "/clickhouse-users/ana/password", `{` + auth + `}`, http.StatusOK},
+		{"update error", "PUT", "/clickhouse-users/broken/password", `{` + auth + `}`, http.StatusBadGateway},
 	} {
 		rec := do(c.method, c.path, c.body)
 		raw := rec.Body.String()
 		if rec.Code != c.want {
 			t.Fatalf("%s: %d %s", c.name, rec.Code, raw)
 		}
-		if strings.Contains(raw, "S3cr3t") {
-			t.Fatalf("%s: password in body: %s", c.name, raw)
+		if strings.Contains(raw, secretHash) || strings.Contains(raw, secretSalt) {
+			t.Fatalf("%s: hash or salt in body: %s", c.name, raw)
 		}
 		if !strings.Contains(raw, "BY '***'") {
 			t.Fatalf("%s: masked command missing: %s", c.name, raw)
 		}
 	}
-	if strings.Contains(logs.String(), "S3cr3t") {
-		t.Fatalf("password in log: %s", logs.String())
+	if strings.Contains(logs.String(), secretHash) || strings.Contains(logs.String(), secretSalt) {
+		t.Fatalf("hash or salt in log: %s", logs.String())
 	}
-	// The real statement still carries the password to ClickHouse.
+	// The real statement still carries the hash to ClickHouse.
 	sent := false
 	for _, m := range agent.Messages() {
-		if strings.Contains(m.SQL, "S3cr3t-pa''ss") {
+		if strings.Contains(m.SQL, secretHash) {
 			sent = true
 		}
 	}
 	if !sent {
-		t.Fatal("password never reached ClickHouse")
+		t.Fatal("hash never reached ClickHouse")
 	}
 }
 
 func TestMaskChUserPassword(t *testing.T) {
-	for _, c := range []struct{ in, pw, want string }{
-		{"CREATE USER `a` IDENTIFIED WITH sha256_password BY 'x''y'", "x'y", "CREATE USER `a` IDENTIFIED WITH sha256_password BY '***'"},
-		{"ALTER USER `a` IDENTIFIED BY 'p'", "p", "ALTER USER `a` IDENTIFIED BY '***'"},
-		{"error near hunter2", "hunter2", "error near ***"},
-		{"ALTER USER `a` IDENTIFIED WITH no_password", "", "ALTER USER `a` IDENTIFIED WITH no_password"},
+	for _, c := range []struct{ in, want string }{
+		{"ALTER USER `a` IDENTIFIED BY 'p'", "ALTER USER `a` IDENTIFIED BY '***'"},
+		{"ALTER USER `a` IDENTIFIED WITH no_password", "ALTER USER `a` IDENTIFIED WITH no_password"},
 	} {
-		if got := (chUserAuth{legacyPassword: c.pw}).mask(c.in); got != c.want {
+		if got := (chUserAuth{Method: "no_password"}).mask(c.in); got != c.want {
 			t.Fatalf("mask(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
@@ -143,7 +141,8 @@ func TestGovernanceCreateChUserPasswordNeverEchoed(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	h := &GovernanceHandler{DB: db, Gateway: agent.Gateway, Config: cfg}
-	req := httptest.NewRequest("POST", "/access/users", strings.NewReader(`{"name":"gov_user","auth_type":"sha256_password","password":"G0v-S3cr3t"}`))
+	govHash := strings.Repeat("6f", 32)
+	req := httptest.NewRequest("POST", "/access/users", strings.NewReader(`{"name":"gov_user","auth":{"method":"sha256_hash","hash":"`+govHash+`","salt":"G0vS4lt"}}`))
 	req = req.WithContext(middleware.SetSession(req.Context(), &middleware.SessionInfo{
 		ConnectionID: conn, ClickhouseUser: "default", EncryptedPassword: enc, UserRole: "admin",
 	}))
@@ -152,15 +151,18 @@ func TestGovernanceCreateChUserPasswordNeverEchoed(t *testing.T) {
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("want 502, got %d %s", rec.Code, rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), "G0v-S3cr3t") || strings.Contains(logs.String(), "G0v-S3cr3t") {
-		t.Fatalf("password echoed: body %s log %s", rec.Body.String(), logs.String())
+	for _, secret := range []string{govHash, "G0vS4lt"} {
+		if strings.Contains(rec.Body.String(), secret) || strings.Contains(logs.String(), secret) {
+			t.Fatalf("hash or salt echoed: body %s log %s", rec.Body.String(), logs.String())
+		}
 	}
 }
 
 // Admin → Users sends a hash made in the browser: it reaches ClickHouse as
 // IDENTIFIED WITH sha256_hash, is masked everywhere it comes back, and needs
-// no deprecation notice. The old plaintext fields still work, marked
-// deprecated, and a malformed or mixed request is refused before any SQL.
+// no deprecation notice. The plaintext fields removed in v2.33.0, a
+// password change without auth, and a malformed request are refused before
+// any SQL.
 func TestClickHouseUserHashedAuth(t *testing.T) {
 	db, conn := testutil.WorkerDB(t)
 	agent := testutil.NewAgent(t, db, "worker-token", func(msg tunnel.GatewayMessage) *tunnel.AgentMessage {
@@ -217,35 +219,30 @@ func TestClickHouseUserHashedAuth(t *testing.T) {
 		t.Fatalf("change to no_password: %d %s", rec.Code, rec.Body.String())
 	}
 
-	rec = do("POST", "/clickhouse-users", `{"name":"old","password":"pw"}`)
-	if rec.Code != http.StatusCreated || rec.Header().Get("Deprecation") != "true" {
-		t.Fatalf("plaintext create: %d deprecation=%q", rec.Code, rec.Header().Get("Deprecation"))
-	}
-	logs, err := db.GetAuditLogs(20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	noted := false
-	for _, l := range logs {
-		if l.Details != nil && strings.Contains(*l.Details, "name=old") && strings.Contains(*l.Details, "deprecated=plaintext_password_field") {
-			noted = true
-		}
-	}
-	if !noted {
-		t.Fatal("audit log does not mark the deprecated plaintext field")
-	}
-
 	before := len(agent.Messages())
 	for name, body := range map[string]string{
 		"short hash":   `{"name":"x","auth":{"method":"sha256_hash","hash":"abc"}}`,
 		"salt on sha1": `{"name":"x","auth":{"method":"double_sha1_hash","hash":"` + strings.Repeat("a", 40) + `","salt":"s"}}`,
 		"plaintext":    `{"name":"x","auth":{"method":"plaintext_password","hash":"pw"}}`,
 		"both":         `{"name":"x","password":"pw","auth":{"method":"no_password"}}`,
+		"removed pw":   `{"name":"x","password":"pw"}`,
+		"removed type": `{"name":"x","auth_type":"no_password"}`,
 		"bad salt":     `{"name":"x","auth":{"method":"sha256_hash","hash":"` + hash + `","salt":"a'b"}}`,
 	} {
 		if rec := do("POST", "/clickhouse-users", body); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: want 400, got %d %s", name, rec.Code, rec.Body.String())
 		}
+	}
+	for name, body := range map[string]string{
+		"removed pw": `{"password":"pw"}`,
+		"no auth":    `{}`,
+	} {
+		if rec := do("PUT", "/clickhouse-users/ana/password", body); rec.Code != http.StatusBadRequest {
+			t.Errorf("change %s: want 400, got %d %s", name, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := do("POST", "/clickhouse-users", `{"name":"old","password":"pw"}`); !strings.Contains(rec.Body.String(), "removed in v2.33.0") {
+		t.Errorf("removed fields: unclear error %s", rec.Body.String())
 	}
 	if n := len(agent.Messages()) - before; n != 0 {
 		t.Fatalf("%d statements sent for refused requests", n)

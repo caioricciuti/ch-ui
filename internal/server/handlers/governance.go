@@ -1018,7 +1018,7 @@ func (h *GovernanceHandler) CreateChUser(w http.ResponseWriter, r *http.Request)
 		Name string `json:"name"`
 		// Auth carries a hash made by the client, as on Admin → Users.
 		Auth *chUserAuth `json:"auth"`
-		// Deprecated plaintext path, kept until v2.33.
+		// Removed in v2.33.0 and refused; read only to say so.
 		Password     string   `json:"password"`
 		AuthType     string   `json:"auth_type"`
 		DefaultRoles []string `json:"default_roles"`
@@ -1035,7 +1035,7 @@ func (h *GovernanceHandler) CreateChUser(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	auth, _, errMsg := resolveChUserAuth(w, body.Auth, body.AuthType, body.Password, false)
+	auth, errMsg := resolveChUserAuth(body.Auth, body.AuthType, body.Password, false)
 	if errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return

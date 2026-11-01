@@ -650,8 +650,8 @@ func (h *AdminHandler) CreateClickHouseUser(w http.ResponseWriter, r *http.Reque
 		// Auth carries a hash made in the browser; the server never sees
 		// the password.
 		Auth *chUserAuth `json:"auth"`
-		// Password and AuthType are the deprecated plaintext path, kept
-		// until v2.33 for API clients.
+		// Password and AuthType were removed in v2.33.0 and are refused;
+		// they are read only to say so.
 		Password     string   `json:"password"`
 		AuthType     string   `json:"auth_type"`
 		DefaultRoles []string `json:"default_roles"`
@@ -668,7 +668,7 @@ func (h *AdminHandler) CreateClickHouseUser(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	auth, authType, errMsg := resolveChUserAuth(w, body.Auth, body.AuthType, body.Password, false)
+	auth, errMsg := resolveChUserAuth(body.Auth, body.AuthType, body.Password, false)
 	if errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
@@ -733,7 +733,7 @@ func (h *AdminHandler) CreateClickHouseUser(w http.ResponseWriter, r *http.Reque
 		Username:       strPtr(middleware.Actor(session)),
 		ClickhouseUser: &session.ClickhouseUser,
 		ConnectionID:   strPtr(session.ConnectionID),
-		Details:        strPtr(fmt.Sprintf("name=%s auth_type=%s%s", name, authType, auth.deprecatedNote())),
+		Details:        strPtr(fmt.Sprintf("name=%s auth_type=%s", name, auth.Method)),
 		IPAddress:      strPtr(getClientIP(r)),
 	})
 
@@ -773,7 +773,7 @@ func (h *AdminHandler) UpdateClickHouseUserPassword(w http.ResponseWriter, r *ht
 
 	var body struct {
 		Auth *chUserAuth `json:"auth"`
-		// Deprecated plaintext path, kept until v2.33.
+		// Removed in v2.33.0 and refused; read only to say so.
 		Password string `json:"password"`
 		AuthType string `json:"auth_type"`
 		IfExists *bool  `json:"if_exists"`
@@ -783,7 +783,7 @@ func (h *AdminHandler) UpdateClickHouseUserPassword(w http.ResponseWriter, r *ht
 		return
 	}
 
-	auth, authType, errMsg := resolveChUserAuth(w, body.Auth, body.AuthType, body.Password, true)
+	auth, errMsg := resolveChUserAuth(body.Auth, body.AuthType, body.Password, true)
 	if errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
@@ -811,7 +811,7 @@ func (h *AdminHandler) UpdateClickHouseUserPassword(w http.ResponseWriter, r *ht
 		Username:       strPtr(middleware.Actor(session)),
 		ClickhouseUser: &session.ClickhouseUser,
 		ConnectionID:   strPtr(session.ConnectionID),
-		Details:        strPtr(fmt.Sprintf("name=%s auth_type=%s%s", username, authType, auth.deprecatedNote())),
+		Details:        strPtr(fmt.Sprintf("name=%s auth_type=%s", username, auth.Method)),
 		IPAddress:      strPtr(getClientIP(r)),
 	})
 
@@ -826,15 +826,10 @@ func (h *AdminHandler) UpdateClickHouseUserPassword(w http.ResponseWriter, r *ht
 // double_sha1_hash (40 hex), bcrypt_hash, or no_password. The browser makes
 // the hash, so the server never sees a password; Hash and Salt are secrets
 // all the same and are masked in everything returned, logged or audited.
-//
-// legacyPassword is set only on the deprecated plaintext path (auth_type +
-// password), where Method is a *_password type and the server hashes.
 type chUserAuth struct {
 	Method string `json:"method"`
 	Hash   string `json:"hash,omitempty"`
 	Salt   string `json:"salt,omitempty"`
-
-	legacyPassword string
 }
 
 var (
@@ -876,18 +871,11 @@ func (a chUserAuth) validate() error {
 // clause is the IDENTIFIED clause, or "" for no_password on CREATE (the
 // ClickHouse default). alter makes no_password explicit for ALTER USER.
 func (a chUserAuth) clause(alter bool) string {
-	if a.legacyPassword != "" || strings.HasSuffix(a.Method, "_password") {
-		switch a.Method {
-		case "no_password":
-			if alter {
-				return " IDENTIFIED WITH no_password"
-			}
-			return ""
-		case "plaintext_password":
-			return " IDENTIFIED BY '" + safe.Literal(a.legacyPassword) + "'"
-		default:
-			return " IDENTIFIED WITH " + a.Method + " BY '" + safe.Literal(a.legacyPassword) + "'"
+	if a.Method == "no_password" {
+		if alter {
+			return " IDENTIFIED WITH no_password"
 		}
+		return ""
 	}
 	s := " IDENTIFIED WITH " + a.Method + " BY '" + safe.Literal(a.Hash) + "'"
 	if a.Salt != "" {
@@ -901,7 +889,7 @@ func (a chUserAuth) clause(alter bool) string {
 // '***', and any other copy (ClickHouse may quote the statement back in an
 // error) becomes ***.
 func (a chUserAuth) mask(text string) string {
-	for _, secret := range []string{a.legacyPassword, a.Hash, a.Salt} {
+	for _, secret := range []string{a.Hash, a.Salt} {
 		if secret != "" {
 			text = strings.ReplaceAll(text, safe.Literal(secret), "***")
 			text = strings.ReplaceAll(text, secret, "***")
@@ -913,51 +901,29 @@ func (a chUserAuth) mask(text string) string {
 
 var chUserSaltLiteralRe = regexp.MustCompile(`(?i)(\bSALT\s+)('(?:[^'\\]|\\.)*')`)
 
-func (a chUserAuth) deprecatedNote() string {
-	if a.legacyPassword != "" {
-		return " deprecated=plaintext_password_field"
-	}
-	return ""
-}
+// errRemovedPasswordFields answers a request that still sends the
+// plaintext fields removed in v2.33.0. They are refused rather than
+// ignored: ignoring them would create a user without a password.
+const errRemovedPasswordFields = "password and auth_type were removed in v2.33.0: send auth with a hash made by the client (see /docs/admin#create-user)"
 
-// resolveChUserAuth picks the auth of a create or password change: the
-// hashed auth object, or the deprecated plaintext fields (marked with a
-// Deprecation header). It returns the auth, its method for the audit log,
-// and an error message for a 400.
-func resolveChUserAuth(w http.ResponseWriter, hashed *chUserAuth, authType, password string, alter bool) (chUserAuth, string, string) {
-	if hashed != nil {
-		a := chUserAuth{Method: strings.TrimSpace(strings.ToLower(hashed.Method)), Hash: strings.TrimSpace(hashed.Hash), Salt: strings.TrimSpace(hashed.Salt)}
-		if password != "" || authType != "" {
-			return a, "", "send either auth or password/auth_type, not both"
+// resolveChUserAuth checks the auth of a create or password change and
+// returns it, or an error message for a 400. A create without auth makes a
+// user without a password, as before; a password change needs auth.
+func resolveChUserAuth(hashed *chUserAuth, authType, password string, alter bool) (chUserAuth, string) {
+	if password != "" || authType != "" {
+		return chUserAuth{}, errRemovedPasswordFields
+	}
+	if hashed == nil {
+		if alter {
+			return chUserAuth{}, "auth is required"
 		}
-		if err := a.validate(); err != nil {
-			return a, "", err.Error()
-		}
-		return a, a.Method, ""
+		return chUserAuth{Method: "no_password"}, ""
 	}
-	authType = strings.TrimSpace(strings.ToLower(authType))
-	if authType == "" {
-		if !alter && strings.TrimSpace(password) == "" {
-			authType = "no_password"
-		} else {
-			authType = "sha256_password"
-		}
+	a := chUserAuth{Method: strings.TrimSpace(strings.ToLower(hashed.Method)), Hash: strings.TrimSpace(hashed.Hash), Salt: strings.TrimSpace(hashed.Salt)}
+	if err := a.validate(); err != nil {
+		return a, err.Error()
 	}
-	switch authType {
-	case "no_password", "plaintext_password", "sha256_password", "double_sha1_password":
-	default:
-		return chUserAuth{}, "", "auth.method must be one of: sha256_hash, double_sha1_hash, bcrypt_hash, no_password"
-	}
-	if authType != "no_password" && strings.TrimSpace(password) == "" {
-		return chUserAuth{}, "", "password is required for selected auth_type"
-	}
-	if authType != "no_password" {
-		// The plaintext fields are deprecated: the browser hashes now.
-		w.Header().Set("Deprecation", "true")
-		w.Header().Set("Warning", `299 - "password and auth_type are deprecated and will be removed in v2.33; send auth with a hash"`)
-		slog.Warn("Admin users: deprecated plaintext password field used", "auth_type", authType)
-	}
-	return chUserAuth{Method: authType, legacyPassword: password}, authType, ""
+	return a, ""
 }
 
 func parseDefaultRolesInput(input []string) (all bool, roles []string, err error) {
