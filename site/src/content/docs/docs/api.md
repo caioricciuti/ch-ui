@@ -207,6 +207,12 @@ ClickHouse server, the response has a `reset` object with what was cleared:
 URL reaches the same server. See
 [Repointing a direct connection](/docs/connections/#repointing-a-direct-connection).
 
+Connection objects (v2.33.0+) can also carry `agent_endpoint`, the ClickHouse
+server an agent last reported (`scheme://host:port/path`, absent until an agent
+from v2.33.0 signs in), and `server_reset_at`, when the connection last moved
+to a different server. See
+[Repointing an agent](/docs/connections/#repointing-an-agent-v2330).
+
 ### Saved Queries
 
 | Method | Path | Purpose |

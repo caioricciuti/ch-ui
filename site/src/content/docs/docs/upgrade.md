@@ -100,3 +100,8 @@ ch-ui service restart  # if running as a service
 If the connector runs in the foreground or with `ch-ui connect --detach`, stop
 it and start it again. Check in **Admin > Connections** that each tunnel shows
 as connected.
+
+Agents older than v2.33.0 do not report which ClickHouse server they reach, so
+CH-UI cannot clear the old server's state when one is re-pointed. Their rows
+show **Update agent**. See
+[Repointing an agent](/docs/connections/#repointing-an-agent-v2330).

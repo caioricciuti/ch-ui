@@ -116,7 +116,7 @@ Choosing **Disabled** stops future runs but does not cancel work that already ha
 
 If a worker stops, check in order: the connection is online, the worker's mode, that `APP_SECRET_KEY` has not changed, and the account's ClickHouse grants. The server's debug logs record each credential use and every lookup failure.
 
-Pointing a connection at a different ClickHouse server switches its dedicated accounts to **Disabled** and erases the saved user and password, since they belong to the old server. Set them up again for the new one. See [Repointing a direct connection](/docs/connections/#repointing-a-direct-connection).
+Pointing a connection at a different ClickHouse server switches its dedicated accounts to **Disabled** and erases the saved user and password, since they belong to the old server. Set them up again for the new one. This covers a direct connection's URL and, from v2.33.0, an agent that now reaches a different server. See [Repointing a direct connection](/docs/connections/#repointing-a-direct-connection) and [Repointing an agent](/docs/connections/#repointing-an-agent-v2330).
 
 ## Restore and rollback
 
