@@ -22,8 +22,11 @@ ClickHouse query activity and metadata changes inside a connection.
   or removed. A connection pointed at a different ClickHouse server also
   writes `connection.reset`, with the counts of sessions, role overrides, SSO
   records, background accounts, MCP keys and share links cleared (actor
-  `system` when the server config changed the embedded connection). See
+  `system` when the server config changed the embedded connection). From
+  v2.33.0 an agent that signs in pointing at a different server writes it
+  too, naming the new and the old server. See
   [Repointing a direct connection](/docs/connections/#repointing-a-direct-connection)
+  and [Repointing an agent](/docs/connections/#repointing-an-agent-v2330)
 - **Connections created from the login page**: with
   [sign-in with a ClickHouse URL](/docs/configuration/#sign-in-with-a-clickhouse-url)
   on, each new connection the login page creates

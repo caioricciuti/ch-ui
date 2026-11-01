@@ -117,7 +117,9 @@ The reset is written to the audit log as `connection.reset` with the counts, and
            "background_accounts": 2, "mcp_keys": 1, "dashboard_shares": 0 }
 ```
 
-The same applies when first-run setup saves a new URL for its connection, and to the embedded connection when `clickhouse_url` changes to another server.
+The same applies when first-run setup saves a new URL for its connection, and to the embedded connection when `clickhouse_url` changes to another server. For agent connections, see [Repointing an agent](#repointing-an-agent-v2330).
+
+In **Admin > Connections**, saving a URL that reaches a different server shows what was cleared, and the row carries a **Server changed** badge for 7 days after any reset (hover it for details). The connection object has the time of the last reset in `server_reset_at`.
 
 There is no option to skip TLS verification for direct connections. If ClickHouse uses a self-signed certificate, add its CA to the trust store of the CH-UI host, or use a tunnel connection and set `insecure_skip_verify` on the connector.
 
@@ -142,6 +144,18 @@ ch-ui connect \
 In Admin, choose **Remote agent** in **Add connection** to get a token instead. Through the API, omit `type` (or send `"type":"tunnel"`); the response includes `tunnel_token` and `setup_instructions`. The commands in `setup_instructions` use the server URL from `app_url` (`http` becomes `ws`, `https` becomes `wss`); when `app_url` is unset or points at localhost they keep a `<YOUR_SERVER_URL>` placeholder, because an agent on another machine cannot use localhost. A tunnel connection can be renamed with **Edit** in Admin or `PUT /api/connections/{id}` with `{"name":"..."}`; the agent and its token are not affected. Its ClickHouse URL is set on the connector, not on the server. Token rotation, service install and the rest are covered in [Connections & Tunnel](/docs/ingestion) and the [CLI reference](/docs/cli).
 
 The connector reads its settings from flags, from its config file (`~/.config/ch-ui/config.yaml` on macOS, `/etc/ch-ui/config.yaml` on Linux, `%AppData%\ch-ui\connect\config.yaml` on Windows), or from the environment: `TUNNEL_TOKEN`, `TUNNEL_URL`, `CLICKHOUSE_URL`. To skip TLS verification, for example with a self-signed certificate, set `insecure_skip_verify: true` in the config file or `TUNNEL_INSECURE_SKIP_VERIFY=true`. It applies to both the connector's HTTPS calls to ClickHouse and its `wss://` connection to CH-UI, so use it only on networks you trust.
+
+### Repointing an agent (v2.33.0+)
+
+When the agent signs in, it reports the ClickHouse server it dials: the scheme, host, port and path of its `--clickhouse-url`, with the user, password and query string dropped, so no credential leaves the agent. CH-UI stores the first report. On each later sign-in it compares the two the same way as for [direct connections](#repointing-a-direct-connection): the same server spelled differently (case, a default port, a trailing slash) changes nothing.
+
+If the agent now reaches a different server, CH-UI runs the same reset as for a direct URL change (sessions, role overrides, per-person SSO user records, the SSO account, background service accounts set to **Disabled**, MCP keys and OAuth tokens revoked, dashboard share links deleted). It happens before the agent is accepted, so no query or stored credential reaches the new server first. If the change cannot be recorded, the agent is refused with "please retry" and reconnects on its own. The audit log gets a `connection.reset` entry naming the new and the old server, with the counts.
+
+**Admin > Connections** shows the server each agent reports as the row's target, and the **Server changed** badge after a reset. The connection object carries it as `agent_endpoint`, for example `http://127.0.0.1:8123/`.
+
+Agents older than v2.33.0 do not report a server. They still connect, but CH-UI cannot tell when one is pointed somewhere else, and an online agent that has never reported shows **Update agent** in **Admin > Connections**. Update it with `ch-ui update` on the agent host (see [Upgrade](/docs/upgrade/#connector-updates)).
+
+CH-UI compares URLs, not servers: a hostname whose DNS moves to another ClickHouse server is not detected, for agents or direct connections.
 
 ## Live query progress
 

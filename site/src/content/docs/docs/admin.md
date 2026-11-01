@@ -49,7 +49,11 @@ View all ClickHouse connections with their type (Embedded for the one from serve
 
 **Edit** on a row opens a sheet. Direct connections can be renamed and pointed at another ClickHouse URL; saving a new URL restarts that connection's connector. Agent connections can only be renamed, and the agent and its token keep working. The embedded connection has no Edit or Delete: it shows **Server config**, because its name and URL come from `clickhouse_url` and `connection_name` in the server config (hover the label to see that).
 
-A new URL that reaches a different ClickHouse server resets the connection, because what CH-UI stored for it belongs to the old server. Saving signs everyone out of that connection and clears its role overrides, per-person SSO user records, the SSO account, MCP keys and their OAuth tokens, and dashboard share links. Background accounts set to a service account are switched to **Disabled**. Nothing is sent to either ClickHouse server; set these up again for the new one. The audit log gets a `connection.reset` entry with the counts. A URL for the same server (only case, a default port or a trailing slash differs) clears nothing. The same reset happens when first-run setup points the connection elsewhere, and on startup when `clickhouse_url` for the embedded connection names a different server than before.
+A new URL that reaches a different ClickHouse server resets the connection, because what CH-UI stored for it belongs to the old server. Saving signs everyone out of that connection and clears its role overrides, per-person SSO user records, the SSO account, MCP keys and their OAuth tokens, and dashboard share links. Background accounts set to a service account are switched to **Disabled**. Nothing is sent to either ClickHouse server; set these up again for the new one. The audit log gets a `connection.reset` entry with the counts. A URL for the same server (only case, a default port or a trailing slash differs) clears nothing. The same reset happens when first-run setup points the connection elsewhere, and on startup when `clickhouse_url` for the embedded connection names a different server than before. After saving, a message lists what was cleared.
+
+Agents from v2.33.0 report the ClickHouse server they dial (scheme, host, port and path, no credentials), and the row shows it as the target. When an agent signs in pointing at a different server than it reported before, the same reset runs before the agent can run anything, and the audit entry names both servers. Older agents still connect but cannot be checked; an online one that has never reported shows **Update agent**. See [Repointing an agent](/docs/connections/#repointing-an-agent-v2330).
+
+A connection that moved to a different server, by any of these paths, shows a **Server changed** badge for 7 days.
 
 Each connection row has a **Background accounts** button. It sets which ClickHouse account unattended jobs (schedules, models, pipeline sinks, governance, Cluster Health, telemetry monitors, performance monitoring and weekly reports) use on that connection. See [Background Accounts](/docs/background-accounts).
 
@@ -151,7 +155,9 @@ POST /api/admin/clickhouse-users
 
 The operation generates up to three commands: `CREATE USER` (never `IF NOT EXISTS`, so a taken name fails with `409`), `GRANT` roles, and `ALTER USER SET DEFAULT ROLE`.
 
-**Deprecated:** `password` with `auth_type` (`no_password`, `plaintext_password`, `sha256_password`, `double_sha1_password`) still works until v2.33, so the server sees the password. Such requests get a `Deprecation: true` header and are marked `deprecated=plaintext_password_field` in the audit log. Sending both `auth` and `password` is a `400`.
+Without `auth`, the user is created with no password.
+
+**Removed in v2.33.0:** the plaintext `password` and `auth_type` fields, deprecated since v2.31.0. A request that sends either one gets a `400` and nothing is run, here, on Change Password and on [Governance](/docs/governance#users--roles) user creation. Hash the password on the client and send `auth` instead, so the CH-UI server never sees it.
 
 ### Change Password
 
@@ -163,7 +169,7 @@ PUT /api/admin/clickhouse-users/{username}/password
 }
 ```
 
-The same `auth` object as Create User. `{"method": "no_password"}` removes the password.
+The same `auth` object as Create User, and it is required: a request without it is a `400`. `{"method": "no_password"}` removes the password.
 
 ### Delete User
 
