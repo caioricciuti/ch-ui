@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.33.0] - 2026-11-01
+
+A remote agent that is re-pointed at a different ClickHouse server no longer carries the old server's credentials and access along with it, and the plaintext password fields deprecated in v2.31.0 are gone.
+
+### Upgrade notes
+
+- **Update your agents.** The check below needs the v2.33.0 agent: it is what reports which ClickHouse server the agent dials. Older agents keep working but cannot be checked; Admin → Connections marks them **Update agent** (#441).
+- **API clients: `password` and `auth_type` are removed** from `POST /api/admin/clickhouse-users`, `PUT /api/admin/clickhouse-users/{username}/password` and `POST /api/governance/access/users`, as announced in v2.31.0. Requests that send them get a `400`. Send `auth` with a hash made by the client instead. A password change now requires `auth` (#442).
+- A database migration adds two columns to `connections` on start (#441).
+
+### Security
+
+- **Re-pointing a remote agent resets the connection.** The agent now reports the ClickHouse server it dials (scheme, host, port and path, never credentials). When an agent signs in pointing at a different server than before, CH-UI clears everything that belonged to the old one before the agent can run anything: sessions, role overrides, per-person SSO user records, the SSO account, service-account background accounts (switched to Disabled), MCP keys and OAuth tokens, and dashboard share links. It is recorded in the audit log as `connection.reset` with both servers. This is the agent counterpart of the URL check for direct connections in v2.32.0 (#441).
+
+### Added
+
+- Admin → Connections shows the ClickHouse server each agent reports, and a **Server changed** badge for a week after a connection moved to a different server. Editing a connection's URL to a different server now says what was cleared (#441).
+
+### Removed
+
+- `password` and `auth_type` on the ClickHouse user endpoints, deprecated since v2.31.0. CH-UI's server no longer handles ClickHouse user passwords at all (#442).
+
+### Changed
+
+- Dependencies: modernc.org/sqlite 1.61.0, vite 8.3.5, @codemirror/view 6.43.15, @codemirror/autocomplete 6.20.4, astro 7.4.2, @astrojs/starlight 0.42.7, docker/login-action 4.7.0 (#435, #436, #437, #438).
+
 ## [2.32.0] - 2026-10-26
 
 Several connections to different ClickHouse servers now stay apart. Credentials and objects no longer cross from one connection to another, background work on one connection no longer waits for or hides problems on another, and a connection whose ClickHouse user cannot read the `system` database says so instead of looking synced.
