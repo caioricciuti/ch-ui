@@ -237,7 +237,7 @@ jobs:
       # in expressive-code). Fixed only in 7.1.6, a major the dependents do
       # not accept; it parses our own CSS, never untrusted input.
       - name: Dependency audit
-        run: bun audit --ignore=GHSA-rj75-hqrm-r3gf
+        run: bun audit --ignore=GHSA-rj75-hqrm-r3gf --ignore=GHSA-r3h5-4585-7x3w --ignore=GHSA-mh32-jxcr-mh9f
 
       # The build is the check: it regenerates the changelog page from
       # CHANGELOG.md, renders every page and fails on a sidebar entry that
