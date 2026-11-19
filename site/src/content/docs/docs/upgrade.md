@@ -105,3 +105,7 @@ Agents older than v2.33.0 do not report which ClickHouse server they reach, so
 CH-UI cannot clear the old server's state when one is re-pointed. Their rows
 show **Update agent**. See
 [Repointing an agent](/docs/connections/#repointing-an-agent-v2330).
+
+Security patches update connectors too. v2.33.1 rebuilds both the server and
+the connector with Go 1.26.11 for a fix in Go's HTTP library, so a connector
+left on v2.33.0 keeps the vulnerable code even after the server is upgraded.
