@@ -6,7 +6,7 @@ module github.com/caioricciuti/ch-ui
 // GO-2026-6088 (net/http). CI's setup-go reads this line (go-version-file) and
 // installs exactly this toolchain, the Dockerfile's golang image matches it,
 // and govulncheck scans with that toolchain. Raise it to pick up stdlib fixes.
-go 1.26.10
+go 1.26.11
 
 require (
 	github.com/IBM/sarama v1.61.1
@@ -37,7 +37,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/eapache/go-resiliency v1.7.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
 	github.com/golang/snappy v0.0.3 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
@@ -47,7 +47,7 @@ require (
 	github.com/jcmturner/gofork v1.7.6 // indirect
 	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
