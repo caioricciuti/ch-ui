@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.33.1] - 2026-11-19
+
+Security patch. CH-UI is now built with Go 1.26.11, which fixes a vulnerability in Go's HTTP library, and updates the compression library behind gzip responses and the Kafka pipeline.
+
+### Upgrade notes
+
+- **Update both the server and your agents.** The fixes are compiled into each binary, so an agent keeps the old code until it is replaced.
+
+### Security
+
+- Build with Go 1.26.11 for GO-2026-6859 (`net/http`), reachable from the server, the agent, OAuth, uploads and exports (#451).
+- klauspost/compress 1.20.2 for GO-2026-6865, reachable from gzip responses and the Kafka pipeline consumer (#451).
+- go-jose 4.1.5, which fixes a panic during CBC-HMAC processing; it sits under OIDC sign-in (#451).
+
+### Changed
+
+- Build: bun 1.4.4 for the UI and the Docker image (#454).
+- Dependencies: golang.org/x/crypto 0.59.0, golang.org/x/oauth2 0.38.0, xdg-go/scram 1.4.0, modernc.org/sqlite 1.62.0, svelte 5.57.3, vite 8.3.8, tailwindcss 4.3.5, marked 18.2.0, @xyflow/svelte 1.7.1, svelte-sonner 1.2.3, sigstore/cosign-installer 4.1.3, docker/login-action 4.8.0 (#447, #448, #452, #453).
+
 ## [2.33.0] - 2026-11-01
 
 A remote agent that is re-pointed at a different ClickHouse server no longer carries the old server's credentials and access along with it, and the plaintext password fields deprecated in v2.31.0 are gone.
