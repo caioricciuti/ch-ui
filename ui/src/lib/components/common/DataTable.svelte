@@ -106,7 +106,7 @@
     }
   }
 
-  const frame = $derived(fill ? 'h-full min-h-0 overflow-auto' : framed ? 'overflow-hidden rounded-lg border border-edge-subtle bg-surface' : '')
+  const frame = $derived(fill ? 'h-full min-h-0 overflow-auto' : framed ? 'overflow-x-auto rounded-lg border border-edge-subtle bg-surface' : '')
 </script>
 
 <div class="{frame} {cls}">
