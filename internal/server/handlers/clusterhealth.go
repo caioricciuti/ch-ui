@@ -40,15 +40,15 @@ func (h *ClusterHealthHandler) Routes() chi.Router {
 	r := chi.NewRouter()
 
 	r.Get("/summary", h.GetSummary)
-	r.Get("/replication", h.liveHandler(clusterhealth.ReplicationQuery, false))
-	r.Get("/replication-queue", h.liveHandler(clusterhealth.ReplicationQueueQuery, false))
-	r.Get("/merges", h.liveHandler(clusterhealth.MergesQuery, false))
-	r.Get("/mutations", h.liveHandler(clusterhealth.MutationsQuery, false))
-	r.Get("/parts", h.liveHandler(clusterhealth.PartsPressureQuery, false))
-	r.Get("/disks", h.liveHandler(clusterhealth.DisksQuery, false))
+	r.Get("/replication", h.liveHandler(clusterhealth.ReplicationQuery, "system.replicas", false))
+	r.Get("/replication-queue", h.liveHandler(clusterhealth.ReplicationQueueQuery, "system.replication_queue", false))
+	r.Get("/merges", h.liveHandler(clusterhealth.MergesQuery, "system.merges", false))
+	r.Get("/mutations", h.liveHandler(clusterhealth.MutationsQuery, "system.mutations", false))
+	r.Get("/parts", h.liveHandler(clusterhealth.PartsPressureQuery, "system.parts", false))
+	r.Get("/disks", h.liveHandler(clusterhealth.DisksQuery, "system.disks", false))
 	// Keeper & backups may be unsupported on a given deployment; soft-fail them.
-	r.Get("/keeper", h.liveHandler(clusterhealth.KeeperQuery, true))
-	r.Get("/backups", h.liveHandler(clusterhealth.BackupsQuery, true))
+	r.Get("/keeper", h.liveHandler(clusterhealth.KeeperQuery, "system.zookeeper_connection", true))
+	r.Get("/backups", h.liveHandler(clusterhealth.BackupsQuery, "system.backups", true))
 	r.Get("/long-queries", h.getLongQueries)
 
 	// Kill actions run with the caller's own ClickHouse credentials, so
@@ -132,12 +132,24 @@ func (h *ClusterHealthHandler) resolveCluster(r *http.Request, cs chSession) str
 	return name
 }
 
-// liveHandler builds a drill-down endpoint for a fanned-out query. softFail marks
-// queries against tables that may not exist on every deployment (Keeper, backups):
-// those return supported:false with an empty list instead of an error. When a
-// fan-out query fails on a real cluster, it retries scoped to the local node and
-// flags the response as degraded.
-func (h *ClusterHealthHandler) liveHandler(build func(cluster string) string, softFail bool) http.HandlerFunc {
+// writeAccessDenied answers a drill-down whose system table the session's
+// ClickHouse user may not read: 200 with access_denied naming the table, so
+// the page can show the grant instead of reading it as an outage or as a
+// CH-UI role problem.
+func writeAccessDenied(w http.ResponseWriter, cs chSession, cluster, table string) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"cluster": cluster, "is_cluster": cluster != "", "supported": true,
+		"access_denied": table, "ch_user": cs.user, "data": []interface{}{},
+	})
+}
+
+// liveHandler builds a drill-down endpoint for a fanned-out query on table.
+// softFail marks queries against tables that may not exist on every deployment
+// (Keeper, backups): those return supported:false with an empty list instead
+// of an error. A missing grant is reported as access_denied, never as
+// unsupported. When a fan-out query fails on a real cluster, it retries scoped
+// to the local node and flags the response as degraded.
+func (h *ClusterHealthHandler) liveHandler(build func(cluster string) string, table string, softFail bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cs, ok := h.session(w, r)
 		if !ok {
@@ -152,6 +164,10 @@ func (h *ClusterHealthHandler) liveHandler(build func(cluster string) string, so
 			if rows2, err2 := h.exec(cs, build("")); err2 == nil {
 				rows, err, degraded = rows2, nil, true
 			}
+		}
+		if err != nil && clusterhealth.IsAccessDenied(err.Error()) {
+			writeAccessDenied(w, cs, cluster, table)
+			return
 		}
 		if err != nil {
 			if softFail {
@@ -191,6 +207,10 @@ func (h *ClusterHealthHandler) getLongQueries(w http.ResponseWriter, r *http.Req
 		if rows2, err2 := h.exec(cs, build("")); err2 == nil {
 			rows, err, degraded = rows2, nil, true
 		}
+	}
+	if err != nil && clusterhealth.IsAccessDenied(err.Error()) {
+		writeAccessDenied(w, cs, cluster, "system.processes")
+		return
 	}
 	if err != nil {
 		slog.Warn("Cluster health long-queries failed", "error", err, "connection", cs.connID)
@@ -234,6 +254,10 @@ func (h *ClusterHealthHandler) GetSummary(w http.ResponseWriter, r *http.Request
 		"parts_limits":      col.Limits,
 		"nodes":             col.Samples,
 		"errors":            errs,
+		// System tables the session's ClickHouse user may not read; their
+		// metrics are unknown until an admin grants SELECT on them.
+		"access_denied": clusterhealth.DeniedTables(errs),
+		"ch_user":       cs.user,
 	})
 }
 

@@ -5,6 +5,11 @@
 
 package clusterhealth
 
+import (
+	"sort"
+	"strings"
+)
+
 // CHCredentials carries the ClickHouse credentials the harvester borrows from an
 // active session to run monitoring queries through the tunnel gateway.
 type CHCredentials struct {
@@ -116,6 +121,36 @@ const (
 	MetricLongQueries = "long_queries"
 	MetricDisk        = "disk"
 )
+
+// metricTables names the system table each metric group reads, so a denied
+// read can say which grant is missing.
+var metricTables = map[string]string{
+	MetricReplication: "system.replicas",
+	MetricMerges:      "system.merges",
+	MetricMutations:   "system.mutations",
+	MetricParts:       "system.parts",
+	MetricLongQueries: "system.processes",
+	MetricDisk:        "system.disks",
+}
+
+// IsAccessDenied reports whether a ClickHouse error is a missing grant
+// (ACCESS_DENIED, code 497) rather than a failure of the server.
+func IsAccessDenied(msg string) bool {
+	return strings.Contains(msg, "Code: 497.") || strings.Contains(msg, "ACCESS_DENIED") || strings.Contains(msg, "Not enough privileges")
+}
+
+// DeniedTables lists, sorted, the system tables behind the metric groups in
+// errs that failed for lack of a grant.
+func DeniedTables(errs map[string]string) []string {
+	out := []string{}
+	for metric, msg := range errs {
+		if table, ok := metricTables[metric]; ok && IsAccessDenied(msg) {
+			out = append(out, table)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
 
 // storedMetrics are the groups persisted in ch_health_samples.
 var storedMetrics = []string{MetricReplication, MetricMerges, MetricMutations, MetricParts, MetricLongQueries}
