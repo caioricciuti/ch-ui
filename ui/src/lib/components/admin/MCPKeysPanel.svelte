@@ -193,7 +193,7 @@
 
   const columns: DataColumn<Row>[] = [
     { key: 'display_name', label: 'Name', width: '24%' },
-    { key: 'connection_name', label: 'Connection', truncate: true },
+    { key: 'connection_name', label: 'Connection' },
     { key: 'ch_user', label: 'Runs as', sortable: false },
     { key: 'scopes', label: 'Access', sortable: false },
     { key: 'allowed_databases', label: 'Databases', truncate: true, format: (v) => (v ? String(v) : 'all') },
@@ -423,6 +423,7 @@
         {columns}
         {rows}
         rowKey={(r) => r.id}
+        actionsVisible
         sort={{ key: 'last_used_at', dir: 'desc' }}
         emptyTitle={view === 'api' ? 'No service keys yet' : 'No OAuth grants yet'}
         emptyDescription={view === 'api'
