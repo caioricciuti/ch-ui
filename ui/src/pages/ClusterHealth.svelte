@@ -23,8 +23,11 @@
     ExternalLink,
     Ban,
     Eye,
+    Copy,
+    Lock,
   } from 'lucide-svelte'
   import {
+    grantStatements,
     fetchSummary,
     fetchLive,
     fetchHistory,
@@ -341,6 +344,16 @@
     }
   })
   const summaryErrors = $derived(Object.entries(summary?.errors ?? {}))
+  const deniedTables = $derived(summary?.access_denied ?? [])
+
+  async function copyGrants(tables: string[], user: string) {
+    try {
+      await navigator.clipboard.writeText(grantStatements(tables, user))
+      toastSuccess('GRANT statements copied')
+    } catch (e: unknown) {
+      toastErrorFrom(e, 'copy')
+    }
+  }
 
   // Which metric group each node-table column belongs to.
   const COLUMN_METRIC: Record<string, MetricGroup> = {
@@ -704,6 +717,10 @@
             </div>
           {/if}
 
+          {#if deniedTables.length > 0}
+            {@render grantNotice(deniedTables, summary.ch_user ?? '', 'Those metrics read Unknown, not healthy, until a ClickHouse admin grants read access.')}
+          {/if}
+
           <!-- Headline tiles -->
           <div class="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
             {#if agg.unknown.replication}
@@ -836,6 +853,10 @@
             <div class="flex h-full items-center justify-center"><Spinner /></div>
           {:else if sectionError && !sectionResult}
             <EmptyState icon={AlertTriangle} title={`Couldn't load ${activeSpec.label}`} description={sectionError} primary={{ label: 'Retry', onclick: () => loadSection(activeSpec.key) }} />
+          {:else if sectionResult?.access_denied}
+            <div class="mx-auto max-w-2xl pt-8">
+              {@render grantNotice([sectionResult.access_denied], sectionResult.ch_user ?? '', `${activeSpec.label} reads this table, so it stays empty until a ClickHouse admin grants read access.`)}
+            </div>
           {:else if sectionResult && !sectionResult.supported}
             <EmptyState icon={AlertTriangle} title={`${activeSpec.label} is not available on this ClickHouse deployment`} />
           {:else if sectionResult}
@@ -882,6 +903,25 @@
     </Button>
   {/snippet}
 </Sheet>
+
+{#snippet grantNotice(tables: string[], user: string, consequence: string)}
+  <div class="space-y-2 rounded-md border border-warning/40 bg-warning-soft px-3 py-2.5 text-xs text-fg" role="status">
+    <div class="flex items-start gap-2">
+      <Lock size={13} class="mt-0.5 shrink-0 text-warning" />
+      <p>
+        <span class="font-mono">{user || 'This user'}</span> can't read
+        {#if tables.length === 1}<span class="font-mono">{tables[0]}</span>{:else}{tables.length} system tables{/if}.
+        {consequence}
+      </p>
+    </div>
+    <div class="relative">
+      <pre class="overflow-x-auto rounded bg-surface-2 p-2.5 pr-10 font-mono text-[11px] leading-relaxed text-fg-2">{grantStatements(tables, user || '<user>')}</pre>
+      <Button icon variant="ghost" size="xs" class="absolute right-1.5 top-1.5" aria-label="Copy GRANT statements" title="Copy" onclick={() => copyGrants(tables, user || '<user>')}>
+        <Copy size={13} />
+      </Button>
+    </div>
+  </div>
+{/snippet}
 
 {#snippet rowActions(row: Record<string, unknown>)}
   <Button icon variant="ghost" size="xs" onclick={(e: MouseEvent) => { e.stopPropagation(); openDetail(row) }} title="Show details" aria-label="Show details">

@@ -41,6 +41,10 @@ export interface HealthSummary {
   nodes: NodeSample[]
   /** Error per failed metric group (plus "nodes" when the fan-out failed). */
   errors?: Record<string, string>
+  /** System tables the session's ClickHouse user may not read (sorted). */
+  access_denied?: string[]
+  /** The ClickHouse user the page runs as. */
+  ch_user?: string
 }
 
 export interface LiveResult {
@@ -49,7 +53,16 @@ export interface LiveResult {
   supported: boolean
   degraded?: boolean
   threshold_seconds?: number
+  /** Set when the ClickHouse user may not read this system table. */
+  access_denied?: string
+  ch_user?: string
   data: Record<string, unknown>[]
+}
+
+/** One GRANT per table, quoting the user as a ClickHouse identifier. */
+export function grantStatements(tables: string[], user: string): string {
+  const who = '`' + user.replace(/\\/g, '\\\\').replace(/`/g, '\\`') + '`'
+  return tables.map((t) => `GRANT SELECT ON ${t} TO ${who};`).join('\n')
 }
 
 export interface HistoryResult {
