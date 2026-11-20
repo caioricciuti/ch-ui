@@ -22,7 +22,7 @@
     "typescript": "6.0.3",
     "vite": "8.3.8",
     "vitest": "5.1.0",
-    "jsdom": "31.0.0"
+    "jsdom": "31.0.1"
   },
   "dependencies": {
     "@codemirror/autocomplete": "6.20.4",
