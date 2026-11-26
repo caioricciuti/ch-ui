@@ -44,7 +44,7 @@ Queries run via `clusterAllReplicas('<cluster>', system.X)` with per-node attrib
 - **Single-node deployments** transparently fall back to the local node.
 - Fan-out queries run with `skip_unavailable_shards = 1`, so one node being down does not blank the whole page. CH-UI compares the nodes that answered with the cluster definition in `system.clusters`: a node that is defined but did not answer is shown as **Down** (a badge in the header and a row in the node table) and is stored in history as a down sample.
 - If remote nodes can't be reached at all (for example, the connection's credentials aren't valid cluster-wide), the view **degrades to the local node** and is flagged as such rather than failing. The other nodes are listed with every metric **unknown**, not as down.
-- When one metric fails to collect (for example a missing grant on `system.merges`), that metric shows as **Unknown** instead of 0, in the tiles, the node table and the charts (a gap, not a healthy-looking zero). Hover the "metrics unknown" badge to see the error.
+- When one metric fails to collect (for example a missing grant on `system.merges`), that metric shows as **Unknown** instead of 0, in the tiles, the node table and the charts (a gap, not a healthy-looking zero). Hover the "metrics unknown" badge to see the error. When the cause is a missing grant, the page says which one: see [Missing grants](#missing-grants).
 - Tables that don't exist on a given ClickHouse version (Keeper, backups) are skipped gracefully instead of erroring.
 
 ### History & retention
@@ -104,6 +104,33 @@ Open **Cluster Health → Settings** (admin only):
 
 - A **Pro** license. The page, the `/api/cluster-health/*` endpoints, and the background harvester are all disabled on the free edition.
 - The connection's ClickHouse user needs read access to the relevant `system.*` tables, and to remote nodes for full cluster fan-out.
+
+### Missing grants
+
+The page runs with the ClickHouse user you signed in as. On servers where reading `system.*` needs a grant, a user with limited access cannot read some of these tables. Since v2.34.0 the page says so instead of showing an outage:
+
+- The overview shows a notice naming your user and every system table it cannot read, with the `GRANT` statements ready to copy. Hand them to a ClickHouse admin; once they are run, the notice goes away on the next refresh.
+- The metrics behind those tables read **Unknown**, never a healthy zero.
+- Each drill-down whose table is denied shows the same notice for its own table instead of an empty list.
+
+The full set the page reads:
+
+```sql
+GRANT SELECT ON system.backups TO `your_user`;
+GRANT SELECT ON system.clusters TO `your_user`;
+GRANT SELECT ON system.disks TO `your_user`;
+GRANT SELECT ON system.merges TO `your_user`;
+GRANT SELECT ON system.mutations TO `your_user`;
+GRANT SELECT ON system.parts TO `your_user`;
+GRANT SELECT ON system.processes TO `your_user`;
+GRANT SELECT ON system.replicas TO `your_user`;
+GRANT SELECT ON system.replication_queue TO `your_user`;
+GRANT SELECT ON system.zookeeper_connection TO `your_user`;
+```
+
+`system.zookeeper_connection` only exists where Keeper or ZooKeeper is configured. Without `system.clusters` the page cannot find the cluster and checks only the connected node; the notice says so.
+
+On a cluster, the fan-out to the other nodes needs one more privilege, which the notice does not list: the right to read from remote servers. Without it the page runs **degraded** on the connected node. ClickHouse names the missing grant in its error (on 25.8, `READ ON REMOTE`).
 
 For load-balanced deployments where CH-UI sits behind chproxy / HAProxy / a Kubernetes Service, see [ClickHouse Clusters & Load Balancers](/docs/clusters) for the session-affinity setup that keeps `system.*` reads consistent.
 
