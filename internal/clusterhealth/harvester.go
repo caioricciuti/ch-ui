@@ -307,18 +307,25 @@ func (h *Harvester) pollConnection(connID string, settings Settings, now time.Ti
 // ResolveCluster returns the cluster the connection belongs to, "" for a
 // single node. ok is false when the lookup failed.
 func ResolveCluster(exec ExecFunc) (name string, ok bool) {
+	name, err := ResolveClusterErr(exec)
+	return name, err == nil
+}
+
+// ResolveClusterErr is ResolveCluster with the lookup error kept, so a caller
+// can tell a single node from a system.clusters it was not allowed to read.
+func ResolveClusterErr(exec ExecFunc) (string, error) {
 	rows, err := exec(ResolveClusterQuery)
 	if err != nil {
-		return "", false
+		return "", err
 	}
 	if len(rows) == 0 {
-		return "", true
+		return "", nil
 	}
-	name, _ = rows[0]["cluster"].(string)
+	name, _ := rows[0]["cluster"].(string)
 	if IsValidClusterName(name) {
-		return name, true
+		return name, nil
 	}
-	return "", true
+	return "", nil
 }
 
 // pruneRetention deletes samples older than each connection's retention window.
