@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -122,14 +123,33 @@ func (h *ClusterHealthHandler) execWith(cs chSession, sql string, extra map[stri
 // connected node. Returns "" when the deployment is a single node (queries then
 // fall back to the local node).
 func (h *ClusterHealthHandler) resolveCluster(r *http.Request, cs chSession) string {
+	name, _ := h.resolveClusterErr(r, cs)
+	return name
+}
+
+// resolveClusterErr is resolveCluster with the lookup error kept: a user who
+// may not read system.clusters looks like a single node otherwise.
+func (h *ClusterHealthHandler) resolveClusterErr(r *http.Request, cs chSession) (string, error) {
 	if override := strings.TrimSpace(r.URL.Query().Get("cluster")); override != "" {
 		if clusterhealth.IsValidClusterName(override) {
-			return override
+			return override, nil
 		}
-		return "" // invalid override → degrade to single node rather than error
+		return "", nil // invalid override → degrade to single node rather than error
 	}
-	name, _ := clusterhealth.ResolveCluster(func(sql string) ([]map[string]interface{}, error) { return h.exec(cs, sql) })
-	return name
+	return clusterhealth.ResolveClusterErr(func(sql string) ([]map[string]interface{}, error) { return h.exec(cs, sql) })
+}
+
+// execFanOut runs build(cluster) and, when a fan-out fails, the same query on
+// the local node alone (degraded). The error left standing is the local one:
+// a fan-out can fail for reasons the local table does not share (a remote node
+// down, no REMOTE grant), and the access notice names the table.
+func (h *ClusterHealthHandler) execFanOut(cs chSession, cluster string, build func(cluster string) string) (rows []map[string]interface{}, degraded bool, err error) {
+	rows, err = h.exec(cs, build(cluster))
+	if err != nil && cluster != "" {
+		rows, err = h.exec(cs, build(""))
+		degraded = err == nil
+	}
+	return rows, degraded, err
 }
 
 // writeAccessDenied answers a drill-down whose system table the session's
@@ -157,14 +177,7 @@ func (h *ClusterHealthHandler) liveHandler(build func(cluster string) string, ta
 		}
 		cluster := h.resolveCluster(r, cs)
 
-		rows, err := h.exec(cs, build(cluster))
-		degraded := false
-		if err != nil && cluster != "" {
-			// Retry on the local node only (e.g. remote nodes deny access).
-			if rows2, err2 := h.exec(cs, build("")); err2 == nil {
-				rows, err, degraded = rows2, nil, true
-			}
-		}
+		rows, degraded, err := h.execFanOut(cs, cluster, build)
 		if err != nil && clusterhealth.IsAccessDenied(err.Error()) {
 			writeAccessDenied(w, cs, cluster, table)
 			return
@@ -201,13 +214,7 @@ func (h *ClusterHealthHandler) getLongQueries(w http.ResponseWriter, r *http.Req
 	threshold := h.thresholdFor(cs.connID)
 
 	build := func(c string) string { return clusterhealth.LongQueriesQuery(c, threshold) }
-	rows, err := h.exec(cs, build(cluster))
-	degraded := false
-	if err != nil && cluster != "" {
-		if rows2, err2 := h.exec(cs, build("")); err2 == nil {
-			rows, err, degraded = rows2, nil, true
-		}
-	}
+	rows, degraded, err := h.execFanOut(cs, cluster, build)
 	if err != nil && clusterhealth.IsAccessDenied(err.Error()) {
 		writeAccessDenied(w, cs, cluster, "system.processes")
 		return
@@ -233,7 +240,7 @@ func (h *ClusterHealthHandler) GetSummary(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	cluster := h.resolveCluster(r, cs)
+	cluster, clusterErr := h.resolveClusterErr(r, cs)
 	threshold := h.thresholdFor(cs.connID)
 
 	exec := clusterhealth.ExecFunc(func(sql string) ([]map[string]interface{}, error) { return h.exec(cs, sql) })
@@ -245,6 +252,15 @@ func (h *ClusterHealthHandler) GetSummary(w http.ResponseWriter, r *http.Request
 		errs = map[string]string{}
 	}
 
+	// A restricted user gets every table the page needs in one notice, not
+	// only the ones behind the headline metrics. Unrestricted users pay no
+	// extra queries.
+	denied := clusterhealth.DeniedTables(errs)
+	if len(denied) > 0 || (clusterErr != nil && clusterhealth.IsAccessDenied(clusterErr.Error())) {
+		denied = append(denied, clusterhealth.ProbeDenied(exec)...)
+		sort.Strings(denied)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"cluster":           cluster,
 		"is_cluster":        cluster != "",
@@ -254,9 +270,9 @@ func (h *ClusterHealthHandler) GetSummary(w http.ResponseWriter, r *http.Request
 		"parts_limits":      col.Limits,
 		"nodes":             col.Samples,
 		"errors":            errs,
-		// System tables the session's ClickHouse user may not read; their
-		// metrics are unknown until an admin grants SELECT on them.
-		"access_denied": clusterhealth.DeniedTables(errs),
+		// System tables the session's ClickHouse user may not read; what
+		// they feed is unknown until an admin grants SELECT on them.
+		"access_denied": denied,
 		"ch_user":       cs.user,
 	})
 }

@@ -152,6 +152,29 @@ func DeniedTables(errs map[string]string) []string {
 	return out
 }
 
+// probedTables are the system tables the page reads outside the summary
+// collection: the cluster lookup and the drill-downs with no headline metric.
+var probedTables = []string{
+	"system.backups",
+	"system.clusters",
+	"system.replication_queue",
+	"system.zookeeper_connection",
+}
+
+// ProbeDenied returns which of probedTables the user may not read, so one
+// notice can list every grant the page needs instead of each drill-down
+// asking for its own later. A table that does not exist on the deployment is
+// not a missing grant.
+func ProbeDenied(exec ExecFunc) []string {
+	out := []string{}
+	for _, table := range probedTables {
+		if _, err := exec("SELECT 1 FROM " + table + " LIMIT 0 FORMAT JSON"); err != nil && IsAccessDenied(err.Error()) {
+			out = append(out, table)
+		}
+	}
+	return out
+}
+
 // storedMetrics are the groups persisted in ch_health_samples.
 var storedMetrics = []string{MetricReplication, MetricMerges, MetricMutations, MetricParts, MetricLongQueries}
 

@@ -718,7 +718,7 @@
           {/if}
 
           {#if deniedTables.length > 0}
-            {@render grantNotice(deniedTables, summary.ch_user ?? '', 'Those metrics read Unknown, not healthy, until a ClickHouse admin grants read access.')}
+            {@render grantNotice(deniedTables, summary.ch_user ?? '', `What they feed reads Unknown, not healthy, until a ClickHouse admin grants read access.${deniedTables.includes('system.clusters') ? ' Without system.clusters only the connected node is checked.' : ''}`)}
           {/if}
 
           <!-- Headline tiles -->

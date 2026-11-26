@@ -41,6 +41,40 @@ func TestDeniedTablesFromCollection(t *testing.T) {
 	}
 }
 
+// The probe reports the tables the summary never reads: a denied one is a
+// missing grant, a table the deployment does not have is not.
+func TestProbeDenied(t *testing.T) {
+	exec := func(sql string) ([]map[string]interface{}, error) {
+		switch {
+		case strings.Contains(sql, "system.clusters"), strings.Contains(sql, "system.replication_queue"):
+			return nil, errors.New("ClickHouse error: Code: 497. DB::Exception: restricted: Not enough privileges. (ACCESS_DENIED)")
+		case strings.Contains(sql, "system.zookeeper_connection"):
+			return nil, errors.New("ClickHouse error: Code: 60. DB::Exception: Unknown table expression identifier 'system.zookeeper_connection'. (UNKNOWN_TABLE)")
+		}
+		return nil, nil
+	}
+	got := ProbeDenied(exec)
+	want := []string{"system.clusters", "system.replication_queue"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ProbeDenied = %v, want %v", got, want)
+	}
+}
+
+// A denied read of system.clusters must reach the caller as an error, not
+// as a single node.
+func TestResolveClusterErrKeepsDenial(t *testing.T) {
+	exec := func(string) ([]map[string]interface{}, error) {
+		return nil, errors.New("ClickHouse error: Code: 497. DB::Exception: restricted: Not enough privileges. (ACCESS_DENIED)")
+	}
+	name, err := ResolveClusterErr(exec)
+	if name != "" || err == nil || !IsAccessDenied(err.Error()) {
+		t.Fatalf("ResolveClusterErr = %q, %v; want an access denied error", name, err)
+	}
+	if _, ok := ResolveCluster(exec); ok {
+		t.Fatalf("ResolveCluster should report the failed lookup")
+	}
+}
+
 func TestDeniedTablesEmpty(t *testing.T) {
 	if got := DeniedTables(nil); got == nil || len(got) != 0 {
 		t.Fatalf("DeniedTables(nil) = %#v, want empty non-nil slice", got)
