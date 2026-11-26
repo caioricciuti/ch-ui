@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.34.0] - 2026-11-26
+
+Cluster Health now tells a ClickHouse user with limited grants exactly which system tables it cannot read, with the GRANT statements to fix it, and the WebSocket library behind the agent tunnel gets a security fix.
+
+### Upgrade notes
+
+- **Update both the server and your agents.** The WebSocket fix is compiled into each binary, and the affected code runs on the agent side of the tunnel, so an agent keeps the old code until it is replaced.
+
+### Security
+
+- gorilla/websocket pinned to the upstream fix for GO-2026-6278: the WebSocket mask key came from a weak random generator. Upstream has not tagged a release with the fix, so the build pins the fixing commit (#464).
+- go-jose 4.1.6, which fixes a denial of service when parsing JWKs that contain RSA keys; it sits under OIDC sign-in (#464).
+
+### Added
+
+- **Cluster Health names the missing grants.** When your ClickHouse user cannot read a system table the page needs, a notice lists every such table, including `system.clusters`, `system.replication_queue` and `system.backups`, with GRANT statements an admin can copy and run in one go. The affected metrics read Unknown instead of a healthy zero or "ClickHouse unreachable" (#460, #465).
+- Cluster Health: a user who cannot read `system.clusters` gets that notice instead of being shown as a single node (#465).
+
+### Fixed
+
+- Cluster Health: Keeper and Backups no longer report a missing grant as "not available on this deployment" (#460, #465).
+- Admin, MCP Server: Rotate and Revoke are visible on every key again; they were cut off at the table's edge (#458).
+- Tables that are wider than their frame scroll sideways instead of hiding their last columns (#458).
+
+### Changed
+
+- Dependencies: jsdom 31.0.1, azure/setup-helm 5.1.0 (#461, #462).
+- CI: the UI audit runs without the deepmerge ignore (#459).
+
 ## [2.33.1] - 2026-11-19
 
 Security patch. CH-UI is now built with Go 1.26.11, which fixes a vulnerability in Go's HTTP library, and updates the compression library behind gzip responses and the Kafka pipeline.
